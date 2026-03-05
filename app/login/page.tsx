@@ -19,7 +19,7 @@ export default function LoginPage() {
           </div>
           <h1 className="text-2xl font-semibold tracking-tight">OmniAds</h1>
           <p className="text-muted-foreground text-sm">
-            Sign in to your account to continue
+            Signin to your account to continue
           </p>
         </div>
 
