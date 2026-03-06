@@ -9,19 +9,27 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import {
-  IntegrationAdAccount,
-  IntegrationProvider,
-} from "@/store/integrations-store";
-import { getProviderLabel } from "@/components/integrations/oauth";
+import { IntegrationProvider } from "@/store/integrations-store";
+import { DataEmptyState } from "@/components/states/DataEmptyState";
+
+interface ProviderAccountRow {
+  id: string;
+  name: string;
+  currency?: string;
+  timezone?: string;
+}
 
 interface ProviderAssignmentDrawerProps {
   open: boolean;
   provider: IntegrationProvider | null;
-  accounts: IntegrationAdAccount[];
+  businessId: string;
   assignedAccountIds: string[];
   onClose: () => void;
-  onSave: (provider: IntegrationProvider, accountIds: string[]) => void;
+  onSave: (
+    provider: IntegrationProvider,
+    accountIds: string[],
+    accounts: ProviderAccountRow[]
+  ) => void;
 }
 
 function getTitle(provider: IntegrationProvider | null) {
@@ -32,28 +40,93 @@ function getTitle(provider: IntegrationProvider | null) {
   if (provider === "google") return "Assign Google Ads customer accounts to this business";
   if (provider === "ga4") return "Assign GA4 properties to this business";
   if (provider === "shopify") return "Assign Shopify stores to this business";
-  return `Assign ${getProviderLabel(provider)} accounts to this business`;
+  return `Assign ${provider} accounts to this business`;
+}
+
+function getFetchPath(provider: IntegrationProvider, businessId: string) {
+  if (provider === "meta") {
+    return `/integrations/meta/ad-accounts?businessId=${encodeURIComponent(businessId)}`;
+  }
+  if (provider === "google") {
+    return `/integrations/google/customer-accounts?businessId=${encodeURIComponent(businessId)}`;
+  }
+  if (provider === "ga4") {
+    return `/integrations/ga4/properties?businessId=${encodeURIComponent(businessId)}`;
+  }
+  if (provider === "shopify") {
+    return `/integrations/shopify/stores?businessId=${encodeURIComponent(businessId)}`;
+  }
+  return `/integrations/${provider}/accounts?businessId=${encodeURIComponent(businessId)}`;
+}
+
+function getSavePath(provider: IntegrationProvider, businessId: string) {
+  if (provider === "meta") {
+    return `/businesses/${encodeURIComponent(businessId)}/meta/assign-accounts`;
+  }
+  return `/businesses/${encodeURIComponent(businessId)}/${provider}/assign-accounts`;
 }
 
 export function ProviderAssignmentDrawer({
   open,
   provider,
-  accounts,
+  businessId,
   assignedAccountIds,
   onClose,
   onSave,
 }: ProviderAssignmentDrawerProps) {
   const [draftIds, setDraftIds] = useState<string[]>([]);
+  const [accounts, setAccounts] = useState<ProviderAccountRow[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    if (!open) return;
-    setDraftIds(assignedAccountIds);
-  }, [open, assignedAccountIds]);
+    if (!open || !provider) return;
+
+    let isCancelled = false;
+
+    async function fetchAccounts() {
+      setIsLoading(true);
+      setDraftIds(assignedAccountIds);
+      try {
+        const response = await fetch(getFetchPath(provider, businessId), {
+          method: "GET",
+          headers: { Accept: "application/json" },
+        });
+
+        if (!response.ok) {
+          if (!isCancelled) setAccounts([]);
+          return;
+        }
+
+        const payload = await response.json();
+        const list = Array.isArray(payload) ? payload : payload?.accounts;
+
+        if (!isCancelled) {
+          setAccounts(Array.isArray(list) ? list : []);
+        }
+      } catch {
+        if (!isCancelled) {
+          setAccounts([]);
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    fetchAccounts();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [open, provider, businessId, assignedAccountIds]);
 
   const normalizedAccounts = useMemo(
     () =>
       accounts.map((account) => ({
-        ...account,
+        id: account.id,
+        name: account.name,
         externalId: account.id,
       })),
     [accounts]
@@ -67,10 +140,29 @@ export function ProviderAssignmentDrawer({
     );
   }
 
-  function handleSave() {
+  async function handleSave() {
     if (!provider) return;
-    onSave(provider, draftIds);
-    onClose();
+
+    setIsSaving(true);
+    try {
+      const response = await fetch(getSavePath(provider, businessId), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({ account_ids: draftIds }),
+      });
+
+      if (!response.ok) {
+        return;
+      }
+
+      onSave(provider, draftIds, accounts);
+      onClose();
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   return (
@@ -84,41 +176,52 @@ export function ProviderAssignmentDrawer({
         </SheetHeader>
 
         <div className="mt-6 space-y-3">
-          {normalizedAccounts.length === 0 ? (
+          {isLoading ? (
             <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-              No accounts found yet for this provider.
+              Loading ad accounts...
             </div>
-          ) : (
-            normalizedAccounts.map((account) => {
-              const checked = draftIds.includes(account.id);
-              return (
-                <label
-                  key={account.id}
-                  className="flex items-start justify-between gap-4 rounded-lg border bg-background px-4 py-3"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{account.name}</p>
-                    <p className="mt-1 truncate text-xs text-muted-foreground">
-                      Account ID: {account.externalId}
-                    </p>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={() => toggleAccount(account.id)}
-                    className="mt-0.5"
-                  />
-                </label>
-              );
-            })
-          )}
+          ) : null}
+
+          {!isLoading && normalizedAccounts.length === 0 ? (
+            <DataEmptyState
+              title="No ad accounts found"
+              description="We could not find any Meta ad accounts accessible with your login."
+            />
+          ) : null}
+
+          {!isLoading
+            ? normalizedAccounts.map((account) => {
+                const checked = draftIds.includes(account.id);
+                return (
+                  <label
+                    key={account.id}
+                    className="flex items-start justify-between gap-4 rounded-lg border bg-background px-4 py-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{account.name}</p>
+                      <p className="mt-1 truncate text-xs text-muted-foreground">
+                        {account.externalId}
+                      </p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleAccount(account.id)}
+                      className="mt-0.5"
+                    />
+                  </label>
+                );
+              })
+            : null}
         </div>
 
         <div className="mt-6 flex items-center justify-end gap-2">
-          <Button variant="outline" onClick={onClose}>
+          <Button variant="outline" onClick={onClose} disabled={isSaving}>
             Cancel
           </Button>
-          <Button onClick={handleSave}>Save assignments</Button>
+          <Button onClick={handleSave} disabled={isSaving || isLoading || !provider}>
+            {isSaving ? "Saving..." : "Save assignments"}
+          </Button>
         </div>
       </SheetContent>
     </Sheet>

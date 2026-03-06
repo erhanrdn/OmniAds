@@ -40,6 +40,7 @@ export default function IntegrationsPage() {
   const setConnected = useIntegrationsStore((state) => state.setConnected);
   const disconnect = useIntegrationsStore((state) => state.disconnect);
   const setAssignedAccounts = useIntegrationsStore((state) => state.setAssignedAccounts);
+  const setProviderAccounts = useIntegrationsStore((state) => state.setProviderAccounts);
   const toast = useIntegrationsStore((state) => state.toast);
   const setToast = useIntegrationsStore((state) => state.setToast);
   const clearToast = useIntegrationsStore((state) => state.clearToast);
@@ -117,8 +118,6 @@ export default function IntegrationsPage() {
     setActiveProvider(provider);
   };
 
-  const activeAssignmentAccounts =
-    assignmentProvider ? integrations[assignmentProvider]?.accounts ?? [] : [];
   const assignedIdsForDrawer = assignmentProvider
     ? assignedAccountsByBusiness[businessId]?.[assignmentProvider] ?? []
     : [];
@@ -187,10 +186,15 @@ export default function IntegrationsPage() {
       <ProviderAssignmentDrawer
         open={Boolean(assignmentProvider)}
         provider={assignmentProvider}
-        accounts={activeAssignmentAccounts}
+        businessId={businessId}
         assignedAccountIds={assignedIdsForDrawer}
         onClose={() => setAssignmentProvider(null)}
-        onSave={(provider, accountIds) => {
+        onSave={(provider, accountIds, accounts) => {
+          setProviderAccounts(
+            businessId,
+            provider,
+            accounts.map((account) => ({ id: account.id, name: account.name }))
+          );
           setAssignedAccounts(businessId, provider, accountIds);
           setToast({
             type: "success",

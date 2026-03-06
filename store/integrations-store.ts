@@ -54,31 +54,13 @@ const PROVIDERS: IntegrationProvider[] = [
 ];
 
 const DEFAULT_ACCOUNTS: Record<IntegrationProvider, IntegrationAdAccount[]> = {
-  shopify: [
-    { id: "shopify-acct-1", name: "Main Store", enabled: false },
-    { id: "shopify-acct-2", name: "EU Store", enabled: false },
-  ],
-  meta: [
-    { id: "meta-acct-1", name: "Meta Ads - Main", enabled: false },
-    { id: "meta-acct-2", name: "Meta Ads - Prospecting", enabled: false },
-  ],
-  google: [
-    { id: "google-acct-1", name: "Google Ads - Search", enabled: false },
-    { id: "google-acct-2", name: "Google Ads - PMax", enabled: false },
-  ],
-  tiktok: [
-    { id: "tiktok-acct-1", name: "TikTok Ads - Global", enabled: false },
-    { id: "tiktok-acct-2", name: "TikTok Ads - DACH", enabled: false },
-  ],
-  pinterest: [
-    { id: "pinterest-acct-1", name: "Pinterest Ads - Main", enabled: false },
-    { id: "pinterest-acct-2", name: "Pinterest Ads - Seasonal", enabled: false },
-  ],
-  snapchat: [
-    { id: "snapchat-acct-1", name: "Snapchat Ads - Main", enabled: false },
-    { id: "snapchat-acct-2", name: "Snapchat Ads - Creator", enabled: false },
-  ],
-  ga4: [{ id: "ga4-property-1", name: "GA4 Demo Property", enabled: false }],
+  shopify: [],
+  meta: [],
+  google: [],
+  tiktok: [],
+  pinterest: [],
+  snapchat: [],
+  ga4: [],
 };
 
 const buildDefaultIntegrations = (): Record<IntegrationProvider, IntegrationState> =>
@@ -155,6 +137,11 @@ interface IntegrationsStore {
     businessId: string,
     provider: IntegrationProvider,
     accountIds: string[]
+  ) => void;
+  setProviderAccounts: (
+    businessId: string,
+    provider: IntegrationProvider,
+    accounts: Array<{ id: string; name: string }>
   ) => void;
   getAssignedAccounts: (businessId: string, provider: IntegrationProvider) => string[];
   hasAssignedAccounts: (businessId: string, provider: IntegrationProvider) => boolean;
@@ -307,6 +294,28 @@ export const useIntegrationsStore = create<IntegrationsStore>()(
             },
           },
         }));
+      },
+      setProviderAccounts: (businessId, provider, accounts) => {
+        get().ensureBusiness(businessId);
+        set((state) => {
+          const assignedIds = state.assignedAccountsByBusiness[businessId]?.[provider] ?? [];
+          return {
+            byBusinessId: {
+              ...state.byBusinessId,
+              [businessId]: {
+                ...state.byBusinessId[businessId],
+                [provider]: {
+                  ...state.byBusinessId[businessId][provider],
+                  accounts: accounts.map((account) => ({
+                    id: account.id,
+                    name: account.name,
+                    enabled: assignedIds.includes(account.id),
+                  })),
+                },
+              },
+            },
+          };
+        });
       },
       getAssignedAccounts: (businessId, provider) =>
         get().assignedAccountsByBusiness[businessId]?.[provider] ?? [],
