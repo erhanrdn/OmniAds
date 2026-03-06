@@ -14,6 +14,7 @@ import { TableControlsBar, TableViewState } from "@/components/creatives/TableCo
 import { CreativesTopGrid } from "@/components/creatives/CreativesTopGrid";
 import { CreativesMotionTable } from "@/components/creatives/CreativesMotionTable";
 import { CreativeInsightsDrawer } from "@/components/creatives/CreativeInsightsDrawer";
+import { ShareCreativesModal } from "@/components/creatives/ShareCreativesModal";
 
 const META_ROWS: MetaCreativeRow[] = [
   {
@@ -210,6 +211,7 @@ export default function CreativesPage() {
   const [highlightedRowId, setHighlightedRowId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [notesByRowId, setNotesByRowId] = useState<Record<string, string>>({});
+  const [shareModalOpen, setShareModalOpen] = useState(false);
 
   const filteredRows = useMemo(() => {
     if (creativeFilters.platform !== "meta") return [];
@@ -324,7 +326,12 @@ export default function CreativesPage() {
             onOpenRow={(rowId) => openDrawer(rowId, true)}
           />
 
-          <TableControlsBar value={tableViewState} onChange={setTableViewState} />
+          <TableControlsBar
+            value={tableViewState}
+            onChange={setTableViewState}
+            selectedCount={selectionState.selectedRowIds.length}
+            onShareSelected={() => setShareModalOpen(true)}
+          />
 
           <CreativesMotionTable
             rows={filteredRows}
@@ -338,6 +345,13 @@ export default function CreativesPage() {
             onOpenRow={(rowId) => openDrawer(rowId)}
           />
         </>
+      )}
+
+      {shareModalOpen && (
+        <ShareCreativesModal
+          selectedCount={selectionState.selectedRowIds.length}
+          onClose={() => setShareModalOpen(false)}
+        />
       )}
 
       <CreativeInsightsDrawer
