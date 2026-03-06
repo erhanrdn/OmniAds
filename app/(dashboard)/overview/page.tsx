@@ -5,19 +5,22 @@ import { useQuery } from "@tanstack/react-query";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { useAppStore } from "@/store/app-store";
 import { getOverview } from "@/src/services";
-import { LoadingSkeleton } from "@/components/states/loading-skeleton";
 import { ErrorState } from "@/components/states/error-state";
 import { Badge } from "@/components/ui/badge";
 import { OverviewKpiGrid } from "@/components/overview/OverviewKpiGrid";
-import { OverviewTrendPanel, TrendMetric, TrendWindow } from "@/components/overview/OverviewTrendPanel";
+import {
+  OverviewTrendPanel,
+  TrendMetric,
+  TrendWindow,
+} from "@/components/overview/OverviewTrendPanel";
 import { PlatformEfficiencyTable } from "@/components/overview/PlatformEfficiencyTable";
-import { OpportunitiesPanel } from "@/components/overview/OpportunitiesPanel";
-import { OpportunityDrawer } from "@/components/overview/OpportunityDrawer";
-import { buildOverviewOpportunities, OpportunityItem } from "@/lib/overviewInsights";
 import { useIntegrationsStore } from "@/store/integrations-store";
+import { DataEmptyState } from "@/components/states/DataEmptyState";
+import { LockedFeatureCard } from "@/components/states/LockedFeatureCard";
 
-type AttributionModel = "platform" | "blended" | "ga4";
 type CurrencyCode = "USD" | "EUR" | "GBP";
+
+type OverviewKpiKey = "spend" | "revenue" | "roas" | "purchases" | "cpa" | "aov";
 
 export default function OverviewPage() {
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
@@ -26,13 +29,8 @@ export default function OverviewPage() {
   const [dateRangePreset, setDateRangePreset] = useState<TrendWindow>("30d");
   const [customStartDate, setCustomStartDate] = useState("2026-02-20");
   const [customEndDate, setCustomEndDate] = useState("2026-03-05");
-  const [attributionModel, setAttributionModel] = useState<AttributionModel>("platform");
   const [currency, setCurrency] = useState<CurrencyCode>("USD");
-
   const [trendMetric, setTrendMetric] = useState<TrendMetric>("revenue");
-  const [trendByPlatform, setTrendByPlatform] = useState(false);
-
-  const [activeOpportunity, setActiveOpportunity] = useState<OpportunityItem | null>(null);
 
   const ensureBusiness = useIntegrationsStore((state) => state.ensureBusiness);
   const byBusinessId = useIntegrationsStore((state) => state.byBusinessId);
@@ -59,62 +57,55 @@ export default function OverviewPage() {
   }, [customEndDate, customStartDate, dateRangePreset]);
 
   const query = useQuery({
-    queryKey: ["overview", businessId, dateRange, attributionModel],
+    queryKey: ["overview", businessId, dateRange],
     enabled: Boolean(selectedBusinessId),
     queryFn: () => getOverview(businessId, dateRange),
   });
 
   if (!selectedBusinessId) return <BusinessEmptyState />;
 
-  if (query.isLoading) {
-    return <LoadingSkeleton rows={5} />;
-  }
-
   if (query.isError) {
     return <ErrorState onRetry={() => query.refetch()} />;
   }
-
-  if (!query.data) return null;
 
   const integrations = byBusinessId[businessId];
   const ga4Connected = integrations?.ga4?.status === "connected";
   const shopifyConnected = integrations?.shopify?.status === "connected";
   const adPlatformConnected =
     integrations?.meta?.status === "connected" ||
-    integrations?.google?.status === "connected";
+    integrations?.google?.status === "connected" ||
+    integrations?.tiktok?.status === "connected" ||
+    integrations?.pinterest?.status === "connected" ||
+    integrations?.snapchat?.status === "connected";
 
-  const kpiUnavailable = {
-    ...(!adPlatformConnected && {
-      spend: "Meta or Google",
-      roas: "Meta or Google",
-      cpa: "Meta or Google",
-    }),
-    ...(!shopifyConnected && {
-      revenue: "Shopify",
-      purchases: "Shopify",
-      aov: "Shopify",
-    }),
-  };
-
-  const adjustedData = applyAttributionModel(query.data, attributionModel);
-  const trendDataByWindow = {
-    "7d": adjustedData.trends["7d"],
-    "14d": adjustedData.trends["7d"],
-    "30d": adjustedData.trends["30d"],
-    custom: adjustedData.trends.custom,
-  };
-
-  const opportunities = buildOverviewOpportunities({
-    data: adjustedData,
-    ga4Connected,
+  const kpis = query.data?.kpis;
+  const kpiUnavailableReasons = resolveKpiUnavailableReasons({
+    kpis,
+    adPlatformConnected,
+    shopifyConnected,
   });
+
+  const trendSource = query.data?.trends as
+    | Partial<Record<"7d" | "14d" | "30d" | "custom", Array<{
+        label: string;
+        spend: number;
+        revenue: number;
+        purchases: number;
+      }>>>
+    | undefined;
+  const trendDataByWindow = {
+    "7d": trendSource?.["7d"] ?? [],
+    "14d": trendSource?.["14d"] ?? [],
+    "30d": trendSource?.["30d"] ?? [],
+    custom: trendSource?.custom ?? [],
+  };
 
   return (
     <div className="space-y-6">
       <header className="space-y-2">
         <h1 className="text-3xl font-semibold tracking-tight">Overview</h1>
         <p className="text-sm text-muted-foreground">
-          Unified performance snapshot: what happened, why, and what to do next.
+          Unified performance snapshot from synced backend data.
         </p>
       </header>
 
@@ -129,16 +120,6 @@ export default function OverviewPage() {
               { label: "14d", value: "14d" },
               { label: "30d", value: "30d" },
               { label: "Custom", value: "custom" },
-            ]}
-          />
-          <ControlSelect
-            label="Attribution model"
-            value={attributionModel}
-            onChange={(value) => setAttributionModel(value as AttributionModel)}
-            options={[
-              { label: "Platform reported", value: "platform" },
-              { label: "Blended (Shopify)", value: "blended" },
-              { label: "GA4", value: "ga4" },
             ]}
           />
           <ControlSelect
@@ -172,7 +153,12 @@ export default function OverviewPage() {
 
       <DataStatusRow businessId={businessId} />
 
-      <OverviewKpiGrid kpis={adjustedData.kpis} currencySymbol={currencySymbol(currency)} unavailableReasons={kpiUnavailable} />
+      <OverviewKpiGrid
+        kpis={kpis}
+        isLoading={query.isLoading}
+        currencySymbol={currencySymbol(currency)}
+        unavailableReasons={kpiUnavailableReasons}
+      />
 
       <OverviewTrendPanel
         dataByWindow={trendDataByWindow}
@@ -180,30 +166,77 @@ export default function OverviewPage() {
         onWindowChange={setDateRangePreset}
         selectedMetric={trendMetric}
         onMetricChange={setTrendMetric}
-        byPlatform={trendByPlatform}
-        onByPlatformChange={setTrendByPlatform}
         currencySymbol={currencySymbol(currency)}
+        isLoading={query.isLoading}
       />
 
       <PlatformEfficiencyTable
-        rows={adjustedData.platformEfficiency}
+        rows={query.data?.platformEfficiency ?? []}
         currencySymbol={currencySymbol(currency)}
+        isLoading={query.isLoading}
       />
 
-      <OpportunitiesPanel
-        items={opportunities}
-        onOpenDetails={(item) => setActiveOpportunity(item)}
-      />
+      <section className="rounded-2xl border bg-card p-5 shadow-sm">
+        <div className="mb-4">
+          <h2 className="text-lg font-semibold tracking-tight">Opportunities</h2>
+          <p className="text-sm text-muted-foreground">
+            Recommendations will appear once enough synced backend performance data is available.
+          </p>
+        </div>
 
-      <OpportunityDrawer
-        open={Boolean(activeOpportunity)}
-        item={activeOpportunity}
-        onOpenChange={(open) => {
-          if (!open) setActiveOpportunity(null);
-        }}
-      />
+        {!ga4Connected ? (
+          <LockedFeatureCard
+            providerLabel="GA4"
+            description="Connect GA4 to unlock behavior-based opportunities. No recommendations are generated until synced data is sufficient."
+          />
+        ) : (
+          <DataEmptyState
+            title="Opportunities will appear here"
+            description="Once enough synced performance data is available, OmniAds will surface actionable recommendations."
+          />
+        )}
+      </section>
     </div>
   );
+}
+
+function resolveKpiUnavailableReasons({
+  kpis,
+  adPlatformConnected,
+  shopifyConnected,
+}: {
+  kpis: Partial<Record<OverviewKpiKey, number>> | undefined;
+  adPlatformConnected: boolean;
+  shopifyConnected: boolean;
+}): Partial<Record<OverviewKpiKey, string>> {
+  const reasons: Partial<Record<OverviewKpiKey, string>> = {};
+
+  const adMetrics: OverviewKpiKey[] = ["spend", "roas", "cpa"];
+  const commerceMetrics: OverviewKpiKey[] = ["revenue", "purchases", "aov"];
+
+  for (const metric of adMetrics) {
+    const value = kpis?.[metric];
+    if (!adPlatformConnected) {
+      reasons[metric] = "Requires connected ad platforms";
+      continue;
+    }
+    if (typeof value !== "number" || Number.isNaN(value)) {
+      reasons[metric] = "Waiting for synced data";
+    }
+  }
+
+  for (const metric of commerceMetrics) {
+    const value = kpis?.[metric];
+    if (!shopifyConnected) {
+      reasons[metric] = "Requires Shopify";
+      continue;
+    }
+    if (typeof value !== "number" || Number.isNaN(value)) {
+      reasons[metric] = "Waiting for synced data";
+    }
+  }
+
+  return reasons;
 }
 
 function DataStatusRow({ businessId }: { businessId: string }) {
@@ -229,7 +262,10 @@ function DataStatusRow({ businessId }: { businessId: string }) {
           const state = integrations[item.provider];
           const connected = state?.status === "connected";
           return (
-            <div key={item.provider} className="inline-flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs">
+            <div
+              key={item.provider}
+              className="inline-flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs"
+            >
               <span className="font-medium">{item.label}</span>
               <Badge variant={connected ? "default" : "secondary"}>
                 {connected ? "connected" : "not connected"}
@@ -261,7 +297,11 @@ function ControlSelect({
   return (
     <label className="inline-flex items-center gap-2 rounded-md border bg-background px-2.5 py-1.5 text-xs">
       <span className="text-muted-foreground">{label}</span>
-      <select value={value} onChange={(event) => onChange(event.target.value)} className="bg-transparent text-sm outline-none">
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="bg-transparent text-sm outline-none"
+      >
         {options.map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}
@@ -270,71 +310,6 @@ function ControlSelect({
       </select>
     </label>
   );
-}
-
-function applyAttributionModel(
-  data: Awaited<ReturnType<typeof getOverview>>,
-  model: AttributionModel
-) {
-  if (model === "platform") return data;
-
-  const factors =
-    model === "blended"
-      ? { revenue: 0.96, purchases: 0.95, spend: 1 }
-      : { revenue: 0.9, purchases: 0.92, spend: 1 };
-
-  const kpiRevenue = Number((data.kpis.revenue * factors.revenue).toFixed(2));
-  const kpiPurchases = Math.max(1, Math.round(data.kpis.purchases * factors.purchases));
-  const kpiSpend = Number((data.kpis.spend * factors.spend).toFixed(2));
-
-  const kpiRoas = Number((kpiRevenue / Math.max(kpiSpend, 1)).toFixed(2));
-  const kpiCpa = Number((kpiSpend / Math.max(kpiPurchases, 1)).toFixed(2));
-  const kpiAov = Number((kpiRevenue / Math.max(kpiPurchases, 1)).toFixed(2));
-
-  return {
-    ...data,
-    kpis: {
-      spend: kpiSpend,
-      revenue: kpiRevenue,
-      roas: kpiRoas,
-      purchases: kpiPurchases,
-      cpa: kpiCpa,
-      aov: kpiAov,
-    },
-    platformEfficiency: data.platformEfficiency.map((row) => {
-      const spend = Number((row.spend * factors.spend).toFixed(2));
-      const revenue = Number((row.revenue * factors.revenue).toFixed(2));
-      const purchases = Math.max(1, Math.round(row.purchases * factors.purchases));
-      return {
-        ...row,
-        spend,
-        revenue,
-        purchases,
-        roas: Number((revenue / Math.max(spend, 1)).toFixed(2)),
-        cpa: Number((spend / Math.max(purchases, 1)).toFixed(2)),
-      };
-    }),
-    trends: {
-      "7d": data.trends["7d"].map((point) => ({
-        ...point,
-        spend: Number((point.spend * factors.spend).toFixed(2)),
-        revenue: Number((point.revenue * factors.revenue).toFixed(2)),
-        purchases: Math.round(point.purchases * factors.purchases),
-      })),
-      "30d": data.trends["30d"].map((point) => ({
-        ...point,
-        spend: Number((point.spend * factors.spend).toFixed(2)),
-        revenue: Number((point.revenue * factors.revenue).toFixed(2)),
-        purchases: Math.round(point.purchases * factors.purchases),
-      })),
-      custom: data.trends.custom.map((point) => ({
-        ...point,
-        spend: Number((point.spend * factors.spend).toFixed(2)),
-        revenue: Number((point.revenue * factors.revenue).toFixed(2)),
-        purchases: Math.round(point.purchases * factors.purchases),
-      })),
-    },
-  };
 }
 
 function toISODate(date: Date) {

@@ -14,45 +14,6 @@ import {
 
 const MOCK_DELAY_MS = 250;
 
-const ALL_METRICS: MetricsRow = {
-  impressions: 125400,
-  clicks: 8432,
-  purchases: 642,
-  spend: 15420,
-  conversions: 642,
-  revenue: 46800,
-  ctr: 6.72,
-  cpm: 122.97,
-  cpc: 1.83,
-  cpa: 24.02,
-  roas: 3.03,
-};
-
-const TREND_7D = [
-  { label: "D1", spend: 480, revenue: 1320, purchases: 25 },
-  { label: "D2", spend: 520, revenue: 1490, purchases: 29 },
-  { label: "D3", spend: 505, revenue: 1410, purchases: 27 },
-  { label: "D4", spend: 560, revenue: 1620, purchases: 31 },
-  { label: "D5", spend: 590, revenue: 1710, purchases: 33 },
-  { label: "D6", spend: 570, revenue: 1680, purchases: 32 },
-  { label: "D7", spend: 640, revenue: 1890, purchases: 36 },
-];
-
-const TREND_30D = [
-  { label: "W1", spend: 3400, revenue: 10200, purchases: 178 },
-  { label: "W2", spend: 3620, revenue: 10940, purchases: 191 },
-  { label: "W3", spend: 3890, revenue: 11710, purchases: 206 },
-  { label: "W4", spend: 4510, revenue: 13950, purchases: 237 },
-];
-
-const TREND_CUSTOM = [
-  { label: "C1", spend: 1450, revenue: 4380, purchases: 72 },
-  { label: "C2", spend: 1610, revenue: 4820, purchases: 80 },
-  { label: "C3", spend: 1520, revenue: 4470, purchases: 74 },
-  { label: "C4", spend: 1690, revenue: 5030, purchases: 83 },
-  { label: "C5", spend: 1770, revenue: 5310, purchases: 88 },
-];
-
 const makeMetrics = (input: {
   impressions: number;
   clicks: number;
@@ -999,80 +960,33 @@ export async function getOverview(
   businessId: string,
   dateRange: DateRange
 ): Promise<OverviewData> {
-  await wait(MOCK_DELAY_MS);
+  const url = new URL(
+    process.env.NEXT_PUBLIC_OVERVIEW_API_URL || "/api/overview",
+    typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"
+  );
+  url.searchParams.set("businessId", businessId);
+  url.searchParams.set("startDate", dateRange.startDate);
+  url.searchParams.set("endDate", dateRange.endDate);
 
-  const purchases = 642;
-  const aov = Number((ALL_METRICS.revenue / purchases).toFixed(2));
-  const cpa = Number((ALL_METRICS.spend / purchases).toFixed(2));
-  const roas = Number((ALL_METRICS.revenue / ALL_METRICS.spend).toFixed(2));
+  const response = await fetch(url.toString(), {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+    },
+  });
 
-  return {
-    businessId,
-    dateRange,
-    totals: ALL_METRICS,
-    kpis: {
-      spend: ALL_METRICS.spend,
-      revenue: ALL_METRICS.revenue,
-      roas,
-      purchases,
-      cpa,
-      aov,
-    },
-    platformEfficiency: [
-      {
-        platform: Platform.META,
-        spend: 3450,
-        revenue: 12600,
-        roas: 3.65,
-        purchases: 178,
-        cpa: 19.38,
-      },
-      {
-        platform: Platform.GOOGLE,
-        spend: 5890,
-        revenue: 17800,
-        roas: 3.02,
-        purchases: 265,
-        cpa: 22.23,
-      },
-      {
-        platform: Platform.TIKTOK,
-        spend: 2480,
-        revenue: 6940,
-        roas: 2.8,
-        purchases: 105,
-        cpa: 23.62,
-      },
-      {
-        platform: Platform.PINTEREST,
-        spend: 1120,
-        revenue: 3020,
-        roas: 2.69,
-        purchases: 51,
-        cpa: 21.96,
-      },
-      {
-        platform: Platform.SNAPCHAT,
-        spend: 910,
-        revenue: 2440,
-        roas: 2.68,
-        purchases: 43,
-        cpa: 21.16,
-      },
-    ],
-    trends: {
-      "7d": TREND_7D,
-      "30d": TREND_30D,
-      custom: TREND_CUSTOM,
-    },
-    platformBreakdown: [
-      { platform: Platform.META, spend: 3450, revenue: 12600, roas: 3.65 },
-      { platform: Platform.GOOGLE, spend: 5890, revenue: 17800, roas: 3.02 },
-      { platform: Platform.TIKTOK, spend: 2480, revenue: 6940, roas: 2.8 },
-      { platform: Platform.PINTEREST, spend: 1120, revenue: 3020, roas: 2.69 },
-      { platform: Platform.SNAPCHAT, spend: 910, revenue: 2440, roas: 2.68 },
-    ],
-  };
+  if (!response.ok) {
+    throw new Error(`Overview API request failed with status ${response.status}`);
+  }
+
+  const payload = await response.json();
+  const data = payload?.overview ?? payload;
+
+  if (!data || typeof data !== "object") {
+    throw new Error("Overview API returned an invalid payload.");
+  }
+
+  return data as OverviewData;
 }
 
 export async function getPlatformTable(

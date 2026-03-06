@@ -1,6 +1,8 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import { DataEmptyState } from "@/components/states/DataEmptyState";
+import { LoadingSkeleton } from "@/components/states/loading-skeleton";
 
 export type TrendMetric = "revenue" | "spend" | "roas" | "purchases";
 export type TrendWindow = "7d" | "14d" | "30d" | "custom";
@@ -23,20 +25,11 @@ interface OverviewTrendPanelProps {
   onWindowChange: (window: TrendWindow) => void;
   selectedMetric: TrendMetric;
   onMetricChange: (metric: TrendMetric) => void;
-  byPlatform: boolean;
-  onByPlatformChange: (enabled: boolean) => void;
   currencySymbol: string;
+  isLoading?: boolean;
 }
 
 const WINDOW_OPTIONS: TrendWindow[] = ["7d", "14d", "30d", "custom"];
-
-const PLATFORM_COLORS: Record<string, string> = {
-  meta: "#2563eb",
-  google: "#16a34a",
-  tiktok: "#7c3aed",
-  pinterest: "#db2777",
-  snapchat: "#ea580c",
-};
 
 export function OverviewTrendPanel({
   dataByWindow,
@@ -44,22 +37,19 @@ export function OverviewTrendPanel({
   onWindowChange,
   selectedMetric,
   onMetricChange,
-  byPlatform,
-  onByPlatformChange,
   currencySymbol,
+  isLoading = false,
 }: OverviewTrendPanelProps) {
   const baseSeries = dataByWindow[selectedWindow];
 
-  const series = byPlatform
-    ? buildPlatformSeries(baseSeries, selectedMetric)
-    : [
-        {
-          key: selectedMetric,
-          label: metricLabel(selectedMetric),
-          color: "#0f172a",
-          points: baseSeries.map((point) => getMetricValue(point, selectedMetric)),
-        },
-      ];
+  const series = [
+    {
+      key: selectedMetric,
+      label: metricLabel(selectedMetric),
+      color: "#0f172a",
+      points: baseSeries.map((point) => getMetricValue(point, selectedMetric)),
+    },
+  ];
 
   const maxValue = Math.max(
     1,
@@ -86,14 +76,6 @@ export function OverviewTrendPanel({
             <option value="roas">ROAS</option>
             <option value="purchases">Purchases</option>
           </select>
-          <label className="flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 text-xs font-medium">
-            <input
-              type="checkbox"
-              checked={byPlatform}
-              onChange={(event) => onByPlatformChange(event.target.checked)}
-            />
-            By platform
-          </label>
         </div>
       </div>
 
@@ -115,22 +97,28 @@ export function OverviewTrendPanel({
         ))}
       </div>
 
-      {selectedWindow === "custom" && (
-        <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:max-w-md">
-          <input type="date" className="rounded-md border bg-background px-3 py-2 text-sm" readOnly value="2026-02-20" />
-          <input type="date" className="rounded-md border bg-background px-3 py-2 text-sm" readOnly value="2026-03-05" />
-        </div>
-      )}
+      {isLoading ? <LoadingSkeleton rows={1} /> : null}
 
-      <div className="mt-4 rounded-xl border bg-background p-4">
-        <SimpleLineChart
-          labels={baseSeries.map((item) => item.label)}
-          maxValue={maxValue}
-          lines={series}
-          selectedMetric={selectedMetric}
-          currencySymbol={currencySymbol}
-        />
-      </div>
+      {!isLoading && baseSeries.length === 0 ? (
+        <div className="mt-4">
+          <DataEmptyState
+            title="No trend data yet"
+            description="Trend visualization will appear after performance data sync completes."
+          />
+        </div>
+      ) : null}
+
+      {!isLoading && baseSeries.length > 0 ? (
+        <div className="mt-4 rounded-xl border bg-background p-4">
+          <SimpleLineChart
+            labels={baseSeries.map((item) => item.label)}
+            maxValue={maxValue}
+            lines={series}
+            selectedMetric={selectedMetric}
+            currencySymbol={currencySymbol}
+          />
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -223,30 +211,6 @@ function getMetricValue(point: TrendPoint, metric: TrendMetric) {
   return { label: point.label, value: Number(roas.toFixed(2)) };
 }
 
-function buildPlatformSeries(baseSeries: TrendPoint[], metric: TrendMetric) {
-  const weights: Record<string, number> = {
-    meta: 0.31,
-    google: 0.36,
-    tiktok: 0.15,
-    pinterest: 0.1,
-    snapchat: 0.08,
-  };
-
-  return Object.entries(weights).map(([platform, weight], index) => ({
-    key: platform,
-    label: capitalize(platform),
-    color: PLATFORM_COLORS[platform],
-    points: baseSeries.map((point, pointIndex) => {
-      const base = getMetricValue(point, metric).value;
-      const wave = 1 + ((pointIndex + index) % 3) * 0.04;
-      return {
-        label: point.label,
-        value: Number((base * weight * wave).toFixed(2)),
-      };
-    }),
-  }));
-}
-
 function metricLabel(metric: TrendMetric) {
   if (metric === "revenue") return "Revenue";
   if (metric === "spend") return "Spend";
@@ -262,8 +226,4 @@ function formatMetric(value: number, metric: TrendMetric, currencySymbol: string
     return Math.round(value).toLocaleString();
   }
   return value.toFixed(2);
-}
-
-function capitalize(value: string) {
-  return value.charAt(0).toUpperCase() + value.slice(1);
 }

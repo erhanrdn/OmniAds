@@ -33,6 +33,11 @@ export interface IntegrationState {
   accounts: IntegrationAdAccount[];
 }
 
+export type AssignedAccountsByBusiness = Record<
+  string,
+  Partial<Record<IntegrationProvider, string[]>>
+>;
+
 export interface IntegrationToast {
   type: "success" | "error";
   message: string;
@@ -50,30 +55,30 @@ const PROVIDERS: IntegrationProvider[] = [
 
 const DEFAULT_ACCOUNTS: Record<IntegrationProvider, IntegrationAdAccount[]> = {
   shopify: [
-    { id: "shopify-acct-1", name: "Main Store", enabled: true },
+    { id: "shopify-acct-1", name: "Main Store", enabled: false },
     { id: "shopify-acct-2", name: "EU Store", enabled: false },
   ],
   meta: [
-    { id: "meta-acct-1", name: "Meta Ads - Main", enabled: true },
-    { id: "meta-acct-2", name: "Meta Ads - Prospecting", enabled: true },
+    { id: "meta-acct-1", name: "Meta Ads - Main", enabled: false },
+    { id: "meta-acct-2", name: "Meta Ads - Prospecting", enabled: false },
   ],
   google: [
-    { id: "google-acct-1", name: "Google Ads - Search", enabled: true },
-    { id: "google-acct-2", name: "Google Ads - PMax", enabled: true },
+    { id: "google-acct-1", name: "Google Ads - Search", enabled: false },
+    { id: "google-acct-2", name: "Google Ads - PMax", enabled: false },
   ],
   tiktok: [
-    { id: "tiktok-acct-1", name: "TikTok Ads - Global", enabled: true },
+    { id: "tiktok-acct-1", name: "TikTok Ads - Global", enabled: false },
     { id: "tiktok-acct-2", name: "TikTok Ads - DACH", enabled: false },
   ],
   pinterest: [
-    { id: "pinterest-acct-1", name: "Pinterest Ads - Main", enabled: true },
+    { id: "pinterest-acct-1", name: "Pinterest Ads - Main", enabled: false },
     { id: "pinterest-acct-2", name: "Pinterest Ads - Seasonal", enabled: false },
   ],
   snapchat: [
-    { id: "snapchat-acct-1", name: "Snapchat Ads - Main", enabled: true },
+    { id: "snapchat-acct-1", name: "Snapchat Ads - Main", enabled: false },
     { id: "snapchat-acct-2", name: "Snapchat Ads - Creator", enabled: false },
   ],
-  ga4: [{ id: "ga4-property-1", name: "GA4 Demo Property", enabled: true }],
+  ga4: [{ id: "ga4-property-1", name: "GA4 Demo Property", enabled: false }],
 };
 
 const buildDefaultIntegrations = (): Record<IntegrationProvider, IntegrationState> =>
@@ -109,8 +114,28 @@ const normalizeBusinessIntegrations = (
   }, {} as Record<IntegrationProvider, IntegrationState>);
 };
 
+const normalizeAssignedAccounts = (
+  businessId: string,
+  assignedAccountsByBusiness: AssignedAccountsByBusiness,
+  byBusinessId: Record<string, Record<IntegrationProvider, IntegrationState>>
+): Partial<Record<IntegrationProvider, string[]>> => {
+  const existing = assignedAccountsByBusiness[businessId];
+  if (existing) return existing;
+
+  const integrations = byBusinessId[businessId];
+  if (!integrations) return {};
+
+  return PROVIDERS.reduce<Partial<Record<IntegrationProvider, string[]>>>((acc, provider) => {
+    acc[provider] = (integrations[provider]?.accounts ?? [])
+      .filter((account) => account.enabled)
+      .map((account) => account.id);
+    return acc;
+  }, {});
+};
+
 interface IntegrationsStore {
   byBusinessId: Record<string, Record<IntegrationProvider, IntegrationState>>;
+  assignedAccountsByBusiness: AssignedAccountsByBusiness;
   toast: IntegrationToast | null;
   ensureBusiness: (businessId: string) => void;
   startConnecting: (businessId: string, provider: IntegrationProvider) => void;
@@ -126,11 +151,13 @@ interface IntegrationsStore {
   ) => void;
   setTimedOut: (businessId: string, provider: IntegrationProvider) => void;
   disconnect: (businessId: string, provider: IntegrationProvider) => void;
-  toggleAccount: (
+  setAssignedAccounts: (
     businessId: string,
     provider: IntegrationProvider,
-    accountId: string
+    accountIds: string[]
   ) => void;
+  getAssignedAccounts: (businessId: string, provider: IntegrationProvider) => string[];
+  hasAssignedAccounts: (businessId: string, provider: IntegrationProvider) => boolean;
   setToast: (toast: IntegrationToast) => void;
   clearToast: () => void;
 }
@@ -139,12 +166,21 @@ export const useIntegrationsStore = create<IntegrationsStore>()(
   persist(
     (set, get) => ({
       byBusinessId: {},
+      assignedAccountsByBusiness: {},
       toast: null,
       ensureBusiness: (businessId) => {
         set((state) => ({
           byBusinessId: {
             ...state.byBusinessId,
             [businessId]: normalizeBusinessIntegrations(state.byBusinessId[businessId]),
+          },
+          assignedAccountsByBusiness: {
+            ...state.assignedAccountsByBusiness,
+            [businessId]: normalizeAssignedAccounts(
+              businessId,
+              state.assignedAccountsByBusiness,
+              state.byBusinessId
+            ),
           },
         }));
       },
@@ -237,9 +273,16 @@ export const useIntegrationsStore = create<IntegrationsStore>()(
               },
             },
           },
+          assignedAccountsByBusiness: {
+            ...state.assignedAccountsByBusiness,
+            [businessId]: {
+              ...state.assignedAccountsByBusiness[businessId],
+              [provider]: [],
+            },
+          },
         }));
       },
-      toggleAccount: (businessId, provider, accountId) => {
+      setAssignedAccounts: (businessId, provider, accountIds) => {
         get().ensureBusiness(businessId);
         set((state) => ({
           byBusinessId: {
@@ -249,15 +292,26 @@ export const useIntegrationsStore = create<IntegrationsStore>()(
               [provider]: {
                 ...state.byBusinessId[businessId][provider],
                 accounts: state.byBusinessId[businessId][provider].accounts.map((account) =>
-                  account.id === accountId
-                    ? { ...account, enabled: !account.enabled }
-                    : account
+                  accountIds.includes(account.id)
+                    ? { ...account, enabled: true }
+                    : { ...account, enabled: false }
                 ),
               },
             },
           },
+          assignedAccountsByBusiness: {
+            ...state.assignedAccountsByBusiness,
+            [businessId]: {
+              ...state.assignedAccountsByBusiness[businessId],
+              [provider]: accountIds,
+            },
+          },
         }));
       },
+      getAssignedAccounts: (businessId, provider) =>
+        get().assignedAccountsByBusiness[businessId]?.[provider] ?? [],
+      hasAssignedAccounts: (businessId, provider) =>
+        (get().assignedAccountsByBusiness[businessId]?.[provider] ?? []).length > 0,
       setToast: (toast) => set({ toast }),
       clearToast: () => set({ toast: null }),
     }),
@@ -265,6 +319,7 @@ export const useIntegrationsStore = create<IntegrationsStore>()(
       name: "omniads-integrations-store-v1",
       partialize: (state) => ({
         byBusinessId: state.byBusinessId,
+        assignedAccountsByBusiness: state.assignedAccountsByBusiness,
       }),
     }
   )

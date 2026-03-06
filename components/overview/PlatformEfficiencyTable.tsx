@@ -1,22 +1,59 @@
 "use client";
 
-import { Badge } from "@/components/ui/badge";
+import { DataEmptyState } from "@/components/states/DataEmptyState";
+import { LoadingSkeleton } from "@/components/states/loading-skeleton";
 import type { OverviewData } from "@/src/types/models";
 
 interface PlatformEfficiencyTableProps {
-  rows: OverviewData["platformEfficiency"];
+  rows?: OverviewData["platformEfficiency"] | null;
   currencySymbol: string;
+  isLoading?: boolean;
 }
 
-export function PlatformEfficiencyTable({ rows, currencySymbol }: PlatformEfficiencyTableProps) {
-  const totalSpend = rows.reduce((sum, row) => sum + row.spend, 0);
+export function PlatformEfficiencyTable({
+  rows,
+  currencySymbol,
+  isLoading = false,
+}: PlatformEfficiencyTableProps) {
+  if (isLoading) {
+    return (
+      <section className="rounded-2xl border bg-card p-5 shadow-sm">
+        <div className="mb-3">
+          <h2 className="text-lg font-semibold tracking-tight">Platform Efficiency</h2>
+        </div>
+        <LoadingSkeleton rows={2} />
+      </section>
+    );
+  }
+
+  const safeRows = rows ?? [];
+  if (safeRows.length === 0) {
+    return (
+      <section className="rounded-2xl border bg-card p-5 shadow-sm">
+        <div className="mb-3">
+          <h2 className="text-lg font-semibold tracking-tight">Platform Efficiency</h2>
+          <p className="text-sm text-muted-foreground">
+            Spend distribution and efficiency from synced ad platform data.
+          </p>
+        </div>
+        <DataEmptyState
+          title="No platform data available"
+          description="Connect ad platforms and wait for synced spend data to view efficiency breakdown."
+          ctaLabel="Open Integrations"
+          ctaHref="/integrations"
+        />
+      </section>
+    );
+  }
+
+  const totalSpend = safeRows.reduce((sum, row) => sum + row.spend, 0);
 
   return (
     <section className="rounded-2xl border bg-card p-5 shadow-sm">
       <div className="mb-3">
         <h2 className="text-lg font-semibold tracking-tight">Platform Efficiency</h2>
         <p className="text-sm text-muted-foreground">
-          Spend distribution, efficiency signal, and immediate action hints.
+          Spend distribution and efficiency breakdown from backend-synced platform data.
         </p>
       </div>
 
@@ -31,20 +68,18 @@ export function PlatformEfficiencyTable({ rows, currencySymbol }: PlatformEffici
               <th className="px-2 py-3 font-medium">Purchases</th>
               <th className="px-2 py-3 font-medium">CPA</th>
               <th className="px-2 py-3 font-medium">Share of spend</th>
-              <th className="px-2 py-3 font-medium">Insight</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => {
+            {safeRows.map((row) => {
               const spendShare = totalSpend > 0 ? (row.spend / totalSpend) * 100 : 0;
-              const insight = getInsight(row.roas, spendShare);
 
               return (
                 <tr key={row.platform} className="border-b last:border-0">
                   <td className="px-2 py-3">
-                    <Badge variant="secondary" className="capitalize">
+                    <span className="inline-flex rounded-md bg-muted px-2 py-1 capitalize">
                       {row.platform}
-                    </Badge>
+                    </span>
                   </td>
                   <td className="px-2 py-3">{formatCurrency(row.spend, currencySymbol)}</td>
                   <td className="px-2 py-3">{formatCurrency(row.revenue, currencySymbol)}</td>
@@ -62,9 +97,6 @@ export function PlatformEfficiencyTable({ rows, currencySymbol }: PlatformEffici
                       <p className="mt-1 text-xs text-muted-foreground">{spendShare.toFixed(1)}%</p>
                     </div>
                   </td>
-                  <td className="px-2 py-3">
-                    <Badge className={insight.className}>{insight.label}</Badge>
-                  </td>
                 </tr>
               );
             })}
@@ -73,27 +105,6 @@ export function PlatformEfficiencyTable({ rows, currencySymbol }: PlatformEffici
       </div>
     </section>
   );
-}
-
-function getInsight(roas: number, spendShare: number) {
-  if (roas >= 3.2 && spendShare < 20) {
-    return {
-      label: "Scaling opportunity",
-      className: "bg-emerald-600 text-white",
-    };
-  }
-
-  if (roas < 2.8 && spendShare > 22) {
-    return {
-      label: "Efficiency issue",
-      className: "bg-rose-600 text-white",
-    };
-  }
-
-  return {
-    label: "Stable",
-    className: "bg-slate-600 text-white",
-  };
 }
 
 function formatCurrency(value: number, symbol: string) {

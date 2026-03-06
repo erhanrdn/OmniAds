@@ -7,7 +7,6 @@ import { useRouter } from "next/navigation";
 export default function NewBusinessPage() {
   const router = useRouter();
   const createBusiness = useAppStore((state) => state.createBusiness);
-  const selectBusiness = useAppStore((state) => state.selectBusiness);
 
   return (
     <div className="mx-auto w-full max-w-xl space-y-6">
@@ -21,8 +20,7 @@ export default function NewBusinessPage() {
       <div className="rounded-2xl border bg-card p-5 shadow-sm">
         <BusinessForm
           onSubmit={({ name, timezone, currency }) => {
-            const businessId = createBusiness(name, timezone, currency);
-            selectBusiness(businessId);
+            createBusiness(name, timezone, currency);
             router.push("/integrations");
           }}
         />

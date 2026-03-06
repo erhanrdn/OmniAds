@@ -11,6 +11,7 @@ import {
 import { IntegrationsCard } from "@/components/integrations/integrations-card";
 import { ConnectModal } from "@/components/integrations/connect-modal";
 import { useIntegrationConnection } from "@/hooks/use-integration-connection";
+import { ProviderAssignmentDrawer } from "@/components/integrations/provider-assignment-drawer";
 
 /** Providers that have real backend OAuth (not mock) */
 const REAL_PROVIDERS: IntegrationProvider[] = ["meta"];
@@ -33,9 +34,12 @@ export default function IntegrationsPage() {
 
   const ensureBusiness = useIntegrationsStore((state) => state.ensureBusiness);
   const byBusinessId = useIntegrationsStore((state) => state.byBusinessId);
+  const assignedAccountsByBusiness = useIntegrationsStore(
+    (state) => state.assignedAccountsByBusiness
+  );
   const setConnected = useIntegrationsStore((state) => state.setConnected);
   const disconnect = useIntegrationsStore((state) => state.disconnect);
-  const toggleAccount = useIntegrationsStore((state) => state.toggleAccount);
+  const setAssignedAccounts = useIntegrationsStore((state) => state.setAssignedAccounts);
   const toast = useIntegrationsStore((state) => state.toast);
   const setToast = useIntegrationsStore((state) => state.setToast);
   const clearToast = useIntegrationsStore((state) => state.clearToast);
@@ -44,7 +48,7 @@ export default function IntegrationsPage() {
 
   const [activeProvider, setActiveProvider] =
     useState<IntegrationProvider | null>(null);
-  const [expandedProvider, setExpandedProvider] =
+  const [assignmentProvider, setAssignmentProvider] =
     useState<IntegrationProvider | null>(null);
 
   /** Disconnect: calls backend API for real providers, then updates local store */
@@ -62,11 +66,11 @@ export default function IntegrationsPage() {
         }
       }
       disconnect(businessId, provider);
-      if (expandedProvider === provider) {
-        setExpandedProvider(null);
+      if (assignmentProvider === provider) {
+        setAssignmentProvider(null);
       }
     },
-    [businessId, disconnect, expandedProvider],
+    [assignmentProvider, businessId, disconnect],
   );
 
   useEffect(() => {
@@ -113,12 +117,18 @@ export default function IntegrationsPage() {
     setActiveProvider(provider);
   };
 
+  const activeAssignmentAccounts =
+    assignmentProvider ? integrations[assignmentProvider]?.accounts ?? [] : [];
+  const assignedIdsForDrawer = assignmentProvider
+    ? assignedAccountsByBusiness[businessId]?.[assignmentProvider] ?? []
+    : [];
+
   return (
     <div className="space-y-6">
       <div className="space-y-2">
         <h1 className="text-2xl font-semibold tracking-tight">Integrations</h1>
         <p className="text-sm text-muted-foreground">
-          Manage OAuth connections and ad account selections.
+          Manage OAuth connections and account assignments for the active business.
         </p>
         <p className="text-xs font-medium text-muted-foreground">
           Active business: <span className="text-foreground">{activeBusiness?.name ?? "Unknown"}</span>
@@ -138,29 +148,30 @@ export default function IntegrationsPage() {
       )}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {INTEGRATION_PROVIDERS.map((provider) => (
-          <IntegrationsCard
-            key={provider}
-            provider={provider}
-            description={DESCRIPTIONS[provider]}
-            state={integrations[provider]}
-            isExpanded={expandedProvider === provider}
-            connectedDetailText={
-              provider === "ga4" && integrations.ga4.status === "connected"
-                ? "Property: GA4 Demo Property"
-                : undefined
-            }
-            onConnect={handleConnect}
-            onReconnect={(p) => setActiveProvider(p)}
-            onRetry={handleRetry}
-            onCancel={(p) => cancel(p)}
-            onDisconnect={(p) => handleDisconnect(p)}
-            onToggleManage={(p) =>
-              setExpandedProvider((prev) => (prev === p ? null : p))
-            }
-            onToggleAccount={(p, accountId) => toggleAccount(businessId, p, accountId)}
-          />
-        ))}
+        {INTEGRATION_PROVIDERS.map((provider) => {
+          const assignedIds = assignedAccountsByBusiness[businessId]?.[provider] ?? [];
+
+          return (
+            <IntegrationsCard
+              key={provider}
+              provider={provider}
+              description={DESCRIPTIONS[provider]}
+              state={integrations[provider]}
+              assignedAccountIds={assignedIds}
+              connectedDetailText={
+                provider === "ga4" && integrations.ga4.status === "connected"
+                  ? "Property integration connected"
+                  : undefined
+              }
+              onConnect={handleConnect}
+              onReconnect={(p) => setActiveProvider(p)}
+              onRetry={handleRetry}
+              onCancel={(p) => cancel(p)}
+              onDisconnect={(p) => handleDisconnect(p)}
+              onOpenAssignments={(p) => setAssignmentProvider(p)}
+            />
+          );
+        })}
       </div>
 
       <ConnectModal
@@ -170,6 +181,24 @@ export default function IntegrationsPage() {
         onContinue={(provider) => {
           connect(provider);
           setActiveProvider(null);
+        }}
+      />
+
+      <ProviderAssignmentDrawer
+        open={Boolean(assignmentProvider)}
+        provider={assignmentProvider}
+        accounts={activeAssignmentAccounts}
+        assignedAccountIds={assignedIdsForDrawer}
+        onClose={() => setAssignmentProvider(null)}
+        onSave={(provider, accountIds) => {
+          setAssignedAccounts(businessId, provider, accountIds);
+          setToast({
+            type: "success",
+            message:
+              accountIds.length > 0
+                ? `Assignments saved (${accountIds.length}).`
+                : "Assignments cleared for this provider.",
+          });
         }}
       />
     </div>

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
 
 export interface Business {
   id: string;
@@ -13,10 +13,12 @@ interface AppState {
   mobileSidebarOpen: boolean;
   businesses: Business[];
   selectedBusinessId: string | null;
+  hasHydrated: boolean;
   toggleDesktopSidebar: () => void;
   setMobileSidebarOpen: (open: boolean) => void;
   createBusiness: (name: string, timezone: string, currency: string) => string;
   selectBusiness: (id: string | null) => void;
+  setHasHydrated: (value: boolean) => void;
 }
 
 export const useAppStore = create<AppState>()(
@@ -26,6 +28,7 @@ export const useAppStore = create<AppState>()(
       mobileSidebarOpen: false,
       businesses: [],
       selectedBusinessId: null,
+      hasHydrated: false,
       toggleDesktopSidebar: () =>
         set((state) => ({ desktopSidebarOpen: !state.desktopSidebarOpen })),
       setMobileSidebarOpen: (open) => set({ mobileSidebarOpen: open }),
@@ -41,17 +44,23 @@ export const useAppStore = create<AppState>()(
               currency,
             },
           ],
+          selectedBusinessId: id,
         }));
         return id;
       },
       selectBusiness: (id) => set({ selectedBusinessId: id }),
+      setHasHydrated: (value) => set({ hasHydrated: value }),
     }),
     {
       name: "omniads-app-store-v2",
+      storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
         businesses: state.businesses,
         selectedBusinessId: state.selectedBusinessId,
       }),
+      onRehydrateStorage: () => (state) => {
+        state?.setHasHydrated(true);
+      },
     }
   )
 );

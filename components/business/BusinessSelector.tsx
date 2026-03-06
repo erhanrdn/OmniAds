@@ -25,6 +25,7 @@ function getInitials(name: string) {
 
 export function BusinessSelector() {
   const router = useRouter();
+  const hasHydrated = useAppStore((state) => state.hasHydrated);
   const businesses = useAppStore((state) => state.businesses);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const selectBusiness = useAppStore((state) => state.selectBusiness);
@@ -35,6 +36,10 @@ export function BusinessSelector() {
   function handleSelect(businessId: string) {
     selectBusiness(businessId);
     router.push("/overview");
+  }
+
+  if (!hasHydrated) {
+    return null;
   }
 
   if (businesses.length === 0) {

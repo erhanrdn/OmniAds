@@ -3,40 +3,38 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getProviderLabel } from "@/components/integrations/oauth";
-import { IntegrationProvider, IntegrationState } from "@/store/integrations-store";
-import { BusinessAccountAssignment } from "@/components/integrations/BusinessAccountAssignment";
+import {
+  IntegrationProvider,
+  IntegrationState,
+} from "@/store/integrations-store";
 import { Loader2, Plug } from "lucide-react";
 
 interface IntegrationsCardProps {
   provider: IntegrationProvider;
   description: string;
   state: IntegrationState;
-  isExpanded: boolean;
-  simpleActions?: boolean;
   connectedDetailText?: string;
+  assignedAccountIds: string[];
   onConnect: (provider: IntegrationProvider) => void;
   onReconnect: (provider: IntegrationProvider) => void;
   onRetry: (provider: IntegrationProvider) => void;
   onCancel: (provider: IntegrationProvider) => void;
   onDisconnect: (provider: IntegrationProvider) => void;
-  onToggleManage: (provider: IntegrationProvider) => void;
-  onToggleAccount: (provider: IntegrationProvider, accountId: string) => void;
+  onOpenAssignments: (provider: IntegrationProvider) => void;
 }
 
 export function IntegrationsCard({
   provider,
   description,
   state,
-  isExpanded,
-  simpleActions = false,
   connectedDetailText,
+  assignedAccountIds,
   onConnect,
   onReconnect,
   onRetry,
   onCancel,
   onDisconnect,
-  onToggleManage,
-  onToggleAccount,
+  onOpenAssignments,
 }: IntegrationsCardProps) {
   const providerLabel = getProviderLabel(provider);
   const isDisconnected = state.status === "disconnected";
@@ -44,6 +42,21 @@ export function IntegrationsCard({
   const isConnecting = state.status === "connecting";
   const isError = state.status === "error";
   const isTimeout = state.status === "timeout";
+  const assignedCount = assignedAccountIds.length;
+  const hasAssignments = assignedCount > 0;
+
+  const statusText = isConnected
+    ? hasAssignments
+      ? `Connected, ${assignedCount} accounts assigned`
+      : "Connected, no accounts assigned"
+    : isDisconnected
+    ? "Disconnected"
+    : undefined;
+
+  const assignedPreview = state.accounts
+    .filter((account) => assignedAccountIds.includes(account.id))
+    .slice(0, 2)
+    .map((account) => account.name);
 
   return (
     <div className="rounded-xl border bg-card p-4 shadow-sm">
@@ -59,6 +72,8 @@ export function IntegrationsCard({
 
       <p className="mb-3 text-sm text-muted-foreground">{description}</p>
 
+      {statusText ? <p className="mb-2 text-xs text-muted-foreground">{statusText}</p> : null}
+
       {state.connectedAt && isConnected && (
         <p className="mb-1 text-xs text-muted-foreground">
           Connected at: {new Date(state.connectedAt).toLocaleString()}
@@ -69,30 +84,41 @@ export function IntegrationsCard({
           Last sync: {new Date(state.lastSyncAt).toLocaleString()}
         </p>
       )}
-      {connectedDetailText && isConnected && (
+      {isConnected ? (
+        <p className="mb-1 text-xs text-muted-foreground">
+          Assigned accounts: {assignedCount}
+        </p>
+      ) : null}
+      {assignedPreview.length > 0 ? (
+        <p className="mb-3 text-xs text-muted-foreground">
+          {assignedPreview.join(", ")}
+          {assignedCount > assignedPreview.length ? ` +${assignedCount - assignedPreview.length}` : ""}
+        </p>
+      ) : null}
+      {connectedDetailText && isConnected ? (
         <p className="mb-3 text-xs text-muted-foreground">{connectedDetailText}</p>
-      )}
+      ) : null}
 
-      {isError && state.errorMessage && (
+      {isError && state.errorMessage ? (
         <p className="mb-3 rounded-md border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive">
           {state.errorMessage}
         </p>
-      )}
+      ) : null}
 
-      {isTimeout && state.errorMessage && (
+      {isTimeout && state.errorMessage ? (
         <p className="mb-3 rounded-md border border-yellow-500/30 bg-yellow-500/10 p-2 text-xs text-yellow-700">
           {state.errorMessage}
         </p>
-      )}
+      ) : null}
 
       <div className="flex flex-wrap gap-2">
-        {isDisconnected && (
+        {isDisconnected ? (
           <Button className="flex-1" onClick={() => onConnect(provider)}>
             Connect
           </Button>
-        )}
+        ) : null}
 
-        {isConnecting && (
+        {isConnecting ? (
           <>
             <Button className="flex-1 cursor-default" tabIndex={-1}>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -102,26 +128,23 @@ export function IntegrationsCard({
               Cancel
             </Button>
           </>
-        )}
+        ) : null}
 
-        {isConnected && !simpleActions && (
+        {isConnected ? (
           <>
-            <Button className="flex-1" onClick={() => onToggleManage(provider)}>
-              {isExpanded ? "Hide Manage" : "Manage"}
+            <Button className="flex-1" onClick={() => onOpenAssignments(provider)}>
+              {hasAssignments ? "Manage assignments" : "Assign accounts"}
             </Button>
             <Button variant="outline" onClick={() => onReconnect(provider)}>
               Reconnect
             </Button>
+            <Button variant="outline" onClick={() => onDisconnect(provider)}>
+              Disconnect
+            </Button>
           </>
-        )}
+        ) : null}
 
-        {isConnected && simpleActions && (
-          <Button variant="outline" onClick={() => onDisconnect(provider)}>
-            Disconnect
-          </Button>
-        )}
-
-        {isError && (
+        {isError ? (
           <>
             <Button className="flex-1" onClick={() => onRetry(provider)}>
               Retry
@@ -130,9 +153,9 @@ export function IntegrationsCard({
               Disconnect
             </Button>
           </>
-        )}
+        ) : null}
 
-        {isTimeout && (
+        {isTimeout ? (
           <>
             <Button className="flex-1" onClick={() => onRetry(provider)}>
               Retry connection
@@ -141,22 +164,8 @@ export function IntegrationsCard({
               Disconnect
             </Button>
           </>
-        )}
-
-        {!simpleActions && !isDisconnected && !isConnecting && !isError && !isTimeout && (
-          <Button variant="outline" onClick={() => onDisconnect(provider)}>
-            Disconnect
-          </Button>
-        )}
+        ) : null}
       </div>
-
-      {isConnected && isExpanded && !simpleActions && (
-        <BusinessAccountAssignment
-          provider={provider}
-          state={state}
-          onToggleAccount={onToggleAccount}
-        />
-      )}
     </div>
   );
 }
