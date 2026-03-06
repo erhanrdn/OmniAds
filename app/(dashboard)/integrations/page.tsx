@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { BUSINESSES, useAppStore } from "@/store/app-store";
 import {
   INTEGRATION_PROVIDERS,
@@ -9,6 +9,9 @@ import {
 } from "@/store/integrations-store";
 import { IntegrationsCard } from "@/components/integrations/integrations-card";
 import { ConnectModal } from "@/components/integrations/connect-modal";
+
+/** Providers that have real backend OAuth (not mock) */
+const REAL_PROVIDERS: IntegrationProvider[] = ["meta"];
 
 const DESCRIPTIONS: Record<IntegrationProvider, string> = {
   shopify: "Sync storefront events and conversion data for attribution.",
@@ -37,9 +40,58 @@ export default function IntegrationsPage() {
   const [activeProvider, setActiveProvider] = useState<IntegrationProvider | null>(null);
   const [expandedProvider, setExpandedProvider] = useState<IntegrationProvider | null>(null);
 
+  /** Disconnect: calls backend API for real providers, then updates local store */
+  const handleDisconnect = useCallback(
+    async (provider: IntegrationProvider) => {
+      if (REAL_PROVIDERS.includes(provider)) {
+        try {
+          await fetch(
+            `/api/integrations?businessId=${encodeURIComponent(businessId)}&provider=${provider}`,
+            { method: "DELETE" }
+          );
+        } catch {
+          // best effort — still disconnect locally
+        }
+      }
+      disconnect(businessId, provider);
+      if (expandedProvider === provider) {
+        setExpandedProvider(null);
+      }
+    },
+    [businessId, disconnect, expandedProvider]
+  );
+
   useEffect(() => {
     ensureBusiness(businessId);
   }, [businessId, ensureBusiness]);
+
+  // Hydrate Zustand store with real DB state for real providers
+  useEffect(() => {
+    async function hydrate() {
+      try {
+        const res = await fetch(`/api/integrations?businessId=${encodeURIComponent(businessId)}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const rows: Array<{
+          provider: IntegrationProvider;
+          status: string;
+          id: string;
+        }> = data.integrations ?? [];
+
+        for (const row of rows) {
+          if (!REAL_PROVIDERS.includes(row.provider)) continue;
+          if (row.status === "connected") {
+            setConnected(businessId, row.provider, row.id);
+          } else if (row.status === "error") {
+            // keep existing store state — it may have richer info
+          }
+        }
+      } catch {
+        // silently ignore — store already has persisted state
+      }
+    }
+    hydrate();
+  }, [businessId, setConnected]);
 
   useEffect(() => {
     if (!toast) return;
@@ -122,10 +174,7 @@ export default function IntegrationsPage() {
               setActiveProvider(nextProvider);
             }}
             onDisconnect={(nextProvider) => {
-              disconnect(businessId, nextProvider);
-              if (expandedProvider === nextProvider) {
-                setExpandedProvider(null);
-              }
+              handleDisconnect(nextProvider);
             }}
             onToggleManage={(nextProvider) =>
               setExpandedProvider((prev) => (prev === nextProvider ? null : nextProvider))
