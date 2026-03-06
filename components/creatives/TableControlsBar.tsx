@@ -4,7 +4,6 @@ import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { METRIC_CONFIG, METRIC_OPTIONS, MetaMetricKey } from "@/components/creatives/metricConfig";
 import { Settings2 } from "lucide-react";
-import { ShareSelectedButton } from "@/components/creatives/ShareSelectedButton";
 
 interface TableViewState {
   selectedMetrics: MetaMetricKey[];
@@ -15,11 +14,9 @@ interface TableViewState {
 interface TableControlsBarProps {
   value: TableViewState;
   onChange: (next: TableViewState) => void;
-  selectedCount?: number;
-  onShareSelected?: () => void;
 }
 
-export function TableControlsBar({ value, onChange, selectedCount = 0, onShareSelected }: TableControlsBarProps) {
+export function TableControlsBar({ value, onChange }: TableControlsBarProps) {
   const [showMetrics, setShowMetrics] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
@@ -72,13 +69,7 @@ export function TableControlsBar({ value, onChange, selectedCount = 0, onShareSe
         )}
       </div>
 
-      {onShareSelected && (
-        <div className="ml-auto">
-          <ShareSelectedButton selectedCount={selectedCount} onClick={onShareSelected} />
-        </div>
-      )}
-
-      <div className={onShareSelected ? "relative" : "ml-auto relative"}>
+      <div className="ml-auto relative">
         <button
           type="button"
           onClick={() => setShowSettings((prev) => !prev)}

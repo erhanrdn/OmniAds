@@ -14,10 +14,7 @@ export function ShareSelectedButton({ selectedCount, onClick }: ShareSelectedBut
   return (
     <Button size="sm" onClick={onClick} className="gap-1.5">
       <Share2 className="h-4 w-4" />
-      Share selected
-      <span className="ml-0.5 rounded-full bg-primary-foreground/20 px-1.5 py-0.5 text-[10px] font-semibold">
-        {selectedCount}
-      </span>
+      Share ({selectedCount})
     </Button>
   );
 }

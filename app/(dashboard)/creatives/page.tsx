@@ -2,10 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { EmptyState } from "@/components/states/empty-state";
-import {
-  CreativeFiltersBar,
-  CreativeFiltersState,
-} from "@/components/creatives/CreativeFiltersBar";
+import { CreativeFiltersState } from "@/components/creatives/CreativeFiltersBar";
+import { CreativesToolbar } from "@/components/creatives/CreativesToolbar";
 import {
   DEFAULT_TABLE_METRICS,
   MetaCreativeRow,
@@ -305,11 +303,13 @@ export default function CreativesPage() {
         </div>
       )}
 
-      <CreativeFiltersBar
+      <CreativesToolbar
         rows={META_ROWS}
         value={creativeFilters}
         onChange={setCreativeFilters}
         onComingSoon={showComingSoon}
+        selectedCount={selectionState.selectedRowIds.length}
+        onShareSelected={() => setShareModalOpen(true)}
       />
 
       {creativeFilters.platform !== "meta" ? (
@@ -326,12 +326,7 @@ export default function CreativesPage() {
             onOpenRow={(rowId) => openDrawer(rowId, true)}
           />
 
-          <TableControlsBar
-            value={tableViewState}
-            onChange={setTableViewState}
-            selectedCount={selectionState.selectedRowIds.length}
-            onShareSelected={() => setShareModalOpen(true)}
-          />
+          <TableControlsBar value={tableViewState} onChange={setTableViewState} />
 
           <CreativesMotionTable
             rows={filteredRows}
