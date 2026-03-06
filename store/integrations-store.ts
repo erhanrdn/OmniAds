@@ -73,6 +73,15 @@ const buildDefaultIntegrations = (): Record<IntegrationProvider, IntegrationStat
     return acc;
   }, {} as Record<IntegrationProvider, IntegrationState>);
 
+function isLegacyMockAccount(account: IntegrationAdAccount) {
+  return (
+    account.id.startsWith("meta-acct-") ||
+    account.id.startsWith("google-acct-") ||
+    account.id.startsWith("shopify-acct-") ||
+    account.id === "ga4-property-1"
+  );
+}
+
 const normalizeBusinessIntegrations = (
   current?: Partial<Record<IntegrationProvider, IntegrationState>>
 ): Record<IntegrationProvider, IntegrationState> => {
@@ -89,7 +98,7 @@ const normalizeBusinessIntegrations = (
           connectedAt: existing.connectedAt,
           lastSyncAt: existing.lastSyncAt,
           integrationId: existing.integrationId,
-          accounts: existing.accounts ?? [],
+          accounts: (existing.accounts ?? []).filter((account) => !isLegacyMockAccount(account)),
         }
       : defaults[provider];
     return acc;

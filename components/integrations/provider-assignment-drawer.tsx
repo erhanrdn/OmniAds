@@ -32,6 +32,8 @@ interface ProviderAssignmentDrawerProps {
   ) => void;
 }
 
+type FetchState = "idle" | "loading" | "success" | "empty" | "error";
+
 function getTitle(provider: IntegrationProvider | null) {
   if (!provider) return "Assign accounts";
   if (provider === "meta") {
@@ -43,20 +45,8 @@ function getTitle(provider: IntegrationProvider | null) {
   return `Assign ${provider} accounts to this business`;
 }
 
-function getFetchPath(provider: IntegrationProvider, businessId: string) {
-  if (provider === "meta") {
-    return `/integrations/meta/ad-accounts?businessId=${encodeURIComponent(businessId)}`;
-  }
-  if (provider === "google") {
-    return `/integrations/google/customer-accounts?businessId=${encodeURIComponent(businessId)}`;
-  }
-  if (provider === "ga4") {
-    return `/integrations/ga4/properties?businessId=${encodeURIComponent(businessId)}`;
-  }
-  if (provider === "shopify") {
-    return `/integrations/shopify/stores?businessId=${encodeURIComponent(businessId)}`;
-  }
-  return `/integrations/${provider}/accounts?businessId=${encodeURIComponent(businessId)}`;
+function getMetaFetchPath(businessId: string) {
+  return `/integrations/meta/ad-accounts?businessId=${encodeURIComponent(businessId)}`;
 }
 
 function getSavePath(provider: IntegrationProvider, businessId: string) {
@@ -76,57 +66,75 @@ export function ProviderAssignmentDrawer({
 }: ProviderAssignmentDrawerProps) {
   const [draftIds, setDraftIds] = useState<string[]>([]);
   const [accounts, setAccounts] = useState<ProviderAccountRow[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [fetchState, setFetchState] = useState<FetchState>("idle");
   const [isSaving, setIsSaving] = useState(false);
+  const isMeta = provider === "meta";
 
-  useEffect(() => {
-    if (!open || !provider) return;
+  const loadAccounts = useMemo(
+    () => async () => {
+      if (!open || !provider) return;
+      if (!isMeta) {
+        setAccounts([]);
+        setFetchState("empty");
+        return;
+      }
 
-    let isCancelled = false;
-
-    async function fetchAccounts() {
-      setIsLoading(true);
       setDraftIds(assignedAccountIds);
+      setAccounts([]);
+      setFetchState("loading");
       try {
-        const response = await fetch(getFetchPath(provider, businessId), {
+        const response = await fetch(getMetaFetchPath(businessId), {
           method: "GET",
           headers: { Accept: "application/json" },
         });
 
         if (!response.ok) {
-          if (!isCancelled) setAccounts([]);
+          setFetchState("error");
           return;
         }
 
         const payload = await response.json();
         const list = Array.isArray(payload) ? payload : payload?.accounts;
+        const normalized = Array.isArray(list) ? list : [];
 
-        if (!isCancelled) {
-          setAccounts(Array.isArray(list) ? list : []);
-        }
+        setAccounts(normalized);
+        setFetchState(normalized.length > 0 ? "success" : "empty");
       } catch {
-        if (!isCancelled) {
-          setAccounts([]);
-        }
-      } finally {
-        if (!isCancelled) {
-          setIsLoading(false);
-        }
+        setFetchState("error");
       }
-    }
+    },
+    [assignedAccountIds, businessId, isMeta, open, provider]
+  );
 
-    fetchAccounts();
+  useEffect(() => {
+    if (!open || !provider) return;
+    let isCancelled = false;
+
+    (async () => {
+      if (isCancelled) return;
+      await loadAccounts();
+    })();
 
     return () => {
       isCancelled = true;
     };
-  }, [open, provider, businessId, assignedAccountIds]);
+  }, [open, provider, loadAccounts]);
+
+  useEffect(() => {
+    if (!open) {
+      setAccounts([]);
+      setFetchState("idle");
+      setDraftIds([]);
+      setIsSaving(false);
+    }
+  }, [open]);
 
   const normalizedAccounts = useMemo(
     () =>
       accounts.map((account) => ({
         id: account.id,
         name: account.name,
+        currency: account.currency,
         externalId: account.id,
       })),
     [accounts]
@@ -141,7 +149,7 @@ export function ProviderAssignmentDrawer({
   }
 
   async function handleSave() {
-    if (!provider) return;
+    if (!provider || !isMeta) return;
 
     setIsSaving(true);
     try {
@@ -176,20 +184,35 @@ export function ProviderAssignmentDrawer({
         </SheetHeader>
 
         <div className="mt-6 space-y-3">
-          {isLoading ? (
+          {fetchState === "loading" ? (
             <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
               Loading ad accounts...
             </div>
           ) : null}
 
-          {!isLoading && normalizedAccounts.length === 0 ? (
+          {fetchState === "error" ? (
             <DataEmptyState
-              title="No ad accounts found"
-              description="We could not find any Meta ad accounts accessible with your login."
+              title="Could not load ad accounts"
+              description="We couldn't fetch accessible Meta ad accounts for this connection."
             />
           ) : null}
 
-          {!isLoading
+          {fetchState === "error" ? (
+            <div className="flex justify-end">
+              <Button variant="outline" onClick={loadAccounts}>
+                Retry
+              </Button>
+            </div>
+          ) : null}
+
+          {fetchState === "empty" ? (
+            <DataEmptyState
+              title="No ad accounts found"
+              description="No Meta ad accounts are available for this login or the required permissions are missing."
+            />
+          ) : null}
+
+          {fetchState === "success"
             ? normalizedAccounts.map((account) => {
                 const checked = draftIds.includes(account.id);
                 return (
@@ -201,6 +224,7 @@ export function ProviderAssignmentDrawer({
                       <p className="truncate text-sm font-medium">{account.name}</p>
                       <p className="mt-1 truncate text-xs text-muted-foreground">
                         {account.externalId}
+                        {account.currency ? ` • ${account.currency}` : ""}
                       </p>
                     </div>
                     <input
@@ -219,7 +243,10 @@ export function ProviderAssignmentDrawer({
           <Button variant="outline" onClick={onClose} disabled={isSaving}>
             Cancel
           </Button>
-          <Button onClick={handleSave} disabled={isSaving || isLoading || !provider}>
+          <Button
+            onClick={handleSave}
+            disabled={isSaving || fetchState !== "success" || !provider || !isMeta}
+          >
             {isSaving ? "Saving..." : "Save assignments"}
           </Button>
         </div>
