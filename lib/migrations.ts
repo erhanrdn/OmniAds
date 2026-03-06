@@ -47,4 +47,21 @@ export async function runMigrations() {
     CREATE INDEX IF NOT EXISTS idx_integrations_business_id
     ON integrations (business_id)
   `;
+
+  // ── provider account assignments table ───────────────────────────
+  await sql`
+    CREATE TABLE IF NOT EXISTS provider_account_assignments (
+      id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      business_id  TEXT NOT NULL,
+      provider     TEXT NOT NULL,
+      account_ids  TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_account_assignments_biz_provider
+    ON provider_account_assignments (business_id, provider)
+  `;
 }

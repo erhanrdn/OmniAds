@@ -19,6 +19,11 @@ interface ProviderAccountRow {
   timezone?: string;
 }
 
+interface ProviderErrorBody {
+  error?: string;
+  message?: string;
+}
+
 interface ProviderAssignmentDrawerProps {
   open: boolean;
   provider: IntegrationProvider | null;
@@ -67,6 +72,7 @@ export function ProviderAssignmentDrawer({
   const [draftIds, setDraftIds] = useState<string[]>([]);
   const [accounts, setAccounts] = useState<ProviderAccountRow[]>([]);
   const [fetchState, setFetchState] = useState<FetchState>("idle");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const isMeta = provider === "meta";
 
@@ -76,30 +82,45 @@ export function ProviderAssignmentDrawer({
       if (!isMeta) {
         setAccounts([]);
         setFetchState("empty");
+        setErrorMessage(null);
         return;
       }
 
       setDraftIds(assignedAccountIds);
       setAccounts([]);
       setFetchState("loading");
+      setErrorMessage(null);
       try {
         const response = await fetch(getMetaFetchPath(businessId), {
           method: "GET",
           headers: { Accept: "application/json" },
         });
 
+        const payload = (await response.json().catch(() => null)) as
+          | ProviderErrorBody
+          | { data?: ProviderAccountRow[] }
+          | null;
+
         if (!response.ok) {
+          setErrorMessage(
+            payload?.message ??
+              "We couldn't fetch accessible Meta ad accounts for this connection."
+          );
           setFetchState("error");
           return;
         }
 
-        const payload = await response.json();
-        const list = Array.isArray(payload) ? payload : payload?.accounts;
-        const normalized = Array.isArray(list) ? list : [];
+        const list = payload?.data;
+        if (!Array.isArray(list)) {
+          setErrorMessage("Invalid ad account response received from backend.");
+          setFetchState("error");
+          return;
+        }
 
-        setAccounts(normalized);
-        setFetchState(normalized.length > 0 ? "success" : "empty");
+        setAccounts(list);
+        setFetchState(list.length > 0 ? "success" : "empty");
       } catch {
+        setErrorMessage("We couldn't fetch accessible Meta ad accounts for this connection.");
         setFetchState("error");
       }
     },
@@ -124,6 +145,7 @@ export function ProviderAssignmentDrawer({
     if (!open) {
       setAccounts([]);
       setFetchState("idle");
+      setErrorMessage(null);
       setDraftIds([]);
       setIsSaving(false);
     }
@@ -193,7 +215,10 @@ export function ProviderAssignmentDrawer({
           {fetchState === "error" ? (
             <DataEmptyState
               title="Could not load ad accounts"
-              description="We couldn't fetch accessible Meta ad accounts for this connection."
+              description={
+                errorMessage ??
+                "We couldn't fetch accessible Meta ad accounts for this connection."
+              }
             />
           ) : null}
 
