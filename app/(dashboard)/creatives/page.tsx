@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { BUSINESSES, useAppStore } from "@/store/app-store";
+import { useIntegrationsStore } from "@/store/integrations-store";
 import { EmptyState } from "@/components/states/empty-state";
+import { IntegrationEmptyState } from "@/components/states/IntegrationEmptyState";
+import { LockedFeatureCard } from "@/components/states/LockedFeatureCard";
 import { CreativeFiltersState } from "@/components/creatives/CreativeFiltersBar";
 import { CreativesToolbar } from "@/components/creatives/CreativesToolbar";
 import {
@@ -185,7 +189,27 @@ const META_ROWS: MetaCreativeRow[] = [
   },
 ];
 
+const PLATFORM_LABELS: Record<string, string> = {
+  meta: "Meta",
+  google: "Google",
+  tiktok: "TikTok",
+  pinterest: "Pinterest",
+  snapchat: "Snapchat",
+};
+
 export default function CreativesPage() {
+  const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
+  const businessId = selectedBusinessId ?? BUSINESSES[0].id;
+
+  const ensureBusiness = useIntegrationsStore((state) => state.ensureBusiness);
+  const byBusinessId = useIntegrationsStore((state) => state.byBusinessId);
+
+  useEffect(() => {
+    ensureBusiness(businessId);
+  }, [businessId, ensureBusiness]);
+
+  const integrations = byBusinessId[businessId];
+
   const [creativeFilters, setCreativeFilters] = useState<CreativeFiltersState>({
     dateRange: "14",
     groupBy: "adName",
@@ -312,35 +336,65 @@ export default function CreativesPage() {
         onShareSelected={() => setShareModalOpen(true)}
       />
 
-      {creativeFilters.platform !== "meta" ? (
-        <EmptyState
-          title="Motion view unavailable"
-          description="Only Meta is supported in Motion view for now."
-        />
-      ) : (
-        <>
-          <CreativesTopGrid
-            rows={selectedRows}
-            selectedIds={selectionState.selectedRowIds}
-            onToggleSelect={toggleRowSelection}
-            onOpenRow={(rowId) => openDrawer(rowId, true)}
-          />
+      {(() => {
+        const platform = creativeFilters.platform;
+        const platformStatus = integrations?.[platform as keyof typeof integrations]?.status;
+        const platformConnected = platformStatus === "connected";
+        const platformLabel = PLATFORM_LABELS[platform] ?? platform;
 
-          <TableControlsBar value={tableViewState} onChange={setTableViewState} />
+        if (platform !== "meta") {
+          if (!platformConnected) {
+            return (
+              <LockedFeatureCard
+                providerLabel={platformLabel}
+                description={`Connect ${platformLabel} to view creative performance and sharing tools.`}
+              />
+            );
+          }
+          return (
+            <EmptyState
+              title="Motion view unavailable"
+              description={`Motion view for ${platformLabel} is not supported yet.`}
+            />
+          );
+        }
 
-          <CreativesMotionTable
-            rows={filteredRows}
-            selectedMetrics={tableViewState.selectedMetrics}
-            selectedRowIds={selectionState.selectedRowIds}
-            highlightedRowId={highlightedRowId}
-            density={tableViewState.density}
-            heatmapIntensity={tableViewState.heatmapIntensity}
-            onToggleRow={toggleRowSelection}
-            onToggleAll={toggleAllRows}
-            onOpenRow={(rowId) => openDrawer(rowId)}
-          />
-        </>
-      )}
+        // platform === "meta"
+        if (!platformConnected) {
+          return (
+            <IntegrationEmptyState
+              providerLabel="Meta"
+              status={platformStatus}
+              description="Connect Meta to view creative performance and sharing tools."
+            />
+          );
+        }
+
+        return (
+          <>
+            <CreativesTopGrid
+              rows={selectedRows}
+              selectedIds={selectionState.selectedRowIds}
+              onToggleSelect={toggleRowSelection}
+              onOpenRow={(rowId) => openDrawer(rowId, true)}
+            />
+
+            <TableControlsBar value={tableViewState} onChange={setTableViewState} />
+
+            <CreativesMotionTable
+              rows={filteredRows}
+              selectedMetrics={tableViewState.selectedMetrics}
+              selectedRowIds={selectionState.selectedRowIds}
+              highlightedRowId={highlightedRowId}
+              density={tableViewState.density}
+              heatmapIntensity={tableViewState.heatmapIntensity}
+              onToggleRow={toggleRowSelection}
+              onToggleAll={toggleAllRows}
+              onOpenRow={(rowId) => openDrawer(rowId)}
+            />
+          </>
+        );
+      })()}
 
       {shareModalOpen && (
         <ShareCreativesModal

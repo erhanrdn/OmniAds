@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getProviderLabel } from "@/components/integrations/oauth";
 import { IntegrationProvider, IntegrationState } from "@/store/integrations-store";
-import { Plug } from "lucide-react";
+import { Loader2, Plug } from "lucide-react";
 
 interface IntegrationsCardProps {
   provider: IntegrationProvider;
@@ -16,6 +16,7 @@ interface IntegrationsCardProps {
   onConnect: (provider: IntegrationProvider) => void;
   onReconnect: (provider: IntegrationProvider) => void;
   onRetry: (provider: IntegrationProvider) => void;
+  onCancel: (provider: IntegrationProvider) => void;
   onDisconnect: (provider: IntegrationProvider) => void;
   onToggleManage: (provider: IntegrationProvider) => void;
   onToggleAccount: (provider: IntegrationProvider, accountId: string) => void;
@@ -31,6 +32,7 @@ export function IntegrationsCard({
   onConnect,
   onReconnect,
   onRetry,
+  onCancel,
   onDisconnect,
   onToggleManage,
   onToggleAccount,
@@ -40,6 +42,7 @@ export function IntegrationsCard({
   const isConnected = state.status === "connected";
   const isConnecting = state.status === "connecting";
   const isError = state.status === "error";
+  const isTimeout = state.status === "timeout";
 
   return (
     <div className="rounded-xl border bg-card p-4 shadow-sm">
@@ -75,6 +78,12 @@ export function IntegrationsCard({
         </p>
       )}
 
+      {isTimeout && state.errorMessage && (
+        <p className="mb-3 rounded-md border border-yellow-500/30 bg-yellow-500/10 p-2 text-xs text-yellow-700">
+          {state.errorMessage}
+        </p>
+      )}
+
       <div className="flex flex-wrap gap-2">
         {isDisconnected && (
           <Button className="flex-1" onClick={() => onConnect(provider)}>
@@ -83,9 +92,15 @@ export function IntegrationsCard({
         )}
 
         {isConnecting && (
-          <Button className="flex-1" disabled>
-            Connecting...
-          </Button>
+          <>
+            <Button className="flex-1 cursor-default" tabIndex={-1}>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Connecting...
+            </Button>
+            <Button variant="outline" onClick={() => onCancel(provider)}>
+              Cancel
+            </Button>
+          </>
         )}
 
         {isConnected && !simpleActions && (
@@ -116,7 +131,18 @@ export function IntegrationsCard({
           </>
         )}
 
-        {!simpleActions && !isDisconnected && !isConnecting && !isError && (
+        {isTimeout && (
+          <>
+            <Button className="flex-1" onClick={() => onRetry(provider)}>
+              Retry connection
+            </Button>
+            <Button variant="outline" onClick={() => onDisconnect(provider)}>
+              Disconnect
+            </Button>
+          </>
+        )}
+
+        {!simpleActions && !isDisconnected && !isConnecting && !isError && !isTimeout && (
           <Button variant="outline" onClick={() => onDisconnect(provider)}>
             Disconnect
           </Button>
@@ -156,6 +182,9 @@ function StatusBadge({ status }: { status: IntegrationState["status"] }) {
   }
   if (status === "error") {
     return <Badge variant="destructive">error</Badge>;
+  }
+  if (status === "timeout") {
+    return <Badge className="bg-yellow-500 text-white">timeout</Badge>;
   }
   return <Badge variant="secondary">disconnected</Badge>;
 }

@@ -9,6 +9,7 @@ import {
 } from "@/store/integrations-store";
 import { IntegrationsCard } from "@/components/integrations/integrations-card";
 import { ConnectModal } from "@/components/integrations/connect-modal";
+import { useIntegrationConnection } from "@/hooks/use-integration-connection";
 
 /** Providers that have real backend OAuth (not mock) */
 const REAL_PROVIDERS: IntegrationProvider[] = ["meta"];
@@ -29,15 +30,14 @@ export default function IntegrationsPage() {
 
   const ensureBusiness = useIntegrationsStore((state) => state.ensureBusiness);
   const byBusinessId = useIntegrationsStore((state) => state.byBusinessId);
-  const startConnecting = useIntegrationsStore(
-    (state) => state.startConnecting,
-  );
   const setConnected = useIntegrationsStore((state) => state.setConnected);
   const disconnect = useIntegrationsStore((state) => state.disconnect);
   const toggleAccount = useIntegrationsStore((state) => state.toggleAccount);
   const toast = useIntegrationsStore((state) => state.toast);
   const setToast = useIntegrationsStore((state) => state.setToast);
   const clearToast = useIntegrationsStore((state) => state.clearToast);
+
+  const { connect, cancel, retry, fetchStatuses } = useIntegrationConnection(businessId);
 
   const [activeProvider, setActiveProvider] =
     useState<IntegrationProvider | null>(null);
@@ -69,35 +69,10 @@ export default function IntegrationsPage() {
     ensureBusiness(businessId);
   }, [businessId, ensureBusiness]);
 
-  // Hydrate Zustand store with real DB state for real providers
+  // On mount: fetch real statuses from backend so stale "connecting" state is corrected.
   useEffect(() => {
-    async function hydrate() {
-      try {
-        const res = await fetch(
-          `/api/integrations?businessId=${encodeURIComponent(businessId)}`,
-        );
-        if (!res.ok) return;
-        const data = await res.json();
-        const rows: Array<{
-          provider: IntegrationProvider;
-          status: string;
-          id: string;
-        }> = data.integrations ?? [];
-
-        for (const row of rows) {
-          if (!REAL_PROVIDERS.includes(row.provider)) continue;
-          if (row.status === "connected") {
-            setConnected(businessId, row.provider, row.id);
-          } else if (row.status === "error") {
-            // keep existing store state — it may have richer info
-          }
-        }
-      } catch {
-        // silently ignore — store already has persisted state
-      }
-    }
-    hydrate();
-  }, [businessId, setConnected]);
+    fetchStatuses();
+  }, [fetchStatuses]);
 
   useEffect(() => {
     if (!toast) return;
@@ -110,6 +85,25 @@ export default function IntegrationsPage() {
   }, [byBusinessId, businessId]);
 
   if (!integrations) return null;
+
+  const handleConnect = (provider: IntegrationProvider) => {
+    if (provider === "ga4") {
+      setConnected(businessId, "ga4", "ga4-demo-property");
+      setToast({ type: "success", message: "GA4 OAuth flow will be handled by backend." });
+      return;
+    }
+    setActiveProvider(provider);
+  };
+
+  const handleRetry = (provider: IntegrationProvider) => {
+    if (provider === "ga4") {
+      setConnected(businessId, "ga4", "ga4-demo-property");
+      setToast({ type: "success", message: "GA4 OAuth flow will be handled by backend." });
+      return;
+    }
+    retry(provider);
+    setActiveProvider(provider);
+  };
 
   return (
     <div className="space-y-6">
@@ -146,50 +140,15 @@ export default function IntegrationsPage() {
                 ? "Property: GA4 Demo Property"
                 : undefined
             }
-            onConnect={(nextProvider) => {
-              if (nextProvider === "ga4") {
-                setConnected(businessId, "ga4", "ga4-demo-property");
-                setToast({
-                  type: "success",
-                  message: "GA4 OAuth flow will be handled by backend.",
-                });
-                return;
-              }
-              setActiveProvider(nextProvider);
-            }}
-            onReconnect={(nextProvider) => {
-              if (nextProvider === "ga4") {
-                setConnected(businessId, "ga4", "ga4-demo-property");
-                setToast({
-                  type: "success",
-                  message: "GA4 OAuth flow will be handled by backend.",
-                });
-                return;
-              }
-              setActiveProvider(nextProvider);
-            }}
-            onRetry={(nextProvider) => {
-              if (nextProvider === "ga4") {
-                setConnected(businessId, "ga4", "ga4-demo-property");
-                setToast({
-                  type: "success",
-                  message: "GA4 OAuth flow will be handled by backend.",
-                });
-                return;
-              }
-              setActiveProvider(nextProvider);
-            }}
-            onDisconnect={(nextProvider) => {
-              handleDisconnect(nextProvider);
-            }}
-            onToggleManage={(nextProvider) =>
-              setExpandedProvider((prev) =>
-                prev === nextProvider ? null : nextProvider,
-              )
+            onConnect={handleConnect}
+            onReconnect={(p) => setActiveProvider(p)}
+            onRetry={handleRetry}
+            onCancel={(p) => cancel(p)}
+            onDisconnect={(p) => handleDisconnect(p)}
+            onToggleManage={(p) =>
+              setExpandedProvider((prev) => (prev === p ? null : p))
             }
-            onToggleAccount={(nextProvider, accountId) =>
-              toggleAccount(businessId, nextProvider, accountId)
-            }
+            onToggleAccount={(p, accountId) => toggleAccount(businessId, p, accountId)}
           />
         ))}
       </div>
@@ -199,7 +158,7 @@ export default function IntegrationsPage() {
         businessId={businessId}
         onClose={() => setActiveProvider(null)}
         onContinue={(provider) => {
-          startConnecting(businessId, provider);
+          connect(provider);
           setActiveProvider(null);
         }}
       />

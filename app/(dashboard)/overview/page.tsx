@@ -73,6 +73,23 @@ export default function OverviewPage() {
 
   const integrations = byBusinessId[businessId];
   const ga4Connected = integrations?.ga4?.status === "connected";
+  const shopifyConnected = integrations?.shopify?.status === "connected";
+  const adPlatformConnected =
+    integrations?.meta?.status === "connected" ||
+    integrations?.google?.status === "connected";
+
+  const kpiUnavailable = {
+    ...(!adPlatformConnected && {
+      spend: "Meta or Google",
+      roas: "Meta or Google",
+      cpa: "Meta or Google",
+    }),
+    ...(!shopifyConnected && {
+      revenue: "Shopify",
+      purchases: "Shopify",
+      aov: "Shopify",
+    }),
+  };
 
   const adjustedData = applyAttributionModel(query.data, attributionModel);
   const trendDataByWindow = {
@@ -150,7 +167,7 @@ export default function OverviewPage() {
 
       <DataStatusRow businessId={businessId} />
 
-      <OverviewKpiGrid kpis={adjustedData.kpis} currencySymbol={currencySymbol(currency)} />
+      <OverviewKpiGrid kpis={adjustedData.kpis} currencySymbol={currencySymbol(currency)} unavailableReasons={kpiUnavailable} />
 
       <OverviewTrendPanel
         dataByWindow={trendDataByWindow}

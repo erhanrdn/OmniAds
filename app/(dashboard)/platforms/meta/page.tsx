@@ -1,6 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { BUSINESSES, useAppStore } from "@/store/app-store";
+import { useIntegrationsStore } from "@/store/integrations-store";
+import { IntegrationEmptyState } from "@/components/states/IntegrationEmptyState";
+import { LoadingSkeleton } from "@/components/states/loading-skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -302,6 +306,19 @@ type DrawerPayload =
   | null;
 
 export default function MetaPage() {
+  const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
+  const businessId = selectedBusinessId ?? BUSINESSES[0].id;
+
+  const ensureBusiness = useIntegrationsStore((state) => state.ensureBusiness);
+  const byBusinessId = useIntegrationsStore((state) => state.byBusinessId);
+
+  useEffect(() => {
+    ensureBusiness(businessId);
+  }, [businessId, ensureBusiness]);
+
+  const metaStatus = byBusinessId[businessId]?.meta?.status;
+  const metaConnected = metaStatus === "connected";
+
   const [expandedCampaignIds, setExpandedCampaignIds] = useState<string[]>([]);
   const [expandedAdSetIds, setExpandedAdSetIds] = useState<string[]>([]);
   const [drawer, setDrawer] = useState<DrawerPayload>(null);
@@ -344,6 +361,17 @@ export default function MetaPage() {
         </p>
       </div>
 
+      {metaStatus === "connecting" && <LoadingSkeleton rows={4} />}
+
+      {!metaConnected && metaStatus !== "connecting" && (
+        <IntegrationEmptyState
+          providerLabel="Meta"
+          status={metaStatus}
+          description="View campaigns, ad sets, ads, and creative insights once your Meta account is connected."
+        />
+      )}
+
+      {metaConnected && (<>
       <section className="space-y-2">
         <h2 className="text-base font-semibold">AI Insights</h2>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -467,6 +495,7 @@ export default function MetaPage() {
       </section>
 
       <MetaDrawer payload={drawer} onClose={() => setDrawer(null)} />
+      </>)}
     </div>
   );
 }

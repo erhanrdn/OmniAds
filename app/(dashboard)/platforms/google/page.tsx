@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { BUSINESSES, useAppStore } from "@/store/app-store";
+import { useIntegrationsStore } from "@/store/integrations-store";
+import { IntegrationEmptyState } from "@/components/states/IntegrationEmptyState";
 import { getPlatformTable } from "@/src/services";
 import {
   getGoogleAssets,
@@ -146,6 +148,16 @@ export default function GooglePage() {
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const businessId = selectedBusinessId ?? BUSINESSES[0].id;
 
+  const ensureBusiness = useIntegrationsStore((state) => state.ensureBusiness);
+  const byBusinessId = useIntegrationsStore((state) => state.byBusinessId);
+
+  useEffect(() => {
+    ensureBusiness(businessId);
+  }, [businessId, ensureBusiness]);
+
+  const googleStatus = byBusinessId[businessId]?.google?.status;
+  const googleConnected = googleStatus === "connected";
+
   const [mainTab, setMainTab] = useState<MainTab>("campaigns");
   const [insightsTab, setInsightsTab] = useState<InsightsTab>("recommendations");
   const [insightsDateRange, setInsightsDateRange] = useState<DateRange>("14");
@@ -165,6 +177,7 @@ export default function GooglePage() {
 
   const accountQuery = useQuery({
     queryKey: ["google-platform-accounts", businessId],
+    enabled: googleConnected,
     queryFn: () =>
       getPlatformTable(
         Platform.GOOGLE,
@@ -187,7 +200,7 @@ export default function GooglePage() {
       sortColumn,
       sortDirection,
     ],
-    enabled: mainTab !== "insights",
+    enabled: googleConnected && mainTab !== "insights",
     queryFn: () =>
       getPlatformTable(
         Platform.GOOGLE,
@@ -201,13 +214,13 @@ export default function GooglePage() {
 
   const recommendationsQuery = useQuery({
     queryKey: ["google-recommendations", businessId, insightsDateRange],
-    enabled: mainTab === "insights" && insightsTab === "recommendations",
+    enabled: googleConnected && mainTab === "insights" && insightsTab === "recommendations",
     queryFn: () => getGoogleRecommendations({ businessId, dateRange: insightsDateRange }),
   });
 
   const searchTermsQuery = useQuery({
     queryKey: ["google-search-terms", businessId, insightsDateRange, searchTermQuery],
-    enabled: mainTab === "insights" && insightsTab === "searchTerms",
+    enabled: googleConnected && mainTab === "insights" && insightsTab === "searchTerms",
     queryFn: () =>
       getGoogleSearchTerms({
         businessId,
@@ -218,19 +231,19 @@ export default function GooglePage() {
 
   const productsQuery = useQuery({
     queryKey: ["google-products", businessId, insightsDateRange],
-    enabled: mainTab === "insights" && insightsTab === "products",
+    enabled: googleConnected && mainTab === "insights" && insightsTab === "products",
     queryFn: () => getGoogleProducts({ businessId, dateRange: insightsDateRange }),
   });
 
   const assetsQuery = useQuery({
     queryKey: ["google-assets", businessId, insightsDateRange],
-    enabled: mainTab === "insights" && insightsTab === "assets",
+    enabled: googleConnected && mainTab === "insights" && insightsTab === "assets",
     queryFn: () => getGoogleAssets({ businessId, dateRange: insightsDateRange }),
   });
 
   const shopifyProductsQuery = useQuery({
     queryKey: ["google-shopify-products", businessId, insightsDateRange],
-    enabled: mainTab === "insights",
+    enabled: googleConnected && mainTab === "insights",
     queryFn: () => getGoogleShopifyProducts({ businessId, dateRange: insightsDateRange }),
   });
 
@@ -351,6 +364,17 @@ export default function GooglePage() {
         </div>
       )}
 
+      {googleStatus === "connecting" && <LoadingSkeleton rows={4} />}
+
+      {!googleConnected && googleStatus !== "connecting" && (
+        <IntegrationEmptyState
+          providerLabel="Google"
+          status={googleStatus}
+          description="View Search, Display, and Performance Max campaign data once your Google Ads account is connected."
+        />
+      )}
+
+      {googleConnected && (<>
       <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-card p-2">
         {[
           { key: "campaigns", label: "Campaigns" },
@@ -844,6 +868,7 @@ export default function GooglePage() {
         onClose={() => setDrawerPayload(null)}
         onToast={(message) => setToastMessage(message)}
       />
+      </>)}
     </div>
   );
 }

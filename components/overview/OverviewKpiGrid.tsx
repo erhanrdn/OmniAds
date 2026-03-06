@@ -2,12 +2,14 @@
 
 import type { OverviewData } from "@/src/types/models";
 import { Badge } from "@/components/ui/badge";
+import { UnavailableMetricCard } from "@/components/states/UnavailableMetricCard";
 
 type KpiKey = keyof OverviewData["kpis"];
 
 interface OverviewKpiGridProps {
   kpis: OverviewData["kpis"];
   currencySymbol: string;
+  unavailableReasons?: Partial<Record<KpiKey, string>>;
 }
 
 const KPI_DELTAS: Record<KpiKey, number> = {
@@ -28,15 +30,16 @@ const SPARKLINES: Record<KpiKey, number[]> = {
   aov: [4, 4, 5, 5, 6, 6, 7],
 };
 
-export function OverviewKpiGrid({ kpis, currencySymbol }: OverviewKpiGridProps) {
+export function OverviewKpiGrid({ kpis, currencySymbol, unavailableReasons }: OverviewKpiGridProps) {
+  const u = unavailableReasons ?? {};
   return (
     <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-      <KpiCard label="Spend" value={formatCurrency(kpis.spend, currencySymbol)} delta={KPI_DELTAS.spend} sparkline={SPARKLINES.spend} />
-      <KpiCard label="Revenue" value={formatCurrency(kpis.revenue, currencySymbol)} delta={KPI_DELTAS.revenue} sparkline={SPARKLINES.revenue} />
-      <KpiCard label="ROAS" value={kpis.roas.toFixed(2)} delta={KPI_DELTAS.roas} sparkline={SPARKLINES.roas} />
-      <KpiCard label="Purchases" value={kpis.purchases.toLocaleString()} delta={KPI_DELTAS.purchases} sparkline={SPARKLINES.purchases} />
-      <KpiCard label="CPA" value={formatCurrency(kpis.cpa, currencySymbol)} delta={KPI_DELTAS.cpa} sparkline={SPARKLINES.cpa} />
-      <KpiCard label="AOV" value={formatCurrency(kpis.aov, currencySymbol)} delta={KPI_DELTAS.aov} sparkline={SPARKLINES.aov} />
+      {u.spend ? <UnavailableMetricCard label="Spend" requires={u.spend} /> : <KpiCard label="Spend" value={formatCurrency(kpis.spend, currencySymbol)} delta={KPI_DELTAS.spend} sparkline={SPARKLINES.spend} />}
+      {u.revenue ? <UnavailableMetricCard label="Revenue" requires={u.revenue} /> : <KpiCard label="Revenue" value={formatCurrency(kpis.revenue, currencySymbol)} delta={KPI_DELTAS.revenue} sparkline={SPARKLINES.revenue} />}
+      {u.roas ? <UnavailableMetricCard label="ROAS" requires={u.roas} /> : <KpiCard label="ROAS" value={kpis.roas.toFixed(2)} delta={KPI_DELTAS.roas} sparkline={SPARKLINES.roas} />}
+      {u.purchases ? <UnavailableMetricCard label="Purchases" requires={u.purchases} /> : <KpiCard label="Purchases" value={kpis.purchases.toLocaleString()} delta={KPI_DELTAS.purchases} sparkline={SPARKLINES.purchases} />}
+      {u.cpa ? <UnavailableMetricCard label="CPA" requires={u.cpa} /> : <KpiCard label="CPA" value={formatCurrency(kpis.cpa, currencySymbol)} delta={KPI_DELTAS.cpa} sparkline={SPARKLINES.cpa} />}
+      {u.aov ? <UnavailableMetricCard label="AOV" requires={u.aov} /> : <KpiCard label="AOV" value={formatCurrency(kpis.aov, currencySymbol)} delta={KPI_DELTAS.aov} sparkline={SPARKLINES.aov} />}
     </section>
   );
 }

@@ -14,7 +14,8 @@ export type IntegrationStatus =
   | "disconnected"
   | "connecting"
   | "connected"
-  | "error";
+  | "error"
+  | "timeout";
 
 export interface IntegrationAdAccount {
   id: string;
@@ -123,6 +124,7 @@ interface IntegrationsStore {
     provider: IntegrationProvider,
     errorMessage: string
   ) => void;
+  setTimedOut: (businessId: string, provider: IntegrationProvider) => void;
   disconnect: (businessId: string, provider: IntegrationProvider) => void;
   toggleAccount: (
     businessId: string,
@@ -200,6 +202,22 @@ export const useIntegrationsStore = create<IntegrationsStore>()(
                 ...state.byBusinessId[businessId][provider],
                 status: "error",
                 errorMessage,
+              },
+            },
+          },
+        }));
+      },
+      setTimedOut: (businessId, provider) => {
+        get().ensureBusiness(businessId);
+        set((state) => ({
+          byBusinessId: {
+            ...state.byBusinessId,
+            [businessId]: {
+              ...state.byBusinessId[businessId],
+              [provider]: {
+                ...state.byBusinessId[businessId][provider],
+                status: "timeout",
+                errorMessage: "Connection timed out. Please try again.",
               },
             },
           },
