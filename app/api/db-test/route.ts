@@ -38,11 +38,14 @@ export async function GET() {
       INSERT INTO _db_test (value) VALUES ('hello from OmniAds')
       RETURNING id, value
     `;
-    report["3_insert"] = inserted[0]?.value === "hello from OmniAds" ? "OK" : "UNEXPECTED";
+    report["3_insert"] =
+      inserted[0]?.value === "hello from OmniAds" ? "OK" : "UNEXPECTED";
 
     // 4. read back
-    const rows = await sql`SELECT id, value FROM _db_test ORDER BY id DESC LIMIT 1`;
-    report["4_read"] = rows[0]?.value === "hello from OmniAds" ? "OK" : "UNEXPECTED";
+    const rows =
+      await sql`SELECT id, value FROM _db_test ORDER BY id DESC LIMIT 1`;
+    report["4_read"] =
+      rows[0]?.value === "hello from OmniAds" ? "OK" : "UNEXPECTED";
 
     // 5. cleanup
     await sql`DROP TABLE IF EXISTS _db_test`;
@@ -58,7 +61,11 @@ export async function GET() {
     report["6_integrations_table"] =
       tableCheck.length > 0 ? `OK (${tableCheck.length} columns)` : "NOT_FOUND";
 
-    return NextResponse.json({ status: "ALL_PASSED", report, integrations_schema: tableCheck });
+    return NextResponse.json({
+      status: "ALL_PASSED",
+      report,
+      integrations_schema: tableCheck,
+    });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     report["error"] = message;

@@ -10,12 +10,15 @@ import { runMigrations } from "@/lib/migrations";
 export async function POST() {
   try {
     await runMigrations();
-    return NextResponse.json({ status: "OK", message: "Migrations applied successfully." });
+    return NextResponse.json({
+      status: "OK",
+      message: "Migrations applied successfully.",
+    });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     return NextResponse.json(
       { status: "FAILED", error: message },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

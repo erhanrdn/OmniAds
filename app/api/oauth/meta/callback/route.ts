@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
   if (error) {
     const msg = encodeURIComponent(errorDescription || error);
     return NextResponse.redirect(
-      `${baseUrl}/integrations/callback/meta?status=error&error=${msg}`
+      `${baseUrl}/integrations/callback/meta?status=error&error=${msg}`,
     );
   }
 
@@ -33,8 +33,8 @@ export async function GET(request: NextRequest) {
   if (!code || !state) {
     return NextResponse.redirect(
       `${baseUrl}/integrations/callback/meta?status=error&error=${encodeURIComponent(
-        "Missing code or state parameter."
-      )}`
+        "Missing code or state parameter.",
+      )}`,
     );
   }
 
@@ -43,8 +43,8 @@ export async function GET(request: NextRequest) {
   if (!cookieState || cookieState !== state) {
     return NextResponse.redirect(
       `${baseUrl}/integrations/callback/meta?status=error&error=${encodeURIComponent(
-        "Invalid OAuth state. Please try again."
-      )}`
+        "Invalid OAuth state. Please try again.",
+      )}`,
     );
   }
 
@@ -57,8 +57,8 @@ export async function GET(request: NextRequest) {
   } catch {
     return NextResponse.redirect(
       `${baseUrl}/integrations/callback/meta?status=error&error=${encodeURIComponent(
-        "Malformed OAuth state."
-      )}`
+        "Malformed OAuth state.",
+      )}`,
     );
   }
 
@@ -72,13 +72,13 @@ export async function GET(request: NextRequest) {
     });
 
     const tokenRes = await fetch(
-      `${META_CONFIG.tokenUrl}?${tokenParams.toString()}`
+      `${META_CONFIG.tokenUrl}?${tokenParams.toString()}`,
     );
     const tokenData = await tokenRes.json();
 
     if (tokenData.error) {
       throw new Error(
-        tokenData.error.message || "Failed to exchange authorization code."
+        tokenData.error.message || "Failed to exchange authorization code.",
       );
     }
 
@@ -87,12 +87,14 @@ export async function GET(request: NextRequest) {
 
     // ── Fetch Meta user identity ────────────────────────────────
     const meRes = await fetch(
-      `${META_CONFIG.meUrl}?fields=id,name&access_token=${accessToken}`
+      `${META_CONFIG.meUrl}?fields=id,name&access_token=${accessToken}`,
     );
     const meData = await meRes.json();
 
     if (meData.error) {
-      throw new Error(meData.error.message || "Failed to fetch Meta user profile.");
+      throw new Error(
+        meData.error.message || "Failed to fetch Meta user profile.",
+      );
     }
 
     const providerAccountId: string = meData.id;
@@ -115,10 +117,7 @@ export async function GET(request: NextRequest) {
     });
 
     // ── Redirect to frontend callback with success ──────────────
-    const redirectUrl = new URL(
-      `/integrations/callback/meta`,
-      baseUrl
-    );
+    const redirectUrl = new URL(`/integrations/callback/meta`, baseUrl);
     redirectUrl.searchParams.set("status", "success");
     redirectUrl.searchParams.set("businessId", businessId);
     redirectUrl.searchParams.set("integrationId", integration.id);
@@ -138,8 +137,8 @@ export async function GET(request: NextRequest) {
       err instanceof Error ? err.message : "Unknown error during Meta OAuth.";
     return NextResponse.redirect(
       `${baseUrl}/integrations/callback/meta?status=error&businessId=${businessId}&error=${encodeURIComponent(
-        message
-      )}`
+        message,
+      )}`,
     );
   }
 }

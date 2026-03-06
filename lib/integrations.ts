@@ -31,7 +31,7 @@ export interface IntegrationRow {
 
 /** Get all integrations for a business */
 export async function getIntegrationsByBusiness(
-  businessId: string
+  businessId: string,
 ): Promise<IntegrationRow[]> {
   const sql = getDb();
   const rows = await sql`
@@ -45,7 +45,7 @@ export async function getIntegrationsByBusiness(
 /** Get a specific integration by business + provider */
 export async function getIntegration(
   businessId: string,
-  provider: IntegrationProviderType
+  provider: IntegrationProviderType,
 ): Promise<IntegrationRow | null> {
   const sql = getDb();
   const rows = await sql`
@@ -111,7 +111,7 @@ export async function upsertIntegration(params: {
 /** Mark an integration as disconnected */
 export async function disconnectIntegration(
   businessId: string,
-  provider: IntegrationProviderType
+  provider: IntegrationProviderType,
 ): Promise<void> {
   const sql = getDb();
   await sql`
@@ -131,7 +131,7 @@ export async function disconnectIntegration(
 export async function setIntegrationError(
   businessId: string,
   provider: IntegrationProviderType,
-  errorMessage: string
+  errorMessage: string,
 ): Promise<void> {
   const sql = getDb();
   await sql`

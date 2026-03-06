@@ -19,11 +19,13 @@ export async function GET(request: NextRequest) {
   if (!businessId) {
     return NextResponse.json(
       { error: "businessId is required." },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
-  const provider = searchParams.get("provider") as IntegrationProviderType | null;
+  const provider = searchParams.get(
+    "provider",
+  ) as IntegrationProviderType | null;
 
   if (provider) {
     const integration = await getIntegration(businessId, provider);
@@ -42,12 +44,14 @@ export async function GET(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const businessId = searchParams.get("businessId");
-  const provider = searchParams.get("provider") as IntegrationProviderType | null;
+  const provider = searchParams.get(
+    "provider",
+  ) as IntegrationProviderType | null;
 
   if (!businessId || !provider) {
     return NextResponse.json(
       { error: "businessId and provider are required." },
-      { status: 400 }
+      { status: 400 },
     );
   }
 

@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
   if (!businessId) {
     return NextResponse.json(
       { error: "businessId query parameter is required." },
-      { status: 400 }
+      { status: 400 },
     );
   }
 

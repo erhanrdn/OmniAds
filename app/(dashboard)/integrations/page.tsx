@@ -29,7 +29,9 @@ export default function IntegrationsPage() {
 
   const ensureBusiness = useIntegrationsStore((state) => state.ensureBusiness);
   const byBusinessId = useIntegrationsStore((state) => state.byBusinessId);
-  const startConnecting = useIntegrationsStore((state) => state.startConnecting);
+  const startConnecting = useIntegrationsStore(
+    (state) => state.startConnecting,
+  );
   const setConnected = useIntegrationsStore((state) => state.setConnected);
   const disconnect = useIntegrationsStore((state) => state.disconnect);
   const toggleAccount = useIntegrationsStore((state) => state.toggleAccount);
@@ -37,8 +39,10 @@ export default function IntegrationsPage() {
   const setToast = useIntegrationsStore((state) => state.setToast);
   const clearToast = useIntegrationsStore((state) => state.clearToast);
 
-  const [activeProvider, setActiveProvider] = useState<IntegrationProvider | null>(null);
-  const [expandedProvider, setExpandedProvider] = useState<IntegrationProvider | null>(null);
+  const [activeProvider, setActiveProvider] =
+    useState<IntegrationProvider | null>(null);
+  const [expandedProvider, setExpandedProvider] =
+    useState<IntegrationProvider | null>(null);
 
   /** Disconnect: calls backend API for real providers, then updates local store */
   const handleDisconnect = useCallback(
@@ -47,7 +51,7 @@ export default function IntegrationsPage() {
         try {
           await fetch(
             `/api/integrations?businessId=${encodeURIComponent(businessId)}&provider=${provider}`,
-            { method: "DELETE" }
+            { method: "DELETE" },
           );
         } catch {
           // best effort — still disconnect locally
@@ -58,7 +62,7 @@ export default function IntegrationsPage() {
         setExpandedProvider(null);
       }
     },
-    [businessId, disconnect, expandedProvider]
+    [businessId, disconnect, expandedProvider],
   );
 
   useEffect(() => {
@@ -69,7 +73,9 @@ export default function IntegrationsPage() {
   useEffect(() => {
     async function hydrate() {
       try {
-        const res = await fetch(`/api/integrations?businessId=${encodeURIComponent(businessId)}`);
+        const res = await fetch(
+          `/api/integrations?businessId=${encodeURIComponent(businessId)}`,
+        );
         if (!res.ok) return;
         const data = await res.json();
         const rows: Array<{
@@ -177,7 +183,9 @@ export default function IntegrationsPage() {
               handleDisconnect(nextProvider);
             }}
             onToggleManage={(nextProvider) =>
-              setExpandedProvider((prev) => (prev === nextProvider ? null : nextProvider))
+              setExpandedProvider((prev) =>
+                prev === nextProvider ? null : nextProvider,
+              )
             }
             onToggleAccount={(nextProvider, accountId) =>
               toggleAccount(businessId, nextProvider, accountId)

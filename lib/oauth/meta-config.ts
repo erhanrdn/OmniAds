@@ -15,7 +15,8 @@ export const META_CONFIG = {
   },
   get appSecret() {
     const v = process.env.META_APP_SECRET;
-    if (!v) throw new Error("META_APP_SECRET is not set in environment variables.");
+    if (!v)
+      throw new Error("META_APP_SECRET is not set in environment variables.");
     return v;
   },
   get redirectUri() {
