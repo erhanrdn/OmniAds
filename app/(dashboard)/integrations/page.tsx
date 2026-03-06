@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BUSINESSES, useAppStore } from "@/store/app-store";
+import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
+import { useAppStore } from "@/store/app-store";
 import {
   INTEGRATION_PROVIDERS,
   IntegrationProvider,
@@ -25,8 +26,10 @@ const DESCRIPTIONS: Record<IntegrationProvider, string> = {
 };
 
 export default function IntegrationsPage() {
+  const businesses = useAppStore((state) => state.businesses);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
-  const businessId = selectedBusinessId ?? BUSINESSES[0].id;
+  const businessId = selectedBusinessId;
+  const activeBusiness = businesses.find((item) => item.id === businessId) ?? null;
 
   const ensureBusiness = useIntegrationsStore((state) => state.ensureBusiness);
   const byBusinessId = useIntegrationsStore((state) => state.byBusinessId);
@@ -37,7 +40,7 @@ export default function IntegrationsPage() {
   const setToast = useIntegrationsStore((state) => state.setToast);
   const clearToast = useIntegrationsStore((state) => state.clearToast);
 
-  const { connect, cancel, retry, fetchStatuses } = useIntegrationConnection(businessId);
+  const { connect, cancel, retry, fetchStatuses } = useIntegrationConnection(businessId ?? "");
 
   const [activeProvider, setActiveProvider] =
     useState<IntegrationProvider | null>(null);
@@ -47,6 +50,7 @@ export default function IntegrationsPage() {
   /** Disconnect: calls backend API for real providers, then updates local store */
   const handleDisconnect = useCallback(
     async (provider: IntegrationProvider) => {
+      if (!businessId) return;
       if (REAL_PROVIDERS.includes(provider)) {
         try {
           await fetch(
@@ -66,13 +70,15 @@ export default function IntegrationsPage() {
   );
 
   useEffect(() => {
+    if (!businessId) return;
     ensureBusiness(businessId);
   }, [businessId, ensureBusiness]);
 
   // On mount: fetch real statuses from backend so stale "connecting" state is corrected.
   useEffect(() => {
+    if (!businessId) return;
     fetchStatuses();
-  }, [fetchStatuses]);
+  }, [businessId, fetchStatuses]);
 
   useEffect(() => {
     if (!toast) return;
@@ -81,9 +87,11 @@ export default function IntegrationsPage() {
   }, [toast, clearToast]);
 
   const integrations = useMemo(() => {
+    if (!businessId) return null;
     return byBusinessId[businessId];
   }, [byBusinessId, businessId]);
 
+  if (!businessId) return <BusinessEmptyState />;
   if (!integrations) return null;
 
   const handleConnect = (provider: IntegrationProvider) => {
@@ -112,6 +120,9 @@ export default function IntegrationsPage() {
         <p className="text-sm text-muted-foreground">
           Manage OAuth connections and ad account selections.
         </p>
+        <p className="text-xs font-medium text-muted-foreground">
+          Active business: <span className="text-foreground">{activeBusiness?.name ?? "Unknown"}</span>
+        </p>
       </div>
 
       {toast && (
@@ -134,7 +145,6 @@ export default function IntegrationsPage() {
             description={DESCRIPTIONS[provider]}
             state={integrations[provider]}
             isExpanded={expandedProvider === provider}
-            simpleActions={provider === "ga4"}
             connectedDetailText={
               provider === "ga4" && integrations.ga4.status === "connected"
                 ? "Property: GA4 Demo Property"

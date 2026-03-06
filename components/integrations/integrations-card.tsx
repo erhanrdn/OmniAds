@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getProviderLabel } from "@/components/integrations/oauth";
 import { IntegrationProvider, IntegrationState } from "@/store/integrations-store";
+import { BusinessAccountAssignment } from "@/components/integrations/BusinessAccountAssignment";
 import { Loader2, Plug } from "lucide-react";
 
 interface IntegrationsCardProps {
@@ -150,24 +151,11 @@ export function IntegrationsCard({
       </div>
 
       {isConnected && isExpanded && !simpleActions && (
-        <div className="mt-4 rounded-lg border bg-muted/20 p-3">
-          <h3 className="text-sm font-semibold">Ad Accounts</h3>
-          <div className="mt-2 space-y-2">
-            {state.accounts.map((account) => (
-              <label
-                key={account.id}
-                className="flex items-center justify-between rounded-md border bg-background px-3 py-2 text-sm"
-              >
-                <span>{account.name}</span>
-                <input
-                  type="checkbox"
-                  checked={account.enabled}
-                  onChange={() => onToggleAccount(provider, account.id)}
-                />
-              </label>
-            ))}
-          </div>
-        </div>
+        <BusinessAccountAssignment
+          provider={provider}
+          state={state}
+          onToggleAccount={onToggleAccount}
+        />
       )}
     </div>
   );

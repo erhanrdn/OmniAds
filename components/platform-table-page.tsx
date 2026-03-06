@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { BUSINESSES, useAppStore } from "@/store/app-store";
+import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
+import { useAppStore } from "@/store/app-store";
 import { getPlatformTable } from "@/src/services";
 import { MetricsRow, Platform, PlatformLevel, PlatformTableRow } from "@/src/types";
 import { LoadingSkeleton } from "@/components/states/loading-skeleton";
@@ -65,7 +66,7 @@ export function PlatformTablePage({
   description,
 }: PlatformTablePageProps) {
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
-  const businessId = selectedBusinessId ?? BUSINESSES[0].id;
+  const businessId = selectedBusinessId ?? "";
 
   const [activeTab, setActiveTab] = useState<TabValue>("campaigns");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -78,6 +79,7 @@ export function PlatformTablePage({
 
   const accountQuery = useQuery({
     queryKey: ["platform-accounts", platform, businessId],
+    enabled: Boolean(selectedBusinessId),
     queryFn: () =>
       getPlatformTable(
         platform,
@@ -99,6 +101,7 @@ export function PlatformTablePage({
       selectedAccountId,
       visibleColumns.join(","),
     ],
+    enabled: Boolean(selectedBusinessId),
     queryFn: () =>
       getPlatformTable(
         platform,
@@ -172,6 +175,8 @@ export function PlatformTablePage({
 
   const isLoading = tableQuery.isLoading || accountQuery.isLoading;
   const isError = tableQuery.isError || accountQuery.isError;
+
+  if (!selectedBusinessId) return <BusinessEmptyState />;
 
   return (
     <div className="space-y-5">

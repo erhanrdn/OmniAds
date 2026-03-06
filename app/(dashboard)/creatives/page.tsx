@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { BUSINESSES, useAppStore } from "@/store/app-store";
+import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
+import { useAppStore } from "@/store/app-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
 import { EmptyState } from "@/components/states/empty-state";
 import { IntegrationEmptyState } from "@/components/states/IntegrationEmptyState";
@@ -199,14 +200,17 @@ const PLATFORM_LABELS: Record<string, string> = {
 
 export default function CreativesPage() {
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
-  const businessId = selectedBusinessId ?? BUSINESSES[0].id;
+  const businessId = selectedBusinessId ?? "";
 
   const ensureBusiness = useIntegrationsStore((state) => state.ensureBusiness);
   const byBusinessId = useIntegrationsStore((state) => state.byBusinessId);
 
   useEffect(() => {
+    if (!selectedBusinessId) return;
     ensureBusiness(businessId);
-  }, [businessId, ensureBusiness]);
+  }, [businessId, ensureBusiness, selectedBusinessId]);
+
+  if (!selectedBusinessId) return <BusinessEmptyState />;
 
   const integrations = byBusinessId[businessId];
 

@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { BUSINESSES, useAppStore } from "@/store/app-store";
+import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
+import { useAppStore } from "@/store/app-store";
 import { getLandingPages } from "@/src/services";
 import { LandingPage, Platform } from "@/src/types";
 import { LoadingSkeleton } from "@/components/states/loading-skeleton";
@@ -24,7 +25,7 @@ const PLATFORM_OPTIONS: Array<{ value: "all" | Platform; label: string }> = [
 
 export default function LandingPagesPage() {
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
-  const businessId = selectedBusinessId ?? BUSINESSES[0].id;
+  const businessId = selectedBusinessId ?? "";
 
   const [platform, setPlatform] = useState<"all" | Platform>("all");
   const [dateRange, setDateRange] = useState<DateRangeFilter>("30d");
@@ -33,6 +34,7 @@ export default function LandingPagesPage() {
 
   const query = useQuery({
     queryKey: ["landing-pages", businessId, platform, dateRange, search],
+    enabled: Boolean(selectedBusinessId),
     queryFn: () =>
       getLandingPages(businessId, {
         platform: platform === "all" ? undefined : platform,
@@ -40,6 +42,8 @@ export default function LandingPagesPage() {
         search: search.trim() || undefined,
       }),
   });
+
+  if (!selectedBusinessId) return <BusinessEmptyState />;
 
   return (
     <div className="space-y-5">

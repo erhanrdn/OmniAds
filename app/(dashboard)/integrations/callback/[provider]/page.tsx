@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { BUSINESSES, useAppStore } from "@/store/app-store";
+import { useAppStore } from "@/store/app-store";
 import {
   INTEGRATION_PROVIDERS,
   IntegrationProvider,
@@ -15,9 +15,10 @@ export default function IntegrationCallbackPage() {
   const params = useParams<{ provider: string }>();
   const searchParams = useSearchParams();
 
+  const businesses = useAppStore((state) => state.businesses);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
-  const fallbackBusinessId = selectedBusinessId ?? BUSINESSES[0].id;
-  const businessId = searchParams.get("businessId") ?? fallbackBusinessId;
+  const selectBusiness = useAppStore((state) => state.selectBusiness);
+  const businessId = searchParams.get("businessId") ?? selectedBusinessId;
 
   const ensureBusiness = useIntegrationsStore((state) => state.ensureBusiness);
   const setConnected = useIntegrationsStore((state) => state.setConnected);
@@ -35,6 +36,12 @@ export default function IntegrationCallbackPage() {
   const errorParam = searchParams.get("error");
 
   useEffect(() => {
+    if (!businessId) {
+      router.replace(businesses.length > 0 ? "/select-business" : "/businesses/new");
+      return;
+    }
+
+    selectBusiness(businessId);
     ensureBusiness(businessId);
 
     const integrationId = searchParams.get("integrationId") ?? undefined;
@@ -59,10 +66,12 @@ export default function IntegrationCallbackPage() {
     return () => clearTimeout(errorTimeout);
   }, [
     businessId,
+    businesses.length,
     ensureBusiness,
     provider,
     providerLabel,
     router,
+    selectBusiness,
     statusParam,
     errorParam,
     searchParams,

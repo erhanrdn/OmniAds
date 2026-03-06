@@ -1,33 +1,57 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 
 export interface Business {
   id: string;
   name: string;
-  industry: string;
-  initials: string;
+  timezone: string;
+  currency: string;
 }
-
-export const BUSINESSES: Business[] = [
-  { id: "1", name: "Acme Corp", industry: "E-commerce", initials: "AC" },
-  { id: "2", name: "Globex Media", industry: "Media & Advertising", initials: "GM" },
-  { id: "3", name: "Initech Solutions", industry: "SaaS", initials: "IS" },
-];
 
 interface AppState {
   desktopSidebarOpen: boolean;
   mobileSidebarOpen: boolean;
+  businesses: Business[];
   selectedBusinessId: string | null;
   toggleDesktopSidebar: () => void;
   setMobileSidebarOpen: (open: boolean) => void;
-  setSelectedBusinessId: (id: string | null) => void;
+  createBusiness: (name: string, timezone: string, currency: string) => string;
+  selectBusiness: (id: string | null) => void;
 }
 
-export const useAppStore = create<AppState>((set) => ({
-  desktopSidebarOpen: true,
-  mobileSidebarOpen: false,
-  selectedBusinessId: null,
-  toggleDesktopSidebar: () =>
-    set((state) => ({ desktopSidebarOpen: !state.desktopSidebarOpen })),
-  setMobileSidebarOpen: (open) => set({ mobileSidebarOpen: open }),
-  setSelectedBusinessId: (id) => set({ selectedBusinessId: id }),
-}));
+export const useAppStore = create<AppState>()(
+  persist(
+    (set) => ({
+      desktopSidebarOpen: true,
+      mobileSidebarOpen: false,
+      businesses: [],
+      selectedBusinessId: null,
+      toggleDesktopSidebar: () =>
+        set((state) => ({ desktopSidebarOpen: !state.desktopSidebarOpen })),
+      setMobileSidebarOpen: (open) => set({ mobileSidebarOpen: open }),
+      createBusiness: (name, timezone, currency) => {
+        const id = crypto.randomUUID();
+        set((state) => ({
+          businesses: [
+            ...state.businesses,
+            {
+              id,
+              name: name.trim(),
+              timezone,
+              currency,
+            },
+          ],
+        }));
+        return id;
+      },
+      selectBusiness: (id) => set({ selectedBusinessId: id }),
+    }),
+    {
+      name: "omniads-app-store-v2",
+      partialize: (state) => ({
+        businesses: state.businesses,
+        selectedBusinessId: state.selectedBusinessId,
+      }),
+    }
+  )
+);

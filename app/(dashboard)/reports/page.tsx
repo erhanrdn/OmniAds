@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { BUSINESSES, useAppStore } from "@/store/app-store";
+import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
+import { useAppStore } from "@/store/app-store";
 import {
   getCreatives,
   getLandingPages,
@@ -63,7 +64,7 @@ const PLATFORM_OPTIONS: Array<{ value: PlatformFilter; label: string }> = [
 
 export default function ReportsPage() {
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
-  const businessId = selectedBusinessId ?? BUSINESSES[0].id;
+  const businessId = selectedBusinessId ?? "";
 
   const [selectedSections, setSelectedSections] =
     useState<SectionKey[]>(DEFAULT_SECTIONS);
@@ -84,11 +85,13 @@ export default function ReportsPage() {
 
   const overviewQuery = useQuery({
     queryKey: ["report-overview", businessId, range],
+    enabled: Boolean(selectedBusinessId),
     queryFn: () => getOverview(businessId, range),
   });
 
   const creativesQuery = useQuery({
     queryKey: ["report-creatives", businessId, platform, dateRange],
+    enabled: Boolean(selectedBusinessId),
     queryFn: () =>
       getCreatives(businessId, {
         dateRange,
@@ -99,6 +102,7 @@ export default function ReportsPage() {
 
   const landingPagesQuery = useQuery({
     queryKey: ["report-landing-pages", businessId, platform, dateRange],
+    enabled: Boolean(selectedBusinessId),
     queryFn: () =>
       getLandingPages(businessId, {
         dateRange,
@@ -108,7 +112,7 @@ export default function ReportsPage() {
 
   const platformTableQuery = useQuery({
     queryKey: ["report-platform-table", businessId, platform, range],
-    enabled: platform !== "all",
+    enabled: Boolean(selectedBusinessId) && platform !== "all",
     queryFn: () =>
       getPlatformTable(
         platform as Platform,
@@ -119,6 +123,8 @@ export default function ReportsPage() {
         ["spend", "purchases", "revenue", "roas", "cpa"]
       ),
   });
+
+  if (!selectedBusinessId) return <BusinessEmptyState />;
 
   useEffect(() => {
     try {

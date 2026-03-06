@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { BUSINESSES, useAppStore } from "@/store/app-store";
+import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
+import { useAppStore } from "@/store/app-store";
 import { getOverview } from "@/src/services";
 import { LoadingSkeleton } from "@/components/states/loading-skeleton";
 import { ErrorState } from "@/components/states/error-state";
@@ -20,7 +21,7 @@ type CurrencyCode = "USD" | "EUR" | "GBP";
 
 export default function OverviewPage() {
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
-  const businessId = selectedBusinessId ?? BUSINESSES[0].id;
+  const businessId = selectedBusinessId ?? "";
 
   const [dateRangePreset, setDateRangePreset] = useState<TrendWindow>("30d");
   const [customStartDate, setCustomStartDate] = useState("2026-02-20");
@@ -37,8 +38,9 @@ export default function OverviewPage() {
   const byBusinessId = useIntegrationsStore((state) => state.byBusinessId);
 
   useEffect(() => {
+    if (!selectedBusinessId) return;
     ensureBusiness(businessId);
-  }, [businessId, ensureBusiness]);
+  }, [businessId, ensureBusiness, selectedBusinessId]);
 
   const dateRange = useMemo(() => {
     if (dateRangePreset === "custom") {
@@ -58,8 +60,11 @@ export default function OverviewPage() {
 
   const query = useQuery({
     queryKey: ["overview", businessId, dateRange, attributionModel],
+    enabled: Boolean(selectedBusinessId),
     queryFn: () => getOverview(businessId, dateRange),
   });
+
+  if (!selectedBusinessId) return <BusinessEmptyState />;
 
   if (query.isLoading) {
     return <LoadingSkeleton rows={5} />;
