@@ -65,6 +65,8 @@ interface RawCreativeRow {
   purchases: number;
 }
 
+export type CreativePreviewState = "preview" | "catalog" | "unavailable";
+
 export interface MetaCreativeApiRow {
   id: string;
   creative_id: string;
@@ -73,6 +75,8 @@ export interface MetaCreativeApiRow {
   thumbnail_url: string | null;
   image_url: string | null;
   is_catalog: boolean;
+  /** "catalog" | "preview" | "unavailable" — use this to drive UI rendering */
+  preview_state: CreativePreviewState;
   launch_date: string;
   tags: string[];
   format: "image" | "video";
@@ -395,26 +399,35 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ status: "no_data", rows: [] });
   }
 
-  const responseRows: MetaCreativeApiRow[] = rows.map((row) => ({
-    id: row.id,
-    creative_id: row.creative_id,
-    name: row.name,
-    preview_url: row.preview_url,
-    thumbnail_url: row.thumbnail_url,
-    image_url: row.image_url,
-    is_catalog: row.is_catalog,
-    launch_date: row.launch_date,
-    tags: row.tags,
-    format: row.format,
-    spend: row.spend,
-    purchase_value: row.purchase_value,
-    roas: row.roas,
-    cpa: row.cpa,
-    cpc_link: row.cpc_link,
-    cpm: row.cpm,
-    ctr_all: row.ctr_all,
-    purchases: row.purchases,
-  }));
+  const responseRows: MetaCreativeApiRow[] = rows.map((row) => {
+    const previewState: CreativePreviewState = row.is_catalog
+      ? "catalog"
+      : row.preview_url
+      ? "preview"
+      : "unavailable";
+
+    return {
+      id: row.id,
+      creative_id: row.creative_id,
+      name: row.name,
+      preview_url: row.preview_url,
+      thumbnail_url: row.thumbnail_url,
+      image_url: row.image_url,
+      is_catalog: row.is_catalog,
+      preview_state: previewState,
+      launch_date: row.launch_date,
+      tags: row.tags,
+      format: row.format,
+      spend: row.spend,
+      purchase_value: row.purchase_value,
+      roas: row.roas,
+      cpa: row.cpa,
+      cpc_link: row.cpc_link,
+      cpm: row.cpm,
+      ctr_all: row.ctr_all,
+      purchases: row.purchases,
+    };
+  });
 
   return NextResponse.json({ status: "ok", rows: responseRows });
 }

@@ -33,10 +33,12 @@ interface MetaAdRecord {
 
 // ── Public response shape ─────────────────────────────────────────────────────
 
+export type CreativePreviewState = "preview" | "catalog" | "unavailable";
+
 export interface MetaCreativeRow {
   creative_id: string;
   name: string;
-  /** Best available static preview URL (image_url → thumbnail_url → null) */
+  /** Best available static preview URL (image_url → thumbnail_url → null). Null for catalog ads. */
   preview_url: string | null;
   image_url: string | null;
   thumbnail_url: string | null;
@@ -46,6 +48,13 @@ export interface MetaCreativeRow {
    * meaningful static preview.
    */
   is_catalog: boolean;
+  /**
+   * Normalized preview state:
+   *   "catalog"     — is_catalog=true (DPA/dynamic product ad)
+   *   "preview"     — static image/thumbnail available
+   *   "unavailable" — no preview URL and not a catalog ad
+   */
+  preview_state: CreativePreviewState;
   spend: number;
   revenue: number;
   roas: number;
@@ -260,13 +269,20 @@ export async function GET(request: NextRequest) {
         const roas = spend > 0 ? revenue / spend : 0;
         const ctr = parseFloat(insight.ctr ?? "0") || 0;
 
+        const previewState: CreativePreviewState = isCatalog
+          ? "catalog"
+          : previewUrl
+          ? "preview"
+          : "unavailable";
+
         allRows.push({
           creative_id: adId,
           name: insight.ad_name ?? "Unknown Ad",
-          preview_url: previewUrl,
+          preview_url: isCatalog ? null : previewUrl,
           image_url: imageUrl,
           thumbnail_url: thumbnailUrl,
           is_catalog: isCatalog,
+          preview_state: previewState,
           spend: r2(spend),
           revenue: r2(revenue),
           roas: r2(roas),

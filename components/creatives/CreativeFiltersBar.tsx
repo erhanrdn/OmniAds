@@ -5,8 +5,10 @@ import { MetaCreativeRow } from "@/components/creatives/metricConfig";
 
 type PlatformOption = "meta" | "google" | "tiktok" | "pinterest" | "snapchat";
 
+/**
+ * dateRange removed — date range is now managed via DateRangePicker externally.
+ */
 interface CreativeFiltersState {
-  dateRange: "7" | "14" | "30";
   groupBy: "adName" | "creative" | "adSet";
   selectedTags: string[];
   format: "all" | "image" | "video";
@@ -56,18 +58,6 @@ export function CreativeFiltersBar({
           <option value="tiktok">TikTok</option>
           <option value="pinterest">Pinterest</option>
           <option value="snapchat">Snapchat</option>
-        </select>
-
-        <select
-          value={value.dateRange}
-          onChange={(event) =>
-            onChange({ ...value, dateRange: event.target.value as CreativeFiltersState["dateRange"] })
-          }
-          className="h-8 rounded-full border bg-background px-3 text-xs"
-        >
-          <option value="7">Last 7 days</option>
-          <option value="14">Last 14 days</option>
-          <option value="30">Last 30 days</option>
         </select>
 
         <select

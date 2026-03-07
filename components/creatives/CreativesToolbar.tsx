@@ -4,11 +4,17 @@ import { useMemo, useState } from "react";
 import { Share2, Download } from "lucide-react";
 import { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { CreativeFiltersState } from "@/components/creatives/CreativeFiltersBar";
+import {
+  DateRangePicker,
+  DateRangeValue,
+} from "@/components/date-range/DateRangePicker";
 
 interface CreativesToolbarProps {
   rows: MetaCreativeRow[];
   value: CreativeFiltersState;
   onChange: (next: CreativeFiltersState) => void;
+  dateRangeValue: DateRangeValue;
+  onDateRangeChange: (next: DateRangeValue) => void;
   onComingSoon: () => void;
   selectedCount: number;
   onShareSelected: () => void;
@@ -18,6 +24,8 @@ export function CreativesToolbar({
   rows,
   value,
   onChange,
+  dateRangeValue,
+  onDateRangeChange,
   onComingSoon,
   selectedCount,
   onShareSelected,
@@ -39,9 +47,10 @@ export function CreativesToolbar({
 
   return (
     <div className="space-y-3 rounded-2xl border bg-card p-4">
-      {/* Row 1: filters left, selection actions right */}
+      {/* Row 1: date range picker + filters, selection actions on right */}
       <div className="flex flex-wrap items-center gap-2">
-        {/* Left: filter selects */}
+        <DateRangePicker value={dateRangeValue} onChange={onDateRangeChange} />
+
         <select
           value={value.platform}
           onChange={(e) =>
@@ -54,18 +63,6 @@ export function CreativesToolbar({
           <option value="tiktok">TikTok</option>
           <option value="pinterest">Pinterest</option>
           <option value="snapchat">Snapchat</option>
-        </select>
-
-        <select
-          value={value.dateRange}
-          onChange={(e) =>
-            onChange({ ...value, dateRange: e.target.value as CreativeFiltersState["dateRange"] })
-          }
-          className="h-8 rounded-full border bg-background px-3 text-xs"
-        >
-          <option value="7">Last 7 days</option>
-          <option value="14">Last 14 days</option>
-          <option value="30">Last 30 days</option>
         </select>
 
         <select
@@ -105,7 +102,6 @@ export function CreativesToolbar({
           <option value="purchaseValue">Sort by Purchase value</option>
         </select>
 
-        {/* Right: selection actions — only visible when selection exists */}
         {selectedCount > 0 && (
           <div className="ml-auto flex items-center gap-2">
             <span className="text-xs text-muted-foreground">

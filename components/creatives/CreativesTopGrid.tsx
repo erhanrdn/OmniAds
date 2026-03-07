@@ -1,6 +1,7 @@
 "use client";
 
 import { METRIC_CONFIG, MetaCreativeRow } from "@/components/creatives/metricConfig";
+import { CreativePreview } from "@/components/creatives/CreativePreview";
 
 interface CreativesTopGridProps {
   rows: MetaCreativeRow[];
@@ -25,7 +26,16 @@ export function CreativesTopGrid({
         {rows.map((row) => (
           <div key={row.id} className="overflow-hidden rounded-xl border bg-card">
             <button type="button" onClick={() => onOpenRow(row.id)} className="w-full text-left">
-              <CreativePreview row={row} />
+              <CreativePreview
+                creative={{
+                  name: row.name,
+                  isCatalog: row.isCatalog,
+                  previewUrl: row.previewUrl,
+                  imageUrl: row.imageUrl,
+                  thumbnailUrl: row.thumbnailUrl,
+                }}
+                aspectRatio="video"
+              />
               <div className="p-3">
                 <p className="line-clamp-1 text-sm font-medium">{row.name}</p>
                 <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
@@ -52,28 +62,6 @@ export function CreativesTopGrid({
           </div>
         ))}
       </div>
-    </div>
-  );
-}
-
-function CreativePreview({ row }: { row: MetaCreativeRow }) {
-  const preview = row.previewUrl ?? row.thumbnailUrl ?? row.imageUrl;
-
-  if (preview) {
-    return <img src={preview} alt={row.name} className="aspect-video w-full object-cover" />;
-  }
-
-  if (row.isCatalog) {
-    return (
-      <div className="flex aspect-video w-full items-center justify-center bg-muted/50 text-xs text-muted-foreground">
-        Catalog ad
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex aspect-video w-full items-center justify-center bg-muted/35 text-xs text-muted-foreground">
-      Preview unavailable
     </div>
   );
 }

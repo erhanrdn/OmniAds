@@ -15,6 +15,11 @@ import { Button } from "@/components/ui/button";
 import type { CreativeFiltersState } from "@/components/creatives/CreativeFiltersBar";
 import { CreativesToolbar } from "@/components/creatives/CreativesToolbar";
 import {
+  DateRangeValue,
+  DEFAULT_DATE_RANGE,
+  getPresetDates,
+} from "@/components/date-range/DateRangePicker";
+import {
   DEFAULT_TABLE_METRICS,
   type MetaCreativeRow,
 } from "@/components/creatives/metricConfig";
@@ -38,22 +43,6 @@ const PLATFORM_LABELS: Record<string, string> = {
   pinterest: "Pinterest",
   snapchat: "Snapchat",
 };
-
-function toISODate(date: Date) {
-  return date.toISOString().slice(0, 10);
-}
-
-function nDaysAgo(n: number) {
-  const date = new Date();
-  date.setDate(date.getDate() - n);
-  return date;
-}
-
-function toDateRange(range: CreativeFiltersState["dateRange"]) {
-  const end = toISODate(new Date());
-  const start = toISODate(nDaysAgo(Number(range) - 1));
-  return { start, end };
-}
 
 function hasMessage(payload: unknown): payload is { message: string } {
   if (!payload || typeof payload !== "object") return false;
@@ -141,8 +130,8 @@ export default function CreativesPage() {
 
   const integrations = byBusinessId[businessId];
 
+  const [dateRangeValue, setDateRangeValue] = useState<DateRangeValue>(DEFAULT_DATE_RANGE);
   const [creativeFilters, setCreativeFilters] = useState<CreativeFiltersState>({
-    dateRange: "14",
     groupBy: "adName",
     selectedTags: [],
     format: "all",
@@ -172,17 +161,18 @@ export default function CreativesPage() {
   const assignedMetaAccounts = assignedAccountsByBusiness[businessId]?.meta ?? [];
   const metaHasAssignments = assignedMetaAccounts.length > 0;
 
-  const dateRange = useMemo(
-    () => toDateRange(creativeFilters.dateRange),
-    [creativeFilters.dateRange]
+  const { start: drStart, end: drEnd } = getPresetDates(
+    dateRangeValue.rangePreset,
+    dateRangeValue.customStart,
+    dateRangeValue.customEnd
   );
 
   const creativesQuery = useQuery({
     queryKey: [
       "meta-creatives-motion",
       businessId,
-      dateRange.start,
-      dateRange.end,
+      drStart,
+      drEnd,
       creativeFilters.groupBy,
       creativeFilters.format,
       creativeFilters.sort,
@@ -191,8 +181,8 @@ export default function CreativesPage() {
     queryFn: () =>
       fetchMetaCreatives({
         businessId,
-        start: dateRange.start,
-        end: dateRange.end,
+        start: drStart,
+        end: drEnd,
         groupBy: creativeFilters.groupBy,
         format: creativeFilters.format,
         sort: creativeFilters.sort,
@@ -295,6 +285,8 @@ export default function CreativesPage() {
         rows={allRows}
         value={creativeFilters}
         onChange={setCreativeFilters}
+        dateRangeValue={dateRangeValue}
+        onDateRangeChange={setDateRangeValue}
         onComingSoon={showComingSoon}
         selectedCount={selectionState.selectedRowIds.length}
         onShareSelected={() => setShareModalOpen(true)}

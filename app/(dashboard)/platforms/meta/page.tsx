@@ -20,6 +20,13 @@ import {
 import { useRouter } from "next/navigation";
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
 import type { MetaCreativeRow } from "@/app/api/meta/top-creatives/route";
+import {
+  DateRangePicker,
+  DateRangeValue,
+  DEFAULT_DATE_RANGE,
+  getPresetDates,
+} from "@/components/date-range/DateRangePicker";
+import { CreativePreview } from "@/components/creatives/CreativePreview";
 
 // ── Data fetchers ─────────────────────────────────────────────────────────────
 
@@ -64,16 +71,6 @@ async function fetchMetaTopCreatives(
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-function toISODate(d: Date) {
-  return d.toISOString().slice(0, 10);
-}
-
-function nDaysAgo(n: number) {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return d;
-}
 
 function fmt$(n: number) {
   return `$${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
@@ -169,57 +166,6 @@ function CampaignStatusBadge({ status }: { status: string }) {
 
 // ── Top Creatives ─────────────────────────────────────────────────────────────
 
-/**
- * Three distinct preview states:
- * A) is_catalog = true  → Catalog ad (dynamic product ad, no static preview)
- * B) is_catalog = false + preview_url  → Real thumbnail / image
- * C) is_catalog = false + no preview_url  → Preview unavailable
- */
-function CreativePreview({
-  creative,
-  className = "",
-}: {
-  creative: MetaCreativeRow;
-  className?: string;
-}) {
-  // A) Catalog / DPA ad
-  if (creative.is_catalog) {
-    return (
-      <div
-        className={`flex aspect-square w-full flex-col items-center justify-center gap-1.5 bg-muted/60 ${className}`}
-      >
-        <Badge variant="secondary" className="text-[10px]">
-          Catalog ad
-        </Badge>
-        <span className="text-xs text-muted-foreground">Dynamic product creative</span>
-      </div>
-    );
-  }
-
-  // B) Real preview
-  if (creative.preview_url) {
-    return (
-      <div className={`aspect-square w-full overflow-hidden ${className}`}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={creative.preview_url}
-          alt={creative.name}
-          className="h-full w-full object-cover"
-        />
-      </div>
-    );
-  }
-
-  // C) Preview unavailable (non-catalog, but no image/thumbnail returned)
-  return (
-    <div
-      className={`flex aspect-square w-full items-center justify-center bg-muted/40 ${className}`}
-    >
-      <span className="text-xs text-muted-foreground">Preview unavailable</span>
-    </div>
-  );
-}
-
 function CreativeCard({
   creative,
   onClick,
@@ -233,7 +179,15 @@ function CreativeCard({
       onClick={onClick}
       className="flex flex-col rounded-xl border bg-card text-left transition-shadow hover:shadow-sm"
     >
-      <CreativePreview creative={creative} />
+      <CreativePreview
+        creative={{
+          name: creative.name,
+          isCatalog: creative.is_catalog,
+          previewUrl: creative.preview_url,
+          imageUrl: creative.image_url,
+          thumbnailUrl: creative.thumbnail_url,
+        }}
+      />
       <div className="space-y-1.5 p-3">
         <p className="truncate text-sm font-medium">{creative.name}</p>
         <div className="grid grid-cols-2 gap-1.5 text-xs">
@@ -259,7 +213,10 @@ function MiniMetric({ label, value }: { label: string; value: string }) {
 
 // ── Drawer ────────────────────────────────────────────────────────────────────
 
-type DrawerPayload = { type: "campaign"; data: MetaCampaignRow } | { type: "creative"; data: MetaCreativeRow } | null;
+type DrawerPayload =
+  | { type: "campaign"; data: MetaCampaignRow }
+  | { type: "creative"; data: MetaCreativeRow }
+  | null;
 
 function MetaDrawer({ payload, onClose }: { payload: DrawerPayload; onClose: () => void }) {
   return (
@@ -300,7 +257,16 @@ function MetaDrawer({ payload, onClose }: { payload: DrawerPayload; onClose: () 
               </SheetDescription>
             </SheetHeader>
             <div className="space-y-4 pb-6">
-              <CreativePreview creative={payload.data} className="rounded-xl" />
+              <CreativePreview
+                creative={{
+                  name: payload.data.name,
+                  isCatalog: payload.data.is_catalog,
+                  previewUrl: payload.data.preview_url,
+                  imageUrl: payload.data.image_url,
+                  thumbnailUrl: payload.data.thumbnail_url,
+                }}
+                className="rounded-xl"
+              />
               <section className="rounded-xl border p-4">
                 <h3 className="text-sm font-semibold">Metrics</h3>
                 <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
@@ -334,15 +300,18 @@ export default function MetaPage() {
   }, [businessId, ensureBusiness, selectedBusinessId]);
 
   const [drawer, setDrawer] = useState<DrawerPayload>(null);
+  const [dateRange, setDateRange] = useState<DateRangeValue>(DEFAULT_DATE_RANGE);
 
   if (!selectedBusinessId) return <BusinessEmptyState />;
 
   const metaStatus = byBusinessId[businessId]?.meta?.status;
   const metaConnected = metaStatus === "connected";
 
-  // Default date range: last 30 days
-  const endDate = toISODate(new Date());
-  const startDate = toISODate(nDaysAgo(29));
+  const { start: startDate, end: endDate } = getPresetDates(
+    dateRange.rangePreset,
+    dateRange.customStart,
+    dateRange.customEnd
+  );
 
   const campaignsQuery = useQuery({
     queryKey: ["meta-campaigns", businessId, startDate, endDate],
@@ -378,6 +347,11 @@ export default function MetaPage() {
 
       {metaConnected && (
         <>
+          {/* Date range picker */}
+          <section className="rounded-2xl border bg-card p-4 shadow-sm">
+            <DateRangePicker value={dateRange} onChange={setDateRange} />
+          </section>
+
           {/* ── AI Insights ─────────────────────────────────────────────── */}
           <section className="rounded-2xl border bg-card p-5 shadow-sm">
             <h2 className="text-base font-semibold">AI Insights</h2>
@@ -391,7 +365,6 @@ export default function MetaPage() {
           <section className="space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-base font-semibold">Campaign Performance</h2>
-              <span className="text-xs text-muted-foreground">Last 30 days</span>
             </div>
 
             {campaignsQuery.isLoading && <LoadingSkeleton rows={4} />}
@@ -419,7 +392,7 @@ export default function MetaPage() {
                 return (
                   <DataEmptyState
                     title="No campaign data found"
-                    description="No campaigns ran in the last 30 days for the assigned Meta ad accounts."
+                    description="No campaigns ran in the selected date range for the assigned Meta ad accounts."
                   />
                 );
               }
@@ -437,7 +410,7 @@ export default function MetaPage() {
           <section className="space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-base font-semibold">Top Performing Creatives</h2>
-              <span className="text-xs text-muted-foreground">Last 30 days · by ROAS</span>
+              <span className="text-xs text-muted-foreground">by ROAS</span>
             </div>
 
             {creativesQuery.isLoading && <LoadingSkeleton rows={3} />}

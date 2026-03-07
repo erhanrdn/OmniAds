@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
 import { MetaCreativeRow } from "@/components/creatives/metricConfig";
+import { CreativePreviewInline } from "@/components/creatives/CreativePreview";
 import { generateAiAnalysis } from "@/lib/generateAiAnalysis";
 
 interface CreativeInsightsDrawerProps {
@@ -100,16 +101,16 @@ export function CreativeInsightsDrawer({
 }
 
 function PreviewMedia({ row }: { row: MetaCreativeRow }) {
-  const preview = row.previewUrl ?? row.thumbnailUrl ?? row.imageUrl;
-
-  if (preview) {
-    return <img src={preview} alt={row.name} className="h-20 w-36 rounded-md object-cover" />;
-  }
-
   return (
-    <div className="flex h-20 w-36 items-center justify-center rounded-md bg-muted/40 text-xs text-muted-foreground">
-      {row.isCatalog ? "Catalog ad" : "Preview unavailable"}
-    </div>
+    <CreativePreviewInline
+      creative={{
+        name: row.name,
+        isCatalog: row.isCatalog,
+        previewUrl: row.previewUrl,
+        imageUrl: row.imageUrl,
+        thumbnailUrl: row.thumbnailUrl,
+      }}
+    />
   );
 }
 

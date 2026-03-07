@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { useAppStore } from "@/store/app-store";
@@ -17,6 +17,13 @@ import { PlatformEfficiencyTable } from "@/components/overview/PlatformEfficienc
 import { useIntegrationsStore } from "@/store/integrations-store";
 import { DataEmptyState } from "@/components/states/DataEmptyState";
 import { LockedFeatureCard } from "@/components/states/LockedFeatureCard";
+import {
+  DateRangePicker,
+  DateRangeValue,
+  DEFAULT_DATE_RANGE,
+  getPresetDates,
+  RangePreset,
+} from "@/components/date-range/DateRangePicker";
 
 type CurrencyCode = "USD" | "EUR" | "GBP";
 
@@ -26,9 +33,7 @@ export default function OverviewPage() {
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const businessId = selectedBusinessId ?? "";
 
-  const [dateRangePreset, setDateRangePreset] = useState<TrendWindow>("30d");
-  const [customStartDate, setCustomStartDate] = useState("2026-02-20");
-  const [customEndDate, setCustomEndDate] = useState("2026-03-05");
+  const [dateRange, setDateRange] = useState<DateRangeValue>(DEFAULT_DATE_RANGE);
   const [currency, setCurrency] = useState<CurrencyCode>("USD");
   const [trendMetric, setTrendMetric] = useState<TrendMetric>("revenue");
 
@@ -40,26 +45,16 @@ export default function OverviewPage() {
     ensureBusiness(businessId);
   }, [businessId, ensureBusiness, selectedBusinessId]);
 
-  const dateRange = useMemo(() => {
-    if (dateRangePreset === "custom") {
-      return { startDate: customStartDate, endDate: customEndDate };
-    }
-
-    const end = new Date();
-    const start = new Date(end);
-    const offset = dateRangePreset === "7d" ? 6 : dateRangePreset === "14d" ? 13 : 29;
-    start.setDate(end.getDate() - offset);
-
-    return {
-      startDate: toISODate(start),
-      endDate: toISODate(end),
-    };
-  }, [customEndDate, customStartDate, dateRangePreset]);
+  const { start: startDate, end: endDate } = getPresetDates(
+    dateRange.rangePreset,
+    dateRange.customStart,
+    dateRange.customEnd
+  );
 
   const query = useQuery({
-    queryKey: ["overview", businessId, dateRange],
+    queryKey: ["overview", businessId, startDate, endDate],
     enabled: Boolean(selectedBusinessId),
-    queryFn: () => getOverview(businessId, dateRange),
+    queryFn: () => getOverview(businessId, { startDate, endDate }),
   });
 
   if (!selectedBusinessId) return <BusinessEmptyState />;
@@ -92,6 +87,9 @@ export default function OverviewPage() {
     shopifyConnected,
   });
 
+  // Map the picker's preset to TrendWindow for the trend panel
+  const trendWindow: TrendWindow = presetToTrendWindow(dateRange.rangePreset);
+
   const trendSource = query.data?.trends as
     | Partial<Record<"7d" | "14d" | "30d" | "custom", Array<{
         label: string;
@@ -117,18 +115,8 @@ export default function OverviewPage() {
       </header>
 
       <section className="rounded-2xl border bg-card p-4 shadow-sm">
-        <div className="flex flex-wrap items-center gap-2">
-          <ControlSelect
-            label="Date range"
-            value={dateRangePreset}
-            onChange={(value) => setDateRangePreset(value as TrendWindow)}
-            options={[
-              { label: "7d", value: "7d" },
-              { label: "14d", value: "14d" },
-              { label: "30d", value: "30d" },
-              { label: "Custom", value: "custom" },
-            ]}
-          />
+        <div className="flex flex-wrap items-center gap-3">
+          <DateRangePicker value={dateRange} onChange={setDateRange} />
           <ControlSelect
             label="Currency"
             value={currency}
@@ -139,22 +127,6 @@ export default function OverviewPage() {
               { label: "GBP", value: "GBP" },
             ]}
           />
-          {dateRangePreset === "custom" ? (
-            <>
-              <input
-                type="date"
-                className="h-9 rounded-md border bg-background px-3 text-sm"
-                value={customStartDate}
-                onChange={(event) => setCustomStartDate(event.target.value)}
-              />
-              <input
-                type="date"
-                className="h-9 rounded-md border bg-background px-3 text-sm"
-                value={customEndDate}
-                onChange={(event) => setCustomEndDate(event.target.value)}
-              />
-            </>
-          ) : null}
         </div>
       </section>
 
@@ -169,8 +141,10 @@ export default function OverviewPage() {
 
       <OverviewTrendPanel
         dataByWindow={trendDataByWindow}
-        selectedWindow={dateRangePreset}
-        onWindowChange={setDateRangePreset}
+        selectedWindow={trendWindow}
+        onWindowChange={(w) =>
+          setDateRange((prev) => ({ ...prev, rangePreset: w === "custom" ? "custom" : w }))
+        }
         selectedMetric={trendMetric}
         onMetricChange={setTrendMetric}
         currencySymbol={currencySymbol(currency)}
@@ -319,8 +293,11 @@ function ControlSelect({
   );
 }
 
-function toISODate(date: Date) {
-  return date.toISOString().slice(0, 10);
+function presetToTrendWindow(preset: RangePreset): TrendWindow {
+  if (preset === "7d") return "7d";
+  if (preset === "14d") return "14d";
+  if (preset === "30d") return "30d";
+  return "custom";
 }
 
 function currencySymbol(code: CurrencyCode) {
