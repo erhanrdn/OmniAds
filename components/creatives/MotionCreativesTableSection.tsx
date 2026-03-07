@@ -46,6 +46,7 @@ type TableColumnKey =
   | "clickScore"
   | "convertScore"
   | "averageOrderValueWebsite"
+  | "averageOrderValueShop"
   | "impressions"
   | "spendShare"
   | "linkCtr"
@@ -239,6 +240,7 @@ const TABLE_COLUMNS: TableColumnDefinition[] = [
   { key: "clickScore", label: "Click score", description: "Motion click score.", direction: "high", minWidth: 110, preferredWidth: 125, align: "right", format: fmtInteger, getValue: (r) => r.ctrAll * 10 },
   { key: "convertScore", label: "Convert score", description: "Motion convert score.", direction: "high", minWidth: 115, preferredWidth: 130, align: "right", format: fmtInteger, getValue: (r) => r.roas * 10 },
   { key: "averageOrderValueWebsite", label: "Average order value (website)", description: "Website AOV.", direction: "high", minWidth: 175, preferredWidth: 195, align: "right", format: fmtCurrency, getValue: (r) => (r.purchases > 0 ? r.purchaseValue / r.purchases : 0) },
+  { key: "averageOrderValueShop", label: "Average order value (Shop)", description: "Shop AOV.", direction: "high", minWidth: 165, preferredWidth: 185, align: "right", format: fmtCurrency, getValue: (r) => (r.purchases > 0 ? r.purchaseValue / r.purchases : 0) },
   { key: "impressions", label: "Impressions", description: "Estimated impressions.", direction: "high", minWidth: 120, preferredWidth: 140, align: "right", format: fmtInteger, getValue: (r) => (r.cpm > 0 ? (r.spend * 1000) / r.cpm : 0) },
   { key: "spendShare", label: "% spend", description: "Share of spend.", direction: "neutral", minWidth: 100, preferredWidth: 120, align: "right", format: fmtPercent, getValue: (r, c) => (c.totalSpend > 0 ? (r.spend / c.totalSpend) * 100 : 0) },
   { key: "linkCtr", label: "Click through rate (link clicks)", description: "Link CTR.", direction: "high", minWidth: 175, preferredWidth: 195, align: "right", format: fmtPercent, getValue: (r) => r.ctrAll },
@@ -739,32 +741,68 @@ export function MotionCreativesTableSection({
               </tr>
             ))}
           </tbody>
+          <tfoot className="sticky bottom-0 z-10 bg-background/95 backdrop-blur">
+            <tr className="border-t">
+              <td
+                className="sticky left-0 z-20 border-r bg-background px-3 py-2 text-xs font-semibold"
+                style={{ minWidth: 320, width: 320 }}
+              >
+                Net Results
+              </td>
+
+              {tablePreset.showLaunchDate && <td className="px-3 py-2 text-xs text-muted-foreground">-</td>}
+              {tablePreset.showTags && <td className="px-3 py-2 text-xs text-muted-foreground">-</td>}
+              {tablePreset.showActiveStatus && <td className="px-3 py-2 text-xs text-muted-foreground">-</td>}
+              {tablePreset.showAdLength && <td className="px-3 py-2 text-xs text-muted-foreground">-</td>}
+
+              {selectedColumns.map((column) => {
+                const values = rows.map((row) => column.getValue(row, ctx));
+                const total = values.reduce((sum, v) => sum + v, 0);
+                const avg = values.length > 0 ? total / values.length : 0;
+                return (
+                  <td
+                    key={`summary_${column.key}`}
+                    className={cn(
+                      "px-3 py-2 text-[11px]",
+                      column.align === "right"
+                        ? "text-right"
+                        : column.align === "center"
+                        ? "text-center"
+                        : "text-left"
+                    )}
+                  >
+                    <div className="space-y-0.5">
+                      <p className="font-semibold">{column.format(total)}</p>
+                      <p className="text-muted-foreground">avg {column.format(avg)}</p>
+                    </div>
+                  </td>
+                );
+              })}
+            </tr>
+          </tfoot>
         </table>
       </div>
 
-      {/* D) summary row */}
-      <div className="rounded-lg border bg-muted/15 px-3 py-2">
-        <div className="overflow-x-auto">
-          <div className="flex min-w-max items-center gap-4 text-[11px]">
-            <span className="font-semibold">Net Results</span>
-            {selectedColumns.map((column) => {
-              const values = rows.map((row) => column.getValue(row, ctx));
-              const total = values.reduce((sum, v) => sum + v, 0);
-              const avg = values.length > 0 ? total / values.length : 0;
-              return (
-                <span key={`sum_${column.key}`} className="text-muted-foreground">
-                  {column.label}: {column.format(total)} total / {column.format(avg)} avg
-                </span>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      {/* E) pagination row */}
+      {/* D/E) pagination row */}
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
         <div className="flex items-center gap-2">
-          <span>{tablePreset.resultsPerPage} results</span>
+          <label className="inline-flex items-center gap-1">
+            <span className="text-muted-foreground">Results per page</span>
+            <select
+              value={tablePreset.resultsPerPage}
+              onChange={(event) =>
+                setTablePreset({
+                  ...tablePreset,
+                  resultsPerPage: Number(event.target.value) as 20 | 50 | 100,
+                })
+              }
+              className="h-7 rounded border bg-background px-2 text-xs"
+            >
+              <option value={20}>20</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </select>
+          </label>
           <span className="text-muted-foreground">
             {totalResults === 0 ? "0" : `${startIndex + 1}-${endIndex}`} of {totalResults}
           </span>
