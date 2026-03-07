@@ -339,6 +339,8 @@ export default function CreativesPage() {
               dataStatus !== "no_data" && (
                 <MotionCreativesTableSection
                   rows={filteredRows}
+                  selectedMetricIds={topMetricIds}
+                  onSelectedMetricIdsChange={setTopMetricIds}
                   selectedRowIds={selectionState.selectedRowIds}
                   highlightedRowId={highlightedRowId}
                   onToggleRow={toggleRowSelection}

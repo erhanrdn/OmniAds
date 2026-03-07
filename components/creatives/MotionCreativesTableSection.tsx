@@ -99,6 +99,8 @@ interface TablePreset {
 
 interface MotionCreativesTableSectionProps {
   rows: MetaCreativeRow[];
+  selectedMetricIds: string[];
+  onSelectedMetricIdsChange: (next: string[]) => void;
   selectedRowIds: string[];
   highlightedRowId?: string | null;
   onToggleRow: (rowId: string) => void;
@@ -268,8 +270,49 @@ const AI_TAG_GROUPS: Array<{ label: string; items: Array<{ label: string; value:
 
 const PRESET_NOTES = "Preset controls only this table. Top creative cards keep their own metric model.";
 
+const TABLE_TO_TOP_METRIC_ID: Partial<Record<TableColumnKey, string>> = {
+  spend: "spend",
+  purchaseValue: "purchaseValue",
+  roas: "roas",
+  cpa: "costPerPurchase",
+  cpcLink: "costPerLinkClick",
+  cpm: "costPerMille",
+  cpcAll: "costPerClickAll",
+  averageOrderValue: "averageOrderValue",
+  clickToAtcRatio: "clickToAtcRatio",
+  atcToPurchaseRatio: "atcToPurchaseRatio",
+  purchases: "purchases",
+  firstFrameRetention: "firstFrameRetention",
+  thumbstopRatio: "thumbstopRatio",
+  ctrOutbound: "ctrOutbound",
+  clickToPurchaseRatio: "clickToPurchaseRatio",
+  ctrAll: "ctrAll",
+  video25Rate: "video25Rate",
+  video50Rate: "video50Rate",
+  video75Rate: "video75Rate",
+  video100Rate: "video100Rate",
+  holdRate: "holdRate",
+  hookScore: "hookScore",
+  purchaseValueShare: "purchaseValueShare",
+  watchScore: "watchScore",
+  clickScore: "clickScore",
+  convertScore: "convertScore",
+  averageOrderValueWebsite: "averageOrderValueWebsite",
+  impressions: "impressions",
+  spendShare: "spendShare",
+  linkCtr: "linkCtr",
+  websitePurchaseRoas: "websitePurchaseRoas",
+  clickToWebsitePurchaseRatio: "clickToWebsitePurchaseRatio",
+  purchasesPer1000Imp: "purchasesPer1000Imp",
+  revenuePer1000Imp: "revenuePer1000Imp",
+  clicksAll: "clicksAll",
+  linkClicks: "linkClicks",
+};
+
 export function MotionCreativesTableSection({
   rows,
+  selectedMetricIds,
+  onSelectedMetricIdsChange,
   selectedRowIds,
   highlightedRowId = null,
   onToggleRow,
@@ -394,6 +437,17 @@ export function MotionCreativesTableSection({
     setModalColumns(preset.selectedColumns);
     setPage(1);
     setShowPresetMenu(false);
+  };
+
+  const toggleTopMetricFromHeader = (columnKey: TableColumnKey) => {
+    const topMetricId = TABLE_TO_TOP_METRIC_ID[columnKey];
+    if (!topMetricId) return;
+    const exists = selectedMetricIds.includes(topMetricId);
+    onSelectedMetricIdsChange(
+      exists
+        ? selectedMetricIds.filter((id) => id !== topMetricId)
+        : [...selectedMetricIds, topMetricId]
+    );
   };
 
   const toggleTag = (tag: TagKey) => {
@@ -681,18 +735,43 @@ export function MotionCreativesTableSection({
                 </th>
               )}
 
-              {selectedColumns.map((column, index) => (
+              {selectedColumns.map((column) => (
                 <th
                   key={column.key}
-                  className="px-2.5 py-1.5 text-left text-[12px] font-medium tracking-[0.01em] text-[#6B7280]"
+                  className="px-2.5 py-1 text-left text-[11px] font-medium leading-tight tracking-[0.01em] text-[#6B7280]"
                   style={{ minWidth: column.minWidth, width: column.preferredWidth }}
                 >
-                  <span className="inline-flex items-center gap-1">
-                    <span className="inline-flex min-w-[20px] items-center justify-center rounded-full bg-[#EEF2FF] px-1.5 py-[1px] text-[10px] text-[#6366F1]">
-                      {index + 1}
+                  {(() => {
+                    const topMetricId = TABLE_TO_TOP_METRIC_ID[column.key];
+                    const isSelected = topMetricId ? selectedMetricIds.includes(topMetricId) : false;
+                    return (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      toggleTopMetricFromHeader(column.key);
+                    }}
+                    className={cn(
+                      "group inline-flex w-full items-start gap-1.5 text-left",
+                      topMetricId ? "cursor-pointer" : "cursor-default"
+                    )}
+                    disabled={!topMetricId}
+                  >
+                    <span
+                      className={cn(
+                        "mt-[1px] inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[3px] border transition-colors",
+                        isSelected
+                          ? "border-emerald-500 bg-emerald-500/20"
+                          : "border-[#D1D5DB] bg-white group-hover:border-[#9CA3AF]"
+                      )}
+                      aria-hidden="true"
+                    >
+                      {isSelected && <span className="h-1.5 w-1.5 rounded-[2px] bg-emerald-600" />}
                     </span>
-                    {column.label}
-                  </span>
+                    <span className="line-clamp-2">{column.label}</span>
+                  </button>
+                    );
+                  })()}
                 </th>
               ))}
             </tr>
