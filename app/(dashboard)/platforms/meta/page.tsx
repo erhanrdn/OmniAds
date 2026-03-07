@@ -186,7 +186,7 @@ function CreativePreview({
   if (creative.is_catalog) {
     return (
       <div
-        className={`flex aspect-square w-full flex-col items-center justify-center gap-1.5 bg-muted/60 ${className}`}
+        className={`flex h-[220px] w-full flex-col items-center justify-center gap-1.5 bg-muted/60 ${className}`}
       >
         <Badge variant="secondary" className="text-[10px]">
           Catalog ad
@@ -203,7 +203,7 @@ function CreativePreview({
       <img
         src={creative.preview_url}
         alt={creative.name}
-        className={`aspect-square w-full object-cover ${className}`}
+        className={`h-[220px] w-full object-cover ${className}`}
       />
     );
   }
@@ -211,7 +211,7 @@ function CreativePreview({
   // C) Preview unavailable (non-catalog, but no image/thumbnail returned)
   return (
     <div
-      className={`flex aspect-square w-full items-center justify-center bg-muted/40 ${className}`}
+      className={`flex h-[220px] w-full items-center justify-center bg-muted/40 ${className}`}
     >
       <span className="text-xs text-muted-foreground">Preview unavailable</span>
     </div>
@@ -229,12 +229,12 @@ function CreativeCard({
     <button
       type="button"
       onClick={onClick}
-      className="overflow-hidden rounded-xl border bg-card text-left transition-shadow hover:shadow-sm"
+      className="overflow-hidden rounded-xl border bg-card text-left transition-shadow hover:shadow-sm max-h-[360px]"
     >
       <CreativePreview creative={creative} />
-      <div className="space-y-2 p-3">
-        <p className="truncate text-sm font-semibold">{creative.name}</p>
-        <div className="grid grid-cols-2 gap-2 text-xs">
+      <div className="space-y-1.5 p-3">
+        <p className="truncate text-sm font-medium">{creative.name}</p>
+        <div className="grid grid-cols-2 gap-1.5 text-xs">
           <MiniMetric label="Spend" value={fmt$(creative.spend)} />
           <MiniMetric label="Revenue" value={fmt$(creative.revenue)} />
           <MiniMetric label="ROAS" value={creative.roas.toFixed(2)} />
@@ -248,7 +248,7 @@ function CreativeCard({
 
 function MiniMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border bg-muted/15 px-2 py-1.5">
+    <div className="rounded-md border bg-muted/15 px-1.5 py-1">
       <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</p>
       <p className="text-sm">{value}</p>
     </div>
@@ -469,7 +469,7 @@ export default function MetaPage() {
               }
 
               return (
-                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                   {rows.map((creative) => (
                     <CreativeCard
                       key={creative.creative_id}
