@@ -231,7 +231,7 @@ function CreativeCard({
     <button
       type="button"
       onClick={onClick}
-      className="overflow-hidden rounded-xl border bg-card text-left transition-shadow hover:shadow-sm max-h-[360px]"
+      className="flex flex-col rounded-xl border bg-card text-left transition-shadow hover:shadow-sm"
     >
       <CreativePreview creative={creative} />
       <div className="space-y-1.5 p-3">
