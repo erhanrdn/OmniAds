@@ -736,21 +736,23 @@ function MetricSelectorBar({ selectedMetricIds, onChange }: { selectedMetricIds:
   );
 
   return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <button type="button" className="rounded-full border bg-muted/25 px-3 py-1.5 text-xs">+ AI tags</button>
+    <div className="min-w-0 overflow-hidden">
+      <div className="flex min-w-0 items-center gap-2 overflow-x-auto whitespace-nowrap pb-1">
+        <button type="button" className="shrink-0 rounded-full border bg-muted/25 px-3 py-1 text-xs">
+          + AI tags
+        </button>
 
-        <div className="relative">
+        <div className="relative shrink-0">
           <button
             type="button"
             onClick={() => setOpen((prev) => !prev)}
-            className="rounded-full border bg-background px-3 py-1.5 text-xs"
+            className="rounded-full border bg-background px-3 py-1 text-xs"
           >
             + Add metric
           </button>
 
           {open && (
-            <div className="absolute left-0 top-10 z-40 w-[360px] rounded-xl border bg-background p-3 shadow-lg">
+            <div className="absolute left-0 top-9 z-40 w-[360px] rounded-xl border bg-background p-3 shadow-lg">
               <div className="mb-2 flex items-center gap-2 rounded-md border px-2 py-1.5">
                 <Search className="h-3.5 w-3.5 text-muted-foreground" />
                 <input
@@ -779,14 +781,12 @@ function MetricSelectorBar({ selectedMetricIds, onChange }: { selectedMetricIds:
             </div>
           )}
         </div>
-      </div>
 
-      <div className="flex flex-wrap items-center gap-2">
         {selectedDefs.map((metric, index) => (
           <span
             key={metric.id}
             className={cn(
-              "inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium",
+              "inline-flex shrink-0 items-center gap-2 rounded-full px-3 py-1 text-xs font-medium",
               METRIC_COLOR_TOKENS[index % METRIC_COLOR_TOKENS.length]
             )}
           >
