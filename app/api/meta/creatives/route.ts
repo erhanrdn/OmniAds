@@ -73,8 +73,13 @@ interface MetaAdRecord {
     thumbnail_url?: string | null;
     image_url?: string | null;
     object_story_spec?: {
-      link_data?: { picture?: string | null; image_hash?: string | null } | null;
+      link_data?: {
+        picture?: string | null;
+        image_hash?: string | null;
+        child_attachments?: Array<{ picture?: string | null; image_url?: string | null }> | null;
+      } | null;
       video_data?: { image_url?: string | null; thumbnail_url?: string | null } | null;
+      photo_data?: { image_url?: string | null } | null;
       template_data?: Record<string, unknown> | null;
     } | null;
     asset_feed_spec?: {
@@ -108,6 +113,7 @@ interface RawCreativeRow {
   adset_name: string | null;
   name: string;
   preview_url: string | null;
+  preview_source: string | null;
   thumbnail_url: string | null;
   image_url: string | null;
   is_catalog: boolean;
@@ -134,6 +140,7 @@ export interface MetaCreativeApiRow {
   currency: string | null;
   name: string;
   preview_url: string | null;
+  preview_source: string | null;
   thumbnail_url: string | null;
   image_url: string | null;
   is_catalog: boolean;
@@ -251,6 +258,15 @@ async function fetchAccountInsights(
   startDate: string,
   endDate: string
 ): Promise<MetaInsightRecord[]> {
+  if (shouldLogMetaPreviewDebug()) {
+    console.log("[meta-creatives] insights query", {
+      account_id: accountId,
+      time_range: { since: startDate, until: endDate },
+      level: "ad",
+      fields: "ad_id,ad_name,adset_id,adset_name,spend,cpm,cpc,ctr,date_start,actions,action_values,purchase_roas",
+    });
+  }
+
   const url = new URL(`https://graph.facebook.com/v25.0/${accountId}/insights`);
   url.searchParams.set(
     "fields",
@@ -278,6 +294,12 @@ async function fetchAccountInsights(
   }
 
   const payload = (await res.json().catch(() => null)) as { data?: MetaInsightRecord[] } | null;
+  if (shouldLogMetaPreviewDebug()) {
+    console.log("[meta-creatives] insights response", {
+      account_id: accountId,
+      rows: payload?.data?.length ?? 0,
+    });
+  }
   return payload?.data ?? [];
 }
 
@@ -328,7 +350,7 @@ async function fetchAccountAdsMap(
           "created_time",
           "creative{",
           "id,name,object_type,effective_object_story_id,thumbnail_url,image_url,",
-          "object_story_spec{link_data{picture,image_hash},video_data{image_url,thumbnail_url},template_data},",
+          "object_story_spec{link_data{picture,image_hash,child_attachments{picture,image_url}},video_data{image_url,thumbnail_url},photo_data{image_url},template_data},",
           "asset_feed_spec{catalog_id,product_set_id,images{url,image_url,original_url,hash,image_hash},videos{thumbnail_url,image_url}}",
           "}",
         ].join("")
@@ -369,6 +391,52 @@ async function fetchAccountAdsMap(
 
     nextUrl = payload?.paging?.next ?? null;
   } while (nextUrl);
+
+  return map;
+}
+
+async function fetchCreativeDetailsMap(
+  creativeIds: string[],
+  accessToken: string
+): Promise<Map<string, NonNullable<MetaAdRecord["creative"]>>> {
+  const map = new Map<string, NonNullable<MetaAdRecord["creative"]>>();
+  const uniqueIds = Array.from(new Set(creativeIds.filter((id) => id.trim().length > 0)));
+  if (uniqueIds.length === 0) return map;
+
+  const fields = [
+    "id",
+    "name",
+    "object_type",
+    "effective_object_story_id",
+    "thumbnail_url",
+    "image_url",
+    "object_story_spec{link_data{picture,image_hash,child_attachments{picture,image_url}},video_data{image_url,thumbnail_url},photo_data{image_url},template_data}",
+    "asset_feed_spec{catalog_id,product_set_id,images{url,image_url,original_url,hash,image_hash},videos{thumbnail_url,image_url}}",
+  ].join(",");
+
+  const chunkSize = 40;
+  for (let i = 0; i < uniqueIds.length; i += chunkSize) {
+    const idsChunk = uniqueIds.slice(i, i + chunkSize);
+    const url = new URL("https://graph.facebook.com/v25.0/");
+    url.searchParams.set("ids", idsChunk.join(","));
+    url.searchParams.set("fields", fields);
+    url.searchParams.set("access_token", accessToken);
+
+    const res = await fetch(url.toString(), {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    if (!res.ok) continue;
+
+    const payload = (await res.json().catch(() => null)) as Record<string, MetaAdRecord["creative"]> | null;
+    if (!payload || typeof payload !== "object") continue;
+
+    for (const [creativeId, creative] of Object.entries(payload)) {
+      if (!creative || typeof creative !== "object") continue;
+      map.set(creativeId, creative as NonNullable<MetaAdRecord["creative"]>);
+    }
+  }
 
   return map;
 }
@@ -423,6 +491,7 @@ function toRawRow(
       has_promoted_product_set_id: normalizedPreview.debug.has_promoted_product_set_id,
       final_preview_state: normalizedPreview.preview_state,
       final_preview_url: normalizedPreview.preview_url,
+      final_preview_source: normalizedPreview.preview_source,
       selected_source: normalizedPreview.debug.source,
     });
   }
@@ -437,6 +506,7 @@ function toRawRow(
     adset_name: insight.adset_name ?? ad?.adset?.name ?? null,
     name,
     preview_url: normalizedPreview.preview_url,
+    preview_source: normalizedPreview.preview_source,
     thumbnail_url: normalizedPreview.thumbnail_url,
     image_url: normalizedPreview.image_url,
     is_catalog: normalizedPreview.is_catalog,
@@ -505,6 +575,7 @@ function groupRows(rows: RawCreativeRow[], groupBy: GroupBy): RawCreativeRow[] {
       adset_name: sample.adset_name,
       name: groupBy === "creative" ? sample.name : sample.adset_name ?? sample.name,
       preview_url: groupedPreviewUrl,
+      preview_source: list.find((item) => item.preview_source)?.preview_source ?? null,
       thumbnail_url: list.find((item) => item.thumbnail_url)?.thumbnail_url ?? null,
       image_url: list.find((item) => item.image_url)?.image_url ?? null,
       is_catalog: groupedIsCatalog,
@@ -584,6 +655,14 @@ export async function GET(request: NextRequest) {
         fetchAccountAdsMap(accountId, integration.access_token),
         fetchAccountMeta(accountId, integration.access_token),
       ]);
+      const creativeIds = Array.from(
+        new Set(
+          [...adMap.values()]
+            .map((ad) => ad.creative?.id)
+            .filter((id): id is string => typeof id === "string" && id.length > 0)
+        )
+      );
+      const creativeDetailsMap = await fetchCreativeDetailsMap(creativeIds, integration.access_token);
 
       if (shouldLogMetaPreviewDebug()) {
         const insightsWithAdId = insights.filter((item) => typeof item.ad_id === "string").length;
@@ -596,18 +675,55 @@ export async function GET(request: NextRequest) {
           currency: accountMeta.currency,
           insights: insights.length,
           ads_loaded: adMap.size,
+          creative_ids_seen: creativeIds.length,
+          creative_details_loaded: creativeDetailsMap.size,
           insights_with_ad_id: insightsWithAdId,
           matched_ads: matchedAds,
         });
       }
 
+      let debugSamplesLogged = 0;
       for (const insight of insights) {
+        const ad = insight.ad_id ? adMap.get(insight.ad_id) : undefined;
+        const enrichedAd: MetaAdRecord | undefined =
+          ad?.creative?.id && creativeDetailsMap.has(ad.creative.id)
+            ? {
+                ...ad,
+                creative: {
+                  ...ad.creative,
+                  ...creativeDetailsMap.get(ad.creative.id),
+                },
+              }
+            : ad;
         const row = toRawRow(
           insight,
-          insight.ad_id ? adMap.get(insight.ad_id) : undefined,
+          enrichedAd,
           accountMeta
         );
-        if (row) rawRows.push(row);
+        if (row) {
+          rawRows.push(row);
+          if (shouldLogMetaPreviewDebug() && debugSamplesLogged < 5) {
+            debugSamplesLogged += 1;
+            console.log("[meta-creatives] preview sample", {
+              ad_id: row.id,
+              ad_name: row.name,
+              creative_id: row.creative_id,
+              account_id: row.account_id,
+              currency: row.currency,
+              has_thumbnail_url: Boolean(row.thumbnail_url),
+              has_image_url: Boolean(row.image_url),
+              has_object_story_spec: Boolean(enrichedAd?.creative?.object_story_spec),
+              has_asset_feed_spec: Boolean(enrichedAd?.creative?.asset_feed_spec),
+              has_link_data_picture: Boolean(enrichedAd?.creative?.object_story_spec?.link_data?.picture),
+              has_video_data_thumbnail_url: Boolean(
+                enrichedAd?.creative?.object_story_spec?.video_data?.thumbnail_url
+              ),
+              final_preview_url: row.preview_url,
+              final_preview_source: row.preview_source,
+              final_preview_state: row.preview_state,
+            });
+          }
+        }
       }
     } catch (error: unknown) {
       console.warn("[meta-creatives] account fetch failed", {
@@ -643,6 +759,7 @@ export async function GET(request: NextRequest) {
       currency: row.currency,
       name: row.name,
       preview_url: row.preview_url,
+      preview_source: row.preview_source,
       thumbnail_url: row.thumbnail_url,
       image_url: row.image_url,
       is_catalog: row.is_catalog,

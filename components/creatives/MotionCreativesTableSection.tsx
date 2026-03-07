@@ -18,7 +18,6 @@ import {
 } from "lucide-react";
 import { MetaAiTagKey, MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { getAiTagPillStyles } from "@/components/creatives/aiTagPillStyles";
-import { resolvePreviewState, resolvePreviewUrl } from "@/components/creatives/CreativePreview";
 import { formatMoney, resolveCreativeCurrency } from "@/components/creatives/money";
 import { cn } from "@/lib/utils";
 import { useDropdownBehavior } from "@/hooks/use-dropdown-behavior";
@@ -1202,22 +1201,6 @@ export function MotionCreativesTableSection({
 
           <tbody>
             {pagedRows.map((row) => {
-              const resolvedPreviewState = resolvePreviewState({
-                name: row.name,
-                isCatalog: row.isCatalog,
-                previewState: row.previewState,
-                previewUrl: row.previewUrl,
-                imageUrl: row.imageUrl,
-                thumbnailUrl: row.thumbnailUrl,
-              });
-              const resolvedPreviewUrl = resolvePreviewUrl({
-                name: row.name,
-                isCatalog: row.isCatalog,
-                previewState: row.previewState,
-                previewUrl: row.previewUrl,
-                imageUrl: row.imageUrl,
-                thumbnailUrl: row.thumbnailUrl,
-              });
               return (
                 <tr
                   key={row.id}
@@ -1235,12 +1218,12 @@ export function MotionCreativesTableSection({
                     />
 
                     <div className="h-[30px] w-[30px] shrink-0 overflow-hidden rounded bg-muted/30">
-                      {resolvedPreviewState === "preview" && resolvedPreviewUrl ? (
+                      {row.previewState === "preview" && row.previewUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img src={resolvedPreviewUrl} alt={row.name} className="h-full w-full object-cover" />
+                        <img src={row.previewUrl} alt={row.name} className="h-full w-full object-cover" />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center text-[9px] text-muted-foreground">
-                          {resolvedPreviewState === "catalog" ? "Catalog" : "Preview unavailable"}
+                          {row.previewState === "catalog" ? "Catalog" : "Preview unavailable"}
                         </div>
                       )}
                     </div>

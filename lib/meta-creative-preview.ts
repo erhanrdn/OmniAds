@@ -11,10 +11,17 @@ export interface MetaCreativeLike {
     link_data?: {
       picture?: string | null;
       image_hash?: string | null;
+      child_attachments?: Array<{
+        picture?: string | null;
+        image_url?: string | null;
+      }> | null;
     } | null;
     video_data?: {
       image_url?: string | null;
       thumbnail_url?: string | null;
+    } | null;
+    photo_data?: {
+      image_url?: string | null;
     } | null;
     template_data?: Record<string, unknown> | null;
   } | null;
@@ -48,6 +55,7 @@ interface NormalizeCreativePreviewInput {
 interface NormalizeCreativePreviewOutput {
   preview_url: string | null;
   preview_state: CreativePreviewState;
+  preview_source: string | null;
   is_catalog: boolean;
   thumbnail_url: string | null;
   image_url: string | null;
@@ -105,6 +113,18 @@ export function normalizeCreativePreview({
       value: creative?.object_story_spec?.video_data?.thumbnail_url,
     },
     {
+      source: "object_story_spec.photo_data.image_url",
+      value: creative?.object_story_spec?.photo_data?.image_url,
+    },
+    {
+      source: "object_story_spec.link_data.child_attachments[0].picture",
+      value: creative?.object_story_spec?.link_data?.child_attachments?.[0]?.picture,
+    },
+    {
+      source: "object_story_spec.link_data.child_attachments[0].image_url",
+      value: creative?.object_story_spec?.link_data?.child_attachments?.[0]?.image_url,
+    },
+    {
       source: "asset_feed_spec.images[0].url",
       value:
         creative?.asset_feed_spec?.images?.[0]?.url ??
@@ -127,6 +147,7 @@ export function normalizeCreativePreview({
 
   const objectType = creative?.object_type?.toUpperCase() ?? "";
   const isCatalogByObjectType = objectType === "DYNAMIC";
+  const hasTemplateUrlSpec = Boolean((creative?.object_story_spec?.template_data as Record<string, unknown> | null)?.["template_url"]);
   const hasPromotedProductSetId = Boolean(promotedObject?.product_set_id);
   const hasPromotedCatalogId = Boolean(promotedObject?.catalog_id);
   const hasAssetFeedCatalogSignals = Boolean(
@@ -135,6 +156,7 @@ export function normalizeCreativePreview({
 
   const isCatalog =
     isCatalogByObjectType ||
+    hasTemplateUrlSpec ||
     hasPromotedProductSetId ||
     hasPromotedCatalogId ||
     hasAssetFeedCatalogSignals;
@@ -148,6 +170,7 @@ export function normalizeCreativePreview({
   return {
     preview_url: previewState === "preview" ? picked.url : null,
     preview_state: previewState,
+    preview_source: previewState === "preview" ? picked.source : null,
     is_catalog: isCatalog,
     thumbnail_url: thumbnailUrl,
     image_url: imageUrl,
