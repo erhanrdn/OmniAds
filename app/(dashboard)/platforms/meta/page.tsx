@@ -169,6 +169,55 @@ function CampaignStatusBadge({ status }: { status: string }) {
 
 // ── Top Creatives ─────────────────────────────────────────────────────────────
 
+/**
+ * Three distinct preview states:
+ * A) is_catalog = true  → Catalog ad (dynamic product ad, no static preview)
+ * B) is_catalog = false + preview_url  → Real thumbnail / image
+ * C) is_catalog = false + no preview_url  → Preview unavailable
+ */
+function CreativePreview({
+  creative,
+  className = "",
+}: {
+  creative: MetaCreativeRow;
+  className?: string;
+}) {
+  // A) Catalog / DPA ad
+  if (creative.is_catalog) {
+    return (
+      <div
+        className={`flex aspect-video w-full flex-col items-center justify-center gap-1.5 bg-muted/60 ${className}`}
+      >
+        <Badge variant="secondary" className="text-[10px]">
+          Catalog ad
+        </Badge>
+        <span className="text-xs text-muted-foreground">Dynamic product creative</span>
+      </div>
+    );
+  }
+
+  // B) Real preview
+  if (creative.preview_url) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={creative.preview_url}
+        alt={creative.name}
+        className={`aspect-video w-full object-cover ${className}`}
+      />
+    );
+  }
+
+  // C) Preview unavailable (non-catalog, but no image/thumbnail returned)
+  return (
+    <div
+      className={`flex aspect-video w-full items-center justify-center bg-muted/40 ${className}`}
+    >
+      <span className="text-xs text-muted-foreground">Preview unavailable</span>
+    </div>
+  );
+}
+
 function CreativeCard({
   creative,
   onClick,
@@ -182,10 +231,7 @@ function CreativeCard({
       onClick={onClick}
       className="overflow-hidden rounded-xl border bg-card text-left transition-shadow hover:shadow-sm"
     >
-      {/* Thumbnail placeholder — real preview requires per-ad API call */}
-      <div className="flex aspect-video w-full items-center justify-center bg-muted">
-        <span className="text-xs text-muted-foreground">No preview available</span>
-      </div>
+      <CreativePreview creative={creative} />
       <div className="space-y-2 p-3">
         <p className="truncate text-sm font-semibold">{creative.name}</p>
         <div className="grid grid-cols-2 gap-2 text-xs">
@@ -247,12 +293,12 @@ function MetaDrawer({ payload, onClose }: { payload: DrawerPayload; onClose: () 
           <>
             <SheetHeader className="mb-4">
               <SheetTitle>{payload.data.name}</SheetTitle>
-              <SheetDescription>Ad performance detail</SheetDescription>
+              <SheetDescription>
+                {payload.data.is_catalog ? "Catalog ad · " : ""}Ad performance detail
+              </SheetDescription>
             </SheetHeader>
             <div className="space-y-4 pb-6">
-              <div className="flex aspect-video w-full items-center justify-center rounded-xl bg-muted">
-                <span className="text-xs text-muted-foreground">No preview available</span>
-              </div>
+              <CreativePreview creative={payload.data} className="rounded-xl" />
               <section className="rounded-xl border p-4">
                 <h3 className="text-sm font-semibold">Metrics</h3>
                 <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">

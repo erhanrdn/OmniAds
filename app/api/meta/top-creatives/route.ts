@@ -20,12 +20,32 @@ interface MetaAdInsightRecord {
   purchase_roas?: MetaActionValue[];
 }
 
+interface MetaAdRecord {
+  id: string;
+  creative?: {
+    id?: string;
+    thumbnail_url?: string | null;
+    image_url?: string | null;
+    // "DYNAMIC" = DPA / catalog ad; "PHOTO" | "VIDEO" | "SHARE" = standard
+    object_type?: string | null;
+  } | null;
+}
+
 // ── Public response shape ─────────────────────────────────────────────────────
 
 export interface MetaCreativeRow {
   creative_id: string;
   name: string;
+  /** Best available static preview URL (image_url → thumbnail_url → null) */
   preview_url: string | null;
+  image_url: string | null;
+  thumbnail_url: string | null;
+  /**
+   * true when creative.object_type === "DYNAMIC" (DPA / catalog ad).
+   * These ads dynamically render products from a catalog and have no
+   * meaningful static preview.
+   */
+  is_catalog: boolean;
   spend: number;
   revenue: number;
   roas: number;
@@ -74,6 +94,100 @@ async function fetchAssignedAccountIds(businessId: string): Promise<string[]> {
   }
 }
 
+/**
+ * Fetch ad-level insights for an account.
+ * Returns ad_id, spend, ctr, actions, action_values, purchase_roas.
+ */
+async function fetchAdInsights(
+  accountId: string,
+  since: string,
+  until: string,
+  accessToken: string
+): Promise<MetaAdInsightRecord[]> {
+  const url = new URL(`https://graph.facebook.com/v25.0/${accountId}/insights`);
+  url.searchParams.set("level", "ad");
+  url.searchParams.set(
+    "fields",
+    "ad_id,ad_name,spend,ctr,actions,action_values,purchase_roas"
+  );
+  url.searchParams.set("time_range", JSON.stringify({ since, until }));
+  url.searchParams.set("sort", "spend_descending");
+  url.searchParams.set("limit", "100");
+  url.searchParams.set("access_token", accessToken);
+
+  try {
+    const res = await fetch(url.toString(), {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      const raw = await res.text().catch(() => "");
+      console.warn("[meta-top-creatives] insights non-ok", {
+        accountId,
+        status: res.status,
+        raw: raw.slice(0, 300),
+      });
+      return [];
+    }
+    const json = (await res.json()) as { data?: MetaAdInsightRecord[] };
+    return json.data ?? [];
+  } catch (e: unknown) {
+    console.warn("[meta-top-creatives] insights threw", {
+      accountId,
+      message: e instanceof Error ? e.message : String(e),
+    });
+    return [];
+  }
+}
+
+/**
+ * Fetch all ads for an account with creative thumbnail/image fields.
+ * Returns a map of ad_id → creative info.
+ *
+ * We request thumbnail_url, image_url, and object_type so we can:
+ *   1. Determine if the ad is a catalog/DPA ad (object_type === "DYNAMIC")
+ *   2. Get the best available preview URL
+ */
+async function fetchAdCreativeMap(
+  accountId: string,
+  accessToken: string
+): Promise<Map<string, MetaAdRecord["creative"]>> {
+  const url = new URL(`https://graph.facebook.com/v25.0/${accountId}/ads`);
+  url.searchParams.set("fields", "id,creative{id,thumbnail_url,image_url,object_type}");
+  url.searchParams.set("limit", "200");
+  url.searchParams.set("access_token", accessToken);
+
+  try {
+    const res = await fetch(url.toString(), {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      const raw = await res.text().catch(() => "");
+      console.warn("[meta-top-creatives] ads non-ok", {
+        accountId,
+        status: res.status,
+        raw: raw.slice(0, 300),
+      });
+      return new Map();
+    }
+    const json = (await res.json()) as { data?: MetaAdRecord[] };
+    const map = new Map<string, MetaAdRecord["creative"]>();
+    for (const ad of json.data ?? []) {
+      map.set(ad.id, ad.creative ?? null);
+    }
+    return map;
+  } catch (e: unknown) {
+    console.warn("[meta-top-creatives] ads threw", {
+      accountId,
+      message: e instanceof Error ? e.message : String(e),
+    });
+    return new Map();
+  }
+}
+
 // ── Route ─────────────────────────────────────────────────────────────────────
 
 export async function GET(request: NextRequest) {
@@ -114,44 +228,30 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ status: "no_access_token", rows: [] });
   }
 
-  // Step 3: Fetch ad-level insights per account
+  // Step 3: Per account — fetch insights + ad creative info in parallel, then merge
   const allRows: MetaCreativeRow[] = [];
 
   for (const accountId of assignedAccountIds) {
     try {
-      const url = new URL(`https://graph.facebook.com/v25.0/${accountId}/insights`);
-      url.searchParams.set("level", "ad");
-      url.searchParams.set(
-        "fields",
-        "ad_id,ad_name,spend,ctr,actions,action_values,purchase_roas"
-      );
-      url.searchParams.set("time_range", JSON.stringify({ since: resolvedStart, until: resolvedEnd }));
-      url.searchParams.set("sort", "spend_descending");
-      url.searchParams.set("limit", "50");
-      url.searchParams.set("access_token", accessToken);
+      const [insightData, creativeMap] = await Promise.all([
+        fetchAdInsights(accountId, resolvedStart, resolvedEnd, accessToken),
+        fetchAdCreativeMap(accountId, accessToken),
+      ]);
 
-      const res = await fetch(url.toString(), {
-        method: "GET",
-        headers: { Accept: "application/json" },
-        cache: "no-store",
-      });
-
-      if (!res.ok) {
-        const raw = await res.text().catch(() => "");
-        console.warn("[meta-top-creatives] insights non-ok", {
-          accountId,
-          status: res.status,
-          raw: raw.slice(0, 300),
-        });
-        continue;
-      }
-
-      const json = (await res.json()) as { data?: MetaAdInsightRecord[] };
-      const data = json.data ?? [];
-
-      for (const insight of data) {
+      for (const insight of insightData) {
         const spend = parseFloat(insight.spend ?? "0") || 0;
         if (spend === 0) continue;
+
+        const adId = insight.ad_id ?? "";
+        const creative = creativeMap.get(adId) ?? null;
+
+        // Catalog detection: Meta uses object_type "DYNAMIC" for DPA/catalog ads
+        const isCatalog = creative?.object_type === "DYNAMIC";
+
+        // Preview fallback: image_url (static) → thumbnail_url (video/image thumb) → null
+        const imageUrl = creative?.image_url ?? null;
+        const thumbnailUrl = creative?.thumbnail_url ?? null;
+        const previewUrl = imageUrl ?? thumbnailUrl;
 
         const purchases = parseAction(insight.actions, "purchase");
         const revenueFromValues = parseAction(insight.action_values, "purchase");
@@ -161,9 +261,12 @@ export async function GET(request: NextRequest) {
         const ctr = parseFloat(insight.ctr ?? "0") || 0;
 
         allRows.push({
-          creative_id: insight.ad_id ?? "",
+          creative_id: adId,
           name: insight.ad_name ?? "Unknown Ad",
-          preview_url: null, // Fetching thumbnails requires an additional API call per ad
+          preview_url: previewUrl,
+          image_url: imageUrl,
+          thumbnail_url: thumbnailUrl,
+          is_catalog: isCatalog,
           spend: r2(spend),
           revenue: r2(revenue),
           roas: r2(roas),
@@ -184,6 +287,12 @@ export async function GET(request: NextRequest) {
   allRows.sort((a, b) => b.roas - a.roas || b.spend - a.spend);
   const rows = allRows.slice(0, limit);
 
-  console.log("[meta-top-creatives] response", { businessId, rowCount: rows.length });
+  console.log("[meta-top-creatives] response", {
+    businessId,
+    rowCount: rows.length,
+    catalogCount: rows.filter((r) => r.is_catalog).length,
+    withPreviewCount: rows.filter((r) => r.preview_url !== null).length,
+  });
+
   return NextResponse.json({ rows });
 }
