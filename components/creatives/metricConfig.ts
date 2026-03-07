@@ -17,7 +17,10 @@ export interface MetaCreativeRow {
   id: string;
   name: string;
   format: "image" | "video";
-  thumbnailUrl: string;
+  thumbnailUrl: string | null;
+  previewUrl: string | null;
+  imageUrl: string | null;
+  isCatalog: boolean;
   launchDate: string;
   tags: string[];
   spend: number;

@@ -38,11 +38,7 @@ export function CreativeInsightsDrawer({
           <SheetDescription>Meta performance breakdown and action plan.</SheetDescription>
           <div className="rounded-xl border p-3">
             <div className="flex items-start gap-3">
-              <img
-                src={row.thumbnailUrl}
-                alt={row.name}
-                className="h-20 w-36 rounded-md object-cover"
-              />
+              <PreviewMedia row={row} />
               <div className="space-y-1">
                 <p className="font-medium">{row.name}</p>
                 <div className="flex items-center gap-2">
@@ -100,6 +96,20 @@ export function CreativeInsightsDrawer({
         </div>
       </SheetContent>
     </Sheet>
+  );
+}
+
+function PreviewMedia({ row }: { row: MetaCreativeRow }) {
+  const preview = row.previewUrl ?? row.thumbnailUrl ?? row.imageUrl;
+
+  if (preview) {
+    return <img src={preview} alt={row.name} className="h-20 w-36 rounded-md object-cover" />;
+  }
+
+  return (
+    <div className="flex h-20 w-36 items-center justify-center rounded-md bg-muted/40 text-xs text-muted-foreground">
+      {row.isCatalog ? "Catalog ad" : "Preview unavailable"}
+    </div>
   );
 }
 

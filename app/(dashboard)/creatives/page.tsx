@@ -1,194 +1,35 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { useAppStore } from "@/store/app-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
 import { EmptyState } from "@/components/states/empty-state";
 import { IntegrationEmptyState } from "@/components/states/IntegrationEmptyState";
 import { LockedFeatureCard } from "@/components/states/LockedFeatureCard";
-import { CreativeFiltersState } from "@/components/creatives/CreativeFiltersBar";
+import { ErrorState } from "@/components/states/error-state";
+import { LoadingSkeleton } from "@/components/states/loading-skeleton";
+import { Button } from "@/components/ui/button";
+import type { CreativeFiltersState } from "@/components/creatives/CreativeFiltersBar";
 import { CreativesToolbar } from "@/components/creatives/CreativesToolbar";
 import {
   DEFAULT_TABLE_METRICS,
-  MetaCreativeRow,
+  type MetaCreativeRow,
 } from "@/components/creatives/metricConfig";
 import { TableControlsBar, TableViewState } from "@/components/creatives/TableControlsBar";
 import { CreativesTopGrid } from "@/components/creatives/CreativesTopGrid";
 import { CreativesMotionTable } from "@/components/creatives/CreativesMotionTable";
 import { CreativeInsightsDrawer } from "@/components/creatives/CreativeInsightsDrawer";
 import { ShareCreativesModal } from "@/components/creatives/ShareCreativesModal";
+import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
 
-const META_ROWS: MetaCreativeRow[] = [
-  {
-    id: "m-1",
-    name: "UGC Reel - Morning routine hook",
-    format: "video",
-    thumbnailUrl: "https://picsum.photos/seed/meta1/640/360",
-    launchDate: "2026-02-21",
-    tags: ["winner", "retargeting"],
-    spend: 1840,
-    purchaseValue: 6980,
-    roas: 3.79,
-    cpa: 24.86,
-    cpcLink: 0.94,
-    cpm: 17.9,
-    ctrAll: 2.41,
-    purchases: 74,
-    thumbstop: 33.6,
-    clickToPurchase: 5.7,
-    video25: 41.2,
-    video50: 24.5,
-    atcToPurchaseRatio: 46.8,
-  },
-  {
-    id: "m-2",
-    name: "Static card - 20% off tonight",
-    format: "image",
-    thumbnailUrl: "https://picsum.photos/seed/meta2/640/360",
-    launchDate: "2026-02-24",
-    tags: ["promo", "prospecting"],
-    spend: 1320,
-    purchaseValue: 4020,
-    roas: 3.05,
-    cpa: 28.09,
-    cpcLink: 1.08,
-    cpm: 16.4,
-    ctrAll: 2.02,
-    purchases: 47,
-    thumbstop: 29.1,
-    clickToPurchase: 4.8,
-    video25: 0,
-    video50: 0,
-    atcToPurchaseRatio: 38.4,
-  },
-  {
-    id: "m-3",
-    name: "Founder story - trust angle",
-    format: "video",
-    thumbnailUrl: "https://picsum.photos/seed/meta3/640/360",
-    launchDate: "2026-02-19",
-    tags: ["video", "evergreen"],
-    spend: 2210,
-    purchaseValue: 8320,
-    roas: 3.76,
-    cpa: 26.95,
-    cpcLink: 1.01,
-    cpm: 19.8,
-    ctrAll: 2.26,
-    purchases: 82,
-    thumbstop: 35.4,
-    clickToPurchase: 5.5,
-    video25: 44.3,
-    video50: 28.7,
-    atcToPurchaseRatio: 49.2,
-  },
-  {
-    id: "m-4",
-    name: "Offer explainer - carousel",
-    format: "image",
-    thumbnailUrl: "https://picsum.photos/seed/meta4/640/360",
-    launchDate: "2026-02-12",
-    tags: ["carousel", "offer"],
-    spend: 980,
-    purchaseValue: 2690,
-    roas: 2.74,
-    cpa: 31.61,
-    cpcLink: 1.22,
-    cpm: 14.9,
-    ctrAll: 1.84,
-    purchases: 31,
-    thumbstop: 26.3,
-    clickToPurchase: 4.2,
-    video25: 0,
-    video50: 0,
-    atcToPurchaseRatio: 34.6,
-  },
-  {
-    id: "m-5",
-    name: "Problem-solution demo cut",
-    format: "video",
-    thumbnailUrl: "https://picsum.photos/seed/meta5/640/360",
-    launchDate: "2026-02-15",
-    tags: ["testing", "demo"],
-    spend: 1640,
-    purchaseValue: 5180,
-    roas: 3.16,
-    cpa: 27.8,
-    cpcLink: 0.98,
-    cpm: 18.1,
-    ctrAll: 2.33,
-    purchases: 59,
-    thumbstop: 31.5,
-    clickToPurchase: 5.1,
-    video25: 37.8,
-    video50: 22.4,
-    atcToPurchaseRatio: 44.1,
-  },
-  {
-    id: "m-6",
-    name: "Lifestyle static - social proof",
-    format: "image",
-    thumbnailUrl: "https://picsum.photos/seed/meta6/640/360",
-    launchDate: "2026-02-26",
-    tags: ["social proof", "image"],
-    spend: 760,
-    purchaseValue: 2380,
-    roas: 3.13,
-    cpa: 25.33,
-    cpcLink: 0.89,
-    cpm: 13.7,
-    ctrAll: 2.17,
-    purchases: 30,
-    thumbstop: 0,
-    clickToPurchase: 5.0,
-    video25: 0,
-    video50: 0,
-    atcToPurchaseRatio: 42.8,
-  },
-  {
-    id: "m-7",
-    name: "UGC split-test variant B",
-    format: "video",
-    thumbnailUrl: "https://picsum.photos/seed/meta7/640/360",
-    launchDate: "2026-02-28",
-    tags: ["split test", "video"],
-    spend: 1450,
-    purchaseValue: 3790,
-    roas: 2.61,
-    cpa: 33.72,
-    cpcLink: 1.17,
-    cpm: 20.8,
-    ctrAll: 1.95,
-    purchases: 43,
-    thumbstop: 28.4,
-    clickToPurchase: 4.1,
-    video25: 35.2,
-    video50: 19.4,
-    atcToPurchaseRatio: 31.9,
-  },
-  {
-    id: "m-8",
-    name: "Bundle offer - creator POV",
-    format: "video",
-    thumbnailUrl: "https://picsum.photos/seed/meta8/640/360",
-    launchDate: "2026-03-01",
-    tags: ["creator", "bundle"],
-    spend: 1090,
-    purchaseValue: 4120,
-    roas: 3.78,
-    cpa: 22.71,
-    cpcLink: 0.84,
-    cpm: 15.2,
-    ctrAll: 2.47,
-    purchases: 48,
-    thumbstop: 34.2,
-    clickToPurchase: 5.9,
-    video25: 40.8,
-    video50: 25.7,
-    atcToPurchaseRatio: 47.4,
-  },
-];
+interface MetaCreativesResponse {
+  status?: string;
+  message?: string;
+  rows: MetaCreativeApiRow[];
+}
 
 const PLATFORM_LABELS: Record<string, string> = {
   meta: "Meta",
@@ -198,19 +39,105 @@ const PLATFORM_LABELS: Record<string, string> = {
   snapchat: "Snapchat",
 };
 
+function toISODate(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function nDaysAgo(n: number) {
+  const date = new Date();
+  date.setDate(date.getDate() - n);
+  return date;
+}
+
+function toDateRange(range: CreativeFiltersState["dateRange"]) {
+  const end = toISODate(new Date());
+  const start = toISODate(nDaysAgo(Number(range) - 1));
+  return { start, end };
+}
+
+function hasMessage(payload: unknown): payload is { message: string } {
+  if (!payload || typeof payload !== "object") return false;
+  return "message" in payload && typeof payload.message === "string";
+}
+
+async function fetchMetaCreatives(params: {
+  businessId: string;
+  start: string;
+  end: string;
+  groupBy: CreativeFiltersState["groupBy"];
+  format: CreativeFiltersState["format"];
+  sort: CreativeFiltersState["sort"];
+}): Promise<MetaCreativesResponse> {
+  const query = new URLSearchParams({
+    businessId: params.businessId,
+    start: params.start,
+    end: params.end,
+    groupBy: params.groupBy,
+    format: params.format,
+    sort: params.sort,
+  });
+
+  const response = await fetch(`/api/meta/creatives?${query.toString()}`, {
+    headers: { Accept: "application/json" },
+  });
+
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message = hasMessage(payload)
+      ? payload.message
+      : `Could not load creatives (${response.status}).`;
+    throw new Error(message);
+  }
+
+  if (!payload || typeof payload !== "object" || !Array.isArray((payload as MetaCreativesResponse).rows)) {
+    throw new Error("Invalid creatives response received from backend.");
+  }
+
+  return payload as MetaCreativesResponse;
+}
+
+function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
+  return {
+    id: row.id,
+    name: row.name,
+    format: row.format,
+    thumbnailUrl: row.thumbnail_url,
+    previewUrl: row.preview_url,
+    imageUrl: row.image_url,
+    isCatalog: row.is_catalog,
+    launchDate: row.launch_date,
+    tags: row.tags ?? [],
+    spend: row.spend,
+    purchaseValue: row.purchase_value,
+    roas: row.roas,
+    cpa: row.cpa,
+    cpcLink: row.cpc_link,
+    cpm: row.cpm,
+    ctrAll: row.ctr_all,
+    purchases: row.purchases,
+    thumbstop: 0,
+    clickToPurchase: 0,
+    video25: 0,
+    video50: 0,
+    atcToPurchaseRatio: 0,
+  };
+}
+
 export default function CreativesPage() {
+  const router = useRouter();
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const businessId = selectedBusinessId ?? "";
 
   const ensureBusiness = useIntegrationsStore((state) => state.ensureBusiness);
   const byBusinessId = useIntegrationsStore((state) => state.byBusinessId);
+  const assignedAccountsByBusiness = useIntegrationsStore(
+    (state) => state.assignedAccountsByBusiness
+  );
 
   useEffect(() => {
     if (!selectedBusinessId) return;
     ensureBusiness(businessId);
   }, [businessId, ensureBusiness, selectedBusinessId]);
-
-  if (!selectedBusinessId) return <BusinessEmptyState />;
 
   const integrations = byBusinessId[businessId];
 
@@ -239,25 +166,55 @@ export default function CreativesPage() {
   const [notesByRowId, setNotesByRowId] = useState<Record<string, string>>({});
   const [shareModalOpen, setShareModalOpen] = useState(false);
 
+  const platform = creativeFilters.platform;
+  const platformStatus = integrations?.[platform as keyof typeof integrations]?.status;
+  const platformConnected = platformStatus === "connected";
+  const assignedMetaAccounts = assignedAccountsByBusiness[businessId]?.meta ?? [];
+  const metaHasAssignments = assignedMetaAccounts.length > 0;
+
+  const dateRange = useMemo(
+    () => toDateRange(creativeFilters.dateRange),
+    [creativeFilters.dateRange]
+  );
+
+  const creativesQuery = useQuery({
+    queryKey: [
+      "meta-creatives-motion",
+      businessId,
+      dateRange.start,
+      dateRange.end,
+      creativeFilters.groupBy,
+      creativeFilters.format,
+      creativeFilters.sort,
+    ],
+    enabled: platform === "meta" && platformConnected && metaHasAssignments,
+    queryFn: () =>
+      fetchMetaCreatives({
+        businessId,
+        start: dateRange.start,
+        end: dateRange.end,
+        groupBy: creativeFilters.groupBy,
+        format: creativeFilters.format,
+        sort: creativeFilters.sort,
+      }),
+  });
+
+  const allRows = useMemo(
+    () => (creativesQuery.data?.rows ?? []).map(mapApiRowToUiRow),
+    [creativesQuery.data?.rows]
+  );
+
   const filteredRows = useMemo(() => {
-    if (creativeFilters.platform !== "meta") return [];
+    if (platform !== "meta") return [];
 
-    const now = new Date("2026-03-05T12:00:00.000Z");
-    const minDate = new Date(now);
-    minDate.setDate(now.getDate() - Number(creativeFilters.dateRange));
+    if (creativeFilters.selectedTags.length === 0) {
+      return allRows;
+    }
 
-    const rows = META_ROWS.filter((row) => {
-      const dateOk = new Date(row.launchDate) >= minDate;
-      const formatOk = creativeFilters.format === "all" ? true : row.format === creativeFilters.format;
-      const tagsOk =
-        creativeFilters.selectedTags.length === 0
-          ? true
-          : creativeFilters.selectedTags.every((tag) => row.tags.includes(tag));
-      return dateOk && formatOk && tagsOk;
-    });
-
-    return [...rows].sort((a, b) => b[creativeFilters.sort] - a[creativeFilters.sort]);
-  }, [creativeFilters]);
+    return allRows.filter((row) =>
+      creativeFilters.selectedTags.every((tag) => row.tags.includes(tag))
+    );
+  }, [allRows, creativeFilters.selectedTags, platform]);
 
   useEffect(() => {
     setSelectionState((prev) => {
@@ -316,6 +273,9 @@ export default function CreativesPage() {
     setTimeout(() => setToastMessage(null), 1400);
   };
 
+  const dataStatus = creativesQuery.data?.status;
+  if (!selectedBusinessId) return <BusinessEmptyState />;
+
   return (
     <div className="space-y-5">
       <div className="space-y-1">
@@ -332,7 +292,7 @@ export default function CreativesPage() {
       )}
 
       <CreativesToolbar
-        rows={META_ROWS}
+        rows={allRows}
         value={creativeFilters}
         onChange={setCreativeFilters}
         onComingSoon={showComingSoon}
@@ -341,9 +301,6 @@ export default function CreativesPage() {
       />
 
       {(() => {
-        const platform = creativeFilters.platform;
-        const platformStatus = integrations?.[platform as keyof typeof integrations]?.status;
-        const platformConnected = platformStatus === "connected";
         const platformLabel = PLATFORM_LABELS[platform] ?? platform;
 
         if (platform !== "meta") {
@@ -363,13 +320,55 @@ export default function CreativesPage() {
           );
         }
 
-        // platform === "meta"
         if (!platformConnected) {
           return (
             <IntegrationEmptyState
               providerLabel="Meta"
               status={platformStatus}
-              description="Connect Meta to view creative performance and sharing tools."
+              description="Connect Meta to view creative performance"
+            />
+          );
+        }
+
+        if (!metaHasAssignments || dataStatus === "no_accounts_assigned") {
+          return (
+            <div className="rounded-xl border border-dashed p-8 text-center">
+              <h3 className="text-base font-semibold">
+                Assign Meta ad accounts to this business to load creatives
+              </h3>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Connect and assign at least one Meta ad account for this business first.
+              </p>
+              <Button className="mt-4" variant="outline" onClick={() => router.push("/integrations") }>
+                Open Integrations
+              </Button>
+            </div>
+          );
+        }
+
+        if (creativesQuery.isLoading) {
+          return <LoadingSkeleton rows={5} />;
+        }
+
+        if (creativesQuery.isError) {
+          return (
+            <ErrorState
+              title="Could not load creatives"
+              description={
+                creativesQuery.error instanceof Error
+                  ? creativesQuery.error.message
+                  : "Could not load creative performance data."
+              }
+              onRetry={() => creativesQuery.refetch()}
+            />
+          );
+        }
+
+        if (filteredRows.length === 0 || dataStatus === "no_data") {
+          return (
+            <EmptyState
+              title="No creative performance data found for the selected range"
+              description="Try a wider date range or verify that assigned Meta accounts have active ad delivery."
             />
           );
         }

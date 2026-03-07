@@ -94,11 +94,7 @@ export function CreativesMotionTable({
                   }`}
                 >
                   <div className="flex items-center gap-2">
-                    <img
-                      src={row.thumbnailUrl}
-                      alt={row.name}
-                      className="h-9 w-16 rounded object-cover"
-                    />
+                    <CreativeThumb row={row} />
                     <span className="line-clamp-2">{row.name}</span>
                   </div>
                 </td>
@@ -139,6 +135,19 @@ export function CreativesMotionTable({
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+function CreativeThumb({ row }: { row: MetaCreativeRow }) {
+  const preview = row.previewUrl ?? row.thumbnailUrl ?? row.imageUrl;
+  if (preview) {
+    return <img src={preview} alt={row.name} className="h-9 w-16 rounded object-cover" />;
+  }
+
+  return (
+    <div className="flex h-9 w-16 items-center justify-center rounded bg-muted/40 text-[10px] text-muted-foreground">
+      {row.isCatalog ? "Catalog ad" : "No preview"}
     </div>
   );
 }
