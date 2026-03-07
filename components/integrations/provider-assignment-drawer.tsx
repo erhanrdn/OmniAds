@@ -208,83 +208,89 @@ export function ProviderAssignmentDrawer({
 
   return (
     <Sheet open={open} onOpenChange={(nextOpen) => (!nextOpen ? onClose() : undefined)}>
-      <SheetContent side="right" className="w-full sm:max-w-xl">
-        <SheetHeader className="space-y-2">
-          <SheetTitle>{getTitle(provider)}</SheetTitle>
-          <SheetDescription>
-            Select the accounts OmniAds should use when syncing data for this business.
-          </SheetDescription>
-        </SheetHeader>
-
-        <div className="mt-6 space-y-3">
-          {fetchState === "loading" ? (
-            <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-              Loading ad accounts...
-            </div>
-          ) : null}
-
-          {fetchState === "error" ? (
-            <DataEmptyState
-              title="Could not load ad accounts"
-              description={
-                errorMessage ??
-                "We couldn't fetch accessible Meta ad accounts for this connection."
-              }
-            />
-          ) : null}
-
-          {fetchState === "error" ? (
-            <div className="flex justify-end">
-              <Button variant="outline" onClick={loadAccounts}>
-                Retry
-              </Button>
-            </div>
-          ) : null}
-
-          {fetchState === "empty" ? (
-            <DataEmptyState
-              title="No ad accounts found"
-              description="No Meta ad accounts are available for this login or the required permissions are missing."
-            />
-          ) : null}
-
-          {fetchState === "success"
-            ? normalizedAccounts.map((account) => {
-                const checked = draftIds.includes(account.id);
-                return (
-                  <label
-                    key={account.id}
-                    className="flex items-start justify-between gap-4 rounded-lg border bg-background px-4 py-3"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">{account.name}</p>
-                      <p className="mt-1 truncate text-xs text-muted-foreground">
-                        {account.externalId}
-                        {account.currency ? ` • ${account.currency}` : ""}
-                      </p>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => toggleAccount(account.id)}
-                      className="mt-0.5"
-                    />
-                  </label>
-                );
-              })
-            : null}
+      <SheetContent side="right" className="flex h-full w-full flex-col p-0 sm:max-w-xl">
+        <div className="shrink-0 border-b px-6 py-6">
+          <SheetHeader className="space-y-2">
+            <SheetTitle>{getTitle(provider)}</SheetTitle>
+            <SheetDescription>
+              Select the accounts OmniAds should use when syncing data for this business.
+            </SheetDescription>
+          </SheetHeader>
         </div>
 
-        <div className="mt-6 flex items-center justify-end gap-2">
-          <Button variant="outline" onClick={onClose} disabled={isSaving}>
-            Cancel
-          </Button>
-          <Button
-            onClick={handleSave}
-            disabled={isSaving || fetchState !== "success" || !provider || !isMeta}
-          >
-            {isSaving ? "Saving..." : "Save assignments"}
-          </Button>
+        <div className="flex-1 overflow-y-auto px-6 py-4">
+          <div className="space-y-3">
+            {fetchState === "loading" ? (
+              <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                Loading ad accounts...
+              </div>
+            ) : null}
+
+            {fetchState === "error" ? (
+              <DataEmptyState
+                title="Could not load ad accounts"
+                description={
+                  errorMessage ??
+                  "We couldn't fetch accessible Meta ad accounts for this connection."
+                }
+              />
+            ) : null}
+
+            {fetchState === "error" ? (
+              <div className="flex justify-end">
+                <Button variant="outline" onClick={loadAccounts}>
+                  Retry
+                </Button>
+              </div>
+            ) : null}
+
+            {fetchState === "empty" ? (
+              <DataEmptyState
+                title="No ad accounts found"
+                description="No Meta ad accounts are available for this login or the required permissions are missing."
+              />
+            ) : null}
+
+            {fetchState === "success"
+              ? normalizedAccounts.map((account) => {
+                  const checked = draftIds.includes(account.id);
+                  return (
+                    <label
+                      key={account.id}
+                      className="flex items-start justify-between gap-4 rounded-lg border bg-background px-4 py-3"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">{account.name}</p>
+                        <p className="mt-1 truncate text-xs text-muted-foreground">
+                          {account.externalId}
+                          {account.currency ? ` • ${account.currency}` : ""}
+                        </p>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleAccount(account.id)}
+                        className="mt-0.5"
+                      />
+                    </label>
+                  );
+                })
+              : null}
+          </div>
+        </div>
+
+        <div className="shrink-0 border-t px-6 py-6">
+          <div className="flex items-center justify-end gap-2">
+            <Button variant="outline" onClick={onClose} disabled={isSaving}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSave}
+              disabled={isSaving || fetchState !== "success" || !provider || !isMeta}
+            >
+              {isSaving ? "Saving..." : "Save assignments"}
+            </Button>
+          </div>
         </div>
       </SheetContent>
     </Sheet>
