@@ -186,7 +186,7 @@ function CreativePreview({
   if (creative.is_catalog) {
     return (
       <div
-        className={`flex h-[220px] w-full flex-col items-center justify-center gap-1.5 bg-muted/60 ${className}`}
+        className={`flex aspect-square w-full flex-col items-center justify-center gap-1.5 bg-muted/60 ${className}`}
       >
         <Badge variant="secondary" className="text-[10px]">
           Catalog ad
@@ -199,19 +199,21 @@ function CreativePreview({
   // B) Real preview
   if (creative.preview_url) {
     return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={creative.preview_url}
-        alt={creative.name}
-        className={`h-[220px] w-full object-cover ${className}`}
-      />
+      <div className={`aspect-square w-full overflow-hidden ${className}`}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={creative.preview_url}
+          alt={creative.name}
+          className="h-full w-full object-cover"
+        />
+      </div>
     );
   }
 
   // C) Preview unavailable (non-catalog, but no image/thumbnail returned)
   return (
     <div
-      className={`flex h-[220px] w-full items-center justify-center bg-muted/40 ${className}`}
+      className={`flex aspect-square w-full items-center justify-center bg-muted/40 ${className}`}
     >
       <span className="text-xs text-muted-foreground">Preview unavailable</span>
     </div>
