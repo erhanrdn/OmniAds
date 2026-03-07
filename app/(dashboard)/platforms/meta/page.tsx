@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { useAppStore } from "@/store/app-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
 import { IntegrationEmptyState } from "@/components/states/IntegrationEmptyState";
 import { LoadingSkeleton } from "@/components/states/loading-skeleton";
+import { DataEmptyState } from "@/components/states/DataEmptyState";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,296 +17,261 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { useRouter } from "next/navigation";
+import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
+import type { MetaCreativeRow } from "@/app/api/meta/top-creatives/route";
 
-type Status = "active" | "paused";
-type Impact = "High" | "Medium" | "Low";
+// ── Data fetchers ─────────────────────────────────────────────────────────────
 
-interface Metrics {
-  spend: number;
-  purchases: number;
-  revenue: number;
-  roas: number;
-  cpa: number;
-  ctr: number;
-  cpm: number;
+async function fetchMetaCampaigns(
+  businessId: string,
+  startDate: string,
+  endDate: string
+): Promise<{ status?: string; rows: MetaCampaignRow[] }> {
+  const params = new URLSearchParams({ businessId, startDate, endDate });
+  const res = await fetch(`/api/meta/campaigns?${params.toString()}`, {
+    headers: { Accept: "application/json" },
+  });
+  const payload = await res.json().catch(() => null);
+  if (!res.ok) {
+    const msg =
+      payload && typeof payload === "object" && "message" in payload
+        ? String(payload.message)
+        : `Request failed (${res.status})`;
+    throw new Error(msg);
+  }
+  return payload as { status?: string; rows: MetaCampaignRow[] };
 }
 
-interface CampaignRow extends Metrics {
-  id: string;
-  name: string;
-  status: Status;
+async function fetchMetaTopCreatives(
+  businessId: string,
+  startDate: string,
+  endDate: string
+): Promise<{ status?: string; rows: MetaCreativeRow[] }> {
+  const params = new URLSearchParams({ businessId, startDate, endDate, limit: "6" });
+  const res = await fetch(`/api/meta/top-creatives?${params.toString()}`, {
+    headers: { Accept: "application/json" },
+  });
+  const payload = await res.json().catch(() => null);
+  if (!res.ok) {
+    const msg =
+      payload && typeof payload === "object" && "message" in payload
+        ? String(payload.message)
+        : `Request failed (${res.status})`;
+    throw new Error(msg);
+  }
+  return payload as { status?: string; rows: MetaCreativeRow[] };
 }
 
-interface AdSetRow extends Metrics {
-  id: string;
-  campaignId: string;
-  name: string;
-  status: Status;
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function toISODate(d: Date) {
+  return d.toISOString().slice(0, 10);
 }
 
-interface AdRow extends Metrics {
-  id: string;
-  adSetId: string;
-  name: string;
-  status: Status;
+function nDaysAgo(n: number) {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return d;
 }
 
-interface Creative {
-  id: string;
-  name: string;
-  previewUrl: string;
-  spend: number;
-  revenue: number;
-  roas: number;
-  ctr: number;
-  purchases: number;
+function fmt$(n: number) {
+  return `$${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 }
 
-interface InsightCard {
-  id: string;
-  title: string;
-  description: string;
-  impact: Impact;
-  summary: string[];
-  evidence: Array<{ label: string; value: string }>;
-  actions: string[];
+// ── Sub-components ────────────────────────────────────────────────────────────
+
+function NoAccountsAssigned() {
+  const router = useRouter();
+  return (
+    <div className="rounded-xl border border-dashed p-8 text-center">
+      <p className="text-sm font-medium">No Meta ad accounts assigned</p>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Assign one or more Meta ad accounts to this business to view campaign performance.
+      </p>
+      <Button className="mt-4" variant="outline" onClick={() => router.push("/integrations")}>
+        Open Integrations
+      </Button>
+    </div>
+  );
 }
 
-const CAMPAIGNS: CampaignRow[] = [
-  {
-    id: "cmp-1",
-    name: "Spring Retargeting",
-    status: "active",
-    spend: 1960,
-    purchases: 98,
-    revenue: 7080,
-    roas: 3.61,
-    cpa: 20,
-    ctr: 2.84,
-    cpm: 18.3,
-  },
-  {
-    id: "cmp-2",
-    name: "Prospecting Lookalike",
-    status: "paused",
-    spend: 1490,
-    purchases: 80,
-    revenue: 5520,
-    roas: 3.7,
-    cpa: 18.63,
-    ctr: 2.29,
-    cpm: 16.7,
-  },
-];
+function SectionError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4">
+      <p className="text-sm font-medium text-destructive">Could not load data</p>
+      <p className="mt-1 text-xs text-destructive/80">{message}</p>
+      <Button className="mt-3" variant="outline" size="sm" onClick={onRetry}>
+        Retry
+      </Button>
+    </div>
+  );
+}
 
-const AD_SETS: AdSetRow[] = [
-  {
-    id: "as-1",
-    campaignId: "cmp-1",
-    name: "7D Site Visitors",
-    status: "active",
-    spend: 980,
-    purchases: 52,
-    revenue: 3760,
-    roas: 3.84,
-    cpa: 18.85,
-    ctr: 3.01,
-    cpm: 17.5,
-  },
-  {
-    id: "as-2",
-    campaignId: "cmp-1",
-    name: "ATC 14D",
-    status: "active",
-    spend: 940,
-    purchases: 46,
-    revenue: 3320,
-    roas: 3.53,
-    cpa: 20.43,
-    ctr: 2.62,
-    cpm: 18.9,
-  },
-  {
-    id: "as-3",
-    campaignId: "cmp-2",
-    name: "LAL Purchasers 1%",
-    status: "paused",
-    spend: 780,
-    purchases: 38,
-    revenue: 2810,
-    roas: 3.6,
-    cpa: 20.53,
-    ctr: 2.11,
-    cpm: 15.8,
-  },
-];
+// ── Campaign Performance ──────────────────────────────────────────────────────
 
-const ADS: AdRow[] = [
-  {
-    id: "ad-1",
-    adSetId: "as-1",
-    name: "UGC Reel - Testimonial",
-    status: "active",
-    spend: 520,
-    purchases: 29,
-    revenue: 2110,
-    roas: 4.06,
-    cpa: 17.93,
-    ctr: 3.31,
-    cpm: 17.1,
-  },
-  {
-    id: "ad-2",
-    adSetId: "as-1",
-    name: "Static Promo - 20% Off",
-    status: "active",
-    spend: 460,
-    purchases: 23,
-    revenue: 1650,
-    roas: 3.59,
-    cpa: 20,
-    ctr: 2.71,
-    cpm: 17.9,
-  },
-  {
-    id: "ad-3",
-    adSetId: "as-3",
-    name: "Lifestyle Variant B",
-    status: "paused",
-    spend: 390,
-    purchases: 16,
-    revenue: 1090,
-    roas: 2.79,
-    cpa: 24.38,
-    ctr: 1.78,
-    cpm: 15.1,
-  },
-];
+function CampaignTable({
+  rows,
+  onRowClick,
+}: {
+  rows: MetaCampaignRow[];
+  onRowClick: (row: MetaCampaignRow) => void;
+}) {
+  return (
+    <div className="overflow-x-auto rounded-xl border">
+      <table className="min-w-full text-sm">
+        <thead className="bg-muted/45 text-left">
+          <tr>
+            <th className="px-3 py-3 font-medium">Campaign</th>
+            <th className="px-3 py-3 font-medium">Status</th>
+            <th className="px-3 py-3 font-medium">Spend</th>
+            <th className="px-3 py-3 font-medium">Purchases</th>
+            <th className="px-3 py-3 font-medium">Revenue</th>
+            <th className="px-3 py-3 font-medium">ROAS</th>
+            <th className="px-3 py-3 font-medium">CPA</th>
+            <th className="px-3 py-3 font-medium">CTR</th>
+            <th className="px-3 py-3 font-medium">CPM</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr
+              key={row.id}
+              className="cursor-pointer border-t hover:bg-muted/25"
+              onClick={() => onRowClick(row)}
+            >
+              <td className="px-3 py-3 font-medium">{row.name}</td>
+              <td className="px-3 py-3">
+                <CampaignStatusBadge status={row.status} />
+              </td>
+              <td className="px-3 py-3">{fmt$(row.spend)}</td>
+              <td className="px-3 py-3">{row.purchases.toLocaleString()}</td>
+              <td className="px-3 py-3">{fmt$(row.revenue)}</td>
+              <td className="px-3 py-3">{row.roas.toFixed(2)}</td>
+              <td className="px-3 py-3">{fmt$(row.cpa)}</td>
+              <td className="px-3 py-3">{row.ctr.toFixed(2)}%</td>
+              <td className="px-3 py-3">{fmt$(row.cpm)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
-const TOP_CREATIVES: Creative[] = [
-  {
-    id: "cr-1",
-    name: "UGC Reel - Morning Hook",
-    previewUrl: "https://picsum.photos/seed/meta-cr1/640/360",
-    spend: 1260,
-    revenue: 4410,
-    roas: 3.5,
-    ctr: 2.88,
-    purchases: 74,
-  },
-  {
-    id: "cr-2",
-    name: "Static Offer Card",
-    previewUrl: "https://picsum.photos/seed/meta-cr2/640/360",
-    spend: 880,
-    revenue: 2410,
-    roas: 2.74,
-    ctr: 2.11,
-    purchases: 39,
-  },
-  {
-    id: "cr-3",
-    name: "Founder Story Cut",
-    previewUrl: "https://picsum.photos/seed/meta-cr3/640/360",
-    spend: 970,
-    revenue: 3620,
-    roas: 3.73,
-    ctr: 2.45,
-    purchases: 56,
-  },
-];
+function CampaignStatusBadge({ status }: { status: string }) {
+  const lower = status.toLowerCase();
+  if (lower === "active") return <Badge>active</Badge>;
+  if (lower === "paused") return <Badge variant="secondary">paused</Badge>;
+  if (lower === "archived") return <Badge variant="outline">archived</Badge>;
+  return <Badge variant="outline">{status.toLowerCase()}</Badge>;
+}
 
-const INSIGHTS: InsightCard[] = [
-  {
-    id: "ins-1",
-    title: "Creative fatigue detected",
-    description: "Frequency is rising while CTR drops in retargeting ad sets.",
-    impact: "High",
-    summary: [
-      "Frequency crossed 3.2 in two ad sets.",
-      "CTR declined 18% week-over-week.",
-      "Fresh variants are required to maintain efficient CPA.",
-    ],
-    evidence: [
-      { label: "Affected ad sets", value: "2" },
-      { label: "CTR change", value: "-18%" },
-      { label: "Spend at risk", value: "$620" },
-    ],
-    actions: [
-      "Rotate 2 new hooks this week",
-      "Cap frequency at ad set level",
-      "Shift 15% budget to fresher creatives",
-    ],
-  },
-  {
-    id: "ins-2",
-    title: "Top performing audience",
-    description: "ATC 14D audience continues to outperform broad prospecting.",
-    impact: "Medium",
-    summary: [
-      "ATC 14D delivers 32% higher ROAS than account average.",
-      "Purchase rate remains stable despite spend growth.",
-      "Audience quality supports moderate scaling.",
-    ],
-    evidence: [
-      { label: "Audience ROAS", value: "4.01" },
-      { label: "CPA delta", value: "-$4.20" },
-      { label: "Spend share", value: "21%" },
-    ],
-    actions: [
-      "Increase ATC 14D budget by 10%",
-      "Clone winning ads into this audience",
-      "Refresh exclusions weekly",
-    ],
-  },
-  {
-    id: "ins-3",
-    title: "Budget scaling opportunity",
-    description: "Winning campaigns show headroom without major CPA increase.",
-    impact: "High",
-    summary: [
-      "Spring Retargeting maintains ROAS > 3.5 at current budget.",
-      "Auction overlap risk remains limited.",
-      "Scale can be tested with conservative step increases.",
-    ],
-    evidence: [
-      { label: "Target campaign", value: "Spring Retargeting" },
-      { label: "ROAS", value: "3.61" },
-      { label: "Suggested scale", value: "+15%" },
-    ],
-    actions: [
-      "Increase daily budget by 15%",
-      "Monitor CPA threshold every 48h",
-      "Pause scale if ROAS drops below 3.2",
-    ],
-  },
-  {
-    id: "ins-4",
-    title: "Low CTR creatives",
-    description: "Several static variants underperform baseline click intent.",
-    impact: "Low",
-    summary: [
-      "Three ads have CTR below 1.9%.",
-      "These ads pull average CTR down in prospecting.",
-      "Hook and offer clarity likely need improvement.",
-    ],
-    evidence: [
-      { label: "Low CTR ads", value: "3" },
-      { label: "Avg CTR (low set)", value: "1.73%" },
-      { label: "Baseline CTR", value: "2.34%" },
-    ],
-    actions: [
-      "Rewrite first-line hook",
-      "Add stronger value claim in headline",
-      "Test UGC variant against static card",
-    ],
-  },
-];
+// ── Top Creatives ─────────────────────────────────────────────────────────────
 
-type DrawerPayload =
-  | { type: "creative"; data: Creative }
-  | { type: "insight"; data: InsightCard }
-  | null;
+function CreativeCard({
+  creative,
+  onClick,
+}: {
+  creative: MetaCreativeRow;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="overflow-hidden rounded-xl border bg-card text-left transition-shadow hover:shadow-sm"
+    >
+      {/* Thumbnail placeholder — real preview requires per-ad API call */}
+      <div className="flex aspect-video w-full items-center justify-center bg-muted">
+        <span className="text-xs text-muted-foreground">No preview available</span>
+      </div>
+      <div className="space-y-2 p-3">
+        <p className="truncate text-sm font-semibold">{creative.name}</p>
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          <MiniMetric label="Spend" value={fmt$(creative.spend)} />
+          <MiniMetric label="Revenue" value={fmt$(creative.revenue)} />
+          <MiniMetric label="ROAS" value={creative.roas.toFixed(2)} />
+          <MiniMetric label="CTR" value={`${creative.ctr.toFixed(2)}%`} />
+          <MiniMetric label="Purchases" value={creative.purchases.toLocaleString()} />
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function MiniMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border bg-muted/15 px-2 py-1.5">
+      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="text-sm">{value}</p>
+    </div>
+  );
+}
+
+// ── Drawer ────────────────────────────────────────────────────────────────────
+
+type DrawerPayload = { type: "campaign"; data: MetaCampaignRow } | { type: "creative"; data: MetaCreativeRow } | null;
+
+function MetaDrawer({ payload, onClose }: { payload: DrawerPayload; onClose: () => void }) {
+  return (
+    <Sheet open={Boolean(payload)} onOpenChange={(open) => (!open ? onClose() : undefined)}>
+      <SheetContent side="right" className="w-full sm:max-w-xl overflow-y-auto">
+        {payload?.type === "campaign" && (
+          <>
+            <SheetHeader className="mb-4">
+              <SheetTitle>{payload.data.name}</SheetTitle>
+              <SheetDescription>Campaign performance detail</SheetDescription>
+            </SheetHeader>
+            <div className="space-y-4 pb-6">
+              <section className="rounded-xl border p-4">
+                <h3 className="text-sm font-semibold">Metrics</h3>
+                <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+                  <div><dt className="text-muted-foreground">Spend</dt><dd>{fmt$(payload.data.spend)}</dd></div>
+                  <div><dt className="text-muted-foreground">Revenue</dt><dd>{fmt$(payload.data.revenue)}</dd></div>
+                  <div><dt className="text-muted-foreground">ROAS</dt><dd>{payload.data.roas.toFixed(2)}</dd></div>
+                  <div><dt className="text-muted-foreground">Purchases</dt><dd>{payload.data.purchases.toLocaleString()}</dd></div>
+                  <div><dt className="text-muted-foreground">CPA</dt><dd>{fmt$(payload.data.cpa)}</dd></div>
+                  <div><dt className="text-muted-foreground">CTR</dt><dd>{payload.data.ctr.toFixed(2)}%</dd></div>
+                  <div><dt className="text-muted-foreground">CPM</dt><dd>{fmt$(payload.data.cpm)}</dd></div>
+                  <div><dt className="text-muted-foreground">Impressions</dt><dd>{payload.data.impressions.toLocaleString()}</dd></div>
+                  <div><dt className="text-muted-foreground">Clicks</dt><dd>{payload.data.clicks.toLocaleString()}</dd></div>
+                  <div><dt className="text-muted-foreground">Status</dt><dd><CampaignStatusBadge status={payload.data.status} /></dd></div>
+                </dl>
+              </section>
+            </div>
+          </>
+        )}
+
+        {payload?.type === "creative" && (
+          <>
+            <SheetHeader className="mb-4">
+              <SheetTitle>{payload.data.name}</SheetTitle>
+              <SheetDescription>Ad performance detail</SheetDescription>
+            </SheetHeader>
+            <div className="space-y-4 pb-6">
+              <div className="flex aspect-video w-full items-center justify-center rounded-xl bg-muted">
+                <span className="text-xs text-muted-foreground">No preview available</span>
+              </div>
+              <section className="rounded-xl border p-4">
+                <h3 className="text-sm font-semibold">Metrics</h3>
+                <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+                  <div><dt className="text-muted-foreground">Spend</dt><dd>{fmt$(payload.data.spend)}</dd></div>
+                  <div><dt className="text-muted-foreground">Revenue</dt><dd>{fmt$(payload.data.revenue)}</dd></div>
+                  <div><dt className="text-muted-foreground">ROAS</dt><dd>{payload.data.roas.toFixed(2)}</dd></div>
+                  <div><dt className="text-muted-foreground">CTR</dt><dd>{payload.data.ctr.toFixed(2)}%</dd></div>
+                  <div><dt className="text-muted-foreground">Purchases</dt><dd>{payload.data.purchases.toLocaleString()}</dd></div>
+                </dl>
+              </section>
+            </div>
+          </>
+        )}
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+// ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function MetaPage() {
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
@@ -318,310 +285,160 @@ export default function MetaPage() {
     ensureBusiness(businessId);
   }, [businessId, ensureBusiness, selectedBusinessId]);
 
+  const [drawer, setDrawer] = useState<DrawerPayload>(null);
+
   if (!selectedBusinessId) return <BusinessEmptyState />;
 
   const metaStatus = byBusinessId[businessId]?.meta?.status;
   const metaConnected = metaStatus === "connected";
 
-  const [expandedCampaignIds, setExpandedCampaignIds] = useState<string[]>([]);
-  const [expandedAdSetIds, setExpandedAdSetIds] = useState<string[]>([]);
-  const [drawer, setDrawer] = useState<DrawerPayload>(null);
+  // Default date range: last 30 days
+  const endDate = toISODate(new Date());
+  const startDate = toISODate(nDaysAgo(29));
 
-  const adSetsByCampaign = useMemo(
-    () =>
-      AD_SETS.reduce<Record<string, AdSetRow[]>>((acc, adSet) => {
-        acc[adSet.campaignId] = [...(acc[adSet.campaignId] ?? []), adSet];
-        return acc;
-      }, {}),
-    []
-  );
-  const adsByAdSet = useMemo(
-    () =>
-      ADS.reduce<Record<string, AdRow[]>>((acc, ad) => {
-        acc[ad.adSetId] = [...(acc[ad.adSetId] ?? []), ad];
-        return acc;
-      }, {}),
-    []
-  );
+  const campaignsQuery = useQuery({
+    queryKey: ["meta-campaigns", businessId, startDate, endDate],
+    enabled: metaConnected,
+    queryFn: () => fetchMetaCampaigns(businessId, startDate, endDate),
+  });
 
-  const toggleCampaign = (id: string) => {
-    setExpandedCampaignIds((prev) =>
-      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
-    );
-  };
-
-  const toggleAdSet = (id: string) => {
-    setExpandedAdSetIds((prev) =>
-      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
-    );
-  };
+  const creativesQuery = useQuery({
+    queryKey: ["meta-top-creatives", businessId, startDate, endDate],
+    enabled: metaConnected,
+    queryFn: () => fetchMetaTopCreatives(businessId, startDate, endDate),
+  });
 
   return (
     <div className="space-y-6">
       <div className="space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight">Meta Ads</h1>
         <p className="text-sm text-muted-foreground">
-          Campaign analytics with creative and AI insight drill-down.
+          Campaign analytics and top ad performance from connected Meta accounts.
         </p>
       </div>
 
+      {/* Integration gate */}
       {metaStatus === "connecting" && <LoadingSkeleton rows={4} />}
 
       {!metaConnected && metaStatus !== "connecting" && (
         <IntegrationEmptyState
           providerLabel="Meta"
           status={metaStatus}
-          description="View campaigns, ad sets, ads, and creative insights once your Meta account is connected."
+          description="View campaigns, ad sets, and creative insights once your Meta account is connected."
         />
       )}
 
-      {metaConnected && (<>
-      <section className="space-y-2">
-        <h2 className="text-base font-semibold">AI Insights</h2>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {INSIGHTS.map((insight) => (
-            <div key={insight.id} className="rounded-xl border bg-card p-4">
-              <div className="flex items-start justify-between gap-2">
-                <h3 className="text-sm font-semibold">{insight.title}</h3>
-                <Badge
-                  variant={
-                    insight.impact === "High"
-                      ? "destructive"
-                      : insight.impact === "Medium"
-                        ? "secondary"
-                        : "outline"
-                  }
-                >
-                  {insight.impact}
-                </Badge>
-              </div>
-              <p className="mt-2 text-xs text-muted-foreground">{insight.description}</p>
-              <Button
-                className="mt-4"
-                variant="outline"
-                size="sm"
-                onClick={() => setDrawer({ type: "insight", data: insight })}
-              >
-                View details
-              </Button>
+      {metaConnected && (
+        <>
+          {/* ── AI Insights ─────────────────────────────────────────────── */}
+          <section className="rounded-2xl border bg-card p-5 shadow-sm">
+            <h2 className="text-base font-semibold">AI Insights</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              OmniAds will surface creative, audience, and budget signals once enough synced
+              Meta performance data is available.
+            </p>
+          </section>
+
+          {/* ── Campaign Performance ─────────────────────────────────────── */}
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-semibold">Campaign Performance</h2>
+              <span className="text-xs text-muted-foreground">Last 30 days</span>
             </div>
-          ))}
-        </div>
-      </section>
 
-      <section className="space-y-2">
-        <h2 className="text-base font-semibold">Campaign Performance</h2>
-        <div className="overflow-x-auto rounded-xl border">
-          <table className="min-w-full text-sm">
-            <thead className="bg-muted/45 text-left">
-              <tr>
-                <th className="px-3 py-3 font-medium">Campaign Name</th>
-                <th className="px-3 py-3 font-medium">Status</th>
-                <th className="px-3 py-3 font-medium">Spend</th>
-                <th className="px-3 py-3 font-medium">Purchases</th>
-                <th className="px-3 py-3 font-medium">Revenue</th>
-                <th className="px-3 py-3 font-medium">ROAS</th>
-                <th className="px-3 py-3 font-medium">CPA</th>
-                <th className="px-3 py-3 font-medium">CTR</th>
-                <th className="px-3 py-3 font-medium">CPM</th>
-              </tr>
-            </thead>
-            <tbody>
-              {CAMPAIGNS.map((campaign) => (
-                <>
-                  <tr
-                    key={campaign.id}
-                    className="cursor-pointer border-t hover:bg-muted/25"
-                    onClick={() => toggleCampaign(campaign.id)}
-                  >
-                    <td className="px-3 py-3 font-medium">{campaign.name}</td>
-                    <StatusCell status={campaign.status} />
-                    <MetricCells row={campaign} />
-                  </tr>
+            {campaignsQuery.isLoading && <LoadingSkeleton rows={4} />}
 
-                  {expandedCampaignIds.includes(campaign.id) &&
-                    (adSetsByCampaign[campaign.id] ?? []).map((adSet) => (
-                      <>
-                        <tr
-                          key={adSet.id}
-                          className="cursor-pointer border-t bg-muted/15 hover:bg-muted/25"
-                          onClick={() => toggleAdSet(adSet.id)}
-                        >
-                          <td className="px-3 py-3 pl-8">Ad Set: {adSet.name}</td>
-                          <StatusCell status={adSet.status} />
-                          <MetricCells row={adSet} />
-                        </tr>
-                        {expandedAdSetIds.includes(adSet.id) &&
-                          (adsByAdSet[adSet.id] ?? []).map((ad) => (
-                            <tr key={ad.id} className="border-t bg-muted/5">
-                              <td className="px-3 py-3 pl-14">Ad: {ad.name}</td>
-                              <StatusCell status={ad.status} />
-                              <MetricCells row={ad} />
-                            </tr>
-                          ))}
-                      </>
-                    ))}
-                </>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section className="space-y-2">
-        <h2 className="text-base font-semibold">Top Performing Creatives</h2>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {TOP_CREATIVES.map((creative) => (
-            <button
-              key={creative.id}
-              type="button"
-              onClick={() => setDrawer({ type: "creative", data: creative })}
-              className="overflow-hidden rounded-xl border bg-card text-left transition-shadow hover:shadow-sm"
-            >
-              <img
-                src={creative.previewUrl}
-                alt={creative.name}
-                className="aspect-video w-full object-cover"
+            {campaignsQuery.isError && (
+              <SectionError
+                message={
+                  campaignsQuery.error instanceof Error
+                    ? campaignsQuery.error.message
+                    : "Could not load campaign data."
+                }
+                onRetry={() => campaignsQuery.refetch()}
               />
-              <div className="space-y-2 p-3">
-                <p className="text-sm font-semibold">{creative.name}</p>
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <MiniMetric label="Spend" value={`$${creative.spend.toLocaleString()}`} />
-                  <MiniMetric label="Revenue" value={`$${creative.revenue.toLocaleString()}`} />
-                  <MiniMetric label="ROAS" value={creative.roas.toFixed(2)} />
-                  <MiniMetric label="CTR" value={`${creative.ctr.toFixed(2)}%`} />
-                  <MiniMetric label="Purchases" value={creative.purchases.toLocaleString()} />
-                </div>
-              </div>
-            </button>
-          ))}
-        </div>
-      </section>
+            )}
 
-      <MetaDrawer payload={drawer} onClose={() => setDrawer(null)} />
-      </>)}
-    </div>
-  );
-}
+            {!campaignsQuery.isLoading && !campaignsQuery.isError && (() => {
+              const status = campaignsQuery.data?.status;
+              const rows = campaignsQuery.data?.rows ?? [];
 
-function StatusCell({ status }: { status: Status }) {
-  return (
-    <td className="px-3 py-3">
-      <Badge variant={status === "active" ? "default" : "secondary"}>{status}</Badge>
-    </td>
-  );
-}
+              if (status === "no_accounts_assigned") {
+                return <NoAccountsAssigned />;
+              }
 
-function MetricCells({ row }: { row: Metrics }) {
-  return (
-    <>
-      <td className="px-3 py-3">${row.spend.toLocaleString()}</td>
-      <td className="px-3 py-3">{row.purchases.toLocaleString()}</td>
-      <td className="px-3 py-3">${row.revenue.toLocaleString()}</td>
-      <td className="px-3 py-3">{row.roas.toFixed(2)}</td>
-      <td className="px-3 py-3">${row.cpa.toFixed(2)}</td>
-      <td className="px-3 py-3">{row.ctr.toFixed(2)}%</td>
-      <td className="px-3 py-3">${row.cpm.toFixed(2)}</td>
-    </>
-  );
-}
+              if (rows.length === 0) {
+                return (
+                  <DataEmptyState
+                    title="No campaign data found"
+                    description="No campaigns ran in the last 30 days for the assigned Meta ad accounts."
+                  />
+                );
+              }
 
-function MiniMetric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-md border bg-muted/15 px-2 py-1.5">
-      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className="text-sm">{value}</p>
-    </div>
-  );
-}
+              return (
+                <CampaignTable
+                  rows={rows}
+                  onRowClick={(row) => setDrawer({ type: "campaign", data: row })}
+                />
+              );
+            })()}
+          </section>
 
-function MetaDrawer({ payload, onClose }: { payload: DrawerPayload; onClose: () => void }) {
-  return (
-    <Sheet open={Boolean(payload)} onOpenChange={(open) => (open ? null : onClose())}>
-      <SheetContent side="right" className="w-full sm:max-w-2xl">
-        {payload && payload.type === "creative" && (
-          <>
-            <SheetHeader>
-              <SheetTitle>{payload.data.name}</SheetTitle>
-              <SheetDescription>Creative performance detail</SheetDescription>
-            </SheetHeader>
-            <div className="space-y-4 overflow-y-auto px-4 pb-6">
-              <img
-                src={payload.data.previewUrl}
-                alt={payload.data.name}
-                className="aspect-video w-full rounded-lg object-cover"
+          {/* ── Top Performing Creatives ─────────────────────────────────── */}
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-semibold">Top Performing Creatives</h2>
+              <span className="text-xs text-muted-foreground">Last 30 days · by ROAS</span>
+            </div>
+
+            {creativesQuery.isLoading && <LoadingSkeleton rows={3} />}
+
+            {creativesQuery.isError && (
+              <SectionError
+                message={
+                  creativesQuery.error instanceof Error
+                    ? creativesQuery.error.message
+                    : "Could not load creative data."
+                }
+                onRetry={() => creativesQuery.refetch()}
               />
-              <section className="rounded-xl border p-4">
-                <h3 className="text-sm font-semibold">AI Summary</h3>
-                <ul className="mt-2 space-y-1 text-sm">
-                  <li>- Strong opening hook with stable conversion quality.</li>
-                  <li>- ROAS is above account median with scalable CPA.</li>
-                  <li>- Creative can be repurposed across additional ad sets.</li>
-                </ul>
-              </section>
-              <section className="rounded-xl border p-4">
-                <h3 className="text-sm font-semibold">Performance metrics</h3>
-                <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
-                  <p>Spend: ${payload.data.spend.toLocaleString()}</p>
-                  <p>Revenue: ${payload.data.revenue.toLocaleString()}</p>
-                  <p>ROAS: {payload.data.roas.toFixed(2)}</p>
-                  <p>CTR: {payload.data.ctr.toFixed(2)}%</p>
-                  <p>Purchases: {payload.data.purchases.toLocaleString()}</p>
-                </div>
-              </section>
-              <section className="rounded-xl border p-4">
-                <h3 className="text-sm font-semibold">Suggested actions</h3>
-                <ul className="mt-2 space-y-1 text-sm">
-                  <li>- Test new hook</li>
-                  <li>- Duplicate creative</li>
-                  <li>- Increase budget</li>
-                  <li>- Use in other campaigns</li>
-                </ul>
-              </section>
-            </div>
-          </>
-        )}
+            )}
 
-        {payload && payload.type === "insight" && (
-          <>
-            <SheetHeader>
-              <SheetTitle>{payload.data.title}</SheetTitle>
-              <SheetDescription>{payload.data.impact} impact insight</SheetDescription>
-            </SheetHeader>
-            <div className="space-y-4 overflow-y-auto px-4 pb-6">
-              <section className="rounded-xl border p-4">
-                <h3 className="text-sm font-semibold">AI Summary</h3>
-                <ul className="mt-2 space-y-1 text-sm">
-                  {payload.data.summary.map((item) => (
-                    <li key={item}>- {item}</li>
+            {!creativesQuery.isLoading && !creativesQuery.isError && (() => {
+              const status = creativesQuery.data?.status;
+              const rows = creativesQuery.data?.rows ?? [];
+
+              if (status === "no_accounts_assigned") {
+                return <NoAccountsAssigned />;
+              }
+
+              if (rows.length === 0) {
+                return (
+                  <DataEmptyState
+                    title="No top creatives yet"
+                    description="Sync campaign and ad-level performance to view leading creatives."
+                  />
+                );
+              }
+
+              return (
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  {rows.map((creative) => (
+                    <CreativeCard
+                      key={creative.creative_id}
+                      creative={creative}
+                      onClick={() => setDrawer({ type: "creative", data: creative })}
+                    />
                   ))}
-                </ul>
-              </section>
-              <section className="rounded-xl border p-4">
-                <h3 className="text-sm font-semibold">Evidence</h3>
-                <table className="mt-2 min-w-full text-sm">
-                  <tbody>
-                    {payload.data.evidence.map((row) => (
-                      <tr key={row.label} className="border-b last:border-0">
-                        <td className="py-2 text-muted-foreground">{row.label}</td>
-                        <td className="py-2 text-right">{row.value}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </section>
-              <section className="rounded-xl border p-4">
-                <h3 className="text-sm font-semibold">Suggested actions</h3>
-                <ul className="mt-2 space-y-1 text-sm">
-                  {payload.data.actions.map((action) => (
-                    <li key={action}>- {action}</li>
-                  ))}
-                </ul>
-              </section>
-            </div>
-          </>
-        )}
-      </SheetContent>
-    </Sheet>
+                </div>
+              );
+            })()}
+          </section>
+
+          <MetaDrawer payload={drawer} onClose={() => setDrawer(null)} />
+        </>
+      )}
+    </div>
   );
 }
