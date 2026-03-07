@@ -65,8 +65,6 @@ export async function GET(request: NextRequest) {
 
   try {
     const metaResult = await fetchMetaAdAccounts(accessToken);
-    const assignmentRow = await getProviderAccountAssignments(businessId, "meta");
-    const assignedSet = new Set(assignmentRow?.account_ids ?? []);
 
     console.log("[meta-ad-accounts] meta response", {
       businessId,
@@ -84,6 +82,23 @@ export async function GET(request: NextRequest) {
         },
         { status: 502 }
       );
+    }
+
+    // Fetch assignments in a separate try/catch so a missing table
+    // does not fail the entire request. Accounts are still returned
+    // with assigned: false when assignments cannot be read.
+    let assignedSet = new Set<string>();
+    try {
+      const assignmentRow = await getProviderAccountAssignments(businessId, "meta");
+      assignedSet = new Set(assignmentRow?.account_ids ?? []);
+    } catch (assignmentError: unknown) {
+      const msg =
+        assignmentError instanceof Error ? assignmentError.message : String(assignmentError);
+      console.warn("[meta-ad-accounts] assignment_read_failed (non-fatal)", {
+        businessId,
+        message: msg,
+      });
+      // assignedSet stays empty — all accounts returned with assigned: false
     }
 
     console.log("[meta-ad-accounts] normalized", {
