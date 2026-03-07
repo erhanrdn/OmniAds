@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { METRIC_CONFIG, METRIC_OPTIONS, MetaMetricKey } from "@/components/creatives/metricConfig";
 import { Settings2 } from "lucide-react";
+import { useDropdownBehavior } from "@/hooks/use-dropdown-behavior";
 
 interface TableViewState {
   selectedMetrics: MetaMetricKey[];
@@ -19,6 +20,26 @@ interface TableControlsBarProps {
 export function TableControlsBar({ value, onChange }: TableControlsBarProps) {
   const [showMetrics, setShowMetrics] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const metricsWrapRef = useRef<HTMLDivElement>(null);
+  const metricsTriggerRef = useRef<HTMLButtonElement>(null);
+  const settingsWrapRef = useRef<HTMLDivElement>(null);
+  const settingsTriggerRef = useRef<HTMLButtonElement>(null);
+
+  useDropdownBehavior({
+    id: "legacy-table-metrics",
+    open: showMetrics,
+    setOpen: setShowMetrics,
+    containerRef: metricsWrapRef,
+    triggerRef: metricsTriggerRef,
+  });
+
+  useDropdownBehavior({
+    id: "legacy-table-settings",
+    open: showSettings,
+    setOpen: setShowSettings,
+    containerRef: settingsWrapRef,
+    triggerRef: settingsTriggerRef,
+  });
 
   const toggleMetric = (metric: MetaMetricKey) => {
     const exists = value.selectedMetrics.includes(metric);
@@ -42,8 +63,9 @@ export function TableControlsBar({ value, onChange }: TableControlsBarProps) {
         </div>
       ))}
 
-      <div className="relative">
+      <div ref={metricsWrapRef} className="relative">
         <button
+          ref={metricsTriggerRef}
           type="button"
           onClick={() => setShowMetrics((prev) => !prev)}
           className="rounded-full border px-3 py-1.5 text-xs"
@@ -51,7 +73,7 @@ export function TableControlsBar({ value, onChange }: TableControlsBarProps) {
           + Add metric
         </button>
         {showMetrics && (
-          <div className="absolute left-0 top-10 z-20 w-64 rounded-lg border bg-background p-3 shadow-md">
+          <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-10 z-50 w-64 rounded-lg border bg-background p-3 shadow-md duration-150">
             <p className="mb-2 text-xs text-muted-foreground">Metrics</p>
             <div className="max-h-64 space-y-1 overflow-auto">
               {METRIC_OPTIONS.map((metric) => (
@@ -69,8 +91,9 @@ export function TableControlsBar({ value, onChange }: TableControlsBarProps) {
         )}
       </div>
 
-      <div className="ml-auto relative">
+      <div ref={settingsWrapRef} className="ml-auto relative">
         <button
+          ref={settingsTriggerRef}
           type="button"
           onClick={() => setShowSettings((prev) => !prev)}
           className="rounded-md border p-1.5 text-muted-foreground hover:text-foreground"
@@ -79,7 +102,7 @@ export function TableControlsBar({ value, onChange }: TableControlsBarProps) {
           <Settings2 className="h-4 w-4" />
         </button>
         {showSettings && (
-          <div className="absolute right-0 top-9 z-20 w-56 rounded-lg border bg-background p-3 shadow-md">
+          <div className="animate-in fade-in-0 slide-in-from-top-1 absolute right-0 top-9 z-50 w-56 rounded-lg border bg-background p-3 shadow-md duration-150">
             <p className="mb-2 text-xs font-medium text-muted-foreground">Table settings</p>
             <label className="mb-2 block text-xs">
               Density

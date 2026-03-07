@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Share2, Download } from "lucide-react";
 import { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { CreativeFiltersState } from "@/components/creatives/CreativeFiltersBar";
@@ -8,6 +8,7 @@ import {
   DateRangePicker,
   DateRangeValue,
 } from "@/components/date-range/DateRangePicker";
+import { useDropdownBehavior } from "@/hooks/use-dropdown-behavior";
 
 interface CreativesToolbarProps {
   rows: MetaCreativeRow[];
@@ -32,6 +33,26 @@ export function CreativesToolbar({
 }: CreativesToolbarProps) {
   const [showTagPicker, setShowTagPicker] = useState(false);
   const [showAddFilter, setShowAddFilter] = useState(false);
+  const tagWrapRef = useRef<HTMLDivElement>(null);
+  const tagTriggerRef = useRef<HTMLButtonElement>(null);
+  const filterWrapRef = useRef<HTMLDivElement>(null);
+  const filterTriggerRef = useRef<HTMLButtonElement>(null);
+
+  useDropdownBehavior({
+    id: "toolbar-tags",
+    open: showTagPicker,
+    setOpen: setShowTagPicker,
+    containerRef: tagWrapRef,
+    triggerRef: tagTriggerRef,
+  });
+
+  useDropdownBehavior({
+    id: "toolbar-add-filter",
+    open: showAddFilter,
+    setOpen: setShowAddFilter,
+    containerRef: filterWrapRef,
+    triggerRef: filterTriggerRef,
+  });
 
   const tagOptions = useMemo(
     () => Array.from(new Set(rows.flatMap((row) => row.tags))).sort(),
@@ -131,8 +152,9 @@ export function CreativesToolbar({
 
       {/* Row 2: tag filters + analyze */}
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative">
+        <div ref={tagWrapRef} className="relative">
           <button
+            ref={tagTriggerRef}
             type="button"
             onClick={() => setShowTagPicker((prev) => !prev)}
             className="rounded-full border px-3 py-1.5 text-xs"
@@ -140,7 +162,7 @@ export function CreativesToolbar({
             Tags {value.selectedTags.length > 0 ? `(${value.selectedTags.length})` : ""}
           </button>
           {showTagPicker && (
-            <div className="absolute left-0 top-10 z-20 w-64 rounded-lg border bg-background p-3 shadow-md">
+            <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-10 z-50 w-64 rounded-lg border bg-background p-3 shadow-md duration-150">
               <p className="mb-2 text-xs text-muted-foreground">Select tags</p>
               <div className="max-h-56 space-y-1 overflow-auto">
                 {tagOptions.map((tag) => (
@@ -158,8 +180,9 @@ export function CreativesToolbar({
           )}
         </div>
 
-        <div className="relative">
+        <div ref={filterWrapRef} className="relative">
           <button
+            ref={filterTriggerRef}
             type="button"
             onClick={() => setShowAddFilter((prev) => !prev)}
             className="rounded-full border px-3 py-1.5 text-xs"
@@ -167,7 +190,7 @@ export function CreativesToolbar({
             + Add filter
           </button>
           {showAddFilter && (
-            <div className="absolute left-0 top-10 z-20 w-56 rounded-lg border bg-background p-3 shadow-md">
+            <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-10 z-50 w-56 rounded-lg border bg-background p-3 shadow-md duration-150">
               <p className="text-xs text-muted-foreground">
                 Advanced filter builder is coming soon.
               </p>

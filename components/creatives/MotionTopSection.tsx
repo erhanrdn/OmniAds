@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Trophy, ChevronDown, X, Search, Plus, SlidersHorizontal, LayoutGrid, Ellipsis } from "lucide-react";
 import { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { cn } from "@/lib/utils";
+import { useDropdownBehavior } from "@/hooks/use-dropdown-behavior";
 
 export type MotionGroupBy = "adName" | "creative" | "copy" | "headline" | "landingPage";
 
@@ -491,6 +492,16 @@ function MotionDateRangePicker({ value, onChange }: { value: MotionDateRangeValu
     const now = new Date();
     return { year: now.getFullYear(), month: now.getMonth() };
   });
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  useDropdownBehavior({
+    id: "top-date-range",
+    open,
+    setOpen,
+    containerRef: wrapRef,
+    triggerRef,
+  });
 
   const apply = () => {
     onChange(normalizeRange(draft));
@@ -506,8 +517,9 @@ function MotionDateRangePicker({ value, onChange }: { value: MotionDateRangeValu
   const { start, end } = resolveMotionDateRange(draft);
 
   return (
-    <div className="relative">
+    <div ref={wrapRef} className="relative">
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => {
           setDraft(value);
@@ -520,7 +532,7 @@ function MotionDateRangePicker({ value, onChange }: { value: MotionDateRangeValu
       </button>
 
       {open && (
-        <div className="absolute left-0 top-11 z-40 flex w-[760px] rounded-xl border bg-background shadow-lg">
+        <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-11 z-50 flex w-[760px] rounded-xl border bg-background shadow-lg duration-150">
           <div className="w-56 border-r p-3">
             <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Presets</p>
             <div className="space-y-1">
@@ -621,6 +633,18 @@ function AddFilterDropdown({ filters, onChange }: { filters: MotionFilterRule[];
   const [search, setSearch] = useState("");
   const [field, setField] = useState<MotionFilterField>("adName");
   const [query, setQuery] = useState("");
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  useDropdownBehavior({
+    id: "top-add-filter",
+    open,
+    setOpen,
+    containerRef: wrapRef,
+    triggerRef,
+    focusRef: searchRef,
+  });
 
   const filteredTree = FILTER_TREE.map((group) => ({
     ...group,
@@ -646,8 +670,9 @@ function AddFilterDropdown({ filters, onChange }: { filters: MotionFilterRule[];
   const removeRule = (ruleId: string) => onChange(filters.filter((rule) => rule.id !== ruleId));
 
   return (
-    <div className="relative">
+    <div ref={wrapRef} className="relative">
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen((prev) => !prev)}
         className="inline-flex items-center gap-2 rounded-full border bg-background px-3 py-2 text-xs"
@@ -657,10 +682,11 @@ function AddFilterDropdown({ filters, onChange }: { filters: MotionFilterRule[];
       </button>
 
       {open && (
-        <div className="absolute left-0 top-11 z-40 w-[360px] rounded-xl border bg-background p-3 shadow-lg">
+        <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-11 z-50 w-[360px] rounded-xl border bg-background p-3 shadow-lg duration-150">
           <div className="mb-2 flex items-center gap-2 rounded-md border px-2 py-1.5">
             <Search className="h-3.5 w-3.5 text-muted-foreground" />
             <input
+              ref={searchRef}
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search filters"
@@ -726,6 +752,18 @@ function AddFilterDropdown({ filters, onChange }: { filters: MotionFilterRule[];
 function MetricSelectorBar({ selectedMetricIds, onChange }: { selectedMetricIds: string[]; onChange: (next: string[]) => void }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  useDropdownBehavior({
+    id: "top-add-metric",
+    open,
+    setOpen,
+    containerRef: wrapRef,
+    triggerRef,
+    focusRef: searchRef,
+  });
 
   const selectedDefs = selectedMetricIds
     .map((id) => getMotionMetricDefinition(id))
@@ -742,8 +780,9 @@ function MetricSelectorBar({ selectedMetricIds, onChange }: { selectedMetricIds:
           + AI tags
         </button>
 
-        <div className="relative shrink-0">
+        <div ref={wrapRef} className="relative shrink-0">
           <button
+            ref={triggerRef}
             type="button"
             onClick={() => setOpen((prev) => !prev)}
             className="rounded-full border bg-background px-3 py-1 text-xs"
@@ -752,10 +791,11 @@ function MetricSelectorBar({ selectedMetricIds, onChange }: { selectedMetricIds:
           </button>
 
           {open && (
-            <div className="absolute left-0 top-9 z-40 w-[360px] rounded-xl border bg-background p-3 shadow-lg">
+            <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-9 z-50 w-[360px] rounded-xl border bg-background p-3 shadow-lg duration-150">
               <div className="mb-2 flex items-center gap-2 rounded-md border px-2 py-1.5">
                 <Search className="h-3.5 w-3.5 text-muted-foreground" />
                 <input
+                  ref={searchRef}
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder="Search metrics"

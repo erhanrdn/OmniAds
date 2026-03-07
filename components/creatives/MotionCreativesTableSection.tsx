@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   ChevronDown,
   GripVertical,
@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { cn } from "@/lib/utils";
+import { useDropdownBehavior } from "@/hooks/use-dropdown-behavior";
 
 type GoodDirection = "high" | "low" | "neutral";
 type ColorFormattingMode = "heatmap" | "none";
@@ -286,6 +287,40 @@ export function MotionCreativesTableSection({
   const [hoverMetric, setHoverMetric] = useState<TableColumnKey | null>(null);
   const [modalColumns, setModalColumns] = useState<TableColumnKey[]>(tablePreset.selectedColumns);
   const [page, setPage] = useState(1);
+  const presetWrapRef = useRef<HTMLDivElement>(null);
+  const presetTriggerRef = useRef<HTMLButtonElement>(null);
+  const presetSearchRef = useRef<HTMLInputElement>(null);
+  const settingsWrapRef = useRef<HTMLDivElement>(null);
+  const settingsTriggerRef = useRef<HTMLButtonElement>(null);
+  const tagsWrapRef = useRef<HTMLDivElement>(null);
+  const tagsTriggerRef = useRef<HTMLButtonElement>(null);
+  const tagsSearchRef = useRef<HTMLInputElement>(null);
+
+  useDropdownBehavior({
+    id: "table-preset-menu",
+    open: showPresetMenu,
+    setOpen: setShowPresetMenu,
+    containerRef: presetWrapRef,
+    triggerRef: presetTriggerRef,
+    focusRef: presetSearchRef,
+  });
+
+  useDropdownBehavior({
+    id: "table-settings-menu",
+    open: showSettings,
+    setOpen: setShowSettings,
+    containerRef: settingsWrapRef,
+    triggerRef: settingsTriggerRef,
+  });
+
+  useDropdownBehavior({
+    id: "table-ai-tags-menu",
+    open: showTagsMenu,
+    setOpen: setShowTagsMenu,
+    containerRef: tagsWrapRef,
+    triggerRef: tagsTriggerRef,
+    focusRef: tagsSearchRef,
+  });
 
   const filteredPresets = PRESETS.filter((preset) =>
     preset.presetName.toLowerCase().includes(presetSearch.toLowerCase())
@@ -396,8 +431,9 @@ export function MotionCreativesTableSection({
     <section className="space-y-2 rounded-2xl border bg-card p-3">
       {/* A) controls row */}
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative">
+        <div ref={presetWrapRef} className="relative">
           <button
+            ref={presetTriggerRef}
             type="button"
             onClick={() => setShowPresetMenu((prev) => !prev)}
             className="inline-flex items-center gap-2 rounded-full border bg-background px-3 py-1.5 text-xs"
@@ -407,10 +443,11 @@ export function MotionCreativesTableSection({
           </button>
 
           {showPresetMenu && (
-            <div className="absolute left-0 top-10 z-40 w-64 rounded-xl border bg-background p-3 shadow-lg">
+            <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-10 z-50 w-64 rounded-xl border bg-background p-3 shadow-lg duration-150">
               <div className="mb-2 flex items-center gap-2 rounded-md border px-2 py-1.5">
                 <Search className="h-3.5 w-3.5 text-muted-foreground" />
                 <input
+                  ref={presetSearchRef}
                   value={presetSearch}
                   onChange={(event) => setPresetSearch(event.target.value)}
                   placeholder="Search presets"
@@ -436,8 +473,9 @@ export function MotionCreativesTableSection({
           )}
         </div>
 
-        <div className="relative">
+        <div ref={settingsWrapRef} className="relative">
           <button
+            ref={settingsTriggerRef}
             type="button"
             onClick={() => setShowSettings((prev) => !prev)}
             className="inline-flex items-center gap-2 rounded-full border bg-background px-3 py-1.5 text-xs"
@@ -448,7 +486,7 @@ export function MotionCreativesTableSection({
           </button>
 
           {showSettings && (
-            <div className="absolute left-0 top-10 z-40 w-[360px] rounded-xl border bg-background p-3 shadow-lg">
+            <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-10 z-50 w-[360px] rounded-xl border bg-background p-3 shadow-lg duration-150">
               <div className="space-y-2 border-b pb-3">
                 <label className="flex items-center justify-between text-xs">
                   <span>Color formatting</span>
@@ -547,8 +585,9 @@ export function MotionCreativesTableSection({
           )}
         </div>
 
-        <div className="relative">
+        <div ref={tagsWrapRef} className="relative">
           <button
+            ref={tagsTriggerRef}
             type="button"
             onClick={() => setShowTagsMenu((prev) => !prev)}
             className="inline-flex items-center gap-1 rounded-full border bg-background px-3 py-1.5 text-xs"
@@ -558,10 +597,14 @@ export function MotionCreativesTableSection({
           </button>
 
           {showTagsMenu && (
-            <div className="absolute left-0 top-10 z-40 w-[300px] rounded-xl border bg-background p-3 shadow-lg">
+            <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-10 z-50 w-[300px] rounded-xl border bg-background p-3 shadow-lg duration-150">
               <div className="mb-2 flex items-center gap-2 rounded-md border px-2 py-1.5">
                 <Search className="h-3.5 w-3.5 text-muted-foreground" />
-                <input placeholder="Search AI tags" className="w-full bg-transparent text-xs outline-none" />
+                <input
+                  ref={tagsSearchRef}
+                  placeholder="Search AI tags"
+                  className="w-full bg-transparent text-xs outline-none"
+                />
               </div>
 
               <div className="max-h-56 space-y-2 overflow-auto">
