@@ -24,6 +24,10 @@ interface ProviderErrorBody {
   message?: string;
 }
 
+interface ProviderSuccessBody {
+  data?: ProviderAccountRow[];
+}
+
 interface ProviderAssignmentDrawerProps {
   open: boolean;
   provider: IntegrationProvider | null;
@@ -61,6 +65,16 @@ function getSavePath(provider: IntegrationProvider, businessId: string) {
   return `/businesses/${encodeURIComponent(businessId)}/${provider}/assign-accounts`;
 }
 
+function hasErrorMessage(payload: unknown): payload is ProviderErrorBody {
+  if (!payload || typeof payload !== "object") return false;
+  return "message" in payload && typeof payload.message === "string";
+}
+
+function hasDataList(payload: unknown): payload is ProviderSuccessBody {
+  if (!payload || typeof payload !== "object") return false;
+  return "data" in payload;
+}
+
 export function ProviderAssignmentDrawer({
   open,
   provider,
@@ -96,21 +110,18 @@ export function ProviderAssignmentDrawer({
           headers: { Accept: "application/json" },
         });
 
-        const payload = (await response.json().catch(() => null)) as
-          | ProviderErrorBody
-          | { data?: ProviderAccountRow[] }
-          | null;
+        const payload: unknown = await response.json().catch(() => null);
 
         if (!response.ok) {
           setErrorMessage(
-            payload?.message ??
+            (hasErrorMessage(payload) ? payload.message : null) ??
               "We couldn't fetch accessible Meta ad accounts for this connection."
           );
           setFetchState("error");
           return;
         }
 
-        const list = payload?.data;
+        const list = hasDataList(payload) ? payload.data : undefined;
         if (!Array.isArray(list)) {
           setErrorMessage("Invalid ad account response received from backend.");
           setFetchState("error");
