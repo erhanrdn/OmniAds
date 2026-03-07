@@ -97,6 +97,7 @@ function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
     previewState: row.preview_state,
     launchDate: row.launch_date,
     tags: row.tags ?? [],
+    aiTags: row.ai_tags ?? {},
     spend: row.spend,
     purchaseValue: row.purchase_value,
     roas: row.roas,

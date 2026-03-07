@@ -1,18 +1,26 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import {
+  CalendarDays,
   ChevronDown,
+  Megaphone,
+  MessageSquareQuote,
+  ScanFace,
   GripVertical,
+  Shapes,
   Plus,
   Search,
   Settings2,
   Tag,
+  Target,
   X,
 } from "lucide-react";
-import { MetaCreativeRow } from "@/components/creatives/metricConfig";
+import { MetaAiTagKey, MetaCreativeRow } from "@/components/creatives/metricConfig";
+import { getAiTagPillStyles } from "@/components/creatives/aiTagPillStyles";
 import { cn } from "@/lib/utils";
 import { useDropdownBehavior } from "@/hooks/use-dropdown-behavior";
+import { createPortal } from "react-dom";
 
 type GoodDirection = "high" | "low" | "neutral";
 type ColorFormattingMode = "heatmap" | "none";
@@ -58,15 +66,17 @@ type TableColumnKey =
   | "clicksAll"
   | "linkClicks";
 
-type TagKey =
-  | "assetType"
-  | "visualFormat"
-  | "intendedAudience"
-  | "messagingAngle"
-  | "seasonality"
-  | "offerType"
-  | "hookTactic"
-  | "headlineTactic";
+type TagKey = MetaAiTagKey;
+const AI_TAG_COLUMN_KEYS: TagKey[] = [
+  "assetType",
+  "visualFormat",
+  "intendedAudience",
+  "messagingAngle",
+  "seasonality",
+  "offerType",
+  "hookTactic",
+  "headlineTactic",
+];
 
 interface TableColumnDefinition {
   key: TableColumnKey;
@@ -88,7 +98,7 @@ interface TableCalcContext {
 interface TablePreset {
   presetName: string;
   selectedColumns: TableColumnKey[];
-  selectedTags: TagKey[];
+  selectedAiTagColumns: TagKey[];
   resultsPerPage: 20 | 50 | 100;
   colorFormatting: ColorFormattingMode;
   showTags: boolean;
@@ -106,6 +116,69 @@ interface MotionCreativesTableSectionProps {
   onToggleRow: (rowId: string) => void;
   onToggleAll: () => void;
   onOpenRow: (rowId: string) => void;
+}
+
+interface MetricTooltipState {
+  key: TableColumnKey;
+  rect: DOMRect;
+}
+
+interface TableSortState {
+  key: TableColumnKey | "name" | "launchDate" | `aiTag:${TagKey}` | null;
+  direction: "asc" | "desc" | null;
+}
+
+const TABLE_LAYOUT_STORAGE_KEY = "creativesTableLayout";
+const AI_TAG_COLUMN_SPECS: Record<TagKey, { minWidth: number; preferredWidth: number }> = {
+  assetType: { minWidth: 128, preferredWidth: 140 },
+  visualFormat: { minWidth: 152, preferredWidth: 172 },
+  intendedAudience: { minWidth: 150, preferredWidth: 170 },
+  messagingAngle: { minWidth: 158, preferredWidth: 178 },
+  seasonality: { minWidth: 130, preferredWidth: 145 },
+  offerType: { minWidth: 132, preferredWidth: 148 },
+  hookTactic: { minWidth: 138, preferredWidth: 156 },
+  headlineTactic: { minWidth: 148, preferredWidth: 166 },
+};
+const AI_TAG_HEADER_ICONS: Record<TagKey, ComponentType<{ className?: string }>> = {
+  assetType: Shapes,
+  visualFormat: ScanFace,
+  intendedAudience: Target,
+  messagingAngle: MessageSquareQuote,
+  seasonality: CalendarDays,
+  offerType: Megaphone,
+  hookTactic: Tag,
+  headlineTactic: MessageSquareQuote,
+};
+const STATIC_COLUMN_SPECS = {
+  creativeName: { minWidth: 220, preferredWidth: 240 },
+  launchDate: { minWidth: 120, preferredWidth: 120 },
+  tags: { minWidth: 120, preferredWidth: 120 },
+  activeStatus: { minWidth: 100, preferredWidth: 110 },
+  adLength: { minWidth: 90, preferredWidth: 110 },
+} as const;
+
+function getDefaultColumnWidths(): Record<string, number> {
+  const metricWidths = TABLE_COLUMNS.reduce<Record<string, number>>((acc, column) => {
+    acc[column.key] = column.preferredWidth;
+    return acc;
+  }, {});
+  return {
+    creativeName: STATIC_COLUMN_SPECS.creativeName.preferredWidth,
+    launchDate: STATIC_COLUMN_SPECS.launchDate.preferredWidth,
+    tags: STATIC_COLUMN_SPECS.tags.preferredWidth,
+    activeStatus: STATIC_COLUMN_SPECS.activeStatus.preferredWidth,
+    adLength: STATIC_COLUMN_SPECS.adLength.preferredWidth,
+    ...AI_TAG_COLUMN_KEYS.reduce<Record<string, number>>((acc, key) => {
+      acc[`aiTag:${key}`] = AI_TAG_COLUMN_SPECS[key].preferredWidth;
+      return acc;
+    }, {}),
+    ...metricWidths,
+  };
+}
+
+function parseLaunchDate(value: string): number {
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 const FACEBOOK_ECOMMERCE_COLUMNS: TableColumnKey[] = [
@@ -139,7 +212,7 @@ const PRESETS: TablePreset[] = [
   {
     presetName: "Facebook Ecommerce",
     selectedColumns: FACEBOOK_ECOMMERCE_COLUMNS,
-    selectedTags: [],
+    selectedAiTagColumns: [],
     resultsPerPage: 20,
     colorFormatting: "heatmap",
     showTags: true,
@@ -161,7 +234,7 @@ const PRESETS: TablePreset[] = [
       "firstFrameRetention",
       "hookScore",
     ],
-    selectedTags: [],
+    selectedAiTagColumns: [],
     resultsPerPage: 20,
     colorFormatting: "heatmap",
     showTags: true,
@@ -172,7 +245,7 @@ const PRESETS: TablePreset[] = [
   {
     presetName: "Creative teams",
     selectedColumns: ["spend", "purchaseValue", "roas", "hookScore", "watchScore", "clickScore", "convertScore"],
-    selectedTags: ["assetType", "messagingAngle"],
+    selectedAiTagColumns: ["assetType", "messagingAngle"],
     resultsPerPage: 20,
     colorFormatting: "heatmap",
     showTags: true,
@@ -183,7 +256,7 @@ const PRESETS: TablePreset[] = [
   {
     presetName: "Facebook SaaS",
     selectedColumns: ["spend", "cpcLink", "ctrAll", "clicksAll", "linkClicks", "roas"],
-    selectedTags: [],
+    selectedAiTagColumns: [],
     resultsPerPage: 20,
     colorFormatting: "heatmap",
     showTags: false,
@@ -194,7 +267,7 @@ const PRESETS: TablePreset[] = [
   {
     presetName: "Customize columns",
     selectedColumns: ["spend", "purchaseValue", "roas", "purchases"],
-    selectedTags: [],
+    selectedAiTagColumns: [],
     resultsPerPage: 20,
     colorFormatting: "heatmap",
     showTags: true,
@@ -325,11 +398,15 @@ export function MotionCreativesTableSection({
   const [showPresetMenu, setShowPresetMenu] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showTagsMenu, setShowTagsMenu] = useState(false);
+  const [tagsSearch, setTagsSearch] = useState("");
   const [showMetricModal, setShowMetricModal] = useState(false);
   const [modalSearch, setModalSearch] = useState("");
   const [hoverMetric, setHoverMetric] = useState<TableColumnKey | null>(null);
   const [modalColumns, setModalColumns] = useState<TableColumnKey[]>(tablePreset.selectedColumns);
   const [page, setPage] = useState(1);
+  const [tooltip, setTooltip] = useState<MetricTooltipState | null>(null);
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => getDefaultColumnWidths());
+  const [sortState, setSortState] = useState<TableSortState>({ key: null, direction: null });
   const presetWrapRef = useRef<HTMLDivElement>(null);
   const presetTriggerRef = useRef<HTMLButtonElement>(null);
   const presetSearchRef = useRef<HTMLInputElement>(null);
@@ -338,6 +415,12 @@ export function MotionCreativesTableSection({
   const tagsWrapRef = useRef<HTMLDivElement>(null);
   const tagsTriggerRef = useRef<HTMLButtonElement>(null);
   const tagsSearchRef = useRef<HTMLInputElement>(null);
+  const resizeStateRef = useRef<{
+    key: string;
+    startX: number;
+    startWidth: number;
+    minWidth: number;
+  } | null>(null);
 
   useDropdownBehavior({
     id: "table-preset-menu",
@@ -368,6 +451,14 @@ export function MotionCreativesTableSection({
   const filteredPresets = PRESETS.filter((preset) =>
     preset.presetName.toLowerCase().includes(presetSearch.toLowerCase())
   );
+  const filteredAiTagGroups = useMemo(() => {
+    const query = tagsSearch.trim().toLowerCase();
+    if (!query) return AI_TAG_GROUPS;
+    return AI_TAG_GROUPS.map((group) => ({
+      ...group,
+      items: group.items.filter((item) => item.label.toLowerCase().includes(query)),
+    })).filter((group) => group.items.length > 0);
+  }, [tagsSearch]);
 
   const ctx: TableCalcContext = useMemo(
     () => ({
@@ -381,15 +472,44 @@ export function MotionCreativesTableSection({
     () => tablePreset.selectedColumns.map((key) => TABLE_COLUMNS.find((col) => col.key === key)).filter(Boolean) as TableColumnDefinition[],
     [tablePreset.selectedColumns]
   );
+  const selectedAiTagColumns = tablePreset.selectedAiTagColumns;
+
+  const sortedRows = useMemo(() => {
+    if (!sortState.key || !sortState.direction) return rows;
+    const next = [...rows];
+    const directionFactor = sortState.direction === "asc" ? 1 : -1;
+    next.sort((a, b) => {
+      const activeSortKey = sortState.key;
+      if (!activeSortKey) return 0;
+      if (activeSortKey === "name") {
+        return a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true }) * directionFactor;
+      }
+      if (activeSortKey === "launchDate") {
+        return (parseLaunchDate(a.launchDate) - parseLaunchDate(b.launchDate)) * directionFactor;
+      }
+      if (activeSortKey.startsWith("aiTag:")) {
+        const aiTagKey = activeSortKey.replace("aiTag:", "") as TagKey;
+        const aValue = (a.aiTags?.[aiTagKey] ?? []).join(", ");
+        const bValue = (b.aiTags?.[aiTagKey] ?? []).join(", ");
+        return aValue.localeCompare(bValue, undefined, { sensitivity: "base", numeric: true }) * directionFactor;
+      }
+      const column = TABLE_COLUMNS.find((item) => item.key === activeSortKey);
+      if (!column) return 0;
+      const aValue = column.getValue(a, ctx);
+      const bValue = column.getValue(b, ctx);
+      return (aValue - bValue) * directionFactor;
+    });
+    return next;
+  }, [ctx, rows, sortState.direction, sortState.key]);
 
   const allSelected = rows.length > 0 && rows.every((row) => selectedRowIds.includes(row.id));
 
-  const totalResults = rows.length;
+  const totalResults = sortedRows.length;
   const pageCount = Math.max(1, Math.ceil(totalResults / tablePreset.resultsPerPage));
   const safePage = Math.min(page, pageCount);
   const startIndex = (safePage - 1) * tablePreset.resultsPerPage;
   const endIndex = Math.min(totalResults, startIndex + tablePreset.resultsPerPage);
-  const pagedRows = rows.slice(startIndex, endIndex);
+  const pagedRows = sortedRows.slice(startIndex, endIndex);
 
   const metricExtremes = useMemo(() => {
     return selectedColumns.reduce<Record<string, { min: number; max: number }>>((acc, column) => {
@@ -450,11 +570,11 @@ export function MotionCreativesTableSection({
     );
   };
 
-  const toggleTag = (tag: TagKey) => {
-    const next = tablePreset.selectedTags.includes(tag)
-      ? tablePreset.selectedTags.filter((item) => item !== tag)
-      : [...tablePreset.selectedTags, tag];
-    setTablePreset({ ...tablePreset, selectedTags: next });
+  const toggleAiTagColumn = (tag: TagKey) => {
+    const next = selectedAiTagColumns.includes(tag)
+      ? selectedAiTagColumns.filter((item) => item !== tag)
+      : [...selectedAiTagColumns, tag];
+    setTablePreset({ ...tablePreset, selectedAiTagColumns: next });
   };
 
   const removeColumn = (key: TableColumnKey) => {
@@ -480,6 +600,99 @@ export function MotionCreativesTableSection({
     setTablePreset({ ...tablePreset, selectedColumns: modalColumns });
     setShowMetricModal(false);
   };
+
+  const getColumnWidth = (key: string, minWidth: number, preferredWidth: number) =>
+    Math.max(minWidth, columnWidths[key] ?? preferredWidth);
+
+  const cycleSort = (key: TableSortState["key"]) => {
+    setSortState((prev) => {
+      if (prev.key !== key) return { key, direction: "asc" };
+      if (prev.direction === "asc") return { key, direction: "desc" };
+      if (prev.direction === "desc") return { key: null, direction: null };
+      return { key, direction: "asc" };
+    });
+    setPage(1);
+  };
+
+  const startColumnResize = (event: React.MouseEvent, key: string, minWidth: number, preferredWidth: number) => {
+    event.preventDefault();
+    event.stopPropagation();
+    resizeStateRef.current = {
+      key,
+      startX: event.clientX,
+      startWidth: getColumnWidth(key, minWidth, preferredWidth),
+      minWidth,
+    };
+  };
+
+  const sortIndicator = (key: TableSortState["key"]) => {
+    if (sortState.key !== key || !sortState.direction) return "↕";
+    return sortState.direction === "asc" ? "↑" : "↓";
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (event: MouseEvent) => {
+      const active = resizeStateRef.current;
+      if (!active) return;
+      const delta = event.clientX - active.startX;
+      const nextWidth = Math.max(active.minWidth, active.startWidth + delta);
+      setColumnWidths((prev) => ({ ...prev, [active.key]: nextWidth }));
+    };
+
+    const handleMouseUp = () => {
+      resizeStateRef.current = null;
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, []);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(TABLE_LAYOUT_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as {
+        columnWidths?: Record<string, number>;
+        sort?: TableSortState;
+      };
+      if (parsed.columnWidths && typeof parsed.columnWidths === "object") {
+        setColumnWidths((prev) => ({ ...prev, ...parsed.columnWidths }));
+      }
+      if (parsed.sort && typeof parsed.sort === "object") {
+        setSortState({
+          key: parsed.sort.key ?? null,
+          direction: parsed.sort.direction ?? null,
+        });
+      }
+    } catch {
+      // ignore invalid persisted table layout
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        TABLE_LAYOUT_STORAGE_KEY,
+        JSON.stringify({
+          columnWidths,
+          sort: sortState,
+        })
+      );
+    } catch {
+      // ignore write errors
+    }
+  }, [columnWidths, sortState]);
+
+  useEffect(() => {
+    if (!tooltip) return;
+    const onScroll = () => setTooltip(null);
+    window.addEventListener("scroll", onScroll, true);
+    return () => window.removeEventListener("scroll", onScroll, true);
+  }, [tooltip]);
 
   return (
     <section className="space-y-2 rounded-2xl border bg-card p-3">
@@ -656,26 +869,34 @@ export function MotionCreativesTableSection({
                 <Search className="h-3.5 w-3.5 text-muted-foreground" />
                 <input
                   ref={tagsSearchRef}
+                  value={tagsSearch}
+                  onChange={(event) => setTagsSearch(event.target.value)}
                   placeholder="Search AI tags"
                   className="w-full bg-transparent text-xs outline-none"
                 />
               </div>
 
               <div className="max-h-56 space-y-2 overflow-auto">
-                {AI_TAG_GROUPS.map((group) => (
+                {filteredAiTagGroups.map((group) => (
                   <div key={group.label} className="space-y-1">
                     <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                       {group.label}
                     </p>
                     {group.items.map((item) => (
-                      <label key={item.value} className="flex items-center justify-between text-xs">
+                      <button
+                        key={item.value}
+                        type="button"
+                        onClick={() => toggleAiTagColumn(item.value)}
+                        className={cn(
+                          "flex w-full items-center justify-between rounded-md px-2 py-1.5 text-xs transition-colors",
+                          selectedAiTagColumns.includes(item.value) ? "bg-emerald-50 text-emerald-700" : "hover:bg-accent/60"
+                        )}
+                      >
                         <span>{item.label}</span>
-                        <input
-                          type="checkbox"
-                          checked={tablePreset.selectedTags.includes(item.value)}
-                          onChange={() => toggleTag(item.value)}
-                        />
-                      </label>
+                        <span className="text-[11px]">
+                          {selectedAiTagColumns.includes(item.value) ? "✓" : ""}
+                        </span>
+                      </button>
                     ))}
                   </div>
                 ))}
@@ -703,75 +924,273 @@ export function MotionCreativesTableSection({
             <tr className="border-b border-[#E5E7EB]">
               <th
                 className="sticky left-0 z-30 border-r border-[#E5E7EB] bg-[#F9FAFB] px-2.5 py-1.5 text-left text-[12px] font-medium tracking-[0.01em] text-[#6B7280]"
-                style={{ minWidth: 220, width: 240 }}
+                style={{
+                  minWidth: STATIC_COLUMN_SPECS.creativeName.minWidth,
+                  width: getColumnWidth(
+                    "creativeName",
+                    STATIC_COLUMN_SPECS.creativeName.minWidth,
+                    STATIC_COLUMN_SPECS.creativeName.preferredWidth
+                  ),
+                }}
               >
-                <label className="inline-flex items-center gap-2">
-                  <input type="checkbox" checked={allSelected} onChange={onToggleAll} />
-                  <span>Creative / Ad Name</span>
-                </label>
+                <div className="group relative flex items-center pr-2">
+                  <label className="inline-flex flex-1 items-center gap-2">
+                    <input type="checkbox" checked={allSelected} onChange={onToggleAll} />
+                    <button
+                      type="button"
+                      onClick={() => cycleSort("name")}
+                      className="inline-flex items-center gap-1 text-left"
+                    >
+                      <span>Creative / Ad Name</span>
+                      <span className="text-[10px] text-[#9CA3AF]">{sortIndicator("name")}</span>
+                    </button>
+                  </label>
+                  <button
+                    type="button"
+                    aria-label="Resize Creative / Ad Name column"
+                    className="absolute right-0 top-0 h-full w-2 cursor-col-resize opacity-0 transition-opacity group-hover:opacity-100"
+                    onMouseDown={(event) =>
+                      startColumnResize(
+                        event,
+                        "creativeName",
+                        STATIC_COLUMN_SPECS.creativeName.minWidth,
+                        STATIC_COLUMN_SPECS.creativeName.preferredWidth
+                      )
+                    }
+                  >
+                    <span className="mx-auto block h-full w-px bg-[#D1D5DB]" />
+                  </button>
+                </div>
               </th>
 
               {tablePreset.showLaunchDate && (
-                <th className="px-2.5 py-1.5 text-left text-[12px] font-medium tracking-[0.01em] text-[#6B7280]" style={{ minWidth: 120, width: 120 }}>
-                  Launch date
+                <th
+                  className="group relative px-2.5 py-1.5 text-left text-[12px] font-medium tracking-[0.01em] text-[#6B7280]"
+                  style={{
+                    minWidth: STATIC_COLUMN_SPECS.launchDate.minWidth,
+                    width: getColumnWidth(
+                      "launchDate",
+                      STATIC_COLUMN_SPECS.launchDate.minWidth,
+                      STATIC_COLUMN_SPECS.launchDate.preferredWidth
+                    ),
+                  }}
+                >
+                  <button type="button" className="inline-flex items-center gap-1" onClick={() => cycleSort("launchDate")}>
+                    <span>Launch date</span>
+                    <span className="text-[10px] text-[#9CA3AF]">{sortIndicator("launchDate")}</span>
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Resize Launch date column"
+                    className="absolute right-0 top-0 h-full w-2 cursor-col-resize opacity-0 transition-opacity group-hover:opacity-100"
+                    onMouseDown={(event) =>
+                      startColumnResize(
+                        event,
+                        "launchDate",
+                        STATIC_COLUMN_SPECS.launchDate.minWidth,
+                        STATIC_COLUMN_SPECS.launchDate.preferredWidth
+                      )
+                    }
+                  >
+                    <span className="mx-auto block h-full w-px bg-[#D1D5DB]" />
+                  </button>
                 </th>
               )}
 
               {tablePreset.showTags && (
-                <th className="px-2.5 py-1.5 text-left text-[12px] font-medium tracking-[0.01em] text-[#6B7280]" style={{ minWidth: 120, width: 120 }}>
+                <th
+                  className="group relative px-2.5 py-1.5 text-left text-[12px] font-medium tracking-[0.01em] text-[#6B7280]"
+                  style={{
+                    minWidth: STATIC_COLUMN_SPECS.tags.minWidth,
+                    width: getColumnWidth(
+                      "tags",
+                      STATIC_COLUMN_SPECS.tags.minWidth,
+                      STATIC_COLUMN_SPECS.tags.preferredWidth
+                    ),
+                  }}
+                >
                   Tags
+                  <button
+                    type="button"
+                    aria-label="Resize Tags column"
+                    className="absolute right-0 top-0 h-full w-2 cursor-col-resize opacity-0 transition-opacity group-hover:opacity-100"
+                    onMouseDown={(event) =>
+                      startColumnResize(event, "tags", STATIC_COLUMN_SPECS.tags.minWidth, STATIC_COLUMN_SPECS.tags.preferredWidth)
+                    }
+                  >
+                    <span className="mx-auto block h-full w-px bg-[#D1D5DB]" />
+                  </button>
                 </th>
               )}
 
               {tablePreset.showActiveStatus && (
-                <th className="px-2.5 py-1.5 text-left text-[12px] font-medium tracking-[0.01em] text-[#6B7280]" style={{ minWidth: 100, width: 110 }}>
+                <th
+                  className="group relative px-2.5 py-1.5 text-left text-[12px] font-medium tracking-[0.01em] text-[#6B7280]"
+                  style={{
+                    minWidth: STATIC_COLUMN_SPECS.activeStatus.minWidth,
+                    width: getColumnWidth(
+                      "activeStatus",
+                      STATIC_COLUMN_SPECS.activeStatus.minWidth,
+                      STATIC_COLUMN_SPECS.activeStatus.preferredWidth
+                    ),
+                  }}
+                >
                   Active status
+                  <button
+                    type="button"
+                    aria-label="Resize Active status column"
+                    className="absolute right-0 top-0 h-full w-2 cursor-col-resize opacity-0 transition-opacity group-hover:opacity-100"
+                    onMouseDown={(event) =>
+                      startColumnResize(
+                        event,
+                        "activeStatus",
+                        STATIC_COLUMN_SPECS.activeStatus.minWidth,
+                        STATIC_COLUMN_SPECS.activeStatus.preferredWidth
+                      )
+                    }
+                  >
+                    <span className="mx-auto block h-full w-px bg-[#D1D5DB]" />
+                  </button>
                 </th>
               )}
 
               {tablePreset.showAdLength && (
-                <th className="px-2.5 py-1.5 text-left text-[12px] font-medium tracking-[0.01em] text-[#6B7280]" style={{ minWidth: 90, width: 110 }}>
+                <th
+                  className="group relative px-2.5 py-1.5 text-left text-[12px] font-medium tracking-[0.01em] text-[#6B7280]"
+                  style={{
+                    minWidth: STATIC_COLUMN_SPECS.adLength.minWidth,
+                    width: getColumnWidth(
+                      "adLength",
+                      STATIC_COLUMN_SPECS.adLength.minWidth,
+                      STATIC_COLUMN_SPECS.adLength.preferredWidth
+                    ),
+                  }}
+                >
                   Ad length
+                  <button
+                    type="button"
+                    aria-label="Resize Ad length column"
+                    className="absolute right-0 top-0 h-full w-2 cursor-col-resize opacity-0 transition-opacity group-hover:opacity-100"
+                    onMouseDown={(event) =>
+                      startColumnResize(
+                        event,
+                        "adLength",
+                        STATIC_COLUMN_SPECS.adLength.minWidth,
+                        STATIC_COLUMN_SPECS.adLength.preferredWidth
+                      )
+                    }
+                  >
+                    <span className="mx-auto block h-full w-px bg-[#D1D5DB]" />
+                  </button>
                 </th>
               )}
+
+              {selectedAiTagColumns.map((tagKey) => {
+                const label = prettyTagLabel(tagKey);
+                const sortKey = `aiTag:${tagKey}` as const;
+                const Icon = AI_TAG_HEADER_ICONS[tagKey];
+                const widthSpec = AI_TAG_COLUMN_SPECS[tagKey];
+                return (
+                  <th
+                    key={`ai_tag_header_${tagKey}`}
+                    className="group relative px-2.5 py-1.5 text-left text-[11px] font-medium leading-tight tracking-[0.01em] text-[#6B7280]"
+                    style={{
+                      minWidth: widthSpec.minWidth,
+                      width: getColumnWidth(
+                        sortKey,
+                        widthSpec.minWidth,
+                        widthSpec.preferredWidth
+                      ),
+                    }}
+                  >
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1.5 align-middle"
+                      onClick={() => cycleSort(sortKey)}
+                    >
+                      <Icon className="h-3.5 w-3.5 text-[#9CA3AF]" />
+                      <span className="truncate">{label}</span>
+                      <span className="text-[10px] text-[#9CA3AF]">{sortIndicator(sortKey)}</span>
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Resize ${label} column`}
+                      className="absolute right-0 top-0 h-full w-2 cursor-col-resize opacity-0 transition-opacity group-hover:opacity-100"
+                      onMouseDown={(event) =>
+                        startColumnResize(
+                          event,
+                          sortKey,
+                          widthSpec.minWidth,
+                          widthSpec.preferredWidth
+                        )
+                      }
+                    >
+                      <span className="mx-auto block h-full w-px bg-[#D1D5DB]" />
+                    </button>
+                  </th>
+                );
+              })}
 
               {selectedColumns.map((column) => (
                 <th
                   key={column.key}
-                  className="px-2.5 py-1 text-left text-[11px] font-medium leading-tight tracking-[0.01em] text-[#6B7280]"
-                  style={{ minWidth: column.minWidth, width: column.preferredWidth }}
+                  className="group relative px-2.5 py-1 text-left text-[11px] font-medium leading-tight tracking-[0.01em] text-[#6B7280]"
+                  style={{
+                    minWidth: column.minWidth,
+                    width: getColumnWidth(column.key, column.minWidth, column.preferredWidth),
+                  }}
                 >
                   {(() => {
                     const topMetricId = TABLE_TO_TOP_METRIC_ID[column.key];
                     const isSelected = topMetricId ? selectedMetricIds.includes(topMetricId) : false;
                     return (
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      toggleTopMetricFromHeader(column.key);
-                    }}
-                    className={cn(
-                      "group inline-flex w-full items-start gap-1.5 text-left",
-                      topMetricId ? "cursor-pointer" : "cursor-default"
-                    )}
-                    disabled={!topMetricId}
-                  >
-                    <span
-                      className={cn(
-                        "mt-[1px] inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[3px] border transition-colors",
-                        isSelected
-                          ? "border-emerald-500 bg-emerald-500/20"
-                          : "border-[#D1D5DB] bg-white group-hover:border-[#9CA3AF]"
-                      )}
-                      aria-hidden="true"
-                    >
-                      {isSelected && <span className="h-1.5 w-1.5 rounded-[2px] bg-emerald-600" />}
-                    </span>
-                    <span className="line-clamp-2">{column.label}</span>
-                  </button>
+                      <div className="flex w-full items-start gap-1.5 pr-2">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            toggleTopMetricFromHeader(column.key);
+                          }}
+                          className={cn(
+                            "mt-[1px] inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[3px] border transition-colors",
+                            isSelected
+                              ? "border-emerald-500 bg-emerald-500/20"
+                              : "border-[#D1D5DB] bg-white hover:border-[#9CA3AF]",
+                            topMetricId ? "cursor-pointer" : "cursor-default"
+                          )}
+                          disabled={!topMetricId}
+                          aria-label={`${column.label} metric visibility`}
+                        >
+                          {isSelected && <span className="h-1.5 w-1.5 rounded-[2px] bg-emerald-600" />}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => cycleSort(column.key)}
+                          onMouseEnter={(event) => {
+                            setTooltip({ key: column.key, rect: event.currentTarget.getBoundingClientRect() });
+                          }}
+                          onMouseLeave={() => setTooltip(null)}
+                          onFocus={(event) =>
+                            setTooltip({ key: column.key, rect: event.currentTarget.getBoundingClientRect() })
+                          }
+                          onBlur={() => setTooltip(null)}
+                          aria-describedby={`metric-tooltip-${column.key}`}
+                          className="inline-flex min-w-0 items-start gap-1 text-left"
+                        >
+                          <span className="line-clamp-2">{column.label}</span>
+                          <span className="mt-px text-[10px] text-[#9CA3AF]">{sortIndicator(column.key)}</span>
+                        </button>
+                      </div>
                     );
                   })()}
+                  <button
+                    type="button"
+                    aria-label={`Resize ${column.label} column`}
+                    className="absolute right-0 top-0 h-full w-2 cursor-col-resize opacity-0 transition-opacity group-hover:opacity-100"
+                    onMouseDown={(event) => startColumnResize(event, column.key, column.minWidth, column.preferredWidth)}
+                  >
+                    <span className="mx-auto block h-full w-px bg-[#D1D5DB]" />
+                  </button>
                 </th>
               ))}
             </tr>
@@ -819,7 +1238,7 @@ export function MotionCreativesTableSection({
                 {tablePreset.showTags && (
                   <td className="border-b px-2.5 py-1.5">
                     <div className="flex flex-wrap gap-1">
-                      {[...row.tags, ...tablePreset.selectedTags.map(prettyTagLabel)].slice(0, 3).map((tag) => (
+                      {(row.tags ?? []).slice(0, 3).map((tag) => (
                         <span key={tag} className="rounded-full border bg-muted/20 px-1.5 py-0.5 text-[10px] text-[#6B7280]">
                           {tag}
                         </span>
@@ -835,6 +1254,12 @@ export function MotionCreativesTableSection({
                 {tablePreset.showAdLength && (
                   <td className="border-b px-2.5 py-1.5 text-[12px] font-medium">{row.format === "video" ? "15s" : "Static"}</td>
                 )}
+
+                {selectedAiTagColumns.map((tagKey) => (
+                  <td key={`${row.id}_ai_tag_${tagKey}`} className="border-b px-2.5 py-1">
+                    <AiTagPills values={row.aiTags?.[tagKey] ?? []} tagKey={tagKey} />
+                  </td>
+                ))}
 
                 {selectedColumns.map((column) => {
                   const value = column.getValue(row, ctx);
@@ -864,7 +1289,14 @@ export function MotionCreativesTableSection({
             <tr className="border-t border-[#E5E7EB]">
               <td
                 className="sticky left-0 z-20 border-r bg-[#FAFAFA] px-2.5 py-1.5 text-[11px] font-semibold text-[#6B7280]"
-                style={{ minWidth: 220, width: 240 }}
+                style={{
+                  minWidth: STATIC_COLUMN_SPECS.creativeName.minWidth,
+                  width: getColumnWidth(
+                    "creativeName",
+                    STATIC_COLUMN_SPECS.creativeName.minWidth,
+                    STATIC_COLUMN_SPECS.creativeName.preferredWidth
+                  ),
+                }}
               >
                 Net Results
               </td>
@@ -873,6 +1305,11 @@ export function MotionCreativesTableSection({
               {tablePreset.showTags && <td className="px-2.5 py-1.5 text-[11px] text-muted-foreground">-</td>}
               {tablePreset.showActiveStatus && <td className="px-2.5 py-1.5 text-[11px] text-muted-foreground">-</td>}
               {tablePreset.showAdLength && <td className="px-2.5 py-1.5 text-[11px] text-muted-foreground">-</td>}
+              {selectedAiTagColumns.map((tagKey) => (
+                <td key={`summary_ai_tag_${tagKey}`} className="px-2.5 py-1.5 text-[11px] text-muted-foreground">
+                  -
+                </td>
+              ))}
 
               {selectedColumns.map((column) => {
                 const values = rows.map((row) => column.getValue(row, ctx));
@@ -961,7 +1398,51 @@ export function MotionCreativesTableSection({
           presetName={tablePreset.presetName}
         />
       )}
+
+      <MetricHeaderTooltip tooltip={tooltip} />
     </section>
+  );
+}
+
+function MetricHeaderTooltip({ tooltip }: { tooltip: MetricTooltipState | null }) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+    return () => setMounted(false);
+  }, []);
+
+  if (!mounted || !tooltip) return null;
+
+  const content = METRIC_DESCRIPTIONS[tooltip.key];
+  if (!content) return null;
+
+  const width = 260;
+  const viewportPadding = 8;
+  const rawLeft = tooltip.rect.left + tooltip.rect.width / 2 - width / 2;
+  const left = Math.max(
+    viewportPadding,
+    Math.min(window.innerWidth - width - viewportPadding, rawLeft)
+  );
+  const top = Math.max(8, tooltip.rect.top - 12);
+  const caretLeft = Math.max(12, Math.min(width - 12, tooltip.rect.left + tooltip.rect.width / 2 - left));
+
+  return createPortal(
+    <div
+      id={`metric-tooltip-${tooltip.key}`}
+      role="tooltip"
+      className="pointer-events-none fixed z-[90] w-[260px] -translate-y-full rounded-lg bg-[#111111] px-3 py-2 shadow-xl"
+      style={{ left, top }}
+    >
+      <p className="text-[15px] font-semibold text-white">{content.label}</p>
+      <p className="mt-1 text-[13px] leading-snug text-zinc-300">{content.description}</p>
+      <span
+        className="absolute -bottom-1.5 h-3 w-3 rotate-45 bg-[#111111]"
+        style={{ left: `${caretLeft - 6}px` }}
+        aria-hidden="true"
+      />
+    </div>,
+    document.body
   );
 }
 
@@ -1184,8 +1665,46 @@ function resolveMetricLabel(key: string): string {
   return TABLE_COLUMNS.find((column) => column.key === key)?.label ?? key;
 }
 
+const METRIC_DESCRIPTIONS: Record<TableColumnKey, { label: string; description: string }> = Object.fromEntries(
+  TABLE_COLUMNS.map((column) => [
+    column.key,
+    {
+      label: column.label,
+      description: column.description,
+    },
+  ])
+) as Record<TableColumnKey, { label: string; description: string }>;
+
 function prettyTagLabel(key: TagKey): string {
   return resolveMetricLabel(key);
+}
+
+function AiTagPills({ values, tagKey }: { values: string[]; tagKey: TagKey }) {
+  if (!values || values.length === 0) {
+    return (
+      <span className={cn("rounded-full border px-2 py-0.5 text-[11px] font-medium", getAiTagPillStyles(tagKey, "None").className)}>
+        None
+      </span>
+    );
+  }
+
+  return (
+    <div className="flex max-h-9 max-w-full flex-wrap items-start gap-1.5 overflow-hidden">
+      {values.slice(0, 3).map((value) => (
+        <span
+          key={value}
+          className={cn(
+            "max-w-[145px] truncate rounded-full border px-2 py-0.5 text-[11px] font-medium leading-4",
+            getAiTagPillStyles(tagKey, value).className
+          )}
+          title={value}
+        >
+          {value}
+        </span>
+      ))}
+      {values.length > 3 ? <span className="text-[11px] text-muted-foreground">+{values.length - 3}</span> : null}
+    </div>
+  );
 }
 
 function fmtCurrency(n: number): string {

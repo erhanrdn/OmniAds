@@ -11,6 +11,16 @@ import {
 type GroupBy = "adName" | "creative" | "adSet";
 type FormatFilter = "all" | "image" | "video";
 type SortKey = "roas" | "spend" | "ctrAll" | "purchaseValue";
+type AiTagKey =
+  | "assetType"
+  | "visualFormat"
+  | "intendedAudience"
+  | "messagingAngle"
+  | "seasonality"
+  | "offerType"
+  | "hookTactic"
+  | "headlineTactic";
+type MetaAiTags = Partial<Record<AiTagKey, string[]>>;
 
 interface MetaActionValue {
   action_type: string;
@@ -89,6 +99,7 @@ interface RawCreativeRow {
   preview_state: CreativePreviewState;
   launch_date: string;
   tags: string[];
+  ai_tags: MetaAiTags;
   format: "image" | "video";
   spend: number;
   purchase_value: number;
@@ -112,6 +123,7 @@ export interface MetaCreativeApiRow {
   preview_state: CreativePreviewState;
   launch_date: string;
   tags: string[];
+  ai_tags: MetaAiTags;
   format: "image" | "video";
   spend: number;
   purchase_value: number;
@@ -164,6 +176,40 @@ function inferFormat(objectType: string | null | undefined): "image" | "video" {
 function cleanDate(value?: string | null): string {
   if (!value) return "";
   return value.slice(0, 10);
+}
+
+const AI_TAG_LABEL_TO_KEY: Record<string, AiTagKey> = {
+  "asset type": "assetType",
+  "visual format": "visualFormat",
+  "intended audience": "intendedAudience",
+  "messaging angle": "messagingAngle",
+  seasonality: "seasonality",
+  "offer type": "offerType",
+  "hook tactic": "hookTactic",
+  "headline tactic": "headlineTactic",
+};
+
+function normalizeAiTags(rawTags: string[] | undefined): MetaAiTags {
+  if (!Array.isArray(rawTags) || rawTags.length === 0) return {};
+
+  const next: MetaAiTags = {};
+  for (const rawTag of rawTags) {
+    if (typeof rawTag !== "string") continue;
+    const trimmed = rawTag.trim();
+    if (!trimmed) continue;
+
+    const separator = trimmed.includes(":") ? ":" : trimmed.includes("=") ? "=" : null;
+    if (!separator) continue;
+    const [rawLabel, rawValue] = trimmed.split(separator, 2);
+    const key = AI_TAG_LABEL_TO_KEY[rawLabel.trim().toLowerCase()];
+    const value = rawValue?.trim();
+    if (!key || !value) continue;
+    const existing = next[key] ?? [];
+    if (!existing.includes(value)) existing.push(value);
+    next[key] = existing;
+  }
+
+  return next;
 }
 
 async function fetchAssignedAccountIds(businessId: string): Promise<string[]> {
@@ -340,6 +386,7 @@ function toRawRow(insight: MetaInsightRecord, ad: MetaAdRecord | undefined): Raw
     preview_state: normalizedPreview.preview_state,
     launch_date: launchDate,
     tags: [],
+    ai_tags: {},
     format,
     spend: r2(spend),
     purchase_value: r2(derivedPurchaseValue),
@@ -396,6 +443,15 @@ function groupRows(rows: RawCreativeRow[], groupBy: GroupBy): RawCreativeRow[] {
       preview_state: groupedPreviewState,
       launch_date: earliestLaunch ?? sample.launch_date,
       tags: [],
+      ai_tags: list.reduce<MetaAiTags>((acc, item) => {
+        for (const [rawKey, values] of Object.entries(item.ai_tags)) {
+          const key = rawKey as AiTagKey;
+          if (!Array.isArray(values) || values.length === 0) continue;
+          const merged = new Set([...(acc[key] ?? []), ...values]);
+          acc[key] = Array.from(merged);
+        }
+        return acc;
+      }, {}),
       format: list.some((item) => item.format === "video") ? "video" : "image",
       spend: r2(spend),
       purchase_value: r2(purchaseValue),
@@ -501,6 +557,7 @@ export async function GET(request: NextRequest) {
       preview_state: previewState,
       launch_date: row.launch_date,
       tags: row.tags,
+      ai_tags: Object.keys(row.ai_tags).length > 0 ? row.ai_tags : normalizeAiTags(row.tags),
       format: row.format,
       spend: row.spend,
       purchase_value: row.purchase_value,

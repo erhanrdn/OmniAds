@@ -13,6 +13,18 @@ export type MetaMetricKey =
   | "clickToPurchase"
   | "atcToPurchaseRatio";
 
+export type MetaAiTagKey =
+  | "assetType"
+  | "visualFormat"
+  | "intendedAudience"
+  | "messagingAngle"
+  | "seasonality"
+  | "offerType"
+  | "hookTactic"
+  | "headlineTactic";
+
+export type MetaAiTags = Partial<Record<MetaAiTagKey, string[]>>;
+
 export interface MetaCreativeRow {
   id: string;
   name: string;
@@ -24,6 +36,7 @@ export interface MetaCreativeRow {
   previewState: "preview" | "catalog" | "unavailable";
   launchDate: string;
   tags: string[];
+  aiTags: MetaAiTags;
   spend: number;
   purchaseValue: number;
   roas: number;
