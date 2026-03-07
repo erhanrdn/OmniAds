@@ -65,7 +65,14 @@ export default function OverviewPage() {
   if (!selectedBusinessId) return <BusinessEmptyState />;
 
   if (query.isError) {
-    return <ErrorState onRetry={() => query.refetch()} />;
+    const errorMessage =
+      query.error instanceof Error ? query.error.message : "The request failed. Please try again.";
+    return (
+      <ErrorState
+        description={errorMessage}
+        onRetry={() => query.refetch()}
+      />
+    );
   }
 
   const integrations = byBusinessId[businessId];

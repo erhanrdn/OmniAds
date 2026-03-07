@@ -975,11 +975,16 @@ export async function getOverview(
     },
   });
 
+  const payload = await response.json().catch(() => null);
+
   if (!response.ok) {
-    throw new Error(`Overview API request failed with status ${response.status}`);
+    const message =
+      payload && typeof payload === "object" && "message" in payload
+        ? String(payload.message)
+        : `Overview API request failed with status ${response.status}`;
+    throw new Error(message);
   }
 
-  const payload = await response.json();
   const data = payload?.overview ?? payload;
 
   if (!data || typeof data !== "object") {
