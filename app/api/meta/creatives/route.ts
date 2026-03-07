@@ -29,7 +29,6 @@ interface MetaActionValue {
 
 interface MetaInsightRecord {
   ad_id?: string;
-  ad_creative_id?: string;
   ad_name?: string;
   adset_id?: string;
   adset_name?: string;
@@ -92,8 +91,6 @@ interface MetaAdRecord {
     } | null;
   } | null;
 }
-
-type MetaCreativeRecord = NonNullable<MetaAdRecord["creative"]>;
 
 interface MetaAccountMeta {
   id: string;
@@ -257,7 +254,7 @@ async function fetchAccountInsights(
   const url = new URL(`https://graph.facebook.com/v25.0/${accountId}/insights`);
   url.searchParams.set(
     "fields",
-    "ad_id,ad_creative_id,ad_name,adset_id,adset_name,spend,cpm,cpc,ctr,date_start,actions,action_values,purchase_roas"
+    "ad_id,ad_name,adset_id,adset_name,spend,cpm,cpc,ctr,date_start,actions,action_values,purchase_roas"
   );
   url.searchParams.set("level", "ad");
   url.searchParams.set("time_range", JSON.stringify({ since: startDate, until: endDate }));
@@ -376,61 +373,9 @@ async function fetchAccountAdsMap(
   return map;
 }
 
-async function fetchAccountCreativesMap(
-  accountId: string,
-  accessToken: string
-): Promise<Map<string, MetaCreativeRecord>> {
-  const map = new Map<string, MetaCreativeRecord>();
-  let nextUrl: string | null = null;
-
-  do {
-    const url = nextUrl
-      ? new URL(nextUrl)
-      : new URL(`https://graph.facebook.com/v25.0/${accountId}/adcreatives`);
-    if (!nextUrl) {
-      url.searchParams.set(
-        "fields",
-        [
-          "id",
-          "name",
-          "object_type",
-          "effective_object_story_id",
-          "thumbnail_url",
-          "image_url",
-          "object_story_spec{link_data{picture,image_hash},video_data{image_url,thumbnail_url},template_data}",
-          "asset_feed_spec{catalog_id,product_set_id,images{url,image_url,original_url,hash,image_hash},videos{thumbnail_url,image_url}}",
-        ].join(",")
-      );
-      url.searchParams.set("limit", "500");
-      url.searchParams.set("access_token", accessToken);
-    }
-
-    const res = await fetch(url.toString(), {
-      method: "GET",
-      headers: { Accept: "application/json" },
-      cache: "no-store",
-    });
-
-    if (!res.ok) return map;
-
-    const payload = (await res.json().catch(() => null)) as
-      | { data?: MetaCreativeRecord[]; paging?: { next?: string } }
-      | null;
-
-    for (const creative of payload?.data ?? []) {
-      if (typeof creative.id === "string") map.set(creative.id, creative);
-    }
-
-    nextUrl = payload?.paging?.next ?? null;
-  } while (nextUrl);
-
-  return map;
-}
-
 function toRawRow(
   insight: MetaInsightRecord,
   ad: MetaAdRecord | undefined,
-  creativeFromMap: MetaCreativeRecord | undefined,
   accountMeta: MetaAccountMeta
 ): RawCreativeRow | null {
   const adId = insight.ad_id ?? ad?.id ?? "";
@@ -451,7 +396,7 @@ function toRawRow(
   const cpm = parseFloat(insight.cpm ?? "0") || 0;
   const ctrAll = parseFloat(insight.ctr ?? "0") || 0;
 
-  const creative = ad?.creative ?? creativeFromMap ?? null;
+  const creative = ad?.creative ?? null;
   const promotedObject = ad?.promoted_object ?? ad?.adset?.promoted_object ?? null;
   const normalizedPreview = normalizeCreativePreview({ creative, promotedObject });
   const format = inferFormat(creative?.object_type);
@@ -634,10 +579,9 @@ export async function GET(request: NextRequest) {
   const rawRows: RawCreativeRow[] = [];
   for (const accountId of assignedAccountIds) {
     try {
-      const [insights, adMap, creativeMap, accountMeta] = await Promise.all([
+      const [insights, adMap, accountMeta] = await Promise.all([
         fetchAccountInsights(accountId, integration.access_token, start, end),
         fetchAccountAdsMap(accountId, integration.access_token),
-        fetchAccountCreativesMap(accountId, integration.access_token),
         fetchAccountMeta(accountId, integration.access_token),
       ]);
 
@@ -646,19 +590,14 @@ export async function GET(request: NextRequest) {
         const matchedAds = insights.filter(
           (item) => typeof item.ad_id === "string" && adMap.has(item.ad_id)
         ).length;
-        const matchedCreatives = insights.filter(
-          (item) => typeof item.ad_creative_id === "string" && creativeMap.has(item.ad_creative_id)
-        ).length;
         console.log("[meta-creatives] account coverage", {
           account_id: accountMeta.id,
           account_name: accountMeta.name,
           currency: accountMeta.currency,
           insights: insights.length,
           ads_loaded: adMap.size,
-          creatives_loaded: creativeMap.size,
           insights_with_ad_id: insightsWithAdId,
           matched_ads: matchedAds,
-          matched_creatives: matchedCreatives,
         });
       }
 
@@ -666,7 +605,6 @@ export async function GET(request: NextRequest) {
         const row = toRawRow(
           insight,
           insight.ad_id ? adMap.get(insight.ad_id) : undefined,
-          insight.ad_creative_id ? creativeMap.get(insight.ad_creative_id) : undefined,
           accountMeta
         );
         if (row) rawRows.push(row);
