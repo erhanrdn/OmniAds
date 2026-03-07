@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getIntegration } from "@/lib/integrations";
 import { upsertProviderAccountAssignments } from "@/lib/provider-account-assignments";
+import { runMigrations } from "@/lib/migrations";
 
 export async function POST(
   request: NextRequest,
@@ -54,33 +55,67 @@ export async function POST(
 
   const cleaned = Array.from(new Set(accountIds.map((id) => id.trim()).filter(Boolean)));
 
-  try {
-    const row = await upsertProviderAccountAssignments({
+  async function doUpsert() {
+    return upsertProviderAccountAssignments({
       businessId,
       provider: "meta",
       accountIds: cleaned,
     });
-
-    console.log("[meta-assign-accounts] db write success", {
-      businessId,
-      provider: "meta",
-      returnedAccountIds: row.account_ids,
-      updatedAt: row.updated_at,
-    });
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    console.error("[meta-assign-accounts] db write failed", {
-      businessId,
-      message,
-    });
-    return NextResponse.json(
-      {
-        error: "assignment_save_failed",
-        message: "Could not save Meta account assignments.",
-      },
-      { status: 500 }
-    );
   }
+
+  let row;
+  try {
+    row = await doUpsert();
+  } catch (firstError: unknown) {
+    const firstMessage = firstError instanceof Error ? firstError.message : String(firstError);
+    console.warn("[meta-assign-accounts] db write failed (first attempt)", {
+      businessId,
+      message: firstMessage,
+    });
+
+    // If the table is missing, auto-run migrations and retry once.
+    const isMissingTable =
+      firstMessage.includes("does not exist") || firstMessage.includes("relation");
+    if (isMissingTable) {
+      try {
+        console.log("[meta-assign-accounts] running migrations to create missing table");
+        await runMigrations();
+        row = await doUpsert();
+      } catch (retryError: unknown) {
+        const retryMessage = retryError instanceof Error ? retryError.message : String(retryError);
+        console.error("[meta-assign-accounts] db write failed after migration", {
+          businessId,
+          message: retryMessage,
+        });
+        return NextResponse.json(
+          {
+            error: "assignment_save_failed",
+            message: "Could not save Meta account assignments.",
+          },
+          { status: 500 }
+        );
+      }
+    } else {
+      console.error("[meta-assign-accounts] db write failed", {
+        businessId,
+        message: firstMessage,
+      });
+      return NextResponse.json(
+        {
+          error: "assignment_save_failed",
+          message: "Could not save Meta account assignments.",
+        },
+        { status: 500 }
+      );
+    }
+  }
+
+  console.log("[meta-assign-accounts] db write success", {
+    businessId,
+    provider: "meta",
+    returnedAccountIds: row.account_ids,
+    updatedAt: row.updated_at,
+  });
 
   console.log("[meta-assign-accounts] response", {
     businessId,
