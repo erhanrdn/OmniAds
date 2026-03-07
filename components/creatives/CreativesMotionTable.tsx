@@ -140,14 +140,28 @@ export function CreativesMotionTable({
 }
 
 function CreativeThumb({ row }: { row: MetaCreativeRow }) {
-  const preview = row.previewUrl ?? row.thumbnailUrl ?? row.imageUrl;
+  // Catalog check must come first — never show raw image for catalog ads
+  if (row.isCatalog) {
+    return (
+      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded bg-muted/60 text-[9px] text-muted-foreground">
+        Catalog
+      </div>
+    );
+  }
+
+  const preview = row.thumbnailUrl ?? row.previewUrl ?? row.imageUrl;
   if (preview) {
-    return <img src={preview} alt={row.name} className="h-9 w-16 rounded object-cover" />;
+    return (
+      <div className="h-12 w-12 shrink-0 overflow-hidden rounded">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={preview} alt={row.name} className="h-full w-full object-cover" />
+      </div>
+    );
   }
 
   return (
-    <div className="flex h-9 w-16 items-center justify-center rounded bg-muted/40 text-[10px] text-muted-foreground">
-      {row.isCatalog ? "Catalog ad" : "No preview"}
+    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded bg-muted/40 text-[9px] text-muted-foreground">
+      No preview
     </div>
   );
 }

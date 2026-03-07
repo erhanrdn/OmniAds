@@ -28,6 +28,10 @@ interface MetaAdRecord {
     image_url?: string | null;
     // "DYNAMIC" = DPA / catalog ad; "PHOTO" | "VIDEO" | "SHARE" = standard
     object_type?: string | null;
+    object_story_spec?: {
+      link_data?: { picture?: string | null } | null;
+      video_data?: { image_url?: string | null; thumbnail_url?: string | null } | null;
+    } | null;
   } | null;
 }
 
@@ -163,7 +167,10 @@ async function fetchAdCreativeMap(
   accessToken: string
 ): Promise<Map<string, MetaAdRecord["creative"]>> {
   const url = new URL(`https://graph.facebook.com/v25.0/${accountId}/ads`);
-  url.searchParams.set("fields", "id,creative{id,thumbnail_url,image_url,object_type}");
+  url.searchParams.set(
+    "fields",
+    "id,creative{id,thumbnail_url,image_url,object_type,object_story_spec{link_data{picture},video_data{image_url,thumbnail_url}}}"
+  );
   url.searchParams.set("limit", "200");
   url.searchParams.set("access_token", accessToken);
 
@@ -257,10 +264,16 @@ export async function GET(request: NextRequest) {
         // Catalog detection: Meta uses object_type "DYNAMIC" for DPA/catalog ads
         const isCatalog = creative?.object_type === "DYNAMIC";
 
-        // Preview fallback: image_url (static) → thumbnail_url (video/image thumb) → null
-        const imageUrl = creative?.image_url ?? null;
+        // Preview fallback pipeline: thumbnail_url → image_url → link_data.picture → video_data urls
         const thumbnailUrl = creative?.thumbnail_url ?? null;
-        const previewUrl = imageUrl ?? thumbnailUrl;
+        const imageUrl = creative?.image_url ?? null;
+        const previewUrl =
+          thumbnailUrl ??
+          imageUrl ??
+          creative?.object_story_spec?.link_data?.picture ??
+          creative?.object_story_spec?.video_data?.image_url ??
+          creative?.object_story_spec?.video_data?.thumbnail_url ??
+          null;
 
         const purchases = parseAction(insight.actions, "purchase");
         const revenueFromValues = parseAction(insight.action_values, "purchase");

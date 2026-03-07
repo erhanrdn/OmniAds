@@ -34,7 +34,7 @@ export function CreativesTopGrid({
                   imageUrl: row.imageUrl,
                   thumbnailUrl: row.thumbnailUrl,
                 }}
-                aspectRatio="video"
+                aspectRatio="square"
               />
               <div className="p-3">
                 <p className="line-clamp-1 text-sm font-medium">{row.name}</p>

@@ -39,6 +39,10 @@ interface MetaAdRecord {
     object_type?: string | null;
     thumbnail_url?: string | null;
     image_url?: string | null;
+    object_story_spec?: {
+      link_data?: { picture?: string | null } | null;
+      video_data?: { image_url?: string | null; thumbnail_url?: string | null } | null;
+    } | null;
   } | null;
 }
 
@@ -191,7 +195,7 @@ async function fetchAccountAdsMap(
   const url = new URL(`https://graph.facebook.com/v25.0/${accountId}/ads`);
   url.searchParams.set(
     "fields",
-    "id,name,adset_id,adset{id,name},created_time,creative{id,name,object_type,thumbnail_url,image_url}"
+    "id,name,adset_id,adset{id,name},created_time,creative{id,name,object_type,thumbnail_url,image_url,object_story_spec{link_data{picture},video_data{image_url,thumbnail_url}}}"
   );
   url.searchParams.set("limit", "500");
   url.searchParams.set("access_token", accessToken);
@@ -243,9 +247,16 @@ function toRawRow(insight: MetaInsightRecord, ad: MetaAdRecord | undefined): Raw
 
   const creative = ad?.creative ?? null;
   const isCatalog = creative?.object_type?.toUpperCase() === "DYNAMIC";
-  const imageUrl = creative?.image_url ?? null;
   const thumbnailUrl = creative?.thumbnail_url ?? null;
-  const previewUrl = imageUrl ?? thumbnailUrl;
+  const imageUrl = creative?.image_url ?? null;
+  // Fallback pipeline: thumbnail_url → image_url → link_data.picture → video_data urls
+  const previewUrl =
+    thumbnailUrl ??
+    imageUrl ??
+    creative?.object_story_spec?.link_data?.picture ??
+    creative?.object_story_spec?.video_data?.image_url ??
+    creative?.object_story_spec?.video_data?.thumbnail_url ??
+    null;
   const format = inferFormat(creative?.object_type);
 
   const launchDate = cleanDate(ad?.created_time) || cleanDate(insight.date_start) || toISODate(new Date());
