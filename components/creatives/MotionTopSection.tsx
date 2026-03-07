@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Trophy, ChevronDown, X, Search, Plus } from "lucide-react";
+import { Trophy, ChevronDown, X, Search, Plus, SlidersHorizontal, LayoutGrid, Ellipsis } from "lucide-react";
 import { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { cn } from "@/lib/utils";
 
@@ -390,58 +390,96 @@ export function MotionTopSection({
   const topRows = selectedRows.slice(0, 20);
 
   return (
-    <section className="space-y-4 rounded-2xl border bg-card p-4">
+    <section>
+      {/* A — Header */}
       <div className="space-y-1">
         <h2 className="flex items-center gap-2 text-xl font-semibold">
           <Trophy className="h-5 w-5 text-amber-500" />
           Top creatives
         </h2>
-        <p className="text-sm text-muted-foreground">
+        <p className="max-w-3xl text-sm text-muted-foreground">
           This report shows your top performing creatives. Use this to quickly identify where you are spending money vs making money.
         </p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <MotionDateRangePicker value={dateRange} onChange={onDateRangeChange} />
+      {/* B — Filters */}
+      <div className="mt-6 rounded-xl border bg-card px-3 py-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <MotionDateRangePicker value={dateRange} onChange={onDateRangeChange} />
 
-        <div className="inline-flex items-center gap-2 rounded-full border bg-background px-3 py-2 text-xs">
-          <span className="text-muted-foreground">Group by</span>
-          <select
-            value={groupBy}
-            onChange={(event) => onGroupByChange(event.target.value as MotionGroupBy)}
-            className="border-0 bg-transparent pr-6 text-xs outline-none"
-          >
-            {GROUP_BY_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+          <div className="inline-flex items-center gap-2 rounded-full border bg-background px-3 py-2 text-xs">
+            <span className="text-muted-foreground">Group by</span>
+            <select
+              value={groupBy}
+              onChange={(event) => onGroupByChange(event.target.value as MotionGroupBy)}
+              className="border-0 bg-transparent pr-6 text-xs outline-none"
+            >
+              {GROUP_BY_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <AddFilterDropdown filters={filters} onChange={onFiltersChange} />
+        </div>
+      </div>
+
+      {/* C — AI action row */}
+      <div className="mt-3 rounded-xl border bg-muted/20 px-3 py-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {AI_ACTIONS.map((action) => (
+            <button
+              key={action}
+              type="button"
+              className="rounded-full border border-border/60 bg-background/80 px-3 py-1.5 text-xs text-foreground/85 hover:bg-background"
+            >
+              {action}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* D — Selected creatives workspace */}
+      <div className="mt-4 rounded-2xl border bg-card p-3">
+        <div className="mb-3 flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <MetricSelectorBar selectedMetricIds={selectedMetricIds} onChange={onSelectedMetricIdsChange} />
+          </div>
+
+          <div className="hidden items-center gap-1.5 sm:flex">
+            <button
+              type="button"
+              aria-label="Workspace layout"
+              className="rounded-md border p-1.5 text-muted-foreground hover:text-foreground"
+            >
+              <LayoutGrid className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              aria-label="Workspace settings"
+              className="rounded-md border p-1.5 text-muted-foreground hover:text-foreground"
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              aria-label="Workspace more"
+              className="rounded-md border p-1.5 text-muted-foreground hover:text-foreground"
+            >
+              <Ellipsis className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
-        <AddFilterDropdown filters={filters} onChange={onFiltersChange} />
+        <PreviewStrip
+          rows={topRows}
+          metrics={metricDefs}
+          allRowsForHeatmap={allRowsForHeatmap}
+          onOpenRow={onOpenRow}
+        />
       </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        {AI_ACTIONS.map((action) => (
-          <button
-            key={action}
-            type="button"
-            className="rounded-full border border-border/70 bg-muted/35 px-3 py-1.5 text-xs text-foreground/85 hover:bg-muted/55"
-          >
-            {action}
-          </button>
-        ))}
-      </div>
-
-      <MetricSelectorBar selectedMetricIds={selectedMetricIds} onChange={onSelectedMetricIdsChange} />
-
-      <PreviewStrip
-        rows={topRows}
-        metrics={metricDefs}
-        allRowsForHeatmap={allRowsForHeatmap}
-        onOpenRow={onOpenRow}
-      />
     </section>
   );
 }
@@ -800,13 +838,13 @@ function PreviewStrip({
 
   return (
     <div className="overflow-x-auto pb-1">
-      <div className="flex min-w-max gap-3">
+      <div className="flex min-w-max gap-2.5">
         {rows.map((row) => (
           <button
             key={row.id}
             type="button"
             onClick={() => onOpenRow(row.id)}
-            className="w-[220px] shrink-0 overflow-hidden rounded-xl border bg-card text-left"
+            className="w-[182px] shrink-0 overflow-hidden rounded-lg border bg-muted/10 text-left"
           >
             <div className="relative aspect-square w-full overflow-hidden bg-muted/30">
               {row.previewUrl ? (
@@ -822,18 +860,26 @@ function PreviewStrip({
               </span>
             </div>
 
-            <div className="space-y-2 p-3">
-              <p className="line-clamp-2 text-sm font-medium">{row.name}</p>
-              <div className="space-y-1.5">
+            <div className="space-y-2 p-2.5">
+              <p className="line-clamp-2 text-xs font-medium leading-4">{row.name}</p>
+              <div className="space-y-1">
                 {metrics.map((metric) => {
                   const value = metric.getValue(row, context);
                   const range = extremes[metric.id] ?? { min: value, max: value };
-                  const heat = withIntensity(getHeatColor(metric.direction, value, range.min, range.max), 0.9);
+                  const heat =
+                    metric.direction === "neutral"
+                      ? "rgba(148, 163, 184, 0.15)"
+                      : withIntensity(getHeatColor(metric.direction, value, range.min, range.max), 0.8);
 
                   return (
-                    <div key={metric.id} className="rounded-md px-2 py-1" style={{ backgroundColor: heat }}>
-                      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{metric.label}</p>
-                      <p className="text-sm font-semibold">{metric.format(value)}</p>
+                    <div key={metric.id} className="flex items-center justify-between gap-2 text-[11px]">
+                      <p className="truncate text-muted-foreground">{metric.label}</p>
+                      <span
+                        className="rounded-full px-1.5 py-0.5 font-semibold"
+                        style={{ backgroundColor: heat }}
+                      >
+                        {metric.format(value)}
+                      </span>
                     </div>
                   );
                 })}

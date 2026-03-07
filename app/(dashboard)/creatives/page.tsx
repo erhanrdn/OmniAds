@@ -208,6 +208,10 @@ export default function CreativesPage() {
         .slice(0, 20),
     [filteredRows, selectionState.selectedRowIds]
   );
+  const topPanelRows = useMemo(
+    () => (selectedRows.length > 0 ? selectedRows : filteredRows.slice(0, 20)),
+    [filteredRows, selectedRows]
+  );
 
   const activeRow = useMemo(
     () => filteredRows.find((row) => row.id === drawerState.activeRowId) ?? null,
@@ -308,7 +312,7 @@ export default function CreativesPage() {
               onFiltersChange={setTopFilters}
               selectedMetricIds={topMetricIds}
               onSelectedMetricIdsChange={setTopMetricIds}
-              selectedRows={selectedRows}
+              selectedRows={topPanelRows}
               allRowsForHeatmap={filteredRows}
               onOpenRow={(rowId) => openDrawer(rowId, true)}
             />
