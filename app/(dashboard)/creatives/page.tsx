@@ -13,12 +13,10 @@ import { ErrorState } from "@/components/states/error-state";
 import { LoadingSkeleton } from "@/components/states/loading-skeleton";
 import { Button } from "@/components/ui/button";
 import {
-  DEFAULT_TABLE_METRICS,
   type MetaCreativeRow,
 } from "@/components/creatives/metricConfig";
-import { TableViewState } from "@/components/creatives/TableControlsBar";
-import { CreativesMotionTable } from "@/components/creatives/CreativesMotionTable";
 import { CreativeInsightsDrawer } from "@/components/creatives/CreativeInsightsDrawer";
+import { MotionCreativesTableSection } from "@/components/creatives/MotionCreativesTableSection";
 import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
 import {
   applyMotionFilters,
@@ -139,11 +137,6 @@ export default function CreativesPage() {
   const [groupBy, setGroupBy] = useState<MotionGroupBy>("adName");
   const [topFilters, setTopFilters] = useState<MotionFilterRule[]>([]);
   const [topMetricIds, setTopMetricIds] = useState<string[]>(DEFAULT_TOP_METRIC_IDS);
-  const [tableViewState, setTableViewState] = useState<TableViewState>({
-    selectedMetrics: DEFAULT_TABLE_METRICS,
-    density: "comfortable",
-    heatmapIntensity: "medium",
-  });
   const [selectionState, setSelectionState] = useState<{ selectedRowIds: string[] }>({
     selectedRowIds: [],
   });
@@ -344,13 +337,10 @@ export default function CreativesPage() {
               !creativesQuery.isError &&
               filteredRows.length > 0 &&
               dataStatus !== "no_data" && (
-                <CreativesMotionTable
+                <MotionCreativesTableSection
                   rows={filteredRows}
-                  selectedMetrics={tableViewState.selectedMetrics}
                   selectedRowIds={selectionState.selectedRowIds}
                   highlightedRowId={highlightedRowId}
-                  density={tableViewState.density}
-                  heatmapIntensity={tableViewState.heatmapIntensity}
                   onToggleRow={toggleRowSelection}
                   onToggleAll={toggleAllRows}
                   onOpenRow={(rowId) => openDrawer(rowId)}
