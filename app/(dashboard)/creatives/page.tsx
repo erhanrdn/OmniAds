@@ -89,6 +89,9 @@ function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
   return {
     id: row.id,
     name: row.name,
+    accountId: row.account_id ?? null,
+    accountName: row.account_name ?? null,
+    currency: row.currency ?? null,
     format: row.format,
     thumbnailUrl: row.thumbnail_url,
     previewUrl: row.preview_url,
@@ -117,7 +120,10 @@ function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
 export default function CreativesPage() {
   const router = useRouter();
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
+  const businesses = useAppStore((state) => state.businesses);
   const businessId = selectedBusinessId ?? "";
+  const selectedBusinessCurrency =
+    businesses.find((business) => business.id === selectedBusinessId)?.currency ?? null;
 
   const ensureBusiness = useIntegrationsStore((state) => state.ensureBusiness);
   const byBusinessId = useIntegrationsStore((state) => state.byBusinessId);
@@ -308,6 +314,7 @@ export default function CreativesPage() {
               onSelectedMetricIdsChange={setTopMetricIds}
               selectedRows={topPanelRows}
               allRowsForHeatmap={filteredRows}
+              defaultCurrency={selectedBusinessCurrency}
               onOpenRow={(rowId) => openDrawer(rowId, true)}
             />
 
@@ -344,6 +351,7 @@ export default function CreativesPage() {
                   onSelectedMetricIdsChange={setTopMetricIds}
                   selectedRowIds={selectionState.selectedRowIds}
                   highlightedRowId={highlightedRowId}
+                  defaultCurrency={selectedBusinessCurrency}
                   onToggleRow={toggleRowSelection}
                   onToggleAll={toggleAllRows}
                   onOpenRow={(rowId) => openDrawer(rowId)}

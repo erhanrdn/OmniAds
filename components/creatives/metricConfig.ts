@@ -28,6 +28,9 @@ export type MetaAiTags = Partial<Record<MetaAiTagKey, string[]>>;
 export interface MetaCreativeRow {
   id: string;
   name: string;
+  accountId: string | null;
+  accountName: string | null;
+  currency: string | null;
   format: "image" | "video";
   thumbnailUrl: string | null;
   previewUrl: string | null;

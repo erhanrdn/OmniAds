@@ -18,6 +18,8 @@ import {
 } from "lucide-react";
 import { MetaAiTagKey, MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { getAiTagPillStyles } from "@/components/creatives/aiTagPillStyles";
+import { resolvePreviewState, resolvePreviewUrl } from "@/components/creatives/CreativePreview";
+import { formatMoney, resolveCreativeCurrency } from "@/components/creatives/money";
 import { cn } from "@/lib/utils";
 import { useDropdownBehavior } from "@/hooks/use-dropdown-behavior";
 import { createPortal } from "react-dom";
@@ -86,7 +88,7 @@ interface TableColumnDefinition {
   minWidth: number;
   preferredWidth: number;
   align: TableColumnAlign;
-  format: (n: number) => string;
+  format: (n: number, rowCurrency?: string | null, defaultCurrency?: string | null) => string;
   getValue: (row: MetaCreativeRow, ctx: TableCalcContext) => number;
 }
 
@@ -109,6 +111,7 @@ interface TablePreset {
 
 interface MotionCreativesTableSectionProps {
   rows: MetaCreativeRow[];
+  defaultCurrency: string | null;
   selectedMetricIds: string[];
   onSelectedMetricIdsChange: (next: string[]) => void;
   selectedRowIds: string[];
@@ -384,6 +387,7 @@ const TABLE_TO_TOP_METRIC_ID: Partial<Record<TableColumnKey, string>> = {
 
 export function MotionCreativesTableSection({
   rows,
+  defaultCurrency,
   selectedMetricIds,
   onSelectedMetricIdsChange,
   selectedRowIds,
@@ -1197,13 +1201,30 @@ export function MotionCreativesTableSection({
           </thead>
 
           <tbody>
-            {pagedRows.map((row) => (
-              <tr
-                key={row.id}
-                id={`creative-row-${row.id}`}
-                onClick={() => onOpenRow(row.id)}
-                className={cn("cursor-pointer", highlightedRowId === row.id && "bg-emerald-500/10")}
-              >
+            {pagedRows.map((row) => {
+              const resolvedPreviewState = resolvePreviewState({
+                name: row.name,
+                isCatalog: row.isCatalog,
+                previewState: row.previewState,
+                previewUrl: row.previewUrl,
+                imageUrl: row.imageUrl,
+                thumbnailUrl: row.thumbnailUrl,
+              });
+              const resolvedPreviewUrl = resolvePreviewUrl({
+                name: row.name,
+                isCatalog: row.isCatalog,
+                previewState: row.previewState,
+                previewUrl: row.previewUrl,
+                imageUrl: row.imageUrl,
+                thumbnailUrl: row.thumbnailUrl,
+              });
+              return (
+                <tr
+                  key={row.id}
+                  id={`creative-row-${row.id}`}
+                  onClick={() => onOpenRow(row.id)}
+                  className={cn("cursor-pointer", highlightedRowId === row.id && "bg-emerald-500/10")}
+                >
                 <td className="sticky left-0 z-10 border-b border-r bg-background px-2.5 py-1.5">
                   <div className="flex items-center gap-2">
                     <input
@@ -1214,12 +1235,12 @@ export function MotionCreativesTableSection({
                     />
 
                     <div className="h-[30px] w-[30px] shrink-0 overflow-hidden rounded bg-muted/30">
-                      {row.previewUrl ? (
+                      {resolvedPreviewState === "preview" && resolvedPreviewUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img src={row.previewUrl} alt={row.name} className="h-full w-full object-cover" />
+                        <img src={resolvedPreviewUrl} alt={row.name} className="h-full w-full object-cover" />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center text-[9px] text-muted-foreground">
-                          {row.previewState === "catalog" ? "Catalog" : "No preview"}
+                          {resolvedPreviewState === "catalog" ? "Catalog" : "Preview unavailable"}
                         </div>
                       )}
                     </div>
@@ -1278,12 +1299,17 @@ export function MotionCreativesTableSection({
                       )}
                       style={{ backgroundColor: bg }}
                     >
-                      {column.format(value)}
+                      {column.format(
+                        value,
+                        resolveCreativeCurrency(row.currency, defaultCurrency),
+                        defaultCurrency
+                      )}
                     </td>
                   );
                 })}
-              </tr>
-            ))}
+                </tr>
+              );
+            })}
           </tbody>
           <tfoot className="sticky bottom-0 z-10 bg-[#FAFAFA]/95 backdrop-blur">
             <tr className="border-t border-[#E5E7EB]">
@@ -1328,8 +1354,8 @@ export function MotionCreativesTableSection({
                     )}
                   >
                     <div className="space-y-0.5">
-                      <p className="font-semibold">{column.format(total)}</p>
-                      <p className="text-muted-foreground">avg {column.format(avg)}</p>
+                      <p className="font-semibold">{column.format(total, defaultCurrency, defaultCurrency)}</p>
+                      <p className="text-muted-foreground">avg {column.format(avg, defaultCurrency, defaultCurrency)}</p>
                     </div>
                   </td>
                 );
@@ -1707,8 +1733,8 @@ function AiTagPills({ values, tagKey }: { values: string[]; tagKey: TagKey }) {
   );
 }
 
-function fmtCurrency(n: number): string {
-  return `$${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+function fmtCurrency(n: number, rowCurrency?: string | null, defaultCurrency?: string | null): string {
+  return formatMoney(n, rowCurrency, defaultCurrency);
 }
 
 function fmtPercent(n: number): string {

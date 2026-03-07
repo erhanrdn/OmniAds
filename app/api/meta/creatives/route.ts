@@ -29,6 +29,7 @@ interface MetaActionValue {
 
 interface MetaInsightRecord {
   ad_id?: string;
+  ad_creative_id?: string;
   ad_name?: string;
   adset_id?: string;
   adset_name?: string;
@@ -40,6 +41,12 @@ interface MetaInsightRecord {
   actions?: MetaActionValue[];
   action_values?: MetaActionValue[];
   purchase_roas?: MetaActionValue[];
+}
+
+interface MetaAccountRecord {
+  id?: string;
+  name?: string;
+  currency?: string | null;
 }
 
 interface MetaAdRecord {
@@ -86,9 +93,20 @@ interface MetaAdRecord {
   } | null;
 }
 
+type MetaCreativeRecord = NonNullable<MetaAdRecord["creative"]>;
+
+interface MetaAccountMeta {
+  id: string;
+  name: string | null;
+  currency: string | null;
+}
+
 interface RawCreativeRow {
   id: string;
   creative_id: string;
+  account_id: string;
+  account_name: string | null;
+  currency: string | null;
   adset_id: string | null;
   adset_name: string | null;
   name: string;
@@ -114,6 +132,9 @@ interface RawCreativeRow {
 export interface MetaCreativeApiRow {
   id: string;
   creative_id: string;
+  account_id: string;
+  account_name: string | null;
+  currency: string | null;
   name: string;
   preview_url: string | null;
   thumbnail_url: string | null;
@@ -236,7 +257,7 @@ async function fetchAccountInsights(
   const url = new URL(`https://graph.facebook.com/v25.0/${accountId}/insights`);
   url.searchParams.set(
     "fields",
-    "ad_id,ad_name,adset_id,adset_name,spend,cpm,cpc,ctr,date_start,actions,action_values,purchase_roas"
+    "ad_id,ad_creative_id,ad_name,adset_id,adset_name,spend,cpm,cpc,ctr,date_start,actions,action_values,purchase_roas"
   );
   url.searchParams.set("level", "ad");
   url.searchParams.set("time_range", JSON.stringify({ since: startDate, until: endDate }));
@@ -261,6 +282,32 @@ async function fetchAccountInsights(
 
   const payload = (await res.json().catch(() => null)) as { data?: MetaInsightRecord[] } | null;
   return payload?.data ?? [];
+}
+
+async function fetchAccountMeta(
+  accountId: string,
+  accessToken: string
+): Promise<MetaAccountMeta> {
+  const url = new URL(`https://graph.facebook.com/v25.0/${accountId}`);
+  url.searchParams.set("fields", "id,name,currency");
+  url.searchParams.set("access_token", accessToken);
+
+  const res = await fetch(url.toString(), {
+    method: "GET",
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    return { id: accountId, name: null, currency: null };
+  }
+
+  const payload = (await res.json().catch(() => null)) as MetaAccountRecord | null;
+  return {
+    id: payload?.id ?? accountId,
+    name: payload?.name ?? null,
+    currency: typeof payload?.currency === "string" ? payload.currency : null,
+  };
 }
 
 async function fetchAccountAdsMap(
@@ -290,6 +337,10 @@ async function fetchAccountAdsMap(
         ].join("")
       );
       url.searchParams.set("limit", "500");
+      url.searchParams.set(
+        "effective_status",
+        JSON.stringify(["ACTIVE", "PAUSED", "ARCHIVED", "DELETED", "PENDING_REVIEW", "DISAPPROVED"])
+      );
       url.searchParams.set("access_token", accessToken);
     }
 
@@ -325,7 +376,63 @@ async function fetchAccountAdsMap(
   return map;
 }
 
-function toRawRow(insight: MetaInsightRecord, ad: MetaAdRecord | undefined): RawCreativeRow | null {
+async function fetchAccountCreativesMap(
+  accountId: string,
+  accessToken: string
+): Promise<Map<string, MetaCreativeRecord>> {
+  const map = new Map<string, MetaCreativeRecord>();
+  let nextUrl: string | null = null;
+
+  do {
+    const url = nextUrl
+      ? new URL(nextUrl)
+      : new URL(`https://graph.facebook.com/v25.0/${accountId}/adcreatives`);
+    if (!nextUrl) {
+      url.searchParams.set(
+        "fields",
+        [
+          "id",
+          "name",
+          "object_type",
+          "effective_object_story_id",
+          "thumbnail_url",
+          "image_url",
+          "object_story_spec{link_data{picture,image_hash},video_data{image_url,thumbnail_url},template_data}",
+          "asset_feed_spec{catalog_id,product_set_id,images{url,image_url,original_url,hash,image_hash},videos{thumbnail_url,image_url}}",
+        ].join(",")
+      );
+      url.searchParams.set("limit", "500");
+      url.searchParams.set("access_token", accessToken);
+    }
+
+    const res = await fetch(url.toString(), {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+
+    if (!res.ok) return map;
+
+    const payload = (await res.json().catch(() => null)) as
+      | { data?: MetaCreativeRecord[]; paging?: { next?: string } }
+      | null;
+
+    for (const creative of payload?.data ?? []) {
+      if (typeof creative.id === "string") map.set(creative.id, creative);
+    }
+
+    nextUrl = payload?.paging?.next ?? null;
+  } while (nextUrl);
+
+  return map;
+}
+
+function toRawRow(
+  insight: MetaInsightRecord,
+  ad: MetaAdRecord | undefined,
+  creativeFromMap: MetaCreativeRecord | undefined,
+  accountMeta: MetaAccountMeta
+): RawCreativeRow | null {
   const adId = insight.ad_id ?? ad?.id ?? "";
   if (!adId) return null;
 
@@ -344,7 +451,7 @@ function toRawRow(insight: MetaInsightRecord, ad: MetaAdRecord | undefined): Raw
   const cpm = parseFloat(insight.cpm ?? "0") || 0;
   const ctrAll = parseFloat(insight.ctr ?? "0") || 0;
 
-  const creative = ad?.creative ?? null;
+  const creative = ad?.creative ?? creativeFromMap ?? null;
   const promotedObject = ad?.promoted_object ?? ad?.adset?.promoted_object ?? null;
   const normalizedPreview = normalizeCreativePreview({ creative, promotedObject });
   const format = inferFormat(creative?.object_type);
@@ -357,6 +464,8 @@ function toRawRow(insight: MetaInsightRecord, ad: MetaAdRecord | undefined): Raw
     console.log("[meta-creatives] preview normalization", {
       creative_id: creativeId,
       name,
+      account_id: accountMeta.id,
+      currency: accountMeta.currency,
       has_thumbnail_url: normalizedPreview.debug.has_thumbnail_url,
       has_image_url: normalizedPreview.debug.has_image_url,
       has_object_story_spec: normalizedPreview.debug.has_object_story_spec,
@@ -376,6 +485,9 @@ function toRawRow(insight: MetaInsightRecord, ad: MetaAdRecord | undefined): Raw
   return {
     id: adId,
     creative_id: creativeId,
+    account_id: accountMeta.id,
+    account_name: accountMeta.name,
+    currency: accountMeta.currency,
     adset_id: insight.adset_id ?? ad?.adset_id ?? ad?.adset?.id ?? null,
     adset_name: insight.adset_name ?? ad?.adset?.name ?? null,
     name,
@@ -422,6 +534,14 @@ function groupRows(rows: RawCreativeRow[], groupBy: GroupBy): RawCreativeRow[] {
       .map((item) => item.launch_date)
       .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))[0];
     const sample = list[0];
+    const uniqueCurrencies = Array.from(new Set(list.map((item) => item.currency).filter(Boolean)));
+    if (uniqueCurrencies.length > 1 && shouldLogMetaPreviewDebug()) {
+      console.log("[meta-creatives] mixed currencies in grouped row", {
+        groupBy,
+        groupKey: key,
+        currencies: uniqueCurrencies,
+      });
+    }
     const groupedPreviewUrl = list.find((item) => item.preview_url)?.preview_url ?? null;
     const groupedIsCatalog = list.every((item) => item.is_catalog);
     const groupedPreviewState: CreativePreviewState = groupedIsCatalog
@@ -433,6 +553,9 @@ function groupRows(rows: RawCreativeRow[], groupBy: GroupBy): RawCreativeRow[] {
     grouped.push({
       id: groupBy === "creative" ? `creative_${key}` : `adset_${key}`,
       creative_id: sample.creative_id,
+      account_id: sample.account_id,
+      account_name: sample.account_name,
+      currency: sample.currency,
       adset_id: sample.adset_id,
       adset_name: sample.adset_name,
       name: groupBy === "creative" ? sample.name : sample.adset_name ?? sample.name,
@@ -511,13 +634,41 @@ export async function GET(request: NextRequest) {
   const rawRows: RawCreativeRow[] = [];
   for (const accountId of assignedAccountIds) {
     try {
-      const [insights, adMap] = await Promise.all([
+      const [insights, adMap, creativeMap, accountMeta] = await Promise.all([
         fetchAccountInsights(accountId, integration.access_token, start, end),
         fetchAccountAdsMap(accountId, integration.access_token),
+        fetchAccountCreativesMap(accountId, integration.access_token),
+        fetchAccountMeta(accountId, integration.access_token),
       ]);
 
+      if (shouldLogMetaPreviewDebug()) {
+        const insightsWithAdId = insights.filter((item) => typeof item.ad_id === "string").length;
+        const matchedAds = insights.filter(
+          (item) => typeof item.ad_id === "string" && adMap.has(item.ad_id)
+        ).length;
+        const matchedCreatives = insights.filter(
+          (item) => typeof item.ad_creative_id === "string" && creativeMap.has(item.ad_creative_id)
+        ).length;
+        console.log("[meta-creatives] account coverage", {
+          account_id: accountMeta.id,
+          account_name: accountMeta.name,
+          currency: accountMeta.currency,
+          insights: insights.length,
+          ads_loaded: adMap.size,
+          creatives_loaded: creativeMap.size,
+          insights_with_ad_id: insightsWithAdId,
+          matched_ads: matchedAds,
+          matched_creatives: matchedCreatives,
+        });
+      }
+
       for (const insight of insights) {
-        const row = toRawRow(insight, insight.ad_id ? adMap.get(insight.ad_id) : undefined);
+        const row = toRawRow(
+          insight,
+          insight.ad_id ? adMap.get(insight.ad_id) : undefined,
+          insight.ad_creative_id ? creativeMap.get(insight.ad_creative_id) : undefined,
+          accountMeta
+        );
         if (row) rawRows.push(row);
       }
     } catch (error: unknown) {
@@ -549,6 +700,9 @@ export async function GET(request: NextRequest) {
     return {
       id: row.id,
       creative_id: row.creative_id,
+      account_id: row.account_id,
+      account_name: row.account_name,
+      currency: row.currency,
       name: row.name,
       preview_url: row.preview_url,
       thumbnail_url: row.thumbnail_url,

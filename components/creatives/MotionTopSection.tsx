@@ -3,6 +3,8 @@
 import { useMemo, useRef, useState } from "react";
 import { Trophy, ChevronDown, X, Search, Plus, SlidersHorizontal, LayoutGrid, Ellipsis } from "lucide-react";
 import { MetaCreativeRow } from "@/components/creatives/metricConfig";
+import { resolvePreviewState, resolvePreviewUrl } from "@/components/creatives/CreativePreview";
+import { formatMoney, resolveCreativeCurrency } from "@/components/creatives/money";
 import { cn } from "@/lib/utils";
 import { useDropdownBehavior } from "@/hooks/use-dropdown-behavior";
 
@@ -55,7 +57,7 @@ export interface MotionMetricDefinition {
   id: string;
   label: string;
   direction: GoodDirection;
-  format: (n: number) => string;
+  format: (n: number, rowCurrency?: string | null, defaultCurrency?: string | null) => string;
   getValue: (row: MetaCreativeRow, context: MotionMetricContext) => number;
 }
 
@@ -75,6 +77,7 @@ interface MotionTopSectionProps {
   onSelectedMetricIdsChange: (next: string[]) => void;
   selectedRows: MetaCreativeRow[];
   allRowsForHeatmap: MetaCreativeRow[];
+  defaultCurrency: string | null;
   onOpenRow: (rowId: string) => void;
 }
 
@@ -381,6 +384,7 @@ export function MotionTopSection({
   onSelectedMetricIdsChange,
   selectedRows,
   allRowsForHeatmap,
+  defaultCurrency,
   onOpenRow,
 }: MotionTopSectionProps) {
   const metricDefs = useMemo(
@@ -478,6 +482,7 @@ export function MotionTopSection({
           rows={topRows}
           metrics={metricDefs}
           allRowsForHeatmap={allRowsForHeatmap}
+          defaultCurrency={defaultCurrency}
           onOpenRow={onOpenRow}
         />
       </div>
@@ -849,11 +854,13 @@ function PreviewStrip({
   rows,
   metrics,
   allRowsForHeatmap,
+  defaultCurrency,
   onOpenRow,
 }: {
   rows: MetaCreativeRow[];
   metrics: MotionMetricDefinition[];
   allRowsForHeatmap: MetaCreativeRow[];
+  defaultCurrency: string | null;
   onOpenRow: (rowId: string) => void;
 }) {
   if (rows.length === 0) {
@@ -879,22 +886,40 @@ function PreviewStrip({
   return (
     <div className="overflow-x-auto pb-1">
       <div className="flex min-w-max gap-2.5">
-        {rows.map((row) => (
-          <button
-            key={row.id}
-            type="button"
-            onClick={() => onOpenRow(row.id)}
-            className="w-[182px] shrink-0 overflow-hidden rounded-lg border bg-muted/10 text-left"
-          >
-            <div className="relative aspect-square w-full overflow-hidden bg-muted/30">
-              {row.previewUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={row.previewUrl} alt={row.name} className="h-full w-full object-cover" />
-              ) : (
-                <div className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">
-                  {row.previewState === "catalog" ? "Catalog ad" : "Preview unavailable"}
-                </div>
-              )}
+        {rows.map((row) => {
+          const resolvedPreviewState = resolvePreviewState({
+            name: row.name,
+            isCatalog: row.isCatalog,
+            previewState: row.previewState,
+            previewUrl: row.previewUrl,
+            imageUrl: row.imageUrl,
+            thumbnailUrl: row.thumbnailUrl,
+          });
+          const resolvedPreviewUrl = resolvePreviewUrl({
+            name: row.name,
+            isCatalog: row.isCatalog,
+            previewState: row.previewState,
+            previewUrl: row.previewUrl,
+            imageUrl: row.imageUrl,
+            thumbnailUrl: row.thumbnailUrl,
+          });
+
+          return (
+            <button
+              key={row.id}
+              type="button"
+              onClick={() => onOpenRow(row.id)}
+              className="w-[182px] shrink-0 overflow-hidden rounded-lg border bg-muted/10 text-left"
+            >
+              <div className="relative aspect-square w-full overflow-hidden bg-muted/30">
+                {resolvedPreviewState === "preview" && resolvedPreviewUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={resolvedPreviewUrl} alt={row.name} className="h-full w-full object-cover" />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">
+                    {resolvedPreviewState === "catalog" ? "Catalog ad" : "Preview unavailable"}
+                  </div>
+                )}
               <span className="absolute bottom-2 left-2 rounded-md bg-black/50 px-2 py-0.5 text-[10px] text-white">
                 {row.format === "video" ? "Video" : "Image"}
               </span>
@@ -918,7 +943,11 @@ function PreviewStrip({
                         className="rounded-full px-1.5 py-0.5 font-semibold"
                         style={{ backgroundColor: heat }}
                       >
-                        {metric.format(value)}
+                        {metric.format(
+                          value,
+                          resolveCreativeCurrency(row.currency, defaultCurrency),
+                          defaultCurrency
+                        )}
                       </span>
                     </div>
                   );
@@ -926,7 +955,8 @@ function PreviewStrip({
               </div>
             </div>
           </button>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -1125,8 +1155,8 @@ function prettyFieldLabel(field: MotionFilterField): string {
   return lookup[field];
 }
 
-function fmtCurrency(n: number): string {
-  return n.toLocaleString("tr-TR", { style: "currency", currency: "TRY", maximumFractionDigits: 2 });
+function fmtCurrency(n: number, rowCurrency?: string | null, defaultCurrency?: string | null): string {
+  return formatMoney(n, rowCurrency, defaultCurrency);
 }
 
 function fmtPercent(n: number): string {
