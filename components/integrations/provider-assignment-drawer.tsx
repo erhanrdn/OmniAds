@@ -17,6 +17,7 @@ interface ProviderAccountRow {
   name: string;
   currency?: string;
   timezone?: string;
+  assigned?: boolean;
 }
 
 interface ProviderErrorBody {
@@ -26,6 +27,11 @@ interface ProviderErrorBody {
 
 interface ProviderSuccessBody {
   data?: ProviderAccountRow[];
+}
+
+interface SaveSuccessBody {
+  success?: boolean;
+  assigned_accounts?: string[];
 }
 
 interface ProviderAssignmentDrawerProps {
@@ -75,6 +81,13 @@ function hasDataList(payload: unknown): payload is ProviderSuccessBody {
   return "data" in payload;
 }
 
+function hasAssignedAccounts(payload: unknown): payload is SaveSuccessBody {
+  if (!payload || typeof payload !== "object") return false;
+  if (!("assigned_accounts" in payload)) return false;
+  const maybeIds = payload.assigned_accounts;
+  return Array.isArray(maybeIds) && maybeIds.every((id) => typeof id === "string");
+}
+
 export function ProviderAssignmentDrawer({
   open,
   provider,
@@ -88,6 +101,7 @@ export function ProviderAssignmentDrawer({
   const [fetchState, setFetchState] = useState<FetchState>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
   const isMeta = provider === "meta";
 
   const loadAccounts = useMemo(
@@ -100,10 +114,10 @@ export function ProviderAssignmentDrawer({
         return;
       }
 
-      setDraftIds(assignedAccountIds);
       setAccounts([]);
       setFetchState("loading");
       setErrorMessage(null);
+      setSaveErrorMessage(null);
       try {
         const response = await fetch(getMetaFetchPath(businessId), {
           method: "GET",
@@ -129,6 +143,12 @@ export function ProviderAssignmentDrawer({
         }
 
         setAccounts(list);
+        const hasAssignedFlag = list.some((account) => typeof account.assigned === "boolean");
+        setDraftIds(
+          hasAssignedFlag
+            ? list.filter((account) => account.assigned === true).map((account) => account.id)
+            : assignedAccountIds
+        );
         setFetchState(list.length > 0 ? "success" : "empty");
       } catch {
         setErrorMessage("We couldn't fetch accessible Meta ad accounts for this connection.");
@@ -157,6 +177,7 @@ export function ProviderAssignmentDrawer({
       setAccounts([]);
       setFetchState("idle");
       setErrorMessage(null);
+      setSaveErrorMessage(null);
       setDraftIds([]);
       setIsSaving(false);
     }
@@ -185,6 +206,7 @@ export function ProviderAssignmentDrawer({
     if (!provider || !isMeta) return;
 
     setIsSaving(true);
+    setSaveErrorMessage(null);
     try {
       const response = await fetch(getSavePath(provider, businessId), {
         method: "POST",
@@ -194,13 +216,21 @@ export function ProviderAssignmentDrawer({
         },
         body: JSON.stringify({ account_ids: draftIds }),
       });
+      const payload: unknown = await response.json().catch(() => null);
 
       if (!response.ok) {
+        setSaveErrorMessage(
+          (hasErrorMessage(payload) ? payload.message : null) ??
+            "Could not save account assignments."
+        );
         return;
       }
 
-      onSave(provider, draftIds, accounts);
+      const savedIds = hasAssignedAccounts(payload) ? payload.assigned_accounts ?? draftIds : draftIds;
+      onSave(provider, savedIds, accounts);
       onClose();
+    } catch {
+      setSaveErrorMessage("Could not save account assignments.");
     } finally {
       setIsSaving(false);
     }
@@ -280,13 +310,21 @@ export function ProviderAssignmentDrawer({
         </div>
 
         <div className="shrink-0 border-t px-6 py-6">
+          {saveErrorMessage ? (
+            <p className="mb-3 text-sm text-destructive">{saveErrorMessage}</p>
+          ) : null}
           <div className="flex items-center justify-end gap-2">
             <Button variant="outline" onClick={onClose} disabled={isSaving}>
               Cancel
             </Button>
             <Button
               onClick={handleSave}
-              disabled={isSaving || fetchState !== "success" || !provider || !isMeta}
+              disabled={
+                isSaving ||
+                fetchState !== "success" ||
+                !provider ||
+                !isMeta
+              }
             >
               {isSaving ? "Saving..." : "Save assignments"}
             </Button>

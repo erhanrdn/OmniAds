@@ -7,6 +7,7 @@ export async function POST(
   { params }: { params: Promise<{ businessId: string }> }
 ) {
   const { businessId } = await params;
+  console.log("[meta-assign-accounts] request", { businessId });
 
   if (!businessId) {
     return NextResponse.json(
@@ -19,6 +20,10 @@ export async function POST(
   }
 
   const integration = await getIntegration(businessId, "meta");
+  console.log("[meta-assign-accounts] integration lookup", {
+    businessId,
+    found: Boolean(integration),
+  });
   if (!integration) {
     return NextResponse.json(
       {
@@ -31,6 +36,11 @@ export async function POST(
 
   const body = await request.json().catch(() => null);
   const accountIds = body?.account_ids;
+  console.log("[meta-assign-accounts] payload", {
+    businessId,
+    accountIds,
+    isArray: Array.isArray(accountIds),
+  });
 
   if (!Array.isArray(accountIds) || accountIds.some((id) => typeof id !== "string")) {
     return NextResponse.json(
@@ -44,10 +54,37 @@ export async function POST(
 
   const cleaned = Array.from(new Set(accountIds.map((id) => id.trim()).filter(Boolean)));
 
-  await upsertProviderAccountAssignments({
+  try {
+    const row = await upsertProviderAccountAssignments({
+      businessId,
+      provider: "meta",
+      accountIds: cleaned,
+    });
+
+    console.log("[meta-assign-accounts] db write success", {
+      businessId,
+      provider: "meta",
+      returnedAccountIds: row.account_ids,
+      updatedAt: row.updated_at,
+    });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    console.error("[meta-assign-accounts] db write failed", {
+      businessId,
+      message,
+    });
+    return NextResponse.json(
+      {
+        error: "assignment_save_failed",
+        message: "Could not save Meta account assignments.",
+      },
+      { status: 500 }
+    );
+  }
+
+  console.log("[meta-assign-accounts] response", {
     businessId,
-    provider: "meta",
-    accountIds: cleaned,
+    assigned_accounts: cleaned,
   });
 
   return NextResponse.json({

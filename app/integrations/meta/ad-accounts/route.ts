@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getIntegration } from "@/lib/integrations";
 import { fetchMetaAdAccounts, getMetaApiErrorMessage } from "@/lib/meta-ad-accounts";
+import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 
 export async function GET(request: NextRequest) {
   const businessId = request.nextUrl.searchParams.get("businessId");
@@ -64,6 +65,8 @@ export async function GET(request: NextRequest) {
 
   try {
     const metaResult = await fetchMetaAdAccounts(accessToken);
+    const assignmentRow = await getProviderAccountAssignments(businessId, "meta");
+    const assignedSet = new Set(assignmentRow?.account_ids ?? []);
 
     console.log("[meta-ad-accounts] meta response", {
       businessId,
@@ -86,9 +89,15 @@ export async function GET(request: NextRequest) {
     console.log("[meta-ad-accounts] normalized", {
       businessId,
       count: metaResult.normalized.length,
+      assignedCount: assignedSet.size,
     });
 
-    return NextResponse.json({ data: metaResult.normalized });
+    return NextResponse.json({
+      data: metaResult.normalized.map((account) => ({
+        ...account,
+        assigned: assignedSet.has(account.id),
+      })),
+    });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error";
 
