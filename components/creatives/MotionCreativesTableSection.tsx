@@ -207,23 +207,23 @@ const TABLE_COLUMNS: TableColumnDefinition[] = [
     label: "Number of Associated Ads",
     description: "Count of associated ads for this row.",
     direction: "high",
-    minWidth: 120,
-    preferredWidth: 150,
+    minWidth: 72,
+    preferredWidth: 80,
     align: "right",
     format: fmtInteger,
     getValue: () => 1,
   },
-  { key: "spend", label: "Spend", description: "Amount spent.", direction: "neutral", minWidth: 110, preferredWidth: 130, align: "right", format: fmtCurrency, getValue: (r) => r.spend },
-  { key: "purchaseValue", label: "Purchase value", description: "Revenue from purchases.", direction: "high", minWidth: 135, preferredWidth: 160, align: "right", format: fmtCurrency, getValue: (r) => r.purchaseValue },
-  { key: "roas", label: "ROAS (return on ad spend)", description: "Revenue / spend.", direction: "high", minWidth: 100, preferredWidth: 120, align: "right", format: (n) => n.toFixed(2), getValue: (r) => r.roas },
-  { key: "cpa", label: "Cost per purchase", description: "Spend per purchase.", direction: "low", minWidth: 120, preferredWidth: 140, align: "right", format: fmtCurrency, getValue: (r) => r.cpa },
-  { key: "cpcLink", label: "Cost per link click", description: "Spend per link click.", direction: "low", minWidth: 130, preferredWidth: 150, align: "right", format: fmtCurrency, getValue: (r) => r.cpcLink },
-  { key: "cpm", label: "Cost per mille", description: "Spend per 1000 impressions.", direction: "low", minWidth: 120, preferredWidth: 135, align: "right", format: fmtCurrency, getValue: (r) => r.cpm },
-  { key: "cpcAll", label: "Cost per click (all)", description: "Estimated cost per all clicks.", direction: "low", minWidth: 130, preferredWidth: 150, align: "right", format: fmtCurrency, getValue: (r) => r.cpcLink },
-  { key: "averageOrderValue", label: "Average order value", description: "Purchase value / purchases.", direction: "high", minWidth: 130, preferredWidth: 150, align: "right", format: fmtCurrency, getValue: (r) => (r.purchases > 0 ? r.purchaseValue / r.purchases : 0) },
+  { key: "spend", label: "Spend", description: "Amount spent.", direction: "neutral", minWidth: 120, preferredWidth: 130, align: "right", format: fmtCurrency, getValue: (r) => r.spend },
+  { key: "purchaseValue", label: "Purchase value", description: "Revenue from purchases.", direction: "high", minWidth: 128, preferredWidth: 140, align: "right", format: fmtCurrency, getValue: (r) => r.purchaseValue },
+  { key: "roas", label: "ROAS (return on ad spend)", description: "Revenue / spend.", direction: "high", minWidth: 88, preferredWidth: 92, align: "right", format: (n) => n.toFixed(2), getValue: (r) => r.roas },
+  { key: "cpa", label: "Cost per purchase", description: "Spend per purchase.", direction: "low", minWidth: 106, preferredWidth: 112, align: "right", format: fmtCurrency, getValue: (r) => r.cpa },
+  { key: "cpcLink", label: "Cost per link click", description: "Spend per link click.", direction: "low", minWidth: 106, preferredWidth: 112, align: "right", format: fmtCurrency, getValue: (r) => r.cpcLink },
+  { key: "cpm", label: "Cost per mille", description: "Spend per 1000 impressions.", direction: "low", minWidth: 106, preferredWidth: 112, align: "right", format: fmtCurrency, getValue: (r) => r.cpm },
+  { key: "cpcAll", label: "Cost per click (all)", description: "Estimated cost per all clicks.", direction: "low", minWidth: 106, preferredWidth: 112, align: "right", format: fmtCurrency, getValue: (r) => r.cpcLink },
+  { key: "averageOrderValue", label: "Average order value", description: "Purchase value / purchases.", direction: "high", minWidth: 122, preferredWidth: 132, align: "right", format: fmtCurrency, getValue: (r) => (r.purchases > 0 ? r.purchaseValue / r.purchases : 0) },
   { key: "clickToAtcRatio", label: "Click to add-to-cart ratio", description: "Estimated click-to-ATC rate.", direction: "high", minWidth: 150, preferredWidth: 170, align: "right", format: fmtPercent, getValue: (r) => r.clickToPurchase },
   { key: "atcToPurchaseRatio", label: "Add-to-cart to purchase ratio", description: "ATC to purchase conversion.", direction: "high", minWidth: 155, preferredWidth: 180, align: "right", format: fmtPercent, getValue: (r) => r.atcToPurchaseRatio },
-  { key: "purchases", label: "Purchases", description: "Purchase count.", direction: "high", minWidth: 100, preferredWidth: 120, align: "right", format: fmtInteger, getValue: (r) => r.purchases },
+  { key: "purchases", label: "Purchases", description: "Purchase count.", direction: "high", minWidth: 76, preferredWidth: 84, align: "right", format: fmtInteger, getValue: (r) => r.purchases },
   { key: "firstFrameRetention", label: "First frame retention", description: "Estimated first frame retention.", direction: "high", minWidth: 145, preferredWidth: 165, align: "right", format: fmtPercent, getValue: (r) => r.thumbstop },
   { key: "thumbstopRatio", label: "Thumbstop ratio", description: "Thumbstop performance ratio.", direction: "high", minWidth: 120, preferredWidth: 140, align: "right", format: fmtPercent, getValue: (r) => r.thumbstop },
   { key: "ctrOutbound", label: "Click through rate (outbound)", description: "Outbound CTR.", direction: "high", minWidth: 165, preferredWidth: 185, align: "right", format: fmtPercent, getValue: (r) => r.ctrAll },
@@ -602,11 +602,11 @@ export function MotionCreativesTableSection({
       {/* C) table */}
       <div className="max-h-[620px] overflow-auto rounded-xl border">
         <table className="min-w-full table-fixed text-sm">
-          <thead className="sticky top-0 z-20 bg-background">
-            <tr className="border-b">
+          <thead className="sticky top-0 z-20 bg-[#F9FAFB]">
+            <tr className="border-b border-[#E5E7EB]">
               <th
-                className="sticky left-0 z-30 border-r bg-background px-3 py-2 text-left text-xs font-medium"
-                style={{ minWidth: 320, width: 320 }}
+                className="sticky left-0 z-30 border-r border-[#E5E7EB] bg-[#F9FAFB] px-2.5 py-1.5 text-left text-[12px] font-medium tracking-[0.01em] text-[#6B7280]"
+                style={{ minWidth: 220, width: 240 }}
               >
                 <label className="inline-flex items-center gap-2">
                   <input type="checkbox" checked={allSelected} onChange={onToggleAll} />
@@ -615,25 +615,25 @@ export function MotionCreativesTableSection({
               </th>
 
               {tablePreset.showLaunchDate && (
-                <th className="px-3 py-2 text-left text-xs font-medium" style={{ minWidth: 120, width: 130 }}>
+                <th className="px-2.5 py-1.5 text-left text-[12px] font-medium tracking-[0.01em] text-[#6B7280]" style={{ minWidth: 120, width: 120 }}>
                   Launch date
                 </th>
               )}
 
               {tablePreset.showTags && (
-                <th className="px-3 py-2 text-left text-xs font-medium" style={{ minWidth: 160, width: 180 }}>
+                <th className="px-2.5 py-1.5 text-left text-[12px] font-medium tracking-[0.01em] text-[#6B7280]" style={{ minWidth: 120, width: 120 }}>
                   Tags
                 </th>
               )}
 
               {tablePreset.showActiveStatus && (
-                <th className="px-3 py-2 text-left text-xs font-medium" style={{ minWidth: 100, width: 110 }}>
+                <th className="px-2.5 py-1.5 text-left text-[12px] font-medium tracking-[0.01em] text-[#6B7280]" style={{ minWidth: 100, width: 110 }}>
                   Active status
                 </th>
               )}
 
               {tablePreset.showAdLength && (
-                <th className="px-3 py-2 text-left text-xs font-medium" style={{ minWidth: 90, width: 110 }}>
+                <th className="px-2.5 py-1.5 text-left text-[12px] font-medium tracking-[0.01em] text-[#6B7280]" style={{ minWidth: 90, width: 110 }}>
                   Ad length
                 </th>
               )}
@@ -641,14 +641,11 @@ export function MotionCreativesTableSection({
               {selectedColumns.map((column, index) => (
                 <th
                   key={column.key}
-                  className={cn(
-                    "px-3 py-2 text-xs font-medium",
-                    column.align === "right" ? "text-right" : column.align === "center" ? "text-center" : "text-left"
-                  )}
+                  className="px-2.5 py-1.5 text-left text-[12px] font-medium tracking-[0.01em] text-[#6B7280]"
                   style={{ minWidth: column.minWidth, width: column.preferredWidth }}
                 >
                   <span className="inline-flex items-center gap-1">
-                    <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-muted px-1 text-[10px]">
+                    <span className="inline-flex min-w-[20px] items-center justify-center rounded-full bg-[#EEF2FF] px-1.5 py-[1px] text-[10px] text-[#6366F1]">
                       {index + 1}
                     </span>
                     {column.label}
@@ -666,7 +663,7 @@ export function MotionCreativesTableSection({
                 onClick={() => onOpenRow(row.id)}
                 className={cn("cursor-pointer", highlightedRowId === row.id && "bg-emerald-500/10")}
               >
-                <td className="sticky left-0 z-10 border-b border-r bg-background px-3 py-2">
+                <td className="sticky left-0 z-10 border-b border-r bg-background px-2.5 py-1.5">
                   <div className="flex items-center gap-2">
                     <input
                       type="checkbox"
@@ -675,7 +672,7 @@ export function MotionCreativesTableSection({
                       onClick={(event) => event.stopPropagation()}
                     />
 
-                    <div className="h-10 w-10 shrink-0 overflow-hidden rounded-md bg-muted/30">
+                    <div className="h-[30px] w-[30px] shrink-0 overflow-hidden rounded bg-muted/30">
                       {row.previewUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={row.previewUrl} alt={row.name} className="h-full w-full object-cover" />
@@ -687,21 +684,21 @@ export function MotionCreativesTableSection({
                     </div>
 
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">{row.name}</p>
-                      <p className="text-[11px] text-muted-foreground">1 ad</p>
+                      <p className="truncate text-[12px] font-medium">{row.name}</p>
+                      <p className="text-[11px] text-[#9CA3AF]">1 ad</p>
                     </div>
                   </div>
                 </td>
 
                 {tablePreset.showLaunchDate && (
-                  <td className="border-b px-3 py-2 text-xs">{row.launchDate}</td>
+                  <td className="border-b px-2.5 py-1.5 text-[12px] font-medium">{row.launchDate}</td>
                 )}
 
                 {tablePreset.showTags && (
-                  <td className="border-b px-3 py-2">
+                  <td className="border-b px-2.5 py-1.5">
                     <div className="flex flex-wrap gap-1">
                       {[...row.tags, ...tablePreset.selectedTags.map(prettyTagLabel)].slice(0, 3).map((tag) => (
-                        <span key={tag} className="rounded-full border bg-muted/25 px-2 py-0.5 text-[10px]">
+                        <span key={tag} className="rounded-full border bg-muted/20 px-1.5 py-0.5 text-[10px] text-[#6B7280]">
                           {tag}
                         </span>
                       ))}
@@ -710,11 +707,11 @@ export function MotionCreativesTableSection({
                 )}
 
                 {tablePreset.showActiveStatus && (
-                  <td className="border-b px-3 py-2 text-xs">Active</td>
+                  <td className="border-b px-2.5 py-1.5 text-[12px] font-medium">Active</td>
                 )}
 
                 {tablePreset.showAdLength && (
-                  <td className="border-b px-3 py-2 text-xs">{row.format === "video" ? "15s" : "Static"}</td>
+                  <td className="border-b px-2.5 py-1.5 text-[12px] font-medium">{row.format === "video" ? "15s" : "Static"}</td>
                 )}
 
                 {selectedColumns.map((column) => {
@@ -729,7 +726,7 @@ export function MotionCreativesTableSection({
                     <td
                       key={`${row.id}_${column.key}`}
                       className={cn(
-                        "border-b px-3 py-2 text-xs",
+                        "border-b px-2.5 py-1.5 text-[12px] font-medium",
                         column.align === "right" ? "text-right" : column.align === "center" ? "text-center" : "text-left"
                       )}
                       style={{ backgroundColor: bg }}
@@ -741,19 +738,19 @@ export function MotionCreativesTableSection({
               </tr>
             ))}
           </tbody>
-          <tfoot className="sticky bottom-0 z-10 bg-background/95 backdrop-blur">
-            <tr className="border-t">
+          <tfoot className="sticky bottom-0 z-10 bg-[#FAFAFA]/95 backdrop-blur">
+            <tr className="border-t border-[#E5E7EB]">
               <td
-                className="sticky left-0 z-20 border-r bg-background px-3 py-2 text-xs font-semibold"
-                style={{ minWidth: 320, width: 320 }}
+                className="sticky left-0 z-20 border-r bg-[#FAFAFA] px-2.5 py-1.5 text-[11px] font-semibold text-[#6B7280]"
+                style={{ minWidth: 220, width: 240 }}
               >
                 Net Results
               </td>
 
-              {tablePreset.showLaunchDate && <td className="px-3 py-2 text-xs text-muted-foreground">-</td>}
-              {tablePreset.showTags && <td className="px-3 py-2 text-xs text-muted-foreground">-</td>}
-              {tablePreset.showActiveStatus && <td className="px-3 py-2 text-xs text-muted-foreground">-</td>}
-              {tablePreset.showAdLength && <td className="px-3 py-2 text-xs text-muted-foreground">-</td>}
+              {tablePreset.showLaunchDate && <td className="px-2.5 py-1.5 text-[11px] text-muted-foreground">-</td>}
+              {tablePreset.showTags && <td className="px-2.5 py-1.5 text-[11px] text-muted-foreground">-</td>}
+              {tablePreset.showActiveStatus && <td className="px-2.5 py-1.5 text-[11px] text-muted-foreground">-</td>}
+              {tablePreset.showAdLength && <td className="px-2.5 py-1.5 text-[11px] text-muted-foreground">-</td>}
 
               {selectedColumns.map((column) => {
                 const values = rows.map((row) => column.getValue(row, ctx));
@@ -763,7 +760,7 @@ export function MotionCreativesTableSection({
                   <td
                     key={`summary_${column.key}`}
                     className={cn(
-                      "px-3 py-2 text-[11px]",
+                      "px-2.5 py-1.5 text-[11px]",
                       column.align === "right"
                         ? "text-right"
                         : column.align === "center"
@@ -1095,16 +1092,16 @@ function getHeatColor(direction: GoodDirection, value: number, min: number, max:
   const normalize = (value - min) / (max - min);
 
   if (direction === "neutral") {
-    const alpha = 0.06 + normalize * 0.14;
+    const alpha = 0.05 + normalize * 0.07;
     return `rgba(148, 163, 184, ${alpha.toFixed(3)})`;
   }
 
   const score = direction === "low" ? 1 - normalize : normalize;
   if (score >= 0.5) {
-    const alpha = 0.08 + ((score - 0.5) / 0.5) * 0.22;
+    const alpha = 0.08 + ((score - 0.5) / 0.5) * 0.07;
     return `rgba(16, 185, 129, ${alpha.toFixed(3)})`;
   }
 
-  const alpha = 0.08 + ((0.5 - score) / 0.5) * 0.22;
+  const alpha = 0.08 + ((0.5 - score) / 0.5) * 0.07;
   return `rgba(239, 68, 68, ${alpha.toFixed(3)})`;
 }
