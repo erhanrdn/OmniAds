@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getIntegration } from "@/lib/integrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { runMigrations } from "@/lib/migrations";
+import { CreativePreviewState, normalizeCreativePreview } from "@/lib/meta-creative-preview";
 
 // ── Meta API types ────────────────────────────────────────────────────────────
 
@@ -22,22 +23,38 @@ interface MetaAdInsightRecord {
 
 interface MetaAdRecord {
   id: string;
+  promoted_object?: {
+    product_set_id?: string | null;
+    catalog_id?: string | null;
+  } | null;
   creative?: {
     id?: string;
+    effective_object_story_id?: string | null;
     thumbnail_url?: string | null;
     image_url?: string | null;
     // "DYNAMIC" = DPA / catalog ad; "PHOTO" | "VIDEO" | "SHARE" = standard
     object_type?: string | null;
     object_story_spec?: {
-      link_data?: { picture?: string | null } | null;
+      link_data?: { picture?: string | null; image_hash?: string | null } | null;
       video_data?: { image_url?: string | null; thumbnail_url?: string | null } | null;
+      template_data?: Record<string, unknown> | null;
+    } | null;
+    asset_feed_spec?: {
+      catalog_id?: string | null;
+      product_set_id?: string | null;
+      images?: Array<{
+        url?: string | null;
+        image_url?: string | null;
+        original_url?: string | null;
+        hash?: string | null;
+        image_hash?: string | null;
+      }> | null;
+      videos?: Array<{ thumbnail_url?: string | null; image_url?: string | null }> | null;
     } | null;
   } | null;
 }
 
 // ── Public response shape ─────────────────────────────────────────────────────
-
-export type CreativePreviewState = "preview" | "catalog" | "unavailable";
 
 export interface MetaCreativeRow {
   creative_id: string;
@@ -165,42 +182,60 @@ async function fetchAdInsights(
 async function fetchAdCreativeMap(
   accountId: string,
   accessToken: string
-): Promise<Map<string, MetaAdRecord["creative"]>> {
-  const url = new URL(`https://graph.facebook.com/v25.0/${accountId}/ads`);
-  url.searchParams.set(
-    "fields",
-    "id,creative{id,thumbnail_url,image_url,object_type,object_story_spec{link_data{picture},video_data{image_url,thumbnail_url}}}"
-  );
-  url.searchParams.set("limit", "200");
-  url.searchParams.set("access_token", accessToken);
+): Promise<Map<string, MetaAdRecord>> {
+  let nextUrl: string | null = null;
+  const map = new Map<string, MetaAdRecord>();
 
   try {
-    const res = await fetch(url.toString(), {
-      method: "GET",
-      headers: { Accept: "application/json" },
-      cache: "no-store",
-    });
-    if (!res.ok) {
-      const raw = await res.text().catch(() => "");
-      console.warn("[meta-top-creatives] ads non-ok", {
-        accountId,
-        status: res.status,
-        raw: raw.slice(0, 300),
+    do {
+      const url = nextUrl ? new URL(nextUrl) : new URL(`https://graph.facebook.com/v25.0/${accountId}/ads`);
+      if (!nextUrl) {
+        url.searchParams.set(
+          "fields",
+          [
+            "id",
+            "promoted_object{product_set_id,catalog_id}",
+            "creative{",
+            "id,name,object_type,effective_object_story_id,thumbnail_url,image_url,",
+            "object_story_spec{link_data{picture,image_hash},video_data{image_url,thumbnail_url},template_data},",
+            "asset_feed_spec{catalog_id,product_set_id,images{url,image_url,original_url,hash,image_hash},videos{thumbnail_url,image_url}}",
+            "}",
+          ].join("")
+        );
+        url.searchParams.set("limit", "500");
+        url.searchParams.set("access_token", accessToken);
+      }
+
+      const res = await fetch(url.toString(), {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        cache: "no-store",
       });
-      return new Map();
-    }
-    const json = (await res.json()) as { data?: MetaAdRecord[] };
-    const map = new Map<string, MetaAdRecord["creative"]>();
-    for (const ad of json.data ?? []) {
-      map.set(ad.id, ad.creative ?? null);
-    }
+
+      if (!res.ok) {
+        const raw = await res.text().catch(() => "");
+        console.warn("[meta-top-creatives] ads non-ok", {
+          accountId,
+          status: res.status,
+          raw: raw.slice(0, 300),
+        });
+        return map;
+      }
+
+      const json = (await res.json()) as { data?: MetaAdRecord[]; paging?: { next?: string } };
+      for (const ad of json.data ?? []) {
+        map.set(ad.id, ad);
+      }
+      nextUrl = json.paging?.next ?? null;
+    } while (nextUrl);
+
     return map;
   } catch (e: unknown) {
     console.warn("[meta-top-creatives] ads threw", {
       accountId,
       message: e instanceof Error ? e.message : String(e),
     });
-    return new Map();
+    return map;
   }
 }
 
@@ -259,21 +294,12 @@ export async function GET(request: NextRequest) {
         if (spend === 0) continue;
 
         const adId = insight.ad_id ?? "";
-        const creative = creativeMap.get(adId) ?? null;
-
-        // Catalog detection: Meta uses object_type "DYNAMIC" for DPA/catalog ads
-        const isCatalog = creative?.object_type === "DYNAMIC";
-
-        // Preview fallback pipeline: thumbnail_url → image_url → link_data.picture → video_data urls
-        const thumbnailUrl = creative?.thumbnail_url ?? null;
-        const imageUrl = creative?.image_url ?? null;
-        const previewUrl =
-          thumbnailUrl ??
-          imageUrl ??
-          creative?.object_story_spec?.link_data?.picture ??
-          creative?.object_story_spec?.video_data?.image_url ??
-          creative?.object_story_spec?.video_data?.thumbnail_url ??
-          null;
+        const ad = creativeMap.get(adId);
+        const creative = ad?.creative ?? null;
+        const normalizedPreview = normalizeCreativePreview({
+          creative,
+          promotedObject: ad?.promoted_object ?? null,
+        });
 
         const purchases = parseAction(insight.actions, "purchase");
         const revenueFromValues = parseAction(insight.action_values, "purchase");
@@ -282,20 +308,14 @@ export async function GET(request: NextRequest) {
         const roas = spend > 0 ? revenue / spend : 0;
         const ctr = parseFloat(insight.ctr ?? "0") || 0;
 
-        const previewState: CreativePreviewState = isCatalog
-          ? "catalog"
-          : previewUrl
-          ? "preview"
-          : "unavailable";
-
         allRows.push({
-          creative_id: adId,
+          creative_id: creative?.id ?? adId,
           name: insight.ad_name ?? "Unknown Ad",
-          preview_url: isCatalog ? null : previewUrl,
-          image_url: imageUrl,
-          thumbnail_url: thumbnailUrl,
-          is_catalog: isCatalog,
-          preview_state: previewState,
+          preview_url: normalizedPreview.preview_url,
+          image_url: normalizedPreview.image_url,
+          thumbnail_url: normalizedPreview.thumbnail_url,
+          is_catalog: normalizedPreview.is_catalog,
+          preview_state: normalizedPreview.preview_state,
           spend: r2(spend),
           revenue: r2(revenue),
           roas: r2(roas),

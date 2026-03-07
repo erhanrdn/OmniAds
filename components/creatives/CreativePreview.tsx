@@ -5,9 +5,10 @@ import { Badge } from "@/components/ui/badge";
 
 /**
  * preview_state resolution priority:
- *   1. If is_catalog → "catalog"
- *   2. Else if any url (previewUrl → imageUrl → thumbnailUrl) exists → "preview"
- *   3. Else → "unavailable"
+ *   1. If previewState is provided by backend, use it.
+ *   2. Else if is_catalog → "catalog"
+ *   3. Else if any url (previewUrl → imageUrl → thumbnailUrl) exists → "preview"
+ *   4. Else → "unavailable"
  *
  * Catalog and unavailable are two distinct states and must never be confused.
  */
@@ -17,12 +18,14 @@ export interface PreviewableCreative {
   name: string;
   /** Catalog / DPA ad (DYNAMIC object_type). Must be checked before URL fallbacks. */
   isCatalog: boolean;
+  previewState?: PreviewState;
   previewUrl: string | null | undefined;
   imageUrl?: string | null | undefined;
   thumbnailUrl?: string | null | undefined;
 }
 
 export function resolvePreviewState(c: PreviewableCreative): PreviewState {
+  if (c.previewState) return c.previewState;
   // Catalog detection takes priority — never show a raw image for catalog ads
   if (c.isCatalog) return "catalog";
   // Try all available URL fallbacks in order
@@ -31,6 +34,9 @@ export function resolvePreviewState(c: PreviewableCreative): PreviewState {
 }
 
 export function resolvePreviewUrl(c: PreviewableCreative): string | null {
+  if (c.previewState) {
+    return c.previewState === "preview" ? c.previewUrl ?? null : null;
+  }
   if (c.isCatalog) return null;
   return c.previewUrl ?? c.imageUrl ?? c.thumbnailUrl ?? null;
 }

@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { getIntegration } from "@/lib/integrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { runMigrations } from "@/lib/migrations";
+import {
+  CreativePreviewState,
+  normalizeCreativePreview,
+  shouldLogMetaPreviewDebug,
+} from "@/lib/meta-creative-preview";
 
 type GroupBy = "adName" | "creative" | "adSet";
 type FormatFilter = "all" | "image" | "video";
@@ -31,17 +36,42 @@ interface MetaAdRecord {
   id?: string;
   name?: string;
   adset_id?: string;
-  adset?: { id?: string; name?: string } | null;
+  adset?: {
+    id?: string;
+    name?: string;
+    promoted_object?: {
+      product_set_id?: string | null;
+      catalog_id?: string | null;
+    } | null;
+  } | null;
+  promoted_object?: {
+    product_set_id?: string | null;
+    catalog_id?: string | null;
+  } | null;
   created_time?: string;
   creative?: {
     id?: string;
     name?: string;
     object_type?: string | null;
+    effective_object_story_id?: string | null;
     thumbnail_url?: string | null;
     image_url?: string | null;
     object_story_spec?: {
-      link_data?: { picture?: string | null } | null;
+      link_data?: { picture?: string | null; image_hash?: string | null } | null;
       video_data?: { image_url?: string | null; thumbnail_url?: string | null } | null;
+      template_data?: Record<string, unknown> | null;
+    } | null;
+    asset_feed_spec?: {
+      catalog_id?: string | null;
+      product_set_id?: string | null;
+      images?: Array<{
+        url?: string | null;
+        image_url?: string | null;
+        original_url?: string | null;
+        hash?: string | null;
+        image_hash?: string | null;
+      }> | null;
+      videos?: Array<{ thumbnail_url?: string | null; image_url?: string | null }> | null;
     } | null;
   } | null;
 }
@@ -56,6 +86,7 @@ interface RawCreativeRow {
   thumbnail_url: string | null;
   image_url: string | null;
   is_catalog: boolean;
+  preview_state: CreativePreviewState;
   launch_date: string;
   tags: string[];
   format: "image" | "video";
@@ -68,8 +99,6 @@ interface RawCreativeRow {
   ctr_all: number;
   purchases: number;
 }
-
-export type CreativePreviewState = "preview" | "catalog" | "unavailable";
 
 export interface MetaCreativeApiRow {
   id: string;
@@ -192,37 +221,61 @@ async function fetchAccountAdsMap(
   accountId: string,
   accessToken: string
 ): Promise<Map<string, MetaAdRecord>> {
-  const url = new URL(`https://graph.facebook.com/v25.0/${accountId}/ads`);
-  url.searchParams.set(
-    "fields",
-    "id,name,adset_id,adset{id,name},created_time,creative{id,name,object_type,thumbnail_url,image_url,object_story_spec{link_data{picture},video_data{image_url,thumbnail_url}}}"
-  );
-  url.searchParams.set("limit", "500");
-  url.searchParams.set("access_token", accessToken);
-
-  const res = await fetch(url.toString(), {
-    method: "GET",
-    headers: { Accept: "application/json" },
-    cache: "no-store",
-  });
-
-  if (!res.ok) {
-    const raw = await res.text().catch(() => "");
-    console.warn("[meta-creatives] ads non-ok", {
-      accountId,
-      status: res.status,
-      raw: raw.slice(0, 300),
-    });
-    return new Map();
-  }
-
-  const payload = (await res.json().catch(() => null)) as { data?: MetaAdRecord[] } | null;
   const map = new Map<string, MetaAdRecord>();
-  for (const ad of payload?.data ?? []) {
-    if (typeof ad.id === "string") {
-      map.set(ad.id, ad);
+  let nextUrl: string | null = null;
+
+  do {
+    const url = nextUrl ? new URL(nextUrl) : new URL(`https://graph.facebook.com/v25.0/${accountId}/ads`);
+    if (!nextUrl) {
+      url.searchParams.set(
+        "fields",
+        [
+          "id",
+          "name",
+          "adset_id",
+          "adset{id,name,promoted_object{product_set_id,catalog_id}}",
+          "promoted_object{product_set_id,catalog_id}",
+          "created_time",
+          "creative{",
+          "id,name,object_type,effective_object_story_id,thumbnail_url,image_url,",
+          "object_story_spec{link_data{picture,image_hash},video_data{image_url,thumbnail_url},template_data},",
+          "asset_feed_spec{catalog_id,product_set_id,images{url,image_url,original_url,hash,image_hash},videos{thumbnail_url,image_url}}",
+          "}",
+        ].join("")
+      );
+      url.searchParams.set("limit", "500");
+      url.searchParams.set("access_token", accessToken);
     }
-  }
+
+    const res = await fetch(url.toString(), {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+
+    if (!res.ok) {
+      const raw = await res.text().catch(() => "");
+      console.warn("[meta-creatives] ads non-ok", {
+        accountId,
+        status: res.status,
+        raw: raw.slice(0, 300),
+      });
+      return map;
+    }
+
+    const payload = (await res.json().catch(() => null)) as
+      | { data?: MetaAdRecord[]; paging?: { next?: string } }
+      | null;
+
+    for (const ad of payload?.data ?? []) {
+      if (typeof ad.id === "string") {
+        map.set(ad.id, ad);
+      }
+    }
+
+    nextUrl = payload?.paging?.next ?? null;
+  } while (nextUrl);
+
   return map;
 }
 
@@ -246,22 +299,33 @@ function toRawRow(insight: MetaInsightRecord, ad: MetaAdRecord | undefined): Raw
   const ctrAll = parseFloat(insight.ctr ?? "0") || 0;
 
   const creative = ad?.creative ?? null;
-  const isCatalog = creative?.object_type?.toUpperCase() === "DYNAMIC";
-  const thumbnailUrl = creative?.thumbnail_url ?? null;
-  const imageUrl = creative?.image_url ?? null;
-  // Fallback pipeline: thumbnail_url → image_url → link_data.picture → video_data urls
-  const previewUrl =
-    thumbnailUrl ??
-    imageUrl ??
-    creative?.object_story_spec?.link_data?.picture ??
-    creative?.object_story_spec?.video_data?.image_url ??
-    creative?.object_story_spec?.video_data?.thumbnail_url ??
-    null;
+  const promotedObject = ad?.promoted_object ?? ad?.adset?.promoted_object ?? null;
+  const normalizedPreview = normalizeCreativePreview({ creative, promotedObject });
   const format = inferFormat(creative?.object_type);
 
   const launchDate = cleanDate(ad?.created_time) || cleanDate(insight.date_start) || toISODate(new Date());
   const name = insight.ad_name ?? ad?.name ?? creative?.name ?? "Unnamed ad";
   const creativeId = creative?.id ?? adId;
+
+  if (shouldLogMetaPreviewDebug()) {
+    console.log("[meta-creatives] preview normalization", {
+      creative_id: creativeId,
+      name,
+      has_thumbnail_url: normalizedPreview.debug.has_thumbnail_url,
+      has_image_url: normalizedPreview.debug.has_image_url,
+      has_object_story_spec: normalizedPreview.debug.has_object_story_spec,
+      has_asset_feed_spec: normalizedPreview.debug.has_asset_feed_spec,
+      has_link_data_picture: normalizedPreview.debug.has_link_data_picture,
+      has_link_data_image_hash: normalizedPreview.debug.has_link_data_image_hash,
+      has_video_data_thumbnail_url: normalizedPreview.debug.has_video_data_thumbnail_url,
+      has_asset_feed_images: normalizedPreview.debug.has_asset_feed_images,
+      has_asset_feed_videos: normalizedPreview.debug.has_asset_feed_videos,
+      has_promoted_product_set_id: normalizedPreview.debug.has_promoted_product_set_id,
+      final_preview_state: normalizedPreview.preview_state,
+      final_preview_url: normalizedPreview.preview_url,
+      selected_source: normalizedPreview.debug.source,
+    });
+  }
 
   return {
     id: adId,
@@ -269,10 +333,11 @@ function toRawRow(insight: MetaInsightRecord, ad: MetaAdRecord | undefined): Raw
     adset_id: insight.adset_id ?? ad?.adset_id ?? ad?.adset?.id ?? null,
     adset_name: insight.adset_name ?? ad?.adset?.name ?? null,
     name,
-    preview_url: isCatalog ? null : previewUrl,
-    thumbnail_url: thumbnailUrl,
-    image_url: imageUrl,
-    is_catalog: isCatalog,
+    preview_url: normalizedPreview.preview_url,
+    thumbnail_url: normalizedPreview.thumbnail_url,
+    image_url: normalizedPreview.image_url,
+    is_catalog: normalizedPreview.is_catalog,
+    preview_state: normalizedPreview.preview_state,
     launch_date: launchDate,
     tags: [],
     format,
@@ -310,6 +375,13 @@ function groupRows(rows: RawCreativeRow[], groupBy: GroupBy): RawCreativeRow[] {
       .map((item) => item.launch_date)
       .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))[0];
     const sample = list[0];
+    const groupedPreviewUrl = list.find((item) => item.preview_url)?.preview_url ?? null;
+    const groupedIsCatalog = list.every((item) => item.is_catalog);
+    const groupedPreviewState: CreativePreviewState = groupedIsCatalog
+      ? "catalog"
+      : groupedPreviewUrl
+      ? "preview"
+      : "unavailable";
 
     grouped.push({
       id: groupBy === "creative" ? `creative_${key}` : `adset_${key}`,
@@ -317,10 +389,11 @@ function groupRows(rows: RawCreativeRow[], groupBy: GroupBy): RawCreativeRow[] {
       adset_id: sample.adset_id,
       adset_name: sample.adset_name,
       name: groupBy === "creative" ? sample.name : sample.adset_name ?? sample.name,
-      preview_url: list.find((item) => item.preview_url)?.preview_url ?? null,
+      preview_url: groupedPreviewUrl,
       thumbnail_url: list.find((item) => item.thumbnail_url)?.thumbnail_url ?? null,
       image_url: list.find((item) => item.image_url)?.image_url ?? null,
-      is_catalog: list.every((item) => item.is_catalog),
+      is_catalog: groupedIsCatalog,
+      preview_state: groupedPreviewState,
       launch_date: earliestLaunch ?? sample.launch_date,
       tags: [],
       format: list.some((item) => item.format === "video") ? "video" : "image",
@@ -415,7 +488,7 @@ export async function GET(request: NextRequest) {
       ? "catalog"
       : row.preview_url
       ? "preview"
-      : "unavailable";
+      : row.preview_state;
 
     return {
       id: row.id,

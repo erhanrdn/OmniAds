@@ -30,6 +30,7 @@ export function CreativesTopGrid({
                 creative={{
                   name: row.name,
                   isCatalog: row.isCatalog,
+                  previewState: row.previewState,
                   previewUrl: row.previewUrl,
                   imageUrl: row.imageUrl,
                   thumbnailUrl: row.thumbnailUrl,

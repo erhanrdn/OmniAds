@@ -183,6 +183,7 @@ function CreativeCard({
         creative={{
           name: creative.name,
           isCatalog: creative.is_catalog,
+          previewState: creative.preview_state,
           previewUrl: creative.preview_url,
           imageUrl: creative.image_url,
           thumbnailUrl: creative.thumbnail_url,
@@ -261,6 +262,7 @@ function MetaDrawer({ payload, onClose }: { payload: DrawerPayload; onClose: () 
                 creative={{
                   name: payload.data.name,
                   isCatalog: payload.data.is_catalog,
+                  previewState: payload.data.preview_state,
                   previewUrl: payload.data.preview_url,
                   imageUrl: payload.data.image_url,
                   thumbnailUrl: payload.data.thumbnail_url,

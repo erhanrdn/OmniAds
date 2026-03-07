@@ -21,6 +21,7 @@ export interface MetaCreativeRow {
   previewUrl: string | null;
   imageUrl: string | null;
   isCatalog: boolean;
+  previewState: "preview" | "catalog" | "unavailable";
   launchDate: string;
   tags: string[];
   spend: number;
