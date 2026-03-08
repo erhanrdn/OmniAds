@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   getOAuthStartUrl,
@@ -22,14 +23,36 @@ export function ConnectModal({
   onClose,
   onContinue,
 }: ConnectModalProps) {
+  const [shopDomain, setShopDomain] = useState("");
+  const [shopError, setShopError] = useState<string | null>(null);
+
   if (!provider) return null;
 
+  const isShopify = provider === "shopify";
   const providerLabel = getProviderLabel(provider);
   const permissions = OAUTH_PERMISSIONS[provider];
   const returnTo = `/integrations/callback/${provider}?businessId=${encodeURIComponent(
-    businessId
+    businessId,
   )}`;
-  const startUrl = getOAuthStartUrl(provider, businessId, returnTo);
+
+  function handleContinue() {
+    if (isShopify) {
+      const trimmed = shopDomain.trim();
+      if (!trimmed) {
+        setShopError("Please enter your Shopify store name.");
+        return;
+      }
+      setShopError(null);
+    }
+    const startUrl = getOAuthStartUrl(
+      provider,
+      businessId,
+      returnTo,
+      isShopify ? { shop: shopDomain.trim() } : undefined,
+    );
+    onContinue(provider);
+    window.location.href = startUrl;
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -38,19 +61,57 @@ export function ConnectModal({
           <div>
             <h3 className="text-lg font-semibold">Connect {providerLabel}</h3>
             <p className="text-sm text-muted-foreground">
-              {providerLabel} hesabini baglamak icin {providerLabel} giris ekranina
-              yonlendirileceksiniz.
+              {isShopify
+                ? "Enter your Shopify store name to connect."
+                : `You will be redirected to ${providerLabel} to authorize your account.`}
             </p>
           </div>
           <button
             type="button"
             aria-label="Close modal"
-            onClick={onClose}
+            onClick={() => {
+              setShopDomain("");
+              setShopError(null);
+              onClose();
+            }}
             className="rounded-md p-1 text-muted-foreground hover:bg-muted"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
+
+        {isShopify && (
+          <div className="mb-4">
+            <label
+              htmlFor="shop-domain"
+              className="mb-1.5 block text-sm font-medium"
+            >
+              Store name
+            </label>
+            <div className="flex items-center gap-0">
+              <input
+                id="shop-domain"
+                type="text"
+                placeholder="mystore"
+                value={shopDomain}
+                onChange={(e) => {
+                  setShopDomain(e.target.value);
+                  if (shopError) setShopError(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleContinue();
+                }}
+                className="flex-1 rounded-l-md border border-r-0 bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+              />
+              <span className="inline-flex items-center rounded-r-md border bg-muted px-3 py-2 text-sm text-muted-foreground">
+                .myshopify.com
+              </span>
+            </div>
+            {shopError && (
+              <p className="mt-1 text-xs text-destructive">{shopError}</p>
+            )}
+          </div>
+        )}
 
         <div className="rounded-lg border bg-muted/25 p-3">
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -64,17 +125,17 @@ export function ConnectModal({
         </div>
 
         <div className="mt-5 flex justify-end gap-2">
-          <Button variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
           <Button
+            variant="outline"
             onClick={() => {
-              onContinue(provider);
-              window.location.href = startUrl;
+              setShopDomain("");
+              setShopError(null);
+              onClose();
             }}
           >
-            Continue
+            Cancel
           </Button>
+          <Button onClick={handleContinue}>Continue</Button>
         </div>
       </div>
     </div>

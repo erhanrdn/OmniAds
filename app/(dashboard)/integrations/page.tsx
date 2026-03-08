@@ -14,7 +14,7 @@ import { useIntegrationConnection } from "@/hooks/use-integration-connection";
 import { ProviderAssignmentDrawer } from "@/components/integrations/provider-assignment-drawer";
 
 /** Providers that have real backend OAuth (not mock) */
-const REAL_PROVIDERS: IntegrationProvider[] = ["meta", "google"];
+const REAL_PROVIDERS: IntegrationProvider[] = ["shopify", "meta", "google"];
 
 const DESCRIPTIONS: Record<IntegrationProvider, string> = {
   shopify: "Sync storefront events and conversion data for attribution.",
