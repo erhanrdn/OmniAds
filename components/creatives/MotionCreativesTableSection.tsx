@@ -1221,6 +1221,17 @@ export function MotionCreativesTableSection({
                       {(() => {
                         const isCatalogAd = row.previewState === "catalog" || row.isCatalog;
                         const thumbUrl = row.previewUrl ?? row.thumbnailUrl ?? row.imageUrl;
+                        if (process.env.NODE_ENV !== "production") {
+                          console.log("[motion-table] preview render", {
+                            name: row.name.slice(0, 40),
+                            preview_state: row.previewState,
+                            preview_url: row.previewUrl ?? null,
+                            thumbnail_url: row.thumbnailUrl ?? null,
+                            image_url: row.imageUrl ?? null,
+                            is_catalog: row.isCatalog,
+                            resolved_url: thumbUrl ?? null,
+                          });
+                        }
                         return !isCatalogAd && thumbUrl ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img src={thumbUrl} alt={row.name} className="h-full w-full object-cover" />

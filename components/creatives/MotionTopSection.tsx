@@ -897,6 +897,17 @@ function PreviewStrip({
                 {(() => {
                   const isCatalogAd = row.previewState === "catalog" || row.isCatalog;
                   const imgUrl = row.previewUrl ?? row.thumbnailUrl ?? row.imageUrl;
+                  if (process.env.NODE_ENV !== "production") {
+                    console.log("[motion-top] preview render", {
+                      name: row.name.slice(0, 40),
+                      preview_state: row.previewState,
+                      preview_url: row.previewUrl ?? null,
+                      thumbnail_url: row.thumbnailUrl ?? null,
+                      image_url: row.imageUrl ?? null,
+                      is_catalog: row.isCatalog,
+                      resolved_url: imgUrl ?? null,
+                    });
+                  }
                   return !isCatalogAd && imgUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={imgUrl} alt={row.name} className="h-full w-full object-cover" />
