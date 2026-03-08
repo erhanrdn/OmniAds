@@ -10,6 +10,7 @@ import {
   FileText,
   BarChart3,
   Plug,
+  Users,
   Settings,
   type LucideIcon,
 } from "lucide-react";
@@ -33,5 +34,6 @@ export const navItems: NavItem[] = [
   { label: "Copies", href: "/copies", icon: FileText, group: "Assets" },
   { label: "Reports", href: "/reports", icon: BarChart3, group: "Manage" },
   { label: "Integrations", href: "/integrations", icon: Plug, group: "Manage" },
+  { label: "Team", href: "/team", icon: Users, group: "Manage" },
   { label: "Settings", href: "/settings", icon: Settings, group: "Manage" },
 ];

@@ -5,7 +5,7 @@ export default function SettingsPage() {
   return (
     <PlaceholderPage
       title="Settings"
-      description="Manage your account, team members, and preferences."
+      description="Manage your account, workspace settings, and preferences."
       icon={Settings}
     />
   );

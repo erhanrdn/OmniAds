@@ -1,11 +1,14 @@
 "use client";
 
+import { useState } from "react";
 import { useAppStore } from "@/store/app-store";
 import { Button } from "@/components/ui/button";
-import { Menu, Bell, ChevronDown } from "lucide-react";
+import { Menu, Bell, Users } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { navItems } from "./nav-items";
 import { BusinessSelector } from "@/components/business/BusinessSelector";
+import { PersonalAccountMenu } from "@/components/layout/PersonalAccountMenu";
+import { TeamAccessModal } from "@/components/layout/TeamAccessModal";
 
 function getPageTitle(pathname: string): string {
   const item = navItems.find((n) => n.href === pathname);
@@ -20,6 +23,7 @@ export function Topbar() {
   const setMobileSidebarOpen = useAppStore((s) => s.setMobileSidebarOpen);
   const pathname = usePathname();
   const title = getPageTitle(pathname);
+  const [teamModalOpen, setTeamModalOpen] = useState(false);
 
   function handleMenuClick() {
     if (window.innerWidth >= 768) {
@@ -49,14 +53,19 @@ export function Topbar() {
           <Bell className="w-5 h-5" />
         </Button>
 
-        <Button variant="ghost" className="gap-2 text-sm">
-          <div className="w-6 h-6 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-xs font-bold">
-            A
-          </div>
-          <span className="hidden sm:inline">Admin</span>
-          <ChevronDown className="w-4 h-4" />
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="Team access"
+          onClick={() => setTeamModalOpen(true)}
+        >
+          <Users className="w-5 h-5" />
         </Button>
+
+        <PersonalAccountMenu userName="Admin" />
       </div>
+
+      <TeamAccessModal open={teamModalOpen} onOpenChange={setTeamModalOpen} />
     </header>
   );
 }
