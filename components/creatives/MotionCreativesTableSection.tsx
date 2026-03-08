@@ -134,6 +134,13 @@ type MetricColorMode = "semantic" | "quantile" | "none";
 type FooterAggregationMode = "sum" | "weighted" | "avg" | "none";
 type HeatTone = "strong_negative" | "negative" | "neutral" | "positive" | "strong_positive";
 type HeatStrength = "strong" | "medium" | "soft";
+type CreativeFormat = MetaCreativeRow["format"];
+
+interface MetricConfidenceThreshold {
+  minSpend?: number;
+  minImpressions?: number;
+  minEstimatedViews?: number;
+}
 
 interface TableMetricConfig {
   direction: MetricDirectionMode;
@@ -141,6 +148,8 @@ interface TableMetricConfig {
   spendSensitive: boolean;
   footerAggregation: FooterAggregationMode;
   heatStrength: HeatStrength;
+  applicableFormats: CreativeFormat[];
+  minConfidenceThreshold?: MetricConfidenceThreshold;
 }
 
 interface MetricDistribution {
@@ -161,6 +170,7 @@ interface HeatEvaluation {
   tone: HeatTone;
   intensity: number;
   reason: string;
+  applicable?: boolean;
 }
 
 const TABLE_LAYOUT_STORAGE_KEY = "creativesTableLayout";
@@ -405,46 +415,47 @@ const DEFAULT_TABLE_METRIC_CONFIG: TableMetricConfig = {
   spendSensitive: false,
   footerAggregation: "avg",
   heatStrength: "soft",
+  applicableFormats: ["image", "video"],
 };
 
 const TABLE_METRIC_CONFIG: Partial<Record<TableColumnKey, TableMetricConfig>> = {
-  spend: { direction: "neutral", colorMode: "none", spendSensitive: false, footerAggregation: "sum", heatStrength: "soft" },
-  purchaseValue: { direction: "higher_better", colorMode: "quantile", spendSensitive: true, footerAggregation: "sum", heatStrength: "soft" },
-  roas: { direction: "higher_better", colorMode: "semantic", spendSensitive: true, footerAggregation: "weighted", heatStrength: "strong" },
-  cpa: { direction: "lower_better", colorMode: "semantic", spendSensitive: true, footerAggregation: "weighted", heatStrength: "strong" },
-  cpcLink: { direction: "lower_better", colorMode: "semantic", spendSensitive: true, footerAggregation: "weighted", heatStrength: "medium" },
-  cpm: { direction: "lower_better", colorMode: "semantic", spendSensitive: true, footerAggregation: "weighted", heatStrength: "medium" },
-  cpcAll: { direction: "lower_better", colorMode: "semantic", spendSensitive: true, footerAggregation: "weighted", heatStrength: "medium" },
-  averageOrderValue: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft" },
-  clickToAtcRatio: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft" },
-  atcToPurchaseRatio: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft" },
-  purchases: { direction: "higher_better", colorMode: "quantile", spendSensitive: true, footerAggregation: "sum", heatStrength: "soft" },
-  firstFrameRetention: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft" },
-  thumbstopRatio: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft" },
-  ctrOutbound: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft" },
-  clickToPurchaseRatio: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft" },
-  ctrAll: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft" },
-  video25Rate: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft" },
-  video50Rate: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft" },
-  video75Rate: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft" },
-  video100Rate: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft" },
-  holdRate: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft" },
-  hookScore: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "avg", heatStrength: "soft" },
-  purchaseValueShare: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft" },
-  watchScore: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "avg", heatStrength: "soft" },
-  clickScore: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "avg", heatStrength: "soft" },
-  convertScore: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "avg", heatStrength: "soft" },
-  averageOrderValueWebsite: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft" },
-  averageOrderValueShop: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft" },
-  impressions: { direction: "neutral", colorMode: "none", spendSensitive: false, footerAggregation: "sum", heatStrength: "soft" },
-  spendShare: { direction: "neutral", colorMode: "none", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft" },
-  linkCtr: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft" },
-  websitePurchaseRoas: { direction: "higher_better", colorMode: "semantic", spendSensitive: true, footerAggregation: "weighted", heatStrength: "strong" },
-  clickToWebsitePurchaseRatio: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft" },
-  purchasesPer1000Imp: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft" },
-  revenuePer1000Imp: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft" },
-  clicksAll: { direction: "neutral", colorMode: "none", spendSensitive: false, footerAggregation: "sum", heatStrength: "soft" },
-  linkClicks: { direction: "neutral", colorMode: "none", spendSensitive: false, footerAggregation: "sum", heatStrength: "soft" },
+  spend: { direction: "neutral", colorMode: "none", spendSensitive: false, footerAggregation: "sum", heatStrength: "soft", applicableFormats: ["image", "video"] },
+  purchaseValue: { direction: "higher_better", colorMode: "quantile", spendSensitive: true, footerAggregation: "sum", heatStrength: "soft", applicableFormats: ["image", "video"] },
+  roas: { direction: "higher_better", colorMode: "semantic", spendSensitive: true, footerAggregation: "weighted", heatStrength: "strong", applicableFormats: ["image", "video"] },
+  cpa: { direction: "lower_better", colorMode: "semantic", spendSensitive: true, footerAggregation: "weighted", heatStrength: "strong", applicableFormats: ["image", "video"] },
+  cpcLink: { direction: "lower_better", colorMode: "semantic", spendSensitive: true, footerAggregation: "weighted", heatStrength: "medium", applicableFormats: ["image", "video"] },
+  cpm: { direction: "lower_better", colorMode: "semantic", spendSensitive: true, footerAggregation: "weighted", heatStrength: "medium", applicableFormats: ["image", "video"] },
+  cpcAll: { direction: "lower_better", colorMode: "semantic", spendSensitive: true, footerAggregation: "weighted", heatStrength: "medium", applicableFormats: ["image", "video"] },
+  averageOrderValue: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft", applicableFormats: ["image", "video"] },
+  clickToAtcRatio: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft", applicableFormats: ["image", "video"] },
+  atcToPurchaseRatio: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft", applicableFormats: ["image", "video"] },
+  purchases: { direction: "higher_better", colorMode: "quantile", spendSensitive: true, footerAggregation: "sum", heatStrength: "soft", applicableFormats: ["image", "video"] },
+  firstFrameRetention: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft", applicableFormats: ["video"], minConfidenceThreshold: { minSpend: 50, minImpressions: 1000, minEstimatedViews: 200 } },
+  thumbstopRatio: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft", applicableFormats: ["video"], minConfidenceThreshold: { minSpend: 50, minImpressions: 1000, minEstimatedViews: 200 } },
+  ctrOutbound: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft", applicableFormats: ["image", "video"] },
+  clickToPurchaseRatio: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft", applicableFormats: ["image", "video"] },
+  ctrAll: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft", applicableFormats: ["image", "video"] },
+  video25Rate: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft", applicableFormats: ["video"], minConfidenceThreshold: { minSpend: 50, minImpressions: 1000, minEstimatedViews: 200 } },
+  video50Rate: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft", applicableFormats: ["video"], minConfidenceThreshold: { minSpend: 50, minImpressions: 1000, minEstimatedViews: 200 } },
+  video75Rate: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft", applicableFormats: ["video"], minConfidenceThreshold: { minSpend: 50, minImpressions: 1000, minEstimatedViews: 200 } },
+  video100Rate: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft", applicableFormats: ["video"], minConfidenceThreshold: { minSpend: 50, minImpressions: 1000, minEstimatedViews: 200 } },
+  holdRate: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft", applicableFormats: ["video"], minConfidenceThreshold: { minSpend: 50, minImpressions: 1000, minEstimatedViews: 200 } },
+  hookScore: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "avg", heatStrength: "soft", applicableFormats: ["image", "video"] },
+  purchaseValueShare: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft", applicableFormats: ["image", "video"] },
+  watchScore: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "avg", heatStrength: "soft", applicableFormats: ["video"], minConfidenceThreshold: { minSpend: 50, minImpressions: 1000, minEstimatedViews: 200 } },
+  clickScore: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "avg", heatStrength: "soft", applicableFormats: ["image", "video"] },
+  convertScore: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "avg", heatStrength: "soft", applicableFormats: ["image", "video"] },
+  averageOrderValueWebsite: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft", applicableFormats: ["image", "video"] },
+  averageOrderValueShop: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft", applicableFormats: ["image", "video"] },
+  impressions: { direction: "neutral", colorMode: "none", spendSensitive: false, footerAggregation: "sum", heatStrength: "soft", applicableFormats: ["image", "video"] },
+  spendShare: { direction: "neutral", colorMode: "none", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft", applicableFormats: ["image", "video"] },
+  linkCtr: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft", applicableFormats: ["image", "video"] },
+  websitePurchaseRoas: { direction: "higher_better", colorMode: "semantic", spendSensitive: true, footerAggregation: "weighted", heatStrength: "strong", applicableFormats: ["image", "video"] },
+  clickToWebsitePurchaseRatio: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft", applicableFormats: ["image", "video"] },
+  purchasesPer1000Imp: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft", applicableFormats: ["image", "video"] },
+  revenuePer1000Imp: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft", applicableFormats: ["image", "video"] },
+  clicksAll: { direction: "neutral", colorMode: "none", spendSensitive: false, footerAggregation: "sum", heatStrength: "soft", applicableFormats: ["image", "video"] },
+  linkClicks: { direction: "neutral", colorMode: "none", spendSensitive: false, footerAggregation: "sum", heatStrength: "soft", applicableFormats: ["image", "video"] },
 };
 
 export function MotionCreativesTableSection({
@@ -581,6 +592,7 @@ export function MotionCreativesTableSection({
   const metricDistributions = useMemo(() => {
     return selectedColumns.reduce<Partial<Record<TableColumnKey, MetricDistribution>>>((acc, column) => {
       const values = rows
+        .filter((row) => isMetricApplicable(column.key, row))
         .map((row) => column.getValue(row, ctx))
         .filter((value) => Number.isFinite(value));
       acc[column.key] = buildDistribution(values);
@@ -588,36 +600,17 @@ export function MotionCreativesTableSection({
     }, {});
   }, [ctx, rows, selectedColumns]);
 
-  const tableTotals = useMemo(() => {
-    const totalSpend = rows.reduce((sum, row) => sum + row.spend, 0);
-    const totalPurchaseValue = rows.reduce((sum, row) => sum + row.purchaseValue, 0);
-    const totalPurchases = rows.reduce((sum, row) => sum + row.purchases, 0);
-    const totalImpressions = rows.reduce((sum, row) => sum + row.impressions, 0);
-    const totalLinkClicks = rows.reduce((sum, row) => sum + row.linkClicks, 0);
-    const totalAddToCart = rows.reduce((sum, row) => sum + row.addToCart, 0);
-    const totalThumbstopViews = rows.reduce((sum, row) => sum + (row.thumbstop / 100) * row.impressions, 0);
-    const totalVideo25Views = rows.reduce((sum, row) => sum + (row.video25 / 100) * row.impressions, 0);
-    const totalVideo50Views = rows.reduce((sum, row) => sum + (row.video50 / 100) * row.impressions, 0);
-    const totalVideo75Views = rows.reduce((sum, row) => sum + (row.video75 / 100) * row.impressions, 0);
-    const totalVideo100Views = rows.reduce((sum, row) => sum + (row.video100 / 100) * row.impressions, 0);
-    return {
-      totalSpend,
-      totalPurchaseValue,
-      totalPurchases,
-      totalImpressions,
-      totalLinkClicks,
-      totalAddToCart,
-      totalThumbstopViews,
-      totalVideo25Views,
-      totalVideo50Views,
-      totalVideo75Views,
-      totalVideo100Views,
-    };
-  }, [rows]);
-
-  const spendDistribution = useMemo(
-    () => buildDistribution(rows.map((row) => row.spend).filter((value) => Number.isFinite(value))),
-    [rows]
+  const metricSpendDistributions = useMemo(
+    () =>
+      selectedColumns.reduce<Partial<Record<TableColumnKey, MetricDistribution>>>((acc, column) => {
+        const values = rows
+          .filter((row) => isMetricApplicable(column.key, row))
+          .map((row) => row.spend)
+          .filter((value) => Number.isFinite(value));
+        acc[column.key] = buildDistribution(values);
+        return acc;
+      }, {}),
+    [rows, selectedColumns]
   );
 
   const totalTableWidth = useMemo(() => {
@@ -1405,7 +1398,7 @@ export function MotionCreativesTableSection({
                     row,
                     distribution: metricDistributions[column.key] ?? buildDistribution([value]),
                     roasDistribution: metricDistributions.roas,
-                    spendDistribution,
+                    spendDistribution: metricSpendDistributions[column.key] ?? buildDistribution([row.spend]),
                   });
                   const bg =
                     tablePreset.colorFormatting === "heatmap"
@@ -1417,16 +1410,19 @@ export function MotionCreativesTableSection({
                       key={`${row.id}_${column.key}`}
                       className={cn(
                         "border-b px-2.5 py-1.5 text-[12px] font-medium",
+                        evaluation.applicable === false && "text-muted-foreground",
                         column.align === "right" ? "text-right" : column.align === "center" ? "text-center" : "text-left"
                       )}
                       style={{ backgroundColor: bg }}
                       title={tablePreset.colorFormatting === "heatmap" ? evaluation.reason : undefined}
                     >
-                      {column.format(
-                        value,
-                        resolveCreativeCurrency(row.currency, defaultCurrency),
-                        defaultCurrency
-                      )}
+                      {evaluation.applicable !== false
+                        ? column.format(
+                            value,
+                            resolveCreativeCurrency(row.currency, defaultCurrency),
+                            defaultCurrency
+                          )
+                        : "—"}
                     </td>
                   );
                 })}
@@ -1465,7 +1461,6 @@ export function MotionCreativesTableSection({
                   key: column.key,
                   rows,
                   ctx,
-                  totals: tableTotals,
                 });
                 return (
                   <td
@@ -1480,7 +1475,11 @@ export function MotionCreativesTableSection({
                     )}
                   >
                     <div className="space-y-0.5">
-                      <p className="font-semibold">{column.format(footerValue, defaultCurrency, defaultCurrency)}</p>
+                      <p className="font-semibold">
+                        {footerLabel === "n/a"
+                          ? "—"
+                          : column.format(footerValue, defaultCurrency, defaultCurrency)}
+                      </p>
                       <p className="text-muted-foreground">{footerLabel}</p>
                     </div>
                   </td>
@@ -1875,6 +1874,11 @@ function getMetricConfig(key: TableColumnKey): TableMetricConfig {
   return TABLE_METRIC_CONFIG[key] ?? DEFAULT_TABLE_METRIC_CONFIG;
 }
 
+function isMetricApplicable(key: TableColumnKey, row: MetaCreativeRow): boolean {
+  const cfg = getMetricConfig(key);
+  return cfg.applicableFormats.includes(row.format);
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
@@ -1957,12 +1961,21 @@ function evaluateMetricCell(input: {
 }): HeatEvaluation {
   const { key, value, row, distribution, roasDistribution, spendDistribution } = input;
   const cfg = getMetricConfig(key);
+  if (!isMetricApplicable(key, row)) {
+    return {
+      tone: "neutral",
+      intensity: 0,
+      reason: "Metric is not applicable for this creative format.",
+      applicable: false,
+    };
+  }
 
   if (cfg.colorMode === "none") {
     return {
       tone: "neutral",
       intensity: 0.07,
       reason: "Neutral metric: no strong heatmap is applied.",
+      applicable: true,
     };
   }
 
@@ -2026,13 +2039,43 @@ function evaluateMetricCell(input: {
     medium: 0.82,
     soft: 0.62,
   };
+
+  if (cfg.minConfidenceThreshold) {
+    const estimatedViews = row.impressions > 0 ? (row.thumbstop / 100) * row.impressions : 0;
+    const spendConfidence = cfg.minConfidenceThreshold.minSpend
+      ? clamp(row.spend / cfg.minConfidenceThreshold.minSpend, 0, 1)
+      : 1;
+    const impressionsConfidence = cfg.minConfidenceThreshold.minImpressions
+      ? clamp(row.impressions / cfg.minConfidenceThreshold.minImpressions, 0, 1)
+      : 1;
+    const viewsConfidence = cfg.minConfidenceThreshold.minEstimatedViews
+      ? clamp(estimatedViews / cfg.minConfidenceThreshold.minEstimatedViews, 0, 1)
+      : 1;
+    const confidence = Math.min(spendConfidence, impressionsConfidence, viewsConfidence);
+    if (confidence < 0.35) {
+      return {
+        tone: "neutral",
+        intensity: 0.08,
+        reason: `${evaluation.reason} Low-confidence sample for this video metric.`,
+        applicable: true,
+      };
+    }
+    evaluation = {
+      ...evaluation,
+      intensity: evaluation.intensity * clamp(0.4 + confidence * 0.6, 0.3, 1),
+      reason: `${evaluation.reason} Data confidence ${(confidence * 100).toFixed(0)}%.`,
+    };
+  }
+
   return {
     ...evaluation,
     intensity: clamp(evaluation.intensity * strengthMultiplier[cfg.heatStrength], 0.06, 0.95),
+    applicable: true,
   };
 }
 
 function toHeatColor(tone: HeatTone, intensity: number): string {
+  if (intensity <= 0) return "transparent";
   const alpha = clamp(intensity * 0.24, 0.035, 0.28);
   const palette: Record<HeatTone, [number, number, number]> = {
     strong_negative: [244, 63, 94],
@@ -2049,35 +2092,25 @@ function getFooterValue(input: {
   key: TableColumnKey;
   rows: MetaCreativeRow[];
   ctx: TableCalcContext;
-  totals: {
-    totalSpend: number;
-    totalPurchaseValue: number;
-    totalPurchases: number;
-    totalImpressions: number;
-    totalLinkClicks: number;
-    totalAddToCart: number;
-    totalThumbstopViews: number;
-    totalVideo25Views: number;
-    totalVideo50Views: number;
-    totalVideo75Views: number;
-    totalVideo100Views: number;
-  };
 }): { value: number; label: string } {
-  const { key, rows, ctx, totals } = input;
+  const { key, rows, ctx } = input;
   const column = TABLE_COLUMNS.find((item) => item.key === key);
   const cfg = getMetricConfig(key);
   if (!column) return { value: 0, label: "-" };
+  const applicableRows = rows.filter((row) => isMetricApplicable(key, row));
+  if (applicableRows.length === 0) return { value: 0, label: "n/a" };
+  const totals = computeAggregateTotals(applicableRows);
 
   if (cfg.footerAggregation === "none") return { value: 0, label: "-" };
   if (cfg.footerAggregation === "sum") {
     return {
-      value: rows.reduce((sum, row) => sum + column.getValue(row, ctx), 0),
+      value: applicableRows.reduce((sum, row) => sum + column.getValue(row, ctx), 0),
       label: "SUM",
     };
   }
 
   if (cfg.footerAggregation === "avg") {
-    const values = rows.map((row) => column.getValue(row, ctx));
+    const values = applicableRows.map((row) => column.getValue(row, ctx));
     return {
       value: values.length > 0 ? values.reduce((sum, value) => sum + value, 0) / values.length : 0,
       label: "avg",
@@ -2130,7 +2163,6 @@ function getFooterValue(input: {
         label: "weighted",
       };
     case "video50Rate":
-    case "watchScore":
       return {
         value: totals.totalImpressions > 0 ? (totals.totalVideo50Views / totals.totalImpressions) * 100 : 0,
         label: "weighted",
@@ -2190,11 +2222,38 @@ function getFooterValue(input: {
         label: "weighted",
       };
     default: {
-      const values = rows.map((row) => column.getValue(row, ctx));
+      const values = applicableRows.map((row) => column.getValue(row, ctx));
       return {
         value: values.length > 0 ? values.reduce((sum, v) => sum + v, 0) / values.length : 0,
         label: "avg",
       };
     }
   }
+}
+
+function computeAggregateTotals(rows: MetaCreativeRow[]) {
+  const totalSpend = rows.reduce((sum, row) => sum + row.spend, 0);
+  const totalPurchaseValue = rows.reduce((sum, row) => sum + row.purchaseValue, 0);
+  const totalPurchases = rows.reduce((sum, row) => sum + row.purchases, 0);
+  const totalImpressions = rows.reduce((sum, row) => sum + row.impressions, 0);
+  const totalLinkClicks = rows.reduce((sum, row) => sum + row.linkClicks, 0);
+  const totalAddToCart = rows.reduce((sum, row) => sum + row.addToCart, 0);
+  const totalThumbstopViews = rows.reduce((sum, row) => sum + (row.thumbstop / 100) * row.impressions, 0);
+  const totalVideo25Views = rows.reduce((sum, row) => sum + (row.video25 / 100) * row.impressions, 0);
+  const totalVideo50Views = rows.reduce((sum, row) => sum + (row.video50 / 100) * row.impressions, 0);
+  const totalVideo75Views = rows.reduce((sum, row) => sum + (row.video75 / 100) * row.impressions, 0);
+  const totalVideo100Views = rows.reduce((sum, row) => sum + (row.video100 / 100) * row.impressions, 0);
+  return {
+    totalSpend,
+    totalPurchaseValue,
+    totalPurchases,
+    totalImpressions,
+    totalLinkClicks,
+    totalAddToCart,
+    totalThumbstopViews,
+    totalVideo25Views,
+    totalVideo50Views,
+    totalVideo75Views,
+    totalVideo100Views,
+  };
 }

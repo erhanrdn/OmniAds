@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { Trophy, ChevronDown, X, Search, Plus, SlidersHorizontal, LayoutGrid, Ellipsis } from "lucide-react";
+import { Trophy, ChevronDown, X, Search, Plus, SlidersHorizontal, LayoutGrid, Ellipsis, Check } from "lucide-react";
 import { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { formatMoney, resolveCreativeCurrency } from "@/components/creatives/money";
 import { cn } from "@/lib/utils";
@@ -773,9 +773,14 @@ function MetricSelectorBar({ selectedMetricIds, onChange }: { selectedMetricIds:
     .map((id) => getMotionMetricDefinition(id))
     .filter(Boolean) as MotionMetricDefinition[];
 
-  const available = METRIC_DEFS.filter(
-    (metric) => metric.label.toLowerCase().includes(query.toLowerCase()) && !selectedMetricIds.includes(metric.id)
+  const filtered = METRIC_DEFS.filter((metric) =>
+    metric.label.toLowerCase().includes(query.toLowerCase())
   );
+
+  const toggleMetric = (metricId: string) => {
+    const exists = selectedMetricIds.includes(metricId);
+    onChange(exists ? selectedMetricIds.filter((id) => id !== metricId) : [...selectedMetricIds, metricId]);
+  };
 
   return (
     <div className="min-w-0 overflow-hidden">
@@ -795,7 +800,7 @@ function MetricSelectorBar({ selectedMetricIds, onChange }: { selectedMetricIds:
           </button>
 
           {open && (
-            <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-9 z-50 w-[360px] rounded-xl border bg-background p-3 shadow-lg duration-150">
+            <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-9 z-50 w-[290px] rounded-lg border bg-background p-2.5 shadow-lg duration-150">
               <div className="mb-2 flex items-center gap-2 rounded-md border px-2 py-1.5">
                 <Search className="h-3.5 w-3.5 text-muted-foreground" />
                 <input
@@ -807,20 +812,34 @@ function MetricSelectorBar({ selectedMetricIds, onChange }: { selectedMetricIds:
                 />
               </div>
 
-              <div className="max-h-72 space-y-1 overflow-auto pr-1">
-                {available.map((metric) => (
+              <div className="max-h-64 space-y-1 overflow-auto pr-1">
+                {filtered.map((metric) => {
+                  const isSelected = selectedMetricIds.includes(metric.id);
+                  return (
                   <button
                     key={metric.id}
                     type="button"
-                    onClick={() => {
-                      onChange([...selectedMetricIds, metric.id]);
-                      setQuery("");
-                    }}
-                    className="w-full rounded-md px-2 py-1.5 text-left text-xs hover:bg-accent/60"
+                    onClick={() => toggleMetric(metric.id)}
+                    className={cn(
+                      "flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs",
+                      isSelected ? "bg-accent/70" : "hover:bg-accent/60"
+                    )}
                   >
-                    {metric.label}
+                    <span className="truncate pr-2">{metric.label}</span>
+                    <span
+                      className={cn(
+                        "inline-flex h-4 w-4 items-center justify-center rounded-sm border",
+                        isSelected ? "border-emerald-500 bg-emerald-500/15 text-emerald-700" : "border-muted-foreground/40 text-transparent"
+                      )}
+                    >
+                      <Check className="h-3 w-3" />
+                    </span>
                   </button>
-                ))}
+                  );
+                })}
+                {filtered.length === 0 && (
+                  <p className="px-2 py-1.5 text-xs text-muted-foreground">No metrics found.</p>
+                )}
               </div>
             </div>
           )}
