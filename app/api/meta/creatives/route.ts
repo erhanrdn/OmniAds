@@ -67,6 +67,10 @@ interface MetaAdImageRecord {
   permalink_url?: string | null;
 }
 
+interface MetaAdPreviewRecord {
+  body?: string;
+}
+
 interface MetaAdRecord {
   id?: string;
   name?: string;
@@ -315,6 +319,83 @@ function pickAdImageUrl(record: MetaAdImageRecord | null | undefined): string | 
     normalizeMediaUrl(record.url_128) ??
     normalizeMediaUrl(record.permalink_url)
   );
+}
+
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#x27;/g, "'")
+    .replace(/&#39;/g, "'");
+}
+
+function extractPreviewUrlFromHtml(html: string): string | null {
+  const decoded = decodeHtmlEntities(html);
+  const patterns = [
+    /<video[^>]*poster="([^"]+)"/i,
+    /<video[^>]*poster='([^']+)'/i,
+    /<img[^>]+src="([^"]+)"/i,
+    /<img[^>]+src='([^']+)'/i,
+    /background-image:\s*url\((['"]?)(https?:\/\/[^)'"]+)\1\)/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = decoded.match(pattern);
+    const candidate = match?.[2] ?? match?.[1];
+    const normalized = normalizeMediaUrl(candidate);
+    if (normalized) return normalized;
+  }
+
+  return null;
+}
+
+async function fetchAdPreviewUrlMap(
+  adIds: string[],
+  accessToken: string
+): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  const uniqueIds = Array.from(new Set(adIds.map((id) => id.trim()).filter(Boolean)));
+  if (uniqueIds.length === 0) return map;
+
+  const formats = ["DESKTOP_FEED_STANDARD", "MOBILE_FEED_STANDARD"];
+  const chunkSize = 20;
+  for (let i = 0; i < uniqueIds.length; i += chunkSize) {
+    const chunk = uniqueIds.slice(i, i + chunkSize);
+    await Promise.all(
+      chunk.map(async (adId) => {
+        if (map.has(adId)) return;
+
+        for (const adFormat of formats) {
+          const url = new URL(`https://graph.facebook.com/v25.0/${adId}/previews`);
+          url.searchParams.set("ad_format", adFormat);
+          url.searchParams.set("access_token", accessToken);
+
+          try {
+            const res = await fetch(url.toString(), {
+              method: "GET",
+              headers: { Accept: "application/json" },
+              cache: "no-store",
+            });
+            if (!res.ok) continue;
+
+            const payload = (await res.json().catch(() => null)) as { data?: MetaAdPreviewRecord[] } | null;
+            const html = payload?.data?.[0]?.body ?? "";
+            if (!html) continue;
+
+            const previewUrl = extractPreviewUrlFromHtml(html);
+            if (previewUrl) {
+              map.set(adId, previewUrl);
+              return;
+            }
+          } catch {
+            // swallow and try next format
+          }
+        }
+      })
+    );
+  }
+
+  return map;
 }
 
 function mergeCreativeData(
@@ -761,6 +842,14 @@ function toRawRow(
       : normalizedPreview.format === "video" || hasInsightVideoSignals
       ? "video"
       : "image" as const;
+  const creativeType: CreativeType =
+    format === "catalog"
+      ? "feed_catalog"
+      : normalizedPreview.creative_type === "flexible"
+      ? "flexible"
+      : format === "video"
+      ? "video"
+      : "feed";
 
   const launchDate = cleanDate(ad?.created_time) || cleanDate(insight.date_start) || toISODate(new Date());
   const name = insight.ad_name ?? ad?.name ?? creative?.name ?? "Unnamed ad";
@@ -809,8 +898,8 @@ function toRawRow(
     tags: [],
     ai_tags: {},
     format,
-    creative_type: normalizedPreview.creative_type,
-    creative_type_label: normalizedPreview.creative_type_label,
+    creative_type: creativeType,
+    creative_type_label: toCreativeTypeLabel(creativeType),
     spend: r2(spend),
     purchase_value: r2(derivedPurchaseValue),
     roas: r2(derivedPurchaseValue > 0 ? derivedPurchaseValue / spend : 0),
@@ -881,7 +970,7 @@ function groupRows(
       });
     }
     const groupedPreviewUrl = list.find((item) => item.preview_url)?.preview_url ?? null;
-    const groupedIsCatalog = list.every((item) => item.is_catalog);
+    const groupedIsCatalog = list.some((item) => item.is_catalog);
     const groupedPreviewState: CreativePreviewState = groupedIsCatalog
       ? "catalog"
       : groupedPreviewUrl
@@ -1113,6 +1202,24 @@ export async function GET(request: NextRequest) {
         accountId,
         message: error instanceof Error ? error.message : String(error),
       });
+    }
+  }
+
+  const missingPreviewAdIds = rawRows
+    .filter((row) => !row.preview_url && row.id && !row.id.startsWith("creative_") && !row.id.startsWith("adset_"))
+    .map((row) => row.id);
+  const adPreviewUrlMap = await fetchAdPreviewUrlMap(missingPreviewAdIds, integration.access_token);
+  if (adPreviewUrlMap.size > 0) {
+    for (const row of rawRows) {
+      if (row.preview_url) continue;
+      const fallbackUrl = adPreviewUrlMap.get(row.id);
+      if (!fallbackUrl) continue;
+
+      row.preview_url = fallbackUrl;
+      row.preview_source = "ad_preview_html";
+      if (!row.thumbnail_url) row.thumbnail_url = fallbackUrl;
+      if (!row.image_url) row.image_url = fallbackUrl;
+      if (!row.is_catalog) row.preview_state = "preview";
     }
   }
 
