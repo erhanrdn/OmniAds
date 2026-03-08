@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Check, Mail, Shield, User, Users, X } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Check, Copy, Shield, User, Users, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -10,6 +10,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { useAppStore } from "@/store/app-store";
 
 type TeamRole = "guest" | "collaborator" | "admin";
 type TeamTab = "invite" | "requests" | "members";
@@ -19,21 +20,26 @@ interface TeamAccessModalProps {
   onOpenChange: (open: boolean) => void;
 }
 
-interface AccessRequest {
+interface ApiMember {
   id: string;
-  name: string;
+  name: string | null;
   email: string;
   role: TeamRole;
-  scope: string;
+  status: string;
 }
 
-interface MemberRow {
+interface ApiAccessRequest {
   id: string;
-  name: string;
+  name: string | null;
   email: string;
   role: TeamRole;
-  scope: string;
-  status: "active" | "pending";
+}
+
+interface CreatedInvite {
+  id: string;
+  email: string;
+  role: TeamRole;
+  inviteUrl: string;
 }
 
 const ROLE_META: Record<TeamRole, { title: string; description: string }> = {
@@ -52,43 +58,6 @@ const ROLE_META: Record<TeamRole, { title: string; description: string }> = {
   },
 };
 
-const INITIAL_REQUESTS: AccessRequest[] = [
-  {
-    id: "req-1",
-    name: "Mia Carter",
-    email: "mia@acme.com",
-    role: "collaborator",
-    scope: "Facebook Ecommerce",
-  },
-];
-
-const INITIAL_MEMBERS: MemberRow[] = [
-  {
-    id: "mem-1",
-    name: "Admin",
-    email: "admin@omniads.io",
-    role: "admin",
-    scope: "All businesses",
-    status: "active",
-  },
-  {
-    id: "mem-2",
-    name: "Liam Brooks",
-    email: "liam@acme.com",
-    role: "collaborator",
-    scope: "Facebook Ecommerce",
-    status: "active",
-  },
-  {
-    id: "mem-3",
-    name: "Ava Wells",
-    email: "ava@acme.com",
-    role: "guest",
-    scope: "Fashion Catalog",
-    status: "pending",
-  },
-];
-
 function parseEmails(raw: string): string[] {
   return raw
     .split(/[,\n;\s]+/)
@@ -97,15 +66,104 @@ function parseEmails(raw: string): string[] {
 }
 
 export function TeamAccessModal({ open, onOpenChange }: TeamAccessModalProps) {
+  const businessId = useAppStore((s) => s.selectedBusinessId);
+
   const [activeTab, setActiveTab] = useState<TeamTab>("invite");
+
+  // Invite tab
   const [inviteInput, setInviteInput] = useState("");
   const [role, setRole] = useState<TeamRole>("collaborator");
-  const [requests, setRequests] = useState<AccessRequest[]>(INITIAL_REQUESTS);
-  const [members, setMembers] = useState<MemberRow[]>(INITIAL_MEMBERS);
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [inviteLoading, setInviteLoading] = useState(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [createdInvites, setCreatedInvites] = useState<CreatedInvite[]>([]);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  const inviteEmails = useMemo(() => parseEmails(inviteInput), [inviteInput]);
+  // Members tab
+  const [members, setMembers] = useState<ApiMember[]>([]);
+  const [membersLoading, setMembersLoading] = useState(false);
+  const [membersError, setMembersError] = useState<string | null>(null);
+  const [memberMessage, setMemberMessage] = useState<string | null>(null);
+
+  // Requests tab
+  const [requests, setRequests] = useState<ApiAccessRequest[]>([]);
+  const [requestsLoading, setRequestsLoading] = useState(false);
+  const [requestsError, setRequestsError] = useState<string | null>(null);
+  const [requestMessage, setRequestMessage] = useState<string | null>(null);
+
+  const inviteEmails = parseEmails(inviteInput);
+
+  const fetchMembers = useCallback(async () => {
+    if (!businessId) return;
+    setMembersLoading(true);
+    setMembersError(null);
+    try {
+      const res = await fetch(`/api/team/members?businessId=${businessId}`);
+      const data: unknown = await res.json().catch(() => null);
+      if (!res.ok) {
+        setMembersError(
+          (data && typeof data === "object" && "message" in data && typeof (data as { message: unknown }).message === "string"
+            ? (data as { message: string }).message
+            : null) ?? "Could not load members."
+        );
+        return;
+      }
+      setMembers(
+        Array.isArray((data as { members?: unknown }).members)
+          ? ((data as { members: ApiMember[] }).members)
+          : []
+      );
+    } catch {
+      setMembersError("Network error loading members.");
+    } finally {
+      setMembersLoading(false);
+    }
+  }, [businessId]);
+
+  const fetchRequests = useCallback(async () => {
+    if (!businessId) return;
+    setRequestsLoading(true);
+    setRequestsError(null);
+    try {
+      const res = await fetch(`/api/team/access-requests?businessId=${businessId}`);
+      const data: unknown = await res.json().catch(() => null);
+      if (!res.ok) {
+        if (res.status === 403) {
+          setRequests([]);
+          return;
+        }
+        setRequestsError(
+          (data && typeof data === "object" && "message" in data && typeof (data as { message: unknown }).message === "string"
+            ? (data as { message: string }).message
+            : null) ?? "Could not load access requests."
+        );
+        return;
+      }
+      setRequests(
+        Array.isArray((data as { requests?: unknown }).requests)
+          ? ((data as { requests: ApiAccessRequest[] }).requests)
+          : []
+      );
+    } catch {
+      setRequestsError("Network error loading access requests.");
+    } finally {
+      setRequestsLoading(false);
+    }
+  }, [businessId]);
+
+  useEffect(() => {
+    if (!open) return;
+    fetchMembers();
+    fetchRequests();
+  }, [open, fetchMembers, fetchRequests]);
+
+  useEffect(() => {
+    if (!open) {
+      setInviteInput("");
+      setCreatedInvites([]);
+      setInviteError(null);
+      setCopiedId(null);
+    }
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -120,40 +178,123 @@ export function TeamAccessModal({ open, onOpenChange }: TeamAccessModalProps) {
 
   async function handleInvite() {
     if (inviteEmails.length === 0) {
-      setMessage({ type: "error", text: "Enter at least one valid email address." });
+      setInviteError("Enter at least one valid email address.");
       return;
     }
-    setLoading(true);
-    setMessage(null);
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    setLoading(false);
-    setInviteInput("");
-    setMessage({
-      type: "success",
-      text: `Invitation sent to ${inviteEmails.length} ${inviteEmails.length === 1 ? "person" : "people"}.`,
-    });
+    if (!businessId) {
+      setInviteError("No business selected.");
+      return;
+    }
+    setInviteLoading(true);
+    setInviteError(null);
+    try {
+      const res = await fetch("/api/team/invites", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ businessId, emails: inviteEmails, role }),
+      });
+      const data: unknown = await res.json().catch(() => null);
+      if (!res.ok) {
+        setInviteError(
+          (data && typeof data === "object" && "message" in data && typeof (data as { message: unknown }).message === "string"
+            ? (data as { message: string }).message
+            : null) ?? "Could not create invite links."
+        );
+        return;
+      }
+      setCreatedInvites(
+        Array.isArray((data as { invites?: unknown }).invites)
+          ? ((data as { invites: CreatedInvite[] }).invites)
+          : []
+      );
+      setInviteInput("");
+    } catch {
+      setInviteError("Network error. Please try again.");
+    } finally {
+      setInviteLoading(false);
+    }
   }
 
-  function handleApproveRequest(requestId: string) {
-    setRequests((prev) => prev.filter((item) => item.id !== requestId));
-    setMessage({ type: "success", text: "Access request approved." });
+  async function copyToClipboard(text: string, id: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId((prev) => (prev === id ? null : prev)), 2000);
+    } catch {
+      // clipboard API unavailable — user can copy manually from the displayed URL
+    }
   }
 
-  function handleRejectRequest(requestId: string) {
-    setRequests((prev) => prev.filter((item) => item.id !== requestId));
-    setMessage({ type: "success", text: "Access request rejected." });
+  async function handleRoleChange(membershipId: string, nextRole: TeamRole) {
+    setMemberMessage(null);
+    try {
+      const res = await fetch("/api/team/members", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ businessId, membershipId, role: nextRole }),
+      });
+      const data: unknown = await res.json().catch(() => null);
+      if (!res.ok) {
+        setMemberMessage(
+          (data && typeof data === "object" && "message" in data && typeof (data as { message: unknown }).message === "string"
+            ? (data as { message: string }).message
+            : null) ?? "Could not update role."
+        );
+        return;
+      }
+      setMemberMessage("Member role updated.");
+      await fetchMembers();
+    } catch {
+      setMemberMessage("Network error.");
+    }
   }
 
-  function handleRoleChange(memberId: string, nextRole: TeamRole) {
-    setMembers((prev) =>
-      prev.map((member) => (member.id === memberId ? { ...member, role: nextRole } : member))
-    );
-    setMessage({ type: "success", text: "Member role updated." });
+  async function handleRemoveMember(membershipId: string) {
+    setMemberMessage(null);
+    try {
+      const res = await fetch("/api/team/members", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ businessId, membershipId }),
+      });
+      const data: unknown = await res.json().catch(() => null);
+      if (!res.ok) {
+        setMemberMessage(
+          (data && typeof data === "object" && "message" in data && typeof (data as { message: unknown }).message === "string"
+            ? (data as { message: string }).message
+            : null) ?? "Could not remove member."
+        );
+        return;
+      }
+      setMemberMessage("Member removed.");
+      await fetchMembers();
+    } catch {
+      setMemberMessage("Network error.");
+    }
   }
 
-  function handleRemoveAccess(memberId: string) {
-    setMembers((prev) => prev.filter((member) => member.id !== memberId));
-    setMessage({ type: "success", text: "Member access removed." });
+  async function handleRequestAction(membershipId: string, action: "approve" | "reject") {
+    setRequestMessage(null);
+    try {
+      const res = await fetch("/api/team/access-requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ businessId, membershipId, action }),
+      });
+      const data: unknown = await res.json().catch(() => null);
+      if (!res.ok) {
+        setRequestMessage(
+          (data && typeof data === "object" && "message" in data && typeof (data as { message: unknown }).message === "string"
+            ? (data as { message: string }).message
+            : null) ?? "Could not process request."
+        );
+        return;
+      }
+      setRequestMessage(action === "approve" ? "Access request approved." : "Access request rejected.");
+      await fetchRequests();
+    } catch {
+      setRequestMessage("Network error.");
+    }
   }
 
   return (
@@ -164,6 +305,7 @@ export function TeamAccessModal({ open, onOpenChange }: TeamAccessModalProps) {
       }}
     >
       <div className="w-full max-w-2xl rounded-2xl border bg-background shadow-2xl">
+        {/* Header */}
         <div className="flex items-center justify-between border-b px-5 py-4">
           <div>
             <h2 className="text-base font-semibold">Team access</h2>
@@ -181,183 +323,268 @@ export function TeamAccessModal({ open, onOpenChange }: TeamAccessModalProps) {
           </button>
         </div>
 
+        {/* Tabs */}
         <div className="flex gap-1 border-b px-5 pt-2">
-          <button
-            type="button"
-            onClick={() => setActiveTab("invite")}
-            className={cn(
-              "rounded-t-md px-3 py-2 text-sm",
-              activeTab === "invite"
-                ? "border-b-2 border-foreground font-medium text-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            Invite people
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("requests")}
-            className={cn(
-              "rounded-t-md px-3 py-2 text-sm",
-              activeTab === "requests"
-                ? "border-b-2 border-foreground font-medium text-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            Requested access
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("members")}
-            className={cn(
-              "rounded-t-md px-3 py-2 text-sm",
-              activeTab === "members"
-                ? "border-b-2 border-foreground font-medium text-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            Members
-          </button>
+          {(["invite", "requests", "members"] as TeamTab[]).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setActiveTab(tab)}
+              className={cn(
+                "rounded-t-md px-3 py-2 text-sm",
+                activeTab === tab
+                  ? "border-b-2 border-foreground font-medium text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {tab === "invite" ? "Invite people" : tab === "requests" ? "Requested access" : "Members"}
+            </button>
+          ))}
         </div>
 
+        {/* Body */}
         <div className="max-h-[70vh] overflow-y-auto p-5">
-          {activeTab === "invite" ? (
+
+          {/* INVITE TAB */}
+          {activeTab === "invite" && (
             <div className="space-y-4">
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">Email addresses</label>
-                <textarea
-                  value={inviteInput}
-                  onChange={(event) => setInviteInput(event.target.value)}
-                  rows={3}
-                  placeholder="name@company.com, teammate@company.com"
-                  className="w-full rounded-lg border bg-background p-2.5 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
-                />
-                <p className="text-[11px] text-muted-foreground">
-                  Add one or multiple emails separated by comma, space, or new line.
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <p className="text-xs font-medium text-muted-foreground">Role</p>
-                <div className="grid gap-2">
-                  {(["guest", "collaborator", "admin"] as TeamRole[]).map((item) => (
-                    <button
-                      key={item}
-                      type="button"
-                      onClick={() => setRole(item)}
-                      className={cn(
-                        "rounded-lg border px-3 py-2 text-left",
-                        role === item ? "border-primary bg-primary/5" : "hover:border-muted-foreground/30"
-                      )}
-                    >
-                      <p className="text-sm font-medium">{ROLE_META[item].title}</p>
-                      <p className="text-xs text-muted-foreground">{ROLE_META[item].description}</p>
-                    </button>
-                  ))}
+              {createdInvites.length > 0 ? (
+                /* Results: show generated invite links */
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 text-sm font-medium text-emerald-600">
+                    <Check className="h-4 w-4" />
+                    {createdInvites.length === 1
+                      ? "Invite link created."
+                      : `${createdInvites.length} invite links created.`}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Copy each link and share it directly with your teammate. Links expire in 7 days.
+                  </p>
+                  <div className="space-y-2">
+                    {createdInvites.map((invite) => (
+                      <div
+                        key={invite.id}
+                        className="flex items-center justify-between gap-3 rounded-lg border p-3"
+                      >
+                        <div className="min-w-0 space-y-0.5">
+                          <p className="truncate text-sm font-medium">{invite.email}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {ROLE_META[invite.role]?.title ?? invite.role}
+                          </p>
+                          <p className="truncate font-mono text-[11px] text-muted-foreground">
+                            {invite.inviteUrl}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => copyToClipboard(invite.inviteUrl, invite.id)}
+                          className="flex shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs hover:bg-accent"
+                        >
+                          {copiedId === invite.id ? (
+                            <Check className="h-3.5 w-3.5 text-emerald-600" />
+                          ) : (
+                            <Copy className="h-3.5 w-3.5" />
+                          )}
+                          {copiedId === invite.id ? "Copied" : "Copy link"}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <Button variant="outline" size="sm" onClick={() => setCreatedInvites([])}>
+                    Create more invites
+                  </Button>
                 </div>
-              </div>
-            </div>
-          ) : null}
+              ) : (
+                /* Invite form */
+                <>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">
+                      Email addresses
+                    </label>
+                    <textarea
+                      value={inviteInput}
+                      onChange={(event) => setInviteInput(event.target.value)}
+                      rows={3}
+                      placeholder="name@company.com, teammate@company.com"
+                      className="w-full rounded-lg border bg-background p-2.5 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
+                    />
+                    <p className="text-[11px] text-muted-foreground">
+                      Add one or multiple emails separated by comma, space, or new line.
+                    </p>
+                  </div>
 
-          {activeTab === "requests" ? (
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium text-muted-foreground">Role</p>
+                    <div className="grid gap-2">
+                      {(["guest", "collaborator", "admin"] as TeamRole[]).map((item) => (
+                        <button
+                          key={item}
+                          type="button"
+                          onClick={() => setRole(item)}
+                          className={cn(
+                            "rounded-lg border px-3 py-2 text-left",
+                            role === item
+                              ? "border-primary bg-primary/5"
+                              : "hover:border-muted-foreground/30"
+                          )}
+                        >
+                          <p className="text-sm font-medium">{ROLE_META[item].title}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {ROLE_META[item].description}
+                          </p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {inviteError && (
+                    <p className="text-xs text-destructive">{inviteError}</p>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* REQUESTS TAB */}
+          {activeTab === "requests" && (
             <div className="space-y-3">
-              {requests.length === 0 ? (
+              {requestsLoading ? (
+                <p className="text-sm text-muted-foreground">Loading...</p>
+              ) : requestsError ? (
+                <p className="text-sm text-destructive">{requestsError}</p>
+              ) : requests.length === 0 ? (
                 <div className="rounded-xl border border-dashed p-6 text-center">
-                  <p className="text-sm font-medium">No pending requests</p>
-                  <p className="text-xs text-muted-foreground">New access requests will appear here.</p>
+                  <p className="text-sm font-medium">No pending access requests.</p>
+                  <p className="text-xs text-muted-foreground">
+                    New access requests will appear here.
+                  </p>
                 </div>
               ) : (
                 requests.map((request) => (
-                  <div key={request.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3">
+                  <div
+                    key={request.id}
+                    className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3"
+                  >
                     <div className="space-y-0.5">
-                      <p className="text-sm font-medium">{request.name}</p>
+                      <p className="text-sm font-medium">{request.name ?? request.email}</p>
                       <p className="text-xs text-muted-foreground">{request.email}</p>
                       <p className="text-xs text-muted-foreground">
-                        Requested role: <span className="font-medium text-foreground">{ROLE_META[request.role].title}</span> • {request.scope}
+                        Requested role:{" "}
+                        <span className="font-medium text-foreground">
+                          {ROLE_META[request.role]?.title ?? request.role}
+                        </span>
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Button variant="outline" size="sm" onClick={() => handleRejectRequest(request.id)}>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleRequestAction(request.id, "reject")}
+                      >
                         Reject
                       </Button>
-                      <Button size="sm" onClick={() => handleApproveRequest(request.id)}>
+                      <Button size="sm" onClick={() => handleRequestAction(request.id, "approve")}>
                         Approve
                       </Button>
                     </div>
                   </div>
                 ))
               )}
+              {requestMessage && (
+                <p className="mt-2 text-xs text-emerald-600">
+                  <Check className="mr-1 inline h-3.5 w-3.5" />
+                  {requestMessage}
+                </p>
+              )}
             </div>
-          ) : null}
+          )}
 
-          {activeTab === "members" ? (
+          {/* MEMBERS TAB */}
+          {activeTab === "members" && (
             <div className="space-y-2">
-              {members.map((member) => (
-                <div key={member.id} className="flex items-center justify-between gap-3 rounded-xl border p-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{member.name}</p>
-                    <p className="truncate text-xs text-muted-foreground">{member.email}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {ROLE_META[member.role].title} • {member.scope}
-                      {member.status === "pending" ? " • Pending invite" : ""}
-                    </p>
-                  </div>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="outline" size="sm">
-                        Manage
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-48">
-                      <DropdownMenuItem onClick={() => handleRoleChange(member.id, "guest")}>
-                        <User className="h-4 w-4" />
-                        Change role to Guest
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => handleRoleChange(member.id, "collaborator")}>
-                        <Users className="h-4 w-4" />
-                        Change role to Collaborator
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => handleRoleChange(member.id, "admin")}>
-                        <Shield className="h-4 w-4" />
-                        Change role to Admin
-                      </DropdownMenuItem>
-                      {member.status === "pending" ? (
-                        <DropdownMenuItem onClick={() => setMessage({ type: "success", text: "Invitation resent." })}>
-                          <Mail className="h-4 w-4" />
-                          Resend invite
-                        </DropdownMenuItem>
-                      ) : null}
-                      <DropdownMenuItem
-                        onClick={() => handleRemoveAccess(member.id)}
-                        className="text-destructive focus:text-destructive"
-                      >
-                        Remove access
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+              {membersLoading ? (
+                <p className="text-sm text-muted-foreground">Loading...</p>
+              ) : membersError ? (
+                <p className="text-sm text-destructive">{membersError}</p>
+              ) : members.length === 0 ? (
+                <div className="rounded-xl border border-dashed p-6 text-center">
+                  <p className="text-sm font-medium">No team members yet.</p>
+                  <p className="text-xs text-muted-foreground">
+                    Invite teammates to see them here.
+                  </p>
                 </div>
-              ))}
+              ) : (
+                members.map((member) => (
+                  <div
+                    key={member.id}
+                    className="flex items-center justify-between gap-3 rounded-xl border p-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{member.name ?? member.email}</p>
+                      <p className="truncate text-xs text-muted-foreground">{member.email}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {ROLE_META[member.role]?.title ?? member.role}
+                        {member.status === "pending" ? " • Pending" : ""}
+                      </p>
+                    </div>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="outline" size="sm">
+                          Manage
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-48">
+                        <DropdownMenuItem onClick={() => handleRoleChange(member.id, "guest")}>
+                          <User className="h-4 w-4" />
+                          Change role to Guest
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => handleRoleChange(member.id, "collaborator")}
+                        >
+                          <Users className="h-4 w-4" />
+                          Change role to Collaborator
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleRoleChange(member.id, "admin")}>
+                          <Shield className="h-4 w-4" />
+                          Change role to Admin
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => handleRemoveMember(member.id)}
+                          className="text-destructive focus:text-destructive"
+                        >
+                          Remove access
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                ))
+              )}
+              {memberMessage && (
+                <p className="mt-2 text-xs text-emerald-600">
+                  <Check className="mr-1 inline h-3.5 w-3.5" />
+                  {memberMessage}
+                </p>
+              )}
             </div>
-          ) : null}
-
-          {message ? (
-            <p className={cn("mt-4 text-xs", message.type === "success" ? "text-emerald-600" : "text-destructive")}>
-              {message.type === "success" ? <Check className="mr-1 inline h-3.5 w-3.5" /> : null}
-              {message.text}
-            </p>
-          ) : null}
+          )}
         </div>
 
+        {/* Footer */}
         <div className="flex items-center justify-end gap-2 border-t px-5 py-4">
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
-            Cancel
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={inviteLoading}
+          >
+            {activeTab === "invite" && createdInvites.length === 0 ? "Cancel" : "Close"}
           </Button>
-          {activeTab === "invite" ? (
-            <Button onClick={handleInvite} disabled={loading}>
-              {loading ? "Inviting..." : "Invite"}
+          {activeTab === "invite" && createdInvites.length === 0 && (
+            <Button
+              onClick={handleInvite}
+              disabled={inviteLoading || inviteEmails.length === 0}
+            >
+              {inviteLoading ? "Creating..." : "Create invite links"}
             </Button>
-          ) : (
-            <Button onClick={() => onOpenChange(false)}>Done</Button>
           )}
         </div>
       </div>
