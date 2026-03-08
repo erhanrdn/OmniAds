@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { META_CONFIG } from "@/lib/oauth/meta-config";
 import crypto from "crypto";
+import { requireBusinessAccess } from "@/lib/access";
 
 /**
  * GET /api/oauth/meta/start?businessId=...
@@ -18,6 +19,12 @@ export async function GET(request: NextRequest) {
       { status: 400 },
     );
   }
+  const access = await requireBusinessAccess({
+    request,
+    businessId,
+    minRole: "collaborator",
+  });
+  if ("error" in access) return access.error;
 
   // Generate a random state that encodes the businessId
   const statePayload = JSON.stringify({

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getIntegration } from "@/lib/integrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { runMigrations } from "@/lib/migrations";
+import { requireBusinessAccess } from "@/lib/access";
 import {
   CreativePreviewState,
   normalizeCreativePreview,
@@ -740,6 +741,12 @@ export async function GET(request: NextRequest) {
       { status: 400 }
     );
   }
+  const access = await requireBusinessAccess({
+    request,
+    businessId,
+    minRole: "guest",
+  });
+  if ("error" in access) return access.error;
 
   const integration = await getIntegration(businessId, "meta").catch(() => null);
   if (!integration || integration.status !== "connected") {

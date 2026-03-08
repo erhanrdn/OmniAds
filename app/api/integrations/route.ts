@@ -5,6 +5,7 @@ import {
   disconnectIntegration,
 } from "@/lib/integrations";
 import type { IntegrationProviderType } from "@/lib/integrations";
+import { requireBusinessAccess } from "@/lib/access";
 
 /**
  * GET /api/integrations?businessId=...&provider=...
@@ -22,6 +23,12 @@ export async function GET(request: NextRequest) {
       { status: 400 },
     );
   }
+  const access = await requireBusinessAccess({
+    request,
+    businessId,
+    minRole: "guest",
+  });
+  if ("error" in access) return access.error;
 
   const provider = searchParams.get(
     "provider",
@@ -54,6 +61,12 @@ export async function DELETE(request: NextRequest) {
       { status: 400 },
     );
   }
+  const access = await requireBusinessAccess({
+    request,
+    businessId,
+    minRole: "collaborator",
+  });
+  if ("error" in access) return access.error;
 
   await disconnectIntegration(businessId, provider);
   return NextResponse.json({ status: "disconnected" });

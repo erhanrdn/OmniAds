@@ -18,7 +18,9 @@ interface AppState {
   setMobileSidebarOpen: (open: boolean) => void;
   createBusiness: (name: string, timezone: string, currency: string) => string;
   deleteBusiness: (id: string) => string | null;
+  setBusinessesFromServer: (businesses: Business[], selectedBusinessId: string | null) => void;
   selectBusiness: (id: string | null) => void;
+  clearWorkspaceState: () => void;
   setHasHydrated: (value: boolean) => void;
 }
 
@@ -65,7 +67,16 @@ export const useAppStore = create<AppState>()(
         });
         return nextSelected;
       },
+      setBusinessesFromServer: (businesses, selectedBusinessId) =>
+        set({
+          businesses,
+          selectedBusinessId:
+            selectedBusinessId && businesses.some((item) => item.id === selectedBusinessId)
+              ? selectedBusinessId
+              : businesses[0]?.id ?? null,
+        }),
       selectBusiness: (id) => set({ selectedBusinessId: id }),
+      clearWorkspaceState: () => set({ businesses: [], selectedBusinessId: null }),
       setHasHydrated: (value) => set({ hasHydrated: value }),
     }),
     {

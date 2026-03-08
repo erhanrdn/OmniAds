@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { MailPlus, MoreHorizontal, Shield, User, Users } from "lucide-react";
+import { useAppStore } from "@/store/app-store";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -15,28 +16,29 @@ type TeamRole = "guest" | "collaborator" | "admin";
 type TeamTab = "members" | "invites" | "requests";
 
 interface TeamMember {
-  id: string;
+  membership_id: string;
   name: string;
   email: string;
   role: TeamRole;
-  access: string;
-  status: "active" | "pending";
+  status: "active" | "invited" | "pending";
+  joined_at: string;
 }
 
 interface InviteRow {
   id: string;
   email: string;
   role: TeamRole;
-  access: string;
-  sentAt: string;
+  status: string;
+  created_at: string;
 }
 
 interface AccessRequest {
-  id: string;
-  user: string;
+  membership_id: string;
+  name: string;
   email: string;
-  requestedRole: TeamRole;
-  workspace: string;
+  role: TeamRole;
+  status: "pending";
+  business_name: string;
 }
 
 const ROLE_META: Record<TeamRole, { label: string; description: string }> = {
@@ -54,53 +56,6 @@ const ROLE_META: Record<TeamRole, { label: string; description: string }> = {
   },
 };
 
-const DEFAULT_MEMBERS: TeamMember[] = [
-  {
-    id: "m1",
-    name: "Admin User",
-    email: "admin@omniads.io",
-    role: "admin",
-    access: "All workspaces",
-    status: "active",
-  },
-  {
-    id: "m2",
-    name: "Lena Foster",
-    email: "lena@brand.com",
-    role: "collaborator",
-    access: "Meta Ecommerce",
-    status: "active",
-  },
-  {
-    id: "m3",
-    name: "Cem Kaya",
-    email: "cem@brand.com",
-    role: "guest",
-    access: "Top Creatives",
-    status: "pending",
-  },
-];
-
-const DEFAULT_INVITES: InviteRow[] = [
-  {
-    id: "i1",
-    email: "ava@brand.com",
-    role: "guest",
-    access: "Meta Ecommerce",
-    sentAt: "2026-03-08",
-  },
-];
-
-const DEFAULT_REQUESTS: AccessRequest[] = [
-  {
-    id: "r1",
-    user: "Mia Carter",
-    email: "mia@brand.com",
-    requestedRole: "collaborator",
-    workspace: "Meta Ecommerce",
-  },
-];
-
 function parseEmails(input: string): string[] {
   return input
     .split(/[,\n;\s]+/)
@@ -109,25 +64,82 @@ function parseEmails(input: string): string[] {
 }
 
 export default function TeamPage() {
+  const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const [activeTab, setActiveTab] = useState<TeamTab>("members");
-  const [members, setMembers] = useState<TeamMember[]>(DEFAULT_MEMBERS);
-  const [invites, setInvites] = useState<InviteRow[]>(DEFAULT_INVITES);
-  const [requests, setRequests] = useState<AccessRequest[]>(DEFAULT_REQUESTS);
+  const [members, setMembers] = useState<TeamMember[]>([]);
+  const [invites, setInvites] = useState<InviteRow[]>([]);
+  const [requests, setRequests] = useState<AccessRequest[]>([]);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteInput, setInviteInput] = useState("");
   const [inviteRole, setInviteRole] = useState<TeamRole>("collaborator");
   const [inviteLoading, setInviteLoading] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [flash, setFlash] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   const parsedEmails = useMemo(() => parseEmails(inviteInput), [inviteInput]);
 
-  const changeRole = (memberId: string, role: TeamRole) => {
-    setMembers((prev) => prev.map((member) => (member.id === memberId ? { ...member, role } : member)));
+  async function loadTeamData() {
+    if (!selectedBusinessId) return;
+    setLoading(true);
+    setFlash(null);
+    try {
+      const [membersRes, invitesRes, requestsRes] = await Promise.all([
+        fetch(`/api/team/members?businessId=${encodeURIComponent(selectedBusinessId)}`, {
+          cache: "no-store",
+        }),
+        fetch(`/api/team/invites?businessId=${encodeURIComponent(selectedBusinessId)}`, {
+          cache: "no-store",
+        }),
+        fetch(`/api/team/access-requests?businessId=${encodeURIComponent(selectedBusinessId)}`, {
+          cache: "no-store",
+        }),
+      ]);
+
+      const membersJson = (await membersRes.json().catch(() => null)) as { members?: TeamMember[] } | null;
+      const invitesJson = (await invitesRes.json().catch(() => null)) as { invites?: InviteRow[] } | null;
+      const requestsJson = (await requestsRes.json().catch(() => null)) as { requests?: AccessRequest[] } | null;
+
+      setMembers(membersJson?.members ?? []);
+      setInvites(invitesJson?.invites ?? []);
+      setRequests(requestsJson?.requests ?? []);
+    } catch {
+      setFlash({ type: "error", text: "Could not load team data." });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadTeamData();
+  }, [selectedBusinessId]);
+
+  const changeRole = async (membershipId: string, role: TeamRole) => {
+    if (!selectedBusinessId) return;
+    const res = await fetch("/api/team/members", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ businessId: selectedBusinessId, membershipId, role }),
+    });
+    if (!res.ok) {
+      setFlash({ type: "error", text: "Could not update role." });
+      return;
+    }
+    await loadTeamData();
     setFlash({ type: "success", text: "Role updated." });
   };
 
-  const removeUser = (memberId: string) => {
-    setMembers((prev) => prev.filter((member) => member.id !== memberId));
+  const removeUser = async (membershipId: string) => {
+    if (!selectedBusinessId) return;
+    const res = await fetch("/api/team/members", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ businessId: selectedBusinessId, membershipId }),
+    });
+    if (!res.ok) {
+      setFlash({ type: "error", text: "Could not remove member." });
+      return;
+    }
+    await loadTeamData();
     setFlash({ type: "success", text: "User removed." });
   };
 
@@ -135,52 +147,47 @@ export default function TeamPage() {
     setFlash({ type: "success", text: `Invite resent to ${email}.` });
   };
 
-  const approveRequest = (requestId: string) => {
-    const request = requests.find((row) => row.id === requestId);
-    setRequests((prev) => prev.filter((row) => row.id !== requestId));
-    if (request) {
-      setMembers((prev) => [
-        ...prev,
-        {
-          id: `m-${Date.now()}`,
-          name: request.user,
-          email: request.email,
-          role: request.requestedRole,
-          access: request.workspace,
-          status: "active",
-        },
-      ]);
+  const actOnRequest = async (membershipId: string, action: "approve" | "reject") => {
+    if (!selectedBusinessId) return;
+    const res = await fetch("/api/team/access-requests", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ businessId: selectedBusinessId, membershipId, action }),
+    });
+    if (!res.ok) {
+      setFlash({ type: "error", text: `Could not ${action} request.` });
+      return;
     }
-    setFlash({ type: "success", text: "Access request approved." });
-  };
-
-  const rejectRequest = (requestId: string) => {
-    setRequests((prev) => prev.filter((row) => row.id !== requestId));
-    setFlash({ type: "success", text: "Access request rejected." });
+    await loadTeamData();
+    setFlash({ type: "success", text: action === "approve" ? "Access request approved." : "Access request rejected." });
   };
 
   const submitInvite = async () => {
+    if (!selectedBusinessId) return;
     if (parsedEmails.length === 0) {
       setFlash({ type: "error", text: "Enter at least one email address." });
       return;
     }
     setInviteLoading(true);
     setFlash(null);
-    await new Promise((resolve) => setTimeout(resolve, 450));
-    const now = new Date().toISOString().slice(0, 10);
-    setInvites((prev) => [
-      ...prev,
-      ...parsedEmails.map((email) => ({
-        id: `${email}-${Date.now()}`,
-        email,
+    const res = await fetch("/api/team/invites", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        businessId: selectedBusinessId,
+        emails: parsedEmails,
         role: inviteRole,
-        access: "Workspace assignment pending",
-        sentAt: now,
-      })),
-    ]);
+      }),
+    });
     setInviteLoading(false);
+    if (!res.ok) {
+      const payload = (await res.json().catch(() => null)) as { message?: string } | null;
+      setFlash({ type: "error", text: payload?.message ?? "Could not send invites." });
+      return;
+    }
     setInviteOpen(false);
     setInviteInput("");
+    await loadTeamData();
     setFlash({
       type: "success",
       text: `Invitation sent to ${parsedEmails.length} ${parsedEmails.length === 1 ? "person" : "people"}.`,
@@ -196,7 +203,7 @@ export default function TeamPage() {
             Manage members, invites, and access requests across your workspaces.
           </p>
         </div>
-        <Button onClick={() => setInviteOpen(true)} className="gap-2">
+        <Button onClick={() => setInviteOpen(true)} className="gap-2" disabled={!selectedBusinessId}>
           <MailPlus className="h-4 w-4" />
           Invite people
         </Button>
@@ -247,6 +254,8 @@ export default function TeamPage() {
         </p>
       ) : null}
 
+      {loading ? <p className="text-sm text-muted-foreground">Loading team data...</p> : null}
+
       {activeTab === "members" ? (
         <div className="overflow-x-auto rounded-xl border">
           <table className="min-w-full text-sm">
@@ -260,7 +269,7 @@ export default function TeamPage() {
             </thead>
             <tbody>
               {members.map((member) => (
-                <tr key={member.id} className="border-t">
+                <tr key={member.membership_id} className="border-t">
                   <td className="px-4 py-3">
                     <p className="font-medium">{member.name}</p>
                     <p className="text-xs text-muted-foreground">{member.email}</p>
@@ -270,7 +279,7 @@ export default function TeamPage() {
                       {ROLE_META[member.role].label}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-muted-foreground">{member.access}</td>
+                  <td className="px-4 py-3 text-muted-foreground">{selectedBusinessId ? "Assigned business" : "-"}</td>
                   <td className="px-4 py-3 text-right">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -279,15 +288,15 @@ export default function TeamPage() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-52">
-                        <DropdownMenuItem onClick={() => changeRole(member.id, "guest")}>
+                        <DropdownMenuItem onClick={() => changeRole(member.membership_id, "guest")}>
                           <User className="h-4 w-4" />
                           Change role to Guest
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => changeRole(member.id, "collaborator")}>
+                        <DropdownMenuItem onClick={() => changeRole(member.membership_id, "collaborator")}>
                           <Users className="h-4 w-4" />
                           Change role to Collaborator
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => changeRole(member.id, "admin")}>
+                        <DropdownMenuItem onClick={() => changeRole(member.membership_id, "admin")}>
                           <Shield className="h-4 w-4" />
                           Change role to Admin
                         </DropdownMenuItem>
@@ -297,7 +306,7 @@ export default function TeamPage() {
                           </DropdownMenuItem>
                         ) : null}
                         <DropdownMenuItem
-                          onClick={() => removeUser(member.id)}
+                          onClick={() => removeUser(member.membership_id)}
                           className="text-destructive focus:text-destructive"
                         >
                           Remove user
@@ -329,8 +338,8 @@ export default function TeamPage() {
                 <tr key={invite.id} className="border-t">
                   <td className="px-4 py-3">{invite.email}</td>
                   <td className="px-4 py-3">{ROLE_META[invite.role].label}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{invite.access}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{invite.sentAt}</td>
+                  <td className="px-4 py-3 text-muted-foreground">Assigned business</td>
+                  <td className="px-4 py-3 text-muted-foreground">{new Date(invite.created_at).toLocaleDateString()}</td>
                   <td className="px-4 py-3 text-right">
                     <Button variant="outline" size="sm" onClick={() => resendInvite(invite.email)}>
                       Resend invite
@@ -364,19 +373,19 @@ export default function TeamPage() {
             <tbody>
               {requests.length > 0 ? (
                 requests.map((request) => (
-                  <tr key={request.id} className="border-t">
+                  <tr key={request.membership_id} className="border-t">
                     <td className="px-4 py-3">
-                      <p className="font-medium">{request.user}</p>
+                      <p className="font-medium">{request.name}</p>
                       <p className="text-xs text-muted-foreground">{request.email}</p>
                     </td>
-                    <td className="px-4 py-3">{ROLE_META[request.requestedRole].label}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{request.workspace}</td>
+                    <td className="px-4 py-3">{ROLE_META[request.role].label}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{request.business_name}</td>
                     <td className="px-4 py-3">
                       <div className="flex justify-end gap-2">
-                        <Button variant="outline" size="sm" onClick={() => rejectRequest(request.id)}>
+                        <Button variant="outline" size="sm" onClick={() => actOnRequest(request.membership_id, "reject")}>
                           Reject
                         </Button>
-                        <Button size="sm" onClick={() => approveRequest(request.id)}>
+                        <Button size="sm" onClick={() => actOnRequest(request.membership_id, "approve")}>
                           Approve
                         </Button>
                       </div>

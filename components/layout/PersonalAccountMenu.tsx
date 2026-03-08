@@ -19,6 +19,11 @@ interface PersonalAccountMenuProps {
 export function PersonalAccountMenu({ userName }: PersonalAccountMenuProps) {
   const router = useRouter();
 
+  async function handleSignOut() {
+    await fetch("/api/auth/logout", { method: "POST" }).catch(() => null);
+    router.push("/login");
+  }
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -48,7 +53,7 @@ export function PersonalAccountMenu({ userName }: PersonalAccountMenuProps) {
         <DropdownMenuSeparator />
         <DropdownMenuItem
           className="gap-2 text-destructive focus:text-destructive"
-          onClick={() => router.push("/login")}
+          onClick={handleSignOut}
         >
           <LogOut className="h-4 w-4 text-destructive" />
           Sign out

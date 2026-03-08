@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { META_CONFIG } from "@/lib/oauth/meta-config";
 import { upsertIntegration } from "@/lib/integrations";
+import { requireBusinessAccess } from "@/lib/access";
 
 /**
  * GET /api/oauth/meta/callback?code=...&state=...
@@ -59,6 +60,18 @@ export async function GET(request: NextRequest) {
       `${baseUrl}/integrations/callback/meta?status=error&error=${encodeURIComponent(
         "Malformed OAuth state.",
       )}`,
+    );
+  }
+  const access = await requireBusinessAccess({
+    request,
+    businessId,
+    minRole: "collaborator",
+  });
+  if ("error" in access) {
+    return NextResponse.redirect(
+      `${baseUrl}/integrations/callback/meta?status=error&businessId=${businessId}&error=${encodeURIComponent(
+        "You do not have permission to connect integrations for this business.",
+      )}`
     );
   }
 

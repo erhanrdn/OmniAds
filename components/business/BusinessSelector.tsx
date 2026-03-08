@@ -35,6 +35,11 @@ export function BusinessSelector() {
 
   function handleSelect(businessId: string) {
     selectBusiness(businessId);
+    fetch("/api/auth/switch-business", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ businessId }),
+    }).catch(() => null);
     router.push("/overview");
   }
 

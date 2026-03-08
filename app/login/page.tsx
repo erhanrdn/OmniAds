@@ -1,13 +1,36 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import Link from "next/link";
 
 export default function LoginPage() {
   const router = useRouter();
+  const [email, setEmail] = useState("admin@omniads.io");
+  const [password, setPassword] = useState("password");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  function handleLogin() {
-    router.push("/select-business");
+  async function handleLogin() {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      const payload = (await res.json().catch(() => null)) as { message?: string } | null;
+      if (!res.ok) {
+        throw new Error(payload?.message ?? "Could not sign in.");
+      }
+      router.push("/overview");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Could not sign in.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -32,7 +55,8 @@ export default function LoginPage() {
               id="email"
               type="email"
               placeholder="admin@omniads.io"
-              defaultValue="admin@omniads.io"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
           </div>
@@ -44,17 +68,23 @@ export default function LoginPage() {
               id="password"
               type="password"
               placeholder="••••••••"
-              defaultValue="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
           </div>
-          <Button className="w-full" onClick={handleLogin}>
-            Sign in
+          {error ? <p className="text-xs text-destructive">{error}</p> : null}
+          <Button className="w-full" onClick={handleLogin} disabled={loading}>
+            {loading ? "Signing in..." : "Sign in"}
           </Button>
         </div>
 
         <p className="text-center text-xs text-muted-foreground">
-          Demo app — any credentials will work.
+          No account yet?{" "}
+          <Link href="/signup" className="text-foreground underline underline-offset-2">
+            Create one
+          </Link>
+          .
         </p>
       </div>
     </div>

@@ -3,6 +3,7 @@
 import { DesktopSidebar, MobileSidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
 import { BusinessGuard } from "@/components/layout/business-guard";
+import { AuthBootstrap } from "@/components/layout/auth-bootstrap";
 
 export default function DashboardLayout({
   children,
@@ -11,6 +12,7 @@ export default function DashboardLayout({
 }) {
   return (
     <div className="flex h-screen overflow-hidden bg-background">
+      <AuthBootstrap />
       {/* Desktop sidebar */}
       <DesktopSidebar />
 

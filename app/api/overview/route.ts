@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { getIntegration } from "@/lib/integrations";
 import { runMigrations } from "@/lib/migrations";
+import { requireBusinessAccess } from "@/lib/access";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -113,6 +114,12 @@ export async function GET(request: NextRequest) {
       { status: 400 }
     );
   }
+  const access = await requireBusinessAccess({
+    request,
+    businessId,
+    minRole: "guest",
+  });
+  if ("error" in access) return access.error;
 
   const resolvedStart = startDate ?? toISODate(nDaysAgo(29));
   const resolvedEnd = endDate ?? toISODate(new Date());

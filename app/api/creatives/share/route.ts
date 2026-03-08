@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { SharePayload } from "@/components/creatives/shareCreativeTypes";
 import { createCreativeShareSnapshot } from "@/lib/creative-share-store";
+import { requireBusinessAccess } from "@/lib/access";
 
 type CreateShareRequest = Omit<SharePayload, "token" | "createdAt">;
 
@@ -24,6 +25,13 @@ export async function POST(request: NextRequest) {
       { status: 400 }
     );
   }
+  const businessId = (body as Partial<CreateShareRequest>).businessId ?? null;
+  const access = await requireBusinessAccess({
+    request,
+    businessId,
+    minRole: "guest",
+  });
+  if ("error" in access) return access.error;
 
   const { token } = await createCreativeShareSnapshot(body);
   return NextResponse.json({
