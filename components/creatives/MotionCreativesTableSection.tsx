@@ -1218,14 +1218,18 @@ export function MotionCreativesTableSection({
                     />
 
                     <div className="h-[30px] w-[30px] shrink-0 overflow-hidden rounded bg-muted/30">
-                      {row.previewState === "preview" && row.previewUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={row.previewUrl} alt={row.name} className="h-full w-full object-cover" />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center text-[9px] text-muted-foreground">
-                          {row.previewState === "catalog" ? "Catalog" : "Preview unavailable"}
-                        </div>
-                      )}
+                      {(() => {
+                        const isCatalogAd = row.previewState === "catalog" || row.isCatalog;
+                        const thumbUrl = row.previewUrl ?? row.thumbnailUrl ?? row.imageUrl;
+                        return !isCatalogAd && thumbUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={thumbUrl} alt={row.name} className="h-full w-full object-cover" />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center text-[9px] text-muted-foreground">
+                            {isCatalogAd ? "Catalog" : "—"}
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     <div className="min-w-0">

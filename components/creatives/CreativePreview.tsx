@@ -34,10 +34,7 @@ export function resolvePreviewState(c: PreviewableCreative): PreviewState {
 }
 
 export function resolvePreviewUrl(c: PreviewableCreative): string | null {
-  if (c.previewState) {
-    return c.previewState === "preview" ? c.previewUrl ?? null : null;
-  }
-  if (c.isCatalog) return null;
+  if (c.isCatalog || c.previewState === "catalog") return null;
   return c.previewUrl ?? c.imageUrl ?? c.thumbnailUrl ?? null;
 }
 
