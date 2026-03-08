@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
@@ -21,7 +21,6 @@ import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
 import {
   applyMotionFilters,
   DEFAULT_MOTION_DATE_RANGE,
-  DEFAULT_TOP_METRIC_IDS,
   mapMotionGroupByToApi,
   MotionDateRangeValue,
   MotionFilterRule,
@@ -148,10 +147,12 @@ export default function CreativesPage() {
   );
   const [groupBy, setGroupBy] = useState<MotionGroupBy>("adName");
   const [topFilters, setTopFilters] = useState<MotionFilterRule[]>([]);
-  const [topMetricIds, setTopMetricIds] = useState<string[]>(DEFAULT_TOP_METRIC_IDS);
+  const [topMetricIds, setTopMetricIds] = useState<string[]>(["spend", "roas"]);
   const [selectionState, setSelectionState] = useState<{ selectedRowIds: string[] }>({
     selectedRowIds: [],
   });
+  const hasInitializedDefaultSelectionRef = useRef(false);
+  const hasUserInteractedSelectionRef = useRef(false);
   const [drawerState, setDrawerState] = useState<{ open: boolean; activeRowId: string | null }>({
     open: false,
     activeRowId: null,
@@ -183,7 +184,7 @@ export default function CreativesPage() {
         end: drEnd,
         groupBy: mapMotionGroupByToApi(groupBy),
         format: "all",
-        sort: "roas",
+        sort: "spend",
       }),
   });
 
@@ -224,8 +225,22 @@ export default function CreativesPage() {
     setSelectionState((prev) => {
       const filteredIds = new Set(filteredRows.map((row) => row.id));
       const kept = prev.selectedRowIds.filter((id) => filteredIds.has(id));
-      if (kept.length > 0) return { selectedRowIds: kept };
-      return { selectedRowIds: filteredRows.slice(0, 4).map((row) => row.id) };
+
+      if (
+        !hasInitializedDefaultSelectionRef.current &&
+        !hasUserInteractedSelectionRef.current &&
+        kept.length === 0 &&
+        filteredRows.length > 0
+      ) {
+        hasInitializedDefaultSelectionRef.current = true;
+        return { selectedRowIds: filteredRows.slice(0, 5).map((row) => row.id) };
+      }
+
+      if (kept.length !== prev.selectedRowIds.length) {
+        return { selectedRowIds: kept };
+      }
+
+      return prev;
     });
   }, [filteredRows]);
 
@@ -247,6 +262,7 @@ export default function CreativesPage() {
   );
 
   const toggleRowSelection = (rowId: string) => {
+    hasUserInteractedSelectionRef.current = true;
     setSelectionState((prev) => ({
       selectedRowIds: prev.selectedRowIds.includes(rowId)
         ? prev.selectedRowIds.filter((id) => id !== rowId)
@@ -255,6 +271,7 @@ export default function CreativesPage() {
   };
 
   const toggleAllRows = () => {
+    hasUserInteractedSelectionRef.current = true;
     const allIds = filteredRows.map((row) => row.id);
     setSelectionState((prev) => ({
       selectedRowIds: allIds.every((id) => prev.selectedRowIds.includes(id)) ? [] : allIds,

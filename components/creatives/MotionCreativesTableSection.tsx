@@ -404,7 +404,7 @@ export function MotionCreativesTableSection({
   const [tooltip, setTooltip] = useState<MetricTooltipState | null>(null);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => getDefaultColumnWidths());
   const [isResizing, setIsResizing] = useState(false);
-  const [sortState, setSortState] = useState<TableSortState>({ key: null, direction: null });
+  const [sortState, setSortState] = useState<TableSortState>({ key: "spend", direction: "desc" });
   const presetWrapRef = useRef<HTMLDivElement>(null);
   const presetTriggerRef = useRef<HTMLButtonElement>(null);
   const presetSearchRef = useRef<HTMLInputElement>(null);
@@ -679,10 +679,10 @@ export function MotionCreativesTableSection({
       if (parsed.columnWidths && typeof parsed.columnWidths === "object") {
         setColumnWidths((prev) => ({ ...prev, ...parsed.columnWidths }));
       }
-      if (parsed.sort && typeof parsed.sort === "object") {
+      if (parsed.sort && typeof parsed.sort === "object" && parsed.sort.key && parsed.sort.direction) {
         setSortState({
-          key: parsed.sort.key ?? null,
-          direction: parsed.sort.direction ?? null,
+          key: parsed.sort.key,
+          direction: parsed.sort.direction,
         });
       }
     } catch {
