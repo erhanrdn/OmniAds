@@ -195,12 +195,14 @@ async function fetchAdCreativeMap(
           [
             "id",
             "promoted_object{product_set_id,catalog_id}",
-            "creative{",
-            "id,name,object_type,effective_object_story_id,thumbnail_url,image_url,",
-            "object_story_spec{link_data{picture,image_hash},video_data{image_url,thumbnail_url},template_data},",
-            "asset_feed_spec{catalog_id,product_set_id,images{url,image_url,original_url,hash,image_hash},videos{thumbnail_url,image_url}}",
-            "}",
-          ].join("")
+            [
+              "creative{",
+              "id,name,object_type,effective_object_story_id,thumbnail_url,image_url,",
+              "object_story_spec{link_data{picture,image_hash},video_data{image_url,thumbnail_url},template_data},",
+              "asset_feed_spec{catalog_id,product_set_id,images{url,image_url,original_url,hash,image_hash},videos{thumbnail_url,image_url}}",
+              "}",
+            ].join(""),
+          ].join(",")
         );
         url.searchParams.set("limit", "500");
         url.searchParams.set("access_token", accessToken);
