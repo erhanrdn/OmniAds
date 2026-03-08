@@ -54,5 +54,6 @@ export interface SharePayload {
   metrics: ShareMetricKey[];
   includeNotes: boolean;
   creatives: SharedCreative[];
+  benchmarkCreatives?: SharedCreative[];
   note?: string;
 }

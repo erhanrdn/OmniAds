@@ -36,6 +36,19 @@ function metricValue(creative: SharedCreative, key: ShareMetricKey): number {
   return creative[key];
 }
 
+const METRIC_APPLICABLE_FORMATS: Record<ShareMetricKey, Array<SharedCreative["format"]>> = {
+  spend: ["image", "video"],
+  purchaseValue: ["image", "video"],
+  roas: ["image", "video"],
+  cpa: ["image", "video"],
+  ctrAll: ["image", "video"],
+  purchases: ["image", "video"],
+};
+
+function isMetricApplicable(metric: ShareMetricKey, creative: SharedCreative): boolean {
+  return METRIC_APPLICABLE_FORMATS[metric].includes(creative.format);
+}
+
 function heatColor(value: number, min: number, max: number): string {
   if (!Number.isFinite(value) || !Number.isFinite(min) || !Number.isFinite(max) || max <= min) return "transparent";
   const ratio = (value - min) / (max - min);
@@ -56,6 +69,7 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
     dateRange,
     metrics,
     creatives,
+    benchmarkCreatives,
     includeNotes,
     note,
     groupBy,
@@ -65,17 +79,23 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
     createdAt,
   } = payload;
 
+  const displayRows = creatives;
+  const benchmarkRows = benchmarkCreatives && benchmarkCreatives.length > 0 ? benchmarkCreatives : creatives;
+
   const extremes = useMemo(
     () =>
       metrics.reduce<Record<string, { min: number; max: number }>>((acc, key) => {
-        const values = creatives.map((item) => metricValue(item, key));
+        const values = benchmarkRows
+          .filter((item) => isMetricApplicable(key, item))
+          .map((item) => metricValue(item, key))
+          .filter((value) => Number.isFinite(value));
         acc[key] = {
           min: values.length > 0 ? Math.min(...values) : 0,
           max: values.length > 0 ? Math.max(...values) : 0,
         };
         return acc;
       }, {}),
-    [creatives, metrics]
+    [benchmarkRows, metrics]
   );
 
   const copyLink = async () => {
@@ -107,9 +127,10 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
           <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-[#6B7280]">
             <span className="inline-flex items-center gap-1">
               <Rows3 className="h-3.5 w-3.5" />
-              {creatives.length} creatives
+              {displayRows.length} creatives
             </span>
             {typeof totalRows === "number" ? <span>{totalRows} rows in snapshot</span> : null}
+            <span>{benchmarkRows.length} rows in benchmark</span>
             {groupBy ? <span>Group by: {groupBy}</span> : null}
             {selectedRowIds && selectedRowIds.length > 0 ? <span>Selection: {selectedRowIds.length}</span> : null}
             <span>Generated: {new Date(createdAt).toLocaleString()}</span>
@@ -129,7 +150,7 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
         <section className="space-y-2">
           <div className="overflow-x-auto pb-1">
             <div className="flex min-w-max gap-2.5">
-              {creatives.map((creative) => (
+              {displayRows.map((creative) => (
                 <article key={creative.id} className="w-[190px] shrink-0 overflow-hidden rounded-lg border border-[#E5E7EB] bg-white">
                   <CreativePreview
                     creative={{
@@ -178,7 +199,7 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
                 </tr>
               </thead>
               <tbody>
-                {creatives.map((creative) => (
+                {displayRows.map((creative) => (
                   <tr key={`table_${creative.id}`} className="border-b border-[#F0F2F5]">
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-2">
@@ -200,13 +221,18 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
                     {metrics.map((metric) => {
                       const ext = extremes[metric];
                       const value = metricValue(creative, metric);
+                      const applicable = isMetricApplicable(metric, creative);
                       return (
                         <td
                           key={`cell_${creative.id}_${metric}`}
                           className="px-3 py-2 text-right tabular-nums text-[#111827]"
-                          style={{ backgroundColor: heatColor(value, ext?.min ?? value, ext?.max ?? value) }}
+                          style={{
+                            backgroundColor: applicable
+                              ? heatColor(value, ext?.min ?? value, ext?.max ?? value)
+                              : "transparent",
+                          }}
                         >
-                          {formatMetric(metric, value)}
+                          {applicable ? formatMetric(metric, value) : <span className="text-[#9CA3AF]">—</span>}
                         </td>
                       );
                     })}

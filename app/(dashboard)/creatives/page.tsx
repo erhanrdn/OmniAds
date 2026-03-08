@@ -429,6 +429,7 @@ export default function CreativesPage() {
         includeNotes: false,
         note: "",
         creatives: selectedForShare.map(toSharedCreative),
+        benchmarkCreatives: filteredRows.map(toSharedCreative),
       };
 
       const res = await fetch("/api/creatives/share", {
