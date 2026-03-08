@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { Suspense, useEffect } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAppStore } from "@/store/app-store";
 import {
@@ -10,7 +10,7 @@ import {
 } from "@/store/integrations-store";
 import { getProviderLabel } from "@/components/integrations/oauth";
 
-export default function IntegrationCallbackPage() {
+function IntegrationCallbackPageClient() {
   const router = useRouter();
   const params = useParams<{ provider: string }>();
   const searchParams = useSearchParams();
@@ -100,5 +100,24 @@ export default function IntegrationCallbackPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+function IntegrationCallbackFallback() {
+  return (
+    <div className="relative flex min-h-[60vh] items-center justify-center">
+      <div className="w-full max-w-md rounded-xl border bg-card p-5 text-center shadow-sm">
+        <h1 className="text-lg font-semibold">OAuth Callback</h1>
+        <p className="mt-2 text-sm text-muted-foreground">Preparing authorization context...</p>
+      </div>
+    </div>
+  );
+}
+
+export default function IntegrationCallbackPage() {
+  return (
+    <Suspense fallback={<IntegrationCallbackFallback />}>
+      <IntegrationCallbackPageClient />
+    </Suspense>
   );
 }

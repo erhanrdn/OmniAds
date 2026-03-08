@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 
-export default function LoginPage() {
+function LoginPageClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [email, setEmail] = useState("admin@omniads.io");
@@ -102,5 +102,24 @@ export default function LoginPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+function LoginPageFallback() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="w-full max-w-sm space-y-4 rounded-xl border bg-card p-6 text-center">
+        <h1 className="text-lg font-semibold">Loading sign in…</h1>
+        <p className="text-sm text-muted-foreground">Preparing authentication flow.</p>
+      </div>
+    </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<LoginPageFallback />}>
+      <LoginPageClient />
+    </Suspense>
   );
 }

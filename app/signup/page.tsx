@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 
-export default function SignupPage() {
+function SignupPageClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const inviteToken = searchParams.get("invite") ?? "";
@@ -92,5 +92,24 @@ export default function SignupPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+function SignupPageFallback() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background px-4">
+      <div className="w-full max-w-sm rounded-xl border bg-card p-6 text-center">
+        <h1 className="text-lg font-semibold">Loading sign up…</h1>
+        <p className="mt-2 text-sm text-muted-foreground">Preparing invite and auth context.</p>
+      </div>
+    </div>
+  );
+}
+
+export default function SignupPage() {
+  return (
+    <Suspense fallback={<SignupPageFallback />}>
+      <SignupPageClient />
+    </Suspense>
   );
 }
