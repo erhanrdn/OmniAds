@@ -32,7 +32,7 @@ export interface MetaCreativeRow {
   accountId: string | null;
   accountName: string | null;
   currency: string | null;
-  format: "image" | "video";
+  format: "image" | "video" | "catalog";
   thumbnailUrl: string | null;
   previewUrl: string | null;
   imageUrl: string | null;

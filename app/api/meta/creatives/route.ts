@@ -4,6 +4,7 @@ import { getProviderAccountAssignments } from "@/lib/provider-account-assignment
 import { runMigrations } from "@/lib/migrations";
 import { requireBusinessAccess } from "@/lib/access";
 import {
+  CreativeFormat,
   CreativePreviewState,
   normalizeCreativePreview,
   shouldLogMetaPreviewDebug,
@@ -130,7 +131,7 @@ interface RawCreativeRow {
   launch_date: string;
   tags: string[];
   ai_tags: MetaAiTags;
-  format: "image" | "video";
+  format: CreativeFormat;
   spend: number;
   purchase_value: number;
   roas: number;
@@ -169,7 +170,7 @@ export interface MetaCreativeApiRow {
   launch_date: string;
   tags: string[];
   ai_tags: MetaAiTags;
-  format: "image" | "video";
+  format: CreativeFormat;
   spend: number;
   purchase_value: number;
   roas: number;
@@ -222,17 +223,6 @@ function parsePurchaseRoas(roas: MetaActionValue[] | undefined): number {
   return parseAction(roas, "purchase") || parseAction(roas, "omni_purchase");
 }
 
-function inferFormat(input: {
-  objectType: string | null | undefined;
-  hasCreativeVideoFields: boolean;
-  hasInsightVideoSignals: boolean;
-}): "image" | "video" {
-  const { objectType, hasCreativeVideoFields, hasInsightVideoSignals } = input;
-  if (objectType?.toUpperCase() === "VIDEO") return "video";
-  if (hasCreativeVideoFields) return "video";
-  if (hasInsightVideoSignals) return "video";
-  return "image";
-}
 
 function cleanDate(value?: string | null): string {
   if (!value) return "";
@@ -527,17 +517,15 @@ function toRawRow(
   const creative = ad?.creative ?? null;
   const promotedObject = ad?.promoted_object ?? ad?.adset?.promoted_object ?? null;
   const normalizedPreview = normalizeCreativePreview({ creative, promotedObject });
-  const hasCreativeVideoFields = Boolean(
-    creative?.object_story_spec?.video_data?.thumbnail_url ||
-      creative?.object_story_spec?.video_data?.image_url ||
-      (creative?.asset_feed_spec?.videos?.length ?? 0) > 0
-  );
+  // Use insight video signals as a secondary signal: if Meta reports any video
+  // watch events but the creative payload lacks explicit video fields, treat as video.
   const hasInsightVideoSignals = video3sViews > 0 || video25Views > 0 || video50Views > 0 || video75Views > 0 || video100Views > 0;
-  const format = inferFormat({
-    objectType: creative?.object_type,
-    hasCreativeVideoFields,
-    hasInsightVideoSignals,
-  });
+  const format =
+    normalizedPreview.format === "catalog"
+      ? "catalog"
+      : normalizedPreview.format === "video" || hasInsightVideoSignals
+      ? "video"
+      : "image" as const;
 
   const launchDate = cleanDate(ad?.created_time) || cleanDate(insight.date_start) || toISODate(new Date());
   const name = insight.ad_name ?? ad?.name ?? creative?.name ?? "Unnamed ad";
@@ -690,7 +678,11 @@ function groupRows(
         }
         return acc;
       }, {}),
-      format: list.some((item) => item.format === "video") ? "video" : "image",
+      format: list.some((item) => item.format === "catalog")
+        ? "catalog"
+        : list.some((item) => item.format === "video")
+        ? "video"
+        : "image",
       spend: r2(spend),
       purchase_value: r2(purchaseValue),
       roas: r2(spend > 0 ? purchaseValue / spend : 0),

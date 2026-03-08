@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getIntegration } from "@/lib/integrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { runMigrations } from "@/lib/migrations";
-import { CreativePreviewState, normalizeCreativePreview } from "@/lib/meta-creative-preview";
+import { CreativeFormat, CreativePreviewState, normalizeCreativePreview } from "@/lib/meta-creative-preview";
 import { requireBusinessAccess } from "@/lib/access";
 
 // ── Meta API types ────────────────────────────────────────────────────────────
@@ -36,8 +36,13 @@ interface MetaAdRecord {
     // "DYNAMIC" = DPA / catalog ad; "PHOTO" | "VIDEO" | "SHARE" = standard
     object_type?: string | null;
     object_story_spec?: {
-      link_data?: { picture?: string | null; image_hash?: string | null } | null;
+      link_data?: {
+        picture?: string | null;
+        image_hash?: string | null;
+        child_attachments?: Array<{ picture?: string | null; image_url?: string | null }> | null;
+      } | null;
       video_data?: { image_url?: string | null; thumbnail_url?: string | null } | null;
+      photo_data?: { image_url?: string | null } | null;
       template_data?: Record<string, unknown> | null;
     } | null;
     asset_feed_spec?: {
@@ -77,6 +82,8 @@ export interface MetaCreativeRow {
    *   "unavailable" — no preview URL and not a catalog ad
    */
   preview_state: CreativePreviewState;
+  /** "video" | "image" | "catalog" — derived from creative structure */
+  format: CreativeFormat;
   spend: number;
   revenue: number;
   roas: number;
@@ -199,7 +206,7 @@ async function fetchAdCreativeMap(
             [
               "creative{",
               "id,name,object_type,effective_object_story_id,thumbnail_url,image_url,",
-              "object_story_spec{link_data{picture,image_hash},video_data{image_url,thumbnail_url},template_data},",
+              "object_story_spec{link_data{picture,image_hash,child_attachments{picture,image_url}},video_data{image_url,thumbnail_url},photo_data{image_url},template_data},",
               "asset_feed_spec{catalog_id,product_set_id,images{url,image_url,original_url,hash,image_hash},videos{thumbnail_url,image_url}}",
               "}",
             ].join(""),
@@ -325,6 +332,7 @@ export async function GET(request: NextRequest) {
           thumbnail_url: normalizedPreview.thumbnail_url,
           is_catalog: normalizedPreview.is_catalog,
           preview_state: normalizedPreview.preview_state,
+          format: normalizedPreview.format,
           spend: r2(spend),
           revenue: r2(revenue),
           roas: r2(roas),

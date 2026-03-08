@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Trophy, ChevronDown, X, Search, Plus, SlidersHorizontal, LayoutGrid, Ellipsis, Check, Copy, FileDown, Link2 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { MetaCreativeRow } from "@/components/creatives/metricConfig";
+import { CreativePreview } from "@/components/creatives/CreativePreview";
 import { formatMoney, resolveCreativeCurrency } from "@/components/creatives/money";
 import { cn } from "@/lib/utils";
 import { useDropdownBehavior } from "@/hooks/use-dropdown-behavior";
@@ -195,10 +196,10 @@ const METRIC_DEFS: MotionMetricDefinition[] = [
   { id: "ctrAll", label: "Click through rate (all)", direction: "high", format: fmtPercent, getValue: (r) => r.ctrAll },
   { id: "video25Rate", label: "25% video plays (rate)", direction: "high", format: fmtPercent, getValue: (r) => r.video25 },
   { id: "video50Rate", label: "50% video plays (rate)", direction: "high", format: fmtPercent, getValue: (r) => r.video50 },
-  { id: "video75Rate", label: "75% video plays (rate)", direction: "high", format: fmtPercent, getValue: (r) => r.video50 },
-  { id: "video100Rate", label: "100% video plays (rate)", direction: "high", format: fmtPercent, getValue: (r) => r.video50 },
-  { id: "holdRate", label: "Hold rate", direction: "high", format: fmtPercent, getValue: (r) => r.video50 },
-  { id: "watchScore", label: "Watch score", direction: "high", format: fmtInteger, getValue: (r) => r.video50 },
+  { id: "video75Rate", label: "75% video plays (rate)", direction: "high", format: fmtPercent, getValue: (r) => r.video75 },
+  { id: "video100Rate", label: "100% video plays (rate)", direction: "high", format: fmtPercent, getValue: (r) => r.video100 },
+  { id: "holdRate", label: "Hold rate", direction: "high", format: fmtPercent, getValue: (r) => r.video100 },
+  { id: "watchScore", label: "Watch score", direction: "high", format: fmtInteger, getValue: (r) => r.video100 },
   { id: "clickScore", label: "Click score", direction: "high", format: fmtInteger, getValue: (r) => r.ctrAll * 10 },
   { id: "convertScore", label: "Convert score", direction: "high", format: fmtInteger, getValue: (r) => r.roas * 10 },
   {
@@ -1087,33 +1088,21 @@ function PreviewStrip({
               className="w-[182px] shrink-0 overflow-hidden rounded-lg border bg-muted/10 text-left"
             >
               <div className="relative aspect-square w-full overflow-hidden bg-muted/30">
-                {(() => {
-                  const isCatalogAd = row.previewState === "catalog" || row.isCatalog;
-                  const imgUrl = row.previewUrl ?? row.thumbnailUrl ?? row.imageUrl;
-                  if (process.env.NODE_ENV !== "production") {
-                    console.log("[motion-top] preview render", {
-                      name: row.name.slice(0, 40),
-                      preview_state: row.previewState,
-                      preview_url: row.previewUrl ?? null,
-                      thumbnail_url: row.thumbnailUrl ?? null,
-                      image_url: row.imageUrl ?? null,
-                      is_catalog: row.isCatalog,
-                      resolved_url: imgUrl ?? null,
-                    });
-                  }
-                  return !isCatalogAd && imgUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={imgUrl} alt={row.name} className="h-full w-full object-cover" />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">
-                      {isCatalogAd ? "Catalog ad" : "Preview unavailable"}
-                    </div>
-                  );
-                })()}
-              <span className="absolute bottom-2 left-2 rounded-md bg-black/50 px-2 py-0.5 text-[10px] text-white">
-                {row.format === "video" ? "Video" : "Image"}
-              </span>
-            </div>
+                <CreativePreview
+                  creative={{
+                    name: row.name,
+                    isCatalog: row.isCatalog,
+                    previewState: row.previewState,
+                    previewUrl: row.previewUrl,
+                    imageUrl: row.imageUrl,
+                    thumbnailUrl: row.thumbnailUrl,
+                  }}
+                  aspectRatio="square"
+                />
+                <span className="absolute bottom-2 left-2 rounded-md bg-black/50 px-2 py-0.5 text-[10px] text-white">
+                  {row.format === "video" ? "Video" : row.format === "catalog" ? "Catalog" : "Image"}
+                </span>
+              </div>
 
             <div className="space-y-2 p-2.5">
               <p className="line-clamp-2 text-xs font-medium leading-4">{row.name}</p>

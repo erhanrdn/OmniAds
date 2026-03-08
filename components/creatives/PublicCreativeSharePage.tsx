@@ -155,7 +155,7 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
                     <div className="flex items-center justify-between gap-2">
                       <p className="line-clamp-1 text-[12px] font-medium text-[#111827]">{creative.name}</p>
                       <span className="rounded border border-[#E5E7EB] bg-[#F9FAFB] px-1.5 py-0.5 text-[10px] text-[#6B7280]">
-                        {creative.format === "video" ? "Video" : "Image"}
+                        {creative.format === "video" ? "Video" : creative.format === "catalog" ? "Catalog" : "Image"}
                       </span>
                     </div>
                     <div className="grid grid-cols-2 gap-x-2 gap-y-1">

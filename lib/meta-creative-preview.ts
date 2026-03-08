@@ -1,4 +1,5 @@
 export type CreativePreviewState = "preview" | "catalog" | "unavailable";
+export type CreativeFormat = "image" | "video" | "catalog";
 
 export interface MetaCreativeLike {
   id?: string;
@@ -53,8 +54,15 @@ interface NormalizeCreativePreviewInput {
 }
 
 interface NormalizeCreativePreviewOutput {
+  /** Best available preview URL. Set even for catalog ads when a thumbnail is available. */
   preview_url: string | null;
   preview_state: CreativePreviewState;
+  /**
+   * "catalog"  — DYNAMIC/DPA ad (product_set_id / catalog_id detected)
+   * "video"    — video_data, asset_feed videos, or VIDEO object_type
+   * "image"    — static image creative
+   */
+  format: CreativeFormat;
   preview_source: string | null;
   is_catalog: boolean;
   thumbnail_url: string | null;
@@ -104,26 +112,19 @@ export function normalizeCreativePreview({
   const thumbnailUrl = normalizeUrl(creative?.thumbnail_url);
   const imageUrl = normalizeUrl(creative?.image_url);
 
+  // Resolution priority chain — try every known source, stop at first valid URL.
   const picked = pickFirstUrl([
+    // A) Direct creative fields
     { source: "thumbnail_url", value: creative?.thumbnail_url },
     { source: "image_url", value: creative?.image_url },
+    // B) object_story_spec sources
     { source: "object_story_spec.link_data.picture", value: creative?.object_story_spec?.link_data?.picture },
-    {
-      source: "object_story_spec.video_data.thumbnail_url",
-      value: creative?.object_story_spec?.video_data?.thumbnail_url,
-    },
-    {
-      source: "object_story_spec.photo_data.image_url",
-      value: creative?.object_story_spec?.photo_data?.image_url,
-    },
-    {
-      source: "object_story_spec.link_data.child_attachments[0].picture",
-      value: creative?.object_story_spec?.link_data?.child_attachments?.[0]?.picture,
-    },
-    {
-      source: "object_story_spec.link_data.child_attachments[0].image_url",
-      value: creative?.object_story_spec?.link_data?.child_attachments?.[0]?.image_url,
-    },
+    { source: "object_story_spec.video_data.thumbnail_url", value: creative?.object_story_spec?.video_data?.thumbnail_url },
+    { source: "object_story_spec.video_data.image_url", value: creative?.object_story_spec?.video_data?.image_url },
+    { source: "object_story_spec.photo_data.image_url", value: creative?.object_story_spec?.photo_data?.image_url },
+    { source: "object_story_spec.link_data.child_attachments[0].picture", value: creative?.object_story_spec?.link_data?.child_attachments?.[0]?.picture },
+    { source: "object_story_spec.link_data.child_attachments[0].image_url", value: creative?.object_story_spec?.link_data?.child_attachments?.[0]?.image_url },
+    // C) asset_feed_spec sources
     {
       source: "asset_feed_spec.images[0].url",
       value:
@@ -131,23 +132,16 @@ export function normalizeCreativePreview({
         creative?.asset_feed_spec?.images?.[0]?.image_url ??
         creative?.asset_feed_spec?.images?.[0]?.original_url,
     },
-    {
-      source: "asset_feed_spec.videos[0].thumbnail_url",
-      value: creative?.asset_feed_spec?.videos?.[0]?.thumbnail_url,
-    },
-    {
-      source: "object_story_spec.video_data.image_url",
-      value: creative?.object_story_spec?.video_data?.image_url,
-    },
-    {
-      source: "asset_feed_spec.videos[0].image_url",
-      value: creative?.asset_feed_spec?.videos?.[0]?.image_url,
-    },
+    { source: "asset_feed_spec.videos[0].thumbnail_url", value: creative?.asset_feed_spec?.videos?.[0]?.thumbnail_url },
+    { source: "asset_feed_spec.videos[0].image_url", value: creative?.asset_feed_spec?.videos?.[0]?.image_url },
   ]);
 
+  // ── Catalog detection ───────────────────────────────────────────────────────
   const objectType = creative?.object_type?.toUpperCase() ?? "";
   const isCatalogByObjectType = objectType === "DYNAMIC";
-  const hasTemplateUrlSpec = Boolean((creative?.object_story_spec?.template_data as Record<string, unknown> | null)?.["template_url"]);
+  const hasTemplateUrlSpec = Boolean(
+    (creative?.object_story_spec?.template_data as Record<string, unknown> | null)?.["template_url"]
+  );
   const hasPromotedProductSetId = Boolean(promotedObject?.product_set_id);
   const hasPromotedCatalogId = Boolean(promotedObject?.catalog_id);
   const hasAssetFeedCatalogSignals = Boolean(
@@ -161,6 +155,21 @@ export function normalizeCreativePreview({
     hasPromotedCatalogId ||
     hasAssetFeedCatalogSignals;
 
+  // ── Format detection ────────────────────────────────────────────────────────
+  // Catalog takes top priority — even if video fields exist, DPA/catalog is the
+  // dominant characteristic for badge/UI purposes.
+  const isVideoCreative =
+    objectType === "VIDEO" ||
+    Boolean(creative?.object_story_spec?.video_data?.thumbnail_url) ||
+    Boolean(creative?.object_story_spec?.video_data?.image_url) ||
+    (creative?.asset_feed_spec?.videos?.length ?? 0) > 0;
+
+  const format: CreativeFormat = isCatalog ? "catalog" : isVideoCreative ? "video" : "image";
+
+  // ── Preview state ───────────────────────────────────────────────────────────
+  // preview_url is always set when any URL is found — including for catalog ads.
+  // The UI uses preview_state to decide rendering mode; it should still show
+  // catalog ads with a "Catalog" badge overlay rather than hiding the image.
   const previewState: CreativePreviewState = isCatalog
     ? "catalog"
     : picked.url
@@ -168,9 +177,10 @@ export function normalizeCreativePreview({
     : "unavailable";
 
   return {
-    preview_url: previewState === "preview" ? picked.url : null,
+    preview_url: picked.url,          // expose URL even for catalog ads
     preview_state: previewState,
-    preview_source: previewState === "preview" ? picked.source : null,
+    format,
+    preview_source: picked.source,
     is_catalog: isCatalog,
     thumbnail_url: thumbnailUrl,
     image_url: imageUrl,

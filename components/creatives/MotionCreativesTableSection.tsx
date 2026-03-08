@@ -17,6 +17,7 @@ import {
   X,
 } from "lucide-react";
 import { MetaAiTagKey, MetaCreativeRow } from "@/components/creatives/metricConfig";
+import { CreativePreviewInline } from "@/components/creatives/CreativePreview";
 import { getAiTagPillStyles } from "@/components/creatives/aiTagPillStyles";
 import { formatMoney, resolveCreativeCurrency } from "@/components/creatives/money";
 import { cn } from "@/lib/utils";
@@ -1325,31 +1326,19 @@ export function MotionCreativesTableSection({
                       onClick={(event) => event.stopPropagation()}
                     />
 
-                    <div className="h-[30px] w-[30px] shrink-0 overflow-hidden rounded bg-muted/30">
-                      {(() => {
-                        const isCatalogAd = row.previewState === "catalog" || row.isCatalog;
-                        const thumbUrl = row.previewUrl ?? row.thumbnailUrl ?? row.imageUrl;
-                        if (process.env.NODE_ENV !== "production") {
-                          console.log("[motion-table] preview render", {
-                            name: row.name.slice(0, 40),
-                            preview_state: row.previewState,
-                            preview_url: row.previewUrl ?? null,
-                            thumbnail_url: row.thumbnailUrl ?? null,
-                            image_url: row.imageUrl ?? null,
-                            is_catalog: row.isCatalog,
-                            resolved_url: thumbUrl ?? null,
-                          });
-                        }
-                        return !isCatalogAd && thumbUrl ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={thumbUrl} alt={row.name} className="h-full w-full object-cover" />
-                        ) : (
-                          <div className="flex h-full w-full items-center justify-center text-[9px] text-muted-foreground">
-                            {isCatalogAd ? "Catalog" : "—"}
-                          </div>
-                        );
-                      })()}
-                    </div>
+                    <CreativePreviewInline
+                      creative={{
+                        name: row.name,
+                        isCatalog: row.isCatalog,
+                        previewState: row.previewState,
+                        previewUrl: row.previewUrl,
+                        imageUrl: row.imageUrl,
+                        thumbnailUrl: row.thumbnailUrl,
+                      }}
+                      width="w-[30px]"
+                      height="h-[30px]"
+                      className="rounded"
+                    />
 
                     <div className="min-w-0">
                       <p className="truncate text-[12px] font-medium">{row.name}</p>
