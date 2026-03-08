@@ -97,7 +97,7 @@ export async function upsertIntegration(params: {
       provider_account_id = EXCLUDED.provider_account_id,
       provider_account_name = EXCLUDED.provider_account_name,
       access_token        = EXCLUDED.access_token,
-      refresh_token       = EXCLUDED.refresh_token,
+      refresh_token       = COALESCE(EXCLUDED.refresh_token, integrations.refresh_token),
       token_expires_at    = EXCLUDED.token_expires_at,
       scopes              = EXCLUDED.scopes,
       error_message       = EXCLUDED.error_message,

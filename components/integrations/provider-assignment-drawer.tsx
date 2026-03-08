@@ -64,6 +64,16 @@ function getMetaFetchPath(businessId: string) {
   return `/integrations/meta/ad-accounts?businessId=${encodeURIComponent(businessId)}`;
 }
 
+function getGoogleFetchPath(businessId: string) {
+  return `/integrations/google/ad-accounts?businessId=${encodeURIComponent(businessId)}`;
+}
+
+function getFetchPath(provider: IntegrationProvider, businessId: string) {
+  if (provider === "meta") return getMetaFetchPath(businessId);
+  if (provider === "google") return getGoogleFetchPath(businessId);
+  return null;
+}
+
 function getSavePath(provider: IntegrationProvider, businessId: string) {
   if (provider === "meta") {
     return `/businesses/${encodeURIComponent(businessId)}/meta/assign-accounts`;
@@ -103,11 +113,21 @@ export function ProviderAssignmentDrawer({
   const [isSaving, setIsSaving] = useState(false);
   const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
   const isMeta = provider === "meta";
+  const isGoogle = provider === "google";
+  const isSupportedProvider = isMeta || isGoogle;
 
   const loadAccounts = useMemo(
     () => async () => {
       if (!open || !provider) return;
-      if (!isMeta) {
+      if (!isSupportedProvider) {
+        setAccounts([]);
+        setFetchState("empty");
+        setErrorMessage(null);
+        return;
+      }
+
+      const fetchUrl = getFetchPath(provider, businessId);
+      if (!fetchUrl) {
         setAccounts([]);
         setFetchState("empty");
         setErrorMessage(null);
@@ -119,7 +139,7 @@ export function ProviderAssignmentDrawer({
       setErrorMessage(null);
       setSaveErrorMessage(null);
       try {
-        const response = await fetch(getMetaFetchPath(businessId), {
+        const response = await fetch(fetchUrl, {
           method: "GET",
           headers: { Accept: "application/json" },
         });
@@ -129,7 +149,7 @@ export function ProviderAssignmentDrawer({
         if (!response.ok) {
           setErrorMessage(
             (hasErrorMessage(payload) ? payload.message : null) ??
-              "We couldn't fetch accessible Meta ad accounts for this connection."
+              `We couldn't fetch accessible ${provider === "google" ? "Google Ads" : "Meta"} ad accounts for this connection.`
           );
           setFetchState("error");
           return;
@@ -151,11 +171,11 @@ export function ProviderAssignmentDrawer({
         );
         setFetchState(list.length > 0 ? "success" : "empty");
       } catch {
-        setErrorMessage("We couldn't fetch accessible Meta ad accounts for this connection.");
+        setErrorMessage(`We couldn't fetch accessible ${provider === "google" ? "Google Ads" : "Meta"} ad accounts for this connection.`);
         setFetchState("error");
       }
     },
-    [assignedAccountIds, businessId, isMeta, open, provider]
+    [assignedAccountIds, businessId, isSupportedProvider, open, provider]
   );
 
   useEffect(() => {
@@ -203,7 +223,7 @@ export function ProviderAssignmentDrawer({
   }
 
   async function handleSave() {
-    if (!provider || !isMeta) return;
+    if (!provider || !isSupportedProvider) return;
 
     setIsSaving(true);
     setSaveErrorMessage(null);
@@ -261,7 +281,7 @@ export function ProviderAssignmentDrawer({
                 title="Could not load ad accounts"
                 description={
                   errorMessage ??
-                  "We couldn't fetch accessible Meta ad accounts for this connection."
+                  `We couldn't fetch accessible ${provider === "google" ? "Google Ads" : "Meta"} ad accounts for this connection.`
                 }
               />
             ) : null}
@@ -277,7 +297,7 @@ export function ProviderAssignmentDrawer({
             {fetchState === "empty" ? (
               <DataEmptyState
                 title="No ad accounts found"
-                description="No Meta ad accounts are available for this login or the required permissions are missing."
+                description={`No ${provider === "google" ? "Google Ads" : "Meta"} ad accounts are available for this login or the required permissions are missing.`}
               />
             ) : null}
 
@@ -323,7 +343,7 @@ export function ProviderAssignmentDrawer({
                 isSaving ||
                 fetchState !== "success" ||
                 !provider ||
-                !isMeta
+                !isSupportedProvider
               }
             >
               {isSaving ? "Saving..." : "Save assignments"}
