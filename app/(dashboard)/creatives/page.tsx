@@ -88,6 +88,7 @@ function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
   return {
     id: row.id,
     name: row.name,
+    associatedAdsCount: row.associated_ads_count,
     accountId: row.account_id ?? null,
     accountName: row.account_name ?? null,
     currency: row.currency ?? null,

@@ -113,6 +113,7 @@ interface MetaAccountMeta {
 interface RawCreativeRow {
   id: string;
   creative_id: string;
+  associated_ads_count: number;
   account_id: string;
   account_name: string | null;
   currency: string | null;
@@ -152,6 +153,7 @@ interface RawCreativeRow {
 export interface MetaCreativeApiRow {
   id: string;
   creative_id: string;
+  associated_ads_count: number;
   account_id: string;
   account_name: string | null;
   currency: string | null;
@@ -550,6 +552,7 @@ function toRawRow(
   return {
     id: adId,
     creative_id: creativeId,
+    associated_ads_count: 1,
     account_id: accountMeta.id,
     account_name: accountMeta.name,
     currency: accountMeta.currency,
@@ -587,8 +590,17 @@ function toRawRow(
   };
 }
 
-function groupRows(rows: RawCreativeRow[], groupBy: GroupBy): RawCreativeRow[] {
-  if (groupBy === "adName") return rows;
+function groupRows(
+  rows: RawCreativeRow[],
+  groupBy: GroupBy,
+  creativeUsageMap: Map<string, Set<string>>
+): RawCreativeRow[] {
+  if (groupBy === "adName") {
+    return rows.map((row) => ({
+      ...row,
+      associated_ads_count: creativeUsageMap.get(row.creative_id)?.size ?? row.associated_ads_count ?? 1,
+    }));
+  }
 
   const map = new Map<string, RawCreativeRow[]>();
   for (const row of rows) {
@@ -637,6 +649,7 @@ function groupRows(rows: RawCreativeRow[], groupBy: GroupBy): RawCreativeRow[] {
     grouped.push({
       id: groupBy === "creative" ? `creative_${key}` : `adset_${key}`,
       creative_id: sample.creative_id,
+      associated_ads_count: creativeUsageMap.get(sample.creative_id)?.size ?? 1,
       account_id: sample.account_id,
       account_name: sample.account_name,
       currency: sample.currency,
@@ -813,10 +826,15 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  let rows = groupRows(rawRows, groupBy);
-  if (format !== "all") {
-    rows = rows.filter((row) => row.format === format);
-  }
+  const scopedRows = format === "all" ? rawRows : rawRows.filter((row) => row.format === format);
+  const creativeUsageMap = scopedRows.reduce<Map<string, Set<string>>>((acc, row) => {
+    const existing = acc.get(row.creative_id) ?? new Set<string>();
+    existing.add(row.id);
+    acc.set(row.creative_id, existing);
+    return acc;
+  }, new Map<string, Set<string>>());
+
+  let rows = groupRows(scopedRows, groupBy, creativeUsageMap);
   rows = sortRows(rows, sort);
 
   if (rows.length === 0) {
@@ -833,6 +851,7 @@ export async function GET(request: NextRequest) {
     return {
       id: row.id,
       creative_id: row.creative_id,
+      associated_ads_count: row.associated_ads_count,
       account_id: row.account_id,
       account_name: row.account_name,
       currency: row.currency,

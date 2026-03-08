@@ -28,7 +28,6 @@ type ColorFormattingMode = "heatmap" | "none";
 type TableColumnAlign = "left" | "right" | "center";
 
 type TableColumnKey =
-  | "associatedAds"
   | "spend"
   | "purchaseValue"
   | "roas"
@@ -218,7 +217,6 @@ function parseLaunchDate(value: string): number {
 }
 
 const FACEBOOK_ECOMMERCE_COLUMNS: TableColumnKey[] = [
-  "associatedAds",
   "spend",
   "purchaseValue",
   "roas",
@@ -314,17 +312,6 @@ const PRESETS: TablePreset[] = [
 ];
 
 const TABLE_COLUMNS: TableColumnDefinition[] = [
-  {
-    key: "associatedAds",
-    label: "Number of Associated Ads",
-    description: "Count of associated ads for this row.",
-    direction: "high",
-    minWidth: 72,
-    preferredWidth: 80,
-    align: "right",
-    format: fmtInteger,
-    getValue: () => 1,
-  },
   { key: "spend", label: "Spend", description: "Amount spent.", direction: "neutral", minWidth: 120, preferredWidth: 130, align: "right", format: fmtCurrency, getValue: (r) => r.spend },
   { key: "purchaseValue", label: "Purchase value", description: "Revenue from purchases.", direction: "high", minWidth: 128, preferredWidth: 140, align: "right", format: fmtCurrency, getValue: (r) => r.purchaseValue },
   { key: "roas", label: "ROAS (return on ad spend)", description: "Revenue / spend.", direction: "high", minWidth: 88, preferredWidth: 92, align: "right", format: (n) => n.toFixed(2), getValue: (r) => r.roas },
@@ -421,7 +408,6 @@ const DEFAULT_TABLE_METRIC_CONFIG: TableMetricConfig = {
 };
 
 const TABLE_METRIC_CONFIG: Partial<Record<TableColumnKey, TableMetricConfig>> = {
-  associatedAds: { direction: "neutral", colorMode: "none", spendSensitive: false, footerAggregation: "sum", heatStrength: "soft" },
   spend: { direction: "neutral", colorMode: "none", spendSensitive: false, footerAggregation: "sum", heatStrength: "soft" },
   purchaseValue: { direction: "higher_better", colorMode: "quantile", spendSensitive: true, footerAggregation: "sum", heatStrength: "soft" },
   roas: { direction: "higher_better", colorMode: "semantic", spendSensitive: true, footerAggregation: "weighted", heatStrength: "strong" },
@@ -1374,7 +1360,9 @@ export function MotionCreativesTableSection({
 
                     <div className="min-w-0">
                       <p className="truncate text-[12px] font-medium">{row.name}</p>
-                      <p className="text-[11px] text-[#9CA3AF]">1 ad</p>
+                      <p className="text-[11px] text-[#9CA3AF]">
+                        {row.associatedAdsCount <= 1 ? "1 ad" : `${row.associatedAdsCount} ads`}
+                      </p>
                     </div>
                   </div>
                 </td>
