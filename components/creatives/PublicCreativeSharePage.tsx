@@ -3,9 +3,17 @@
 import { useMemo } from "react";
 import { Copy, CalendarRange, Rows3 } from "lucide-react";
 import { CreativePreview } from "@/components/creatives/CreativePreview";
+import {
+  buildShareDistributions,
+  buildShareTableCalcContext,
+  evaluateShareMetricCell,
+  isShareMetricApplicable,
+  SHARE_TABLE_COLUMNS,
+  toShareHeatColor,
+} from "@/components/creatives/shareTableEngine";
 import { SharePayload, SharedCreative, ShareMetricKey } from "./shareCreativeTypes";
 
-const METRIC_LABELS: Record<ShareMetricKey, string> = {
+const TOP_METRIC_LABELS: Record<ShareMetricKey, string> = {
   spend: "Spend",
   purchaseValue: "Purchase value",
   roas: "ROAS",
@@ -14,7 +22,7 @@ const METRIC_LABELS: Record<ShareMetricKey, string> = {
   purchases: "Purchases",
 };
 
-function formatMetric(key: ShareMetricKey, value: number): string {
+function formatTopMetric(key: ShareMetricKey, value: number): string {
   switch (key) {
     case "spend":
     case "purchaseValue":
@@ -32,31 +40,8 @@ function formatMetric(key: ShareMetricKey, value: number): string {
   }
 }
 
-function metricValue(creative: SharedCreative, key: ShareMetricKey): number {
+function topMetricValue(creative: SharedCreative, key: ShareMetricKey): number {
   return creative[key];
-}
-
-const METRIC_APPLICABLE_FORMATS: Record<ShareMetricKey, Array<SharedCreative["format"]>> = {
-  spend: ["image", "video"],
-  purchaseValue: ["image", "video"],
-  roas: ["image", "video"],
-  cpa: ["image", "video"],
-  ctrAll: ["image", "video"],
-  purchases: ["image", "video"],
-};
-
-function isMetricApplicable(metric: ShareMetricKey, creative: SharedCreative): boolean {
-  return METRIC_APPLICABLE_FORMATS[metric].includes(creative.format);
-}
-
-function heatColor(value: number, min: number, max: number): string {
-  if (!Number.isFinite(value) || !Number.isFinite(min) || !Number.isFinite(max) || max <= min) return "transparent";
-  const ratio = (value - min) / (max - min);
-  const alpha = 0.05 + ratio * 0.12;
-  const green = ratio >= 0.5;
-  return green
-    ? `rgba(16, 185, 129, ${alpha.toFixed(3)})`
-    : `rgba(244, 63, 94, ${alpha.toFixed(3)})`;
 }
 
 interface PublicCreativeSharePageProps {
@@ -82,21 +67,24 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
   const displayRows = creatives;
   const benchmarkRows = benchmarkCreatives && benchmarkCreatives.length > 0 ? benchmarkCreatives : creatives;
 
-  const extremes = useMemo(
+  const benchmarkCtx = useMemo(() => buildShareTableCalcContext(benchmarkRows), [benchmarkRows]);
+  const displayCtx = useMemo(() => buildShareTableCalcContext(displayRows), [displayRows]);
+
+  const distributions = useMemo(
     () =>
-      metrics.reduce<Record<string, { min: number; max: number }>>((acc, key) => {
-        const values = benchmarkRows
-          .filter((item) => isMetricApplicable(key, item))
-          .map((item) => metricValue(item, key))
-          .filter((value) => Number.isFinite(value));
-        acc[key] = {
-          min: values.length > 0 ? Math.min(...values) : 0,
-          max: values.length > 0 ? Math.max(...values) : 0,
-        };
-        return acc;
-      }, {}),
-    [benchmarkRows, metrics]
+      buildShareDistributions({
+        benchmarkRows,
+        benchmarkCtx,
+      }),
+    [benchmarkCtx, benchmarkRows]
   );
+
+  const roasDistribution = distributions.value.roas;
+
+  const tableMinWidth = useMemo(() => {
+    const staticWidth = 300;
+    return staticWidth + SHARE_TABLE_COLUMNS.reduce((sum, column) => sum + column.minWidth, 0);
+  }, []);
 
   const copyLink = async () => {
     await navigator.clipboard.writeText(window.location.href);
@@ -173,9 +161,9 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
                     <div className="grid grid-cols-2 gap-x-2 gap-y-1">
                       {metrics.slice(0, 4).map((metric) => (
                         <div key={`${creative.id}_${metric}`}>
-                          <p className="text-[10px] text-[#9CA3AF]">{METRIC_LABELS[metric]}</p>
+                          <p className="text-[10px] text-[#9CA3AF]">{TOP_METRIC_LABELS[metric]}</p>
                           <p className="text-[11px] font-semibold tabular-nums text-[#111827]">
-                            {formatMetric(metric, metricValue(creative, metric))}
+                            {formatTopMetric(metric, topMetricValue(creative, metric))}
                           </p>
                         </div>
                       ))}
@@ -187,13 +175,13 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
           </div>
 
           <div className="overflow-x-auto rounded-lg border border-[#E5E7EB]">
-            <table className="min-w-full text-[12px]">
+            <table className="text-[12px]" style={{ minWidth: tableMinWidth }}>
               <thead className="bg-[#F9FAFB]">
                 <tr className="border-b border-[#E5E7EB]">
                   <th className="px-3 py-2 text-left font-medium text-[#6B7280]">Creative</th>
-                  {metrics.map((metric) => (
-                    <th key={metric} className="px-3 py-2 text-right font-medium text-[#6B7280]">
-                      {METRIC_LABELS[metric]}
+                  {SHARE_TABLE_COLUMNS.map((column) => (
+                    <th key={column.key} className="whitespace-nowrap px-3 py-2 text-right font-medium text-[#6B7280]">
+                      {column.label}
                     </th>
                   ))}
                 </tr>
@@ -218,21 +206,40 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
                         <span className="line-clamp-2 text-[11px] text-[#111827]">{creative.name}</span>
                       </div>
                     </td>
-                    {metrics.map((metric) => {
-                      const ext = extremes[metric];
-                      const value = metricValue(creative, metric);
-                      const applicable = isMetricApplicable(metric, creative);
+                    {SHARE_TABLE_COLUMNS.map((column) => {
+                      const value = column.getValue(creative, displayCtx);
+                      const distribution = distributions.value[column.key];
+                      const spendDistribution = distributions.spend[column.key];
+                      if (!distribution || !spendDistribution || !roasDistribution) {
+                        return (
+                          <td key={`cell_${creative.id}_${column.key}`} className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-[#111827]">
+                            {column.format(value, creative)}
+                          </td>
+                        );
+                      }
+                      const evaluation = evaluateShareMetricCell({
+                        key: column.key,
+                        row: creative,
+                        value,
+                        distribution,
+                        roasDistribution,
+                        spendDistribution,
+                      });
+
                       return (
                         <td
-                          key={`cell_${creative.id}_${metric}`}
-                          className="px-3 py-2 text-right tabular-nums text-[#111827]"
+                          key={`cell_${creative.id}_${column.key}`}
+                          className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-[#111827]"
                           style={{
-                            backgroundColor: applicable
-                              ? heatColor(value, ext?.min ?? value, ext?.max ?? value)
-                              : "transparent",
+                            backgroundColor: evaluation.applicable ? toShareHeatColor(evaluation.tone, evaluation.intensity) : "transparent",
                           }}
+                          title={evaluation.reason}
                         >
-                          {applicable ? formatMetric(metric, value) : <span className="text-[#9CA3AF]">—</span>}
+                          {isShareMetricApplicable(column.key, creative) ? (
+                            column.format(value, creative)
+                          ) : (
+                            <span className="text-[#9CA3AF]">—</span>
+                          )}
                         </td>
                       );
                     })}

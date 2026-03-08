@@ -130,6 +130,7 @@ function toSharedCreative(row: MetaCreativeRow): SharedCreative {
   return {
     id: row.id,
     name: row.name,
+    currency: row.currency ?? null,
     format: row.format,
     previewState: row.previewState,
     isCatalog: row.isCatalog,
@@ -142,8 +143,20 @@ function toSharedCreative(row: MetaCreativeRow): SharedCreative {
     purchaseValue: row.purchaseValue,
     roas: row.roas,
     cpa: row.cpa,
+    cpcLink: row.cpcLink,
+    cpm: row.cpm,
     ctrAll: row.ctrAll,
     purchases: row.purchases,
+    impressions: row.impressions,
+    linkClicks: row.linkClicks,
+    addToCart: row.addToCart,
+    thumbstop: row.thumbstop,
+    clickToPurchase: row.clickToPurchase,
+    video25: row.video25,
+    video50: row.video50,
+    video75: row.video75,
+    video100: row.video100,
+    atcToPurchaseRatio: row.atcToPurchaseRatio,
   };
 }
 

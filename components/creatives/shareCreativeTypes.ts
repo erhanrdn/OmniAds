@@ -9,6 +9,7 @@ export type ShareMetricKey =
 export interface SharedCreative {
   id: string;
   name: string;
+  currency?: string | null;
   format: "image" | "video";
   previewState: "preview" | "catalog" | "unavailable";
   isCatalog: boolean;
@@ -21,8 +22,20 @@ export interface SharedCreative {
   purchaseValue: number;
   roas: number;
   cpa: number;
+  cpcLink?: number;
+  cpm?: number;
   ctrAll: number;
   purchases: number;
+  impressions?: number;
+  linkClicks?: number;
+  addToCart?: number;
+  thumbstop?: number;
+  clickToPurchase?: number;
+  video25?: number;
+  video50?: number;
+  video75?: number;
+  video100?: number;
+  atcToPurchaseRatio?: number;
 }
 
 export interface ShareLinkConfig {
