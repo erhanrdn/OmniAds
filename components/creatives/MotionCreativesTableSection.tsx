@@ -1343,7 +1343,7 @@ export function MotionCreativesTableSection({
                     <div className="min-w-0">
                       <p className="truncate text-[12px] font-medium">{row.name}</p>
                       <p className="text-[11px] text-[#9CA3AF]">
-                        {row.associatedAdsCount <= 1 ? "1 ad" : `${row.associatedAdsCount} ads`}
+                        {row.creativeTypeLabel} • {row.associatedAdsCount <= 1 ? "1 ad" : `${row.associatedAdsCount} ads`}
                       </p>
                     </div>
                   </div>

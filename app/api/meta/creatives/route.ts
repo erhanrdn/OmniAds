@@ -4,8 +4,10 @@ import { getProviderAccountAssignments } from "@/lib/provider-account-assignment
 import { runMigrations } from "@/lib/migrations";
 import { requireBusinessAccess } from "@/lib/access";
 import {
+  CreativeType,
   CreativeFormat,
   CreativePreviewState,
+  extractCreativeImageHashes,
   normalizeCreativePreview,
   shouldLogMetaPreviewDebug,
 } from "@/lib/meta-creative-preview";
@@ -57,6 +59,14 @@ interface MetaAccountRecord {
   currency?: string | null;
 }
 
+interface MetaAdImageRecord {
+  hash?: string;
+  url?: string | null;
+  url_128?: string | null;
+  url_256?: string | null;
+  permalink_url?: string | null;
+}
+
 interface MetaAdRecord {
   id?: string;
   name?: string;
@@ -85,7 +95,7 @@ interface MetaAdRecord {
       link_data?: {
         picture?: string | null;
         image_hash?: string | null;
-        child_attachments?: Array<{ picture?: string | null; image_url?: string | null }> | null;
+        child_attachments?: Array<{ picture?: string | null; image_url?: string | null; image_hash?: string | null }> | null;
       } | null;
       video_data?: { image_url?: string | null; thumbnail_url?: string | null } | null;
       photo_data?: { image_url?: string | null } | null;
@@ -132,6 +142,8 @@ interface RawCreativeRow {
   tags: string[];
   ai_tags: MetaAiTags;
   format: CreativeFormat;
+  creative_type: CreativeType;
+  creative_type_label: string;
   spend: number;
   purchase_value: number;
   roas: number;
@@ -171,6 +183,8 @@ export interface MetaCreativeApiRow {
   tags: string[];
   ai_tags: MetaAiTags;
   format: CreativeFormat;
+  creative_type: CreativeType;
+  creative_type_label: string;
   spend: number;
   purchase_value: number;
   roas: number;
@@ -261,6 +275,65 @@ function normalizeAiTags(rawTags: string[] | undefined): MetaAiTags {
   }
 
   return next;
+}
+
+const CREATIVE_TYPE_LABELS: Record<CreativeType, string> = {
+  feed: "Feed",
+  video: "Video",
+  flexible: "Flexible ad",
+  feed_catalog: "Feed (Catalog ads)",
+};
+
+function toCreativeTypeLabel(type: CreativeType): string {
+  return CREATIVE_TYPE_LABELS[type] ?? "Feed";
+}
+
+function resolveGroupedCreativeType(rows: RawCreativeRow[]): CreativeType {
+  if (rows.some((row) => row.creative_type === "feed_catalog")) return "feed_catalog";
+  if (rows.some((row) => row.creative_type === "flexible")) return "flexible";
+  if (rows.some((row) => row.creative_type === "video")) return "video";
+  return "feed";
+}
+
+function normalizeMediaUrl(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const url = value.trim();
+  if (!url) return null;
+  if (url.startsWith("//")) return `https:${url}`;
+  return /^https?:\/\//i.test(url) ? url : null;
+}
+
+function toAdAccountNodeId(accountId: string): string {
+  return accountId.startsWith("act_") ? accountId : `act_${accountId}`;
+}
+
+function pickAdImageUrl(record: MetaAdImageRecord | null | undefined): string | null {
+  if (!record) return null;
+  return (
+    normalizeMediaUrl(record.url) ??
+    normalizeMediaUrl(record.url_256) ??
+    normalizeMediaUrl(record.url_128) ??
+    normalizeMediaUrl(record.permalink_url)
+  );
+}
+
+function mergeCreativeData(
+  baseCreative: MetaAdRecord["creative"],
+  detailCreative: NonNullable<MetaAdRecord["creative"]> | undefined
+): MetaAdRecord["creative"] {
+  if (!baseCreative && !detailCreative) return null;
+  if (!baseCreative) return detailCreative ?? null;
+  if (!detailCreative) return baseCreative;
+
+  return {
+    ...baseCreative,
+    ...detailCreative,
+    // Keep whichever source has a non-null media URL.
+    thumbnail_url: detailCreative.thumbnail_url ?? baseCreative.thumbnail_url ?? null,
+    image_url: detailCreative.image_url ?? baseCreative.image_url ?? null,
+    object_story_spec: detailCreative.object_story_spec ?? baseCreative.object_story_spec ?? null,
+    asset_feed_spec: detailCreative.asset_feed_spec ?? baseCreative.asset_feed_spec ?? null,
+  };
 }
 
 async function fetchAssignedAccountIds(businessId: string): Promise<string[]> {
@@ -355,6 +428,79 @@ async function fetchAccountMeta(
   };
 }
 
+async function fetchAdImageUrlMap(
+  accountId: string,
+  imageHashes: string[],
+  accessToken: string
+): Promise<Map<string, string>> {
+  const urlMap = new Map<string, string>();
+  const uniqueHashes = Array.from(new Set(imageHashes.map((hash) => hash.trim()).filter(Boolean)));
+  if (uniqueHashes.length === 0) return urlMap;
+
+  const chunkSize = 80;
+  for (let i = 0; i < uniqueHashes.length; i += chunkSize) {
+    const chunk = uniqueHashes.slice(i, i + chunkSize);
+    const url = new URL(`https://graph.facebook.com/v25.0/${toAdAccountNodeId(accountId)}/adimages`);
+    url.searchParams.set("fields", "hash,url,url_128,url_256,permalink_url");
+    url.searchParams.set("hashes", JSON.stringify(chunk));
+    url.searchParams.set("access_token", accessToken);
+
+    try {
+      const res = await fetch(url.toString(), {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        cache: "no-store",
+      });
+
+      if (!res.ok) {
+        const raw = await res.text().catch(() => "");
+        console.warn("[meta-creatives] adimages non-ok", {
+          accountId,
+          status: res.status,
+          chunk: i,
+          count: chunk.length,
+          raw: raw.slice(0, 300),
+        });
+        continue;
+      }
+
+      const payload = (await res.json().catch(() => null)) as
+        | { data?: MetaAdImageRecord[]; images?: Record<string, MetaAdImageRecord> }
+        | null;
+
+      for (const record of payload?.data ?? []) {
+        const hash = record?.hash?.trim();
+        const imageUrl = pickAdImageUrl(record);
+        if (hash && imageUrl) {
+          urlMap.set(hash, imageUrl);
+          urlMap.set(hash.toLowerCase(), imageUrl);
+        }
+      }
+
+      const imagesMap = payload?.images;
+      if (imagesMap && typeof imagesMap === "object") {
+        for (const [hashKey, record] of Object.entries(imagesMap)) {
+          const hash = hashKey?.trim() || record?.hash?.trim();
+          const imageUrl = pickAdImageUrl(record);
+          if (hash && imageUrl) {
+            urlMap.set(hash, imageUrl);
+            urlMap.set(hash.toLowerCase(), imageUrl);
+          }
+        }
+      }
+    } catch (error: unknown) {
+      console.warn("[meta-creatives] adimages threw", {
+        accountId,
+        chunk: i,
+        count: chunk.length,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return urlMap;
+}
+
 async function fetchAccountAdsMap(
   accountId: string,
   accessToken: string
@@ -377,7 +523,7 @@ async function fetchAccountAdsMap(
           [
             "creative{",
             "id,name,object_type,effective_object_story_id,thumbnail_url,image_url,",
-            "object_story_spec{link_data{picture,image_hash,child_attachments{picture,image_url}},video_data{image_url,thumbnail_url},photo_data{image_url},template_data},",
+            "object_story_spec{link_data{picture,image_hash,child_attachments{picture,image_url,image_hash}},video_data{image_url,thumbnail_url},photo_data{image_url},template_data},",
             "asset_feed_spec{catalog_id,product_set_id,images{url,image_url,original_url,hash,image_hash},videos{thumbnail_url,image_url}}",
             "}",
           ].join(""),
@@ -445,7 +591,7 @@ async function batchFetchAdsByIds(
     [
       "creative{",
       "id,name,object_type,effective_object_story_id,thumbnail_url,image_url,",
-      "object_story_spec{link_data{picture,image_hash,child_attachments{picture,image_url}},video_data{image_url,thumbnail_url},photo_data{image_url},template_data},",
+      "object_story_spec{link_data{picture,image_hash,child_attachments{picture,image_url,image_hash}},video_data{image_url,thumbnail_url},photo_data{image_url},template_data},",
       "asset_feed_spec{catalog_id,product_set_id,images{url,image_url,original_url,hash,image_hash},videos{thumbnail_url,image_url}}",
       "}",
     ].join(""),
@@ -506,7 +652,7 @@ async function fetchCreativeDetailsMap(
     "effective_object_story_id",
     "thumbnail_url",
     "image_url",
-    "object_story_spec{link_data{picture,image_hash,child_attachments{picture,image_url}},video_data{image_url,thumbnail_url},photo_data{image_url},template_data}",
+    "object_story_spec{link_data{picture,image_hash,child_attachments{picture,image_url,image_hash}},video_data{image_url,thumbnail_url},photo_data{image_url},template_data}",
     "asset_feed_spec{catalog_id,product_set_id,images{url,image_url,original_url,hash,image_hash},videos{thumbnail_url,image_url}}",
   ].join(",");
 
@@ -556,7 +702,8 @@ async function fetchCreativeDetailsMap(
 function toRawRow(
   insight: MetaInsightRecord,
   ad: MetaAdRecord | undefined,
-  accountMeta: MetaAccountMeta
+  accountMeta: MetaAccountMeta,
+  imageHashLookup: Map<string, string>
 ): RawCreativeRow | null {
   const adId = insight.ad_id ?? ad?.id ?? "";
   if (!adId) return null;
@@ -600,7 +747,11 @@ function toRawRow(
 
   const creative = ad?.creative ?? null;
   const promotedObject = ad?.promoted_object ?? ad?.adset?.promoted_object ?? null;
-  const normalizedPreview = normalizeCreativePreview({ creative, promotedObject });
+  const normalizedPreview = normalizeCreativePreview({
+    creative,
+    promotedObject,
+    imageHashLookup,
+  });
   // Use insight video signals as a secondary signal: if Meta reports any video
   // watch events but the creative payload lacks explicit video fields, treat as video.
   const hasInsightVideoSignals = video3sViews > 0 || video25Views > 0 || video50Views > 0 || video75Views > 0 || video100Views > 0;
@@ -658,6 +809,8 @@ function toRawRow(
     tags: [],
     ai_tags: {},
     format,
+    creative_type: normalizedPreview.creative_type,
+    creative_type_label: normalizedPreview.creative_type_label,
     spend: r2(spend),
     purchase_value: r2(derivedPurchaseValue),
     roas: r2(derivedPurchaseValue > 0 ? derivedPurchaseValue / spend : 0),
@@ -734,6 +887,7 @@ function groupRows(
       : groupedPreviewUrl
       ? "preview"
       : "unavailable";
+    const groupedCreativeType = resolveGroupedCreativeType(list);
 
     grouped.push({
       id: groupBy === "creative" ? `creative_${key}` : `adset_${key}`,
@@ -767,6 +921,8 @@ function groupRows(
         : list.some((item) => item.format === "video")
         ? "video"
         : "image",
+      creative_type: groupedCreativeType,
+      creative_type_label: toCreativeTypeLabel(groupedCreativeType),
       spend: r2(spend),
       purchase_value: r2(purchaseValue),
       roas: r2(spend > 0 ? purchaseValue / spend : 0),
@@ -875,6 +1031,16 @@ export async function GET(request: NextRequest) {
         )
       );
       const creativeDetailsMap = await fetchCreativeDetailsMap(creativeIds, integration.access_token);
+      const accountImageHashes = Array.from(
+        new Set(
+          [...adMap.values()].flatMap((ad) => {
+            const detailCreative = ad.creative?.id ? creativeDetailsMap.get(ad.creative.id) : undefined;
+            const mergedCreative = mergeCreativeData(ad.creative ?? null, detailCreative);
+            return extractCreativeImageHashes(mergedCreative);
+          })
+        )
+      );
+      const adImageUrlMap = await fetchAdImageUrlMap(accountId, accountImageHashes, integration.access_token);
 
       // Always log coverage in non-production for diagnostics
       if (process.env.NODE_ENV !== "production") {
@@ -891,6 +1057,8 @@ export async function GET(request: NextRequest) {
           ads_loaded: adMap.size,
           creative_ids_seen: creativeIds.length,
           creative_details_loaded: creativeDetailsMap.size,
+          image_hashes_seen: accountImageHashes.length,
+          image_hash_urls_resolved: adImageUrlMap.size,
           matched_ads: matchedAds,
           with_creative_data: withCreative,
           fallback_fetched: missingAdIds.length > 0 ? missingAdIds.length : 0,
@@ -903,24 +1071,15 @@ export async function GET(request: NextRequest) {
         // Merge creative details — prefer non-null values from either source
         const baseCreative = ad?.creative ?? null;
         const detailCreative = baseCreative?.id ? creativeDetailsMap.get(baseCreative.id) : undefined;
-        const mergedCreative: MetaAdRecord["creative"] = baseCreative
-          ? {
-              ...baseCreative,
-              ...(detailCreative ?? {}),
-              // Preserve non-null URL fields from either source (don't overwrite valid with null)
-              thumbnail_url: detailCreative?.thumbnail_url ?? baseCreative.thumbnail_url ?? null,
-              image_url: detailCreative?.image_url ?? baseCreative.image_url ?? null,
-              object_story_spec: detailCreative?.object_story_spec ?? baseCreative.object_story_spec ?? null,
-              asset_feed_spec: detailCreative?.asset_feed_spec ?? baseCreative.asset_feed_spec ?? null,
-            }
-          : detailCreative ?? null;
+        const mergedCreative = mergeCreativeData(baseCreative, detailCreative);
         const enrichedAd: MetaAdRecord | undefined = ad
           ? { ...ad, creative: mergedCreative }
           : undefined;
         const row = toRawRow(
           insight,
           enrichedAd,
-          accountMeta
+          accountMeta,
+          adImageUrlMap
         );
         if (row) {
           rawRows.push(row);
@@ -943,6 +1102,7 @@ export async function GET(request: NextRequest) {
               final_preview_source: row.preview_source,
               final_preview_state: row.preview_state,
               final_format: row.format,
+              creative_type_label: row.creative_type_label,
             });
           }
         }
@@ -996,6 +1156,8 @@ export async function GET(request: NextRequest) {
       tags: row.tags,
       ai_tags: Object.keys(row.ai_tags).length > 0 ? row.ai_tags : normalizeAiTags(row.tags),
       format: row.format,
+      creative_type: row.creative_type,
+      creative_type_label: row.creative_type_label,
       spend: row.spend,
       purchase_value: row.purchase_value,
       roas: row.roas,

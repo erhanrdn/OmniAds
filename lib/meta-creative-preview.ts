@@ -1,5 +1,6 @@
 export type CreativePreviewState = "preview" | "catalog" | "unavailable";
 export type CreativeFormat = "image" | "video" | "catalog";
+export type CreativeType = "feed" | "video" | "flexible" | "feed_catalog";
 
 export interface MetaCreativeLike {
   id?: string;
@@ -15,6 +16,7 @@ export interface MetaCreativeLike {
       child_attachments?: Array<{
         picture?: string | null;
         image_url?: string | null;
+        image_hash?: string | null;
       }> | null;
     } | null;
     video_data?: {
@@ -51,6 +53,7 @@ export interface MetaPromotedObjectLike {
 interface NormalizeCreativePreviewInput {
   creative: MetaCreativeLike | null | undefined;
   promotedObject?: MetaPromotedObjectLike | null;
+  imageHashLookup?: Map<string, string> | Record<string, string> | null;
 }
 
 interface NormalizeCreativePreviewOutput {
@@ -63,6 +66,8 @@ interface NormalizeCreativePreviewOutput {
    * "image"    — static image creative
    */
   format: CreativeFormat;
+  creative_type: CreativeType;
+  creative_type_label: string;
   preview_source: string | null;
   is_catalog: boolean;
   thumbnail_url: string | null;
@@ -92,6 +97,55 @@ function normalizeUrl(url: unknown): string | null {
   return null;
 }
 
+function normalizeHash(hash: unknown): string | null {
+  if (typeof hash !== "string") return null;
+  const value = hash.trim();
+  return value ? value : null;
+}
+
+function resolveImageHashUrl(
+  imageHashLookup: Map<string, string> | Record<string, string> | null | undefined,
+  hash: string
+): string | null {
+  if (!imageHashLookup) return null;
+
+  const rawValue =
+    imageHashLookup instanceof Map
+      ? imageHashLookup.get(hash) ?? imageHashLookup.get(hash.toLowerCase())
+      : imageHashLookup[hash] ?? imageHashLookup[hash.toLowerCase()];
+
+  return normalizeUrl(rawValue);
+}
+
+export function extractCreativeImageHashes(
+  creative: MetaCreativeLike | null | undefined
+): string[] {
+  const hashes = new Set<string>();
+
+  const pushHash = (value: unknown) => {
+    const normalized = normalizeHash(value);
+    if (normalized) hashes.add(normalized);
+  };
+
+  pushHash(creative?.object_story_spec?.link_data?.image_hash);
+  for (const attachment of creative?.object_story_spec?.link_data?.child_attachments ?? []) {
+    pushHash(attachment?.image_hash);
+  }
+  for (const image of creative?.asset_feed_spec?.images ?? []) {
+    pushHash(image?.hash);
+    pushHash(image?.image_hash);
+  }
+
+  return Array.from(hashes);
+}
+
+function toCreativeTypeLabel(type: CreativeType): string {
+  if (type === "feed_catalog") return "Feed (Catalog ads)";
+  if (type === "video") return "Video";
+  if (type === "flexible") return "Flexible ad";
+  return "Feed";
+}
+
 function pickFirstUrl(candidates: Array<{ source: string; value: unknown }>): {
   url: string | null;
   source: string | null;
@@ -108,9 +162,15 @@ function pickFirstUrl(candidates: Array<{ source: string; value: unknown }>): {
 export function normalizeCreativePreview({
   creative,
   promotedObject,
+  imageHashLookup,
 }: NormalizeCreativePreviewInput): NormalizeCreativePreviewOutput {
   const thumbnailUrl = normalizeUrl(creative?.thumbnail_url);
   const imageUrl = normalizeUrl(creative?.image_url);
+  const imageHashCandidates = extractCreativeImageHashes(creative);
+  const hashUrlCandidates = imageHashCandidates.map((hash) => ({
+    source: `image_hash:${hash}`,
+    value: resolveImageHashUrl(imageHashLookup, hash),
+  }));
 
   // Resolution priority chain — try every known source, stop at first valid URL.
   const picked = pickFirstUrl([
@@ -124,7 +184,9 @@ export function normalizeCreativePreview({
     { source: "object_story_spec.photo_data.image_url", value: creative?.object_story_spec?.photo_data?.image_url },
     { source: "object_story_spec.link_data.child_attachments[0].picture", value: creative?.object_story_spec?.link_data?.child_attachments?.[0]?.picture },
     { source: "object_story_spec.link_data.child_attachments[0].image_url", value: creative?.object_story_spec?.link_data?.child_attachments?.[0]?.image_url },
-    // C) asset_feed_spec sources
+    // C) image-hash to URL lookup (adimages edge)
+    ...hashUrlCandidates,
+    // D) asset_feed_spec sources
     {
       source: "asset_feed_spec.images[0].url",
       value:
@@ -165,6 +227,14 @@ export function normalizeCreativePreview({
     (creative?.asset_feed_spec?.videos?.length ?? 0) > 0;
 
   const format: CreativeFormat = isCatalog ? "catalog" : isVideoCreative ? "video" : "image";
+  const hasFlexibleSignals = !isCatalog && Boolean(creative?.asset_feed_spec);
+  const creativeType: CreativeType = isCatalog
+    ? "feed_catalog"
+    : hasFlexibleSignals
+    ? "flexible"
+    : isVideoCreative
+    ? "video"
+    : "feed";
 
   // ── Preview state ───────────────────────────────────────────────────────────
   // preview_url is always set when any URL is found — including for catalog ads.
@@ -180,6 +250,8 @@ export function normalizeCreativePreview({
     preview_url: picked.url,          // expose URL even for catalog ads
     preview_state: previewState,
     format,
+    creative_type: creativeType,
+    creative_type_label: toCreativeTypeLabel(creativeType),
     preview_source: picked.source,
     is_catalog: isCatalog,
     thumbnail_url: thumbnailUrl,

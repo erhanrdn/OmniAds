@@ -1100,7 +1100,7 @@ function PreviewStrip({
                   aspectRatio="square"
                 />
                 <span className="absolute bottom-2 left-2 rounded-md bg-black/50 px-2 py-0.5 text-[10px] text-white">
-                  {row.format === "video" ? "Video" : row.format === "catalog" ? "Catalog" : "Image"}
+                  {row.creativeTypeLabel}
                 </span>
               </div>
 

@@ -44,8 +44,8 @@ export function CreativeInsightsDrawer({
                 <p className="font-medium">{row.name}</p>
                 <div className="flex items-center gap-2">
                   <Badge variant="secondary">Meta</Badge>
-                  <Badge variant="outline" className="capitalize">
-                    {row.format}
+                  <Badge variant="outline">
+                    {row.creativeTypeLabel}
                   </Badge>
                 </div>
                 <p className="text-xs text-muted-foreground">Launch date: {row.launchDate}</p>

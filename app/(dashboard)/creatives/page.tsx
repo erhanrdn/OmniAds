@@ -202,6 +202,10 @@ async function fetchMetaCreatives(params: {
 }
 
 function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
+  const fallbackCreativeTypeLabel =
+    row.format === "catalog" ? "Feed (Catalog ads)" : row.format === "video" ? "Video" : "Feed";
+  const fallbackCreativeType = row.format === "catalog" ? "feed_catalog" : row.format === "video" ? "video" : "feed";
+
   return {
     id: row.id,
     name: row.name,
@@ -210,6 +214,8 @@ function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
     accountName: row.account_name ?? null,
     currency: row.currency ?? null,
     format: row.format,
+    creativeType: row.creative_type ?? fallbackCreativeType,
+    creativeTypeLabel: row.creative_type_label ?? fallbackCreativeTypeLabel,
     thumbnailUrl: row.thumbnail_url,
     previewUrl: row.preview_url,
     imageUrl: row.image_url,

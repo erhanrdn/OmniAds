@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 
@@ -28,8 +29,17 @@ export interface PreviewableCreative {
 export function resolvePreviewState(c: PreviewableCreative): PreviewState {
   if (c.previewState) return c.previewState;
   if (c.isCatalog) return "catalog";
-  const url = c.previewUrl ?? c.imageUrl ?? c.thumbnailUrl;
-  return url ? "preview" : "unavailable";
+  const urls = resolvePreviewUrls(c);
+  return urls.length > 0 ? "preview" : "unavailable";
+}
+
+function resolvePreviewUrls(c: PreviewableCreative): string[] {
+  const urls = [c.previewUrl, c.imageUrl, c.thumbnailUrl]
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+
+  return Array.from(new Set(urls));
 }
 
 /**
@@ -37,7 +47,32 @@ export function resolvePreviewState(c: PreviewableCreative): PreviewState {
  * from the catalog feed) — we now expose it so the UI can show it with a badge.
  */
 export function resolvePreviewUrl(c: PreviewableCreative): string | null {
-  return c.previewUrl ?? c.imageUrl ?? c.thumbnailUrl ?? null;
+  return resolvePreviewUrls(c)[0] ?? null;
+}
+
+function useResolvedPreviewUrl(creative: PreviewableCreative): {
+  url: string | null;
+  markFailed: () => void;
+} {
+  const candidates = useMemo(
+    () => resolvePreviewUrls(creative),
+    [creative.previewUrl, creative.imageUrl, creative.thumbnailUrl]
+  );
+  const [failedUrls, setFailedUrls] = useState<string[]>([]);
+
+  useEffect(() => {
+    setFailedUrls([]);
+  }, [candidates.join("|")]);
+
+  const url = candidates.find((candidate) => !failedUrls.includes(candidate)) ?? null;
+
+  return {
+    url,
+    markFailed: () => {
+      if (!url) return;
+      setFailedUrls((prev) => (prev.includes(url) ? prev : [...prev, url]));
+    },
+  };
 }
 
 interface CreativePreviewProps {
@@ -54,7 +89,7 @@ export function CreativePreview({
   className,
 }: CreativePreviewProps) {
   const state = resolvePreviewState(creative);
-  const url = resolvePreviewUrl(creative);
+  const { url, markFailed } = useResolvedPreviewUrl(creative);
   const aspectClass = aspectRatio === "square" ? "aspect-square" : "aspect-video";
 
   if (state === "unavailable" || !url) {
@@ -78,7 +113,7 @@ export function CreativePreview({
   return (
     <div className={cn(`relative ${aspectClass} w-full overflow-hidden`, className)}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={url} alt={creative.name} className="h-full w-full object-cover" />
+      <img src={url} alt={creative.name} className="h-full w-full object-cover" onError={markFailed} />
       {state === "catalog" && (
         <span className="absolute bottom-1 left-1 z-10">
           <Badge variant="secondary" className="text-[10px] opacity-90">
@@ -105,7 +140,7 @@ export function CreativePreviewInline({
   className,
 }: CreativePreviewInlineProps) {
   const state = resolvePreviewState(creative);
-  const url = resolvePreviewUrl(creative);
+  const { url, markFailed } = useResolvedPreviewUrl(creative);
   const sizeClass = `${width} ${height}`;
 
   if (!url) {
@@ -124,7 +159,7 @@ export function CreativePreviewInline({
   return (
     <div className={cn(`relative ${sizeClass} overflow-hidden rounded-md`, className)}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={url} alt={creative.name} className="h-full w-full object-cover" />
+      <img src={url} alt={creative.name} className="h-full w-full object-cover" onError={markFailed} />
       {state === "catalog" && (
         <span className="absolute bottom-0.5 left-0.5 z-10">
           <Badge variant="secondary" className="text-[10px] opacity-90">

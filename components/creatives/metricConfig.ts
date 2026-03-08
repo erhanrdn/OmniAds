@@ -33,6 +33,8 @@ export interface MetaCreativeRow {
   accountName: string | null;
   currency: string | null;
   format: "image" | "video" | "catalog";
+  creativeType: "feed" | "video" | "flexible" | "feed_catalog";
+  creativeTypeLabel: string;
   thumbnailUrl: string | null;
   previewUrl: string | null;
   imageUrl: string | null;
