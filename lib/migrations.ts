@@ -64,4 +64,20 @@ export async function runMigrations() {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_account_assignments_biz_provider
     ON provider_account_assignments (business_id, provider)
   `;
+
+  // ── creative share snapshots table ──────────────────────────────
+  await sql`
+    CREATE TABLE IF NOT EXISTS creative_share_snapshots (
+      id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      token       TEXT NOT NULL UNIQUE,
+      payload     JSONB NOT NULL,
+      expires_at  TIMESTAMPTZ NOT NULL,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_creative_share_snapshots_token
+    ON creative_share_snapshots (token)
+  `;
 }
