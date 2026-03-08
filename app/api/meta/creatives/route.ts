@@ -423,6 +423,74 @@ async function fetchAccountAdsMap(
   return map;
 }
 
+/**
+ * Batch-fetch ads by their IDs using the `?ids=` endpoint.
+ * Used as a fallback when fetchAccountAdsMap misses ads that appear in insights.
+ */
+async function batchFetchAdsByIds(
+  adIds: string[],
+  accessToken: string
+): Promise<Map<string, MetaAdRecord>> {
+  const map = new Map<string, MetaAdRecord>();
+  const uniqueIds = Array.from(new Set(adIds.filter((id) => id.trim().length > 0)));
+  if (uniqueIds.length === 0) return map;
+
+  const fields = [
+    "id",
+    "name",
+    "adset_id",
+    "adset{id,name,promoted_object{product_set_id,catalog_id}}",
+    "promoted_object{product_set_id,catalog_id}",
+    "created_time",
+    [
+      "creative{",
+      "id,name,object_type,effective_object_story_id,thumbnail_url,image_url,",
+      "object_story_spec{link_data{picture,image_hash,child_attachments{picture,image_url}},video_data{image_url,thumbnail_url},photo_data{image_url},template_data},",
+      "asset_feed_spec{catalog_id,product_set_id,images{url,image_url,original_url,hash,image_hash},videos{thumbnail_url,image_url}}",
+      "}",
+    ].join(""),
+  ].join(",");
+
+  const chunkSize = 40;
+  for (let i = 0; i < uniqueIds.length; i += chunkSize) {
+    const idsChunk = uniqueIds.slice(i, i + chunkSize);
+    const url = new URL("https://graph.facebook.com/v25.0/");
+    url.searchParams.set("ids", idsChunk.join(","));
+    url.searchParams.set("fields", fields);
+    url.searchParams.set("access_token", accessToken);
+
+    try {
+      const res = await fetch(url.toString(), {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        console.warn("[meta-creatives] batchFetchAdsByIds non-ok", {
+          status: res.status,
+          chunk: i,
+          count: idsChunk.length,
+        });
+        continue;
+      }
+      const payload = (await res.json().catch(() => null)) as Record<string, MetaAdRecord> | null;
+      if (!payload || typeof payload !== "object") continue;
+
+      for (const [adId, ad] of Object.entries(payload)) {
+        if (!ad || typeof ad !== "object") continue;
+        map.set(adId, { ...ad, id: ad.id ?? adId });
+      }
+    } catch (e: unknown) {
+      console.warn("[meta-creatives] batchFetchAdsByIds threw", {
+        chunk: i,
+        message: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+
+  return map;
+}
+
 async function fetchCreativeDetailsMap(
   creativeIds: string[],
   accessToken: string
@@ -450,19 +518,35 @@ async function fetchCreativeDetailsMap(
     url.searchParams.set("fields", fields);
     url.searchParams.set("access_token", accessToken);
 
-    const res = await fetch(url.toString(), {
-      method: "GET",
-      headers: { Accept: "application/json" },
-      cache: "no-store",
-    });
-    if (!res.ok) continue;
+    try {
+      const res = await fetch(url.toString(), {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        const raw = await res.text().catch(() => "");
+        console.warn("[meta-creatives] creative details non-ok", {
+          status: res.status,
+          chunk: i,
+          count: idsChunk.length,
+          raw: raw.slice(0, 300),
+        });
+        continue;
+      }
 
-    const payload = (await res.json().catch(() => null)) as Record<string, MetaAdRecord["creative"]> | null;
-    if (!payload || typeof payload !== "object") continue;
+      const payload = (await res.json().catch(() => null)) as Record<string, MetaAdRecord["creative"]> | null;
+      if (!payload || typeof payload !== "object") continue;
 
-    for (const [creativeId, creative] of Object.entries(payload)) {
-      if (!creative || typeof creative !== "object") continue;
-      map.set(creativeId, creative as NonNullable<MetaAdRecord["creative"]>);
+      for (const [creativeId, creative] of Object.entries(payload)) {
+        if (!creative || typeof creative !== "object") continue;
+        map.set(creativeId, creative as NonNullable<MetaAdRecord["creative"]>);
+      }
+    } catch (e: unknown) {
+      console.warn("[meta-creatives] creative details threw", {
+        chunk: i,
+        message: e instanceof Error ? e.message : String(e),
+      });
     }
   }
 
@@ -762,6 +846,27 @@ export async function GET(request: NextRequest) {
         fetchAccountAdsMap(accountId, integration.access_token),
         fetchAccountMeta(accountId, integration.access_token),
       ]);
+
+      // ── Fallback: batch-fetch any ads missing from the adMap ──────────────
+      const insightAdIds = insights
+        .map((item) => item.ad_id)
+        .filter((id): id is string => typeof id === "string" && id.length > 0);
+      const missingAdIds = insightAdIds.filter((id) => !adMap.has(id));
+
+      if (missingAdIds.length > 0) {
+        console.log("[meta-creatives] adMap miss — batch-fetching missing ads", {
+          account_id: accountId,
+          insights_count: insightAdIds.length,
+          adMap_size: adMap.size,
+          missing: missingAdIds.length,
+        });
+        const fallbackAds = await batchFetchAdsByIds(missingAdIds, integration.access_token);
+        for (const [id, ad] of fallbackAds) {
+          adMap.set(id, ad);
+        }
+      }
+
+      // ── Fetch creative details for all creative IDs found ─────────────────
       const creativeIds = Array.from(
         new Set(
           [...adMap.values()]
@@ -771,11 +876,13 @@ export async function GET(request: NextRequest) {
       );
       const creativeDetailsMap = await fetchCreativeDetailsMap(creativeIds, integration.access_token);
 
-      if (shouldLogMetaPreviewDebug()) {
-        const insightsWithAdId = insights.filter((item) => typeof item.ad_id === "string").length;
-        const matchedAds = insights.filter(
-          (item) => typeof item.ad_id === "string" && adMap.has(item.ad_id)
-        ).length;
+      // Always log coverage in non-production for diagnostics
+      if (process.env.NODE_ENV !== "production") {
+        const matchedAds = insightAdIds.filter((id) => adMap.has(id)).length;
+        const withCreative = insightAdIds.filter((id) => {
+          const ad = adMap.get(id);
+          return ad?.creative?.thumbnail_url || ad?.creative?.image_url || ad?.creative?.object_story_spec;
+        }).length;
         console.log("[meta-creatives] account coverage", {
           account_id: accountMeta.id,
           account_name: accountMeta.name,
@@ -784,24 +891,32 @@ export async function GET(request: NextRequest) {
           ads_loaded: adMap.size,
           creative_ids_seen: creativeIds.length,
           creative_details_loaded: creativeDetailsMap.size,
-          insights_with_ad_id: insightsWithAdId,
           matched_ads: matchedAds,
+          with_creative_data: withCreative,
+          fallback_fetched: missingAdIds.length > 0 ? missingAdIds.length : 0,
         });
       }
 
       let debugSamplesLogged = 0;
       for (const insight of insights) {
         const ad = insight.ad_id ? adMap.get(insight.ad_id) : undefined;
-        const enrichedAd: MetaAdRecord | undefined =
-          ad?.creative?.id && creativeDetailsMap.has(ad.creative.id)
-            ? {
-                ...ad,
-                creative: {
-                  ...ad.creative,
-                  ...creativeDetailsMap.get(ad.creative.id),
-                },
-              }
-            : ad;
+        // Merge creative details — prefer non-null values from either source
+        const baseCreative = ad?.creative ?? null;
+        const detailCreative = baseCreative?.id ? creativeDetailsMap.get(baseCreative.id) : undefined;
+        const mergedCreative: MetaAdRecord["creative"] = baseCreative
+          ? {
+              ...baseCreative,
+              ...(detailCreative ?? {}),
+              // Preserve non-null URL fields from either source (don't overwrite valid with null)
+              thumbnail_url: detailCreative?.thumbnail_url ?? baseCreative.thumbnail_url ?? null,
+              image_url: detailCreative?.image_url ?? baseCreative.image_url ?? null,
+              object_story_spec: detailCreative?.object_story_spec ?? baseCreative.object_story_spec ?? null,
+              asset_feed_spec: detailCreative?.asset_feed_spec ?? baseCreative.asset_feed_spec ?? null,
+            }
+          : detailCreative ?? null;
+        const enrichedAd: MetaAdRecord | undefined = ad
+          ? { ...ad, creative: mergedCreative }
+          : undefined;
         const row = toRawRow(
           insight,
           enrichedAd,
@@ -809,25 +924,25 @@ export async function GET(request: NextRequest) {
         );
         if (row) {
           rawRows.push(row);
-          if (shouldLogMetaPreviewDebug() && debugSamplesLogged < 5) {
+          if (process.env.NODE_ENV !== "production" && debugSamplesLogged < 3) {
             debugSamplesLogged += 1;
             console.log("[meta-creatives] preview sample", {
               ad_id: row.id,
               ad_name: row.name,
               creative_id: row.creative_id,
-              account_id: row.account_id,
-              currency: row.currency,
-              has_thumbnail_url: Boolean(row.thumbnail_url),
-              has_image_url: Boolean(row.image_url),
-              has_object_story_spec: Boolean(enrichedAd?.creative?.object_story_spec),
-              has_asset_feed_spec: Boolean(enrichedAd?.creative?.asset_feed_spec),
-              has_link_data_picture: Boolean(enrichedAd?.creative?.object_story_spec?.link_data?.picture),
-              has_video_data_thumbnail_url: Boolean(
-                enrichedAd?.creative?.object_story_spec?.video_data?.thumbnail_url
-              ),
-              final_preview_url: row.preview_url,
+              ad_found_in_map: Boolean(ad),
+              creative_from_ad: Boolean(baseCreative),
+              creative_from_details: Boolean(detailCreative),
+              merged_thumbnail_url: mergedCreative?.thumbnail_url?.slice(0, 80) ?? null,
+              merged_image_url: mergedCreative?.image_url?.slice(0, 80) ?? null,
+              has_object_story_spec: Boolean(mergedCreative?.object_story_spec),
+              has_video_data: Boolean(mergedCreative?.object_story_spec?.video_data),
+              has_link_data_picture: Boolean(mergedCreative?.object_story_spec?.link_data?.picture),
+              has_asset_feed_spec: Boolean(mergedCreative?.asset_feed_spec),
+              final_preview_url: row.preview_url?.slice(0, 80) ?? null,
               final_preview_source: row.preview_source,
               final_preview_state: row.preview_state,
+              final_format: row.format,
             });
           }
         }
