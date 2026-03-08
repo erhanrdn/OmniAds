@@ -221,9 +221,15 @@ function parsePurchaseRoas(roas: MetaActionValue[] | undefined): number {
   return parseAction(roas, "purchase") || parseAction(roas, "omni_purchase");
 }
 
-function inferFormat(objectType: string | null | undefined): "image" | "video" {
-  if (!objectType) return "image";
-  if (objectType.toUpperCase() === "VIDEO") return "video";
+function inferFormat(input: {
+  objectType: string | null | undefined;
+  hasCreativeVideoFields: boolean;
+  hasInsightVideoSignals: boolean;
+}): "image" | "video" {
+  const { objectType, hasCreativeVideoFields, hasInsightVideoSignals } = input;
+  if (objectType?.toUpperCase() === "VIDEO") return "video";
+  if (hasCreativeVideoFields) return "video";
+  if (hasInsightVideoSignals) return "video";
   return "image";
 }
 
@@ -520,7 +526,17 @@ function toRawRow(
   const creative = ad?.creative ?? null;
   const promotedObject = ad?.promoted_object ?? ad?.adset?.promoted_object ?? null;
   const normalizedPreview = normalizeCreativePreview({ creative, promotedObject });
-  const format = inferFormat(creative?.object_type);
+  const hasCreativeVideoFields = Boolean(
+    creative?.object_story_spec?.video_data?.thumbnail_url ||
+      creative?.object_story_spec?.video_data?.image_url ||
+      (creative?.asset_feed_spec?.videos?.length ?? 0) > 0
+  );
+  const hasInsightVideoSignals = video3sViews > 0 || video25Views > 0 || video50Views > 0 || video75Views > 0 || video100Views > 0;
+  const format = inferFormat({
+    objectType: creative?.object_type,
+    hasCreativeVideoFields,
+    hasInsightVideoSignals,
+  });
 
   const launchDate = cleanDate(ad?.created_time) || cleanDate(insight.date_start) || toISODate(new Date());
   const name = insight.ad_name ?? ad?.name ?? creative?.name ?? "Unnamed ad";

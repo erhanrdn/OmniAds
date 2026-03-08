@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Trophy, ChevronDown, X, Search, Plus, SlidersHorizontal, LayoutGrid, Ellipsis, Check } from "lucide-react";
+import { createPortal } from "react-dom";
 import { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { formatMoney, resolveCreativeCurrency } from "@/components/creatives/money";
 import { cn } from "@/lib/utils";
@@ -756,9 +757,12 @@ function AddFilterDropdown({ filters, onChange }: { filters: MotionFilterRule[];
 function MetricSelectorBar({ selectedMetricIds, onChange }: { selectedMetricIds: string[]; onChange: (next: string[]) => void }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [panelPosition, setPanelPosition] = useState({ top: 0, left: 0 });
   const wrapRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const insideRefs = useMemo(() => [popoverRef], []);
 
   useDropdownBehavior({
     id: "top-add-metric",
@@ -767,6 +771,8 @@ function MetricSelectorBar({ selectedMetricIds, onChange }: { selectedMetricIds:
     containerRef: wrapRef,
     triggerRef,
     focusRef: searchRef,
+    insideRefs,
+    closeOnScroll: false,
   });
 
   const selectedDefs = selectedMetricIds
@@ -781,6 +787,35 @@ function MetricSelectorBar({ selectedMetricIds, onChange }: { selectedMetricIds:
     const exists = selectedMetricIds.includes(metricId);
     onChange(exists ? selectedMetricIds.filter((id) => id !== metricId) : [...selectedMetricIds, metricId]);
   };
+
+  useEffect(() => {
+    if (!open) return;
+    const updatePosition = () => {
+      const trigger = triggerRef.current;
+      if (!trigger) return;
+      const rect = trigger.getBoundingClientRect();
+      const panelWidth = 290;
+      const viewportPadding = 8;
+      const rawLeft = rect.left;
+      const clampedLeft = Math.min(
+        window.innerWidth - panelWidth - viewportPadding,
+        Math.max(viewportPadding, rawLeft)
+      );
+      const nextTop = rect.bottom + 8;
+      const panelHeight = popoverRef.current?.offsetHeight ?? 0;
+      const overflowsBottom = nextTop + panelHeight > window.innerHeight - viewportPadding;
+      const top = overflowsBottom ? Math.max(viewportPadding, rect.top - panelHeight - 8) : nextTop;
+      setPanelPosition({ top, left: clampedLeft });
+    };
+
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [open, query, filtered.length]);
 
   return (
     <div className="min-w-0 overflow-visible">
@@ -799,8 +834,12 @@ function MetricSelectorBar({ selectedMetricIds, onChange }: { selectedMetricIds:
             + Add metric
           </button>
 
-          {open && (
-            <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-9 z-[120] w-[290px] rounded-lg border bg-background p-2.5 shadow-lg duration-150">
+          {open && typeof document !== "undefined" && createPortal(
+            <div
+              ref={popoverRef}
+              className="animate-in fade-in-0 slide-in-from-top-1 fixed z-[180] w-[290px] rounded-lg border bg-background p-2.5 shadow-lg duration-150"
+              style={{ top: panelPosition.top, left: panelPosition.left }}
+            >
               <div className="mb-2 flex items-center gap-2 rounded-md border px-2 py-1.5">
                 <Search className="h-3.5 w-3.5 text-muted-foreground" />
                 <input
@@ -841,7 +880,8 @@ function MetricSelectorBar({ selectedMetricIds, onChange }: { selectedMetricIds:
                   <p className="px-2 py-1.5 text-xs text-muted-foreground">No metrics found.</p>
                 )}
               </div>
-            </div>
+            </div>,
+            document.body
           )}
         </div>
 

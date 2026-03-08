@@ -1874,8 +1874,15 @@ function getMetricConfig(key: TableColumnKey): TableMetricConfig {
   return TABLE_METRIC_CONFIG[key] ?? DEFAULT_TABLE_METRIC_CONFIG;
 }
 
+function hasVideoEvidence(row: MetaCreativeRow): boolean {
+  return row.format === "video" || row.thumbstop > 0 || row.video25 > 0 || row.video50 > 0 || row.video75 > 0 || row.video100 > 0;
+}
+
 function isMetricApplicable(key: TableColumnKey, row: MetaCreativeRow): boolean {
   const cfg = getMetricConfig(key);
+  if (cfg.applicableFormats.includes("video") && cfg.applicableFormats.length === 1) {
+    return hasVideoEvidence(row);
+  }
   return cfg.applicableFormats.includes(row.format);
 }
 

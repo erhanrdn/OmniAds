@@ -15,6 +15,7 @@ interface UseDropdownBehaviorOptions {
   containerRef: RefObject<HTMLElement | null>;
   triggerRef?: RefObject<HTMLElement | null>;
   focusRef?: RefObject<HTMLElement | null>;
+  insideRefs?: Array<RefObject<HTMLElement | null>>;
   closeOnScroll?: boolean;
 }
 
@@ -25,6 +26,7 @@ export function useDropdownBehavior({
   containerRef,
   triggerRef,
   focusRef,
+  insideRefs = [],
   closeOnScroll = true,
 }: UseDropdownBehaviorOptions) {
   useEffect(() => {
@@ -43,7 +45,8 @@ export function useDropdownBehavior({
       const target = e.target as Node;
       const insidePanel = containerRef.current?.contains(target);
       const insideTrigger = triggerRef?.current?.contains(target);
-      if (!insidePanel && !insideTrigger) {
+      const insideExtra = insideRefs.some((ref) => ref.current?.contains(target));
+      if (!insidePanel && !insideTrigger && !insideExtra) {
         setOpen(false);
       }
     };
@@ -89,5 +92,5 @@ export function useDropdownBehavior({
       window.removeEventListener(OPEN_EVENT, onAnotherOpened as EventListener);
       window.removeEventListener("scroll", onScroll, true);
     };
-  }, [open, id, setOpen, containerRef, triggerRef, focusRef, closeOnScroll]);
+  }, [open, id, setOpen, containerRef, triggerRef, focusRef, insideRefs, closeOnScroll]);
 }
