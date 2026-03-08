@@ -182,10 +182,33 @@ export default function CreativesPage() {
       }),
   });
 
-  const allRows = useMemo(
-    () => (creativesQuery.data?.rows ?? []).map(mapApiRowToUiRow),
-    [creativesQuery.data?.rows]
-  );
+  const allRows = useMemo(() => {
+    const rows = (creativesQuery.data?.rows ?? []).map(mapApiRowToUiRow);
+    if (rows.length > 0 && process.env.NODE_ENV !== "production") {
+      const withPreview = rows.filter((r) => r.previewUrl).length;
+      console.log("[creatives-page] UI row preview summary", {
+        total: rows.length,
+        with_previewUrl: withPreview,
+        with_thumbnailUrl: rows.filter((r) => r.thumbnailUrl).length,
+        with_imageUrl: rows.filter((r) => r.imageUrl).length,
+        state_counts: {
+          preview: rows.filter((r) => r.previewState === "preview").length,
+          catalog: rows.filter((r) => r.previewState === "catalog").length,
+          unavailable: rows.filter((r) => r.previewState === "unavailable").length,
+        },
+        samples: rows.slice(0, 3).map((r) => ({
+          id: r.id,
+          name: r.name.slice(0, 40),
+          previewState: r.previewState,
+          previewUrl: r.previewUrl ? r.previewUrl.slice(0, 80) : null,
+          thumbnailUrl: r.thumbnailUrl ? r.thumbnailUrl.slice(0, 80) : null,
+          imageUrl: r.imageUrl ? r.imageUrl.slice(0, 80) : null,
+          isCatalog: r.isCatalog,
+        })),
+      });
+    }
+    return rows;
+  }, [creativesQuery.data?.rows]);
 
   const filteredRows = useMemo(() => {
     if (platform !== "meta") return [];

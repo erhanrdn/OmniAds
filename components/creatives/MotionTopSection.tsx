@@ -894,14 +894,18 @@ function PreviewStrip({
               className="w-[182px] shrink-0 overflow-hidden rounded-lg border bg-muted/10 text-left"
             >
               <div className="relative aspect-square w-full overflow-hidden bg-muted/30">
-                {row.previewState === "preview" && row.previewUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={row.previewUrl} alt={row.name} className="h-full w-full object-cover" />
-                ) : (
-                  <div className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">
-                    {row.previewState === "catalog" ? "Catalog ad" : "Preview unavailable"}
-                  </div>
-                )}
+                {(() => {
+                  const isCatalogAd = row.previewState === "catalog" || row.isCatalog;
+                  const imgUrl = row.previewUrl ?? row.thumbnailUrl ?? row.imageUrl;
+                  return !isCatalogAd && imgUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={imgUrl} alt={row.name} className="h-full w-full object-cover" />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">
+                      {isCatalogAd ? "Catalog ad" : "Preview unavailable"}
+                    </div>
+                  );
+                })()}
               <span className="absolute bottom-2 left-2 rounded-md bg-black/50 px-2 py-0.5 text-[10px] text-white">
                 {row.format === "video" ? "Video" : "Image"}
               </span>

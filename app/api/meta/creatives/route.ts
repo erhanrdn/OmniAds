@@ -781,5 +781,32 @@ export async function GET(request: NextRequest) {
     };
   });
 
+  if (process.env.NODE_ENV !== "production") {
+    const withPreview = responseRows.filter((r) => r.preview_url).length;
+    const withThumb = responseRows.filter((r) => r.thumbnail_url).length;
+    const withImage = responseRows.filter((r) => r.image_url).length;
+    console.log("[meta-creatives] preview summary", {
+      total: responseRows.length,
+      preview_url_set: withPreview,
+      thumbnail_url_set: withThumb,
+      image_url_set: withImage,
+      state_counts: {
+        preview: responseRows.filter((r) => r.preview_state === "preview").length,
+        catalog: responseRows.filter((r) => r.preview_state === "catalog").length,
+        unavailable: responseRows.filter((r) => r.preview_state === "unavailable").length,
+      },
+      samples: responseRows.slice(0, 3).map((r) => ({
+        id: r.id,
+        name: r.name.slice(0, 40),
+        preview_state: r.preview_state,
+        preview_url: r.preview_url ? r.preview_url.slice(0, 80) : null,
+        preview_source: r.preview_source,
+        thumbnail_url: r.thumbnail_url ? r.thumbnail_url.slice(0, 80) : null,
+        image_url: r.image_url ? r.image_url.slice(0, 80) : null,
+        is_catalog: r.is_catalog,
+      })),
+    });
+  }
+
   return NextResponse.json({ status: "ok", rows: responseRows });
 }
