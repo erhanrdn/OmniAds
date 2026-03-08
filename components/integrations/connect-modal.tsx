@@ -28,10 +28,13 @@ export function ConnectModal({
 
   if (!provider) return null;
 
-  const isShopify = provider === "shopify";
-  const providerLabel = getProviderLabel(provider);
-  const permissions = OAUTH_PERMISSIONS[provider];
-  const returnTo = `/integrations/callback/${provider}?businessId=${encodeURIComponent(
+  // Local const so TypeScript narrows the type inside closures too.
+  const activeProvider: IntegrationProvider = provider;
+
+  const isShopify = activeProvider === "shopify";
+  const providerLabel = getProviderLabel(activeProvider);
+  const permissions = OAUTH_PERMISSIONS[activeProvider];
+  const returnTo = `/integrations/callback/${activeProvider}?businessId=${encodeURIComponent(
     businessId,
   )}`;
 
@@ -45,12 +48,12 @@ export function ConnectModal({
       setShopError(null);
     }
     const startUrl = getOAuthStartUrl(
-      provider,
+      activeProvider,
       businessId,
       returnTo,
       isShopify ? { shop: shopDomain.trim() } : undefined,
     );
-    onContinue(provider);
+    onContinue(activeProvider);
     window.location.href = startUrl;
   }
 
