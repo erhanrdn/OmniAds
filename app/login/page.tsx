@@ -1,16 +1,22 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("admin@omniads.io");
   const [password, setPassword] = useState("password");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const inviteEmail = searchParams.get("email");
+    if (inviteEmail) setEmail(inviteEmail);
+  }, [searchParams]);
 
   async function handleLogin() {
     setLoading(true);
@@ -24,6 +30,14 @@ export default function LoginPage() {
       const payload = (await res.json().catch(() => null)) as { message?: string } | null;
       if (!res.ok) {
         throw new Error(payload?.message ?? "Could not sign in.");
+      }
+      const inviteToken = searchParams.get("invite");
+      if (inviteToken) {
+        const acceptRes = await fetch(`/api/invite/${inviteToken}`, { method: "POST" });
+        const acceptPayload = (await acceptRes.json().catch(() => null)) as { message?: string } | null;
+        if (!acceptRes.ok) {
+          throw new Error(acceptPayload?.message ?? "Signed in, but invite could not be accepted.");
+        }
       }
       router.push("/overview");
     } catch (err: unknown) {

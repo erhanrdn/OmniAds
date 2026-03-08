@@ -1,12 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { MembershipRole } from "@/lib/auth";
-import { createInvite, listInvitesByBusiness } from "@/lib/account-store";
+import { createInvite, listInvitesByBusiness, revokeInvite } from "@/lib/account-store";
 import { requireBusinessAccess } from "@/lib/access";
 
 interface InviteBody {
   businessId?: string;
   emails?: string[];
   role?: MembershipRole;
+}
+
+interface InviteActionBody {
+  businessId?: string;
+  inviteId?: string;
+  action?: "revoke";
 }
 
 export async function GET(request: NextRequest) {
@@ -34,14 +40,40 @@ export async function POST(request: NextRequest) {
 
   const created = [];
   for (const email of emails) {
-    const invite = await createInvite({ email, businessId: businessId!, role });
+    const invite = await createInvite({
+      email,
+      businessId: businessId!,
+      role,
+      invitedByUserId: access.session.user.id,
+    });
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? request.nextUrl.origin;
     created.push({
       ...invite,
       email,
       role,
-      inviteUrl: `/invite/${invite.token}`,
+      inviteUrl: `${baseUrl}/invite/${invite.token}`,
     });
   }
   return NextResponse.json({ invites: created }, { status: 201 });
 }
 
+export async function PATCH(request: NextRequest) {
+  const body = (await request.json().catch(() => null)) as InviteActionBody | null;
+  const businessId = body?.businessId ?? null;
+  const inviteId = body?.inviteId ?? "";
+  const action = body?.action;
+  if (!inviteId || !action) {
+    return NextResponse.json(
+      { error: "invalid_payload", message: "inviteId and action are required." },
+      { status: 400 }
+    );
+  }
+  const access = await requireBusinessAccess({ request, businessId, minRole: "admin" });
+  if ("error" in access) return access.error;
+
+  if (action === "revoke") {
+    await revokeInvite({ inviteId, businessId: businessId! });
+  }
+
+  return NextResponse.json({ status: "ok" });
+}

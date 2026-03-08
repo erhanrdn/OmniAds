@@ -26,6 +26,7 @@ export async function GET(
       role: invite.role,
       status: invite.status,
       createdAt: invite.created_at,
+      expiresAt: invite.expires_at,
     },
   });
 }
@@ -48,9 +49,25 @@ export async function POST(
       { status: 409 }
     );
   }
+  const expiresAtMs = new Date(invite.expires_at).getTime();
+  if (!Number.isFinite(expiresAtMs) || expiresAtMs < Date.now()) {
+    return NextResponse.json(
+      { error: "invite_expired", message: "Invite link is invalid or expired." },
+      { status: 410 }
+    );
+  }
 
   const activeSession = await getSessionFromRequest(request);
   let userId = activeSession?.user.id ?? null;
+  if (activeSession && activeSession.user.email.toLowerCase() !== invite.email.toLowerCase()) {
+    return NextResponse.json(
+      {
+        error: "email_mismatch",
+        message: "This invite was sent to a different email address.",
+      },
+      { status: 403 }
+    );
+  }
 
   if (!userId) {
     const existingUser = await getUserByEmail(invite.email);
@@ -105,4 +122,3 @@ export async function POST(
 
   return NextResponse.json({ status: "accepted", businessId: accepted.businessId });
 }
-

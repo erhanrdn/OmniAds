@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -9,7 +10,13 @@ interface InvitePayload {
     email: string;
     role: "admin" | "collaborator" | "guest";
     status: "pending" | "accepted" | "revoked" | "expired";
+    expiresAt?: string;
   };
+}
+
+interface MePayload {
+  authenticated: boolean;
+  user?: { email: string };
 }
 
 export default function InviteAcceptPage() {
@@ -18,26 +25,33 @@ export default function InviteAcceptPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [invite, setInvite] = useState<InvitePayload["invite"] | null>(null);
-  const [name, setName] = useState("");
-  const [password, setPassword] = useState("");
+  const [me, setMe] = useState<MePayload | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
-    async function loadInvite() {
+    async function load() {
       setLoading(true);
-      const res = await fetch(`/api/invite/${token}`);
-      const json = (await res.json().catch(() => null)) as InvitePayload | { message?: string } | null;
+      const [inviteRes, meRes] = await Promise.all([
+        fetch(`/api/invite/${token}`, { cache: "no-store" }),
+        fetch("/api/auth/me", { cache: "no-store" }),
+      ]);
+      const inviteJson = (await inviteRes.json().catch(() => null)) as
+        | InvitePayload
+        | { message?: string }
+        | null;
+      const meJson = (await meRes.json().catch(() => null)) as MePayload | null;
       if (!mounted) return;
-      if (!res.ok || !json || !("invite" in json)) {
-        setError((json as { message?: string } | null)?.message ?? "Invalid invite.");
+      if (!inviteRes.ok || !inviteJson || !("invite" in inviteJson)) {
+        setError((inviteJson as { message?: string } | null)?.message ?? "Invite link is invalid or expired.");
       } else {
-        setInvite(json.invite);
+        setInvite(inviteJson.invite);
       }
+      setMe(meJson);
       setLoading(false);
     }
-    if (token) loadInvite();
+    if (token) load();
     return () => {
       mounted = false;
     };
@@ -46,11 +60,7 @@ export default function InviteAcceptPage() {
   async function acceptInvite() {
     setSubmitting(true);
     setError(null);
-    const res = await fetch(`/api/invite/${token}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, password }),
-    });
+    const res = await fetch(`/api/invite/${token}`, { method: "POST" });
     const json = (await res.json().catch(() => null)) as { message?: string } | null;
     if (!res.ok) {
       setError(json?.message ?? "Could not accept invite.");
@@ -69,11 +79,14 @@ export default function InviteAcceptPage() {
       <main className="flex min-h-screen items-center justify-center px-4">
         <div className="w-full max-w-md rounded-xl border bg-card p-5 text-center">
           <h1 className="text-lg font-semibold">Invite unavailable</h1>
-          <p className="mt-2 text-sm text-muted-foreground">{error ?? "Invite link is invalid."}</p>
+          <p className="mt-2 text-sm text-muted-foreground">{error ?? "Invite link is invalid or expired."}</p>
         </div>
       </main>
     );
   }
+
+  const isAuthed = Boolean(me?.authenticated);
+  const emailMatch = !isAuthed || me?.user?.email?.toLowerCase() === invite.email.toLowerCase();
 
   return (
     <main className="flex min-h-screen items-center justify-center px-4">
@@ -86,34 +99,40 @@ export default function InviteAcceptPage() {
           </p>
         </div>
 
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium text-muted-foreground">Name</label>
-          <input
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-            placeholder="Your full name"
-          />
-        </div>
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium text-muted-foreground">Password</label>
-          <input
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-            placeholder="At least 8 characters"
-          />
-        </div>
+        {invite.expiresAt ? (
+          <p className="text-xs text-muted-foreground">
+            Expires: {new Date(invite.expiresAt).toLocaleString()}
+          </p>
+        ) : null}
 
         {error ? <p className="text-xs text-destructive">{error}</p> : null}
-        <div className="flex justify-end">
-          <Button onClick={acceptInvite} disabled={submitting}>
-            {submitting ? "Accepting..." : "Accept invite"}
-          </Button>
-        </div>
+
+        {!isAuthed ? (
+          <div className="space-y-2">
+            <Button asChild className="w-full">
+              <Link href={`/login?invite=${encodeURIComponent(token)}&email=${encodeURIComponent(invite.email)}`}>
+                Sign in to accept
+              </Link>
+            </Button>
+            <Button asChild variant="outline" className="w-full">
+              <Link href={`/signup?invite=${encodeURIComponent(token)}&email=${encodeURIComponent(invite.email)}`}>
+                Create account and accept
+              </Link>
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {!emailMatch ? (
+              <p className="text-xs text-destructive">
+                This invite is for {invite.email}. Please sign in with that email.
+              </p>
+            ) : null}
+            <Button onClick={acceptInvite} disabled={submitting || !emailMatch} className="w-full">
+              {submitting ? "Accepting..." : "Accept invite"}
+            </Button>
+          </div>
+        )}
       </div>
     </main>
   );
 }
-

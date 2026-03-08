@@ -51,9 +51,17 @@ export async function runMigrations() {
       role         TEXT NOT NULL CHECK (role IN ('admin', 'collaborator', 'guest')),
       token        TEXT NOT NULL UNIQUE,
       status       TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'revoked', 'expired')),
+      invited_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+      expires_at   TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '7 days'),
+      accepted_at  TIMESTAMPTZ,
       created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `;
+
+  // keep old databases compatible
+  await sql`ALTER TABLE invites ADD COLUMN IF NOT EXISTS invited_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL`;
+  await sql`ALTER TABLE invites ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '7 days')`;
+  await sql`ALTER TABLE invites ADD COLUMN IF NOT EXISTS accepted_at TIMESTAMPTZ`;
 
   await sql`
     CREATE INDEX IF NOT EXISTS idx_invites_business_id

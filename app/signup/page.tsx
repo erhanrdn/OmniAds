@@ -2,13 +2,16 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 
 export default function SignupPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const inviteToken = searchParams.get("invite") ?? "";
+  const inviteEmail = searchParams.get("email") ?? "";
   const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(inviteEmail);
   const [password, setPassword] = useState("");
   const [businessName, setBusinessName] = useState("");
   const [loading, setLoading] = useState(false);
@@ -21,7 +24,7 @@ export default function SignupPage() {
       const res = await fetch("/api/auth/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, email, password, businessName }),
+        body: JSON.stringify({ name, email, password, businessName, inviteToken: inviteToken || undefined }),
       });
       const payload = (await res.json().catch(() => null)) as { message?: string } | null;
       if (!res.ok) throw new Error(payload?.message ?? "Could not create account.");
@@ -38,7 +41,11 @@ export default function SignupPage() {
       <div className="w-full max-w-sm space-y-6">
         <div className="space-y-2 text-center">
           <h1 className="text-2xl font-semibold tracking-tight">Create account</h1>
-          <p className="text-sm text-muted-foreground">Sign up and create your first business workspace.</p>
+          <p className="text-sm text-muted-foreground">
+            {inviteToken
+              ? "Create your account to accept this team invite."
+              : "Sign up and create your first business workspace."}
+          </p>
         </div>
 
         <div className="space-y-3">
@@ -54,6 +61,7 @@ export default function SignupPage() {
             onChange={(event) => setEmail(event.target.value)}
             className="h-10 w-full rounded-md border bg-background px-3 text-sm"
             placeholder="Email"
+            disabled={Boolean(inviteEmail)}
           />
           <input
             type="password"
@@ -67,6 +75,7 @@ export default function SignupPage() {
             onChange={(event) => setBusinessName(event.target.value)}
             className="h-10 w-full rounded-md border bg-background px-3 text-sm"
             placeholder="Business name"
+            disabled={Boolean(inviteToken)}
           />
           {error ? <p className="text-xs text-destructive">{error}</p> : null}
           <Button onClick={handleSignup} disabled={loading} className="w-full">
@@ -85,4 +94,3 @@ export default function SignupPage() {
     </div>
   );
 }
-

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { attachSessionCookie, createSession, hashPassword } from "@/lib/auth";
-import { createBusinessWithAdminMembership, createUser, getUserByEmail } from "@/lib/account-store";
+import { acceptInvite, createBusinessWithAdminMembership, createUser, getInviteByToken, getUserByEmail } from "@/lib/account-store";
 
 interface SignupBody {
   name?: string;
@@ -9,6 +9,7 @@ interface SignupBody {
   businessName?: string;
   timezone?: string;
   currency?: string;
+  inviteToken?: string;
 }
 
 export async function POST(request: NextRequest) {
@@ -19,6 +20,7 @@ export async function POST(request: NextRequest) {
   const businessName = body?.businessName?.trim() ?? "My Business";
   const timezone = body?.timezone?.trim() || "UTC";
   const currency = body?.currency?.trim().toUpperCase() || "USD";
+  const inviteToken = body?.inviteToken?.trim() ?? "";
 
   if (!name || !email || !password) {
     return NextResponse.json(
@@ -41,24 +43,51 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  if (inviteToken) {
+    const validatedInvite = await getInviteByToken(inviteToken);
+    if (!validatedInvite || validatedInvite.status !== "pending") {
+      return NextResponse.json(
+        { error: "invite_invalid", message: "Invite link is invalid or expired." },
+        { status: 400 }
+      );
+    }
+    if (validatedInvite.email.toLowerCase() !== email) {
+      return NextResponse.json(
+        { error: "invite_email_mismatch", message: "Signup email must match invite email." },
+        { status: 403 }
+      );
+    }
+  }
+
   const passwordHash = await hashPassword(password);
   const user = await createUser({ name, email, passwordHash });
-  const business = await createBusinessWithAdminMembership({
-    name: businessName,
-    ownerId: user.id,
-    timezone,
-    currency,
-  });
+  let business: { id: string; name: string; timezone: string; currency: string } | null = null;
+  if (inviteToken) {
+    const accepted = await acceptInvite(inviteToken, user.id);
+    if (!accepted) {
+      return NextResponse.json(
+        { error: "invite_accept_failed", message: "Could not accept invite." },
+        { status: 400 }
+      );
+    }
+    business = { id: accepted.businessId, name: "Invited workspace", timezone, currency };
+  } else {
+    business = await createBusinessWithAdminMembership({
+      name: businessName,
+      ownerId: user.id,
+      timezone,
+      currency,
+    });
+  }
   const { token, expiresAt } = await createSession({
     userId: user.id,
-    activeBusinessId: business.id,
+    activeBusinessId: business?.id ?? null,
   });
 
   const response = NextResponse.json({
     user: { id: user.id, name: user.name, email: user.email },
-    business,
+    businessId: business?.id ?? null,
   });
   attachSessionCookie(response, token, expiresAt);
   return response;
 }
-

@@ -1,4 +1,4 @@
-import { randomUUID } from "crypto";
+import { randomBytes } from "crypto";
 import { getDb } from "@/lib/db";
 import { runMigrations } from "@/lib/migrations";
 import { MembershipRole } from "@/lib/auth";
@@ -78,26 +78,55 @@ export async function createInvite(input: {
   email: string;
   businessId: string;
   role: MembershipRole;
-}): Promise<{ id: string; token: string; created_at: string }> {
+  invitedByUserId: string;
+}): Promise<{ id: string; token: string; created_at: string; expires_at: string }> {
   await runMigrations();
   const sql = getDb();
-  const token = randomUUID().replace(/-/g, "");
+  const token = randomBytes(32).toString("hex");
   const rows = await sql`
-    INSERT INTO invites (email, business_id, role, token, status)
-    VALUES (${input.email.trim().toLowerCase()}, ${input.businessId}, ${input.role}, ${token}, 'pending')
-    RETURNING id, token, created_at
+    INSERT INTO invites (email, business_id, role, token, status, invited_by_user_id, expires_at)
+    VALUES (
+      ${input.email.trim().toLowerCase()},
+      ${input.businessId},
+      ${input.role},
+      ${token},
+      'pending',
+      ${input.invitedByUserId},
+      ${new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()}
+    )
+    RETURNING id, token, created_at, expires_at
   `;
-  return rows[0] as { id: string; token: string; created_at: string };
+  return rows[0] as { id: string; token: string; created_at: string; expires_at: string };
 }
 
 export async function listInvitesByBusiness(businessId: string) {
   await runMigrations();
   const sql = getDb();
-  return sql`
-    SELECT id, email, business_id, role, token, status, created_at
-    FROM invites
+  await sql`
+    UPDATE invites
+    SET status = 'expired'
     WHERE business_id = ${businessId}
-    ORDER BY created_at DESC
+      AND status = 'pending'
+      AND expires_at < now()
+  `;
+  return sql`
+    SELECT
+      i.id,
+      i.email,
+      i.business_id,
+      i.role,
+      i.token,
+      i.status,
+      i.created_at,
+      i.expires_at,
+      i.accepted_at,
+      i.invited_by_user_id,
+      u.name AS invited_by_name,
+      u.email AS invited_by_email
+    FROM invites i
+    LEFT JOIN users u ON u.id = i.invited_by_user_id
+    WHERE i.business_id = ${businessId}
+    ORDER BY i.created_at DESC
   `;
 }
 
@@ -105,7 +134,17 @@ export async function getInviteByToken(token: string) {
   await runMigrations();
   const sql = getDb();
   const rows = await sql`
-    SELECT id, email, business_id, role, token, status, created_at
+    SELECT
+      id,
+      email,
+      business_id,
+      role,
+      token,
+      status,
+      created_at,
+      expires_at,
+      accepted_at,
+      invited_by_user_id
     FROM invites
     WHERE token = ${token}
     LIMIT 1
@@ -119,6 +158,9 @@ export async function getInviteByToken(token: string) {
         token: string;
         status: "pending" | "accepted" | "revoked" | "expired";
         created_at: string;
+        expires_at: string;
+        accepted_at: string | null;
+        invited_by_user_id: string | null;
       }
     | undefined) ?? null;
 }
@@ -128,6 +170,11 @@ export async function acceptInvite(token: string, userId: string): Promise<{ bus
   const sql = getDb();
   const invite = await getInviteByToken(token);
   if (!invite || invite.status !== "pending") return null;
+  const expiresAt = new Date(invite.expires_at).getTime();
+  if (!Number.isFinite(expiresAt) || expiresAt < Date.now()) {
+    await sql`UPDATE invites SET status = 'expired' WHERE id = ${invite.id}`;
+    return null;
+  }
 
   await sql`
     INSERT INTO memberships (user_id, business_id, role, status)
@@ -137,10 +184,22 @@ export async function acceptInvite(token: string, userId: string): Promise<{ bus
   `;
   await sql`
     UPDATE invites
-    SET status = 'accepted'
+    SET status = 'accepted', accepted_at = now()
     WHERE id = ${invite.id}
   `;
   return { businessId: invite.business_id };
+}
+
+export async function revokeInvite(input: { inviteId: string; businessId: string }) {
+  await runMigrations();
+  const sql = getDb();
+  await sql`
+    UPDATE invites
+    SET status = 'revoked'
+    WHERE id = ${input.inviteId}
+      AND business_id = ${input.businessId}
+      AND status = 'pending'
+  `;
 }
 
 export async function listBusinessMembers(businessId: string) {
