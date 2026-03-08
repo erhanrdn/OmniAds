@@ -42,6 +42,11 @@ export interface SharePayload {
   dateRange: string;
   createdAt: string;
   expiresAt: string;
+  businessId?: string;
+  groupBy?: string;
+  filters?: string[];
+  selectedRowIds?: string[];
+  totalRows?: number;
   metrics: ShareMetricKey[];
   includeNotes: boolean;
   creatives: SharedCreative[];

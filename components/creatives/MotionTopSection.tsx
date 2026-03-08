@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Trophy, ChevronDown, X, Search, Plus, SlidersHorizontal, LayoutGrid, Ellipsis, Check } from "lucide-react";
+import { Trophy, ChevronDown, X, Search, Plus, SlidersHorizontal, LayoutGrid, Ellipsis, Check, Copy, FileDown, Link2 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { formatMoney, resolveCreativeCurrency } from "@/components/creatives/money";
@@ -67,6 +67,7 @@ interface MotionMetricContext {
 }
 
 interface MotionTopSectionProps {
+  showHeader?: boolean;
   dateRange: MotionDateRangeValue;
   onDateRangeChange: (next: MotionDateRangeValue) => void;
   groupBy: MotionGroupBy;
@@ -79,6 +80,13 @@ interface MotionTopSectionProps {
   allRowsForHeatmap: MetaCreativeRow[];
   defaultCurrency: string | null;
   onOpenRow: (rowId: string) => void;
+  onShareExport: () => void;
+  onCsvExport: () => void;
+  shareExportLoading?: boolean;
+  csvExportLoading?: boolean;
+  shareUrl?: string | null;
+  shareError?: string | null;
+  csvError?: string | null;
 }
 
 export const DEFAULT_MOTION_DATE_RANGE: MotionDateRangeValue = {
@@ -374,6 +382,7 @@ export function mapMotionGroupByToApi(groupBy: MotionGroupBy): "adName" | "creat
 }
 
 export function MotionTopSection({
+  showHeader = true,
   dateRange,
   onDateRangeChange,
   groupBy,
@@ -386,6 +395,13 @@ export function MotionTopSection({
   allRowsForHeatmap,
   defaultCurrency,
   onOpenRow,
+  onShareExport,
+  onCsvExport,
+  shareExportLoading = false,
+  csvExportLoading = false,
+  shareUrl = null,
+  shareError = null,
+  csvError = null,
 }: MotionTopSectionProps) {
   const metricDefs = useMemo(
     () => selectedMetricIds.map((id) => getMotionMetricDefinition(id)).filter(Boolean) as MotionMetricDefinition[],
@@ -397,18 +413,20 @@ export function MotionTopSection({
   return (
     <section>
       {/* A — Header */}
-      <div className="space-y-1">
-        <h2 className="flex items-center gap-2 text-xl font-semibold">
-          <Trophy className="h-5 w-5 text-amber-500" />
-          Top creatives
-        </h2>
-        <p className="max-w-3xl text-sm text-muted-foreground">
-          This report shows your top performing creatives. Use this to quickly identify where you are spending money vs making money.
-        </p>
-      </div>
+      {showHeader && (
+        <div className="space-y-1">
+          <h2 className="flex items-center gap-2 text-xl font-semibold">
+            <Trophy className="h-5 w-5 text-amber-500" />
+            Top creatives
+          </h2>
+          <p className="max-w-3xl text-sm text-muted-foreground">
+            This report shows your top performing creatives. Use this to quickly identify where you are spending money vs making money.
+          </p>
+        </div>
+      )}
 
       {/* B — Filters */}
-      <div className="mt-6 rounded-xl border bg-card px-3 py-2">
+      <div className={cn(showHeader ? "mt-6" : "mt-0", "rounded-xl border bg-card px-3 py-2")}>
         <div className="flex flex-wrap items-center gap-2">
           <MotionDateRangePicker value={dateRange} onChange={onDateRangeChange} />
 
@@ -428,6 +446,18 @@ export function MotionTopSection({
           </div>
 
           <AddFilterDropdown filters={filters} onChange={onFiltersChange} />
+
+          <div className="ml-auto">
+            <TopExportDropdown
+              onShareExport={onShareExport}
+              onCsvExport={onCsvExport}
+              shareLoading={shareExportLoading}
+              csvLoading={csvExportLoading}
+              shareUrl={shareUrl}
+              shareError={shareError}
+              csvError={csvError}
+            />
+          </div>
         </div>
       </div>
 
@@ -748,6 +778,110 @@ function AddFilterDropdown({ filters, onChange }: { filters: MotionFilterRule[];
               </button>
             </span>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TopExportDropdown({
+  onShareExport,
+  onCsvExport,
+  shareLoading,
+  csvLoading,
+  shareUrl,
+  shareError,
+  csvError,
+}: {
+  onShareExport: () => void;
+  onCsvExport: () => void;
+  shareLoading: boolean;
+  csvLoading: boolean;
+  shareUrl: string | null;
+  shareError: string | null;
+  csvError: string | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  useDropdownBehavior({
+    id: "top-export",
+    open,
+    setOpen,
+    containerRef: wrapRef,
+    triggerRef,
+  });
+
+  const copyShareUrl = async () => {
+    if (!shareUrl) return;
+    await navigator.clipboard.writeText(`${window.location.origin}${shareUrl}`);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        className="inline-flex items-center gap-2 rounded-full border bg-background px-3 py-2 text-xs"
+      >
+        Export
+        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+      </button>
+
+      {open && (
+        <div className="animate-in fade-in-0 slide-in-from-top-1 absolute right-0 top-11 z-50 w-[290px] rounded-xl border bg-background p-3 shadow-lg duration-150">
+          <button
+            type="button"
+            onClick={onShareExport}
+            disabled={shareLoading}
+            className="flex w-full items-center justify-between rounded-md border px-2.5 py-2 text-xs hover:bg-accent/60 disabled:opacity-60"
+          >
+            <span className="inline-flex items-center gap-2">
+              <Link2 className="h-3.5 w-3.5" />
+              {shareLoading ? "Generating link..." : "Share link"}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={onCsvExport}
+            disabled={csvLoading}
+            className="mt-2 flex w-full items-center justify-between rounded-md border px-2.5 py-2 text-xs hover:bg-accent/60 disabled:opacity-60"
+          >
+            <span className="inline-flex items-center gap-2">
+              <FileDown className="h-3.5 w-3.5" />
+              {csvLoading ? "Exporting CSV..." : "Export CSV"}
+            </span>
+          </button>
+
+          {shareUrl && (
+            <div className="mt-2 space-y-1 rounded-md border bg-muted/30 p-2">
+              <p className="text-[11px] text-muted-foreground">Share link ready</p>
+              <div className="flex items-center gap-1.5">
+                <input
+                  readOnly
+                  value={`${typeof window !== "undefined" ? window.location.origin : ""}${shareUrl}`}
+                  className="h-7 flex-1 rounded border bg-background px-2 text-[11px] text-muted-foreground"
+                />
+                <button
+                  type="button"
+                  onClick={copyShareUrl}
+                  className="inline-flex h-7 items-center gap-1 rounded border px-2 text-[11px]"
+                >
+                  <Copy className="h-3 w-3" />
+                  {copied ? "Copied" : "Copy"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {shareError ? <p className="mt-2 text-[11px] text-red-600">{shareError}</p> : null}
+          {csvError ? <p className="mt-1 text-[11px] text-red-600">{csvError}</p> : null}
         </div>
       )}
     </div>

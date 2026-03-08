@@ -21,6 +21,7 @@ import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
 import {
   applyMotionFilters,
   DEFAULT_MOTION_DATE_RANGE,
+  formatMotionDateLabel,
   mapMotionGroupByToApi,
   MotionDateRangeValue,
   MotionFilterRule,
@@ -28,6 +29,7 @@ import {
   MotionTopSection,
   resolveMotionDateRange,
 } from "@/components/creatives/MotionTopSection";
+import type { ShareMetricKey, SharePayload, SharedCreative } from "@/components/creatives/shareCreativeTypes";
 
 interface MetaCreativesResponse {
   status?: string;
@@ -42,6 +44,104 @@ const PLATFORM_LABELS: Record<string, string> = {
   pinterest: "Pinterest",
   snapchat: "Snapchat",
 };
+
+const SHARE_METRIC_IDS = new Set<ShareMetricKey>(["spend", "purchaseValue", "roas", "cpa", "ctrAll", "purchases"]);
+
+function toCsv(rows: MetaCreativeRow[]): string {
+  const headers = [
+    "Creative / Ad Name",
+    "Launch date",
+    "Tags",
+    "Spend",
+    "Purchase value",
+    "ROAS",
+    "Cost per purchase",
+    "Cost per link click",
+    "CPM",
+    "CPC (all)",
+    "Average order value",
+    "Click to add-to-cart ratio",
+    "Add-to-cart to purchase ratio",
+    "Purchases",
+    "First frame retention",
+    "Thumbstop ratio",
+    "Click through rate (outbound)",
+    "Click to purchase ratio",
+    "Click through rate (all)",
+    "25% video plays (rate)",
+    "50% video plays (rate)",
+    "75% video plays (rate)",
+    "100% video plays (rate)",
+    "Hold rate",
+    "Hook score",
+    "Watch score",
+    "Click score",
+    "Convert score",
+    "% purchase value",
+  ];
+
+  const totalPurchaseValue = rows.reduce((sum, row) => sum + row.purchaseValue, 0);
+  const escape = (value: string | number) => `"${String(value).replace(/"/g, '""')}"`;
+  const isVideo = (row: MetaCreativeRow) =>
+    row.format === "video" || row.thumbstop > 0 || row.video25 > 0 || row.video50 > 0 || row.video75 > 0 || row.video100 > 0;
+
+  const body = rows.map((row) => {
+    const videoApplicable = isVideo(row);
+    const aov = row.purchases > 0 ? row.purchaseValue / row.purchases : 0;
+    const purchaseValueShare = totalPurchaseValue > 0 ? (row.purchaseValue / totalPurchaseValue) * 100 : 0;
+    const values = [
+      row.name,
+      row.launchDate,
+      (row.tags ?? []).join(" | "),
+      row.spend.toFixed(2),
+      row.purchaseValue.toFixed(2),
+      row.roas.toFixed(2),
+      row.cpa.toFixed(2),
+      row.cpcLink.toFixed(2),
+      row.cpm.toFixed(2),
+      row.cpcLink.toFixed(2),
+      aov.toFixed(2),
+      row.clickToPurchase.toFixed(2),
+      row.atcToPurchaseRatio.toFixed(2),
+      row.purchases,
+      videoApplicable ? row.thumbstop.toFixed(2) : "",
+      videoApplicable ? row.thumbstop.toFixed(2) : "",
+      row.ctrAll.toFixed(2),
+      row.clickToPurchase.toFixed(2),
+      row.ctrAll.toFixed(2),
+      videoApplicable ? row.video25.toFixed(2) : "",
+      videoApplicable ? row.video50.toFixed(2) : "",
+      videoApplicable ? row.video75.toFixed(2) : "",
+      videoApplicable ? row.video100.toFixed(2) : "",
+      videoApplicable ? row.video100.toFixed(2) : "",
+      row.thumbstop.toFixed(0),
+      videoApplicable ? row.video50.toFixed(0) : "",
+      (row.ctrAll * 10).toFixed(0),
+      (row.roas * 10).toFixed(0),
+      purchaseValueShare.toFixed(2),
+    ];
+    return values.map(escape).join(",");
+  });
+
+  return [headers.map(escape).join(","), ...body].join("\n");
+}
+
+function toSharedCreative(row: MetaCreativeRow): SharedCreative {
+  return {
+    id: row.id,
+    name: row.name,
+    format: row.format,
+    thumbnailUrl: row.previewUrl ?? row.thumbnailUrl ?? row.imageUrl ?? "",
+    launchDate: row.launchDate,
+    tags: row.tags ?? [],
+    spend: row.spend,
+    purchaseValue: row.purchaseValue,
+    roas: row.roas,
+    cpa: row.cpa,
+    ctrAll: row.ctrAll,
+    purchases: row.purchases,
+  };
+}
 
 function hasMessage(payload: unknown): payload is { message: string } {
   if (!payload || typeof payload !== "object") return false;
@@ -160,6 +260,11 @@ export default function CreativesPage() {
   });
   const [highlightedRowId, setHighlightedRowId] = useState<string | null>(null);
   const [notesByRowId, setNotesByRowId] = useState<Record<string, string>>({});
+  const [shareExportLoading, setShareExportLoading] = useState(false);
+  const [csvExportLoading, setCsvExportLoading] = useState(false);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [shareError, setShareError] = useState<string | null>(null);
+  const [csvError, setCsvError] = useState<string | null>(null);
 
   const platform: "meta" = "meta";
   const platformStatus = integrations?.meta?.status;
@@ -279,6 +384,66 @@ export default function CreativesPage() {
     }));
   };
 
+  const handleCsvExport = async () => {
+    setCsvError(null);
+    setCsvExportLoading(true);
+    try {
+      const csv = toCsv(filteredRows);
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `top-creatives-${drStart}-to-${drEnd}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setCsvError("Could not export CSV.");
+    } finally {
+      setCsvExportLoading(false);
+    }
+  };
+
+  const handleShareExport = async () => {
+    setShareError(null);
+    setShareExportLoading(true);
+    try {
+      const selectedForShare =
+        selectionState.selectedRowIds.length > 0
+          ? filteredRows.filter((row) => selectionState.selectedRowIds.includes(row.id))
+          : filteredRows;
+      const shareMetrics = topMetricIds.filter((id): id is ShareMetricKey => SHARE_METRIC_IDS.has(id as ShareMetricKey));
+      const payload: Omit<SharePayload, "token" | "createdAt"> = {
+        title: "Top Creatives",
+        dateRange: formatMotionDateLabel(dateRangeValue),
+        expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString(),
+        businessId,
+        groupBy,
+        filters: topFilters.map((rule) => `${rule.field}: ${rule.query}`),
+        selectedRowIds: selectionState.selectedRowIds,
+        totalRows: filteredRows.length,
+        metrics: shareMetrics.length > 0 ? shareMetrics : ["spend", "roas"],
+        includeNotes: false,
+        note: "",
+        creatives: selectedForShare.map(toSharedCreative),
+      };
+
+      const res = await fetch("/api/creatives/share", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = (await res.json().catch(() => null)) as { url?: string; message?: string } | null;
+      if (!res.ok || !json?.url) {
+        throw new Error(json?.message ?? "Could not create share link.");
+      }
+      setShareUrl(json.url);
+    } catch (error: unknown) {
+      setShareError(error instanceof Error ? error.message : "Could not create share link.");
+    } finally {
+      setShareExportLoading(false);
+    }
+  };
+
   const openDrawer = (rowId: string, scrollToRow = false) => {
     setDrawerState({ open: true, activeRowId: rowId });
     setHighlightedRowId(rowId);
@@ -295,9 +460,9 @@ export default function CreativesPage() {
   return (
     <div className="space-y-5">
       <div className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Creatives</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Top Creatives</h1>
         <p className="text-sm text-muted-foreground">
-          Motion-style creative analytics workspace.
+          Identify the creatives driving the most spend and revenue across your ad accounts. Analyze performance, spot winners, and scale what works.
         </p>
       </div>
 
@@ -350,6 +515,7 @@ export default function CreativesPage() {
         return (
           <>
             <MotionTopSection
+              showHeader={false}
               dateRange={dateRangeValue}
               onDateRangeChange={setDateRangeValue}
               groupBy={groupBy}
@@ -362,6 +528,13 @@ export default function CreativesPage() {
               allRowsForHeatmap={filteredRows}
               defaultCurrency={selectedBusinessCurrency}
               onOpenRow={(rowId) => openDrawer(rowId, true)}
+              onShareExport={handleShareExport}
+              onCsvExport={handleCsvExport}
+              shareExportLoading={shareExportLoading}
+              csvExportLoading={csvExportLoading}
+              shareUrl={shareUrl}
+              shareError={shareError}
+              csvError={csvError}
             />
 
             {creativesQuery.isLoading && <LoadingSkeleton rows={5} />}

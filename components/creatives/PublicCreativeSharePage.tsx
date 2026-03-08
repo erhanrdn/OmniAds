@@ -42,7 +42,18 @@ interface PublicCreativeSharePageProps {
 }
 
 export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProps) {
-  const { title, dateRange, metrics, creatives, note, includeNotes } = payload;
+  const {
+    title,
+    dateRange,
+    metrics,
+    creatives,
+    note,
+    includeNotes,
+    groupBy,
+    filters,
+    selectedRowIds,
+    totalRows,
+  } = payload;
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white">
@@ -63,6 +74,25 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
       </header>
 
       <main className="mx-auto max-w-5xl px-6 py-8 space-y-10">
+        <section className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-white/60">
+          <div className="flex flex-wrap items-center gap-3">
+            {groupBy ? <span>Group by: {groupBy}</span> : null}
+            {typeof totalRows === "number" ? <span>Rows: {totalRows}</span> : null}
+            {selectedRowIds && selectedRowIds.length > 0 ? (
+              <span>Selected creatives: {selectedRowIds.length}</span>
+            ) : null}
+          </div>
+          {filters && filters.length > 0 ? (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {filters.map((item) => (
+                <span key={item} className="rounded-full border border-white/20 px-2 py-0.5 text-[11px]">
+                  {item}
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </section>
+
         {/* KPI Summary row */}
         <section>
           <h2 className="text-xs uppercase tracking-widest text-white/40 mb-4">Summary</h2>
