@@ -17,6 +17,7 @@ interface AppState {
   toggleDesktopSidebar: () => void;
   setMobileSidebarOpen: (open: boolean) => void;
   createBusiness: (name: string, timezone: string, currency: string) => string;
+  deleteBusiness: (id: string) => string | null;
   selectBusiness: (id: string | null) => void;
   setHasHydrated: (value: boolean) => void;
 }
@@ -47,6 +48,22 @@ export const useAppStore = create<AppState>()(
           selectedBusinessId: id,
         }));
         return id;
+      },
+      deleteBusiness: (id) => {
+        let nextSelected: string | null = null;
+        set((state) => {
+          const remaining = state.businesses.filter((business) => business.id !== id);
+          if (state.selectedBusinessId === id) {
+            nextSelected = remaining[0]?.id ?? null;
+          } else {
+            nextSelected = state.selectedBusinessId;
+          }
+          return {
+            businesses: remaining,
+            selectedBusinessId: nextSelected,
+          };
+        });
+        return nextSelected;
       },
       selectBusiness: (id) => set({ selectedBusinessId: id }),
       setHasHydrated: (value) => set({ hasHydrated: value }),

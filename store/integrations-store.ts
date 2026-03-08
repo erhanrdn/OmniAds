@@ -152,6 +152,7 @@ interface IntegrationsStore {
     provider: IntegrationProvider,
     accounts: Array<{ id: string; name: string }>
   ) => void;
+  removeBusinessData: (businessId: string) => void;
   getAssignedAccounts: (businessId: string, provider: IntegrationProvider) => string[];
   hasAssignedAccounts: (businessId: string, provider: IntegrationProvider) => boolean;
   setToast: (toast: IntegrationToast) => void;
@@ -323,6 +324,18 @@ export const useIntegrationsStore = create<IntegrationsStore>()(
                 },
               },
             },
+          };
+        });
+      },
+      removeBusinessData: (businessId) => {
+        set((state) => {
+          const nextByBusinessId = { ...state.byBusinessId };
+          const nextAssigned = { ...state.assignedAccountsByBusiness };
+          delete nextByBusinessId[businessId];
+          delete nextAssigned[businessId];
+          return {
+            byBusinessId: nextByBusinessId,
+            assignedAccountsByBusiness: nextAssigned,
           };
         });
       },

@@ -1,5 +1,8 @@
 "use client";
 
+import { useMemo } from "react";
+import { Copy, CalendarRange, Rows3 } from "lucide-react";
+import { CreativePreview } from "@/components/creatives/CreativePreview";
 import { SharePayload, SharedCreative, ShareMetricKey } from "./shareCreativeTypes";
 
 const METRIC_LABELS: Record<ShareMetricKey, string> = {
@@ -15,7 +18,7 @@ function formatMetric(key: ShareMetricKey, value: number): string {
   switch (key) {
     case "spend":
     case "purchaseValue":
-      return `$${value.toLocaleString()}`;
+      return `$${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
     case "roas":
       return value.toFixed(2);
     case "cpa":
@@ -29,12 +32,18 @@ function formatMetric(key: ShareMetricKey, value: number): string {
   }
 }
 
-function sumMetric(creatives: SharedCreative[], key: ShareMetricKey): number {
-  if (key === "roas" || key === "cpa" || key === "ctrAll") {
-    const avg = creatives.reduce((sum, c) => sum + c[key], 0) / creatives.length;
-    return avg;
-  }
-  return creatives.reduce((sum, c) => sum + c[key], 0);
+function metricValue(creative: SharedCreative, key: ShareMetricKey): number {
+  return creative[key];
+}
+
+function heatColor(value: number, min: number, max: number): string {
+  if (!Number.isFinite(value) || !Number.isFinite(min) || !Number.isFinite(max) || max <= min) return "transparent";
+  const ratio = (value - min) / (max - min);
+  const alpha = 0.05 + ratio * 0.12;
+  const green = ratio >= 0.5;
+  return green
+    ? `rgba(16, 185, 129, ${alpha.toFixed(3)})`
+    : `rgba(244, 63, 94, ${alpha.toFixed(3)})`;
 }
 
 interface PublicCreativeSharePageProps {
@@ -47,130 +56,160 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
     dateRange,
     metrics,
     creatives,
-    note,
     includeNotes,
+    note,
     groupBy,
     filters,
     selectedRowIds,
     totalRows,
+    createdAt,
   } = payload;
 
-  return (
-    <div className="min-h-screen bg-[#0a0a0a] text-white">
-      {/* Header */}
-      <header className="border-b border-white/10 px-6 py-5">
-        <div className="mx-auto max-w-5xl flex items-center justify-between">
-          <div>
-            <p className="text-[11px] uppercase tracking-widest text-white/40 mb-1">
-              Creative Report
-            </p>
-            <h1 className="text-xl font-semibold">{title || "Selected Creatives"}</h1>
-            <p className="text-sm text-white/50 mt-0.5">{dateRange}</p>
-          </div>
-          <div className="hidden sm:block text-right">
-            <p className="text-[11px] text-white/30">{creatives.length} creatives</p>
-          </div>
-        </div>
-      </header>
+  const extremes = useMemo(
+    () =>
+      metrics.reduce<Record<string, { min: number; max: number }>>((acc, key) => {
+        const values = creatives.map((item) => metricValue(item, key));
+        acc[key] = {
+          min: values.length > 0 ? Math.min(...values) : 0,
+          max: values.length > 0 ? Math.max(...values) : 0,
+        };
+        return acc;
+      }, {}),
+    [creatives, metrics]
+  );
 
-      <main className="mx-auto max-w-5xl px-6 py-8 space-y-10">
-        <section className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-white/60">
-          <div className="flex flex-wrap items-center gap-3">
-            {groupBy ? <span>Group by: {groupBy}</span> : null}
-            {typeof totalRows === "number" ? <span>Rows: {totalRows}</span> : null}
-            {selectedRowIds && selectedRowIds.length > 0 ? (
-              <span>Selected creatives: {selectedRowIds.length}</span>
-            ) : null}
+  const copyLink = async () => {
+    await navigator.clipboard.writeText(window.location.href);
+  };
+
+  return (
+    <div className="min-h-screen bg-[#F3F4F6] px-3 py-4 sm:px-5 sm:py-5">
+      <main className="mx-auto w-full max-w-[1320px] rounded-2xl border border-[#E5E7EB] bg-white p-3 shadow-sm sm:p-4">
+        <header className="mb-3 border-b border-[#ECEFF3] pb-3">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <h1 className="text-lg font-semibold tracking-tight text-[#111827]">{title || "Top Creatives"}</h1>
+              <p className="mt-0.5 inline-flex items-center gap-1.5 text-xs text-[#6B7280]">
+                <CalendarRange className="h-3.5 w-3.5" />
+                {dateRange}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={copyLink}
+              className="inline-flex items-center gap-1.5 rounded-md border border-[#D1D5DB] px-2.5 py-1.5 text-xs text-[#374151] hover:bg-[#F9FAFB]"
+            >
+              <Copy className="h-3.5 w-3.5" />
+              Copy link
+            </button>
           </div>
-          {filters && filters.length > 0 ? (
+
+          <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-[#6B7280]">
+            <span className="inline-flex items-center gap-1">
+              <Rows3 className="h-3.5 w-3.5" />
+              {creatives.length} creatives
+            </span>
+            {typeof totalRows === "number" ? <span>{totalRows} rows in snapshot</span> : null}
+            {groupBy ? <span>Group by: {groupBy}</span> : null}
+            {selectedRowIds && selectedRowIds.length > 0 ? <span>Selection: {selectedRowIds.length}</span> : null}
+            <span>Generated: {new Date(createdAt).toLocaleString()}</span>
+          </div>
+
+          {filters && filters.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1.5">
               {filters.map((item) => (
-                <span key={item} className="rounded-full border border-white/20 px-2 py-0.5 text-[11px]">
+                <span key={item} className="rounded-full border border-[#E5E7EB] bg-[#F9FAFB] px-2 py-0.5 text-[11px] text-[#6B7280]">
                   {item}
                 </span>
               ))}
             </div>
-          ) : null}
-        </section>
+          )}
+        </header>
 
-        {/* KPI Summary row */}
-        <section>
-          <h2 className="text-xs uppercase tracking-widest text-white/40 mb-4">Summary</h2>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-            {metrics.map((key) => (
-              <div
-                key={key}
-                className="rounded-xl border border-white/10 bg-white/5 px-4 py-3"
-              >
-                <p className="text-[11px] text-white/40 mb-1">{METRIC_LABELS[key]}</p>
-                <p className="text-lg font-semibold tabular-nums">
-                  {formatMetric(key, sumMetric(creatives, key))}
-                </p>
-              </div>
-            ))}
+        <section className="space-y-2">
+          <div className="overflow-x-auto pb-1">
+            <div className="flex min-w-max gap-2.5">
+              {creatives.map((creative) => (
+                <article key={creative.id} className="w-[190px] shrink-0 overflow-hidden rounded-lg border border-[#E5E7EB] bg-white">
+                  <CreativePreview
+                    creative={{
+                      name: creative.name,
+                      isCatalog: creative.isCatalog,
+                      previewState: creative.previewState,
+                      previewUrl: creative.previewUrl,
+                      imageUrl: creative.imageUrl,
+                      thumbnailUrl: creative.thumbnailUrl,
+                    }}
+                    aspectRatio="square"
+                  />
+                  <div className="space-y-1 px-2.5 py-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="line-clamp-1 text-[12px] font-medium text-[#111827]">{creative.name}</p>
+                      <span className="rounded border border-[#E5E7EB] bg-[#F9FAFB] px-1.5 py-0.5 text-[10px] text-[#6B7280]">
+                        {creative.format === "video" ? "Video" : "Image"}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+                      {metrics.slice(0, 4).map((metric) => (
+                        <div key={`${creative.id}_${metric}`}>
+                          <p className="text-[10px] text-[#9CA3AF]">{METRIC_LABELS[metric]}</p>
+                          <p className="text-[11px] font-semibold tabular-nums text-[#111827]">
+                            {formatMetric(metric, metricValue(creative, metric))}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
           </div>
-        </section>
 
-        {/* Creative cards grid */}
-        <section>
-          <h2 className="text-xs uppercase tracking-widest text-white/40 mb-4">Creatives</h2>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {creatives.map((creative) => (
-              <CreativeCard key={creative.id} creative={creative} metrics={metrics} />
-            ))}
-          </div>
-        </section>
-
-        {/* Performance table */}
-        <section>
-          <h2 className="text-xs uppercase tracking-widest text-white/40 mb-4">
-            Performance breakdown
-          </h2>
-          <div className="overflow-x-auto rounded-xl border border-white/10">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="border-b border-white/10 bg-white/5">
-                  <th className="px-4 py-3 text-left text-xs font-medium text-white/50">
-                    Creative
-                  </th>
-                  {metrics.map((key) => (
-                    <th
-                      key={key}
-                      className="px-4 py-3 text-right text-xs font-medium text-white/50"
-                    >
-                      {METRIC_LABELS[key]}
+          <div className="overflow-x-auto rounded-lg border border-[#E5E7EB]">
+            <table className="min-w-full text-[12px]">
+              <thead className="bg-[#F9FAFB]">
+                <tr className="border-b border-[#E5E7EB]">
+                  <th className="px-3 py-2 text-left font-medium text-[#6B7280]">Creative</th>
+                  {metrics.map((metric) => (
+                    <th key={metric} className="px-3 py-2 text-right font-medium text-[#6B7280]">
+                      {METRIC_LABELS[metric]}
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {creatives.map((creative, idx) => (
-                  <tr
-                    key={creative.id}
-                    className={`border-b border-white/5 ${
-                      idx % 2 === 0 ? "" : "bg-white/[0.02]"
-                    }`}
-                  >
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <img
-                          src={creative.thumbnailUrl}
-                          alt={creative.name}
-                          className="h-8 w-14 rounded object-cover"
+                {creatives.map((creative) => (
+                  <tr key={`table_${creative.id}`} className="border-b border-[#F0F2F5]">
+                    <td className="px-3 py-2">
+                      <div className="flex items-center gap-2">
+                        <CreativePreview
+                          creative={{
+                            name: creative.name,
+                            isCatalog: creative.isCatalog,
+                            previewState: creative.previewState,
+                            previewUrl: creative.previewUrl,
+                            imageUrl: creative.imageUrl,
+                            thumbnailUrl: creative.thumbnailUrl,
+                          }}
+                          aspectRatio="video"
+                          className="h-8 w-14 rounded"
                         />
-                        <span className="line-clamp-2 text-xs text-white/80">
-                          {creative.name}
-                        </span>
+                        <span className="line-clamp-2 text-[11px] text-[#111827]">{creative.name}</span>
                       </div>
                     </td>
-                    {metrics.map((key) => (
-                      <td
-                        key={key}
-                        className="px-4 py-3 text-right text-xs tabular-nums text-white/70"
-                      >
-                        {formatMetric(key, creative[key])}
-                      </td>
-                    ))}
+                    {metrics.map((metric) => {
+                      const ext = extremes[metric];
+                      const value = metricValue(creative, metric);
+                      return (
+                        <td
+                          key={`cell_${creative.id}_${metric}`}
+                          className="px-3 py-2 text-right tabular-nums text-[#111827]"
+                          style={{ backgroundColor: heatColor(value, ext?.min ?? value, ext?.max ?? value) }}
+                        >
+                          {formatMetric(metric, value)}
+                        </td>
+                      );
+                    })}
                   </tr>
                 ))}
               </tbody>
@@ -178,70 +217,16 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
           </div>
         </section>
 
-        {/* Note */}
-        {includeNotes && note && (
-          <section>
-            <h2 className="text-xs uppercase tracking-widest text-white/40 mb-3">Notes</h2>
-            <div className="rounded-xl border border-white/10 bg-white/5 px-5 py-4 text-sm text-white/60 leading-relaxed">
-              {note}
-            </div>
+        {includeNotes && note ? (
+          <section className="mt-2 rounded-lg border border-[#E5E7EB] bg-[#FAFAFA] px-3 py-2 text-[12px] text-[#4B5563]">
+            {note}
           </section>
-        )}
+        ) : null}
+
+        <footer className="mt-3 border-t border-[#ECEFF3] pt-2 text-[11px] text-[#9CA3AF]">
+          Read-only shared report.
+        </footer>
       </main>
-
-      {/* Footer */}
-      <footer className="border-t border-white/10 px-6 py-4 text-center">
-        <p className="text-[11px] text-white/20">
-          This report is shared for viewing only. Do not distribute beyond the intended recipient.
-        </p>
-      </footer>
-    </div>
-  );
-}
-
-function CreativeCard({
-  creative,
-  metrics,
-}: {
-  creative: SharedCreative;
-  metrics: ShareMetricKey[];
-}) {
-  const primaryMetrics = metrics.slice(0, 4);
-
-  return (
-    <div className="overflow-hidden rounded-xl border border-white/10 bg-white/5">
-      <img
-        src={creative.thumbnailUrl}
-        alt={creative.name}
-        className="aspect-video w-full object-cover"
-      />
-      <div className="p-3">
-        <p className="line-clamp-2 text-xs font-medium text-white/90 mb-2">
-          {creative.name}
-        </p>
-        <div className="grid grid-cols-2 gap-2">
-          {primaryMetrics.map((key) => (
-            <div key={key}>
-              <p className="text-[10px] text-white/40">{METRIC_LABELS[key]}</p>
-              <p className="text-xs font-semibold tabular-nums">
-                {formatMetric(key, creative[key])}
-              </p>
-            </div>
-          ))}
-        </div>
-        {creative.tags.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-1">
-            {creative.tags.slice(0, 2).map((tag) => (
-              <span
-                key={tag}
-                className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] text-white/40"
-              >
-                {tag}
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
     </div>
   );
 }

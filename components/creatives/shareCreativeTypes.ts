@@ -10,7 +10,11 @@ export interface SharedCreative {
   id: string;
   name: string;
   format: "image" | "video";
-  thumbnailUrl: string;
+  previewState: "preview" | "catalog" | "unavailable";
+  isCatalog: boolean;
+  previewUrl: string | null;
+  imageUrl: string | null;
+  thumbnailUrl: string | null;
   launchDate: string;
   tags: string[];
   spend: number;
