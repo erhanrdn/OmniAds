@@ -41,7 +41,9 @@ export async function refreshGoogleAccessToken(refreshToken: string): Promise<{
 
   if (data.error) {
     throw new Error(
-      data.error_description || data.error || "Failed to refresh Google access token."
+      data.error_description ||
+        data.error ||
+        "Failed to refresh Google access token.",
     );
   }
 
@@ -59,7 +61,7 @@ export async function refreshGoogleAccessToken(refreshToken: string): Promise<{
  *   2. For each customer, fetch details via GoogleAdsService.searchStream (or customer resource)
  */
 export async function fetchGoogleAdsAccounts(
-  accessToken: string
+  accessToken: string,
 ): Promise<GoogleAdsAccountsFetchResult> {
   const developerToken = GOOGLE_CONFIG.developerToken;
 
@@ -76,15 +78,24 @@ export async function fetchGoogleAdsAccounts(
   });
 
   const listBody = await listRes.text();
-  let listData: { resourceNames?: string[]; error?: { message?: string } } | null;
+  let listData: {
+    resourceNames?: string[];
+    error?: { message?: string };
+  } | null;
   try {
     listData = JSON.parse(listBody);
   } catch {
-    return { ok: false, error: `Invalid response from Google Ads API: ${listBody.slice(0, 200)}`, customers: [] };
+    return {
+      ok: false,
+      error: `Invalid response from Google Ads API: ${listBody.slice(0, 200)}`,
+      customers: [],
+    };
   }
 
   if (!listRes.ok || listData?.error) {
-    const message = listData?.error?.message ?? `Google Ads API returned status ${listRes.status}`;
+    const message =
+      listData?.error?.message ??
+      `Google Ads API returned status ${listRes.status}`;
     return { ok: false, error: message, customers: [] };
   }
 
@@ -103,13 +114,20 @@ export async function fetchGoogleAdsAccounts(
 
   for (const customerId of customerIds) {
     try {
-      const detail = await fetchCustomerDetails(accessToken, developerToken, customerId);
+      const detail = await fetchCustomerDetails(
+        accessToken,
+        developerToken,
+        customerId,
+      );
       if (detail) {
         customers.push(detail);
       }
     } catch (err) {
       // If we can't fetch details for one customer, still include it with minimal info
-      console.warn(`[google-ads-accounts] Failed to fetch details for customer ${customerId}:`, err);
+      console.warn(
+        `[google-ads-accounts] Failed to fetch details for customer ${customerId}:`,
+        err,
+      );
       customers.push({
         id: customerId,
         name: `Account ${customerId}`,
@@ -130,7 +148,7 @@ export async function fetchGoogleAdsAccounts(
 async function fetchCustomerDetails(
   accessToken: string,
   developerToken: string,
-  customerId: string
+  customerId: string,
 ): Promise<GoogleAdsCustomerNormalized | null> {
   const url = `${GOOGLE_CONFIG.adsApiBase}/customers/${customerId}/googleAds:searchStream`;
   const query =
@@ -155,7 +173,9 @@ async function fetchCustomerDetails(
 
   if (!res.ok) {
     const errBody = await res.text();
-    console.warn(`[google-ads-accounts] customer ${customerId} query failed: ${errBody.slice(0, 300)}`);
+    console.warn(
+      `[google-ads-accounts] customer ${customerId} query failed: ${errBody.slice(0, 300)}`,
+    );
     return null;
   }
 

@@ -13,7 +13,7 @@ export const GOOGLE_CONFIG = {
     const v = process.env.GOOGLE_ADS_CLIENT_ID;
     if (!v)
       throw new Error(
-        "GOOGLE_ADS_CLIENT_ID is not set in environment variables."
+        "GOOGLE_ADS_CLIENT_ID is not set in environment variables.",
       );
     return v;
   },
@@ -21,7 +21,7 @@ export const GOOGLE_CONFIG = {
     const v = process.env.GOOGLE_ADS_CLIENT_SECRET;
     if (!v)
       throw new Error(
-        "GOOGLE_ADS_CLIENT_SECRET is not set in environment variables."
+        "GOOGLE_ADS_CLIENT_SECRET is not set in environment variables.",
       );
     return v;
   },
@@ -29,7 +29,7 @@ export const GOOGLE_CONFIG = {
     const v = process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
     if (!v)
       throw new Error(
-        "GOOGLE_ADS_DEVELOPER_TOKEN is not set in environment variables."
+        "GOOGLE_ADS_DEVELOPER_TOKEN is not set in environment variables.",
       );
     return v;
   },

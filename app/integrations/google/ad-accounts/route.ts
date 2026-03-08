@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
         error: "missing_business_id",
         message: "businessId query parameter is required.",
       },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
         error: "integration_not_found",
         message: "Google integration not found for this business.",
       },
-      { status: 404 }
+      { status: 404 },
     );
   }
 
@@ -62,16 +62,12 @@ export async function GET(request: NextRequest) {
           provider: "google",
           status: "connected",
           accessToken: refreshed.accessToken,
-          tokenExpiresAt: new Date(
-            Date.now() + refreshed.expiresIn * 1000
-          ),
+          tokenExpiresAt: new Date(Date.now() + refreshed.expiresIn * 1000),
         });
         console.log("[google-ad-accounts] token refreshed successfully");
       } catch (refreshErr) {
         const msg =
-          refreshErr instanceof Error
-            ? refreshErr.message
-            : String(refreshErr);
+          refreshErr instanceof Error ? refreshErr.message : String(refreshErr);
         console.error("[google-ad-accounts] token refresh failed", { msg });
         return NextResponse.json(
           {
@@ -79,7 +75,7 @@ export async function GET(request: NextRequest) {
             message:
               "Google access token has expired and could not be refreshed. Please reconnect.",
           },
-          { status: 401 }
+          { status: 401 },
         );
       }
     } else if (isExpired && !refreshToken) {
@@ -89,7 +85,7 @@ export async function GET(request: NextRequest) {
           message:
             "Google access token has expired and no refresh token is available. Please reconnect.",
         },
-        { status: 401 }
+        { status: 401 },
       );
     }
   }
@@ -101,7 +97,7 @@ export async function GET(request: NextRequest) {
         message:
           "Google access token is missing for this business integration.",
       },
-      { status: 401 }
+      { status: 401 },
     );
   }
 
@@ -118,7 +114,7 @@ export async function GET(request: NextRequest) {
           error: "google_ads_api_error",
           message: result.error ?? "Failed to fetch Google Ads accounts.",
         },
-        { status: 502 }
+        { status: 502 },
       );
     }
 
@@ -127,7 +123,7 @@ export async function GET(request: NextRequest) {
     try {
       const assignmentRow = await getProviderAccountAssignments(
         businessId,
-        "google"
+        "google",
       );
       assignedSet = new Set(assignmentRow?.account_ids ?? []);
     } catch (assignmentError: unknown) {
@@ -135,10 +131,10 @@ export async function GET(request: NextRequest) {
         assignmentError instanceof Error
           ? assignmentError.message
           : String(assignmentError);
-      console.warn(
-        "[google-ad-accounts] assignment_read_failed (non-fatal)",
-        { businessId, message: msg }
-      );
+      console.warn("[google-ad-accounts] assignment_read_failed (non-fatal)", {
+        businessId,
+        message: msg,
+      });
     }
 
     console.log("[google-ad-accounts] normalized", {
@@ -170,7 +166,7 @@ export async function GET(request: NextRequest) {
         error: "google_ads_api_error",
         message,
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

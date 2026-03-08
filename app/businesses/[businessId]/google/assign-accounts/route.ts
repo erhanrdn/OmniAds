@@ -11,7 +11,7 @@ import { runMigrations } from "@/lib/migrations";
  */
 export async function POST(
   request: NextRequest,
-  { params }: { params: Promise<{ businessId: string }> }
+  { params }: { params: Promise<{ businessId: string }> },
 ) {
   const { businessId } = await params;
   console.log("[google-assign-accounts] request", { businessId });
@@ -22,7 +22,7 @@ export async function POST(
         error: "missing_business_id",
         message: "businessId path parameter is required.",
       },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -37,7 +37,7 @@ export async function POST(
         error: "integration_not_found",
         message: "Google integration not found for this business.",
       },
-      { status: 404 }
+      { status: 404 },
     );
   }
 
@@ -58,12 +58,12 @@ export async function POST(
         error: "invalid_payload",
         message: "account_ids must be an array of strings.",
       },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
   const cleaned = Array.from(
-    new Set(accountIds.map((id) => id.trim()).filter(Boolean))
+    new Set(accountIds.map((id) => id.trim()).filter(Boolean)),
   );
 
   async function doUpsert() {
@@ -92,25 +92,23 @@ export async function POST(
     if (isMissingTable) {
       try {
         console.log(
-          "[google-assign-accounts] running migrations to create missing table"
+          "[google-assign-accounts] running migrations to create missing table",
         );
         await runMigrations();
         row = await doUpsert();
       } catch (retryError: unknown) {
         const retryMessage =
-          retryError instanceof Error
-            ? retryError.message
-            : String(retryError);
+          retryError instanceof Error ? retryError.message : String(retryError);
         console.error(
           "[google-assign-accounts] db write failed after migration",
-          { businessId, message: retryMessage }
+          { businessId, message: retryMessage },
         );
         return NextResponse.json(
           {
             error: "assignment_save_failed",
             message: "Could not save Google Ads account assignments.",
           },
-          { status: 500 }
+          { status: 500 },
         );
       }
     } else {
@@ -123,7 +121,7 @@ export async function POST(
           error: "assignment_save_failed",
           message: "Could not save Google Ads account assignments.",
         },
-        { status: 500 }
+        { status: 500 },
       );
     }
   }

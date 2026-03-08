@@ -30,22 +30,29 @@ export default function IntegrationsPage() {
   const businesses = useAppStore((state) => state.businesses);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const businessId = selectedBusinessId;
-  const activeBusiness = businesses.find((item) => item.id === businessId) ?? null;
+  const activeBusiness =
+    businesses.find((item) => item.id === businessId) ?? null;
 
   const ensureBusiness = useIntegrationsStore((state) => state.ensureBusiness);
   const byBusinessId = useIntegrationsStore((state) => state.byBusinessId);
   const assignedAccountsByBusiness = useIntegrationsStore(
-    (state) => state.assignedAccountsByBusiness
+    (state) => state.assignedAccountsByBusiness,
   );
   const setConnected = useIntegrationsStore((state) => state.setConnected);
   const disconnect = useIntegrationsStore((state) => state.disconnect);
-  const setAssignedAccounts = useIntegrationsStore((state) => state.setAssignedAccounts);
-  const setProviderAccounts = useIntegrationsStore((state) => state.setProviderAccounts);
+  const setAssignedAccounts = useIntegrationsStore(
+    (state) => state.setAssignedAccounts,
+  );
+  const setProviderAccounts = useIntegrationsStore(
+    (state) => state.setProviderAccounts,
+  );
   const toast = useIntegrationsStore((state) => state.toast);
   const setToast = useIntegrationsStore((state) => state.setToast);
   const clearToast = useIntegrationsStore((state) => state.clearToast);
 
-  const { connect, cancel, retry, fetchStatuses } = useIntegrationConnection(businessId ?? "");
+  const { connect, cancel, retry, fetchStatuses } = useIntegrationConnection(
+    businessId ?? "",
+  );
 
   const [activeProvider, setActiveProvider] =
     useState<IntegrationProvider | null>(null);
@@ -102,7 +109,10 @@ export default function IntegrationsPage() {
   const handleConnect = (provider: IntegrationProvider) => {
     if (provider === "ga4") {
       setConnected(businessId, "ga4", "ga4-demo-property");
-      setToast({ type: "success", message: "GA4 OAuth flow will be handled by backend." });
+      setToast({
+        type: "success",
+        message: "GA4 OAuth flow will be handled by backend.",
+      });
       return;
     }
     setActiveProvider(provider);
@@ -111,7 +121,10 @@ export default function IntegrationsPage() {
   const handleRetry = (provider: IntegrationProvider) => {
     if (provider === "ga4") {
       setConnected(businessId, "ga4", "ga4-demo-property");
-      setToast({ type: "success", message: "GA4 OAuth flow will be handled by backend." });
+      setToast({
+        type: "success",
+        message: "GA4 OAuth flow will be handled by backend.",
+      });
       return;
     }
     retry(provider);
@@ -119,7 +132,7 @@ export default function IntegrationsPage() {
   };
 
   const assignedIdsForDrawer = assignmentProvider
-    ? assignedAccountsByBusiness[businessId]?.[assignmentProvider] ?? []
+    ? (assignedAccountsByBusiness[businessId]?.[assignmentProvider] ?? [])
     : [];
 
   return (
@@ -127,10 +140,14 @@ export default function IntegrationsPage() {
       <div className="space-y-2">
         <h1 className="text-2xl font-semibold tracking-tight">Integrations</h1>
         <p className="text-sm text-muted-foreground">
-          Manage OAuth connections and account assignments for the active business.
+          Manage OAuth connections and account assignments for the active
+          business.
         </p>
         <p className="text-xs font-medium text-muted-foreground">
-          Active business: <span className="text-foreground">{activeBusiness?.name ?? "Unknown"}</span>
+          Active business:{" "}
+          <span className="text-foreground">
+            {activeBusiness?.name ?? "Unknown"}
+          </span>
         </p>
       </div>
 
@@ -148,7 +165,8 @@ export default function IntegrationsPage() {
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {INTEGRATION_PROVIDERS.map((provider) => {
-          const assignedIds = assignedAccountsByBusiness[businessId]?.[provider] ?? [];
+          const assignedIds =
+            assignedAccountsByBusiness[businessId]?.[provider] ?? [];
 
           return (
             <IntegrationsCard
@@ -193,7 +211,7 @@ export default function IntegrationsPage() {
           setProviderAccounts(
             businessId,
             provider,
-            accounts.map((account) => ({ id: account.id, name: account.name }))
+            accounts.map((account) => ({ id: account.id, name: account.name })),
           );
           setAssignedAccounts(businessId, provider, accountIds);
           setToast({

@@ -43,7 +43,7 @@ interface ProviderAssignmentDrawerProps {
   onSave: (
     provider: IntegrationProvider,
     accountIds: string[],
-    accounts: ProviderAccountRow[]
+    accounts: ProviderAccountRow[],
   ) => void;
 }
 
@@ -54,7 +54,8 @@ function getTitle(provider: IntegrationProvider | null) {
   if (provider === "meta") {
     return "Assign Meta ad accounts to this business";
   }
-  if (provider === "google") return "Assign Google Ads customer accounts to this business";
+  if (provider === "google")
+    return "Assign Google Ads customer accounts to this business";
   if (provider === "ga4") return "Assign GA4 properties to this business";
   if (provider === "shopify") return "Assign Shopify stores to this business";
   return `Assign ${provider} accounts to this business`;
@@ -95,7 +96,9 @@ function hasAssignedAccounts(payload: unknown): payload is SaveSuccessBody {
   if (!payload || typeof payload !== "object") return false;
   if (!("assigned_accounts" in payload)) return false;
   const maybeIds = payload.assigned_accounts;
-  return Array.isArray(maybeIds) && maybeIds.every((id) => typeof id === "string");
+  return (
+    Array.isArray(maybeIds) && maybeIds.every((id) => typeof id === "string")
+  );
 }
 
 export function ProviderAssignmentDrawer({
@@ -149,7 +152,7 @@ export function ProviderAssignmentDrawer({
         if (!response.ok) {
           setErrorMessage(
             (hasErrorMessage(payload) ? payload.message : null) ??
-              `We couldn't fetch accessible ${provider === "google" ? "Google Ads" : "Meta"} ad accounts for this connection.`
+              `We couldn't fetch accessible ${provider === "google" ? "Google Ads" : "Meta"} ad accounts for this connection.`,
           );
           setFetchState("error");
           return;
@@ -163,19 +166,25 @@ export function ProviderAssignmentDrawer({
         }
 
         setAccounts(list);
-        const hasAssignedFlag = list.some((account) => typeof account.assigned === "boolean");
+        const hasAssignedFlag = list.some(
+          (account) => typeof account.assigned === "boolean",
+        );
         setDraftIds(
           hasAssignedFlag
-            ? list.filter((account) => account.assigned === true).map((account) => account.id)
-            : assignedAccountIds
+            ? list
+                .filter((account) => account.assigned === true)
+                .map((account) => account.id)
+            : assignedAccountIds,
         );
         setFetchState(list.length > 0 ? "success" : "empty");
       } catch {
-        setErrorMessage(`We couldn't fetch accessible ${provider === "google" ? "Google Ads" : "Meta"} ad accounts for this connection.`);
+        setErrorMessage(
+          `We couldn't fetch accessible ${provider === "google" ? "Google Ads" : "Meta"} ad accounts for this connection.`,
+        );
         setFetchState("error");
       }
     },
-    [assignedAccountIds, businessId, isSupportedProvider, open, provider]
+    [assignedAccountIds, businessId, isSupportedProvider, open, provider],
   );
 
   useEffect(() => {
@@ -211,14 +220,14 @@ export function ProviderAssignmentDrawer({
         currency: account.currency,
         externalId: account.id,
       })),
-    [accounts]
+    [accounts],
   );
 
   function toggleAccount(accountId: string) {
     setDraftIds((prev) =>
       prev.includes(accountId)
         ? prev.filter((item) => item !== accountId)
-        : [...prev, accountId]
+        : [...prev, accountId],
     );
   }
 
@@ -241,12 +250,14 @@ export function ProviderAssignmentDrawer({
       if (!response.ok) {
         setSaveErrorMessage(
           (hasErrorMessage(payload) ? payload.message : null) ??
-            "Could not save account assignments."
+            "Could not save account assignments.",
         );
         return;
       }
 
-      const savedIds = hasAssignedAccounts(payload) ? payload.assigned_accounts ?? draftIds : draftIds;
+      const savedIds = hasAssignedAccounts(payload)
+        ? (payload.assigned_accounts ?? draftIds)
+        : draftIds;
       onSave(provider, savedIds, accounts);
       onClose();
     } catch {
@@ -257,13 +268,20 @@ export function ProviderAssignmentDrawer({
   }
 
   return (
-    <Sheet open={open} onOpenChange={(nextOpen) => (!nextOpen ? onClose() : undefined)}>
-      <SheetContent side="right" className="flex h-full w-full flex-col p-0 sm:max-w-xl">
+    <Sheet
+      open={open}
+      onOpenChange={(nextOpen) => (!nextOpen ? onClose() : undefined)}
+    >
+      <SheetContent
+        side="right"
+        className="flex h-full w-full flex-col p-0 sm:max-w-xl"
+      >
         <div className="shrink-0 border-b px-6 py-6">
           <SheetHeader className="space-y-2">
             <SheetTitle>{getTitle(provider)}</SheetTitle>
             <SheetDescription>
-              Select the accounts OmniAds should use when syncing data for this business.
+              Select the accounts OmniAds should use when syncing data for this
+              business.
             </SheetDescription>
           </SheetHeader>
         </div>
@@ -310,7 +328,9 @@ export function ProviderAssignmentDrawer({
                       className="flex items-start justify-between gap-4 rounded-lg border bg-background px-4 py-3"
                     >
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-medium">{account.name}</p>
+                        <p className="truncate text-sm font-medium">
+                          {account.name}
+                        </p>
                         <p className="mt-1 truncate text-xs text-muted-foreground">
                           {account.externalId}
                           {account.currency ? ` • ${account.currency}` : ""}

@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
   if (error) {
     const msg = encodeURIComponent(errorDescription || error);
     return NextResponse.redirect(
-      `${baseUrl}/integrations/callback/google?status=error&error=${msg}`
+      `${baseUrl}/integrations/callback/google?status=error&error=${msg}`,
     );
   }
 
@@ -34,8 +34,8 @@ export async function GET(request: NextRequest) {
   if (!code || !state) {
     return NextResponse.redirect(
       `${baseUrl}/integrations/callback/google?status=error&error=${encodeURIComponent(
-        "Missing code or state parameter."
-      )}`
+        "Missing code or state parameter.",
+      )}`,
     );
   }
 
@@ -44,8 +44,8 @@ export async function GET(request: NextRequest) {
   if (!cookieState || cookieState !== state) {
     return NextResponse.redirect(
       `${baseUrl}/integrations/callback/google?status=error&error=${encodeURIComponent(
-        "Invalid OAuth state. Please try again."
-      )}`
+        "Invalid OAuth state. Please try again.",
+      )}`,
     );
   }
 
@@ -58,8 +58,8 @@ export async function GET(request: NextRequest) {
   } catch {
     return NextResponse.redirect(
       `${baseUrl}/integrations/callback/google?status=error&error=${encodeURIComponent(
-        "Malformed OAuth state."
-      )}`
+        "Malformed OAuth state.",
+      )}`,
     );
   }
 
@@ -71,8 +71,8 @@ export async function GET(request: NextRequest) {
   if ("error" in access) {
     return NextResponse.redirect(
       `${baseUrl}/integrations/callback/google?status=error&businessId=${businessId}&error=${encodeURIComponent(
-        "You do not have permission to connect integrations for this business."
-      )}`
+        "You do not have permission to connect integrations for this business.",
+      )}`,
     );
   }
 
@@ -94,7 +94,9 @@ export async function GET(request: NextRequest) {
 
     if (tokenData.error) {
       throw new Error(
-        tokenData.error_description || tokenData.error || "Failed to exchange authorization code."
+        tokenData.error_description ||
+          tokenData.error ||
+          "Failed to exchange authorization code.",
       );
     }
 
@@ -105,7 +107,7 @@ export async function GET(request: NextRequest) {
     if (!refreshToken) {
       console.warn(
         "[google-oauth-callback] No refresh_token returned. The user may have already granted access. " +
-        "Consider revoking and reconnecting to obtain a new refresh token."
+          "Consider revoking and reconnecting to obtain a new refresh token.",
       );
     }
 
@@ -117,7 +119,7 @@ export async function GET(request: NextRequest) {
 
     if (userinfoData.error) {
       throw new Error(
-        userinfoData.error.message || "Failed to fetch Google user profile."
+        userinfoData.error.message || "Failed to fetch Google user profile.",
       );
     }
 
@@ -173,8 +175,8 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.redirect(
       `${baseUrl}/integrations/callback/google?status=error&businessId=${businessId}&error=${encodeURIComponent(
-        message
-      )}`
+        message,
+      )}`,
     );
   }
 }
