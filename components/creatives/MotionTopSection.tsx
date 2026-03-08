@@ -447,7 +447,7 @@ export function MotionTopSection({
 
       {/* D — Selected creatives workspace */}
       <div className="mt-4 rounded-2xl border bg-card p-3">
-        <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="relative z-20 mb-3 flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <MetricSelectorBar selectedMetricIds={selectedMetricIds} onChange={onSelectedMetricIdsChange} />
           </div>
@@ -783,7 +783,7 @@ function MetricSelectorBar({ selectedMetricIds, onChange }: { selectedMetricIds:
   };
 
   return (
-    <div className="min-w-0 overflow-hidden">
+    <div className="min-w-0 overflow-visible">
       <div className="flex min-w-0 items-center gap-2 overflow-x-auto whitespace-nowrap pb-1">
         <button type="button" className="shrink-0 rounded-full border bg-muted/25 px-3 py-1 text-xs">
           + AI tags
@@ -800,7 +800,7 @@ function MetricSelectorBar({ selectedMetricIds, onChange }: { selectedMetricIds:
           </button>
 
           {open && (
-            <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-9 z-50 w-[290px] rounded-lg border bg-background p-2.5 shadow-lg duration-150">
+            <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-9 z-[120] w-[290px] rounded-lg border bg-background p-2.5 shadow-lg duration-150">
               <div className="mb-2 flex items-center gap-2 rounded-md border px-2 py-1.5">
                 <Search className="h-3.5 w-3.5 text-muted-foreground" />
                 <input
