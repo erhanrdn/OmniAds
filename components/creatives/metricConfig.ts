@@ -48,10 +48,15 @@ export interface MetaCreativeRow {
   cpm: number;
   ctrAll: number;
   purchases: number;
+  impressions: number;
+  linkClicks: number;
+  addToCart: number;
   thumbstop: number;
   clickToPurchase: number;
   video25: number;
   video50: number;
+  video75: number;
+  video100: number;
   atcToPurchaseRatio: number;
 }
 

@@ -309,9 +309,9 @@ const TABLE_COLUMNS: TableColumnDefinition[] = [
   { key: "ctrAll", label: "Click through rate (all)", description: "All-click CTR.", direction: "high", minWidth: 135, preferredWidth: 150, align: "right", format: fmtPercent, getValue: (r) => r.ctrAll },
   { key: "video25Rate", label: "25% video plays (rate)", description: "25% play rate.", direction: "high", minWidth: 145, preferredWidth: 165, align: "right", format: fmtPercent, getValue: (r) => r.video25 },
   { key: "video50Rate", label: "50% video plays (rate)", description: "50% play rate.", direction: "high", minWidth: 145, preferredWidth: 165, align: "right", format: fmtPercent, getValue: (r) => r.video50 },
-  { key: "video75Rate", label: "75% video plays (rate)", description: "75% play rate.", direction: "high", minWidth: 145, preferredWidth: 165, align: "right", format: fmtPercent, getValue: (r) => r.video50 },
-  { key: "video100Rate", label: "100% video plays (rate)", description: "100% play rate.", direction: "high", minWidth: 150, preferredWidth: 170, align: "right", format: fmtPercent, getValue: (r) => r.video50 },
-  { key: "holdRate", label: "Hold rate", description: "Estimated hold rate.", direction: "high", minWidth: 100, preferredWidth: 120, align: "right", format: fmtPercent, getValue: (r) => r.video50 },
+  { key: "video75Rate", label: "75% video plays (rate)", description: "75% play rate.", direction: "high", minWidth: 145, preferredWidth: 165, align: "right", format: fmtPercent, getValue: (r) => r.video75 },
+  { key: "video100Rate", label: "100% video plays (rate)", description: "100% play rate.", direction: "high", minWidth: 150, preferredWidth: 170, align: "right", format: fmtPercent, getValue: (r) => r.video100 },
+  { key: "holdRate", label: "Hold rate", description: "Estimated hold rate.", direction: "high", minWidth: 100, preferredWidth: 120, align: "right", format: fmtPercent, getValue: (r) => r.video100 },
   { key: "hookScore", label: "Hook score", description: "Motion hook score.", direction: "high", minWidth: 100, preferredWidth: 120, align: "right", format: fmtInteger, getValue: (r) => r.thumbstop },
   { key: "purchaseValueShare", label: "% purchase value", description: "Share of purchase value.", direction: "high", minWidth: 130, preferredWidth: 145, align: "right", format: fmtPercent, getValue: (r, c) => (c.totalPurchaseValue > 0 ? (r.purchaseValue / c.totalPurchaseValue) * 100 : 0) },
   { key: "watchScore", label: "Watch score", description: "Motion watch score.", direction: "high", minWidth: 110, preferredWidth: 125, align: "right", format: fmtInteger, getValue: (r) => r.video50 },
@@ -319,21 +319,15 @@ const TABLE_COLUMNS: TableColumnDefinition[] = [
   { key: "convertScore", label: "Convert score", description: "Motion convert score.", direction: "high", minWidth: 115, preferredWidth: 130, align: "right", format: fmtInteger, getValue: (r) => r.roas * 10 },
   { key: "averageOrderValueWebsite", label: "Average order value (website)", description: "Website AOV.", direction: "high", minWidth: 175, preferredWidth: 195, align: "right", format: fmtCurrency, getValue: (r) => (r.purchases > 0 ? r.purchaseValue / r.purchases : 0) },
   { key: "averageOrderValueShop", label: "Average order value (Shop)", description: "Shop AOV.", direction: "high", minWidth: 165, preferredWidth: 185, align: "right", format: fmtCurrency, getValue: (r) => (r.purchases > 0 ? r.purchaseValue / r.purchases : 0) },
-  { key: "impressions", label: "Impressions", description: "Estimated impressions.", direction: "high", minWidth: 120, preferredWidth: 140, align: "right", format: fmtInteger, getValue: (r) => (r.cpm > 0 ? (r.spend * 1000) / r.cpm : 0) },
+  { key: "impressions", label: "Impressions", description: "Impression count.", direction: "high", minWidth: 120, preferredWidth: 140, align: "right", format: fmtInteger, getValue: (r) => r.impressions },
   { key: "spendShare", label: "% spend", description: "Share of spend.", direction: "neutral", minWidth: 100, preferredWidth: 120, align: "right", format: fmtPercent, getValue: (r, c) => (c.totalSpend > 0 ? (r.spend / c.totalSpend) * 100 : 0) },
   { key: "linkCtr", label: "Click through rate (link clicks)", description: "Link CTR.", direction: "high", minWidth: 175, preferredWidth: 195, align: "right", format: fmtPercent, getValue: (r) => r.ctrAll },
   { key: "websitePurchaseRoas", label: "Website purchase ROAS", description: "Website purchase ROAS.", direction: "high", minWidth: 145, preferredWidth: 165, align: "right", format: (n) => n.toFixed(2), getValue: (r) => r.roas },
   { key: "clickToWebsitePurchaseRatio", label: "Click to website purchase ratio", description: "Click-to-website purchase conversion.", direction: "high", minWidth: 185, preferredWidth: 210, align: "right", format: fmtPercent, getValue: (r) => r.clickToPurchase },
-  { key: "purchasesPer1000Imp", label: "Purchases per 1,000 impressions", description: "Purchases normalized by 1,000 impressions.", direction: "high", minWidth: 200, preferredWidth: 230, align: "right", format: (n) => n.toFixed(2), getValue: (r) => {
-      const imp = r.cpm > 0 ? (r.spend * 1000) / r.cpm : 0;
-      return imp > 0 ? (r.purchases / imp) * 1000 : 0;
-    } },
-  { key: "revenuePer1000Imp", label: "Revenue per 1,000 impressions", description: "Revenue normalized by 1,000 impressions.", direction: "high", minWidth: 190, preferredWidth: 220, align: "right", format: fmtCurrency, getValue: (r) => {
-      const imp = r.cpm > 0 ? (r.spend * 1000) / r.cpm : 0;
-      return imp > 0 ? (r.purchaseValue / imp) * 1000 : 0;
-    } },
-  { key: "clicksAll", label: "Clicks (all)", description: "Estimated all clicks.", direction: "high", minWidth: 110, preferredWidth: 130, align: "right", format: fmtInteger, getValue: (r) => (r.cpcLink > 0 ? r.spend / r.cpcLink : 0) },
-  { key: "linkClicks", label: "Link clicks", description: "Estimated link clicks.", direction: "high", minWidth: 110, preferredWidth: 130, align: "right", format: fmtInteger, getValue: (r) => (r.cpcLink > 0 ? r.spend / r.cpcLink : 0) },
+  { key: "purchasesPer1000Imp", label: "Purchases per 1,000 impressions", description: "Purchases normalized by 1,000 impressions.", direction: "high", minWidth: 200, preferredWidth: 230, align: "right", format: (n) => n.toFixed(2), getValue: (r) => r.impressions > 0 ? (r.purchases / r.impressions) * 1000 : 0 },
+  { key: "revenuePer1000Imp", label: "Revenue per 1,000 impressions", description: "Revenue normalized by 1,000 impressions.", direction: "high", minWidth: 190, preferredWidth: 220, align: "right", format: fmtCurrency, getValue: (r) => r.impressions > 0 ? (r.purchaseValue / r.impressions) * 1000 : 0 },
+  { key: "clicksAll", label: "Clicks (all)", description: "All clicks.", direction: "high", minWidth: 110, preferredWidth: 130, align: "right", format: fmtInteger, getValue: (r) => r.linkClicks },
+  { key: "linkClicks", label: "Link clicks", description: "Link click count.", direction: "high", minWidth: 110, preferredWidth: 130, align: "right", format: fmtInteger, getValue: (r) => r.linkClicks },
 ];
 
 const AI_TAG_GROUPS: Array<{ label: string; items: Array<{ label: string; value: TagKey }> }> = [
@@ -409,6 +403,7 @@ export function MotionCreativesTableSection({
   const [page, setPage] = useState(1);
   const [tooltip, setTooltip] = useState<MetricTooltipState | null>(null);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => getDefaultColumnWidths());
+  const [isResizing, setIsResizing] = useState(false);
   const [sortState, setSortState] = useState<TableSortState>({ key: null, direction: null });
   const presetWrapRef = useRef<HTMLDivElement>(null);
   const presetTriggerRef = useRef<HTMLButtonElement>(null);
@@ -525,6 +520,23 @@ export function MotionCreativesTableSection({
     }, {});
   }, [ctx, rows, selectedColumns]);
 
+  const totalTableWidth = useMemo(() => {
+    const cw = (key: string, min: number, pref: number) => Math.max(min, columnWidths[key] ?? pref);
+    let w = cw("creativeName", STATIC_COLUMN_SPECS.creativeName.minWidth, STATIC_COLUMN_SPECS.creativeName.preferredWidth);
+    if (tablePreset.showLaunchDate) w += cw("launchDate", STATIC_COLUMN_SPECS.launchDate.minWidth, STATIC_COLUMN_SPECS.launchDate.preferredWidth);
+    if (tablePreset.showTags) w += cw("tags", STATIC_COLUMN_SPECS.tags.minWidth, STATIC_COLUMN_SPECS.tags.preferredWidth);
+    if (tablePreset.showActiveStatus) w += cw("activeStatus", STATIC_COLUMN_SPECS.activeStatus.minWidth, STATIC_COLUMN_SPECS.activeStatus.preferredWidth);
+    if (tablePreset.showAdLength) w += cw("adLength", STATIC_COLUMN_SPECS.adLength.minWidth, STATIC_COLUMN_SPECS.adLength.preferredWidth);
+    for (const tagKey of selectedAiTagColumns) {
+      const spec = AI_TAG_COLUMN_SPECS[tagKey];
+      w += cw(`aiTag:${tagKey}`, spec.minWidth, spec.preferredWidth);
+    }
+    for (const col of selectedColumns) {
+      w += cw(col.key, col.minWidth, col.preferredWidth);
+    }
+    return w;
+  }, [columnWidths, tablePreset, selectedAiTagColumns, selectedColumns]);
+
   const modalMetricGroups = useMemo(() => {
     const query = modalSearch.toLowerCase().trim();
     const aiTagMetrics = [
@@ -626,6 +638,7 @@ export function MotionCreativesTableSection({
       startWidth: getColumnWidth(key, minWidth, preferredWidth),
       minWidth,
     };
+    setIsResizing(true);
   };
 
   const sortIndicator = (key: TableSortState["key"]) => {
@@ -644,6 +657,7 @@ export function MotionCreativesTableSection({
 
     const handleMouseUp = () => {
       resizeStateRef.current = null;
+      setIsResizing(false);
     };
 
     window.addEventListener("mousemove", handleMouseMove);
@@ -921,8 +935,9 @@ export function MotionCreativesTableSection({
       <div className="text-xs text-muted-foreground">{selectedRowIds.length} ad groups selected</div>
 
       {/* C) table */}
+      {isResizing && <div className="fixed inset-0 z-[9999] cursor-col-resize select-none" />}
       <div className="max-h-[620px] overflow-auto rounded-xl border">
-        <table className="min-w-full table-fixed text-sm">
+        <table className="table-fixed text-sm" style={{ width: totalTableWidth }}>
           <thead className="sticky top-0 z-20 bg-[#F9FAFB]">
             <tr className="border-b border-[#E5E7EB]">
               <th
@@ -1336,9 +1351,45 @@ export function MotionCreativesTableSection({
               ))}
 
               {selectedColumns.map((column) => {
-                const values = rows.map((row) => column.getValue(row, ctx));
-                const total = values.reduce((sum, v) => sum + v, 0);
-                const avg = values.length > 0 ? total / values.length : 0;
+                const totalSpendAll = rows.reduce((s, r) => s + r.spend, 0);
+                const totalPurchaseValueAll = rows.reduce((s, r) => s + r.purchaseValue, 0);
+                const totalPurchasesAll = rows.reduce((s, r) => s + r.purchases, 0);
+                const totalImpressionsAll = rows.reduce((s, r) => s + r.impressions, 0);
+                const totalLinkClicksAll = rows.reduce((s, r) => s + r.linkClicks, 0);
+
+                type FooterAgg = { value: number; label: string };
+                const getFooterAgg = (key: TableColumnKey): FooterAgg => {
+                  switch (key) {
+                    case "spend":
+                    case "purchaseValue":
+                    case "purchases":
+                    case "impressions":
+                    case "linkClicks":
+                    case "clicksAll":
+                    case "associatedAds":
+                      return { value: rows.reduce((s, r) => s + column.getValue(r, ctx), 0), label: "SUM" };
+                    case "roas":
+                    case "websitePurchaseRoas":
+                      return { value: totalSpendAll > 0 ? totalPurchaseValueAll / totalSpendAll : 0, label: "wtd" };
+                    case "cpa":
+                      return { value: totalPurchasesAll > 0 ? totalSpendAll / totalPurchasesAll : 0, label: "wtd" };
+                    case "cpcLink":
+                    case "cpcAll":
+                      return { value: totalLinkClicksAll > 0 ? totalSpendAll / totalLinkClicksAll : 0, label: "wtd" };
+                    case "cpm":
+                      return { value: totalImpressionsAll > 0 ? (totalSpendAll / totalImpressionsAll) * 1000 : 0, label: "wtd" };
+                    case "ctrAll":
+                    case "ctrOutbound":
+                    case "linkCtr":
+                      return { value: totalImpressionsAll > 0 ? (totalLinkClicksAll / totalImpressionsAll) * 100 : 0, label: "wtd" };
+                    default: {
+                      const values = rows.map((r) => column.getValue(r, ctx));
+                      return { value: values.length > 0 ? values.reduce((s, v) => s + v, 0) / values.length : 0, label: "avg" };
+                    }
+                  }
+                };
+
+                const { value: footerValue, label: footerLabel } = getFooterAgg(column.key);
                 return (
                   <td
                     key={`summary_${column.key}`}
@@ -1352,8 +1403,8 @@ export function MotionCreativesTableSection({
                     )}
                   >
                     <div className="space-y-0.5">
-                      <p className="font-semibold">{column.format(total, defaultCurrency, defaultCurrency)}</p>
-                      <p className="text-muted-foreground">avg {column.format(avg, defaultCurrency, defaultCurrency)}</p>
+                      <p className="font-semibold">{column.format(footerValue, defaultCurrency, defaultCurrency)}</p>
+                      <p className="text-muted-foreground">{footerLabel}</p>
                     </div>
                   </td>
                 );

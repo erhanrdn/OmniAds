@@ -109,11 +109,16 @@ function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
     cpm: row.cpm,
     ctrAll: row.ctr_all,
     purchases: row.purchases,
-    thumbstop: 0,
-    clickToPurchase: 0,
-    video25: 0,
-    video50: 0,
-    atcToPurchaseRatio: 0,
+    impressions: row.impressions,
+    linkClicks: row.link_clicks,
+    addToCart: row.add_to_cart,
+    thumbstop: row.thumbstop,
+    clickToPurchase: row.click_to_atc,
+    video25: row.video25,
+    video50: row.video50,
+    video75: row.video75,
+    video100: row.video100,
+    atcToPurchaseRatio: row.atc_to_purchase,
   };
 }
 

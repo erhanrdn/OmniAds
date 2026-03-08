@@ -36,10 +36,17 @@ interface MetaInsightRecord {
   cpm?: string;
   cpc?: string;
   ctr?: string;
+  impressions?: string;
+  inline_link_clicks?: string;
   date_start?: string;
   actions?: MetaActionValue[];
   action_values?: MetaActionValue[];
   purchase_roas?: MetaActionValue[];
+  video_play_actions?: MetaActionValue[];
+  video_p25_watched_actions?: MetaActionValue[];
+  video_p50_watched_actions?: MetaActionValue[];
+  video_p75_watched_actions?: MetaActionValue[];
+  video_p100_watched_actions?: MetaActionValue[];
 }
 
 interface MetaAccountRecord {
@@ -130,6 +137,16 @@ interface RawCreativeRow {
   cpm: number;
   ctr_all: number;
   purchases: number;
+  impressions: number;
+  link_clicks: number;
+  add_to_cart: number;
+  thumbstop: number;
+  click_to_atc: number;
+  atc_to_purchase: number;
+  video25: number;
+  video50: number;
+  video75: number;
+  video100: number;
 }
 
 export interface MetaCreativeApiRow {
@@ -158,6 +175,16 @@ export interface MetaCreativeApiRow {
   cpm: number;
   ctr_all: number;
   purchases: number;
+  impressions: number;
+  link_clicks: number;
+  add_to_cart: number;
+  thumbstop: number;
+  click_to_atc: number;
+  atc_to_purchase: number;
+  video25: number;
+  video50: number;
+  video75: number;
+  video100: number;
 }
 
 function toISODate(date: Date) {
@@ -270,7 +297,7 @@ async function fetchAccountInsights(
   const url = new URL(`https://graph.facebook.com/v25.0/${accountId}/insights`);
   url.searchParams.set(
     "fields",
-    "ad_id,ad_name,adset_id,adset_name,spend,cpm,cpc,ctr,date_start,actions,action_values,purchase_roas"
+    "ad_id,ad_name,adset_id,adset_name,spend,cpm,cpc,ctr,impressions,inline_link_clicks,date_start,actions,action_values,purchase_roas,video_play_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p100_watched_actions"
   );
   url.searchParams.set("level", "ad");
   url.searchParams.set("time_range", JSON.stringify({ since: startDate, until: endDate }));
@@ -466,6 +493,28 @@ function toRawRow(
   const cpm = parseFloat(insight.cpm ?? "0") || 0;
   const ctrAll = parseFloat(insight.ctr ?? "0") || 0;
 
+  const impressions = parseFloat(insight.impressions ?? "0") || 0;
+  const inlineLinkClicks = parseFloat(insight.inline_link_clicks ?? "0") || 0;
+  const effectiveLinkClicks = linkClicks || inlineLinkClicks;
+  const addToCart = Math.round(
+    parseAction(insight.actions, "omni_add_to_cart") ||
+    parseAction(insight.actions, "add_to_cart") ||
+    parseAction(insight.actions, "fb_mobile_add_to_cart")
+  );
+  const video3sViews = parseFloat(insight.video_play_actions?.[0]?.value ?? "0") || 0;
+  const video25Views = parseFloat(insight.video_p25_watched_actions?.[0]?.value ?? "0") || 0;
+  const video50Views = parseFloat(insight.video_p50_watched_actions?.[0]?.value ?? "0") || 0;
+  const video75Views = parseFloat(insight.video_p75_watched_actions?.[0]?.value ?? "0") || 0;
+  const video100Views = parseFloat(insight.video_p100_watched_actions?.[0]?.value ?? "0") || 0;
+
+  const thumbstop = impressions > 0 ? r2((video3sViews / impressions) * 100) : 0;
+  const clickToAtc = effectiveLinkClicks > 0 ? r2((addToCart / effectiveLinkClicks) * 100) : 0;
+  const atcToPurchase = addToCart > 0 ? r2((purchases / addToCart) * 100) : 0;
+  const video25Rate = impressions > 0 ? r2((video25Views / impressions) * 100) : 0;
+  const video50Rate = impressions > 0 ? r2((video50Views / impressions) * 100) : 0;
+  const video75Rate = impressions > 0 ? r2((video75Views / impressions) * 100) : 0;
+  const video100Rate = impressions > 0 ? r2((video100Views / impressions) * 100) : 0;
+
   const creative = ad?.creative ?? null;
   const promotedObject = ad?.promoted_object ?? ad?.adset?.promoted_object ?? null;
   const normalizedPreview = normalizeCreativePreview({ creative, promotedObject });
@@ -525,6 +574,16 @@ function toRawRow(
     cpm: r2(cpm),
     ctr_all: r2(ctrAll),
     purchases,
+    impressions,
+    link_clicks: effectiveLinkClicks,
+    add_to_cart: addToCart,
+    thumbstop,
+    click_to_atc: clickToAtc,
+    atc_to_purchase: atcToPurchase,
+    video25: video25Rate,
+    video50: video50Rate,
+    video75: video75Rate,
+    video100: video100Rate,
   };
 }
 
@@ -544,6 +603,14 @@ function groupRows(rows: RawCreativeRow[], groupBy: GroupBy): RawCreativeRow[] {
     const spend = list.reduce((acc, item) => acc + item.spend, 0);
     const purchaseValue = list.reduce((acc, item) => acc + item.purchase_value, 0);
     const purchases = list.reduce((acc, item) => acc + item.purchases, 0);
+    const impressions = list.reduce((acc, item) => acc + item.impressions, 0);
+    const linkClicks = list.reduce((acc, item) => acc + item.link_clicks, 0);
+    const addToCart = list.reduce((acc, item) => acc + item.add_to_cart, 0);
+    const video3sViews = list.reduce((acc, item) => acc + (impressions > 0 ? (item.thumbstop / 100) * item.impressions : 0), 0);
+    const video25Views = list.reduce((acc, item) => acc + (item.impressions > 0 ? (item.video25 / 100) * item.impressions : 0), 0);
+    const video50Views = list.reduce((acc, item) => acc + (item.impressions > 0 ? (item.video50 / 100) * item.impressions : 0), 0);
+    const video75Views = list.reduce((acc, item) => acc + (item.impressions > 0 ? (item.video75 / 100) * item.impressions : 0), 0);
+    const video100Views = list.reduce((acc, item) => acc + (item.impressions > 0 ? (item.video100 / 100) * item.impressions : 0), 0);
     const weightedCtr = spend > 0 ? list.reduce((acc, item) => acc + item.ctr_all * item.spend, 0) / spend : 0;
     const weightedCpm = spend > 0 ? list.reduce((acc, item) => acc + item.cpm * item.spend, 0) / spend : 0;
     const weightedCpc = spend > 0 ? list.reduce((acc, item) => acc + item.cpc_link * item.spend, 0) / spend : 0;
@@ -602,6 +669,16 @@ function groupRows(rows: RawCreativeRow[], groupBy: GroupBy): RawCreativeRow[] {
       cpm: r2(weightedCpm),
       ctr_all: r2(weightedCtr),
       purchases,
+      impressions,
+      link_clicks: linkClicks,
+      add_to_cart: addToCart,
+      thumbstop: impressions > 0 ? r2((video3sViews / impressions) * 100) : 0,
+      click_to_atc: linkClicks > 0 ? r2((addToCart / linkClicks) * 100) : 0,
+      atc_to_purchase: addToCart > 0 ? r2((purchases / addToCart) * 100) : 0,
+      video25: impressions > 0 ? r2((video25Views / impressions) * 100) : 0,
+      video50: impressions > 0 ? r2((video50Views / impressions) * 100) : 0,
+      video75: impressions > 0 ? r2((video75Views / impressions) * 100) : 0,
+      video100: impressions > 0 ? r2((video100Views / impressions) * 100) : 0,
     });
   }
 
@@ -778,6 +855,16 @@ export async function GET(request: NextRequest) {
       cpm: row.cpm,
       ctr_all: row.ctr_all,
       purchases: row.purchases,
+      impressions: row.impressions,
+      link_clicks: row.link_clicks,
+      add_to_cart: row.add_to_cart,
+      thumbstop: row.thumbstop,
+      click_to_atc: row.click_to_atc,
+      atc_to_purchase: row.atc_to_purchase,
+      video25: row.video25,
+      video50: row.video50,
+      video75: row.video75,
+      video100: row.video100,
     };
   });
 
