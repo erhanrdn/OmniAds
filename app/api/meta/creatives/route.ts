@@ -1907,10 +1907,12 @@ export async function GET(request: NextRequest) {
         !row.id.startsWith("creative_") &&
         !row.id.startsWith("adset_")
     )
-    .map((row) => row.id)
-    .slice(0, 25); // Limit to first 25 for performance
+    .map((row) => row.id);
 
   if (rowsMissingAllMedia.length > 0) {
+    console.log("[meta-creatives] media fallback scan", {
+      rows_missing_all_media: rowsMissingAllMedia.length,
+    });
     const mediaFallbackMap = await fetchAdCreativeMediaByAdIds(rowsMissingAllMedia, integration.access_token);
     for (const row of rawRows) {
       if (row.thumbnail_url || row.image_url || row.preview_url) continue;
@@ -1941,6 +1943,15 @@ export async function GET(request: NextRequest) {
           source: row.preview.source ?? "image_url",
         };
       }
+    }
+    if (process.env.NODE_ENV !== "production") {
+      const unresolvedAfterFallback = rawRows.filter(
+        (row) => !row.thumbnail_url && !row.image_url && !row.preview_url && row.id && !row.id.startsWith("creative_") && !row.id.startsWith("adset_")
+      ).length;
+      console.log("[meta-creatives] media fallback result", {
+        fallback_map_size: mediaFallbackMap.size,
+        unresolved_after_fallback: unresolvedAfterFallback,
+      });
     }
   }
 
