@@ -1096,6 +1096,7 @@ function PreviewStrip({
                   previewUrl={row.previewUrl}
                   format={row.format}
                   isCatalog={row.isCatalog}
+                  debugScope="top-grid"
                   size="card"
                 />
                 <span className="absolute bottom-2 left-2 rounded-md bg-black/50 px-2 py-0.5 text-[10px] text-white">

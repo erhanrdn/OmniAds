@@ -1334,6 +1334,7 @@ export function MotionCreativesTableSection({
                       previewUrl={row.previewUrl}
                       format={row.format}
                       isCatalog={row.isCatalog}
+                      debugScope="table-thumb"
                       size="thumb"
                       className="h-[30px] w-[30px] rounded"
                     />

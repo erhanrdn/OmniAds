@@ -2,7 +2,7 @@
 
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type CreativePreviewProps = {
   id?: string;
@@ -12,6 +12,7 @@ type CreativePreviewProps = {
   previewUrl?: string | null;
   format?: "image" | "video" | "catalog";
   isCatalog?: boolean;
+  debugScope?: "top-grid" | "table-thumb" | "other";
   className?: string;
   size?: "card" | "thumb";
 };
@@ -25,12 +26,11 @@ function normalizeUrl(value: string | null | undefined): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   if (!trimmed) return null;
-  if (trimmed.startsWith("/")) return trimmed;
   if (trimmed.startsWith("//")) return `https:${trimmed}`;
   return /^https?:\/\//i.test(trimmed) ? trimmed : null;
 }
 
-let compactPreviewDebugCount = 0;
+const compactPreviewDebugCountByScope: Record<string, number> = {};
 
 export function CreativePreview({
   id,
@@ -40,20 +40,32 @@ export function CreativePreview({
   previewUrl,
   format = "image",
   isCatalog = false,
+  debugScope = "other",
   className,
   size = "card",
 }: CreativePreviewProps) {
-  const compactPreviewSrc =
-    normalizeUrl(thumbnailUrl) ??
-    normalizeUrl(imageUrl) ??
-    normalizeUrl(previewUrl) ??
-    null;
+  const sources = useMemo(
+    () =>
+      [normalizeUrl(thumbnailUrl), normalizeUrl(imageUrl), normalizeUrl(previewUrl)].filter(
+        (value): value is string => Boolean(value)
+      ),
+    [thumbnailUrl, imageUrl, previewUrl]
+  );
+
+  const [sourceIndex, setSourceIndex] = useState(0);
+  const compactPreviewSrc = sources[sourceIndex] ?? null;
+
+  useEffect(() => {
+    setSourceIndex(0);
+  }, [id, thumbnailUrl, imageUrl, previewUrl]);
 
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return;
-    if (compactPreviewDebugCount >= 5) return;
-    compactPreviewDebugCount += 1;
+    const count = compactPreviewDebugCountByScope[debugScope] ?? 0;
+    if (count >= 5) return;
+    compactPreviewDebugCountByScope[debugScope] = count + 1;
     console.log("[compact-preview] source pick", {
+      scope: debugScope,
       id: id ?? null,
       name,
       thumbnailUrl: thumbnailUrl ?? null,
@@ -61,7 +73,7 @@ export function CreativePreview({
       previewUrl: previewUrl ?? null,
       chosen: compactPreviewSrc,
     });
-  }, [compactPreviewSrc, id, imageUrl, name, previewUrl, thumbnailUrl]);
+  }, [compactPreviewSrc, debugScope, id, imageUrl, name, previewUrl, thumbnailUrl]);
 
   if (!compactPreviewSrc) {
     return (
@@ -88,6 +100,11 @@ export function CreativePreview({
         className="h-full w-full object-cover"
         loading="lazy"
         referrerPolicy="no-referrer"
+        onError={() => {
+          if (sourceIndex < sources.length - 1) {
+            setSourceIndex((current) => current + 1);
+          }
+        }}
       />
       <Badge variant="secondary" className="absolute bottom-1 left-1 text-[10px] opacity-90">
         {badgeLabel}
