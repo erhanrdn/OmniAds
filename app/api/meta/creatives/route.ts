@@ -640,6 +640,7 @@ async function buildNormalizedPreview(input: {
   const previewHtmlPoster = normalizeMediaUrl(adPreview?.extractedPosterUrl ?? null);
   const previewHtmlImage = normalizeMediaUrl(adPreview?.extractedImageUrl ?? null);
 
+  // Always try to provide URLs, regardless of catalog status
   if (html) {
     // Fall back to creative's direct URLs when HTML extraction yields nothing
     const creativeThumbnail = normalizeMediaUrl(creative?.thumbnail_url);
@@ -656,7 +657,7 @@ async function buildNormalizedPreview(input: {
       source: "ad_preview_html",
       is_catalog: isCatalog,
     };
-    const legacyUrl = preview.poster_url ?? preview.image_url ?? null;
+    const legacyUrl = effectivePoster ?? effectiveImage ?? null;
     return {
       preview,
       legacy: {
@@ -687,7 +688,7 @@ async function buildNormalizedPreview(input: {
       source: "preview_html_video",
       is_catalog: isCatalog,
     };
-    const legacyUrl = preview.poster_url ?? preview.image_url ?? preview.video_url;
+    const legacyUrl = effectivePoster ?? effectiveImage ?? previewHtmlVideo;
     return {
       preview,
       legacy: {
@@ -703,24 +704,24 @@ async function buildNormalizedPreview(input: {
     };
   }
 
-  const { candidates, imageHashResolutions } = collectPreviewCandidates(creative, imageHashLookup, null);
+  // If we reach here: no HTML preview, no video. Use candidate URLs directly.
+  // This is key: don't skip URL generation just because it's a catalog.
+  const { candidates, imageHashResolutions } = seededCandidates;
 
   const candidateAudit: PreviewAuditCandidate[] = [];
   let chosenCandidate: { source: string; url: string } | null = null;
+  
+  // Skip expensive validation for performance, just pick first valid-looking candidate
   for (const candidate of candidates) {
-    const validation = await validateMediaUrl(candidate.url, validationCache);
-    candidateAudit.push({
-      source: candidate.source,
-      url: candidate.url,
-      validation,
-    });
-    if (!chosenCandidate && validation.isValid) {
+    if (chosenCandidate) break;
+    // Basic check: does it look like a URL?
+    if (candidate.url && candidate.url.startsWith("http")) {
       chosenCandidate = candidate;
+      break;
     }
   }
 
-  // Server-side validation can fail on signed/hotlink-protected assets even when the browser can render them.
-  // If none validated, keep the highest-priority direct candidate and let compact UI runtime fallback handle load errors.
+  // If still nothing, keep the first candidate even if validation would fail
   if (!chosenCandidate && candidates.length > 0) {
     chosenCandidate = candidates[0];
   }
