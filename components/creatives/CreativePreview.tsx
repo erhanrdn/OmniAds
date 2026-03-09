@@ -6,6 +6,8 @@ import { useEffect, useMemo, useState } from "react";
 type CreativePreviewProps = {
   id?: string;
   name: string;
+  /** Internal cached URL — highest priority when available */
+  cachedUrl?: string | null;
   thumbnailUrl?: string | null;
   imageUrl?: string | null;
   previewUrl?: string | null;
@@ -25,6 +27,7 @@ function normalizeUrl(value: string | null | undefined): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   if (!trimmed) return null;
+  if (trimmed.startsWith("/")) return trimmed; // internal cached URL
   if (trimmed.startsWith("//")) return `https:${trimmed}`;
   return /^https?:\/\//i.test(trimmed) ? trimmed : null;
 }
@@ -52,6 +55,7 @@ const compactPreviewDebugCountByScope: Record<string, number> = {};
 export function CreativePreview({
   id,
   name,
+  cachedUrl,
   thumbnailUrl,
   imageUrl,
   previewUrl,
@@ -63,10 +67,10 @@ export function CreativePreview({
 }: CreativePreviewProps) {
   const sources = useMemo(
     () =>
-      [normalizeUrl(thumbnailUrl), normalizeUrl(imageUrl), normalizeUrl(previewUrl)].filter(
+      [normalizeUrl(cachedUrl), normalizeUrl(thumbnailUrl), normalizeUrl(imageUrl), normalizeUrl(previewUrl)].filter(
         (value): value is string => Boolean(value)
       ),
-    [thumbnailUrl, imageUrl, previewUrl]
+    [cachedUrl, thumbnailUrl, imageUrl, previewUrl]
   );
 
   const [sourceIndex, setSourceIndex] = useState(0);

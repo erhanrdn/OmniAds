@@ -162,4 +162,46 @@ export async function runMigrations() {
     CREATE INDEX IF NOT EXISTS idx_creative_share_snapshots_token
     ON creative_share_snapshots (token)
   `;
+
+  // ── creative media cache table ──────────────────────────────────
+  await sql`
+    CREATE TABLE IF NOT EXISTS creative_media_cache (
+      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      creative_id     TEXT NOT NULL,
+      business_id     TEXT NOT NULL,
+      provider        TEXT NOT NULL DEFAULT 'meta',
+      source_url      TEXT NOT NULL,
+      storage_key     TEXT UNIQUE,
+      content_type    TEXT,
+      file_size_bytes INTEGER,
+      status          TEXT NOT NULL DEFAULT 'pending'
+                      CHECK (status IN ('pending', 'downloading', 'cached', 'failed')),
+      error_message   TEXT,
+      retry_count     INTEGER NOT NULL DEFAULT 0,
+      cached_at       TIMESTAMPTZ,
+      expires_at      TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '7 days'),
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_creative_media_cache_creative_biz
+    ON creative_media_cache (creative_id, business_id, provider)
+  `;
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_creative_media_cache_status
+    ON creative_media_cache (status)
+  `;
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_creative_media_cache_storage_key
+    ON creative_media_cache (storage_key)
+  `;
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_creative_media_cache_expires
+    ON creative_media_cache (expires_at)
+  `;
 }

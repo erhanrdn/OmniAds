@@ -244,6 +244,7 @@ function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
     video75: row.video75,
     video100: row.video100,
     atcToPurchaseRatio: row.atc_to_purchase,
+    cachedThumbnailUrl: row.cached_thumbnail_url ?? null,
   };
 }
 

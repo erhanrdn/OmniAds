@@ -32,6 +32,7 @@ export function CreativesTopGrid({
               <CreativePreview
                 id={row.id}
                 name={row.name}
+                cachedUrl={row.cachedThumbnailUrl}
                 thumbnailUrl={row.thumbnailUrl}
                 imageUrl={row.imageUrl}
                 previewUrl={row.previewUrl}

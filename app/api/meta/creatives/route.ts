@@ -3,6 +3,7 @@ import { getIntegration } from "@/lib/integrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { runMigrations } from "@/lib/migrations";
 import { requireBusinessAccess } from "@/lib/access";
+import { MediaCacheService } from "@/lib/media-cache/media-service";
 
 type GroupBy = "adName" | "creative" | "adSet";
 type FormatFilter = "all" | "image" | "video";
@@ -308,6 +309,8 @@ export interface MetaCreativeApiRow {
   video50: number;
   video75: number;
   video100: number;
+  /** Internal cached URL. Prefer over thumbnail_url/image_url when available. */
+  cached_thumbnail_url?: string | null;
 }
 
 function toISODate(date: Date) {
@@ -2163,8 +2166,17 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ status: "no_data", rows: [] });
   }
 
+  // ── Resolve cached thumbnail URLs ──────────────────────────────────
+  const cacheItems = rows.map((row) => ({
+    creative_id: row.creative_id,
+    thumbnail_url: row.thumbnail_url,
+    image_url: row.image_url,
+  }));
+  const cacheMap = await MediaCacheService.resolveUrls(cacheItems, businessId);
+
   const responseRows: MetaCreativeApiRow[] = rows.map((row) => {
     const previewState: LegacyPreviewState = row.preview.render_mode === "unavailable" ? "unavailable" : "preview";
+    const cached = cacheMap.get(row.creative_id);
     return {
       id: row.id,
       creative_id: row.creative_id,
@@ -2204,6 +2216,7 @@ export async function GET(request: NextRequest) {
       video50: row.video50,
       video75: row.video75,
       video100: row.video100,
+      cached_thumbnail_url: cached?.source === "cache" ? cached.url : null,
     };
   });
 

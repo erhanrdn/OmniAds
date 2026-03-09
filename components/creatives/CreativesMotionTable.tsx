@@ -156,13 +156,15 @@ function CreativeImageOnly({ row }: { row: any }) {
   // API'den gelebilecek tüm görsel ihtimalleri
   const urls = useMemo(() => {
     const list = [
+      row.cachedThumbnailUrl,
+      row.cached_thumbnail_url,
       row.thumbnail_url,
       row.image_url,
       row.preview?.image_url,
-      row.preview?.poster_url, // Videolar için poster görseli
+      row.preview?.poster_url,
       row.imageUrl,
       row.thumbnailUrl
-    ].filter((u): u is string => Boolean(u) && typeof u === 'string' && u.includes('http'));
+    ].filter((u): u is string => Boolean(u) && typeof u === 'string' && (u.includes('http') || u.startsWith('/')));
 
     // Protokol düzeltme (// ile başlıyorsa https ekle)
     return list.map(u => u.startsWith('//') ? `https:${u}` : u);

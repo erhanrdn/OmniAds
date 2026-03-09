@@ -78,6 +78,8 @@ export interface MetaCreativeRow {
   video75: number;
   video100: number;
   atcToPurchaseRatio: number;
+  /** Internal cached thumbnail URL — prefer over thumbnailUrl when available */
+  cachedThumbnailUrl?: string | null;
 }
 
 type GoodDirection = "high" | "low" | "neutral";
