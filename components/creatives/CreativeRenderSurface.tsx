@@ -40,6 +40,7 @@ const SIZE_MAP: Record<NonNullable<CreativeRenderSurfaceProps["size"]>, string> 
 
 let assetLogCount = 0;
 let fullLogCount = 0;
+let thumbnailRenderLogCount = 0;
 const LOG_LIMIT = 5;
 
 function normalizeUrl(value: string | null | undefined): string | null {
@@ -156,23 +157,16 @@ function resolveAssetSources(
     sources.push({ src: url, source });
   };
 
-  // Priority 1: preview.image_url (server already extracted this)
-  push(normalizeUrl(preview.image_url), "preview.image_url");
-
-  // Priority 2: preview.poster_url
-  push(normalizeUrl(preview.poster_url), "preview.poster_url");
-
-  // Priority 3: explicit fallback URLs from row (thumbnailUrl, imageUrl, previewUrl)
+  // Priority 1: explicit fallback URLs from row (thumbnailUrl, imageUrl, previewUrl)
   if (assetFallbacks) {
     for (let i = 0; i < assetFallbacks.length; i++) {
       push(normalizeUrl(assetFallbacks[i]), `fallback_${i}`);
     }
   }
 
-  // Priority 4: extract from preview HTML
-  if (preview.html) {
-    push(extractImageSrcFromHtml(preview.html), "extracted_from_html");
-  }
+  // Priority 2: normalized preview fields from API payload
+  push(normalizeUrl(preview.image_url), "preview.image_url");
+  push(normalizeUrl(preview.poster_url), "preview.poster_url");
 
   return sources;
 }
@@ -262,6 +256,7 @@ export function CreativeRenderSurface({
   if (mode === "asset") {
     return (
       <AssetImage
+        id={id}
         preview={preview}
         assetFallbacks={assetFallbacks}
         name={name}
@@ -384,6 +379,7 @@ export function CreativeRenderSurface({
 
 // ─── Asset-only image renderer with multi-source fallback + proxy ───
 function AssetImage({
+  id,
   preview,
   assetFallbacks,
   name,
@@ -391,6 +387,7 @@ function AssetImage({
   badgeLabel,
   fallback,
 }: {
+  id?: string;
   preview: CreativeRenderPayload;
   assetFallbacks?: (string | null | undefined)[];
   name: string;
@@ -405,17 +402,19 @@ function AssetImage({
 
   const [sourceIndex, setSourceIndex] = useState(0);
   const [useProxy, setUseProxy] = useState(false);
+  const [exhausted, setExhausted] = useState(false);
 
   // Reset when sources change
   useEffect(() => {
     setSourceIndex(0);
     setUseProxy(false);
+    setExhausted(false);
   }, [sources]);
 
   const current = sources[sourceIndex];
 
-  // Always show the placeholder if no sources available
-  if (!current) {
+  // Always show the placeholder only if no sources exist or all failed
+  if (!current || exhausted) {
     return <>{fallback}</>;
   }
 
@@ -436,25 +435,30 @@ function AssetImage({
       setUseProxy(false);
       return;
     }
-    // Final fallback: show the nice placeholder instead of broken image
-    // This will be handled by the parent returning fallback
+    // Final fallback: all candidates failed
+    setExhausted(true);
   };
 
-  // Add state to track if all sources failed
-  const [allFailed, setAllFailed] = useState(false);
-  
+  // Temporary debug log for first 5 creative thumbnail renders.
   useEffect(() => {
-    if (sourceIndex >= sources.length - 1 && !useProxy) {
-      // Reached the end, check if we should show fallback
-      setAllFailed(true);
-    } else {
-      setAllFailed(false);
-    }
-  }, [sourceIndex, sources.length, useProxy]);
-  
-  if (allFailed) {
-    return <>{fallback}</>;
-  }
+    if (process.env.NODE_ENV === "production") return;
+    if (thumbnailRenderLogCount >= LOG_LIMIT) return;
+
+    const thumbnailUrl = normalizeUrl(assetFallbacks?.[0] ?? null);
+    const imageUrl = normalizeUrl(assetFallbacks?.[1] ?? null);
+    const previewUrl = normalizeUrl(assetFallbacks?.[2] ?? null);
+    const chosenSrc = current?.src ?? null;
+
+    thumbnailRenderLogCount += 1;
+    console.log("creative thumbnail render", {
+      id: id ?? null,
+      name,
+      thumbnailUrl,
+      imageUrl,
+      previewUrl,
+      chosenSrc,
+    });
+  }, [id, name, assetFallbacks, current]);
 
   return (
     <div className={frameClass}>
