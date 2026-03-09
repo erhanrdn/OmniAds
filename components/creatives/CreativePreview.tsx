@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 export type PreviewState = "preview" | "catalog" | "unavailable";
 
 export interface PreviewableCreative {
+  id?: string;
   name: string;
   isCatalog: boolean;
   previewState?: PreviewState;
@@ -17,13 +18,13 @@ export interface PreviewableCreative {
 
 /**
  * Collect all non-empty URL candidates in priority order:
- *   previewUrl → imageUrl → thumbnailUrl
+ *   previewUrl → thumbnailUrl → imageUrl
  * Returns de-duplicated list so the fallback hook can try the next one on error.
  */
 function resolvePreviewUrls(c: PreviewableCreative): string[] {
   return Array.from(
     new Set(
-      [c.previewUrl, c.imageUrl, c.thumbnailUrl]
+      [c.previewUrl, c.thumbnailUrl, c.imageUrl]
         .filter((v): v is string => typeof v === "string")
         .map((v) => v.trim())
         .filter((v) => v.length > 0)
@@ -54,6 +55,7 @@ export function resolvePreviewState(c: PreviewableCreative): PreviewState {
  */
 function useResolvedPreviewUrl(creative: PreviewableCreative): {
   url: string | null;
+  source: "previewUrl" | "thumbnailUrl" | "imageUrl" | null;
   markFailed: () => void;
 } {
   const candidates = useMemo(
@@ -68,14 +70,25 @@ function useResolvedPreviewUrl(creative: PreviewableCreative): {
   useEffect(() => { setFailedUrls([]); }, [candidates.join("|")]);
 
   const url = candidates.find((c) => !failedUrls.includes(c)) ?? null;
+  const source: "previewUrl" | "thumbnailUrl" | "imageUrl" | null = useMemo(() => {
+    if (!url) return null;
+    const normalized = url.trim();
+    if (typeof creative.previewUrl === "string" && creative.previewUrl.trim() === normalized) return "previewUrl";
+    if (typeof creative.thumbnailUrl === "string" && creative.thumbnailUrl.trim() === normalized) return "thumbnailUrl";
+    if (typeof creative.imageUrl === "string" && creative.imageUrl.trim() === normalized) return "imageUrl";
+    return null;
+  }, [creative.imageUrl, creative.previewUrl, creative.thumbnailUrl, url]);
 
   return {
     url,
+    source,
     markFailed: () => {
       if (!url) return;
       if (process.env.NODE_ENV !== "production") {
         console.warn("[creative-preview] image load failed, trying next candidate", {
+          id: creative.id ?? null,
           name: creative.name,
+          source,
           failedUrl: url,
           remaining: candidates.filter((c) => c !== url && !failedUrls.includes(c)).length,
         });
@@ -98,8 +111,9 @@ export function CreativePreview({
   aspectRatio = "square",
   className,
 }: CreativePreviewProps) {
-  const { url, markFailed } = useResolvedPreviewUrl(creative);
+  const { url, source, markFailed } = useResolvedPreviewUrl(creative);
   const aspectClass = aspectRatio === "square" ? "aspect-square" : "aspect-video";
+  usePreviewDebugLog("card", creative, url, source);
 
   // No URL at all → placeholder
   if (!url) {
@@ -154,8 +168,9 @@ export function CreativePreviewInline({
   height = "h-20",
   className,
 }: CreativePreviewInlineProps) {
-  const { url, markFailed } = useResolvedPreviewUrl(creative);
+  const { url, source, markFailed } = useResolvedPreviewUrl(creative);
   const sizeClass = `${width} ${height}`;
+  usePreviewDebugLog("inline", creative, url, source);
 
   if (!url) {
     return (
@@ -189,4 +204,43 @@ export function CreativePreviewInline({
       )}
     </div>
   );
+}
+
+let previewDebugCount = 0;
+const PREVIEW_DEBUG_LIMIT = 12;
+
+function usePreviewDebugLog(
+  surface: "card" | "inline",
+  creative: PreviewableCreative,
+  chosenUrl: string | null,
+  source: "previewUrl" | "thumbnailUrl" | "imageUrl" | null
+) {
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    if (previewDebugCount >= PREVIEW_DEBUG_LIMIT) return;
+    previewDebugCount += 1;
+    console.log("[creative-preview] render sample", {
+      surface,
+      id: creative.id ?? null,
+      name: creative.name,
+      previewUrl: creative.previewUrl ?? null,
+      thumbnailUrl: creative.thumbnailUrl ?? null,
+      imageUrl: creative.imageUrl ?? null,
+      chosenSource: source,
+      chosenUrl,
+      previewState: creative.previewState ?? null,
+      isCatalog: creative.isCatalog,
+    });
+  }, [
+    chosenUrl,
+    creative.id,
+    creative.imageUrl,
+    creative.isCatalog,
+    creative.name,
+    creative.previewState,
+    creative.previewUrl,
+    creative.thumbnailUrl,
+    source,
+    surface,
+  ]);
 }

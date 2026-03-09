@@ -1328,6 +1328,7 @@ export function MotionCreativesTableSection({
 
                     <CreativePreviewInline
                       creative={{
+                        id: row.id,
                         name: row.name,
                         isCatalog: row.isCatalog,
                         previewState: row.previewState,

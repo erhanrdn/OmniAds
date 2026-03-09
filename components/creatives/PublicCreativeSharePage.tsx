@@ -142,6 +142,7 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
                 <article key={creative.id} className="w-[190px] shrink-0 overflow-hidden rounded-lg border border-[#E5E7EB] bg-white">
                   <CreativePreview
                     creative={{
+                      id: creative.id,
                       name: creative.name,
                       isCatalog: creative.isCatalog,
                       previewState: creative.previewState,
@@ -193,6 +194,7 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
                       <div className="flex items-center gap-2">
                         <CreativePreview
                           creative={{
+                            id: creative.id,
                             name: creative.name,
                             isCatalog: creative.isCatalog,
                             previewState: creative.previewState,

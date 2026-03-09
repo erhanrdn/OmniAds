@@ -28,6 +28,7 @@ export function CreativesTopGrid({
             <button type="button" onClick={() => onOpenRow(row.id)} className="w-full text-left">
               <CreativePreview
                 creative={{
+                  id: row.id,
                   name: row.name,
                   isCatalog: row.isCatalog,
                   previewState: row.previewState,

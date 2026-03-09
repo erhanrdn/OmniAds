@@ -385,6 +385,37 @@ export default function CreativesPage() {
     [filteredRows, selectedRows]
   );
 
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    if (topPanelRows.length === 0 && filteredRows.length === 0) return;
+
+    console.log("[creatives-page] before MotionTopSection", {
+      total: topPanelRows.length,
+      samples: topPanelRows.slice(0, 3).map((row) => ({
+        id: row.id,
+        name: row.name,
+        previewUrl: row.previewUrl ?? null,
+        thumbnailUrl: row.thumbnailUrl ?? null,
+        imageUrl: row.imageUrl ?? null,
+        previewState: row.previewState,
+        isCatalog: row.isCatalog,
+      })),
+    });
+
+    console.log("[creatives-page] before MotionCreativesTableSection", {
+      total: filteredRows.length,
+      samples: filteredRows.slice(0, 3).map((row) => ({
+        id: row.id,
+        name: row.name,
+        previewUrl: row.previewUrl ?? null,
+        thumbnailUrl: row.thumbnailUrl ?? null,
+        imageUrl: row.imageUrl ?? null,
+        previewState: row.previewState,
+        isCatalog: row.isCatalog,
+      })),
+    });
+  }, [filteredRows, topPanelRows]);
+
   const activeRow = useMemo(
     () => filteredRows.find((row) => row.id === drawerState.activeRowId) ?? null,
     [filteredRows, drawerState.activeRowId]

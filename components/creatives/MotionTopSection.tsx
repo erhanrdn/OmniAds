@@ -1090,6 +1090,7 @@ function PreviewStrip({
               <div className="relative aspect-square w-full overflow-hidden bg-muted/30">
                 <CreativePreview
                   creative={{
+                    id: row.id,
                     name: row.name,
                     isCatalog: row.isCatalog,
                     previewState: row.previewState,

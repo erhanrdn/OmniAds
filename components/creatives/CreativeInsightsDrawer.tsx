@@ -104,6 +104,7 @@ function PreviewMedia({ row }: { row: MetaCreativeRow }) {
   return (
     <CreativePreviewInline
       creative={{
+        id: row.id,
         name: row.name,
         isCatalog: row.isCatalog,
         previewState: row.previewState,
