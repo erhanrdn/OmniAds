@@ -88,15 +88,39 @@ export async function fetchGoogleAdsAccounts(
     };
   }
 
-  const listUrl = `${GOOGLE_CONFIG.adsApiBase}/customers:listAccessibleCustomers`;
-  const listResult = await googleAdsRequest({
-    url: listUrl,
-    method: "POST",
-    accessToken,
-    developerToken,
-    body: {},
-    logLabel: "customers:listAccessibleCustomers",
-  });
+  const baseCandidates = buildAdsApiBaseCandidates();
+  let listResult: GoogleAdsHttpResult | null = null;
+  let selectedBase: string | null = null;
+
+  for (const base of baseCandidates) {
+    const attempt = await googleAdsRequest({
+      url: `${base}/customers:listAccessibleCustomers`,
+      method: "POST",
+      accessToken,
+      developerToken,
+      body: {},
+      logLabel: `customers:listAccessibleCustomers base=${base}`,
+    });
+
+    listResult = attempt;
+    selectedBase = base;
+    const shouldTryNextBase =
+      !attempt.ok &&
+      attempt.status === 404 &&
+      !attempt.isJson &&
+      (attempt.bodyText.includes("<!DOCTYPE html") ||
+        attempt.bodyText.includes("<html"));
+
+    if (!shouldTryNextBase) break;
+  }
+
+  if (!listResult || !selectedBase) {
+    return {
+      ok: false,
+      error: `${GOOGLE_ADS_FETCH_FAILED_MESSAGE} (request did not execute)`,
+      customers: [],
+    };
+  }
 
   if (!listResult.ok || hasGoogleAdsError(listResult.payload)) {
     const apiMessage = getGoogleAdsErrorMessage(listResult.payload);
@@ -141,6 +165,7 @@ export async function fetchGoogleAdsAccounts(
         accessToken,
         developerToken,
         loginCustomerIds: customerIds,
+        adsApiBase: selectedBase,
       }),
     ),
   );
@@ -179,15 +204,17 @@ async function fetchCustomerDetails({
   accessToken,
   developerToken,
   loginCustomerIds,
+  adsApiBase,
 }: {
   customerId: string;
   accessToken: string;
   developerToken: string;
   loginCustomerIds: string[];
+  adsApiBase: string;
 }): Promise<GoogleAdsCustomerNormalized | null> {
   // Try the direct customer endpoint first.
   const customerResourceResult = await googleAdsRequest({
-    url: `${GOOGLE_CONFIG.adsApiBase}/customers/${customerId}`,
+    url: `${adsApiBase}/customers/${customerId}`,
     method: "GET",
     accessToken,
     developerToken,
@@ -208,7 +235,7 @@ async function fetchCustomerDetails({
   }
 
   // Fallback to GAQL search, trying optional login-customer-id combinations.
-  const searchUrl = `${GOOGLE_CONFIG.adsApiBase}/customers/${customerId}/googleAds:search`;
+  const searchUrl = `${adsApiBase}/customers/${customerId}/googleAds:search`;
   const query =
     "SELECT customer.id, customer.descriptive_name, customer.currency_code, customer.time_zone, customer.manager FROM customer";
   const loginHeaderCandidates = Array.from(new Set([customerId, ...loginCustomerIds])).slice(0, 25);
@@ -251,6 +278,16 @@ async function fetchCustomerDetails({
   };
 
   return null;
+}
+
+function buildAdsApiBaseCandidates(): string[] {
+  const configured = GOOGLE_CONFIG.adsApiBase.replace(/\/+$/, "");
+  const defaults = [
+    "https://googleads.googleapis.com/v22",
+    "https://googleads.googleapis.com/v21",
+    "https://googleads.googleapis.com/v20",
+  ];
+  return Array.from(new Set([configured, ...defaults]));
 }
 
 async function googleAdsRequest({

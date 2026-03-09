@@ -47,8 +47,17 @@ export const GOOGLE_CONFIG = {
   ],
   /** Google Ads REST API base (env override, defaults to v22) */
   get adsApiBase() {
-    const rawVersion = (process.env.GOOGLE_ADS_API_VERSION ?? "v22").trim();
-    const version = rawVersion.startsWith("v") ? rawVersion : `v${rawVersion}`;
+    const raw = (process.env.GOOGLE_ADS_API_VERSION ?? "v22").trim();
+
+    // Allow full URL override (for legacy env values like
+    // "https://googleads.googleapis.com/v22").
+    if (/^https?:\/\//i.test(raw)) {
+      return raw.replace(/\/+$/, "");
+    }
+
+    // Support plain numbers ("22"), version tags ("v22"), or path-ish values ("/v22").
+    const cleaned = raw.replace(/^\/+/, "");
+    const version = cleaned.startsWith("v") ? cleaned : `v${cleaned}`;
     return `https://googleads.googleapis.com/${version}`;
   },
 } as const;
