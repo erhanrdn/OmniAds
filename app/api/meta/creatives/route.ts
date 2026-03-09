@@ -867,15 +867,8 @@ async function fetchAdPreviewDebugMap(
   const uniqueIds = Array.from(new Set(adIds.map((id) => id.trim()).filter(Boolean)));
   if (uniqueIds.length === 0) return map;
 
-  const formats = [
-    "DESKTOP_FEED_STANDARD",
-    "MOBILE_FEED_STANDARD",
-    "INSTAGRAM_STANDARD",
-    "FACEBOOK_STORY_MOBILE",
-    "INSTAGRAM_STORY",
-    "FACEBOOK_REELS",
-    "INSTAGRAM_REELS",
-  ];
+  // Keep preview fetch lightweight for page load; trying every placement format is expensive.
+  const formats = ["DESKTOP_FEED_STANDARD", "MOBILE_FEED_STANDARD"];
   const chunkSize = 20;
   for (let i = 0; i < uniqueIds.length; i += chunkSize) {
     const chunk = uniqueIds.slice(i, i + chunkSize);
