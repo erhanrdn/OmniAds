@@ -51,7 +51,7 @@ export function CreativesMotionTable({
       <div className="flex items-center gap-2 text-sm px-1">
         <input 
           type="checkbox" 
-          className="rounded border-gray-300 shadow-sm"
+          className="rounded border-gray-300 shadow-sm cursor-pointer"
           checked={allSelected} 
           onChange={onToggleAll} 
         />
@@ -60,10 +60,10 @@ export function CreativesMotionTable({
 
       <div className="max-h-[620px] overflow-auto rounded-xl border border-border shadow-sm bg-background">
         <table className="min-w-full text-sm border-separate border-spacing-0">
-          <thead className="sticky top-0 z-20 bg-background/95 backdrop-blur-sm">
+          <thead className="sticky top-0 z-30 bg-background/95 backdrop-blur-sm">
             <tr className="border-b">
               <th className="w-10 px-4 py-3 text-left border-b" />
-              <th className="sticky left-0 z-30 min-w-[280px] bg-background px-4 py-3 text-left font-semibold border-b">
+              <th className="sticky left-0 z-40 min-w-[280px] bg-background px-4 py-3 text-left font-semibold border-b">
                 Creative / Ad Name
               </th>
               <th className="min-w-[120px] px-4 py-3 text-left font-medium text-muted-foreground border-b">Launch date</th>
@@ -96,11 +96,11 @@ export function CreativesMotionTable({
                     onClick={(event) => event.stopPropagation()}
                   />
                 </td>
-                <td className={`sticky left-0 z-10 bg-background group-hover:bg-muted/30 transition-colors px-4 ${density === "compact" ? "py-2" : "py-4"}`}>
+                <td className={`sticky left-0 z-20 bg-background group-hover:bg-muted/30 transition-colors px-4 ${density === "compact" ? "py-2" : "py-4"}`}>
                   <div className="flex items-center gap-3">
                     
-                    {/* IFRAME / IMAGE PREVIEW */}
-                    <CreativeIframeThumbnail row={row} />
+                    {/* SAF GÖRSEL (THUMBNAIL) BİLEŞENİ */}
+                    <CreativeImageOnly row={row} />
                     
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-[13px] font-semibold text-foreground tracking-tight">{row.name}</p>
@@ -146,40 +146,68 @@ export function CreativesMotionTable({
   );
 }
 
-function CreativeIframeThumbnail({ row }: { row: any }) {
-  const directImage = row.thumbnail_url || row.imageUrl || row.image_url || row.preview?.image_url;
+/**
+ * HTML/Iframe kullanmadan sadece görsel URL'lerini kovalayan bileşen
+ */
+function CreativeImageOnly({ row }: { row: any }) {
+  const [imgSrc, setImgSrc] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
-  if (directImage) {
-    return (
-      <div className="h-10 w-10 shrink-0 overflow-hidden rounded border border-border/20 shadow-sm bg-white flex items-center justify-center">
-        <img src={directImage} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
-      </div>
-    );
-  }
+  // API'den gelebilecek tüm görsel ihtimalleri
+  const urls = useMemo(() => {
+    const list = [
+      row.thumbnail_url,
+      row.image_url,
+      row.preview?.image_url,
+      row.preview?.poster_url, // Videolar için poster görseli
+      row.imageUrl,
+      row.thumbnailUrl
+    ].filter((u): u is string => Boolean(u) && typeof u === 'string' && u.includes('http'));
 
-  if (row.preview?.html) {
+    // Protokol düzeltme (// ile başlıyorsa https ekle)
+    return list.map(u => u.startsWith('//') ? `https:${u}` : u);
+  }, [row]);
+
+  useEffect(() => {
+    setImgSrc(urls.length > 0 ? urls[0] : null);
+    setAttempt(0);
+  }, [urls]);
+
+  const handleError = () => {
+    if (attempt < urls.length - 1) {
+      setAttempt(prev => prev + 1);
+      setImgSrc(urls[attempt + 1]);
+    } else {
+      setImgSrc("error");
+    }
+  };
+
+  if (!imgSrc || imgSrc === "error") {
     return (
-      <div className="h-10 w-10 shrink-0 overflow-hidden rounded border border-border/20 shadow-sm bg-white relative pointer-events-none flex items-center justify-center">
-        <div 
-          className="absolute origin-top-left"
-          style={{ 
-            width: '540px', 
-            height: '690px', 
-            transform: `scale(${40 / 540})`, 
-          }}
-          dangerouslySetInnerHTML={{ __html: row.preview.html }}
-        />
+      <div className="h-10 w-10 shrink-0 rounded-md bg-zinc-100 border border-zinc-200 flex items-center justify-center">
+        {/* Görsel bulunamadığında çıkan şık bir placeholder */}
+        <svg className="w-4 h-4 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.587-1.587a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+        </svg>
       </div>
     );
   }
 
   return (
-    <div className="h-10 w-10 shrink-0 rounded bg-zinc-100 border border-zinc-200 flex items-center justify-center">
-      <div className="w-4 h-4 rounded-full bg-zinc-200" />
+    <div className="h-10 w-10 shrink-0 overflow-hidden rounded-md border border-border/40 bg-zinc-50 flex items-center justify-center shadow-sm">
+      <img
+        src={imgSrc}
+        alt=""
+        className="h-full w-full object-cover"
+        referrerPolicy="no-referrer"
+        onError={handleError}
+        loading="lazy"
+      />
     </div>
   );
 }
 
+// Yardımcı Fonksiyonlar (Aynı kalmalı)
 function withIntensity(color: string, intensity: "low" | "medium" | "high") {
   const multiplier = intensity === "low" ? 0.7 : intensity === "high" ? 1.3 : 1;
   const match = color.match(/rgba\((\d+),\s*(\d+),\s*(\d+),\s*([0-9.]+)\)/);
