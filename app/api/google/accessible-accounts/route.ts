@@ -34,7 +34,10 @@ export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const businessId = searchParams.get("businessId");
 
+  console.log("[accessible-accounts] 🔹 ROUTE ENTERED", { businessId, timestamp: new Date().toISOString() });
+
   if (!businessId) {
+    console.log("[accessible-accounts] ❌ MISSING BUSINESS_ID");
     return NextResponse.json(
       {
         error: "missing_business_id",
@@ -44,37 +47,71 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  console.log("[accessible-accounts] ✓ businessId received", { businessId });
+
   // Validate access
   const access = await requireBusinessAccess({
     request,
     businessId,
     minRole: "guest",
   });
-  if ("error" in access) return access.error;
+
+  if ("error" in access) {
+    console.log("[accessible-accounts] ❌ BUSINESS ACCESS FAILED", { error: access.error });
+    return access.error;
+  }
+
+  console.log("[accessible-accounts] ✓ business access validated");
 
   // Load Google integration
   const integration = await getIntegration(businessId, "google");
 
   if (!integration) {
+    console.log("[accessible-accounts] ❌ GOOGLE INTEGRATION NOT FOUND", { businessId });
     return NextResponse.json(
       {
-        error: "integration_not_found",
-        message: "Google integration not found for this business.",
+        error: "google_integration_missing",
+        message: "No connected Google integration found for this business.",
       },
       { status: 404 }
     );
   }
 
+  console.log("[accessible-accounts] ✓ Google integration found", {
+    businessId,
+    integrationId: integration.id,
+    hasAccessToken: !!integration.access_token,
+    hasRefreshToken: !!integration.refresh_token,
+    tokenExpiry: integration.token_expires_at,
+  });
+
   let accessToken = integration.access_token;
   const refreshToken = integration.refresh_token;
+
+  if (!accessToken) {
+    console.log("[accessible-accounts] ❌ MISSING ACCESS TOKEN", { businessId });
+    return NextResponse.json(
+      {
+        error: "google_access_token_missing",
+        message: "Google integration has no valid access token.",
+      },
+      { status: 401 }
+    );
+  }
 
   // Check if token is expired and refresh if possible
   if (integration.token_expires_at) {
     const isExpired =
       new Date(integration.token_expires_at).getTime() <= Date.now();
     
+    console.log("[accessible-accounts] ℹ Token expiry check", {
+      expiresAt: integration.token_expires_at,
+      isExpired,
+      hasRefreshToken: !!refreshToken,
+    });
+
     if (isExpired && refreshToken) {
-      console.log("[accessible-accounts] access token expired, refreshing...");
+      console.log("[accessible-accounts] 🔄 Access token expired, attempting refresh...");
       try {
         const refreshed = await refreshGoogleAccessToken(refreshToken);
         accessToken = refreshed.accessToken;
@@ -87,12 +124,14 @@ export async function GET(request: NextRequest) {
           accessToken: refreshed.accessToken,
           tokenExpiresAt: new Date(Date.now() + refreshed.expiresIn * 1000),
         });
-        console.log("[accessible-accounts] token refreshed successfully");
+        console.log("[accessible-accounts] ✓ Token refreshed successfully");
       } catch (refreshErr) {
-        console.error("[accessible-accounts] token refresh failed", refreshErr);
+        console.error("[accessible-accounts] ❌ TOKEN REFRESH FAILED", {
+          error: refreshErr instanceof Error ? refreshErr.message : String(refreshErr),
+        });
         return NextResponse.json(
           {
-            error: "token_refresh_failed",
+            error: "google_token_refresh_failed",
             message:
               "Google access token has expired and could not be refreshed. Please reconnect.",
           },
@@ -100,9 +139,10 @@ export async function GET(request: NextRequest) {
         );
       }
     } else if (isExpired && !refreshToken) {
+      console.log("[accessible-accounts] ❌ TOKEN EXPIRED, NO REFRESH TOKEN");
       return NextResponse.json(
         {
-          error: "token_expired",
+          error: "google_token_expired",
           message:
             "Google access token has expired and no refresh token is available. Please reconnect.",
         },
@@ -111,32 +151,36 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  if (!accessToken) {
-    return NextResponse.json(
-      {
-        error: "missing_access_token",
-        message:
-          "Google access token is missing for this business integration.",
-      },
-      { status: 401 }
-    );
-  }
+  console.log("[accessible-accounts] ✓ access token validated");
 
   try {
+    console.log("[accessible-accounts] 🔄 Starting Google Ads discovery...");
     // Fetch all accessible Google Ads accounts
     const result = await fetchGoogleAdsAccounts(accessToken);
 
+    console.log("[accessible-accounts] Response from fetchGoogleAdsAccounts", {
+      ok: result.ok,
+      error: result.error || null,
+      customerCount: result.customers?.length || 0,
+    });
+
     if (!result.ok) {
-      console.error("[accessible-accounts] Google Ads API error", result.error);
+      console.error("[accessible-accounts] ❌ GOOGLE ADS DISCOVERY FAILED", {
+        error: result.error,
+      });
       return NextResponse.json(
         {
-          error: "google_ads_fetch_failed",
+          error: "google_ads_discovery_failed",
           message:
-            result.error ?? "Could not load accessible Google Ads accounts.",
+            result.error ?? "Could not discover accessible Google Ads accounts.",
         },
         { status: 502 }
       );
     }
+
+    console.log("[accessible-accounts] ✓ Google Ads discovery succeeded", {
+      accessibleAccountCount: result.customers?.length || 0,
+    });
 
     // Fetch existing assignments to mark which accounts are already assigned
     let assignedSet = new Set<string>();
@@ -146,10 +190,13 @@ export async function GET(request: NextRequest) {
         "google"
       );
       assignedSet = new Set(assignmentRow?.account_ids ?? []);
+      console.log("[accessible-accounts] ✓ Assignment records loaded", {
+        alreadyAssignedCount: assignedSet.size,
+      });
     } catch (assignmentError) {
       console.warn(
-        "[accessible-accounts] Could not fetch assignments (non-fatal):",
-        assignmentError
+        "[accessible-accounts] ⚠ Could not fetch assignments (non-fatal):",
+        assignmentError instanceof Error ? assignmentError.message : String(assignmentError)
       );
     }
 
@@ -164,10 +211,11 @@ export async function GET(request: NextRequest) {
       assigned: assignedSet.has(customer.id),
     }));
 
-    console.log("[accessible-accounts] Success", {
+    console.log("[accessible-accounts] ✓ SUCCESS", {
       businessId,
       totalAccessible: accounts.length,
       alreadyAssigned: assignedSet.size,
+      timeMs: new Date().getTime(),
     });
 
     return NextResponse.json({
@@ -175,12 +223,15 @@ export async function GET(request: NextRequest) {
       count: accounts.length,
     });
   } catch (error) {
-    console.error("[accessible-accounts] Unexpected error:", error);
+    console.error("[accessible-accounts] ❌ UNEXPECTED ERROR", {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
 
     return NextResponse.json(
       {
-        error: "google_ads_fetch_failed",
-        message: "Could not load accessible Google Ads accounts.",
+        error: "google_ads_discovery_error",
+        message: "Unexpected error during Google Ads account discovery.",
       },
       { status: 500 }
     );

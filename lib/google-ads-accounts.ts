@@ -80,9 +80,26 @@ export async function refreshGoogleAccessToken(refreshToken: string): Promise<{
 export async function fetchGoogleAdsAccounts(
   accessToken: string,
 ): Promise<GoogleAdsAccountsFetchResult> {
-  const developerToken = GOOGLE_CONFIG.developerToken;
+  console.log("[google-ads-accounts] 🔹 fetchGoogleAdsAccounts STARTED");
+
+  let developerToken: string;
+  try {
+    developerToken = GOOGLE_CONFIG.developerToken;
+    console.log("[google-ads-accounts] ✓ developerToken loaded");
+  } catch (err) {
+    console.error("[google-ads-accounts] ❌ DEVELOPER TOKEN MISSING", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return {
+      ok: false,
+      error: "Google Ads Developer Token is not configured. Please set GOOGLE_ADS_DEVELOPER_TOKEN in environment variables.",
+      customers: [],
+    };
+  }
 
   const listUrl = `${GOOGLE_CONFIG.adsApiBase}/customers:listAccessibleCustomers`;
+  console.log("[google-ads-accounts] 🔄 Calling listAccessibleCustomers", { listUrl });
+
   const listResult = await googleAdsRequest({
     url: listUrl,
     method: "POST",
@@ -92,21 +109,27 @@ export async function fetchGoogleAdsAccounts(
     logLabel: "customers:listAccessibleCustomers",
   });
 
+  console.log("[google-ads-accounts] ✓ listAccessibleCustomers response received", {
+    ok: listResult.ok,
+    status: listResult.status,
+    isJson: listResult.isJson,
+  });
+
   if (!listResult.ok) {
-    console.error("[google-ads-accounts] listAccessibleCustomers HTTP error", {
+    console.error("[google-ads-accounts] ❌ listAccessibleCustomers HTTP ERROR", {
       status: listResult.status,
-      statusText: listResult.bodyText.slice(0, 300),
+      statusText: listResult.bodyText.slice(0, 500),
     });
     return {
       ok: false,
-      error: GOOGLE_ADS_FETCH_FAILED_MESSAGE,
+      error: `HTTP ${listResult.status}: ${GOOGLE_ADS_FETCH_FAILED_MESSAGE}`,
       customers: [],
     };
   }
 
   if (hasGoogleAdsError(listResult.payload)) {
     const errorMsg = getGoogleAdsErrorMessage(listResult.payload);
-    console.error("[google-ads-accounts] listAccessibleCustomers API error", {
+    console.error("[google-ads-accounts] ❌ listAccessibleCustomers API ERROR", {
       error: errorMsg,
       payload: (listResult.payload as GoogleAdsErrorPayload).error,
     });
@@ -118,16 +141,78 @@ export async function fetchGoogleAdsAccounts(
   }
 
   const resourceNames = readResourceNames(listResult.payload);
+  console.log("[google-ads-accounts] ℹ readResourceNames result", {
+    count: resourceNames.length,
+    resourceNames: resourceNames.slice(0, 10),
+  });
   
   if (resourceNames.length === 0) {
-    console.warn("[google-ads-accounts] no accessible customers found", {
-      payload: listResult.payload,
+    console.warn("[google-ads-accounts] ⚠ No accessible customers found", {
+      payloadKeys: listResult.payload && typeof listResult.payload === "object" ? Object.keys(listResult.payload) : [],
     });
     return { ok: true, customers: [] };
   }
 
-  console.log("[google-ads-accounts] listAccessibleCustomers success", {
+  console.log("[google-ads-accounts] ✓ listAccessibleCustomers success", {
     count: resourceNames.length,
+    resourceNames: resourceNames.slice(0, 5),
+  });
+
+  const customerIds = resourceNames
+    .map((name) => {
+      const extracted = name.replace("customers/", "").trim();
+      return extracted;
+    })
+    .filter((id) => /^\d+$/.test(id));
+
+  console.log("[google-ads-accounts] ℹ Customer ID extraction", {
+    resourceNameCount: resourceNames.length,
+    validIdCount: customerIds.length,
+    sampleIds: customerIds.slice(0, 5),
+  });
+
+  if (customerIds.length === 0) {
+    console.error("[google-ads-accounts] ❌ NO VALID CUSTOMER IDS EXTRACTED", {
+      resourceNames: resourceNames.slice(0, 10),
+    });
+    return { ok: true, customers: [] };
+  }
+
+  console.log("[google-ads-accounts] 🔄 Fetching customer details for " + customerIds.length + ' IDs');
+
+  const detailResults = await Promise.all(
+    customerIds.map((customerId) =>
+      fetchCustomerDetails({
+        accessToken,
+        developerToken,
+        customerId,
+      }),
+    ),
+  );
+
+  const customers = detailResults.map((detail, index) => {
+    const fallbackId = customerIds[index];
+    return (
+      detail ?? {
+        id: fallbackId,
+        name: fallbackId,
+        currency: null,
+        timezone: null,
+        isManager: false,
+      }
+    );
+  });
+
+  const successCount = detailResults.filter((item) => item !== null).length;
+  console.log("[google-ads-accounts] ✓ Customer detail fetch COMPLETE", {
+    requested: customerIds.length,
+    succeeded: successCount,
+    failed: customerIds.length - successCount,
+    customers: customers.map((c) => ({ id: c.id, name: c.name })),
+  });
+
+  return { ok: true, customers };
+}
     resourceNames: resourceNames.slice(0, 5), // Log first 5 for debugging
   });
 
