@@ -38,6 +38,71 @@ interface NormalizedPreviewPayload {
   isCatalog: boolean;
 }
 
+interface AdPreviewDebugResult {
+  hasHtml: boolean;
+  extractedUrl: string | null;
+  format: string | null;
+}
+
+interface UrlValidationResult {
+  isValid: boolean;
+  method: "HEAD" | "GET" | "none";
+  status: number | null;
+  finalUrl: string | null;
+  contentType: string | null;
+  contentLength: string | null;
+  error: string | null;
+}
+
+interface PreviewAuditCandidate {
+  source: string;
+  url: string;
+  validation: UrlValidationResult;
+}
+
+interface PreviewAuditSample {
+  account_id: string;
+  ad_id: string;
+  creative_id: string | null;
+  creative_name: string;
+  creative_object_type: string | null;
+  direct: {
+    thumbnail_url: string | null;
+    image_url: string | null;
+  };
+  object_story_spec: {
+    video_data_thumbnail_url: string | null;
+    video_data_image_url: string | null;
+    photo_data_image_url: string | null;
+    link_data_picture: string | null;
+    link_data_image_hash: string | null;
+    link_data_child_attachments: Array<{ picture: string | null; image_url: string | null; image_hash: string | null }>;
+  };
+  asset_feed_spec: {
+    catalog_id: string | null;
+    product_set_id: string | null;
+    images: Array<{ image_url: string | null; url: string | null; original_url: string | null; hash: string | null }>;
+    videos: Array<{ thumbnail_url: string | null; image_url: string | null }>;
+  };
+  promoted_object: {
+    promoted_product_set_id: string | null;
+    promoted_catalog_id: string | null;
+    adset_promoted_product_set_id: string | null;
+    adset_promoted_catalog_id: string | null;
+  };
+  image_hash_lookup: Array<{ hash: string; resolved: boolean; resolved_url: string | null }>;
+  ad_preview_html: {
+    has_html: boolean;
+    extracted_url: string | null;
+    format: string | null;
+  };
+  candidates: PreviewAuditCandidate[];
+  chosen_preview_source: string | null;
+  chosen_preview_url: string | null;
+  is_catalog: boolean;
+  format: CreativeFormat;
+}
+
 type MetaPromotedObjectLike = {
   product_set_id?: string | null;
   catalog_id?: string | null;
@@ -326,6 +391,94 @@ function normalizeMediaUrl(value: unknown): string | null {
   return /^https?:\/\//i.test(url) ? url : null;
 }
 
+function isPreviewContentType(contentType: string | null): boolean {
+  if (!contentType) return false;
+  const normalized = contentType.toLowerCase();
+  return normalized.startsWith("image/");
+}
+
+async function validateMediaUrl(url: string, cache: Map<string, UrlValidationResult>): Promise<UrlValidationResult> {
+  const cached = cache.get(url);
+  if (cached) return cached;
+
+  const buildResult = (
+    method: "HEAD" | "GET" | "none",
+    status: number | null,
+    finalUrl: string | null,
+    contentType: string | null,
+    contentLength: string | null,
+    error: string | null
+  ): UrlValidationResult => ({
+    isValid: Boolean(status && status >= 200 && status < 300 && isPreviewContentType(contentType)),
+    method,
+    status,
+    finalUrl,
+    contentType,
+    contentLength,
+    error,
+  });
+
+  try {
+    const head = await fetch(url, {
+      method: "HEAD",
+      redirect: "follow",
+      cache: "no-store",
+    });
+    const headContentType = head.headers.get("content-type");
+    const headContentLength = head.headers.get("content-length");
+    if (head.ok && isPreviewContentType(headContentType)) {
+      const result = buildResult("HEAD", head.status, head.url || url, headContentType, headContentLength, null);
+      cache.set(url, result);
+      return result;
+    }
+  } catch (error) {
+    // continue to GET
+    const result = buildResult(
+      "none",
+      null,
+      null,
+      null,
+      null,
+      error instanceof Error ? error.message : String(error)
+    );
+    cache.set(`${url}::head_error`, result);
+  }
+
+  try {
+    const get = await fetch(url, {
+      method: "GET",
+      redirect: "follow",
+      cache: "no-store",
+    });
+    const contentType = get.headers.get("content-type");
+    const contentLength = get.headers.get("content-length");
+    const result = buildResult("GET", get.status, get.url || url, contentType, contentLength, null);
+    cache.set(url, result);
+    return result;
+  } catch (error) {
+    const result = buildResult(
+      "none",
+      null,
+      null,
+      null,
+      null,
+      error instanceof Error ? error.message : String(error)
+    );
+    cache.set(url, result);
+    return result;
+  }
+}
+
+function pushCandidate(
+  list: Array<{ source: string; url: string }>,
+  source: string,
+  value: unknown
+) {
+  const url = normalizeMediaUrl(value);
+  if (!url) return;
+  list.push({ source, url });
+}
+
 function detectIsCatalog(
   creative: MetaAdRecord["creative"],
   promotedObject: MetaPromotedObjectLike
@@ -376,12 +529,80 @@ function extractImageHashesFromCreative(creative: MetaAdRecord["creative"]): str
   return Array.from(hashes);
 }
 
-function buildNormalizedPreview(input: {
+function collectPreviewCandidates(
+  creative: MetaAdRecord["creative"],
+  imageHashLookup: Map<string, string>,
+  adPreviewHtmlUrl: string | null = null
+): {
+  candidates: Array<{ source: string; url: string }>;
+  imageHashResolutions: Array<{ hash: string; resolved: boolean; resolved_url: string | null }>;
+} {
+  const candidates: Array<{ source: string; url: string }> = [];
+
+  // Priority order
+  pushCandidate(candidates, "thumbnail_url", creative?.thumbnail_url);
+  pushCandidate(candidates, "image_url", creative?.image_url);
+  pushCandidate(candidates, "object_story_spec.video_data.thumbnail_url", creative?.object_story_spec?.video_data?.thumbnail_url);
+  pushCandidate(candidates, "object_story_spec.video_data.image_url", creative?.object_story_spec?.video_data?.image_url);
+  pushCandidate(candidates, "object_story_spec.photo_data.image_url", creative?.object_story_spec?.photo_data?.image_url);
+  pushCandidate(candidates, "object_story_spec.link_data.picture", creative?.object_story_spec?.link_data?.picture);
+
+  for (const attachment of creative?.object_story_spec?.link_data?.child_attachments ?? []) {
+    pushCandidate(candidates, "object_story_spec.link_data.child_attachments[].picture", attachment?.picture);
+  }
+  for (const attachment of creative?.object_story_spec?.link_data?.child_attachments ?? []) {
+    pushCandidate(candidates, "object_story_spec.link_data.child_attachments[].image_url", attachment?.image_url);
+  }
+  for (const video of creative?.asset_feed_spec?.videos ?? []) {
+    pushCandidate(candidates, "asset_feed_spec.videos[].thumbnail_url", video?.thumbnail_url);
+  }
+  for (const video of creative?.asset_feed_spec?.videos ?? []) {
+    pushCandidate(candidates, "asset_feed_spec.videos[].image_url", video?.image_url);
+  }
+  for (const image of creative?.asset_feed_spec?.images ?? []) {
+    pushCandidate(candidates, "asset_feed_spec.images[].image_url", image?.image_url);
+  }
+  for (const image of creative?.asset_feed_spec?.images ?? []) {
+    pushCandidate(candidates, "asset_feed_spec.images[].url", image?.url);
+  }
+  for (const image of creative?.asset_feed_spec?.images ?? []) {
+    pushCandidate(candidates, "asset_feed_spec.images[].original_url", image?.original_url);
+  }
+
+  const hashes = extractImageHashesFromCreative(creative);
+  const imageHashResolutions = hashes.map((hash) => {
+    const resolved = imageHashLookup.get(hash) ?? imageHashLookup.get(hash.toLowerCase()) ?? null;
+    const normalized = normalizeMediaUrl(resolved);
+    if (normalized) {
+      pushCandidate(candidates, "image_hash_lookup", normalized);
+    }
+    return {
+      hash,
+      resolved: Boolean(normalized),
+      resolved_url: normalized,
+    };
+  });
+
+  pushCandidate(candidates, "ad_preview_html", adPreviewHtmlUrl);
+
+  const deduped: Array<{ source: string; url: string }> = [];
+  const seen = new Set<string>();
+  for (const candidate of candidates) {
+    if (seen.has(candidate.url)) continue;
+    seen.add(candidate.url);
+    deduped.push(candidate);
+  }
+
+  return { candidates: deduped, imageHashResolutions };
+}
+
+async function buildNormalizedPreview(input: {
   creative: MetaAdRecord["creative"];
   promotedObject: MetaPromotedObjectLike;
   imageHashLookup: Map<string, string>;
   adPreviewHtmlUrl?: string | null;
-}): {
+  validationCache: Map<string, UrlValidationResult>;
+}): Promise<{
   preview: NormalizedPreviewPayload;
   legacy: {
     preview_url: string | null;
@@ -391,67 +612,46 @@ function buildNormalizedPreview(input: {
     image_url: string | null;
     is_catalog: boolean;
   };
-} {
-  const { creative, promotedObject, imageHashLookup, adPreviewHtmlUrl = null } = input;
+  candidateAudit: PreviewAuditCandidate[];
+  imageHashResolutions: Array<{ hash: string; resolved: boolean; resolved_url: string | null }>;
+}> {
+  const { creative, promotedObject, imageHashLookup, adPreviewHtmlUrl = null, validationCache } = input;
   const isCatalog = detectIsCatalog(creative, promotedObject);
   const kind = detectPreviewKind(creative, isCatalog);
+  const { candidates, imageHashResolutions } = collectPreviewCandidates(creative, imageHashLookup, adPreviewHtmlUrl);
 
-  const uniqueCandidates: Array<{ source: Exclude<NormalizedPreviewSource, null>; url: string }> = [];
-  const seen = new Set<string>();
-  const addCandidate = (source: Exclude<NormalizedPreviewSource, null>, value: unknown) => {
-    const url = normalizeMediaUrl(value);
-    if (!url || seen.has(url)) return;
-    seen.add(url);
-    uniqueCandidates.push({ source, url });
+  const candidateAudit: PreviewAuditCandidate[] = [];
+  let chosenCandidate: { source: string; url: string } | null = null;
+  for (const candidate of candidates) {
+    const validation = await validateMediaUrl(candidate.url, validationCache);
+    candidateAudit.push({
+      source: candidate.source,
+      url: candidate.url,
+      validation,
+    });
+    if (!chosenCandidate && validation.isValid) {
+      chosenCandidate = candidate;
+    }
+  }
+
+  const top = chosenCandidate;
+  const mapSource = (source: string | null): NormalizedPreviewSource => {
+    if (!source) return null;
+    if (source === "thumbnail_url") return "thumbnail_url";
+    if (source === "image_hash_lookup") return "image_hash";
+    if (source === "ad_preview_html") return "ad_preview_html";
+    return "image_url";
   };
-
-  // Priority order required by product.
-  addCandidate("thumbnail_url", creative?.thumbnail_url);
-  addCandidate("image_url", creative?.image_url);
-  addCandidate("image_url", creative?.object_story_spec?.video_data?.thumbnail_url);
-  addCandidate("image_url", creative?.object_story_spec?.video_data?.image_url);
-  addCandidate("image_url", creative?.object_story_spec?.photo_data?.image_url);
-  addCandidate("image_url", creative?.object_story_spec?.link_data?.picture);
-  for (const attachment of creative?.object_story_spec?.link_data?.child_attachments ?? []) {
-    addCandidate("image_url", attachment?.picture);
-  }
-  for (const attachment of creative?.object_story_spec?.link_data?.child_attachments ?? []) {
-    addCandidate("image_url", attachment?.image_url);
-  }
-  for (const video of creative?.asset_feed_spec?.videos ?? []) {
-    addCandidate("image_url", video?.thumbnail_url);
-  }
-  for (const video of creative?.asset_feed_spec?.videos ?? []) {
-    addCandidate("image_url", video?.image_url);
-  }
-  for (const image of creative?.asset_feed_spec?.images ?? []) {
-    addCandidate("image_url", image?.image_url);
-  }
-  for (const image of creative?.asset_feed_spec?.images ?? []) {
-    addCandidate("image_url", image?.url);
-  }
-  for (const image of creative?.asset_feed_spec?.images ?? []) {
-    addCandidate("image_url", image?.original_url);
-  }
-
-  const hashes = extractImageHashesFromCreative(creative);
-  for (const hash of hashes) {
-    const resolved = imageHashLookup.get(hash) ?? imageHashLookup.get(hash.toLowerCase());
-    addCandidate("image_hash", resolved);
-  }
-  addCandidate("ad_preview_html", adPreviewHtmlUrl);
-
-  const top = uniqueCandidates[0] ?? null;
   const preview: NormalizedPreviewPayload = {
     url: top?.url ?? null,
-    source: top?.source ?? null,
+    source: mapSource(top?.source ?? null),
     state: top?.url ? "preview" : "unavailable",
     kind,
     isCatalog,
   };
 
-  const thumbnailCandidate = uniqueCandidates[0]?.url ?? null;
-  const imageCandidate = uniqueCandidates[1]?.url ?? uniqueCandidates[0]?.url ?? null;
+  const thumbnailCandidate = candidates[0]?.url ?? null;
+  const imageCandidate = candidates[1]?.url ?? candidates[0]?.url ?? null;
   const legacyState: LegacyPreviewState = preview.state === "preview" ? "preview" : "unavailable";
 
   return {
@@ -464,6 +664,8 @@ function buildNormalizedPreview(input: {
       image_url: imageCandidate,
       is_catalog: isCatalog,
     },
+    candidateAudit,
+    imageHashResolutions,
   };
 }
 
@@ -509,11 +711,11 @@ function extractPreviewUrlFromHtml(html: string): string | null {
   return null;
 }
 
-async function fetchAdPreviewUrlMap(
+async function fetchAdPreviewDebugMap(
   adIds: string[],
   accessToken: string
-): Promise<Map<string, string>> {
-  const map = new Map<string, string>();
+): Promise<Map<string, AdPreviewDebugResult>> {
+  const map = new Map<string, AdPreviewDebugResult>();
   const uniqueIds = Array.from(new Set(adIds.map((id) => id.trim()).filter(Boolean)));
   if (uniqueIds.length === 0) return map;
 
@@ -540,16 +742,28 @@ async function fetchAdPreviewUrlMap(
 
             const payload = (await res.json().catch(() => null)) as { data?: MetaAdPreviewRecord[] } | null;
             const html = payload?.data?.[0]?.body ?? "";
-            if (!html) continue;
+            const hasHtml = html.length > 0;
+            const previewUrl = hasHtml ? extractPreviewUrlFromHtml(html) : null;
 
-            const previewUrl = extractPreviewUrlFromHtml(html);
-            if (previewUrl) {
-              map.set(adId, previewUrl);
-              return;
+            if (hasHtml || previewUrl) {
+              map.set(adId, {
+                hasHtml,
+                extractedUrl: previewUrl,
+                format: adFormat,
+              });
+              if (previewUrl) return;
             }
           } catch {
             // swallow and try next format
           }
+        }
+
+        if (!map.has(adId)) {
+          map.set(adId, {
+            hasHtml: false,
+            extractedUrl: null,
+            format: null,
+          });
         }
       })
     );
@@ -940,12 +1154,13 @@ async function fetchCreativeDetailsMap(
   return map;
 }
 
-function toRawRow(
+async function toRawRow(
   insight: MetaInsightRecord,
   ad: MetaAdRecord | undefined,
   accountMeta: MetaAccountMeta,
-  imageHashLookup: Map<string, string>
-): RawCreativeRow | null {
+  imageHashLookup: Map<string, string>,
+  validationCache: Map<string, UrlValidationResult>
+): Promise<RawCreativeRow | null> {
   const adId = insight.ad_id ?? ad?.id ?? "";
   if (!adId) return null;
 
@@ -988,10 +1203,11 @@ function toRawRow(
 
   const creative = ad?.creative ?? null;
   const promotedObject = ad?.promoted_object ?? ad?.adset?.promoted_object ?? null;
-  const normalizedPreview = buildNormalizedPreview({
+  const normalizedPreview = await buildNormalizedPreview({
     creative,
     promotedObject,
     imageHashLookup,
+    validationCache,
   });
   const format: CreativeFormat = normalizedPreview.preview.kind;
   const creativeType: CreativeType =
@@ -1178,6 +1394,40 @@ function sortRows(rows: RawCreativeRow[], sort: SortKey): RawCreativeRow[] {
   return [...rows].sort((a, b) => Number(b[key]) - Number(a[key]));
 }
 
+function summarizePreviewAudit(samples: PreviewAuditSample[]) {
+  const sourceStats = new Map<string, { present: number; valid: number; invalid: number }>();
+  for (const sample of samples) {
+    for (const candidate of sample.candidates) {
+      const current = sourceStats.get(candidate.source) ?? { present: 0, valid: 0, invalid: 0 };
+      current.present += 1;
+      if (candidate.validation.isValid) current.valid += 1;
+      else current.invalid += 1;
+      sourceStats.set(candidate.source, current);
+    }
+  }
+
+  const ranked = Array.from(sourceStats.entries())
+    .map(([source, stat]) => ({
+      source,
+      present: stat.present,
+      valid: stat.valid,
+      invalid: stat.invalid,
+      stability: stat.present > 0 ? stat.valid / stat.present : 0,
+    }))
+    .sort((a, b) => b.valid - a.valid || b.present - a.present);
+
+  const mostAvailable = [...ranked].sort((a, b) => b.present - a.present)[0] ?? null;
+  const mostStable = [...ranked].sort((a, b) => b.stability - a.stability)[0] ?? null;
+  const leastReliable = [...ranked].sort((a, b) => a.stability - b.stability)[0] ?? null;
+
+  return {
+    sources: ranked,
+    most_available: mostAvailable,
+    most_stable: mostStable,
+    least_reliable: leastReliable,
+  };
+}
+
 export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   const businessId = params.get("businessId");
@@ -1186,6 +1436,12 @@ export async function GET(request: NextRequest) {
   const sort = (params.get("sort") as SortKey | null) ?? "roas";
   const start = params.get("start") ?? toISODate(nDaysAgo(29));
   const end = params.get("end") ?? toISODate(new Date());
+  const debugPreview = params.get("debugPreview") === "1";
+  const previewSampleLimit = Number(params.get("previewSampleLimit") ?? "10");
+  const perAccountSampleLimit =
+    Number.isFinite(previewSampleLimit) && previewSampleLimit > 0
+      ? Math.min(25, Math.max(1, Math.floor(previewSampleLimit)))
+      : 10;
 
   if (!businessId) {
     return NextResponse.json(
@@ -1215,7 +1471,8 @@ export async function GET(request: NextRequest) {
   }
 
   const rawRows: RawCreativeRow[] = [];
-  let debugSamplesLogged = 0;
+  const urlValidationCache = new Map<string, UrlValidationResult>();
+  const previewAuditSamples: PreviewAuditSample[] = [];
   for (const accountId of assignedAccountIds) {
     try {
       const [insights, adMap, accountMeta] = await Promise.all([
@@ -1286,6 +1543,10 @@ export async function GET(request: NextRequest) {
         });
       }
 
+      const accountSampleAdIds = insightAdIds.slice(0, perAccountSampleLimit);
+      const adPreviewDebugMap = await fetchAdPreviewDebugMap(accountSampleAdIds, integration.access_token);
+      let accountSampleCount = 0;
+
       for (const insight of insights) {
         const ad = insight.ad_id ? adMap.get(insight.ad_id) : undefined;
         // Merge creative details — prefer non-null values from either source
@@ -1295,26 +1556,97 @@ export async function GET(request: NextRequest) {
         const enrichedAd: MetaAdRecord | undefined = ad
           ? { ...ad, creative: mergedCreative }
           : undefined;
-        const row = toRawRow(
+        const row = await toRawRow(
           insight,
           enrichedAd,
           accountMeta,
-          adImageUrlMap
+          adImageUrlMap,
+          urlValidationCache
         );
         if (row) {
           rawRows.push(row);
-          if (process.env.NODE_ENV !== "production" && debugSamplesLogged < 5) {
-            debugSamplesLogged += 1;
-            console.log("[meta-creatives] preview sample (normalized)", {
+          if (accountSampleCount < perAccountSampleLimit) {
+            accountSampleCount += 1;
+            const creative = mergedCreative;
+            const promotedObject = enrichedAd?.promoted_object ?? null;
+            const adsetPromotedObject = enrichedAd?.adset?.promoted_object ?? null;
+            const adPreviewDebug = adPreviewDebugMap.get(row.id) ?? {
+              hasHtml: false,
+              extractedUrl: null,
+              format: null,
+            };
+
+            const collected = collectPreviewCandidates(creative, adImageUrlMap, adPreviewDebug.extractedUrl);
+            const candidateAudit: PreviewAuditCandidate[] = [];
+            for (const candidate of collected.candidates) {
+              const validation = await validateMediaUrl(candidate.url, urlValidationCache);
+              candidateAudit.push({
+                source: candidate.source,
+                url: candidate.url,
+                validation,
+              });
+            }
+
+            const sample: PreviewAuditSample = {
+              account_id: accountMeta.id,
               ad_id: row.id,
-              creative_id: row.creative_id,
-              ad_name: row.name,
-              source: row.preview.source,
-              url: row.preview.url,
-              state: row.preview.state,
-              kind: row.preview.kind,
-              isCatalog: row.preview.isCatalog,
-            });
+              creative_id: creative?.id ?? null,
+              creative_name: creative?.name ?? row.name,
+              creative_object_type: creative?.object_type ?? null,
+              direct: {
+                thumbnail_url: normalizeMediaUrl(creative?.thumbnail_url),
+                image_url: normalizeMediaUrl(creative?.image_url),
+              },
+              object_story_spec: {
+                video_data_thumbnail_url: normalizeMediaUrl(creative?.object_story_spec?.video_data?.thumbnail_url),
+                video_data_image_url: normalizeMediaUrl(creative?.object_story_spec?.video_data?.image_url),
+                photo_data_image_url: normalizeMediaUrl(creative?.object_story_spec?.photo_data?.image_url),
+                link_data_picture: normalizeMediaUrl(creative?.object_story_spec?.link_data?.picture),
+                link_data_image_hash: typeof creative?.object_story_spec?.link_data?.image_hash === "string"
+                  ? creative.object_story_spec.link_data.image_hash
+                  : null,
+                link_data_child_attachments: (creative?.object_story_spec?.link_data?.child_attachments ?? []).map((attachment) => ({
+                  picture: normalizeMediaUrl(attachment?.picture),
+                  image_url: normalizeMediaUrl(attachment?.image_url),
+                  image_hash: typeof attachment?.image_hash === "string" ? attachment.image_hash : null,
+                })),
+              },
+              asset_feed_spec: {
+                catalog_id: typeof creative?.asset_feed_spec?.catalog_id === "string" ? creative.asset_feed_spec.catalog_id : null,
+                product_set_id: typeof creative?.asset_feed_spec?.product_set_id === "string" ? creative.asset_feed_spec.product_set_id : null,
+                images: (creative?.asset_feed_spec?.images ?? []).map((image) => ({
+                  image_url: normalizeMediaUrl(image?.image_url),
+                  url: normalizeMediaUrl(image?.url),
+                  original_url: normalizeMediaUrl(image?.original_url),
+                  hash: typeof image?.hash === "string" ? image.hash : null,
+                })),
+                videos: (creative?.asset_feed_spec?.videos ?? []).map((video) => ({
+                  thumbnail_url: normalizeMediaUrl(video?.thumbnail_url),
+                  image_url: normalizeMediaUrl(video?.image_url),
+                })),
+              },
+              promoted_object: {
+                promoted_product_set_id: promotedObject?.product_set_id ?? null,
+                promoted_catalog_id: promotedObject?.catalog_id ?? null,
+                adset_promoted_product_set_id: adsetPromotedObject?.product_set_id ?? null,
+                adset_promoted_catalog_id: adsetPromotedObject?.catalog_id ?? null,
+              },
+              image_hash_lookup: collected.imageHashResolutions,
+              ad_preview_html: {
+                has_html: adPreviewDebug.hasHtml,
+                extracted_url: adPreviewDebug.extractedUrl,
+                format: adPreviewDebug.format,
+              },
+              candidates: candidateAudit,
+              chosen_preview_source: row.preview.source,
+              chosen_preview_url: row.preview.url,
+              is_catalog: row.preview.isCatalog,
+              format: row.format,
+            };
+            previewAuditSamples.push(sample);
+            if (process.env.NODE_ENV !== "production") {
+              console.log("[meta-creatives] preview source audit sample", sample);
+            }
           }
         }
       }
@@ -1330,12 +1662,16 @@ export async function GET(request: NextRequest) {
   const missingPreviewAdIds = rawRows
     .filter((row) => !row.preview_url && row.id && !row.id.startsWith("creative_") && !row.id.startsWith("adset_"))
     .map((row) => row.id);
-  const adPreviewUrlMap = await fetchAdPreviewUrlMap(missingPreviewAdIds, integration.access_token);
-  if (adPreviewUrlMap.size > 0) {
+  const adPreviewDebugMap = await fetchAdPreviewDebugMap(missingPreviewAdIds, integration.access_token);
+  if (adPreviewDebugMap.size > 0) {
     for (const row of rawRows) {
       if (row.preview_url) continue;
-      const fallbackUrl = adPreviewUrlMap.get(row.id);
+      const fallbackPreview = adPreviewDebugMap.get(row.id);
+      const fallbackUrl = fallbackPreview?.extractedUrl ?? null;
       if (!fallbackUrl) continue;
+
+      const validation = await validateMediaUrl(fallbackUrl, urlValidationCache);
+      if (!validation.isValid) continue;
 
       row.preview = {
         url: fallbackUrl,
@@ -1436,6 +1772,20 @@ export async function GET(request: NextRequest) {
         is_catalog: r.is_catalog,
         preview_kind: r.preview.kind,
       })),
+    });
+
+    if (previewAuditSamples.length > 0) {
+      console.log("[meta-creatives] preview source ranking", summarizePreviewAudit(previewAuditSamples));
+    }
+  }
+  if (debugPreview) {
+    return NextResponse.json({
+      status: "ok",
+      rows: responseRows,
+      preview_debug: {
+        sampled: previewAuditSamples,
+        ranking: summarizePreviewAudit(previewAuditSamples),
+      },
     });
   }
 
