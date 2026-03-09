@@ -1122,6 +1122,8 @@ async function fetchAccountAdsMap(
         "effective_status",
         JSON.stringify(["ACTIVE", "PAUSED", "ARCHIVED", "DELETED", "PENDING_REVIEW", "DISAPPROVED"])
       );
+      url.searchParams.set("thumbnail_width", "150");
+      url.searchParams.set("thumbnail_height", "150");
       url.searchParams.set("access_token", accessToken);
     }
 
@@ -1191,6 +1193,8 @@ async function batchFetchAdsByIds(
     const url = new URL("https://graph.facebook.com/v25.0/");
     url.searchParams.set("ids", idsChunk.join(","));
     url.searchParams.set("fields", fields);
+    url.searchParams.set("thumbnail_width", "150");
+    url.searchParams.set("thumbnail_height", "150");
     url.searchParams.set("access_token", accessToken);
 
     try {
@@ -1250,6 +1254,8 @@ async function fetchCreativeDetailsMap(
     const url = new URL("https://graph.facebook.com/v25.0/");
     url.searchParams.set("ids", idsChunk.join(","));
     url.searchParams.set("fields", fields);
+    url.searchParams.set("thumbnail_width", "150");
+    url.searchParams.set("thumbnail_height", "150");
     url.searchParams.set("access_token", accessToken);
 
     try {
@@ -1940,6 +1946,17 @@ export async function GET(request: NextRequest) {
       is_catalog: r.is_catalog,
       format: r.format,
     })));
+  }
+
+  // Debug: Log thumbnail URLs for first 5 creatives
+  if (process.env.NODE_ENV !== "production" && responseRows.length > 0) {
+    responseRows.slice(0, 5).forEach((row) => {
+      console.log("meta creative thumbnail", {
+        ad_id: row.id,
+        thumbnail_url: row.thumbnail_url ?? null,
+        image_url: row.image_url ?? null,
+      });
+    });
   }
   if (debugPreview) {
     return NextResponse.json({
