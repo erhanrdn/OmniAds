@@ -91,6 +91,7 @@ export async function fetchGoogleAdsAccounts(
   const baseCandidates = buildAdsApiBaseCandidates();
   let listResult: GoogleAdsHttpResult | null = null;
   let selectedBase: string | null = null;
+  const attemptLogs: Array<{ base: string; status: number; isJson: boolean }> = [];
 
   for (const base of baseCandidates) {
     const attempt = await googleAdsRequest({
@@ -102,6 +103,7 @@ export async function fetchGoogleAdsAccounts(
       logLabel: `customers:listAccessibleCustomers base=${base}`,
     });
 
+    attemptLogs.push({ base, status: attempt.status, isJson: attempt.isJson });
     listResult = attempt;
     selectedBase = base;
     const shouldTryNextBase =
@@ -137,10 +139,11 @@ export async function fetchGoogleAdsAccounts(
       isJson: listResult.isJson,
       apiMessage,
       bodyExcerpt: listResult.bodyText.slice(0, 250),
+      attempts: attemptLogs,
     });
     return {
       ok: false,
-      error: `${GOOGLE_ADS_FETCH_FAILED_MESSAGE} (${detail})`,
+      error: `${GOOGLE_ADS_FETCH_FAILED_MESSAGE} (${detail}; attempts=${attemptLogs.map((a) => `${a.base}=>${a.status}/${a.isJson ? "json" : "non-json"}`).join(",")})`,
       customers: [],
     };
   }
@@ -281,13 +284,20 @@ async function fetchCustomerDetails({
 }
 
 function buildAdsApiBaseCandidates(): string[] {
-  const configured = GOOGLE_CONFIG.adsApiBase.replace(/\/+$/, "");
+  const configured = normalizeApiBase(GOOGLE_CONFIG.adsApiBase);
   const defaults = [
     "https://googleads.googleapis.com/v22",
     "https://googleads.googleapis.com/v21",
     "https://googleads.googleapis.com/v20",
   ];
-  return Array.from(new Set([configured, ...defaults]));
+  return Array.from(new Set([configured, ...defaults].filter(Boolean))) as string[];
+}
+
+function normalizeApiBase(input: string): string {
+  const raw = input.trim();
+  const match = raw.match(/https:\/\/googleads\.googleapis\.com\/v\d+/i);
+  if (match) return match[0].replace(/\/+$/, "");
+  return raw.replace(/\/+$/, "");
 }
 
 async function googleAdsRequest({
