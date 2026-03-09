@@ -1884,23 +1884,20 @@ export async function GET(request: NextRequest) {
                   image_url: normalizeMediaUrl(attachment?.image_url),
                   image_hash: typeof attachment?.image_hash === "string" ? attachment.image_hash : null,
 
-                // DIAGNOSTIC: Log raw Meta creative data for first 5 ads to understand what API returns
-                if (accountSampleCount < 5 && insight.ad_id) {
-                  console.log("\n[META-API-DEBUG] Ad ID:", insight.ad_id);
-                  console.log("[META-API-DEBUG] Ad name:", ad?.name ?? "N/A");
-                  console.log("[META-API-DEBUG] Creative thumbnail_url:", mergedCreative?.thumbnail_url ?? "NULL");
-                  console.log("[META-API-DEBUG] Creative image_url:", mergedCreative?.image_url ?? "NULL");
-                  console.log("[META-API-DEBUG] Creative object_type:", mergedCreative?.object_type ?? "NULL");
-                  console.log("[META-API-DEBUG] Has object_story_spec:", Boolean(mergedCreative?.object_story_spec));
-                  console.log("[META-API-DEBUG] Has asset_feed_spec:", Boolean(mergedCreative?.asset_feed_spec));
-                  if (mergedCreative?.object_story_spec) {
-                    console.log("[META-API-DEBUG] object_story_spec.link_data.picture:", mergedCreative.object_story_spec?.link_data?.picture ?? "NULL");
-                    console.log("[META-API-DEBUG] object_story_spec.photo_data.image_url:", mergedCreative.object_story_spec?.photo_data?.image_url ?? "NULL");
-                    console.log("[META-API-DEBUG] object_story_spec.video_data.thumbnail_url:", mergedCreative.object_story_spec?.video_data?.thumbnail_url ?? "NULL");
-                  }
-                  accountSampleCount++;
-                }
-
+                })),
+              },
+              asset_feed_spec: {
+                catalog_id: typeof creative?.asset_feed_spec?.catalog_id === "string" ? creative.asset_feed_spec.catalog_id : null,
+                product_set_id: typeof creative?.asset_feed_spec?.product_set_id === "string" ? creative.asset_feed_spec.product_set_id : null,
+                images: (creative?.asset_feed_spec?.images ?? []).map((image) => ({
+                  image_url: normalizeMediaUrl(image?.image_url),
+                  url: normalizeMediaUrl(image?.url),
+                  original_url: normalizeMediaUrl(image?.original_url),
+                  hash: typeof image?.hash === "string" ? image.hash : typeof image?.image_hash === "string" ? image.image_hash : null,
+                })),
+                videos: (creative?.asset_feed_spec?.videos ?? []).map((video) => ({
+                  thumbnail_url: normalizeMediaUrl(video?.thumbnail_url),
+                  image_url: normalizeMediaUrl(video?.image_url),
                 })),
               },
               promoted_object: {
