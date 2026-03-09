@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import {
   METRIC_CONFIG,
@@ -140,11 +140,35 @@ export function CreativesMotionTable({
 }
 
 function CreativeThumb({ row }: { row: MetaCreativeRow }) {
-  if (row.previewUrl) {
+  const candidates = [row.previewUrl, row.thumbnailUrl, row.imageUrl].filter(
+    (value): value is string => typeof value === "string" && value.trim().length > 0
+  );
+
+  const [imageIndex, setImageIndex] = useState(0);
+
+  useEffect(() => {
+    setImageIndex(0);
+  }, [row.id, row.previewUrl, row.thumbnailUrl, row.imageUrl]);
+
+  const activeImage = candidates[imageIndex] ?? null;
+
+  if (activeImage) {
     return (
-      <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded">
+      <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded bg-muted/20">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={row.previewUrl} alt={row.name} className="h-full w-full object-cover" />
+        <img
+          src={activeImage}
+          alt={row.name}
+          className="h-full w-full object-cover"
+          referrerPolicy="no-referrer"
+          onError={() => {
+            if (imageIndex < candidates.length - 1) {
+              setImageIndex((current) => current + 1);
+            } else {
+              setImageIndex(candidates.length);
+            }
+          }}
+        />
         {row.isCatalog ? (
           <div className="absolute inset-x-0 bottom-0 bg-black/60 px-1 py-0.5 text-center text-[8px] text-white">
             Catalog
