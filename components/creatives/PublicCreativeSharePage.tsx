@@ -141,16 +141,15 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
               {displayRows.map((creative) => (
                 <article key={creative.id} className="w-[190px] shrink-0 overflow-hidden rounded-lg border border-[#E5E7EB] bg-white">
                   <CreativePreview
-                    creative={{
-                      id: creative.id,
-                      name: creative.name,
-                      isCatalog: creative.isCatalog,
-                      previewState: creative.previewState,
-                      previewUrl: creative.previewUrl,
-                      imageUrl: creative.imageUrl,
-                      thumbnailUrl: creative.thumbnailUrl,
-                    }}
-                    aspectRatio="square"
+                    id={creative.id}
+                    name={creative.name}
+                    isCatalog={creative.isCatalog}
+                    previewState={creative.previewState}
+                    previewUrl={creative.previewUrl}
+                    thumbnailUrl={creative.thumbnailUrl}
+                    imageUrl={creative.imageUrl}
+                    kind={creative.preview?.kind ?? creative.format}
+                    size="card"
                   />
                   <div className="space-y-1 px-2.5 py-2">
                     <div className="flex items-center justify-between gap-2">
@@ -193,16 +192,15 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-2">
                         <CreativePreview
-                          creative={{
-                            id: creative.id,
-                            name: creative.name,
-                            isCatalog: creative.isCatalog,
-                            previewState: creative.previewState,
-                            previewUrl: creative.previewUrl,
-                            imageUrl: creative.imageUrl,
-                            thumbnailUrl: creative.thumbnailUrl,
-                          }}
-                          aspectRatio="video"
+                          id={creative.id}
+                          name={creative.name}
+                          isCatalog={creative.isCatalog}
+                          previewState={creative.previewState}
+                          previewUrl={creative.previewUrl}
+                          thumbnailUrl={creative.thumbnailUrl}
+                          imageUrl={creative.imageUrl}
+                          kind={creative.preview?.kind ?? creative.format}
+                          size="large"
                           className="h-8 w-14 rounded"
                         />
                         <span className="line-clamp-2 text-[11px] text-[#111827]">{creative.name}</span>

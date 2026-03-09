@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Badge } from "@/components/ui/badge";
+import { CreativePreview } from "@/components/creatives/CreativePreview";
 import {
   METRIC_CONFIG,
   MetaCreativeRow,
@@ -140,56 +141,19 @@ export function CreativesMotionTable({
 }
 
 function CreativeThumb({ row }: { row: MetaCreativeRow }) {
-  const candidates = [row.previewUrl, row.thumbnailUrl, row.imageUrl].filter(
-    (value): value is string => typeof value === "string" && value.trim().length > 0
-  );
-
-  const [imageIndex, setImageIndex] = useState(0);
-
-  useEffect(() => {
-    setImageIndex(0);
-  }, [row.id, row.previewUrl, row.thumbnailUrl, row.imageUrl]);
-
-  const activeImage = candidates[imageIndex] ?? null;
-
-  if (activeImage) {
-    return (
-      <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded bg-muted/20">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={activeImage}
-          alt={row.name}
-          className="h-full w-full object-cover"
-          referrerPolicy="no-referrer"
-          onError={() => {
-            if (imageIndex < candidates.length - 1) {
-              setImageIndex((current) => current + 1);
-            } else {
-              setImageIndex(candidates.length);
-            }
-          }}
-        />
-        {row.isCatalog ? (
-          <div className="absolute inset-x-0 bottom-0 bg-black/60 px-1 py-0.5 text-center text-[8px] text-white">
-            Catalog
-          </div>
-        ) : null}
-      </div>
-    );
-  }
-
-  if (row.previewState === "catalog" || row.isCatalog) {
-    return (
-      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded bg-muted/60 text-[9px] text-muted-foreground">
-        Catalog
-      </div>
-    );
-  }
-
   return (
-    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded bg-muted/40 text-[9px] text-muted-foreground">
-      Preview unavailable
-    </div>
+    <CreativePreview
+      id={row.id}
+      name={row.name}
+      previewUrl={row.previewUrl}
+      thumbnailUrl={row.thumbnailUrl}
+      imageUrl={row.imageUrl}
+      previewState={row.previewState}
+      isCatalog={row.isCatalog}
+      kind={row.preview?.kind ?? row.format}
+      size="thumb"
+      className="h-12 w-12"
+    />
   );
 }
 

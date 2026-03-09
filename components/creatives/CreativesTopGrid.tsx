@@ -27,16 +27,15 @@ export function CreativesTopGrid({
           <div key={row.id} className="overflow-hidden rounded-xl border bg-card">
             <button type="button" onClick={() => onOpenRow(row.id)} className="w-full text-left">
               <CreativePreview
-                creative={{
-                  id: row.id,
-                  name: row.name,
-                  isCatalog: row.isCatalog,
-                  previewState: row.previewState,
-                  previewUrl: row.previewUrl,
-                  imageUrl: row.imageUrl,
-                  thumbnailUrl: row.thumbnailUrl,
-                }}
-                aspectRatio="square"
+                id={row.id}
+                name={row.name}
+                isCatalog={row.isCatalog}
+                previewState={row.previewState}
+                previewUrl={row.previewUrl}
+                thumbnailUrl={row.thumbnailUrl}
+                imageUrl={row.imageUrl}
+                kind={row.preview?.kind ?? row.format}
+                size="card"
               />
               <div className="p-3">
                 <p className="line-clamp-1 text-sm font-medium">{row.name}</p>

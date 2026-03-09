@@ -16,6 +16,13 @@ export interface SharedCreative {
   previewUrl: string | null;
   imageUrl: string | null;
   thumbnailUrl: string | null;
+  preview: {
+    url: string | null;
+    source: "preview_url" | "thumbnail_url" | "image_url" | "image_hash" | "ad_preview_html" | null;
+    state: "preview" | "unavailable";
+    kind: "image" | "video" | "catalog";
+    isCatalog: boolean;
+  };
   launchDate: string;
   tags: string[];
   spend: number;

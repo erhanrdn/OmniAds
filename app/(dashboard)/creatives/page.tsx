@@ -137,6 +137,7 @@ function toSharedCreative(row: MetaCreativeRow): SharedCreative {
     previewUrl: row.previewUrl ?? null,
     imageUrl: row.imageUrl ?? null,
     thumbnailUrl: row.thumbnailUrl ?? null,
+    preview: row.preview,
     launchDate: row.launchDate,
     tags: row.tags ?? [],
     spend: row.spend,
@@ -221,6 +222,7 @@ function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
     imageUrl: row.image_url,
     isCatalog: row.is_catalog,
     previewState: row.preview_state,
+    preview: row.preview,
     launchDate: row.launch_date,
     tags: row.tags ?? [],
     aiTags: row.ai_tags ?? {},
@@ -328,7 +330,6 @@ export default function CreativesPage() {
         with_imageUrl: rows.filter((r) => r.imageUrl).length,
         state_counts: {
           preview: rows.filter((r) => r.previewState === "preview").length,
-          catalog: rows.filter((r) => r.previewState === "catalog").length,
           unavailable: rows.filter((r) => r.previewState === "unavailable").length,
         },
         samples: rows.slice(0, 3).map((r) => ({

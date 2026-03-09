@@ -1089,16 +1089,15 @@ function PreviewStrip({
             >
               <div className="relative aspect-square w-full overflow-hidden bg-muted/30">
                 <CreativePreview
-                  creative={{
-                    id: row.id,
-                    name: row.name,
-                    isCatalog: row.isCatalog,
-                    previewState: row.previewState,
-                    previewUrl: row.previewUrl,
-                    imageUrl: row.imageUrl,
-                    thumbnailUrl: row.thumbnailUrl,
-                  }}
-                  aspectRatio="square"
+                  id={row.id}
+                  name={row.name}
+                  isCatalog={row.isCatalog}
+                  previewState={row.previewState}
+                  previewUrl={row.previewUrl}
+                  thumbnailUrl={row.thumbnailUrl}
+                  imageUrl={row.imageUrl}
+                  kind={row.preview?.kind ?? row.format}
+                  size="card"
                 />
                 <span className="absolute bottom-2 left-2 rounded-md bg-black/50 px-2 py-0.5 text-[10px] text-white">
                   {row.creativeTypeLabel}

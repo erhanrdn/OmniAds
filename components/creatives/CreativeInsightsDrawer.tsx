@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
 import { MetaCreativeRow } from "@/components/creatives/metricConfig";
-import { CreativePreviewInline } from "@/components/creatives/CreativePreview";
+import { CreativePreview } from "@/components/creatives/CreativePreview";
 import { generateAiAnalysis } from "@/lib/generateAiAnalysis";
 
 interface CreativeInsightsDrawerProps {
@@ -102,16 +102,17 @@ export function CreativeInsightsDrawer({
 
 function PreviewMedia({ row }: { row: MetaCreativeRow }) {
   return (
-    <CreativePreviewInline
-      creative={{
-        id: row.id,
-        name: row.name,
-        isCatalog: row.isCatalog,
-        previewState: row.previewState,
-        previewUrl: row.previewUrl,
-        imageUrl: row.imageUrl,
-        thumbnailUrl: row.thumbnailUrl,
-      }}
+    <CreativePreview
+      id={row.id}
+      name={row.name}
+      isCatalog={row.isCatalog}
+      previewState={row.previewState}
+      previewUrl={row.previewUrl}
+      thumbnailUrl={row.thumbnailUrl}
+      imageUrl={row.imageUrl}
+      kind={row.preview?.kind ?? row.format}
+      size="large"
+      className="h-20 w-36 rounded-md"
     />
   );
 }

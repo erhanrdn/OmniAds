@@ -67,7 +67,7 @@ export async function GET(req: NextRequest) {
       }
       return NextResponse.json(
         { error: "Failed to load upstream media.", upstreamStatus: upstream.status, upstreamStatusText: upstream.statusText },
-        { status: upstream.status }
+        { status: 502 }
       );
     }
 

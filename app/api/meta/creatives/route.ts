@@ -3,18 +3,12 @@ import { getIntegration } from "@/lib/integrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { runMigrations } from "@/lib/migrations";
 import { requireBusinessAccess } from "@/lib/access";
-import {
-  CreativeType,
-  CreativeFormat,
-  CreativePreviewState,
-  extractCreativeImageHashes,
-  normalizeCreativePreview,
-  shouldLogMetaPreviewDebug,
-} from "@/lib/meta-creative-preview";
 
 type GroupBy = "adName" | "creative" | "adSet";
 type FormatFilter = "all" | "image" | "video";
 type SortKey = "roas" | "spend" | "ctrAll" | "purchaseValue";
+type CreativeFormat = "image" | "video" | "catalog";
+type CreativeType = "feed" | "video" | "flexible" | "feed_catalog";
 type AiTagKey =
   | "assetType"
   | "visualFormat"
@@ -25,6 +19,29 @@ type AiTagKey =
   | "hookTactic"
   | "headlineTactic";
 type MetaAiTags = Partial<Record<AiTagKey, string[]>>;
+type LegacyPreviewState = "preview" | "catalog" | "unavailable";
+type NormalizedPreviewState = "preview" | "unavailable";
+type NormalizedPreviewSource =
+  | "preview_url"
+  | "thumbnail_url"
+  | "image_url"
+  | "image_hash"
+  | "ad_preview_html"
+  | null;
+type NormalizedPreviewKind = "image" | "video" | "catalog";
+
+interface NormalizedPreviewPayload {
+  url: string | null;
+  source: NormalizedPreviewSource;
+  state: NormalizedPreviewState;
+  kind: NormalizedPreviewKind;
+  isCatalog: boolean;
+}
+
+type MetaPromotedObjectLike = {
+  product_set_id?: string | null;
+  catalog_id?: string | null;
+} | null;
 
 interface MetaActionValue {
   action_type: string;
@@ -141,7 +158,8 @@ interface RawCreativeRow {
   thumbnail_url: string | null;
   image_url: string | null;
   is_catalog: boolean;
-  preview_state: CreativePreviewState;
+  preview_state: LegacyPreviewState;
+  preview: NormalizedPreviewPayload;
   launch_date: string;
   tags: string[];
   ai_tags: MetaAiTags;
@@ -182,7 +200,8 @@ export interface MetaCreativeApiRow {
   image_url: string | null;
   is_catalog: boolean;
   /** "catalog" | "preview" | "unavailable" — use this to drive UI rendering */
-  preview_state: CreativePreviewState;
+  preview_state: LegacyPreviewState;
+  preview: NormalizedPreviewPayload;
   launch_date: string;
   tags: string[];
   ai_tags: MetaAiTags;
@@ -305,6 +324,147 @@ function normalizeMediaUrl(value: unknown): string | null {
   if (!url) return null;
   if (url.startsWith("//")) return `https:${url}`;
   return /^https?:\/\//i.test(url) ? url : null;
+}
+
+function detectIsCatalog(
+  creative: MetaAdRecord["creative"],
+  promotedObject: MetaPromotedObjectLike
+): boolean {
+  const objectType = creative?.object_type?.toUpperCase() ?? "";
+  const templateData = creative?.object_story_spec?.template_data as Record<string, unknown> | null | undefined;
+  return Boolean(
+    objectType === "DYNAMIC" ||
+      promotedObject?.product_set_id ||
+      promotedObject?.catalog_id ||
+      creative?.asset_feed_spec?.catalog_id ||
+      creative?.asset_feed_spec?.product_set_id ||
+      templateData?.template_url
+  );
+}
+
+function detectPreviewKind(creative: MetaAdRecord["creative"], isCatalog: boolean): NormalizedPreviewKind {
+  if (isCatalog) return "catalog";
+  const objectType = creative?.object_type?.toUpperCase() ?? "";
+  const hasVideoData = Boolean(
+    creative?.object_story_spec?.video_data?.thumbnail_url ||
+      creative?.object_story_spec?.video_data?.image_url ||
+      (creative?.asset_feed_spec?.videos?.length ?? 0) > 0
+  );
+  if (objectType === "VIDEO" || hasVideoData) return "video";
+  return "image";
+}
+
+function extractImageHashesFromCreative(creative: MetaAdRecord["creative"]): string[] {
+  const hashes = new Set<string>();
+  const addHash = (value: unknown) => {
+    if (typeof value !== "string") return;
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    hashes.add(trimmed);
+    hashes.add(trimmed.toLowerCase());
+  };
+
+  addHash(creative?.object_story_spec?.link_data?.image_hash);
+  for (const attachment of creative?.object_story_spec?.link_data?.child_attachments ?? []) {
+    addHash(attachment?.image_hash);
+  }
+  for (const image of creative?.asset_feed_spec?.images ?? []) {
+    addHash(image?.hash);
+    addHash(image?.image_hash);
+  }
+
+  return Array.from(hashes);
+}
+
+function buildNormalizedPreview(input: {
+  creative: MetaAdRecord["creative"];
+  promotedObject: MetaPromotedObjectLike;
+  imageHashLookup: Map<string, string>;
+  adPreviewHtmlUrl?: string | null;
+}): {
+  preview: NormalizedPreviewPayload;
+  legacy: {
+    preview_url: string | null;
+    preview_source: string | null;
+    preview_state: LegacyPreviewState;
+    thumbnail_url: string | null;
+    image_url: string | null;
+    is_catalog: boolean;
+  };
+} {
+  const { creative, promotedObject, imageHashLookup, adPreviewHtmlUrl = null } = input;
+  const isCatalog = detectIsCatalog(creative, promotedObject);
+  const kind = detectPreviewKind(creative, isCatalog);
+
+  const uniqueCandidates: Array<{ source: Exclude<NormalizedPreviewSource, null>; url: string }> = [];
+  const seen = new Set<string>();
+  const addCandidate = (source: Exclude<NormalizedPreviewSource, null>, value: unknown) => {
+    const url = normalizeMediaUrl(value);
+    if (!url || seen.has(url)) return;
+    seen.add(url);
+    uniqueCandidates.push({ source, url });
+  };
+
+  // Priority order required by product.
+  addCandidate("thumbnail_url", creative?.thumbnail_url);
+  addCandidate("image_url", creative?.image_url);
+  addCandidate("image_url", creative?.object_story_spec?.video_data?.thumbnail_url);
+  addCandidate("image_url", creative?.object_story_spec?.video_data?.image_url);
+  addCandidate("image_url", creative?.object_story_spec?.photo_data?.image_url);
+  addCandidate("image_url", creative?.object_story_spec?.link_data?.picture);
+  for (const attachment of creative?.object_story_spec?.link_data?.child_attachments ?? []) {
+    addCandidate("image_url", attachment?.picture);
+  }
+  for (const attachment of creative?.object_story_spec?.link_data?.child_attachments ?? []) {
+    addCandidate("image_url", attachment?.image_url);
+  }
+  for (const video of creative?.asset_feed_spec?.videos ?? []) {
+    addCandidate("image_url", video?.thumbnail_url);
+  }
+  for (const video of creative?.asset_feed_spec?.videos ?? []) {
+    addCandidate("image_url", video?.image_url);
+  }
+  for (const image of creative?.asset_feed_spec?.images ?? []) {
+    addCandidate("image_url", image?.image_url);
+  }
+  for (const image of creative?.asset_feed_spec?.images ?? []) {
+    addCandidate("image_url", image?.url);
+  }
+  for (const image of creative?.asset_feed_spec?.images ?? []) {
+    addCandidate("image_url", image?.original_url);
+  }
+
+  const hashes = extractImageHashesFromCreative(creative);
+  for (const hash of hashes) {
+    const resolved = imageHashLookup.get(hash) ?? imageHashLookup.get(hash.toLowerCase());
+    addCandidate("image_hash", resolved);
+  }
+  addCandidate("ad_preview_html", adPreviewHtmlUrl);
+
+  const top = uniqueCandidates[0] ?? null;
+  const preview: NormalizedPreviewPayload = {
+    url: top?.url ?? null,
+    source: top?.source ?? null,
+    state: top?.url ? "preview" : "unavailable",
+    kind,
+    isCatalog,
+  };
+
+  const thumbnailCandidate = uniqueCandidates[0]?.url ?? null;
+  const imageCandidate = uniqueCandidates[1]?.url ?? uniqueCandidates[0]?.url ?? null;
+  const legacyState: LegacyPreviewState = preview.state === "preview" ? "preview" : "unavailable";
+
+  return {
+    preview,
+    legacy: {
+      preview_url: preview.url,
+      preview_source: preview.source,
+      preview_state: legacyState,
+      thumbnail_url: thumbnailCandidate,
+      image_url: imageCandidate,
+      is_catalog: isCatalog,
+    },
+  };
 }
 
 function toAdAccountNodeId(accountId: string): string {
@@ -438,7 +598,7 @@ async function fetchAccountInsights(
   startDate: string,
   endDate: string
 ): Promise<MetaInsightRecord[]> {
-  if (shouldLogMetaPreviewDebug()) {
+  if (process.env.NODE_ENV !== "production") {
     console.log("[meta-creatives] insights query", {
       account_id: accountId,
       time_range: { since: startDate, until: endDate },
@@ -474,7 +634,7 @@ async function fetchAccountInsights(
   }
 
   const payload = (await res.json().catch(() => null)) as { data?: MetaInsightRecord[] } | null;
-  if (shouldLogMetaPreviewDebug()) {
+  if (process.env.NODE_ENV !== "production") {
     console.log("[meta-creatives] insights response", {
       account_id: accountId,
       rows: payload?.data?.length ?? 0,
@@ -828,17 +988,15 @@ function toRawRow(
 
   const creative = ad?.creative ?? null;
   const promotedObject = ad?.promoted_object ?? ad?.adset?.promoted_object ?? null;
-  const normalizedPreview = normalizeCreativePreview({
+  const normalizedPreview = buildNormalizedPreview({
     creative,
     promotedObject,
     imageHashLookup,
   });
-  const format: CreativeFormat = normalizedPreview.format;
+  const format: CreativeFormat = normalizedPreview.preview.kind;
   const creativeType: CreativeType =
     format === "catalog"
       ? "feed_catalog"
-      : normalizedPreview.creative_type === "flexible"
-      ? "flexible"
       : format === "video"
       ? "video"
       : "feed";
@@ -846,29 +1004,6 @@ function toRawRow(
   const launchDate = cleanDate(ad?.created_time) || cleanDate(insight.date_start) || toISODate(new Date());
   const name = insight.ad_name ?? ad?.name ?? creative?.name ?? "Unnamed ad";
   const creativeId = creative?.id ?? adId;
-
-  if (shouldLogMetaPreviewDebug()) {
-    console.log("[meta-creatives] preview normalization", {
-      creative_id: creativeId,
-      name,
-      account_id: accountMeta.id,
-      currency: accountMeta.currency,
-      has_thumbnail_url: normalizedPreview.debug.has_thumbnail_url,
-      has_image_url: normalizedPreview.debug.has_image_url,
-      has_object_story_spec: normalizedPreview.debug.has_object_story_spec,
-      has_asset_feed_spec: normalizedPreview.debug.has_asset_feed_spec,
-      has_link_data_picture: normalizedPreview.debug.has_link_data_picture,
-      has_link_data_image_hash: normalizedPreview.debug.has_link_data_image_hash,
-      has_video_data_thumbnail_url: normalizedPreview.debug.has_video_data_thumbnail_url,
-      has_asset_feed_images: normalizedPreview.debug.has_asset_feed_images,
-      has_asset_feed_videos: normalizedPreview.debug.has_asset_feed_videos,
-      has_promoted_product_set_id: normalizedPreview.debug.has_promoted_product_set_id,
-      final_preview_state: normalizedPreview.preview_state,
-      final_preview_url: normalizedPreview.preview_url,
-      final_preview_source: normalizedPreview.preview_source,
-      selected_source: normalizedPreview.debug.source,
-    });
-  }
 
   return {
     id: adId,
@@ -880,12 +1015,13 @@ function toRawRow(
     adset_id: insight.adset_id ?? ad?.adset_id ?? ad?.adset?.id ?? null,
     adset_name: insight.adset_name ?? ad?.adset?.name ?? null,
     name,
-    preview_url: normalizedPreview.preview_url,
-    preview_source: normalizedPreview.preview_source,
-    thumbnail_url: normalizedPreview.thumbnail_url,
-    image_url: normalizedPreview.image_url,
-    is_catalog: normalizedPreview.is_catalog,
-    preview_state: normalizedPreview.preview_state,
+    preview_url: normalizedPreview.legacy.preview_url,
+    preview_source: normalizedPreview.legacy.preview_source,
+    thumbnail_url: normalizedPreview.legacy.thumbnail_url,
+    image_url: normalizedPreview.legacy.image_url,
+    is_catalog: normalizedPreview.legacy.is_catalog,
+    preview_state: normalizedPreview.legacy.preview_state,
+    preview: normalizedPreview.preview,
     launch_date: launchDate,
     tags: [],
     ai_tags: {},
@@ -954,20 +1090,26 @@ function groupRows(
       .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))[0];
     const sample = list[0];
     const uniqueCurrencies = Array.from(new Set(list.map((item) => item.currency).filter(Boolean)));
-    if (uniqueCurrencies.length > 1 && shouldLogMetaPreviewDebug()) {
+    if (uniqueCurrencies.length > 1 && process.env.NODE_ENV !== "production") {
       console.log("[meta-creatives] mixed currencies in grouped row", {
         groupBy,
         groupKey: key,
         currencies: uniqueCurrencies,
       });
     }
-    const groupedPreviewUrl = list.find((item) => item.preview_url)?.preview_url ?? null;
-    const groupedIsCatalog = list.some((item) => item.is_catalog);
-    const groupedPreviewState: CreativePreviewState = groupedPreviewUrl
-      ? "preview"
-      : groupedIsCatalog
-      ? "catalog"
-      : "unavailable";
+    const previewRow = list.find((item) => item.preview.url) ?? null;
+    const groupedPreview = previewRow?.preview ?? {
+      url: null,
+      source: null,
+      state: "unavailable",
+      kind: list.some((item) => item.preview.kind === "catalog")
+        ? "catalog"
+        : list.some((item) => item.preview.kind === "video")
+        ? "video"
+        : "image",
+      isCatalog: list.some((item) => item.preview.isCatalog),
+    };
+    const groupedLegacyState: LegacyPreviewState = groupedPreview.state === "preview" ? "preview" : "unavailable";
     const groupedCreativeType = resolveGroupedCreativeType(list);
 
     grouped.push({
@@ -980,12 +1122,13 @@ function groupRows(
       adset_id: sample.adset_id,
       adset_name: sample.adset_name,
       name: groupBy === "creative" ? sample.name : sample.adset_name ?? sample.name,
-      preview_url: groupedPreviewUrl,
-      preview_source: list.find((item) => item.preview_source)?.preview_source ?? null,
-      thumbnail_url: list.find((item) => item.thumbnail_url)?.thumbnail_url ?? null,
-      image_url: list.find((item) => item.image_url)?.image_url ?? null,
-      is_catalog: groupedIsCatalog,
-      preview_state: groupedPreviewState,
+      preview_url: groupedPreview.url,
+      preview_source: groupedPreview.source,
+      thumbnail_url: previewRow?.thumbnail_url ?? groupedPreview.url ?? null,
+      image_url: previewRow?.image_url ?? groupedPreview.url ?? null,
+      is_catalog: groupedPreview.isCatalog,
+      preview_state: groupedLegacyState,
+      preview: groupedPreview,
       launch_date: earliestLaunch ?? sample.launch_date,
       tags: [],
       ai_tags: list.reduce<MetaAiTags>((acc, item) => {
@@ -997,11 +1140,7 @@ function groupRows(
         }
         return acc;
       }, {}),
-      format: list.some((item) => item.format === "catalog")
-        ? "catalog"
-        : list.some((item) => item.format === "video")
-        ? "video"
-        : "image",
+      format: groupedPreview.kind,
       creative_type: groupedCreativeType,
       creative_type_label: toCreativeTypeLabel(groupedCreativeType),
       spend: r2(spend),
@@ -1118,7 +1257,7 @@ export async function GET(request: NextRequest) {
           [...adMap.values()].flatMap((ad) => {
             const detailCreative = ad.creative?.id ? creativeDetailsMap.get(ad.creative.id) : undefined;
             const mergedCreative = mergeCreativeData(ad.creative ?? null, detailCreative);
-            return extractCreativeImageHashes(mergedCreative);
+            return extractImageHashesFromCreative(mergedCreative);
           })
         )
       );
@@ -1166,32 +1305,15 @@ export async function GET(request: NextRequest) {
           rawRows.push(row);
           if (process.env.NODE_ENV !== "production" && debugSamplesLogged < 5) {
             debugSamplesLogged += 1;
-            const linkData = mergedCreative?.object_story_spec?.link_data;
-            const videoData = mergedCreative?.object_story_spec?.video_data;
-            const photoData = mergedCreative?.object_story_spec?.photo_data;
-            const assetFeedSpec = mergedCreative?.asset_feed_spec;
-            const effectivePromotedObject = enrichedAd?.promoted_object ?? enrichedAd?.adset?.promoted_object ?? null;
-            console.log("[meta-creatives] preview sample", {
+            console.log("[meta-creatives] preview sample (normalized)", {
               ad_id: row.id,
               creative_id: row.creative_id,
               ad_name: row.name,
-              creative_object_type: mergedCreative?.object_type ?? null,
-              creative_thumbnail_url: mergedCreative?.thumbnail_url ?? null,
-              creative_image_url: mergedCreative?.image_url ?? null,
-              object_story_spec_video_data_thumbnail_url: videoData?.thumbnail_url ?? null,
-              object_story_spec_video_data_image_url: videoData?.image_url ?? null,
-              object_story_spec_photo_data_image_url: photoData?.image_url ?? null,
-              object_story_spec_link_data_picture: linkData?.picture ?? null,
-              object_story_spec_link_data_child_attachments: linkData?.child_attachments ?? null,
-              asset_feed_spec_images: assetFeedSpec?.images ?? null,
-              asset_feed_spec_videos: assetFeedSpec?.videos ?? null,
-              promoted_object_product_set_id: effectivePromotedObject?.product_set_id ?? null,
-              promoted_object_catalog_id: effectivePromotedObject?.catalog_id ?? null,
-              final_detected_format: row.format,
-              final_preview_state: row.preview_state,
-              final_preview_url: row.preview_url ?? null,
-              final_preview_source: row.preview_source,
-              creative_type_label: row.creative_type_label,
+              source: row.preview.source,
+              url: row.preview.url,
+              state: row.preview.state,
+              kind: row.preview.kind,
+              isCatalog: row.preview.isCatalog,
             });
           }
         }
@@ -1215,11 +1337,18 @@ export async function GET(request: NextRequest) {
       const fallbackUrl = adPreviewUrlMap.get(row.id);
       if (!fallbackUrl) continue;
 
-      row.preview_url = fallbackUrl;
-      row.preview_source = "ad_preview_html";
-      if (!row.thumbnail_url) row.thumbnail_url = fallbackUrl;
-      if (!row.image_url) row.image_url = fallbackUrl;
+      row.preview = {
+        url: fallbackUrl,
+        source: "ad_preview_html",
+        state: "preview",
+        kind: row.preview.kind,
+        isCatalog: row.preview.isCatalog,
+      };
+      row.preview_url = row.preview.url;
+      row.preview_source = row.preview.source;
       row.preview_state = "preview";
+      row.thumbnail_url = row.thumbnail_url ?? fallbackUrl;
+      row.image_url = row.image_url ?? fallbackUrl;
     }
   }
 
@@ -1239,12 +1368,7 @@ export async function GET(request: NextRequest) {
   }
 
   const responseRows: MetaCreativeApiRow[] = rows.map((row) => {
-    const previewState: CreativePreviewState = row.preview_url
-      ? "preview"
-      : row.is_catalog
-      ? "catalog"
-      : row.preview_state;
-
+    const previewState: LegacyPreviewState = row.preview.state === "preview" ? "preview" : "unavailable";
     return {
       id: row.id,
       creative_id: row.creative_id,
@@ -1259,6 +1383,7 @@ export async function GET(request: NextRequest) {
       image_url: row.image_url,
       is_catalog: row.is_catalog,
       preview_state: previewState,
+      preview: row.preview,
       launch_date: row.launch_date,
       tags: row.tags,
       ai_tags: Object.keys(row.ai_tags).length > 0 ? row.ai_tags : normalizeAiTags(row.tags),
@@ -1297,7 +1422,6 @@ export async function GET(request: NextRequest) {
       image_url_set: withImage,
       state_counts: {
         preview: responseRows.filter((r) => r.preview_state === "preview").length,
-        catalog: responseRows.filter((r) => r.preview_state === "catalog").length,
         unavailable: responseRows.filter((r) => r.preview_state === "unavailable").length,
       },
       samples: responseRows.slice(0, 5).map((r) => ({
@@ -1310,6 +1434,7 @@ export async function GET(request: NextRequest) {
         thumbnail_url: r.thumbnail_url ? r.thumbnail_url.slice(0, 80) : null,
         image_url: r.image_url ? r.image_url.slice(0, 80) : null,
         is_catalog: r.is_catalog,
+        preview_kind: r.preview.kind,
       })),
     });
   }

@@ -40,6 +40,13 @@ export interface MetaCreativeRow {
   imageUrl: string | null;
   isCatalog: boolean;
   previewState: "preview" | "catalog" | "unavailable";
+  preview: {
+    url: string | null;
+    source: "preview_url" | "thumbnail_url" | "image_url" | "image_hash" | "ad_preview_html" | null;
+    state: "preview" | "unavailable";
+    kind: "image" | "video" | "catalog";
+    isCatalog: boolean;
+  };
   launchDate: string;
   tags: string[];
   aiTags: MetaAiTags;
