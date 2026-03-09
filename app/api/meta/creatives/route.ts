@@ -963,10 +963,10 @@ function groupRows(
     }
     const groupedPreviewUrl = list.find((item) => item.preview_url)?.preview_url ?? null;
     const groupedIsCatalog = list.some((item) => item.is_catalog);
-    const groupedPreviewState: CreativePreviewState = groupedIsCatalog
-      ? "catalog"
-      : groupedPreviewUrl
+    const groupedPreviewState: CreativePreviewState = groupedPreviewUrl
       ? "preview"
+      : groupedIsCatalog
+      ? "catalog"
       : "unavailable";
     const groupedCreativeType = resolveGroupedCreativeType(list);
 
@@ -1219,7 +1219,7 @@ export async function GET(request: NextRequest) {
       row.preview_source = "ad_preview_html";
       if (!row.thumbnail_url) row.thumbnail_url = fallbackUrl;
       if (!row.image_url) row.image_url = fallbackUrl;
-      if (!row.is_catalog) row.preview_state = "preview";
+      row.preview_state = "preview";
     }
   }
 
@@ -1239,10 +1239,10 @@ export async function GET(request: NextRequest) {
   }
 
   const responseRows: MetaCreativeApiRow[] = rows.map((row) => {
-    const previewState: CreativePreviewState = row.is_catalog
-      ? "catalog"
-      : row.preview_url
+    const previewState: CreativePreviewState = row.preview_url
       ? "preview"
+      : row.is_catalog
+      ? "catalog"
       : row.preview_state;
 
     return {
