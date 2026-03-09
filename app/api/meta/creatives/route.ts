@@ -1354,7 +1354,8 @@ async function fetchCreativeThumbnailMap(
   creativeIds: string[],
   accessToken: string,
   width = 150,
-  height = 120
+  height = 120,
+  debug = false
 ): Promise<Map<string, string>> {
   const map = new Map<string, string>();
   const uniqueIds = Array.from(new Set(creativeIds.filter((id) => id.trim().length > 0)));
@@ -1363,6 +1364,14 @@ async function fetchCreativeThumbnailMap(
   const chunkSize = 20;
   for (let i = 0; i < uniqueIds.length; i += chunkSize) {
     const idsChunk = uniqueIds.slice(i, i + chunkSize);
+    if (debug) {
+      console.log("[meta-creatives][thumb-debug] chunk start", {
+        chunk_index: i / chunkSize + 1,
+        chunk_size: idsChunk.length,
+        width,
+        height,
+      });
+    }
     const chunkResults = await Promise.all(
       idsChunk.map(async (creativeId) => {
         const url = new URL(`https://graph.facebook.com/v25.0/${creativeId}`);
@@ -1370,16 +1379,49 @@ async function fetchCreativeThumbnailMap(
         url.searchParams.set("thumbnail_height", String(height));
         url.searchParams.set("fields", "thumbnail_url");
         url.searchParams.set("access_token", accessToken);
+        if (debug) {
+          const safeUrl = new URL(url.toString());
+          safeUrl.searchParams.set("access_token", "<REDACTED>");
+          console.log("[meta-creatives][thumb-debug] request", {
+            creative_id: creativeId,
+            url: safeUrl.toString(),
+          });
+        }
         try {
           const res = await fetch(url.toString(), {
             method: "GET",
             headers: { Accept: "application/json" },
             cache: "no-store",
           });
-          if (!res.ok) return { creativeId, thumbnailUrl: null };
+          if (!res.ok) {
+            const raw = await res.text().catch(() => "");
+            if (debug) {
+              console.log("[meta-creatives][thumb-debug] response non-ok", {
+                creative_id: creativeId,
+                status: res.status,
+                body_sample: raw.slice(0, 220),
+              });
+            }
+            return { creativeId, thumbnailUrl: null };
+          }
           const payload = (await res.json().catch(() => null)) as { thumbnail_url?: string | null } | null;
-          return { creativeId, thumbnailUrl: normalizeMediaUrl(payload?.thumbnail_url ?? null) };
-        } catch {
+          const thumbnailUrl = normalizeMediaUrl(payload?.thumbnail_url ?? null);
+          if (debug) {
+            console.log("[meta-creatives][thumb-debug] response ok", {
+              creative_id: creativeId,
+              status: res.status,
+              thumbnail_url_present: Boolean(thumbnailUrl),
+              thumbnail_url_sample: thumbnailUrl ? thumbnailUrl.slice(0, 180) : null,
+            });
+          }
+          return { creativeId, thumbnailUrl };
+        } catch (error: unknown) {
+          if (debug) {
+            console.log("[meta-creatives][thumb-debug] request failed", {
+              creative_id: creativeId,
+              message: error instanceof Error ? error.message : String(error),
+            });
+          }
           return { creativeId, thumbnailUrl: null };
         }
       })
@@ -1752,6 +1794,7 @@ export async function GET(request: NextRequest) {
   const start = params.get("start") ?? toISODate(nDaysAgo(29));
   const end = params.get("end") ?? toISODate(new Date());
   const debugPreview = params.get("debugPreview") === "1";
+  const debugThumbnail = params.get("debugThumbnail") === "1";
   const previewSampleLimit = Number(params.get("previewSampleLimit") ?? "5");
   const perAccountSampleLimit =
     Number.isFinite(previewSampleLimit) && previewSampleLimit > 0
@@ -1832,7 +1875,8 @@ export async function GET(request: NextRequest) {
         missingThumbnailCreativeIds,
         integration.access_token,
         150,
-        120
+        120,
+        debugThumbnail
       );
       const accountImageHashes = Array.from(
         new Set(
@@ -1843,6 +1887,14 @@ export async function GET(request: NextRequest) {
               const fallbackThumb = creativeThumbnailMap.get(mergedCreative.id) ?? null;
               if (fallbackThumb) {
                 mergedCreative.thumbnail_url = fallbackThumb;
+                if (debugThumbnail) {
+                  console.log("[meta-creatives][thumb-debug] fallback applied", {
+                    stage: "hash-seed-merge",
+                    account_id: accountId,
+                    creative_id: mergedCreative.id,
+                    thumbnail_url_sample: fallbackThumb.slice(0, 180),
+                  });
+                }
               }
             }
             return extractImageHashesFromCreative(mergedCreative);
@@ -1890,6 +1942,15 @@ export async function GET(request: NextRequest) {
           const fallbackThumb = creativeThumbnailMap.get(mergedCreative.id) ?? null;
           if (fallbackThumb) {
             mergedCreative.thumbnail_url = fallbackThumb;
+            if (debugThumbnail) {
+              console.log("[meta-creatives][thumb-debug] fallback applied", {
+                stage: "row-merge",
+                account_id: accountId,
+                ad_id: insight.ad_id ?? null,
+                creative_id: mergedCreative.id,
+                thumbnail_url_sample: fallbackThumb.slice(0, 180),
+              });
+            }
           }
         }
         const enrichedAd: MetaAdRecord | undefined = ad
