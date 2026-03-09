@@ -76,12 +76,14 @@ export async function fetchGoogleAdsAccounts(
   try {
     developerToken = GOOGLE_CONFIG.developerToken;
   } catch (err) {
+    const detail =
+      err instanceof Error ? err.message : String(err);
     console.error("[google-ads-accounts] developer token missing", {
-      message: err instanceof Error ? err.message : String(err),
+      message: detail,
     });
     return {
       ok: false,
-      error: GOOGLE_ADS_FETCH_FAILED_MESSAGE,
+      error: `${GOOGLE_ADS_FETCH_FAILED_MESSAGE} (developer token missing)`,
       customers: [],
     };
   }
@@ -97,15 +99,24 @@ export async function fetchGoogleAdsAccounts(
   });
 
   if (!listResult.ok || hasGoogleAdsError(listResult.payload)) {
+    const apiMessage = getGoogleAdsErrorMessage(listResult.payload);
+    const isLikelyHtml =
+      !listResult.isJson &&
+      (listResult.bodyText.includes("<!DOCTYPE html") ||
+        listResult.bodyText.includes("<html"));
+    const detail = !listResult.ok
+      ? `listAccessibleCustomers HTTP ${listResult.status}${isLikelyHtml ? " (non-JSON response)" : ""}`
+      : `listAccessibleCustomers API error${apiMessage ? `: ${apiMessage}` : ""}`;
+
     console.error("[google-ads-accounts] accessible customers request failed", {
       status: listResult.status,
       isJson: listResult.isJson,
-      apiMessage: getGoogleAdsErrorMessage(listResult.payload),
+      apiMessage,
       bodyExcerpt: listResult.bodyText.slice(0, 250),
     });
     return {
       ok: false,
-      error: GOOGLE_ADS_FETCH_FAILED_MESSAGE,
+      error: `${GOOGLE_ADS_FETCH_FAILED_MESSAGE} (${detail})`,
       customers: [],
     };
   }
@@ -151,6 +162,14 @@ export async function fetchGoogleAdsAccounts(
     requested: customerIds.length,
     succeeded: detailResults.filter((item) => item !== null).length,
   });
+
+  if (customers.length === 0 && customerIds.length > 0) {
+    return {
+      ok: false,
+      error: `${GOOGLE_ADS_FETCH_FAILED_MESSAGE} (customer detail lookups failed for all accessible customers)`,
+      customers: [],
+    };
+  }
 
   return { ok: true, customers };
 }
