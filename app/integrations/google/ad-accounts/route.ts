@@ -111,8 +111,9 @@ export async function GET(request: NextRequest) {
       });
       return NextResponse.json(
         {
-          error: "google_ads_api_error",
-          message: result.error ?? "Failed to fetch Google Ads accounts.",
+          error: "google_ads_fetch_failed",
+          message:
+            result.error ?? "Could not load accessible Google Ads accounts.",
         },
         { status: 502 },
       );
@@ -149,8 +150,7 @@ export async function GET(request: NextRequest) {
         name: customer.name,
         currency: customer.currency,
         timezone: customer.timezone,
-        manager: customer.manager,
-        status: customer.status,
+        isManager: customer.isManager,
         assigned: assignedSet.has(customer.id),
       })),
     });
@@ -163,8 +163,8 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(
       {
-        error: "google_ads_api_error",
-        message,
+        error: "google_ads_fetch_failed",
+        message: "Could not load accessible Google Ads accounts.",
       },
       { status: 500 },
     );

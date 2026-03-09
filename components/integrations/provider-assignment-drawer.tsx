@@ -17,6 +17,7 @@ interface ProviderAccountRow {
   name: string;
   currency?: string;
   timezone?: string;
+  isManager?: boolean;
   assigned?: boolean;
 }
 
@@ -218,6 +219,7 @@ export function ProviderAssignmentDrawer({
         id: account.id,
         name: account.name,
         currency: account.currency,
+        timezone: account.timezone,
         externalId: account.id,
       })),
     [accounts],
@@ -334,6 +336,7 @@ export function ProviderAssignmentDrawer({
                         <p className="mt-1 truncate text-xs text-muted-foreground">
                           {account.externalId}
                           {account.currency ? ` • ${account.currency}` : ""}
+                          {account.timezone ? ` • ${account.timezone}` : ""}
                         </p>
                       </div>
                       <input
