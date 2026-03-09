@@ -269,13 +269,13 @@ export function normalizeCreativePreview({
     : "feed";
 
   // ── Preview state ───────────────────────────────────────────────────────────
-  // preview_url is always set when any URL is found — including for catalog ads.
-  // The UI uses preview_state to decide rendering mode; it should still show
-  // catalog ads with a "Catalog" badge overlay rather than hiding the image.
-  const previewState: CreativePreviewState = isCatalog
-    ? "catalog"
-    : picked.url
+  // If we have any valid preview URL, always expose it as a renderable preview.
+  // Catalog-ness is already carried separately by `is_catalog` and `format`, so
+  // the UI can still show a catalog badge without suppressing the image.
+  const previewState: CreativePreviewState = picked.url
     ? "preview"
+    : isCatalog
+    ? "catalog"
     : "unavailable";
 
   return {
