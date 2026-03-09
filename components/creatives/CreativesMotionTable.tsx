@@ -8,8 +8,8 @@ import {
   MetaMetricKey,
 } from "@/components/creatives/metricConfig";
 
-// Görsel boyutu ve yuvarlaklığı için sabitler (Ekran görüntüsündeki gibi)
-const THUMB_SIZE = "h-10 w-10"; // Tablo için ideal boyut
+// Görsel boyutu ve genel stil sabitleri
+const THUMB_SIZE = "h-10 w-10";
 
 interface CreativesMotionTableProps {
   rows: MetaCreativeRow[];
@@ -40,7 +40,7 @@ export function CreativesMotionTable({
     return selectedMetrics.reduce<
       Record<MetaMetricKey, { min: number; max: number }>
     >((acc, metric) => {
-      const values = rows.map((row) => row[metric] || 0);
+      const values = rows.map((row) => Number(row[metric]) || 0);
       acc[metric] = {
         min: Math.min(...values),
         max: Math.max(...values),
@@ -54,14 +54,14 @@ export function CreativesMotionTable({
       <div className="flex items-center gap-2 text-sm px-1">
         <input 
           type="checkbox" 
-          className="rounded border-gray-300" 
+          className="rounded border-gray-300 shadow-sm transition-all focus:ring-emerald-500"
           checked={allSelected} 
           onChange={onToggleAll} 
         />
         <span className="text-muted-foreground font-medium">{selectedRowIds.length} ad groups selected</span>
       </div>
 
-      <div className="max-h-[620px] overflow-auto rounded-xl border border-border/60 shadow-sm">
+      <div className="max-h-[620px] overflow-auto rounded-xl border border-border/60 shadow-sm bg-background">
         <table className="min-w-full text-sm border-separate border-spacing-0">
           <thead className="sticky top-0 z-20 bg-background/95 backdrop-blur-sm">
             <tr className="border-b">
@@ -93,7 +93,10 @@ export function CreativesMotionTable({
                     type="checkbox"
                     className="rounded border-gray-300"
                     checked={selectedRowIds.includes(row.id)}
-                    onChange={() => onToggleRow(row.id)}
+                    onChange={(e) => {
+                      e.stopPropagation();
+                      onToggleRow(row.id);
+                    }}
                     onClick={(event) => event.stopPropagation()}
                   />
                 </td>
@@ -103,7 +106,6 @@ export function CreativesMotionTable({
                   }`}
                 >
                   <div className="flex items-center gap-3">
-                    {/* Kreatif Ön İzleme Görseli */}
                     <CompactCreativeThumb
                       id={row.id}
                       name={row.name}
@@ -136,7 +138,7 @@ export function CreativesMotionTable({
                   </div>
                 </td>
                 {selectedMetrics.map((metric) => {
-                  const value = row[metric] || 0;
+                  const value = Number(row[metric]) || 0;
                   const heat = getHeatColor(
                     metric,
                     value,
@@ -146,7 +148,7 @@ export function CreativesMotionTable({
                   return (
                     <td
                       key={metric}
-                      className="px-4 font-medium"
+                      className="px-4 font-medium transition-colors"
                       style={{ backgroundColor: withIntensity(heat, heatmapIntensity) }}
                     >
                       {METRIC_CONFIG[metric].format(value)}
@@ -161,6 +163,8 @@ export function CreativesMotionTable({
     </div>
   );
 }
+
+// --- Alt Bileşenler ve Yardımcı Fonksiyonlar ---
 
 function normalizeCompactThumbSrc(value: string | null | undefined) {
   if (!value) return null;
@@ -192,7 +196,6 @@ function CompactCreativeThumb({
   imageUrl?: string | null;
   previewUrl?: string | null;
 }) {
-  // Öncelik: Thumbnail -> Image -> Preview
   const sources = useMemo(() => [thumbnailUrl, imageUrl, previewUrl]
     .map(normalizeCompactThumbSrc)
     .filter((value): value is string => Boolean(value)), [thumbnailUrl, imageUrl, previewUrl]);
@@ -209,7 +212,6 @@ function CompactCreativeThumb({
 
   const activeSource = sources[sourceIndex] ?? null;
 
-  // Görsel yoksa veya tüm kaynaklar tükendiyse "Placeholder" göster
   if (!activeSource || hasError) {
     return (
       <div className={`${THUMB_SIZE} shrink-0 overflow-hidden rounded-lg bg-muted flex items-center justify-center border border-border/40`}>
@@ -220,7 +222,6 @@ function CompactCreativeThumb({
     );
   }
 
-  // Meta CDN proxy desteği
   const imgSrc = useProxy && isMetaCdnUrl(activeSource)
     ? `/api/media/meta-preview?src=${encodeURIComponent(activeSource)}`
     : activeSource;
@@ -253,4 +254,32 @@ function CompactCreativeThumb({
   );
 }
 
-// Helper functions (withIntensity, getHeatColor) aynı kalabilir...
+function withIntensity(color: string, intensity: "low" | "medium" | "high") {
+  const multiplier = intensity === "low" ? 0.7 : intensity === "high" ? 1.3 : 1;
+  const match = color.match(/rgba\((\d+),\s*(\d+),\s*(\d+),\s*([0-9.]+)\)/);
+  if (!match) return color;
+  const [, r, g, b, alpha] = match;
+  const nextAlpha = Math.max(0.04, Math.min(0.38, Number(alpha) * multiplier));
+  return `rgba(${r}, ${g}, ${b}, ${nextAlpha.toFixed(3)})`;
+}
+
+function getHeatColor(metric: MetaMetricKey, value: number, min: number, max: number) {
+  if (max <= min) return "transparent";
+
+  const normalize = (value - min) / (max - min);
+  const direction = METRIC_CONFIG[metric].goodDirection;
+
+  if (direction === "neutral") {
+    const alpha = 0.06 + normalize * 0.14;
+    return `rgba(148, 163, 184, ${alpha.toFixed(3)})`;
+  }
+
+  const score = direction === "low" ? 1 - normalize : normalize;
+  if (score >= 0.5) {
+    const alpha = 0.08 + ((score - 0.5) / 0.5) * 0.22;
+    return `rgba(16, 185, 129, ${alpha.toFixed(3)})`;
+  }
+
+  const alpha = 0.08 + ((0.5 - score) / 0.5) * 0.22;
+  return `rgba(239, 68, 68, ${alpha.toFixed(3)})`;
+}
