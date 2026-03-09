@@ -38,6 +38,8 @@ export interface MetaCreativeRow {
   thumbnailUrl: string | null;
   previewUrl: string | null;
   imageUrl: string | null;
+  tableThumbnailUrl?: string | null;
+  cardPreviewUrl?: string | null;
   isCatalog: boolean;
   previewState: "preview" | "catalog" | "unavailable";
   preview: {

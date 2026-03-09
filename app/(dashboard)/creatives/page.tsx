@@ -220,6 +220,8 @@ function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
     thumbnailUrl: row.thumbnail_url,
     previewUrl: row.preview_url,
     imageUrl: row.image_url,
+    tableThumbnailUrl: row.table_thumbnail_url ?? row.thumbnail_url ?? null,
+    cardPreviewUrl: row.card_preview_url ?? row.image_url ?? row.thumbnail_url ?? row.preview_url ?? null,
     isCatalog: row.is_catalog,
     previewState: row.preview_state,
     preview: row.preview,

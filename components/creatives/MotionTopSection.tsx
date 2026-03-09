@@ -1094,7 +1094,13 @@ function PreviewStrip({
                   preview={row.preview}
                   size="card"
                   mode="asset"
-                  assetFallbacks={[row.cachedThumbnailUrl, row.thumbnailUrl, row.imageUrl, row.previewUrl]}
+                  assetFallbacks={[
+                    row.cardPreviewUrl,
+                    row.imageUrl,
+                    row.previewUrl,
+                    row.thumbnailUrl,
+                    row.cachedThumbnailUrl,
+                  ]}
                   className="aspect-[4/5] w-full"
                 />
               </div>

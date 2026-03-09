@@ -270,6 +270,8 @@ export interface MetaCreativeApiRow {
   preview_source: string | null;
   thumbnail_url: string | null;
   image_url: string | null;
+  table_thumbnail_url?: string | null;
+  card_preview_url?: string | null;
   is_catalog: boolean;
   /** "catalog" | "preview" | "unavailable" — use this to drive UI rendering */
   preview_state: LegacyPreviewState;
@@ -1807,6 +1809,7 @@ export async function GET(request: NextRequest) {
   }
 
   const rawRows: RawCreativeRow[] = [];
+  const cardPreviewByCreativeId = new Map<string, string>();
   const urlValidationCache = new Map<string, UrlValidationResult>();
   const previewAuditSamples: PreviewAuditSample[] = [];
   for (const accountId of assignedAccountIds) {
@@ -1881,6 +1884,22 @@ export async function GET(request: NextRequest) {
         120,
         debugThumbnail
       );
+      const cardThumbnailCreativeIds = creativeIds.filter((creativeId) => {
+        const detail = creativeDetailsMap.get(creativeId);
+        return !normalizeMediaUrl(detail?.image_url ?? null);
+      });
+      const cardThumbnailMap = await fetchCreativeThumbnailMap(
+        cardThumbnailCreativeIds,
+        integration.access_token,
+        640,
+        640,
+        false
+      );
+      for (const [creativeId, url] of cardThumbnailMap.entries()) {
+        if (!cardPreviewByCreativeId.has(creativeId)) {
+          cardPreviewByCreativeId.set(creativeId, url);
+        }
+      }
       const accountImageHashes = Array.from(
         new Set(
           [...adMap.values()].flatMap((ad) => {
@@ -1923,6 +1942,7 @@ export async function GET(request: NextRequest) {
           creative_details_loaded: creativeDetailsMap.size,
           creative_missing_thumbnail: missingThumbnailCreativeIds.length,
           creative_thumbnail_fallback_loaded: creativeThumbnailMap.size,
+          card_thumbnail_fallback_loaded: cardThumbnailMap.size,
           image_hashes_seen: accountImageHashes.length,
           image_hash_urls_resolved: adImageUrlMap.size,
           matched_ads: matchedAds,
@@ -2286,6 +2306,18 @@ export async function GET(request: NextRequest) {
             source: row.preview.source ?? "thumbnail_url",
           }
         : row.preview;
+    const tableThumbnailUrl =
+      normalizeMediaUrl(cachedThumbnailUrl) ??
+      normalizeMediaUrl(row.thumbnail_url) ??
+      normalizeMediaUrl(row.preview_url) ??
+      normalizeMediaUrl(row.image_url) ??
+      null;
+    const cardPreviewUrl =
+      normalizeMediaUrl(row.image_url) ??
+      normalizeMediaUrl(cardPreviewByCreativeId.get(row.creative_id) ?? null) ??
+      normalizeMediaUrl(row.thumbnail_url) ??
+      normalizeMediaUrl(row.preview_url) ??
+      null;
     return {
       id: row.id,
       creative_id: row.creative_id,
@@ -2298,6 +2330,8 @@ export async function GET(request: NextRequest) {
       preview_source: row.preview_source,
       thumbnail_url: finalThumbnailUrl,
       image_url: finalImageUrl,
+      table_thumbnail_url: tableThumbnailUrl,
+      card_preview_url: cardPreviewUrl,
       is_catalog: row.is_catalog,
       preview_state: previewState,
       preview: finalPreviewPayload,

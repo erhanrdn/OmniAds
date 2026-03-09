@@ -1333,7 +1333,13 @@ export function MotionCreativesTableSection({
                       preview={row.preview}
                       size="thumb"
                       mode="asset"
-                      assetFallbacks={[row.cachedThumbnailUrl, row.thumbnailUrl, row.imageUrl, row.previewUrl]}
+                      assetFallbacks={[
+                        row.tableThumbnailUrl,
+                        row.cachedThumbnailUrl,
+                        row.thumbnailUrl,
+                        row.imageUrl,
+                        row.previewUrl,
+                      ]}
                       className="h-9 w-9 shrink-0 rounded-md"
                     />
 
