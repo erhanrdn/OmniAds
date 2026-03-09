@@ -397,6 +397,7 @@ export default function CreativesPage() {
           preview_url: r.preview_url ?? "NULL",
           preview_state: r.preview_state,
           preview_render_mode: r.preview?.render_mode,
+          preview_object_FULL: r.preview,
         })),
         first_3_mapped: rows.slice(0, 3).map((r) => ({
           id: r.id,
@@ -407,7 +408,15 @@ export default function CreativesPage() {
           previewState: r.previewState,
           preview_image_url: r.preview?.image_url ?? "NULL",
           preview_poster_url: r.preview?.poster_url ?? "NULL",
+          preview_object_FULL: r.preview,
         })),
+      });
+      
+      // DIAGNOSTIC: Full backend response status
+      console.log("[DIAGNOSTIC] Backend response metadata", {
+        status: creativesQuery.data?.status,
+        total_rows: rawRows.length,
+        has_preview_field: rawRows.length > 0 ? typeof rawRows[0]?.preview : "N/A",
       });
     }
     return rows;
