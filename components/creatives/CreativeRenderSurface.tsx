@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 export type CreativeRenderPayload = {
@@ -228,12 +227,6 @@ export function CreativeRenderSurface({
     }
   }, [id, name, preview, mode, assetFallbacks]);
 
-  const badgeLabel = preview.is_catalog
-    ? "Catalog"
-    : preview.render_mode === "video"
-      ? "Video"
-      : "Feed";
-
   // Always show a nice placeholder instead of "Preview unavailable"
   const fallback = (
     <div
@@ -246,9 +239,6 @@ export function CreativeRenderSurface({
       <div className="text-[10px] text-center text-muted-foreground font-medium line-clamp-2 px-1">
         {name}
       </div>
-      <span className="absolute bottom-1.5 left-1.5 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
-        {badgeLabel}
-      </span>
     </div>
   );
 
@@ -261,7 +251,6 @@ export function CreativeRenderSurface({
         assetFallbacks={assetFallbacks}
         name={name}
         frameClass={frameClass}
-        badgeLabel={badgeLabel}
         fallback={fallback}
       />
     );
@@ -279,17 +268,6 @@ export function CreativeRenderSurface({
           srcDoc={preview.html}
           className="h-full w-full border-0"
         />
-        {preview.is_catalog ? (
-          <Badge
-            variant="secondary"
-            className={cn(
-              "absolute bottom-1 left-1 text-[10px] opacity-90",
-              badgeClassName
-            )}
-          >
-            Catalog
-          </Badge>
-        ) : null}
       </div>
     );
   }
@@ -306,26 +284,6 @@ export function CreativeRenderSurface({
           preload="metadata"
           className="h-full w-full object-cover"
         />
-        {preview.is_catalog ? (
-          <Badge
-            variant="secondary"
-            className={cn(
-              "absolute bottom-1 left-1 text-[10px] opacity-90",
-              badgeClassName
-            )}
-          >
-            Catalog
-          </Badge>
-        ) : null}
-        <Badge
-          variant="secondary"
-          className={cn(
-            "absolute bottom-1 right-1 text-[10px] opacity-90",
-            badgeClassName
-          )}
-        >
-          Video
-        </Badge>
       </div>
     );
   }
@@ -359,17 +317,6 @@ export function CreativeRenderSurface({
             }
           }}
         />
-        {preview.is_catalog ? (
-          <Badge
-            variant="secondary"
-            className={cn(
-              "absolute bottom-1 left-1 text-[10px] opacity-90",
-              badgeClassName
-            )}
-          >
-            Catalog
-          </Badge>
-        ) : null}
       </div>
     );
   }
@@ -384,7 +331,6 @@ function AssetImage({
   assetFallbacks,
   name,
   frameClass,
-  badgeLabel,
   fallback,
 }: {
   id?: string;
@@ -392,7 +338,6 @@ function AssetImage({
   assetFallbacks?: (string | null | undefined)[];
   name: string;
   frameClass: string;
-  badgeLabel: string;
   fallback: React.ReactNode;
 }) {
   const sources = useMemo(
@@ -472,9 +417,6 @@ function AssetImage({
         referrerPolicy="no-referrer"
         onError={handleError}
       />
-      <span className="absolute bottom-1.5 left-1.5 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
-        {badgeLabel}
-      </span>
     </div>
   );
 }

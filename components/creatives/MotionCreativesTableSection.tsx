@@ -1340,8 +1340,7 @@ export function MotionCreativesTableSection({
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-[12px] font-medium leading-tight">{row.name}</p>
                       <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
-                        {row.creativeTypeLabel}
-                        {row.associatedAdsCount > 1 && <span className="ml-1 opacity-60">• {row.associatedAdsCount} ads</span>}
+                        {row.associatedAdsCount > 1 ? <span className="opacity-60">{row.associatedAdsCount} ads</span> : null}
                       </p>
                     </div>
                   </div>
