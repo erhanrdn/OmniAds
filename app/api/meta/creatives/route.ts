@@ -242,6 +242,10 @@ interface RawCreativeRow {
   video50: number;
   video75: number;
   video100: number;
+  debug_raw_creative_thumbnail_url?: string | null;
+  debug_enriched_creative_thumbnail_url?: string | null;
+  debug_resolved_thumbnail_source?: string | null;
+  debug_resolution_stage?: string | null;
 }
 
 export interface MetaCreativeApiRow {
@@ -286,6 +290,10 @@ export interface MetaCreativeApiRow {
   video100: number;
   /** Internal cached URL. Prefer over thumbnail_url/image_url when available. */
   cached_thumbnail_url?: string | null;
+  debug_raw_creative_thumbnail_url?: string | null;
+  debug_enriched_creative_thumbnail_url?: string | null;
+  debug_resolved_thumbnail_source?: string | null;
+  debug_resolution_stage?: string | null;
 }
 
 function toISODate(date: Date) {
@@ -384,6 +392,19 @@ function normalizeMediaUrl(value: unknown): string | null {
   if (!url) return null;
   if (url.startsWith("//")) return `https:${url}`;
   return /^https?:\/\//i.test(url) ? url : null;
+}
+
+function resolveThumbnailUrl(input: {
+  cachedThumbnailUrl?: string | null;
+  creative?: MetaAdRecord["creative"] | null;
+}): { url: string | null; source: "cached_thumbnail_url" | "creative.thumbnail_url" | "creative.image_url" | "none" } {
+  const cached = normalizeMediaUrl(input.cachedThumbnailUrl ?? null);
+  if (cached) return { url: cached, source: "cached_thumbnail_url" };
+  const creativeThumb = normalizeMediaUrl(input.creative?.thumbnail_url ?? null);
+  if (creativeThumb) return { url: creativeThumb, source: "creative.thumbnail_url" };
+  const creativeImage = normalizeMediaUrl(input.creative?.image_url ?? null);
+  if (creativeImage) return { url: creativeImage, source: "creative.image_url" };
+  return { url: null, source: "none" };
 }
 
 function isPreviewContentType(contentType: string | null): boolean {
@@ -614,18 +635,27 @@ function buildNormalizedPreview(input: {
 
   const isVideo = creative?.object_type?.toUpperCase() === "VIDEO";
   const top = chosenCandidate;
+  const resolvedThumbnail = resolveThumbnailUrl({ creative });
+  const resolvedTopUrl = top?.url ?? resolvedThumbnail.url;
+  const resolvedTopSource = top?.source ?? (
+    resolvedThumbnail.source === "creative.thumbnail_url"
+      ? "thumbnail_url"
+      : resolvedThumbnail.source === "creative.image_url"
+      ? "image_url"
+      : null
+  );
 
   const preview: NormalizedRenderPreviewPayload = {
-    render_mode: top?.url ? (isVideo ? "video" : "image") : "unavailable",
-    image_url: top?.url ?? null,
+    render_mode: resolvedTopUrl ? (isVideo ? "video" : "image") : "unavailable",
+    image_url: resolvedTopUrl,
     video_url: null,
-    poster_url: top?.url ?? null,
-    source: mapSource(top?.source ?? null),
+    poster_url: resolvedTopUrl,
+    source: mapSource(resolvedTopSource),
     is_catalog: isCatalog,
   };
 
-  const thumbnailCandidate = candidates[0]?.url ?? null;
-  const imageCandidate = candidates[1]?.url ?? candidates[0]?.url ?? null;
+  const thumbnailCandidate = candidates[0]?.url ?? resolvedThumbnail.url;
+  const imageCandidate = candidates[1]?.url ?? normalizeMediaUrl(creative?.image_url ?? null) ?? thumbnailCandidate;
 
   if (process.env.NODE_ENV !== "production") {
     const resolvedSource = top?.source ?? "none";
@@ -647,7 +677,7 @@ function buildNormalizedPreview(input: {
     legacy: {
       preview_url: preview.image_url ?? preview.poster_url,
       preview_source: preview.source,
-      preview_state: top?.url ? "preview" : "unavailable",
+      preview_state: resolvedTopUrl ? "preview" : "unavailable",
       thumbnail_url: thumbnailCandidate,
       image_url: imageCandidate,
       is_catalog: isCatalog,
@@ -1220,7 +1250,12 @@ function toRawRow(
   insight: MetaInsightRecord,
   ad: MetaAdRecord | undefined,
   accountMeta: MetaAccountMeta,
-  imageHashLookup: Map<string, string>
+  imageHashLookup: Map<string, string>,
+  debugContext?: {
+    enabled?: boolean;
+    rawCreativeThumbnailUrl?: string | null;
+    enrichedCreativeThumbnailUrl?: string | null;
+  }
 ): RawCreativeRow | null {
   const adId = insight.ad_id ?? ad?.id ?? "";
   if (!adId) return null;
@@ -1269,6 +1304,29 @@ function toRawRow(
     promotedObject,
     imageHashLookup,
   });
+  const resolvedThumbnail = resolveThumbnailUrl({ creative });
+  const finalThumbnail = normalizedPreview.legacy.thumbnail_url ?? resolvedThumbnail.url;
+  const finalImage = normalizedPreview.legacy.image_url ?? normalizeMediaUrl(creative?.image_url ?? null) ?? finalThumbnail;
+  const finalPreview = normalizedPreview.legacy.preview_url ?? finalThumbnail ?? finalImage;
+  const finalPreviewState: LegacyPreviewState = finalPreview ? "preview" : "unavailable";
+
+  if (debugContext?.enabled) {
+    console.log("[meta-creatives][thumb-trace] row-pipeline", {
+      ad_id: adId,
+      creative_id: creative?.id ?? null,
+      debug_raw_creative_thumbnail_url: debugContext.rawCreativeThumbnailUrl ?? null,
+      debug_enriched_creative_thumbnail_url: debugContext.enrichedCreativeThumbnailUrl ?? null,
+      debug_build_input_creative_thumbnail_url: normalizeMediaUrl(creative?.thumbnail_url ?? null),
+      debug_build_input_creative_image_url: normalizeMediaUrl(creative?.image_url ?? null),
+      debug_resolved_thumbnail_source: resolvedThumbnail.source,
+      debug_resolved_thumbnail_url: resolvedThumbnail.url,
+      debug_final_thumbnail_url: finalThumbnail,
+      debug_final_image_url: finalImage,
+      debug_final_preview_url: finalPreview,
+      debug_final_preview_state: finalPreviewState,
+      is_catalog: normalizedPreview.legacy.is_catalog,
+    });
+  }
   const format: CreativeFormat = normalizedPreview.preview.is_catalog
     ? "catalog"
     : normalizedPreview.preview.render_mode === "video" || creative?.object_type?.toUpperCase() === "VIDEO"
@@ -1295,12 +1353,12 @@ function toRawRow(
     adset_id: insight.adset_id ?? ad?.adset_id ?? ad?.adset?.id ?? null,
     adset_name: insight.adset_name ?? ad?.adset?.name ?? null,
     name,
-    preview_url: normalizedPreview.legacy.preview_url,
+    preview_url: finalPreview,
     preview_source: normalizedPreview.legacy.preview_source,
-    thumbnail_url: normalizedPreview.legacy.thumbnail_url,
-    image_url: normalizedPreview.legacy.image_url,
+    thumbnail_url: finalThumbnail,
+    image_url: finalImage,
     is_catalog: normalizedPreview.legacy.is_catalog,
-    preview_state: normalizedPreview.legacy.preview_state,
+    preview_state: finalPreviewState,
     preview: normalizedPreview.preview,
     launch_date: launchDate,
     tags: [],
@@ -1326,6 +1384,10 @@ function toRawRow(
     video50: video50Rate,
     video75: video75Rate,
     video100: video100Rate,
+    debug_raw_creative_thumbnail_url: debugContext?.rawCreativeThumbnailUrl ?? null,
+    debug_enriched_creative_thumbnail_url: debugContext?.enrichedCreativeThumbnailUrl ?? null,
+    debug_resolved_thumbnail_source: resolvedThumbnail.source,
+    debug_resolution_stage: "toRawRow",
   };
 }
 
@@ -1666,11 +1728,26 @@ export async function GET(request: NextRequest) {
         const enrichedAd: MetaAdRecord | undefined = ad
           ? { ...ad, creative: mergedCreative }
           : undefined;
+        const rawCreativeThumbnailUrl = normalizeMediaUrl(baseCreative?.thumbnail_url ?? null);
+        const enrichedCreativeThumbnailUrl = normalizeMediaUrl(mergedCreative?.thumbnail_url ?? null);
+        if (debugPreview || debugThumbnail) {
+          console.log("[meta-creatives][thumb-trace] enrich-stage", {
+            ad_id: insight.ad_id ?? null,
+            creative_id: mergedCreative?.id ?? baseCreative?.id ?? null,
+            debug_raw_creative_thumbnail_url: rawCreativeThumbnailUrl,
+            debug_enriched_creative_thumbnail_url: enrichedCreativeThumbnailUrl,
+          });
+        }
         const row = toRawRow(
           insight,
           enrichedAd,
           accountMeta,
-          adImageUrlMap
+          adImageUrlMap,
+          {
+            enabled: debugPreview || debugThumbnail,
+            rawCreativeThumbnailUrl,
+            enrichedCreativeThumbnailUrl,
+          }
         );
         if (row) {
           rawRows.push(row);
@@ -1831,8 +1908,33 @@ export async function GET(request: NextRequest) {
   const cacheMap = await MediaCacheService.resolveUrls(cacheItems, businessId);
 
   const responseRows: MetaCreativeApiRow[] = rows.map((row) => {
-    const previewState: LegacyPreviewState = row.preview.render_mode === "unavailable" ? "unavailable" : "preview";
     const cached = cacheMap.get(row.creative_id);
+    const cachedThumbnailUrl = cached?.source === "cache" ? cached.url : null;
+    const finalThumbnailUrl =
+      normalizeMediaUrl(cachedThumbnailUrl) ??
+      normalizeMediaUrl(row.thumbnail_url) ??
+      normalizeMediaUrl(row.image_url) ??
+      normalizeMediaUrl(row.preview_url);
+    const finalImageUrl =
+      normalizeMediaUrl(row.image_url) ??
+      normalizeMediaUrl(row.thumbnail_url) ??
+      normalizeMediaUrl(row.preview_url) ??
+      finalThumbnailUrl;
+    const finalPreviewUrl =
+      normalizeMediaUrl(row.preview_url) ??
+      finalThumbnailUrl ??
+      finalImageUrl;
+    const previewState: LegacyPreviewState = finalPreviewUrl ? "preview" : "unavailable";
+    const finalPreviewPayload: NormalizedRenderPreviewPayload =
+      finalPreviewUrl && row.preview.render_mode === "unavailable"
+        ? {
+            ...row.preview,
+            render_mode: row.format === "video" ? "video" : "image",
+            image_url: row.preview.image_url ?? finalImageUrl ?? finalThumbnailUrl,
+            poster_url: row.preview.poster_url ?? finalThumbnailUrl ?? finalImageUrl,
+            source: row.preview.source ?? "thumbnail_url",
+          }
+        : row.preview;
     return {
       id: row.id,
       creative_id: row.creative_id,
@@ -1841,13 +1943,13 @@ export async function GET(request: NextRequest) {
       account_name: row.account_name,
       currency: row.currency,
       name: row.name,
-      preview_url: row.preview_url,
+      preview_url: finalPreviewUrl,
       preview_source: row.preview_source,
-      thumbnail_url: row.thumbnail_url,
-      image_url: row.image_url,
+      thumbnail_url: finalThumbnailUrl,
+      image_url: finalImageUrl,
       is_catalog: row.is_catalog,
       preview_state: previewState,
-      preview: row.preview,
+      preview: finalPreviewPayload,
       launch_date: row.launch_date,
       tags: row.tags,
       ai_tags: Object.keys(row.ai_tags).length > 0 ? row.ai_tags : normalizeAiTags(row.tags),
@@ -1872,7 +1974,11 @@ export async function GET(request: NextRequest) {
       video50: row.video50,
       video75: row.video75,
       video100: row.video100,
-      cached_thumbnail_url: cached?.source === "cache" ? cached.url : null,
+      cached_thumbnail_url: cachedThumbnailUrl,
+      debug_raw_creative_thumbnail_url: row.debug_raw_creative_thumbnail_url ?? null,
+      debug_enriched_creative_thumbnail_url: row.debug_enriched_creative_thumbnail_url ?? null,
+      debug_resolved_thumbnail_source: row.debug_resolved_thumbnail_source ?? null,
+      debug_resolution_stage: "response-map",
     };
   });
 
@@ -1917,6 +2023,10 @@ export async function GET(request: NextRequest) {
       preview_state: r.preview_state,
       is_catalog: r.is_catalog,
       format: r.format,
+      debug_raw_creative_thumbnail_url: r.debug_raw_creative_thumbnail_url ?? null,
+      debug_enriched_creative_thumbnail_url: r.debug_enriched_creative_thumbnail_url ?? null,
+      debug_resolved_thumbnail_source: r.debug_resolved_thumbnail_source ?? null,
+      debug_resolution_stage: r.debug_resolution_stage ?? null,
     })));
   }
 
