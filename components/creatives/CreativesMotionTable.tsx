@@ -51,7 +51,7 @@ export function CreativesMotionTable({
       <div className="flex items-center gap-2 text-sm px-1">
         <input 
           type="checkbox" 
-          className="rounded border-gray-300"
+          className="rounded border-gray-300 shadow-sm"
           checked={allSelected} 
           onChange={onToggleAll} 
         />
@@ -98,27 +98,28 @@ export function CreativesMotionTable({
                 </td>
                 <td className={`sticky left-0 z-10 bg-background group-hover:bg-muted/30 transition-colors px-4 ${density === "compact" ? "py-2" : "py-4"}`}>
                   <div className="flex items-center gap-3">
-                    {/* GÜNCELLENMİŞ GÖRSEL BİLEŞENİ */}
-                    <CreativePreviewImage row={row} />
+                    
+                    {/* YENİ NESİL ÖN İZLEME (IFRAME DESTEKLİ) */}
+                    <CreativeIframeThumbnail row={row} />
                     
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-[13px] font-semibold text-foreground tracking-tight">{row.name}</p>
                       <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                         <span className="capitalize">{row.isCatalog ? "Catalog" : row.format || "Static"}</span>
-                        {row.associatedAdsCount > 1 && (
+                         <span className="capitalize">{row.is_catalog ? "Catalog" : row.format || "Static"}</span>
+                        {row.associated_ads_count > 1 && (
                           <span className="flex items-center gap-1.5">
                             <span className="h-1 w-1 rounded-full bg-muted-foreground/40" />
-                            {row.associatedAdsCount} ads
+                            {row.associated_ads_count} ads
                           </span>
                         )}
                       </div>
                     </div>
                   </div>
                 </td>
-                <td className="px-4 text-muted-foreground whitespace-nowrap">{row.launchDate}</td>
+                <td className="px-4 text-muted-foreground whitespace-nowrap">{row.launch_date || row.launchDate}</td>
                 <td className="px-4">
                   <div className="flex flex-wrap gap-1">
-                    {(row.tags || []).slice(0, 2).map((tag) => (
+                    {(row.tags || []).slice(0, 2).map((tag: string) => (
                       <Badge key={tag} variant="secondary" className="text-[10px] px-1.5 py-0 font-normal">
                         {tag}
                       </Badge>
@@ -143,68 +144,47 @@ export function CreativesMotionTable({
   );
 }
 
-function CreativePreviewImage({ row }: { row: any }) {
-  const [imgSrc, setImgSrc] = useState<string | null>(null);
-  const [errorIndex, setErrorIndex] = useState(0);
+/**
+ * Meta'nın gönderdiği iframe HTML'ini thumbnail olarak gösteren bileşen
+ */
+function CreativeIframeThumbnail({ row }: { row: any }) {
+  // Eğer elimizde direkt bir resim varsa onu kullan (fallback)
+  const directImage = row.thumbnail_url || row.image_url || row.preview?.image_url;
 
-  // Akıllı URL Tarayıcı: API'den hangi key ile gelirse gelsin yakalar
-  const validSources = useMemo(() => {
-    const possibleKeys = [
-      'thumbnailUrl', 'thumbnail_url', 'thumb', 
-      'imageUrl', 'image_url', 'image', 
-      'previewUrl', 'preview_url', 'url'
-    ];
-    
-    const foundUrls = possibleKeys
-      .map(key => row[key])
-      .filter(val => typeof val === 'string' && val.includes('http'));
-      
-    // URL'lerin başına https: ekle (// ile başlıyorsa)
-    return foundUrls.map(url => url.startsWith('//') ? `https:${url}` : url);
-  }, [row]);
-
-  useEffect(() => {
-    if (validSources.length > 0) {
-      setImgSrc(validSources[0]);
-    } else {
-      setImgSrc(null);
-    }
-  }, [validSources]);
-
-  const handleImageError = () => {
-    if (errorIndex < validSources.length - 1) {
-      const nextIndex = errorIndex + 1;
-      setErrorIndex(nextIndex);
-      setImgSrc(validSources[nextIndex]);
-    } else {
-      setImgSrc("FAILED");
-    }
-  };
-
-  if (!imgSrc || imgSrc === "FAILED") {
+  if (directImage) {
     return (
-      <div className="h-10 w-10 shrink-0 flex items-center justify-center rounded bg-zinc-100 border border-zinc-200">
-        <svg className="w-5 h-5 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.587-1.587a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-        </svg>
+      <div className="h-10 w-10 shrink-0 overflow-hidden rounded border border-border/20 shadow-sm">
+        <img src={directImage} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
       </div>
     );
   }
 
+  // Resim yoksa ama iframe HTML varsa, iframe'i ölçeklendirerek göster
+  if (row.preview?.html) {
+    return (
+      <div className="h-10 w-10 shrink-0 overflow-hidden rounded border border-border/20 shadow-sm bg-white relative pointer-events-none">
+        <div 
+          className="absolute origin-top-left"
+          style={{ 
+            width: '540px', // Orijinal iframe genişliği
+            height: '690px', // Orijinal iframe yüksekliği
+            transform: `scale(${40 / 540})`, // 40px kutuya sığdırmak için ölçekleme
+          }}
+          dangerouslySetInnerHTML={{ __html: row.preview.html }}
+        />
+      </div>
+    );
+  }
+
+  // Hiçbir şey yoksa boş kutu
   return (
-    <div className="h-10 w-10 shrink-0 overflow-hidden rounded bg-black border border-black/5 shadow-sm flex items-center justify-center">
-      <img
-        src={imgSrc}
-        alt=""
-        className="h-full w-full object-cover"
-        referrerPolicy="no-referrer"
-        onError={handleImageError}
-        loading="lazy"
-      />
+    <div className="h-10 w-10 shrink-0 rounded bg-zinc-100 border border-zinc-200 flex items-center justify-center">
+      <div className="w-4 h-4 rounded-full bg-zinc-200 animate-pulse" />
     </div>
   );
 }
 
+// Yardımcı fonksiyonlar
 function withIntensity(color: string, intensity: "low" | "medium" | "high") {
   const multiplier = intensity === "low" ? 0.7 : intensity === "high" ? 1.3 : 1;
   const match = color.match(/rgba\((\d+),\s*(\d+),\s*(\d+),\s*([0-9.]+)\)/);
