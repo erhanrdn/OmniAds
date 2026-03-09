@@ -497,16 +497,10 @@ function detectIsCatalog(
   creative: MetaAdRecord["creative"],
   promotedObject: MetaPromotedObjectLike
 ): boolean {
+  // Sadece DYNAMIC object_type'ı catalog olarak işaretle
+  // Diğer tüm creative'ler normal görsel/video olarak işlensin
   const objectType = creative?.object_type?.toUpperCase() ?? "";
-  const templateData = creative?.object_story_spec?.template_data as Record<string, unknown> | null | undefined;
-  return Boolean(
-    objectType === "DYNAMIC" ||
-      promotedObject?.product_set_id ||
-      promotedObject?.catalog_id ||
-      creative?.asset_feed_spec?.catalog_id ||
-      creative?.asset_feed_spec?.product_set_id ||
-      templateData?.template_url
-  );
+  return objectType === "DYNAMIC";
 }
 
 function detectPreviewKind(creative: MetaAdRecord["creative"], isCatalog: boolean): NormalizedPreviewKind {
@@ -732,9 +726,11 @@ async function buildNormalizedPreview(input: {
     if (source === "thumbnail_url") return "thumbnail_url";
     if (source === "image_hash_lookup") return "image_hash";
     return "image_url";
+  
+    // Her zaman bir render_mode ver - URL olmasa bile "image" mode'da placeholder gösterilecek
   };
   const preview: NormalizedRenderPreviewPayload = {
-    render_mode: top?.url ? "image" : "unavailable",
+    render_mode: "image", // Her zaman image mode - frontend placeholder gösterecek
     html: null,
     image_url: top?.url ?? null,
     video_url: null,
@@ -745,7 +741,8 @@ async function buildNormalizedPreview(input: {
 
   const thumbnailCandidate = candidates[0]?.url ?? null;
   const imageCandidate = candidates[1]?.url ?? candidates[0]?.url ?? null;
-  const legacyState: LegacyPreviewState = preview.render_mode === "unavailable" ? "unavailable" : "preview";
+  // URL olmasa bile preview state her zaman "preview" - frontend placeholder gösterecek
+  const legacyState: LegacyPreviewState = "preview";
 
   return {
     preview,
@@ -1886,20 +1883,24 @@ export async function GET(request: NextRequest) {
                   picture: normalizeMediaUrl(attachment?.picture),
                   image_url: normalizeMediaUrl(attachment?.image_url),
                   image_hash: typeof attachment?.image_hash === "string" ? attachment.image_hash : null,
-                })),
-              },
-              asset_feed_spec: {
-                catalog_id: typeof creative?.asset_feed_spec?.catalog_id === "string" ? creative.asset_feed_spec.catalog_id : null,
-                product_set_id: typeof creative?.asset_feed_spec?.product_set_id === "string" ? creative.asset_feed_spec.product_set_id : null,
-                images: (creative?.asset_feed_spec?.images ?? []).map((image) => ({
-                  image_url: normalizeMediaUrl(image?.image_url),
-                  url: normalizeMediaUrl(image?.url),
-                  original_url: normalizeMediaUrl(image?.original_url),
-                  hash: typeof image?.hash === "string" ? image.hash : null,
-                })),
-                videos: (creative?.asset_feed_spec?.videos ?? []).map((video) => ({
-                  thumbnail_url: normalizeMediaUrl(video?.thumbnail_url),
-                  image_url: normalizeMediaUrl(video?.image_url),
+
+                // DIAGNOSTIC: Log raw Meta creative data for first 5 ads to understand what API returns
+                if (accountSampleCount < 5 && insight.ad_id) {
+                  console.log("\n[META-API-DEBUG] Ad ID:", insight.ad_id);
+                  console.log("[META-API-DEBUG] Ad name:", ad?.name ?? "N/A");
+                  console.log("[META-API-DEBUG] Creative thumbnail_url:", mergedCreative?.thumbnail_url ?? "NULL");
+                  console.log("[META-API-DEBUG] Creative image_url:", mergedCreative?.image_url ?? "NULL");
+                  console.log("[META-API-DEBUG] Creative object_type:", mergedCreative?.object_type ?? "NULL");
+                  console.log("[META-API-DEBUG] Has object_story_spec:", Boolean(mergedCreative?.object_story_spec));
+                  console.log("[META-API-DEBUG] Has asset_feed_spec:", Boolean(mergedCreative?.asset_feed_spec));
+                  if (mergedCreative?.object_story_spec) {
+                    console.log("[META-API-DEBUG] object_story_spec.link_data.picture:", mergedCreative.object_story_spec?.link_data?.picture ?? "NULL");
+                    console.log("[META-API-DEBUG] object_story_spec.photo_data.image_url:", mergedCreative.object_story_spec?.photo_data?.image_url ?? "NULL");
+                    console.log("[META-API-DEBUG] object_story_spec.video_data.thumbnail_url:", mergedCreative.object_story_spec?.video_data?.thumbnail_url ?? "NULL");
+                  }
+                  accountSampleCount++;
+                }
+
                 })),
               },
               promoted_object: {

@@ -240,14 +240,21 @@ export function CreativeRenderSurface({
       ? "Video"
       : "Feed";
 
+  // Always show a nice placeholder instead of "Preview unavailable"
   const fallback = (
     <div
       className={cn(
         frameClass,
-        "flex items-center justify-center text-[11px] text-muted-foreground"
+        "flex flex-col items-center justify-center bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-950/20 dark:to-purple-950/20 p-2"
       )}
     >
-      {preview.is_catalog ? "Catalog" : "Preview unavailable"}
+      <div className="text-3xl mb-2 opacity-40">🎨</div>
+      <div className="text-[10px] text-center text-muted-foreground font-medium line-clamp-2 px-1">
+        {name}
+      </div>
+      <span className="absolute bottom-1.5 left-1.5 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
+        {badgeLabel}
+      </span>
     </div>
   );
 
@@ -339,6 +346,23 @@ export function CreativeRenderSurface({
           alt={name}
           className="h-full w-full object-cover"
           referrerPolicy="no-referrer"
+          onError={(e) => {
+            // If image fails to load, replace with placeholder
+            const target = e.currentTarget;
+            target.style.display = 'none';
+            const parent = target.parentElement;
+            if (parent) {
+              parent.innerHTML = '';
+              const placeholder = document.createElement('div');
+              placeholder.className = 'absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-950/20 dark:to-purple-950/20 p-2';
+              placeholder.innerHTML = `
+                <div class="text-3xl mb-2 opacity-40">🎨</div>
+                <div class="text-[10px] text-center text-muted-foreground font-medium line-clamp-2 px-1">${name}</div>
+                <span class="absolute bottom-1.5 left-1.5 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">${badgeLabel}</span>
+              `;
+              parent.appendChild(placeholder);
+            }
+          }}
         />
         {preview.is_catalog ? (
           <Badge
@@ -390,6 +414,7 @@ function AssetImage({
 
   const current = sources[sourceIndex];
 
+  // Always show the placeholder if no sources available
   if (!current) {
     return <>{fallback}</>;
   }
@@ -409,8 +434,27 @@ function AssetImage({
     if (sourceIndex < sources.length - 1) {
       setSourceIndex((prev) => prev + 1);
       setUseProxy(false);
+      return;
     }
+    // Final fallback: show the nice placeholder instead of broken image
+    // This will be handled by the parent returning fallback
   };
+
+  // Add state to track if all sources failed
+  const [allFailed, setAllFailed] = useState(false);
+  
+  useEffect(() => {
+    if (sourceIndex >= sources.length - 1 && !useProxy) {
+      // Reached the end, check if we should show fallback
+      setAllFailed(true);
+    } else {
+      setAllFailed(false);
+    }
+  }, [sourceIndex, sources.length, useProxy]);
+  
+  if (allFailed) {
+    return <>{fallback}</>;
+  }
 
   return (
     <div className={frameClass}>

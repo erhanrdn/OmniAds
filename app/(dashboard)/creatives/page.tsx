@@ -330,10 +330,6 @@ export default function CreativesPage() {
   const [shareError, setShareError] = useState<string | null>(null);
   const [csvError, setCsvError] = useState<string | null>(null);
 
-  useEffect(() => {
-    console.log("CREATIVES_BUILD_MARKER_001");
-  }, []);
-
   const platform: "meta" = "meta";
   const platformStatus = integrations?.meta?.status;
   const platformConnected = platformStatus === "connected";
@@ -611,7 +607,6 @@ export default function CreativesPage() {
     <div className="space-y-5">
       <div className="space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight">Top Creatives</h1>
-        <p className="text-xs font-mono text-blue-600">CREATIVES_BUILD_MARKER_001</p>
         <p className="text-sm text-muted-foreground">
           Identify the creatives driving the most spend and revenue across your ad accounts. Analyze performance, spot winners, and scale what works.
         </p>
