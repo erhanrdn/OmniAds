@@ -51,7 +51,7 @@ export function CreativesMotionTable({
       <div className="flex items-center gap-2 text-sm px-1">
         <input 
           type="checkbox" 
-          className="rounded border-gray-300 shadow-sm"
+          className="rounded border-gray-300"
           checked={allSelected} 
           onChange={onToggleAll} 
         />
@@ -62,7 +62,7 @@ export function CreativesMotionTable({
         <table className="min-w-full text-sm border-separate border-spacing-0">
           <thead className="sticky top-0 z-20 bg-background/95 backdrop-blur-sm">
             <tr className="border-b">
-              <th className="w-10 px-4 py-3 text-left font-medium border-b" />
+              <th className="w-10 px-4 py-3 text-left border-b" />
               <th className="sticky left-0 z-30 min-w-[280px] bg-background px-4 py-3 text-left font-semibold border-b">
                 Creative / Ad Name
               </th>
@@ -97,19 +97,11 @@ export function CreativesMotionTable({
                     onClick={(event) => event.stopPropagation()}
                   />
                 </td>
-                <td
-                  className={`sticky left-0 z-10 bg-background group-hover:bg-muted/30 transition-colors px-4 ${
-                    density === "compact" ? "py-2" : "py-4"
-                  }`}
-                >
+                <td className={`sticky left-0 z-10 bg-background group-hover:bg-muted/30 transition-colors px-4 ${density === "compact" ? "py-2" : "py-4"}`}>
                   <div className="flex items-center gap-3">
-                    <CompactCreativeThumb
-                      id={row.id}
-                      name={row.name}
-                      thumbnailUrl={row.thumbnailUrl}
-                      imageUrl={row.imageUrl}
-                      previewUrl={row.previewUrl}
-                    />
+                    {/* ÖN İZLEME GÖRSELİ BÖLÜMÜ */}
+                    <CreativePreviewImage row={row} />
+                    
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-[13px] font-semibold text-foreground tracking-tight">{row.name}</p>
                       <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
@@ -127,7 +119,7 @@ export function CreativesMotionTable({
                 <td className="px-4 text-muted-foreground whitespace-nowrap">{row.launchDate}</td>
                 <td className="px-4">
                   <div className="flex flex-wrap gap-1">
-                    {row.tags.slice(0, 2).map((tag) => (
+                    {row.tags?.slice(0, 2).map((tag) => (
                       <Badge key={tag} variant="secondary" className="text-[10px] px-1.5 py-0 font-normal">
                         {tag}
                       </Badge>
@@ -136,18 +128,9 @@ export function CreativesMotionTable({
                 </td>
                 {selectedMetrics.map((metric) => {
                   const value = Number(row[metric]) || 0;
-                  const heat = getHeatColor(
-                    metric,
-                    value,
-                    metricExtremes[metric]?.min ?? 0,
-                    metricExtremes[metric]?.max ?? 0
-                  );
+                  const heat = getHeatColor(metric, value, metricExtremes[metric]?.min ?? 0, metricExtremes[metric]?.max ?? 0);
                   return (
-                    <td
-                      key={metric}
-                      className="px-4 font-medium"
-                      style={{ backgroundColor: withIntensity(heat, heatmapIntensity) }}
-                    >
+                    <td key={metric} className="px-4 font-medium" style={{ backgroundColor: withIntensity(heat, heatmapIntensity) }}>
                       {METRIC_CONFIG[metric].format(value)}
                     </td>
                   );
@@ -161,72 +144,63 @@ export function CreativesMotionTable({
   );
 }
 
-/**
- * GÖRSEL BİLEŞENİ (THUMBNAIL)
- * Bu bileşen API'den gelen URL'leri kontrol eder ve sırayla dener.
- */
-function CompactCreativeThumb({
-  id,
-  name,
-  thumbnailUrl,
-  imageUrl,
-  previewUrl,
-}: {
-  id: string;
-  name: string;
-  thumbnailUrl?: string | null;
-  imageUrl?: string | null;
-  previewUrl?: string | null;
-}) {
-  // Kaynak URL'leri temizle ve öncelik sırasına koy
+// Reklam Ön İzleme Görseli İçin Özel Bileşen
+function CreativePreviewImage({ row }: { row: any }) {
+  const [imgSrc, setImgSrc] = useState<string | null>(null);
+  const [errorCount, setErrorCount] = useState(0);
+
+  // Meta URL'lerini sırayla kontrol et
   const sources = useMemo(() => {
-    return [thumbnailUrl, imageUrl, previewUrl]
-      .filter((url): url is string => Boolean(url) && typeof url === "string" && url.length > 5)
-      .map(url => url.startsWith("//") ? `https:${url}` : url);
-  }, [thumbnailUrl, imageUrl, previewUrl]);
+    return [
+      row.thumbnailUrl,
+      row.thumbnail_url, // API'den bazen snake_case gelir
+      row.imageUrl,
+      row.image_url,
+      row.previewUrl
+    ].filter(Boolean);
+  }, [row]);
 
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [isError, setIsError] = useState(false);
-
-  // Her yeni row id'si geldiğinde state'i sıfırla
   useEffect(() => {
-    setCurrentIndex(0);
-    setIsError(false);
-  }, [id]);
+    if (sources.length > 0) {
+      setImgSrc(sources[0]);
+    }
+  }, [sources]);
 
-  // Eğer hiç URL yoksa veya tüm kaynaklar hata verdiyse Placeholder göster
-  if (sources.length === 0 || isError) {
+  const handleImageError = () => {
+    if (errorCount < sources.length - 1) {
+      const nextIndex = errorCount + 1;
+      setErrorCount(nextIndex);
+      setImgSrc(sources[nextIndex]);
+    } else {
+      setImgSrc("fallback"); // Tüm kaynaklar bittiğinde fallback'e düş
+    }
+  };
+
+  if (!imgSrc || imgSrc === "fallback") {
     return (
-      <div className="h-10 w-10 shrink-0 overflow-hidden rounded bg-muted flex items-center justify-center border border-border/40">
-        <span className="text-[8px] text-muted-foreground/50 uppercase">Img</span>
+      <div className="h-10 w-10 shrink-0 flex items-center justify-center rounded bg-zinc-100 border border-zinc-200">
+        <svg className="w-5 h-5 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.587-1.587a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+        </svg>
       </div>
     );
   }
 
   return (
-    <div className="h-10 w-10 shrink-0 overflow-hidden rounded border border-border/20 shadow-sm bg-white">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
+    <div className="h-10 w-10 shrink-0 overflow-hidden rounded bg-black border border-border/20 shadow-sm flex items-center justify-center">
       <img
-        src={sources[currentIndex]}
-        alt={name}
+        src={imgSrc}
+        alt=""
         className="h-full w-full object-cover"
+        referrerPolicy="no-referrer" // Meta CDN için kritik ayar
+        onError={handleImageError}
         loading="lazy"
-        referrerPolicy="no-referrer"
-        onError={() => {
-          if (currentIndex < sources.length - 1) {
-            setCurrentIndex(prev => prev + 1);
-          } else {
-            setIsError(true);
-          }
-        }}
       />
     </div>
   );
 }
 
-/**
- * RENK VE INTENSITY HESAPLAYICI FONKSİYONLAR
- */
+// Yardımcı Fonksiyonlar (Aynı kalmalı)
 function withIntensity(color: string, intensity: "low" | "medium" | "high") {
   const multiplier = intensity === "low" ? 0.7 : intensity === "high" ? 1.3 : 1;
   const match = color.match(/rgba\((\d+),\s*(\d+),\s*(\d+),\s*([0-9.]+)\)/);
@@ -238,21 +212,17 @@ function withIntensity(color: string, intensity: "low" | "medium" | "high") {
 
 function getHeatColor(metric: MetaMetricKey, value: number, min: number, max: number) {
   if (max <= min) return "transparent";
-
   const normalize = (value - min) / (max - min);
   const direction = METRIC_CONFIG[metric].goodDirection;
-
   if (direction === "neutral") {
     const alpha = 0.06 + normalize * 0.14;
     return `rgba(148, 163, 184, ${alpha.toFixed(3)})`;
   }
-
   const score = direction === "low" ? 1 - normalize : normalize;
   if (score >= 0.5) {
     const alpha = 0.08 + ((score - 0.5) / 0.5) * 0.22;
     return `rgba(16, 185, 129, ${alpha.toFixed(3)})`;
   }
-
   const alpha = 0.08 + ((0.5 - score) / 0.5) * 0.22;
   return `rgba(239, 68, 68, ${alpha.toFixed(3)})`;
 }
