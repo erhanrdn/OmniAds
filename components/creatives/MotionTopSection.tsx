@@ -1089,6 +1089,7 @@ function PreviewStrip({
             >
               <div className="relative aspect-square w-full overflow-hidden bg-muted/30">
                 <CreativePreview
+                  id={row.id}
                   name={row.name}
                   thumbnailUrl={row.thumbnailUrl}
                   imageUrl={row.imageUrl}

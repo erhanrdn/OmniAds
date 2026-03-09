@@ -143,6 +143,7 @@ export function CreativesMotionTable({
 function CreativeThumb({ row }: { row: MetaCreativeRow }) {
   return (
     <CreativePreview
+      id={row.id}
       name={row.name}
       thumbnailUrl={row.thumbnailUrl}
       imageUrl={row.imageUrl}

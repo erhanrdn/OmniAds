@@ -27,6 +27,7 @@ export function CreativesTopGrid({
           <div key={row.id} className="overflow-hidden rounded-xl border bg-card">
             <button type="button" onClick={() => onOpenRow(row.id)} className="w-full text-left">
               <CreativePreview
+                id={row.id}
                 name={row.name}
                 thumbnailUrl={row.thumbnailUrl}
                 imageUrl={row.imageUrl}

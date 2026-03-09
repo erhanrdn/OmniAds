@@ -2,8 +2,10 @@
 
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { useEffect } from "react";
 
 type CreativePreviewProps = {
+  id?: string;
   name: string;
   thumbnailUrl?: string | null;
   imageUrl?: string | null;
@@ -23,11 +25,15 @@ function normalizeUrl(value: string | null | undefined): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   if (!trimmed) return null;
+  if (trimmed.startsWith("/")) return trimmed;
   if (trimmed.startsWith("//")) return `https:${trimmed}`;
   return /^https?:\/\//i.test(trimmed) ? trimmed : null;
 }
 
+let compactPreviewDebugCount = 0;
+
 export function CreativePreview({
+  id,
   name,
   thumbnailUrl,
   imageUrl,
@@ -37,9 +43,27 @@ export function CreativePreview({
   className,
   size = "card",
 }: CreativePreviewProps) {
-  const source = normalizeUrl(thumbnailUrl) ?? normalizeUrl(imageUrl) ?? normalizeUrl(previewUrl) ?? null;
+  const compactPreviewSrc =
+    normalizeUrl(thumbnailUrl) ??
+    normalizeUrl(imageUrl) ??
+    normalizeUrl(previewUrl) ??
+    null;
 
-  if (!source) {
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    if (compactPreviewDebugCount >= 5) return;
+    compactPreviewDebugCount += 1;
+    console.log("[compact-preview] source pick", {
+      id: id ?? null,
+      name,
+      thumbnailUrl: thumbnailUrl ?? null,
+      imageUrl: imageUrl ?? null,
+      previewUrl: previewUrl ?? null,
+      chosen: compactPreviewSrc,
+    });
+  }, [compactPreviewSrc, id, imageUrl, name, previewUrl, thumbnailUrl]);
+
+  if (!compactPreviewSrc) {
     return (
       <div
         className={cn(
@@ -48,7 +72,7 @@ export function CreativePreview({
           className
         )}
       >
-        {isCatalog ? "Catalog" : "Preview unavailable"}
+        Preview unavailable
       </div>
     );
   }
@@ -59,7 +83,7 @@ export function CreativePreview({
     <div className={cn("relative overflow-hidden bg-muted", SIZE_MAP[size], className)}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src={source}
+        src={compactPreviewSrc}
         alt={name}
         className="h-full w-full object-cover"
         loading="lazy"

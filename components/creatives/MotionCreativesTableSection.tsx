@@ -1327,6 +1327,7 @@ export function MotionCreativesTableSection({
                     />
 
                     <CreativePreview
+                      id={row.id}
                       name={row.name}
                       thumbnailUrl={row.thumbnailUrl}
                       imageUrl={row.imageUrl}
