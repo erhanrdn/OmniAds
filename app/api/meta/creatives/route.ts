@@ -21,36 +21,20 @@ type AiTagKey =
   | "headlineTactic";
 type MetaAiTags = Partial<Record<AiTagKey, string[]>>;
 type LegacyPreviewState = "preview" | "catalog" | "unavailable";
-type PreviewRenderMode = "html_preview" | "video" | "image" | "unavailable";
+type PreviewRenderMode = "video" | "image" | "unavailable";
 type NormalizedPreviewSource =
   | "preview_url"
   | "thumbnail_url"
   | "image_url"
   | "image_hash"
-  | "ad_preview_html"
-  | "preview_html_video"
-  | "preview_html_image"
   | null;
-type NormalizedPreviewKind = "image" | "video" | "catalog";
-
 interface NormalizedRenderPreviewPayload {
   render_mode: PreviewRenderMode;
-  html: string | null;
   image_url: string | null;
   video_url: string | null;
   poster_url: string | null;
   source: NormalizedPreviewSource;
   is_catalog: boolean;
-}
-
-interface AdPreviewDebugResult {
-  hasHtml: boolean;
-  html: string | null;
-  extractedUrl: string | null;
-  extractedImageUrl: string | null;
-  extractedVideoUrl: string | null;
-  extractedPosterUrl: string | null;
-  format: string | null;
 }
 
 interface UrlValidationResult {
@@ -101,11 +85,6 @@ interface PreviewAuditSample {
     adset_promoted_catalog_id: string | null;
   };
   image_hash_lookup: Array<{ hash: string; resolved: boolean; resolved_url: string | null }>;
-  ad_preview_html: {
-    has_html: boolean;
-    extracted_url: string | null;
-    format: string | null;
-  };
   candidates: PreviewAuditCandidate[];
   chosen_preview_source: string | null;
   chosen_preview_url: string | null;
@@ -158,10 +137,6 @@ interface MetaAdImageRecord {
   url_128?: string | null;
   url_256?: string | null;
   permalink_url?: string | null;
-}
-
-interface MetaAdPreviewRecord {
-  body?: string;
 }
 
 interface MetaAdRecord {
@@ -509,18 +484,6 @@ function detectIsCatalog(
   return objectType === "DYNAMIC";
 }
 
-function detectPreviewKind(creative: MetaAdRecord["creative"], isCatalog: boolean): NormalizedPreviewKind {
-  if (isCatalog) return "catalog";
-  const objectType = creative?.object_type?.toUpperCase() ?? "";
-  const hasVideoData = Boolean(
-    creative?.object_story_spec?.video_data?.thumbnail_url ||
-      creative?.object_story_spec?.video_data?.image_url ||
-      (creative?.asset_feed_spec?.videos?.length ?? 0) > 0
-  );
-  if (objectType === "VIDEO" || hasVideoData) return "video";
-  return "image";
-}
-
 function extractImageHashesFromCreative(creative: MetaAdRecord["creative"]): string[] {
   const hashes = new Set<string>();
   const addHash = (value: unknown) => {
@@ -546,8 +509,7 @@ function extractImageHashesFromCreative(creative: MetaAdRecord["creative"]): str
 
 function collectPreviewCandidates(
   creative: MetaAdRecord["creative"],
-  imageHashLookup: Map<string, string>,
-  adPreviewHtmlUrl: string | null = null
+  imageHashLookup: Map<string, string>
 ): {
   candidates: Array<{ source: string; url: string }>;
   imageHashResolutions: Array<{ hash: string; resolved: boolean; resolved_url: string | null }>;
@@ -598,8 +560,6 @@ function collectPreviewCandidates(
     };
   });
 
-  pushCandidate(candidates, "ad_preview_html", adPreviewHtmlUrl);
-
   const deduped: Array<{ source: string; url: string }> = [];
   const seen = new Set<string>();
   for (const candidate of candidates) {
@@ -611,13 +571,11 @@ function collectPreviewCandidates(
   return { candidates: deduped, imageHashResolutions };
 }
 
-async function buildNormalizedPreview(input: {
+function buildNormalizedPreview(input: {
   creative: MetaAdRecord["creative"];
   promotedObject: MetaPromotedObjectLike;
   imageHashLookup: Map<string, string>;
-  adPreview?: AdPreviewDebugResult | null;
-  validationCache: Map<string, UrlValidationResult>;
-}): Promise<{
+}): {
   preview: NormalizedRenderPreviewPayload;
   legacy: {
     preview_url: string | null;
@@ -629,116 +587,36 @@ async function buildNormalizedPreview(input: {
   };
   candidateAudit: PreviewAuditCandidate[];
   imageHashResolutions: Array<{ hash: string; resolved: boolean; resolved_url: string | null }>;
-}> {
-  const { creative, promotedObject, imageHashLookup, adPreview = null, validationCache } = input;
+} {
+  const { creative, promotedObject, imageHashLookup } = input;
   const isCatalog = detectIsCatalog(creative, promotedObject);
-  const kind = detectPreviewKind(creative, isCatalog);
-  const seededCandidates = collectPreviewCandidates(creative, imageHashLookup, null);
-  const firstSeededCandidate = seededCandidates.candidates[0]?.url ?? null;
-  const secondSeededCandidate = seededCandidates.candidates[1]?.url ?? firstSeededCandidate;
-  const html = adPreview?.html ?? null;
-  const previewHtmlVideo = normalizeMediaUrl(adPreview?.extractedVideoUrl ?? null);
-  const previewHtmlPoster = normalizeMediaUrl(adPreview?.extractedPosterUrl ?? null);
-  const previewHtmlImage = normalizeMediaUrl(adPreview?.extractedImageUrl ?? null);
+  const { candidates, imageHashResolutions } = collectPreviewCandidates(creative, imageHashLookup);
 
-  // Always try to provide URLs, regardless of catalog status
-  if (html) {
-    // Fall back to creative's direct URLs when HTML extraction yields nothing
-    const creativeThumbnail = normalizeMediaUrl(creative?.thumbnail_url);
-    const creativeImage = normalizeMediaUrl(creative?.image_url);
-    const effectiveImage = previewHtmlImage ?? creativeThumbnail ?? creativeImage ?? firstSeededCandidate;
-    const effectivePoster = previewHtmlPoster ?? effectiveImage;
-
-    const preview: NormalizedRenderPreviewPayload = {
-      render_mode: "html_preview",
-      html,
-      image_url: effectiveImage,
-      video_url: previewHtmlVideo ?? null,
-      poster_url: effectivePoster,
-      source: "ad_preview_html",
-      is_catalog: isCatalog,
-    };
-    const legacyUrl = effectivePoster ?? effectiveImage ?? null;
-    return {
-      preview,
-      legacy: {
-        preview_url: legacyUrl,
-        preview_source: "ad_preview_html",
-        preview_state: legacyUrl ? "preview" : "unavailable",
-        thumbnail_url: creativeThumbnail ?? firstSeededCandidate ?? legacyUrl,
-        image_url: creativeImage ?? secondSeededCandidate ?? legacyUrl,
-        is_catalog: isCatalog,
-      },
-      candidateAudit: [],
-      imageHashResolutions: [],
-    };
-  }
-
-  if (previewHtmlVideo) {
-    const creativeThumbnail = normalizeMediaUrl(creative?.thumbnail_url);
-    const creativeImage = normalizeMediaUrl(creative?.image_url);
-    const effectiveImage = previewHtmlImage ?? creativeThumbnail ?? creativeImage ?? firstSeededCandidate;
-    const effectivePoster = previewHtmlPoster ?? effectiveImage;
-
-    const preview: NormalizedRenderPreviewPayload = {
-      render_mode: "video",
-      html: null,
-      image_url: effectiveImage,
-      video_url: previewHtmlVideo,
-      poster_url: effectivePoster,
-      source: "preview_html_video",
-      is_catalog: isCatalog,
-    };
-    const legacyUrl = effectivePoster ?? effectiveImage ?? previewHtmlVideo;
-    return {
-      preview,
-      legacy: {
-        preview_url: legacyUrl,
-        preview_source: "preview_html_video",
-        preview_state: "preview",
-        thumbnail_url: creativeThumbnail ?? firstSeededCandidate ?? legacyUrl,
-        image_url: creativeImage ?? secondSeededCandidate ?? legacyUrl,
-        is_catalog: isCatalog,
-      },
-      candidateAudit: [],
-      imageHashResolutions: [],
-    };
-  }
-
-  // If we reach here: no HTML preview, no video. Use candidate URLs directly.
-  // This is key: don't skip URL generation just because it's a catalog.
-  const { candidates, imageHashResolutions } = seededCandidates;
-
-  const candidateAudit: PreviewAuditCandidate[] = [];
+  // Image-first: pick the first valid-looking candidate URL
   let chosenCandidate: { source: string; url: string } | null = null;
-  
-  // Skip expensive validation for performance, just pick first valid-looking candidate
   for (const candidate of candidates) {
-    if (chosenCandidate) break;
-    // Basic check: does it look like a URL?
     if (candidate.url && candidate.url.startsWith("http")) {
       chosenCandidate = candidate;
       break;
     }
   }
-
-  // If still nothing, keep the first candidate even if validation would fail
+  // Fallback: keep first candidate even if it looks unusual
   if (!chosenCandidate && candidates.length > 0) {
     chosenCandidate = candidates[0];
   }
 
-  const top = chosenCandidate;
   const mapSource = (source: string | null): NormalizedPreviewSource => {
     if (!source) return null;
     if (source === "thumbnail_url") return "thumbnail_url";
     if (source === "image_hash_lookup") return "image_hash";
     return "image_url";
-  
-    // Her zaman bir render_mode ver - URL olmasa bile "image" mode'da placeholder gösterilecek
   };
+
+  const isVideo = creative?.object_type?.toUpperCase() === "VIDEO";
+  const top = chosenCandidate;
+
   const preview: NormalizedRenderPreviewPayload = {
-    render_mode: "image", // Her zaman image mode - frontend placeholder gösterecek
-    html: null,
+    render_mode: top?.url ? (isVideo ? "video" : "image") : "unavailable",
     image_url: top?.url ?? null,
     video_url: null,
     poster_url: top?.url ?? null,
@@ -748,20 +626,33 @@ async function buildNormalizedPreview(input: {
 
   const thumbnailCandidate = candidates[0]?.url ?? null;
   const imageCandidate = candidates[1]?.url ?? candidates[0]?.url ?? null;
-  // URL olmasa bile preview state her zaman "preview" - frontend placeholder gösterecek
-  const legacyState: LegacyPreviewState = "preview";
+
+  if (process.env.NODE_ENV !== "production") {
+    const resolvedSource = top?.source ?? "none";
+    const label =
+      resolvedSource === "thumbnail_url" ? "creative_thumbnail" :
+      resolvedSource === "image_url" ? "creative_image" :
+      resolvedSource === "image_hash_lookup" ? "image_hash" :
+      resolvedSource === "none" ? "none" : resolvedSource;
+    console.log("[preview-resolve]", {
+      creative_id: creative?.id ?? null,
+      resolved_source: label,
+      url: top?.url?.slice(0, 80) ?? null,
+      candidates_count: candidates.length,
+    });
+  }
 
   return {
     preview,
     legacy: {
       preview_url: preview.image_url ?? preview.poster_url,
       preview_source: preview.source,
-      preview_state: legacyState,
+      preview_state: top?.url ? "preview" : "unavailable",
       thumbnail_url: thumbnailCandidate,
       image_url: imageCandidate,
       is_catalog: isCatalog,
     },
-    candidateAudit,
+    candidateAudit: [],
     imageHashResolutions,
   };
 }
@@ -780,186 +671,6 @@ function pickAdImageUrl(record: MetaAdImageRecord | null | undefined): string | 
   );
 }
 
-function decodeHtmlEntities(value: string): string {
-  return value
-    .replace(/&amp;/g, "&")
-    .replace(/&quot;/g, "\"")
-    .replace(/&#x27;/g, "'")
-    .replace(/&#39;/g, "'")
-    .replace(/\\\//g, "/")
-    .replace(/\\"/g, "\"")
-    .replace(/\\u0025/g, "%")
-    .replace(/\\u0026/g, "&");
-}
-
-function extractPreviewMediaFromHtml(html: string): {
-  imageUrl: string | null;
-  videoUrl: string | null;
-  posterUrl: string | null;
-} {
-  const decoded = decodeHtmlEntities(html);
-  
-  // Try to find CDN URLs in raw HTML first (often in data attributes or style)
-  const cdnPatterns = [
-    /https?:\/\/[^\s"'<>]*\.fbcdn\.net\/[^\s"'<>]*/gi,
-    /https?:\/\/[^\s"'<>]*\.cdninstagram\.com\/[^\s"'<>]*/gi,
-    /https?:\/\/scontent[^\s"'<>]*\.fbcdn\.net\/[^\s"'<>]*/gi,
-  ];
-  
-  for (const pattern of cdnPatterns) {
-    const matches = decoded.match(pattern);
-    if (matches && matches.length > 0) {
-      // Find largest/best quality image (usually has higher resolution in path)
-      const bestMatch = matches
-        .filter(url => !url.includes('emoji') && !url.includes('icon') && !url.includes('1x1'))
-        .sort((a, b) => b.length - a.length)[0];
-      if (bestMatch) {
-        const normalized = normalizeMediaUrl(bestMatch);
-        if (normalized) {
-          return { imageUrl: normalized, videoUrl: null, posterUrl: normalized };
-        }
-      }
-    }
-  }
-  
-  const imagePatterns = [
-    /<video[^>]*poster="([^"]+)"/i,
-    /<video[^>]*poster='([^']+)'/i,
-    /<img[^>]+src="([^"]+)"/i,
-    /<img[^>]+src='([^']+)'/i,
-  ];
-  const videoPatterns = [
-    /<video[^>]+src="([^"]+)"/i,
-    /<video[^>]+src='([^']+)'/i,
-    /<source[^>]+src="([^"]+)"/i,
-    /<source[^>]+src='([^']+)'/i,
-  ];
-
-  for (const pattern of videoPatterns) {
-    const match = decoded.match(pattern);
-    const candidate = match?.[1];
-    const normalized = normalizeMediaUrl(candidate);
-    if (normalized) {
-      const posterCandidate = decoded.match(/<video[^>]*poster=['"]([^'"]+)['"]/i)?.[1] ?? null;
-      const posterUrl = normalizeMediaUrl(posterCandidate);
-      const imageFallback =
-        imagePatterns
-          .map((imagePattern) => {
-            const imageMatch = decoded.match(imagePattern);
-            return imageMatch?.[2] ?? imageMatch?.[1] ?? null;
-          })
-          .map((value) => normalizeMediaUrl(value))
-          .find(Boolean) ?? null;
-      return { imageUrl: imageFallback, videoUrl: normalized, posterUrl };
-    }
-  }
-
-  const imageUrl =
-    imagePatterns
-      .map((pattern) => {
-        const match = decoded.match(pattern);
-        return match?.[2] ?? match?.[1] ?? null;
-      })
-      .map((value) => normalizeMediaUrl(value))
-      .find(Boolean) ?? null;
-
-  return { imageUrl, videoUrl: null, posterUrl: null };
-}
-
-async function fetchAdPreviewDebugMap(
-  adIds: string[],
-  accessToken: string
-): Promise<Map<string, AdPreviewDebugResult>> {
-  const map = new Map<string, AdPreviewDebugResult>();
-  const uniqueIds = Array.from(new Set(adIds.map((id) => id.trim()).filter(Boolean)));
-  if (uniqueIds.length === 0) return map;
-
-  // Keep preview fetch lightweight for page load; trying every placement format is expensive.
-  const formats = ["DESKTOP_FEED_STANDARD", "MOBILE_FEED_STANDARD"];
-  const chunkSize = 20;
-  for (let i = 0; i < uniqueIds.length; i += chunkSize) {
-    const chunk = uniqueIds.slice(i, i + chunkSize);
-    await Promise.all(
-      chunk.map(async (adId) => {
-        if (map.has(adId)) return;
-
-        let bestHtmlOnly: AdPreviewDebugResult | null = null;
-
-        for (const adFormat of formats) {
-          const url = new URL(`https://graph.facebook.com/v25.0/${adId}/previews`);
-          url.searchParams.set("ad_format", adFormat);
-          url.searchParams.set("access_token", accessToken);
-
-          try {
-            const res = await fetch(url.toString(), {
-              method: "GET",
-              headers: { Accept: "application/json" },
-              cache: "no-store",
-            });
-            if (!res.ok) continue;
-
-            const payload = (await res.json().catch(() => null)) as { data?: MetaAdPreviewRecord[] } | null;
-            const html = payload?.data?.[0]?.body ?? "";
-            const hasHtml = html.length > 0;
-            const extracted = hasHtml
-              ? extractPreviewMediaFromHtml(html)
-              : { imageUrl: null, videoUrl: null, posterUrl: null };
-            const previewUrl = extracted.imageUrl ?? extracted.posterUrl ?? null;
-
-            if (hasHtml || previewUrl || extracted.videoUrl) {
-              const current: AdPreviewDebugResult = {
-                hasHtml,
-                html: hasHtml ? html : null,
-                extractedUrl: previewUrl,
-                extractedImageUrl: extracted.imageUrl,
-                extractedVideoUrl: extracted.videoUrl,
-                extractedPosterUrl: extracted.posterUrl,
-                format: adFormat,
-              };
-
-              // Best-case: we have HTML plus at least one extracted media URL.
-              if (hasHtml && (previewUrl || extracted.videoUrl)) {
-                map.set(adId, current);
-                return;
-              }
-
-              // Secondary: media URL without HTML is still useful.
-              if (previewUrl || extracted.videoUrl) {
-                map.set(adId, current);
-                return;
-              }
-
-              // Keep html-only candidate and keep trying other ad formats for URLs.
-              if (hasHtml && !bestHtmlOnly) {
-                bestHtmlOnly = current;
-              }
-            }
-          } catch {
-            // swallow and try next format
-          }
-        }
-
-        if (!map.has(adId) && bestHtmlOnly) {
-          map.set(adId, bestHtmlOnly);
-        }
-
-        if (!map.has(adId)) {
-          map.set(adId, {
-            hasHtml: false,
-            html: null,
-            extractedUrl: null,
-            extractedImageUrl: null,
-            extractedVideoUrl: null,
-            extractedPosterUrl: null,
-            format: null,
-          });
-        }
-      })
-    );
-  }
-
-  return map;
-}
 
 function mergeCreativeData(
   baseCreative: MetaAdRecord["creative"],
@@ -1505,14 +1216,12 @@ async function fetchAdCreativeMediaByAdIds(
   return map;
 }
 
-async function toRawRow(
+function toRawRow(
   insight: MetaInsightRecord,
   ad: MetaAdRecord | undefined,
   accountMeta: MetaAccountMeta,
-  imageHashLookup: Map<string, string>,
-  validationCache: Map<string, UrlValidationResult>,
-  adPreview: AdPreviewDebugResult | null
-): Promise<RawCreativeRow | null> {
+  imageHashLookup: Map<string, string>
+): RawCreativeRow | null {
   const adId = insight.ad_id ?? ad?.id ?? "";
   if (!adId) return null;
 
@@ -1555,12 +1264,10 @@ async function toRawRow(
 
   const creative = ad?.creative ?? null;
   const promotedObject = ad?.promoted_object ?? ad?.adset?.promoted_object ?? null;
-  const normalizedPreview = await buildNormalizedPreview({
+  const normalizedPreview = buildNormalizedPreview({
     creative,
     promotedObject,
     imageHashLookup,
-    adPreview,
-    validationCache,
   });
   const format: CreativeFormat = normalizedPreview.preview.is_catalog
     ? "catalog"
@@ -1671,7 +1378,7 @@ function groupRows(
       });
     }
     const previewRow = list.find((item) =>
-      Boolean(item.preview.html || item.preview.video_url || item.preview.image_url || item.preview.poster_url)
+      Boolean(item.preview.video_url || item.preview.image_url || item.preview.poster_url)
     ) ?? null;
     const groupedPreview = previewRow?.preview ?? {
       render_mode: "unavailable",
@@ -1933,7 +1640,6 @@ export async function GET(request: NextRequest) {
       }
 
       const accountSampleAdIds = insightAdIds.slice(0, perAccountSampleLimit);
-      const adPreviewDebugMap = await fetchAdPreviewDebugMap(insightAdIds, integration.access_token);
       let accountSampleCount = 0;
 
       for (const insight of insights) {
@@ -1960,13 +1666,11 @@ export async function GET(request: NextRequest) {
         const enrichedAd: MetaAdRecord | undefined = ad
           ? { ...ad, creative: mergedCreative }
           : undefined;
-        const row = await toRawRow(
+        const row = toRawRow(
           insight,
           enrichedAd,
           accountMeta,
-          adImageUrlMap,
-          urlValidationCache,
-          insight.ad_id ? adPreviewDebugMap.get(insight.ad_id) ?? null : null
+          adImageUrlMap
         );
         if (row) {
           rawRows.push(row);
@@ -1975,17 +1679,7 @@ export async function GET(request: NextRequest) {
             const creative = mergedCreative;
             const promotedObject = enrichedAd?.promoted_object ?? null;
             const adsetPromotedObject = enrichedAd?.adset?.promoted_object ?? null;
-            const adPreviewDebug = adPreviewDebugMap.get(row.id) ?? {
-              hasHtml: false,
-              html: null,
-              extractedUrl: null,
-              extractedImageUrl: null,
-              extractedVideoUrl: null,
-              extractedPosterUrl: null,
-              format: null,
-            };
-
-            const collected = collectPreviewCandidates(creative, adImageUrlMap, adPreviewDebug.extractedUrl);
+            const collected = collectPreviewCandidates(creative, adImageUrlMap);
             const candidateAudit: PreviewAuditCandidate[] = [];
             for (const candidate of collected.candidates) {
               const validation = await validateMediaUrl(candidate.url, urlValidationCache);
@@ -2043,11 +1737,6 @@ export async function GET(request: NextRequest) {
                 adset_promoted_catalog_id: adsetPromotedObject?.catalog_id ?? null,
               },
               image_hash_lookup: collected.imageHashResolutions,
-              ad_preview_html: {
-                has_html: adPreviewDebug.hasHtml,
-                extracted_url: adPreviewDebug.extractedUrl,
-                format: adPreviewDebug.format,
-              },
               candidates: candidateAudit,
               chosen_preview_source: row.preview.source,
               chosen_preview_url: row.preview.image_url ?? row.preview.poster_url ?? row.preview.video_url,
@@ -2071,11 +1760,6 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  const missingPreviewAdIds = rawRows
-    .filter((row) => !row.preview_url && row.id && !row.id.startsWith("creative_") && !row.id.startsWith("adset_"))
-    .map((row) => row.id)
-    .slice(0, 25); // Limit to first 25 for performance
-
   const rowsMissingAllMedia = rawRows
     .filter(
       (row) =>
@@ -2097,7 +1781,7 @@ export async function GET(request: NextRequest) {
       const fallbackCreative = fallbackAd?.creative ?? null;
       if (!fallbackCreative) continue;
 
-      const collected = collectPreviewCandidates(fallbackCreative, new Map<string, string>(), null);
+      const collected = collectPreviewCandidates(fallbackCreative, new Map<string, string>());
       const candidate1 = collected.candidates[0]?.url ?? null;
       const candidate2 = collected.candidates[1]?.url ?? candidate1;
       const creativeThumb = normalizeMediaUrl(fallbackCreative.thumbnail_url);
@@ -2120,34 +1804,6 @@ export async function GET(request: NextRequest) {
           source: row.preview.source ?? "image_url",
         };
       }
-    }
-  }
-
-  const adPreviewDebugMap = await fetchAdPreviewDebugMap(missingPreviewAdIds, integration.access_token);
-  if (adPreviewDebugMap.size > 0) {
-    for (const row of rawRows) {
-      if (row.preview_url) continue;
-      const fallbackPreview = adPreviewDebugMap.get(row.id);
-      const fallbackUrl = fallbackPreview?.extractedUrl ?? null;
-      if (!fallbackUrl) continue;
-
-      const validation = await validateMediaUrl(fallbackUrl, urlValidationCache);
-      if (!validation.isValid) continue;
-
-      row.preview = {
-        render_mode: "image",
-        html: null,
-        image_url: fallbackUrl,
-        video_url: null,
-        poster_url: fallbackUrl,
-        source: "ad_preview_html",
-        is_catalog: row.preview.is_catalog,
-      };
-      row.preview_url = row.preview.image_url;
-      row.preview_source = row.preview.source;
-      row.preview_state = "preview";
-      row.thumbnail_url = row.thumbnail_url ?? fallbackUrl;
-      row.image_url = row.image_url ?? fallbackUrl;
     }
   }
 

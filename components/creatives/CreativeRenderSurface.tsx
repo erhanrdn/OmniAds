@@ -4,8 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
 export type CreativeRenderPayload = {
-  render_mode: "html_preview" | "video" | "image" | "unavailable";
-  html: string | null;
+  render_mode: "video" | "image" | "unavailable";
   image_url: string | null;
   video_url: string | null;
   poster_url: string | null;
@@ -52,20 +51,6 @@ function normalizeUrl(value: string | null | undefined): string | null {
 }
 
 /** Decode HTML entities the same way the server does */
-function decodeHtmlEntities(value: string): string {
-  return value
-    .replace(/&amp;/g, "&")
-    .replace(/&quot;/g, '"')
-    .replace(/&#x27;/g, "'")
-    .replace(/&#39;/g, "'")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/\\\//g, "/")
-    .replace(/\\"/g, '"')
-    .replace(/\\u0025/g, "%")
-    .replace(/\\u0026/g, "&");
-}
-
 /** Check if a URL is a Meta CDN host eligible for proxy */
 function isMetaCdnUrl(url: string): boolean {
   try {
@@ -84,60 +69,6 @@ function isMetaCdnUrl(url: string): boolean {
 /** Wrap a Meta CDN URL through our proxy to avoid CORS/referrer issues */
 function proxyUrl(src: string): string {
   return `/api/media/meta-preview?src=${encodeURIComponent(src)}`;
-}
-
-/**
- * Extract the primary media image from preview HTML.
- * Mirrors the server-side extractPreviewMediaFromHtml logic:
- * decodes entities first, then looks for video poster, img src.
- */
-function extractImageSrcFromHtml(html: string): string | null {
-  const decoded = decodeHtmlEntities(html);
-
-  // 0. Try to find CDN URLs directly in HTML (often in data attributes or inline style)
-  const cdnPatterns = [
-    /https?:\/\/[^\s"'<>]*\.fbcdn\.net\/[^\s"'<>]*/gi,
-    /https?:\/\/[^\s"'<>]*\.cdninstagram\.com\/[^\s"'<>]*/gi,
-    /https?:\/\/scontent[^\s"'<>]*\.fbcdn\.net\/[^\s"'<>]*/gi,
-  ];
-  
-  for (const pattern of cdnPatterns) {
-    const matches = decoded.match(pattern);
-    if (matches && matches.length > 0) {
-      // Find largest/best quality image
-      const bestMatch = matches
-        .filter(url => !url.includes('emoji') && !url.includes('icon') && !url.includes('1x1') && !url.includes('pixel'))
-        .sort((a, b) => b.length - a.length)[0];
-      if (bestMatch) {
-        const url = normalizeUrl(bestMatch);
-        if (url) return url;
-      }
-    }
-  }
-
-  // 1. Video poster (often the creative asset for video ads)
-  const posterMatch = decoded.match(/<video[^>]*poster=["']([^"']+)["']/i);
-  if (posterMatch?.[1]) {
-    const url = normalizeUrl(posterMatch[1]);
-    if (url) return url;
-  }
-
-  // 2. All img tags — skip avatars, icons, tracking pixels
-  const imgMatches = [...decoded.matchAll(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi)];
-  for (const match of imgMatches) {
-    const src = match[1];
-    if (!src || src.length < 20) continue;
-    if (src.startsWith("data:")) continue;
-    if (/profile|avatar|icon|emoji|1x1|pixel|spacer/i.test(src)) continue;
-    const url = normalizeUrl(src);
-    if (url) return url;
-  }
-
-  // 3. Any img src as last resort
-  const fallbackImg = decoded.match(/<img[^>]+src=["']([^"']+)["']/i);
-  if (fallbackImg?.[1]) return normalizeUrl(fallbackImg[1]);
-
-  return null;
 }
 
 /**
@@ -182,7 +113,6 @@ export function CreativeRenderSurface({
   assetFallbacks,
 }: CreativeRenderSurfaceProps) {
   const frameClass = cn("relative overflow-hidden bg-muted/30", SIZE_MAP[size], className);
-  const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
   // Debug logging
   useEffect(() => {
@@ -199,7 +129,7 @@ export function CreativeRenderSurface({
         first_source: sources[0]
           ? { src: sources[0].src.slice(0, 80), type: sources[0].source }
           : null,
-        had_html: Boolean(preview.html),
+        had_html: false,
         all_sources: sources.map((s) => ({
           src: s.src.slice(0, 60) + '...',
           source: s.source,
@@ -220,7 +150,7 @@ export function CreativeRenderSurface({
         id: id ?? null,
         name,
         render_mode: preview.render_mode,
-        has_html: Boolean(preview.html),
+        has_html: false,
         has_video: Boolean(preview.video_url),
         has_image: Boolean(preview.image_url || preview.poster_url),
         is_catalog: preview.is_catalog,
@@ -258,20 +188,6 @@ export function CreativeRenderSurface({
   }
 
   // ─── FULL MODE ────────────────────────────────────────────────
-
-  if (preview.render_mode === "html_preview" && preview.html) {
-    return (
-      <div className={frameClass}>
-        <iframe
-          ref={iframeRef}
-          title={`Creative preview ${id ?? name}`}
-          sandbox="allow-scripts allow-same-origin"
-          srcDoc={preview.html}
-          className="h-full w-full border-0"
-        />
-      </div>
-    );
-  }
 
   if (preview.render_mode === "video" && preview.video_url) {
     return (

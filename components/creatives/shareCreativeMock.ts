@@ -21,7 +21,6 @@ export const MOCK_SHARE_PAYLOAD: SharePayload = {
       thumbnailUrl: "https://picsum.photos/seed/meta1/640/360",
       preview: {
         render_mode: "image",
-        html: null,
         image_url: "https://picsum.photos/seed/meta1/640/360",
         video_url: null,
         poster_url: "https://picsum.photos/seed/meta1/640/360",
@@ -48,7 +47,6 @@ export const MOCK_SHARE_PAYLOAD: SharePayload = {
       thumbnailUrl: "https://picsum.photos/seed/meta3/640/360",
       preview: {
         render_mode: "image",
-        html: null,
         image_url: "https://picsum.photos/seed/meta3/640/360",
         video_url: null,
         poster_url: "https://picsum.photos/seed/meta3/640/360",
@@ -75,7 +73,6 @@ export const MOCK_SHARE_PAYLOAD: SharePayload = {
       thumbnailUrl: "https://picsum.photos/seed/meta8/640/360",
       preview: {
         render_mode: "image",
-        html: null,
         image_url: "https://picsum.photos/seed/meta8/640/360",
         video_url: null,
         poster_url: "https://picsum.photos/seed/meta8/640/360",
@@ -102,7 +99,6 @@ export const MOCK_SHARE_PAYLOAD: SharePayload = {
       thumbnailUrl: "https://picsum.photos/seed/meta5/640/360",
       preview: {
         render_mode: "image",
-        html: null,
         image_url: "https://picsum.photos/seed/meta5/640/360",
         video_url: null,
         poster_url: "https://picsum.photos/seed/meta5/640/360",
