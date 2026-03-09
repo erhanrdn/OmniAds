@@ -385,6 +385,30 @@ export default function CreativesPage() {
           isCatalog: r.isCatalog,
         })),
       });
+      
+      // DIAGNOSTIC: Log raw API data vs mapped rows
+      const rawRows = creativesQuery.data?.rows ?? [];
+      console.log("[DIAGNOSTIC] API -> UI mapping check", {
+        first_3_raw: rawRows.slice(0, 3).map((r) => ({
+          id: r.id,
+          name: r.name.slice(0, 30),
+          thumbnail_url: r.thumbnail_url ?? "NULL",
+          image_url: r.image_url ?? "NULL",
+          preview_url: r.preview_url ?? "NULL",
+          preview_state: r.preview_state,
+          preview_render_mode: r.preview?.render_mode,
+        })),
+        first_3_mapped: rows.slice(0, 3).map((r) => ({
+          id: r.id,
+          name: r.name.slice(0, 30),
+          thumbnailUrl: r.thumbnailUrl ?? "NULL",
+          imageUrl: r.imageUrl ?? "NULL",
+          previewUrl: r.previewUrl ?? "NULL",
+          previewState: r.previewState,
+          preview_image_url: r.preview?.image_url ?? "NULL",
+          preview_poster_url: r.preview?.poster_url ?? "NULL",
+        })),
+      });
     }
     return rows;
   }, [creativesQuery.data?.rows]);

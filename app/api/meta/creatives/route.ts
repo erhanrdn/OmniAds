@@ -627,6 +627,9 @@ async function buildNormalizedPreview(input: {
   const { creative, promotedObject, imageHashLookup, adPreview = null, validationCache } = input;
   const isCatalog = detectIsCatalog(creative, promotedObject);
   const kind = detectPreviewKind(creative, isCatalog);
+  const seededCandidates = collectPreviewCandidates(creative, imageHashLookup, null);
+  const firstSeededCandidate = seededCandidates.candidates[0]?.url ?? null;
+  const secondSeededCandidate = seededCandidates.candidates[1]?.url ?? firstSeededCandidate;
   const html = adPreview?.html ?? null;
   const previewHtmlVideo = normalizeMediaUrl(adPreview?.extractedVideoUrl ?? null);
   const previewHtmlPoster = normalizeMediaUrl(adPreview?.extractedPosterUrl ?? null);
@@ -636,7 +639,7 @@ async function buildNormalizedPreview(input: {
     // Fall back to creative's direct URLs when HTML extraction yields nothing
     const creativeThumbnail = normalizeMediaUrl(creative?.thumbnail_url);
     const creativeImage = normalizeMediaUrl(creative?.image_url);
-    const effectiveImage = previewHtmlImage ?? creativeThumbnail ?? creativeImage ?? null;
+    const effectiveImage = previewHtmlImage ?? creativeThumbnail ?? creativeImage ?? firstSeededCandidate;
     const effectivePoster = previewHtmlPoster ?? effectiveImage;
 
     const preview: NormalizedRenderPreviewPayload = {
@@ -655,8 +658,8 @@ async function buildNormalizedPreview(input: {
         preview_url: legacyUrl,
         preview_source: "ad_preview_html",
         preview_state: legacyUrl ? "preview" : "unavailable",
-        thumbnail_url: creativeThumbnail ?? legacyUrl,
-        image_url: creativeImage ?? legacyUrl,
+        thumbnail_url: creativeThumbnail ?? firstSeededCandidate ?? legacyUrl,
+        image_url: creativeImage ?? secondSeededCandidate ?? legacyUrl,
         is_catalog: isCatalog,
       },
       candidateAudit: [],
@@ -667,7 +670,7 @@ async function buildNormalizedPreview(input: {
   if (previewHtmlVideo) {
     const creativeThumbnail = normalizeMediaUrl(creative?.thumbnail_url);
     const creativeImage = normalizeMediaUrl(creative?.image_url);
-    const effectiveImage = previewHtmlImage ?? creativeThumbnail ?? creativeImage ?? null;
+    const effectiveImage = previewHtmlImage ?? creativeThumbnail ?? creativeImage ?? firstSeededCandidate;
     const effectivePoster = previewHtmlPoster ?? effectiveImage;
 
     const preview: NormalizedRenderPreviewPayload = {
@@ -686,8 +689,8 @@ async function buildNormalizedPreview(input: {
         preview_url: legacyUrl,
         preview_source: "preview_html_video",
         preview_state: "preview",
-        thumbnail_url: creativeThumbnail ?? legacyUrl,
-        image_url: creativeImage ?? legacyUrl,
+        thumbnail_url: creativeThumbnail ?? firstSeededCandidate ?? legacyUrl,
+        image_url: creativeImage ?? secondSeededCandidate ?? legacyUrl,
         is_catalog: isCatalog,
       },
       candidateAudit: [],

@@ -174,13 +174,25 @@ export function CreativeRenderSurface({
       const sources = resolveAssetSources(preview, assetFallbacks);
       console.log("[creative-render] ASSET mode", {
         id: id ?? null,
-        name,
+        name: name.slice(0, 40),
         render_mode: preview.render_mode,
         sources_count: sources.length,
         first_source: sources[0]
           ? { src: sources[0].src.slice(0, 80), type: sources[0].source }
           : null,
         had_html: Boolean(preview.html),
+        all_sources: sources.map((s) => ({
+          src: s.src.slice(0, 60) + '...',
+          source: s.source,
+        })),
+        DIAGNOSTIC_preview_fields: {
+          image_url: preview.image_url ?? "NULL",
+          poster_url: preview.poster_url ?? "NULL",
+          video_url: preview.video_url ?? "NULL",
+        },
+        DIAGNOSTIC_assetFallbacks: assetFallbacks?.map((f, i) => 
+          f ? `fallback_${i}: ${String(f).slice(0, 60)}...` : `fallback_${i}: NULL`
+        ) ?? "NONE",
       });
     } else {
       if (fullLogCount >= LOG_LIMIT) return;
