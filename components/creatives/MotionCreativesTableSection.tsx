@@ -1823,7 +1823,7 @@ function CompactTableThumbnail({ row }: { row: MetaCreativeRow }) {
     if (process.env.NODE_ENV === "production") return;
     if (tableCompactPreviewDebugCount >= 5) return;
     tableCompactPreviewDebugCount += 1;
-    console.log("[compact-preview][MotionCreativesTableSection.tsx]", {
+    console.log("creative preview", {
       component: "MotionCreativesTableSection.tsx",
       id: row.id,
       name: row.name,

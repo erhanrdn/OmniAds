@@ -1161,7 +1161,7 @@ function CompactTopCardPreview({ row }: { row: MetaCreativeRow }) {
     if (process.env.NODE_ENV === "production") return;
     if (topCompactPreviewDebugCount >= 5) return;
     topCompactPreviewDebugCount += 1;
-    console.log("[compact-preview][MotionTopSection.tsx]", {
+    console.log("creative preview", {
       component: "MotionTopSection.tsx",
       id: row.id,
       name: row.name,
