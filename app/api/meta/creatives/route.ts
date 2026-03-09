@@ -990,25 +990,56 @@ async function batchFetchAdsByIds(
   const chunkSize = 40;
   for (let i = 0; i < uniqueIds.length; i += chunkSize) {
     const idsChunk = uniqueIds.slice(i, i + chunkSize);
-    const url = new URL("https://graph.facebook.com/v25.0/");
-    url.searchParams.set("ids", idsChunk.join(","));
-    url.searchParams.set("fields", fields);
-    url.searchParams.set("thumbnail_width", "150");
-    url.searchParams.set("thumbnail_height", "150");
-    url.searchParams.set("access_token", accessToken);
+    const buildUrl = (ids: string[]) => {
+      const url = new URL("https://graph.facebook.com/v25.0/");
+      url.searchParams.set("ids", ids.join(","));
+      url.searchParams.set("fields", fields);
+      url.searchParams.set("thumbnail_width", "150");
+      url.searchParams.set("thumbnail_height", "150");
+      url.searchParams.set("access_token", accessToken);
+      return url;
+    };
 
     try {
-      const res = await fetch(url.toString(), {
+      const res = await fetch(buildUrl(idsChunk).toString(), {
         method: "GET",
         headers: { Accept: "application/json" },
         cache: "no-store",
       });
       if (!res.ok) {
+        const errorPayload = (await res.json().catch(() => null)) as
+          | { error?: { code?: number; error_subcode?: number; message?: string } }
+          | null;
+        const isDeletedObjectsError =
+          errorPayload?.error?.code === 100 && errorPayload?.error?.error_subcode === 1815001;
         console.warn("[meta-creatives] batchFetchAdsByIds non-ok", {
           status: res.status,
           chunk: i,
           count: idsChunk.length,
+          error_code: errorPayload?.error?.code ?? null,
+          error_subcode: errorPayload?.error?.error_subcode ?? null,
+          error_message: errorPayload?.error?.message ?? null,
         });
+        if (isDeletedObjectsError && idsChunk.length > 1) {
+          // Retry per-id so one deleted ad doesn't nuke the whole batch.
+          for (const adId of idsChunk) {
+            try {
+              const oneRes = await fetch(buildUrl([adId]).toString(), {
+                method: "GET",
+                headers: { Accept: "application/json" },
+                cache: "no-store",
+              });
+              if (!oneRes.ok) continue;
+              const onePayload = (await oneRes.json().catch(() => null)) as Record<string, MetaAdRecord> | null;
+              const oneAd = onePayload?.[adId];
+              if (oneAd && typeof oneAd === "object") {
+                map.set(adId, { ...oneAd, id: oneAd.id ?? adId });
+              }
+            } catch {
+              // ignore per-id retry failures
+            }
+          }
+        }
         continue;
       }
       const payload = (await res.json().catch(() => null)) as Record<string, MetaAdRecord> | null;
@@ -1204,27 +1235,56 @@ async function fetchAdCreativeMediaByAdIds(
   const chunkSize = 40;
   for (let i = 0; i < uniqueIds.length; i += chunkSize) {
     const idsChunk = uniqueIds.slice(i, i + chunkSize);
-    const url = new URL("https://graph.facebook.com/v25.0/");
-    url.searchParams.set("ids", idsChunk.join(","));
-    url.searchParams.set("fields", fields);
-    url.searchParams.set("thumbnail_width", "150");
-    url.searchParams.set("thumbnail_height", "150");
-    url.searchParams.set("access_token", accessToken);
+    const buildUrl = (ids: string[]) => {
+      const url = new URL("https://graph.facebook.com/v25.0/");
+      url.searchParams.set("ids", ids.join(","));
+      url.searchParams.set("fields", fields);
+      url.searchParams.set("thumbnail_width", "150");
+      url.searchParams.set("thumbnail_height", "150");
+      url.searchParams.set("access_token", accessToken);
+      return url;
+    };
 
     try {
-      const res = await fetch(url.toString(), {
+      const res = await fetch(buildUrl(idsChunk).toString(), {
         method: "GET",
         headers: { Accept: "application/json" },
         cache: "no-store",
       });
       if (!res.ok) {
-        const raw = await res.text().catch(() => "");
+        const errorPayload = (await res.json().catch(() => null)) as
+          | { error?: { code?: number; error_subcode?: number; message?: string } }
+          | null;
+        const isDeletedObjectsError =
+          errorPayload?.error?.code === 100 && errorPayload?.error?.error_subcode === 1815001;
         console.warn("[meta-creatives] ad creative media fallback non-ok", {
           status: res.status,
           chunk: i,
           count: idsChunk.length,
-          raw: raw.slice(0, 300),
+          error_code: errorPayload?.error?.code ?? null,
+          error_subcode: errorPayload?.error?.error_subcode ?? null,
+          error_message: errorPayload?.error?.message ?? null,
         });
+        if (isDeletedObjectsError && idsChunk.length > 1) {
+          // Retry per-id; skip deleted ads but keep valid ones.
+          for (const adId of idsChunk) {
+            try {
+              const oneRes = await fetch(buildUrl([adId]).toString(), {
+                method: "GET",
+                headers: { Accept: "application/json" },
+                cache: "no-store",
+              });
+              if (!oneRes.ok) continue;
+              const onePayload = (await oneRes.json().catch(() => null)) as Record<string, MetaAdCreativeMediaOnlyRecord> | null;
+              const oneAd = onePayload?.[adId];
+              if (oneAd && typeof oneAd === "object") {
+                map.set(adId, { ...oneAd, id: oneAd.id ?? adId });
+              }
+            } catch {
+              // ignore per-id retry failures
+            }
+          }
+        }
         continue;
       }
 
