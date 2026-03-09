@@ -780,7 +780,11 @@ function decodeHtmlEntities(value: string): string {
     .replace(/&amp;/g, "&")
     .replace(/&quot;/g, "\"")
     .replace(/&#x27;/g, "'")
-    .replace(/&#39;/g, "'");
+    .replace(/&#39;/g, "'")
+    .replace(/\\\//g, "/")
+    .replace(/\\"/g, "\"")
+    .replace(/\\u0025/g, "%")
+    .replace(/\\u0026/g, "&");
 }
 
 function extractPreviewMediaFromHtml(html: string): {
@@ -857,6 +861,8 @@ async function fetchAdPreviewDebugMap(
       chunk.map(async (adId) => {
         if (map.has(adId)) return;
 
+        let bestHtmlOnly: AdPreviewDebugResult | null = null;
+
         for (const adFormat of formats) {
           const url = new URL(`https://graph.facebook.com/v25.0/${adId}/previews`);
           url.searchParams.set("ad_format", adFormat);
@@ -878,8 +884,8 @@ async function fetchAdPreviewDebugMap(
               : { imageUrl: null, videoUrl: null, posterUrl: null };
             const previewUrl = extracted.imageUrl ?? extracted.posterUrl ?? null;
 
-            if (hasHtml || previewUrl) {
-              map.set(adId, {
+            if (hasHtml || previewUrl || extracted.videoUrl) {
+              const current: AdPreviewDebugResult = {
                 hasHtml,
                 html: hasHtml ? html : null,
                 extractedUrl: previewUrl,
@@ -887,12 +893,32 @@ async function fetchAdPreviewDebugMap(
                 extractedVideoUrl: extracted.videoUrl,
                 extractedPosterUrl: extracted.posterUrl,
                 format: adFormat,
-              });
-              if (hasHtml) return;
+              };
+
+              // Best-case: we have HTML plus at least one extracted media URL.
+              if (hasHtml && (previewUrl || extracted.videoUrl)) {
+                map.set(adId, current);
+                return;
+              }
+
+              // Secondary: media URL without HTML is still useful.
+              if (previewUrl || extracted.videoUrl) {
+                map.set(adId, current);
+                return;
+              }
+
+              // Keep html-only candidate and keep trying other ad formats for URLs.
+              if (hasHtml && !bestHtmlOnly) {
+                bestHtmlOnly = current;
+              }
             }
           } catch {
             // swallow and try next format
           }
+        }
+
+        if (!map.has(adId) && bestHtmlOnly) {
+          map.set(adId, bestHtmlOnly);
         }
 
         if (!map.has(adId)) {

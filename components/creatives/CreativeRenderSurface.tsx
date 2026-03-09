@@ -58,7 +58,11 @@ function decodeHtmlEntities(value: string): string {
     .replace(/&#x27;/g, "'")
     .replace(/&#39;/g, "'")
     .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">");
+    .replace(/&gt;/g, ">")
+    .replace(/\\\//g, "/")
+    .replace(/\\"/g, '"')
+    .replace(/\\u0025/g, "%")
+    .replace(/\\u0026/g, "&");
 }
 
 /** Check if a URL is a Meta CDN host eligible for proxy */
