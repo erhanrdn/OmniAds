@@ -1175,7 +1175,8 @@ async function fetchAccountAdsMap(
       url.searchParams.set("limit", "500");
       url.searchParams.set(
         "effective_status",
-        JSON.stringify(["ACTIVE", "PAUSED", "ARCHIVED", "DELETED", "PENDING_REVIEW", "DISAPPROVED"])
+        // Meta /ads endpoint rejects DELETED objects for this query shape (error_subcode 1815001)
+        JSON.stringify(["ACTIVE", "PAUSED", "ARCHIVED", "PENDING_REVIEW", "DISAPPROVED"])
       );
       url.searchParams.set("thumbnail_width", "150");
       url.searchParams.set("thumbnail_height", "150");
