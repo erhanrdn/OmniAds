@@ -1350,6 +1350,51 @@ async function fetchCreativeDetailsMap(
   return map;
 }
 
+async function fetchCreativeThumbnailMap(
+  creativeIds: string[],
+  accessToken: string,
+  width = 150,
+  height = 120
+): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  const uniqueIds = Array.from(new Set(creativeIds.filter((id) => id.trim().length > 0)));
+  if (uniqueIds.length === 0) return map;
+
+  const chunkSize = 20;
+  for (let i = 0; i < uniqueIds.length; i += chunkSize) {
+    const idsChunk = uniqueIds.slice(i, i + chunkSize);
+    const chunkResults = await Promise.all(
+      idsChunk.map(async (creativeId) => {
+        const url = new URL(`https://graph.facebook.com/v25.0/${creativeId}`);
+        url.searchParams.set("thumbnail_width", String(width));
+        url.searchParams.set("thumbnail_height", String(height));
+        url.searchParams.set("fields", "thumbnail_url");
+        url.searchParams.set("access_token", accessToken);
+        try {
+          const res = await fetch(url.toString(), {
+            method: "GET",
+            headers: { Accept: "application/json" },
+            cache: "no-store",
+          });
+          if (!res.ok) return { creativeId, thumbnailUrl: null };
+          const payload = (await res.json().catch(() => null)) as { thumbnail_url?: string | null } | null;
+          return { creativeId, thumbnailUrl: normalizeMediaUrl(payload?.thumbnail_url ?? null) };
+        } catch {
+          return { creativeId, thumbnailUrl: null };
+        }
+      })
+    );
+
+    for (const result of chunkResults) {
+      if (result.thumbnailUrl) {
+        map.set(result.creativeId, result.thumbnailUrl);
+      }
+    }
+  }
+
+  return map;
+}
+
 async function fetchAdCreativeMediaByAdIds(
   adIds: string[],
   accessToken: string
@@ -1779,11 +1824,27 @@ export async function GET(request: NextRequest) {
         )
       );
       const creativeDetailsMap = await fetchCreativeDetailsMap(creativeIds, integration.access_token);
+      const missingThumbnailCreativeIds = creativeIds.filter((creativeId) => {
+        const detail = creativeDetailsMap.get(creativeId);
+        return !normalizeMediaUrl(detail?.thumbnail_url ?? null);
+      });
+      const creativeThumbnailMap = await fetchCreativeThumbnailMap(
+        missingThumbnailCreativeIds,
+        integration.access_token,
+        150,
+        120
+      );
       const accountImageHashes = Array.from(
         new Set(
           [...adMap.values()].flatMap((ad) => {
             const detailCreative = ad.creative?.id ? creativeDetailsMap.get(ad.creative.id) : undefined;
             const mergedCreative = mergeCreativeData(ad.creative ?? null, detailCreative);
+            if (mergedCreative?.id && !normalizeMediaUrl(mergedCreative.thumbnail_url)) {
+              const fallbackThumb = creativeThumbnailMap.get(mergedCreative.id) ?? null;
+              if (fallbackThumb) {
+                mergedCreative.thumbnail_url = fallbackThumb;
+              }
+            }
             return extractImageHashesFromCreative(mergedCreative);
           })
         )
@@ -1805,6 +1866,8 @@ export async function GET(request: NextRequest) {
           ads_loaded: adMap.size,
           creative_ids_seen: creativeIds.length,
           creative_details_loaded: creativeDetailsMap.size,
+          creative_missing_thumbnail: missingThumbnailCreativeIds.length,
+          creative_thumbnail_fallback_loaded: creativeThumbnailMap.size,
           image_hashes_seen: accountImageHashes.length,
           image_hash_urls_resolved: adImageUrlMap.size,
           matched_ads: matchedAds,
@@ -1823,6 +1886,12 @@ export async function GET(request: NextRequest) {
         const baseCreative = ad?.creative ?? null;
         const detailCreative = baseCreative?.id ? creativeDetailsMap.get(baseCreative.id) : undefined;
         const mergedCreative = mergeCreativeData(baseCreative, detailCreative);
+        if (mergedCreative?.id && !normalizeMediaUrl(mergedCreative.thumbnail_url)) {
+          const fallbackThumb = creativeThumbnailMap.get(mergedCreative.id) ?? null;
+          if (fallbackThumb) {
+            mergedCreative.thumbnail_url = fallbackThumb;
+          }
+        }
         const enrichedAd: MetaAdRecord | undefined = ad
           ? { ...ad, creative: mergedCreative }
           : undefined;
