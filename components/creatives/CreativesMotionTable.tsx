@@ -1,8 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
-import { CreativePreview } from "@/components/creatives/CreativePreview";
 import {
   METRIC_CONFIG,
   MetaCreativeRow,
@@ -141,18 +140,51 @@ export function CreativesMotionTable({
 }
 
 function CreativeThumb({ row }: { row: MetaCreativeRow }) {
+  const sources = [row.thumbnailUrl, row.imageUrl, row.previewUrl].filter(
+    (value): value is string => typeof value === "string" && /^https?:\/\//i.test(value)
+  );
+
+  const [sourceIndex, setSourceIndex] = useState(0);
+
+  useEffect(() => {
+    setSourceIndex(0);
+  }, [row.id, row.thumbnailUrl, row.imageUrl, row.previewUrl]);
+
+  const activeSource = sources[sourceIndex] ?? null;
+  const badgeLabel = row.isCatalog ? "Catalog" : row.format === "video" ? "Video" : "Feed";
+
+  if (!activeSource) {
+    return (
+      <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded bg-muted/40">
+        <div className="flex h-full w-full items-center justify-center text-[8px] text-muted-foreground">
+          Preview unavailable
+        </div>
+        <div className="absolute bottom-1 left-1 rounded-full bg-black/60 px-1.5 py-0.5 text-[8px] text-white">
+          {badgeLabel}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <CreativePreview
-      id={row.id}
-      name={row.name}
-      thumbnailUrl={row.thumbnailUrl}
-      imageUrl={row.imageUrl}
-      previewUrl={row.previewUrl}
-      format={row.format}
-      isCatalog={row.isCatalog}
-      size="thumb"
-      className="h-12 w-12"
-    />
+    <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded bg-muted/20">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={activeSource}
+        alt={row.name}
+        className="h-full w-full object-cover"
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        onError={() => {
+          if (sourceIndex < sources.length - 1) {
+            setSourceIndex((current) => current + 1);
+          }
+        }}
+      />
+      <div className="absolute bottom-1 left-1 rounded-full bg-black/60 px-1.5 py-0.5 text-[8px] text-white">
+        {badgeLabel}
+      </div>
+    </div>
   );
 }
 
