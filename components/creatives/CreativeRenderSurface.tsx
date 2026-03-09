@@ -311,7 +311,6 @@ export function CreativeRenderSurface({
               placeholder.innerHTML = `
                 <div class="text-3xl mb-2 opacity-40">🎨</div>
                 <div class="text-[10px] text-center text-muted-foreground font-medium line-clamp-2 px-1">${name}</div>
-                <span class="absolute bottom-1.5 left-1.5 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">${badgeLabel}</span>
               `;
               parent.appendChild(placeholder);
             }
