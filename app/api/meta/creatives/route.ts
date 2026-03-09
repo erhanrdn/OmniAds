@@ -633,12 +633,18 @@ async function buildNormalizedPreview(input: {
   const previewHtmlImage = normalizeMediaUrl(adPreview?.extractedImageUrl ?? null);
 
   if (html) {
+    // Fall back to creative's direct URLs when HTML extraction yields nothing
+    const creativeThumbnail = normalizeMediaUrl(creative?.thumbnail_url);
+    const creativeImage = normalizeMediaUrl(creative?.image_url);
+    const effectiveImage = previewHtmlImage ?? creativeThumbnail ?? creativeImage ?? null;
+    const effectivePoster = previewHtmlPoster ?? effectiveImage;
+
     const preview: NormalizedRenderPreviewPayload = {
       render_mode: "html_preview",
       html,
-      image_url: previewHtmlImage ?? null,
+      image_url: effectiveImage,
       video_url: previewHtmlVideo ?? null,
-      poster_url: previewHtmlPoster ?? previewHtmlImage ?? null,
+      poster_url: effectivePoster,
       source: "ad_preview_html",
       is_catalog: isCatalog,
     };
@@ -649,8 +655,8 @@ async function buildNormalizedPreview(input: {
         preview_url: legacyUrl,
         preview_source: "ad_preview_html",
         preview_state: legacyUrl ? "preview" : "unavailable",
-        thumbnail_url: legacyUrl,
-        image_url: legacyUrl,
+        thumbnail_url: creativeThumbnail ?? legacyUrl,
+        image_url: creativeImage ?? legacyUrl,
         is_catalog: isCatalog,
       },
       candidateAudit: [],
@@ -659,12 +665,17 @@ async function buildNormalizedPreview(input: {
   }
 
   if (previewHtmlVideo) {
+    const creativeThumbnail = normalizeMediaUrl(creative?.thumbnail_url);
+    const creativeImage = normalizeMediaUrl(creative?.image_url);
+    const effectiveImage = previewHtmlImage ?? creativeThumbnail ?? creativeImage ?? null;
+    const effectivePoster = previewHtmlPoster ?? effectiveImage;
+
     const preview: NormalizedRenderPreviewPayload = {
       render_mode: "video",
       html: null,
-      image_url: previewHtmlImage ?? null,
+      image_url: effectiveImage,
       video_url: previewHtmlVideo,
-      poster_url: previewHtmlPoster ?? previewHtmlImage ?? null,
+      poster_url: effectivePoster,
       source: "preview_html_video",
       is_catalog: isCatalog,
     };
@@ -675,8 +686,8 @@ async function buildNormalizedPreview(input: {
         preview_url: legacyUrl,
         preview_source: "preview_html_video",
         preview_state: "preview",
-        thumbnail_url: legacyUrl,
-        image_url: legacyUrl,
+        thumbnail_url: creativeThumbnail ?? legacyUrl,
+        image_url: creativeImage ?? legacyUrl,
         is_catalog: isCatalog,
       },
       candidateAudit: [],
