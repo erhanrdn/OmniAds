@@ -8,9 +8,6 @@ import {
   MetaMetricKey,
 } from "@/components/creatives/metricConfig";
 
-// Görsel boyutu ve genel stil sabitleri
-const THUMB_SIZE = "h-10 w-10";
-
 interface CreativesMotionTableProps {
   rows: MetaCreativeRow[];
   selectedMetrics: MetaMetricKey[];
@@ -54,14 +51,14 @@ export function CreativesMotionTable({
       <div className="flex items-center gap-2 text-sm px-1">
         <input 
           type="checkbox" 
-          className="rounded border-gray-300 shadow-sm transition-all focus:ring-emerald-500"
+          className="rounded border-gray-300 shadow-sm"
           checked={allSelected} 
           onChange={onToggleAll} 
         />
         <span className="text-muted-foreground font-medium">{selectedRowIds.length} ad groups selected</span>
       </div>
 
-      <div className="max-h-[620px] overflow-auto rounded-xl border border-border/60 shadow-sm bg-background">
+      <div className="max-h-[620px] overflow-auto rounded-xl border border-border shadow-sm bg-background">
         <table className="min-w-full text-sm border-separate border-spacing-0">
           <thead className="sticky top-0 z-20 bg-background/95 backdrop-blur-sm">
             <tr className="border-b">
@@ -148,7 +145,7 @@ export function CreativesMotionTable({
                   return (
                     <td
                       key={metric}
-                      className="px-4 font-medium transition-colors"
+                      className="px-4 font-medium"
                       style={{ backgroundColor: withIntensity(heat, heatmapIntensity) }}
                     >
                       {METRIC_CONFIG[metric].format(value)}
@@ -164,25 +161,10 @@ export function CreativesMotionTable({
   );
 }
 
-// --- Alt Bileşenler ve Yardımcı Fonksiyonlar ---
-
-function normalizeCompactThumbSrc(value: string | null | undefined) {
-  if (!value) return null;
-  const trimmed = value.trim();
-  if (trimmed.startsWith("//")) return `https:${trimmed}`;
-  if (/^https?:\/\//i.test(trimmed)) return trimmed;
-  return null;
-}
-
-function isMetaCdnUrl(url: string): boolean {
-  try {
-    const host = new URL(url).hostname.toLowerCase();
-    return host.includes("fbcdn.net") || host.includes("facebook.com") || host.includes("fbsbx.com") || host.includes("cdninstagram.com");
-  } catch {
-    return false;
-  }
-}
-
+/**
+ * GÖRSEL BİLEŞENİ (THUMBNAIL)
+ * Bu bileşen API'den gelen URL'leri kontrol eder ve sırayla dener.
+ */
 function CompactCreativeThumb({
   id,
   name,
@@ -196,64 +178,55 @@ function CompactCreativeThumb({
   imageUrl?: string | null;
   previewUrl?: string | null;
 }) {
-  const sources = useMemo(() => [thumbnailUrl, imageUrl, previewUrl]
-    .map(normalizeCompactThumbSrc)
-    .filter((value): value is string => Boolean(value)), [thumbnailUrl, imageUrl, previewUrl]);
+  // Kaynak URL'leri temizle ve öncelik sırasına koy
+  const sources = useMemo(() => {
+    return [thumbnailUrl, imageUrl, previewUrl]
+      .filter((url): url is string => Boolean(url) && typeof url === "string" && url.length > 5)
+      .map(url => url.startsWith("//") ? `https:${url}` : url);
+  }, [thumbnailUrl, imageUrl, previewUrl]);
 
-  const [sourceIndex, setSourceIndex] = useState(0);
-  const [useProxy, setUseProxy] = useState(false);
-  const [hasError, setHasError] = useState(false);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isError, setIsError] = useState(false);
 
+  // Her yeni row id'si geldiğinde state'i sıfırla
   useEffect(() => {
-    setSourceIndex(0);
-    setUseProxy(false);
-    setHasError(false);
-  }, [id, sources.length]);
+    setCurrentIndex(0);
+    setIsError(false);
+  }, [id]);
 
-  const activeSource = sources[sourceIndex] ?? null;
-
-  if (!activeSource || hasError) {
+  // Eğer hiç URL yoksa veya tüm kaynaklar hata verdiyse Placeholder göster
+  if (sources.length === 0 || isError) {
     return (
-      <div className={`${THUMB_SIZE} shrink-0 overflow-hidden rounded-lg bg-muted flex items-center justify-center border border-border/40`}>
-        <svg className="w-4 h-4 text-muted-foreground/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.587-1.587a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-        </svg>
+      <div className="h-10 w-10 shrink-0 overflow-hidden rounded bg-muted flex items-center justify-center border border-border/40">
+        <span className="text-[8px] text-muted-foreground/50 uppercase">Img</span>
       </div>
     );
   }
 
-  const imgSrc = useProxy && isMetaCdnUrl(activeSource)
-    ? `/api/media/meta-preview?src=${encodeURIComponent(activeSource)}`
-    : activeSource;
-
-  const handleError = () => {
-    if (!useProxy && isMetaCdnUrl(activeSource)) {
-      setUseProxy(true);
-      return;
-    }
-    if (sourceIndex < sources.length - 1) {
-      setSourceIndex((prev) => prev + 1);
-      setUseProxy(false);
-    } else {
-      setHasError(true);
-    }
-  };
-
   return (
-    <div className={`${THUMB_SIZE} shrink-0 overflow-hidden rounded-lg bg-muted border border-border/20 shadow-sm`}>
+    <div className="h-10 w-10 shrink-0 overflow-hidden rounded border border-border/20 shadow-sm bg-white">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        key={`${id}_${sourceIndex}_${useProxy}`}
-        src={imgSrc}
+        src={sources[currentIndex]}
         alt={name}
-        className="h-full w-full object-cover transition-opacity duration-300"
+        className="h-full w-full object-cover"
         loading="lazy"
         referrerPolicy="no-referrer"
-        onError={handleError}
+        onError={() => {
+          if (currentIndex < sources.length - 1) {
+            setCurrentIndex(prev => prev + 1);
+          } else {
+            setIsError(true);
+          }
+        }}
       />
     </div>
   );
 }
 
+/**
+ * RENK VE INTENSITY HESAPLAYICI FONKSİYONLAR
+ */
 function withIntensity(color: string, intensity: "low" | "medium" | "high") {
   const multiplier = intensity === "low" ? 0.7 : intensity === "high" ? 1.3 : 1;
   const match = color.match(/rgba\((\d+),\s*(\d+),\s*(\d+),\s*([0-9.]+)\)/);
