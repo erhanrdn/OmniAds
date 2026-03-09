@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
@@ -50,65 +50,106 @@ function normalizeUrl(value: string | null | undefined): string | null {
   return /^https?:\/\//i.test(trimmed) ? trimmed : null;
 }
 
+/** Decode HTML entities the same way the server does */
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;/g, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+}
+
+/** Check if a URL is a Meta CDN host eligible for proxy */
+function isMetaCdnUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return (
+      host.endsWith(".fbcdn.net") ||
+      host.endsWith(".facebook.com") ||
+      host.endsWith(".fbsbx.com") ||
+      host.endsWith(".cdninstagram.com")
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** Wrap a Meta CDN URL through our proxy to avoid CORS/referrer issues */
+function proxyUrl(src: string): string {
+  return `/api/media/meta-preview?src=${encodeURIComponent(src)}`;
+}
+
 /**
- * Try to extract the primary media `src` from preview HTML.
- * This avoids rendering the full ad chrome (sponsor header, CTA, reactions)
- * while still recovering the creative asset when no other URL is available.
+ * Extract the primary media image from preview HTML.
+ * Mirrors the server-side extractPreviewMediaFromHtml logic:
+ * decodes entities first, then looks for video poster, img src.
  */
 function extractImageSrcFromHtml(html: string): string | null {
-  // Look for og:image meta first (often present in ad preview HTML)
-  const ogMatch = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i);
-  if (ogMatch?.[1]) return normalizeUrl(ogMatch[1]);
+  const decoded = decodeHtmlEntities(html);
 
-  // Look for the largest/most prominent <img> src — skip tiny icons/avatars
-  // Prioritize images that are NOT profile pictures or icons
-  const imgMatches = [...html.matchAll(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi)];
-  for (const match of imgMatches) {
-    const src = match[1];
-    // Skip common avatar/icon patterns
-    if (/profile|avatar|icon|emoji|1x1|pixel/i.test(src)) continue;
-    // Skip data URIs and very short URLs (likely tracking pixels)
-    if (src.startsWith("data:") || src.length < 20) continue;
-    const normalized = normalizeUrl(src);
-    if (normalized) return normalized;
+  // 1. Video poster (often the creative asset for video ads)
+  const posterMatch = decoded.match(/<video[^>]*poster=["']([^"']+)["']/i);
+  if (posterMatch?.[1]) {
+    const url = normalizeUrl(posterMatch[1]);
+    if (url) return url;
   }
 
-  // Fallback: try any img src
-  const firstImg = html.match(/<img[^>]+src=["']([^"']+)["']/i);
-  if (firstImg?.[1]) return normalizeUrl(firstImg[1]);
+  // 2. All img tags — skip avatars, icons, tracking pixels
+  const imgMatches = [...decoded.matchAll(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi)];
+  for (const match of imgMatches) {
+    const src = match[1];
+    if (!src || src.length < 20) continue;
+    if (src.startsWith("data:")) continue;
+    if (/profile|avatar|icon|emoji|1x1|pixel|spacer/i.test(src)) continue;
+    const url = normalizeUrl(src);
+    if (url) return url;
+  }
+
+  // 3. Any img src as last resort
+  const fallbackImg = decoded.match(/<img[^>]+src=["']([^"']+)["']/i);
+  if (fallbackImg?.[1]) return normalizeUrl(fallbackImg[1]);
 
   return null;
 }
 
 /**
- * Resolve the best image URL for asset mode rendering.
- * Priority: image_url → poster_url → assetFallbacks → extracted from HTML
+ * Resolve all possible image sources for asset mode, ordered by priority.
+ * Returns an array so the component can fall through on load errors.
  */
-function resolveAssetSrc(
+function resolveAssetSources(
   preview: CreativeRenderPayload,
   assetFallbacks?: (string | null | undefined)[]
-): { src: string | null; source: string } {
-  const imageUrl = normalizeUrl(preview.image_url);
-  if (imageUrl) return { src: imageUrl, source: "image_url" };
+): Array<{ src: string; source: string }> {
+  const sources: Array<{ src: string; source: string }> = [];
+  const seen = new Set<string>();
 
-  const posterUrl = normalizeUrl(preview.poster_url);
-  if (posterUrl) return { src: posterUrl, source: "poster_url" };
+  const push = (url: string | null, source: string) => {
+    if (!url || seen.has(url)) return;
+    seen.add(url);
+    sources.push({ src: url, source });
+  };
 
-  // Try explicit fallback URLs (thumbnailUrl, imageUrl, previewUrl from row)
+  // Priority 1: preview.image_url (server already extracted this)
+  push(normalizeUrl(preview.image_url), "preview.image_url");
+
+  // Priority 2: preview.poster_url
+  push(normalizeUrl(preview.poster_url), "preview.poster_url");
+
+  // Priority 3: explicit fallback URLs from row (thumbnailUrl, imageUrl, previewUrl)
   if (assetFallbacks) {
     for (let i = 0; i < assetFallbacks.length; i++) {
-      const url = normalizeUrl(assetFallbacks[i]);
-      if (url) return { src: url, source: `fallback_${i}` };
+      push(normalizeUrl(assetFallbacks[i]), `fallback_${i}`);
     }
   }
 
-  // Last resort: extract from HTML if available
+  // Priority 4: extract from preview HTML
   if (preview.html) {
-    const extracted = extractImageSrcFromHtml(preview.html);
-    if (extracted) return { src: extracted, source: "extracted_from_html" };
+    push(extractImageSrcFromHtml(preview.html), "extracted_from_html");
   }
 
-  return { src: null, source: "none" };
+  return sources;
 }
 
 export function CreativeRenderSurface({
@@ -130,15 +171,16 @@ export function CreativeRenderSurface({
     if (mode === "asset") {
       if (assetLogCount >= LOG_LIMIT) return;
       assetLogCount += 1;
-      const resolved = resolveAssetSrc(preview, assetFallbacks);
+      const sources = resolveAssetSources(preview, assetFallbacks);
       console.log("[creative-render] ASSET mode", {
         id: id ?? null,
         name,
         render_mode: preview.render_mode,
-        chosen_src: resolved.src?.slice(0, 80) ?? null,
-        source_type: resolved.source,
+        sources_count: sources.length,
+        first_source: sources[0]
+          ? { src: sources[0].src.slice(0, 80), type: sources[0].source }
+          : null,
         had_html: Boolean(preview.html),
-        is_direct_media: resolved.source !== "extracted_from_html" && resolved.source !== "none",
       });
     } else {
       if (fullLogCount >= LOG_LIMIT) return;
@@ -155,16 +197,24 @@ export function CreativeRenderSurface({
     }
   }, [id, name, preview, mode, assetFallbacks]);
 
-  const badgeLabel = preview.is_catalog ? "Catalog" : preview.render_mode === "video" ? "Video" : "Feed";
+  const badgeLabel = preview.is_catalog
+    ? "Catalog"
+    : preview.render_mode === "video"
+      ? "Video"
+      : "Feed";
 
   const fallback = (
-    <div className={cn(frameClass, "flex items-center justify-center text-[11px] text-muted-foreground")}>
+    <div
+      className={cn(
+        frameClass,
+        "flex items-center justify-center text-[11px] text-muted-foreground"
+      )}
+    >
       {preview.is_catalog ? "Catalog" : "Preview unavailable"}
     </div>
   );
 
   // ─── ASSET MODE ───────────────────────────────────────────────
-  // Never render HTML iframes. Show only the creative media surface.
   if (mode === "asset") {
     return (
       <AssetImage
@@ -179,7 +229,6 @@ export function CreativeRenderSurface({
   }
 
   // ─── FULL MODE ────────────────────────────────────────────────
-  // Render the full ad preview including HTML iframes.
 
   if (preview.render_mode === "html_preview" && preview.html) {
     return (
@@ -192,7 +241,13 @@ export function CreativeRenderSurface({
           className="h-full w-full border-0"
         />
         {preview.is_catalog ? (
-          <Badge variant="secondary" className={cn("absolute bottom-1 left-1 text-[10px] opacity-90", badgeClassName)}>
+          <Badge
+            variant="secondary"
+            className={cn(
+              "absolute bottom-1 left-1 text-[10px] opacity-90",
+              badgeClassName
+            )}
+          >
             Catalog
           </Badge>
         ) : null}
@@ -213,11 +268,23 @@ export function CreativeRenderSurface({
           className="h-full w-full object-cover"
         />
         {preview.is_catalog ? (
-          <Badge variant="secondary" className={cn("absolute bottom-1 left-1 text-[10px] opacity-90", badgeClassName)}>
+          <Badge
+            variant="secondary"
+            className={cn(
+              "absolute bottom-1 left-1 text-[10px] opacity-90",
+              badgeClassName
+            )}
+          >
             Catalog
           </Badge>
         ) : null}
-        <Badge variant="secondary" className={cn("absolute bottom-1 right-1 text-[10px] opacity-90", badgeClassName)}>
+        <Badge
+          variant="secondary"
+          className={cn(
+            "absolute bottom-1 right-1 text-[10px] opacity-90",
+            badgeClassName
+          )}
+        >
           Video
         </Badge>
       </div>
@@ -237,7 +304,13 @@ export function CreativeRenderSurface({
           referrerPolicy="no-referrer"
         />
         {preview.is_catalog ? (
-          <Badge variant="secondary" className={cn("absolute bottom-1 left-1 text-[10px] opacity-90", badgeClassName)}>
+          <Badge
+            variant="secondary"
+            className={cn(
+              "absolute bottom-1 left-1 text-[10px] opacity-90",
+              badgeClassName
+            )}
+          >
             Catalog
           </Badge>
         ) : null}
@@ -248,7 +321,7 @@ export function CreativeRenderSurface({
   return fallback;
 }
 
-// ─── Asset-only image renderer ──────────────────────────────────
+// ─── Asset-only image renderer with multi-source fallback + proxy ───
 function AssetImage({
   preview,
   assetFallbacks,
@@ -264,28 +337,55 @@ function AssetImage({
   badgeLabel: string;
   fallback: React.ReactNode;
 }) {
-  const resolved = resolveAssetSrc(preview, assetFallbacks);
-  const [failed, setFailed] = useState(false);
+  const sources = useMemo(
+    () => resolveAssetSources(preview, assetFallbacks),
+    [preview, assetFallbacks]
+  );
 
-  // Reset failed state when src changes
+  const [sourceIndex, setSourceIndex] = useState(0);
+  const [useProxy, setUseProxy] = useState(false);
+
+  // Reset when sources change
   useEffect(() => {
-    setFailed(false);
-  }, [resolved.src]);
+    setSourceIndex(0);
+    setUseProxy(false);
+  }, [sources]);
 
-  if (!resolved.src || failed) {
+  const current = sources[sourceIndex];
+
+  if (!current) {
     return <>{fallback}</>;
   }
+
+  // If direct load failed and URL is a Meta CDN URL, try via proxy
+  const imgSrc = useProxy && isMetaCdnUrl(current.src)
+    ? proxyUrl(current.src)
+    : current.src;
+
+  const handleError = () => {
+    // First: try proxy for current source if it's a Meta CDN URL
+    if (!useProxy && isMetaCdnUrl(current.src)) {
+      setUseProxy(true);
+      return;
+    }
+    // Second: try next source
+    if (sourceIndex < sources.length - 1) {
+      setSourceIndex((prev) => prev + 1);
+      setUseProxy(false);
+    }
+  };
 
   return (
     <div className={frameClass}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src={resolved.src}
+        key={`${sourceIndex}_${useProxy}`}
+        src={imgSrc}
         alt={name}
         className="h-full w-full object-cover"
         loading="lazy"
         referrerPolicy="no-referrer"
-        onError={() => setFailed(true)}
+        onError={handleError}
       />
       <span className="absolute bottom-1.5 left-1.5 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
         {badgeLabel}

@@ -160,6 +160,20 @@ function normalizeCompactThumbSrc(value: string | null | undefined) {
   return null;
 }
 
+function isMetaCdnUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return (
+      host.endsWith(".fbcdn.net") ||
+      host.endsWith(".facebook.com") ||
+      host.endsWith(".fbsbx.com") ||
+      host.endsWith(".cdninstagram.com")
+    );
+  } catch {
+    return false;
+  }
+}
+
 function CompactCreativeThumb({
   id,
   name,
@@ -178,9 +192,11 @@ function CompactCreativeThumb({
     .filter((value): value is string => Boolean(value));
 
   const [sourceIndex, setSourceIndex] = useState(0);
+  const [useProxy, setUseProxy] = useState(false);
 
   useEffect(() => {
     setSourceIndex(0);
+    setUseProxy(false);
   }, [id, thumbnailUrl, imageUrl, previewUrl]);
 
   const activeSource = sources[sourceIndex] ?? null;
@@ -195,20 +211,32 @@ function CompactCreativeThumb({
     );
   }
 
+  const imgSrc = useProxy && isMetaCdnUrl(activeSource)
+    ? `/api/media/meta-preview?src=${encodeURIComponent(activeSource)}`
+    : activeSource;
+
+  const handleError = () => {
+    if (!useProxy && isMetaCdnUrl(activeSource)) {
+      setUseProxy(true);
+      return;
+    }
+    if (sourceIndex < sources.length - 1) {
+      setSourceIndex((prev) => prev + 1);
+      setUseProxy(false);
+    }
+  };
+
   return (
     <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-md bg-muted/20">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src={activeSource}
+        key={`${sourceIndex}_${useProxy}`}
+        src={imgSrc}
         alt={name}
         className="h-full w-full object-cover"
         loading="lazy"
         referrerPolicy="no-referrer"
-        onError={() => {
-          if (sourceIndex < sources.length - 1) {
-            setSourceIndex((current) => current + 1);
-          }
-        }}
+        onError={handleError}
       />
     </div>
   );

@@ -29,6 +29,24 @@ function normalizeUrl(value: string | null | undefined): string | null {
   return /^https?:\/\//i.test(trimmed) ? trimmed : null;
 }
 
+function isMetaCdnUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return (
+      host.endsWith(".fbcdn.net") ||
+      host.endsWith(".facebook.com") ||
+      host.endsWith(".fbsbx.com") ||
+      host.endsWith(".cdninstagram.com")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function proxyUrl(src: string): string {
+  return `/api/media/meta-preview?src=${encodeURIComponent(src)}`;
+}
+
 const compactPreviewDebugCountByScope: Record<string, number> = {};
 
 export function CreativePreview({
@@ -52,11 +70,14 @@ export function CreativePreview({
   );
 
   const [sourceIndex, setSourceIndex] = useState(0);
-  const compactPreviewSrc = sources[sourceIndex] ?? null;
+  const [useProxy, setUseProxy] = useState(false);
 
   useEffect(() => {
     setSourceIndex(0);
+    setUseProxy(false);
   }, [id, thumbnailUrl, imageUrl, previewUrl]);
+
+  const currentSrc = sources[sourceIndex] ?? null;
 
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return;
@@ -70,11 +91,12 @@ export function CreativePreview({
       thumbnailUrl: thumbnailUrl ?? null,
       imageUrl: imageUrl ?? null,
       previewUrl: previewUrl ?? null,
-      chosen: compactPreviewSrc,
+      chosen: currentSrc,
+      useProxy,
     });
-  }, [compactPreviewSrc, debugScope, id, imageUrl, name, previewUrl, thumbnailUrl]);
+  }, [currentSrc, debugScope, id, imageUrl, name, previewUrl, thumbnailUrl, useProxy]);
 
-  if (!compactPreviewSrc) {
+  if (!currentSrc) {
     return (
       <div
         className={cn(
@@ -89,21 +111,34 @@ export function CreativePreview({
   }
 
   const badgeLabel = isCatalog ? "Catalog" : format === "video" ? "Video" : "Feed";
+  const imgSrc = useProxy && isMetaCdnUrl(currentSrc)
+    ? proxyUrl(currentSrc)
+    : currentSrc;
+
+  const handleError = () => {
+    // Try proxy first for Meta CDN URLs
+    if (!useProxy && isMetaCdnUrl(currentSrc)) {
+      setUseProxy(true);
+      return;
+    }
+    // Then try next source
+    if (sourceIndex < sources.length - 1) {
+      setSourceIndex((prev) => prev + 1);
+      setUseProxy(false);
+    }
+  };
 
   return (
     <div className={cn("relative overflow-hidden bg-muted", SIZE_MAP[size], className)}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src={compactPreviewSrc}
+        key={`${sourceIndex}_${useProxy}`}
+        src={imgSrc}
         alt={name}
         className="h-full w-full object-cover"
         loading="lazy"
         referrerPolicy="no-referrer"
-        onError={() => {
-          if (sourceIndex < sources.length - 1) {
-            setSourceIndex((current) => current + 1);
-          }
-        }}
+        onError={handleError}
       />
       <span className="absolute bottom-1.5 left-1.5 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
         {badgeLabel}
