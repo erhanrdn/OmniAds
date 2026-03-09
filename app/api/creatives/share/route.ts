@@ -4,6 +4,7 @@ import { createCreativeShareSnapshot } from "@/lib/creative-share-store";
 import { requireBusinessAccess } from "@/lib/access";
 
 type CreateShareRequest = Omit<SharePayload, "token" | "createdAt">;
+let shareApiPreviewTraceCount = 0;
 
 function isValidPayload(payload: unknown): payload is CreateShareRequest {
   if (!payload || typeof payload !== "object") return false;
@@ -32,6 +33,21 @@ export async function POST(request: NextRequest) {
     minRole: "guest",
   });
   if ("error" in access) return access.error;
+
+  const creatives = (body as CreateShareRequest).creatives ?? [];
+  if (shareApiPreviewTraceCount < 5) {
+    const sample = creatives.slice(0, Math.max(0, 5 - shareApiPreviewTraceCount));
+    for (const creative of sample) {
+      shareApiPreviewTraceCount += 1;
+      console.log("[preview-trace][stage-3-share-api-receive]", {
+        id: creative.id,
+        name: creative.name,
+        thumbnailUrl: creative.thumbnailUrl ?? null,
+        imageUrl: creative.imageUrl ?? null,
+        previewUrl: creative.previewUrl ?? null,
+      });
+    }
+  }
 
   const { token } = await createCreativeShareSnapshot(body);
   return NextResponse.json({

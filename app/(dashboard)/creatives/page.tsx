@@ -46,6 +46,9 @@ const PLATFORM_LABELS: Record<string, string> = {
 };
 
 const SHARE_METRIC_IDS = new Set<ShareMetricKey>(["spend", "purchaseValue", "roas", "cpa", "ctrAll", "purchases"]);
+let rawApiPreviewTraceCount = 0;
+let mappedUiPreviewTraceCount = 0;
+let shareMappingPreviewTraceCount = 0;
 
 function toCsv(rows: MetaCreativeRow[]): string {
   const headers = [
@@ -127,7 +130,7 @@ function toCsv(rows: MetaCreativeRow[]): string {
 }
 
 function toSharedCreative(row: MetaCreativeRow): SharedCreative {
-  return {
+  const shared: SharedCreative = {
     id: row.id,
     name: row.name,
     currency: row.currency ?? null,
@@ -159,6 +162,24 @@ function toSharedCreative(row: MetaCreativeRow): SharedCreative {
     video100: row.video100,
     atcToPurchaseRatio: row.atcToPurchaseRatio,
   };
+  if (shareMappingPreviewTraceCount < 5) {
+    shareMappingPreviewTraceCount += 1;
+    console.log("[preview-trace][stage-3-share-mapping]", {
+      id: row.id,
+      name: row.name,
+      input: {
+        thumbnailUrl: row.thumbnailUrl ?? null,
+        imageUrl: row.imageUrl ?? null,
+        previewUrl: row.previewUrl ?? null,
+      },
+      output: {
+        thumbnailUrl: shared.thumbnailUrl ?? null,
+        imageUrl: shared.imageUrl ?? null,
+        previewUrl: shared.previewUrl ?? null,
+      },
+    });
+  }
+  return shared;
 }
 
 function hasMessage(payload: unknown): payload is { message: string } {
@@ -197,6 +218,24 @@ async function fetchMetaCreatives(params: {
 
   if (!payload || typeof payload !== "object" || !Array.isArray((payload as MetaCreativesResponse).rows)) {
     throw new Error("Invalid creatives response received from backend.");
+  }
+
+  const rows = (payload as MetaCreativesResponse).rows;
+  if (rawApiPreviewTraceCount < 5) {
+    const sample = rows.slice(0, Math.max(0, 5 - rawApiPreviewTraceCount));
+    for (const row of sample) {
+      rawApiPreviewTraceCount += 1;
+      console.log("[preview-trace][stage-1-raw-api]", {
+        id: row.id,
+        name: row.name,
+        thumbnail_url: row.thumbnail_url ?? null,
+        image_url: row.image_url ?? null,
+        preview_url: row.preview_url ?? null,
+        preview_state: row.preview_state,
+        is_catalog: row.is_catalog,
+        format: row.format,
+      });
+    }
   }
 
   return payload as MetaCreativesResponse;
@@ -352,16 +391,20 @@ export default function CreativesPage() {
 
   useEffect(() => {
     if (allRows.length === 0) return;
-    console.log("[creatives-page] mapped UI rows (first 5)", allRows.slice(0, 5).map((row) => ({
-      id: row.id,
-      name: row.name,
-      thumbnailUrl: row.thumbnailUrl ?? null,
-      imageUrl: row.imageUrl ?? null,
-      previewUrl: row.previewUrl ?? null,
-      previewState: row.previewState,
-      isCatalog: row.isCatalog,
-      format: row.format,
-    })));
+    const sample = allRows.slice(0, Math.max(0, 5 - mappedUiPreviewTraceCount));
+    for (const row of sample) {
+      mappedUiPreviewTraceCount += 1;
+      console.log("[preview-trace][stage-2-ui-mapping]", {
+        id: row.id,
+        name: row.name,
+        thumbnailUrl: row.thumbnailUrl ?? null,
+        imageUrl: row.imageUrl ?? null,
+        previewUrl: row.previewUrl ?? null,
+        previewState: row.previewState,
+        isCatalog: row.isCatalog,
+        format: row.format,
+      });
+    }
   }, [allRows]);
 
   const filteredRows = useMemo(() => {
