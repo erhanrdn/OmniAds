@@ -217,32 +217,45 @@ export default function GooglePage() {
   });
 
   const recommendationsQuery = useQuery({
-    queryKey: ["google-recommendations", businessId, insightsDateRange],
+    queryKey: ["google-recommendations", businessId, insightsDateRange, selectedAccountId],
     enabled: googleConnected && mainTab === "insights" && insightsTab === "recommendations",
-    queryFn: () => getGoogleRecommendations({ businessId, dateRange: insightsDateRange }),
+    queryFn: () => getGoogleRecommendations({
+      businessId,
+      dateRange: insightsDateRange,
+      accountId: selectedAccountId === "all" ? undefined : selectedAccountId,
+    }),
   });
 
   const searchTermsQuery = useQuery({
-    queryKey: ["google-search-terms", businessId, insightsDateRange, searchTermQuery],
+    queryKey: ["google-search-terms", businessId, insightsDateRange, searchTermQuery, selectedAccountId],
     enabled: googleConnected && mainTab === "insights" && insightsTab === "searchTerms",
     queryFn: () =>
       getGoogleSearchTerms({
         businessId,
         dateRange: insightsDateRange,
         search: searchTermQuery,
+        accountId: selectedAccountId === "all" ? undefined : selectedAccountId,
       }),
   });
 
   const productsQuery = useQuery({
-    queryKey: ["google-products", businessId, insightsDateRange],
+    queryKey: ["google-products", businessId, insightsDateRange, selectedAccountId],
     enabled: googleConnected && mainTab === "insights" && insightsTab === "products",
-    queryFn: () => getGoogleProducts({ businessId, dateRange: insightsDateRange }),
+    queryFn: () => getGoogleProducts({
+      businessId,
+      dateRange: insightsDateRange,
+      accountId: selectedAccountId === "all" ? undefined : selectedAccountId,
+    }),
   });
 
   const assetsQuery = useQuery({
-    queryKey: ["google-assets", businessId, insightsDateRange],
+    queryKey: ["google-assets", businessId, insightsDateRange, selectedAccountId],
     enabled: googleConnected && mainTab === "insights" && insightsTab === "assets",
-    queryFn: () => getGoogleAssets({ businessId, dateRange: insightsDateRange }),
+    queryFn: () => getGoogleAssets({
+      businessId,
+      dateRange: insightsDateRange,
+      accountId: selectedAccountId === "all" ? undefined : selectedAccountId,
+    }),
   });
 
   const shopifyProductsQuery = useQuery({
@@ -515,6 +528,22 @@ export default function GooglePage() {
       {mainTab === "insights" && (
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
+            <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Account
+            </label>
+            <select
+              value={selectedAccountId}
+              onChange={(event) => setSelectedAccountId(event.target.value)}
+              className="h-9 rounded-md border bg-background px-3 text-sm"
+            >
+              <option value="all">All enabled accounts</option>
+              {enabledAccounts.map((account) => (
+                <option key={account.accountId} value={account.accountId}>
+                  {account.name}
+                </option>
+              ))}
+            </select>
+
             <select
               value={insightsDateRange}
               onChange={(event) => setInsightsDateRange(event.target.value as DateRange)}

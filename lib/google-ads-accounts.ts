@@ -92,13 +92,10 @@ export async function fetchGoogleAdsAccounts(
     logLabel: "customers:listAccessibleCustomers",
   });
 
-  if (!listResult.ok || hasGoogleAdsError(listResult.payload)) {
-    const googleMessage = getGoogleAdsErrorMessage(listResult.payload);
-    console.error("[google-ads-accounts] accessible customers fetch failed", {
+  if (!listResult.ok) {
+    console.error("[google-ads-accounts] listAccessibleCustomers HTTP error", {
       status: listResult.status,
-      isJson: listResult.isJson,
-      googleMessage,
-      bodyExcerpt: listResult.bodyText.slice(0, 200),
+      statusText: listResult.bodyText.slice(0, 300),
     });
     return {
       ok: false,
@@ -107,9 +104,31 @@ export async function fetchGoogleAdsAccounts(
     };
   }
 
+  if (hasGoogleAdsError(listResult.payload)) {
+    const errorMsg = getGoogleAdsErrorMessage(listResult.payload);
+    console.error("[google-ads-accounts] listAccessibleCustomers API error", {
+      error: errorMsg,
+      payload: (listResult.payload as GoogleAdsErrorPayload).error,
+    });
+    return {
+      ok: false,
+      error: `${GOOGLE_ADS_FETCH_FAILED_MESSAGE} (${errorMsg})`,
+      customers: [],
+    };
+  }
+
   const resourceNames = readResourceNames(listResult.payload);
-  console.log("[google-ads-accounts] accessible customers response", {
+  
+  if (resourceNames.length === 0) {
+    console.warn("[google-ads-accounts] no accessible customers found", {
+      payload: listResult.payload,
+    });
+    return { ok: true, customers: [] };
+  }
+
+  console.log("[google-ads-accounts] listAccessibleCustomers success", {
     count: resourceNames.length,
+    resourceNames: resourceNames.slice(0, 5), // Log first 5 for debugging
   });
 
   const customerIds = resourceNames
@@ -117,8 +136,16 @@ export async function fetchGoogleAdsAccounts(
     .filter((id) => /^\d+$/.test(id));
 
   if (customerIds.length === 0) {
+    console.error("[google-ads-accounts] no valid customer IDs extracted", {
+      resourceNames,
+    });
     return { ok: true, customers: [] };
   }
+
+  console.log("[google-ads-accounts] extracted customer IDs", {
+    count: customerIds.length,
+    ids: customerIds.slice(0, 5),
+  });
 
   const detailResults = await Promise.all(
     customerIds.map((customerId) =>
@@ -143,9 +170,12 @@ export async function fetchGoogleAdsAccounts(
     );
   });
 
+  const successCount = detailResults.filter((item) => item !== null).length;
   console.log("[google-ads-accounts] customer detail fetch summary", {
     requested: customerIds.length,
-    succeeded: detailResults.filter((item) => item !== null).length,
+    succeeded: successCount,
+    failed: customerIds.length - successCount,
+    customers: customers.map((c) => ({ id: c.id, name: c.name })),
   });
 
   return { ok: true, customers };
@@ -173,19 +203,39 @@ async function fetchCustomerDetails({
     logLabel: `googleAds:search customer=${customerId}`,
   });
 
-  if (!result.ok || hasGoogleAdsError(result.payload)) {
-    console.warn("[google-ads-accounts] customer details fetch failed", {
+  if (!result.ok) {
+    console.error("[google-ads-accounts] customer details fetch HTTP error", {
       customerId,
       status: result.status,
-      isJson: result.isJson,
-      googleMessage: getGoogleAdsErrorMessage(result.payload),
-      bodyExcerpt: result.bodyText.slice(0, 180),
+      message: getGoogleAdsErrorMessage(result.payload),
+      bodyPreview: result.bodyText.slice(0, 300),
+    });
+    return null;
+  }
+
+  if (hasGoogleAdsError(result.payload)) {
+    console.error("[google-ads-accounts] customer details API error", {
+      customerId,
+      error: (result.payload as GoogleAdsErrorPayload).error,
+      bodyPreview: result.bodyText.slice(0, 300),
     });
     return null;
   }
 
   const customer = readCustomerFromSearchPayload(result.payload);
-  if (!customer) return null;
+  if (!customer) {
+    console.error("[google-ads-accounts] failed to parse customer response", {
+      customerId,
+      payloadKeys: Object.keys((result.payload as Record<string, unknown>) ?? {}),
+      bodyPreview: result.bodyText.slice(0, 300),
+    });
+    return null;
+  }
+
+  console.log("[google-ads-accounts] customer details fetched successfully", {
+    customerId,
+    name: customer.name,
+  });
 
   return {
     id: customer.id || customerId,
@@ -220,33 +270,59 @@ async function googleAdsRequest({
     headers["Content-Type"] = "application/json";
   }
 
-  const res = await fetch(url, {
-    method,
-    headers,
-    body: method === "POST" ? JSON.stringify(body ?? {}) : undefined,
-    cache: "no-store",
-  });
+  try {
+    const res = await fetch(url, {
+      method,
+      headers,
+      body: method === "POST" ? JSON.stringify(body ?? {}) : undefined,
+      cache: "no-store",
+    });
 
-  const bodyText = await res.text().catch(() => "");
-  const contentType = res.headers.get("content-type") ?? "";
-  const parsed = safeJsonParse(bodyText);
-  const isJson =
-    contentType.toLowerCase().includes("application/json") || parsed !== null;
+    const bodyText = await res.text().catch(() => "");
+    const contentType = res.headers.get("content-type") ?? "";
+    const parsed = safeJsonParse(bodyText);
+    const isJson =
+      contentType.toLowerCase().includes("application/json") || parsed !== null;
 
-  console.log("[google-ads-accounts] request", {
-    endpoint: logLabel,
-    method,
-    status: res.status,
-    isJson,
-  });
+    if (!res.ok) {
+      console.warn("[google-ads-accounts] HTTP error response", {
+        endpoint: logLabel,
+        method,
+        status: res.status,
+        statusText: res.statusText,
+        isJson,
+        responseBody: bodyText.slice(0, 500),
+      });
+    } else {
+      console.log("[google-ads-accounts] HTTP success", {
+        endpoint: logLabel,
+        method,
+        status: res.status,
+        isJson,
+      });
+    }
 
-  return {
-    ok: res.ok,
-    status: res.status,
-    isJson,
-    bodyText,
-    payload: parsed,
-  };
+    return {
+      ok: res.ok,
+      status: res.status,
+      isJson,
+      bodyText,
+      payload: parsed,
+    };
+  } catch (err) {
+    console.error("[google-ads-accounts] fetch error", {
+      endpoint: logLabel,
+      method,
+      error: (err as Error).message,
+    });
+    return {
+      ok: false,
+      status: 0,
+      isJson: false,
+      bodyText: (err as Error).message,
+      payload: null,
+    };
+  }
 }
 
 function safeJsonParse(value: string): unknown {
@@ -272,10 +348,41 @@ function getGoogleAdsErrorMessage(payload: unknown): string | null {
 }
 
 function readResourceNames(payload: unknown): string[] {
-  if (!payload || typeof payload !== "object") return [];
+  if (!payload || typeof payload !== "object") {
+    console.warn("[google-ads-accounts] response is not an object", {
+      type: typeof payload,
+      value: String(payload).slice(0, 100),
+    });
+    return [];
+  }
+
   const resourceNames = (payload as { resourceNames?: unknown }).resourceNames;
-  if (!Array.isArray(resourceNames)) return [];
-  return resourceNames.filter((item): item is string => typeof item === "string");
+  
+  if (!resourceNames) {
+    console.warn("[google-ads-accounts] resourceNames field missing from response", {
+      keys: Object.keys(payload),
+    });
+    return [];
+  }
+
+  if (!Array.isArray(resourceNames)) {
+    console.warn("[google-ads-accounts] resourceNames is not an array", {
+      type: typeof resourceNames,
+      value: String(resourceNames).slice(0, 100),
+    });
+    return [];
+  }
+
+  const filtered = resourceNames.filter((item): item is string => typeof item === "string");
+  
+  if (filtered.length !== resourceNames.length) {
+    console.warn("[google-ads-accounts] some resourceNames are not strings", {
+      total: resourceNames.length,
+      strings: filtered.length,
+    });
+  }
+
+  return filtered;
 }
 
 function readCustomerFromSearchPayload(payload: unknown): {
@@ -288,33 +395,50 @@ function readCustomerFromSearchPayload(payload: unknown): {
   if (!payload || typeof payload !== "object") return null;
 
   const results = (payload as { results?: unknown }).results;
-  if (!Array.isArray(results) || results.length === 0) return null;
-
-  const first = results[0] as { customer?: unknown };
-  if (!first || typeof first !== "object" || !first.customer || typeof first.customer !== "object") {
+  if (!Array.isArray(results) || results.length === 0) {
+    console.warn("[google-ads-accounts] response had no results", { payload });
     return null;
   }
 
-  const customer = first.customer as {
-    id?: string | number;
-    descriptiveName?: string;
-    currencyCode?: string;
-    timeZone?: string;
-    manager?: boolean;
-  };
+  const first = results[0] as { customer?: unknown };
+  if (!first || typeof first !== "object" || !first.customer || typeof first.customer !== "object") {
+    console.warn("[google-ads-accounts] response structure invalid", { first });
+    return null;
+  }
 
-  const id =
-    typeof customer.id === "number"
-      ? String(customer.id)
-      : typeof customer.id === "string"
-      ? customer.id
-      : "";
+  const customer = first.customer as Record<string, unknown>;
+
+  // Handle both snake_case and camelCase field names from API response
+  const id = String(customer.id ?? customer.ID ?? "");
+  const name = String(
+    customer.descriptiveName ||
+    customer.descriptive_name ||
+    customer.descriptive_name ||
+    customer.name ||
+    ""
+  );
+  const currency =
+    typeof customer.currencyCode === "string" || typeof customer.currency_code === "string"
+      ? (customer.currencyCode as string) || (customer.currency_code as string)
+      : null;
+  const timezone =
+    typeof customer.timeZone === "string" || typeof customer.time_zone === "string"
+      ? (customer.timeZone as string) || (customer.time_zone as string)
+      : null;
+  const isManager = customer.manager === true || customer.manager === "true";
+
+  if (!id) {
+    console.warn("[google-ads-accounts] customer ID not found in response", {
+      customer,
+    });
+    return null;
+  }
 
   return {
     id,
-    name: typeof customer.descriptiveName === "string" ? customer.descriptiveName : "",
-    currency: typeof customer.currencyCode === "string" ? customer.currencyCode : null,
-    timezone: typeof customer.timeZone === "string" ? customer.timeZone : null,
-    isManager: customer.manager === true,
+    name: name || id,
+    currency,
+    timezone,
+    isManager,
   };
 }

@@ -1002,6 +1002,18 @@ export async function getPlatformTable(
   dateRange: DateRange,
   metrics: Array<keyof MetricsRow>
 ): Promise<PlatformTableRow[]> {
+  // For Google Ads, fetch real data from API
+  if (platform === Platform.GOOGLE) {
+    return getGooglePlatformTable(
+      level,
+      businessId,
+      accountId,
+      dateRange,
+      metrics
+    );
+  }
+
+  // For other platforms, use mock data
   await wait(MOCK_DELAY_MS);
 
   void businessId;
@@ -1026,6 +1038,171 @@ export async function getPlatformTable(
       metrics: selectedMetrics,
     };
   });
+}
+
+/**
+ * Fetch Google Ads data from API and transform to PlatformTableRow format
+ */
+async function getGooglePlatformTable(
+  level: PlatformLevel,
+  businessId: string,
+  accountId: string | null,
+  dateRange: DateRange,
+  metrics: Array<keyof MetricsRow>
+): Promise<PlatformTableRow[]> {
+  const apiUrl = typeof window !== "undefined" 
+    ? `${window.location.origin}/api/google`
+    : "http://localhost:3000/api/google";
+
+  try {
+    let endpoint = "";
+    let transformRow: (data: any, acctId: string) => PlatformTableRow;
+
+    if (level === PlatformLevel.ACCOUNT) {
+      endpoint = "/accounts";
+      transformRow = (data: any, acctId: string) => ({
+        id: data.id,
+        name: data.name,
+        level: PlatformLevel.ACCOUNT,
+        status: data.status,
+        platform: Platform.GOOGLE,
+        accountId: data.accountId,
+        metrics: {
+          impressions: data.metrics.impressions || 0,
+          clicks: data.metrics.clicks || 0,
+          purchases: data.metrics.conversions || 0,
+          conversions: data.metrics.conversions || 0,
+          spend: data.metrics.spend || 0,
+          revenue: data.metrics.revenue || 0,
+          ctr: data.metrics.ctr || 0,
+          cpm: data.metrics.cpm || 0,
+          cpc: data.metrics.cpc || 0,
+          cpa: data.metrics.cpa || 0,
+          roas: data.metrics.roas || 0,
+        },
+      });
+    } else if (level === PlatformLevel.CAMPAIGN) {
+      endpoint = "/campaigns";
+      transformRow = (data: any, acctId: string) => ({
+        id: data.id,
+        name: data.name,
+        level: PlatformLevel.CAMPAIGN,
+        status: data.status,
+        platform: Platform.GOOGLE,
+        accountId: acctId,
+        metrics: {
+          impressions: data.metrics.impressions || 0,
+          clicks: data.metrics.clicks || 0,
+          purchases: data.metrics.conversions || 0,
+          conversions: data.metrics.conversions || 0,
+          spend: data.metrics.spend || 0,
+          revenue: data.metrics.revenue || 0,
+          ctr: data.metrics.ctr || 0,
+          cpm: data.metrics.cpm || 0,
+          cpc: data.metrics.cpc || 0,
+          cpa: data.metrics.cpa || 0,
+          roas: data.metrics.roas || 0,
+        },
+      });
+    } else if (level === PlatformLevel.AD_SET) {
+      endpoint = "/ad-groups";
+      transformRow = (data: any, acctId: string) => ({
+        id: data.id,
+        name: data.name,
+        level: PlatformLevel.AD_SET,
+        status: data.status,
+        platform: Platform.GOOGLE,
+        accountId: acctId,
+        metrics: {
+          impressions: data.metrics.impressions || 0,
+          clicks: data.metrics.clicks || 0,
+          purchases: data.metrics.conversions || 0,
+          conversions: data.metrics.conversions || 0,
+          spend: data.metrics.spend || 0,
+          revenue: data.metrics.revenue || 0,
+          ctr: data.metrics.ctr || 0,
+          cpm: data.metrics.cpm || 0,
+          cpc: data.metrics.cpc || 0,
+          cpa: data.metrics.cpa || 0,
+          roas: data.metrics.roas || 0,
+        },
+      });
+    } else if (level === PlatformLevel.AD) {
+      endpoint = "/ads";
+      transformRow = (data: any, acctId: string) => ({
+        id: data.id,
+        name: data.name,
+        level: PlatformLevel.AD,
+        status: data.status,
+        platform: Platform.GOOGLE,
+        accountId: acctId,
+        metrics: {
+          impressions: data.metrics.impressions || 0,
+          clicks: data.metrics.clicks || 0,
+          purchases: data.metrics.conversions || 0,
+          conversions: data.metrics.conversions || 0,
+          spend: data.metrics.spend || 0,
+          revenue: data.metrics.revenue || 0,
+          ctr: data.metrics.ctr || 0,
+          cpm: data.metrics.cpm || 0,
+          cpc: data.metrics.cpc || 0,
+          cpa: data.metrics.cpa || 0,
+          roas: data.metrics.roas || 0,
+        },
+      });
+    } else {
+      // Unsupported level for Google Ads
+      return [];
+    }
+
+    const url = new URL(apiUrl + endpoint);
+    url.searchParams.set("businessId", businessId);
+    
+    // Determine date range parameter
+    const dateParam = dateRange.startDate === dateRange.endDate 
+      ? "30" 
+      : Math.ceil(
+          (new Date(dateRange.endDate).getTime() - new Date(dateRange.startDate).getTime()) /
+          (1000 * 60 * 60 * 24)
+        ).toString();
+    url.searchParams.set("dateRange", dateParam);
+    
+    if (accountId && accountId !== "all") {
+      url.searchParams.set("accountId", accountId);
+    }
+
+    const response = await fetch(url.toString());
+    if (!response.ok) {
+      console.error(`Failed to fetch Google Ads ${level} data:`, response.statusText);
+      return [];
+    }
+
+    const data = await response.json();
+    const rows = data.data || [];
+
+    // Determine which account ID to use (for data without explicit accountId)
+    const rowAccountId = accountId && accountId !== "all" ? accountId : "all";
+
+    // Transform rows and filter by requested metrics
+    return rows.map((row: any) => {
+      const transformed = transformRow(row, rowAccountId);
+      const selectedMetrics = metrics.reduce<Partial<MetricsRow>>((acc, key) => {
+        const value = transformed.metrics[key];
+        if (typeof value !== "undefined") {
+          acc[key] = value;
+        }
+        return acc;
+      }, {});
+
+      return {
+        ...transformed,
+        metrics: selectedMetrics,
+      };
+    });
+  } catch (error) {
+    console.error("[getPlatformTable] Error fetching Google Ads data:", error);
+    return [];
+  }
 }
 
 export async function getCreatives(
