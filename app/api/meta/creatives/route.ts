@@ -211,6 +211,11 @@ interface MetaAdRecord {
   } | null;
 }
 
+interface MetaAdCreativeMediaOnlyRecord {
+  id?: string;
+  creative?: MetaAdRecord["creative"];
+}
+
 interface MetaAccountMeta {
   id: string;
   name: string | null;
@@ -1296,6 +1301,70 @@ async function fetchCreativeDetailsMap(
   return map;
 }
 
+async function fetchAdCreativeMediaByAdIds(
+  adIds: string[],
+  accessToken: string
+): Promise<Map<string, MetaAdCreativeMediaOnlyRecord>> {
+  const map = new Map<string, MetaAdCreativeMediaOnlyRecord>();
+  const uniqueIds = Array.from(new Set(adIds.filter((id) => id.trim().length > 0)));
+  if (uniqueIds.length === 0) return map;
+
+  const fields = [
+    "id",
+    [
+      "creative{",
+      "id,name,object_type,effective_object_story_id,thumbnail_url,image_url,",
+      "object_story_spec{link_data{picture,image_hash,child_attachments{picture,image_url,image_hash}},video_data{image_url,thumbnail_url},photo_data{image_url},template_data},",
+      "asset_feed_spec{catalog_id,product_set_id,images{url,image_url,original_url,hash,image_hash},videos{thumbnail_url,image_url}}",
+      "}",
+    ].join(""),
+  ].join(",");
+
+  const chunkSize = 40;
+  for (let i = 0; i < uniqueIds.length; i += chunkSize) {
+    const idsChunk = uniqueIds.slice(i, i + chunkSize);
+    const url = new URL("https://graph.facebook.com/v25.0/");
+    url.searchParams.set("ids", idsChunk.join(","));
+    url.searchParams.set("fields", fields);
+    url.searchParams.set("thumbnail_width", "150");
+    url.searchParams.set("thumbnail_height", "150");
+    url.searchParams.set("access_token", accessToken);
+
+    try {
+      const res = await fetch(url.toString(), {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        const raw = await res.text().catch(() => "");
+        console.warn("[meta-creatives] ad creative media fallback non-ok", {
+          status: res.status,
+          chunk: i,
+          count: idsChunk.length,
+          raw: raw.slice(0, 300),
+        });
+        continue;
+      }
+
+      const payload = (await res.json().catch(() => null)) as Record<string, MetaAdCreativeMediaOnlyRecord> | null;
+      if (!payload || typeof payload !== "object") continue;
+
+      for (const [adId, ad] of Object.entries(payload)) {
+        if (!ad || typeof ad !== "object") continue;
+        map.set(adId, { ...ad, id: ad.id ?? adId });
+      }
+    } catch (e: unknown) {
+      console.warn("[meta-creatives] ad creative media fallback threw", {
+        chunk: i,
+        message: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+
+  return map;
+}
+
 async function toRawRow(
   insight: MetaInsightRecord,
   ad: MetaAdRecord | undefined,
@@ -1820,6 +1889,53 @@ export async function GET(request: NextRequest) {
   const missingPreviewAdIds = rawRows
     .filter((row) => !row.preview_url && row.id && !row.id.startsWith("creative_") && !row.id.startsWith("adset_"))
     .map((row) => row.id);
+
+  const rowsMissingAllMedia = rawRows
+    .filter(
+      (row) =>
+        !row.thumbnail_url &&
+        !row.image_url &&
+        !row.preview_url &&
+        row.id &&
+        !row.id.startsWith("creative_") &&
+        !row.id.startsWith("adset_")
+    )
+    .map((row) => row.id);
+
+  if (rowsMissingAllMedia.length > 0) {
+    const mediaFallbackMap = await fetchAdCreativeMediaByAdIds(rowsMissingAllMedia, integration.access_token);
+    for (const row of rawRows) {
+      if (row.thumbnail_url || row.image_url || row.preview_url) continue;
+      const fallbackAd = mediaFallbackMap.get(row.id);
+      const fallbackCreative = fallbackAd?.creative ?? null;
+      if (!fallbackCreative) continue;
+
+      const collected = collectPreviewCandidates(fallbackCreative, new Map<string, string>(), null);
+      const candidate1 = collected.candidates[0]?.url ?? null;
+      const candidate2 = collected.candidates[1]?.url ?? candidate1;
+      const creativeThumb = normalizeMediaUrl(fallbackCreative.thumbnail_url);
+      const creativeImage = normalizeMediaUrl(fallbackCreative.image_url);
+      const chosenThumb = creativeThumb ?? candidate1;
+      const chosenImage = creativeImage ?? candidate2;
+      const chosenPreview = chosenThumb ?? chosenImage;
+      if (!chosenPreview) continue;
+
+      row.thumbnail_url = chosenThumb;
+      row.image_url = chosenImage;
+      row.preview_url = chosenPreview;
+      row.preview_state = "preview";
+      if (!row.preview.image_url && !row.preview.poster_url) {
+        row.preview = {
+          ...row.preview,
+          render_mode: "image",
+          image_url: chosenImage ?? chosenPreview,
+          poster_url: chosenThumb ?? chosenPreview,
+          source: row.preview.source ?? "image_url",
+        };
+      }
+    }
+  }
+
   const adPreviewDebugMap = await fetchAdPreviewDebugMap(missingPreviewAdIds, integration.access_token);
   if (adPreviewDebugMap.size > 0) {
     for (const row of rawRows) {
