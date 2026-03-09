@@ -77,6 +77,7 @@ interface PreviewAuditSample {
   direct: {
     thumbnail_url: string | null;
     image_url: string | null;
+    image_hash: string | null;
   };
   object_story_spec: {
     video_data_thumbnail_url: string | null;
@@ -184,8 +185,10 @@ interface MetaAdRecord {
     name?: string;
     object_type?: string | null;
     effective_object_story_id?: string | null;
+    thumbnail_id?: string | null;
     thumbnail_url?: string | null;
     image_url?: string | null;
+    image_hash?: string | null;
     object_story_spec?: {
       link_data?: {
         picture?: string | null;
@@ -525,6 +528,7 @@ function extractImageHashesFromCreative(creative: MetaAdRecord["creative"]): str
     hashes.add(trimmed.toLowerCase());
   };
 
+  addHash(creative?.image_hash);
   addHash(creative?.object_story_spec?.link_data?.image_hash);
   for (const attachment of creative?.object_story_spec?.link_data?.child_attachments ?? []) {
     addHash(attachment?.image_hash);
@@ -966,8 +970,10 @@ function mergeCreativeData(
     ...baseCreative,
     ...detailCreative,
     // Keep whichever source has a non-null media URL.
+    thumbnail_id: detailCreative.thumbnail_id ?? baseCreative.thumbnail_id ?? null,
     thumbnail_url: detailCreative.thumbnail_url ?? baseCreative.thumbnail_url ?? null,
     image_url: detailCreative.image_url ?? baseCreative.image_url ?? null,
+    image_hash: detailCreative.image_hash ?? baseCreative.image_hash ?? null,
     object_story_spec: detailCreative.object_story_spec ?? baseCreative.object_story_spec ?? null,
     asset_feed_spec: detailCreative.asset_feed_spec ?? baseCreative.asset_feed_spec ?? null,
   };
@@ -1159,7 +1165,7 @@ async function fetchAccountAdsMap(
           "created_time",
           [
             "creative{",
-            "id,name,object_type,effective_object_story_id,thumbnail_url,image_url,",
+            "id,name,object_type,effective_object_story_id,thumbnail_id,thumbnail_url,image_url,image_hash,",
             "object_story_spec{link_data{picture,image_hash,child_attachments{picture,image_url,image_hash}},video_data{image_url,thumbnail_url},photo_data{image_url},template_data},",
             "asset_feed_spec{catalog_id,product_set_id,images{url,image_url,original_url,hash,image_hash},videos{thumbnail_url,image_url}}",
             "}",
@@ -1229,7 +1235,7 @@ async function batchFetchAdsByIds(
     "created_time",
     [
       "creative{",
-      "id,name,object_type,effective_object_story_id,thumbnail_url,image_url,",
+      "id,name,object_type,effective_object_story_id,thumbnail_id,thumbnail_url,image_url,image_hash,",
       "object_story_spec{link_data{picture,image_hash,child_attachments{picture,image_url,image_hash}},video_data{image_url,thumbnail_url},photo_data{image_url},template_data},",
       "asset_feed_spec{catalog_id,product_set_id,images{url,image_url,original_url,hash,image_hash},videos{thumbnail_url,image_url}}",
       "}",
@@ -1291,8 +1297,10 @@ async function fetchCreativeDetailsMap(
     "name",
     "object_type",
     "effective_object_story_id",
+    "thumbnail_id",
     "thumbnail_url",
     "image_url",
+    "image_hash",
     "object_story_spec{link_data{picture,image_hash,child_attachments{picture,image_url,image_hash}},video_data{image_url,thumbnail_url},photo_data{image_url},template_data}",
     "asset_feed_spec{catalog_id,product_set_id,images{url,image_url,original_url,hash,image_hash},videos{thumbnail_url,image_url}}",
   ].join(",");
@@ -1354,7 +1362,7 @@ async function fetchAdCreativeMediaByAdIds(
     "id",
     [
       "creative{",
-      "id,name,object_type,effective_object_story_id,thumbnail_url,image_url,",
+      "id,name,object_type,effective_object_story_id,thumbnail_id,thumbnail_url,image_url,image_hash,",
       "object_story_spec{link_data{picture,image_hash,child_attachments{picture,image_url,image_hash}},video_data{image_url,thumbnail_url},photo_data{image_url},template_data},",
       "asset_feed_spec{catalog_id,product_set_id,images{url,image_url,original_url,hash,image_hash},videos{thumbnail_url,image_url}}",
       "}",
@@ -1863,6 +1871,7 @@ export async function GET(request: NextRequest) {
               direct: {
                 thumbnail_url: normalizeMediaUrl(creative?.thumbnail_url),
                 image_url: normalizeMediaUrl(creative?.image_url),
+                image_hash: typeof creative?.image_hash === "string" ? creative.image_hash : null,
               },
               object_story_spec: {
                 video_data_thumbnail_url: normalizeMediaUrl(creative?.object_story_spec?.video_data?.thumbnail_url),
