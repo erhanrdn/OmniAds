@@ -45,6 +45,10 @@ export const GOOGLE_CONFIG = {
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/userinfo.profile",
   ],
-  /** Google Ads REST API base (v17) */
-  adsApiBase: "https://googleads.googleapis.com/v17",
+  /** Google Ads REST API base (env override, defaults to v22) */
+  get adsApiBase() {
+    const rawVersion = (process.env.GOOGLE_ADS_API_VERSION ?? "v22").trim();
+    const version = rawVersion.startsWith("v") ? rawVersion : `v${rawVersion}`;
+    return `https://googleads.googleapis.com/${version}`;
+  },
 } as const;

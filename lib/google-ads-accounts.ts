@@ -129,6 +129,7 @@ export async function fetchGoogleAdsAccounts(
         customerId,
         accessToken,
         developerToken,
+        loginCustomerIds: customerIds,
       }),
     ),
   );
@@ -158,47 +159,79 @@ async function fetchCustomerDetails({
   customerId,
   accessToken,
   developerToken,
+  loginCustomerIds,
 }: {
   customerId: string;
   accessToken: string;
   developerToken: string;
+  loginCustomerIds: string[];
 }): Promise<GoogleAdsCustomerNormalized | null> {
+  // Try the direct customer endpoint first.
+  const customerResourceResult = await googleAdsRequest({
+    url: `${GOOGLE_CONFIG.adsApiBase}/customers/${customerId}`,
+    method: "GET",
+    accessToken,
+    developerToken,
+    logLabel: `customers.get customer=${customerId}`,
+  });
+
+  if (customerResourceResult.ok && !hasGoogleAdsError(customerResourceResult.payload)) {
+    const fromResource = readCustomerFromResourcePayload(customerResourceResult.payload);
+    if (fromResource) {
+      return {
+        id: fromResource.id || customerId,
+        name: fromResource.name || fromResource.id || customerId,
+        currency: fromResource.currency,
+        timezone: fromResource.timezone,
+        isManager: fromResource.isManager,
+      };
+    }
+  }
+
+  // Fallback to GAQL search, trying optional login-customer-id combinations.
   const searchUrl = `${GOOGLE_CONFIG.adsApiBase}/customers/${customerId}/googleAds:search`;
   const query =
     "SELECT customer.id, customer.descriptive_name, customer.currency_code, customer.time_zone, customer.manager FROM customer";
+  const loginHeaderCandidates = Array.from(new Set([customerId, ...loginCustomerIds])).slice(0, 25);
 
-  const result = await googleAdsRequest({
-    url: searchUrl,
-    method: "POST",
-    accessToken,
-    developerToken,
-    body: { query },
-    logLabel: `googleAds:search customer=${customerId}`,
-  });
-
-  if (!result.ok || hasGoogleAdsError(result.payload)) {
-    console.warn("[google-ads-accounts] customer detail request failed", {
-      customerId,
-      status: result.status,
-      isJson: result.isJson,
-      apiMessage: getGoogleAdsErrorMessage(result.payload),
-      bodyExcerpt: result.bodyText.slice(0, 200),
+  for (const loginCustomerId of [undefined, ...loginHeaderCandidates]) {
+    const result = await googleAdsRequest({
+      url: searchUrl,
+      method: "POST",
+      accessToken,
+      developerToken,
+      body: { query },
+      extraHeaders: loginCustomerId
+        ? { "login-customer-id": loginCustomerId }
+        : undefined,
+      logLabel: `googleAds:search customer=${customerId}${loginCustomerId ? ` login=${loginCustomerId}` : ""}`,
     });
-    return null;
-  }
 
-  const customer = readCustomerFromSearchPayload(result.payload);
-  if (!customer) {
-    return null;
-  }
+    if (!result.ok || hasGoogleAdsError(result.payload)) {
+      console.warn("[google-ads-accounts] customer detail request failed", {
+        customerId,
+        loginCustomerId: loginCustomerId ?? null,
+        status: result.status,
+        isJson: result.isJson,
+        apiMessage: getGoogleAdsErrorMessage(result.payload),
+        bodyExcerpt: result.bodyText.slice(0, 200),
+      });
+      continue;
+    }
 
-  return {
-    id: customer.id || customerId,
-    name: customer.name || customer.id || customerId,
-    currency: customer.currency,
-    timezone: customer.timezone,
-    isManager: customer.isManager,
+    const customer = readCustomerFromSearchPayload(result.payload);
+    if (!customer) continue;
+
+    return {
+      id: customer.id || customerId,
+      name: customer.name || customer.id || customerId,
+      currency: customer.currency,
+      timezone: customer.timezone,
+      isManager: customer.isManager,
+    };
   };
+
+  return null;
 }
 
 async function googleAdsRequest({
@@ -207,6 +240,7 @@ async function googleAdsRequest({
   accessToken,
   developerToken,
   body,
+  extraHeaders,
   logLabel,
 }: {
   url: string;
@@ -214,12 +248,14 @@ async function googleAdsRequest({
   accessToken: string;
   developerToken: string;
   body?: unknown;
+  extraHeaders?: Record<string, string> | undefined;
   logLabel: string;
 }): Promise<GoogleAdsHttpResult> {
   const headers: Record<string, string> = {
     Authorization: `Bearer ${accessToken}`,
     "developer-token": developerToken,
     Accept: "application/json",
+    ...(extraHeaders ?? {}),
   };
 
   if (method === "POST") {
@@ -321,8 +357,11 @@ function readCustomerFromSearchPayload(payload: unknown): {
   const customer = first.customer as {
     id?: string | number;
     descriptiveName?: string;
+    descriptive_name?: string;
     currencyCode?: string;
+    currency_code?: string;
     timeZone?: string;
+    time_zone?: string;
     manager?: boolean;
   };
 
@@ -338,10 +377,72 @@ function readCustomerFromSearchPayload(payload: unknown): {
     name:
       typeof customer.descriptiveName === "string"
         ? customer.descriptiveName
+        : typeof customer.descriptive_name === "string"
+        ? customer.descriptive_name
         : "",
     currency:
-      typeof customer.currencyCode === "string" ? customer.currencyCode : null,
-    timezone: typeof customer.timeZone === "string" ? customer.timeZone : null,
+      typeof customer.currencyCode === "string"
+        ? customer.currencyCode
+        : typeof customer.currency_code === "string"
+        ? customer.currency_code
+        : null,
+    timezone:
+      typeof customer.timeZone === "string"
+        ? customer.timeZone
+        : typeof customer.time_zone === "string"
+        ? customer.time_zone
+        : null,
+    isManager: customer.manager === true,
+  };
+}
+
+function readCustomerFromResourcePayload(payload: unknown): {
+  id: string;
+  name: string;
+  currency: string | null;
+  timezone: string | null;
+  isManager: boolean;
+} | null {
+  if (!payload || typeof payload !== "object") return null;
+  const customer = payload as {
+    id?: string | number;
+    descriptiveName?: string;
+    descriptive_name?: string;
+    currencyCode?: string;
+    currency_code?: string;
+    timeZone?: string;
+    time_zone?: string;
+    manager?: boolean;
+  };
+
+  const id =
+    typeof customer.id === "number"
+      ? String(customer.id)
+      : typeof customer.id === "string"
+      ? customer.id
+      : "";
+  if (!id) return null;
+
+  return {
+    id,
+    name:
+      typeof customer.descriptiveName === "string"
+        ? customer.descriptiveName
+        : typeof customer.descriptive_name === "string"
+        ? customer.descriptive_name
+        : "",
+    currency:
+      typeof customer.currencyCode === "string"
+        ? customer.currencyCode
+        : typeof customer.currency_code === "string"
+        ? customer.currency_code
+        : null,
+    timezone:
+      typeof customer.timeZone === "string"
+        ? customer.timeZone
+        : typeof customer.time_zone === "string"
+        ? customer.time_zone
+        : null,
     isManager: customer.manager === true,
   };
 }
