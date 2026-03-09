@@ -93,16 +93,22 @@ export function CreativesMotionTable({
                     density === "compact" ? "py-1.5" : "py-2.5"
                   }`}
                 >
-                  <CompactCreativeThumb
-                    id={row.id}
-                    name={row.name}
-                    thumbnailUrl={row.thumbnailUrl}
-                    imageUrl={row.imageUrl}
-                    previewUrl={row.previewUrl}
-                    format={row.format}
-                    isCatalog={row.isCatalog}
-                  />
-                  <span className="line-clamp-2">{row.name}</span>
+                  <div className="flex items-center gap-2.5">
+                    <CompactCreativeThumb
+                      id={row.id}
+                      name={row.name}
+                      thumbnailUrl={row.thumbnailUrl}
+                      imageUrl={row.imageUrl}
+                      previewUrl={row.previewUrl}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="line-clamp-1 text-[12px] font-medium leading-tight">{row.name}</p>
+                      <p className="mt-0.5 text-[11px] text-muted-foreground">
+                        {row.isCatalog ? "Catalog" : row.format === "video" ? "Video" : "Feed"}
+                        {row.associatedAdsCount > 1 && <span className="ml-1 opacity-60">• {row.associatedAdsCount} ads</span>}
+                      </p>
+                    </div>
+                  </div>
                 </td>
                 <td className={`border-b px-3 ${density === "compact" ? "py-1.5" : "py-2.5"}`}>
                   {row.launchDate}
@@ -160,16 +166,12 @@ function CompactCreativeThumb({
   thumbnailUrl,
   imageUrl,
   previewUrl,
-  format,
-  isCatalog,
 }: {
   id: string;
   name: string;
   thumbnailUrl?: string | null;
   imageUrl?: string | null;
   previewUrl?: string | null;
-  format?: string | null;
-  isCatalog?: boolean;
 }) {
   const sources = [thumbnailUrl, imageUrl, previewUrl]
     .map(normalizeCompactThumbSrc)
@@ -182,23 +184,19 @@ function CompactCreativeThumb({
   }, [id, thumbnailUrl, imageUrl, previewUrl]);
 
   const activeSource = sources[sourceIndex] ?? null;
-  const badgeLabel = isCatalog ? "Catalog" : format === "video" ? "Video" : "Feed";
 
   if (!activeSource) {
     return (
-      <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded bg-muted/40">
-        <div className="flex h-full w-full items-center justify-center text-[8px] text-muted-foreground">
-          Preview unavailable
-        </div>
-        <div className="absolute bottom-1 left-1 rounded-full bg-black/60 px-1.5 py-0.5 text-[8px] text-white">
-          {badgeLabel}
+      <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-md bg-muted/40">
+        <div className="flex h-full w-full items-center justify-center text-[7px] text-muted-foreground">
+          N/A
         </div>
       </div>
     );
   }
 
   return (
-    <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded bg-muted/20">
+    <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-md bg-muted/20">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={activeSource}
@@ -212,9 +210,6 @@ function CompactCreativeThumb({
           }
         }}
       />
-      <div className="absolute bottom-1 left-1 rounded-full bg-black/60 px-1.5 py-0.5 text-[8px] text-white">
-        {badgeLabel}
-      </div>
     </div>
   );
 }

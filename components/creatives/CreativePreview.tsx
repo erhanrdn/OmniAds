@@ -1,6 +1,5 @@
 "use client";
 
-import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { useEffect, useMemo, useState } from "react";
 
@@ -106,9 +105,9 @@ export function CreativePreview({
           }
         }}
       />
-      <Badge variant="secondary" className="absolute bottom-1 left-1 text-[10px] opacity-90">
+      <span className="absolute bottom-1.5 left-1.5 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
         {badgeLabel}
-      </Badge>
+      </span>
     </div>
   );
 }

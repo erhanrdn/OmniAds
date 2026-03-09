@@ -1318,12 +1318,13 @@ export function MotionCreativesTableSection({
                   className={cn("cursor-pointer", highlightedRowId === row.id && "bg-emerald-500/10")}
                 >
                 <td className="sticky left-0 z-10 border-b border-r bg-background px-2.5 py-1.5">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2.5">
                     <input
                       type="checkbox"
                       checked={selectedRowIds.includes(row.id)}
                       onChange={() => onToggleRow(row.id)}
                       onClick={(event) => event.stopPropagation()}
+                      className="shrink-0"
                     />
 
                     <CreativeRenderSurface
@@ -1331,13 +1332,14 @@ export function MotionCreativesTableSection({
                       name={row.name}
                       preview={row.preview}
                       size="thumb"
-                      className="h-[30px] w-[30px] rounded"
+                      className="h-9 w-9 shrink-0 rounded-md"
                     />
 
-                    <div className="min-w-0">
-                      <p className="truncate text-[12px] font-medium">{row.name}</p>
-                      <p className="text-[11px] text-[#9CA3AF]">
-                        {row.creativeTypeLabel} • {row.associatedAdsCount <= 1 ? "1 ad" : `${row.associatedAdsCount} ads`}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[12px] font-medium leading-tight">{row.name}</p>
+                      <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                        {row.creativeTypeLabel}
+                        {row.associatedAdsCount > 1 && <span className="ml-1 opacity-60">• {row.associatedAdsCount} ads</span>}
                       </p>
                     </div>
                   </div>

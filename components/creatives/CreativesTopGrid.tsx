@@ -24,7 +24,10 @@ export function CreativesTopGrid({
       </div>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {rows.map((row) => (
-          <div key={row.id} className="overflow-hidden rounded-xl border bg-card">
+          <div
+            key={row.id}
+            className="group overflow-hidden rounded-xl border bg-background transition-shadow hover:shadow-md hover:ring-1 hover:ring-border"
+          >
             <button type="button" onClick={() => onOpenRow(row.id)} className="w-full text-left">
               <CreativePreview
                 id={row.id}
@@ -36,21 +39,21 @@ export function CreativesTopGrid({
                 isCatalog={row.isCatalog}
                 size="card"
               />
-              <div className="p-3">
-                <p className="line-clamp-1 text-sm font-medium">{row.name}</p>
-                <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+              <div className="px-3 pb-3 pt-2">
+                <p className="line-clamp-2 text-[12px] font-semibold leading-tight">{row.name}</p>
+                <div className="mt-2 flex items-center gap-4 text-[11px]">
                   <div>
                     <p className="text-muted-foreground">Spend</p>
-                    <p>{METRIC_CONFIG.spend.format(row.spend)}</p>
+                    <p className="font-semibold tabular-nums">{METRIC_CONFIG.spend.format(row.spend)}</p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">ROAS</p>
-                    <p>{METRIC_CONFIG.roas.format(row.roas)}</p>
+                    <p className="font-semibold tabular-nums">{METRIC_CONFIG.roas.format(row.roas)}</p>
                   </div>
                 </div>
               </div>
             </button>
-            <label className="flex items-center justify-between border-t px-3 py-2 text-xs">
+            <label className="flex items-center justify-between border-t px-3 py-1.5 text-[11px] text-muted-foreground">
               <span>Selected</span>
               <input
                 type="checkbox"

@@ -1078,52 +1078,52 @@ function PreviewStrip({
 
   return (
     <div className="overflow-x-auto pb-1">
-      <div className="flex min-w-max gap-2.5">
+      <div className="flex min-w-max gap-3">
         {rows.map((row) => {
           return (
             <button
               key={row.id}
               type="button"
               onClick={() => onOpenRow(row.id)}
-              className="w-[182px] shrink-0 overflow-hidden rounded-lg border bg-muted/10 text-left"
+              className="group w-[190px] shrink-0 overflow-hidden rounded-xl border bg-background text-left transition-shadow hover:shadow-md hover:ring-1 hover:ring-border"
             >
-              <div className="relative aspect-square w-full overflow-hidden bg-muted/30">
-                <CreativeRenderSurface id={row.id} name={row.name} preview={row.preview} size="card" />
-                <span className="absolute bottom-2 left-2 rounded-md bg-black/50 px-2 py-0.5 text-[10px] text-white">
+              <div className="relative aspect-[4/5] w-full overflow-hidden bg-muted/20">
+                <CreativeRenderSurface id={row.id} name={row.name} preview={row.preview} size="card" className="aspect-[4/5] w-full" />
+                <span className="absolute bottom-1.5 left-1.5 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
                   {row.creativeTypeLabel}
                 </span>
               </div>
 
-            <div className="space-y-2 p-2.5">
-              <p className="line-clamp-2 text-xs font-medium leading-4">{row.name}</p>
-              <div className="space-y-1">
-                {metrics.map((metric) => {
-                  const value = metric.getValue(row, context);
-                  const range = extremes[metric.id] ?? { min: value, max: value };
-                  const heat =
-                    metric.direction === "neutral"
-                      ? "rgba(148, 163, 184, 0.15)"
-                      : withIntensity(getHeatColor(metric.direction, value, range.min, range.max), 0.8);
+              <div className="px-3 pb-3 pt-2.5">
+                <p className="line-clamp-2 text-[12px] font-semibold leading-4">{row.name}</p>
+                <div className="mt-2 space-y-0.5">
+                  {metrics.map((metric) => {
+                    const value = metric.getValue(row, context);
+                    const range = extremes[metric.id] ?? { min: value, max: value };
+                    const heat =
+                      metric.direction === "neutral"
+                        ? "rgba(148, 163, 184, 0.12)"
+                        : withIntensity(getHeatColor(metric.direction, value, range.min, range.max), 0.8);
 
-                  return (
-                    <div key={metric.id} className="flex items-center justify-between gap-2 text-[11px]">
-                      <p className="truncate text-muted-foreground">{metric.label}</p>
-                      <span
-                        className="rounded-full px-1.5 py-0.5 font-semibold"
-                        style={{ backgroundColor: heat }}
-                      >
-                        {metric.format(
-                          value,
-                          resolveCreativeCurrency(row.currency, defaultCurrency),
-                          defaultCurrency
-                        )}
-                      </span>
-                    </div>
-                  );
-                })}
+                    return (
+                      <div key={metric.id} className="flex items-center justify-between gap-2 text-[11px]">
+                        <p className="truncate text-muted-foreground">{metric.label}</p>
+                        <span
+                          className="rounded-full px-1.5 py-0.5 font-semibold tabular-nums"
+                          style={{ backgroundColor: heat }}
+                        >
+                          {metric.format(
+                            value,
+                            resolveCreativeCurrency(row.currency, defaultCurrency),
+                            defaultCurrency
+                          )}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          </button>
+            </button>
           );
         })}
       </div>
