@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { Copy, CalendarRange, Rows3 } from "lucide-react";
-import { CreativePreview } from "@/components/creatives/CreativePreview";
+import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
 import {
   buildShareDistributions,
   buildShareTableCalcContext,
@@ -140,17 +140,7 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
             <div className="flex min-w-max gap-2.5">
               {displayRows.map((creative) => (
                 <article key={creative.id} className="w-[190px] shrink-0 overflow-hidden rounded-lg border border-[#E5E7EB] bg-white">
-                  <CreativePreview
-                    id={creative.id}
-                    name={creative.name}
-                    isCatalog={creative.isCatalog}
-                    previewState={creative.previewState}
-                    previewUrl={creative.previewUrl}
-                    thumbnailUrl={creative.thumbnailUrl}
-                    imageUrl={creative.imageUrl}
-                    kind={creative.preview?.kind ?? creative.format}
-                    size="card"
-                  />
+                  <CreativeRenderSurface id={creative.id} name={creative.name} preview={creative.preview} size="card" />
                   <div className="space-y-1 px-2.5 py-2">
                     <div className="flex items-center justify-between gap-2">
                       <p className="line-clamp-1 text-[12px] font-medium text-[#111827]">{creative.name}</p>
@@ -191,15 +181,10 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
                   <tr key={`table_${creative.id}`} className="border-b border-[#F0F2F5]">
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-2">
-                        <CreativePreview
+                        <CreativeRenderSurface
                           id={creative.id}
                           name={creative.name}
-                          isCatalog={creative.isCatalog}
-                          previewState={creative.previewState}
-                          previewUrl={creative.previewUrl}
-                          thumbnailUrl={creative.thumbnailUrl}
-                          imageUrl={creative.imageUrl}
-                          kind={creative.preview?.kind ?? creative.format}
+                          preview={creative.preview}
                           size="large"
                           className="h-8 w-14 rounded"
                         />

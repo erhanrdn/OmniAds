@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Trophy, ChevronDown, X, Search, Plus, SlidersHorizontal, LayoutGrid, Ellipsis, Check, Copy, FileDown, Link2 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { MetaCreativeRow } from "@/components/creatives/metricConfig";
-import { CreativePreview } from "@/components/creatives/CreativePreview";
+import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
 import { formatMoney, resolveCreativeCurrency } from "@/components/creatives/money";
 import { cn } from "@/lib/utils";
 import { useDropdownBehavior } from "@/hooks/use-dropdown-behavior";
@@ -1088,17 +1088,7 @@ function PreviewStrip({
               className="w-[182px] shrink-0 overflow-hidden rounded-lg border bg-muted/10 text-left"
             >
               <div className="relative aspect-square w-full overflow-hidden bg-muted/30">
-                <CreativePreview
-                  id={row.id}
-                  name={row.name}
-                  isCatalog={row.isCatalog}
-                  previewState={row.previewState}
-                  previewUrl={row.previewUrl}
-                  thumbnailUrl={row.thumbnailUrl}
-                  imageUrl={row.imageUrl}
-                  kind={row.preview?.kind ?? row.format}
-                  size="card"
-                />
+                <CreativeRenderSurface id={row.id} name={row.name} preview={row.preview} size="card" />
                 <span className="absolute bottom-2 left-2 rounded-md bg-black/50 px-2 py-0.5 text-[10px] text-white">
                   {row.creativeTypeLabel}
                 </span>

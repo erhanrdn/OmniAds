@@ -17,7 +17,7 @@ import {
   X,
 } from "lucide-react";
 import { MetaAiTagKey, MetaCreativeRow } from "@/components/creatives/metricConfig";
-import { CreativePreview } from "@/components/creatives/CreativePreview";
+import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
 import { getAiTagPillStyles } from "@/components/creatives/aiTagPillStyles";
 import { formatMoney, resolveCreativeCurrency } from "@/components/creatives/money";
 import { cn } from "@/lib/utils";
@@ -1326,15 +1326,10 @@ export function MotionCreativesTableSection({
                       onClick={(event) => event.stopPropagation()}
                     />
 
-                    <CreativePreview
+                    <CreativeRenderSurface
                       id={row.id}
                       name={row.name}
-                      isCatalog={row.isCatalog}
-                      previewState={row.previewState}
-                      previewUrl={row.previewUrl}
-                      thumbnailUrl={row.thumbnailUrl}
-                      imageUrl={row.imageUrl}
-                      kind={row.preview?.kind ?? row.format}
+                      preview={row.preview}
                       size="thumb"
                       className="h-[30px] w-[30px] rounded"
                     />

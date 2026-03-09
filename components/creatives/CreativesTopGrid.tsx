@@ -1,7 +1,7 @@
 "use client";
 
 import { METRIC_CONFIG, MetaCreativeRow } from "@/components/creatives/metricConfig";
-import { CreativePreview } from "@/components/creatives/CreativePreview";
+import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
 
 interface CreativesTopGridProps {
   rows: MetaCreativeRow[];
@@ -26,17 +26,7 @@ export function CreativesTopGrid({
         {rows.map((row) => (
           <div key={row.id} className="overflow-hidden rounded-xl border bg-card">
             <button type="button" onClick={() => onOpenRow(row.id)} className="w-full text-left">
-              <CreativePreview
-                id={row.id}
-                name={row.name}
-                isCatalog={row.isCatalog}
-                previewState={row.previewState}
-                previewUrl={row.previewUrl}
-                thumbnailUrl={row.thumbnailUrl}
-                imageUrl={row.imageUrl}
-                kind={row.preview?.kind ?? row.format}
-                size="card"
-              />
+              <CreativeRenderSurface id={row.id} name={row.name} preview={row.preview} size="card" />
               <div className="p-3">
                 <p className="line-clamp-1 text-sm font-medium">{row.name}</p>
                 <div className="mt-2 grid grid-cols-2 gap-2 text-xs">

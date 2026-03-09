@@ -17,11 +17,21 @@ export interface SharedCreative {
   imageUrl: string | null;
   thumbnailUrl: string | null;
   preview: {
-    url: string | null;
-    source: "preview_url" | "thumbnail_url" | "image_url" | "image_hash" | "ad_preview_html" | null;
-    state: "preview" | "unavailable";
-    kind: "image" | "video" | "catalog";
-    isCatalog: boolean;
+    render_mode: "html_preview" | "video" | "image" | "unavailable";
+    html: string | null;
+    image_url: string | null;
+    video_url: string | null;
+    poster_url: string | null;
+    source:
+      | "preview_url"
+      | "thumbnail_url"
+      | "image_url"
+      | "image_hash"
+      | "ad_preview_html"
+      | "preview_html_video"
+      | "preview_html_image"
+      | null;
+    is_catalog: boolean;
   };
   launchDate: string;
   tags: string[];

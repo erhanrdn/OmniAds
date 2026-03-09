@@ -5,7 +5,7 @@ export async function GET(request: NextRequest) {
   target.pathname = "/api/meta/creatives";
   target.searchParams.set("debugPreview", "1");
   if (!target.searchParams.has("previewSampleLimit")) {
-    target.searchParams.set("previewSampleLimit", "10");
+    target.searchParams.set("previewSampleLimit", "5");
   }
 
   const response = await fetch(target.toString(), {

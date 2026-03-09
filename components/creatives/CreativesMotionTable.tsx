@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { Badge } from "@/components/ui/badge";
-import { CreativePreview } from "@/components/creatives/CreativePreview";
+import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
 import {
   METRIC_CONFIG,
   MetaCreativeRow,
@@ -142,15 +142,10 @@ export function CreativesMotionTable({
 
 function CreativeThumb({ row }: { row: MetaCreativeRow }) {
   return (
-    <CreativePreview
+    <CreativeRenderSurface
       id={row.id}
       name={row.name}
-      previewUrl={row.previewUrl}
-      thumbnailUrl={row.thumbnailUrl}
-      imageUrl={row.imageUrl}
-      previewState={row.previewState}
-      isCatalog={row.isCatalog}
-      kind={row.preview?.kind ?? row.format}
+      preview={row.preview}
       size="thumb"
       className="h-12 w-12"
     />

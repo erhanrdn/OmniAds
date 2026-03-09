@@ -20,27 +20,35 @@ type AiTagKey =
   | "headlineTactic";
 type MetaAiTags = Partial<Record<AiTagKey, string[]>>;
 type LegacyPreviewState = "preview" | "catalog" | "unavailable";
-type NormalizedPreviewState = "preview" | "unavailable";
+type PreviewRenderMode = "html_preview" | "video" | "image" | "unavailable";
 type NormalizedPreviewSource =
   | "preview_url"
   | "thumbnail_url"
   | "image_url"
   | "image_hash"
   | "ad_preview_html"
+  | "preview_html_video"
+  | "preview_html_image"
   | null;
 type NormalizedPreviewKind = "image" | "video" | "catalog";
 
-interface NormalizedPreviewPayload {
-  url: string | null;
+interface NormalizedRenderPreviewPayload {
+  render_mode: PreviewRenderMode;
+  html: string | null;
+  image_url: string | null;
+  video_url: string | null;
+  poster_url: string | null;
   source: NormalizedPreviewSource;
-  state: NormalizedPreviewState;
-  kind: NormalizedPreviewKind;
-  isCatalog: boolean;
+  is_catalog: boolean;
 }
 
 interface AdPreviewDebugResult {
   hasHtml: boolean;
+  html: string | null;
   extractedUrl: string | null;
+  extractedImageUrl: string | null;
+  extractedVideoUrl: string | null;
+  extractedPosterUrl: string | null;
   format: string | null;
 }
 
@@ -99,6 +107,7 @@ interface PreviewAuditSample {
   candidates: PreviewAuditCandidate[];
   chosen_preview_source: string | null;
   chosen_preview_url: string | null;
+  chosen_render_mode: PreviewRenderMode;
   is_catalog: boolean;
   format: CreativeFormat;
 }
@@ -224,7 +233,7 @@ interface RawCreativeRow {
   image_url: string | null;
   is_catalog: boolean;
   preview_state: LegacyPreviewState;
-  preview: NormalizedPreviewPayload;
+  preview: NormalizedRenderPreviewPayload;
   launch_date: string;
   tags: string[];
   ai_tags: MetaAiTags;
@@ -266,7 +275,7 @@ export interface MetaCreativeApiRow {
   is_catalog: boolean;
   /** "catalog" | "preview" | "unavailable" — use this to drive UI rendering */
   preview_state: LegacyPreviewState;
-  preview: NormalizedPreviewPayload;
+  preview: NormalizedRenderPreviewPayload;
   launch_date: string;
   tags: string[];
   ai_tags: MetaAiTags;
@@ -600,10 +609,10 @@ async function buildNormalizedPreview(input: {
   creative: MetaAdRecord["creative"];
   promotedObject: MetaPromotedObjectLike;
   imageHashLookup: Map<string, string>;
-  adPreviewHtmlUrl?: string | null;
+  adPreview?: AdPreviewDebugResult | null;
   validationCache: Map<string, UrlValidationResult>;
 }): Promise<{
-  preview: NormalizedPreviewPayload;
+  preview: NormalizedRenderPreviewPayload;
   legacy: {
     preview_url: string | null;
     preview_source: string | null;
@@ -615,10 +624,67 @@ async function buildNormalizedPreview(input: {
   candidateAudit: PreviewAuditCandidate[];
   imageHashResolutions: Array<{ hash: string; resolved: boolean; resolved_url: string | null }>;
 }> {
-  const { creative, promotedObject, imageHashLookup, adPreviewHtmlUrl = null, validationCache } = input;
+  const { creative, promotedObject, imageHashLookup, adPreview = null, validationCache } = input;
   const isCatalog = detectIsCatalog(creative, promotedObject);
   const kind = detectPreviewKind(creative, isCatalog);
-  const { candidates, imageHashResolutions } = collectPreviewCandidates(creative, imageHashLookup, adPreviewHtmlUrl);
+  const html = adPreview?.html ?? null;
+  const previewHtmlVideo = normalizeMediaUrl(adPreview?.extractedVideoUrl ?? null);
+  const previewHtmlPoster = normalizeMediaUrl(adPreview?.extractedPosterUrl ?? null);
+  const previewHtmlImage = normalizeMediaUrl(adPreview?.extractedImageUrl ?? null);
+
+  if (html) {
+    const preview: NormalizedRenderPreviewPayload = {
+      render_mode: "html_preview",
+      html,
+      image_url: previewHtmlImage ?? null,
+      video_url: previewHtmlVideo ?? null,
+      poster_url: previewHtmlPoster ?? previewHtmlImage ?? null,
+      source: "ad_preview_html",
+      is_catalog: isCatalog,
+    };
+    const legacyUrl = preview.poster_url ?? preview.image_url ?? null;
+    return {
+      preview,
+      legacy: {
+        preview_url: legacyUrl,
+        preview_source: "ad_preview_html",
+        preview_state: legacyUrl ? "preview" : "unavailable",
+        thumbnail_url: legacyUrl,
+        image_url: legacyUrl,
+        is_catalog: isCatalog,
+      },
+      candidateAudit: [],
+      imageHashResolutions: [],
+    };
+  }
+
+  if (previewHtmlVideo) {
+    const preview: NormalizedRenderPreviewPayload = {
+      render_mode: "video",
+      html: null,
+      image_url: previewHtmlImage ?? null,
+      video_url: previewHtmlVideo,
+      poster_url: previewHtmlPoster ?? previewHtmlImage ?? null,
+      source: "preview_html_video",
+      is_catalog: isCatalog,
+    };
+    const legacyUrl = preview.poster_url ?? preview.image_url ?? preview.video_url;
+    return {
+      preview,
+      legacy: {
+        preview_url: legacyUrl,
+        preview_source: "preview_html_video",
+        preview_state: "preview",
+        thumbnail_url: legacyUrl,
+        image_url: legacyUrl,
+        is_catalog: isCatalog,
+      },
+      candidateAudit: [],
+      imageHashResolutions: [],
+    };
+  }
+
+  const { candidates, imageHashResolutions } = collectPreviewCandidates(creative, imageHashLookup, null);
 
   const candidateAudit: PreviewAuditCandidate[] = [];
   let chosenCandidate: { source: string; url: string } | null = null;
@@ -639,25 +705,26 @@ async function buildNormalizedPreview(input: {
     if (!source) return null;
     if (source === "thumbnail_url") return "thumbnail_url";
     if (source === "image_hash_lookup") return "image_hash";
-    if (source === "ad_preview_html") return "ad_preview_html";
     return "image_url";
   };
-  const preview: NormalizedPreviewPayload = {
-    url: top?.url ?? null,
+  const preview: NormalizedRenderPreviewPayload = {
+    render_mode: top?.url ? "image" : "unavailable",
+    html: null,
+    image_url: top?.url ?? null,
+    video_url: null,
+    poster_url: top?.url ?? null,
     source: mapSource(top?.source ?? null),
-    state: top?.url ? "preview" : "unavailable",
-    kind,
-    isCatalog,
+    is_catalog: isCatalog,
   };
 
   const thumbnailCandidate = candidates[0]?.url ?? null;
   const imageCandidate = candidates[1]?.url ?? candidates[0]?.url ?? null;
-  const legacyState: LegacyPreviewState = preview.state === "preview" ? "preview" : "unavailable";
+  const legacyState: LegacyPreviewState = preview.render_mode === "unavailable" ? "unavailable" : "preview";
 
   return {
     preview,
     legacy: {
-      preview_url: preview.url,
+      preview_url: preview.image_url ?? preview.poster_url,
       preview_source: preview.source,
       preview_state: legacyState,
       thumbnail_url: thumbnailCandidate,
@@ -691,24 +758,54 @@ function decodeHtmlEntities(value: string): string {
     .replace(/&#39;/g, "'");
 }
 
-function extractPreviewUrlFromHtml(html: string): string | null {
+function extractPreviewMediaFromHtml(html: string): {
+  imageUrl: string | null;
+  videoUrl: string | null;
+  posterUrl: string | null;
+} {
   const decoded = decodeHtmlEntities(html);
-  const patterns = [
+  const imagePatterns = [
     /<video[^>]*poster="([^"]+)"/i,
     /<video[^>]*poster='([^']+)'/i,
     /<img[^>]+src="([^"]+)"/i,
     /<img[^>]+src='([^']+)'/i,
-    /background-image:\s*url\((['"]?)(https?:\/\/[^)'"]+)\1\)/i,
+  ];
+  const videoPatterns = [
+    /<video[^>]+src="([^"]+)"/i,
+    /<video[^>]+src='([^']+)'/i,
+    /<source[^>]+src="([^"]+)"/i,
+    /<source[^>]+src='([^']+)'/i,
   ];
 
-  for (const pattern of patterns) {
+  for (const pattern of videoPatterns) {
     const match = decoded.match(pattern);
-    const candidate = match?.[2] ?? match?.[1];
+    const candidate = match?.[1];
     const normalized = normalizeMediaUrl(candidate);
-    if (normalized) return normalized;
+    if (normalized) {
+      const posterCandidate = decoded.match(/<video[^>]*poster=['"]([^'"]+)['"]/i)?.[1] ?? null;
+      const posterUrl = normalizeMediaUrl(posterCandidate);
+      const imageFallback =
+        imagePatterns
+          .map((imagePattern) => {
+            const imageMatch = decoded.match(imagePattern);
+            return imageMatch?.[2] ?? imageMatch?.[1] ?? null;
+          })
+          .map((value) => normalizeMediaUrl(value))
+          .find(Boolean) ?? null;
+      return { imageUrl: imageFallback, videoUrl: normalized, posterUrl };
+    }
   }
 
-  return null;
+  const imageUrl =
+    imagePatterns
+      .map((pattern) => {
+        const match = decoded.match(pattern);
+        return match?.[2] ?? match?.[1] ?? null;
+      })
+      .map((value) => normalizeMediaUrl(value))
+      .find(Boolean) ?? null;
+
+  return { imageUrl, videoUrl: null, posterUrl: null };
 }
 
 async function fetchAdPreviewDebugMap(
@@ -719,7 +816,15 @@ async function fetchAdPreviewDebugMap(
   const uniqueIds = Array.from(new Set(adIds.map((id) => id.trim()).filter(Boolean)));
   if (uniqueIds.length === 0) return map;
 
-  const formats = ["DESKTOP_FEED_STANDARD", "MOBILE_FEED_STANDARD"];
+  const formats = [
+    "DESKTOP_FEED_STANDARD",
+    "MOBILE_FEED_STANDARD",
+    "INSTAGRAM_STANDARD",
+    "FACEBOOK_STORY_MOBILE",
+    "INSTAGRAM_STORY",
+    "FACEBOOK_REELS",
+    "INSTAGRAM_REELS",
+  ];
   const chunkSize = 20;
   for (let i = 0; i < uniqueIds.length; i += chunkSize) {
     const chunk = uniqueIds.slice(i, i + chunkSize);
@@ -743,15 +848,22 @@ async function fetchAdPreviewDebugMap(
             const payload = (await res.json().catch(() => null)) as { data?: MetaAdPreviewRecord[] } | null;
             const html = payload?.data?.[0]?.body ?? "";
             const hasHtml = html.length > 0;
-            const previewUrl = hasHtml ? extractPreviewUrlFromHtml(html) : null;
+            const extracted = hasHtml
+              ? extractPreviewMediaFromHtml(html)
+              : { imageUrl: null, videoUrl: null, posterUrl: null };
+            const previewUrl = extracted.imageUrl ?? extracted.posterUrl ?? null;
 
             if (hasHtml || previewUrl) {
               map.set(adId, {
                 hasHtml,
+                html: hasHtml ? html : null,
                 extractedUrl: previewUrl,
+                extractedImageUrl: extracted.imageUrl,
+                extractedVideoUrl: extracted.videoUrl,
+                extractedPosterUrl: extracted.posterUrl,
                 format: adFormat,
               });
-              if (previewUrl) return;
+              if (hasHtml) return;
             }
           } catch {
             // swallow and try next format
@@ -761,7 +873,11 @@ async function fetchAdPreviewDebugMap(
         if (!map.has(adId)) {
           map.set(adId, {
             hasHtml: false,
+            html: null,
             extractedUrl: null,
+            extractedImageUrl: null,
+            extractedVideoUrl: null,
+            extractedPosterUrl: null,
             format: null,
           });
         }
@@ -1159,7 +1275,8 @@ async function toRawRow(
   ad: MetaAdRecord | undefined,
   accountMeta: MetaAccountMeta,
   imageHashLookup: Map<string, string>,
-  validationCache: Map<string, UrlValidationResult>
+  validationCache: Map<string, UrlValidationResult>,
+  adPreview: AdPreviewDebugResult | null
 ): Promise<RawCreativeRow | null> {
   const adId = insight.ad_id ?? ad?.id ?? "";
   if (!adId) return null;
@@ -1207,9 +1324,14 @@ async function toRawRow(
     creative,
     promotedObject,
     imageHashLookup,
+    adPreview,
     validationCache,
   });
-  const format: CreativeFormat = normalizedPreview.preview.kind;
+  const format: CreativeFormat = normalizedPreview.preview.is_catalog
+    ? "catalog"
+    : normalizedPreview.preview.render_mode === "video" || creative?.object_type?.toUpperCase() === "VIDEO"
+    ? "video"
+    : "image";
   const creativeType: CreativeType =
     format === "catalog"
       ? "feed_catalog"
@@ -1313,19 +1435,19 @@ function groupRows(
         currencies: uniqueCurrencies,
       });
     }
-    const previewRow = list.find((item) => item.preview.url) ?? null;
+    const previewRow = list.find((item) =>
+      Boolean(item.preview.html || item.preview.video_url || item.preview.image_url || item.preview.poster_url)
+    ) ?? null;
     const groupedPreview = previewRow?.preview ?? {
-      url: null,
+      render_mode: "unavailable",
+      html: null,
+      image_url: null,
+      video_url: null,
+      poster_url: null,
       source: null,
-      state: "unavailable",
-      kind: list.some((item) => item.preview.kind === "catalog")
-        ? "catalog"
-        : list.some((item) => item.preview.kind === "video")
-        ? "video"
-        : "image",
-      isCatalog: list.some((item) => item.preview.isCatalog),
+      is_catalog: list.some((item) => item.preview.is_catalog),
     };
-    const groupedLegacyState: LegacyPreviewState = groupedPreview.state === "preview" ? "preview" : "unavailable";
+    const groupedLegacyState: LegacyPreviewState = groupedPreview.render_mode === "unavailable" ? "unavailable" : "preview";
     const groupedCreativeType = resolveGroupedCreativeType(list);
 
     grouped.push({
@@ -1338,11 +1460,11 @@ function groupRows(
       adset_id: sample.adset_id,
       adset_name: sample.adset_name,
       name: groupBy === "creative" ? sample.name : sample.adset_name ?? sample.name,
-      preview_url: groupedPreview.url,
+      preview_url: groupedPreview.image_url ?? groupedPreview.poster_url ?? null,
       preview_source: groupedPreview.source,
-      thumbnail_url: previewRow?.thumbnail_url ?? groupedPreview.url ?? null,
-      image_url: previewRow?.image_url ?? groupedPreview.url ?? null,
-      is_catalog: groupedPreview.isCatalog,
+      thumbnail_url: previewRow?.thumbnail_url ?? groupedPreview.poster_url ?? groupedPreview.image_url ?? null,
+      image_url: previewRow?.image_url ?? groupedPreview.image_url ?? groupedPreview.poster_url ?? null,
+      is_catalog: groupedPreview.is_catalog,
       preview_state: groupedLegacyState,
       preview: groupedPreview,
       launch_date: earliestLaunch ?? sample.launch_date,
@@ -1356,7 +1478,11 @@ function groupRows(
         }
         return acc;
       }, {}),
-      format: groupedPreview.kind,
+      format: list.some((item) => item.format === "catalog")
+        ? "catalog"
+        : list.some((item) => item.format === "video")
+        ? "video"
+        : "image",
       creative_type: groupedCreativeType,
       creative_type_label: toCreativeTypeLabel(groupedCreativeType),
       spend: r2(spend),
@@ -1437,7 +1563,7 @@ export async function GET(request: NextRequest) {
   const start = params.get("start") ?? toISODate(nDaysAgo(29));
   const end = params.get("end") ?? toISODate(new Date());
   const debugPreview = params.get("debugPreview") === "1";
-  const previewSampleLimit = Number(params.get("previewSampleLimit") ?? "10");
+  const previewSampleLimit = Number(params.get("previewSampleLimit") ?? "5");
   const perAccountSampleLimit =
     Number.isFinite(previewSampleLimit) && previewSampleLimit > 0
       ? Math.min(25, Math.max(1, Math.floor(previewSampleLimit)))
@@ -1544,7 +1670,7 @@ export async function GET(request: NextRequest) {
       }
 
       const accountSampleAdIds = insightAdIds.slice(0, perAccountSampleLimit);
-      const adPreviewDebugMap = await fetchAdPreviewDebugMap(accountSampleAdIds, integration.access_token);
+      const adPreviewDebugMap = await fetchAdPreviewDebugMap(insightAdIds, integration.access_token);
       let accountSampleCount = 0;
 
       for (const insight of insights) {
@@ -1561,18 +1687,23 @@ export async function GET(request: NextRequest) {
           enrichedAd,
           accountMeta,
           adImageUrlMap,
-          urlValidationCache
+          urlValidationCache,
+          insight.ad_id ? adPreviewDebugMap.get(insight.ad_id) ?? null : null
         );
         if (row) {
           rawRows.push(row);
-          if (accountSampleCount < perAccountSampleLimit) {
+          if (accountSampleCount < perAccountSampleLimit && accountSampleAdIds.includes(row.id)) {
             accountSampleCount += 1;
             const creative = mergedCreative;
             const promotedObject = enrichedAd?.promoted_object ?? null;
             const adsetPromotedObject = enrichedAd?.adset?.promoted_object ?? null;
             const adPreviewDebug = adPreviewDebugMap.get(row.id) ?? {
               hasHtml: false,
+              html: null,
               extractedUrl: null,
+              extractedImageUrl: null,
+              extractedVideoUrl: null,
+              extractedPosterUrl: null,
               format: null,
             };
 
@@ -1639,8 +1770,9 @@ export async function GET(request: NextRequest) {
               },
               candidates: candidateAudit,
               chosen_preview_source: row.preview.source,
-              chosen_preview_url: row.preview.url,
-              is_catalog: row.preview.isCatalog,
+              chosen_preview_url: row.preview.image_url ?? row.preview.poster_url ?? row.preview.video_url,
+              chosen_render_mode: row.preview.render_mode,
+              is_catalog: row.preview.is_catalog,
               format: row.format,
             };
             previewAuditSamples.push(sample);
@@ -1674,13 +1806,15 @@ export async function GET(request: NextRequest) {
       if (!validation.isValid) continue;
 
       row.preview = {
-        url: fallbackUrl,
+        render_mode: "image",
+        html: null,
+        image_url: fallbackUrl,
+        video_url: null,
+        poster_url: fallbackUrl,
         source: "ad_preview_html",
-        state: "preview",
-        kind: row.preview.kind,
-        isCatalog: row.preview.isCatalog,
+        is_catalog: row.preview.is_catalog,
       };
-      row.preview_url = row.preview.url;
+      row.preview_url = row.preview.image_url;
       row.preview_source = row.preview.source;
       row.preview_state = "preview";
       row.thumbnail_url = row.thumbnail_url ?? fallbackUrl;
@@ -1704,7 +1838,7 @@ export async function GET(request: NextRequest) {
   }
 
   const responseRows: MetaCreativeApiRow[] = rows.map((row) => {
-    const previewState: LegacyPreviewState = row.preview.state === "preview" ? "preview" : "unavailable";
+    const previewState: LegacyPreviewState = row.preview.render_mode === "unavailable" ? "unavailable" : "preview";
     return {
       id: row.id,
       creative_id: row.creative_id,
@@ -1770,7 +1904,7 @@ export async function GET(request: NextRequest) {
         thumbnail_url: r.thumbnail_url ? r.thumbnail_url.slice(0, 80) : null,
         image_url: r.image_url ? r.image_url.slice(0, 80) : null,
         is_catalog: r.is_catalog,
-        preview_kind: r.preview.kind,
+        preview_render_mode: r.preview.render_mode,
       })),
     });
 
