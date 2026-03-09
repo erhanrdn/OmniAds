@@ -18,6 +18,10 @@ type CreativeRenderSurfaceProps = {
   id?: string;
   name: string;
   preview: CreativeRenderPayload;
+  thumbnailUrl?: string | null;
+  imageUrl?: string | null;
+  previewUrl?: string | null;
+  compactImageFirst?: boolean;
   className?: string;
   badgeClassName?: string;
   size?: "thumb" | "card" | "large";
@@ -122,6 +126,10 @@ export function CreativeRenderSurface({
   id,
   name,
   preview,
+  thumbnailUrl = null,
+  imageUrl = null,
+  previewUrl = null,
+  compactImageFirst = false,
   className,
   badgeClassName,
   size = "card",
@@ -137,6 +145,56 @@ export function CreativeRenderSurface({
       {preview.is_catalog ? "Catalog" : "Preview unavailable"}
     </div>
   );
+
+  const normalize = (value: string | null | undefined): string | null => {
+    if (typeof value !== "string") return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (trimmed.startsWith("//")) return `https:${trimmed}`;
+    return /^https?:\/\//i.test(trimmed) ? trimmed : null;
+  };
+  const isLikelyDirectImageUrl = (value: string | null): boolean => {
+    if (!value) return false;
+    const lower = value.toLowerCase();
+    if (/\.(png|jpe?g|webp|gif|bmp|avif|heic|heif)(\?|$)/i.test(lower)) return true;
+    return lower.includes("fbcdn") || lower.includes("scontent") || lower.includes("cdninstagram");
+  };
+
+  if (compactImageFirst) {
+    const thumb = normalize(thumbnailUrl);
+    const image = normalize(imageUrl);
+    const previewFallback = normalize(previewUrl);
+    const compactSrc =
+      thumb ??
+      image ??
+      (isLikelyDirectImageUrl(previewFallback) ? previewFallback : null) ??
+      preview.image_url ??
+      preview.poster_url ??
+      null;
+
+    if (!compactSrc) return fallback;
+    return (
+      <div className={frameClass}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={compactSrc}
+          alt={name}
+          className="h-full w-full object-cover"
+          referrerPolicy="no-referrer"
+        />
+        {preview.is_catalog ? (
+          <Badge variant="secondary" className={cn("absolute bottom-1 left-1 text-[10px] opacity-90", badgeClassName)}>
+            Catalog
+          </Badge>
+        ) : null}
+        {preview.render_mode === "video" ? (
+          <Badge variant="secondary" className={cn("absolute bottom-1 right-1 text-[10px] opacity-90", badgeClassName)}>
+            Video
+          </Badge>
+        ) : null}
+      </div>
+    );
+  }
 
   if (preview.render_mode === "html_preview" && framedHtml) {
     return (

@@ -146,6 +146,10 @@ function CreativeThumb({ row }: { row: MetaCreativeRow }) {
       id={row.id}
       name={row.name}
       preview={row.preview}
+      thumbnailUrl={row.thumbnailUrl}
+      imageUrl={row.imageUrl}
+      previewUrl={row.previewUrl}
+      compactImageFirst
       size="thumb"
       className="h-12 w-12"
     />

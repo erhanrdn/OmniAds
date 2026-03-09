@@ -26,7 +26,16 @@ export function CreativesTopGrid({
         {rows.map((row) => (
           <div key={row.id} className="overflow-hidden rounded-xl border bg-card">
             <button type="button" onClick={() => onOpenRow(row.id)} className="w-full text-left">
-              <CreativeRenderSurface id={row.id} name={row.name} preview={row.preview} size="card" />
+              <CreativeRenderSurface
+                id={row.id}
+                name={row.name}
+                preview={row.preview}
+                thumbnailUrl={row.thumbnailUrl}
+                imageUrl={row.imageUrl}
+                previewUrl={row.previewUrl}
+                compactImageFirst
+                size="card"
+              />
               <div className="p-3">
                 <p className="line-clamp-1 text-sm font-medium">{row.name}</p>
                 <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
