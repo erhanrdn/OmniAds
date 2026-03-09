@@ -7,6 +7,7 @@ export async function GET(request: NextRequest) {
   if (!target.searchParams.has("previewSampleLimit")) {
     target.searchParams.set("previewSampleLimit", "5");
   }
+  const debugThumbnailParam = target.searchParams.get("debugThumbnail") === "1";
 
   const response = await fetch(target.toString(), {
     method: "GET",
@@ -26,5 +27,9 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  return NextResponse.json(payload);
+  return NextResponse.json({
+    ...(payload && typeof payload === "object" ? payload : { data: payload }),
+    debug_build_marker: "thumb-debug-v1",
+    debug_debugThumbnail_param: debugThumbnailParam,
+  });
 }
