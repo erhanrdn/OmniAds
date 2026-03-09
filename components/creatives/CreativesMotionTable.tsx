@@ -93,10 +93,16 @@ export function CreativesMotionTable({
                     density === "compact" ? "py-1.5" : "py-2.5"
                   }`}
                 >
-                  <div className="flex items-center gap-2">
-                    <CreativeThumb row={row} />
-                    <span className="line-clamp-2">{row.name}</span>
-                  </div>
+                  <CompactCreativeThumb
+                    id={row.id}
+                    name={row.name}
+                    thumbnailUrl={row.thumbnailUrl}
+                    imageUrl={row.imageUrl}
+                    previewUrl={row.previewUrl}
+                    format={row.format}
+                    isCatalog={row.isCatalog}
+                  />
+                  <span className="line-clamp-2">{row.name}</span>
                 </td>
                 <td className={`border-b px-3 ${density === "compact" ? "py-1.5" : "py-2.5"}`}>
                   {row.launchDate}
@@ -139,19 +145,44 @@ export function CreativesMotionTable({
   );
 }
 
-function CreativeThumb({ row }: { row: MetaCreativeRow }) {
-  const sources = [row.thumbnailUrl, row.imageUrl, row.previewUrl].filter(
-    (value): value is string => typeof value === "string" && /^https?:\/\//i.test(value)
-  );
+function normalizeCompactThumbSrc(value: string | null | undefined) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("//")) return `https:${trimmed}`;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return null;
+}
+
+function CompactCreativeThumb({
+  id,
+  name,
+  thumbnailUrl,
+  imageUrl,
+  previewUrl,
+  format,
+  isCatalog,
+}: {
+  id: string;
+  name: string;
+  thumbnailUrl?: string | null;
+  imageUrl?: string | null;
+  previewUrl?: string | null;
+  format?: string | null;
+  isCatalog?: boolean;
+}) {
+  const sources = [thumbnailUrl, imageUrl, previewUrl]
+    .map(normalizeCompactThumbSrc)
+    .filter((value): value is string => Boolean(value));
 
   const [sourceIndex, setSourceIndex] = useState(0);
 
   useEffect(() => {
     setSourceIndex(0);
-  }, [row.id, row.thumbnailUrl, row.imageUrl, row.previewUrl]);
+  }, [id, thumbnailUrl, imageUrl, previewUrl]);
 
   const activeSource = sources[sourceIndex] ?? null;
-  const badgeLabel = row.isCatalog ? "Catalog" : row.format === "video" ? "Video" : "Feed";
+  const badgeLabel = isCatalog ? "Catalog" : format === "video" ? "Video" : "Feed";
 
   if (!activeSource) {
     return (
@@ -171,7 +202,7 @@ function CreativeThumb({ row }: { row: MetaCreativeRow }) {
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={activeSource}
-        alt={row.name}
+        alt={name}
         className="h-full w-full object-cover"
         loading="lazy"
         referrerPolicy="no-referrer"
