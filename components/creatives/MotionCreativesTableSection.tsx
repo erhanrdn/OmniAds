@@ -17,7 +17,6 @@ import {
   X,
 } from "lucide-react";
 import { MetaAiTagKey, MetaCreativeRow } from "@/components/creatives/metricConfig";
-import { CreativePreview } from "@/components/creatives/CreativePreview";
 import { getAiTagPillStyles } from "@/components/creatives/aiTagPillStyles";
 import { formatMoney, resolveCreativeCurrency } from "@/components/creatives/money";
 import { cn } from "@/lib/utils";
@@ -78,6 +77,8 @@ const AI_TAG_COLUMN_KEYS: TagKey[] = [
   "hookTactic",
   "headlineTactic",
 ];
+
+let tableCompactPreviewDebugCount = 0;
 
 interface TableColumnDefinition {
   key: TableColumnKey;
@@ -1326,18 +1327,7 @@ export function MotionCreativesTableSection({
                       onClick={(event) => event.stopPropagation()}
                     />
 
-                    <CreativePreview
-                      id={row.id}
-                      name={row.name}
-                      thumbnailUrl={row.thumbnailUrl}
-                      imageUrl={row.imageUrl}
-                      previewUrl={row.previewUrl}
-                      format={row.format}
-                      isCatalog={row.isCatalog}
-                      debugScope="table-thumb"
-                      size="thumb"
-                      className="h-[30px] w-[30px] rounded"
-                    />
+                    <CompactTableThumbnail row={row} />
 
                     <div className="min-w-0">
                       <p className="truncate text-[12px] font-medium">{row.name}</p>
@@ -1802,6 +1792,73 @@ function resolveMetricLabel(key: string): string {
   if (map[key]) return map[key];
 
   return TABLE_COLUMNS.find((column) => column.key === key)?.label ?? key;
+}
+
+function normalizeCompactPreviewUrl(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("//")) return `https:${trimmed}`;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return null;
+}
+
+function CompactTableThumbnail({ row }: { row: MetaCreativeRow }) {
+  const sources = useMemo(
+    () =>
+      [row.thumbnailUrl, row.imageUrl, row.previewUrl]
+        .map((value) => normalizeCompactPreviewUrl(value))
+        .filter((value): value is string => Boolean(value)),
+    [row.thumbnailUrl, row.imageUrl, row.previewUrl]
+  );
+
+  const [sourceIndex, setSourceIndex] = useState(0);
+  const compactPreviewSrc = sources[sourceIndex] ?? null;
+
+  useEffect(() => {
+    setSourceIndex(0);
+  }, [row.id, row.thumbnailUrl, row.imageUrl, row.previewUrl]);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    if (tableCompactPreviewDebugCount >= 5) return;
+    tableCompactPreviewDebugCount += 1;
+    console.log("[compact-preview][MotionCreativesTableSection.tsx]", {
+      component: "MotionCreativesTableSection.tsx",
+      id: row.id,
+      name: row.name,
+      thumbnailUrl: row.thumbnailUrl ?? null,
+      imageUrl: row.imageUrl ?? null,
+      previewUrl: row.previewUrl ?? null,
+      chosen: compactPreviewSrc,
+    });
+  }, [compactPreviewSrc, row.id, row.imageUrl, row.name, row.previewUrl, row.thumbnailUrl]);
+
+  if (!compactPreviewSrc) {
+    return (
+      <div className="flex h-[30px] w-[30px] shrink-0 items-center justify-center overflow-hidden rounded bg-muted text-[8px] leading-none text-muted-foreground">
+        Preview unavailable
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-[30px] w-[30px] shrink-0 overflow-hidden rounded bg-muted">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={compactPreviewSrc}
+        alt={row.name}
+        className="h-full w-full object-cover"
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        onError={() => {
+          if (sourceIndex < sources.length - 1) {
+            setSourceIndex((current) => current + 1);
+          }
+        }}
+      />
+    </div>
+  );
 }
 
 const METRIC_DESCRIPTIONS: Record<TableColumnKey, { label: string; description: string }> = Object.fromEntries(

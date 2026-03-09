@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Trophy, ChevronDown, X, Search, Plus, SlidersHorizontal, LayoutGrid, Ellipsis, Check, Copy, FileDown, Link2 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { MetaCreativeRow } from "@/components/creatives/metricConfig";
-import { CreativePreview } from "@/components/creatives/CreativePreview";
 import { formatMoney, resolveCreativeCurrency } from "@/components/creatives/money";
 import { cn } from "@/lib/utils";
 import { useDropdownBehavior } from "@/hooks/use-dropdown-behavior";
@@ -162,6 +161,8 @@ const PRESET_OPTIONS: Array<{ value: MotionDatePreset; label: string }> = [
 ];
 
 const METRIC_COLOR_TOKENS = ["bg-blue-100 text-blue-700", "bg-emerald-100 text-emerald-700", "bg-amber-100 text-amber-700", "bg-rose-100 text-rose-700", "bg-cyan-100 text-cyan-700", "bg-indigo-100 text-indigo-700"];
+
+let topCompactPreviewDebugCount = 0;
 
 const METRIC_DEFS: MotionMetricDefinition[] = [
   { id: "spend", label: "Spend", direction: "neutral", format: fmtCurrency, getValue: (r) => r.spend },
@@ -1088,17 +1089,7 @@ function PreviewStrip({
               className="w-[182px] shrink-0 overflow-hidden rounded-lg border bg-muted/10 text-left"
             >
               <div className="relative aspect-square w-full overflow-hidden bg-muted/30">
-                <CreativePreview
-                  id={row.id}
-                  name={row.name}
-                  thumbnailUrl={row.thumbnailUrl}
-                  imageUrl={row.imageUrl}
-                  previewUrl={row.previewUrl}
-                  format={row.format}
-                  isCatalog={row.isCatalog}
-                  debugScope="top-grid"
-                  size="card"
-                />
+                <CompactTopCardPreview row={row} />
                 <span className="absolute bottom-2 left-2 rounded-md bg-black/50 px-2 py-0.5 text-[10px] text-white">
                   {row.creativeTypeLabel}
                 </span>
@@ -1137,6 +1128,73 @@ function PreviewStrip({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function normalizeCompactPreviewUrl(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("//")) return `https:${trimmed}`;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return null;
+}
+
+function CompactTopCardPreview({ row }: { row: MetaCreativeRow }) {
+  const sources = useMemo(
+    () =>
+      [row.thumbnailUrl, row.imageUrl, row.previewUrl]
+        .map((value) => normalizeCompactPreviewUrl(value))
+        .filter((value): value is string => Boolean(value)),
+    [row.thumbnailUrl, row.imageUrl, row.previewUrl]
+  );
+
+  const [sourceIndex, setSourceIndex] = useState(0);
+  const compactPreviewSrc = sources[sourceIndex] ?? null;
+
+  useEffect(() => {
+    setSourceIndex(0);
+  }, [row.id, row.thumbnailUrl, row.imageUrl, row.previewUrl]);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    if (topCompactPreviewDebugCount >= 5) return;
+    topCompactPreviewDebugCount += 1;
+    console.log("[compact-preview][MotionTopSection.tsx]", {
+      component: "MotionTopSection.tsx",
+      id: row.id,
+      name: row.name,
+      thumbnailUrl: row.thumbnailUrl ?? null,
+      imageUrl: row.imageUrl ?? null,
+      previewUrl: row.previewUrl ?? null,
+      chosen: compactPreviewSrc,
+    });
+  }, [compactPreviewSrc, row.id, row.imageUrl, row.name, row.previewUrl, row.thumbnailUrl]);
+
+  if (!compactPreviewSrc) {
+    return (
+      <div className="flex h-full w-full items-center justify-center overflow-hidden rounded-lg bg-muted text-[11px] text-muted-foreground">
+        Preview unavailable
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full w-full overflow-hidden rounded-lg bg-muted">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={compactPreviewSrc}
+        alt={row.name}
+        className="h-full w-full object-cover"
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        onError={() => {
+          if (sourceIndex < sources.length - 1) {
+            setSourceIndex((current) => current + 1);
+          }
+        }}
+      />
     </div>
   );
 }
