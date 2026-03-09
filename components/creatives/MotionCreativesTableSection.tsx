@@ -195,6 +195,13 @@ const AI_TAG_HEADER_ICONS: Record<TagKey, ComponentType<{ className?: string }>>
   hookTactic: Tag,
   headlineTactic: MessageSquareQuote,
 };
+
+function logPerf(label: string, startMs: number, rowCount: number) {
+  if (process.env.NODE_ENV === "production") return;
+  const duration = Date.now() - startMs;
+  if (duration < 8) return;
+  console.log("[creatives-perf]", { label, duration_ms: duration, row_count: rowCount });
+}
 const STATIC_COLUMN_SPECS = {
   creativeName: { minWidth: 220, preferredWidth: 240 },
   launchDate: { minWidth: 120, preferredWidth: 120 },
@@ -564,6 +571,7 @@ export function MotionCreativesTableSection({
   const selectedAiTagColumns = tablePreset.selectedAiTagColumns;
 
   const sortedRows = useMemo(() => {
+    const t = Date.now();
     if (!sortState.key || !sortState.direction) return rows;
     const next = [...rows];
     const directionFactor = sortState.direction === "asc" ? 1 : -1;
@@ -588,6 +596,7 @@ export function MotionCreativesTableSection({
       const bValue = column.getValue(b, ctx);
       return (aValue - bValue) * directionFactor;
     });
+    logPerf("table.sortRows", t, rows.length);
     return next;
   }, [ctx, rows, sortState.direction, sortState.key]);
 
@@ -600,29 +609,43 @@ export function MotionCreativesTableSection({
   const endIndex = Math.min(totalResults, startIndex + tablePreset.resultsPerPage);
   const pagedRows = useMemo(() => sortedRows.slice(startIndex, endIndex), [sortedRows, startIndex, endIndex]);
 
-  const metricDistributions = useMemo(() => {
-    return selectedColumns.reduce<Partial<Record<TableColumnKey, MetricDistribution>>>((acc, column) => {
-      const values = rows
-        .filter((row) => isMetricApplicable(column.key, row))
-        .map((row) => column.getValue(row, ctx))
-        .filter((value) => Number.isFinite(value));
-      acc[column.key] = buildDistribution(values);
-      return acc;
-    }, {});
-  }, [ctx, rows, selectedColumns]);
+  const { metricDistributions, metricSpendDistributions } = useMemo(() => {
+    const t = Date.now();
+    const metricValuesByKey: Partial<Record<TableColumnKey, number[]>> = {};
+    const spendValuesByKey: Partial<Record<TableColumnKey, number[]>> = {};
 
-  const metricSpendDistributions = useMemo(
-    () =>
-      selectedColumns.reduce<Partial<Record<TableColumnKey, MetricDistribution>>>((acc, column) => {
-        const values = rows
-          .filter((row) => isMetricApplicable(column.key, row))
-          .map((row) => row.spend)
-          .filter((value) => Number.isFinite(value));
-        acc[column.key] = buildDistribution(values);
-        return acc;
-      }, {}),
-    [rows, selectedColumns]
-  );
+    for (const column of selectedColumns) {
+      metricValuesByKey[column.key] = [];
+      spendValuesByKey[column.key] = [];
+    }
+
+    for (const row of rows) {
+      for (const column of selectedColumns) {
+        if (!isMetricApplicable(column.key, row)) continue;
+        const metricValue = column.getValue(row, ctx);
+        if (Number.isFinite(metricValue)) {
+          metricValuesByKey[column.key]?.push(metricValue);
+        }
+        if (Number.isFinite(row.spend)) {
+          spendValuesByKey[column.key]?.push(row.spend);
+        }
+      }
+    }
+
+    const metricDistributionsNext: Partial<Record<TableColumnKey, MetricDistribution>> = {};
+    const metricSpendDistributionsNext: Partial<Record<TableColumnKey, MetricDistribution>> = {};
+
+    for (const column of selectedColumns) {
+      metricDistributionsNext[column.key] = buildDistribution(metricValuesByKey[column.key] ?? []);
+      metricSpendDistributionsNext[column.key] = buildDistribution(spendValuesByKey[column.key] ?? []);
+    }
+
+    logPerf("table.metricDistributions", t, rows.length);
+    return {
+      metricDistributions: metricDistributionsNext,
+      metricSpendDistributions: metricSpendDistributionsNext,
+    };
+  }, [ctx, rows, selectedColumns]);
 
   const totalTableWidth = useMemo(() => {
     const cw = (key: string, min: number, pref: number) => Math.max(min, columnWidths[key] ?? pref);

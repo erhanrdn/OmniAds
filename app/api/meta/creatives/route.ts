@@ -1766,6 +1766,7 @@ function summarizePreviewAudit(samples: PreviewAuditSample[]) {
 }
 
 export async function GET(request: NextRequest) {
+  const requestStartedAt = Date.now();
   const params = request.nextUrl.searchParams;
   const businessId = params.get("businessId");
   const groupBy = (params.get("groupBy") as GroupBy | null) ?? "adName";
@@ -1775,6 +1776,8 @@ export async function GET(request: NextRequest) {
   const end = params.get("end") ?? toISODate(new Date());
   const debugPreview = params.get("debugPreview") === "1";
   const debugThumbnail = params.get("debugThumbnail") === "1";
+  const debugPerf = params.get("debugPerf") === "1";
+  const enableDeepAudit = debugPreview || debugPerf;
   const previewSampleLimit = Number(params.get("previewSampleLimit") ?? "5");
   const perAccountSampleLimit =
     Number.isFinite(previewSampleLimit) && previewSampleLimit > 0
@@ -1802,6 +1805,7 @@ export async function GET(request: NextRequest) {
   if (!integration.access_token) {
     return NextResponse.json({ status: "no_access_token", rows: [] });
   }
+  const accessToken = integration.access_token;
 
   const assignedAccountIds = await fetchAssignedAccountIds(businessId);
   if (assignedAccountIds.length === 0) {
@@ -1812,13 +1816,77 @@ export async function GET(request: NextRequest) {
   const cardPreviewByCreativeId = new Map<string, string>();
   const urlValidationCache = new Map<string, UrlValidationResult>();
   const previewAuditSamples: PreviewAuditSample[] = [];
+  let previewAuditValidationRequests = 0;
+  const perf: {
+    total_ms: number;
+    accounts: Array<{
+      account_id: string;
+      insights_ms: number;
+      ads_ms: number;
+      account_meta_ms: number;
+      missing_ads_batch_ms: number;
+      creative_basics_fallback_ms: number;
+      creative_details_ms: number;
+      creative_thumb_small_ms: number;
+      creative_thumb_card_ms: number;
+      adimages_ms: number;
+      rows_build_ms: number;
+      rows_built: number;
+      insights_rows: number;
+    }>;
+    stages: Record<string, number>;
+    counters: Record<string, number>;
+  } = {
+    total_ms: 0,
+    accounts: [],
+    stages: {},
+    counters: {},
+  };
+
+  const addStageMs = (name: string, ms: number) => {
+    perf.stages[name] = (perf.stages[name] ?? 0) + ms;
+  };
+
   for (const accountId of assignedAccountIds) {
     try {
+      const accountPerf = {
+        account_id: accountId,
+        insights_ms: 0,
+        ads_ms: 0,
+        account_meta_ms: 0,
+        missing_ads_batch_ms: 0,
+        creative_basics_fallback_ms: 0,
+        creative_details_ms: 0,
+        creative_thumb_small_ms: 0,
+        creative_thumb_card_ms: 0,
+        adimages_ms: 0,
+        rows_build_ms: 0,
+        rows_built: 0,
+        insights_rows: 0,
+      };
+      const tParallelStart = Date.now();
       const [insights, adMap, accountMeta] = await Promise.all([
-        fetchAccountInsights(accountId, integration.access_token, start, end),
-        fetchAccountAdsMap(accountId, integration.access_token),
-        fetchAccountMeta(accountId, integration.access_token),
+        (async () => {
+          const t = Date.now();
+          const result = await fetchAccountInsights(accountId, accessToken, start, end);
+          accountPerf.insights_ms += Date.now() - t;
+          return result;
+        })(),
+        (async () => {
+          const t = Date.now();
+          const result = await fetchAccountAdsMap(accountId, accessToken);
+          accountPerf.ads_ms += Date.now() - t;
+          return result;
+        })(),
+        (async () => {
+          const t = Date.now();
+          const result = await fetchAccountMeta(accountId, accessToken);
+          accountPerf.account_meta_ms += Date.now() - t;
+          return result;
+        })(),
       ]);
+      addStageMs("parallel_fetch_ms", Date.now() - tParallelStart);
+      accountPerf.insights_rows = insights.length;
 
       // ── Fallback: batch-fetch any ads missing from the adMap ──────────────
       const insightAdIds = insights
@@ -1833,7 +1901,9 @@ export async function GET(request: NextRequest) {
           adMap_size: adMap.size,
           missing: missingAdIds.length,
         });
-        const fallbackAds = await batchFetchAdsByIds(missingAdIds, integration.access_token);
+        const tMissingAds = Date.now();
+        const fallbackAds = await batchFetchAdsByIds(missingAdIds, accessToken);
+        accountPerf.missing_ads_batch_ms += Date.now() - tMissingAds;
         for (const [id, ad] of fallbackAds) {
           adMap.set(id, ad);
         }
@@ -1848,7 +1918,9 @@ export async function GET(request: NextRequest) {
           account_id: accountId,
           missing_creative_media_ads: creativeMissingAdIds.length,
         });
-        const creativeBasicsMap = await fetchAdCreativeBasicsByAdIds(creativeMissingAdIds, integration.access_token);
+        const tCreativeBasics = Date.now();
+        const creativeBasicsMap = await fetchAdCreativeBasicsByAdIds(creativeMissingAdIds, accessToken);
+        accountPerf.creative_basics_fallback_ms += Date.now() - tCreativeBasics;
         for (const adId of creativeMissingAdIds) {
           const existing = adMap.get(adId);
           const fallback = creativeBasicsMap.get(adId);
@@ -1872,29 +1944,46 @@ export async function GET(request: NextRequest) {
             .filter((id): id is string => typeof id === "string" && id.length > 0)
         )
       );
-      const creativeDetailsMap = await fetchCreativeDetailsMap(creativeIds, integration.access_token);
+      const tCreativeDetails = Date.now();
+      const creativeDetailsMap = await fetchCreativeDetailsMap(creativeIds, accessToken);
+      accountPerf.creative_details_ms += Date.now() - tCreativeDetails;
       const missingThumbnailCreativeIds = creativeIds.filter((creativeId) => {
         const detail = creativeDetailsMap.get(creativeId);
         return !normalizeMediaUrl(detail?.thumbnail_url ?? null);
       });
+      const tSmallThumbs = Date.now();
       const creativeThumbnailMap = await fetchCreativeThumbnailMap(
         missingThumbnailCreativeIds,
-        integration.access_token,
+        accessToken,
         150,
         120,
         debugThumbnail
       );
+      accountPerf.creative_thumb_small_ms += Date.now() - tSmallThumbs;
+      const spendByCreativeId = insights.reduce<Map<string, number>>((acc, insight) => {
+        const adId = insight.ad_id;
+        if (!adId) return acc;
+        const creativeId = adMap.get(adId)?.creative?.id;
+        if (!creativeId) return acc;
+        const spend = parseFloat(insight.spend ?? "0") || 0;
+        acc.set(creativeId, (acc.get(creativeId) ?? 0) + spend);
+        return acc;
+      }, new Map<string, number>());
       const cardThumbnailCreativeIds = creativeIds.filter((creativeId) => {
         const detail = creativeDetailsMap.get(creativeId);
         return !normalizeMediaUrl(detail?.image_url ?? null);
-      });
+      })
+      .sort((a, b) => (spendByCreativeId.get(b) ?? 0) - (spendByCreativeId.get(a) ?? 0))
+      .slice(0, 80);
+      const tCardThumbs = Date.now();
       const cardThumbnailMap = await fetchCreativeThumbnailMap(
         cardThumbnailCreativeIds,
-        integration.access_token,
+        accessToken,
         640,
         640,
         false
       );
+      accountPerf.creative_thumb_card_ms += Date.now() - tCardThumbs;
       for (const [creativeId, url] of cardThumbnailMap.entries()) {
         if (!cardPreviewByCreativeId.has(creativeId)) {
           cardPreviewByCreativeId.set(creativeId, url);
@@ -1923,7 +2012,9 @@ export async function GET(request: NextRequest) {
           })
         )
       );
-      const adImageUrlMap = await fetchAdImageUrlMap(accountId, accountImageHashes, integration.access_token);
+      const tAdImages = Date.now();
+      const adImageUrlMap = await fetchAdImageUrlMap(accountId, accountImageHashes, accessToken);
+      accountPerf.adimages_ms += Date.now() - tAdImages;
 
       // Always log coverage in non-production for diagnostics
       if (process.env.NODE_ENV !== "production") {
@@ -1954,6 +2045,7 @@ export async function GET(request: NextRequest) {
       const accountSampleAdIds = insightAdIds.slice(0, perAccountSampleLimit);
       let accountSampleCount = 0;
 
+      const tRowsBuild = Date.now();
       for (const insight of insights) {
         const ad = insight.ad_id ? adMap.get(insight.ad_id) : undefined;
         const rawAd = ad;
@@ -2049,7 +2141,7 @@ export async function GET(request: NextRequest) {
         );
         if (row) {
           rawRows.push(row);
-          if (accountSampleCount < perAccountSampleLimit && accountSampleAdIds.includes(row.id)) {
+          if (enableDeepAudit && accountSampleCount < perAccountSampleLimit && accountSampleAdIds.includes(row.id)) {
             accountSampleCount += 1;
             const creative = mergedCreative;
             const promotedObject = enrichedAd?.promoted_object ?? null;
@@ -2057,6 +2149,7 @@ export async function GET(request: NextRequest) {
             const collected = collectPreviewCandidates(creative, adImageUrlMap);
             const candidateAudit: PreviewAuditCandidate[] = [];
             for (const candidate of collected.candidates) {
+              previewAuditValidationRequests += 1;
               const validation = await validateMediaUrl(candidate.url, urlValidationCache);
               candidateAudit.push({
                 source: candidate.source,
@@ -2126,6 +2219,9 @@ export async function GET(request: NextRequest) {
           }
         }
       }
+      accountPerf.rows_build_ms += Date.now() - tRowsBuild;
+      accountPerf.rows_built += insights.length;
+      perf.accounts.push(accountPerf);
     } catch (error: unknown) {
       console.warn("[meta-creatives] account fetch failed", {
         businessId,
@@ -2151,7 +2247,7 @@ export async function GET(request: NextRequest) {
     console.log("[meta-creatives] media fallback scan", {
       rows_missing_all_media: rowsMissingAllMedia.length,
     });
-    const mediaFallbackMap = await fetchAdCreativeMediaByAdIds(rowsMissingAllMedia, integration.access_token);
+    const mediaFallbackMap = await fetchAdCreativeMediaByAdIds(rowsMissingAllMedia, accessToken);
     for (const row of rawRows) {
       if (row.thumbnail_url || row.image_url || row.preview_url) continue;
       const fallbackAd = mediaFallbackMap.get(row.id);
@@ -2208,7 +2304,7 @@ export async function GET(request: NextRequest) {
       console.log("[meta-creatives] media direct fallback scan", {
         unresolved_ad_ids: unresolvedAdIds.length,
       });
-      const directFallbackMap = await fetchAdCreativeMediaDirectByAdIds(unresolvedAdIds, integration.access_token);
+      const directFallbackMap = await fetchAdCreativeMediaDirectByAdIds(unresolvedAdIds, accessToken);
       for (const row of rawRows) {
         if (row.thumbnail_url || row.image_url || row.preview_url) continue;
         const directAd = directFallbackMap.get(row.id);
@@ -2273,7 +2369,9 @@ export async function GET(request: NextRequest) {
     thumbnail_url: row.thumbnail_url,
     image_url: row.image_url,
   }));
+  const tMediaCache = Date.now();
   const cacheMap = await MediaCacheService.resolveUrls(cacheItems, businessId);
+  addStageMs("media_cache_ms", Date.now() - tMediaCache);
 
   const responseRows: MetaCreativeApiRow[] = rows.map((row) => {
     const cached = cacheMap.get(row.creative_id);
@@ -2452,6 +2550,39 @@ export async function GET(request: NextRequest) {
       preview_debug: {
         sampled: previewAuditSamples,
         ranking: summarizePreviewAudit(previewAuditSamples),
+      },
+      performance_debug: debugPerf
+        ? {
+            ...perf,
+            total_ms: Date.now() - requestStartedAt,
+            counters: {
+              ...perf.counters,
+              assigned_accounts: assignedAccountIds.length,
+              raw_rows: rawRows.length,
+              response_rows: responseRows.length,
+              preview_audit_samples: previewAuditSamples.length,
+              preview_audit_validation_requests: previewAuditValidationRequests,
+            },
+          }
+        : undefined,
+    });
+  }
+
+  if (debugPerf) {
+    return NextResponse.json({
+      status: "ok",
+      rows: responseRows,
+      performance_debug: {
+        ...perf,
+        total_ms: Date.now() - requestStartedAt,
+        counters: {
+          ...perf.counters,
+          assigned_accounts: assignedAccountIds.length,
+          raw_rows: rawRows.length,
+          response_rows: responseRows.length,
+          preview_audit_samples: previewAuditSamples.length,
+          preview_audit_validation_requests: previewAuditValidationRequests,
+        },
       },
     });
   }
