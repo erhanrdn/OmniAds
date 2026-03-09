@@ -159,6 +159,25 @@ function pickFirstUrl(candidates: Array<{ source: string; value: unknown }>): {
   return { url: null, source: null };
 }
 
+function collectUrlCandidates(
+  items: Array<Record<string, unknown>> | null | undefined,
+  sourcePrefix: string,
+  keys: string[]
+): Array<{ source: string; value: unknown }> {
+  const candidates: Array<{ source: string; value: unknown }> = [];
+  for (let i = 0; i < (items?.length ?? 0); i += 1) {
+    const item = items?.[i];
+    if (!item) continue;
+    for (const key of keys) {
+      candidates.push({
+        source: `${sourcePrefix}[${i}].${key}`,
+        value: item[key],
+      });
+    }
+  }
+  return candidates;
+}
+
 export function normalizeCreativePreview({
   creative,
   promotedObject,
@@ -172,30 +191,43 @@ export function normalizeCreativePreview({
     value: resolveImageHashUrl(imageHashLookup, hash),
   }));
 
-  // Resolution priority chain — try every known source, stop at first valid URL.
+  const childAttachmentCandidates = collectUrlCandidates(
+    (creative?.object_story_spec?.link_data?.child_attachments ??
+      null) as Array<Record<string, unknown>> | null,
+    "object_story_spec.link_data.child_attachments",
+    ["picture", "image_url"]
+  );
+  const assetVideoCandidates = collectUrlCandidates(
+    (creative?.asset_feed_spec?.videos ?? null) as Array<Record<string, unknown>> | null,
+    "asset_feed_spec.videos",
+    ["thumbnail_url", "image_url"]
+  );
+  const assetImageCandidates = collectUrlCandidates(
+    (creative?.asset_feed_spec?.images ?? null) as Array<Record<string, unknown>> | null,
+    "asset_feed_spec.images",
+    ["image_url", "url", "original_url"]
+  );
+
+  // Resolution priority chain — strict order from highest-confidence preview
+  // sources to lowest-confidence catalog asset fallbacks.
   const picked = pickFirstUrl([
-    // A) Direct creative fields
+    // 1-2) Direct creative fields
     { source: "thumbnail_url", value: creative?.thumbnail_url },
     { source: "image_url", value: creative?.image_url },
-    // B) object_story_spec sources
-    { source: "object_story_spec.link_data.picture", value: creative?.object_story_spec?.link_data?.picture },
+    // 3-5) object_story_spec video/photo
     { source: "object_story_spec.video_data.thumbnail_url", value: creative?.object_story_spec?.video_data?.thumbnail_url },
     { source: "object_story_spec.video_data.image_url", value: creative?.object_story_spec?.video_data?.image_url },
     { source: "object_story_spec.photo_data.image_url", value: creative?.object_story_spec?.photo_data?.image_url },
-    { source: "object_story_spec.link_data.child_attachments[0].picture", value: creative?.object_story_spec?.link_data?.child_attachments?.[0]?.picture },
-    { source: "object_story_spec.link_data.child_attachments[0].image_url", value: creative?.object_story_spec?.link_data?.child_attachments?.[0]?.image_url },
-    // C) image-hash to URL lookup (adimages edge)
+    // 6) object_story_spec link picture
+    { source: "object_story_spec.link_data.picture", value: creative?.object_story_spec?.link_data?.picture },
+    // 7) child attachment picture/image_url (first valid in list order)
+    ...childAttachmentCandidates,
+    // hash lookup fallback
     ...hashUrlCandidates,
-    // D) asset_feed_spec sources
-    {
-      source: "asset_feed_spec.images[0].url",
-      value:
-        creative?.asset_feed_spec?.images?.[0]?.url ??
-        creative?.asset_feed_spec?.images?.[0]?.image_url ??
-        creative?.asset_feed_spec?.images?.[0]?.original_url,
-    },
-    { source: "asset_feed_spec.videos[0].thumbnail_url", value: creative?.asset_feed_spec?.videos?.[0]?.thumbnail_url },
-    { source: "asset_feed_spec.videos[0].image_url", value: creative?.asset_feed_spec?.videos?.[0]?.image_url },
+    // 8-9) asset videos
+    ...assetVideoCandidates,
+    // 10-12) asset images
+    ...assetImageCandidates,
   ]);
 
   // ── Catalog detection ───────────────────────────────────────────────────────

@@ -70,6 +70,14 @@ function useResolvedPreviewUrl(creative: PreviewableCreative): {
     url,
     markFailed: () => {
       if (!url) return;
+      if (process.env.NODE_ENV !== "production") {
+        console.warn("[creative-preview] image load failed", {
+          creativeName: creative.name,
+          failedUrl: url,
+          previewState: creative.previewState ?? null,
+          isCatalog: creative.isCatalog,
+        });
+      }
       setFailedUrls((prev) => (prev.includes(url) ? prev : [...prev, url]));
     },
   };

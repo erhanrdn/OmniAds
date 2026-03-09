@@ -833,15 +833,7 @@ function toRawRow(
     promotedObject,
     imageHashLookup,
   });
-  // Use insight video signals as a secondary signal: if Meta reports any video
-  // watch events but the creative payload lacks explicit video fields, treat as video.
-  const hasInsightVideoSignals = video3sViews > 0 || video25Views > 0 || video50Views > 0 || video75Views > 0 || video100Views > 0;
-  const format =
-    normalizedPreview.format === "catalog"
-      ? "catalog"
-      : normalizedPreview.format === "video" || hasInsightVideoSignals
-      ? "video"
-      : "image" as const;
+  const format: CreativeFormat = normalizedPreview.format;
   const creativeType: CreativeType =
     format === "catalog"
       ? "feed_catalog"
@@ -1084,6 +1076,7 @@ export async function GET(request: NextRequest) {
   }
 
   const rawRows: RawCreativeRow[] = [];
+  let debugSamplesLogged = 0;
   for (const accountId of assignedAccountIds) {
     try {
       const [insights, adMap, accountMeta] = await Promise.all([
@@ -1154,7 +1147,6 @@ export async function GET(request: NextRequest) {
         });
       }
 
-      let debugSamplesLogged = 0;
       for (const insight of insights) {
         const ad = insight.ad_id ? adMap.get(insight.ad_id) : undefined;
         // Merge creative details — prefer non-null values from either source
@@ -1172,25 +1164,33 @@ export async function GET(request: NextRequest) {
         );
         if (row) {
           rawRows.push(row);
-          if (process.env.NODE_ENV !== "production" && debugSamplesLogged < 3) {
+          if (process.env.NODE_ENV !== "production" && debugSamplesLogged < 5) {
             debugSamplesLogged += 1;
+            const linkData = mergedCreative?.object_story_spec?.link_data;
+            const videoData = mergedCreative?.object_story_spec?.video_data;
+            const photoData = mergedCreative?.object_story_spec?.photo_data;
+            const assetFeedSpec = mergedCreative?.asset_feed_spec;
+            const effectivePromotedObject = enrichedAd?.promoted_object ?? enrichedAd?.adset?.promoted_object ?? null;
             console.log("[meta-creatives] preview sample", {
               ad_id: row.id,
-              ad_name: row.name,
               creative_id: row.creative_id,
-              ad_found_in_map: Boolean(ad),
-              creative_from_ad: Boolean(baseCreative),
-              creative_from_details: Boolean(detailCreative),
-              merged_thumbnail_url: mergedCreative?.thumbnail_url?.slice(0, 80) ?? null,
-              merged_image_url: mergedCreative?.image_url?.slice(0, 80) ?? null,
-              has_object_story_spec: Boolean(mergedCreative?.object_story_spec),
-              has_video_data: Boolean(mergedCreative?.object_story_spec?.video_data),
-              has_link_data_picture: Boolean(mergedCreative?.object_story_spec?.link_data?.picture),
-              has_asset_feed_spec: Boolean(mergedCreative?.asset_feed_spec),
-              final_preview_url: row.preview_url?.slice(0, 80) ?? null,
-              final_preview_source: row.preview_source,
+              ad_name: row.name,
+              creative_object_type: mergedCreative?.object_type ?? null,
+              creative_thumbnail_url: mergedCreative?.thumbnail_url ?? null,
+              creative_image_url: mergedCreative?.image_url ?? null,
+              object_story_spec_video_data_thumbnail_url: videoData?.thumbnail_url ?? null,
+              object_story_spec_video_data_image_url: videoData?.image_url ?? null,
+              object_story_spec_photo_data_image_url: photoData?.image_url ?? null,
+              object_story_spec_link_data_picture: linkData?.picture ?? null,
+              object_story_spec_link_data_child_attachments: linkData?.child_attachments ?? null,
+              asset_feed_spec_images: assetFeedSpec?.images ?? null,
+              asset_feed_spec_videos: assetFeedSpec?.videos ?? null,
+              promoted_object_product_set_id: effectivePromotedObject?.product_set_id ?? null,
+              promoted_object_catalog_id: effectivePromotedObject?.catalog_id ?? null,
+              final_detected_format: row.format,
               final_preview_state: row.preview_state,
-              final_format: row.format,
+              final_preview_url: row.preview_url ?? null,
+              final_preview_source: row.preview_source,
               creative_type_label: row.creative_type_label,
             });
           }
@@ -1300,9 +1300,10 @@ export async function GET(request: NextRequest) {
         catalog: responseRows.filter((r) => r.preview_state === "catalog").length,
         unavailable: responseRows.filter((r) => r.preview_state === "unavailable").length,
       },
-      samples: responseRows.slice(0, 3).map((r) => ({
+      samples: responseRows.slice(0, 5).map((r) => ({
         id: r.id,
         name: r.name.slice(0, 40),
+        format: r.format,
         preview_state: r.preview_state,
         preview_url: r.preview_url ? r.preview_url.slice(0, 80) : null,
         preview_source: r.preview_source,
