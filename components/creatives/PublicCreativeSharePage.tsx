@@ -140,7 +140,7 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
             <div className="flex min-w-max gap-2.5">
               {displayRows.map((creative) => (
                 <article key={creative.id} className="w-[190px] shrink-0 overflow-hidden rounded-lg border border-[#E5E7EB] bg-white">
-                  <CreativeRenderSurface id={creative.id} name={creative.name} preview={creative.preview} size="card" />
+                  <CreativeRenderSurface id={creative.id} name={creative.name} preview={creative.preview} size="card" mode="asset" />
                   <div className="space-y-1 px-2.5 py-2">
                     <div className="flex items-center justify-between gap-2">
                       <p className="line-clamp-1 text-[12px] font-medium text-[#111827]">{creative.name}</p>
@@ -185,7 +185,8 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
                           id={creative.id}
                           name={creative.name}
                           preview={creative.preview}
-                          size="large"
+                          size="thumb"
+                          mode="asset"
                           className="h-8 w-14 rounded"
                         />
                         <span className="line-clamp-2 text-[11px] text-[#111827]">{creative.name}</span>

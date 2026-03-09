@@ -46,6 +46,7 @@ export function CreativeInsightsDrawer({
               name={row.name}
               preview={row.preview}
               size="large"
+              mode="full"
             />
           </div>
 

@@ -1332,6 +1332,8 @@ export function MotionCreativesTableSection({
                       name={row.name}
                       preview={row.preview}
                       size="thumb"
+                      mode="asset"
+                      assetFallbacks={[row.thumbnailUrl, row.imageUrl, row.previewUrl]}
                       className="h-9 w-9 shrink-0 rounded-md"
                     />
 
