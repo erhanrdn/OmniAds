@@ -67,7 +67,7 @@ function getMetaFetchPath(businessId: string) {
 }
 
 function getGoogleFetchPath(businessId: string) {
-  return `/integrations/google/ad-accounts?businessId=${encodeURIComponent(businessId)}`;
+  return `/api/google/accessible-accounts?businessId=${encodeURIComponent(businessId)}`;
 }
 
 function getFetchPath(provider: IntegrationProvider, businessId: string) {

@@ -13,10 +13,17 @@ import {
 /**
  * GET /api/google/accounts
  *
- * Fetch account-level aggregated data from Google Ads
+ * Fetch account-level aggregated METRICS for ASSIGNED Google Ads accounts.
+ * This endpoint is for analytics/reporting purposes, NOT for the assignment modal.
+ * 
+ * For discovering all accessible accounts (used by assignment modal), use:
+ * /api/google/accessible-accounts
+ *
  * Query params:
  *   - businessId: required
  *   - dateRange: required ("7" | "14" | "30" | "custom")
+ *
+ * Returns account-level performance metrics for already-assigned Google Ads accounts.
  */
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
@@ -41,13 +48,13 @@ export async function GET(request: NextRequest) {
     const dateRangeParams = getDateRangeForQuery(dateRange);
     const assignedAccounts = await getAssignedGoogleAccounts(businessId);
 
+    // Return empty array if no accounts are assigned (not an error)
     if (assignedAccounts.length === 0) {
-      return NextResponse.json(
-        {
-          error: "No Google Ads accounts assigned to this business",
-        },
-        { status: 404 }
-      );
+      console.log("[accounts] No assigned accounts found for business", { businessId });
+      return NextResponse.json({
+        data: [],
+        count: 0,
+      });
     }
 
     // Execute queries for each account and aggregate
