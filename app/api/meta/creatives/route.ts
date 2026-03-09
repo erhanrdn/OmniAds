@@ -793,6 +793,30 @@ function extractPreviewMediaFromHtml(html: string): {
   posterUrl: string | null;
 } {
   const decoded = decodeHtmlEntities(html);
+  
+  // Try to find CDN URLs in raw HTML first (often in data attributes or style)
+  const cdnPatterns = [
+    /https?:\/\/[^\s"'<>]*\.fbcdn\.net\/[^\s"'<>]*/gi,
+    /https?:\/\/[^\s"'<>]*\.cdninstagram\.com\/[^\s"'<>]*/gi,
+    /https?:\/\/scontent[^\s"'<>]*\.fbcdn\.net\/[^\s"'<>]*/gi,
+  ];
+  
+  for (const pattern of cdnPatterns) {
+    const matches = decoded.match(pattern);
+    if (matches && matches.length > 0) {
+      // Find largest/best quality image (usually has higher resolution in path)
+      const bestMatch = matches
+        .filter(url => !url.includes('emoji') && !url.includes('icon') && !url.includes('1x1'))
+        .sort((a, b) => b.length - a.length)[0];
+      if (bestMatch) {
+        const normalized = normalizeMediaUrl(bestMatch);
+        if (normalized) {
+          return { imageUrl: normalized, videoUrl: null, posterUrl: normalized };
+        }
+      }
+    }
+  }
+  
   const imagePatterns = [
     /<video[^>]*poster="([^"]+)"/i,
     /<video[^>]*poster='([^']+)'/i,
@@ -1914,7 +1938,8 @@ export async function GET(request: NextRequest) {
 
   const missingPreviewAdIds = rawRows
     .filter((row) => !row.preview_url && row.id && !row.id.startsWith("creative_") && !row.id.startsWith("adset_"))
-    .map((row) => row.id);
+    .map((row) => row.id)
+    .slice(0, 25); // Limit to first 25 for performance
 
   const rowsMissingAllMedia = rawRows
     .filter(
@@ -1926,7 +1951,8 @@ export async function GET(request: NextRequest) {
         !row.id.startsWith("creative_") &&
         !row.id.startsWith("adset_")
     )
-    .map((row) => row.id);
+    .map((row) => row.id)
+    .slice(0, 25); // Limit to first 25 for performance
 
   if (rowsMissingAllMedia.length > 0) {
     const mediaFallbackMap = await fetchAdCreativeMediaByAdIds(rowsMissingAllMedia, integration.access_token);

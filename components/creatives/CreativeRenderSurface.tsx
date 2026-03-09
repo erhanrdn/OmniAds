@@ -93,6 +93,27 @@ function proxyUrl(src: string): string {
 function extractImageSrcFromHtml(html: string): string | null {
   const decoded = decodeHtmlEntities(html);
 
+  // 0. Try to find CDN URLs directly in HTML (often in data attributes or inline style)
+  const cdnPatterns = [
+    /https?:\/\/[^\s"'<>]*\.fbcdn\.net\/[^\s"'<>]*/gi,
+    /https?:\/\/[^\s"'<>]*\.cdninstagram\.com\/[^\s"'<>]*/gi,
+    /https?:\/\/scontent[^\s"'<>]*\.fbcdn\.net\/[^\s"'<>]*/gi,
+  ];
+  
+  for (const pattern of cdnPatterns) {
+    const matches = decoded.match(pattern);
+    if (matches && matches.length > 0) {
+      // Find largest/best quality image
+      const bestMatch = matches
+        .filter(url => !url.includes('emoji') && !url.includes('icon') && !url.includes('1x1') && !url.includes('pixel'))
+        .sort((a, b) => b.length - a.length)[0];
+      if (bestMatch) {
+        const url = normalizeUrl(bestMatch);
+        if (url) return url;
+      }
+    }
+  }
+
   // 1. Video poster (often the creative asset for video ads)
   const posterMatch = decoded.match(/<video[^>]*poster=["']([^"']+)["']/i);
   if (posterMatch?.[1]) {
