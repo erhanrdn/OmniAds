@@ -76,7 +76,7 @@ export function CreativesMotionTable({
             </tr>
           </thead>
           <tbody className="divide-y divide-border/40">
-            {rows.map((row) => (
+            {rows.map((row: any) => (
               <tr
                 key={row.id}
                 onClick={() => onOpenRow(row.id)}
@@ -99,17 +99,19 @@ export function CreativesMotionTable({
                 <td className={`sticky left-0 z-10 bg-background group-hover:bg-muted/30 transition-colors px-4 ${density === "compact" ? "py-2" : "py-4"}`}>
                   <div className="flex items-center gap-3">
                     
-                    {/* YENİ NESİL ÖN İZLEME (IFRAME DESTEKLİ) */}
+                    {/* IFRAME / IMAGE PREVIEW */}
                     <CreativeIframeThumbnail row={row} />
                     
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-[13px] font-semibold text-foreground tracking-tight">{row.name}</p>
                       <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                         <span className="capitalize">{row.is_catalog ? "Catalog" : row.format || "Static"}</span>
-                        {row.associated_ads_count > 1 && (
+                         <span className="capitalize">
+                           {row.is_catalog || row.isCatalog ? "Catalog" : row.format || "Static"}
+                         </span>
+                        {(row.associated_ads_count || row.associatedAdsCount) > 1 && (
                           <span className="flex items-center gap-1.5">
                             <span className="h-1 w-1 rounded-full bg-muted-foreground/40" />
-                            {row.associated_ads_count} ads
+                            {row.associated_ads_count || row.associatedAdsCount} ads
                           </span>
                         )}
                       </div>
@@ -144,31 +146,26 @@ export function CreativesMotionTable({
   );
 }
 
-/**
- * Meta'nın gönderdiği iframe HTML'ini thumbnail olarak gösteren bileşen
- */
 function CreativeIframeThumbnail({ row }: { row: any }) {
-  // Eğer elimizde direkt bir resim varsa onu kullan (fallback)
-  const directImage = row.thumbnail_url || row.image_url || row.preview?.image_url;
+  const directImage = row.thumbnail_url || row.imageUrl || row.image_url || row.preview?.image_url;
 
   if (directImage) {
     return (
-      <div className="h-10 w-10 shrink-0 overflow-hidden rounded border border-border/20 shadow-sm">
+      <div className="h-10 w-10 shrink-0 overflow-hidden rounded border border-border/20 shadow-sm bg-white flex items-center justify-center">
         <img src={directImage} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
       </div>
     );
   }
 
-  // Resim yoksa ama iframe HTML varsa, iframe'i ölçeklendirerek göster
   if (row.preview?.html) {
     return (
-      <div className="h-10 w-10 shrink-0 overflow-hidden rounded border border-border/20 shadow-sm bg-white relative pointer-events-none">
+      <div className="h-10 w-10 shrink-0 overflow-hidden rounded border border-border/20 shadow-sm bg-white relative pointer-events-none flex items-center justify-center">
         <div 
           className="absolute origin-top-left"
           style={{ 
-            width: '540px', // Orijinal iframe genişliği
-            height: '690px', // Orijinal iframe yüksekliği
-            transform: `scale(${40 / 540})`, // 40px kutuya sığdırmak için ölçekleme
+            width: '540px', 
+            height: '690px', 
+            transform: `scale(${40 / 540})`, 
           }}
           dangerouslySetInnerHTML={{ __html: row.preview.html }}
         />
@@ -176,15 +173,13 @@ function CreativeIframeThumbnail({ row }: { row: any }) {
     );
   }
 
-  // Hiçbir şey yoksa boş kutu
   return (
     <div className="h-10 w-10 shrink-0 rounded bg-zinc-100 border border-zinc-200 flex items-center justify-center">
-      <div className="w-4 h-4 rounded-full bg-zinc-200 animate-pulse" />
+      <div className="w-4 h-4 rounded-full bg-zinc-200" />
     </div>
   );
 }
 
-// Yardımcı fonksiyonlar
 function withIntensity(color: string, intensity: "low" | "medium" | "high") {
   const multiplier = intensity === "low" ? 0.7 : intensity === "high" ? 1.3 : 1;
   const match = color.match(/rgba\((\d+),\s*(\d+),\s*(\d+),\s*([0-9.]+)\)/);
