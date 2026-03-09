@@ -1804,12 +1804,15 @@ function normalizeCompactPreviewUrl(value: string | null | undefined): string | 
 }
 
 function CompactTableThumbnail({ row }: { row: MetaCreativeRow }) {
+  const normalizedThumbnail = normalizeCompactPreviewUrl(row.thumbnailUrl);
+  const normalizedImage = normalizeCompactPreviewUrl(row.imageUrl);
+  const normalizedPreview = normalizeCompactPreviewUrl(row.previewUrl);
   const sources = useMemo(
     () =>
-      [row.thumbnailUrl, row.imageUrl, row.previewUrl]
-        .map((value) => normalizeCompactPreviewUrl(value))
-        .filter((value): value is string => Boolean(value)),
-    [row.thumbnailUrl, row.imageUrl, row.previewUrl]
+      [normalizedThumbnail, normalizedImage, normalizedPreview].filter(
+        (value): value is string => Boolean(value)
+      ),
+    [normalizedImage, normalizedPreview, normalizedThumbnail]
   );
 
   const [sourceIndex, setSourceIndex] = useState(0);
@@ -1820,7 +1823,6 @@ function CompactTableThumbnail({ row }: { row: MetaCreativeRow }) {
   }, [row.id, row.thumbnailUrl, row.imageUrl, row.previewUrl]);
 
   useEffect(() => {
-    if (process.env.NODE_ENV === "production") return;
     if (tableCompactPreviewDebugCount >= 5) return;
     tableCompactPreviewDebugCount += 1;
     console.log("creative preview", {
@@ -1830,14 +1832,27 @@ function CompactTableThumbnail({ row }: { row: MetaCreativeRow }) {
       thumbnailUrl: row.thumbnailUrl ?? null,
       imageUrl: row.imageUrl ?? null,
       previewUrl: row.previewUrl ?? null,
+      normalizedThumbnail,
+      normalizedImage,
+      normalizedPreview,
       chosen: compactPreviewSrc,
     });
-  }, [compactPreviewSrc, row.id, row.imageUrl, row.name, row.previewUrl, row.thumbnailUrl]);
+  }, [
+    compactPreviewSrc,
+    normalizedImage,
+    normalizedPreview,
+    normalizedThumbnail,
+    row.id,
+    row.imageUrl,
+    row.name,
+    row.previewUrl,
+    row.thumbnailUrl,
+  ]);
 
   if (!compactPreviewSrc) {
     return (
       <div className="flex h-[30px] w-[30px] shrink-0 items-center justify-center overflow-hidden rounded bg-muted text-[8px] leading-none text-muted-foreground">
-        PREVIEW_DEBUG_001
+        Preview unavailable
       </div>
     );
   }
@@ -1851,7 +1866,23 @@ function CompactTableThumbnail({ row }: { row: MetaCreativeRow }) {
         className="h-full w-full object-cover"
         loading="lazy"
         referrerPolicy="no-referrer"
+        onLoad={() => {
+          console.log("creative preview load", {
+            component: "MotionCreativesTableSection.tsx",
+            id: row.id,
+            name: row.name,
+            chosen: compactPreviewSrc,
+            status: "success",
+          });
+        }}
         onError={() => {
+          console.log("creative preview load", {
+            component: "MotionCreativesTableSection.tsx",
+            id: row.id,
+            name: row.name,
+            chosen: compactPreviewSrc,
+            status: "error",
+          });
           if (sourceIndex < sources.length - 1) {
             setSourceIndex((current) => current + 1);
           }

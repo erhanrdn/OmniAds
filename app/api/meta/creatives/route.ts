@@ -700,6 +700,12 @@ async function buildNormalizedPreview(input: {
     }
   }
 
+  // Server-side validation can fail on signed/hotlink-protected assets even when the browser can render them.
+  // If none validated, keep the highest-priority direct candidate and let compact UI runtime fallback handle load errors.
+  if (!chosenCandidate && candidates.length > 0) {
+    chosenCandidate = candidates[0];
+  }
+
   const top = chosenCandidate;
   const mapSource = (source: string | null): NormalizedPreviewSource => {
     if (!source) return null;
@@ -1911,6 +1917,18 @@ export async function GET(request: NextRequest) {
     if (previewAuditSamples.length > 0) {
       console.log("[meta-creatives] preview source ranking", summarizePreviewAudit(previewAuditSamples));
     }
+  }
+  if (debugPreview) {
+    console.log("[meta-creatives] raw preview fields (first 5)", responseRows.slice(0, 5).map((r) => ({
+      id: r.id,
+      name: r.name,
+      thumbnail_url: r.thumbnail_url,
+      image_url: r.image_url,
+      preview_url: r.preview_url,
+      preview_state: r.preview_state,
+      is_catalog: r.is_catalog,
+      format: r.format,
+    })));
   }
   if (debugPreview) {
     return NextResponse.json({

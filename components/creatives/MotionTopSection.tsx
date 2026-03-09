@@ -1142,12 +1142,15 @@ function normalizeCompactPreviewUrl(value: string | null | undefined): string | 
 }
 
 function CompactTopCardPreview({ row }: { row: MetaCreativeRow }) {
+  const normalizedThumbnail = normalizeCompactPreviewUrl(row.thumbnailUrl);
+  const normalizedImage = normalizeCompactPreviewUrl(row.imageUrl);
+  const normalizedPreview = normalizeCompactPreviewUrl(row.previewUrl);
   const sources = useMemo(
     () =>
-      [row.thumbnailUrl, row.imageUrl, row.previewUrl]
-        .map((value) => normalizeCompactPreviewUrl(value))
-        .filter((value): value is string => Boolean(value)),
-    [row.thumbnailUrl, row.imageUrl, row.previewUrl]
+      [normalizedThumbnail, normalizedImage, normalizedPreview].filter(
+        (value): value is string => Boolean(value)
+      ),
+    [normalizedImage, normalizedPreview, normalizedThumbnail]
   );
 
   const [sourceIndex, setSourceIndex] = useState(0);
@@ -1158,7 +1161,6 @@ function CompactTopCardPreview({ row }: { row: MetaCreativeRow }) {
   }, [row.id, row.thumbnailUrl, row.imageUrl, row.previewUrl]);
 
   useEffect(() => {
-    if (process.env.NODE_ENV === "production") return;
     if (topCompactPreviewDebugCount >= 5) return;
     topCompactPreviewDebugCount += 1;
     console.log("creative preview", {
@@ -1168,14 +1170,27 @@ function CompactTopCardPreview({ row }: { row: MetaCreativeRow }) {
       thumbnailUrl: row.thumbnailUrl ?? null,
       imageUrl: row.imageUrl ?? null,
       previewUrl: row.previewUrl ?? null,
+      normalizedThumbnail,
+      normalizedImage,
+      normalizedPreview,
       chosen: compactPreviewSrc,
     });
-  }, [compactPreviewSrc, row.id, row.imageUrl, row.name, row.previewUrl, row.thumbnailUrl]);
+  }, [
+    compactPreviewSrc,
+    normalizedImage,
+    normalizedPreview,
+    normalizedThumbnail,
+    row.id,
+    row.imageUrl,
+    row.name,
+    row.previewUrl,
+    row.thumbnailUrl,
+  ]);
 
   if (!compactPreviewSrc) {
     return (
       <div className="flex h-full w-full items-center justify-center overflow-hidden rounded-lg bg-muted text-[11px] text-muted-foreground">
-        PREVIEW_DEBUG_001
+        Preview unavailable
       </div>
     );
   }
@@ -1189,7 +1204,23 @@ function CompactTopCardPreview({ row }: { row: MetaCreativeRow }) {
         className="h-full w-full object-cover"
         loading="lazy"
         referrerPolicy="no-referrer"
+        onLoad={() => {
+          console.log("creative preview load", {
+            component: "MotionTopSection.tsx",
+            id: row.id,
+            name: row.name,
+            chosen: compactPreviewSrc,
+            status: "success",
+          });
+        }}
         onError={() => {
+          console.log("creative preview load", {
+            component: "MotionTopSection.tsx",
+            id: row.id,
+            name: row.name,
+            chosen: compactPreviewSrc,
+            status: "error",
+          });
           if (sourceIndex < sources.length - 1) {
             setSourceIndex((current) => current + 1);
           }

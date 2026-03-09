@@ -350,6 +350,20 @@ export default function CreativesPage() {
     return rows;
   }, [creativesQuery.data?.rows]);
 
+  useEffect(() => {
+    if (allRows.length === 0) return;
+    console.log("[creatives-page] mapped UI rows (first 5)", allRows.slice(0, 5).map((row) => ({
+      id: row.id,
+      name: row.name,
+      thumbnailUrl: row.thumbnailUrl ?? null,
+      imageUrl: row.imageUrl ?? null,
+      previewUrl: row.previewUrl ?? null,
+      previewState: row.previewState,
+      isCatalog: row.isCatalog,
+      format: row.format,
+    })));
+  }, [allRows]);
+
   const filteredRows = useMemo(() => {
     if (platform !== "meta") return [];
     return applyMotionFilters(allRows, topFilters);
