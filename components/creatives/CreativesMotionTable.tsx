@@ -79,7 +79,6 @@ export function CreativesMotionTable({
             {rows.map((row) => (
               <tr
                 key={row.id}
-                id={`creative-row-${row.id}`}
                 onClick={() => onOpenRow(row.id)}
                 className={`group cursor-pointer hover:bg-muted/30 transition-colors ${
                   highlightedRowId === row.id ? "bg-emerald-500/10" : ""
@@ -99,7 +98,7 @@ export function CreativesMotionTable({
                 </td>
                 <td className={`sticky left-0 z-10 bg-background group-hover:bg-muted/30 transition-colors px-4 ${density === "compact" ? "py-2" : "py-4"}`}>
                   <div className="flex items-center gap-3">
-                    {/* ÖN İZLEME GÖRSELİ BÖLÜMÜ */}
+                    {/* GÜNCELLENMİŞ GÖRSEL BİLEŞENİ */}
                     <CreativePreviewImage row={row} />
                     
                     <div className="min-w-0 flex-1">
@@ -119,7 +118,7 @@ export function CreativesMotionTable({
                 <td className="px-4 text-muted-foreground whitespace-nowrap">{row.launchDate}</td>
                 <td className="px-4">
                   <div className="flex flex-wrap gap-1">
-                    {row.tags?.slice(0, 2).map((tag) => (
+                    {(row.tags || []).slice(0, 2).map((tag) => (
                       <Badge key={tag} variant="secondary" className="text-[10px] px-1.5 py-0 font-normal">
                         {tag}
                       </Badge>
@@ -144,55 +143,61 @@ export function CreativesMotionTable({
   );
 }
 
-// Reklam Ön İzleme Görseli İçin Özel Bileşen
 function CreativePreviewImage({ row }: { row: any }) {
   const [imgSrc, setImgSrc] = useState<string | null>(null);
-  const [errorCount, setErrorCount] = useState(0);
+  const [errorIndex, setErrorIndex] = useState(0);
 
-  // Meta URL'lerini sırayla kontrol et
-  const sources = useMemo(() => {
-    return [
-      row.thumbnailUrl,
-      row.thumbnail_url, // API'den bazen snake_case gelir
-      row.imageUrl,
-      row.image_url,
-      row.previewUrl
-    ].filter(Boolean);
+  // Akıllı URL Tarayıcı: API'den hangi key ile gelirse gelsin yakalar
+  const validSources = useMemo(() => {
+    const possibleKeys = [
+      'thumbnailUrl', 'thumbnail_url', 'thumb', 
+      'imageUrl', 'image_url', 'image', 
+      'previewUrl', 'preview_url', 'url'
+    ];
+    
+    const foundUrls = possibleKeys
+      .map(key => row[key])
+      .filter(val => typeof val === 'string' && val.includes('http'));
+      
+    // URL'lerin başına https: ekle (// ile başlıyorsa)
+    return foundUrls.map(url => url.startsWith('//') ? `https:${url}` : url);
   }, [row]);
 
   useEffect(() => {
-    if (sources.length > 0) {
-      setImgSrc(sources[0]);
+    if (validSources.length > 0) {
+      setImgSrc(validSources[0]);
+    } else {
+      setImgSrc(null);
     }
-  }, [sources]);
+  }, [validSources]);
 
   const handleImageError = () => {
-    if (errorCount < sources.length - 1) {
-      const nextIndex = errorCount + 1;
-      setErrorCount(nextIndex);
-      setImgSrc(sources[nextIndex]);
+    if (errorIndex < validSources.length - 1) {
+      const nextIndex = errorIndex + 1;
+      setErrorIndex(nextIndex);
+      setImgSrc(validSources[nextIndex]);
     } else {
-      setImgSrc("fallback"); // Tüm kaynaklar bittiğinde fallback'e düş
+      setImgSrc("FAILED");
     }
   };
 
-  if (!imgSrc || imgSrc === "fallback") {
+  if (!imgSrc || imgSrc === "FAILED") {
     return (
       <div className="h-10 w-10 shrink-0 flex items-center justify-center rounded bg-zinc-100 border border-zinc-200">
         <svg className="w-5 h-5 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.587-1.587a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          <path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.587-1.587a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
         </svg>
       </div>
     );
   }
 
   return (
-    <div className="h-10 w-10 shrink-0 overflow-hidden rounded bg-black border border-border/20 shadow-sm flex items-center justify-center">
+    <div className="h-10 w-10 shrink-0 overflow-hidden rounded bg-black border border-black/5 shadow-sm flex items-center justify-center">
       <img
         src={imgSrc}
         alt=""
         className="h-full w-full object-cover"
-        referrerPolicy="no-referrer" // Meta CDN için kritik ayar
+        referrerPolicy="no-referrer"
         onError={handleImageError}
         loading="lazy"
       />
@@ -200,7 +205,6 @@ function CreativePreviewImage({ row }: { row: any }) {
   );
 }
 
-// Yardımcı Fonksiyonlar (Aynı kalmalı)
 function withIntensity(color: string, intensity: "low" | "medium" | "high") {
   const multiplier = intensity === "low" ? 0.7 : intensity === "high" ? 1.3 : 1;
   const match = color.match(/rgba\((\d+),\s*(\d+),\s*(\d+),\s*([0-9.]+)\)/);
