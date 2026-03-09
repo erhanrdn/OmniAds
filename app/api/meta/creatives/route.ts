@@ -242,6 +242,16 @@ interface RawCreativeRow {
   video50: number;
   video75: number;
   video100: number;
+  debug_stage_fetch_source?: string | null;
+  debug_stage_has_raw_ad?: boolean;
+  debug_stage_raw_ad_id?: string | null;
+  debug_stage_raw_ad_creative?: boolean;
+  debug_stage_raw_ad_creative_thumbnail_url?: string | null;
+  debug_stage_enriched_ad_creative?: boolean;
+  debug_stage_enriched_ad_creative_thumbnail_url?: string | null;
+  debug_stage_row_input_thumbnail_url?: string | null;
+  debug_stage_final_thumbnail_url?: string | null;
+  debug_stage_null_reason?: string | null;
   debug_raw_creative_thumbnail_url?: string | null;
   debug_enriched_creative_thumbnail_url?: string | null;
   debug_resolved_thumbnail_source?: string | null;
@@ -290,6 +300,16 @@ export interface MetaCreativeApiRow {
   video100: number;
   /** Internal cached URL. Prefer over thumbnail_url/image_url when available. */
   cached_thumbnail_url?: string | null;
+  debug_stage_fetch_source?: string | null;
+  debug_stage_has_raw_ad?: boolean;
+  debug_stage_raw_ad_id?: string | null;
+  debug_stage_raw_ad_creative?: boolean;
+  debug_stage_raw_ad_creative_thumbnail_url?: string | null;
+  debug_stage_enriched_ad_creative?: boolean;
+  debug_stage_enriched_ad_creative_thumbnail_url?: string | null;
+  debug_stage_row_input_thumbnail_url?: string | null;
+  debug_stage_final_thumbnail_url?: string | null;
+  debug_stage_null_reason?: string | null;
   debug_raw_creative_thumbnail_url?: string | null;
   debug_enriched_creative_thumbnail_url?: string | null;
   debug_resolved_thumbnail_source?: string | null;
@@ -1306,6 +1326,49 @@ async function fetchAdCreativeMediaByAdIds(
   return map;
 }
 
+async function fetchAdCreativeBasicsByAdIds(
+  adIds: string[],
+  accessToken: string
+): Promise<Map<string, MetaAdCreativeMediaOnlyRecord>> {
+  const map = new Map<string, MetaAdCreativeMediaOnlyRecord>();
+  const uniqueIds = Array.from(new Set(adIds.filter((id) => id.trim().length > 0)));
+  if (uniqueIds.length === 0) return map;
+
+  const fields = "id,creative{id,thumbnail_url,image_url}";
+  const concurrency = 20;
+  for (let i = 0; i < uniqueIds.length; i += concurrency) {
+    const chunk = uniqueIds.slice(i, i + concurrency);
+    const results = await Promise.all(
+      chunk.map(async (adId) => {
+        const url = new URL(`https://graph.facebook.com/v25.0/${adId}`);
+        url.searchParams.set("fields", fields);
+        url.searchParams.set("thumbnail_width", "150");
+        url.searchParams.set("thumbnail_height", "150");
+        url.searchParams.set("access_token", accessToken);
+        try {
+          const res = await fetch(url.toString(), {
+            method: "GET",
+            headers: { Accept: "application/json" },
+            cache: "no-store",
+          });
+          if (!res.ok) return null;
+          const payload = (await res.json().catch(() => null)) as MetaAdCreativeMediaOnlyRecord | null;
+          if (!payload || typeof payload !== "object") return null;
+          return { adId, payload: { ...payload, id: payload.id ?? adId } };
+        } catch {
+          return null;
+        }
+      })
+    );
+    for (const item of results) {
+      if (!item) continue;
+      map.set(item.adId, item.payload);
+    }
+  }
+
+  return map;
+}
+
 async function fetchAdCreativeMediaDirectByAdIds(
   adIds: string[],
   accessToken: string
@@ -1366,6 +1429,13 @@ function toRawRow(
   imageHashLookup: Map<string, string>,
   debugContext?: {
     enabled?: boolean;
+    fetchSource?: string | null;
+    hasRawAd?: boolean;
+    rawAdId?: string | null;
+    rawAdCreative?: boolean;
+    rawAdCreativeThumbnailUrl?: string | null;
+    enrichedAdCreative?: boolean;
+    enrichedAdCreativeThumbnailUrl?: string | null;
     rawCreativeThumbnailUrl?: string | null;
     enrichedCreativeThumbnailUrl?: string | null;
   }
@@ -1422,6 +1492,18 @@ function toRawRow(
   const finalImage = normalizedPreview.legacy.image_url ?? normalizeMediaUrl(creative?.image_url ?? null) ?? finalThumbnail;
   const finalPreview = normalizedPreview.legacy.preview_url ?? finalThumbnail ?? finalImage;
   const finalPreviewState: LegacyPreviewState = finalPreview ? "preview" : "unavailable";
+  const stageNullReason =
+    finalThumbnail
+      ? null
+      : !debugContext?.hasRawAd
+      ? "ad_lookup_miss"
+      : !debugContext?.rawAdCreative
+      ? "raw_ad_creative_missing"
+      : !debugContext?.enrichedAdCreative
+      ? "enriched_ad_creative_missing"
+      : !finalPreview
+      ? "no_resolved_media_url"
+      : "unknown";
 
   if (debugContext?.enabled) {
     console.log("[meta-creatives][thumb-trace] row-pipeline", {
@@ -1497,6 +1579,16 @@ function toRawRow(
     video50: video50Rate,
     video75: video75Rate,
     video100: video100Rate,
+    debug_stage_fetch_source: debugContext?.fetchSource ?? null,
+    debug_stage_has_raw_ad: Boolean(debugContext?.hasRawAd),
+    debug_stage_raw_ad_id: debugContext?.rawAdId ?? null,
+    debug_stage_raw_ad_creative: Boolean(debugContext?.rawAdCreative),
+    debug_stage_raw_ad_creative_thumbnail_url: debugContext?.rawAdCreativeThumbnailUrl ?? null,
+    debug_stage_enriched_ad_creative: Boolean(debugContext?.enrichedAdCreative),
+    debug_stage_enriched_ad_creative_thumbnail_url: debugContext?.enrichedAdCreativeThumbnailUrl ?? null,
+    debug_stage_row_input_thumbnail_url: normalizeMediaUrl(creative?.thumbnail_url ?? null),
+    debug_stage_final_thumbnail_url: finalThumbnail,
+    debug_stage_null_reason: stageNullReason,
     debug_raw_creative_thumbnail_url: debugContext?.rawCreativeThumbnailUrl ?? null,
     debug_enriched_creative_thumbnail_url: debugContext?.enrichedCreativeThumbnailUrl ?? null,
     debug_resolved_thumbnail_source: resolvedThumbnail.source,
@@ -1744,6 +1836,31 @@ export async function GET(request: NextRequest) {
         }
       }
 
+      const creativeMissingAdIds = insightAdIds.filter((id) => {
+        const ad = adMap.get(id);
+        return !ad?.creative?.thumbnail_url && !ad?.creative?.image_url;
+      });
+      if (creativeMissingAdIds.length > 0) {
+        console.log("[meta-creatives] creative enrichment fallback", {
+          account_id: accountId,
+          missing_creative_media_ads: creativeMissingAdIds.length,
+        });
+        const creativeBasicsMap = await fetchAdCreativeBasicsByAdIds(creativeMissingAdIds, integration.access_token);
+        for (const adId of creativeMissingAdIds) {
+          const existing = adMap.get(adId);
+          const fallback = creativeBasicsMap.get(adId);
+          if (!fallback?.creative) continue;
+          if (!existing) {
+            adMap.set(adId, { id: adId, creative: fallback.creative });
+            continue;
+          }
+          adMap.set(adId, {
+            ...existing,
+            creative: mergeCreativeData(existing.creative ?? null, fallback.creative as NonNullable<MetaAdRecord["creative"]>),
+          });
+        }
+      }
+
       // ── Fetch creative details for all creative IDs found ─────────────────
       const creativeIds = Array.from(
         new Set(
@@ -1819,6 +1936,47 @@ export async function GET(request: NextRequest) {
 
       for (const insight of insights) {
         const ad = insight.ad_id ? adMap.get(insight.ad_id) : undefined;
+        const rawAd = ad;
+        const rawAdAny = (rawAd ?? null) as Record<string, unknown> | null;
+        const rawCreativeDirect = rawAd?.creative ?? null;
+        const rawCreativeFromCreativeData =
+          rawAdAny &&
+          typeof rawAdAny.creative === "object" &&
+          rawAdAny.creative !== null &&
+          "data" in (rawAdAny.creative as Record<string, unknown>)
+            ? ((rawAdAny.creative as { data?: MetaAdRecord["creative"] }).data ?? null)
+            : null;
+        const rawCreativesNode = rawAdAny?.creatives as
+          | { data?: MetaAdRecord["creative"][] }
+          | MetaAdRecord["creative"][]
+          | undefined;
+        const rawAdCreativesNode = rawAdAny?.adcreatives as
+          | { data?: MetaAdRecord["creative"][] }
+          | MetaAdRecord["creative"][]
+          | undefined;
+        const rawCreativeFromCreatives = Array.isArray(rawCreativesNode)
+          ? rawCreativesNode[0] ?? null
+          : rawCreativesNode?.data?.[0] ?? null;
+        const rawCreativeFromAdCreatives = Array.isArray(rawAdCreativesNode)
+          ? rawAdCreativesNode[0] ?? null
+          : rawAdCreativesNode?.data?.[0] ?? null;
+        const rawCreativeAnyShape =
+          rawCreativeDirect ??
+          rawCreativeFromCreativeData ??
+          rawCreativeFromCreatives ??
+          rawCreativeFromAdCreatives ??
+          null;
+        const rawCreativeThumbnailAnyShape = normalizeMediaUrl(
+          rawCreativeDirect?.thumbnail_url ??
+            rawCreativeDirect?.image_url ??
+            rawCreativeFromCreativeData?.thumbnail_url ??
+            rawCreativeFromCreativeData?.image_url ??
+            rawCreativeFromCreatives?.thumbnail_url ??
+            rawCreativeFromCreatives?.image_url ??
+            rawCreativeFromAdCreatives?.thumbnail_url ??
+            rawCreativeFromAdCreatives?.image_url ??
+            null
+        );
         // Merge creative details — prefer non-null values from either source
         const baseCreative = ad?.creative ?? null;
         const detailCreative = baseCreative?.id ? creativeDetailsMap.get(baseCreative.id) : undefined;
@@ -1858,6 +2016,13 @@ export async function GET(request: NextRequest) {
           adImageUrlMap,
           {
             enabled: debugPreview || debugThumbnail,
+            fetchSource: "insights+adMap+enrichment",
+            hasRawAd: Boolean(rawAd),
+            rawAdId: rawAd?.id ?? null,
+            rawAdCreative: Boolean(rawCreativeAnyShape),
+            rawAdCreativeThumbnailUrl: rawCreativeThumbnailAnyShape,
+            enrichedAdCreative: Boolean(mergedCreative),
+            enrichedAdCreativeThumbnailUrl: normalizeMediaUrl(mergedCreative?.thumbnail_url ?? mergedCreative?.image_url ?? null),
             rawCreativeThumbnailUrl,
             enrichedCreativeThumbnailUrl,
           }
@@ -2108,6 +2273,9 @@ export async function GET(request: NextRequest) {
       finalThumbnailUrl ??
       finalImageUrl;
     const previewState: LegacyPreviewState = finalPreviewUrl ? "preview" : "unavailable";
+    const finalNullReason = finalThumbnailUrl
+      ? null
+      : row.debug_stage_null_reason ?? "final_map_no_thumbnail";
     const finalPreviewPayload: NormalizedRenderPreviewPayload =
       finalPreviewUrl && row.preview.render_mode === "unavailable"
         ? {
@@ -2158,6 +2326,16 @@ export async function GET(request: NextRequest) {
       video75: row.video75,
       video100: row.video100,
       cached_thumbnail_url: cachedThumbnailUrl,
+      debug_stage_fetch_source: row.debug_stage_fetch_source ?? null,
+      debug_stage_has_raw_ad: row.debug_stage_has_raw_ad ?? false,
+      debug_stage_raw_ad_id: row.debug_stage_raw_ad_id ?? null,
+      debug_stage_raw_ad_creative: row.debug_stage_raw_ad_creative ?? false,
+      debug_stage_raw_ad_creative_thumbnail_url: row.debug_stage_raw_ad_creative_thumbnail_url ?? null,
+      debug_stage_enriched_ad_creative: row.debug_stage_enriched_ad_creative ?? false,
+      debug_stage_enriched_ad_creative_thumbnail_url: row.debug_stage_enriched_ad_creative_thumbnail_url ?? null,
+      debug_stage_row_input_thumbnail_url: row.debug_stage_row_input_thumbnail_url ?? null,
+      debug_stage_final_thumbnail_url: finalThumbnailUrl,
+      debug_stage_null_reason: finalNullReason,
       debug_raw_creative_thumbnail_url: row.debug_raw_creative_thumbnail_url ?? null,
       debug_enriched_creative_thumbnail_url: row.debug_enriched_creative_thumbnail_url ?? null,
       debug_resolved_thumbnail_source: row.debug_resolved_thumbnail_source ?? null,
@@ -2206,6 +2384,16 @@ export async function GET(request: NextRequest) {
       preview_state: r.preview_state,
       is_catalog: r.is_catalog,
       format: r.format,
+      debug_stage_fetch_source: r.debug_stage_fetch_source ?? null,
+      debug_stage_has_raw_ad: r.debug_stage_has_raw_ad ?? false,
+      debug_stage_raw_ad_id: r.debug_stage_raw_ad_id ?? null,
+      debug_stage_raw_ad_creative: r.debug_stage_raw_ad_creative ?? false,
+      debug_stage_raw_ad_creative_thumbnail_url: r.debug_stage_raw_ad_creative_thumbnail_url ?? null,
+      debug_stage_enriched_ad_creative: r.debug_stage_enriched_ad_creative ?? false,
+      debug_stage_enriched_ad_creative_thumbnail_url: r.debug_stage_enriched_ad_creative_thumbnail_url ?? null,
+      debug_stage_row_input_thumbnail_url: r.debug_stage_row_input_thumbnail_url ?? null,
+      debug_stage_final_thumbnail_url: r.debug_stage_final_thumbnail_url ?? null,
+      debug_stage_null_reason: r.debug_stage_null_reason ?? null,
       debug_raw_creative_thumbnail_url: r.debug_raw_creative_thumbnail_url ?? null,
       debug_enriched_creative_thumbnail_url: r.debug_enriched_creative_thumbnail_url ?? null,
       debug_resolved_thumbnail_source: r.debug_resolved_thumbnail_source ?? null,
