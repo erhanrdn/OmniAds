@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Badge } from "@/components/ui/badge";
+import { CreativePreview } from "@/components/creatives/CreativePreview";
 import {
   METRIC_CONFIG,
   MetaCreativeRow,
   MetaMetricKey,
 } from "@/components/creatives/metricConfig";
+import { cn } from "@/lib/utils";
 
 interface CreativesMotionTableProps {
   rows: MetaCreativeRow[];
@@ -20,6 +22,17 @@ interface CreativesMotionTableProps {
   onOpenRow: (rowId: string) => void;
 }
 
+type RowMetricExtremes = Record<MetaMetricKey, { min: number; max: number }>;
+
+type CreativeRowLike = MetaCreativeRow & {
+  isCatalog?: boolean;
+  associatedAdsCount?: number;
+  launchDate?: string;
+  cachedThumbnailUrl?: string | null;
+  imageUrl?: string | null;
+  thumbnailUrl?: string | null;
+};
+
 export function CreativesMotionTable({
   rows,
   selectedMetrics,
@@ -31,114 +44,128 @@ export function CreativesMotionTable({
   onToggleAll,
   onOpenRow,
 }: CreativesMotionTableProps) {
-  const allSelected = rows.length > 0 && rows.every((row) => selectedRowIds.includes(row.id));
+  const selectedRowIdSet = useMemo(() => new Set(selectedRowIds), [selectedRowIds]);
 
-  const metricExtremes = useMemo(() => {
-    return selectedMetrics.reduce<
-      Record<MetaMetricKey, { min: number; max: number }>
-    >((acc, metric) => {
+  const allSelected = rows.length > 0 && rows.every((row) => selectedRowIdSet.has(row.id));
+
+  const metricExtremes = useMemo<RowMetricExtremes>(() => {
+    return selectedMetrics.reduce((acc, metric) => {
       const values = rows.map((row) => Number(row[metric]) || 0);
       acc[metric] = {
-        min: Math.min(...values),
-        max: Math.max(...values),
+        min: values.length ? Math.min(...values) : 0,
+        max: values.length ? Math.max(...values) : 0,
       };
       return acc;
-    }, {} as Record<MetaMetricKey, { min: number; max: number }>);
+    }, {} as RowMetricExtremes);
   }, [rows, selectedMetrics]);
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center gap-2 text-sm px-1">
-        <input 
-          type="checkbox" 
-          className="rounded border-gray-300 shadow-sm cursor-pointer"
-          checked={allSelected} 
-          onChange={onToggleAll} 
+      <div className="flex items-center gap-2 px-1 text-sm">
+        <input
+          type="checkbox"
+          className="cursor-pointer rounded border-gray-300 shadow-sm"
+          checked={allSelected}
+          onChange={onToggleAll}
+          aria-label="Select all rows"
         />
-        <span className="text-muted-foreground font-medium">{selectedRowIds.length} ad groups selected</span>
+        <span className="font-medium text-muted-foreground">{selectedRowIds.length} ad groups selected</span>
       </div>
 
-      <div className="max-h-[620px] overflow-auto rounded-xl border border-border shadow-sm bg-background">
-        <table className="min-w-full text-sm border-separate border-spacing-0">
+      <div className="max-h-[620px] overflow-auto rounded-xl border border-border bg-background shadow-sm">
+        <table className="min-w-full border-separate border-spacing-0 text-sm">
           <thead className="sticky top-0 z-30 bg-background/95 backdrop-blur-sm">
             <tr className="border-b">
-              <th className="w-10 px-4 py-3 text-left border-b" />
-              <th className="sticky left-0 z-40 min-w-[280px] bg-background px-4 py-3 text-left font-semibold border-b">
+              <th className="w-10 border-b px-4 py-3 text-left" />
+              <th className="sticky left-0 z-40 min-w-[280px] border-b bg-background px-4 py-3 text-left font-semibold">
                 Creative / Ad Name
               </th>
-              <th className="min-w-[120px] px-4 py-3 text-left font-medium text-muted-foreground border-b">Launch date</th>
-              <th className="min-w-[160px] px-4 py-3 text-left font-medium text-muted-foreground border-b">Tags</th>
+              <th className="min-w-[120px] border-b px-4 py-3 text-left font-medium text-muted-foreground">
+                Launch date
+              </th>
+              <th className="min-w-[160px] border-b px-4 py-3 text-left font-medium text-muted-foreground">
+                Tags
+              </th>
               {selectedMetrics.map((metric) => (
-                <th key={metric} className="min-w-[130px] px-4 py-3 text-left font-medium text-muted-foreground border-b">
+                <th
+                  key={metric}
+                  className="min-w-[130px] border-b px-4 py-3 text-left font-medium text-muted-foreground"
+                >
                   {METRIC_CONFIG[metric].label}
                 </th>
               ))}
             </tr>
           </thead>
+
           <tbody className="divide-y divide-border/40">
-            {rows.map((row: any) => (
-              <tr
-                key={row.id}
-                onClick={() => onOpenRow(row.id)}
-                className={`group cursor-pointer hover:bg-muted/30 transition-colors ${
-                  highlightedRowId === row.id ? "bg-emerald-500/10" : ""
-                }`}
-              >
-                <td className={`px-4 ${density === "compact" ? "py-2" : "py-4"}`}>
-                  <input
-                    type="checkbox"
-                    className="rounded border-gray-300"
-                    checked={selectedRowIds.includes(row.id)}
-                    onChange={(e) => {
-                      e.stopPropagation();
-                      onToggleRow(row.id);
-                    }}
-                    onClick={(event) => event.stopPropagation()}
-                  />
-                </td>
-                <td className={`sticky left-0 z-20 bg-background group-hover:bg-muted/30 transition-colors px-4 ${density === "compact" ? "py-2" : "py-4"}`}>
-                  <div className="flex items-center gap-3">
-                    
-                    {/* SAF GÖRSEL (THUMBNAIL) BİLEŞENİ */}
-                    <CreativeImageOnly row={row} />
-                    
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-[13px] font-semibold text-foreground tracking-tight">{row.name}</p>
-                      <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                         <span className="capitalize">
-                           {row.is_catalog || row.isCatalog ? "Catalog" : row.format || "Static"}
-                         </span>
-                        {(row.associated_ads_count || row.associatedAdsCount) > 1 && (
-                          <span className="flex items-center gap-1.5">
-                            <span className="h-1 w-1 rounded-full bg-muted-foreground/40" />
-                            {row.associated_ads_count || row.associatedAdsCount} ads
-                          </span>
-                        )}
-                      </div>
+            {rows.map((row) => {
+              const isSelected = selectedRowIdSet.has(row.id);
+              const isHighlighted = highlightedRowId === row.id;
+
+              return (
+                <tr
+                  key={row.id}
+                  onClick={() => onOpenRow(row.id)}
+                  className={cn(
+                    "group cursor-pointer transition-colors hover:bg-muted/30",
+                    isHighlighted && "bg-emerald-500/10"
+                  )}
+                >
+                  <td className={cn("px-4", density === "compact" ? "py-2" : "py-4")}>
+                    <input
+                      type="checkbox"
+                      className="rounded border-gray-300"
+                      checked={isSelected}
+                      aria-label={`Select ${row.name}`}
+                      onChange={(event) => {
+                        event.stopPropagation();
+                        onToggleRow(row.id);
+                      }}
+                      onClick={(event) => event.stopPropagation()}
+                    />
+                  </td>
+
+                  <td
+                    className={cn(
+                      "sticky left-0 z-20 bg-background px-4 transition-colors group-hover:bg-muted/30",
+                      density === "compact" ? "py-2" : "py-4"
+                    )}
+                  >
+                    <CreativeNameCell row={row as CreativeRowLike} />
+                  </td>
+
+                  <td className="whitespace-nowrap px-4 text-muted-foreground">
+                    {row.launchDate || "-"}
+                  </td>
+
+                  <td className="px-4">
+                    <div className="flex flex-wrap gap-1">
+                      {(row.tags || []).slice(0, 2).map((tag: string) => (
+                        <Badge key={tag} variant="secondary" className="px-1.5 py-0 text-[10px] font-normal">
+                          {tag}
+                        </Badge>
+                      ))}
                     </div>
-                  </div>
-                </td>
-                <td className="px-4 text-muted-foreground whitespace-nowrap">{row.launch_date || row.launchDate}</td>
-                <td className="px-4">
-                  <div className="flex flex-wrap gap-1">
-                    {(row.tags || []).slice(0, 2).map((tag: string) => (
-                      <Badge key={tag} variant="secondary" className="text-[10px] px-1.5 py-0 font-normal">
-                        {tag}
-                      </Badge>
-                    ))}
-                  </div>
-                </td>
-                {selectedMetrics.map((metric) => {
-                  const value = Number(row[metric]) || 0;
-                  const heat = getHeatColor(metric, value, metricExtremes[metric]?.min ?? 0, metricExtremes[metric]?.max ?? 0);
-                  return (
-                    <td key={metric} className="px-4 font-medium" style={{ backgroundColor: withIntensity(heat, heatmapIntensity) }}>
-                      {METRIC_CONFIG[metric].format(value)}
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
+                  </td>
+
+                  {selectedMetrics.map((metric) => {
+                    const value = Number(row[metric]) || 0;
+                    const extremes = metricExtremes[metric] ?? { min: 0, max: 0 };
+                    const heat = getHeatColor(metric, value, extremes.min, extremes.max);
+
+                    return (
+                      <td
+                        key={metric}
+                        className="px-4 font-medium"
+                        style={{ backgroundColor: withIntensity(heat, heatmapIntensity) }}
+                      >
+                        {METRIC_CONFIG[metric].format(value)}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -146,70 +173,43 @@ export function CreativesMotionTable({
   );
 }
 
-/**
- * HTML/Iframe kullanmadan sadece görsel URL'lerini kovalayan bileşen
- */
-function CreativeImageOnly({ row }: { row: any }) {
-  const [imgSrc, setImgSrc] = useState<string | null>(null);
-  const [attempt, setAttempt] = useState(0);
-
-  // API'den gelebilecek tüm görsel ihtimalleri
-  const urls = useMemo(() => {
-    const list = [
-      row.cachedThumbnailUrl,
-      row.cached_thumbnail_url,
-      row.thumbnail_url,
-      row.image_url,
-      row.preview?.image_url,
-      row.preview?.poster_url,
-      row.imageUrl,
-      row.thumbnailUrl
-    ].filter((u): u is string => Boolean(u) && typeof u === 'string' && (u.includes('http') || u.startsWith('/')));
-
-    // Protokol düzeltme (// ile başlıyorsa https ekle)
-    return list.map(u => u.startsWith('//') ? `https:${u}` : u);
-  }, [row]);
-
-  useEffect(() => {
-    setImgSrc(urls.length > 0 ? urls[0] : null);
-    setAttempt(0);
-  }, [urls]);
-
-  const handleError = () => {
-    if (attempt < urls.length - 1) {
-      setAttempt(prev => prev + 1);
-      setImgSrc(urls[attempt + 1]);
-    } else {
-      setImgSrc("error");
-    }
-  };
-
-  if (!imgSrc || imgSrc === "error") {
-    return (
-      <div className="h-10 w-10 shrink-0 rounded-md bg-zinc-100 border border-zinc-200 flex items-center justify-center">
-        {/* Görsel bulunamadığında çıkan şık bir placeholder */}
-        <svg className="w-4 h-4 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.587-1.587a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-        </svg>
-      </div>
-    );
-  }
+function CreativeNameCell({ row }: { row: CreativeRowLike }) {
+  const isCatalog = Boolean(row.isCatalog);
+  const associatedAdsCount = row.associatedAdsCount || 0;
+  const formatLabel = isCatalog ? "Catalog" : row.format || "Static";
 
   return (
-    <div className="h-10 w-10 shrink-0 overflow-hidden rounded-md border border-border/40 bg-zinc-50 flex items-center justify-center shadow-sm">
-      <img
-        src={imgSrc}
-        alt=""
-        className="h-full w-full object-cover"
-        referrerPolicy="no-referrer"
-        onError={handleError}
-        loading="lazy"
+    <div className="flex items-center gap-3">
+      <CreativePreview
+        id={row.id}
+        name={row.name}
+        cachedUrl={row.cachedThumbnailUrl ?? null}
+        thumbnailUrl={row.thumbnailUrl ?? null}
+        imageUrl={row.imageUrl ?? row.preview?.image_url ?? null}
+        previewUrl={row.previewUrl ?? row.preview?.poster_url ?? null}
+        format={isCatalog ? "catalog" : row.format === "video" ? "video" : "image"}
+        isCatalog={isCatalog}
+        debugScope="table-thumb"
+        size="thumb"
+        className="shadow-sm"
       />
+
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[13px] font-semibold tracking-tight text-foreground">{row.name}</p>
+        <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <span className="capitalize">{formatLabel}</span>
+          {associatedAdsCount > 1 && (
+            <span className="flex items-center gap-1.5">
+              <span className="h-1 w-1 rounded-full bg-muted-foreground/40" />
+              {associatedAdsCount} ads
+            </span>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
 
-// Yardımcı Fonksiyonlar (Aynı kalmalı)
 function withIntensity(color: string, intensity: "low" | "medium" | "high") {
   const multiplier = intensity === "low" ? 0.7 : intensity === "high" ? 1.3 : 1;
   const match = color.match(/rgba\((\d+),\s*(\d+),\s*(\d+),\s*([0-9.]+)\)/);

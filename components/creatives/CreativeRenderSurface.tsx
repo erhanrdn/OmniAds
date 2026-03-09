@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 
 export type CreativeRenderPayload = {
@@ -19,15 +19,14 @@ type CreativeRenderSurfaceProps = {
   className?: string;
   badgeClassName?: string;
   size?: "thumb" | "card" | "large";
-  /**
-   * "asset" — render only the creative media surface (image/poster).
-   *   Never render full HTML iframes. Used in top cards and table thumbnails.
-   * "full" — render the full ad preview including HTML iframes.
-   *   Used in the detail drawer for creative inspection.
-   */
   mode?: "asset" | "full";
-  /** Additional image URLs to try as fallbacks in asset mode */
   assetFallbacks?: (string | null | undefined)[];
+};
+
+type ResolvedAssetSource = {
+  src: string;
+  source: string;
+  qualityScore: number;
 };
 
 const SIZE_MAP: Record<NonNullable<CreativeRenderSurfaceProps["size"]>, string> = {
@@ -36,22 +35,20 @@ const SIZE_MAP: Record<NonNullable<CreativeRenderSurfaceProps["size"]>, string> 
   large: "aspect-[4/5] w-full rounded-lg",
 };
 
+const LOG_LIMIT = 5;
 let assetLogCount = 0;
 let fullLogCount = 0;
 let thumbnailRenderLogCount = 0;
-const LOG_LIMIT = 5;
 
 function normalizeUrl(value: string | null | undefined): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   if (!trimmed) return null;
-  if (trimmed.startsWith("/")) return trimmed; // internal cached URL
+  if (trimmed.startsWith("/")) return trimmed;
   if (trimmed.startsWith("//")) return `https:${trimmed}`;
   return /^https?:\/\//i.test(trimmed) ? trimmed : null;
 }
 
-/** Decode HTML entities the same way the server does */
-/** Check if a URL is a Meta CDN host eligible for proxy */
 function isMetaCdnUrl(url: string): boolean {
   try {
     const host = new URL(url).hostname.toLowerCase();
@@ -66,40 +63,109 @@ function isMetaCdnUrl(url: string): boolean {
   }
 }
 
-/** Wrap a Meta CDN URL through our proxy to avoid CORS/referrer issues */
 function proxyUrl(src: string): string {
   return `/api/media/meta-preview?src=${encodeURIComponent(src)}`;
 }
 
-/**
- * Resolve all possible image sources for asset mode, ordered by priority.
- * Returns an array so the component can fall through on load errors.
- */
-function resolveAssetSources(
-  preview: CreativeRenderPayload,
-  assetFallbacks?: (string | null | undefined)[]
-): Array<{ src: string; source: string }> {
-  const sources: Array<{ src: string; source: string }> = [];
-  const seen = new Set<string>();
+function getQualityScore(url: string, source: string, size: NonNullable<CreativeRenderSurfaceProps["size"]>): number {
+  const lowerUrl = url.toLowerCase();
+  let score = 0;
 
-  const push = (url: string | null, source: string) => {
-    if (!url || seen.has(url)) return;
-    seen.add(url);
-    sources.push({ src: url, source });
-  };
+  if (source === "preview.image_url") score += 120;
+  if (source === "preview.poster_url") score += 90;
+  if (source === "fallback_image") score += 80;
+  if (source === "fallback_preview") score += 60;
+  if (source === "fallback_thumbnail") score += 30;
+  if (source.startsWith("fallback_")) score += 10;
+  if (url.startsWith("/")) score += 200;
 
-  // Priority 1: explicit fallback URLs from row (thumbnailUrl, imageUrl, previewUrl)
-  if (assetFallbacks) {
-    for (let i = 0; i < assetFallbacks.length; i++) {
-      push(normalizeUrl(assetFallbacks[i]), `fallback_${i}`);
-    }
+  if (size !== "thumb") {
+    if (lowerUrl.includes("p64x64")) score -= 120;
+    if (lowerUrl.includes("p100x100")) score -= 100;
+    if (lowerUrl.includes("p120x120")) score -= 80;
+    if (lowerUrl.includes("p150x120")) score -= 70;
+    if (lowerUrl.includes("p150x150")) score -= 60;
+    if (lowerUrl.includes("p200x200")) score -= 40;
+    if (lowerUrl.includes("_s.") || lowerUrl.includes("_q.")) score -= 15;
+
+    if (lowerUrl.includes("p320x320")) score += 20;
+    if (lowerUrl.includes("p400x400")) score += 35;
+    if (lowerUrl.includes("p600x600")) score += 60;
   }
 
-  // Priority 2: normalized preview fields from API payload
-  push(normalizeUrl(preview.image_url), "preview.image_url");
-  push(normalizeUrl(preview.poster_url), "preview.poster_url");
+  return score;
+}
 
-  return sources;
+function dedupeAndSortSources(
+  candidates: Array<{ src: string | null; source: string }>,
+  size: NonNullable<CreativeRenderSurfaceProps["size"]>
+): ResolvedAssetSource[] {
+  const seen = new Set<string>();
+  const resolved: ResolvedAssetSource[] = [];
+
+  for (const candidate of candidates) {
+    const normalized = normalizeUrl(candidate.src);
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    resolved.push({
+      src: normalized,
+      source: candidate.source,
+      qualityScore: getQualityScore(normalized, candidate.source, size),
+    });
+  }
+
+  return resolved.sort((a, b) => b.qualityScore - a.qualityScore);
+}
+
+function resolveAssetSources(
+  preview: CreativeRenderPayload,
+  assetFallbacks: (string | null | undefined)[] | undefined,
+  size: NonNullable<CreativeRenderSurfaceProps["size"]>
+): ResolvedAssetSource[] {
+  const fallbackThumbnail = assetFallbacks?.[0] ?? null;
+  const fallbackImage = assetFallbacks?.[1] ?? null;
+  const fallbackPreview = assetFallbacks?.[2] ?? null;
+
+  if (size === "thumb") {
+    return dedupeAndSortSources(
+      [
+        { src: fallbackThumbnail, source: "fallback_thumbnail" },
+        { src: fallbackImage, source: "fallback_image" },
+        { src: fallbackPreview, source: "fallback_preview" },
+        { src: preview.image_url, source: "preview.image_url" },
+        { src: preview.poster_url, source: "preview.poster_url" },
+      ],
+      size
+    );
+  }
+
+  return dedupeAndSortSources(
+    [
+      { src: fallbackImage, source: "fallback_image" },
+      { src: preview.image_url, source: "preview.image_url" },
+      { src: fallbackPreview, source: "fallback_preview" },
+      { src: preview.poster_url, source: "preview.poster_url" },
+      { src: fallbackThumbnail, source: "fallback_thumbnail" },
+      ...(assetFallbacks ?? []).map((src, index) => ({ src: src ?? null, source: `fallback_${index}` })),
+    ],
+    size
+  );
+}
+
+function PreviewFallback({ frameClass, name }: { frameClass: string; name: string }) {
+  return (
+    <div
+      className={cn(
+        frameClass,
+        "flex flex-col items-center justify-center bg-gradient-to-br from-blue-50 to-purple-50 p-2 dark:from-blue-950/20 dark:to-purple-950/20"
+      )}
+    >
+      <div className="mb-2 text-3xl opacity-40">🎨</div>
+      <div className="line-clamp-2 px-1 text-center text-[10px] font-medium text-muted-foreground">
+        {name}
+      </div>
+    </div>
+  );
 }
 
 export function CreativeRenderSurface({
@@ -114,80 +180,54 @@ export function CreativeRenderSurface({
 }: CreativeRenderSurfaceProps) {
   const frameClass = cn("relative overflow-hidden bg-muted/30", SIZE_MAP[size], className);
 
-  // Debug logging
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return;
+
     if (mode === "asset") {
       if (assetLogCount >= LOG_LIMIT) return;
       assetLogCount += 1;
-      const sources = resolveAssetSources(preview, assetFallbacks);
+      const sources = resolveAssetSources(preview, assetFallbacks, size);
       console.log("[creative-render] ASSET mode", {
         id: id ?? null,
         name: name.slice(0, 40),
         render_mode: preview.render_mode,
+        size,
         sources_count: sources.length,
-        first_source: sources[0]
-          ? { src: sources[0].src.slice(0, 80), type: sources[0].source }
+        chosen_candidate: sources[0]
+          ? {
+              src: sources[0].src.slice(0, 80),
+              source: sources[0].source,
+              qualityScore: sources[0].qualityScore,
+            }
           : null,
-        had_html: false,
-        all_sources: sources.map((s) => ({
-          src: s.src.slice(0, 60) + '...',
-          source: s.source,
-        })),
-        DIAGNOSTIC_preview_fields: {
-          image_url: preview.image_url ?? "NULL",
-          poster_url: preview.poster_url ?? "NULL",
-          video_url: preview.video_url ?? "NULL",
-        },
-        DIAGNOSTIC_assetFallbacks: assetFallbacks?.map((f, i) => 
-          f ? `fallback_${i}: ${String(f).slice(0, 60)}...` : `fallback_${i}: NULL`
-        ) ?? "NONE",
       });
-    } else {
-      if (fullLogCount >= LOG_LIMIT) return;
-      fullLogCount += 1;
-      console.log("[creative-render] FULL mode", {
-        id: id ?? null,
-        name,
-        render_mode: preview.render_mode,
-        has_html: false,
-        has_video: Boolean(preview.video_url),
-        has_image: Boolean(preview.image_url || preview.poster_url),
-        is_catalog: preview.is_catalog,
-      });
+      return;
     }
-  }, [id, name, preview, mode, assetFallbacks]);
 
-  // Always show a nice placeholder instead of "Preview unavailable"
-  const fallback = (
-    <div
-      className={cn(
-        frameClass,
-        "flex flex-col items-center justify-center bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-950/20 dark:to-purple-950/20 p-2"
-      )}
-    >
-      <div className="text-3xl mb-2 opacity-40">🎨</div>
-      <div className="text-[10px] text-center text-muted-foreground font-medium line-clamp-2 px-1">
-        {name}
-      </div>
-    </div>
-  );
+    if (fullLogCount >= LOG_LIMIT) return;
+    fullLogCount += 1;
+    console.log("[creative-render] FULL mode", {
+      id: id ?? null,
+      name,
+      render_mode: preview.render_mode,
+      has_video: Boolean(preview.video_url),
+      has_image: Boolean(preview.image_url || preview.poster_url),
+      is_catalog: preview.is_catalog,
+    });
+  }, [assetFallbacks, id, mode, name, preview, size]);
 
-  // ─── ASSET MODE ───────────────────────────────────────────────
   if (mode === "asset") {
     return (
       <AssetImage
         id={id}
+        name={name}
         preview={preview}
         assetFallbacks={assetFallbacks}
-        name={name}
         frameClass={frameClass}
-        fallback={fallback}
+        size={size}
       />
     );
   }
-
-  // ─── FULL MODE ────────────────────────────────────────────────
 
   if (preview.render_mode === "video" && preview.video_url) {
     return (
@@ -201,137 +241,150 @@ export function CreativeRenderSurface({
           preload="metadata"
           className="h-full w-full object-cover"
         />
+        {badgeClassName ? <div className={badgeClassName} /> : null}
       </div>
     );
   }
 
   if (preview.render_mode === "image") {
-    const src = preview.image_url ?? preview.poster_url ?? null;
-    if (!src) return fallback;
+    const src = normalizeUrl(preview.image_url) ?? normalizeUrl(preview.poster_url);
+    if (!src) {
+      return <PreviewFallback frameClass={frameClass} name={name} />;
+    }
+
     return (
-      <div className={frameClass}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={src}
-          alt={name}
-          className="h-full w-full object-cover"
-          referrerPolicy="no-referrer"
-          onError={(e) => {
-            // If image fails to load, replace with placeholder
-            const target = e.currentTarget;
-            target.style.display = 'none';
-            const parent = target.parentElement;
-            if (parent) {
-              parent.innerHTML = '';
-              const placeholder = document.createElement('div');
-              placeholder.className = 'absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-950/20 dark:to-purple-950/20 p-2';
-              placeholder.innerHTML = `
-                <div class="text-3xl mb-2 opacity-40">🎨</div>
-                <div class="text-[10px] text-center text-muted-foreground font-medium line-clamp-2 px-1">${name}</div>
-              `;
-              parent.appendChild(placeholder);
-            }
-          }}
-        />
-      </div>
+      <AssetFrame
+        frameClass={frameClass}
+        name={name}
+        src={src}
+        fallback={<PreviewFallback frameClass={frameClass} name={name} />}
+      />
     );
   }
 
-  return fallback;
+  return <PreviewFallback frameClass={frameClass} name={name} />;
 }
 
-// ─── Asset-only image renderer with multi-source fallback + proxy ───
 function AssetImage({
   id,
+  name,
   preview,
   assetFallbacks,
-  name,
   frameClass,
-  fallback,
+  size,
 }: {
   id?: string;
+  name: string;
   preview: CreativeRenderPayload;
   assetFallbacks?: (string | null | undefined)[];
-  name: string;
   frameClass: string;
-  fallback: React.ReactNode;
+  size: NonNullable<CreativeRenderSurfaceProps["size"]>;
 }) {
-  const sources = useMemo(
-    () => resolveAssetSources(preview, assetFallbacks),
-    [preview, assetFallbacks]
-  );
+  const sources = useMemo(() => resolveAssetSources(preview, assetFallbacks, size), [preview, assetFallbacks, size]);
 
   const [sourceIndex, setSourceIndex] = useState(0);
   const [useProxy, setUseProxy] = useState(false);
   const [exhausted, setExhausted] = useState(false);
 
-  // Reset when sources change
   useEffect(() => {
     setSourceIndex(0);
     setUseProxy(false);
     setExhausted(false);
   }, [sources]);
 
-  const current = sources[sourceIndex];
+  const current = sources[sourceIndex] ?? null;
 
-  // Always show the placeholder only if no sources exist or all failed
-  if (!current || exhausted) {
-    return <>{fallback}</>;
-  }
-
-  // If direct load failed and URL is a Meta CDN URL, try via proxy
-  const imgSrc = useProxy && isMetaCdnUrl(current.src)
-    ? proxyUrl(current.src)
-    : current.src;
-
-  const handleError = () => {
-    // First: try proxy for current source if it's a Meta CDN URL
-    if (!useProxy && isMetaCdnUrl(current.src)) {
-      setUseProxy(true);
-      return;
-    }
-    // Second: try next source
-    if (sourceIndex < sources.length - 1) {
-      setSourceIndex((prev) => prev + 1);
-      setUseProxy(false);
-      return;
-    }
-    // Final fallback: all candidates failed
-    setExhausted(true);
-  };
-
-  // Temporary debug log for first 5 creative thumbnail renders.
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return;
     if (thumbnailRenderLogCount >= LOG_LIMIT) return;
-
-    const thumbnailUrl = normalizeUrl(assetFallbacks?.[0] ?? null);
-    const imageUrl = normalizeUrl(assetFallbacks?.[1] ?? null);
-    const previewUrl = normalizeUrl(assetFallbacks?.[2] ?? null);
-    const chosenSrc = current?.src ?? null;
 
     thumbnailRenderLogCount += 1;
     console.log("creative thumbnail render", {
       id: id ?? null,
       name,
-      thumbnailUrl,
-      imageUrl,
-      previewUrl,
-      chosenSrc,
+      size,
+      chosenSrc: current?.src ?? null,
+      chosenSource: current?.source ?? null,
+      chosenQualityScore: current?.qualityScore ?? null,
     });
-  }, [id, name, assetFallbacks, current]);
+  }, [current, id, name, size]);
+
+  if (!current || exhausted) {
+    return <PreviewFallback frameClass={frameClass} name={name} />;
+  }
+
+  const imgSrc = useProxy && isMetaCdnUrl(current.src) ? proxyUrl(current.src) : current.src;
+
+  const handleError = () => {
+    if (!useProxy && isMetaCdnUrl(current.src)) {
+      setUseProxy(true);
+      return;
+    }
+
+    if (sourceIndex < sources.length - 1) {
+      setSourceIndex((prev) => prev + 1);
+      setUseProxy(false);
+      return;
+    }
+
+    setExhausted(true);
+  };
+
+  return (
+    <AssetFrame
+      frameClass={frameClass}
+      name={name}
+      src={imgSrc}
+      fallback={<PreviewFallback frameClass={frameClass} name={name} />}
+      onError={handleError}
+      imageKey={`${sourceIndex}_${useProxy}_${current.source}`}
+    />
+  );
+}
+
+function AssetFrame({
+  frameClass,
+  name,
+  src,
+  fallback,
+  onError,
+  imageKey,
+}: {
+  frameClass: string;
+  name: string;
+  src: string;
+  fallback: React.ReactNode;
+  onError?: () => void;
+  imageKey?: string;
+}) {
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [src]);
+
+  if (failed) {
+    return <>{fallback}</>;
+  }
 
   return (
     <div className={frameClass}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        key={`${sourceIndex}_${useProxy}`}
-        src={imgSrc}
+        key={imageKey ?? src}
+        src={src}
         alt={name}
         className="h-full w-full object-cover"
         loading="lazy"
+        decoding="async"
         referrerPolicy="no-referrer"
-        onError={handleError}
+        onError={() => {
+          if (onError) {
+            onError();
+            return;
+          }
+          setFailed(true);
+        }}
       />
     </div>
   );

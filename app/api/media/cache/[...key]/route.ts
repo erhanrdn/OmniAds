@@ -6,9 +6,10 @@ const adapter = new LocalStorageAdapter();
 
 export async function GET(
   _req: NextRequest,
-  { params }: { params: Promise<{ key: string[] }> }
+  { params }: { params: Promise<unknown> }
 ) {
-  const { key: segments } = await params;
+  const resolved = (await params) as { key?: string[] } | null;
+  const segments = Array.isArray(resolved?.key) ? resolved.key : [];
   const storageKey = segments.join("/");
 
   if (!storageKey || storageKey.includes("..")) {

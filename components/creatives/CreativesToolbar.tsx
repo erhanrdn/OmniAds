@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { Share2, Download } from "lucide-react";
+import { Download, Share2 } from "lucide-react";
 import { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { CreativeFiltersState } from "@/components/creatives/CreativeFiltersBar";
 import {
@@ -9,6 +9,7 @@ import {
   DateRangeValue,
 } from "@/components/date-range/DateRangePicker";
 import { useDropdownBehavior } from "@/hooks/use-dropdown-behavior";
+import { cn } from "@/lib/utils";
 
 interface CreativesToolbarProps {
   rows: MetaCreativeRow[];
@@ -20,6 +21,16 @@ interface CreativesToolbarProps {
   selectedCount: number;
   onShareSelected: () => void;
 }
+
+type FilterSelectProps<T extends string> = {
+  value: T;
+  onChange: (next: T) => void;
+  options: Array<{ value: T; label: string }>;
+  className?: string;
+};
+
+const FILTER_SELECT_CLASSNAME =
+  "h-8 rounded-full border bg-background px-3 text-xs text-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30";
 
 export function CreativesToolbar({
   rows,
@@ -33,6 +44,7 @@ export function CreativesToolbar({
 }: CreativesToolbarProps) {
   const [showTagPicker, setShowTagPicker] = useState(false);
   const [showAddFilter, setShowAddFilter] = useState(false);
+
   const tagWrapRef = useRef<HTMLDivElement>(null);
   const tagTriggerRef = useRef<HTMLButtonElement>(null);
   const filterWrapRef = useRef<HTMLDivElement>(null);
@@ -54,74 +66,67 @@ export function CreativesToolbar({
     triggerRef: filterTriggerRef,
   });
 
-  const tagOptions = useMemo(
-    () => Array.from(new Set(rows.flatMap((row) => row.tags))).sort(),
-    [rows]
-  );
+  const tagOptions = useMemo(() => {
+    return Array.from(new Set(rows.flatMap((row) => row.tags || []))).sort((a, b) => a.localeCompare(b));
+  }, [rows]);
+
+  const selectedTagSet = useMemo(() => new Set(value.selectedTags), [value.selectedTags]);
 
   const toggleTag = (tag: string) => {
-    const selectedTags = value.selectedTags.includes(tag)
+    const nextSelectedTags = selectedTagSet.has(tag)
       ? value.selectedTags.filter((item) => item !== tag)
       : [...value.selectedTags, tag];
-    onChange({ ...value, selectedTags });
+
+    onChange({ ...value, selectedTags: nextSelectedTags });
   };
 
   return (
     <div className="space-y-3 rounded-2xl border bg-card p-4">
-      {/* Row 1: date range picker + filters, selection actions on right */}
       <div className="flex flex-wrap items-center gap-2">
         <DateRangePicker value={dateRangeValue} onChange={onDateRangeChange} />
 
-        <select
+        <FilterSelect
           value={value.platform}
-          onChange={(e) =>
-            onChange({ ...value, platform: e.target.value as CreativeFiltersState["platform"] })
-          }
-          className="h-8 rounded-full border bg-background px-3 text-xs"
-        >
-          <option value="meta">Meta</option>
-          <option value="google">Google</option>
-          <option value="tiktok">TikTok</option>
-          <option value="pinterest">Pinterest</option>
-          <option value="snapchat">Snapchat</option>
-        </select>
+          onChange={(next) => onChange({ ...value, platform: next })}
+          options={[
+            { value: "meta", label: "Meta" },
+            { value: "google", label: "Google" },
+            { value: "tiktok", label: "TikTok" },
+            { value: "pinterest", label: "Pinterest" },
+            { value: "snapchat", label: "Snapchat" },
+          ]}
+        />
 
-        <select
+        <FilterSelect
           value={value.groupBy}
-          onChange={(e) =>
-            onChange({ ...value, groupBy: e.target.value as CreativeFiltersState["groupBy"] })
-          }
-          className="h-8 rounded-full border bg-background px-3 text-xs"
-        >
-          <option value="adName">Group by Ad Name</option>
-          <option value="creative">Group by Creative</option>
-          <option value="adSet">Group by Ad Set</option>
-        </select>
+          onChange={(next) => onChange({ ...value, groupBy: next })}
+          options={[
+            { value: "adName", label: "Group by Ad Name" },
+            { value: "creative", label: "Group by Creative" },
+            { value: "adSet", label: "Group by Ad Set" },
+          ]}
+        />
 
-        <select
+        <FilterSelect
           value={value.format}
-          onChange={(e) =>
-            onChange({ ...value, format: e.target.value as CreativeFiltersState["format"] })
-          }
-          className="h-8 rounded-full border bg-background px-3 text-xs"
-        >
-          <option value="all">All formats</option>
-          <option value="image">Image</option>
-          <option value="video">Video</option>
-        </select>
+          onChange={(next) => onChange({ ...value, format: next })}
+          options={[
+            { value: "all", label: "All formats" },
+            { value: "image", label: "Image" },
+            { value: "video", label: "Video" },
+          ]}
+        />
 
-        <select
+        <FilterSelect
           value={value.sort}
-          onChange={(e) =>
-            onChange({ ...value, sort: e.target.value as CreativeFiltersState["sort"] })
-          }
-          className="h-8 rounded-full border bg-background px-3 text-xs"
-        >
-          <option value="roas">Sort by ROAS</option>
-          <option value="spend">Sort by Spend</option>
-          <option value="ctrAll">Sort by CTR</option>
-          <option value="purchaseValue">Sort by Purchase value</option>
-        </select>
+          onChange={(next) => onChange({ ...value, sort: next })}
+          options={[
+            { value: "roas", label: "Sort by ROAS" },
+            { value: "spend", label: "Sort by Spend" },
+            { value: "ctrAll", label: "Sort by CTR" },
+            { value: "purchaseValue", label: "Sort by Purchase value" },
+          ]}
+        />
 
         {selectedCount > 0 && (
           <div className="ml-auto flex items-center gap-2">
@@ -150,7 +155,6 @@ export function CreativesToolbar({
         )}
       </div>
 
-      {/* Row 2: tag filters + analyze */}
       <div className="flex flex-wrap items-center gap-2">
         <div ref={tagWrapRef} className="relative">
           <button
@@ -161,21 +165,40 @@ export function CreativesToolbar({
           >
             Tags {value.selectedTags.length > 0 ? `(${value.selectedTags.length})` : ""}
           </button>
+
           {showTagPicker && (
             <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-10 z-50 w-64 rounded-lg border bg-background p-3 shadow-md duration-150">
-              <p className="mb-2 text-xs text-muted-foreground">Select tags</p>
-              <div className="max-h-56 space-y-1 overflow-auto">
-                {tagOptions.map((tag) => (
-                  <label key={tag} className="flex items-center justify-between text-xs">
-                    <span>{tag}</span>
-                    <input
-                      type="checkbox"
-                      checked={value.selectedTags.includes(tag)}
-                      onChange={() => toggleTag(tag)}
-                    />
-                  </label>
-                ))}
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-xs text-muted-foreground">Select tags</p>
+                {value.selectedTags.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => onChange({ ...value, selectedTags: [] })}
+                    className="text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    Clear
+                  </button>
+                )}
               </div>
+
+              {tagOptions.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No tags available.</p>
+              ) : (
+                <div className="max-h-56 space-y-1 overflow-auto">
+                  {tagOptions.map((tag) => {
+                    const checked = selectedTagSet.has(tag);
+                    return (
+                      <label
+                        key={tag}
+                        className="flex cursor-pointer items-center justify-between rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-muted/50"
+                      >
+                        <span className="truncate pr-3">{tag}</span>
+                        <input type="checkbox" checked={checked} onChange={() => toggleTag(tag)} />
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -189,6 +212,7 @@ export function CreativesToolbar({
           >
             + Add filter
           </button>
+
           {showAddFilter && (
             <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-10 z-50 w-56 rounded-lg border bg-background p-3 shadow-md duration-150">
               <p className="text-xs text-muted-foreground">
@@ -201,11 +225,27 @@ export function CreativesToolbar({
         <button
           type="button"
           onClick={onComingSoon}
-          className="ml-auto rounded-full border px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground"
+          className="ml-auto rounded-full border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
         >
           Analyze this report
         </button>
       </div>
     </div>
+  );
+}
+
+function FilterSelect<T extends string>({ value, onChange, options, className }: FilterSelectProps<T>) {
+  return (
+    <select
+      value={value}
+      onChange={(event) => onChange(event.target.value as T)}
+      className={cn(FILTER_SELECT_CLASSNAME, className)}
+    >
+      {options.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </select>
   );
 }

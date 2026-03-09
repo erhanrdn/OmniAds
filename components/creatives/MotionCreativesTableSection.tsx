@@ -362,6 +362,14 @@ const TABLE_COLUMNS: TableColumnDefinition[] = [
   { key: "linkClicks", label: "Link clicks", description: "Link click count.", direction: "high", minWidth: 110, preferredWidth: 130, align: "right", format: fmtInteger, getValue: (r) => r.linkClicks },
 ];
 
+const TABLE_COLUMN_MAP: Record<TableColumnKey, TableColumnDefinition> = TABLE_COLUMNS.reduce(
+  (acc, column) => {
+    acc[column.key] = column;
+    return acc;
+  },
+  {} as Record<TableColumnKey, TableColumnDefinition>
+);
+
 const AI_TAG_GROUPS: Array<{ label: string; items: Array<{ label: string; value: TagKey }> }> = [
   { label: "Visual", items: [{ label: "Asset Type", value: "assetType" }, { label: "Visual Format", value: "visualFormat" }] },
   { label: "Persona", items: [{ label: "Intended Audience", value: "intendedAudience" }] },
@@ -539,6 +547,8 @@ export function MotionCreativesTableSection({
     })).filter((group) => group.items.length > 0);
   }, [tagsSearch]);
 
+  const selectedRowIdSet = useMemo(() => new Set(selectedRowIds), [selectedRowIds]);
+
   const ctx: TableCalcContext = useMemo(
     () => ({
       totalSpend: rows.reduce((sum, row) => sum + row.spend, 0),
@@ -548,7 +558,7 @@ export function MotionCreativesTableSection({
   );
 
   const selectedColumns = useMemo(
-    () => tablePreset.selectedColumns.map((key) => TABLE_COLUMNS.find((col) => col.key === key)).filter(Boolean) as TableColumnDefinition[],
+    () => tablePreset.selectedColumns.map((key) => TABLE_COLUMN_MAP[key]).filter(Boolean),
     [tablePreset.selectedColumns]
   );
   const selectedAiTagColumns = tablePreset.selectedAiTagColumns;
@@ -572,7 +582,7 @@ export function MotionCreativesTableSection({
         const bValue = (b.aiTags?.[aiTagKey] ?? []).join(", ");
         return aValue.localeCompare(bValue, undefined, { sensitivity: "base", numeric: true }) * directionFactor;
       }
-      const column = TABLE_COLUMNS.find((item) => item.key === activeSortKey);
+      const column = TABLE_COLUMN_MAP[activeSortKey as TableColumnKey];
       if (!column) return 0;
       const aValue = column.getValue(a, ctx);
       const bValue = column.getValue(b, ctx);
@@ -581,14 +591,14 @@ export function MotionCreativesTableSection({
     return next;
   }, [ctx, rows, sortState.direction, sortState.key]);
 
-  const allSelected = rows.length > 0 && rows.every((row) => selectedRowIds.includes(row.id));
+  const allSelected = rows.length > 0 && rows.every((row) => selectedRowIdSet.has(row.id));
 
   const totalResults = sortedRows.length;
   const pageCount = Math.max(1, Math.ceil(totalResults / tablePreset.resultsPerPage));
   const safePage = Math.min(page, pageCount);
   const startIndex = (safePage - 1) * tablePreset.resultsPerPage;
   const endIndex = Math.min(totalResults, startIndex + tablePreset.resultsPerPage);
-  const pagedRows = sortedRows.slice(startIndex, endIndex);
+  const pagedRows = useMemo(() => sortedRows.slice(startIndex, endIndex), [sortedRows, startIndex, endIndex]);
 
   const metricDistributions = useMemo(() => {
     return selectedColumns.reduce<Partial<Record<TableColumnKey, MetricDistribution>>>((acc, column) => {
@@ -1310,6 +1320,7 @@ export function MotionCreativesTableSection({
 
           <tbody>
             {pagedRows.map((row) => {
+              const isSelected = selectedRowIdSet.has(row.id);
               return (
                 <tr
                   key={row.id}
@@ -1321,7 +1332,7 @@ export function MotionCreativesTableSection({
                   <div className="flex items-center gap-2.5">
                     <input
                       type="checkbox"
-                      checked={selectedRowIds.includes(row.id)}
+                      checked={isSelected}
                       onChange={() => onToggleRow(row.id)}
                       onClick={(event) => event.stopPropagation()}
                       className="shrink-0"
@@ -1338,6 +1349,8 @@ export function MotionCreativesTableSection({
                         row.cachedThumbnailUrl,
                         row.thumbnailUrl,
                         row.imageUrl,
+                        row.preview?.image_url,
+                        row.preview?.poster_url,
                         row.previewUrl,
                       ]}
                       className="h-9 w-9 shrink-0 rounded-md"
@@ -1632,7 +1645,7 @@ function MetricModal({
     onSelectedColumnsChange(next);
   };
 
-  const hoveredDef = hoveredMetric ? TABLE_COLUMNS.find((col) => col.key === hoveredMetric) : null;
+  const hoveredDef = hoveredMetric ? TABLE_COLUMN_MAP[hoveredMetric] : null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4">

@@ -1,12 +1,19 @@
 "use client";
 
-import { useState } from "react";
-import { X, Copy, ExternalLink, Check, Lock, FileText, Link2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Check, Copy, ExternalLink, FileText, Link2, Lock, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ShareLinkConfig, ExportPdfConfig, ShareMetricKey } from "./shareCreativeTypes";
+import { ExportPdfConfig, ShareLinkConfig, ShareMetricKey } from "./shareCreativeTypes";
 import { MOCK_SHARE_URL } from "./shareCreativeMock";
 
-const SHARE_METRICS: { key: ShareMetricKey; label: string }[] = [
+type ShareTab = "link" | "pdf";
+
+type ShareMetricOption = {
+  key: ShareMetricKey;
+  label: string;
+};
+
+const SHARE_METRICS: ShareMetricOption[] = [
   { key: "spend", label: "Spend" },
   { key: "purchaseValue", label: "Purchase value" },
   { key: "roas", label: "ROAS" },
@@ -15,154 +22,159 @@ const SHARE_METRICS: { key: ShareMetricKey; label: string }[] = [
   { key: "purchases", label: "Purchases" },
 ];
 
+const DEFAULT_LINK_METRICS: ShareMetricKey[] = ["spend", "roas", "cpa", "ctrAll", "purchases"];
+const EXPIRATION_OPTIONS = ["3", "7", "14"] as const;
+
 interface ShareCreativesModalProps {
   selectedCount: number;
   onClose: () => void;
 }
 
 export function ShareCreativesModal({ selectedCount, onClose }: ShareCreativesModalProps) {
-  const [tab, setTab] = useState<"link" | "pdf">("link");
+  const [tab, setTab] = useState<ShareTab>("link");
 
-  // Public link state
   const [linkConfig, setLinkConfig] = useState<ShareLinkConfig>({
     title: "",
     expiration: "7",
-    metrics: ["spend", "roas", "cpa", "ctrAll", "purchases"],
+    metrics: DEFAULT_LINK_METRICS,
     includeNotes: false,
     passwordProtection: false,
   });
   const [generatedUrl, setGeneratedUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  // PDF state
   const [pdfConfig, setPdfConfig] = useState<ExportPdfConfig>({
     title: "",
     includeSummary: true,
     includeNotes: false,
   });
 
+  const generatedAbsoluteUrl = useMemo(() => {
+    if (!generatedUrl || typeof window === "undefined") return generatedUrl;
+    return `${window.location.origin}${generatedUrl}`;
+  }, [generatedUrl]);
+
+  const selectedMetricSet = useMemo(() => new Set(linkConfig.metrics), [linkConfig.metrics]);
+
   const toggleMetric = (key: ShareMetricKey) => {
-    setLinkConfig((prev) => ({
-      ...prev,
-      metrics: prev.metrics.includes(key)
-        ? prev.metrics.filter((m) => m !== key)
-        : [...prev.metrics, key],
-    }));
+    setLinkConfig((prev) => {
+      const exists = prev.metrics.includes(key);
+      const nextMetrics = exists ? prev.metrics.filter((metric) => metric !== key) : [...prev.metrics, key];
+
+      return {
+        ...prev,
+        metrics: nextMetrics,
+      };
+    });
   };
 
   const handleCreateLink = () => {
     setGeneratedUrl(MOCK_SHARE_URL);
+    setCopied(false);
   };
 
   const handleCopyLink = async () => {
-    const url = `${window.location.origin}${generatedUrl}`;
-    await navigator.clipboard.writeText(url);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    if (!generatedAbsoluteUrl) return;
+
+    try {
+      await navigator.clipboard.writeText(generatedAbsoluteUrl);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
   };
 
   const handleOpenPreview = () => {
-    window.open(generatedUrl ?? MOCK_SHARE_URL, "_blank");
+    const targetUrl = generatedUrl ?? MOCK_SHARE_URL;
+    if (typeof window === "undefined") return;
+    window.open(targetUrl, "_blank", "noopener,noreferrer");
   };
 
   const handleGeneratePdf = () => {
+    if (typeof window === "undefined") return;
     const pdfUrl = `${MOCK_SHARE_URL}?print=1`;
-    window.open(pdfUrl, "_blank");
+    window.open(pdfUrl, "_blank", "noopener,noreferrer");
   };
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
       }}
     >
       <div className="relative w-full max-w-lg rounded-2xl border bg-background shadow-2xl">
-        {/* Header */}
         <div className="flex items-center justify-between border-b px-6 py-4">
           <div>
             <h2 className="text-base font-semibold">Share selected creatives</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">
+            <p className="mt-0.5 text-xs text-muted-foreground">
               {selectedCount} creative{selectedCount !== 1 ? "s" : ""} selected
             </p>
           </div>
+
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+            aria-label="Close share modal"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        {/* Tabs */}
         <div className="flex border-b px-6">
-          <button
-            type="button"
+          <TabButton
+            active={tab === "link"}
+            icon={<Link2 className="h-3.5 w-3.5" />}
+            label="Public link"
             onClick={() => setTab("link")}
-            className={`flex items-center gap-1.5 border-b-2 px-3 py-3 text-sm font-medium transition-colors ${
-              tab === "link"
-                ? "border-foreground text-foreground"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <Link2 className="h-3.5 w-3.5" />
-            Public link
-          </button>
-          <button
-            type="button"
+          />
+          <TabButton
+            active={tab === "pdf"}
+            icon={<FileText className="h-3.5 w-3.5" />}
+            label="Export PDF"
             onClick={() => setTab("pdf")}
-            className={`flex items-center gap-1.5 border-b-2 px-3 py-3 text-sm font-medium transition-colors ${
-              tab === "pdf"
-                ? "border-foreground text-foreground"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <FileText className="h-3.5 w-3.5" />
-            Export PDF
-          </button>
+          />
         </div>
 
-        {/* Body */}
-        <div className="max-h-[60vh] overflow-y-auto px-6 py-5 space-y-5">
-          {tab === "link" && (
+        <div className="max-h-[60vh] space-y-5 overflow-y-auto px-6 py-5">
+          {tab === "link" ? (
             <>
-              {/* Share title */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium">Share title</label>
+              <Field label="Share title">
                 <input
                   type="text"
                   placeholder="e.g. Top performers — Feb 2026"
                   value={linkConfig.title}
-                  onChange={(e) => setLinkConfig((prev) => ({ ...prev, title: e.target.value }))}
+                  onChange={(event) => setLinkConfig((prev) => ({ ...prev, title: event.target.value }))}
                   className="h-9 w-full rounded-md border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
                 />
-              </div>
+              </Field>
 
-              {/* Expiration */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium">Link expiration</label>
+              <Field label="Link expiration">
                 <div className="flex gap-2">
-                  {(["3", "7", "14"] as const).map((days) => (
-                    <button
-                      key={days}
-                      type="button"
-                      onClick={() => setLinkConfig((prev) => ({ ...prev, expiration: days }))}
-                      className={`flex-1 rounded-lg border py-2 text-xs font-medium transition-colors ${
-                        linkConfig.expiration === days
-                          ? "border-foreground bg-foreground text-background"
-                          : "hover:border-foreground/50 text-muted-foreground"
-                      }`}
-                    >
-                      {days} days
-                    </button>
-                  ))}
+                  {EXPIRATION_OPTIONS.map((days) => {
+                    const isActive = linkConfig.expiration === days;
+                    return (
+                      <button
+                        key={days}
+                        type="button"
+                        onClick={() => setLinkConfig((prev) => ({ ...prev, expiration: days }))}
+                        className={[
+                          "flex-1 rounded-lg border py-2 text-xs font-medium transition-colors",
+                          isActive
+                            ? "border-foreground bg-foreground text-background"
+                            : "text-muted-foreground hover:border-foreground/50",
+                        ].join(" ")}
+                      >
+                        {days} days
+                      </button>
+                    );
+                  })}
                 </div>
-              </div>
+              </Field>
 
-              {/* Show metrics */}
-              <div className="space-y-2">
-                <label className="text-xs font-medium">Show metrics</label>
+              <Field label="Show metrics">
                 <div className="grid grid-cols-2 gap-1.5">
                   {SHARE_METRICS.map(({ key, label }) => (
                     <label
@@ -171,7 +183,7 @@ export function ShareCreativesModal({ selectedCount, onClose }: ShareCreativesMo
                     >
                       <input
                         type="checkbox"
-                        checked={linkConfig.metrics.includes(key)}
+                        checked={selectedMetricSet.has(key)}
                         onChange={() => toggleMetric(key)}
                         className="rounded"
                       />
@@ -179,14 +191,13 @@ export function ShareCreativesModal({ selectedCount, onClose }: ShareCreativesMo
                     </label>
                   ))}
                 </div>
-              </div>
+              </Field>
 
-              {/* Toggles */}
               <div className="space-y-2">
                 <ToggleRow
                   label="Include notes"
                   checked={linkConfig.includeNotes}
-                  onChange={(v) => setLinkConfig((prev) => ({ ...prev, includeNotes: v }))}
+                  onChange={(checked) => setLinkConfig((prev) => ({ ...prev, includeNotes: checked }))}
                 />
                 <ToggleRow
                   label={
@@ -197,18 +208,18 @@ export function ShareCreativesModal({ selectedCount, onClose }: ShareCreativesMo
                     </span>
                   }
                   checked={linkConfig.passwordProtection}
-                  onChange={(v) => setLinkConfig((prev) => ({ ...prev, passwordProtection: v }))}
+                  onChange={(checked) =>
+                    setLinkConfig((prev) => ({ ...prev, passwordProtection: checked }))
+                  }
                 />
               </div>
 
-              {/* Generated URL */}
               {generatedUrl ? (
-                <div className="space-y-2">
-                  <label className="text-xs font-medium">Share link</label>
+                <Field label="Share link">
                   <div className="flex items-center gap-2">
                     <input
                       readOnly
-                      value={`${typeof window !== "undefined" ? window.location.origin : ""}${generatedUrl}`}
+                      value={generatedAbsoluteUrl ?? generatedUrl}
                       className="h-9 flex-1 rounded-md border bg-muted/30 px-3 text-xs text-muted-foreground outline-none"
                     />
                     <Button size="sm" variant="outline" onClick={handleCopyLink} className="shrink-0">
@@ -219,47 +230,41 @@ export function ShareCreativesModal({ selectedCount, onClose }: ShareCreativesMo
                       <ExternalLink className="h-3.5 w-3.5" />
                     </Button>
                   </div>
-                </div>
+                </Field>
               ) : (
                 <Button className="w-full" onClick={handleCreateLink}>
                   Create link
                 </Button>
               )}
             </>
-          )}
-
-          {tab === "pdf" && (
+          ) : (
             <>
-              {/* Report title */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium">Report title</label>
+              <Field label="Report title">
                 <input
                   type="text"
                   placeholder="e.g. Creative Performance Report"
                   value={pdfConfig.title}
-                  onChange={(e) => setPdfConfig((prev) => ({ ...prev, title: e.target.value }))}
+                  onChange={(event) => setPdfConfig((prev) => ({ ...prev, title: event.target.value }))}
                   className="h-9 w-full rounded-md border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
                 />
-              </div>
+              </Field>
 
-              {/* Toggles */}
               <div className="space-y-2">
                 <ToggleRow
                   label="Include summary"
                   checked={pdfConfig.includeSummary}
-                  onChange={(v) => setPdfConfig((prev) => ({ ...prev, includeSummary: v }))}
+                  onChange={(checked) => setPdfConfig((prev) => ({ ...prev, includeSummary: checked }))}
                 />
                 <ToggleRow
                   label="Include notes"
                   checked={pdfConfig.includeNotes}
-                  onChange={(v) => setPdfConfig((prev) => ({ ...prev, includeNotes: v }))}
+                  onChange={(checked) => setPdfConfig((prev) => ({ ...prev, includeNotes: checked }))}
                 />
               </div>
 
               <div className="rounded-lg border border-dashed bg-muted/20 px-4 py-3 text-xs text-muted-foreground">
-                A print-friendly view will open in a new tab. Use your browser&apos;s print dialog
-                to save as PDF. Full server-side PDF export will be available after backend
-                integration.
+                A print-friendly view will open in a new tab. Use your browser&apos;s print dialog to save as PDF.
+                Full server-side PDF export will be available after backend integration.
               </div>
 
               <Button className="w-full" onClick={handleGeneratePdf}>
@@ -269,14 +274,49 @@ export function ShareCreativesModal({ selectedCount, onClose }: ShareCreativesMo
           )}
         </div>
 
-        {/* Footer info */}
         <div className="border-t px-6 py-3">
           <p className="text-[11px] text-muted-foreground">
-            Public links are intended to show only selected creatives. Expiration and access control
-            will be enforced by backend.
+            Public links are intended to show only selected creatives. Expiration and access control will be enforced by backend.
           </p>
         </div>
       </div>
+    </div>
+  );
+}
+
+function TabButton({
+  active,
+  icon,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={[
+        "flex items-center gap-1.5 border-b-2 px-3 py-3 text-sm font-medium transition-colors",
+        active
+          ? "border-foreground text-foreground"
+          : "border-transparent text-muted-foreground hover:text-foreground",
+      ].join(" ")}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <label className="text-xs font-medium">{label}</label>
+      {children}
     </div>
   );
 }
@@ -288,24 +328,26 @@ function ToggleRow({
 }: {
   label: React.ReactNode;
   checked: boolean;
-  onChange: (v: boolean) => void;
+  onChange: (next: boolean) => void;
 }) {
   return (
-    <label className="flex cursor-pointer items-center justify-between rounded-md border px-3 py-2 text-xs hover:bg-muted/20 transition-colors">
+    <label className="flex cursor-pointer items-center justify-between rounded-md border px-3 py-2 text-xs transition-colors hover:bg-muted/20">
       <span>{label}</span>
       <button
         type="button"
         role="switch"
         aria-checked={checked}
         onClick={() => onChange(!checked)}
-        className={`relative h-5 w-9 rounded-full transition-colors ${
-          checked ? "bg-foreground" : "bg-muted"
-        }`}
+        className={[
+          "relative h-5 w-9 rounded-full transition-colors",
+          checked ? "bg-foreground" : "bg-muted",
+        ].join(" ")}
       >
         <span
-          className={`absolute top-0.5 h-4 w-4 rounded-full bg-background shadow transition-transform ${
-            checked ? "translate-x-4" : "translate-x-0.5"
-          }`}
+          className={[
+            "absolute top-0.5 h-4 w-4 rounded-full bg-background shadow transition-transform",
+            checked ? "translate-x-4" : "translate-x-0.5",
+          ].join(" ")}
         />
       </button>
     </label>

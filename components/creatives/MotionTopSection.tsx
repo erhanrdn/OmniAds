@@ -268,10 +268,18 @@ const METRIC_DEFS: MotionMetricDefinition[] = [
   },
 ];
 
+const MOTION_METRIC_MAP: Record<string, MotionMetricDefinition> = METRIC_DEFS.reduce(
+  (acc, metric) => {
+    acc[metric.id] = metric;
+    return acc;
+  },
+  {} as Record<string, MotionMetricDefinition>
+);
+
 export const DEFAULT_TOP_METRIC_IDS = ["spend", "roas", "hookScore", "purchaseValueShare", "purchases"];
 
 export function getMotionMetricDefinition(id: string): MotionMetricDefinition | undefined {
-  return METRIC_DEFS.find((metric) => metric.id === id);
+  return MOTION_METRIC_MAP[id];
 }
 
 export function resolveMotionDateRange(value: MotionDateRangeValue): { start: string; end: string } {
@@ -405,11 +413,11 @@ export function MotionTopSection({
   csvError = null,
 }: MotionTopSectionProps) {
   const metricDefs = useMemo(
-    () => selectedMetricIds.map((id) => getMotionMetricDefinition(id)).filter(Boolean) as MotionMetricDefinition[],
+    () => selectedMetricIds.map((id) => MOTION_METRIC_MAP[id]).filter(Boolean) as MotionMetricDefinition[],
     [selectedMetricIds]
   );
 
-  const topRows = selectedRows.slice(0, 20);
+  const topRows = useMemo(() => selectedRows.slice(0, 20), [selectedRows]);
 
   return (
     <section>
@@ -816,10 +824,14 @@ function TopExportDropdown({
   });
 
   const copyShareUrl = async () => {
-    if (!shareUrl) return;
-    await navigator.clipboard.writeText(`${window.location.origin}${shareUrl}`);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    if (!shareUrl || typeof window === "undefined") return;
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}${shareUrl}`);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setCopied(false);
+    }
   };
 
   return (
@@ -914,12 +926,16 @@ function MetricSelectorBar({ selectedMetricIds, onChange }: { selectedMetricIds:
     .map((id) => getMotionMetricDefinition(id))
     .filter(Boolean) as MotionMetricDefinition[];
 
-  const filtered = METRIC_DEFS.filter((metric) =>
-    metric.label.toLowerCase().includes(query.toLowerCase())
-  );
+  const selectedMetricIdSet = useMemo(() => new Set(selectedMetricIds), [selectedMetricIds]);
+
+  const filtered = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) return METRIC_DEFS;
+    return METRIC_DEFS.filter((metric) => metric.label.toLowerCase().includes(normalizedQuery));
+  }, [query]);
 
   const toggleMetric = (metricId: string) => {
-    const exists = selectedMetricIds.includes(metricId);
+    const exists = selectedMetricIdSet.has(metricId);
     onChange(exists ? selectedMetricIds.filter((id) => id !== metricId) : [...selectedMetricIds, metricId]);
   };
 
@@ -988,7 +1004,7 @@ function MetricSelectorBar({ selectedMetricIds, onChange }: { selectedMetricIds:
 
               <div className="max-h-64 space-y-1 overflow-auto pr-1">
                 {filtered.map((metric) => {
-                  const isSelected = selectedMetricIds.includes(metric.id);
+                  const isSelected = selectedMetricIdSet.has(metric.id);
                   return (
                   <button
                     key={metric.id}
@@ -1064,17 +1080,25 @@ function PreviewStrip({
     );
   }
 
-  const context: MotionMetricContext = {
-    totalSpend: rows.reduce((sum, row) => sum + row.spend, 0),
-    totalPurchaseValue: rows.reduce((sum, row) => sum + row.purchaseValue, 0),
-  };
+  const context = useMemo<MotionMetricContext>(
+    () => ({
+      totalSpend: rows.reduce((sum, row) => sum + row.spend, 0),
+      totalPurchaseValue: rows.reduce((sum, row) => sum + row.purchaseValue, 0),
+    }),
+    [rows]
+  );
 
-  const extremes = metrics.reduce<Record<string, { min: number; max: number }>>((acc, metric) => {
-    const sourceRows = allRowsForHeatmap.length > 0 ? allRowsForHeatmap : rows;
-    const values = sourceRows.map((row) => metric.getValue(row, context));
-    acc[metric.id] = { min: Math.min(...values), max: Math.max(...values) };
-    return acc;
-  }, {});
+  const extremes = useMemo(() => {
+    return metrics.reduce<Record<string, { min: number; max: number }>>((acc, metric) => {
+      const sourceRows = allRowsForHeatmap.length > 0 ? allRowsForHeatmap : rows;
+      const values = sourceRows.map((row) => metric.getValue(row, context));
+      acc[metric.id] = {
+        min: values.length ? Math.min(...values) : 0,
+        max: values.length ? Math.max(...values) : 0,
+      };
+      return acc;
+    }, {});
+  }, [allRowsForHeatmap, context, metrics, rows]);
 
   return (
     <div className="overflow-x-auto pb-1">
@@ -1097,9 +1121,11 @@ function PreviewStrip({
                   assetFallbacks={[
                     row.cardPreviewUrl,
                     row.imageUrl,
+                    row.preview?.image_url,
+                    row.preview?.poster_url,
                     row.previewUrl,
-                    row.thumbnailUrl,
                     row.cachedThumbnailUrl,
+                    row.thumbnailUrl,
                   ]}
                   className="aspect-[4/5] w-full"
                 />

@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { Badge } from "@/components/ui/badge";
 import {
   Sheet,
@@ -28,7 +29,11 @@ export function CreativeInsightsDrawer({
   onNotesChange,
 }: CreativeInsightsDrawerProps) {
   if (!row) return null;
-  const analysis = generateAiAnalysis(row);
+  const analysis = useMemo(() => generateAiAnalysis(row), [row]);
+
+  const handleNotesChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
+    onNotesChange(event.target.value);
+  };
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -88,7 +93,7 @@ export function CreativeInsightsDrawer({
             </h3>
             <textarea
               value={notes}
-              onChange={(event) => onNotesChange(event.target.value)}
+              onChange={handleNotesChange}
               placeholder="Add analysis notes..."
               className="min-h-24 w-full rounded-lg border bg-background p-2.5 text-sm outline-none placeholder:text-muted-foreground/60 focus:ring-2 focus:ring-ring"
             />
@@ -107,8 +112,8 @@ function AnalysisBlock({ title, items }: { title: string; items: string[] }) {
         {title}
       </h3>
       <ul className="space-y-1.5 text-[13px] leading-relaxed">
-        {items.map((item) => (
-          <li key={item} className="flex gap-2">
+        {items.map((item, index) => (
+          <li key={`${title}_${index}`} className="flex gap-2">
             <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-muted-foreground/40" />
             <span>{item}</span>
           </li>

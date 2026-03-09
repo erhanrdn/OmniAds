@@ -1,19 +1,30 @@
 "use client";
 
 import { useMemo } from "react";
-import { Copy, CalendarRange, Rows3 } from "lucide-react";
+import { CalendarRange, Copy, Rows3 } from "lucide-react";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
 import {
+  SHARE_TABLE_COLUMNS,
   buildShareDistributions,
   buildShareTableCalcContext,
   evaluateShareMetricCell,
   isShareMetricApplicable,
-  SHARE_TABLE_COLUMNS,
   toShareHeatColor,
 } from "@/components/creatives/shareTableEngine";
-import { SharePayload, SharedCreative, ShareMetricKey } from "./shareCreativeTypes";
+import { ShareMetricKey, SharePayload, SharedCreative } from "./shareCreativeTypes";
 
-const TOP_METRIC_LABELS: Record<ShareMetricKey, string> = {
+type TopMetricLabelMap = Record<ShareMetricKey, string>;
+
+type PublicShareCreative = SharedCreative & {
+  cardPreviewUrl?: string | null;
+  tableThumbnailUrl?: string | null;
+  cachedThumbnailUrl?: string | null;
+  thumbnailUrl?: string | null;
+  imageUrl?: string | null;
+  previewUrl?: string | null;
+};
+
+const TOP_METRIC_LABELS: TopMetricLabelMap = {
   spend: "Spend",
   purchaseValue: "Purchase value",
   roas: "ROAS",
@@ -64,8 +75,11 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
     createdAt,
   } = payload;
 
-  const displayRows = creatives;
-  const benchmarkRows = benchmarkCreatives && benchmarkCreatives.length > 0 ? benchmarkCreatives : creatives;
+  const displayRows = creatives as PublicShareCreative[];
+  const benchmarkRows = useMemo(
+    () => ((benchmarkCreatives && benchmarkCreatives.length > 0 ? benchmarkCreatives : creatives) as PublicShareCreative[]),
+    [benchmarkCreatives, creatives]
+  );
 
   const benchmarkCtx = useMemo(() => buildShareTableCalcContext(benchmarkRows), [benchmarkRows]);
   const displayCtx = useMemo(() => buildShareTableCalcContext(displayRows), [displayRows]);
@@ -86,8 +100,15 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
     return staticWidth + SHARE_TABLE_COLUMNS.reduce((sum, column) => sum + column.minWidth, 0);
   }, []);
 
+  const createdAtLabel = useMemo(() => new Date(createdAt).toLocaleString(), [createdAt]);
+
   const copyLink = async () => {
-    await navigator.clipboard.writeText(window.location.href);
+    if (typeof window === "undefined") return;
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+    } catch {
+      // no-op
+    }
   };
 
   return (
@@ -121,13 +142,16 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
             <span>{benchmarkRows.length} rows in benchmark</span>
             {groupBy ? <span>Group by: {groupBy}</span> : null}
             {selectedRowIds && selectedRowIds.length > 0 ? <span>Selection: {selectedRowIds.length}</span> : null}
-            <span>Generated: {new Date(createdAt).toLocaleString()}</span>
+            <span>Generated: {createdAtLabel}</span>
           </div>
 
           {filters && filters.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1.5">
               {filters.map((item) => (
-                <span key={item} className="rounded-full border border-[#E5E7EB] bg-[#F9FAFB] px-2 py-0.5 text-[11px] text-[#6B7280]">
+                <span
+                  key={item}
+                  className="rounded-full border border-[#E5E7EB] bg-[#F9FAFB] px-2 py-0.5 text-[11px] text-[#6B7280]"
+                >
                   {item}
                 </span>
               ))}
@@ -139,8 +163,26 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
           <div className="overflow-x-auto pb-1">
             <div className="flex min-w-max gap-2.5">
               {displayRows.map((creative) => (
-                <article key={creative.id} className="w-[190px] shrink-0 overflow-hidden rounded-lg border border-[#E5E7EB] bg-white">
-                  <CreativeRenderSurface id={creative.id} name={creative.name} preview={creative.preview} size="card" mode="asset" />
+                <article
+                  key={creative.id}
+                  className="w-[190px] shrink-0 overflow-hidden rounded-lg border border-[#E5E7EB] bg-white"
+                >
+                  <CreativeRenderSurface
+                    id={creative.id}
+                    name={creative.name}
+                    preview={creative.preview}
+                    size="card"
+                    mode="asset"
+                    assetFallbacks={[
+                      creative.cardPreviewUrl,
+                      creative.imageUrl,
+                      creative.preview?.image_url,
+                      creative.preview?.poster_url,
+                      creative.previewUrl,
+                      creative.cachedThumbnailUrl,
+                      creative.thumbnailUrl,
+                    ]}
+                  />
                   <div className="space-y-1 px-2.5 py-2">
                     <div className="flex items-center justify-between gap-2">
                       <p className="line-clamp-1 text-[12px] font-medium text-[#111827]">{creative.name}</p>
@@ -188,6 +230,15 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
                           size="thumb"
                           mode="asset"
                           className="h-8 w-14 rounded"
+                          assetFallbacks={[
+                            creative.tableThumbnailUrl,
+                            creative.cachedThumbnailUrl,
+                            creative.thumbnailUrl,
+                            creative.imageUrl,
+                            creative.preview?.image_url,
+                            creative.preview?.poster_url,
+                            creative.previewUrl,
+                          ]}
                         />
                         <span className="line-clamp-2 text-[11px] text-[#111827]">{creative.name}</span>
                       </div>
@@ -196,13 +247,18 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
                       const value = column.getValue(creative, displayCtx);
                       const distribution = distributions.value[column.key];
                       const spendDistribution = distributions.spend[column.key];
+
                       if (!distribution || !spendDistribution || !roasDistribution) {
                         return (
-                          <td key={`cell_${creative.id}_${column.key}`} className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-[#111827]">
+                          <td
+                            key={`cell_${creative.id}_${column.key}`}
+                            className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-[#111827]"
+                          >
                             {column.format(value, creative)}
                           </td>
                         );
                       }
+
                       const evaluation = evaluateShareMetricCell({
                         key: column.key,
                         row: creative,
@@ -217,7 +273,9 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
                           key={`cell_${creative.id}_${column.key}`}
                           className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-[#111827]"
                           style={{
-                            backgroundColor: evaluation.applicable ? toShareHeatColor(evaluation.tone, evaluation.intensity) : "transparent",
+                            backgroundColor: evaluation.applicable
+                              ? toShareHeatColor(evaluation.tone, evaluation.intensity)
+                              : "transparent",
                           }}
                           title={evaluation.reason}
                         >

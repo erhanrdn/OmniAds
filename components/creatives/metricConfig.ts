@@ -1,29 +1,49 @@
-export type MetaMetricKey =
-  | "spend"
-  | "purchaseValue"
-  | "roas"
-  | "cpa"
-  | "cpcLink"
-  | "cpm"
-  | "ctrAll"
-  | "purchases"
-  | "thumbstop"
-  | "video25"
-  | "video50"
-  | "clickToPurchase"
-  | "atcToPurchaseRatio";
+export const META_METRIC_KEYS = [
+  "spend",
+  "purchaseValue",
+  "roas",
+  "cpa",
+  "cpcLink",
+  "cpm",
+  "ctrAll",
+  "purchases",
+  "thumbstop",
+  "video25",
+  "video50",
+  "clickToPurchase",
+  "atcToPurchaseRatio",
+] as const;
 
-export type MetaAiTagKey =
-  | "assetType"
-  | "visualFormat"
-  | "intendedAudience"
-  | "messagingAngle"
-  | "seasonality"
-  | "offerType"
-  | "hookTactic"
-  | "headlineTactic";
+export type MetaMetricKey = (typeof META_METRIC_KEYS)[number];
 
+export const META_AI_TAG_KEYS = [
+  "assetType",
+  "visualFormat",
+  "intendedAudience",
+  "messagingAngle",
+  "seasonality",
+  "offerType",
+  "hookTactic",
+  "headlineTactic",
+] as const;
+
+export type MetaAiTagKey = (typeof META_AI_TAG_KEYS)[number];
 export type MetaAiTags = Partial<Record<MetaAiTagKey, string[]>>;
+
+export type CreativeFormat = "image" | "video" | "catalog";
+export type CreativeType = "feed" | "video" | "flexible" | "feed_catalog";
+export type PreviewState = "preview" | "catalog" | "unavailable";
+export type PreviewRenderMode = "video" | "image" | "unavailable";
+export type PreviewSource = "preview_url" | "thumbnail_url" | "image_url" | "image_hash" | null;
+
+export interface MetaCreativePreview {
+  render_mode: PreviewRenderMode;
+  image_url: string | null;
+  video_url: string | null;
+  poster_url: string | null;
+  source: PreviewSource;
+  is_catalog: boolean;
+}
 
 export interface MetaCreativeRow {
   id: string;
@@ -32,29 +52,18 @@ export interface MetaCreativeRow {
   accountId: string | null;
   accountName: string | null;
   currency: string | null;
-  format: "image" | "video" | "catalog";
-  creativeType: "feed" | "video" | "flexible" | "feed_catalog";
+  format: CreativeFormat;
+  creativeType: CreativeType;
   creativeTypeLabel: string;
   thumbnailUrl: string | null;
   previewUrl: string | null;
   imageUrl: string | null;
   tableThumbnailUrl?: string | null;
   cardPreviewUrl?: string | null;
+  cachedThumbnailUrl?: string | null;
   isCatalog: boolean;
-  previewState: "preview" | "catalog" | "unavailable";
-  preview: {
-    render_mode: "video" | "image" | "unavailable";
-    image_url: string | null;
-    video_url: string | null;
-    poster_url: string | null;
-    source:
-      | "preview_url"
-      | "thumbnail_url"
-      | "image_url"
-      | "image_hash"
-      | null;
-    is_catalog: boolean;
-  };
+  previewState: PreviewState;
+  preview: MetaCreativePreview;
   launchDate: string;
   tags: string[];
   aiTags: MetaAiTags;
@@ -76,102 +85,91 @@ export interface MetaCreativeRow {
   video75: number;
   video100: number;
   atcToPurchaseRatio: number;
-  /** Internal cached thumbnail URL — prefer over thumbnailUrl when available */
-  cachedThumbnailUrl?: string | null;
 }
 
 type GoodDirection = "high" | "low" | "neutral";
 
-export const METRIC_CONFIG: Record<
-  MetaMetricKey,
-  {
-    label: string;
-    goodDirection: GoodDirection;
-    format: (value: number) => string;
-  }
-> = {
+type MetricConfigItem = {
+  label: string;
+  goodDirection: GoodDirection;
+  format: (value: number) => string;
+};
+
+const formatCurrency = (value: number) => `$${value.toLocaleString()}`;
+const formatCurrencyFixed = (value: number) => `$${value.toFixed(2)}`;
+const formatNumber = (value: number) => value.toLocaleString();
+const formatPercent = (value: number) => `${value.toFixed(2)}%`;
+const formatDecimal = (value: number) => value.toFixed(2);
+
+export const METRIC_CONFIG: Record<MetaMetricKey, MetricConfigItem> = {
   spend: {
     label: "Spend",
     goodDirection: "neutral",
-    format: (value) => `$${value.toLocaleString()}`,
+    format: formatCurrency,
   },
   purchaseValue: {
     label: "Purchase value",
     goodDirection: "high",
-    format: (value) => `$${value.toLocaleString()}`,
+    format: formatCurrency,
   },
   roas: {
     label: "ROAS",
     goodDirection: "high",
-    format: (value) => value.toFixed(2),
+    format: formatDecimal,
   },
   cpa: {
     label: "CPA",
     goodDirection: "low",
-    format: (value) => `$${value.toFixed(2)}`,
+    format: formatCurrencyFixed,
   },
   cpcLink: {
     label: "CPC (link)",
     goodDirection: "low",
-    format: (value) => `$${value.toFixed(2)}`,
+    format: formatCurrencyFixed,
   },
   cpm: {
     label: "CPM",
     goodDirection: "low",
-    format: (value) => `$${value.toFixed(2)}`,
+    format: formatCurrencyFixed,
   },
   ctrAll: {
     label: "CTR (all)",
     goodDirection: "high",
-    format: (value) => `${value.toFixed(2)}%`,
+    format: formatPercent,
   },
   purchases: {
     label: "Purchases",
     goodDirection: "high",
-    format: (value) => value.toLocaleString(),
+    format: formatNumber,
   },
   thumbstop: {
     label: "Thumbstop",
     goodDirection: "high",
-    format: (value) => `${value.toFixed(2)}%`,
+    format: formatPercent,
   },
   video25: {
     label: "25% video plays rate",
     goodDirection: "high",
-    format: (value) => `${value.toFixed(2)}%`,
+    format: formatPercent,
   },
   video50: {
     label: "50% video plays rate",
     goodDirection: "high",
-    format: (value) => `${value.toFixed(2)}%`,
+    format: formatPercent,
   },
   clickToPurchase: {
     label: "Click to purchase",
     goodDirection: "high",
-    format: (value) => `${value.toFixed(2)}%`,
+    format: formatPercent,
   },
   atcToPurchaseRatio: {
     label: "ATC to purchase ratio",
     goodDirection: "high",
-    format: (value) => `${value.toFixed(2)}%`,
+    format: formatPercent,
   },
 };
 
-export const METRIC_OPTIONS: MetaMetricKey[] = [
-  "spend",
-  "purchaseValue",
-  "roas",
-  "cpa",
-  "cpcLink",
-  "cpm",
-  "ctrAll",
-  "purchases",
-  "thumbstop",
-  "video25",
-  "video50",
-  "clickToPurchase",
-  "atcToPurchaseRatio",
-];
+export const METRIC_OPTIONS: MetaMetricKey[] = [...META_METRIC_KEYS];
 
 export const DEFAULT_TABLE_METRICS: MetaMetricKey[] = [
   "spend",
