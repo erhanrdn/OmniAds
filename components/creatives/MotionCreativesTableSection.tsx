@@ -1837,7 +1837,7 @@ function CompactTableThumbnail({ row }: { row: MetaCreativeRow }) {
   if (!compactPreviewSrc) {
     return (
       <div className="flex h-[30px] w-[30px] shrink-0 items-center justify-center overflow-hidden rounded bg-muted text-[8px] leading-none text-muted-foreground">
-        Preview unavailable
+        PREVIEW_DEBUG_001
       </div>
     );
   }

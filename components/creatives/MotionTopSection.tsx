@@ -1090,7 +1090,7 @@ function PreviewStrip({
             >
               <div className="relative aspect-square w-full overflow-hidden bg-muted/30">
                 <CompactTopCardPreview row={row} />
-                <span className="absolute bottom-2 left-2 rounded-md bg-black/50 px-2 py-0.5 text-[10px] text-white">
+                <span className="absolute bottom-2 left-2 rounded-md bg-blue-600 px-2 py-0.5 text-[10px] text-white">
                   {row.creativeTypeLabel}
                 </span>
               </div>
@@ -1175,7 +1175,7 @@ function CompactTopCardPreview({ row }: { row: MetaCreativeRow }) {
   if (!compactPreviewSrc) {
     return (
       <div className="flex h-full w-full items-center justify-center overflow-hidden rounded-lg bg-muted text-[11px] text-muted-foreground">
-        Preview unavailable
+        PREVIEW_DEBUG_001
       </div>
     );
   }
