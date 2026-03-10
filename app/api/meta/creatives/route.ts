@@ -424,6 +424,23 @@ function normalizeMediaUrl(value: unknown): string | null {
   return /^https?:\/\//i.test(url) ? url : null;
 }
 
+function parsePreviewSizeFromUrl(url: string): { width: number; height: number } | null {
+  const match = url.match(/p(\d+)x(\d+)/i);
+  if (!match) return null;
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  if (!Number.isFinite(width) || !Number.isFinite(height)) return null;
+  return { width, height };
+}
+
+function isLikelyLowResCreativeUrl(value: unknown): boolean {
+  const url = normalizeMediaUrl(value);
+  if (!url) return false;
+  const parsedSize = parsePreviewSizeFromUrl(url);
+  if (!parsedSize) return false;
+  return Math.max(parsedSize.width, parsedSize.height) <= 220;
+}
+
 function resolveThumbnailUrl(input: {
   cachedThumbnailUrl?: string | null;
   creative?: MetaAdRecord["creative"] | null;
@@ -664,7 +681,9 @@ function buildNormalizedPreview(input: {
   };
 
   const isVideo = creative?.object_type?.toUpperCase() === "VIDEO";
-  const top = chosenCandidate;
+  const top =
+    candidates.find((candidate) => !isLikelyLowResCreativeUrl(candidate.url)) ??
+    chosenCandidate;
   const resolvedThumbnail = resolveThumbnailUrl({ creative });
   const resolvedTopUrl = top?.url ?? resolvedThumbnail.url;
   const resolvedTopSource = top?.source ?? (
@@ -685,7 +704,11 @@ function buildNormalizedPreview(input: {
   };
 
   const thumbnailCandidate = candidates[0]?.url ?? resolvedThumbnail.url;
-  const imageCandidate = candidates[1]?.url ?? normalizeMediaUrl(creative?.image_url ?? null) ?? thumbnailCandidate;
+  const imageCandidate =
+    candidates.find((candidate) => !isLikelyLowResCreativeUrl(candidate.url))?.url ??
+    candidates[1]?.url ??
+    normalizeMediaUrl(creative?.image_url ?? null) ??
+    thumbnailCandidate;
 
   if (process.env.NODE_ENV !== "production") {
     const resolvedSource = top?.source ?? "none";
@@ -1792,7 +1815,7 @@ export async function GET(request: NextRequest) {
   const enableCreativeBasicsFallback = debugPreview || debugThumbnail || params.get("creativeBasicsFallback") === "1";
   const enableCreativeDetails = debugPreview || debugThumbnail || params.get("creativeDetails") === "1";
   const enableThumbnailBackfill = debugPreview || debugThumbnail || params.get("thumbnailBackfill") === "1";
-  const enableCardThumbnailBackfill = debugThumbnail || params.get("cardThumbnailBackfill") === "1";
+  const enableCardThumbnailBackfill = params.get("cardThumbnailBackfill") !== "0";
   const enableImageHashLookup = debugPreview || debugThumbnail || params.get("imageHashLookup") === "1";
   const enableMediaRecovery = debugPreview || debugThumbnail || params.get("recoverMedia") === "1";
   const enableMediaCache = debugPreview || debugThumbnail || params.get("mediaCache") === "1";
@@ -2013,9 +2036,11 @@ export async function GET(request: NextRequest) {
         return acc;
       }, new Map<string, number>());
       const cardThumbnailCreativeIds = Array.from(mergedCreativeById.entries())
-      .filter(([, creative]) =>
-        !normalizeMediaUrl(creative?.image_url ?? null)
-      )
+      .filter(([, creative]) => {
+        const imageUrl = normalizeMediaUrl(creative?.image_url ?? null);
+        if (!imageUrl) return true;
+        return isLikelyLowResCreativeUrl(imageUrl);
+      })
       .map(([creativeId]) => creativeId)
       .sort((a, b) => (spendByCreativeId.get(b) ?? 0) - (spendByCreativeId.get(a) ?? 0))
       .slice(0, 80);
@@ -2446,15 +2471,23 @@ export async function GET(request: NextRequest) {
       normalizeMediaUrl(row.thumbnail_url) ??
       normalizeMediaUrl(row.image_url) ??
       normalizeMediaUrl(row.preview_url);
-    const finalImageUrl =
-      normalizeMediaUrl(row.image_url) ??
-      normalizeMediaUrl(row.thumbnail_url) ??
-      normalizeMediaUrl(row.preview_url) ??
+    const rowImageUrl = normalizeMediaUrl(row.image_url);
+    const rowPreviewUrl = normalizeMediaUrl(row.preview_url);
+    const rowThumbnailUrl = normalizeMediaUrl(row.thumbnail_url);
+    const cardFallbackThumbnail = normalizeMediaUrl(cardPreviewByCreativeId.get(row.creative_id) ?? null);
+    const preferredCardImageUrl =
+      (rowImageUrl && !isLikelyLowResCreativeUrl(rowImageUrl) ? rowImageUrl : null) ??
+      (rowPreviewUrl && !isLikelyLowResCreativeUrl(rowPreviewUrl) ? rowPreviewUrl : null) ??
+      cardFallbackThumbnail ??
+      rowImageUrl ??
+      rowPreviewUrl ??
+      rowThumbnailUrl ??
       finalThumbnailUrl;
+    const finalImageUrl = preferredCardImageUrl ?? finalThumbnailUrl;
     const finalPreviewUrl =
-      normalizeMediaUrl(row.preview_url) ??
-      finalThumbnailUrl ??
-      finalImageUrl;
+      (rowPreviewUrl && !isLikelyLowResCreativeUrl(rowPreviewUrl) ? rowPreviewUrl : null) ??
+      preferredCardImageUrl ??
+      finalThumbnailUrl;
     const previewState: LegacyPreviewState = finalPreviewUrl ? "preview" : "unavailable";
     const finalNullReason = finalThumbnailUrl
       ? null
@@ -2468,6 +2501,18 @@ export async function GET(request: NextRequest) {
             poster_url: row.preview.poster_url ?? finalThumbnailUrl ?? finalImageUrl,
             source: row.preview.source ?? "thumbnail_url",
           }
+        : row.preview.render_mode === "image"
+        ? {
+            ...row.preview,
+            image_url:
+              normalizeMediaUrl(row.preview.image_url) && !isLikelyLowResCreativeUrl(row.preview.image_url)
+                ? row.preview.image_url
+                : finalImageUrl ?? row.preview.image_url,
+            poster_url:
+              normalizeMediaUrl(row.preview.poster_url) && !isLikelyLowResCreativeUrl(row.preview.poster_url)
+                ? row.preview.poster_url
+                : finalThumbnailUrl ?? row.preview.poster_url,
+          }
         : row.preview;
     const tableThumbnailUrl =
       normalizeMediaUrl(cachedThumbnailUrl) ??
@@ -2476,10 +2521,11 @@ export async function GET(request: NextRequest) {
       normalizeMediaUrl(row.image_url) ??
       null;
     const cardPreviewUrl =
-      normalizeMediaUrl(row.image_url) ??
-      normalizeMediaUrl(cardPreviewByCreativeId.get(row.creative_id) ?? null) ??
-      normalizeMediaUrl(row.thumbnail_url) ??
-      normalizeMediaUrl(row.preview_url) ??
+      preferredCardImageUrl ??
+      cardFallbackThumbnail ??
+      rowPreviewUrl ??
+      rowImageUrl ??
+      rowThumbnailUrl ??
       null;
     return {
       id: row.id,
@@ -2566,6 +2612,8 @@ export async function GET(request: NextRequest) {
         preview_source: r.preview_source,
         thumbnail_url: r.thumbnail_url ? r.thumbnail_url.slice(0, 80) : null,
         image_url: r.image_url ? r.image_url.slice(0, 80) : null,
+        table_thumbnail_url: r.table_thumbnail_url ? r.table_thumbnail_url.slice(0, 80) : null,
+        card_preview_url: r.card_preview_url ? r.card_preview_url.slice(0, 80) : null,
         is_catalog: r.is_catalog,
         preview_render_mode: r.preview.render_mode,
       })),
