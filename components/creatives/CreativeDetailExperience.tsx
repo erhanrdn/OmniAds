@@ -368,6 +368,7 @@ function CreativeTopBar({
           type="button"
           onClick={onCopyLink}
           disabled={!canCopyLink}
+          title={canCopyLink ? "Copy Meta preview link" : "Meta preview link unavailable"}
           className={cn(
             "inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition",
             canCopyLink
@@ -382,6 +383,7 @@ function CreativeTopBar({
           type="button"
           onClick={onCopyPostId}
           disabled={!canCopyPostId}
+          title={canCopyPostId ? "Copy Meta Post ID" : "Post ID unavailable for this creative"}
           className={cn(
             "inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition",
             canCopyPostId
@@ -1257,21 +1259,34 @@ function resolveMetaPreviewLink(row: MetaCreativeRow, detailPreviewHtml: string 
 function resolvePostId(row: MetaCreativeRow, detailPreviewHtml: string | null): string | null {
   const looseRow = row as unknown as Record<string, unknown>;
   const rowCandidates = [
-    looseRow.postId,
-    looseRow.objectStoryId,
-    looseRow.effectiveObjectStoryId,
+    row.postId,
+    row.objectStoryId,
+    row.effectiveObjectStoryId,
+    looseRow.post_id,
+    looseRow.object_story_id,
+    looseRow.effective_object_story_id,
     looseRow.debug_creative_effective_object_story_id,
     looseRow.debug_creative_object_story_id,
   ];
 
   for (const candidate of rowCandidates) {
-    const parsed = extractNumericId(candidate);
+    const parsed =
+      extractPostIdFromObjectStoryId(candidate) ??
+      extractNumericId(candidate);
     if (parsed) return parsed;
   }
 
-  const previewLink = resolveMetaPreviewLink(row, detailPreviewHtml);
-  if (!previewLink) return null;
-  return extractPostIdFromUrl(previewLink);
+  const urlFallbackCandidates = uniqueUrls([
+    resolveMetaPreviewLink(row, detailPreviewHtml),
+    row.previewUrl,
+    row.cardPreviewUrl,
+    row.imageUrl,
+  ]);
+  for (const urlCandidate of urlFallbackCandidates) {
+    const parsed = extractPostIdFromUrl(urlCandidate);
+    if (parsed) return parsed;
+  }
+  return null;
 }
 
 function extractPostIdFromUrl(urlValue: string): string | null {
@@ -1293,10 +1308,20 @@ function extractPostIdFromUrl(urlValue: string): string | null {
   }
 }
 
+function extractPostIdFromObjectStoryId(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const underscoreMatch = trimmed.match(/^\d+_(\d{6,})$/);
+  if (underscoreMatch?.[1]) return underscoreMatch[1];
+  return null;
+}
+
 function extractNumericId(value: unknown): string | null {
   if (value === null || value === undefined) return null;
   const text = String(value).trim();
   if (!text) return null;
+  if (/^\d{6,}$/.test(text)) return text;
   const matches = text.match(/\d{6,}/g);
   if (!matches || matches.length === 0) return null;
   return matches[matches.length - 1] ?? null;

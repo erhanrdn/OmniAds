@@ -211,6 +211,9 @@ function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
   return {
     id: row.id,
     creativeId: row.creative_id,
+    objectStoryId: row.object_story_id ?? null,
+    effectiveObjectStoryId: row.effective_object_story_id ?? null,
+    postId: row.post_id ?? null,
     name: row.name,
     associatedAdsCount: row.associated_ads_count,
     accountId: row.account_id ?? null,

@@ -213,6 +213,9 @@ interface MetaCreativePreviewHtmlResponse {
 interface RawCreativeRow {
   id: string;
   creative_id: string;
+  object_story_id?: string | null;
+  effective_object_story_id?: string | null;
+  post_id?: string | null;
   associated_ads_count: number;
   account_id: string;
   account_name: string | null;
@@ -280,6 +283,9 @@ interface RawCreativeRow {
 export interface MetaCreativeApiRow {
   id: string;
   creative_id: string;
+  object_story_id?: string | null;
+  effective_object_story_id?: string | null;
+  post_id?: string | null;
   associated_ads_count: number;
   account_id: string;
   account_name: string | null;
@@ -453,6 +459,25 @@ function normalizeMediaUrl(value: unknown): string | null {
   if (!url) return null;
   if (url.startsWith("//")) return `https:${url}`;
   return /^https?:\/\//i.test(url) ? url : null;
+}
+
+function extractPostIdFromStoryIdentifier(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  // Common Meta object_story_id format: <actor_id>_<post_id>
+  const underscoreMatch = trimmed.match(/^\d+_(\d+)$/);
+  if (underscoreMatch?.[1]) return underscoreMatch[1];
+
+  // Already a direct post id.
+  const directMatch = trimmed.match(/^\d{6,}$/);
+  if (directMatch) return directMatch[0];
+
+  // Last resort: pick long numeric token if clearly present.
+  const tokens = trimmed.match(/\d{6,}/g);
+  if (!tokens || tokens.length === 0) return null;
+  return tokens[tokens.length - 1] ?? null;
 }
 
 function parsePreviewSizeFromUrl(url: string): { width: number; height: number } | null {
@@ -1772,10 +1797,25 @@ function toRawRow(
   const launchDate = cleanDate(ad?.created_time) || cleanDate(insight.date_start) || toISODate(new Date());
   const name = insight.ad_name ?? ad?.name ?? creative?.name ?? "Unnamed ad";
   const creativeId = creative?.id ?? adId;
+  const objectStoryId =
+    typeof creative?.object_story_id === "string" && creative.object_story_id.trim().length > 0
+      ? creative.object_story_id.trim()
+      : null;
+  const effectiveObjectStoryId =
+    typeof creative?.effective_object_story_id === "string" && creative.effective_object_story_id.trim().length > 0
+      ? creative.effective_object_story_id.trim()
+      : null;
+  const postId =
+    extractPostIdFromStoryIdentifier(objectStoryId) ??
+    extractPostIdFromStoryIdentifier(effectiveObjectStoryId) ??
+    null;
 
   return {
     id: adId,
     creative_id: creativeId,
+    object_story_id: objectStoryId,
+    effective_object_story_id: effectiveObjectStoryId,
+    post_id: postId,
     associated_ads_count: 1,
     account_id: accountMeta.id,
     account_name: accountMeta.name,
@@ -1936,6 +1976,15 @@ function groupRows(
     };
     const groupedLegacyState: LegacyPreviewState = groupedPreview.render_mode === "unavailable" ? "unavailable" : "preview";
     const groupedCreativeType = resolveGroupedCreativeType(list);
+    const groupedObjectStoryId =
+      list.map((item) => item.object_story_id ?? null).find((value): value is string => Boolean(value)) ?? null;
+    const groupedEffectiveObjectStoryId =
+      list.map((item) => item.effective_object_story_id ?? null).find((value): value is string => Boolean(value)) ?? null;
+    const groupedPostId =
+      list.map((item) => item.post_id ?? null).find((value): value is string => Boolean(value)) ??
+      extractPostIdFromStoryIdentifier(groupedObjectStoryId) ??
+      extractPostIdFromStoryIdentifier(groupedEffectiveObjectStoryId) ??
+      null;
 
     const stableId =
       groupBy === "creative"
@@ -1944,6 +1993,9 @@ function groupRows(
     grouped.push({
       id: stableId,
       creative_id: sample.creative_id,
+      object_story_id: groupedObjectStoryId,
+      effective_object_story_id: groupedEffectiveObjectStoryId,
+      post_id: groupedPostId,
       associated_ads_count: groupBy === "creative" ? list.length : (creativeUsageMap.get(sample.creative_id)?.size ?? 1),
       account_id: sample.account_id,
       account_name: sample.account_name,
@@ -2915,6 +2967,9 @@ export async function GET(request: NextRequest) {
     const baseRow: MetaCreativeApiRow = {
       id: row.id,
       creative_id: row.creative_id,
+      object_story_id: row.object_story_id ?? null,
+      effective_object_story_id: row.effective_object_story_id ?? null,
+      post_id: row.post_id ?? null,
       associated_ads_count: row.associated_ads_count,
       account_id: row.account_id,
       account_name: row.account_name,
