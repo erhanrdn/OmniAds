@@ -12,9 +12,15 @@ import { IntegrationsCard } from "@/components/integrations/integrations-card";
 import { ConnectModal } from "@/components/integrations/connect-modal";
 import { useIntegrationConnection } from "@/hooks/use-integration-connection";
 import { ProviderAssignmentDrawer } from "@/components/integrations/provider-assignment-drawer";
+import { GA4PropertyPicker } from "@/components/integrations/ga4-property-picker";
 
 /** Providers that have real backend OAuth (not mock) */
-const REAL_PROVIDERS: IntegrationProvider[] = ["shopify", "meta", "google"];
+const REAL_PROVIDERS: IntegrationProvider[] = [
+  "shopify",
+  "meta",
+  "google",
+  "ga4",
+];
 
 const DESCRIPTIONS: Record<IntegrationProvider, string> = {
   shopify: "Sync storefront events and conversion data for attribution.",
@@ -38,7 +44,6 @@ export default function IntegrationsPage() {
   const assignedAccountsByBusiness = useIntegrationsStore(
     (state) => state.assignedAccountsByBusiness,
   );
-  const setConnected = useIntegrationsStore((state) => state.setConnected);
   const disconnect = useIntegrationsStore((state) => state.disconnect);
   const setAssignedAccounts = useIntegrationsStore(
     (state) => state.setAssignedAccounts,
@@ -58,6 +63,11 @@ export default function IntegrationsPage() {
     useState<IntegrationProvider | null>(null);
   const [assignmentProvider, setAssignmentProvider] =
     useState<IntegrationProvider | null>(null);
+  const [ga4PickerOpen, setGa4PickerOpen] = useState(false);
+  const [ga4PropertyInfo, setGa4PropertyInfo] = useState<{
+    propertyId: string;
+    propertyName: string;
+  } | null>(null);
 
   /** Disconnect: calls backend API for real providers, then updates local store */
   const handleDisconnect = useCallback(
@@ -74,6 +84,9 @@ export default function IntegrationsPage() {
         }
       }
       disconnect(businessId, provider);
+      if (provider === "ga4") {
+        setGa4PropertyInfo(null);
+      }
       if (assignmentProvider === provider) {
         setAssignmentProvider(null);
       }
@@ -92,6 +105,37 @@ export default function IntegrationsPage() {
     fetchStatuses();
   }, [businessId, fetchStatuses]);
 
+  // Fetch GA4 property metadata when GA4 is connected
+  useEffect(() => {
+    if (!businessId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/integrations?businessId=${encodeURIComponent(businessId)}&provider=ga4`,
+        );
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        const integration = data.integration;
+        if (!integration || cancelled) return;
+        const metadata = integration.metadata;
+        if (metadata?.ga4PropertyId && metadata?.ga4PropertyName) {
+          setGa4PropertyInfo({
+            propertyId: metadata.ga4PropertyId,
+            propertyName: metadata.ga4PropertyName,
+          });
+        } else {
+          setGa4PropertyInfo(null);
+        }
+      } catch {
+        // silent — not critical for page load
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [businessId]);
+
   useEffect(() => {
     if (!toast) return;
     const timeout = setTimeout(() => clearToast(), 3000);
@@ -107,26 +151,10 @@ export default function IntegrationsPage() {
   if (!integrations) return null;
 
   const handleConnect = (provider: IntegrationProvider) => {
-    if (provider === "ga4") {
-      setConnected(businessId, "ga4", "ga4-demo-property");
-      setToast({
-        type: "success",
-        message: "GA4 OAuth flow will be handled by backend.",
-      });
-      return;
-    }
     setActiveProvider(provider);
   };
 
   const handleRetry = (provider: IntegrationProvider) => {
-    if (provider === "ga4") {
-      setConnected(businessId, "ga4", "ga4-demo-property");
-      setToast({
-        type: "success",
-        message: "GA4 OAuth flow will be handled by backend.",
-      });
-      return;
-    }
     retry(provider);
     setActiveProvider(provider);
   };
@@ -168,6 +196,9 @@ export default function IntegrationsPage() {
           const assignedIds =
             assignedAccountsByBusiness[businessId]?.[provider] ?? [];
 
+          const isGa4 = provider === "ga4";
+          const ga4Connected = isGa4 && integrations.ga4.status === "connected";
+
           return (
             <IntegrationsCard
               key={provider}
@@ -176,8 +207,17 @@ export default function IntegrationsPage() {
               state={integrations[provider]}
               assignedAccountIds={assignedIds}
               connectedDetailText={
-                provider === "ga4" && integrations.ga4.status === "connected"
-                  ? "Property integration connected"
+                ga4Connected
+                  ? ga4PropertyInfo
+                    ? `Property: ${ga4PropertyInfo.propertyName}`
+                    : "Connected — no property selected yet"
+                  : undefined
+              }
+              connectedActionLabel={
+                ga4Connected
+                  ? ga4PropertyInfo
+                    ? "Change Property"
+                    : "Select Property"
                   : undefined
               }
               onConnect={handleConnect}
@@ -185,7 +225,13 @@ export default function IntegrationsPage() {
               onRetry={handleRetry}
               onCancel={(p) => cancel(p)}
               onDisconnect={(p) => handleDisconnect(p)}
-              onOpenAssignments={(p) => setAssignmentProvider(p)}
+              onOpenAssignments={(p) => {
+                if (p === "ga4") {
+                  setGa4PickerOpen(true);
+                } else {
+                  setAssignmentProvider(p);
+                }
+              }}
             />
           );
         })}
@@ -220,6 +266,23 @@ export default function IntegrationsPage() {
               accountIds.length > 0
                 ? `Assignments saved (${accountIds.length}).`
                 : "Assignments cleared for this provider.",
+          });
+        }}
+      />
+
+      <GA4PropertyPicker
+        open={ga4PickerOpen}
+        businessId={businessId}
+        currentPropertyId={ga4PropertyInfo?.propertyId ?? null}
+        onClose={() => setGa4PickerOpen(false)}
+        onSave={(property) => {
+          setGa4PropertyInfo({
+            propertyId: property.propertyId,
+            propertyName: property.propertyName,
+          });
+          setToast({
+            type: "success",
+            message: `GA4 property "${property.propertyName}" linked.`,
           });
         }}
       />

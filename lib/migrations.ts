@@ -124,6 +124,9 @@ export async function runMigrations() {
     ON integrations (business_id, provider)
   `;
 
+  // extensible metadata for provider-specific data (e.g. GA4 property info)
+  await sql`ALTER TABLE integrations ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb`;
+
   // fast lookup by business
   await sql`
     CREATE INDEX IF NOT EXISTS idx_integrations_business_id

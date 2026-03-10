@@ -14,6 +14,7 @@ interface IntegrationsCardProps {
   description: string;
   state: IntegrationState;
   connectedDetailText?: string;
+  connectedActionLabel?: string;
   assignedAccountIds: string[];
   onConnect: (provider: IntegrationProvider) => void;
   onReconnect: (provider: IntegrationProvider) => void;
@@ -28,6 +29,7 @@ export function IntegrationsCard({
   description,
   state,
   connectedDetailText,
+  connectedActionLabel,
   assignedAccountIds,
   onConnect,
   onReconnect,
@@ -50,8 +52,8 @@ export function IntegrationsCard({
       ? `Connected, ${assignedCount} accounts assigned`
       : "Connected, no accounts assigned"
     : isDisconnected
-    ? "Disconnected"
-    : undefined;
+      ? "Disconnected"
+      : undefined;
 
   const assignedPreview = state.accounts
     .filter((account) => assignedAccountIds.includes(account.id))
@@ -72,7 +74,9 @@ export function IntegrationsCard({
 
       <p className="mb-3 text-sm text-muted-foreground">{description}</p>
 
-      {statusText ? <p className="mb-2 text-xs text-muted-foreground">{statusText}</p> : null}
+      {statusText ? (
+        <p className="mb-2 text-xs text-muted-foreground">{statusText}</p>
+      ) : null}
 
       {state.connectedAt && isConnected && (
         <p className="mb-1 text-xs text-muted-foreground">
@@ -92,11 +96,15 @@ export function IntegrationsCard({
       {assignedPreview.length > 0 ? (
         <p className="mb-3 text-xs text-muted-foreground">
           {assignedPreview.join(", ")}
-          {assignedCount > assignedPreview.length ? ` +${assignedCount - assignedPreview.length}` : ""}
+          {assignedCount > assignedPreview.length
+            ? ` +${assignedCount - assignedPreview.length}`
+            : ""}
         </p>
       ) : null}
       {connectedDetailText && isConnected ? (
-        <p className="mb-3 text-xs text-muted-foreground">{connectedDetailText}</p>
+        <p className="mb-3 text-xs text-muted-foreground">
+          {connectedDetailText}
+        </p>
       ) : null}
 
       {isError && state.errorMessage ? (
@@ -132,8 +140,12 @@ export function IntegrationsCard({
 
         {isConnected ? (
           <>
-            <Button className="flex-1" onClick={() => onOpenAssignments(provider)}>
-              {hasAssignments ? "Manage assignments" : "Assign accounts"}
+            <Button
+              className="flex-1"
+              onClick={() => onOpenAssignments(provider)}
+            >
+              {connectedActionLabel ??
+                (hasAssignments ? "Manage assignments" : "Assign accounts")}
             </Button>
             <Button variant="outline" onClick={() => onReconnect(provider)}>
               Reconnect

@@ -16,7 +16,9 @@ export function getOAuthStartUrl(
   returnTo: string,
   options?: { shop?: string },
 ) {
-  const url = `/api/oauth/${provider}/start?businessId=${businessId}&returnTo=${encodeURIComponent(
+  // GA4 uses a different route segment than the provider name
+  const routeProvider = provider === "ga4" ? "google-analytics" : provider;
+  const url = `/api/oauth/${routeProvider}/start?businessId=${businessId}&returnTo=${encodeURIComponent(
     returnTo,
   )}`;
   if (options?.shop) {

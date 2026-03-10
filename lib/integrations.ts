@@ -21,6 +21,7 @@ export interface IntegrationRow {
   token_expires_at: string | null;
   scopes: string | null;
   error_message: string | null;
+  metadata: Record<string, unknown>;
   connected_at: string | null;
   disconnected_at: string | null;
   created_at: string;
@@ -68,16 +69,18 @@ export async function upsertIntegration(params: {
   tokenExpiresAt?: Date;
   scopes?: string;
   errorMessage?: string;
+  metadata?: Record<string, unknown>;
 }): Promise<IntegrationRow> {
   const sql = getDb();
   const now = new Date().toISOString();
+  const metadataJson = JSON.stringify(params.metadata ?? {});
 
   const rows = await sql`
     INSERT INTO integrations (
       business_id, provider, status,
       provider_account_id, provider_account_name,
       access_token, refresh_token, token_expires_at,
-      scopes, error_message, connected_at, updated_at
+      scopes, error_message, metadata, connected_at, updated_at
     ) VALUES (
       ${params.businessId},
       ${params.provider},
@@ -89,6 +92,7 @@ export async function upsertIntegration(params: {
       ${params.tokenExpiresAt?.toISOString() ?? null},
       ${params.scopes ?? null},
       ${params.errorMessage ?? null},
+      ${metadataJson}::jsonb,
       ${params.status === "connected" ? now : null},
       ${now}
     )
@@ -101,6 +105,10 @@ export async function upsertIntegration(params: {
       token_expires_at    = EXCLUDED.token_expires_at,
       scopes              = EXCLUDED.scopes,
       error_message       = EXCLUDED.error_message,
+      metadata            = CASE
+                              WHEN EXCLUDED.metadata = '{}'::jsonb THEN integrations.metadata
+                              ELSE EXCLUDED.metadata
+                            END,
       connected_at        = COALESCE(integrations.connected_at, EXCLUDED.connected_at),
       updated_at          = EXCLUDED.updated_at
     RETURNING *
@@ -121,6 +129,7 @@ export async function disconnectIntegration(
       refresh_token    = NULL,
       token_expires_at = NULL,
       error_message    = NULL,
+      metadata         = '{}'::jsonb,
       disconnected_at  = now(),
       updated_at       = now()
     WHERE business_id = ${businessId} AND provider = ${provider}
