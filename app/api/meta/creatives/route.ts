@@ -1777,7 +1777,13 @@ export async function GET(request: NextRequest) {
   const debugPreview = params.get("debugPreview") === "1";
   const debugThumbnail = params.get("debugThumbnail") === "1";
   const debugPerf = params.get("debugPerf") === "1";
+  const enableCreativeBasicsFallback = debugPreview || debugThumbnail || params.get("creativeBasicsFallback") === "1";
+  const enableCreativeDetails = debugPreview || debugThumbnail || params.get("creativeDetails") === "1";
+  const enableThumbnailBackfill = debugPreview || debugThumbnail || params.get("thumbnailBackfill") === "1";
+  const enableCardThumbnailBackfill = debugThumbnail || params.get("cardThumbnailBackfill") === "1";
+  const enableImageHashLookup = debugPreview || debugThumbnail || params.get("imageHashLookup") === "1";
   const enableMediaRecovery = debugPreview || debugThumbnail || params.get("recoverMedia") === "1";
+  const enableMediaCache = debugPreview || debugThumbnail || params.get("mediaCache") === "1";
   const enableDeepAudit = debugPreview || debugPerf;
   const previewSampleLimit = Number(params.get("previewSampleLimit") ?? "5");
   const perAccountSampleLimit =
@@ -1906,7 +1912,7 @@ export async function GET(request: NextRequest) {
         const ad = adMap.get(id);
         return !ad?.creative?.thumbnail_url && !ad?.creative?.image_url;
       });
-      if (creativeMissingAdIds.length > 0) {
+      if (enableCreativeBasicsFallback && creativeMissingAdIds.length > 0) {
         console.log("[meta-creatives] creative enrichment fallback", {
           account_id: accountId,
           missing_creative_media_ads: creativeMissingAdIds.length,
@@ -1954,7 +1960,7 @@ export async function GET(request: NextRequest) {
       );
       const tCreativeDetails = Date.now();
       const creativeDetailsMap =
-        creativeIdsForDetails.length > 0
+        enableCreativeDetails && creativeIdsForDetails.length > 0
           ? await fetchCreativeDetailsMap(creativeIdsForDetails, accessToken)
           : new Map<string, NonNullable<MetaAdRecord["creative"]>>();
       accountPerf.creative_details_ms += Date.now() - tCreativeDetails;
@@ -1974,13 +1980,16 @@ export async function GET(request: NextRequest) {
         )
         .map(([creativeId]) => creativeId);
       const tSmallThumbs = Date.now();
-      const creativeThumbnailMap = await fetchCreativeThumbnailMap(
-        missingThumbnailCreativeIds,
-        accessToken,
-        150,
-        120,
-        debugThumbnail
-      );
+      const creativeThumbnailMap =
+        enableThumbnailBackfill && missingThumbnailCreativeIds.length > 0
+          ? await fetchCreativeThumbnailMap(
+              missingThumbnailCreativeIds,
+              accessToken,
+              150,
+              120,
+              debugThumbnail
+            )
+          : new Map<string, string>();
       accountPerf.creative_thumb_small_ms += Date.now() - tSmallThumbs;
       const spendByCreativeId = insights.reduce<Map<string, number>>((acc, insight) => {
         const adId = insight.ad_id;
@@ -1999,46 +2008,53 @@ export async function GET(request: NextRequest) {
       .sort((a, b) => (spendByCreativeId.get(b) ?? 0) - (spendByCreativeId.get(a) ?? 0))
       .slice(0, 80);
       const tCardThumbs = Date.now();
-      const cardThumbnailMap = await fetchCreativeThumbnailMap(
-        cardThumbnailCreativeIds,
-        accessToken,
-        640,
-        640,
-        false
-      );
+      const cardThumbnailMap =
+        enableCardThumbnailBackfill && cardThumbnailCreativeIds.length > 0
+          ? await fetchCreativeThumbnailMap(
+              cardThumbnailCreativeIds,
+              accessToken,
+              640,
+              640,
+              false
+            )
+          : new Map<string, string>();
       accountPerf.creative_thumb_card_ms += Date.now() - tCardThumbs;
-      for (const [creativeId, url] of cardThumbnailMap.entries()) {
-        if (!cardPreviewByCreativeId.has(creativeId)) {
-          cardPreviewByCreativeId.set(creativeId, url);
+      if (enableCardThumbnailBackfill) {
+        for (const [creativeId, url] of cardThumbnailMap.entries()) {
+          if (!cardPreviewByCreativeId.has(creativeId)) {
+            cardPreviewByCreativeId.set(creativeId, url);
+          }
         }
       }
-      const accountImageHashes = Array.from(
-        new Set(
-          insightAds.flatMap((ad) => {
-            const detailCreative = ad.creative?.id ? creativeDetailsMap.get(ad.creative.id) : undefined;
-            const mergedCreative = mergeCreativeData(ad.creative ?? null, detailCreative);
-            if (mergedCreative?.id && !normalizeMediaUrl(mergedCreative.thumbnail_url) && !normalizeMediaUrl(mergedCreative.image_url)) {
-              const fallbackThumb = creativeThumbnailMap.get(mergedCreative.id) ?? null;
-              if (fallbackThumb) {
-                mergedCreative.thumbnail_url = fallbackThumb;
-                if (debugThumbnail) {
-                  console.log("[meta-creatives][thumb-debug] fallback applied", {
-                    stage: "hash-seed-merge",
-                    account_id: accountId,
-                    creative_id: mergedCreative.id,
-                    thumbnail_url_sample: fallbackThumb.slice(0, 180),
-                  });
+      const accountImageHashes = enableImageHashLookup
+        ? Array.from(
+            new Set(
+              insightAds.flatMap((ad) => {
+                const detailCreative = ad.creative?.id ? creativeDetailsMap.get(ad.creative.id) : undefined;
+                const mergedCreative = mergeCreativeData(ad.creative ?? null, detailCreative);
+                if (mergedCreative?.id && !normalizeMediaUrl(mergedCreative.thumbnail_url) && !normalizeMediaUrl(mergedCreative.image_url)) {
+                  const fallbackThumb = creativeThumbnailMap.get(mergedCreative.id) ?? null;
+                  if (fallbackThumb) {
+                    mergedCreative.thumbnail_url = fallbackThumb;
+                    if (debugThumbnail) {
+                      console.log("[meta-creatives][thumb-debug] fallback applied", {
+                        stage: "hash-seed-merge",
+                        account_id: accountId,
+                        creative_id: mergedCreative.id,
+                        thumbnail_url_sample: fallbackThumb.slice(0, 180),
+                      });
+                    }
+                  }
+                  return extractImageHashesFromCreative(mergedCreative);
                 }
-              }
-              return extractImageHashesFromCreative(mergedCreative);
-            }
-            return [];
-          })
-        )
-      );
+                return [];
+              })
+            )
+          )
+        : [];
       const tAdImages = Date.now();
       const adImageUrlMap =
-        accountImageHashes.length > 0
+        enableImageHashLookup && accountImageHashes.length > 0
           ? await fetchAdImageUrlMap(accountId, accountImageHashes, accessToken)
           : new Map<string, string>();
       accountPerf.adimages_ms += Date.now() - tAdImages;
@@ -2407,7 +2423,7 @@ export async function GET(request: NextRequest) {
     image_url: row.image_url,
   }));
   const tMediaCache = Date.now();
-  const cacheMap = await MediaCacheService.resolveUrls(cacheItems, businessId);
+  const cacheMap = enableMediaCache ? await MediaCacheService.resolveUrls(cacheItems, businessId) : new Map<string, { url: string; source: "cache" | "external" }>();
   addStageMs("media_cache_ms", Date.now() - tMediaCache);
 
   const responseRows: MetaCreativeApiRow[] = rows.map((row) => {
@@ -2600,6 +2616,12 @@ export async function GET(request: NextRequest) {
               preview_audit_samples: previewAuditSamples.length,
               preview_audit_validation_requests: previewAuditValidationRequests,
               media_recovery_enabled: enableMediaRecovery ? 1 : 0,
+              creative_basics_fallback_enabled: enableCreativeBasicsFallback ? 1 : 0,
+              creative_details_enabled: enableCreativeDetails ? 1 : 0,
+              thumbnail_backfill_enabled: enableThumbnailBackfill ? 1 : 0,
+              card_thumbnail_backfill_enabled: enableCardThumbnailBackfill ? 1 : 0,
+              image_hash_lookup_enabled: enableImageHashLookup ? 1 : 0,
+              media_cache_enabled: enableMediaCache ? 1 : 0,
               insight_ad_ids: totalInsightAdIds,
               ads_loaded_for_insights: totalAdMapHits,
               media_fallback_rows_requested: mediaFallbackRowsRequested,
@@ -2625,6 +2647,12 @@ export async function GET(request: NextRequest) {
           preview_audit_samples: previewAuditSamples.length,
           preview_audit_validation_requests: previewAuditValidationRequests,
           media_recovery_enabled: enableMediaRecovery ? 1 : 0,
+          creative_basics_fallback_enabled: enableCreativeBasicsFallback ? 1 : 0,
+          creative_details_enabled: enableCreativeDetails ? 1 : 0,
+          thumbnail_backfill_enabled: enableThumbnailBackfill ? 1 : 0,
+          card_thumbnail_backfill_enabled: enableCardThumbnailBackfill ? 1 : 0,
+          image_hash_lookup_enabled: enableImageHashLookup ? 1 : 0,
+          media_cache_enabled: enableMediaCache ? 1 : 0,
           insight_ad_ids: totalInsightAdIds,
           ads_loaded_for_insights: totalAdMapHits,
           media_fallback_rows_requested: mediaFallbackRowsRequested,
