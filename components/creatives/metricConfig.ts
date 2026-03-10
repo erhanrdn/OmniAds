@@ -47,10 +47,15 @@ export interface MetaCreativePreview {
 
 export interface MetaCreativeRow {
   id: string;
+  creativeId: string;
   name: string;
   associatedAdsCount: number;
   accountId: string | null;
   accountName: string | null;
+  campaignId?: string | null;
+  campaignName?: string | null;
+  adSetId?: string | null;
+  adSetName?: string | null;
   currency: string | null;
   format: CreativeFormat;
   creativeType: CreativeType;

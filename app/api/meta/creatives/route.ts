@@ -106,6 +106,8 @@ interface MetaActionValue {
 interface MetaInsightRecord {
   ad_id?: string;
   ad_name?: string;
+  campaign_id?: string;
+  campaign_name?: string;
   adset_id?: string;
   adset_name?: string;
   spend?: string;
@@ -207,6 +209,8 @@ interface RawCreativeRow {
   associated_ads_count: number;
   account_id: string;
   account_name: string | null;
+  campaign_id: string | null;
+  campaign_name: string | null;
   currency: string | null;
   adset_id: string | null;
   adset_name: string | null;
@@ -264,6 +268,10 @@ export interface MetaCreativeApiRow {
   associated_ads_count: number;
   account_id: string;
   account_name: string | null;
+  campaign_id: string | null;
+  campaign_name: string | null;
+  adset_id: string | null;
+  adset_name: string | null;
   currency: string | null;
   name: string;
   preview_url: string | null;
@@ -771,14 +779,14 @@ async function fetchAccountInsights(
       account_id: accountId,
       time_range: { since: startDate, until: endDate },
       level: "ad",
-      fields: "ad_id,ad_name,adset_id,adset_name,spend,cpm,cpc,ctr,date_start,actions,action_values,purchase_roas",
+      fields: "ad_id,ad_name,campaign_id,campaign_name,adset_id,adset_name,spend,cpm,cpc,ctr,date_start,actions,action_values,purchase_roas",
     });
   }
 
   const url = new URL(`https://graph.facebook.com/v25.0/${accountId}/insights`);
   url.searchParams.set(
     "fields",
-    "ad_id,ad_name,adset_id,adset_name,spend,cpm,cpc,ctr,impressions,inline_link_clicks,date_start,actions,action_values,purchase_roas,video_play_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p100_watched_actions"
+    "ad_id,ad_name,campaign_id,campaign_name,adset_id,adset_name,spend,cpm,cpc,ctr,impressions,inline_link_clicks,date_start,actions,action_values,purchase_roas,video_play_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p100_watched_actions"
   );
   url.searchParams.set("level", "ad");
   url.searchParams.set("time_range", JSON.stringify({ since: startDate, until: endDate }));
@@ -1546,6 +1554,8 @@ function toRawRow(
     associated_ads_count: 1,
     account_id: accountMeta.id,
     account_name: accountMeta.name,
+    campaign_id: insight.campaign_id ?? null,
+    campaign_name: insight.campaign_name ?? null,
     currency: accountMeta.currency,
     adset_id: insight.adset_id ?? ad?.adset_id ?? ad?.adset?.id ?? null,
     adset_name: insight.adset_name ?? ad?.adset?.name ?? null,
@@ -1667,6 +1677,8 @@ function groupRows(
       associated_ads_count: creativeUsageMap.get(sample.creative_id)?.size ?? 1,
       account_id: sample.account_id,
       account_name: sample.account_name,
+      campaign_id: sample.campaign_id,
+      campaign_name: sample.campaign_name,
       currency: sample.currency,
       adset_id: sample.adset_id,
       adset_name: sample.adset_name,
@@ -2475,6 +2487,10 @@ export async function GET(request: NextRequest) {
       associated_ads_count: row.associated_ads_count,
       account_id: row.account_id,
       account_name: row.account_name,
+      campaign_id: row.campaign_id,
+      campaign_name: row.campaign_name,
+      adset_id: row.adset_id,
+      adset_name: row.adset_name,
       currency: row.currency,
       name: row.name,
       preview_url: finalPreviewUrl,

@@ -367,7 +367,15 @@ export function applyMotionFilters(rows: MetaCreativeRow[], rules: MotionFilterR
         .join(" ")
         .toLowerCase();
       const tagsBlob = row.tags.join(" ").toLowerCase();
+      const campaignBlob = (row.campaignName ?? "").toLowerCase();
+      const adSetBlob = (row.adSetName ?? "").toLowerCase();
 
+      if (rule.field === "campaignName") {
+        return campaignBlob.includes(query);
+      }
+      if (rule.field === "adSetName") {
+        return adSetBlob.includes(query);
+      }
       if (rule.field === "adName" || rule.field === "namingConvention") {
         return row.name.toLowerCase().includes(query);
       }

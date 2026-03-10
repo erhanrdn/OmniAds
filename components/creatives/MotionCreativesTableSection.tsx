@@ -1383,6 +1383,7 @@ export function MotionCreativesTableSection({
                       <p className="truncate text-[12px] font-medium leading-tight">{row.name}</p>
                       <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
                         {row.associatedAdsCount > 1 ? <span className="opacity-60">{row.associatedAdsCount} ads</span> : null}
+                        <span className="ml-2 opacity-0 transition-opacity group-hover:opacity-70">Ad breakdown</span>
                       </p>
                     </div>
                   </div>

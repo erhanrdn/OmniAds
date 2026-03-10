@@ -16,6 +16,7 @@ import {
   type MetaCreativeRow,
 } from "@/components/creatives/metricConfig";
 import { CreativeInsightsDrawer } from "@/components/creatives/CreativeInsightsDrawer";
+import { CreativeAdBreakdownDrawer } from "@/components/creatives/CreativeAdBreakdownDrawer";
 import { MotionCreativesTableSection } from "@/components/creatives/MotionCreativesTableSection";
 import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
 import {
@@ -209,10 +210,15 @@ function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
 
   return {
     id: row.id,
+    creativeId: row.creative_id,
     name: row.name,
     associatedAdsCount: row.associated_ads_count,
     accountId: row.account_id ?? null,
     accountName: row.account_name ?? null,
+    campaignId: row.campaign_id ?? null,
+    campaignName: row.campaign_name ?? null,
+    adSetId: row.adset_id ?? null,
+    adSetName: row.adset_name ?? null,
     currency: row.currency ?? null,
     format: row.format,
     creativeType: row.creative_type ?? fallbackCreativeType,
@@ -274,7 +280,7 @@ export default function CreativesPage() {
   const [dateRangeValue, setDateRangeValue] = useState<MotionDateRangeValue>(
     DEFAULT_MOTION_DATE_RANGE
   );
-  const [groupBy, setGroupBy] = useState<MotionGroupBy>("adName");
+  const [groupBy, setGroupBy] = useState<MotionGroupBy>("creative");
   const [topFilters, setTopFilters] = useState<MotionFilterRule[]>([]);
   const [topMetricIds, setTopMetricIds] = useState<string[]>(["spend", "roas"]);
   const [selectionState, setSelectionState] = useState<{ selectedRowIds: string[] }>({
@@ -282,7 +288,11 @@ export default function CreativesPage() {
   });
   const hasInitializedDefaultSelectionRef = useRef(false);
   const hasUserInteractedSelectionRef = useRef(false);
-  const [drawerState, setDrawerState] = useState<{ open: boolean; activeRowId: string | null }>({
+  const [creativeDrawerState, setCreativeDrawerState] = useState<{ open: boolean; activeRowId: string | null }>({
+    open: false,
+    activeRowId: null,
+  });
+  const [breakdownDrawerState, setBreakdownDrawerState] = useState<{ open: boolean; activeRowId: string | null }>({
     open: false,
     activeRowId: null,
   });
@@ -316,7 +326,25 @@ export default function CreativesPage() {
         businessId,
         start: drStart,
         end: drEnd,
-        groupBy: mapMotionGroupByToApi(groupBy),
+        groupBy: "creative",
+        format: "all",
+        sort: "spend",
+      }),
+  });
+  const adBreakdownQuery = useQuery({
+    queryKey: ["meta-creatives-ad-breakdown", businessId, drStart, drEnd],
+    enabled:
+      platform === "meta" &&
+      platformConnected &&
+      metaHasAssignments &&
+      breakdownDrawerState.open &&
+      Boolean(breakdownDrawerState.activeRowId),
+    queryFn: () =>
+      fetchMetaCreatives({
+        businessId,
+        start: drStart,
+        end: drEnd,
+        groupBy: "adName",
         format: "all",
         sort: "spend",
       }),
@@ -453,10 +481,33 @@ export default function CreativesPage() {
     });
   }, [filteredRows, topPanelRows]);
 
-  const activeRow = useMemo(
-    () => filteredRows.find((row) => row.id === drawerState.activeRowId) ?? null,
-    [filteredRows, drawerState.activeRowId]
+  const activeCreativeRow = useMemo(
+    () => filteredRows.find((row) => row.id === creativeDrawerState.activeRowId) ?? null,
+    [filteredRows, creativeDrawerState.activeRowId]
   );
+  const activeBreakdownCreativeRow = useMemo(
+    () => filteredRows.find((row) => row.id === breakdownDrawerState.activeRowId) ?? null,
+    [filteredRows, breakdownDrawerState.activeRowId]
+  );
+  const adBreakdownRows = useMemo(() => {
+    const creativeId = activeBreakdownCreativeRow?.creativeId ?? null;
+    if (!creativeId) return [];
+    const rows = (adBreakdownQuery.data?.rows ?? []).map(mapApiRowToUiRow);
+    return rows.filter((row) => row.creativeId === creativeId);
+  }, [activeBreakdownCreativeRow?.creativeId, adBreakdownQuery.data?.rows]);
+
+  const openCreativeDrawer = (rowId: string, scrollToRow = false) => {
+    setCreativeDrawerState({ open: true, activeRowId: rowId });
+    if (scrollToRow) {
+      const target = document.getElementById(`creative-row-${rowId}`);
+      if (target) target.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  };
+  const openAdBreakdownDrawer = (rowId: string) => {
+    setBreakdownDrawerState({ open: true, activeRowId: rowId });
+    setHighlightedRowId(rowId);
+    setTimeout(() => setHighlightedRowId((prev) => (prev === rowId ? null : prev)), 1400);
+  };
 
   const toggleRowSelection = (rowId: string) => {
     hasUserInteractedSelectionRef.current = true;
@@ -536,16 +587,6 @@ export default function CreativesPage() {
     }
   };
 
-  const openDrawer = (rowId: string, scrollToRow = false) => {
-    setDrawerState({ open: true, activeRowId: rowId });
-    setHighlightedRowId(rowId);
-    setTimeout(() => setHighlightedRowId((prev) => (prev === rowId ? null : prev)), 1400);
-    if (scrollToRow) {
-      const target = document.getElementById(`creative-row-${rowId}`);
-      if (target) target.scrollIntoView({ behavior: "smooth", block: "center" });
-    }
-  };
-
   const dataStatus = creativesQuery.data?.status;
   if (!selectedBusinessId) return <BusinessEmptyState />;
 
@@ -619,7 +660,7 @@ export default function CreativesPage() {
               selectedRows={topPanelRows}
               allRowsForHeatmap={filteredRows}
               defaultCurrency={selectedBusinessCurrency}
-              onOpenRow={(rowId) => openDrawer(rowId, true)}
+              onOpenRow={(rowId) => openCreativeDrawer(rowId, true)}
               onShareExport={handleShareExport}
               onCsvExport={handleCsvExport}
               shareExportLoading={shareExportLoading}
@@ -665,7 +706,7 @@ export default function CreativesPage() {
                   defaultCurrency={selectedBusinessCurrency}
                   onToggleRow={toggleRowSelection}
                   onToggleAll={toggleAllRows}
-                  onOpenRow={(rowId) => openDrawer(rowId)}
+                  onOpenRow={(rowId) => openAdBreakdownDrawer(rowId)}
                 />
               )}
           </>
@@ -673,16 +714,26 @@ export default function CreativesPage() {
       })()}
 
       <CreativeInsightsDrawer
-        row={activeRow}
-        open={drawerState.open}
-        notes={activeRow ? notesByRowId[activeRow.id] ?? "" : ""}
+        row={activeCreativeRow}
+        open={creativeDrawerState.open}
+        notes={activeCreativeRow ? notesByRowId[activeCreativeRow.id] ?? "" : ""}
         onOpenChange={(open) =>
-          setDrawerState((prev) => ({ ...prev, open, activeRowId: open ? prev.activeRowId : null }))
+          setCreativeDrawerState((prev) => ({ ...prev, open, activeRowId: open ? prev.activeRowId : null }))
         }
         onNotesChange={(value) => {
-          if (!activeRow) return;
-          setNotesByRowId((prev) => ({ ...prev, [activeRow.id]: value }));
+          if (!activeCreativeRow) return;
+          setNotesByRowId((prev) => ({ ...prev, [activeCreativeRow.id]: value }));
         }}
+      />
+      <CreativeAdBreakdownDrawer
+        open={breakdownDrawerState.open}
+        creative={activeBreakdownCreativeRow}
+        rows={adBreakdownRows}
+        loading={adBreakdownQuery.isLoading}
+        defaultCurrency={selectedBusinessCurrency}
+        onOpenChange={(open) =>
+          setBreakdownDrawerState((prev) => ({ ...prev, open, activeRowId: open ? prev.activeRowId : null }))
+        }
       />
     </div>
   );
