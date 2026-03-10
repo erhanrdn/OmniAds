@@ -114,16 +114,10 @@ export function CreativeDetailExperience({
   if (!open || !row) return null;
 
   const currency = resolveCreativeCurrency(row.currency, defaultCurrency);
-  const hasVideo = row.format === "video" && Boolean(normalizeUrl(row.preview.video_url));
-  const stageImageSrc =
-    normalizeUrl(row.preview.image_url) ??
-    normalizeUrl(row.preview.poster_url) ??
-    normalizeUrl(row.imageUrl) ??
-    normalizeUrl(row.cardPreviewUrl) ??
-    normalizeUrl(row.thumbnailUrl) ??
-    null;
-  const stageVideoSrc = normalizeUrl(row.preview.video_url);
-  const htmlPreviewSrc = resolveDetailHtmlPreviewUrl(row.previewUrl, row.preview.image_url, row.preview.video_url);
+  const stageVideoSrc = resolveDetailVideoUrl(row);
+  const stageImageSrc = resolveDetailImageUrl(row, stageVideoSrc);
+  const hasVideo = Boolean(stageVideoSrc);
+  const htmlPreviewSrc = resolveDetailHtmlPreviewUrl(row.previewUrl, stageImageSrc, stageVideoSrc);
   const hasHtmlPreview = Boolean(htmlPreviewSrc);
   const sourceOptions = buildSourceOptions({ hasVideo, hasImage: Boolean(stageImageSrc), hasHtmlPreview });
   const placementOptions = buildPlacementOptions(row.tags);
@@ -154,49 +148,51 @@ export function CreativeDetailExperience({
 
         <div className="grid h-[calc(100%-64px)] grid-cols-1 overflow-hidden lg:grid-cols-[minmax(0,1fr)_420px]">
           <div className="flex min-h-0 flex-col overflow-y-auto p-5 md:p-7">
-            <CreativeStage
-              row={row}
-              source={stageSource}
-              imageSrc={stageImageSrc}
-              videoSrc={stageVideoSrc}
-              htmlSrc={htmlPreviewSrc}
-              onVideoTimeChange={setVideoCurrentTime}
-              onVideoDuration={setVideoDuration}
-            />
+            <div className="mx-auto w-full max-w-[1120px] overflow-hidden rounded-2xl border border-slate-200 bg-[#F8FAFC] shadow-[0_12px_38px_rgba(15,23,42,0.09)]">
+              <CreativeStage
+                row={row}
+                source={stageSource}
+                imageSrc={stageImageSrc}
+                videoSrc={stageVideoSrc}
+                htmlSrc={htmlPreviewSrc}
+                onVideoTimeChange={setVideoCurrentTime}
+                onVideoDuration={setVideoDuration}
+              />
 
-            <CreativePlacementControls
-              source={stageSource}
-              sourceOptions={sourceOptions}
-              placement={selectedPlacement}
-              placementOptions={placementOptions}
-              downloadMenuOpen={downloadMenuOpen}
-              downloadMenuRef={menuRef}
-              onSourceChange={setStageSource}
-              onPlacementChange={setSelectedPlacement}
-              onDownloadToggle={() => setDownloadMenuOpen((prev) => !prev)}
-              onCopyMediaLink={async () => {
-                if (!activeMediaUrl) return;
-                await copyText(activeMediaUrl);
-                setDownloadMenuOpen(false);
-              }}
-              onCopyThumbnail={async () => {
-                if (!stageImageSrc) return;
-                await copyText(stageImageSrc);
-                setDownloadMenuOpen(false);
-              }}
-              onDownloadCreative={() => {
-                if (!activeMediaUrl) return;
-                const a = document.createElement("a");
-                a.href = activeMediaUrl;
-                a.target = "_blank";
-                a.rel = "noopener noreferrer";
-                a.download = "";
-                a.click();
-                setDownloadMenuOpen(false);
-              }}
-              hasMedia={Boolean(activeMediaUrl)}
-              hasImage={Boolean(stageImageSrc)}
-            />
+              <CreativePlacementControls
+                source={stageSource}
+                sourceOptions={sourceOptions}
+                placement={selectedPlacement}
+                placementOptions={placementOptions}
+                downloadMenuOpen={downloadMenuOpen}
+                downloadMenuRef={menuRef}
+                onSourceChange={setStageSource}
+                onPlacementChange={setSelectedPlacement}
+                onDownloadToggle={() => setDownloadMenuOpen((prev) => !prev)}
+                onCopyMediaLink={async () => {
+                  if (!activeMediaUrl) return;
+                  await copyText(activeMediaUrl);
+                  setDownloadMenuOpen(false);
+                }}
+                onCopyThumbnail={async () => {
+                  if (!stageImageSrc) return;
+                  await copyText(stageImageSrc);
+                  setDownloadMenuOpen(false);
+                }}
+                onDownloadCreative={() => {
+                  if (!activeMediaUrl) return;
+                  const a = document.createElement("a");
+                  a.href = activeMediaUrl;
+                  a.target = "_blank";
+                  a.rel = "noopener noreferrer";
+                  a.download = "";
+                  a.click();
+                  setDownloadMenuOpen(false);
+                }}
+                hasMedia={Boolean(activeMediaUrl)}
+                hasImage={Boolean(stageImageSrc)}
+              />
+            </div>
           </div>
 
           <CreativeAnalysisRail
@@ -299,28 +295,37 @@ function CreativeStage({
   const stageTitle = `${row.name} preview`;
 
   return (
-    <section className="rounded-2xl border border-slate-200 bg-slate-900/95 p-5 shadow-[0_25px_80px_rgba(15,23,42,0.35)]">
-      <div className="mx-auto flex min-h-[430px] w-full max-w-[760px] items-center justify-center rounded-xl border border-slate-700 bg-slate-950/95 p-4 md:min-h-[540px]">
+    <section className="bg-[radial-gradient(circle_at_top,_#ffffff_0%,_#eff3f8_65%,_#e8edf5_100%)] px-4 py-5 md:px-8 md:py-7">
+      <div className="mx-auto flex min-h-[480px] w-full max-w-[1040px] items-center justify-center rounded-[22px] border border-slate-200 bg-[#EEF2F7] p-5 md:min-h-[620px] md:p-8">
         {source === "html" && htmlSrc ? (
           <HtmlPreviewStage src={htmlSrc} title={stageTitle} />
-        ) : row.format === "video" && videoSrc ? (
-          <video
-            src={videoSrc}
-            poster={imageSrc ?? undefined}
-            controls
-            playsInline
-            preload="metadata"
-            className="max-h-[520px] w-full rounded-lg bg-black object-contain"
-            onLoadedMetadata={(event) => {
-              onVideoDuration(event.currentTarget.duration || 0);
-            }}
-            onTimeUpdate={(event) => {
-              onVideoTimeChange(event.currentTarget.currentTime || 0);
-            }}
-          />
-        ) : imageSrc ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={imageSrc} alt={stageTitle} className="max-h-[520px] w-full rounded-lg object-contain shadow-2xl" />
+        ) : source === "image" && imageSrc ? (
+          <MediaHeroFrame>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={imageSrc} alt={stageTitle} className="block max-h-[74vh] w-auto max-w-full object-contain" />
+          </MediaHeroFrame>
+        ) : (videoSrc || imageSrc) ? (
+          <MediaHeroFrame>
+            {videoSrc ? (
+              <video
+                src={videoSrc}
+                poster={imageSrc ?? undefined}
+                controls
+                playsInline
+                preload="metadata"
+                className="block max-h-[74vh] w-auto max-w-full object-contain"
+                onLoadedMetadata={(event) => {
+                  onVideoDuration(event.currentTarget.duration || 0);
+                }}
+                onTimeUpdate={(event) => {
+                  onVideoTimeChange(event.currentTarget.currentTime || 0);
+                }}
+              />
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={imageSrc ?? undefined} alt={stageTitle} className="block max-h-[74vh] w-auto max-w-full object-contain" />
+            )}
+          </MediaHeroFrame>
         ) : (
           <StageEmptyState />
         )}
@@ -331,10 +336,10 @@ function CreativeStage({
 
 function HtmlPreviewStage({ src, title }: { src: string; title: string }) {
   return (
-    <div className="flex h-full min-h-[420px] w-full flex-col overflow-hidden rounded-lg border border-slate-700 bg-slate-900">
-      <div className="flex items-center justify-between border-b border-slate-700 px-3 py-2 text-xs text-slate-300">
+    <div className="flex h-full min-h-[420px] w-full flex-col overflow-hidden rounded-2xl border border-slate-300 bg-white shadow-[0_24px_60px_rgba(15,23,42,0.18)]">
+      <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2 text-xs text-slate-600">
         <span>HTML preview mode</span>
-        <a href={src} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-slate-300 hover:text-white">
+        <a href={src} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-slate-600 hover:text-slate-900">
           Open source
           <ExternalLink className="h-3 w-3" />
         </a>
@@ -376,7 +381,7 @@ function CreativePlacementControls({
   hasImage: boolean;
 }) {
   return (
-    <section className="mt-4 flex flex-wrap items-center gap-2">
+    <section className="flex flex-wrap items-center gap-2 border-t border-slate-200 bg-white/90 px-4 py-3 md:px-5">
       <select
         value={placement}
         onChange={(event) => onPlacementChange(event.target.value)}
@@ -422,6 +427,15 @@ function CreativePlacementControls({
         )}
       </div>
     </section>
+  );
+}
+
+function MediaHeroFrame({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="relative flex max-h-[76vh] w-auto max-w-full items-center justify-center overflow-hidden rounded-[20px] border border-slate-300 bg-[#0b0f17] p-1.5 shadow-[0_30px_90px_rgba(2,6,23,0.38)]">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(148,163,184,0.25),rgba(15,23,42,0.08)_55%,rgba(2,6,23,0.85)_100%)]" />
+      <div className="relative z-[1]">{children}</div>
+    </div>
   );
 }
 
@@ -978,9 +992,74 @@ function resolveDetailHtmlPreviewUrl(
   const normalizedImage = normalizeUrl(imageUrl);
   const normalizedVideo = normalizeUrl(videoUrl);
   if (normalizedPreview === normalizedImage || normalizedPreview === normalizedVideo) return null;
-  if (/\.(png|jpe?g|gif|webp|bmp|svg)(\?|$)/i.test(normalizedPreview)) return null;
-  if (/\.(mp4|mov|m4v|webm)(\?|$)/i.test(normalizedPreview)) return null;
+  if (isLikelyImageUrl(normalizedPreview) || isLikelyVideoUrl(normalizedPreview)) return null;
+  if (!isLikelyHtmlUrl(normalizedPreview)) return null;
   return normalizedPreview;
+}
+
+function resolveDetailVideoUrl(row: MetaCreativeRow): string | null {
+  const candidates = uniqueUrls([
+    row.preview.video_url,
+    row.previewUrl,
+    row.imageUrl,
+    row.cardPreviewUrl,
+    row.preview.image_url,
+    row.preview.poster_url,
+    row.thumbnailUrl,
+  ]);
+  const explicitVideo = candidates.find((candidate) => isLikelyVideoUrl(candidate));
+  if (explicitVideo) return explicitVideo;
+
+  const shouldForceVideoScan = row.format === "video" || row.preview.render_mode === "video";
+  if (!shouldForceVideoScan) return null;
+
+  // Some CDN links are extensionless. For video creatives, prefer non-image URLs as playable candidates.
+  const extensionlessPlayable = candidates.find((candidate) => !isLikelyImageUrl(candidate) && !isLikelyHtmlUrl(candidate));
+  return extensionlessPlayable ?? null;
+}
+
+function resolveDetailImageUrl(row: MetaCreativeRow, chosenVideoUrl: string | null): string | null {
+  const candidates = uniqueUrls([
+    row.preview.image_url,
+    row.preview.poster_url,
+    row.imageUrl,
+    row.cardPreviewUrl,
+    row.thumbnailUrl,
+    row.previewUrl,
+  ]);
+
+  const filtered = candidates.filter((candidate) => candidate !== chosenVideoUrl);
+  const explicitImage = filtered.find((candidate) => isLikelyImageUrl(candidate));
+  if (explicitImage) return explicitImage;
+  return filtered[0] ?? null;
+}
+
+function uniqueUrls(values: Array<string | null | undefined>): string[] {
+  const seen = new Set<string>();
+  const urls: string[] = [];
+  for (const value of values) {
+    const normalized = normalizeUrl(value);
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    urls.push(normalized);
+  }
+  return urls;
+}
+
+function isLikelyImageUrl(url: string): boolean {
+  return /\.(png|jpe?g|gif|webp|bmp|svg|avif)(\?|$)/i.test(url);
+}
+
+function isLikelyVideoUrl(url: string): boolean {
+  if (/\.(mp4|mov|m4v|webm|ogg|ogv|m3u8)(\?|$)/i.test(url)) return true;
+  if (/[?&](video|format)=/i.test(url)) return true;
+  return /\/video\//i.test(url) && !isLikelyImageUrl(url);
+}
+
+function isLikelyHtmlUrl(url: string): boolean {
+  if (/\.(html?)(\?|$)/i.test(url)) return true;
+  if (/\/(adpreview|preview|render|canvas)\b/i.test(url) && !isLikelyImageUrl(url) && !isLikelyVideoUrl(url)) return true;
+  return false;
 }
 
 function normalizeUrl(value: string | null | undefined): string | null {
