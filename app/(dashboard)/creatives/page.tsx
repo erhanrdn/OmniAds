@@ -491,11 +491,11 @@ export default function CreativesPage() {
     [filteredRows, breakdownDrawerState.activeRowId]
   );
   const adBreakdownRows = useMemo(() => {
-    const creativeId = activeBreakdownCreativeRow?.creativeId ?? null;
-    if (!creativeId) return [];
+    const creativeName = activeBreakdownCreativeRow?.name ?? null;
+    if (!creativeName) return [];
     const rows = (adBreakdownQuery.data?.rows ?? []).map(mapApiRowToUiRow);
-    return rows.filter((row) => row.creativeId === creativeId);
-  }, [activeBreakdownCreativeRow?.creativeId, adBreakdownQuery.data?.rows]);
+    return rows.filter((row) => row.name === creativeName);
+  }, [activeBreakdownCreativeRow?.name, adBreakdownQuery.data?.rows]);
 
   const openCreativeDrawer = (rowId: string, scrollToRow = false) => {
     setCreativeDrawerState({ open: true, activeRowId: rowId });

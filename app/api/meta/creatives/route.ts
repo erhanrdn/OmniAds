@@ -1698,7 +1698,7 @@ function groupRows(
 
   const map = new Map<string, RawCreativeRow[]>();
   for (const row of rows) {
-    const key = groupBy === "creative" ? row.creative_id : row.adset_id ?? `adset:${row.id}`;
+    const key = groupBy === "creative" ? row.name : row.adset_id ?? `adset:${row.id}`;
     const list = map.get(key) ?? [];
     list.push(row);
     map.set(key, list);
@@ -1763,7 +1763,7 @@ function groupRows(
     grouped.push({
       id: groupBy === "creative" ? `creative_${key}` : `adset_${key}`,
       creative_id: sample.creative_id,
-      associated_ads_count: creativeUsageMap.get(sample.creative_id)?.size ?? 1,
+      associated_ads_count: groupBy === "creative" ? list.length : (creativeUsageMap.get(sample.creative_id)?.size ?? 1),
       account_id: sample.account_id,
       account_name: sample.account_name,
       campaign_id: sample.campaign_id,
@@ -2542,13 +2542,19 @@ export async function GET(request: NextRequest) {
   rows = sortRows(rows, sort);
 
   if (process.env.NODE_ENV !== "production") {
+    const duplicateNames = rows.filter((r, i, arr) => arr.findIndex((x) => x.name === r.name) !== i);
     console.log("[meta-creatives] after grouping and sorting", {
+      groupBy,
+      scoped_input: scopedRows.length,
       final_rows: rows.length,
-      sample_rows: rows.slice(0, 3).map((r) => ({
+      rows_reduced_by: scopedRows.length - rows.length,
+      duplicate_names_remaining: duplicateNames.length,
+      sample_rows: rows.slice(0, 5).map((r) => ({
         id: r.id,
         creative_id: r.creative_id,
-        name: r.name.slice(0, 30),
+        name: r.name.slice(0, 40),
         associated_ads_count: r.associated_ads_count,
+        spend: r.spend,
       })),
     });
   }
