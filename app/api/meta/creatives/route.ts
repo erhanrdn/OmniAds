@@ -1936,21 +1936,52 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      // ── Fetch creative details for all creative IDs found ─────────────────
+      // ── Fetch creative details only for ads in current insights window that still need enrichment ──
+      const insightAds = insightAdIds
+        .map((adId) => adMap.get(adId))
+        .filter((ad): ad is MetaAdRecord => Boolean(ad));
       const creativeIds = Array.from(
         new Set(
-          [...adMap.values()]
+          insightAds
             .map((ad) => ad.creative?.id)
             .filter((id): id is string => typeof id === "string" && id.length > 0)
         )
       );
+      const creativeIdsForDetails = Array.from(
+        new Set(
+          insightAds
+            .map((ad) => ad.creative)
+            .filter((creative): creative is NonNullable<MetaAdRecord["creative"]> => Boolean(creative?.id))
+            .filter((creative) =>
+              !normalizeMediaUrl(creative.thumbnail_url ?? null) ||
+              !normalizeMediaUrl(creative.image_url ?? null) ||
+              !creative.object_story_spec ||
+              !creative.asset_feed_spec
+            )
+            .map((creative) => creative.id as string)
+        )
+      );
       const tCreativeDetails = Date.now();
-      const creativeDetailsMap = await fetchCreativeDetailsMap(creativeIds, accessToken);
+      const creativeDetailsMap =
+        creativeIdsForDetails.length > 0
+          ? await fetchCreativeDetailsMap(creativeIdsForDetails, accessToken)
+          : new Map<string, NonNullable<MetaAdRecord["creative"]>>();
       accountPerf.creative_details_ms += Date.now() - tCreativeDetails;
-      const missingThumbnailCreativeIds = creativeIds.filter((creativeId) => {
-        const detail = creativeDetailsMap.get(creativeId);
-        return !normalizeMediaUrl(detail?.thumbnail_url ?? null);
-      });
+
+      const mergedCreativeById = new Map<string, MetaAdRecord["creative"]>();
+      for (const ad of insightAds) {
+        const baseCreative = ad.creative ?? null;
+        const detailCreative = baseCreative?.id ? creativeDetailsMap.get(baseCreative.id) : undefined;
+        const merged = mergeCreativeData(baseCreative, detailCreative);
+        if (merged?.id) mergedCreativeById.set(merged.id, merged);
+      }
+
+      const missingThumbnailCreativeIds = Array.from(mergedCreativeById.entries())
+        .filter(([, creative]) =>
+          !normalizeMediaUrl(creative?.thumbnail_url ?? null) &&
+          !normalizeMediaUrl(creative?.image_url ?? null)
+        )
+        .map(([creativeId]) => creativeId);
       const tSmallThumbs = Date.now();
       const creativeThumbnailMap = await fetchCreativeThumbnailMap(
         missingThumbnailCreativeIds,
@@ -1969,10 +2000,11 @@ export async function GET(request: NextRequest) {
         acc.set(creativeId, (acc.get(creativeId) ?? 0) + spend);
         return acc;
       }, new Map<string, number>());
-      const cardThumbnailCreativeIds = creativeIds.filter((creativeId) => {
-        const detail = creativeDetailsMap.get(creativeId);
-        return !normalizeMediaUrl(detail?.image_url ?? null);
-      })
+      const cardThumbnailCreativeIds = Array.from(mergedCreativeById.entries())
+      .filter(([, creative]) =>
+        !normalizeMediaUrl(creative?.image_url ?? null)
+      )
+      .map(([creativeId]) => creativeId)
       .sort((a, b) => (spendByCreativeId.get(b) ?? 0) - (spendByCreativeId.get(a) ?? 0))
       .slice(0, 80);
       const tCardThumbs = Date.now();
@@ -1991,10 +2023,10 @@ export async function GET(request: NextRequest) {
       }
       const accountImageHashes = Array.from(
         new Set(
-          [...adMap.values()].flatMap((ad) => {
+          insightAds.flatMap((ad) => {
             const detailCreative = ad.creative?.id ? creativeDetailsMap.get(ad.creative.id) : undefined;
             const mergedCreative = mergeCreativeData(ad.creative ?? null, detailCreative);
-            if (mergedCreative?.id && !normalizeMediaUrl(mergedCreative.thumbnail_url)) {
+            if (mergedCreative?.id && !normalizeMediaUrl(mergedCreative.thumbnail_url) && !normalizeMediaUrl(mergedCreative.image_url)) {
               const fallbackThumb = creativeThumbnailMap.get(mergedCreative.id) ?? null;
               if (fallbackThumb) {
                 mergedCreative.thumbnail_url = fallbackThumb;
@@ -2007,13 +2039,17 @@ export async function GET(request: NextRequest) {
                   });
                 }
               }
+              return extractImageHashesFromCreative(mergedCreative);
             }
-            return extractImageHashesFromCreative(mergedCreative);
+            return [];
           })
         )
       );
       const tAdImages = Date.now();
-      const adImageUrlMap = await fetchAdImageUrlMap(accountId, accountImageHashes, accessToken);
+      const adImageUrlMap =
+        accountImageHashes.length > 0
+          ? await fetchAdImageUrlMap(accountId, accountImageHashes, accessToken)
+          : new Map<string, string>();
       accountPerf.adimages_ms += Date.now() - tAdImages;
 
       // Always log coverage in non-production for diagnostics
@@ -2030,6 +2066,7 @@ export async function GET(request: NextRequest) {
           insights: insights.length,
           ads_loaded: adMap.size,
           creative_ids_seen: creativeIds.length,
+          creative_ids_for_details: creativeIdsForDetails.length,
           creative_details_loaded: creativeDetailsMap.size,
           creative_missing_thumbnail: missingThumbnailCreativeIds.length,
           creative_thumbnail_fallback_loaded: creativeThumbnailMap.size,
@@ -2222,6 +2259,9 @@ export async function GET(request: NextRequest) {
       accountPerf.rows_build_ms += Date.now() - tRowsBuild;
       accountPerf.rows_built += insights.length;
       perf.accounts.push(accountPerf);
+      perf.counters.creative_ids_seen = (perf.counters.creative_ids_seen ?? 0) + creativeIds.length;
+      perf.counters.creative_ids_for_details = (perf.counters.creative_ids_for_details ?? 0) + creativeIdsForDetails.length;
+      perf.counters.account_image_hashes_seen = (perf.counters.account_image_hashes_seen ?? 0) + accountImageHashes.length;
     } catch (error: unknown) {
       console.warn("[meta-creatives] account fetch failed", {
         businessId,
@@ -2244,6 +2284,7 @@ export async function GET(request: NextRequest) {
     .map((row) => row.id);
 
   if (rowsMissingAllMedia.length > 0) {
+    const tMediaFallback = Date.now();
     console.log("[meta-creatives] media fallback scan", {
       rows_missing_all_media: rowsMissingAllMedia.length,
     });
@@ -2287,6 +2328,7 @@ export async function GET(request: NextRequest) {
         unresolved_after_fallback: unresolvedAfterFallback,
       });
     }
+    addStageMs("media_fallback_ms", Date.now() - tMediaFallback);
 
     const unresolvedAdIds = rawRows
       .filter(
@@ -2301,6 +2343,7 @@ export async function GET(request: NextRequest) {
       .map((row) => row.id);
 
     if (unresolvedAdIds.length > 0) {
+      const tDirectFallback = Date.now();
       console.log("[meta-creatives] media direct fallback scan", {
         unresolved_ad_ids: unresolvedAdIds.length,
       });
@@ -2345,6 +2388,7 @@ export async function GET(request: NextRequest) {
           unresolved_after_direct_fallback: unresolvedAfterDirectFallback,
         });
       }
+      addStageMs("media_direct_fallback_ms", Date.now() - tDirectFallback);
     }
   }
 
