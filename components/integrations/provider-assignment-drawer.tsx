@@ -322,7 +322,7 @@ export function ProviderAssignmentDrawer({
           <SheetHeader className="space-y-2">
             <SheetTitle>{getTitle(provider)}</SheetTitle>
             <SheetDescription>
-              Select the accounts OmniAds should use when syncing data for this
+              Select the accounts Adsecute should use when syncing data for this
               business.
             </SheetDescription>
           </SheetHeader>

@@ -35,7 +35,7 @@ export default async function ShareCreativePage({
             href="/"
             className="mt-4 inline-flex rounded-md border px-3 py-1.5 text-sm hover:bg-muted/40"
           >
-            Back to OmniAds
+            Back to Adsecute
           </Link>
         </div>
       </main>

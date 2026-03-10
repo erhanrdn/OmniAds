@@ -15,7 +15,7 @@ function getPageTitle(pathname: string): string {
   if (item) return item.label;
   if (pathname === "/select-business") return "Select Business";
   if (pathname === "/businesses/new") return "Create Business";
-  return "OmniAds";
+  return "Adsecute";
 }
 
 export function Topbar() {

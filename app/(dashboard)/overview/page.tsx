@@ -173,7 +173,7 @@ export default function OverviewPage() {
         ) : (
           <DataEmptyState
             title="Opportunities will appear here"
-            description="Once enough synced performance data is available, OmniAds will surface actionable recommendations."
+            description="Once enough synced performance data is available, Adsecute will surface actionable recommendations."
           />
         )}
       </section>

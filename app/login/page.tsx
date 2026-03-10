@@ -76,9 +76,9 @@ function LoginPageClient() {
       <div className="w-full max-w-sm space-y-8">
         <div className="text-center space-y-2">
           <div className="mx-auto w-12 h-12 rounded-xl bg-primary flex items-center justify-center">
-            <span className="text-primary-foreground font-bold text-xl">O</span>
+            <span className="text-primary-foreground font-bold text-xl">A</span>
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight">OmniAds</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Adsecute</h1>
           <p className="text-muted-foreground text-sm">
             Sign in to your account to continue
           </p>

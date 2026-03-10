@@ -15,9 +15,9 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
     <div className="flex flex-col h-full">
       <div className="px-6 py-5 flex items-center gap-2">
         <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center">
-          <span className="text-primary-foreground font-bold text-sm">O</span>
+          <span className="text-primary-foreground font-bold text-sm">A</span>
         </div>
-        <span className="font-semibold text-lg tracking-tight">OmniAds</span>
+        <span className="font-semibold text-lg tracking-tight">Adsecute</span>
       </div>
 
       <Separator />

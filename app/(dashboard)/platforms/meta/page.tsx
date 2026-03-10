@@ -343,7 +343,7 @@ export default function MetaPage() {
           <section className="rounded-2xl border bg-card p-5 shadow-sm">
             <h2 className="text-base font-semibold">AI Insights</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              OmniAds will surface creative, audience, and budget signals once enough synced
+              Adsecute will surface creative, audience, and budget signals once enough synced
               Meta performance data is available.
             </p>
           </section>

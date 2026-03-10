@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "OmniAds",
+  title: "Adsecute",
   description: "Multi-platform ad management dashboard",
 };
 

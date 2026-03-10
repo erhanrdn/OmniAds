@@ -641,8 +641,8 @@ export default function CreativesPage() {
           }
           return (
             <EmptyState
-              title="Motion view unavailable"
-              description={`Motion view for ${platformLabel} is not supported yet.`}
+              title="Creative view unavailable"
+              description={`Creative view for ${platformLabel} is not supported yet.`}
             />
           );
         }

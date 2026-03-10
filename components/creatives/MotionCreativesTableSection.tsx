@@ -353,11 +353,11 @@ const TABLE_COLUMNS: TableColumnDefinition[] = [
   { key: "video75Rate", label: "75% video plays (rate)", description: "75% play rate.", direction: "high", minWidth: 145, preferredWidth: 165, align: "right", format: fmtPercent, getValue: (r) => r.video75 },
   { key: "video100Rate", label: "100% video plays (rate)", description: "100% play rate.", direction: "high", minWidth: 150, preferredWidth: 170, align: "right", format: fmtPercent, getValue: (r) => r.video100 },
   { key: "holdRate", label: "Hold rate", description: "Estimated hold rate.", direction: "high", minWidth: 100, preferredWidth: 120, align: "right", format: fmtPercent, getValue: (r) => r.video100 },
-  { key: "hookScore", label: "Hook score", description: "Motion hook score.", direction: "high", minWidth: 100, preferredWidth: 120, align: "right", format: fmtInteger, getValue: (r) => r.thumbstop },
+  { key: "hookScore", label: "Hook score", description: "Creative hook score.", direction: "high", minWidth: 100, preferredWidth: 120, align: "right", format: fmtInteger, getValue: (r) => r.thumbstop },
   { key: "purchaseValueShare", label: "% purchase value", description: "Share of purchase value.", direction: "high", minWidth: 130, preferredWidth: 145, align: "right", format: fmtPercent, getValue: (r, c) => (c.totalPurchaseValue > 0 ? (r.purchaseValue / c.totalPurchaseValue) * 100 : 0) },
-  { key: "watchScore", label: "Watch score", description: "Motion watch score.", direction: "high", minWidth: 110, preferredWidth: 125, align: "right", format: fmtInteger, getValue: (r) => r.video50 },
-  { key: "clickScore", label: "Click score", description: "Motion click score.", direction: "high", minWidth: 110, preferredWidth: 125, align: "right", format: fmtInteger, getValue: (r) => r.ctrAll * 10 },
-  { key: "convertScore", label: "Convert score", description: "Motion convert score.", direction: "high", minWidth: 115, preferredWidth: 130, align: "right", format: fmtInteger, getValue: (r) => r.roas * 10 },
+  { key: "watchScore", label: "Watch score", description: "Creative watch score.", direction: "high", minWidth: 110, preferredWidth: 125, align: "right", format: fmtInteger, getValue: (r) => r.video50 },
+  { key: "clickScore", label: "Click score", description: "Creative click score.", direction: "high", minWidth: 110, preferredWidth: 125, align: "right", format: fmtInteger, getValue: (r) => r.ctrAll * 10 },
+  { key: "convertScore", label: "Convert score", description: "Creative convert score.", direction: "high", minWidth: 115, preferredWidth: 130, align: "right", format: fmtInteger, getValue: (r) => r.roas * 10 },
   { key: "averageOrderValueWebsite", label: "Average order value (website)", description: "Website AOV.", direction: "high", minWidth: 175, preferredWidth: 195, align: "right", format: fmtCurrency, getValue: (r) => (r.purchases > 0 ? r.purchaseValue / r.purchases : 0) },
   { key: "averageOrderValueShop", label: "Average order value (Shop)", description: "Shop AOV.", direction: "high", minWidth: 165, preferredWidth: 185, align: "right", format: fmtCurrency, getValue: (r) => (r.purchases > 0 ? r.purchaseValue / r.purchases : 0) },
   { key: "impressions", label: "Impressions", description: "Impression count.", direction: "high", minWidth: 120, preferredWidth: 140, align: "right", format: fmtInteger, getValue: (r) => r.impressions },
@@ -1752,7 +1752,7 @@ function MetricModal({
             />
 
             <MetricGroup
-              title="Motion Metrics"
+              title="Creative Metrics"
               items={metricGroups.motion}
               onAdd={addMetric}
               onHover={onHoverMetric}

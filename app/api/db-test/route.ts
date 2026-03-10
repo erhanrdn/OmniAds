@@ -35,17 +35,17 @@ export async function GET() {
 
     // 3. insert
     const inserted = await sql`
-      INSERT INTO _db_test (value) VALUES ('hello from OmniAds')
+      INSERT INTO _db_test (value) VALUES ('hello from Adsecute')
       RETURNING id, value
     `;
     report["3_insert"] =
-      inserted[0]?.value === "hello from OmniAds" ? "OK" : "UNEXPECTED";
+      inserted[0]?.value === "hello from Adsecute" ? "OK" : "UNEXPECTED";
 
     // 4. read back
     const rows =
       await sql`SELECT id, value FROM _db_test ORDER BY id DESC LIMIT 1`;
     report["4_read"] =
-      rows[0]?.value === "hello from OmniAds" ? "OK" : "UNEXPECTED";
+      rows[0]?.value === "hello from Adsecute" ? "OK" : "UNEXPECTED";
 
     // 5. cleanup
     await sql`DROP TABLE IF EXISTS _db_test`;
