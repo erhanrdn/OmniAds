@@ -242,6 +242,13 @@ function AssetImage({
     setSourceIndex(0);
     setUseProxy(false);
     setExhausted(false);
+    if (process.env.NODE_ENV !== "production") {
+      console.log("[creative-render][reset]", {
+        id: id ?? null,
+        name,
+        sourceKey,
+      });
+    }
   }, [sourceKey]);
 
   const current = exhausted ? null : (sources[sourceIndex] ?? null);
@@ -257,28 +264,74 @@ function AssetImage({
       size,
       chosenSrc: current?.src ?? null,
       chosenSource: current?.source ?? null,
+      sourceIndex,
+      useProxy,
       exhausted,
     });
-  }, [current, exhausted, id, name, size]);
+  }, [current, exhausted, id, name, size, sourceIndex, useProxy]);
 
   if (!current || exhausted) {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn("[creative-render][placeholder]", {
+        id: id ?? null,
+        name,
+        reason: !current ? "no-current-source" : "exhausted",
+        sourceIndex,
+        sourcesCount: sources.length,
+        exhausted,
+      });
+    }
     return <PreviewFallback frameClass={frameClass} name={name} />;
   }
 
   const imgSrc = useProxy && isMetaCdnUrl(current.src) ? proxyUrl(current.src) : current.src;
 
   const handleError = () => {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn("[creative-render][handle-error]", {
+        id: id ?? null,
+        name,
+        currentSource: current.source,
+        currentSrc: current.src.slice(0, 180),
+        sourceIndex,
+        sourcesCount: sources.length,
+        useProxy,
+      });
+    }
     if (!useProxy && isMetaCdnUrl(current.src)) {
+      if (process.env.NODE_ENV !== "production") {
+        console.warn("[creative-render][switch-proxy]", {
+          id: id ?? null,
+          name,
+          fromSourceIndex: sourceIndex,
+        });
+      }
       setUseProxy(true);
       return;
     }
 
     if (sourceIndex < sources.length - 1) {
+      if (process.env.NODE_ENV !== "production") {
+        console.warn("[creative-render][next-source]", {
+          id: id ?? null,
+          name,
+          fromSourceIndex: sourceIndex,
+          toSourceIndex: sourceIndex + 1,
+        });
+      }
       setSourceIndex((prev) => prev + 1);
       setUseProxy(false);
       return;
     }
 
+    if (process.env.NODE_ENV !== "production") {
+      console.warn("[creative-render][exhausted]", {
+        id: id ?? null,
+        name,
+        sourceIndex,
+        sourcesCount: sources.length,
+      });
+    }
     setExhausted(true);
   };
 

@@ -162,6 +162,7 @@ const PRESET_OPTIONS: Array<{ value: MotionDatePreset; label: string }> = [
 ];
 
 const METRIC_COLOR_TOKENS = ["bg-blue-100 text-blue-700", "bg-emerald-100 text-emerald-700", "bg-amber-100 text-amber-700", "bg-rose-100 text-rose-700", "bg-cyan-100 text-cyan-700", "bg-indigo-100 text-indigo-700"];
+let topRowPropLogCount = 0;
 
 const METRIC_DEFS: MotionMetricDefinition[] = [
   { id: "spend", label: "Spend", direction: "neutral", format: fmtCurrency, getValue: (r) => r.spend },
@@ -1114,6 +1115,7 @@ function PreviewStrip({
         {rows.map((row) => {
           const assetFallbacks = [
             row.cardPreviewUrl ?? null,
+            row.tableThumbnailUrl ?? null,
             row.imageUrl ?? null,
             row.preview?.image_url ?? null,
             row.preview?.poster_url ?? null,
@@ -1121,6 +1123,21 @@ function PreviewStrip({
             row.cachedThumbnailUrl ?? null,
             row.thumbnailUrl ?? null,
           ];
+          if (process.env.NODE_ENV !== "production" && topRowPropLogCount < 20) {
+            topRowPropLogCount += 1;
+            console.log("[motion-top][row-props]", {
+              id: row.id,
+              name: row.name,
+              cardPreviewUrl: row.cardPreviewUrl ?? null,
+              tableThumbnailUrl: row.tableThumbnailUrl ?? null,
+              imageUrl: row.imageUrl ?? null,
+              previewUrl: row.previewUrl ?? null,
+              preview_image_url: row.preview?.image_url ?? null,
+              preview_poster_url: row.preview?.poster_url ?? null,
+              preview_render_mode: row.preview?.render_mode ?? null,
+              assetFallbacks,
+            });
+          }
           const resolvedRowCurrency = resolveCreativeCurrency(row.currency, defaultCurrency);
           return (
             <button
