@@ -369,18 +369,70 @@ function CreativeStage({
 }
 
 function HtmlPreviewStage({ htmlDoc, htmlSource, title }: { htmlDoc: string; htmlSource: string | null; title: string }) {
+  const parsed = useMemo(() => parsePreviewIframeSnippet(htmlDoc), [htmlDoc]);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
+
+  useEffect(() => {
+    const node = viewportRef.current;
+    if (!node) return;
+    const update = () => {
+      setViewportSize({
+        width: node.clientWidth,
+        height: node.clientHeight,
+      });
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  const intrinsicWidth = parsed?.width ?? 540;
+  const intrinsicHeight = parsed?.height ?? 690;
+  const rawScale =
+    viewportSize.width > 0 && viewportSize.height > 0
+      ? Math.min(viewportSize.width / intrinsicWidth, viewportSize.height / intrinsicHeight)
+      : 1;
+  const scale = clamp(rawScale, 0.25, 2.2);
+  const scaledWidth = Math.max(1, Math.floor(intrinsicWidth * scale));
+  const scaledHeight = Math.max(1, Math.floor(intrinsicHeight * scale));
+
   return (
     <div className="flex h-full min-h-[420px] w-full flex-col overflow-hidden rounded-2xl border border-slate-300 bg-white shadow-[0_24px_60px_rgba(15,23,42,0.18)]">
       <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2 text-xs text-slate-600">
         <span>Ad preview</span>
         <span className="text-[11px] text-slate-500">{htmlSource ? `Source: ${htmlSource}` : "Source: detail"}</span>
       </div>
-      <iframe
-        title={title}
-        srcDoc={htmlDoc}
-        className="h-full w-full bg-white"
-        sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
-      />
+      <div ref={viewportRef} className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-[#F6F8FB] p-3 md:p-5">
+        <div
+          className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_20px_50px_rgba(15,23,42,0.18)]"
+          style={{ width: `${scaledWidth}px`, height: `${scaledHeight}px` }}
+        >
+          {parsed?.src ? (
+            <iframe
+              title={title}
+              src={parsed.src}
+              className="absolute left-0 top-0"
+              width={intrinsicWidth}
+              height={intrinsicHeight}
+              style={{
+                border: "none",
+                transform: `scale(${scale})`,
+                transformOrigin: "top left",
+              }}
+              sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+            />
+          ) : (
+            <iframe
+              title={title}
+              srcDoc={buildScaledPreviewDoc(htmlDoc)}
+              className="h-full w-full bg-white"
+              sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+            />
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1062,6 +1114,37 @@ function isLikelyLowResPreviewUrl(url: string): boolean {
   const height = Number(match[2]);
   if (!Number.isFinite(width) || !Number.isFinite(height)) return false;
   return Math.max(width, height) <= 220;
+}
+
+function parsePreviewIframeSnippet(html: string): { src: string; width: number; height: number } | null {
+  const iframeMatch = html.match(/<iframe[^>]*>/i);
+  if (!iframeMatch) return null;
+  const tag = iframeMatch[0];
+  const srcMatch = tag.match(/\ssrc=["']([^"']+)["']/i);
+  if (!srcMatch?.[1]) return null;
+  const widthMatch = tag.match(/\swidth=["'](\d+)["']/i);
+  const heightMatch = tag.match(/\sheight=["'](\d+)["']/i);
+  const width = widthMatch?.[1] ? Number(widthMatch[1]) : 540;
+  const height = heightMatch?.[1] ? Number(heightMatch[1]) : 690;
+  const decodedSrc = decodeHtmlEntities(srcMatch[1]);
+  const normalizedSrc = normalizeUrl(decodedSrc);
+  if (!normalizedSrc) return null;
+  return {
+    src: normalizedSrc,
+    width: Number.isFinite(width) && width > 0 ? width : 540,
+    height: Number.isFinite(height) && height > 0 ? height : 690,
+  };
+}
+
+function buildScaledPreviewDoc(htmlDoc: string): string {
+  return `<!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><style>html,body{margin:0;padding:0;width:100%;height:100%;overflow:auto;background:#fff;}iframe{max-width:100%;max-height:100%;}</style></head><body>${htmlDoc}</body></html>`;
+}
+
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replaceAll("&amp;", "&")
+    .replaceAll("&quot;", "\"")
+    .replaceAll("&#39;", "'");
 }
 
 function normalizeUrl(value: string | null | undefined): string | null {
