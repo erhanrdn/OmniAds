@@ -8,7 +8,7 @@ import Link from "next/link";
 function LoginPageClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [email, setEmail] = useState("admin@omniads.io");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("password");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
