@@ -25,7 +25,7 @@ type ResolvedSource = {
 };
 
 const SIZE_MAP: Record<NonNullable<CreativePreviewProps["size"]>, string> = {
-  card: "aspect-[4/5] w-full rounded-lg",
+  card: "aspect-square w-full rounded-lg",
   thumb: "h-12 w-12 rounded",
 };
 

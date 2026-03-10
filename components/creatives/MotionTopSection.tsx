@@ -1146,7 +1146,7 @@ function PreviewStrip({
               onClick={() => onOpenRow(row.id)}
               className="group w-[190px] shrink-0 overflow-hidden rounded-xl border bg-background text-left transition-shadow hover:shadow-md hover:ring-1 hover:ring-border"
             >
-              <div className="relative aspect-[4/5] w-full overflow-hidden bg-muted/20">
+              <div className="relative aspect-square w-full overflow-hidden bg-muted/20">
                 <CreativeRenderSurface
                   id={row.id}
                   name={row.name}
@@ -1154,7 +1154,7 @@ function PreviewStrip({
                   size="card"
                   mode="asset"
                   assetFallbacks={assetFallbacks}
-                  className="aspect-[4/5] w-full"
+                  className="aspect-square w-full"
                 />
               </div>
 

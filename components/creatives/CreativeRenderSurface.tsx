@@ -31,7 +31,7 @@ type ResolvedAssetSource = {
 
 const SIZE_MAP: Record<NonNullable<CreativeRenderSurfaceProps["size"]>, string> = {
   thumb: "h-10 w-10 rounded",
-  card: "aspect-[4/5] w-full",
+  card: "aspect-square w-full",
   large: "aspect-[4/5] w-full rounded-lg",
 };
 
