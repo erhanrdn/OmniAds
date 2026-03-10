@@ -1777,6 +1777,7 @@ export async function GET(request: NextRequest) {
   const debugPreview = params.get("debugPreview") === "1";
   const debugThumbnail = params.get("debugThumbnail") === "1";
   const debugPerf = params.get("debugPerf") === "1";
+  const enableMediaRecovery = debugPreview || debugThumbnail || params.get("recoverMedia") === "1";
   const enableDeepAudit = debugPreview || debugPerf;
   const previewSampleLimit = Number(params.get("previewSampleLimit") ?? "5");
   const perAccountSampleLimit =
@@ -1842,6 +1843,10 @@ export async function GET(request: NextRequest) {
     stages: {},
     counters: {},
   };
+  let totalInsightAdIds = 0;
+  let totalAdMapHits = 0;
+  let mediaFallbackRowsRequested = 0;
+  let mediaDirectFallbackRowsRequested = 0;
 
   const addStageMs = (name: string, ms: number) => {
     perf.stages[name] = (perf.stages[name] ?? 0) + ms;
@@ -1865,17 +1870,11 @@ export async function GET(request: NextRequest) {
         insights_rows: 0,
       };
       const tParallelStart = Date.now();
-      const [insights, adMap, accountMeta] = await Promise.all([
+      const [insights, accountMeta] = await Promise.all([
         (async () => {
           const t = Date.now();
           const result = await fetchAccountInsights(accountId, accessToken, start, end);
           accountPerf.insights_ms += Date.now() - t;
-          return result;
-        })(),
-        (async () => {
-          const t = Date.now();
-          const result = await fetchAccountAdsMap(accountId, accessToken);
-          accountPerf.ads_ms += Date.now() - t;
           return result;
         })(),
         (async () => {
@@ -1888,25 +1887,19 @@ export async function GET(request: NextRequest) {
       addStageMs("parallel_fetch_ms", Date.now() - tParallelStart);
       accountPerf.insights_rows = insights.length;
 
-      // ── Fallback: batch-fetch any ads missing from the adMap ──────────────
+      const adMap = new Map<string, MetaAdRecord>();
       const insightAdIds = insights
         .map((item) => item.ad_id)
         .filter((id): id is string => typeof id === "string" && id.length > 0);
-      const missingAdIds = insightAdIds.filter((id) => !adMap.has(id));
-
-      if (missingAdIds.length > 0) {
-        console.log("[meta-creatives] adMap miss — batch-fetching missing ads", {
-          account_id: accountId,
-          insights_count: insightAdIds.length,
-          adMap_size: adMap.size,
-          missing: missingAdIds.length,
-        });
-        const tMissingAds = Date.now();
-        const fallbackAds = await batchFetchAdsByIds(missingAdIds, accessToken);
-        accountPerf.missing_ads_batch_ms += Date.now() - tMissingAds;
-        for (const [id, ad] of fallbackAds) {
+      totalInsightAdIds += insightAdIds.length;
+      if (insightAdIds.length > 0) {
+        const tAds = Date.now();
+        const insightAdsMap = await batchFetchAdsByIds(insightAdIds, accessToken);
+        accountPerf.ads_ms += Date.now() - tAds;
+        for (const [id, ad] of insightAdsMap.entries()) {
           adMap.set(id, ad);
         }
+        totalAdMapHits += insightAdsMap.size;
       }
 
       const creativeMissingAdIds = insightAdIds.filter((id) => {
@@ -1954,9 +1947,7 @@ export async function GET(request: NextRequest) {
             .filter((creative): creative is NonNullable<MetaAdRecord["creative"]> => Boolean(creative?.id))
             .filter((creative) =>
               !normalizeMediaUrl(creative.thumbnail_url ?? null) ||
-              !normalizeMediaUrl(creative.image_url ?? null) ||
-              !creative.object_story_spec ||
-              !creative.asset_feed_spec
+              !normalizeMediaUrl(creative.image_url ?? null)
             )
             .map((creative) => creative.id as string)
         )
@@ -2075,7 +2066,7 @@ export async function GET(request: NextRequest) {
           image_hash_urls_resolved: adImageUrlMap.size,
           matched_ads: matchedAds,
           with_creative_data: withCreative,
-          fallback_fetched: missingAdIds.length > 0 ? missingAdIds.length : 0,
+          fallback_fetched: creativeMissingAdIds.length > 0 ? creativeMissingAdIds.length : 0,
         });
       }
 
@@ -2283,7 +2274,8 @@ export async function GET(request: NextRequest) {
     )
     .map((row) => row.id);
 
-  if (rowsMissingAllMedia.length > 0) {
+  if (enableMediaRecovery && rowsMissingAllMedia.length > 0) {
+    mediaFallbackRowsRequested += rowsMissingAllMedia.length;
     const tMediaFallback = Date.now();
     console.log("[meta-creatives] media fallback scan", {
       rows_missing_all_media: rowsMissingAllMedia.length,
@@ -2343,6 +2335,7 @@ export async function GET(request: NextRequest) {
       .map((row) => row.id);
 
     if (unresolvedAdIds.length > 0) {
+      mediaDirectFallbackRowsRequested += unresolvedAdIds.length;
       const tDirectFallback = Date.now();
       console.log("[meta-creatives] media direct fallback scan", {
         unresolved_ad_ids: unresolvedAdIds.length,
@@ -2606,6 +2599,11 @@ export async function GET(request: NextRequest) {
               response_rows: responseRows.length,
               preview_audit_samples: previewAuditSamples.length,
               preview_audit_validation_requests: previewAuditValidationRequests,
+              media_recovery_enabled: enableMediaRecovery ? 1 : 0,
+              insight_ad_ids: totalInsightAdIds,
+              ads_loaded_for_insights: totalAdMapHits,
+              media_fallback_rows_requested: mediaFallbackRowsRequested,
+              media_direct_fallback_rows_requested: mediaDirectFallbackRowsRequested,
             },
           }
         : undefined,
@@ -2626,6 +2624,11 @@ export async function GET(request: NextRequest) {
           response_rows: responseRows.length,
           preview_audit_samples: previewAuditSamples.length,
           preview_audit_validation_requests: previewAuditValidationRequests,
+          media_recovery_enabled: enableMediaRecovery ? 1 : 0,
+          insight_ad_ids: totalInsightAdIds,
+          ads_loaded_for_insights: totalAdMapHits,
+          media_fallback_rows_requested: mediaFallbackRowsRequested,
+          media_direct_fallback_rows_requested: mediaDirectFallbackRowsRequested,
         },
       },
     });
