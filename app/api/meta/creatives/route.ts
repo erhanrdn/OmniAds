@@ -1872,16 +1872,15 @@ export async function GET(request: NextRequest) {
   const debugPreview = params.get("debugPreview") === "1";
   const debugThumbnail = params.get("debugThumbnail") === "1";
   const debugPerf = params.get("debugPerf") === "1";
-  const debugMode = debugPreview || debugThumbnail || debugPerf;
-  // Keep normal /creatives path lean and deterministic.
-  const enableCreativeBasicsFallback = debugMode && params.get("creativeBasicsFallback") !== "0";
-  const enableCreativeDetails = debugMode && params.get("creativeDetails") !== "0";
-  const enableThumbnailBackfill = debugMode && params.get("thumbnailBackfill") !== "0";
-  const enableCardThumbnailBackfill = debugMode && params.get("cardThumbnailBackfill") !== "0";
-  const enableImageHashLookup = debugMode && params.get("imageHashLookup") !== "0";
-  const enableMediaRecovery = debugMode && params.get("recoverMedia") === "1";
-  const enableMediaCache = debugMode && params.get("mediaCache") === "1";
-  const enableDeepAudit = debugMode && (debugPreview || debugPerf);
+  // Keep normal /creatives rendering resilient; debug flags only expand diagnostics.
+  const enableCreativeBasicsFallback = params.get("creativeBasicsFallback") !== "0";
+  const enableCreativeDetails = params.get("creativeDetails") !== "0";
+  const enableThumbnailBackfill = params.get("thumbnailBackfill") !== "0";
+  const enableCardThumbnailBackfill = params.get("cardThumbnailBackfill") !== "0";
+  const enableImageHashLookup = debugPreview || debugThumbnail || params.get("imageHashLookup") === "1";
+  const enableMediaRecovery = debugPreview || debugThumbnail || params.get("recoverMedia") === "1";
+  const enableMediaCache = debugPreview || debugThumbnail || params.get("mediaCache") === "1";
+  const enableDeepAudit = debugPreview || debugPerf;
   const previewSampleLimit = Number(params.get("previewSampleLimit") ?? "5");
   const perAccountSampleLimit =
     Number.isFinite(previewSampleLimit) && previewSampleLimit > 0
