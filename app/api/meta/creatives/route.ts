@@ -1684,6 +1684,12 @@ function groupRows(
   creativeUsageMap: Map<string, Set<string>>
 ): RawCreativeRow[] {
   if (groupBy === "adName") {
+    if (process.env.NODE_ENV !== "production") {
+      console.log("[meta-creatives] groupRows: mode=adName, returning ad-level rows", {
+        input_rows: rows.length,
+        output_rows: rows.length,
+      });
+    }
     return rows.map((row) => ({
       ...row,
       associated_ads_count: creativeUsageMap.get(row.creative_id)?.size ?? row.associated_ads_count ?? 1,
@@ -1696,6 +1702,19 @@ function groupRows(
     const list = map.get(key) ?? [];
     list.push(row);
     map.set(key, list);
+  }
+
+  if (process.env.NODE_ENV !== "production") {
+    const groupCounts = Array.from(map.entries()).map(([key, list]) => ({ key, count: list.length }));
+    const multiAdGroups = groupCounts.filter((g) => g.count > 1);
+    console.log("[meta-creatives] groupRows: grouping applied", {
+      groupBy,
+      input_rows: rows.length,
+      unique_groups: map.size,
+      output_rows: map.size,
+      multi_ad_groups: multiAdGroups.length,
+      sample_multi_ad_groups: multiAdGroups.slice(0, 3),
+    });
   }
 
   const grouped: RawCreativeRow[] = [];
@@ -1864,7 +1883,7 @@ export async function GET(request: NextRequest) {
   const requestStartedAt = Date.now();
   const params = request.nextUrl.searchParams;
   const businessId = params.get("businessId");
-  const groupBy = (params.get("groupBy") as GroupBy | null) ?? "adName";
+  const groupBy = (params.get("groupBy") as GroupBy | null) ?? "creative";
   const format = (params.get("format") as FormatFilter | null) ?? "all";
   const sort = (params.get("sort") as SortKey | null) ?? "roas";
   const start = params.get("start") ?? toISODate(nDaysAgo(29));
@@ -2507,8 +2526,32 @@ export async function GET(request: NextRequest) {
     return acc;
   }, new Map<string, Set<string>>());
 
+  if (process.env.NODE_ENV !== "production") {
+    console.log("[meta-creatives] before grouping", {
+      businessId,
+      groupBy,
+      format,
+      sort,
+      raw_rows: rawRows.length,
+      scoped_rows: scopedRows.length,
+      unique_creatives: creativeUsageMap.size,
+    });
+  }
+
   let rows = groupRows(scopedRows, groupBy, creativeUsageMap);
   rows = sortRows(rows, sort);
+
+  if (process.env.NODE_ENV !== "production") {
+    console.log("[meta-creatives] after grouping and sorting", {
+      final_rows: rows.length,
+      sample_rows: rows.slice(0, 3).map((r) => ({
+        id: r.id,
+        creative_id: r.creative_id,
+        name: r.name.slice(0, 30),
+        associated_ads_count: r.associated_ads_count,
+      })),
+    });
+  }
 
   if (rows.length === 0) {
     return NextResponse.json({ status: "no_data", rows: [] });
