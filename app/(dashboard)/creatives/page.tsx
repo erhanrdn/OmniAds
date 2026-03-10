@@ -311,6 +311,7 @@ export default function CreativesPage() {
   const metaHasAssignments = assignedMetaAccounts.length > 0;
 
   const { start: drStart, end: drEnd } = resolveMotionDateRange(dateRangeValue);
+  const mainTableApiGroupBy = mapMotionGroupByToApi(groupBy);
 
   const creativesQuery = useQuery({
     queryKey: [
@@ -326,7 +327,7 @@ export default function CreativesPage() {
         businessId,
         start: drStart,
         end: drEnd,
-        groupBy: "creative",
+        groupBy: mainTableApiGroupBy,
         format: "all",
         sort: "spend",
       }),
