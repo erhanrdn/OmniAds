@@ -74,10 +74,10 @@ const HTML_VIEWPORT_RULES: Record<
   PreviewShape,
   { maxWidth: number; maxHeightRatio: number; minScale: number; maxScale: number; chromeHeight: number }
 > = {
-  portrait: { maxWidth: 640, maxHeightRatio: 0.98, minScale: 0.72, maxScale: 2.1 },
-  feed: { maxWidth: 860, maxHeightRatio: 0.96, minScale: 0.68, maxScale: 2.0 },
-  square: { maxWidth: 900, maxHeightRatio: 0.94, minScale: 0.66, maxScale: 1.95 },
-  landscape: { maxWidth: 1100, maxHeightRatio: 0.9, minScale: 0.62, maxScale: 1.8 },
+  portrait: { maxWidth: 720, maxHeightRatio: 0.98, minScale: 0.9, maxScale: 2.2, chromeHeight: 180 },
+  feed: { maxWidth: 980, maxHeightRatio: 0.96, minScale: 0.9, maxScale: 2.1, chromeHeight: 260 },
+  square: { maxWidth: 920, maxHeightRatio: 0.95, minScale: 0.88, maxScale: 2.0, chromeHeight: 180 },
+  landscape: { maxWidth: 1180, maxHeightRatio: 0.92, minScale: 0.84, maxScale: 1.95, chromeHeight: 140 },
 };
 
 export function CreativeDetailExperience({
@@ -394,7 +394,9 @@ function CreativeStage({
         }}
       >
         {source === "html" && htmlDoc ? (
-          <HtmlPreviewStage htmlDoc={htmlDoc} htmlSource={htmlSource} title={stageTitle} />
+          <div className="mx-auto flex w-full max-w-[920px] items-center justify-center">
+            <HtmlPreviewStage htmlDoc={htmlDoc} htmlSource={htmlSource} title={stageTitle} />
+          </div>
         ) : source === "html" && htmlLoading ? (
           <StageLoadingState />
         ) : source === "image" && imageSrc ? (
@@ -434,15 +436,16 @@ function HtmlPreviewStage({ htmlDoc, htmlSource, title }: { htmlDoc: string; htm
   const intrinsicHeight = parsed?.height ?? 690;
   const shape = classifyPreviewShape(intrinsicWidth, intrinsicHeight);
   const sizingRule = HTML_VIEWPORT_RULES[shape];
-  const horizontalPadding = viewportSize.width >= 1280 ? 48 : viewportSize.width >= 768 ? 32 : 16;
-  const verticalPadding = viewportSize.height >= 900 ? 40 : viewportSize.height >= 700 ? 28 : 16;
+  const effectiveIntrinsicHeight = intrinsicHeight + sizingRule.chromeHeight;
+  const horizontalPadding = viewportSize.width >= 1280 ? 24 : viewportSize.width >= 768 ? 20 : 12;
+  const verticalPadding = viewportSize.height >= 900 ? 24 : viewportSize.height >= 700 ? 20 : 12;
   const boundedWidth = Math.min(
     Math.max(0, viewportSize.width - horizontalPadding),
     sizingRule.maxWidth
   );
   const boundedHeight = Math.min(
     Math.max(0, viewportSize.height - verticalPadding),
-    Math.max(300, Math.floor(viewportSize.height * sizingRule.maxHeightRatio))
+    Math.max(420, Math.floor(viewportSize.height * sizingRule.maxHeightRatio))
   );
   const rawScale =
     boundedWidth > 0 && boundedHeight > 0
@@ -455,14 +458,10 @@ function HtmlPreviewStage({ htmlDoc, htmlSource, title }: { htmlDoc: string; htm
   const viewportFrameHeight = Math.min(scaledHeight, boundedHeight > 0 ? boundedHeight : scaledHeight);
 
   return (
-    <div className="flex h-full min-h-[480px] w-full flex-col overflow-hidden rounded-2xl border border-slate-300 bg-white shadow-[0_24px_60px_rgba(15,23,42,0.16)]">
-      <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2 text-xs text-slate-600">
-        <span>Ad preview</span>
-        <span className="text-[11px] text-slate-500">{htmlSource ? `Source: ${htmlSource}` : "Source: detail"}</span>
-      </div>
+    <div className="relative flex h-full min-h-[620px] w-full items-center justify-center overflow-hidden rounded-[18px] bg-[#F3F6F9]">
       <div
         ref={viewportRef}
-        className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-[#F6F8FB] px-2 py-3 md:px-3 md:py-4 xl:px-4 xl:py-5"
+        className="relative flex h-full w-full items-center justify-center overflow-hidden px-2 py-2 md:px-3 md:py-3 xl:px-3 xl:py-3"
       >
         <div
           className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_20px_50px_rgba(15,23,42,0.18)]"
