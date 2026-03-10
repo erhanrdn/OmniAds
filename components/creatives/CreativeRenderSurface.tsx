@@ -38,19 +38,24 @@ const LOG_LIMIT = 5;
 let assetLogCount = 0;
 let fullLogCount = 0;
 let thumbnailRenderLogCount = 0;
+let thumbnailLoadLogCount = 0;
 
 function normalizeUrl(value: string | null | undefined): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   if (!trimmed) return null;
-  if (trimmed.startsWith("/")) return trimmed;
   if (trimmed.startsWith("//")) return `https:${trimmed}`;
-  return /^https?:\/\//i.test(trimmed) ? trimmed : null;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (trimmed.startsWith("/")) return trimmed;
+  if (/^[a-z0-9.-]+\.[a-z]{2,}(\/|$)/i.test(trimmed)) return `https://${trimmed}`;
+  return null;
 }
 
 function isMetaCdnUrl(url: string): boolean {
   try {
-    const host = new URL(url).hostname.toLowerCase();
+    const normalized = normalizeUrl(url);
+    if (!normalized || normalized.startsWith("/")) return false;
+    const host = new URL(normalized).hostname.toLowerCase();
     return (
       host.endsWith(".fbcdn.net") ||
       host.endsWith(".facebook.com") ||
@@ -319,7 +324,23 @@ function AssetFrame({
         loading="lazy"
         decoding="async"
         referrerPolicy="no-referrer"
+        onLoad={() => {
+          if (process.env.NODE_ENV === "production") return;
+          if (thumbnailLoadLogCount >= LOG_LIMIT) return;
+          thumbnailLoadLogCount += 1;
+          console.log("[creative-render][img-load]", {
+            name,
+            src: src.slice(0, 180),
+          });
+        }}
         onError={() => {
+          if (process.env.NODE_ENV !== "production" && thumbnailLoadLogCount < LOG_LIMIT) {
+            thumbnailLoadLogCount += 1;
+            console.warn("[creative-render][img-error]", {
+              name,
+              src: src.slice(0, 180),
+            });
+          }
           if (onError) {
             onError();
             return;

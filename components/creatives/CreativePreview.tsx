@@ -33,14 +33,18 @@ function normalizeUrl(value: string | null | undefined): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   if (!trimmed) return null;
-  if (trimmed.startsWith("/")) return trimmed;
   if (trimmed.startsWith("//")) return `https:${trimmed}`;
-  return /^https?:\/\//i.test(trimmed) ? trimmed : null;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (trimmed.startsWith("/")) return trimmed;
+  if (/^[a-z0-9.-]+\.[a-z]{2,}(\/|$)/i.test(trimmed)) return `https://${trimmed}`;
+  return null;
 }
 
 function isMetaCdnUrl(url: string): boolean {
   try {
-    const host = new URL(url).hostname.toLowerCase();
+    const normalized = normalizeUrl(url);
+    if (!normalized || normalized.startsWith("/")) return false;
+    const host = new URL(normalized).hostname.toLowerCase();
     return (
       host.endsWith(".fbcdn.net") ||
       host.endsWith(".facebook.com") ||
@@ -110,6 +114,7 @@ function resolveSources(params: {
 }
 
 const compactPreviewDebugCountByScope: Record<string, number> = {};
+let compactPreviewImageEventLogCount = 0;
 
 export function CreativePreview({
   id,
@@ -190,6 +195,17 @@ export function CreativePreview({
   const imgSrc = useProxy && isMetaCdnUrl(currentSrc) ? proxyUrl(currentSrc) : currentSrc;
 
   const handleError = () => {
+    if (process.env.NODE_ENV !== "production" && compactPreviewImageEventLogCount < 5) {
+      compactPreviewImageEventLogCount += 1;
+      console.warn("[compact-preview][img-error]", {
+        scope: debugScope,
+        id: id ?? null,
+        name,
+        src: imgSrc.slice(0, 180),
+        useProxy,
+      });
+    }
+
     if (!useProxy && isMetaCdnUrl(currentSrc)) {
       setUseProxy(true);
       return;
@@ -212,6 +228,17 @@ export function CreativePreview({
         loading="lazy"
         decoding="async"
         referrerPolicy="no-referrer"
+        onLoad={() => {
+          if (process.env.NODE_ENV === "production" || compactPreviewImageEventLogCount >= 5) return;
+          compactPreviewImageEventLogCount += 1;
+          console.log("[compact-preview][img-load]", {
+            scope: debugScope,
+            id: id ?? null,
+            name,
+            src: imgSrc.slice(0, 180),
+            useProxy,
+          });
+        }}
         onError={handleError}
       />
       <span className="absolute bottom-1.5 left-1.5 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
