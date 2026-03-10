@@ -96,6 +96,7 @@ export function CreativeDetailExperience({
   const [selectedPlacement, setSelectedPlacement] = useState("default");
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [copiedPostId, setCopiedPostId] = useState(false);
   const [videoDuration, setVideoDuration] = useState(0);
   const [videoCurrentTime, setVideoCurrentTime] = useState(0);
   const [detailPreviewHtml, setDetailPreviewHtml] = useState<string | null>(null);
@@ -123,6 +124,8 @@ export function CreativeDetailExperience({
     setSelectedPlacement("default");
     setVideoDuration(0);
     setVideoCurrentTime(0);
+    setCopiedLink(false);
+    setCopiedPostId(false);
     setDetailPreviewHtml(null);
     setDetailPreviewSource(null);
     setDetailPreviewLoading(false);
@@ -199,6 +202,8 @@ export function CreativeDetailExperience({
   const placementOptions = buildPlacementOptions(row.tags);
   const resolvedSource: StageSource = hasHtmlPreview && stageSource === "html" ? "html" : "image";
   const activeMediaUrl = resolvedSource === "image" ? stageImageSrc : null;
+  const metaPreviewLink = resolveMetaPreviewLink(row, detailPreviewHtml);
+  const postId = resolvePostId(row, detailPreviewHtml);
 
   return (
     <div className="fixed inset-0 z-[90]">
@@ -207,11 +212,21 @@ export function CreativeDetailExperience({
         <CreativeTopBar
           dateRange={dateRange}
           copiedLink={copiedLink}
+          copiedPostId={copiedPostId}
+          canCopyLink={Boolean(metaPreviewLink)}
+          canCopyPostId={Boolean(postId)}
           onDateRangeChange={onDateRangeChange}
           onCopyLink={async () => {
-            const success = await copyRowLink(row.id);
+            if (!metaPreviewLink) return;
+            const success = await copyText(metaPreviewLink);
             setCopiedLink(success);
             window.setTimeout(() => setCopiedLink(false), 1600);
+          }}
+          onCopyPostId={async () => {
+            if (!postId) return;
+            const success = await copyText(postId);
+            setCopiedPostId(success);
+            window.setTimeout(() => setCopiedPostId(false), 1200);
           }}
           onClose={() => onOpenChange(false)}
         />
@@ -302,14 +317,22 @@ export function CreativeDetailExperience({
 function CreativeTopBar({
   dateRange,
   copiedLink,
+  copiedPostId,
+  canCopyLink,
+  canCopyPostId,
   onDateRangeChange,
   onCopyLink,
+  onCopyPostId,
   onClose,
 }: {
   dateRange: MotionDateRangeValue;
   copiedLink: boolean;
+  copiedPostId: boolean;
+  canCopyLink: boolean;
+  canCopyPostId: boolean;
   onDateRangeChange: (next: MotionDateRangeValue) => void;
   onCopyLink: () => void;
+  onCopyPostId: () => void;
   onClose: () => void;
 }) {
   const selectedPreset = RANGE_PRESETS.find((preset) => preset.next.preset === dateRange.preset)?.value ?? "custom";
@@ -344,10 +367,30 @@ function CreativeTopBar({
         <button
           type="button"
           onClick={onCopyLink}
-          className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-xs font-medium text-slate-700 transition hover:bg-slate-50"
+          disabled={!canCopyLink}
+          className={cn(
+            "inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition",
+            canCopyLink
+              ? "border-slate-200 text-slate-700 hover:bg-slate-50"
+              : "cursor-not-allowed border-slate-200 text-slate-400"
+          )}
         >
           {copiedLink ? <Clipboard className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
           {copiedLink ? "Copied" : "Copy link"}
+        </button>
+        <button
+          type="button"
+          onClick={onCopyPostId}
+          disabled={!canCopyPostId}
+          className={cn(
+            "inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition",
+            canCopyPostId
+              ? "border-slate-200 text-slate-700 hover:bg-slate-50"
+              : "cursor-not-allowed border-slate-200 text-slate-400"
+          )}
+        >
+          {copiedPostId ? <Clipboard className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+          {copiedPostId ? "Copied ID" : "Copy Post ID"}
         </button>
         <button
           type="button"
@@ -1130,13 +1173,6 @@ async function copyText(value: string): Promise<boolean> {
   return false;
 }
 
-async function copyRowLink(rowId: string): Promise<boolean> {
-  if (typeof window === "undefined") return false;
-  const url = new URL(window.location.href);
-  url.searchParams.set("creative", rowId);
-  return copyText(url.toString());
-}
-
 function resolveDetailImageUrl(row: MetaCreativeRow): string | null {
   const candidates = uniqueUrls([
     row.cardPreviewUrl,
@@ -1206,6 +1242,64 @@ function parsePreviewIframeSnippet(html: string): { src: string; width: number; 
     width: Number.isFinite(width) && width > 0 ? width : 540,
     height: Number.isFinite(height) && height > 0 ? height : 690,
   };
+}
+
+function resolveMetaPreviewLink(row: MetaCreativeRow, detailPreviewHtml: string | null): string | null {
+  const htmlSrc = detailPreviewHtml ? parsePreviewIframeSnippet(detailPreviewHtml)?.src ?? null : null;
+  const candidates = uniqueUrls([
+    htmlSrc,
+    row.previewUrl,
+    row.cardPreviewUrl,
+  ]);
+  return candidates[0] ?? null;
+}
+
+function resolvePostId(row: MetaCreativeRow, detailPreviewHtml: string | null): string | null {
+  const looseRow = row as unknown as Record<string, unknown>;
+  const rowCandidates = [
+    looseRow.postId,
+    looseRow.objectStoryId,
+    looseRow.effectiveObjectStoryId,
+    looseRow.debug_creative_effective_object_story_id,
+    looseRow.debug_creative_object_story_id,
+  ];
+
+  for (const candidate of rowCandidates) {
+    const parsed = extractNumericId(candidate);
+    if (parsed) return parsed;
+  }
+
+  const previewLink = resolveMetaPreviewLink(row, detailPreviewHtml);
+  if (!previewLink) return null;
+  return extractPostIdFromUrl(previewLink);
+}
+
+function extractPostIdFromUrl(urlValue: string): string | null {
+  const normalizedUrl = normalizeUrl(urlValue);
+  if (!normalizedUrl) return null;
+  try {
+    const url = new URL(normalizedUrl);
+    const keys = ["story_fbid", "fbid", "post_id", "story_id"];
+    for (const key of keys) {
+      const allValues = url.searchParams.getAll(key);
+      for (const value of allValues) {
+        const parsed = extractNumericId(value);
+        if (parsed) return parsed;
+      }
+    }
+    return extractNumericId(url.pathname);
+  } catch {
+    return extractNumericId(normalizedUrl);
+  }
+}
+
+function extractNumericId(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  const text = String(value).trim();
+  if (!text) return null;
+  const matches = text.match(/\d{6,}/g);
+  if (!matches || matches.length === 0) return null;
+  return matches[matches.length - 1] ?? null;
 }
 
 function buildScaledPreviewDoc(htmlDoc: string): string {
