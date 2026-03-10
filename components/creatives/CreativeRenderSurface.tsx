@@ -105,16 +105,24 @@ function resolveAssetSources(
 }
 
 function PreviewFallback({ frameClass, name }: { frameClass: string; name: string }) {
+  const initials = name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
   return (
     <div
       className={cn(
         frameClass,
-        "flex flex-col items-center justify-center bg-gradient-to-br from-blue-50 to-purple-50 p-2 dark:from-blue-950/20 dark:to-purple-950/20"
+        "flex flex-col items-center justify-center gap-2 bg-gradient-to-br from-slate-100 to-slate-200 p-2 text-slate-600"
       )}
     >
-      <div className="mb-2 text-3xl opacity-40">🎨</div>
-      <div className="line-clamp-2 px-1 text-center text-[10px] font-medium text-muted-foreground">
-        {name}
+      <div className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-300 bg-white text-xs font-semibold">
+        {initials || "NA"}
+      </div>
+      <div className="line-clamp-2 px-1 text-center text-[10px] font-medium">
+        No media preview
       </div>
     </div>
   );

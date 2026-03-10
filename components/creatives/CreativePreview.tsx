@@ -202,15 +202,22 @@ export function CreativePreview({
   ]);
 
   if (!currentSrc) {
+    const initials = name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase() ?? "")
+      .join("");
     return (
       <div
         className={cn(
-          "flex items-center justify-center overflow-hidden bg-muted text-[11px] text-muted-foreground",
+          "flex flex-col items-center justify-center gap-1 overflow-hidden border border-dashed border-slate-300 bg-slate-100 text-[11px] text-slate-600",
           SIZE_MAP[size],
           className
         )}
       >
-        Preview unavailable
+        <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold">{initials || "NA"}</span>
+        <span>No media</span>
       </div>
     );
   }

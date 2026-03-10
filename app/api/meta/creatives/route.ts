@@ -443,6 +443,13 @@ function isLikelyLowResCreativeUrl(value: unknown): boolean {
   return Math.max(parsedSize.width, parsedSize.height) <= 220;
 }
 
+function isThumbnailLikeUrl(value: unknown): boolean {
+  const url = normalizeMediaUrl(value);
+  if (!url) return false;
+  if (isLikelyLowResCreativeUrl(url)) return true;
+  return /thumbnail|thumb|_p\d+x\d+|emg1|\/t39\.2147-6\//i.test(url);
+}
+
 function resolveThumbnailUrl(input: {
   cachedThumbnailUrl?: string | null;
   creative?: MetaAdRecord["creative"] | null;
@@ -1865,14 +1872,16 @@ export async function GET(request: NextRequest) {
   const debugPreview = params.get("debugPreview") === "1";
   const debugThumbnail = params.get("debugThumbnail") === "1";
   const debugPerf = params.get("debugPerf") === "1";
-  const enableCreativeBasicsFallback = debugPreview || debugThumbnail || params.get("creativeBasicsFallback") === "1";
-  const enableCreativeDetails = debugPreview || debugThumbnail || params.get("creativeDetails") === "1";
-  const enableThumbnailBackfill = debugPreview || debugThumbnail || params.get("thumbnailBackfill") === "1";
-  const enableCardThumbnailBackfill = params.get("cardThumbnailBackfill") !== "0";
-  const enableImageHashLookup = debugPreview || debugThumbnail || params.get("imageHashLookup") === "1";
-  const enableMediaRecovery = debugPreview || debugThumbnail || params.get("recoverMedia") === "1";
-  const enableMediaCache = debugPreview || debugThumbnail || params.get("mediaCache") === "1";
-  const enableDeepAudit = debugPreview || debugPerf;
+  const debugMode = debugPreview || debugThumbnail || debugPerf;
+  // Keep normal /creatives path lean and deterministic.
+  const enableCreativeBasicsFallback = debugMode && params.get("creativeBasicsFallback") !== "0";
+  const enableCreativeDetails = debugMode && params.get("creativeDetails") !== "0";
+  const enableThumbnailBackfill = debugMode && params.get("thumbnailBackfill") !== "0";
+  const enableCardThumbnailBackfill = debugMode && params.get("cardThumbnailBackfill") !== "0";
+  const enableImageHashLookup = debugMode && params.get("imageHashLookup") !== "0";
+  const enableMediaRecovery = debugMode && params.get("recoverMedia") === "1";
+  const enableMediaCache = debugMode && params.get("mediaCache") === "1";
+  const enableDeepAudit = debugMode && (debugPreview || debugPerf);
   const previewSampleLimit = Number(params.get("previewSampleLimit") ?? "5");
   const perAccountSampleLimit =
     Number.isFinite(previewSampleLimit) && previewSampleLimit > 0
@@ -2522,23 +2531,33 @@ export async function GET(request: NextRequest) {
     const cachedThumbnailUrl = cached?.source === "cache" ? cached.url : null;
     const tableThumbnailFromRow = normalizeMediaUrl(row.table_thumbnail_url ?? null);
     const cardPreviewFromRow = normalizeMediaUrl(row.card_preview_url ?? null);
+    const rowPreviewImage = normalizeMediaUrl(row.preview.image_url ?? null);
+    const rowPreviewPoster = normalizeMediaUrl(row.preview.poster_url ?? null);
     const finalThumbnailUrl =
-      normalizeMediaUrl(cachedThumbnailUrl) ??
       tableThumbnailFromRow ??
       normalizeMediaUrl(row.thumbnail_url) ??
+      normalizeMediaUrl(cachedThumbnailUrl) ??
+      normalizeMediaUrl(row.preview_url) ??
       normalizeMediaUrl(row.image_url) ??
-      normalizeMediaUrl(row.preview_url);
+      rowPreviewPoster ??
+      rowPreviewImage;
     const rowImageUrl = normalizeMediaUrl(row.image_url);
     const rowPreviewUrl = normalizeMediaUrl(row.preview_url);
     const rowThumbnailUrl = normalizeMediaUrl(row.thumbnail_url);
     const cardFallbackThumbnail = normalizeMediaUrl(cardPreviewByCreativeId.get(row.creative_id) ?? null);
     const preferredCardImageUrl =
-      cardPreviewFromRow ??
-      (rowImageUrl && !isLikelyLowResCreativeUrl(rowImageUrl) ? rowImageUrl : null) ??
-      (rowPreviewUrl && !isLikelyLowResCreativeUrl(rowPreviewUrl) ? rowPreviewUrl : null) ??
-      cardFallbackThumbnail ??
+      (cardPreviewFromRow && !isThumbnailLikeUrl(cardPreviewFromRow) ? cardPreviewFromRow : null) ??
+      (rowImageUrl && !isThumbnailLikeUrl(rowImageUrl) ? rowImageUrl : null) ??
+      (rowPreviewUrl && !isThumbnailLikeUrl(rowPreviewUrl) ? rowPreviewUrl : null) ??
+      (rowPreviewImage && !isThumbnailLikeUrl(rowPreviewImage) ? rowPreviewImage : null) ??
+      (rowPreviewPoster && !isThumbnailLikeUrl(rowPreviewPoster) ? rowPreviewPoster : null) ??
+      (cardFallbackThumbnail && !isThumbnailLikeUrl(cardFallbackThumbnail) ? cardFallbackThumbnail : null) ??
       rowImageUrl ??
       rowPreviewUrl ??
+      rowPreviewImage ??
+      rowPreviewPoster ??
+      cardPreviewFromRow ??
+      cardFallbackThumbnail ??
       rowThumbnailUrl ??
       finalThumbnailUrl;
     const finalImageUrl = rowImageUrl ?? preferredCardImageUrl ?? finalThumbnailUrl;
@@ -2580,21 +2599,37 @@ export async function GET(request: NextRequest) {
                 : preferredCardImageUrl ?? finalThumbnailUrl ?? row.preview.poster_url,
           }
         : row.preview;
-    const tableThumbnailUrl =
-      normalizeMediaUrl(cachedThumbnailUrl) ??
-      tableThumbnailFromRow ??
-      normalizeMediaUrl(row.thumbnail_url) ??
-      normalizeMediaUrl(row.preview_url) ??
-      normalizeMediaUrl(row.image_url) ??
+    const tableThumbnailCandidates = [
+      tableThumbnailFromRow,
+      rowThumbnailUrl,
+      normalizeMediaUrl(cachedThumbnailUrl),
+      rowPreviewPoster,
+      rowPreviewUrl,
+      rowImageUrl,
+      rowPreviewImage,
+    ].filter((value): value is string => Boolean(value));
+    const tableThumbnailUrl = tableThumbnailCandidates[0] ?? null;
+
+    const cardCandidates = [
+      preferredCardImageUrl,
+      cardPreviewFromRow,
+      rowImageUrl,
+      rowPreviewImage,
+      rowPreviewUrl,
+      rowPreviewPoster,
+      cardFallbackThumbnail,
+      rowThumbnailUrl,
+      tableThumbnailUrl,
+    ].filter((value): value is string => Boolean(value));
+
+    const cardPrimary =
+      cardCandidates.find((candidate) => !isThumbnailLikeUrl(candidate)) ??
+      cardCandidates[0] ??
       null;
     const cardPreviewUrl =
-      preferredCardImageUrl ??
-      cardFallbackThumbnail ??
-      cardPreviewFromRow ??
-      rowPreviewUrl ??
-      rowImageUrl ??
-      rowThumbnailUrl ??
-      null;
+      cardPrimary === tableThumbnailUrl
+        ? cardCandidates.find((candidate) => candidate !== tableThumbnailUrl) ?? cardPrimary
+        : cardPrimary;
     const baseRow: MetaCreativeApiRow = {
       id: row.id,
       creative_id: row.creative_id,
