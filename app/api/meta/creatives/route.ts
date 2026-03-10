@@ -342,6 +342,16 @@ function r2(n: number) {
   return Math.round(n * 100) / 100;
 }
 
+/** Deterministic short hash for composite grouping keys (not cryptographic). */
+function simpleHash(input: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(36);
+}
+
 function parseAction(arr: MetaActionValue[] | undefined, type: string): number {
   if (!Array.isArray(arr)) return 0;
   const found = arr.find((item) => item.action_type === type);
@@ -1698,7 +1708,10 @@ function groupRows(
 
   const map = new Map<string, RawCreativeRow[]>();
   for (const row of rows) {
-    const key = groupBy === "creative" ? row.name : row.adset_id ?? `adset:${row.id}`;
+    const key =
+      groupBy === "creative"
+        ? `${row.name}\0${row.format}`
+        : row.adset_id ?? `adset:${row.id}`;
     const list = map.get(key) ?? [];
     list.push(row);
     map.set(key, list);
@@ -1760,8 +1773,12 @@ function groupRows(
     const groupedLegacyState: LegacyPreviewState = groupedPreview.render_mode === "unavailable" ? "unavailable" : "preview";
     const groupedCreativeType = resolveGroupedCreativeType(list);
 
+    const stableId =
+      groupBy === "creative"
+        ? `creative_${simpleHash(key)}`
+        : `adset_${key}`;
     grouped.push({
-      id: groupBy === "creative" ? `creative_${key}` : `adset_${key}`,
+      id: stableId,
       creative_id: sample.creative_id,
       associated_ads_count: groupBy === "creative" ? list.length : (creativeUsageMap.get(sample.creative_id)?.size ?? 1),
       account_id: sample.account_id,
