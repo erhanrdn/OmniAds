@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import type { ChangeEvent } from "react";
 import { Badge } from "@/components/ui/badge";
 import {
   Sheet,
@@ -21,6 +22,19 @@ interface CreativeInsightsDrawerProps {
   onNotesChange: (value: string) => void;
 }
 
+type DrawerRowLike = MetaCreativeRow & {
+  cardPreviewUrl?: string | null;
+  card_preview_url?: string | null;
+  imageUrl?: string | null;
+  image_url?: string | null;
+  previewUrl?: string | null;
+  preview_url?: string | null;
+  cachedThumbnailUrl?: string | null;
+  cached_thumbnail_url?: string | null;
+  thumbnailUrl?: string | null;
+  thumbnail_url?: string | null;
+};
+
 export function CreativeInsightsDrawer({
   row,
   open,
@@ -28,12 +42,46 @@ export function CreativeInsightsDrawer({
   onOpenChange,
   onNotesChange,
 }: CreativeInsightsDrawerProps) {
-  if (!row) return null;
-  const analysis = useMemo(() => generateAiAnalysis(row), [row]);
+  const safeRow = row as DrawerRowLike | null;
 
-  const handleNotesChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
+  const analysis = useMemo(() => {
+    return safeRow ? generateAiAnalysis(safeRow) : null;
+  }, [safeRow]);
+
+  const assetFallbacks = useMemo(
+    () =>
+      safeRow
+        ? [
+            safeRow.cardPreviewUrl ?? safeRow.card_preview_url ?? null,
+            safeRow.imageUrl ?? safeRow.image_url ?? null,
+            safeRow.preview?.image_url ?? null,
+            safeRow.preview?.poster_url ?? null,
+            safeRow.previewUrl ?? safeRow.preview_url ?? null,
+            safeRow.cachedThumbnailUrl ?? safeRow.cached_thumbnail_url ?? null,
+            safeRow.thumbnailUrl ?? safeRow.thumbnail_url ?? null,
+          ]
+        : [],
+    [
+      safeRow?.cardPreviewUrl,
+      safeRow?.card_preview_url,
+      safeRow?.imageUrl,
+      safeRow?.image_url,
+      safeRow?.preview?.image_url,
+      safeRow?.preview?.poster_url,
+      safeRow?.previewUrl,
+      safeRow?.preview_url,
+      safeRow?.cachedThumbnailUrl,
+      safeRow?.cached_thumbnail_url,
+      safeRow?.thumbnailUrl,
+      safeRow?.thumbnail_url,
+    ]
+  );
+
+  const handleNotesChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
     onNotesChange(event.target.value);
   };
+
+  if (!safeRow || !analysis) return null;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -43,50 +91,49 @@ export function CreativeInsightsDrawer({
           <SheetDescription>Meta performance breakdown and action plan.</SheetDescription>
         </SheetHeader>
 
-        {/* Hero preview */}
-        <div className="shrink-0 border-b bg-muted/20 px-5 pt-5 pb-4">
+        <div className="shrink-0 border-b bg-muted/20 px-5 pb-4 pt-5">
           <div className="mx-auto max-w-md overflow-hidden rounded-xl border bg-background shadow-sm">
             <CreativeRenderSurface
-              id={row.id}
-              name={row.name}
-              preview={row.preview}
+              id={safeRow.id}
+              name={safeRow.name}
+              preview={safeRow.preview}
               size="large"
-              mode="full"
+              mode="asset"
+              assetFallbacks={assetFallbacks}
             />
           </div>
 
-          {/* Identity bar */}
           <div className="mt-4 space-y-1.5">
-            <p className="text-sm font-semibold leading-tight">{row.name}</p>
+            <p className="text-sm font-semibold leading-tight">{safeRow.name}</p>
             <div className="flex flex-wrap items-center gap-1.5">
-              <Badge variant="secondary" className="text-[10px]">Meta</Badge>
-              <Badge variant="outline" className="text-[10px]">{row.creativeTypeLabel}</Badge>
-              <span className="text-[11px] text-muted-foreground">Launched {row.launchDate}</span>
+              <Badge variant="secondary" className="text-[10px]">
+                Meta
+              </Badge>
+              <Badge variant="outline" className="text-[10px]">
+                {safeRow.creativeTypeLabel}
+              </Badge>
+              <span className="text-[11px] text-muted-foreground">Launched {safeRow.launchDate}</span>
             </div>
           </div>
         </div>
 
-        {/* Scrollable content */}
         <div className="flex-1 space-y-3 overflow-y-auto px-5 py-4">
-          {/* Analysis sections */}
           <AnalysisBlock title="Summary" items={analysis.summary} />
           <AnalysisBlock title="Performance Insights" items={analysis.performanceInsights} />
           <AnalysisBlock title="Recommendations" items={analysis.recommendations} />
           <AnalysisBlock title="Risks & Warnings" items={analysis.risks} />
 
-          {/* Where it runs */}
           <section className="rounded-xl border p-3.5">
             <h3 className="mb-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
               Where it runs
             </h3>
             <div className="grid gap-2 text-sm sm:grid-cols-3">
-              <MetaField label="Campaign" value={row.tags[0] ? `Campaign - ${row.tags[0]}` : "Campaign - Main"} />
+              <MetaField label="Campaign" value={safeRow.tags[0] ? `Campaign - ${safeRow.tags[0]}` : "Campaign - Main"} />
               <MetaField label="Ad Set" value="Ad Set - Performance Cohort" />
-              <MetaField label="Ad" value={row.name} />
+              <MetaField label="Ad" value={safeRow.name} />
             </div>
           </section>
 
-          {/* Notes */}
           <section className="rounded-xl border p-3.5">
             <h3 className="mb-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
               Notes
@@ -106,6 +153,7 @@ export function CreativeInsightsDrawer({
 
 function AnalysisBlock({ title, items }: { title: string; items: string[] }) {
   if (items.length === 0) return null;
+
   return (
     <section className="rounded-xl border p-3.5">
       <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 export type CreativeRenderPayload = {
@@ -42,12 +43,14 @@ let thumbnailLoadLogCount = 0;
 
 function normalizeUrl(value: string | null | undefined): string | null {
   if (typeof value !== "string") return null;
+
   const trimmed = value.trim();
   if (!trimmed) return null;
   if (trimmed.startsWith("//")) return `https:${trimmed}`;
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
   if (trimmed.startsWith("/")) return trimmed;
   if (/^[a-z0-9.-]+\.[a-z]{2,}(\/|$)/i.test(trimmed)) return `https://${trimmed}`;
+
   return null;
 }
 
@@ -55,6 +58,7 @@ function isMetaCdnUrl(url: string): boolean {
   try {
     const normalized = normalizeUrl(url);
     if (!normalized || normalized.startsWith("/")) return false;
+
     const host = new URL(normalized).hostname.toLowerCase();
     return (
       host.endsWith(".fbcdn.net") ||
@@ -228,6 +232,7 @@ function AssetImage({
   size: NonNullable<CreativeRenderSurfaceProps["size"]>;
 }) {
   const sources = useMemo(() => resolveAssetSources(preview, assetFallbacks, size), [preview, assetFallbacks, size]);
+  const sourceKey = useMemo(() => sources.map((source) => source.src).join("|"), [sources]);
 
   const [sourceIndex, setSourceIndex] = useState(0);
   const [useProxy, setUseProxy] = useState(false);
@@ -237,9 +242,9 @@ function AssetImage({
     setSourceIndex(0);
     setUseProxy(false);
     setExhausted(false);
-  }, [sources]);
+  }, [sourceKey]);
 
-  const current = sources[sourceIndex] ?? null;
+  const current = exhausted ? null : (sources[sourceIndex] ?? null);
 
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return;
@@ -252,8 +257,9 @@ function AssetImage({
       size,
       chosenSrc: current?.src ?? null,
       chosenSource: current?.source ?? null,
+      exhausted,
     });
-  }, [current, id, name, size]);
+  }, [current, exhausted, id, name, size]);
 
   if (!current || exhausted) {
     return <PreviewFallback frameClass={frameClass} name={name} />;
@@ -299,7 +305,7 @@ function AssetFrame({
   frameClass: string;
   name: string;
   src: string;
-  fallback: React.ReactNode;
+  fallback: ReactNode;
   onError?: () => void;
   imageKey?: string;
 }) {

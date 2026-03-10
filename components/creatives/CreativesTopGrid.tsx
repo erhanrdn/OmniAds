@@ -28,6 +28,7 @@ type CreativeRowLike = MetaCreativeRow & {
   preview?: {
     image_url?: string | null;
     poster_url?: string | null;
+    is_catalog?: boolean;
   } | null;
 };
 
@@ -72,7 +73,33 @@ function CreativeCard({
   onToggleSelect: (rowId: string) => void;
   onOpenRow: (rowId: string) => void;
 }) {
-  const isCatalog = Boolean(row.isCatalog || row.is_catalog);
+  const isCatalog = Boolean(row.isCatalog || row.is_catalog || row.preview?.is_catalog);
+
+  const sourcePriority = useMemo(
+    () => [
+      row.cardPreviewUrl ?? row.card_preview_url ?? null,
+      row.imageUrl ?? row.image_url ?? null,
+      row.preview?.image_url ?? null,
+      row.preview?.poster_url ?? null,
+      row.previewUrl ?? row.preview_url ?? null,
+      row.cachedThumbnailUrl ?? row.cached_thumbnail_url ?? null,
+      row.thumbnailUrl ?? row.thumbnail_url ?? null,
+    ],
+    [
+      row.cardPreviewUrl,
+      row.card_preview_url,
+      row.imageUrl,
+      row.image_url,
+      row.preview?.image_url,
+      row.preview?.poster_url,
+      row.previewUrl,
+      row.preview_url,
+      row.cachedThumbnailUrl,
+      row.cached_thumbnail_url,
+      row.thumbnailUrl,
+      row.thumbnail_url,
+    ]
+  );
 
   return (
     <div className="group overflow-hidden rounded-xl border bg-background transition-shadow hover:shadow-md hover:ring-1 hover:ring-border">
@@ -81,18 +108,17 @@ function CreativeCard({
           id={row.id}
           name={row.name}
           cachedUrl={row.cachedThumbnailUrl ?? row.cached_thumbnail_url ?? null}
-          imageUrl={row.cardPreviewUrl ?? row.card_preview_url ?? row.imageUrl ?? row.image_url ?? row.preview?.image_url ?? null}
+          imageUrl={
+            row.cardPreviewUrl ??
+            row.card_preview_url ??
+            row.imageUrl ??
+            row.image_url ??
+            row.preview?.image_url ??
+            null
+          }
           previewUrl={row.preview?.poster_url ?? row.previewUrl ?? row.preview_url ?? null}
           thumbnailUrl={row.thumbnailUrl ?? row.thumbnail_url ?? null}
-          sourcePriority={[
-            row.cardPreviewUrl ?? row.card_preview_url ?? null,
-            row.imageUrl ?? row.image_url ?? null,
-            row.preview?.image_url ?? null,
-            row.preview?.poster_url ?? null,
-            row.previewUrl ?? row.preview_url ?? null,
-            row.cachedThumbnailUrl ?? row.cached_thumbnail_url ?? null,
-            row.thumbnailUrl ?? row.thumbnail_url ?? null,
-          ]}
+          sourcePriority={sourcePriority}
           format={row.format === "video" ? "video" : isCatalog ? "catalog" : "image"}
           isCatalog={isCatalog}
           debugScope="top-grid"
@@ -124,7 +150,7 @@ function CreativeCard({
 
 function MetricMini({ label, value }: { label: string; value: string }) {
   return (
-    <div className={cn("min-w-0")}> 
+    <div className="min-w-0">
       <p className="text-muted-foreground">{label}</p>
       <p className="font-semibold tabular-nums">{value}</p>
     </div>

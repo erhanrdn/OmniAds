@@ -219,6 +219,8 @@ interface RawCreativeRow {
   preview_source: string | null;
   thumbnail_url: string | null;
   image_url: string | null;
+  table_thumbnail_url?: string | null;
+  card_preview_url?: string | null;
   is_catalog: boolean;
   preview_state: LegacyPreviewState;
   preview: NormalizedRenderPreviewPayload;
@@ -653,25 +655,21 @@ function buildNormalizedPreview(input: {
     image_url: string | null;
     is_catalog: boolean;
   };
+  tiers: {
+    table_thumbnail_url: string | null;
+    card_preview_url: string | null;
+    image_url: string | null;
+    preview_url: string | null;
+    preview_image_url: string | null;
+    preview_poster_url: string | null;
+    source: string | null;
+  };
   candidateAudit: PreviewAuditCandidate[];
   imageHashResolutions: Array<{ hash: string; resolved: boolean; resolved_url: string | null }>;
 } {
   const { creative, promotedObject, imageHashLookup } = input;
   const isCatalog = detectIsCatalog(creative, promotedObject);
   const { candidates, imageHashResolutions } = collectPreviewCandidates(creative, imageHashLookup);
-
-  // Image-first: pick the first valid-looking candidate URL
-  let chosenCandidate: { source: string; url: string } | null = null;
-  for (const candidate of candidates) {
-    if (candidate.url && candidate.url.startsWith("http")) {
-      chosenCandidate = candidate;
-      break;
-    }
-  }
-  // Fallback: keep first candidate even if it looks unusual
-  if (!chosenCandidate && candidates.length > 0) {
-    chosenCandidate = candidates[0];
-  }
 
   const mapSource = (source: string | null): NormalizedPreviewSource => {
     if (!source) return null;
@@ -680,38 +678,60 @@ function buildNormalizedPreview(input: {
     return "image_url";
   };
 
+  const isThumbnailNamedSource = (source: string) => source.includes("thumbnail_url");
+  const firstAny = candidates[0] ?? null;
+  const firstHighQuality = candidates.find((candidate) => !isLikelyLowResCreativeUrl(candidate.url)) ?? null;
+  const firstNonThumbnailNamed = candidates.find((candidate) => !isThumbnailNamedSource(candidate.source)) ?? null;
+  const firstHighQualityNonThumbnailNamed =
+    candidates.find((candidate) => !isThumbnailNamedSource(candidate.source) && !isLikelyLowResCreativeUrl(candidate.url)) ?? null;
+  const firstThumbnailNamed = candidates.find((candidate) => isThumbnailNamedSource(candidate.source)) ?? null;
+  const secondHighQuality =
+    candidates.find((candidate) => candidate !== firstHighQuality && !isLikelyLowResCreativeUrl(candidate.url)) ?? null;
   const isVideo = creative?.object_type?.toUpperCase() === "VIDEO";
-  const top =
-    candidates.find((candidate) => !isLikelyLowResCreativeUrl(candidate.url)) ??
-    chosenCandidate;
   const resolvedThumbnail = resolveThumbnailUrl({ creative });
-  const resolvedTopUrl = top?.url ?? resolvedThumbnail.url;
-  const resolvedTopSource = top?.source ?? (
-    resolvedThumbnail.source === "creative.thumbnail_url"
-      ? "thumbnail_url"
-      : resolvedThumbnail.source === "creative.image_url"
-      ? "image_url"
-      : null
-  );
+
+  const tableTier = firstThumbnailNamed?.url ?? resolvedThumbnail.url ?? firstAny?.url ?? null;
+  const cardTier =
+    firstHighQualityNonThumbnailNamed?.url ??
+    firstHighQuality?.url ??
+    firstNonThumbnailNamed?.url ??
+    firstAny?.url ??
+    resolvedThumbnail.url ??
+    null;
+  const imageTier =
+    firstHighQualityNonThumbnailNamed?.url ??
+    firstHighQuality?.url ??
+    normalizeMediaUrl(creative?.image_url ?? null) ??
+    firstNonThumbnailNamed?.url ??
+    cardTier ??
+    tableTier;
+  const previewImageTier =
+    firstHighQuality?.url ??
+    imageTier ??
+    cardTier ??
+    tableTier;
+  const previewPosterTier =
+    secondHighQuality?.url ??
+    previewImageTier ??
+    cardTier ??
+    tableTier;
+  const previewTier = previewImageTier ?? previewPosterTier ?? cardTier ?? tableTier;
+  const previewSource = firstHighQuality?.source ?? firstAny?.source ?? null;
 
   const preview: NormalizedRenderPreviewPayload = {
-    render_mode: resolvedTopUrl ? (isVideo ? "video" : "image") : "unavailable",
-    image_url: resolvedTopUrl,
+    render_mode: previewTier ? (isVideo ? "video" : "image") : "unavailable",
+    image_url: previewImageTier,
     video_url: null,
-    poster_url: resolvedTopUrl,
-    source: mapSource(resolvedTopSource),
+    poster_url: previewPosterTier,
+    source: mapSource(previewSource),
     is_catalog: isCatalog,
   };
 
-  const thumbnailCandidate = candidates[0]?.url ?? resolvedThumbnail.url;
-  const imageCandidate =
-    candidates.find((candidate) => !isLikelyLowResCreativeUrl(candidate.url))?.url ??
-    candidates[1]?.url ??
-    normalizeMediaUrl(creative?.image_url ?? null) ??
-    thumbnailCandidate;
+  const thumbnailCandidate = tableTier;
+  const imageCandidate = imageTier ?? previewImageTier ?? cardTier ?? tableTier;
 
   if (process.env.NODE_ENV !== "production") {
-    const resolvedSource = top?.source ?? "none";
+    const resolvedSource = previewSource ?? "none";
     const label =
       resolvedSource === "thumbnail_url" ? "creative_thumbnail" :
       resolvedSource === "image_url" ? "creative_image" :
@@ -720,7 +740,7 @@ function buildNormalizedPreview(input: {
     console.log("[preview-resolve]", {
       creative_id: creative?.id ?? null,
       resolved_source: label,
-      url: top?.url?.slice(0, 80) ?? null,
+      url: previewTier?.slice(0, 80) ?? null,
       candidates_count: candidates.length,
     });
   }
@@ -728,12 +748,21 @@ function buildNormalizedPreview(input: {
   return {
     preview,
     legacy: {
-      preview_url: preview.image_url ?? preview.poster_url,
+      preview_url: previewTier,
       preview_source: preview.source,
-      preview_state: resolvedTopUrl ? "preview" : "unavailable",
+      preview_state: previewTier ? "preview" : "unavailable",
       thumbnail_url: thumbnailCandidate,
       image_url: imageCandidate,
       is_catalog: isCatalog,
+    },
+    tiers: {
+      table_thumbnail_url: tableTier,
+      card_preview_url: cardTier,
+      image_url: imageTier,
+      preview_url: previewTier,
+      preview_image_url: previewImageTier,
+      preview_poster_url: previewPosterTier,
+      source: previewSource,
     },
     candidateAudit: [],
     imageHashResolutions,
@@ -1521,9 +1550,22 @@ function toRawRow(
     imageHashLookup,
   });
   const resolvedThumbnail = resolveThumbnailUrl({ creative });
-  const finalThumbnail = normalizedPreview.legacy.thumbnail_url ?? resolvedThumbnail.url;
-  const finalImage = normalizedPreview.legacy.image_url ?? normalizeMediaUrl(creative?.image_url ?? null) ?? finalThumbnail;
-  const finalPreview = normalizedPreview.legacy.preview_url ?? finalThumbnail ?? finalImage;
+  const finalThumbnail = normalizedPreview.tiers.table_thumbnail_url ?? normalizedPreview.legacy.thumbnail_url ?? resolvedThumbnail.url;
+  const finalCardPreview = normalizedPreview.tiers.card_preview_url ?? normalizedPreview.tiers.preview_image_url ?? null;
+  const finalImage =
+    normalizedPreview.tiers.image_url ??
+    normalizedPreview.legacy.image_url ??
+    normalizeMediaUrl(creative?.image_url ?? null) ??
+    finalCardPreview ??
+    finalThumbnail;
+  const finalPreview =
+    normalizedPreview.tiers.preview_url ??
+    normalizedPreview.legacy.preview_url ??
+    finalCardPreview ??
+    finalImage ??
+    finalThumbnail;
+  const finalPreviewImage = normalizedPreview.tiers.preview_image_url ?? finalImage ?? finalCardPreview ?? finalThumbnail;
+  const finalPreviewPoster = normalizedPreview.tiers.preview_poster_url ?? finalCardPreview ?? finalPreviewImage ?? finalThumbnail;
   const finalPreviewState: LegacyPreviewState = finalPreview ? "preview" : "unavailable";
   const stageNullReason =
     finalThumbnail
@@ -1587,9 +1629,15 @@ function toRawRow(
     preview_source: normalizedPreview.legacy.preview_source,
     thumbnail_url: finalThumbnail,
     image_url: finalImage,
+    table_thumbnail_url: finalThumbnail,
+    card_preview_url: finalCardPreview ?? finalImage ?? finalPreview ?? finalThumbnail,
     is_catalog: normalizedPreview.legacy.is_catalog,
     preview_state: finalPreviewState,
-    preview: normalizedPreview.preview,
+    preview: {
+      ...normalizedPreview.preview,
+      image_url: finalPreviewImage,
+      poster_url: finalPreviewPoster,
+    },
     launch_date: launchDate,
     tags: [],
     ai_tags: {},
@@ -1710,6 +1758,19 @@ function groupRows(
       preview_source: groupedPreview.source,
       thumbnail_url: previewRow?.thumbnail_url ?? groupedPreview.poster_url ?? groupedPreview.image_url ?? null,
       image_url: previewRow?.image_url ?? groupedPreview.image_url ?? groupedPreview.poster_url ?? null,
+      table_thumbnail_url:
+        previewRow?.table_thumbnail_url ??
+        previewRow?.thumbnail_url ??
+        groupedPreview.poster_url ??
+        groupedPreview.image_url ??
+        null,
+      card_preview_url:
+        previewRow?.card_preview_url ??
+        previewRow?.image_url ??
+        groupedPreview.image_url ??
+        groupedPreview.poster_url ??
+        previewRow?.thumbnail_url ??
+        null,
       is_catalog: groupedPreview.is_catalog,
       preview_state: groupedLegacyState,
       preview: groupedPreview,
@@ -2463,11 +2524,15 @@ export async function GET(request: NextRequest) {
   const cacheMap = enableMediaCache ? await MediaCacheService.resolveUrls(cacheItems, businessId) : new Map<string, { url: string; source: "cache" | "external" }>();
   addStageMs("media_cache_ms", Date.now() - tMediaCache);
 
+  const includeDebugFields = debugPreview || debugThumbnail || debugPerf;
   const responseRows: MetaCreativeApiRow[] = rows.map((row) => {
     const cached = cacheMap.get(row.creative_id);
     const cachedThumbnailUrl = cached?.source === "cache" ? cached.url : null;
+    const tableThumbnailFromRow = normalizeMediaUrl(row.table_thumbnail_url ?? null);
+    const cardPreviewFromRow = normalizeMediaUrl(row.card_preview_url ?? null);
     const finalThumbnailUrl =
       normalizeMediaUrl(cachedThumbnailUrl) ??
+      tableThumbnailFromRow ??
       normalizeMediaUrl(row.thumbnail_url) ??
       normalizeMediaUrl(row.image_url) ??
       normalizeMediaUrl(row.preview_url);
@@ -2476,6 +2541,7 @@ export async function GET(request: NextRequest) {
     const rowThumbnailUrl = normalizeMediaUrl(row.thumbnail_url);
     const cardFallbackThumbnail = normalizeMediaUrl(cardPreviewByCreativeId.get(row.creative_id) ?? null);
     const preferredCardImageUrl =
+      cardPreviewFromRow ??
       (rowImageUrl && !isLikelyLowResCreativeUrl(rowImageUrl) ? rowImageUrl : null) ??
       (rowPreviewUrl && !isLikelyLowResCreativeUrl(rowPreviewUrl) ? rowPreviewUrl : null) ??
       cardFallbackThumbnail ??
@@ -2483,9 +2549,9 @@ export async function GET(request: NextRequest) {
       rowPreviewUrl ??
       rowThumbnailUrl ??
       finalThumbnailUrl;
-    const finalImageUrl = preferredCardImageUrl ?? finalThumbnailUrl;
+    const finalImageUrl = rowImageUrl ?? preferredCardImageUrl ?? finalThumbnailUrl;
     const finalPreviewUrl =
-      (rowPreviewUrl && !isLikelyLowResCreativeUrl(rowPreviewUrl) ? rowPreviewUrl : null) ??
+      rowPreviewUrl ??
       preferredCardImageUrl ??
       finalThumbnailUrl;
     const previewState: LegacyPreviewState = finalPreviewUrl ? "preview" : "unavailable";
@@ -2497,8 +2563,16 @@ export async function GET(request: NextRequest) {
         ? {
             ...row.preview,
             render_mode: row.format === "video" ? "video" : "image",
-            image_url: row.preview.image_url ?? finalImageUrl ?? finalThumbnailUrl,
-            poster_url: row.preview.poster_url ?? finalThumbnailUrl ?? finalImageUrl,
+            image_url:
+              normalizeMediaUrl(row.preview.image_url) ??
+              preferredCardImageUrl ??
+              finalImageUrl ??
+              finalThumbnailUrl,
+            poster_url:
+              normalizeMediaUrl(row.preview.poster_url) ??
+              preferredCardImageUrl ??
+              finalThumbnailUrl ??
+              finalImageUrl,
             source: row.preview.source ?? "thumbnail_url",
           }
         : row.preview.render_mode === "image"
@@ -2511,11 +2585,12 @@ export async function GET(request: NextRequest) {
             poster_url:
               normalizeMediaUrl(row.preview.poster_url) && !isLikelyLowResCreativeUrl(row.preview.poster_url)
                 ? row.preview.poster_url
-                : finalThumbnailUrl ?? row.preview.poster_url,
+                : preferredCardImageUrl ?? finalThumbnailUrl ?? row.preview.poster_url,
           }
         : row.preview;
     const tableThumbnailUrl =
       normalizeMediaUrl(cachedThumbnailUrl) ??
+      tableThumbnailFromRow ??
       normalizeMediaUrl(row.thumbnail_url) ??
       normalizeMediaUrl(row.preview_url) ??
       normalizeMediaUrl(row.image_url) ??
@@ -2523,11 +2598,12 @@ export async function GET(request: NextRequest) {
     const cardPreviewUrl =
       preferredCardImageUrl ??
       cardFallbackThumbnail ??
+      cardPreviewFromRow ??
       rowPreviewUrl ??
       rowImageUrl ??
       rowThumbnailUrl ??
       null;
-    return {
+    const baseRow: MetaCreativeApiRow = {
       id: row.id,
       creative_id: row.creative_id,
       associated_ads_count: row.associated_ads_count,
@@ -2573,6 +2649,10 @@ export async function GET(request: NextRequest) {
       video75: row.video75,
       video100: row.video100,
       cached_thumbnail_url: cachedThumbnailUrl,
+    };
+    if (!includeDebugFields) return baseRow;
+    return {
+      ...baseRow,
       debug_stage_fetch_source: row.debug_stage_fetch_source ?? null,
       debug_stage_has_raw_ad: row.debug_stage_has_raw_ad ?? false,
       debug_stage_raw_ad_id: row.debug_stage_raw_ad_id ?? null,

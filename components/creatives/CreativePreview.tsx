@@ -29,14 +29,19 @@ const SIZE_MAP: Record<NonNullable<CreativePreviewProps["size"]>, string> = {
   thumb: "h-12 w-12 rounded",
 };
 
+const compactPreviewDebugCountByScope: Record<string, number> = {};
+let compactPreviewImageEventLogCount = 0;
+
 function normalizeUrl(value: string | null | undefined): string | null {
   if (typeof value !== "string") return null;
+
   const trimmed = value.trim();
   if (!trimmed) return null;
   if (trimmed.startsWith("//")) return `https:${trimmed}`;
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
   if (trimmed.startsWith("/")) return trimmed;
   if (/^[a-z0-9.-]+\.[a-z]{2,}(\/|$)/i.test(trimmed)) return `https://${trimmed}`;
+
   return null;
 }
 
@@ -44,6 +49,7 @@ function isMetaCdnUrl(url: string): boolean {
   try {
     const normalized = normalizeUrl(url);
     if (!normalized || normalized.startsWith("/")) return false;
+
     const host = new URL(normalized).hostname.toLowerCase();
     return (
       host.endsWith(".fbcdn.net") ||
@@ -113,9 +119,6 @@ function resolveSources(params: {
   ]);
 }
 
-const compactPreviewDebugCountByScope: Record<string, number> = {};
-let compactPreviewImageEventLogCount = 0;
-
 export function CreativePreview({
   id,
   name,
@@ -143,19 +146,24 @@ export function CreativePreview({
     [cachedUrl, thumbnailUrl, imageUrl, previewUrl, sourcePriority, size]
   );
 
+  const sourceKey = useMemo(() => sources.map((source) => source.url).join("|"), [sources]);
+
   const [sourceIndex, setSourceIndex] = useState(0);
   const [useProxy, setUseProxy] = useState(false);
+  const [exhausted, setExhausted] = useState(false);
 
   useEffect(() => {
     setSourceIndex(0);
     setUseProxy(false);
-  }, [id, cachedUrl, thumbnailUrl, imageUrl, previewUrl, sourcePriority, size]);
+    setExhausted(false);
+  }, [sourceKey]);
 
-  const currentSource = sources[sourceIndex] ?? null;
+  const currentSource = exhausted ? null : (sources[sourceIndex] ?? null);
   const currentSrc = currentSource?.url ?? null;
 
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return;
+
     const count = compactPreviewDebugCountByScope[debugScope] ?? 0;
     if (count >= 5) return;
     compactPreviewDebugCountByScope[debugScope] = count + 1;
@@ -174,8 +182,24 @@ export function CreativePreview({
       chosenKind: currentSource?.kind ?? null,
       candidateKinds: sources.map((source) => source.kind),
       useProxy,
+      exhausted,
     });
-  }, [cachedUrl, currentSource?.kind, currentSrc, debugScope, id, imageUrl, name, previewUrl, size, sources, thumbnailUrl, useProxy]);
+  }, [
+    cachedUrl,
+    currentSource?.kind,
+    currentSrc,
+    debugScope,
+    exhausted,
+    id,
+    imageUrl,
+    name,
+    previewUrl,
+    size,
+    sourcePriority,
+    sources,
+    thumbnailUrl,
+    useProxy,
+  ]);
 
   if (!currentSrc) {
     return (
@@ -214,7 +238,10 @@ export function CreativePreview({
     if (sourceIndex < sources.length - 1) {
       setSourceIndex((prev) => prev + 1);
       setUseProxy(false);
+      return;
     }
+
+    setExhausted(true);
   };
 
   return (

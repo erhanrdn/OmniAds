@@ -1088,36 +1088,6 @@ function PreviewStrip({
     );
   }
 
-  useEffect(() => {
-    if (process.env.NODE_ENV === "production") return;
-    rows.slice(0, 5).forEach((row) => {
-      const priority = [
-        row.cardPreviewUrl,
-        row.imageUrl,
-        row.preview?.image_url,
-        row.preview?.poster_url,
-        row.previewUrl,
-        row.cachedThumbnailUrl,
-        row.thumbnailUrl,
-      ];
-      console.log("[creative-preview][top-card]", {
-        id: row.id,
-        name: row.name,
-        cardPreviewUrl: row.cardPreviewUrl ?? null,
-        tableThumbnailUrl: row.tableThumbnailUrl ?? null,
-        cachedThumbnailUrl: row.cachedThumbnailUrl ?? null,
-        thumbnailUrl: row.thumbnailUrl ?? null,
-        imageUrl: row.imageUrl ?? null,
-        previewUrl: row.previewUrl ?? null,
-        preview_image_url: row.preview?.image_url ?? null,
-        preview_poster_url: row.preview?.poster_url ?? null,
-        render_mode: row.preview?.render_mode ?? null,
-        previewState: row.previewState ?? null,
-        chosen: pickFirstValidSource(priority),
-      });
-    });
-  }, [rows]);
-
   const context = useMemo<MotionMetricContext>(
     () => ({
       totalSpend: rows.reduce((sum, row) => sum + row.spend, 0),
@@ -1142,6 +1112,16 @@ function PreviewStrip({
     <div className="overflow-x-auto pb-1">
       <div className="flex min-w-max gap-3">
         {rows.map((row) => {
+          const assetFallbacks = [
+            row.cardPreviewUrl ?? null,
+            row.imageUrl ?? null,
+            row.preview?.image_url ?? null,
+            row.preview?.poster_url ?? null,
+            row.previewUrl ?? null,
+            row.cachedThumbnailUrl ?? null,
+            row.thumbnailUrl ?? null,
+          ];
+          const resolvedRowCurrency = resolveCreativeCurrency(row.currency, defaultCurrency);
           return (
             <button
               key={row.id}
@@ -1156,15 +1136,7 @@ function PreviewStrip({
                   preview={row.preview}
                   size="card"
                   mode="asset"
-                  assetFallbacks={[
-                    row.cardPreviewUrl,
-                    row.imageUrl,
-                    row.preview?.image_url,
-                    row.preview?.poster_url,
-                    row.previewUrl,
-                    row.cachedThumbnailUrl,
-                    row.thumbnailUrl,
-                  ]}
+                  assetFallbacks={assetFallbacks}
                   className="aspect-[4/5] w-full"
                 />
               </div>
@@ -1187,11 +1159,7 @@ function PreviewStrip({
                           className="rounded-full px-1.5 py-0.5 font-semibold tabular-nums"
                           style={{ backgroundColor: heat }}
                         >
-                          {metric.format(
-                            value,
-                            resolveCreativeCurrency(row.currency, defaultCurrency),
-                            defaultCurrency
-                          )}
+                          {metric.format(value, resolvedRowCurrency, defaultCurrency)}
                         </span>
                       </div>
                     );
@@ -1419,16 +1387,6 @@ function withIntensity(color: string, multiplier: number) {
   return `rgba(${r}, ${g}, ${b}, ${nextAlpha.toFixed(3)})`;
 }
 
-function pickFirstValidSource(values: Array<string | null | undefined>): string | null {
-  for (const value of values) {
-    if (typeof value !== "string") continue;
-    const trimmed = value.trim();
-    if (!trimmed) continue;
-    if (trimmed.startsWith("//")) return `https:${trimmed}`;
-    if (/^https?:\/\//i.test(trimmed) || trimmed.startsWith("/")) return trimmed;
-  }
-  return null;
-}
 
 function getHeatColor(direction: GoodDirection, value: number, min: number, max: number) {
   if (max <= min) return "transparent";

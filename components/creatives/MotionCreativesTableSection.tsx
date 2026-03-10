@@ -174,16 +174,6 @@ interface HeatEvaluation {
   applicable?: boolean;
 }
 
-function pickFirstValidSource(values: Array<string | null | undefined>): string | null {
-  for (const value of values) {
-    if (typeof value !== "string") continue;
-    const trimmed = value.trim();
-    if (!trimmed) continue;
-    if (trimmed.startsWith("//")) return `https:${trimmed}`;
-    if (/^https?:\/\//i.test(trimmed) || trimmed.startsWith("/")) return trimmed;
-  }
-  return null;
-}
 
 const TABLE_LAYOUT_STORAGE_KEY = "creativesTableLayout";
 const AI_TAG_COLUMN_SPECS: Record<TagKey, { minWidth: number; preferredWidth: number }> = {
@@ -620,35 +610,6 @@ export function MotionCreativesTableSection({
   const endIndex = Math.min(totalResults, startIndex + tablePreset.resultsPerPage);
   const pagedRows = useMemo(() => sortedRows.slice(startIndex, endIndex), [sortedRows, startIndex, endIndex]);
 
-  useEffect(() => {
-    if (process.env.NODE_ENV === "production") return;
-    pagedRows.slice(0, 5).forEach((row) => {
-      const priority = [
-        row.tableThumbnailUrl,
-        row.cachedThumbnailUrl,
-        row.thumbnailUrl,
-        row.imageUrl,
-        row.preview?.image_url,
-        row.preview?.poster_url,
-        row.previewUrl,
-      ];
-      console.log("[creative-preview][table-thumb]", {
-        id: row.id,
-        name: row.name,
-        cardPreviewUrl: row.cardPreviewUrl ?? null,
-        tableThumbnailUrl: row.tableThumbnailUrl ?? null,
-        cachedThumbnailUrl: row.cachedThumbnailUrl ?? null,
-        thumbnailUrl: row.thumbnailUrl ?? null,
-        imageUrl: row.imageUrl ?? null,
-        previewUrl: row.previewUrl ?? null,
-        preview_image_url: row.preview?.image_url ?? null,
-        preview_poster_url: row.preview?.poster_url ?? null,
-        render_mode: row.preview?.render_mode ?? null,
-        previewState: row.previewState ?? null,
-        chosen: pickFirstValidSource(priority),
-      });
-    });
-  }, [pagedRows]);
 
   const { metricDistributions, metricSpendDistributions } = useMemo(() => {
     const t = Date.now();
@@ -1385,12 +1346,22 @@ export function MotionCreativesTableSection({
           <tbody>
             {pagedRows.map((row) => {
               const isSelected = selectedRowIdSet.has(row.id);
+              const assetFallbacks = [
+                row.tableThumbnailUrl ?? null,
+                row.cachedThumbnailUrl ?? null,
+                row.thumbnailUrl ?? null,
+                row.imageUrl ?? null,
+                row.preview?.image_url ?? null,
+                row.preview?.poster_url ?? null,
+                row.previewUrl ?? null,
+              ];
+              const resolvedRowCurrency = resolveCreativeCurrency(row.currency, defaultCurrency);
               return (
                 <tr
                   key={row.id}
                   id={`creative-row-${row.id}`}
                   onClick={() => onOpenRow(row.id)}
-                  className={cn("cursor-pointer", highlightedRowId === row.id && "bg-emerald-500/10")}
+                  className={cn("group cursor-pointer", highlightedRowId === row.id && "bg-emerald-500/10")}
                 >
                 <td className="sticky left-0 z-10 border-b border-r bg-background px-2.5 py-1.5">
                   <div className="flex items-center gap-2.5">
@@ -1408,15 +1379,7 @@ export function MotionCreativesTableSection({
                       preview={row.preview}
                       size="thumb"
                       mode="asset"
-                      assetFallbacks={[
-                        row.tableThumbnailUrl,
-                        row.cachedThumbnailUrl,
-                        row.thumbnailUrl,
-                        row.imageUrl,
-                        row.preview?.image_url,
-                        row.preview?.poster_url,
-                        row.previewUrl,
-                      ]}
+                      assetFallbacks={assetFallbacks}
                       className="h-9 w-9 shrink-0 rounded-md"
                     />
 
@@ -1487,11 +1450,7 @@ export function MotionCreativesTableSection({
                       title={tablePreset.colorFormatting === "heatmap" ? evaluation.reason : undefined}
                     >
                       {evaluation.applicable !== false
-                        ? column.format(
-                            value,
-                            resolveCreativeCurrency(row.currency, defaultCurrency),
-                            defaultCurrency
-                          )
+                        ? column.format(value, resolvedRowCurrency, defaultCurrency)
                         : "—"}
                     </td>
                   );

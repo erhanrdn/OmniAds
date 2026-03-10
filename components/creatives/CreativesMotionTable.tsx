@@ -26,13 +26,23 @@ type RowMetricExtremes = Record<MetaMetricKey, { min: number; max: number }>;
 
 type CreativeRowLike = MetaCreativeRow & {
   isCatalog?: boolean;
+  is_catalog?: boolean;
   associatedAdsCount?: number;
+  associated_ads_count?: number;
   launchDate?: string;
+  launch_date?: string;
   tableThumbnailUrl?: string | null;
+  table_thumbnail_url?: string | null;
+  cardPreviewUrl?: string | null;
+  card_preview_url?: string | null;
   cachedThumbnailUrl?: string | null;
+  cached_thumbnail_url?: string | null;
   previewUrl?: string | null;
+  preview_url?: string | null;
   imageUrl?: string | null;
+  image_url?: string | null;
   thumbnailUrl?: string | null;
+  thumbnail_url?: string | null;
 };
 
 export function CreativesMotionTable({
@@ -137,7 +147,7 @@ export function CreativesMotionTable({
                   </td>
 
                   <td className="whitespace-nowrap px-4 text-muted-foreground">
-                    {row.launchDate || "-"}
+                    {(row as CreativeRowLike).launchDate || (row as CreativeRowLike).launch_date || "-"}
                   </td>
 
                   <td className="px-4">
@@ -176,28 +186,46 @@ export function CreativesMotionTable({
 }
 
 function CreativeNameCell({ row }: { row: CreativeRowLike }) {
-  const isCatalog = Boolean(row.isCatalog);
-  const associatedAdsCount = row.associatedAdsCount || 0;
+  const isCatalog = Boolean(row.isCatalog || row.is_catalog || row.preview?.is_catalog);
+  const associatedAdsCount = row.associatedAdsCount || row.associated_ads_count || 0;
   const formatLabel = isCatalog ? "Catalog" : row.format || "Static";
+
+  const sourcePriority = useMemo(
+    () => [
+      row.tableThumbnailUrl ?? row.table_thumbnail_url ?? null,
+      row.cachedThumbnailUrl ?? row.cached_thumbnail_url ?? null,
+      row.thumbnailUrl ?? row.thumbnail_url ?? null,
+      row.imageUrl ?? row.image_url ?? null,
+      row.preview?.image_url ?? null,
+      row.preview?.poster_url ?? null,
+      row.previewUrl ?? row.preview_url ?? null,
+    ],
+    [
+      row.tableThumbnailUrl,
+      row.table_thumbnail_url,
+      row.cachedThumbnailUrl,
+      row.cached_thumbnail_url,
+      row.thumbnailUrl,
+      row.thumbnail_url,
+      row.imageUrl,
+      row.image_url,
+      row.preview?.image_url,
+      row.preview?.poster_url,
+      row.previewUrl,
+      row.preview_url,
+    ]
+  );
 
   return (
     <div className="flex items-center gap-3">
       <CreativePreview
         id={row.id}
         name={row.name}
-        cachedUrl={row.cachedThumbnailUrl ?? null}
-        thumbnailUrl={row.tableThumbnailUrl ?? row.thumbnailUrl ?? null}
-        imageUrl={row.imageUrl ?? row.preview?.image_url ?? null}
-        previewUrl={row.preview?.poster_url ?? row.previewUrl ?? null}
-        sourcePriority={[
-          row.tableThumbnailUrl ?? null,
-          row.cachedThumbnailUrl ?? null,
-          row.thumbnailUrl ?? null,
-          row.imageUrl ?? null,
-          row.preview?.image_url ?? null,
-          row.preview?.poster_url ?? null,
-          row.previewUrl ?? null,
-        ]}
+        cachedUrl={row.cachedThumbnailUrl ?? row.cached_thumbnail_url ?? null}
+        thumbnailUrl={row.tableThumbnailUrl ?? row.table_thumbnail_url ?? row.thumbnailUrl ?? row.thumbnail_url ?? null}
+        imageUrl={row.imageUrl ?? row.image_url ?? row.preview?.image_url ?? null}
+        previewUrl={row.preview?.poster_url ?? row.previewUrl ?? row.preview_url ?? null}
+        sourcePriority={sourcePriority}
         format={isCatalog ? "catalog" : row.format === "video" ? "video" : "image"}
         isCatalog={isCatalog}
         debugScope="table-thumb"
