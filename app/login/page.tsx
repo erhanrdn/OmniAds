@@ -5,17 +5,32 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 
+const REMEMBER_EMAIL_KEY = "omniads.remember_email";
+
 function LoginPageClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("password");
+  const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const inviteEmail = searchParams.get("email");
-    if (inviteEmail) setEmail(inviteEmail);
+    if (inviteEmail) {
+      setEmail(inviteEmail);
+      return;
+    }
+    try {
+      const rememberedEmail = window.localStorage.getItem(REMEMBER_EMAIL_KEY);
+      if (rememberedEmail) {
+        setEmail(rememberedEmail);
+        setRememberMe(true);
+      }
+    } catch {
+      // no-op
+    }
   }, [searchParams]);
 
   async function handleLogin() {
@@ -38,6 +53,15 @@ function LoginPageClient() {
         if (!acceptRes.ok) {
           throw new Error(acceptPayload?.message ?? "Signed in, but invite could not be accepted.");
         }
+      }
+      try {
+        if (rememberMe && email.trim()) {
+          window.localStorage.setItem(REMEMBER_EMAIL_KEY, email.trim());
+        } else {
+          window.localStorage.removeItem(REMEMBER_EMAIL_KEY);
+        }
+      } catch {
+        // no-op
       }
       router.push("/overview");
     } catch (err: unknown) {
@@ -85,6 +109,15 @@ function LoginPageClient() {
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
           </div>
+          <label className="flex items-center gap-2 text-sm text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={rememberMe}
+              onChange={(event) => setRememberMe(event.target.checked)}
+              className="h-4 w-4 rounded border-input text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            />
+            <span>Remember me</span>
+          </label>
           {error ? <p className="text-xs text-destructive">{error}</p> : null}
           <Button className="w-full" onClick={handleLogin} disabled={loading}>
             {loading ? "Signing in..." : "Sign in"}
