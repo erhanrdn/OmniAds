@@ -15,6 +15,8 @@ interface CreativesTopGridProps {
 type CreativeRowLike = MetaCreativeRow & {
   cachedThumbnailUrl?: string | null;
   cached_thumbnail_url?: string | null;
+  cardPreviewUrl?: string | null;
+  card_preview_url?: string | null;
   thumbnailUrl?: string | null;
   thumbnail_url?: string | null;
   imageUrl?: string | null;
@@ -79,9 +81,9 @@ function CreativeCard({
           id={row.id}
           name={row.name}
           cachedUrl={row.cachedThumbnailUrl ?? row.cached_thumbnail_url ?? null}
-          thumbnailUrl={row.imageUrl ?? row.image_url ?? row.thumbnailUrl ?? row.thumbnail_url ?? null}
-          imageUrl={row.preview?.image_url ?? row.previewUrl ?? row.preview_url ?? row.preview?.poster_url ?? null}
-          previewUrl={row.preview?.poster_url ?? row.previewUrl ?? row.preview_url ?? row.thumbnailUrl ?? row.thumbnail_url ?? null}
+          imageUrl={row.cardPreviewUrl ?? row.card_preview_url ?? row.imageUrl ?? row.image_url ?? row.preview?.image_url ?? null}
+          previewUrl={row.preview?.poster_url ?? row.previewUrl ?? row.preview_url ?? null}
+          thumbnailUrl={row.thumbnailUrl ?? row.thumbnail_url ?? null}
           format={row.format === "video" ? "video" : isCatalog ? "catalog" : "image"}
           isCatalog={isCatalog}
           debugScope="top-grid"

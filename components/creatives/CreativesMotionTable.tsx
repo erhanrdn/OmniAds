@@ -28,7 +28,9 @@ type CreativeRowLike = MetaCreativeRow & {
   isCatalog?: boolean;
   associatedAdsCount?: number;
   launchDate?: string;
+  tableThumbnailUrl?: string | null;
   cachedThumbnailUrl?: string | null;
+  previewUrl?: string | null;
   imageUrl?: string | null;
   thumbnailUrl?: string | null;
 };
@@ -184,9 +186,9 @@ function CreativeNameCell({ row }: { row: CreativeRowLike }) {
         id={row.id}
         name={row.name}
         cachedUrl={row.cachedThumbnailUrl ?? null}
-        thumbnailUrl={row.thumbnailUrl ?? null}
+        thumbnailUrl={row.tableThumbnailUrl ?? row.thumbnailUrl ?? null}
         imageUrl={row.imageUrl ?? row.preview?.image_url ?? null}
-        previewUrl={row.previewUrl ?? row.preview?.poster_url ?? null}
+        previewUrl={row.preview?.poster_url ?? row.previewUrl ?? null}
         format={isCatalog ? "catalog" : row.format === "video" ? "video" : "image"}
         isCatalog={isCatalog}
         debugScope="table-thumb"

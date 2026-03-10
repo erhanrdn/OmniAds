@@ -26,7 +26,6 @@ type CreativeRenderSurfaceProps = {
 type ResolvedAssetSource = {
   src: string;
   source: string;
-  qualityScore: number;
 };
 
 const SIZE_MAP: Record<NonNullable<CreativeRenderSurfaceProps["size"]>, string> = {
@@ -67,39 +66,7 @@ function proxyUrl(src: string): string {
   return `/api/media/meta-preview?src=${encodeURIComponent(src)}`;
 }
 
-function getQualityScore(url: string, source: string, size: NonNullable<CreativeRenderSurfaceProps["size"]>): number {
-  const lowerUrl = url.toLowerCase();
-  let score = 0;
-
-  if (source === "preview.image_url") score += 120;
-  if (source === "preview.poster_url") score += 90;
-  if (source === "fallback_image") score += 80;
-  if (source === "fallback_preview") score += 60;
-  if (source === "fallback_thumbnail") score += 30;
-  if (source.startsWith("fallback_")) score += 10;
-  if (url.startsWith("/")) score += 200;
-
-  if (size !== "thumb") {
-    if (lowerUrl.includes("p64x64")) score -= 120;
-    if (lowerUrl.includes("p100x100")) score -= 100;
-    if (lowerUrl.includes("p120x120")) score -= 80;
-    if (lowerUrl.includes("p150x120")) score -= 70;
-    if (lowerUrl.includes("p150x150")) score -= 60;
-    if (lowerUrl.includes("p200x200")) score -= 40;
-    if (lowerUrl.includes("_s.") || lowerUrl.includes("_q.")) score -= 15;
-
-    if (lowerUrl.includes("p320x320")) score += 20;
-    if (lowerUrl.includes("p400x400")) score += 35;
-    if (lowerUrl.includes("p600x600")) score += 60;
-  }
-
-  return score;
-}
-
-function dedupeAndSortSources(
-  candidates: Array<{ src: string | null; source: string }>,
-  size: NonNullable<CreativeRenderSurfaceProps["size"]>
-): ResolvedAssetSource[] {
+function dedupeSourcesInOrder(candidates: Array<{ src: string | null; source: string }>): ResolvedAssetSource[] {
   const seen = new Set<string>();
   const resolved: ResolvedAssetSource[] = [];
 
@@ -110,46 +77,22 @@ function dedupeAndSortSources(
     resolved.push({
       src: normalized,
       source: candidate.source,
-      qualityScore: getQualityScore(normalized, candidate.source, size),
     });
   }
 
-  return resolved.sort((a, b) => b.qualityScore - a.qualityScore);
+  return resolved;
 }
 
 function resolveAssetSources(
   preview: CreativeRenderPayload,
   assetFallbacks: (string | null | undefined)[] | undefined,
-  size: NonNullable<CreativeRenderSurfaceProps["size"]>
+  _size: NonNullable<CreativeRenderSurfaceProps["size"]>
 ): ResolvedAssetSource[] {
-  const fallbackThumbnail = assetFallbacks?.[0] ?? null;
-  const fallbackImage = assetFallbacks?.[1] ?? null;
-  const fallbackPreview = assetFallbacks?.[2] ?? null;
-
-  if (size === "thumb") {
-    return dedupeAndSortSources(
-      [
-        { src: fallbackThumbnail, source: "fallback_thumbnail" },
-        { src: fallbackImage, source: "fallback_image" },
-        { src: fallbackPreview, source: "fallback_preview" },
-        { src: preview.image_url, source: "preview.image_url" },
-        { src: preview.poster_url, source: "preview.poster_url" },
-      ],
-      size
-    );
-  }
-
-  return dedupeAndSortSources(
-    [
-      { src: fallbackImage, source: "fallback_image" },
-      { src: preview.image_url, source: "preview.image_url" },
-      { src: fallbackPreview, source: "fallback_preview" },
-      { src: preview.poster_url, source: "preview.poster_url" },
-      { src: fallbackThumbnail, source: "fallback_thumbnail" },
-      ...(assetFallbacks ?? []).map((src, index) => ({ src: src ?? null, source: `fallback_${index}` })),
-    ],
-    size
-  );
+  return dedupeSourcesInOrder([
+    ...(assetFallbacks ?? []).map((src, index) => ({ src: src ?? null, source: `fallback_${index}` })),
+    { src: preview.image_url, source: "preview.image_url" },
+    { src: preview.poster_url, source: "preview.poster_url" },
+  ]);
 }
 
 function PreviewFallback({ frameClass, name }: { frameClass: string; name: string }) {
@@ -197,7 +140,6 @@ export function CreativeRenderSurface({
           ? {
               src: sources[0].src.slice(0, 80),
               source: sources[0].source,
-              qualityScore: sources[0].qualityScore,
             }
           : null,
       });
@@ -305,7 +247,6 @@ function AssetImage({
       size,
       chosenSrc: current?.src ?? null,
       chosenSource: current?.source ?? null,
-      chosenQualityScore: current?.qualityScore ?? null,
     });
   }, [current, id, name, size]);
 
