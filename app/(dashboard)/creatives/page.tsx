@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import {
   type MetaCreativeRow,
 } from "@/components/creatives/metricConfig";
-import { CreativeInsightsDrawer } from "@/components/creatives/CreativeInsightsDrawer";
+import { CreativeDetailExperience } from "@/components/creatives/CreativeDetailExperience";
 import { CreativeAdBreakdownDrawer } from "@/components/creatives/CreativeAdBreakdownDrawer";
 import { MotionCreativesTableSection } from "@/components/creatives/MotionCreativesTableSection";
 import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
@@ -589,6 +589,30 @@ export default function CreativesPage() {
   };
 
   const dataStatus = creativesQuery.data?.status;
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (creativeDrawerState.open && creativeDrawerState.activeRowId) {
+      params.set("creative", creativeDrawerState.activeRowId);
+    } else {
+      params.delete("creative");
+    }
+    const next = params.toString();
+    const nextUrl = `${window.location.pathname}${next ? `?${next}` : ""}`;
+    window.history.replaceState(null, "", nextUrl);
+  }, [creativeDrawerState.activeRowId, creativeDrawerState.open]);
+
+  useEffect(() => {
+    if (creativeDrawerState.open) return;
+    if (typeof window === "undefined") return;
+    const fromUrl = new URLSearchParams(window.location.search).get("creative");
+    if (!fromUrl) return;
+    const exists = filteredRows.some((row) => row.id === fromUrl);
+    if (!exists) return;
+    setCreativeDrawerState({ open: true, activeRowId: fromUrl });
+  }, [creativeDrawerState.open, filteredRows]);
+
   if (!selectedBusinessId) return <BusinessEmptyState />;
 
   return (
@@ -707,20 +731,24 @@ export default function CreativesPage() {
                   defaultCurrency={selectedBusinessCurrency}
                   onToggleRow={toggleRowSelection}
                   onToggleAll={toggleAllRows}
-                  onOpenRow={(rowId) => openAdBreakdownDrawer(rowId)}
+                  onOpenRow={(rowId) => openCreativeDrawer(rowId)}
+                  onOpenBreakdownRow={(rowId) => openAdBreakdownDrawer(rowId)}
                 />
               )}
           </>
         );
       })()}
 
-      <CreativeInsightsDrawer
+      <CreativeDetailExperience
         row={activeCreativeRow}
         open={creativeDrawerState.open}
         notes={activeCreativeRow ? notesByRowId[activeCreativeRow.id] ?? "" : ""}
+        dateRange={dateRangeValue}
+        defaultCurrency={selectedBusinessCurrency}
         onOpenChange={(open) =>
           setCreativeDrawerState((prev) => ({ ...prev, open, activeRowId: open ? prev.activeRowId : null }))
         }
+        onDateRangeChange={setDateRangeValue}
         onNotesChange={(value) => {
           if (!activeCreativeRow) return;
           setNotesByRowId((prev) => ({ ...prev, [activeCreativeRow.id]: value }));

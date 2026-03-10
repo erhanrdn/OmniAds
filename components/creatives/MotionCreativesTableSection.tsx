@@ -118,6 +118,7 @@ interface MotionCreativesTableSectionProps {
   onToggleRow: (rowId: string) => void;
   onToggleAll: () => void;
   onOpenRow: (rowId: string) => void;
+  onOpenBreakdownRow?: (rowId: string) => void;
 }
 
 interface MetricTooltipState {
@@ -485,6 +486,7 @@ export function MotionCreativesTableSection({
   onToggleRow,
   onToggleAll,
   onOpenRow,
+  onOpenBreakdownRow,
 }: MotionCreativesTableSectionProps) {
   const defaultPreset = PRESETS.find((p) => p.presetName === "Facebook Ecommerce") ?? PRESETS[0];
   const [tablePreset, setTablePreset] = useState<TablePreset>(defaultPreset);
@@ -1387,7 +1389,20 @@ export function MotionCreativesTableSection({
                       <p className="truncate text-[12px] font-medium leading-tight">{row.name}</p>
                       <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
                         {row.associatedAdsCount > 1 ? <span className="opacity-60">{row.associatedAdsCount} ads</span> : null}
-                        <span className="ml-2 opacity-0 transition-opacity group-hover:opacity-70">Ad breakdown</span>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            if (onOpenBreakdownRow) {
+                              onOpenBreakdownRow(row.id);
+                              return;
+                            }
+                            onOpenRow(row.id);
+                          }}
+                          className="ml-2 rounded px-1 py-0.5 opacity-0 underline-offset-2 transition-opacity hover:underline group-hover:opacity-70"
+                        >
+                          Ad breakdown
+                        </button>
                       </p>
                     </div>
                   </div>
