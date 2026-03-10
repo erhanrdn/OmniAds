@@ -852,7 +852,7 @@ function CreativeBreakdownTable({
           <thead>
             <tr className="bg-muted/20">
               {/* Ad identity column */}
-              <th className="sticky left-0 z-10 min-w-[220px] border-b bg-muted/20 px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <th className="sticky left-0 z-10 min-w-[260px] max-w-[360px] border-b bg-muted/20 px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Ad
               </th>
               {/* Metric columns */}
@@ -919,10 +919,10 @@ function CreativeBreakdownTable({
                 return (
                   <tr key={row.id} className="group transition-colors hover:bg-muted/15">
                     {/* Ad identity — sticky */}
-                    <td className={cn("sticky left-0 z-10 bg-background px-3 transition-colors group-hover:bg-muted/15", py, borderClass)}>
-                      <div className="flex items-center gap-2.5">
+                    <td className={cn("sticky left-0 z-10 min-w-[260px] max-w-[360px] bg-background px-3 py-2.5 transition-colors group-hover:bg-muted/15", borderClass)}>
+                      <div className="flex items-start gap-3">
                         {/* Thumbnail */}
-                        <div className="h-9 w-9 shrink-0 overflow-hidden rounded-lg border bg-muted/40">
+                        <div className="mt-0.5 h-9 w-9 shrink-0 overflow-hidden rounded-lg border bg-muted/40">
                           <CreativeRenderSurface
                             id={row.id}
                             name={row.name}
@@ -933,14 +933,17 @@ function CreativeBreakdownTable({
                             className="h-full w-full object-cover"
                           />
                         </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-[12px] font-semibold text-foreground leading-tight">{row.name}</p>
-                          <div className="mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground/70">
-                            {campaignName && <span className="max-w-[100px] truncate">{campaignName}</span>}
-                            {campaignName && adSetName && <span className="opacity-40">/</span>}
-                            {adSetName && <span className="max-w-[80px] truncate">{adSetName}</span>}
-                            {!campaignName && !adSetName && row.launchDate && <span>{row.launchDate}</span>}
-                          </div>
+                        <div className="min-w-0 flex-1 space-y-[2px]">
+                          <p className="text-sm font-medium text-foreground leading-tight break-words">{row.name}</p>
+                          {campaignName && (
+                            <p className="text-xs leading-tight text-muted-foreground break-words">{campaignName}</p>
+                          )}
+                          {adSetName && (
+                            <p className="text-xs leading-tight text-muted-foreground/80 break-words">{adSetName}</p>
+                          )}
+                          {!campaignName && !adSetName && row.launchDate && (
+                            <p className="text-xs text-muted-foreground">{row.launchDate}</p>
+                          )}
                         </div>
                       </div>
                     </td>
