@@ -2,13 +2,14 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
-import { Bot, Clipboard, Copy, Download, ExternalLink, FileText, MessageCircle, Sparkles, X } from "lucide-react";
+import { Bot, Clipboard, Copy, Download, FileText, MessageCircle, Sparkles, X } from "lucide-react";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { formatMoney, resolveCreativeCurrency } from "@/components/creatives/money";
 import { cn } from "@/lib/utils";
 import { formatMotionDateLabel, type MotionDateRangeValue } from "@/components/creatives/MotionTopSection";
 
 interface CreativeDetailExperienceProps {
+  businessId: string;
   row: MetaCreativeRow | null;
   open: boolean;
   notes: string;
@@ -20,7 +21,7 @@ interface CreativeDetailExperienceProps {
 }
 
 type DetailTab = "overview" | "performance" | "comments" | "transcript" | "notes";
-type StageSource = "media" | "image" | "html";
+type StageSource = "html" | "image";
 
 const TAB_ITEMS: Array<{ id: DetailTab; label: string }> = [
   { id: "overview", label: "Overview" },
@@ -59,6 +60,7 @@ const RANGE_PRESETS: Array<{ value: string; label: string; next: MotionDateRange
 ];
 
 export function CreativeDetailExperience({
+  businessId,
   row,
   open,
   notes,
@@ -69,12 +71,15 @@ export function CreativeDetailExperience({
   onDateRangeChange,
 }: CreativeDetailExperienceProps) {
   const [activeTab, setActiveTab] = useState<DetailTab>("overview");
-  const [stageSource, setStageSource] = useState<StageSource>("media");
+  const [stageSource, setStageSource] = useState<StageSource>("html");
   const [selectedPlacement, setSelectedPlacement] = useState("default");
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [videoDuration, setVideoDuration] = useState(0);
   const [videoCurrentTime, setVideoCurrentTime] = useState(0);
+  const [detailPreviewHtml, setDetailPreviewHtml] = useState<string | null>(null);
+  const [detailPreviewSource, setDetailPreviewSource] = useState<string | null>(null);
+  const [detailPreviewLoading, setDetailPreviewLoading] = useState(false);
 
   const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -93,11 +98,57 @@ export function CreativeDetailExperience({
 
   useEffect(() => {
     setActiveTab("overview");
-    setStageSource("media");
+    setStageSource("html");
     setSelectedPlacement("default");
     setVideoDuration(0);
     setVideoCurrentTime(0);
+    setDetailPreviewHtml(null);
+    setDetailPreviewSource(null);
+    setDetailPreviewLoading(false);
   }, [row?.id]);
+
+  useEffect(() => {
+    if (!open || !row?.creativeId || !businessId) return;
+    let cancelled = false;
+    const controller = new AbortController();
+    setDetailPreviewLoading(true);
+    const query = new URLSearchParams({
+      businessId,
+      detailPreviewCreativeId: row.creativeId,
+    });
+
+    fetch(`/api/meta/creatives?${query.toString()}`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then((response) => response.json().catch(() => null))
+      .then((payload: unknown) => {
+        if (cancelled || !payload || typeof payload !== "object") return;
+        const detail = "detail_preview" in payload
+          ? (payload as { detail_preview?: Record<string, unknown> }).detail_preview
+          : null;
+        const html = typeof detail?.html === "string" && detail.html.trim().length > 0 ? detail.html : null;
+        const source = typeof detail?.source === "string" ? detail.source : null;
+        setDetailPreviewHtml(html);
+        setDetailPreviewSource(source);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setDetailPreviewHtml(null);
+        setDetailPreviewSource(null);
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setDetailPreviewLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [businessId, open, row?.creativeId]);
 
   useEffect(() => {
     if (!downloadMenuOpen) return;
@@ -111,24 +162,22 @@ export function CreativeDetailExperience({
     return () => document.removeEventListener("mousedown", onPointerDown);
   }, [downloadMenuOpen]);
 
+  useEffect(() => {
+    if (detailPreviewLoading) return;
+    if (stageSource === "html" && !detailPreviewHtml) {
+      setStageSource("image");
+    }
+  }, [detailPreviewHtml, detailPreviewLoading, stageSource]);
+
   if (!open || !row) return null;
 
   const currency = resolveCreativeCurrency(row.currency, defaultCurrency);
-  const stageVideoSrc = resolveDetailVideoUrl(row);
-  const stageImageSrc = resolveDetailImageUrl(row, stageVideoSrc);
-  const hasVideo = Boolean(stageVideoSrc);
-  const htmlPreviewSrc = resolveDetailHtmlPreviewUrl(row.previewUrl, stageImageSrc, stageVideoSrc);
-  const hasHtmlPreview = Boolean(htmlPreviewSrc);
-  const sourceOptions = buildSourceOptions({ hasVideo, hasImage: Boolean(stageImageSrc), hasHtmlPreview });
+  const stageImageSrc = resolveDetailImageUrl(row);
+  const hasHtmlPreview = Boolean(detailPreviewHtml);
+  const sourceOptions = buildSourceOptions({ hasImage: Boolean(stageImageSrc), hasHtmlPreview });
   const placementOptions = buildPlacementOptions(row.tags);
-  const activeMediaUrl =
-    stageSource === "html"
-      ? htmlPreviewSrc
-      : stageSource === "image"
-        ? stageImageSrc
-        : hasVideo
-          ? stageVideoSrc
-          : stageImageSrc;
+  const resolvedSource: StageSource = hasHtmlPreview && stageSource === "html" ? "html" : "image";
+  const activeMediaUrl = resolvedSource === "image" ? stageImageSrc : null;
 
   return (
     <div className="fixed inset-0 z-[90]">
@@ -151,16 +200,17 @@ export function CreativeDetailExperience({
             <div className="mx-auto w-full max-w-[1120px] overflow-hidden rounded-2xl border border-slate-200 bg-[#F8FAFC] shadow-[0_12px_38px_rgba(15,23,42,0.09)]">
               <CreativeStage
                 row={row}
-                source={stageSource}
+                source={resolvedSource}
                 imageSrc={stageImageSrc}
-                videoSrc={stageVideoSrc}
-                htmlSrc={htmlPreviewSrc}
+                htmlDoc={detailPreviewHtml}
+                htmlSource={detailPreviewSource}
+                htmlLoading={detailPreviewLoading}
                 onVideoTimeChange={setVideoCurrentTime}
                 onVideoDuration={setVideoDuration}
               />
 
               <CreativePlacementControls
-                source={stageSource}
+                source={resolvedSource}
                 sourceOptions={sourceOptions}
                 placement={selectedPlacement}
                 placementOptions={placementOptions}
@@ -279,52 +329,36 @@ function CreativeStage({
   row,
   source,
   imageSrc,
-  videoSrc,
-  htmlSrc,
+  htmlDoc,
+  htmlSource,
+  htmlLoading,
   onVideoDuration,
   onVideoTimeChange,
 }: {
   row: MetaCreativeRow;
   source: StageSource;
   imageSrc: string | null;
-  videoSrc: string | null;
-  htmlSrc: string | null;
+  htmlDoc: string | null;
+  htmlSource: string | null;
+  htmlLoading: boolean;
   onVideoDuration: (duration: number) => void;
   onVideoTimeChange: (time: number) => void;
 }) {
   const stageTitle = `${row.name} preview`;
+  void onVideoDuration;
+  void onVideoTimeChange;
 
   return (
     <section className="bg-[radial-gradient(circle_at_top,_#ffffff_0%,_#eff3f8_65%,_#e8edf5_100%)] px-4 py-5 md:px-8 md:py-7">
       <div className="mx-auto flex min-h-[480px] w-full max-w-[1040px] items-center justify-center rounded-[22px] border border-slate-200 bg-[#EEF2F7] p-5 md:min-h-[620px] md:p-8">
-        {source === "html" && htmlSrc ? (
-          <HtmlPreviewStage src={htmlSrc} title={stageTitle} />
+        {source === "html" && htmlDoc ? (
+          <HtmlPreviewStage htmlDoc={htmlDoc} htmlSource={htmlSource} title={stageTitle} />
+        ) : source === "html" && htmlLoading ? (
+          <StageLoadingState />
         ) : source === "image" && imageSrc ? (
           <MediaHeroFrame>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={imageSrc} alt={stageTitle} className="block max-h-[74vh] w-auto max-w-full object-contain" />
-          </MediaHeroFrame>
-        ) : (videoSrc || imageSrc) ? (
-          <MediaHeroFrame>
-            {videoSrc ? (
-              <video
-                src={videoSrc}
-                poster={imageSrc ?? undefined}
-                controls
-                playsInline
-                preload="metadata"
-                className="block max-h-[74vh] w-auto max-w-full object-contain"
-                onLoadedMetadata={(event) => {
-                  onVideoDuration(event.currentTarget.duration || 0);
-                }}
-                onTimeUpdate={(event) => {
-                  onVideoTimeChange(event.currentTarget.currentTime || 0);
-                }}
-              />
-            ) : (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={imageSrc ?? undefined} alt={stageTitle} className="block max-h-[74vh] w-auto max-w-full object-contain" />
-            )}
           </MediaHeroFrame>
         ) : (
           <StageEmptyState />
@@ -334,17 +368,28 @@ function CreativeStage({
   );
 }
 
-function HtmlPreviewStage({ src, title }: { src: string; title: string }) {
+function HtmlPreviewStage({ htmlDoc, htmlSource, title }: { htmlDoc: string; htmlSource: string | null; title: string }) {
   return (
     <div className="flex h-full min-h-[420px] w-full flex-col overflow-hidden rounded-2xl border border-slate-300 bg-white shadow-[0_24px_60px_rgba(15,23,42,0.18)]">
       <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2 text-xs text-slate-600">
-        <span>HTML preview mode</span>
-        <a href={src} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-slate-600 hover:text-slate-900">
-          Open source
-          <ExternalLink className="h-3 w-3" />
-        </a>
+        <span>Ad preview</span>
+        <span className="text-[11px] text-slate-500">{htmlSource ? `Source: ${htmlSource}` : "Source: detail"}</span>
       </div>
-      <iframe title={title} src={src} className="h-full w-full bg-white" sandbox="allow-scripts allow-same-origin allow-popups" />
+      <iframe
+        title={title}
+        srcDoc={htmlDoc}
+        className="h-full w-full bg-white"
+        sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+      />
+    </div>
+  );
+}
+
+function StageLoadingState() {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white px-6 py-10 text-center">
+      <p className="text-sm font-medium text-slate-700">Loading ad preview</p>
+      <p className="mt-1 text-xs text-slate-500">Fetching HTML ad preview for this creative.</p>
     </div>
   );
 }
@@ -879,33 +924,28 @@ function TagPill({ value }: { value: string }) {
 
 function StageEmptyState() {
   return (
-    <div className="rounded-lg border border-dashed border-slate-700 bg-slate-900 px-6 py-10 text-center">
-      <p className="text-sm font-medium text-slate-200">No media available</p>
-      <p className="mt-1 text-xs text-slate-400">This creative has no playable video, image, or HTML preview in the current payload.</p>
+    <div className="rounded-lg border border-dashed border-slate-300 bg-white px-6 py-10 text-center">
+      <p className="text-sm font-medium text-slate-700">No detail preview available</p>
+      <p className="mt-1 text-xs text-slate-500">This creative has no HTML ad preview and no usable image fallback in the current payload.</p>
     </div>
   );
 }
 
 function buildSourceOptions({
-  hasVideo,
   hasImage,
   hasHtmlPreview,
 }: {
-  hasVideo: boolean;
   hasImage: boolean;
   hasHtmlPreview: boolean;
 }): Array<{ value: StageSource; label: string }> {
   const options: Array<{ value: StageSource; label: string }> = [];
-  if (hasVideo || hasImage) {
-    options.push({ value: "media", label: hasVideo ? "Media (video)" : "Media (image)" });
+  if (hasHtmlPreview) {
+    options.push({ value: "html", label: "Ad preview (HTML)" });
   }
   if (hasImage) {
-    options.push({ value: "image", label: "Image" });
+    options.push({ value: "image", label: "Media image" });
   }
-  if (hasHtmlPreview) {
-    options.push({ value: "html", label: "Full ad preview (HTML)" });
-  }
-  return options.length > 0 ? options : [{ value: "media", label: "Media" }];
+  return options.length > 0 ? options : [{ value: "image", label: "Media image" }];
 }
 
 function buildPlacementOptions(tags: string[]): Array<{ value: string; label: string }> {
@@ -982,56 +1022,21 @@ async function copyRowLink(rowId: string): Promise<boolean> {
   return copyText(url.toString());
 }
 
-function resolveDetailHtmlPreviewUrl(
-  previewUrl: string | null | undefined,
-  imageUrl: string | null | undefined,
-  videoUrl: string | null | undefined
-): string | null {
-  const normalizedPreview = normalizeUrl(previewUrl);
-  if (!normalizedPreview) return null;
-  const normalizedImage = normalizeUrl(imageUrl);
-  const normalizedVideo = normalizeUrl(videoUrl);
-  if (normalizedPreview === normalizedImage || normalizedPreview === normalizedVideo) return null;
-  if (isLikelyImageUrl(normalizedPreview) || isLikelyVideoUrl(normalizedPreview)) return null;
-  if (!isLikelyHtmlUrl(normalizedPreview)) return null;
-  return normalizedPreview;
-}
-
-function resolveDetailVideoUrl(row: MetaCreativeRow): string | null {
+function resolveDetailImageUrl(row: MetaCreativeRow): string | null {
   const candidates = uniqueUrls([
-    row.preview.video_url,
-    row.previewUrl,
-    row.imageUrl,
     row.cardPreviewUrl,
     row.preview.image_url,
     row.preview.poster_url,
-    row.thumbnailUrl,
-  ]);
-  const explicitVideo = candidates.find((candidate) => isLikelyVideoUrl(candidate));
-  if (explicitVideo) return explicitVideo;
-
-  const shouldForceVideoScan = row.format === "video" || row.preview.render_mode === "video";
-  if (!shouldForceVideoScan) return null;
-
-  // Some CDN links are extensionless. For video creatives, prefer non-image URLs as playable candidates.
-  const extensionlessPlayable = candidates.find((candidate) => !isLikelyImageUrl(candidate) && !isLikelyHtmlUrl(candidate));
-  return extensionlessPlayable ?? null;
-}
-
-function resolveDetailImageUrl(row: MetaCreativeRow, chosenVideoUrl: string | null): string | null {
-  const candidates = uniqueUrls([
-    row.preview.image_url,
-    row.preview.poster_url,
     row.imageUrl,
-    row.cardPreviewUrl,
     row.thumbnailUrl,
     row.previewUrl,
   ]);
 
-  const filtered = candidates.filter((candidate) => candidate !== chosenVideoUrl);
-  const explicitImage = filtered.find((candidate) => isLikelyImageUrl(candidate));
-  if (explicitImage) return explicitImage;
-  return filtered[0] ?? null;
+  const explicitImage = candidates.filter((candidate) => isLikelyImageUrl(candidate));
+  const highQualityImage = explicitImage.find((candidate) => !isLikelyLowResPreviewUrl(candidate));
+  if (highQualityImage) return highQualityImage;
+  if (explicitImage.length > 0) return explicitImage[0] ?? null;
+  return candidates.find((candidate) => !isLikelyLowResPreviewUrl(candidate)) ?? candidates[0] ?? null;
 }
 
 function uniqueUrls(values: Array<string | null | undefined>): string[] {
@@ -1050,16 +1055,13 @@ function isLikelyImageUrl(url: string): boolean {
   return /\.(png|jpe?g|gif|webp|bmp|svg|avif)(\?|$)/i.test(url);
 }
 
-function isLikelyVideoUrl(url: string): boolean {
-  if (/\.(mp4|mov|m4v|webm|ogg|ogv|m3u8)(\?|$)/i.test(url)) return true;
-  if (/[?&](video|format)=/i.test(url)) return true;
-  return /\/video\//i.test(url) && !isLikelyImageUrl(url);
-}
-
-function isLikelyHtmlUrl(url: string): boolean {
-  if (/\.(html?)(\?|$)/i.test(url)) return true;
-  if (/\/(adpreview|preview|render|canvas)\b/i.test(url) && !isLikelyImageUrl(url) && !isLikelyVideoUrl(url)) return true;
-  return false;
+function isLikelyLowResPreviewUrl(url: string): boolean {
+  const match = url.match(/_p(\d+)x(\d+)/i) ?? url.match(/p(\d+)x(\d+)/i);
+  if (!match) return /thumbnail|thumb|\/t39\.2147-6\//i.test(url);
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  if (!Number.isFinite(width) || !Number.isFinite(height)) return false;
+  return Math.max(width, height) <= 220;
 }
 
 function normalizeUrl(value: string | null | undefined): string | null {

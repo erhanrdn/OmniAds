@@ -740,6 +740,7 @@ export default function CreativesPage() {
       })()}
 
       <CreativeDetailExperience
+        businessId={businessId}
         row={activeCreativeRow}
         open={creativeDrawerState.open}
         notes={activeCreativeRow ? notesByRowId[activeCreativeRow.id] ?? "" : ""}

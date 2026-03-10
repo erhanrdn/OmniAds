@@ -65,6 +65,7 @@ interface PreviewAuditSample {
     image_hash: string | null;
   };
   object_story_spec: {
+    video_data_video_id: string | null;
     video_data_thumbnail_url: string | null;
     video_data_image_url: string | null;
     photo_data_image_url: string | null;
@@ -76,7 +77,7 @@ interface PreviewAuditSample {
     catalog_id: string | null;
     product_set_id: string | null;
     images: Array<{ image_url: string | null; url: string | null; original_url: string | null; hash: string | null }>;
-    videos: Array<{ thumbnail_url: string | null; image_url: string | null }>;
+    videos: Array<{ video_id: string | null; thumbnail_url: string | null; image_url: string | null }>;
   };
   promoted_object: {
     promoted_product_set_id: string | null;
@@ -162,6 +163,8 @@ interface MetaAdRecord {
     id?: string;
     name?: string;
     object_type?: string | null;
+    video_id?: string | null;
+    object_story_id?: string | null;
     effective_object_story_id?: string | null;
     thumbnail_id?: string | null;
     thumbnail_url?: string | null;
@@ -173,7 +176,7 @@ interface MetaAdRecord {
         image_hash?: string | null;
         child_attachments?: Array<{ picture?: string | null; image_url?: string | null; image_hash?: string | null }> | null;
       } | null;
-      video_data?: { image_url?: string | null; thumbnail_url?: string | null } | null;
+      video_data?: { video_id?: string | null; image_url?: string | null; thumbnail_url?: string | null } | null;
       photo_data?: { image_url?: string | null } | null;
       template_data?: Record<string, unknown> | null;
     } | null;
@@ -187,7 +190,7 @@ interface MetaAdRecord {
         hash?: string | null;
         image_hash?: string | null;
       }> | null;
-      videos?: Array<{ thumbnail_url?: string | null; image_url?: string | null }> | null;
+      videos?: Array<{ video_id?: string | null; thumbnail_url?: string | null; image_url?: string | null }> | null;
     } | null;
   } | null;
 }
@@ -201,6 +204,10 @@ interface MetaAccountMeta {
   id: string;
   name: string | null;
   currency: string | null;
+}
+
+interface MetaCreativePreviewHtmlResponse {
+  data?: Array<{ body?: string | null }>;
 }
 
 interface RawCreativeRow {
@@ -262,6 +269,12 @@ interface RawCreativeRow {
   debug_enriched_creative_thumbnail_url?: string | null;
   debug_resolved_thumbnail_source?: string | null;
   debug_resolution_stage?: string | null;
+  debug_creative_object_type?: string | null;
+  debug_creative_video_ids?: string[] | null;
+  debug_creative_effective_object_story_id?: string | null;
+  debug_creative_object_story_id?: string | null;
+  debug_creative_object_story_video_id?: string | null;
+  debug_creative_asset_video_ids?: string[] | null;
 }
 
 export interface MetaCreativeApiRow {
@@ -326,6 +339,12 @@ export interface MetaCreativeApiRow {
   debug_enriched_creative_thumbnail_url?: string | null;
   debug_resolved_thumbnail_source?: string | null;
   debug_resolution_stage?: string | null;
+  debug_creative_object_type?: string | null;
+  debug_creative_video_ids?: string[] | null;
+  debug_creative_effective_object_story_id?: string | null;
+  debug_creative_object_story_id?: string | null;
+  debug_creative_object_story_video_id?: string | null;
+  debug_creative_asset_video_ids?: string[] | null;
 }
 
 function toISODate(date: Date) {
@@ -662,6 +681,7 @@ function buildNormalizedPreview(input: {
   creative: MetaAdRecord["creative"];
   promotedObject: MetaPromotedObjectLike;
   imageHashLookup: Map<string, string>;
+  videoSourceLookup: Map<string, { source: string | null; picture: string | null }>;
 }): {
   preview: NormalizedRenderPreviewPayload;
   legacy: {
@@ -684,7 +704,7 @@ function buildNormalizedPreview(input: {
   candidateAudit: PreviewAuditCandidate[];
   imageHashResolutions: Array<{ hash: string; resolved: boolean; resolved_url: string | null }>;
 } {
-  const { creative, promotedObject, imageHashLookup } = input;
+  const { creative, promotedObject, imageHashLookup, videoSourceLookup } = input;
   const isCatalog = detectIsCatalog(creative, promotedObject);
   const { candidates, imageHashResolutions } = collectPreviewCandidates(creative, imageHashLookup);
 
@@ -734,12 +754,26 @@ function buildNormalizedPreview(input: {
     tableTier;
   const previewTier = previewImageTier ?? previewPosterTier ?? cardTier ?? tableTier;
   const previewSource = firstHighQuality?.source ?? firstAny?.source ?? null;
+  const videoIds = extractVideoIdsFromCreative(creative);
+  const resolvedVideoSource = videoIds
+    .map((videoId) => videoSourceLookup.get(videoId)?.source ?? null)
+    .find((source): source is string => Boolean(source))
+    ?? null;
+  const resolvedVideoPoster = videoIds
+    .map((videoId) => videoSourceLookup.get(videoId)?.picture ?? null)
+    .find((poster): poster is string => Boolean(poster))
+    ?? null;
+  const renderMode: PreviewRenderMode = resolvedVideoSource
+    ? "video"
+    : previewTier
+      ? (isVideo ? "image" : "image")
+      : "unavailable";
 
   const preview: NormalizedRenderPreviewPayload = {
-    render_mode: previewTier ? (isVideo ? "video" : "image") : "unavailable",
+    render_mode: renderMode,
     image_url: previewImageTier,
-    video_url: null,
-    poster_url: previewPosterTier,
+    video_url: resolvedVideoSource,
+    poster_url: resolvedVideoPoster ?? previewPosterTier,
     source: mapSource(previewSource),
     is_catalog: isCatalog,
   };
@@ -1006,13 +1040,7 @@ async function fetchAccountAdsMap(
           "adset{id,name,promoted_object{product_set_id,catalog_id}}",
           "promoted_object{product_set_id,catalog_id}",
           "created_time",
-          [
-            "creative{",
-            "id,name,object_type,effective_object_story_id,thumbnail_id,thumbnail_url,image_url,image_hash,",
-            "object_story_spec{link_data{picture,image_hash,child_attachments{picture,image_url,image_hash}},video_data{image_url,thumbnail_url},photo_data{image_url},template_data},",
-            "asset_feed_spec{catalog_id,product_set_id,images{url,image_url,original_url,hash,image_hash},videos{thumbnail_url,image_url}}",
-            "}",
-          ].join(""),
+          `creative{${getCreativeMediaFields()}}`,
         ].join(",")
       );
       url.searchParams.set("limit", "500");
@@ -1054,6 +1082,111 @@ async function fetchAccountAdsMap(
 
     nextUrl = payload?.paging?.next ?? null;
   } while (nextUrl);
+
+  return map;
+}
+
+function getCreativeMediaFields(): string {
+  return [
+    "id",
+    "name",
+    "object_type",
+    "video_id",
+    "object_story_id",
+    "effective_object_story_id",
+    "thumbnail_url",
+    "image_url",
+    "image_hash",
+    "object_story_spec{link_data{picture,image_hash,child_attachments{picture,image_url,image_hash}},video_data{video_id,image_url,thumbnail_url},photo_data{image_url},template_data}",
+    "asset_feed_spec{images{url,image_url,original_url,hash,image_hash},videos{video_id,thumbnail_url,image_url}}",
+  ].join(",");
+}
+
+function getCreativeDetailFields(): string {
+  return [
+    "id",
+    "name",
+    "object_type",
+    "video_id",
+    "object_story_id",
+    "effective_object_story_id",
+    "thumbnail_url",
+    "image_url",
+    "image_hash",
+    // Keep this set conservative for adcreative IDs endpoint stability.
+    "object_story_spec{link_data{picture,image_hash,child_attachments{picture,image_url,image_hash}},video_data{video_id,image_url,thumbnail_url},photo_data{image_url}}",
+    "asset_feed_spec{images{url,image_url,original_url,hash,image_hash},videos{video_id,thumbnail_url,image_url}}",
+  ].join(",");
+}
+
+function extractVideoIdsFromCreative(creative: MetaAdRecord["creative"] | null | undefined): string[] {
+  if (!creative) return [];
+  const ids = new Set<string>();
+  const add = (value: unknown) => {
+    if (typeof value !== "string") return;
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    ids.add(trimmed);
+  };
+
+  add(creative.video_id);
+  add(creative.object_story_spec?.video_data?.video_id);
+  for (const video of creative.asset_feed_spec?.videos ?? []) {
+    add(video?.video_id);
+  }
+  return Array.from(ids);
+}
+
+async function fetchVideoSourceMap(
+  videoIds: string[],
+  accessToken: string
+): Promise<Map<string, { source: string | null; picture: string | null }>> {
+  const map = new Map<string, { source: string | null; picture: string | null }>();
+  const uniqueIds = Array.from(new Set(videoIds.filter((id) => id.trim().length > 0)));
+  if (uniqueIds.length === 0) return map;
+
+  const chunkSize = 40;
+  for (let i = 0; i < uniqueIds.length; i += chunkSize) {
+    const idsChunk = uniqueIds.slice(i, i + chunkSize);
+    const url = new URL("https://graph.facebook.com/v25.0/");
+    url.searchParams.set("ids", idsChunk.join(","));
+    url.searchParams.set("fields", "source,picture");
+    url.searchParams.set("access_token", accessToken);
+
+    try {
+      const res = await fetch(url.toString(), {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        const raw = await res.text().catch(() => "");
+        console.warn("[meta-creatives] video details non-ok", {
+          status: res.status,
+          chunk: i,
+          count: idsChunk.length,
+          raw: raw.slice(0, 240),
+        });
+        continue;
+      }
+
+      const payload = (await res.json().catch(() => null)) as Record<string, { source?: string | null; picture?: string | null }> | null;
+      if (!payload || typeof payload !== "object") continue;
+
+      for (const [videoId, video] of Object.entries(payload)) {
+        if (!video || typeof video !== "object") continue;
+        map.set(videoId, {
+          source: normalizeMediaUrl(video.source ?? null),
+          picture: normalizeMediaUrl(video.picture ?? null),
+        });
+      }
+    } catch (e: unknown) {
+      console.warn("[meta-creatives] video details threw", {
+        chunk: i,
+        message: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
 
   return map;
 }
@@ -1159,18 +1292,7 @@ async function fetchCreativeDetailsMap(
   const uniqueIds = Array.from(new Set(creativeIds.filter((id) => id.trim().length > 0)));
   if (uniqueIds.length === 0) return map;
 
-  const fields = [
-    "id",
-    "name",
-    "object_type",
-    "effective_object_story_id",
-    "thumbnail_id",
-    "thumbnail_url",
-    "image_url",
-    "image_hash",
-    "object_story_spec{link_data{picture,image_hash,child_attachments{picture,image_url,image_hash}},video_data{image_url,thumbnail_url},photo_data{image_url},template_data}",
-    "asset_feed_spec{catalog_id,product_set_id,images{url,image_url,original_url,hash,image_hash},videos{thumbnail_url,image_url}}",
-  ].join(",");
+  const fields = getCreativeDetailFields();
 
   const chunkSize = 40;
   for (let i = 0; i < uniqueIds.length; i += chunkSize) {
@@ -1314,13 +1436,7 @@ async function fetchAdCreativeMediaByAdIds(
 
   const fields = [
     "id",
-    [
-      "creative{",
-      "id,name,object_type,effective_object_story_id,thumbnail_id,thumbnail_url,image_url,image_hash,",
-      "object_story_spec{link_data{picture,image_hash,child_attachments{picture,image_url,image_hash}},video_data{image_url,thumbnail_url},photo_data{image_url},template_data},",
-      "asset_feed_spec{catalog_id,product_set_id,images{url,image_url,original_url,hash,image_hash},videos{thumbnail_url,image_url}}",
-      "}",
-    ].join(""),
+    `creative{${getCreativeMediaFields()}}`,
   ].join(",");
 
   const chunkSize = 40;
@@ -1450,13 +1566,7 @@ async function fetchAdCreativeMediaDirectByAdIds(
 
   const fields = [
     "id",
-    [
-      "creative{",
-      "id,name,object_type,effective_object_story_id,thumbnail_id,thumbnail_url,image_url,image_hash,",
-      "object_story_spec{link_data{picture,image_hash,child_attachments{picture,image_url,image_hash}},video_data{image_url,thumbnail_url},photo_data{image_url},template_data},",
-      "asset_feed_spec{catalog_id,product_set_id,images{url,image_url,original_url,hash,image_hash},videos{thumbnail_url,image_url}}",
-      "}",
-    ].join(""),
+    `creative{${getCreativeMediaFields()}}`,
   ].join(",");
 
   const concurrency = 20;
@@ -1493,11 +1603,51 @@ async function fetchAdCreativeMediaDirectByAdIds(
   return map;
 }
 
+async function fetchCreativeDetailPreviewHtml(
+  creativeId: string,
+  accessToken: string
+): Promise<{ html: string; adFormat: string; source: "meta_creative_previews" } | null> {
+  const adFormats = [
+    "DESKTOP_FEED_STANDARD",
+    "MOBILE_FEED_STANDARD",
+    "INSTAGRAM_STANDARD",
+  ];
+
+  for (const adFormat of adFormats) {
+    const url = new URL(`https://graph.facebook.com/v25.0/${creativeId}/previews`);
+    url.searchParams.set("ad_format", adFormat);
+    url.searchParams.set("access_token", accessToken);
+
+    try {
+      const res = await fetch(url.toString(), {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        cache: "no-store",
+      });
+      if (!res.ok) continue;
+
+      const payload = (await res.json().catch(() => null)) as MetaCreativePreviewHtmlResponse | null;
+      const body = payload?.data?.find((item) => typeof item?.body === "string" && item.body.trim().length > 0)?.body?.trim();
+      if (!body) continue;
+      return {
+        html: body,
+        adFormat,
+        source: "meta_creative_previews",
+      };
+    } catch {
+      // Keep trying alternate ad formats.
+    }
+  }
+
+  return null;
+}
+
 function toRawRow(
   insight: MetaInsightRecord,
   ad: MetaAdRecord | undefined,
   accountMeta: MetaAccountMeta,
   imageHashLookup: Map<string, string>,
+  videoSourceLookup: Map<string, { source: string | null; picture: string | null }>,
   debugContext?: {
     enabled?: boolean;
     fetchSource?: string | null;
@@ -1557,6 +1707,7 @@ function toRawRow(
     creative,
     promotedObject,
     imageHashLookup,
+    videoSourceLookup,
   });
   const resolvedThumbnail = resolveThumbnailUrl({ creative });
   const finalThumbnail = normalizedPreview.tiers.table_thumbnail_url ?? normalizedPreview.legacy.thumbnail_url ?? resolvedThumbnail.url;
@@ -1685,6 +1836,19 @@ function toRawRow(
     debug_enriched_creative_thumbnail_url: debugContext?.enrichedCreativeThumbnailUrl ?? null,
     debug_resolved_thumbnail_source: resolvedThumbnail.source,
     debug_resolution_stage: "toRawRow",
+    debug_creative_object_type: creative?.object_type ?? null,
+    debug_creative_video_ids: extractVideoIdsFromCreative(creative),
+    debug_creative_effective_object_story_id:
+      typeof creative?.effective_object_story_id === "string" ? creative.effective_object_story_id : null,
+    debug_creative_object_story_id:
+      typeof creative?.object_story_id === "string" ? creative.object_story_id : null,
+    debug_creative_object_story_video_id:
+      typeof creative?.object_story_spec?.video_data?.video_id === "string"
+        ? creative.object_story_spec.video_data.video_id
+        : null,
+    debug_creative_asset_video_ids: (creative?.asset_feed_spec?.videos ?? [])
+      .map((video) => (typeof video?.video_id === "string" ? video.video_id : null))
+      .filter((videoId): videoId is string => Boolean(videoId)),
   };
 }
 
@@ -1789,7 +1953,7 @@ function groupRows(
       adset_id: sample.adset_id,
       adset_name: sample.adset_name,
       name: groupBy === "creative" ? sample.name : sample.adset_name ?? sample.name,
-      preview_url: groupedPreview.image_url ?? groupedPreview.poster_url ?? null,
+      preview_url: groupedPreview.video_url ?? groupedPreview.image_url ?? groupedPreview.poster_url ?? null,
       preview_source: groupedPreview.source,
       thumbnail_url: previewRow?.thumbnail_url ?? groupedPreview.poster_url ?? groupedPreview.image_url ?? null,
       image_url: previewRow?.image_url ?? groupedPreview.image_url ?? groupedPreview.poster_url ?? null,
@@ -1900,6 +2064,7 @@ export async function GET(request: NextRequest) {
   const requestStartedAt = Date.now();
   const params = request.nextUrl.searchParams;
   const businessId = params.get("businessId");
+  const detailPreviewCreativeId = params.get("detailPreviewCreativeId")?.trim() ?? "";
   const groupBy = (params.get("groupBy") as GroupBy | null) ?? "creative";
   const format = (params.get("format") as FormatFilter | null) ?? "all";
   const sort = (params.get("sort") as SortKey | null) ?? "roas";
@@ -1945,6 +2110,28 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ status: "no_access_token", rows: [] });
   }
   const accessToken = integration.access_token;
+
+  if (detailPreviewCreativeId) {
+    const preview = await fetchCreativeDetailPreviewHtml(detailPreviewCreativeId, accessToken);
+    return NextResponse.json({
+      status: "ok",
+      detail_preview: preview
+        ? {
+            creative_id: detailPreviewCreativeId,
+            mode: "html",
+            source: preview.source,
+            ad_format: preview.adFormat,
+            html: preview.html,
+          }
+        : {
+            creative_id: detailPreviewCreativeId,
+            mode: "unavailable",
+            source: null,
+            ad_format: null,
+            html: null,
+          },
+    });
+  }
 
   const assignedAccountIds = await fetchAssignedAccountIds(businessId);
   if (assignedAccountIds.length === 0) {
@@ -2000,6 +2187,7 @@ export async function GET(request: NextRequest) {
         missing_ads_batch_ms: 0,
         creative_basics_fallback_ms: 0,
         creative_details_ms: 0,
+        video_details_ms: 0,
         creative_thumb_small_ms: 0,
         creative_thumb_card_ms: 0,
         adimages_ms: 0,
@@ -2067,6 +2255,26 @@ export async function GET(request: NextRequest) {
         }
       }
 
+      const tAdCreativeMedia = Date.now();
+      const adCreativeMediaMap =
+        insightAdIds.length > 0
+          ? await fetchAdCreativeMediaByAdIds(insightAdIds, accessToken)
+          : new Map<string, MetaAdCreativeMediaOnlyRecord>();
+      accountPerf.creative_details_ms += Date.now() - tAdCreativeMedia;
+      for (const adId of insightAdIds) {
+        const existing = adMap.get(adId);
+        const mediaOnly = adCreativeMediaMap.get(adId);
+        if (!mediaOnly?.creative) continue;
+        if (!existing) {
+          adMap.set(adId, { id: adId, creative: mediaOnly.creative });
+          continue;
+        }
+        adMap.set(adId, {
+          ...existing,
+          creative: mergeCreativeData(existing.creative ?? null, mediaOnly.creative as NonNullable<MetaAdRecord["creative"]>),
+        });
+      }
+
       // ── Fetch creative details only for ads in current insights window that still need enrichment ──
       const insightAds = insightAdIds
         .map((adId) => adMap.get(adId))
@@ -2078,21 +2286,12 @@ export async function GET(request: NextRequest) {
             .filter((id): id is string => typeof id === "string" && id.length > 0)
         )
       );
-      const creativeIdsForDetails = Array.from(
-        new Set(
-          insightAds
-            .map((ad) => ad.creative)
-            .filter((creative): creative is NonNullable<MetaAdRecord["creative"]> => Boolean(creative?.id))
-            .filter((creative) =>
-              !normalizeMediaUrl(creative.thumbnail_url ?? null) ||
-              !normalizeMediaUrl(creative.image_url ?? null)
-            )
-            .map((creative) => creative.id as string)
-        )
-      );
+      const creativeIdsForDetails: string[] = enableCreativeDetails
+        ? creativeIds
+        : [];
       const tCreativeDetails = Date.now();
       const creativeDetailsMap =
-        enableCreativeDetails && creativeIdsForDetails.length > 0
+        creativeIdsForDetails.length > 0
           ? await fetchCreativeDetailsMap(creativeIdsForDetails, accessToken)
           : new Map<string, NonNullable<MetaAdRecord["creative"]>>();
       accountPerf.creative_details_ms += Date.now() - tCreativeDetails;
@@ -2104,6 +2303,17 @@ export async function GET(request: NextRequest) {
         const merged = mergeCreativeData(baseCreative, detailCreative);
         if (merged?.id) mergedCreativeById.set(merged.id, merged);
       }
+      const creativeVideoIds = Array.from(
+        new Set(
+          Array.from(mergedCreativeById.values()).flatMap((creative) => extractVideoIdsFromCreative(creative))
+        )
+      );
+      const tVideoDetails = Date.now();
+      const videoSourceMap =
+        creativeVideoIds.length > 0
+          ? await fetchVideoSourceMap(creativeVideoIds, accessToken)
+          : new Map<string, { source: string | null; picture: string | null }>();
+      accountPerf.video_details_ms += Date.now() - tVideoDetails;
 
       const missingThumbnailCreativeIds = Array.from(mergedCreativeById.entries())
         .filter(([, creative]) =>
@@ -2209,6 +2419,8 @@ export async function GET(request: NextRequest) {
           creative_ids_seen: creativeIds.length,
           creative_ids_for_details: creativeIdsForDetails.length,
           creative_details_loaded: creativeDetailsMap.size,
+          creative_video_ids_seen: creativeVideoIds.length,
+          creative_video_sources_loaded: videoSourceMap.size,
           creative_missing_thumbnail: missingThumbnailCreativeIds.length,
           creative_thumbnail_fallback_loaded: creativeThumbnailMap.size,
           card_thumbnail_fallback_loaded: cardThumbnailMap.size,
@@ -2304,6 +2516,7 @@ export async function GET(request: NextRequest) {
           enrichedAd,
           accountMeta,
           adImageUrlMap,
+          videoSourceMap,
           {
             enabled: debugPreview || debugThumbnail,
             fetchSource: "insights+adMap+enrichment",
@@ -2348,6 +2561,9 @@ export async function GET(request: NextRequest) {
                 image_hash: typeof creative?.image_hash === "string" ? creative.image_hash : null,
               },
               object_story_spec: {
+                video_data_video_id: typeof creative?.object_story_spec?.video_data?.video_id === "string"
+                  ? creative.object_story_spec.video_data.video_id
+                  : null,
                 video_data_thumbnail_url: normalizeMediaUrl(creative?.object_story_spec?.video_data?.thumbnail_url),
                 video_data_image_url: normalizeMediaUrl(creative?.object_story_spec?.video_data?.image_url),
                 photo_data_image_url: normalizeMediaUrl(creative?.object_story_spec?.photo_data?.image_url),
@@ -2372,6 +2588,7 @@ export async function GET(request: NextRequest) {
                   hash: typeof image?.hash === "string" ? image.hash : typeof image?.image_hash === "string" ? image.image_hash : null,
                 })),
                 videos: (creative?.asset_feed_spec?.videos ?? []).map((video) => ({
+                  video_id: typeof video?.video_id === "string" ? video.video_id : null,
                   thumbnail_url: normalizeMediaUrl(video?.thumbnail_url),
                   image_url: normalizeMediaUrl(video?.image_url),
                 })),
@@ -2638,7 +2855,7 @@ export async function GET(request: NextRequest) {
       finalPreviewUrl && row.preview.render_mode === "unavailable"
         ? {
             ...row.preview,
-            render_mode: row.format === "video" ? "video" : "image",
+            render_mode: row.preview.video_url ? "video" : "image",
             image_url:
               normalizeMediaUrl(row.preview.image_url) ??
               preferredCardImageUrl ??
@@ -2759,6 +2976,12 @@ export async function GET(request: NextRequest) {
       debug_enriched_creative_thumbnail_url: row.debug_enriched_creative_thumbnail_url ?? null,
       debug_resolved_thumbnail_source: row.debug_resolved_thumbnail_source ?? null,
       debug_resolution_stage: "response-map",
+      debug_creative_object_type: row.debug_creative_object_type ?? null,
+      debug_creative_video_ids: row.debug_creative_video_ids ?? null,
+      debug_creative_effective_object_story_id: row.debug_creative_effective_object_story_id ?? null,
+      debug_creative_object_story_id: row.debug_creative_object_story_id ?? null,
+      debug_creative_object_story_video_id: row.debug_creative_object_story_video_id ?? null,
+      debug_creative_asset_video_ids: row.debug_creative_asset_video_ids ?? null,
     };
   });
 
@@ -2819,6 +3042,12 @@ export async function GET(request: NextRequest) {
       debug_enriched_creative_thumbnail_url: r.debug_enriched_creative_thumbnail_url ?? null,
       debug_resolved_thumbnail_source: r.debug_resolved_thumbnail_source ?? null,
       debug_resolution_stage: r.debug_resolution_stage ?? null,
+      debug_creative_object_type: r.debug_creative_object_type ?? null,
+      debug_creative_video_ids: r.debug_creative_video_ids ?? null,
+      debug_creative_effective_object_story_id: r.debug_creative_effective_object_story_id ?? null,
+      debug_creative_object_story_id: r.debug_creative_object_story_id ?? null,
+      debug_creative_object_story_video_id: r.debug_creative_object_story_video_id ?? null,
+      debug_creative_asset_video_ids: r.debug_creative_asset_video_ids ?? null,
     })));
   }
 
