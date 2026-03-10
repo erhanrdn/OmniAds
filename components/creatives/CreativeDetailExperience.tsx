@@ -59,6 +59,27 @@ const RANGE_PRESETS: Array<{ value: string; label: string; next: MotionDateRange
   },
 ];
 
+const DETAIL_LAYOUT = {
+  desktopRailWidthLg: 344,
+  desktopRailWidthXl: 376,
+  stageRegionMaxWidth: 1240,
+  stageCardMaxWidth: 1020,
+  stageMinHeightBase: 520,
+  stageMinHeightXl: 700,
+} as const;
+
+type PreviewShape = "portrait" | "feed" | "square" | "landscape";
+
+const HTML_VIEWPORT_RULES: Record<
+  PreviewShape,
+  { maxWidth: number; maxHeightRatio: number; minScale: number; maxScale: number }
+> = {
+  portrait: { maxWidth: 420, maxHeightRatio: 0.95, minScale: 0.58, maxScale: 1.8 },
+  feed: { maxWidth: 620, maxHeightRatio: 0.92, minScale: 0.56, maxScale: 1.75 },
+  square: { maxWidth: 700, maxHeightRatio: 0.9, minScale: 0.56, maxScale: 1.7 },
+  landscape: { maxWidth: 860, maxHeightRatio: 0.82, minScale: 0.52, maxScale: 1.55 },
+};
+
 export function CreativeDetailExperience({
   businessId,
   row,
@@ -195,9 +216,24 @@ export function CreativeDetailExperience({
           onClose={() => onOpenChange(false)}
         />
 
-        <div className="grid h-[calc(100%-64px)] grid-cols-1 overflow-hidden lg:grid-cols-[minmax(0,1fr)_420px]">
-          <div className="flex min-h-0 flex-col overflow-y-auto p-5 md:p-7">
-            <div className="mx-auto w-full max-w-[1120px] overflow-hidden rounded-2xl border border-slate-200 bg-[#F8FAFC] shadow-[0_12px_38px_rgba(15,23,42,0.09)]">
+        <div
+          className="grid h-[calc(100%-64px)] grid-cols-1 overflow-hidden lg:grid-cols-[minmax(0,1fr)_var(--detail-rail-lg)] xl:grid-cols-[minmax(0,1fr)_var(--detail-rail-xl)]"
+          style={
+            {
+              ["--detail-rail-lg" as string]: `${DETAIL_LAYOUT.desktopRailWidthLg}px`,
+              ["--detail-rail-xl" as string]: `${DETAIL_LAYOUT.desktopRailWidthXl}px`,
+            } as React.CSSProperties
+          }
+        >
+          <div className="min-h-0 overflow-y-auto bg-[#F2F5F8] px-4 py-4 md:px-6 md:py-6 xl:px-8">
+            <div
+              className="mx-auto w-full"
+              style={{ maxWidth: `${DETAIL_LAYOUT.stageRegionMaxWidth}px` }}
+            >
+              <div
+                className="mx-auto overflow-hidden rounded-2xl border border-slate-200 bg-[#F8FAFC] shadow-[0_14px_36px_rgba(15,23,42,0.10)]"
+                style={{ maxWidth: `${DETAIL_LAYOUT.stageCardMaxWidth}px` }}
+              >
               <CreativeStage
                 row={row}
                 source={resolvedSource}
@@ -242,6 +278,7 @@ export function CreativeDetailExperience({
                 hasMedia={Boolean(activeMediaUrl)}
                 hasImage={Boolean(stageImageSrc)}
               />
+              </div>
             </div>
           </div>
 
@@ -349,8 +386,13 @@ function CreativeStage({
   void onVideoTimeChange;
 
   return (
-    <section className="bg-[radial-gradient(circle_at_top,_#ffffff_0%,_#eff3f8_65%,_#e8edf5_100%)] px-4 py-5 md:px-8 md:py-7">
-      <div className="mx-auto flex min-h-[480px] w-full max-w-[1040px] items-center justify-center rounded-[22px] border border-slate-200 bg-[#EEF2F7] p-5 md:min-h-[620px] md:p-8">
+    <section className="bg-[radial-gradient(circle_at_top,_#ffffff_0%,_#eff3f8_68%,_#e8edf5_100%)] px-3 py-4 md:px-6 md:py-6 xl:px-8">
+      <div
+        className="mx-auto flex w-full items-center justify-center rounded-[22px] border border-slate-200 bg-[#EEF2F7] p-4 md:p-6 xl:p-8"
+        style={{
+          minHeight: `clamp(${DETAIL_LAYOUT.stageMinHeightBase}px, 64vh, ${DETAIL_LAYOUT.stageMinHeightXl}px)`,
+        }}
+      >
         {source === "html" && htmlDoc ? (
           <HtmlPreviewStage htmlDoc={htmlDoc} htmlSource={htmlSource} title={stageTitle} />
         ) : source === "html" && htmlLoading ? (
@@ -390,21 +432,28 @@ function HtmlPreviewStage({ htmlDoc, htmlSource, title }: { htmlDoc: string; htm
 
   const intrinsicWidth = parsed?.width ?? 540;
   const intrinsicHeight = parsed?.height ?? 690;
+  const shape = classifyPreviewShape(intrinsicWidth, intrinsicHeight);
+  const sizingRule = HTML_VIEWPORT_RULES[shape];
+  const boundedWidth = Math.min(viewportSize.width, sizingRule.maxWidth);
+  const boundedHeight = Math.min(
+    viewportSize.height,
+    Math.max(240, Math.floor(viewportSize.height * sizingRule.maxHeightRatio))
+  );
   const rawScale =
-    viewportSize.width > 0 && viewportSize.height > 0
-      ? Math.min(viewportSize.width / intrinsicWidth, viewportSize.height / intrinsicHeight)
+    boundedWidth > 0 && boundedHeight > 0
+      ? Math.min(boundedWidth / intrinsicWidth, boundedHeight / intrinsicHeight)
       : 1;
-  const scale = clamp(rawScale, 0.25, 2.2);
+  const scale = clamp(rawScale, sizingRule.minScale, sizingRule.maxScale);
   const scaledWidth = Math.max(1, Math.floor(intrinsicWidth * scale));
   const scaledHeight = Math.max(1, Math.floor(intrinsicHeight * scale));
 
   return (
-    <div className="flex h-full min-h-[420px] w-full flex-col overflow-hidden rounded-2xl border border-slate-300 bg-white shadow-[0_24px_60px_rgba(15,23,42,0.18)]">
+    <div className="flex h-full min-h-[420px] w-full flex-col overflow-hidden rounded-2xl border border-slate-300 bg-white shadow-[0_24px_60px_rgba(15,23,42,0.16)]">
       <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2 text-xs text-slate-600">
         <span>Ad preview</span>
         <span className="text-[11px] text-slate-500">{htmlSource ? `Source: ${htmlSource}` : "Source: detail"}</span>
       </div>
-      <div ref={viewportRef} className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-[#F6F8FB] p-3 md:p-5">
+      <div ref={viewportRef} className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-[#F6F8FB] p-3 md:p-5 xl:p-6">
         <div
           className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_20px_50px_rgba(15,23,42,0.18)]"
           style={{ width: `${scaledWidth}px`, height: `${scaledHeight}px` }}
@@ -529,7 +578,13 @@ function CreativePlacementControls({
 
 function MediaHeroFrame({ children }: { children: React.ReactNode }) {
   return (
-    <div className="relative flex max-h-[76vh] w-auto max-w-full items-center justify-center overflow-hidden rounded-[20px] border border-slate-300 bg-[#0b0f17] p-1.5 shadow-[0_30px_90px_rgba(2,6,23,0.38)]">
+    <div
+      className="relative flex w-full items-center justify-center overflow-hidden rounded-[20px] border border-slate-300 bg-[#0b0f17] p-1.5 shadow-[0_30px_90px_rgba(2,6,23,0.38)]"
+      style={{
+        maxWidth: "min(860px, 100%)",
+        maxHeight: "min(78vh, 760px)",
+      }}
+    >
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(148,163,184,0.25),rgba(15,23,42,0.08)_55%,rgba(2,6,23,0.85)_100%)]" />
       <div className="relative z-[1]">{children}</div>
     </div>
@@ -1114,6 +1169,15 @@ function isLikelyLowResPreviewUrl(url: string): boolean {
   const height = Number(match[2]);
   if (!Number.isFinite(width) || !Number.isFinite(height)) return false;
   return Math.max(width, height) <= 220;
+}
+
+function classifyPreviewShape(width: number, height: number): PreviewShape {
+  if (!(width > 0 && height > 0)) return "feed";
+  const ratio = width / height;
+  if (ratio <= 0.7) return "portrait";
+  if (ratio <= 0.92) return "feed";
+  if (ratio <= 1.18) return "square";
+  return "landscape";
 }
 
 function parsePreviewIframeSnippet(html: string): { src: string; width: number; height: number } | null {
