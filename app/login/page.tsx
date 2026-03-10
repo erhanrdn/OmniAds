@@ -68,7 +68,6 @@ function LoginPageClient() {
             <input
               id="email"
               type="email"
-              placeholder="admin@omniads.io"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -81,7 +80,6 @@ function LoginPageClient() {
             <input
               id="password"
               type="password"
-              placeholder="••••••••"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
