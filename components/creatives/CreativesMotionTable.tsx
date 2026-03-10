@@ -189,6 +189,15 @@ function CreativeNameCell({ row }: { row: CreativeRowLike }) {
         thumbnailUrl={row.tableThumbnailUrl ?? row.thumbnailUrl ?? null}
         imageUrl={row.imageUrl ?? row.preview?.image_url ?? null}
         previewUrl={row.preview?.poster_url ?? row.previewUrl ?? null}
+        sourcePriority={[
+          row.tableThumbnailUrl ?? null,
+          row.cachedThumbnailUrl ?? null,
+          row.thumbnailUrl ?? null,
+          row.imageUrl ?? null,
+          row.preview?.image_url ?? null,
+          row.preview?.poster_url ?? null,
+          row.previewUrl ?? null,
+        ]}
         format={isCatalog ? "catalog" : row.format === "video" ? "video" : "image"}
         isCatalog={isCatalog}
         debugScope="table-thumb"

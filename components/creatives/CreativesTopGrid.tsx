@@ -84,6 +84,15 @@ function CreativeCard({
           imageUrl={row.cardPreviewUrl ?? row.card_preview_url ?? row.imageUrl ?? row.image_url ?? row.preview?.image_url ?? null}
           previewUrl={row.preview?.poster_url ?? row.previewUrl ?? row.preview_url ?? null}
           thumbnailUrl={row.thumbnailUrl ?? row.thumbnail_url ?? null}
+          sourcePriority={[
+            row.cardPreviewUrl ?? row.card_preview_url ?? null,
+            row.imageUrl ?? row.image_url ?? null,
+            row.preview?.image_url ?? null,
+            row.preview?.poster_url ?? null,
+            row.previewUrl ?? row.preview_url ?? null,
+            row.cachedThumbnailUrl ?? row.cached_thumbnail_url ?? null,
+            row.thumbnailUrl ?? row.thumbnail_url ?? null,
+          ]}
           format={row.format === "video" ? "video" : isCatalog ? "catalog" : "image"}
           isCatalog={isCatalog}
           debugScope="top-grid"

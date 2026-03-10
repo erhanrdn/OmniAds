@@ -11,6 +11,7 @@ type CreativePreviewProps = {
   thumbnailUrl?: string | null;
   imageUrl?: string | null;
   previewUrl?: string | null;
+  sourcePriority?: Array<string | null | undefined>;
   format?: "image" | "video" | "catalog";
   isCatalog?: boolean;
   debugScope?: "top-grid" | "table-thumb" | "other";
@@ -20,7 +21,7 @@ type CreativePreviewProps = {
 
 type ResolvedSource = {
   url: string;
-  kind: "cached" | "image" | "preview" | "thumbnail";
+  kind: "priority" | "cached" | "image" | "preview" | "thumbnail";
 };
 
 const SIZE_MAP: Record<NonNullable<CreativePreviewProps["size"]>, string> = {
@@ -55,26 +56,6 @@ function proxyUrl(src: string): string {
   return `/api/media/meta-preview?src=${encodeURIComponent(src)}`;
 }
 
-function getMetaThumbnailScore(url: string): number {
-  const lower = url.toLowerCase();
-  let score = 0;
-
-  if (lower.includes("p64x64")) score -= 80;
-  if (lower.includes("p100x100")) score -= 60;
-  if (lower.includes("p120x120")) score -= 50;
-  if (lower.includes("p150x120")) score -= 40;
-  if (lower.includes("p150x150")) score -= 35;
-  if (lower.includes("p200x200")) score -= 20;
-  if (lower.includes("_s.") || lower.includes("_q.") || lower.includes("_t.")) score -= 10;
-
-  if (lower.includes("p320x320")) score += 10;
-  if (lower.includes("p400x400")) score += 20;
-  if (lower.includes("p600x600")) score += 40;
-  if (lower.includes("image_url")) score += 20;
-
-  return score;
-}
-
 function dedupeSources(sources: Array<ResolvedSource | null>): ResolvedSource[] {
   const seen = new Set<string>();
   const output: ResolvedSource[] = [];
@@ -94,31 +75,35 @@ function resolveSources(params: {
   thumbnailUrl?: string | null;
   imageUrl?: string | null;
   previewUrl?: string | null;
+  sourcePriority?: Array<string | null | undefined>;
   size: NonNullable<CreativePreviewProps["size"]>;
 }): ResolvedSource[] {
+  if (Array.isArray(params.sourcePriority) && params.sourcePriority.length > 0) {
+    return dedupeSources(
+      params.sourcePriority.map((value) => {
+        const normalized = normalizeUrl(value);
+        return normalized ? { url: normalized, kind: "priority" as const } : null;
+      })
+    );
+  }
+
   const cached = normalizeUrl(params.cachedUrl);
   const thumbnail = normalizeUrl(params.thumbnailUrl);
   const image = normalizeUrl(params.imageUrl);
   const preview = normalizeUrl(params.previewUrl);
 
   if (params.size === "card") {
-    const cardCandidates = dedupeSources([
-      cached ? { url: cached, kind: "cached" as const } : null,
+    return dedupeSources([
       image ? { url: image, kind: "image" as const } : null,
       preview ? { url: preview, kind: "preview" as const } : null,
+      cached ? { url: cached, kind: "cached" as const } : null,
       thumbnail ? { url: thumbnail, kind: "thumbnail" as const } : null,
     ]);
-
-    return [...cardCandidates].sort((a, b) => {
-      const priorityA = a.kind === "cached" ? 1000 : 0;
-      const priorityB = b.kind === "cached" ? 1000 : 0;
-      return priorityB + getMetaThumbnailScore(b.url) - (priorityA + getMetaThumbnailScore(a.url));
-    });
   }
 
   return dedupeSources([
-    cached ? { url: cached, kind: "cached" as const } : null,
     thumbnail ? { url: thumbnail, kind: "thumbnail" as const } : null,
+    cached ? { url: cached, kind: "cached" as const } : null,
     image ? { url: image, kind: "image" as const } : null,
     preview ? { url: preview, kind: "preview" as const } : null,
   ]);
@@ -133,6 +118,7 @@ export function CreativePreview({
   thumbnailUrl,
   imageUrl,
   previewUrl,
+  sourcePriority,
   format = "image",
   isCatalog = false,
   debugScope = "other",
@@ -146,9 +132,10 @@ export function CreativePreview({
         thumbnailUrl,
         imageUrl,
         previewUrl,
+        sourcePriority,
         size,
       }),
-    [cachedUrl, thumbnailUrl, imageUrl, previewUrl, size]
+    [cachedUrl, thumbnailUrl, imageUrl, previewUrl, sourcePriority, size]
   );
 
   const [sourceIndex, setSourceIndex] = useState(0);
@@ -157,7 +144,7 @@ export function CreativePreview({
   useEffect(() => {
     setSourceIndex(0);
     setUseProxy(false);
-  }, [id, cachedUrl, thumbnailUrl, imageUrl, previewUrl, size]);
+  }, [id, cachedUrl, thumbnailUrl, imageUrl, previewUrl, sourcePriority, size]);
 
   const currentSource = sources[sourceIndex] ?? null;
   const currentSrc = currentSource?.url ?? null;
@@ -177,6 +164,7 @@ export function CreativePreview({
       thumbnailUrl: thumbnailUrl ?? null,
       imageUrl: imageUrl ?? null,
       previewUrl: previewUrl ?? null,
+      sourcePriority: sourcePriority ?? null,
       chosen: currentSrc,
       chosenKind: currentSource?.kind ?? null,
       candidateKinds: sources.map((source) => source.kind),

@@ -174,6 +174,17 @@ interface HeatEvaluation {
   applicable?: boolean;
 }
 
+function pickFirstValidSource(values: Array<string | null | undefined>): string | null {
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (!trimmed) continue;
+    if (trimmed.startsWith("//")) return `https:${trimmed}`;
+    if (/^https?:\/\//i.test(trimmed) || trimmed.startsWith("/")) return trimmed;
+  }
+  return null;
+}
+
 const TABLE_LAYOUT_STORAGE_KEY = "creativesTableLayout";
 const AI_TAG_COLUMN_SPECS: Record<TagKey, { minWidth: number; preferredWidth: number }> = {
   assetType: { minWidth: 128, preferredWidth: 140 },
@@ -608,6 +619,36 @@ export function MotionCreativesTableSection({
   const startIndex = (safePage - 1) * tablePreset.resultsPerPage;
   const endIndex = Math.min(totalResults, startIndex + tablePreset.resultsPerPage);
   const pagedRows = useMemo(() => sortedRows.slice(startIndex, endIndex), [sortedRows, startIndex, endIndex]);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    pagedRows.slice(0, 5).forEach((row) => {
+      const priority = [
+        row.tableThumbnailUrl,
+        row.cachedThumbnailUrl,
+        row.thumbnailUrl,
+        row.imageUrl,
+        row.preview?.image_url,
+        row.preview?.poster_url,
+        row.previewUrl,
+      ];
+      console.log("[creative-preview][table-thumb]", {
+        id: row.id,
+        name: row.name,
+        cardPreviewUrl: row.cardPreviewUrl ?? null,
+        tableThumbnailUrl: row.tableThumbnailUrl ?? null,
+        cachedThumbnailUrl: row.cachedThumbnailUrl ?? null,
+        thumbnailUrl: row.thumbnailUrl ?? null,
+        imageUrl: row.imageUrl ?? null,
+        previewUrl: row.previewUrl ?? null,
+        preview_image_url: row.preview?.image_url ?? null,
+        preview_poster_url: row.preview?.poster_url ?? null,
+        render_mode: row.preview?.render_mode ?? null,
+        previewState: row.previewState ?? null,
+        chosen: pickFirstValidSource(priority),
+      });
+    });
+  }, [pagedRows]);
 
   const { metricDistributions, metricSpendDistributions } = useMemo(() => {
     const t = Date.now();
