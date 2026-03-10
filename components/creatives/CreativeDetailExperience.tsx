@@ -74,10 +74,10 @@ const HTML_VIEWPORT_RULES: Record<
   PreviewShape,
   { maxWidth: number; maxHeightRatio: number; minScale: number; maxScale: number }
 > = {
-  portrait: { maxWidth: 420, maxHeightRatio: 0.95, minScale: 0.58, maxScale: 1.8 },
-  feed: { maxWidth: 620, maxHeightRatio: 0.92, minScale: 0.56, maxScale: 1.75 },
-  square: { maxWidth: 700, maxHeightRatio: 0.9, minScale: 0.56, maxScale: 1.7 },
-  landscape: { maxWidth: 860, maxHeightRatio: 0.82, minScale: 0.52, maxScale: 1.55 },
+  portrait: { maxWidth: 640, maxHeightRatio: 0.98, minScale: 0.72, maxScale: 2.1 },
+  feed: { maxWidth: 860, maxHeightRatio: 0.96, minScale: 0.68, maxScale: 2.0 },
+  square: { maxWidth: 900, maxHeightRatio: 0.94, minScale: 0.66, maxScale: 1.95 },
+  landscape: { maxWidth: 1100, maxHeightRatio: 0.9, minScale: 0.62, maxScale: 1.8 },
 };
 
 export function CreativeDetailExperience({
@@ -388,7 +388,7 @@ function CreativeStage({
   return (
     <section className="bg-[radial-gradient(circle_at_top,_#ffffff_0%,_#eff3f8_68%,_#e8edf5_100%)] px-3 py-4 md:px-6 md:py-6 xl:px-8">
       <div
-        className="mx-auto flex w-full items-center justify-center rounded-[22px] border border-slate-200 bg-[#EEF2F7] p-4 md:p-6 xl:p-8"
+        className="mx-auto flex w-full items-center justify-center rounded-[22px] border border-slate-200 bg-[#EEF2F7] p-2 md:p-3 xl:p-4"
         style={{
           minHeight: `clamp(${DETAIL_LAYOUT.stageMinHeightBase}px, 64vh, ${DETAIL_LAYOUT.stageMinHeightXl}px)`,
         }}
@@ -434,10 +434,15 @@ function HtmlPreviewStage({ htmlDoc, htmlSource, title }: { htmlDoc: string; htm
   const intrinsicHeight = parsed?.height ?? 690;
   const shape = classifyPreviewShape(intrinsicWidth, intrinsicHeight);
   const sizingRule = HTML_VIEWPORT_RULES[shape];
-  const boundedWidth = Math.min(viewportSize.width, sizingRule.maxWidth);
+  const horizontalPadding = viewportSize.width >= 1280 ? 48 : viewportSize.width >= 768 ? 32 : 16;
+  const verticalPadding = viewportSize.height >= 900 ? 40 : viewportSize.height >= 700 ? 28 : 16;
+  const boundedWidth = Math.min(
+    Math.max(0, viewportSize.width - horizontalPadding),
+    sizingRule.maxWidth
+  );
   const boundedHeight = Math.min(
-    viewportSize.height,
-    Math.max(240, Math.floor(viewportSize.height * sizingRule.maxHeightRatio))
+    Math.max(0, viewportSize.height - verticalPadding),
+    Math.max(300, Math.floor(viewportSize.height * sizingRule.maxHeightRatio))
   );
   const rawScale =
     boundedWidth > 0 && boundedHeight > 0
@@ -446,17 +451,22 @@ function HtmlPreviewStage({ htmlDoc, htmlSource, title }: { htmlDoc: string; htm
   const scale = clamp(rawScale, sizingRule.minScale, sizingRule.maxScale);
   const scaledWidth = Math.max(1, Math.floor(intrinsicWidth * scale));
   const scaledHeight = Math.max(1, Math.floor(intrinsicHeight * scale));
+  const viewportFrameWidth = Math.min(scaledWidth, boundedWidth > 0 ? boundedWidth : scaledWidth);
+  const viewportFrameHeight = Math.min(scaledHeight, boundedHeight > 0 ? boundedHeight : scaledHeight);
 
   return (
-    <div className="flex h-full min-h-[420px] w-full flex-col overflow-hidden rounded-2xl border border-slate-300 bg-white shadow-[0_24px_60px_rgba(15,23,42,0.16)]">
+    <div className="flex h-full min-h-[480px] w-full flex-col overflow-hidden rounded-2xl border border-slate-300 bg-white shadow-[0_24px_60px_rgba(15,23,42,0.16)]">
       <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2 text-xs text-slate-600">
         <span>Ad preview</span>
         <span className="text-[11px] text-slate-500">{htmlSource ? `Source: ${htmlSource}` : "Source: detail"}</span>
       </div>
-      <div ref={viewportRef} className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-[#F6F8FB] p-3 md:p-5 xl:p-6">
+      <div
+        ref={viewportRef}
+        className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-[#F6F8FB] px-2 py-3 md:px-3 md:py-4 xl:px-4 xl:py-5"
+      >
         <div
           className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_20px_50px_rgba(15,23,42,0.18)]"
-          style={{ width: `${scaledWidth}px`, height: `${scaledHeight}px` }}
+          style={{ width: `${viewportFrameWidth}px`, height: `${viewportFrameHeight}px`, maxWidth: "100%", maxHeight: "100%" }}
         >
           {parsed?.src ? (
             <iframe
