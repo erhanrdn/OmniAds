@@ -458,39 +458,38 @@ function HtmlPreviewStage({ htmlDoc, htmlSource, title }: { htmlDoc: string; htm
   const viewportFrameHeight = Math.min(scaledHeight, boundedHeight > 0 ? boundedHeight : scaledHeight);
 
   return (
-    <div className="relative flex h-full min-h-[620px] w-full items-center justify-center overflow-hidden rounded-[18px] bg-[#F3F6F9]">
-      <div
-        ref={viewportRef}
-        className="relative flex h-full w-full items-center justify-center overflow-hidden px-2 py-2 md:px-3 md:py-3 xl:px-3 xl:py-3"
-      >
-        <div
-          className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_20px_50px_rgba(15,23,42,0.18)]"
-          style={{ width: `${viewportFrameWidth}px`, height: `${viewportFrameHeight}px`, maxWidth: "100%", maxHeight: "100%" }}
-        >
-          {parsed?.src ? (
-            <iframe
-              title={title}
-              src={parsed.src}
-              className="absolute left-0 top-0"
-              width={intrinsicWidth}
-              height={effectiveIntrinsicHeight}
-              style={{
-                border: "none",
-                transform: `scale(${scale})`,
-                transformOrigin: "top left",
-              }}
-              sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
-            />
-          ) : (
-            <iframe
-              title={title}
-              srcDoc={buildScaledPreviewDoc(htmlDoc)}
-              className="h-full w-full bg-white"
-              sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
-            />
-          )}
-        </div>
-      </div>
+    <div
+      ref={viewportRef}
+      className="flex w-full items-center justify-center"
+      style={{
+        minHeight: "620px",
+      }}
+    >
+      {parsed?.src ? (
+        <iframe
+          title={title}
+          src={parsed.src}
+          width={intrinsicWidth}
+          height={effectiveIntrinsicHeight}
+          style={{
+            border: "none",
+            transform: `scale(${scale})`,
+            transformOrigin: "top left",
+          }}
+          sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+        />
+      ) : (
+        <iframe
+          title={title}
+          srcDoc={buildScaledPreviewDoc(htmlDoc)}
+          style={{
+            width: viewportFrameWidth,
+            height: viewportFrameHeight,
+            border: "none",
+          }}
+          sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+        />
+      )}
     </div>
   );
 }
