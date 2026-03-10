@@ -111,22 +111,39 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // ── Fetch Google user identity ──────────────────────────────
-    const userinfoRes = await fetch(GA_CONFIG.userinfoUrl, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    const userinfoData = await userinfoRes.json();
+    // ── Fetch Google user identity (fault-tolerant) ─────────────
+    let providerAccountId = "";
+    let providerAccountName = "Google User";
+    let providerEmail = "";
 
-    if (userinfoData.error) {
-      throw new Error(
-        userinfoData.error.message || "Failed to fetch Google user profile.",
+    try {
+      const userinfoRes = await fetch(GA_CONFIG.userinfoUrl, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const userinfoData = await userinfoRes.json();
+
+      if (!userinfoData.error) {
+        providerAccountId = userinfoData.id ?? "";
+        providerAccountName =
+          userinfoData.name ?? userinfoData.email ?? "Google User";
+        providerEmail = userinfoData.email ?? "";
+      } else {
+        console.warn(
+          "[ga4-oauth-callback] userinfo fetch returned error, proceeding without identity",
+          { error: userinfoData.error },
+        );
+      }
+    } catch (userinfoErr) {
+      console.warn(
+        "[ga4-oauth-callback] userinfo fetch failed, proceeding without identity",
+        {
+          error:
+            userinfoErr instanceof Error
+              ? userinfoErr.message
+              : String(userinfoErr),
+        },
       );
     }
-
-    const providerAccountId: string = userinfoData.id ?? "";
-    const providerAccountName: string =
-      userinfoData.name ?? userinfoData.email ?? "Google User";
-    const providerEmail: string = userinfoData.email ?? "";
 
     // ── Save to DB ──────────────────────────────────────────────
     const tokenExpiresAt = expiresIn

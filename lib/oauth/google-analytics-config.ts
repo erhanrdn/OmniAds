@@ -35,8 +35,15 @@ export const GA_CONFIG = {
   },
   get scopes() {
     const raw = process.env.GOOGLE_ANALYTICS_SCOPES;
-    if (raw) return raw.split(/[\s,]+/).filter(Boolean);
-    return ["https://www.googleapis.com/auth/analytics.readonly"];
+    const analyticsScopes = raw
+      ? raw.split(/[\s,]+/).filter(Boolean)
+      : ["https://www.googleapis.com/auth/analytics.readonly"];
+    // Always include userinfo scopes — needed for provider identity in callback
+    const required = [
+      "https://www.googleapis.com/auth/userinfo.email",
+      "https://www.googleapis.com/auth/userinfo.profile",
+    ];
+    return [...new Set([...analyticsScopes, ...required])];
   },
   authUrl: "https://accounts.google.com/o/oauth2/auth",
   tokenUrl: "https://oauth2.googleapis.com/token",
