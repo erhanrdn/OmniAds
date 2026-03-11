@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { useAppStore } from "@/store/app-store";
 import {
   IntegrationProvider,
+  IntegrationState,
   useIntegrationsStore,
 } from "@/store/integrations-store";
 import { IntegrationsCard } from "@/components/integrations/integrations-card";
@@ -49,6 +50,16 @@ const DESCRIPTIONS: Record<IntegrationProvider, string> = {
 interface SearchConsoleProperty {
   siteUrl: string;
   permissionLevel?: string;
+}
+
+function getFallbackIntegrationState(
+  provider: IntegrationProvider,
+): IntegrationState {
+  return {
+    provider,
+    status: "disconnected" as const,
+    accounts: [],
+  };
 }
 
 export default function IntegrationsPage() {
@@ -101,6 +112,10 @@ export default function IntegrationsPage() {
     return byBusinessId[businessId];
   }, [byBusinessId, businessId]);
 
+  const ga4State = integrations?.ga4 ?? getFallbackIntegrationState("ga4");
+  const searchConsoleState =
+    integrations?.search_console ?? getFallbackIntegrationState("search_console");
+
   const closeSearchConsoleSelector = useCallback(() => {
     setIsPropertySelectorOpen(false);
     setIsLoadingProperties(false);
@@ -133,8 +148,8 @@ export default function IntegrationsPage() {
         : [];
       setProperties(rows);
       const existingProperty =
-        integrations.search_console.providerAccountName ??
-        integrations.search_console.providerAccountId ??
+        searchConsoleState.providerAccountName ??
+        searchConsoleState.providerAccountId ??
         "";
       setSelectedPropertyUrl(existingProperty || rows[0]?.siteUrl || "");
     } catch {
@@ -143,7 +158,7 @@ export default function IntegrationsPage() {
     } finally {
       setIsLoadingProperties(false);
     }
-  }, [businessId, integrations]);
+  }, [businessId, searchConsoleState]);
 
   const saveSearchConsoleProperty = useCallback(async () => {
     if (!businessId || !integrations || !selectedPropertyUrl) return;
@@ -182,10 +197,10 @@ export default function IntegrationsPage() {
       setConnected(
         businessId,
         "search_console",
-        integration?.id ?? integrations.search_console.integrationId,
+        integration?.id ?? searchConsoleState.integrationId,
         {
           connectedAt:
-            integration?.connected_at ?? integrations.search_console.connectedAt,
+            integration?.connected_at ?? searchConsoleState.connectedAt,
           lastSyncAt: integration?.updated_at ?? new Date().toISOString(),
           providerAccountId:
             integration?.provider_account_id ?? selectedPropertyUrl,
@@ -206,7 +221,7 @@ export default function IntegrationsPage() {
   }, [
     businessId,
     closeSearchConsoleSelector,
-    integrations,
+    searchConsoleState,
     selectedPropertyUrl,
     setConnected,
     setToast,
@@ -334,10 +349,10 @@ export default function IntegrationsPage() {
         {DISPLAY_PROVIDERS.map((provider) => {
           const assignedIds =
             assignedAccountsByBusiness[businessId]?.[provider] ?? [];
-          const state = integrations[provider];
+          const state = integrations[provider] ?? getFallbackIntegrationState(provider);
 
           const isGa4 = provider === "ga4";
-          const ga4Connected = isGa4 && integrations.ga4.status === "connected";
+          const ga4Connected = isGa4 && ga4State.status === "connected";
           const isSearchConsole = provider === "search_console";
           const searchConsoleConnected =
             isSearchConsole && state.status === "connected";
