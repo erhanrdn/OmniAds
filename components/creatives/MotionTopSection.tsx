@@ -9,7 +9,7 @@ import { formatMoney, resolveCreativeCurrency } from "@/components/creatives/mon
 import { cn } from "@/lib/utils";
 import { useDropdownBehavior } from "@/hooks/use-dropdown-behavior";
 
-export type MotionGroupBy = "adName" | "creative" | "copy" | "headline" | "landingPage";
+export type MotionGroupBy = "adName" | "creative" | "copy" | "headline" | "landingPage" | "campaign" | "adSet";
 
 export type MotionDatePreset =
   | "today"
@@ -83,6 +83,12 @@ interface MotionTopSectionProps {
   onOpenRow: (rowId: string) => void;
   onShareExport: () => void;
   onCsvExport: () => void;
+  title?: string;
+  description?: string;
+  aiActions?: string[];
+  groupByOptions?: Array<{ value: MotionGroupBy; label: string }>;
+  previewMode?: "media" | "copy";
+  getPreviewCopyText?: (row: MetaCreativeRow) => string;
   shareExportLoading?: boolean;
   csvExportLoading?: boolean;
   shareUrl?: string | null;
@@ -103,6 +109,8 @@ const GROUP_BY_OPTIONS: Array<{ value: MotionGroupBy; label: string }> = [
   { value: "creative", label: "Creative" },
   { value: "copy", label: "Copy" },
   { value: "headline", label: "Headline" },
+  { value: "campaign", label: "Campaign" },
+  { value: "adSet", label: "Ad Set" },
   { value: "landingPage", label: "Landing Page" },
 ];
 
@@ -194,6 +202,7 @@ const METRIC_DEFS: MotionMetricDefinition[] = [
   { id: "thumbstopRatio", label: "Thumbstop ratio", direction: "high", format: fmtPercent, getValue: (r) => r.thumbstop },
   { id: "ctrOutbound", label: "Click through rate (outbound)", direction: "high", format: fmtPercent, getValue: (r) => r.ctrAll },
   { id: "clickToPurchaseRatio", label: "Click to purchase ratio", direction: "high", format: fmtPercent, getValue: (r) => r.clickToPurchase },
+  { id: "seeMoreRate", label: "See more rate", direction: "high", format: fmtPercent, getValue: (r) => r.seeMoreRate },
   { id: "ctrAll", label: "Click through rate (all)", direction: "high", format: fmtPercent, getValue: (r) => r.ctrAll },
   { id: "video25Rate", label: "25% video plays (rate)", direction: "high", format: fmtPercent, getValue: (r) => r.video25 },
   { id: "video50Rate", label: "50% video plays (rate)", direction: "high", format: fmtPercent, getValue: (r) => r.video50 },
@@ -278,6 +287,8 @@ const MOTION_METRIC_MAP: Record<string, MotionMetricDefinition> = METRIC_DEFS.re
 );
 
 export const DEFAULT_TOP_METRIC_IDS = ["spend", "roas", "hookScore", "purchaseValueShare", "purchases"];
+
+export const DEFAULT_COPY_TOP_METRIC_IDS = ["spend", "roas", "ctrAll", "clickToPurchaseRatio", "seeMoreRate"];
 
 export function getMotionMetricDefinition(id: string): MotionMetricDefinition | undefined {
   return MOTION_METRIC_MAP[id];
@@ -394,6 +405,7 @@ export function applyMotionFilters(rows: MetaCreativeRow[], rules: MotionFilterR
 
 export function mapMotionGroupByToApi(groupBy: MotionGroupBy): "adName" | "creative" | "adSet" {
   if (groupBy === "creative") return "creative";
+  if (groupBy === "adSet" || groupBy === "campaign") return "adSet";
   if (groupBy === "landingPage") return "adSet";
   if (groupBy === "copy" || groupBy === "headline") return "creative";
   return "adName";
@@ -415,6 +427,12 @@ export function MotionTopSection({
   onOpenRow,
   onShareExport,
   onCsvExport,
+  title = "Top creatives",
+  description = "This report shows your top performing creatives. Use this to quickly identify where you are spending money vs making money.",
+  aiActions = AI_ACTIONS,
+  groupByOptions = GROUP_BY_OPTIONS,
+  previewMode = "media",
+  getPreviewCopyText,
   shareExportLoading = false,
   csvExportLoading = false,
   shareUrl = null,
@@ -435,10 +453,10 @@ export function MotionTopSection({
         <div className="space-y-1">
           <h2 className="flex items-center gap-2 text-xl font-semibold">
             <Trophy className="h-5 w-5 text-amber-500" />
-            Top creatives
+            {title}
           </h2>
           <p className="max-w-3xl text-sm text-muted-foreground">
-            This report shows your top performing creatives. Use this to quickly identify where you are spending money vs making money.
+            {description}
           </p>
         </div>
       )}
@@ -455,7 +473,7 @@ export function MotionTopSection({
               onChange={(event) => onGroupByChange(event.target.value as MotionGroupBy)}
               className="border-0 bg-transparent pr-6 text-xs outline-none"
             >
-              {GROUP_BY_OPTIONS.map((option) => (
+              {groupByOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
@@ -482,7 +500,7 @@ export function MotionTopSection({
       {/* C — AI action row */}
       <div className="mt-3 rounded-xl border bg-muted/20 px-3 py-2">
         <div className="flex flex-wrap items-center gap-2">
-          {AI_ACTIONS.map((action) => (
+          {aiActions.map((action) => (
             <button
               key={action}
               type="button"
@@ -532,6 +550,8 @@ export function MotionTopSection({
           allRowsForHeatmap={allRowsForHeatmap}
           defaultCurrency={defaultCurrency}
           onOpenRow={onOpenRow}
+          previewMode={previewMode}
+          getPreviewCopyText={getPreviewCopyText}
         />
       </div>
     </section>
@@ -1074,12 +1094,16 @@ function PreviewStrip({
   allRowsForHeatmap,
   defaultCurrency,
   onOpenRow,
+  previewMode = "media",
+  getPreviewCopyText,
 }: {
   rows: MetaCreativeRow[];
   metrics: MotionMetricDefinition[];
   allRowsForHeatmap: MetaCreativeRow[];
   defaultCurrency: string | null;
   onOpenRow: (rowId: string) => void;
+  previewMode?: "media" | "copy";
+  getPreviewCopyText?: (row: MetaCreativeRow) => string;
 }) {
   if (rows.length === 0) {
     return (
@@ -1144,19 +1168,30 @@ function PreviewStrip({
               key={row.id}
               type="button"
               onClick={() => onOpenRow(row.id)}
-              className="group w-[190px] shrink-0 overflow-hidden rounded-xl border bg-background text-left transition-shadow hover:shadow-md hover:ring-1 hover:ring-border"
+              className={cn(
+                "group shrink-0 overflow-hidden rounded-xl border bg-background text-left transition-shadow hover:shadow-md hover:ring-1 hover:ring-border",
+                previewMode === "copy" ? "w-[280px]" : "w-[190px]"
+              )}
             >
-              <div className="relative aspect-square w-full overflow-hidden bg-muted/20">
-                <CreativeRenderSurface
-                  id={row.id}
-                  name={row.name}
-                  preview={row.preview}
-                  size="card"
-                  mode="asset"
-                  assetFallbacks={assetFallbacks}
-                  className="aspect-square w-full"
-                />
-              </div>
+              {previewMode === "copy" ? (
+                <div className="h-[164px] w-full border-b bg-muted/15 px-3 py-3">
+                  <p className="line-clamp-6 text-[12px] leading-5 text-foreground/95">
+                    {getPreviewCopyText?.(row) ?? row.name}
+                  </p>
+                </div>
+              ) : (
+                <div className="relative aspect-square w-full overflow-hidden bg-muted/20">
+                  <CreativeRenderSurface
+                    id={row.id}
+                    name={row.name}
+                    preview={row.preview}
+                    size="card"
+                    mode="asset"
+                    assetFallbacks={assetFallbacks}
+                    className="aspect-square w-full"
+                  />
+                </div>
+              )}
 
               <div className="px-3 pb-3 pt-2.5">
                 <p className="line-clamp-2 text-[12px] font-semibold leading-4">{row.name}</p>

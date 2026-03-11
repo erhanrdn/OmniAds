@@ -88,6 +88,7 @@ export interface MetaCreativeRow {
   addToCart: number;
   thumbstop: number;
   clickToPurchase: number;
+  seeMoreRate: number;
   video25: number;
   video50: number;
   video75: number;

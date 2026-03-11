@@ -250,6 +250,7 @@ function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
     addToCart: row.add_to_cart,
     thumbstop: row.thumbstop,
     clickToPurchase: row.click_to_atc,
+    seeMoreRate: 0,
     video25: row.video25,
     video50: row.video50,
     video75: row.video75,
