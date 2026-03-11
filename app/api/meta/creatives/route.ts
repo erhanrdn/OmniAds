@@ -162,6 +162,9 @@ interface MetaAdRecord {
   creative?: {
     id?: string;
     name?: string;
+    body?: string | null;
+    title?: string | null;
+    text?: string | null;
     object_type?: string | null;
     video_id?: string | null;
     object_story_id?: string | null;
@@ -426,6 +429,8 @@ function resolveCreativeCopyText(creative: MetaAdRecord["creative"]): string | n
   if (!creative) return null;
 
   const candidates: Array<unknown> = [
+    creative.body,
+    creative.text,
     creative.object_story_spec?.link_data?.message,
     creative.object_story_spec?.video_data?.message,
     creative.object_story_spec?.photo_data?.message,
@@ -435,6 +440,7 @@ function resolveCreativeCopyText(creative: MetaAdRecord["creative"]): string | n
     ...(creative.asset_feed_spec?.descriptions ?? []).map((item) => item?.text),
     creative.object_story_spec?.link_data?.description,
     creative.object_story_spec?.link_data?.name,
+    creative.title,
   ];
 
   for (const candidate of candidates) {
@@ -1158,6 +1164,8 @@ function getCreativeMediaFields(): string {
   return [
     "id",
     "name",
+    "body",
+    "title",
     "object_type",
     "video_id",
     "object_story_id",
@@ -1174,6 +1182,8 @@ function getCreativeDetailFields(): string {
   return [
     "id",
     "name",
+    "body",
+    "title",
     "object_type",
     "video_id",
     "object_story_id",
