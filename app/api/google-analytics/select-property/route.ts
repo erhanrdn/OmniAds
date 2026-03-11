@@ -2,10 +2,20 @@ import { NextRequest, NextResponse } from "next/server";
 import { getIntegration, upsertIntegration } from "@/lib/integrations";
 import {
   fetchGA4Properties,
-  isPropertyAccessible,
-  refreshGA4AccessToken,
+  isPropertyAccessible
 } from "@/lib/google-analytics-accounts";
+import {
+  resolveGa4AnalyticsContext,
+  GA4AuthError,
+  type GA4ResolvedAnalyticsContext,
+} from "@/lib/google-analytics-reporting";
 import { requireBusinessAccess } from "@/lib/access";
+
+function normalizeGa4PropertyId(value: string): string {
+  const trimmed = value.trim();
+  if (/^\d+$/.test(trimmed)) return `properties/${trimmed}`;
+  return trimmed;
+}
 
 /**
  * POST /api/google-analytics/select-property
@@ -67,56 +77,28 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Get a valid access token (refresh if needed)
-  let accessToken = integration.access_token;
-  const refreshToken = integration.refresh_token;
-
-  if (integration.token_expires_at) {
-    const isExpired =
-      new Date(integration.token_expires_at).getTime() <= Date.now();
-    if (isExpired && refreshToken) {
-      try {
-        const refreshed = await refreshGA4AccessToken(refreshToken);
-        accessToken = refreshed.accessToken;
-        await upsertIntegration({
-          businessId,
-          provider: "ga4",
-          status: "connected",
-          accessToken: refreshed.accessToken,
-          tokenExpiresAt: new Date(Date.now() + refreshed.expiresIn * 1000),
-        });
-      } catch {
-        return NextResponse.json(
-          {
-            error: "token_refresh_failed",
-            message: "Could not refresh access token. Please reconnect.",
-          },
-          { status: 401 },
-        );
-      }
-    } else if (isExpired && !refreshToken) {
+  let ga4Context: GA4ResolvedAnalyticsContext;
+  try {
+    ga4Context = await resolveGa4AnalyticsContext(businessId, {
+      requireProperty: false,
+    });
+  } catch (err) {
+    if (err instanceof GA4AuthError) {
       return NextResponse.json(
         {
-          error: "token_expired",
-          message: "Access token expired. Please reconnect.",
+          error: err.code,
+          message: err.message,
+          action: err.action,
+          reconnectRequired: err.action === "reconnect_ga4",
         },
-        { status: 401 },
+        { status: err.status },
       );
     }
-  }
-
-  if (!accessToken) {
-    return NextResponse.json(
-      {
-        error: "missing_access_token",
-        message: "Access token missing. Please reconnect.",
-      },
-      { status: 401 },
-    );
+    throw err;
   }
 
   // Validate that the property is accessible by this user
-  const propertiesResult = await fetchGA4Properties(accessToken);
+  const propertiesResult = await fetchGA4Properties(ga4Context.accessToken);
   if (!propertiesResult.ok) {
     return NextResponse.json(
       {
@@ -128,7 +110,10 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (!isPropertyAccessible(propertyId, propertiesResult.properties)) {
+  const normalizedPropertyId = normalizeGa4PropertyId(propertyId);
+  if (
+    !isPropertyAccessible(normalizedPropertyId, propertiesResult.properties)
+  ) {
     return NextResponse.json(
       {
         error: "property_not_accessible",
@@ -150,7 +135,7 @@ export async function POST(request: NextRequest) {
     status: "connected",
     metadata: {
       ...existingMetadata,
-      ga4PropertyId: propertyId,
+      ga4PropertyId: normalizedPropertyId,
       ga4PropertyName: propertyName,
       ga4AccountId: accountId,
       ga4AccountName: accountName,
@@ -159,7 +144,7 @@ export async function POST(request: NextRequest) {
 
   console.log("[ga4-select-property] property linked", {
     businessId,
-    propertyId,
+    propertyId: normalizedPropertyId,
     propertyName,
     accountId,
     accountName,

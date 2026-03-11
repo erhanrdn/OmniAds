@@ -47,8 +47,13 @@ export async function GET(request: NextRequest) {
   } catch (err) {
     if (err instanceof GA4AuthError) {
       return NextResponse.json(
-        { error: err.code, message: err.message },
-        { status: err.code === "integration_not_found" ? 404 : 401 }
+        {
+          error: err.code,
+          message: err.message,
+          action: err.action,
+          reconnectRequired: err.action === "reconnect_ga4",
+        },
+        { status: err.status }
       );
     }
     throw err;

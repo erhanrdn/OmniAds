@@ -51,6 +51,44 @@ type DemoDimension =
   | "userGender"
   | "brandingInterest";
 
+interface AnalyticsApiErrorPayload {
+  error?: string;
+  message?: string;
+  action?: "connect_ga4" | "select_property" | "reconnect_ga4" | "retry_later";
+  reconnectRequired?: boolean;
+}
+
+function buildAnalyticsRequestError(
+  payload: AnalyticsApiErrorPayload,
+  fallbackMessage: string
+) {
+  const message = payload.message ?? fallbackMessage;
+  const error = new Error(message) as Error & {
+    code?: string;
+    action?: AnalyticsApiErrorPayload["action"];
+    reconnectRequired?: boolean;
+  };
+  error.code = payload.error;
+  error.action = payload.action;
+  error.reconnectRequired = payload.reconnectRequired;
+  return error;
+}
+
+function formatAnalyticsErrorMessage(error: unknown, fallback: string): string {
+  if (!(error instanceof Error)) return fallback;
+  const typed = error as Error & { action?: AnalyticsApiErrorPayload["action"] };
+  if (typed.action === "connect_ga4") {
+    return `${typed.message} Connect GA4 in Integrations to continue.`;
+  }
+  if (typed.action === "select_property") {
+    return `${typed.message} Select a GA4 property in Integrations to continue.`;
+  }
+  if (typed.action === "reconnect_ga4") {
+    return `${typed.message} Reconnect GA4 in Integrations.`;
+  }
+  return typed.message || fallback;
+}
+
 // ── API Fetch Helpers ───────────────────────────────────────────────
 
 async function fetchOverview(
@@ -62,8 +100,8 @@ async function fetchOverview(
     `/api/analytics/overview?businessId=${businessId}&startDate=${startDate}&endDate=${endDate}`
   );
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.message ?? "Failed to load analytics overview.");
+    const err = (await res.json().catch(() => ({}))) as AnalyticsApiErrorPayload;
+    throw buildAnalyticsRequestError(err, "Failed to load analytics overview.");
   }
   return res.json();
 }
@@ -77,8 +115,8 @@ async function fetchProducts(
     `/api/analytics/products?businessId=${businessId}&startDate=${startDate}&endDate=${endDate}`
   );
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.message ?? "Failed to load product funnel data.");
+    const err = (await res.json().catch(() => ({}))) as AnalyticsApiErrorPayload;
+    throw buildAnalyticsRequestError(err, "Failed to load product funnel data.");
   }
   return res.json();
 }
@@ -92,8 +130,8 @@ async function fetchLandingPages(
     `/api/analytics/landing-pages?businessId=${businessId}&startDate=${startDate}&endDate=${endDate}`
   );
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.message ?? "Failed to load landing page data.");
+    const err = (await res.json().catch(() => ({}))) as AnalyticsApiErrorPayload;
+    throw buildAnalyticsRequestError(err, "Failed to load landing page data.");
   }
   return res.json();
 }
@@ -107,8 +145,8 @@ async function fetchAudience(
     `/api/analytics/audience?businessId=${businessId}&startDate=${startDate}&endDate=${endDate}`
   );
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.message ?? "Failed to load audience data.");
+    const err = (await res.json().catch(() => ({}))) as AnalyticsApiErrorPayload;
+    throw buildAnalyticsRequestError(err, "Failed to load audience data.");
   }
   return res.json();
 }
@@ -123,8 +161,8 @@ async function fetchDemographics(
     `/api/analytics/demographics?businessId=${businessId}&startDate=${startDate}&endDate=${endDate}&dimension=${dimension}`
   );
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.message ?? "Failed to load demographic data.");
+    const err = (await res.json().catch(() => ({}))) as AnalyticsApiErrorPayload;
+    throw buildAnalyticsRequestError(err, "Failed to load demographic data.");
   }
   return res.json();
 }
@@ -138,8 +176,8 @@ async function fetchCohorts(
     `/api/analytics/cohorts?businessId=${businessId}&startDate=${startDate}&endDate=${endDate}`
   );
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.message ?? "Failed to load cohort data.");
+    const err = (await res.json().catch(() => ({}))) as AnalyticsApiErrorPayload;
+    throw buildAnalyticsRequestError(err, "Failed to load cohort data.");
   }
   return res.json();
 }
@@ -244,11 +282,10 @@ export default function AnalyticsPage() {
       {/* Error state for overview */}
       {overviewError && (
         <ErrorState
-          description={
-            overviewError instanceof Error
-              ? overviewError.message
-              : "Failed to load analytics data."
-          }
+          description={formatAnalyticsErrorMessage(
+            overviewError,
+            "Failed to load analytics data."
+          )}
           onRetry={() => overviewQuery.refetch()}
         />
       )}
@@ -296,11 +333,10 @@ export default function AnalyticsPage() {
             />
             {productsQuery.error ? (
               <ErrorState
-                description={
-                  productsQuery.error instanceof Error
-                    ? productsQuery.error.message
-                    : "Failed to load product data."
-                }
+                description={formatAnalyticsErrorMessage(
+                  productsQuery.error,
+                  "Failed to load product data."
+                )}
                 onRetry={() => productsQuery.refetch()}
               />
             ) : (
@@ -320,11 +356,10 @@ export default function AnalyticsPage() {
             />
             {landingPagesQuery.error ? (
               <ErrorState
-                description={
-                  landingPagesQuery.error instanceof Error
-                    ? landingPagesQuery.error.message
-                    : "Failed to load landing page data."
-                }
+                description={formatAnalyticsErrorMessage(
+                  landingPagesQuery.error,
+                  "Failed to load landing page data."
+                )}
                 onRetry={() => landingPagesQuery.refetch()}
               />
             ) : (
@@ -344,11 +379,10 @@ export default function AnalyticsPage() {
             />
             {audienceQuery.error ? (
               <ErrorState
-                description={
-                  audienceQuery.error instanceof Error
-                    ? audienceQuery.error.message
-                    : "Failed to load audience data."
-                }
+                description={formatAnalyticsErrorMessage(
+                  audienceQuery.error,
+                  "Failed to load audience data."
+                )}
                 onRetry={() => audienceQuery.refetch()}
               />
             ) : (
@@ -369,11 +403,10 @@ export default function AnalyticsPage() {
             />
             {demographicsQuery.error ? (
               <ErrorState
-                description={
-                  demographicsQuery.error instanceof Error
-                    ? demographicsQuery.error.message
-                    : "Failed to load demographic data."
-                }
+                description={formatAnalyticsErrorMessage(
+                  demographicsQuery.error,
+                  "Failed to load demographic data."
+                )}
                 onRetry={() => demographicsQuery.refetch()}
               />
             ) : (
@@ -396,11 +429,10 @@ export default function AnalyticsPage() {
             />
             {cohortsQuery.error ? (
               <ErrorState
-                description={
-                  cohortsQuery.error instanceof Error
-                    ? cohortsQuery.error.message
-                    : "Failed to load cohort data."
-                }
+                description={formatAnalyticsErrorMessage(
+                  cohortsQuery.error,
+                  "Failed to load cohort data."
+                )}
                 onRetry={() => cohortsQuery.refetch()}
               />
             ) : (

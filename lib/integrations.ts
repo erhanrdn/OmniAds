@@ -99,16 +99,16 @@ export async function upsertIntegration(params: {
     )
     ON CONFLICT (business_id, provider) DO UPDATE SET
       status              = EXCLUDED.status,
-      provider_account_id = EXCLUDED.provider_account_id,
-      provider_account_name = EXCLUDED.provider_account_name,
-      access_token        = EXCLUDED.access_token,
+      provider_account_id = COALESCE(EXCLUDED.provider_account_id, integrations.provider_account_id),
+      provider_account_name = COALESCE(EXCLUDED.provider_account_name, integrations.provider_account_name),
+      access_token        = COALESCE(EXCLUDED.access_token, integrations.access_token),
       refresh_token       = COALESCE(EXCLUDED.refresh_token, integrations.refresh_token),
-      token_expires_at    = EXCLUDED.token_expires_at,
-      scopes              = EXCLUDED.scopes,
-      error_message       = EXCLUDED.error_message,
+      token_expires_at    = COALESCE(EXCLUDED.token_expires_at, integrations.token_expires_at),
+      scopes              = COALESCE(EXCLUDED.scopes, integrations.scopes),
+      error_message       = COALESCE(EXCLUDED.error_message, integrations.error_message),
       metadata            = CASE
                               WHEN EXCLUDED.metadata = '{}'::jsonb THEN integrations.metadata
-                              ELSE EXCLUDED.metadata
+                              ELSE integrations.metadata || EXCLUDED.metadata
                             END,
       connected_at        = COALESCE(integrations.connected_at, EXCLUDED.connected_at),
       updated_at          = EXCLUDED.updated_at

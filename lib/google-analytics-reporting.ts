@@ -35,6 +35,20 @@ export interface GA4ReportResult {
   totals?: GA4ReportRow[];
 }
 
+export interface GA4ResolvedAnalyticsContext {
+  businessId: string;
+  integrationId: string;
+  accessToken: string;
+  refreshToken: string | null;
+  propertyId: string | null;
+  propertyName: string | null;
+  propertyResourceName: string | null;
+}
+
+interface ResolveGa4AnalyticsContextOptions {
+  requireProperty?: boolean;
+}
+
 // ── Core Report Runner ─────────────────────────────────────────────
 
 export async function runGA4Report(
@@ -107,20 +121,50 @@ export async function runGA4Report(
 
 // ── Token Helper ───────────────────────────────────────────────────
 
-/**
- * Gets a valid GA4 access token for a business, refreshing if needed.
- * Returns { accessToken, propertyId } or throws with a structured error.
- */
-export async function getGA4TokenAndProperty(
-  businessId: string
-): Promise<{ accessToken: string; propertyId: string; propertyName: string }> {
+function normalizePropertyResource(propertyId: string): string {
+  const trimmed = propertyId.trim();
+  if (!trimmed) {
+    throw new GA4AuthError(
+      "integration_malformed",
+      "GA4 integration is missing a valid selected property.",
+      500,
+      "reconnect_ga4"
+    );
+  }
+  if (/^\d+$/.test(trimmed)) {
+    return `properties/${trimmed}`;
+  }
+  if (/^properties\/\d+$/.test(trimmed)) {
+    return trimmed;
+  }
+  throw new GA4AuthError(
+    "integration_malformed",
+    "GA4 selected property format is invalid. Please reselect the GA4 property.",
+    500,
+    "select_property"
+  );
+}
+
+export async function resolveGa4AnalyticsContext(
+  businessId: string,
+  options: ResolveGa4AnalyticsContextOptions = {}
+): Promise<GA4ResolvedAnalyticsContext> {
+  const requireProperty = options.requireProperty ?? true;
   const integration = await getIntegration(businessId, "ga4");
 
   if (!integration || integration.status !== "connected") {
-    throw new GA4AuthError("integration_not_found", "GA4 not connected.");
+    throw new GA4AuthError(
+      "ga4_not_connected",
+      "GA4 is not connected for this business.",
+      404,
+      "connect_ga4"
+    );
   }
 
-  const metadata = (integration.metadata ?? {}) as Record<string, unknown>;
+  const metadata =
+    integration.metadata && typeof integration.metadata === "object"
+      ? (integration.metadata as Record<string, unknown>)
+      : {};
   const propertyId =
     typeof metadata.ga4PropertyId === "string" ? metadata.ga4PropertyId : null;
   const propertyName =
@@ -128,20 +172,33 @@ export async function getGA4TokenAndProperty(
       ? metadata.ga4PropertyName
       : "";
 
-  if (!propertyId) {
+  if (requireProperty && !propertyId) {
     throw new GA4AuthError(
       "no_property_selected",
-      "No GA4 property selected for this business."
+      "GA4 is connected but no property is selected for this business.",
+      422,
+      "select_property"
     );
   }
 
+  const propertyResourceName = propertyId
+    ? normalizePropertyResource(propertyId)
+    : null;
+  const normalizedPropertyId = propertyResourceName
+    ? propertyResourceName.replace(/^properties\//, "")
+    : null;
+
   let accessToken = integration.access_token;
   const refreshToken = integration.refresh_token;
+  const now = Date.now();
+  const expiresAtMs = integration.token_expires_at
+    ? new Date(integration.token_expires_at).getTime()
+    : null;
+  const isExpired = typeof expiresAtMs === "number" && expiresAtMs <= now;
 
-  if (integration.token_expires_at) {
-    const isExpired =
-      new Date(integration.token_expires_at).getTime() <= Date.now();
-    if (isExpired && refreshToken) {
+  const shouldRefresh = Boolean(refreshToken) && (isExpired || !accessToken);
+  if (shouldRefresh && refreshToken) {
+    try {
       const refreshed = await refreshGA4AccessToken(refreshToken);
       accessToken = refreshed.accessToken;
       await upsertIntegration({
@@ -151,28 +208,77 @@ export async function getGA4TokenAndProperty(
         accessToken: refreshed.accessToken,
         tokenExpiresAt: new Date(Date.now() + refreshed.expiresIn * 1000),
       });
-    } else if (isExpired && !refreshToken) {
+    } catch {
       throw new GA4AuthError(
-        "token_expired",
-        "GA4 access token expired. Please reconnect."
+        "token_refresh_failed",
+        "GA4 access token could not be refreshed. Please reconnect GA4.",
+        401,
+        "reconnect_ga4"
       );
     }
   }
 
-  if (!accessToken) {
+  if (isExpired && !refreshToken) {
     throw new GA4AuthError(
-      "missing_token",
-      "GA4 access token is missing. Please reconnect."
+      "token_expired",
+      "GA4 access token has expired and no refresh token is available. Please reconnect GA4.",
+      401,
+      "reconnect_ga4"
     );
   }
 
-  return { accessToken, propertyId, propertyName };
+  if (!accessToken) {
+    throw new GA4AuthError(
+      "missing_access_token",
+      "GA4 access token is missing. Please reconnect GA4.",
+      401,
+      "reconnect_ga4"
+    );
+  }
+
+  return {
+    businessId,
+    integrationId: integration.id,
+    accessToken,
+    refreshToken,
+    propertyId: normalizedPropertyId,
+    propertyName: propertyName || null,
+    propertyResourceName,
+  };
+}
+
+/**
+ * Backward-compatible helper used by analytics routes.
+ */
+export async function getGA4TokenAndProperty(
+  businessId: string
+): Promise<{ accessToken: string; propertyId: string; propertyName: string }> {
+  const context = await resolveGa4AnalyticsContext(businessId);
+  if (!context.propertyId) {
+    throw new GA4AuthError(
+      "no_property_selected",
+      "GA4 is connected but no property is selected for this business.",
+      422,
+      "select_property"
+    );
+  }
+  return {
+    accessToken: context.accessToken,
+    propertyId: context.propertyId,
+    propertyName: context.propertyName ?? "",
+  };
 }
 
 export class GA4AuthError extends Error {
   constructor(
     public readonly code: string,
-    message: string
+    message: string,
+    public readonly status: number = 401,
+    public readonly action:
+      | "connect_ga4"
+      | "select_property"
+      | "reconnect_ga4"
+      | "retry_later" = "retry_later"
   ) {
     super(message);
     this.name = "GA4AuthError";
