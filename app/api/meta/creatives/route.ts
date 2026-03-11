@@ -145,6 +145,8 @@ interface MetaAdImageRecord {
 interface MetaAdRecord {
   id?: string;
   name?: string;
+  object_story_id?: string | null;
+  effective_object_story_id?: string | null;
   adset_id?: string;
   adset?: {
     id?: string;
@@ -241,6 +243,8 @@ interface RawCreativeRow {
   headline_variants: string[];
   description_variants: string[];
   copy_source: CopySourceLabel | null;
+  copy_debug_sources?: string[];
+  unresolved_reason?: string | null;
   preview_url: string | null;
   preview_source: string | null;
   thumbnail_url: string | null;
@@ -316,6 +320,8 @@ export interface MetaCreativeApiRow {
   headline_variants?: string[];
   description_variants?: string[];
   copy_source?: CopySourceLabel | null;
+  copy_debug_sources?: string[];
+  unresolved_reason?: string | null;
   preview_url: string | null;
   preview_source: string | null;
   thumbnail_url: string | null;
@@ -1275,6 +1281,9 @@ function getCreativeMediaFields(): string {
     "id",
     "name",
     "body",
+    "text",
+    "message",
+    "description",
     "title",
     "object_type",
     "video_id",
@@ -1293,6 +1302,9 @@ function getCreativeDetailFields(): string {
     "id",
     "name",
     "body",
+    "text",
+    "message",
+    "description",
     "title",
     "object_type",
     "video_id",
@@ -1394,9 +1406,11 @@ async function batchFetchAdsByIds(
   const fields = [
     "id",
     "name",
+    "object_story_id",
+    "effective_object_story_id",
     "adset_id",
     "created_time",
-    "creative{id,name}",
+    `creative{${getCreativeMediaFields()}}`,
   ].join(",");
 
   const chunkSize = 40;
@@ -1842,7 +1856,7 @@ async function fetchStoryCopyMap(
     const chunk = ids.slice(i, i + 40);
     const url = new URL("https://graph.facebook.com/v25.0/");
     url.searchParams.set("ids", chunk.join(","));
-    url.searchParams.set("fields", "message,name,description,story");
+    url.searchParams.set("fields", "message,name,description,story,attachments{title,description}");
     url.searchParams.set("access_token", accessToken);
     try {
       const res = await fetch(url.toString(), {
@@ -1854,9 +1868,24 @@ async function fetchStoryCopyMap(
       const payload = (await res.json().catch(() => null)) as Record<string, Record<string, unknown>> | null;
       if (!payload || typeof payload !== "object") continue;
       for (const [id, value] of Object.entries(payload)) {
+        const attachmentData = Array.isArray((value?.attachments as { data?: unknown[] } | undefined)?.data)
+          ? (((value?.attachments as { data?: unknown[] }).data as unknown[]) ?? [])
+          : [];
+        const attachmentTitles = attachmentData
+          .map((item) =>
+            item && typeof item === "object" && "title" in (item as Record<string, unknown>)
+              ? (item as Record<string, unknown>).title
+              : null
+          );
+        const attachmentDescriptions = attachmentData
+          .map((item) =>
+            item && typeof item === "object" && "description" in (item as Record<string, unknown>)
+              ? (item as Record<string, unknown>).description
+              : null
+          );
         const message = uniqueNormalizedText([value?.message, value?.story]);
-        const headline = uniqueNormalizedText([value?.name]);
-        const description = uniqueNormalizedText([value?.description]);
+        const headline = uniqueNormalizedText([value?.name, ...attachmentTitles]);
+        const description = uniqueNormalizedText([value?.description, ...attachmentDescriptions]);
         if (message.length === 0 && headline.length === 0 && description.length === 0) continue;
         map.set(id, { message, headline, description });
       }
@@ -1895,6 +1924,46 @@ function mergeExtraction(base: CopyExtraction, partial: {
     headline_variants: mergedHeadlineVariants,
     description_variants: mergedDescriptionVariants,
     copy_source: base.copy_source ?? (addedContent ? partial.source ?? null : null),
+  };
+}
+
+function mergeDebugSources(base: string[] | undefined, incoming: string[] | undefined): string[] {
+  const merged = new Set<string>([...(base ?? []), ...(incoming ?? [])]);
+  return Array.from(merged);
+}
+
+function applyExtractionToRow(
+  row: RawCreativeRow,
+  extraction: CopyExtraction,
+  debugSource: string,
+  unresolvedReason: string | null = null
+): RawCreativeRow {
+  const merged = mergeExtraction(
+    {
+      copy_text: row.copy_text ?? null,
+      copy_variants: row.copy_variants ?? [],
+      headline_variants: row.headline_variants ?? [],
+      description_variants: row.description_variants ?? [],
+      copy_source: row.copy_source ?? null,
+    },
+    {
+      copy_variants: extraction.copy_variants,
+      headline_variants: extraction.headline_variants,
+      description_variants: extraction.description_variants,
+      source: extraction.copy_source ?? undefined,
+    }
+  );
+  const hasRecoveredCopy = Boolean(
+    normalizeCopyText(merged.copy_text) ||
+      merged.copy_variants.length > 0 ||
+      merged.headline_variants.length > 0 ||
+      merged.description_variants.length > 0
+  );
+  return {
+    ...row,
+    ...merged,
+    copy_debug_sources: mergeDebugSources(row.copy_debug_sources, [debugSource]),
+    unresolved_reason: hasRecoveredCopy ? null : unresolvedReason ?? row.unresolved_reason ?? null,
   };
 }
 
@@ -2065,10 +2134,14 @@ function toRawRow(
   const objectStoryId =
     typeof creative?.object_story_id === "string" && creative.object_story_id.trim().length > 0
       ? creative.object_story_id.trim()
+      : typeof ad?.object_story_id === "string" && ad.object_story_id.trim().length > 0
+      ? ad.object_story_id.trim()
       : null;
   const effectiveObjectStoryId =
     typeof creative?.effective_object_story_id === "string" && creative.effective_object_story_id.trim().length > 0
       ? creative.effective_object_story_id.trim()
+      : typeof ad?.effective_object_story_id === "string" && ad.effective_object_story_id.trim().length > 0
+      ? ad.effective_object_story_id.trim()
       : null;
   const postId =
     extractPostIdFromStoryIdentifier(objectStoryId) ??
@@ -2095,6 +2168,11 @@ function toRawRow(
     headline_variants: copyExtraction.headline_variants,
     description_variants: copyExtraction.description_variants,
     copy_source: copyExtraction.copy_source,
+    copy_debug_sources: copyExtraction.copy_source ? [copyExtraction.copy_source] : [],
+    unresolved_reason:
+      copyExtraction.copy_text || copyExtraction.copy_variants.length > 0 || copyExtraction.headline_variants.length > 0 || copyExtraction.description_variants.length > 0
+        ? null
+        : "no_structured_creative_text",
     preview_url: finalPreview,
     preview_source: normalizedPreview.legacy.preview_source,
     thumbnail_url: finalThumbnail,
@@ -2265,6 +2343,9 @@ function groupRows(
     const groupedDescriptionVariants = uniqueNormalizedText(list.flatMap((item) => item.description_variants ?? []));
     const groupedCopySource =
       list.map((item) => item.copy_source ?? null).find((value): value is CopySourceLabel => Boolean(value)) ?? null;
+    const groupedCopyDebugSources = mergeDebugSources([], list.flatMap((item) => item.copy_debug_sources ?? []));
+    const groupedUnresolvedReason =
+      list.map((item) => item.unresolved_reason ?? null).find((value): value is string => Boolean(value)) ?? null;
 
     const stableId =
       groupBy === "creative"
@@ -2290,6 +2371,8 @@ function groupRows(
       headline_variants: groupedHeadlineVariants,
       description_variants: groupedDescriptionVariants,
       copy_source: groupedCopySource,
+      copy_debug_sources: groupedCopyDebugSources,
+      unresolved_reason: groupedUnresolvedReason,
       preview_url: groupedPreview.video_url ?? groupedPreview.image_url ?? groupedPreview.poster_url ?? null,
       preview_source: groupedPreview.source,
       thumbnail_url: previewRow?.thumbnail_url ?? groupedPreview.poster_url ?? groupedPreview.image_url ?? null,
@@ -3089,6 +3172,51 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  const unresolvedCopyAdIds = rawRows
+    .filter(
+      (row) =>
+        !normalizeCopyText(row.copy_text) &&
+        row.copy_variants.length === 0 &&
+        row.headline_variants.length === 0 &&
+        row.description_variants.length === 0 &&
+        row.id &&
+        !row.id.startsWith("creative_") &&
+        !row.id.startsWith("adset_")
+    )
+    .map((row) => row.id);
+
+  if (unresolvedCopyAdIds.length > 0) {
+    const tCopyRecovery = Date.now();
+    const deepCopyMap = await fetchAdCreativeMediaDirectByAdIds(unresolvedCopyAdIds, accessToken);
+    for (const row of rawRows) {
+      if (normalizeCopyText(row.copy_text) || row.copy_variants.length > 0 || row.headline_variants.length > 0 || row.description_variants.length > 0) {
+        continue;
+      }
+      const deepAd = deepCopyMap.get(row.id);
+      const deepCreative = deepAd?.creative ?? null;
+      if (!deepCreative) {
+        row.copy_debug_sources = mergeDebugSources(row.copy_debug_sources, ["deep_ad_fetch"]);
+        row.unresolved_reason = row.unresolved_reason ?? "deep_ad_fetch_no_creative";
+        continue;
+      }
+      if (!row.object_story_id && typeof deepCreative.object_story_id === "string" && deepCreative.object_story_id.trim().length > 0) {
+        row.object_story_id = deepCreative.object_story_id.trim();
+      }
+      if (!row.effective_object_story_id && typeof deepCreative.effective_object_story_id === "string" && deepCreative.effective_object_story_id.trim().length > 0) {
+        row.effective_object_story_id = deepCreative.effective_object_story_id.trim();
+      }
+      const extracted = resolveCreativeCopyExtraction(deepCreative);
+      const applied = applyExtractionToRow(
+        row,
+        extracted,
+        "deep_ad_fetch",
+        "deep_ad_fetch_no_copy_fields"
+      );
+      Object.assign(row, applied);
+    }
+    addStageMs("copy_deep_recovery_ms", Date.now() - tCopyRecovery);
+  }
+
   const scopedRows = format === "all" ? rawRows : rawRows.filter((row) => row.format === format);
   const creativeUsageMap = scopedRows.reduce<Map<string, Set<string>>>((acc, row) => {
     const existing = acc.get(row.creative_id) ?? new Set<string>();
@@ -3141,23 +3269,25 @@ export async function GET(request: NextRequest) {
           extractPostIdFromStoryIdentifier(row.effective_object_story_id ?? null),
         ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
         const storyHit = lookupCandidates.map((id) => storyCopyMap.get(id)).find((item) => Boolean(item)) ?? null;
-        if (!storyHit) return row;
-        const merged = mergeExtraction(
+        if (!storyHit) {
+          return {
+            ...row,
+            copy_debug_sources: mergeDebugSources(row.copy_debug_sources, ["story_lookup"]),
+            unresolved_reason: row.unresolved_reason ?? "story_lookup_no_text",
+          };
+        }
+        return applyExtractionToRow(
+          row,
           {
-            copy_text: row.copy_text ?? null,
-            copy_variants: row.copy_variants ?? [],
-            headline_variants: row.headline_variants ?? [],
-            description_variants: row.description_variants ?? [],
-            copy_source: row.copy_source ?? null,
-          },
-          {
+            copy_text: null,
             copy_variants: storyHit.message,
             headline_variants: storyHit.headline,
             description_variants: storyHit.description,
-            source: "story_lookup",
-          }
+            copy_source: "story_lookup",
+          },
+          "story_lookup",
+          "story_lookup_no_text"
         );
-        return { ...row, ...merged };
       });
     }
 
@@ -3180,27 +3310,43 @@ export async function GET(request: NextRequest) {
         rows = rows.map((row) => {
           if (normalizeCopyText(row.copy_text)) return row;
           const previewExtracted = previewByCreativeId.get(row.creative_id);
-          if (!previewExtracted) return row;
-          const merged = mergeExtraction(
+          if (!previewExtracted) {
+            return {
+              ...row,
+              copy_debug_sources: mergeDebugSources(row.copy_debug_sources, ["preview_html_fallback"]),
+              unresolved_reason: row.unresolved_reason ?? "preview_html_unavailable",
+            };
+          }
+          return applyExtractionToRow(
+            row,
             {
-              copy_text: row.copy_text ?? null,
-              copy_variants: row.copy_variants ?? [],
-              headline_variants: row.headline_variants ?? [],
-              description_variants: row.description_variants ?? [],
-              copy_source: row.copy_source ?? null,
-            },
-            {
+              copy_text: null,
               copy_variants: previewExtracted.copy_variants,
               headline_variants: previewExtracted.headline_variants,
               description_variants: previewExtracted.description_variants,
-              source: "preview_html",
-            }
+              copy_source: "preview_html",
+            },
+            "preview_html_fallback",
+            "preview_html_no_copy"
           );
-          return { ...row, ...merged };
         });
       }
     }
   }
+
+  rows = rows.map((row) => {
+    const hasCopy = Boolean(
+      normalizeCopyText(row.copy_text) ||
+        row.copy_variants.length > 0 ||
+        row.headline_variants.length > 0 ||
+        row.description_variants.length > 0
+    );
+    if (hasCopy) return row;
+    return {
+      ...row,
+      unresolved_reason: row.unresolved_reason ?? "no_recoverable_copy_after_all_stages",
+    };
+  });
 
   if (process.env.NODE_ENV !== "production") {
     const duplicateNames = rows.filter((r, i, arr) => arr.findIndex((x) => x.name === r.name) !== i);
@@ -3359,6 +3505,8 @@ export async function GET(request: NextRequest) {
       headline_variants: row.headline_variants ?? [],
       description_variants: row.description_variants ?? [],
       copy_source: row.copy_source ?? null,
+      copy_debug_sources: row.copy_debug_sources ?? [],
+      unresolved_reason: row.unresolved_reason ?? null,
       preview_url: finalPreviewUrl,
       preview_source: row.preview_source,
       thumbnail_url: finalThumbnailUrl,

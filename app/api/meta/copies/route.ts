@@ -29,6 +29,7 @@ export interface MetaCopyApiRow {
   copy_source: string | null;
   copy_asset_type: "primary_text" | "headline" | "description" | "bundle" | null;
   copy_debug_sources?: string[];
+  unresolved_reason?: string | null;
   preview_url: string | null;
   thumbnail_url: string | null;
   image_url: string | null;
@@ -66,6 +67,21 @@ interface MetaCopiesApiResponse {
     unresolved_filtered_count: number;
     source_rows_count: number;
     returned_rows_count: number;
+    unresolved_debug?: Array<{
+      id: string;
+      ad_id: string;
+      name: string | null;
+      creative_id: string | null;
+      object_story_id: string | null;
+      effective_object_story_id: string | null;
+      copy_source: string | null;
+      unresolved_reason: string | null;
+      attempted_sources: string[];
+      story_lookup_attempted: boolean;
+      story_lookup_succeeded: boolean;
+      preview_html_attempted: boolean;
+      preview_html_succeeded: boolean;
+    }>;
   };
 }
 
@@ -162,7 +178,8 @@ function mapCreativeRowToCopyRow(row: MetaCreativeApiRow): MetaCopyApiRow {
     normalized_copy_key: normalizedCopyKey,
     copy_source: row.copy_source ?? null,
     copy_asset_type: copyAssetType,
-    copy_debug_sources: row.copy_source ? [row.copy_source] : [],
+    copy_debug_sources: row.copy_debug_sources ?? (row.copy_source ? [row.copy_source] : []),
+    unresolved_reason: row.unresolved_reason ?? null,
     preview_url: row.preview_url ?? null,
     thumbnail_url: row.thumbnail_url ?? null,
     image_url: row.image_url ?? null,
@@ -307,6 +324,7 @@ export async function GET(request: NextRequest) {
   const sort: CopySortKey = ["roas", "spend", "ctrAll", "purchaseValue"].includes(sortParam)
     ? sortParam
     : "spend";
+  const debug = params.get("debug") === "1";
 
   if (!businessId) {
     return NextResponse.json(
@@ -347,10 +365,47 @@ export async function GET(request: NextRequest) {
 
   const sourceRows = Array.isArray(creativePayload?.rows) ? creativePayload.rows : [];
   const mapped = sourceRows.map(mapCreativeRowToCopyRow);
+  const sourceRowById = new Map(sourceRows.map((row) => [row.id, row]));
   const eligible = mapped.filter(isCopyEligible);
   const unresolvedFilteredCount = mapped.length - eligible.length;
   const grouped = aggregateRows(eligible, groupBy).filter(isCopyEligible);
   const sorted = sortRows(grouped, sort);
+  const unresolvedDebug = debug
+    ? mapped
+        .filter((row) => !isCopyEligible(row))
+        .slice(0, 50)
+        .map((row) => {
+          const sources = row.copy_debug_sources ?? [];
+          const sourceRow = sourceRowById.get(row.id);
+          const attemptedSources = Array.from(
+            new Set([
+              "direct_creative_extraction",
+              ...sources,
+              sourceRow?.object_story_id || sourceRow?.effective_object_story_id || row.post_id ? "story_lookup" : "",
+              "preview_html_fallback",
+            ].filter(Boolean))
+          );
+          return {
+            id: row.id,
+            ad_id: row.ad_id,
+            name: row.name,
+            creative_id: row.creative_id,
+            object_story_id: sourceRow?.object_story_id ?? null,
+            effective_object_story_id: sourceRow?.effective_object_story_id ?? null,
+            copy_source: row.copy_source,
+            unresolved_reason: row.unresolved_reason ?? "no_recoverable_copy_after_all_stages",
+            attempted_sources: attemptedSources,
+            story_lookup_attempted: Boolean(
+              sourceRow?.object_story_id ||
+                sourceRow?.effective_object_story_id ||
+                sourceRow?.post_id
+            ),
+            story_lookup_succeeded: row.copy_source === "story_lookup",
+            preview_html_attempted: true,
+            preview_html_succeeded: row.copy_source === "preview_html",
+          };
+        })
+    : undefined;
 
   const response: MetaCopiesApiResponse = {
     status: "ok",
@@ -361,6 +416,7 @@ export async function GET(request: NextRequest) {
       unresolved_filtered_count: unresolvedFilteredCount,
       source_rows_count: sourceRows.length,
       returned_rows_count: sorted.length,
+      unresolved_debug: unresolvedDebug,
     },
   };
 
