@@ -76,8 +76,7 @@ export async function fetchGoogleAdsAccounts(
   try {
     developerToken = GOOGLE_CONFIG.developerToken;
   } catch (err) {
-    const detail =
-      err instanceof Error ? err.message : String(err);
+    const detail = err instanceof Error ? err.message : String(err);
     console.error("[google-ads-accounts] developer token missing", {
       message: detail,
     });
@@ -91,15 +90,15 @@ export async function fetchGoogleAdsAccounts(
   const baseCandidates = buildAdsApiBaseCandidates();
   let listResult: GoogleAdsHttpResult | null = null;
   let selectedBase: string | null = null;
-  const attemptLogs: Array<{ base: string; status: number; isJson: boolean }> = [];
+  const attemptLogs: Array<{ base: string; status: number; isJson: boolean }> =
+    [];
 
   for (const base of baseCandidates) {
     const attempt = await googleAdsRequest({
       url: `${base}/customers:listAccessibleCustomers`,
-      method: "POST",
+      method: "GET",
       accessToken,
       developerToken,
-      body: {},
       logLabel: `customers:listAccessibleCustomers base=${base}`,
     });
 
@@ -224,8 +223,13 @@ async function fetchCustomerDetails({
     logLabel: `customers.get customer=${customerId}`,
   });
 
-  if (customerResourceResult.ok && !hasGoogleAdsError(customerResourceResult.payload)) {
-    const fromResource = readCustomerFromResourcePayload(customerResourceResult.payload);
+  if (
+    customerResourceResult.ok &&
+    !hasGoogleAdsError(customerResourceResult.payload)
+  ) {
+    const fromResource = readCustomerFromResourcePayload(
+      customerResourceResult.payload,
+    );
     if (fromResource) {
       return {
         id: fromResource.id || customerId,
@@ -241,7 +245,9 @@ async function fetchCustomerDetails({
   const searchUrl = `${adsApiBase}/customers/${customerId}/googleAds:search`;
   const query =
     "SELECT customer.id, customer.descriptive_name, customer.currency_code, customer.time_zone, customer.manager FROM customer";
-  const loginHeaderCandidates = Array.from(new Set([customerId, ...loginCustomerIds])).slice(0, 25);
+  const loginHeaderCandidates = Array.from(
+    new Set([customerId, ...loginCustomerIds]),
+  ).slice(0, 25);
 
   for (const loginCustomerId of [undefined, ...loginHeaderCandidates]) {
     const result = await googleAdsRequest({
@@ -278,7 +284,7 @@ async function fetchCustomerDetails({
       timezone: customer.timezone,
       isManager: customer.isManager,
     };
-  };
+  }
 
   return null;
 }
@@ -286,11 +292,13 @@ async function fetchCustomerDetails({
 function buildAdsApiBaseCandidates(): string[] {
   const configured = normalizeApiBase(GOOGLE_CONFIG.adsApiBase);
   const defaults = [
+    "https://googleads.googleapis.com/v23",
     "https://googleads.googleapis.com/v22",
     "https://googleads.googleapis.com/v21",
-    "https://googleads.googleapis.com/v20",
   ];
-  return Array.from(new Set([configured, ...defaults].filter(Boolean))) as string[];
+  return Array.from(
+    new Set([configured, ...defaults].filter(Boolean)),
+  ) as string[];
 }
 
 function normalizeApiBase(input: string): string {
@@ -400,7 +408,9 @@ function readResourceNames(payload: unknown): string[] {
   if (!payload || typeof payload !== "object") return [];
   const resourceNames = (payload as { resourceNames?: unknown }).resourceNames;
   if (!Array.isArray(resourceNames)) return [];
-  return resourceNames.filter((item): item is string => typeof item === "string");
+  return resourceNames.filter(
+    (item): item is string => typeof item === "string",
+  );
 }
 
 function readCustomerFromSearchPayload(payload: unknown): {
@@ -416,7 +426,12 @@ function readCustomerFromSearchPayload(payload: unknown): {
   if (!Array.isArray(results) || results.length === 0) return null;
 
   const first = results[0] as { customer?: unknown };
-  if (!first || typeof first !== "object" || !first.customer || typeof first.customer !== "object") {
+  if (
+    !first ||
+    typeof first !== "object" ||
+    !first.customer ||
+    typeof first.customer !== "object"
+  ) {
     return null;
   }
 
@@ -435,8 +450,8 @@ function readCustomerFromSearchPayload(payload: unknown): {
     typeof customer.id === "number"
       ? String(customer.id)
       : typeof customer.id === "string"
-      ? customer.id
-      : "";
+        ? customer.id
+        : "";
 
   return {
     id,
@@ -444,20 +459,20 @@ function readCustomerFromSearchPayload(payload: unknown): {
       typeof customer.descriptiveName === "string"
         ? customer.descriptiveName
         : typeof customer.descriptive_name === "string"
-        ? customer.descriptive_name
-        : "",
+          ? customer.descriptive_name
+          : "",
     currency:
       typeof customer.currencyCode === "string"
         ? customer.currencyCode
         : typeof customer.currency_code === "string"
-        ? customer.currency_code
-        : null,
+          ? customer.currency_code
+          : null,
     timezone:
       typeof customer.timeZone === "string"
         ? customer.timeZone
         : typeof customer.time_zone === "string"
-        ? customer.time_zone
-        : null,
+          ? customer.time_zone
+          : null,
     isManager: customer.manager === true,
   };
 }
@@ -485,8 +500,8 @@ function readCustomerFromResourcePayload(payload: unknown): {
     typeof customer.id === "number"
       ? String(customer.id)
       : typeof customer.id === "string"
-      ? customer.id
-      : "";
+        ? customer.id
+        : "";
   if (!id) return null;
 
   return {
@@ -495,20 +510,20 @@ function readCustomerFromResourcePayload(payload: unknown): {
       typeof customer.descriptiveName === "string"
         ? customer.descriptiveName
         : typeof customer.descriptive_name === "string"
-        ? customer.descriptive_name
-        : "",
+          ? customer.descriptive_name
+          : "",
     currency:
       typeof customer.currencyCode === "string"
         ? customer.currencyCode
         : typeof customer.currency_code === "string"
-        ? customer.currency_code
-        : null,
+          ? customer.currency_code
+          : null,
     timezone:
       typeof customer.timeZone === "string"
         ? customer.timeZone
         : typeof customer.time_zone === "string"
-        ? customer.time_zone
-        : null,
+          ? customer.time_zone
+          : null,
     isManager: customer.manager === true,
   };
 }
