@@ -1,5 +1,6 @@
 "use client";
 
+import { cn } from "@/lib/utils";
 import { GeoKpiCard } from "./GeoKpiCard";
 import { GeoInsightCallout } from "./GeoInsightCallout";
 import type { GeoInsight } from "@/lib/geo-intelligence";
@@ -17,9 +18,24 @@ interface OverviewKpis {
   totalQueryCount: number;
 }
 
+interface Top3Priority {
+  title: string;
+  description: string;
+  priority: "high" | "medium" | "low";
+  effort: string;
+  impact: string;
+}
+
+interface Highlights {
+  strongestGeoQuery?: { query: string; geoScore: number; impressions: number } | null;
+  strongestGeoTopic?: { topic: string; geoScore: number; impressions: number; coverageStrength: string } | null;
+}
+
 interface GeoOverviewSectionProps {
   kpis?: OverviewKpis;
   insights?: GeoInsight[];
+  top3Priorities?: Top3Priority[];
+  highlights?: Highlights;
   isLoading: boolean;
 }
 
@@ -31,9 +47,32 @@ function fmt(n: number, type: "number" | "percent" | "score" = "number"): string
   return n.toFixed(0);
 }
 
+const PRIORITY_CONFIG = {
+  high: {
+    label: "High",
+    dot: "bg-rose-500",
+    badge: "bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300",
+    border: "border-rose-200 dark:border-rose-900/50",
+  },
+  medium: {
+    label: "Medium",
+    dot: "bg-amber-400",
+    badge: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
+    border: "border-amber-200 dark:border-amber-900/50",
+  },
+  low: {
+    label: "Low",
+    dot: "bg-muted-foreground",
+    badge: "bg-muted text-muted-foreground",
+    border: "border-border",
+  },
+};
+
 export function GeoOverviewSection({
   kpis,
   insights,
+  top3Priorities,
+  highlights,
   isLoading,
 }: GeoOverviewSectionProps) {
   return (
@@ -103,6 +142,83 @@ export function GeoOverviewSection({
                   width: `${Math.min(100, (kpis.aiStyleQueryCount / kpis.totalQueryCount) * 100)}%`,
                 }}
               />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Top 3 Priorities */}
+      {!isLoading && top3Priorities && top3Priorities.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Top Priorities
+          </p>
+          <div className="grid gap-2.5 sm:grid-cols-3">
+            {top3Priorities.map((p, i) => {
+              const cfg = PRIORITY_CONFIG[p.priority];
+              return (
+                <div
+                  key={i}
+                  className={cn(
+                    "rounded-xl border p-4",
+                    cfg.border
+                  )}
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className={cn("h-2 w-2 rounded-full shrink-0", cfg.dot)} />
+                    <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase", cfg.badge)}>
+                      {cfg.label}
+                    </span>
+                  </div>
+                  <p className="text-sm font-semibold leading-snug mb-1">{p.title}</p>
+                  <p className="text-xs text-muted-foreground leading-relaxed mb-2">{p.description}</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">{p.impact}</span>
+                    <span className="text-[10px] text-muted-foreground">{p.effort} effort</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Strongest asset highlights */}
+      {!isLoading && highlights && (highlights.strongestGeoQuery || highlights.strongestGeoTopic) && (
+        <div className="grid gap-2.5 sm:grid-cols-2">
+          {highlights.strongestGeoQuery && (
+            <div className="rounded-xl border bg-violet-50 dark:bg-violet-950/30 border-violet-200 dark:border-violet-900/50 p-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-violet-600 dark:text-violet-400 mb-1">
+                Strongest GEO Query
+              </p>
+              <p className="font-semibold text-sm truncate" title={highlights.strongestGeoQuery.query}>
+                "{highlights.strongestGeoQuery.query}"
+              </p>
+              <div className="mt-1 flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">
+                  {highlights.strongestGeoQuery.impressions.toLocaleString()} impressions
+                </span>
+                <span className="rounded-full bg-violet-100 dark:bg-violet-900/40 px-2 py-0.5 text-xs font-semibold text-violet-800 dark:text-violet-300">
+                  GEO {highlights.strongestGeoQuery.geoScore}
+                </span>
+              </div>
+            </div>
+          )}
+          {highlights.strongestGeoTopic && (
+            <div className="rounded-xl border bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900/50 p-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-emerald-600 dark:text-emerald-400 mb-1">
+                Strongest GEO Topic
+              </p>
+              <p className="font-semibold text-sm capitalize">{highlights.strongestGeoTopic.topic}</p>
+              <div className="mt-1 flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">
+                  {highlights.strongestGeoTopic.impressions.toLocaleString()} impressions ·{" "}
+                  {highlights.strongestGeoTopic.coverageStrength} coverage
+                </span>
+                <span className="rounded-full bg-emerald-100 dark:bg-emerald-900/40 px-2 py-0.5 text-xs font-semibold text-emerald-800 dark:text-emerald-300">
+                  GEO {highlights.strongestGeoTopic.geoScore}
+                </span>
+              </div>
             </div>
           )}
         </div>

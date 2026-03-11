@@ -3,6 +3,13 @@
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
+interface TopicRecommendation {
+  title: string;
+  effort: string;
+  impact: string;
+  expectedOutcome: string;
+}
+
 interface TopicCluster {
   topic: string;
   queryCount: number;
@@ -12,6 +19,9 @@ interface TopicCluster {
   geoScore: number;
   coverageStrength: "Strong" | "Moderate" | "Weak";
   queries: string[];
+  priority?: "high" | "medium" | "low";
+  confidence?: "high" | "medium" | "low";
+  recommendation?: TopicRecommendation | null;
 }
 
 function fmt(n: number): string {
@@ -34,6 +44,26 @@ const STRENGTH_CONFIG = {
   },
 };
 
+const PRIORITY_COLOR = {
+  high: "text-rose-600 dark:text-rose-400",
+  medium: "text-amber-600 dark:text-amber-400",
+  low: "text-muted-foreground",
+};
+
+function GeoScoreBadge({ score }: { score: number }) {
+  const cls =
+    score >= 60
+      ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300"
+      : score >= 35
+      ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+      : "bg-muted text-muted-foreground";
+  return (
+    <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold", cls)}>
+      {score}
+    </span>
+  );
+}
+
 interface GeoTopicsSectionProps {
   topics?: TopicCluster[];
   isLoading: boolean;
@@ -44,7 +74,7 @@ export function GeoTopicsSection({ topics, isLoading }: GeoTopicsSectionProps) {
     return (
       <div className="space-y-3">
         {Array.from({ length: 6 }).map((_, i) => (
-          <Skeleton key={i} className="h-20 w-full rounded-xl" />
+          <Skeleton key={i} className="h-24 w-full rounded-xl" />
         ))}
       </div>
     );
@@ -66,8 +96,9 @@ export function GeoTopicsSection({ topics, isLoading }: GeoTopicsSectionProps) {
   return (
     <div className="space-y-3">
       <p className="text-sm text-muted-foreground">
-        Topic clusters grouped from your ranking queries. Strong coverage = many queries ranking
-        for this topic. Weak coverage = opportunity to expand.
+        Topic clusters scored for GEO authority. Strong coverage = many queries ranking for this
+        topic. Weak coverage = priority expansion opportunity. GEO Score combines impressions,
+        position, query breadth, and informational density.
       </p>
       <div className="grid gap-2.5">
         {topics.slice(0, 20).map((topic) => {
@@ -77,15 +108,22 @@ export function GeoTopicsSection({ topics, isLoading }: GeoTopicsSectionProps) {
             <div key={topic.topic} className="rounded-xl border bg-card p-4 shadow-sm">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
+                  {/* Topic name + badges */}
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-semibold capitalize">{topic.topic}</span>
                     <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", cfg.cls)}>
                       {topic.coverageStrength}
                     </span>
+                    {topic.priority && (
+                      <span className={cn("text-xs font-medium", PRIORITY_COLOR[topic.priority])}>
+                        {topic.priority.charAt(0).toUpperCase() + topic.priority.slice(1)} priority
+                      </span>
+                    )}
                     <span className="text-xs text-muted-foreground">
                       {topic.queryCount} {topic.queryCount === 1 ? "query" : "queries"}
                     </span>
                   </div>
+
                   {/* Impression bar */}
                   <div className="mt-2 h-1 w-full rounded-full bg-muted overflow-hidden">
                     <div
@@ -93,6 +131,7 @@ export function GeoTopicsSection({ topics, isLoading }: GeoTopicsSectionProps) {
                       style={{ width: `${barWidth}%` }}
                     />
                   </div>
+
                   {/* Sample queries */}
                   {topic.queries.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-1">
@@ -106,8 +145,29 @@ export function GeoTopicsSection({ topics, isLoading }: GeoTopicsSectionProps) {
                       ))}
                     </div>
                   )}
+
+                  {/* Recommendation */}
+                  {topic.recommendation && (
+                    <div className="mt-2 rounded-lg border border-border/50 bg-background/60 px-2.5 py-1.5">
+                      <p className="text-[10px] font-medium text-foreground">{topic.recommendation.title}</p>
+                      <p className="mt-0.5 text-[10px] text-muted-foreground">
+                        <span className="text-emerald-600 dark:text-emerald-400">{topic.recommendation.impact}</span>
+                        {" · "}
+                        {topic.recommendation.effort} effort
+                      </p>
+                    </div>
+                  )}
                 </div>
+
+                {/* Right stats */}
                 <div className="shrink-0 text-right space-y-0.5">
+                  {topic.geoScore !== undefined && (
+                    <>
+                      <div className="flex justify-end mb-1">
+                        <GeoScoreBadge score={topic.geoScore} />
+                      </div>
+                    </>
+                  )}
                   <p className="text-sm font-semibold">{fmt(topic.impressions)}</p>
                   <p className="text-xs text-muted-foreground">impressions</p>
                   <p className="text-sm tabular-nums">{fmt(topic.clicks)}</p>

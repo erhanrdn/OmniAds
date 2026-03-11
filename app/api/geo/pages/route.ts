@@ -7,8 +7,13 @@ import {
 } from "@/lib/google-analytics-reporting";
 import {
   GA4_AI_SOURCE_FILTER,
-  calculateGeoScore,
 } from "@/lib/geo-intelligence";
+import {
+  scorePageGeo,
+  assignPriority,
+  assignEffort,
+  assignConfidence,
+} from "@/lib/geo-scoring";
 
 export async function GET(request: NextRequest) {
   const businessId = request.nextUrl.searchParams.get("businessId");
@@ -59,7 +64,7 @@ export async function GET(request: NextRequest) {
       orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
       limit: 100,
     }),
-    // All traffic by landing page (for context)
+    // All traffic by landing page (for share calculation)
     runGA4Report({
       propertyId,
       accessToken,
@@ -80,6 +85,17 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  // Site-average CVR for delta calculations
+  const totalSiteSessions = totalPagesReport.rows.reduce(
+    (s, r) => s + parseFloat(r.metrics[0] ?? "0"),
+    0
+  );
+  const totalSitePurchases = totalPagesReport.rows.reduce(
+    (s, r) => s + parseFloat(r.metrics[1] ?? "0"),
+    0
+  );
+  const siteAvgCvr = totalSiteSessions > 0 ? totalSitePurchases / totalSiteSessions : 0;
+
   const pages = aiPagesReport.rows.map((row) => {
     const path = row.dimensions[0] ?? "/";
     const aiSessions = parseFloat(row.metrics[0] ?? "0");
@@ -89,21 +105,37 @@ export async function GET(request: NextRequest) {
     const revenue = parseFloat(row.metrics[4] ?? "0");
     const totalSessions = totalSessionsMap.get(path) ?? 0;
     const purchaseCvr = aiSessions > 0 ? purchases / aiSessions : 0;
-    const geoScore = calculateGeoScore({
+
+    // v2 scoring
+    const scored = scorePageGeo({
       aiSessions,
       totalSessions,
       aiEngagementRate: engagementRate,
       aiPurchaseCvr: purchaseCvr,
     });
+    const geoScore = scored.total;
 
-    // Recommendation signal
+    const priority = assignPriority(geoScore, aiSessions, purchaseCvr - siteAvgCvr);
+    const effort = assignEffort(
+      purchaseCvr < siteAvgCvr * 0.5 ? "add_faq" : "expand_guide"
+    );
+    const confidence = assignConfidence(true, false, Math.round(aiSessions));
+
+    // Strongest signal for display
+    let strongestSignal: string;
+    if (purchaseCvr >= 0.03) strongestSignal = "Strong AI CVR";
+    else if (engagementRate >= 0.7) strongestSignal = "High engagement";
+    else if (aiSessions >= 50) strongestSignal = "High AI traffic";
+    else strongestSignal = "Emerging AI page";
+
+    // Recommendation
     let recommendation: string | null = null;
     if (engagementRate < 0.4 && aiSessions > 20)
       recommendation = "Improve content relevance";
     else if (purchaseCvr < 0.01 && aiSessions > 30)
       recommendation = "Add commercial intent CTAs";
     else if (purchaseCvr >= 0.03)
-      recommendation = "Allocate more AI traffic budget";
+      recommendation = "Scale AI content strategy";
     else if (engagementRate >= 0.7)
       recommendation = "Expand topic depth";
 
@@ -117,9 +149,16 @@ export async function GET(request: NextRequest) {
       purchaseCvr,
       totalSessions,
       geoScore,
+      priority,
+      effort,
+      confidence,
+      strongestSignal,
       recommendation,
     };
   });
+
+  // Sort by geoScore desc
+  pages.sort((a, b) => b.geoScore - a.geoScore);
 
   return NextResponse.json({ pages });
 }

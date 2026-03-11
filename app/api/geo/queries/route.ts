@@ -5,6 +5,7 @@ import {
   SearchConsoleAuthError,
 } from "@/lib/search-console";
 import { scoreQueryIntent } from "@/lib/geo-intelligence";
+import { scoreQueryGeo, assignPriority, assignConfidence } from "@/lib/geo-scoring";
 
 export async function GET(request: NextRequest) {
   const businessId = request.nextUrl.searchParams.get("businessId");
@@ -74,23 +75,53 @@ export async function GET(request: NextRequest) {
 
   const rows = (data.rows ?? []).map((row) => {
     const query = row.keys?.[0] ?? "";
+    const wordCount = query.trim().split(/\s+/).length;
     const intent = scoreQueryIntent(query);
+    const impressions = Math.round(row.impressions ?? 0);
+    const clicks = Math.round(row.clicks ?? 0);
+    const ctr = row.ctr ?? 0;
+    const position = Math.round((row.position ?? 0) * 10) / 10;
+
+    // v2 GEO scoring
+    const scored = scoreQueryGeo({
+      impressions,
+      position,
+      ctr,
+      isAiStyle: intent.isAiStyle,
+      wordCount,
+    });
+    const geoScore = scored.total;
+    const priority = assignPriority(geoScore, impressions);
+    const confidence = assignConfidence(false, true, impressions > 100 ? 10 : impressions > 10 ? 5 : 1);
+
+    // Derive a short recommendation from intent
+    let recommendation: string | null = intent.opportunityLabel;
+    if (!recommendation && geoScore >= 60) {
+      recommendation = "High-value GEO target — create dedicated content";
+    } else if (!recommendation && position >= 5 && position <= 15 && impressions > 50) {
+      recommendation = "Near page 1 — improve content depth to rank higher";
+    }
+
     return {
       query,
-      clicks: Math.round(row.clicks ?? 0),
-      impressions: Math.round(row.impressions ?? 0),
-      ctr: row.ctr ?? 0,
-      position: Math.round((row.position ?? 0) * 10) / 10,
+      clicks,
+      impressions,
+      ctr,
+      position,
       intent: intent.intent,
       isAiStyle: intent.isAiStyle,
       opportunityLabel: intent.opportunityLabel,
+      geoScore,
+      priority,
+      confidence,
+      recommendation,
     };
   });
 
-  // Sort AI-style queries first, then by impressions
+  // Sort AI-style queries first, then by geoScore
   rows.sort((a, b) => {
     if (a.isAiStyle !== b.isAiStyle) return b.isAiStyle ? 1 : -1;
-    return b.impressions - a.impressions;
+    return b.geoScore - a.geoScore;
   });
 
   return NextResponse.json({ queries: rows, total: rows.length });

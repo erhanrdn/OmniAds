@@ -10,12 +10,13 @@ import {
   SearchConsoleAuthError,
 } from "@/lib/search-console";
 import {
-  AI_SOURCE_DOMAINS,
   GA4_AI_SOURCE_FILTER,
   classifyAiSource,
   scoreQueryIntent,
   generateGeoInsights,
+  clusterQueryTopics,
 } from "@/lib/geo-intelligence";
+import { scorePageGeo, scoreQueryGeo, scoreTopicGeo } from "@/lib/geo-scoring";
 
 export async function GET(request: NextRequest) {
   const businessId = request.nextUrl.searchParams.get("businessId");
@@ -153,6 +154,10 @@ export async function GET(request: NextRequest) {
   // Fetch SC query overview
   let aiStyleQueryCount = 0;
   let totalQueryCount = 0;
+  let strongestGeoQuery: { query: string; geoScore: number; impressions: number } | null = null;
+  let strongestGeoTopic: { topic: string; geoScore: number; impressions: number; coverageStrength: string } | null = null;
+
+  type ScRow = { keys: string[]; clicks: number; impressions: number; ctr: number; position: number };
 
   if (scContext?.siteUrl) {
     try {
@@ -175,12 +180,58 @@ export async function GET(request: NextRequest) {
         }
       );
       if (scRes.ok) {
-        const scData = await scRes.json() as { rows?: Array<{ keys: string[] }> };
+        const scData = await scRes.json() as { rows?: ScRow[] };
         const rows = scData.rows ?? [];
         totalQueryCount = rows.length;
-        aiStyleQueryCount = rows.filter((r) =>
-          scoreQueryIntent(r.keys?.[0] ?? "").isAiStyle
-        ).length;
+
+        const scoredRows = rows.map((r) => {
+          const query = r.keys?.[0] ?? "";
+          const intent = scoreQueryIntent(query);
+          const wordCount = query.trim().split(/\s+/).length;
+          const scored = scoreQueryGeo({
+            impressions: Math.round(r.impressions ?? 0),
+            position: r.position ?? 99,
+            ctr: r.ctr ?? 0,
+            isAiStyle: intent.isAiStyle,
+            wordCount,
+          });
+          return { query, isAiStyle: intent.isAiStyle, impressions: Math.round(r.impressions ?? 0), geoScore: scored.total };
+        });
+
+        aiStyleQueryCount = scoredRows.filter((r) => r.isAiStyle).length;
+
+        // Strongest GEO query
+        const topQuery = [...scoredRows].sort((a, b) => b.geoScore - a.geoScore)[0];
+        if (topQuery) strongestGeoQuery = { query: topQuery.query, geoScore: topQuery.geoScore, impressions: topQuery.impressions };
+
+        // Topic clusters
+        const queryList = rows.map((r) => ({
+          query: r.keys?.[0] ?? "",
+          impressions: Math.round(r.impressions ?? 0),
+          clicks: Math.round(r.clicks ?? 0),
+          position: r.position ?? 0,
+        }));
+        const topics = clusterQueryTopics(queryList);
+        const topTopic = topics
+          .map((t) => ({
+            ...t,
+            tGeoScore: scoreTopicGeo({
+              impressions: t.impressions,
+              avgPosition: t.avgPosition,
+              queryCount: t.queryCount,
+              informationalDensity: 0.5,
+              avgCtr: t.impressions > 0 ? t.clicks / t.impressions : 0,
+            }).total,
+          }))
+          .sort((a, b) => b.tGeoScore - a.tGeoScore)[0];
+        if (topTopic) {
+          strongestGeoTopic = {
+            topic: topTopic.topic,
+            geoScore: topTopic.tGeoScore,
+            impressions: topTopic.impressions,
+            coverageStrength: topTopic.coverageStrength,
+          };
+        }
       }
     } catch {
       // SC query fetch failed — non-fatal
@@ -210,6 +261,61 @@ export async function GET(request: NextRequest) {
   if (aiEngagementRate > 0) geoScore += Math.min(30, aiEngagementRate * 30);
   geoScore = Math.min(100, Math.round(geoScore));
 
+  // Top 3 priorities for the overview action board
+  const top3Priorities: Array<{
+    title: string;
+    description: string;
+    priority: "high" | "medium" | "low";
+    effort: string;
+    impact: string;
+  }> = [];
+
+  if (aiSessions > 0 && aiPurchaseCvr < totalPurchaseCvr * 0.5 && totalPurchaseCvr > 0) {
+    top3Priorities.push({
+      title: "Convert AI traffic to revenue",
+      description: "AI-referred visitors are engaging but not converting. Add CTAs, comparison tables, and buying guides to your top AI pages.",
+      priority: "high",
+      effort: "Medium",
+      impact: "+20–40% revenue from AI traffic",
+    });
+  }
+  if (aiStyleQueryCount > 0 && totalQueryCount > 0 && aiStyleQueryCount / totalQueryCount < 0.3) {
+    top3Priorities.push({
+      title: "Expand informational content coverage",
+      description: `Only ${Math.round((aiStyleQueryCount / totalQueryCount) * 100)}% of ranking queries are AI-style. Create FAQ sections and how-to guides to improve AI citation rates.`,
+      priority: "high",
+      effort: "High",
+      impact: "+30–60% AI query visibility",
+    });
+  }
+  if (strongestGeoTopic && strongestGeoTopic.coverageStrength === "Weak") {
+    top3Priorities.push({
+      title: `Build authority for "${strongestGeoTopic.topic}"`,
+      description: `Your strongest GEO topic has only weak coverage. A content cluster or hub page could unlock ${strongestGeoTopic.impressions.toLocaleString()} impressions.`,
+      priority: "medium",
+      effort: "High",
+      impact: "+40–80% topic authority",
+    });
+  }
+  if (top3Priorities.length < 3 && aiSessions === 0) {
+    top3Priorities.push({
+      title: "Attract your first AI-engine visitors",
+      description: "No AI-source traffic detected yet. Start with structured FAQ content, schema markup, and direct-answer formatting on your top pages.",
+      priority: "high",
+      effort: "Medium",
+      impact: "Unlock AI discovery channel",
+    });
+  }
+  if (top3Priorities.length < 3 && totalQueryCount > 0) {
+    top3Priorities.push({
+      title: "Add FAQ schema to top-ranking pages",
+      description: "AI engines extract Q&A pairs to generate answers. Adding FAQ schema to your top informational pages increases citation frequency.",
+      priority: "medium",
+      effort: "Low",
+      impact: "+15–25% long-tail visibility",
+    });
+  }
+
   return NextResponse.json({
     sources: {
       ga4: ga4Error
@@ -232,5 +338,10 @@ export async function GET(request: NextRequest) {
       totalQueryCount,
     },
     insights,
+    top3Priorities: top3Priorities.slice(0, 3),
+    highlights: {
+      strongestGeoQuery,
+      strongestGeoTopic,
+    },
   });
 }

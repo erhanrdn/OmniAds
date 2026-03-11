@@ -13,9 +13,14 @@ interface GeoQuery {
   intent: string;
   isAiStyle: boolean;
   opportunityLabel: string | null;
+  geoScore: number;
+  priority: "high" | "medium" | "low";
+  confidence: "high" | "medium" | "low";
+  recommendation: string | null;
 }
 
 type Filter = "all" | "ai_style" | "high_impression" | "weak_ctr";
+type SortKey = "impressions" | "clicks" | "ctr" | "position" | "geoScore";
 
 const FILTERS: { id: Filter; label: string }[] = [
   { id: "all", label: "All Queries" },
@@ -46,6 +51,29 @@ function IntentBadge({ isAiStyle, intent }: { isAiStyle: boolean; intent: string
   );
 }
 
+function GeoScorePill({ score }: { score: number }) {
+  const cls =
+    score >= 60
+      ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300"
+      : score >= 35
+      ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+      : "bg-muted text-muted-foreground";
+  return (
+    <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold", cls)}>
+      {score}
+    </span>
+  );
+}
+
+function PriorityDot({ priority }: { priority: "high" | "medium" | "low" }) {
+  const cls = {
+    high: "bg-rose-500",
+    medium: "bg-amber-400",
+    low: "bg-muted-foreground",
+  }[priority];
+  return <span className={cn("inline-block h-2 w-2 rounded-full", cls)} title={`${priority} priority`} />;
+}
+
 interface GeoQueriesSectionProps {
   queries?: GeoQuery[];
   isLoading: boolean;
@@ -53,9 +81,7 @@ interface GeoQueriesSectionProps {
 
 export function GeoQueriesSection({ queries, isLoading }: GeoQueriesSectionProps) {
   const [activeFilter, setActiveFilter] = useState<Filter>("ai_style");
-  const [sortKey, setSortKey] = useState<"impressions" | "clicks" | "ctr" | "position">(
-    "impressions"
-  );
+  const [sortKey, setSortKey] = useState<SortKey>("geoScore");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
   const filtered = (queries ?? []).filter((q) => {
@@ -66,12 +92,12 @@ export function GeoQueriesSection({ queries, isLoading }: GeoQueriesSectionProps
   });
 
   const sorted = [...filtered].sort((a, b) => {
-    const av = a[sortKey];
-    const bv = b[sortKey];
+    const av = a[sortKey] as number;
+    const bv = b[sortKey] as number;
     return sortDir === "asc" ? av - bv : bv - av;
   });
 
-  function toggleSort(key: typeof sortKey) {
+  function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     else {
       setSortKey(key);
@@ -103,8 +129,8 @@ export function GeoQueriesSection({ queries, isLoading }: GeoQueriesSectionProps
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        Ranking queries analyzed for AI / answer-engine intent. Violet badges indicate
-        high GEO relevance. Opportunity labels suggest content actions.
+        Ranking queries scored for GEO relevance. Violet badges = high AI answer-engine
+        intent. GEO Score combines impressions, position, CTR gap, and intent signals.
       </p>
 
       {/* Filter pills */}
@@ -148,42 +174,53 @@ export function GeoQueriesSection({ queries, isLoading }: GeoQueriesSectionProps
               <th className="py-2.5 pr-4 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 Intent
               </th>
+              <SortableHeader label="GEO Score" sortKey="geoScore" current={sortKey} dir={sortDir} onSort={toggleSort} />
               <SortableHeader label="Impressions" sortKey="impressions" current={sortKey} dir={sortDir} onSort={toggleSort} />
               <SortableHeader label="Clicks" sortKey="clicks" current={sortKey} dir={sortDir} onSort={toggleSort} />
               <SortableHeader label="CTR" sortKey="ctr" current={sortKey} dir={sortDir} onSort={toggleSort} />
               <SortableHeader label="Position" sortKey="position" current={sortKey} dir={sortDir} onSort={toggleSort} />
               <th className="py-2.5 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Opportunity
+                Recommendation
               </th>
             </tr>
           </thead>
           <tbody>
             {sorted.slice(0, 50).map((q, i) => (
               <tr key={i} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
-                <td className="py-2.5 pr-4 max-w-[220px]">
-                  <span className="truncate block text-xs font-medium" title={q.query}>
-                    {q.query}
-                  </span>
+                <td className="py-2.5 pr-4 max-w-[200px]">
+                  <div className="flex items-center gap-1.5">
+                    <PriorityDot priority={q.priority} />
+                    <span className="truncate block text-xs font-medium" title={q.query}>
+                      {q.query}
+                    </span>
+                  </div>
                 </td>
                 <td className="py-2.5 pr-4">
                   <IntentBadge isAiStyle={q.isAiStyle} intent={q.intent} />
+                </td>
+                <td className="py-2.5 pr-4 text-right">
+                  <GeoScorePill score={q.geoScore} />
                 </td>
                 <td className="py-2.5 pr-4 text-right tabular-nums text-xs">{fmt(q.impressions)}</td>
                 <td className="py-2.5 pr-4 text-right tabular-nums text-xs">{fmt(q.clicks)}</td>
                 <td className="py-2.5 pr-4 text-right tabular-nums text-xs">{fmt(q.ctr, "percent")}</td>
                 <td className="py-2.5 pr-4 text-right tabular-nums text-xs">
-                  <span className={cn(
-                    q.position <= 3 ? "text-emerald-600 dark:text-emerald-400 font-medium" :
-                    q.position <= 10 ? "text-foreground" :
-                    "text-amber-600 dark:text-amber-400"
-                  )}>
+                  <span
+                    className={cn(
+                      q.position <= 3
+                        ? "text-emerald-600 dark:text-emerald-400 font-medium"
+                        : q.position <= 10
+                        ? "text-foreground"
+                        : "text-amber-600 dark:text-amber-400"
+                    )}
+                  >
                     {q.position.toFixed(1)}
                   </span>
                 </td>
-                <td className="py-2.5 text-xs text-muted-foreground max-w-[200px]">
-                  {q.opportunityLabel && (
-                    <span className="rounded bg-muted px-1.5 py-0.5 text-[10px]">
-                      {q.opportunityLabel}
+                <td className="py-2.5 text-xs text-muted-foreground max-w-[180px]">
+                  {q.recommendation && (
+                    <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] leading-tight block max-w-[170px] truncate" title={q.recommendation}>
+                      {q.recommendation}
                     </span>
                   )}
                 </td>
@@ -212,13 +249,13 @@ function SortableHeader({
   sortKey: string;
   current: string;
   dir: "asc" | "desc";
-  onSort: (key: "impressions" | "clicks" | "ctr" | "position") => void;
+  onSort: (key: SortKey) => void;
 }) {
   const active = current === sortKey;
   return (
     <th
       className="py-2.5 pr-4 text-right text-xs font-medium uppercase tracking-wide text-muted-foreground cursor-pointer select-none hover:text-foreground"
-      onClick={() => onSort(sortKey as "impressions" | "clicks" | "ctr" | "position")}
+      onClick={() => onSort(sortKey as SortKey)}
     >
       {label} {active ? (dir === "asc" ? "↑" : "↓") : ""}
     </th>

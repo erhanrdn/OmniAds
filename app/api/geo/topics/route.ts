@@ -4,7 +4,18 @@ import {
   resolveSearchConsoleContext,
   SearchConsoleAuthError,
 } from "@/lib/search-console";
-import { clusterQueryTopics } from "@/lib/geo-intelligence";
+import { clusterQueryTopics, scoreQueryIntent } from "@/lib/geo-intelligence";
+import {
+  scoreTopicGeo,
+  assignPriority,
+  assignConfidence,
+} from "@/lib/geo-scoring";
+import {
+  buildExpandGuideRec,
+  buildBuildClusterRec,
+  buildAddFaqRec,
+  type GeoRecommendation,
+} from "@/lib/geo-recommendations";
 
 export async function GET(request: NextRequest) {
   const businessId = request.nextUrl.searchParams.get("businessId");
@@ -72,14 +83,92 @@ export async function GET(request: NextRequest) {
     rows?: Array<{ keys: string[]; clicks: number; impressions: number; ctr: number; position: number }>;
   };
 
-  const queries = (data.rows ?? []).map((row) => ({
+  const rawRows = data.rows ?? [];
+
+  // Build a map of query → ctr for informational density calculation per cluster
+  const queryCtrMap = new Map<string, { ctr: number; isAiStyle: boolean }>();
+  for (const row of rawRows) {
+    const q = row.keys?.[0] ?? "";
+    queryCtrMap.set(q, {
+      ctr: row.ctr ?? 0,
+      isAiStyle: scoreQueryIntent(q).isAiStyle,
+    });
+  }
+
+  const queryList = rawRows.map((row) => ({
     query: row.keys?.[0] ?? "",
     impressions: Math.round(row.impressions ?? 0),
     clicks: Math.round(row.clicks ?? 0),
     position: row.position ?? 0,
   }));
 
-  const topics = clusterQueryTopics(queries);
+  const clusters = clusterQueryTopics(queryList);
+
+  // Enrich each cluster with v2 fields
+  const topics = clusters.map((cluster) => {
+    // Informational density: fraction of queries in this cluster that are AI-style
+    const aiStyleCount = cluster.queries.filter((q) => queryCtrMap.get(q)?.isAiStyle).length;
+    const informationalDensity = cluster.queryCount > 0 ? aiStyleCount / Math.min(cluster.queryCount, cluster.queries.length) : 0;
+    const avgCtr = cluster.impressions > 0 ? cluster.clicks / cluster.impressions : 0;
+
+    // v2 scoring
+    const scored = scoreTopicGeo({
+      impressions: cluster.impressions,
+      avgPosition: cluster.avgPosition,
+      queryCount: cluster.queryCount,
+      informationalDensity,
+      avgCtr,
+    });
+    const geoScore = scored.total;
+    const priority = assignPriority(geoScore, cluster.impressions);
+    const confidence = assignConfidence(false, true, cluster.queryCount);
+
+    // Pick a recommendation based on coverage strength
+    let recommendation: GeoRecommendation | null = null;
+    const evidence = `${cluster.impressions.toLocaleString()} impressions, ${cluster.queryCount} queries, avg position ${cluster.avgPosition.toFixed(1)}`;
+
+    if (cluster.coverageStrength === "Weak" && cluster.queryCount >= 2) {
+      recommendation = buildExpandGuideRec({
+        target: cluster.topic,
+        evidence,
+        priority,
+        confidence,
+        impressions: cluster.impressions,
+      });
+    } else if (cluster.coverageStrength === "Moderate" && cluster.queryCount >= 4) {
+      recommendation = buildBuildClusterRec({
+        target: cluster.topic,
+        evidence,
+        priority,
+        confidence,
+        queryCount: cluster.queryCount,
+      });
+    } else if (cluster.coverageStrength === "Strong") {
+      recommendation = buildAddFaqRec({
+        target: cluster.topic,
+        evidence,
+        priority,
+        confidence,
+        queryCount: cluster.queryCount,
+      });
+    }
+
+    return {
+      ...cluster,
+      geoScore,
+      priority,
+      confidence,
+      informationalDensity,
+      recommendation: recommendation
+        ? {
+            title: recommendation.title,
+            effort: recommendation.effort,
+            impact: recommendation.impact,
+            expectedOutcome: recommendation.expectedOutcome,
+          }
+        : null,
+    };
+  });
 
   return NextResponse.json({ topics, total: topics.length });
 }

@@ -15,15 +15,20 @@ import {
   scoreQueryIntent,
   clusterQueryTopics,
 } from "@/lib/geo-intelligence";
-
-export interface GeoOpportunity {
-  type: "content" | "traffic" | "conversion" | "coverage";
-  priority: "high" | "medium" | "low";
-  title: string;
-  target: string;
-  evidence: string;
-  recommendation: string;
-}
+import {
+  assignPriority,
+  assignEffort,
+  assignConfidence,
+} from "@/lib/geo-scoring";
+import {
+  type GeoOpportunityV2,
+  recommendationToOpportunity,
+  buildRewriteTitleRec,
+  buildAddFaqRec,
+  buildExpandGuideRec,
+  buildBuildClusterRec,
+  buildRefreshRec,
+} from "@/lib/geo-recommendations";
 
 export async function GET(request: NextRequest) {
   const businessId = request.nextUrl.searchParams.get("businessId");
@@ -45,7 +50,7 @@ export async function GET(request: NextRequest) {
   });
   if ("error" in access) return access.error;
 
-  const opportunities: GeoOpportunity[] = [];
+  const opportunities: GeoOpportunityV2[] = [];
 
   // ── GA4 AI data ─────────────────────────────────────────────────
   let ga4Available = false;
@@ -90,6 +95,8 @@ export async function GET(request: NextRequest) {
     const totalSessions = parseFloat(totalRow?.metrics[0] ?? "0");
     const totalPurchases = parseFloat(totalRow?.metrics[1] ?? "0");
     const siteAvgCvr = totalSessions > 0 ? totalPurchases / totalSessions : 0;
+    const hasGA4 = true;
+    const hasSC = false; // may be overridden below
 
     // Opportunity: high AI traffic page with weak conversion
     for (const row of aiByPage.rows.slice(0, 15)) {
@@ -100,44 +107,65 @@ export async function GET(request: NextRequest) {
       const cvr = aiSessions > 0 ? purchases / aiSessions : 0;
 
       if (aiSessions > 30 && cvr < siteAvgCvr * 0.3 && siteAvgCvr > 0) {
+        const priority = assignPriority(75, aiSessions, cvr - siteAvgCvr);
+        const confidence = assignConfidence(hasGA4, hasSC, Math.round(aiSessions));
         opportunities.push({
           type: "conversion",
-          priority: "high",
+          priority,
+          effort: "medium",
+          confidence,
+          impact: "+20–40% revenue from AI traffic",
           title: "AI-discovered page losing commercial potential",
           target: path,
           evidence: `${Math.round(aiSessions)} AI-source sessions with only ${(cvr * 100).toFixed(1)}% purchase CVR vs ${(siteAvgCvr * 100).toFixed(1)}% site average.`,
           recommendation:
             "Add a clear product/service CTA, comparison table, or buying guide section to convert AI-discovery intent into revenue.",
+          whyItMatters:
+            "AI-referred visitors often have high informational intent that transitions to purchase intent with the right nudge. Leaving this gap means losing high-quality leads.",
         });
       }
 
       // Low engagement from AI visitors
       if (aiSessions > 20 && engRate < 0.3) {
+        const priority = assignPriority(55, aiSessions, 0);
+        const confidence = assignConfidence(hasGA4, hasSC, Math.round(aiSessions));
         opportunities.push({
           type: "content",
-          priority: "medium",
+          priority,
+          effort: "medium",
+          confidence,
+          impact: "+15–30% engagement",
           title: "Poor content match for AI-sourced visitors",
           target: path,
           evidence: `${Math.round(aiSessions)} AI sessions but ${(engRate * 100).toFixed(0)}% engagement rate — visitors are not finding what they expected.`,
           recommendation:
             "Restructure this page to directly answer the informational queries driving AI-source traffic. Use FAQ blocks and direct answers near the top.",
+          whyItMatters:
+            "Low engagement tells AI engines that this page doesn't satisfy the query intent, which can reduce future citation frequency.",
         });
       }
     }
 
-    // Opportunity: strong AI source with only 1 page
-    const strongSourceWithLimitedPages = aiBySource.rows
+    // Opportunity: strong AI source with concentrated page discovery
+    const strongSource = aiBySource.rows
       .filter((r) => parseFloat(r.metrics[0] ?? "0") > 50)
       .slice(0, 1)[0];
-    if (strongSourceWithLimitedPages) {
-      const engine = classifyAiSource(strongSourceWithLimitedPages.dimensions[0]) ?? "AI engine";
+    if (strongSource) {
+      const engine = classifyAiSource(strongSource.dimensions[0]) ?? "AI engine";
+      const sourceSessions = parseFloat(strongSource.metrics[0] ?? "0");
+      const priority = assignPriority(50, sourceSessions, 0);
       opportunities.push({
         type: "traffic",
-        priority: "medium",
+        priority,
+        effort: "high",
+        confidence: assignConfidence(hasGA4, hasSC, Math.round(sourceSessions)),
+        impact: "+30–60% AI channel reach",
         title: `Amplify ${engine} discovery across more pages`,
         target: engine,
-        evidence: `${engine} is already sending sessions but discovery is concentrated on few pages.`,
-        recommendation: `Create structured, answer-friendly content on more category and topic pages. ${engine} favors comprehensive, well-organized pages with clear headings and direct answers.`,
+        evidence: `${engine} is already sending ${Math.round(sourceSessions)} sessions, concentrated on only a few pages.`,
+        recommendation: `Create structured, answer-friendly content on more category and topic pages. ${engine} favors comprehensive pages with clear headings and direct answers.`,
+        whyItMatters:
+          "When an AI engine trusts your site for one topic, expanding topical coverage can multiply citations across related queries.",
       });
     }
   } catch (err) {
@@ -145,6 +173,7 @@ export async function GET(request: NextRequest) {
   }
 
   // ── Search Console data ─────────────────────────────────────────
+  let hasSCData = false;
   try {
     const scContext = await resolveSearchConsoleContext({
       businessId,
@@ -171,12 +200,13 @@ export async function GET(request: NextRequest) {
     );
 
     if (scRes.ok) {
+      hasSCData = true;
       const scData = (await scRes.json()) as {
         rows?: Array<{ keys: string[]; clicks: number; impressions: number; ctr: number; position: number }>;
       };
       const scRows = scData.rows ?? [];
 
-      // High impressions + weak CTR informational queries
+      // High impressions + weak CTR informational queries → rewrite title
       const highImpLowCtr = scRows
         .map((r) => ({
           query: r.keys?.[0] ?? "",
@@ -187,29 +217,24 @@ export async function GET(request: NextRequest) {
         }))
         .filter((r) => {
           const intent = scoreQueryIntent(r.query);
-          return (
-            intent.isAiStyle &&
-            r.impressions > 100 &&
-            r.ctr < 0.03 &&
-            r.position <= 15
-          );
+          return intent.isAiStyle && r.impressions > 100 && r.ctr < 0.03 && r.position <= 15;
         })
         .sort((a, b) => b.impressions - a.impressions)
         .slice(0, 3);
 
       for (const q of highImpLowCtr) {
-        opportunities.push({
-          type: "content",
-          priority: "high",
-          title: `High-visibility query with weak click capture`,
+        const priority = assignPriority(70, q.impressions, 0);
+        const confidence = assignConfidence(ga4Available, hasSCData, q.impressions > 500 ? 10 : 5);
+        const rec = buildRewriteTitleRec({
           target: `"${q.query}"`,
           evidence: `${q.impressions.toLocaleString()} impressions, ${(q.ctr * 100).toFixed(1)}% CTR — page is visible but not compelling enough to click.`,
-          recommendation:
-            "Improve the title tag and meta description to directly match the informational intent of this query. Add a compelling preview answer.",
+          priority,
+          confidence,
+          position: q.position,
         });
+        opportunities.push(recommendationToOpportunity(rec));
       }
 
-      // Topic clusters with weak coverage
       const queryList = scRows.map((r) => ({
         query: r.keys?.[0] ?? "",
         impressions: Math.round(r.impressions ?? 0),
@@ -217,22 +242,44 @@ export async function GET(request: NextRequest) {
         position: r.position ?? 0,
       }));
       const topics = clusterQueryTopics(queryList);
+
+      // Weak topic clusters with meaningful impressions → expand guide
       const weakTopics = topics
         .filter((t) => t.coverageStrength === "Weak" && t.impressions > 200)
         .slice(0, 2);
 
       for (const topic of weakTopics) {
-        opportunities.push({
-          type: "coverage",
-          priority: "medium",
-          title: `Expand topic authority: "${topic.topic}"`,
+        const priority = assignPriority(60, topic.impressions, 0);
+        const confidence = assignConfidence(ga4Available, hasSCData, topic.queryCount);
+        const rec = buildExpandGuideRec({
           target: topic.topic,
-          evidence: `${topic.impressions.toLocaleString()} impressions across ${topic.queryCount} queries but only weak topical coverage.`,
-          recommendation: `Create a comprehensive pillar page or guide targeting "${topic.topic}" variations. Internal link from existing pages to build topical authority.`,
+          evidence: `${topic.impressions.toLocaleString()} impressions across ${topic.queryCount} queries but thin coverage.`,
+          priority,
+          confidence,
+          impressions: topic.impressions,
         });
+        opportunities.push(recommendationToOpportunity(rec));
       }
 
-      // Strong impressions but position 5-15 (near page 1 opportunity)
+      // Moderate topic clusters → build cluster
+      const moderateTopics = topics
+        .filter((t) => t.coverageStrength === "Moderate" && t.queryCount >= 4 && t.impressions > 500)
+        .slice(0, 2);
+
+      for (const topic of moderateTopics) {
+        const priority = assignPriority(55, topic.impressions, 0);
+        const confidence = assignConfidence(ga4Available, hasSCData, topic.queryCount);
+        const rec = buildBuildClusterRec({
+          target: topic.topic,
+          evidence: `${topic.impressions.toLocaleString()} impressions, ${topic.queryCount} queries, average position ${topic.avgPosition.toFixed(1)}.`,
+          priority,
+          confidence,
+          queryCount: topic.queryCount,
+        });
+        opportunities.push(recommendationToOpportunity(rec));
+      }
+
+      // Near page 1 AI-style queries → add FAQ
       const nearPage1 = scRows
         .filter((r) => {
           const intent = scoreQueryIntent(r.keys?.[0] ?? "");
@@ -247,39 +294,77 @@ export async function GET(request: NextRequest) {
         .slice(0, 2);
 
       for (const q of nearPage1) {
-        opportunities.push({
-          type: "content",
-          priority: "medium",
-          title: `Near page 1 — push it over`,
+        const impressions = Math.round(q.impressions ?? 0);
+        const position = q.position ?? 10;
+        const priority = assignPriority(58, impressions, 0);
+        const confidence = assignConfidence(ga4Available, hasSCData, impressions > 200 ? 8 : 4);
+        const rec = buildAddFaqRec({
           target: `"${q.keys?.[0] ?? ""}"`,
-          evidence: `Position ${(q.position ?? 0).toFixed(1)} with ${Math.round(q.impressions ?? 0).toLocaleString()} impressions. Small ranking improvements here unlock significant AI-visible traffic.`,
-          recommendation:
-            "Add more depth, FAQ blocks, and structured data to the ranking page. Improve internal linking and content freshness.",
+          evidence: `Position ${position.toFixed(1)} with ${impressions.toLocaleString()} impressions. A small boost from FAQ expansion could push to top 5.`,
+          priority,
+          confidence,
+          queryCount: 1,
         });
+        opportunities.push(recommendationToOpportunity(rec));
+      }
+
+      // High-position AI queries with decent impressions but low CTR → refresh
+      const highPosLowCtr = scRows
+        .filter((r) => {
+          const intent = scoreQueryIntent(r.keys?.[0] ?? "");
+          return intent.isAiStyle && (r.position ?? 99) <= 5 && (r.ctr ?? 0) < 0.05 && (r.impressions ?? 0) > 200;
+        })
+        .sort((a, b) => (b.impressions ?? 0) - (a.impressions ?? 0))
+        .slice(0, 1);
+
+      for (const q of highPosLowCtr) {
+        const impressions = Math.round(q.impressions ?? 0);
+        const position = q.position ?? 3;
+        const priority = assignPriority(65, impressions, 0);
+        const confidence = assignConfidence(ga4Available, hasSCData, impressions > 500 ? 10 : 5);
+        const rec = buildRefreshRec({
+          target: `"${q.keys?.[0] ?? ""}"`,
+          evidence: `Position ${position.toFixed(1)} but only ${((q.ctr ?? 0) * 100).toFixed(1)}% CTR — high rank isn't translating to clicks. Content may feel stale or misaligned.`,
+          priority,
+          confidence,
+          avgPosition: position,
+        });
+        opportunities.push(recommendationToOpportunity(rec));
       }
     }
   } catch (err) {
     if (!(err instanceof SearchConsoleAuthError)) throw err;
   }
 
-  // If no GA4 available, add a connection opportunity
+  // If no GA4 available, add a connection prompt
   if (!ga4Available) {
     opportunities.push({
       type: "traffic",
       priority: "high",
+      effort: "low",
+      confidence: "high",
+      impact: "Unlocks AI traffic attribution",
       title: "Connect GA4 to detect AI-source traffic",
       target: "GA4 Integration",
       evidence: "Without GA4, AI referral traffic detection is unavailable.",
       recommendation:
         "Connect GA4 and select a property in Integrations to unlock AI traffic source analysis.",
+      whyItMatters:
+        "Knowing which AI engines send traffic — and how those visitors behave — is the foundation of a GEO strategy. Without GA4 attribution, you're flying blind.",
     });
   }
 
-  // Sort by priority
-  const priorityOrder = { high: 0, medium: 1, low: 2 };
-  opportunities.sort(
-    (a, b) => priorityOrder[a.priority] - priorityOrder[b.priority]
-  );
+  // Deduplicate by target + title, sort by priority
+  const seen = new Set<string>();
+  const deduped = opportunities.filter((op) => {
+    const key = `${op.title}|${op.target}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 
-  return NextResponse.json({ opportunities: opportunities.slice(0, 10) });
+  const priorityOrder: Record<string, number> = { high: 0, medium: 1, low: 2 };
+  deduped.sort((a, b) => priorityOrder[a.priority] - priorityOrder[b.priority]);
+
+  return NextResponse.json({ opportunities: deduped.slice(0, 12) });
 }

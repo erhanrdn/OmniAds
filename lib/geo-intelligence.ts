@@ -249,8 +249,8 @@ export interface TopicCluster {
 }
 
 /**
- * Cluster Search Console queries into topic groups using heuristic
- * extraction of leading 1-2 word stems.
+ * Cluster Search Console queries into topic groups using improved heuristic
+ * noun-phrase extraction: normalizes plurals, strips modifiers, 1–3 word stems.
  */
 export function clusterQueryTopics(
   queries: Array<{
@@ -323,36 +323,94 @@ export function clusterQueryTopics(
   return clusters.sort((a, b) => b.impressions - a.impressions).slice(0, 30);
 }
 
+const STOPWORDS = new Set([
+  "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
+  "of", "in", "on", "at", "to", "for", "with", "by", "from", "as",
+  "and", "or", "but", "not", "so", "if",
+  "my", "your", "our", "its", "their", "his", "her",
+  "how", "what", "why", "where", "when", "which", "who", "whom",
+  "i", "do", "you", "can", "will", "that", "this", "it",
+  "get", "make", "use", "best", "good", "great",
+  "very", "more", "most", "some", "any", "all",
+]);
+
+const INFORMATIONAL_PREFIXES_RE =
+  /^(best |how to |how do i |what is |what are |what's |guide to |guide for |ideas for |examples of |top \d* ?|list of |types of |ways to |tips for |tips on |review of |history of |difference between |when to |where to |why is |why do |why does |can you |should i |is it |are there |does |do |will )/;
+
+const MODIFIER_WORDS = new Set([
+  "easy", "simple", "quick", "fast", "cheap", "free", "online", "new",
+  "old", "big", "small", "large", "little", "different", "various",
+  "common", "popular", "famous", "important", "useful", "effective",
+  "complete", "full", "whole", "every", "each", "many", "few",
+]);
+
 /**
- * Extract a 1-2 word topic stem from a query.
- * Removes common stopwords and informational prefixes.
+ * Extract a 1–3 word canonical topic noun phrase from a query.
+ * - Strips informational prefixes
+ * - Normalises plural → singular for clustering (e.g. "shoes" → "shoe")
+ * - Strips leading modifier adjectives
+ * - Returns null if the result is too short to be meaningful
  */
 function extractTopic(query: string): string | null {
-  const STOPWORDS = new Set([
-    "a", "an", "the", "is", "are", "of", "in", "on", "at", "to", "for",
-    "and", "or", "but", "with", "my", "your", "our", "its", "how", "what",
-    "why", "where", "when", "which", "who", "i", "do", "you", "be", "can",
-    "will", "that", "this", "it", "get", "make", "use", "best",
-  ]);
+  let q = query.toLowerCase().trim();
 
-  const q = query.toLowerCase().trim();
+  // Iteratively strip prefixes (some queries have stacked prefixes)
+  let prev = "";
+  while (prev !== q) {
+    prev = q;
+    q = q.replace(INFORMATIONAL_PREFIXES_RE, "").trim();
+  }
 
-  // Strip informational prefixes
-  const stripped = q
-    .replace(
-      /^(best |how to |how do i |what is |what are |guide to |guide for |ideas for |examples of |top |list of |types of |ways to |tips for |review of |difference between |when to |where to )/,
-      ""
-    )
+  // Strip trailing noise
+  q = q
+    .replace(/\?$/, "")
+    .replace(/\s+(2024|2025|2026|this year|today|now|online|near me|for me|for beginners|for free)$/, "")
     .trim();
 
-  // Split and filter stopwords
-  const words = stripped
+  // Tokenise, remove stopwords, strip modifier adjectives
+  const words = q
     .split(/\s+/)
-    .filter((w) => w.length > 2 && !STOPWORDS.has(w))
-    .slice(0, 2);
+    .map((w) => w.replace(/[^a-z0-9'-]/g, ""))
+    .filter((w) => w.length > 1 && !STOPWORDS.has(w));
 
-  if (words.length === 0) return null;
-  return words.join(" ");
+  // Remove leading modifier adjectives (but keep them if it's only 1 word left)
+  const filtered =
+    words.length > 1
+      ? words.filter((w, i) => i > 0 || !MODIFIER_WORDS.has(w))
+      : words;
+
+  if (filtered.length === 0) return null;
+
+  // Take first 1–3 meaningful words
+  const stem = filtered.slice(0, 3);
+
+  // Normalise plurals for the last content word (simple -s / -es / -ies stripping)
+  const last = stem[stem.length - 1];
+  stem[stem.length - 1] = normalizePlural(last);
+
+  const topic = stem.join(" ");
+
+  // Discard topics that are a single character or purely numeric
+  if (topic.length < 2 || /^\d+$/.test(topic)) return null;
+
+  return topic;
+}
+
+/**
+ * Basic plural → singular normalisation for English nouns.
+ * Only handles common patterns to avoid over-stemming.
+ */
+function normalizePlural(word: string): string {
+  if (word.length < 4) return word;
+  if (word.endsWith("ies") && word.length > 4) return word.slice(0, -3) + "y";
+  if (word.endsWith("ves") && word.length > 4) return word.slice(0, -3) + "f";
+  if (word.endsWith("ses") || word.endsWith("xes") || word.endsWith("zes") || word.endsWith("ches") || word.endsWith("shes")) {
+    return word.slice(0, -2); // boxes → box, watches → watch
+  }
+  if (word.endsWith("s") && !word.endsWith("ss") && word.length > 4) {
+    return word.slice(0, -1);
+  }
+  return word;
 }
 
 // ── Insight Engine ──────────────────────────────────────────────────
