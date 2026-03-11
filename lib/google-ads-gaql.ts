@@ -34,6 +34,52 @@ interface GoogleAdsApiError {
   };
 }
 
+export class GoogleAdsQueryError extends Error {
+  status: number;
+  apiStatus?: string;
+  apiErrorCode?: string;
+
+  constructor(params: {
+    message: string;
+    status: number;
+    apiStatus?: string;
+    apiErrorCode?: string;
+  }) {
+    super(params.message);
+    this.name = "GoogleAdsQueryError";
+    this.status = params.status;
+    this.apiStatus = params.apiStatus;
+    this.apiErrorCode = params.apiErrorCode;
+  }
+}
+
+export interface GoogleAdsAccountQueryFailure {
+  customerId: string;
+  message: string;
+  status?: number;
+  apiStatus?: string;
+  apiErrorCode?: string;
+}
+
+export function getGoogleAdsFailureMessage(
+  failures: GoogleAdsAccountQueryFailure[]
+): string {
+  if (failures.length === 0) {
+    return "Google Ads query failed.";
+  }
+  const first = failures[0];
+  if (first.apiErrorCode === "DEVELOPER_TOKEN_INVALID") {
+    return "Google Ads developer token is invalid. Reconnect Google integration with a valid developer token.";
+  }
+  if (first.apiStatus === "UNAUTHENTICATED") {
+    return "Google Ads authentication failed. Reconnect Google integration.";
+  }
+  if (first.apiStatus === "PERMISSION_DENIED") {
+    return "Google Ads permission denied for the assigned account. Check account access in Integrations.";
+  }
+  return first.message || "Google Ads query failed.";
+}
+
 /**
  * Execute a GAQL query against a Google Ads customer account.
  * Handles token refresh if needed.
@@ -103,7 +149,20 @@ export async function executeGaqlQuery(params: {
       message,
       query: params.query.slice(0, 100),
     });
-    throw new Error(message);
+    const firstDetailError =
+      error.error?.details?.[0]?.errorCode?.googleAdsFailure?.errors?.[0];
+    let apiErrorCode: string | undefined;
+    if (firstDetailError?.errorCode && typeof firstDetailError.errorCode === "object") {
+      const entry = Object.entries(firstDetailError.errorCode).find(([, value]) => Boolean(value));
+      if (entry) apiErrorCode = String(entry[1]);
+    }
+
+    throw new GoogleAdsQueryError({
+      message,
+      status: response.status,
+      apiStatus: error.error?.status,
+      apiErrorCode,
+    });
   }
 
   return data as GaqlSearchResult;
@@ -119,6 +178,46 @@ export async function getAssignedGoogleAccounts(
   return assignment?.account_ids || [];
 }
 
+export async function executeGaqlForAccounts(params: {
+  businessId: string;
+  customerIds: string[];
+  query: string;
+}): Promise<{
+  results: GaqlSearchResult[];
+  failures: GoogleAdsAccountQueryFailure[];
+}> {
+  const settled = await Promise.all(
+    params.customerIds.map(async (customerId) => {
+      try {
+        const result = await executeGaqlQuery({
+          businessId: params.businessId,
+          customerId,
+          query: params.query,
+        });
+        return { result };
+      } catch (error) {
+        const queryError = error as GoogleAdsQueryError;
+        return {
+          error: {
+            customerId,
+            message: queryError.message || "Google Ads query failed.",
+            status: queryError.status,
+            apiStatus: queryError.apiStatus,
+            apiErrorCode: queryError.apiErrorCode,
+          } satisfies GoogleAdsAccountQueryFailure,
+        };
+      }
+    })
+  );
+
+  return {
+    results: settled
+      .map((entry) => entry.result)
+      .filter((entry): entry is GaqlSearchResult => Boolean(entry)),
+    failures: settled.flatMap((entry) => (entry.error ? [entry.error] : [])),
+  };
+}
+
 /**
  * Normalize date range parameter to YYYY-MM-DD format for GAQL
  */
@@ -127,7 +226,7 @@ export function getDateRangeForQuery(
   customStart?: string,
   customEnd?: string
 ): { startDate: string; endDate: string } {
-  const endDate = new Date("2026-03-09"); // Current date in app
+  const endDate = new Date();
   const startDate = new Date(endDate);
 
   if (dateRange === "7") {

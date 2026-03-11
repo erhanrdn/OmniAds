@@ -90,12 +90,13 @@ const cols: ColDef<Campaign>[] = [
 interface CampaignsTabProps {
   campaigns?: Campaign[];
   isLoading: boolean;
+  emptyMessage?: string;
 }
 
-export function CampaignsTab({ campaigns, isLoading }: CampaignsTabProps) {
+export function CampaignsTab({ campaigns, isLoading, emptyMessage }: CampaignsTabProps) {
   if (isLoading) return <TabSkeleton />;
   if (!campaigns || campaigns.length === 0) {
-    return <TabEmpty message="No campaign data found for this period." />;
+    return <TabEmpty message={emptyMessage ?? "No campaign data found for this period."} />;
   }
 
   return (

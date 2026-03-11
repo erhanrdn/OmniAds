@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import {
-  executeGaqlQuery,
+  executeGaqlForAccounts,
   getAssignedGoogleAccounts,
   getDateRangeForQuery,
   normalizeCostMicros,
@@ -10,6 +10,7 @@ import {
   calculateCtr,
   normalizeStatus,
   normalizeChannelType,
+  getGoogleAdsFailureMessage,
 } from "@/lib/google-ads-gaql";
 import { getCampaignBadges } from "@/lib/google-ads-intelligence";
 
@@ -31,18 +32,24 @@ export async function GET(request: NextRequest) {
     const assignedAccounts = await getAssignedGoogleAccounts(businessId);
 
     if (assignedAccounts.length === 0) {
-      return NextResponse.json({ data: [], count: 0 });
+      return NextResponse.json({
+        data: [],
+        count: 0,
+        meta: {
+          empty: true,
+          reason: "no_assigned_accounts",
+          message: "No Google Ads account is assigned to this business.",
+        },
+      });
     }
 
     const accountsToQuery =
       accountId && accountId !== "all" ? [accountId] : assignedAccounts;
 
-    const allResults = await Promise.all(
-      accountsToQuery.map((customerId) =>
-        executeGaqlQuery({
-          businessId,
-          customerId,
-          query: `
+    const { results: allResults, failures } = await executeGaqlForAccounts({
+      businessId,
+      customerIds: accountsToQuery,
+      query: `
             SELECT
               campaign.id,
               campaign.name,
@@ -64,9 +71,7 @@ export async function GET(request: NextRequest) {
               AND campaign.status != 'REMOVED'
             ORDER BY metrics.cost_micros DESC
           `,
-        }).catch(() => ({ results: [] }))
-      )
-    );
+    });
 
     const campaigns = allResults
       .flatMap((r) => r.results ?? [])
@@ -113,11 +118,36 @@ export async function GET(request: NextRequest) {
       ),
     }));
 
+    if (campaignsWithBadges.length === 0 && failures.length > 0) {
+      return NextResponse.json({
+        data: [],
+        count: 0,
+        meta: {
+          empty: true,
+          reason: "google_ads_query_failed",
+          message: getGoogleAdsFailureMessage(failures),
+          failures,
+        },
+      });
+    }
+
     return NextResponse.json({
       data: campaignsWithBadges,
       count: campaignsWithBadges.length,
       accountAvgRoas,
       accountAvgCpa,
+      meta:
+        campaignsWithBadges.length === 0
+          ? {
+              empty: true,
+              reason: "no_data_in_range",
+              message: "No campaign data found for this account in the selected date range.",
+            }
+          : {
+              empty: false,
+              partial_failure: failures.length > 0,
+              failure_message: failures.length > 0 ? getGoogleAdsFailureMessage(failures) : undefined,
+            },
     });
   } catch (error) {
     console.error("[google-ads/campaigns]", error);

@@ -269,6 +269,7 @@ function TabContent({
         <CampaignsTab
           campaigns={campaignsQ.data?.data}
           isLoading={campaignsQ.isLoading}
+          emptyMessage={campaignsQ.data?.meta?.message}
         />
       );
     case "search-terms":
