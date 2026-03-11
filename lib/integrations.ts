@@ -4,6 +4,7 @@ export type IntegrationProviderType =
   | "shopify"
   | "meta"
   | "google"
+  | "search_console"
   | "tiktok"
   | "pinterest"
   | "snapchat"

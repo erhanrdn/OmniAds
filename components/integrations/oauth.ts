@@ -4,6 +4,7 @@ const PROVIDER_LABELS: Record<IntegrationProvider, string> = {
   shopify: "Shopify",
   meta: "Meta",
   google: "Google",
+  search_console: "Google Search Console",
   tiktok: "TikTok",
   pinterest: "Pinterest",
   snapchat: "Snapchat",
@@ -46,6 +47,11 @@ export const OAUTH_PERMISSIONS: Record<IntegrationProvider, string[]> = {
     "Read campaigns and ad groups",
     "Read performance metrics",
     "Sync conversion data",
+  ],
+  search_console: [
+    "Read Search Console properties",
+    "Read query and page performance metrics",
+    "Sync organic search visibility signals",
   ],
   tiktok: [
     "Read campaigns and creatives",

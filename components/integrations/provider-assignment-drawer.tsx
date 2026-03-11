@@ -116,6 +116,7 @@ export function ProviderAssignmentDrawer({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const isMeta = provider === "meta";
   const isGoogle = provider === "google";
   const isSupportedProvider = isMeta || isGoogle;
@@ -250,6 +251,7 @@ export function ProviderAssignmentDrawer({
       setSaveErrorMessage(null);
       setDraftIds([]);
       setIsSaving(false);
+      setSearchQuery("");
     }
   }, [open]);
 
@@ -264,6 +266,16 @@ export function ProviderAssignmentDrawer({
       })),
     [accounts],
   );
+
+  const filteredAccounts = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return normalizedAccounts;
+    return normalizedAccounts.filter((account) => {
+      const byName = account.name.toLowerCase().includes(query);
+      const byId = account.externalId.toLowerCase().includes(query);
+      return byName || byId;
+    });
+  }, [normalizedAccounts, searchQuery]);
 
   function toggleAccount(accountId: string) {
     setDraftIds((prev) =>
@@ -328,8 +340,22 @@ export function ProviderAssignmentDrawer({
           </SheetHeader>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6 py-4">
-          <div className="space-y-3">
+        <div className="flex min-h-0 flex-1 flex-col px-6 py-4">
+          {fetchState === "success" ? (
+            <div className="shrink-0 pb-3">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Search ad accounts..."
+                aria-label="Search ad accounts by name"
+                className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+              />
+            </div>
+          ) : null}
+
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="space-y-3">
             {fetchState === "loading" ? (
               <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
                 Loading ad accounts...
@@ -361,8 +387,8 @@ export function ProviderAssignmentDrawer({
               />
             ) : null}
 
-            {fetchState === "success"
-              ? normalizedAccounts.map((account) => {
+              {fetchState === "success"
+                ? filteredAccounts.map((account) => {
                   const checked = draftIds.includes(account.id);
                   return (
                     <label
@@ -389,6 +415,14 @@ export function ProviderAssignmentDrawer({
                   );
                 })
               : null}
+
+              {fetchState === "success" && filteredAccounts.length === 0 ? (
+                <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                  <p>No ad accounts found</p>
+                  <p className="mt-1 text-xs">Try a different account name</p>
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
 

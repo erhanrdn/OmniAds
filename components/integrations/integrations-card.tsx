@@ -140,10 +140,7 @@ export function IntegrationsCard({
 
         {isConnected ? (
           <>
-            <Button
-              className="flex-1"
-              onClick={() => onOpenAssignments(provider)}
-            >
+            <Button className="flex-1" onClick={() => onOpenAssignments(provider)}>
               {connectedActionLabel ??
                 (hasAssignments ? "Manage assignments" : "Assign accounts")}
             </Button>

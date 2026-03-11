@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
+import { Button } from "@/components/ui/button";
 import { useAppStore } from "@/store/app-store";
 import {
-  INTEGRATION_PROVIDERS,
   IntegrationProvider,
   useIntegrationsStore,
 } from "@/store/integrations-store";
@@ -20,17 +20,36 @@ const REAL_PROVIDERS: IntegrationProvider[] = [
   "meta",
   "google",
   "ga4",
+  "search_console",
+];
+
+const DISPLAY_PROVIDERS: IntegrationProvider[] = [
+  "meta",
+  "google",
+  "ga4",
+  "search_console",
+  "shopify",
+  "tiktok",
+  "pinterest",
+  "snapchat",
 ];
 
 const DESCRIPTIONS: Record<IntegrationProvider, string> = {
   shopify: "Sync storefront events and conversion data for attribution.",
   meta: "Connect Ads Manager to import campaigns, ad sets, and spend.",
   google: "Link Google Ads to track performance and sync account data.",
+  search_console:
+    "Connect Google Search Console to analyze organic search performance and keyword visibility.",
   tiktok: "Pull campaign metrics from TikTok Ads into your dashboard.",
   pinterest: "Import Pinterest Ads performance and audience insights.",
   snapchat: "Connect Snapchat Ads for campaign and creative reporting.",
   ga4: "Connect Google Analytics 4 to enrich landing page and conversion insights.",
 };
+
+interface SearchConsoleProperty {
+  siteUrl: string;
+  permissionLevel?: string;
+}
 
 export default function IntegrationsPage() {
   const businesses = useAppStore((state) => state.businesses);
@@ -44,6 +63,7 @@ export default function IntegrationsPage() {
   const assignedAccountsByBusiness = useIntegrationsStore(
     (state) => state.assignedAccountsByBusiness,
   );
+  const setConnected = useIntegrationsStore((state) => state.setConnected);
   const disconnect = useIntegrationsStore((state) => state.disconnect);
   const setAssignedAccounts = useIntegrationsStore(
     (state) => state.setAssignedAccounts,
@@ -69,6 +89,129 @@ export default function IntegrationsPage() {
     propertyName: string;
   } | null>(null);
 
+  const [isPropertySelectorOpen, setIsPropertySelectorOpen] = useState(false);
+  const [isLoadingProperties, setIsLoadingProperties] = useState(false);
+  const [isSavingProperty, setIsSavingProperty] = useState(false);
+  const [propertyError, setPropertyError] = useState<string | null>(null);
+  const [properties, setProperties] = useState<SearchConsoleProperty[]>([]);
+  const [selectedPropertyUrl, setSelectedPropertyUrl] = useState("");
+
+  const integrations = useMemo(() => {
+    if (!businessId) return null;
+    return byBusinessId[businessId];
+  }, [byBusinessId, businessId]);
+
+  const closeSearchConsoleSelector = useCallback(() => {
+    setIsPropertySelectorOpen(false);
+    setIsLoadingProperties(false);
+    setIsSavingProperty(false);
+    setPropertyError(null);
+    setProperties([]);
+  }, []);
+
+  const openSearchConsoleSelector = useCallback(async () => {
+    if (!businessId || !integrations) return;
+    setPropertyError(null);
+    setIsLoadingProperties(true);
+    setIsPropertySelectorOpen(true);
+    try {
+      const response = await fetch(
+        `/api/search-console/sites?businessId=${encodeURIComponent(businessId)}`,
+      );
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        setPropertyError(
+          (payload as { message?: string } | null)?.message ??
+            "Could not load Search Console properties.",
+        );
+        setProperties([]);
+        return;
+      }
+
+      const rows = Array.isArray((payload as { data?: unknown[] } | null)?.data)
+        ? ((payload as { data: SearchConsoleProperty[] }).data ?? [])
+        : [];
+      setProperties(rows);
+      const existingProperty =
+        integrations.search_console.providerAccountName ??
+        integrations.search_console.providerAccountId ??
+        "";
+      setSelectedPropertyUrl(existingProperty || rows[0]?.siteUrl || "");
+    } catch {
+      setProperties([]);
+      setPropertyError("Could not load Search Console properties.");
+    } finally {
+      setIsLoadingProperties(false);
+    }
+  }, [businessId, integrations]);
+
+  const saveSearchConsoleProperty = useCallback(async () => {
+    if (!businessId || !integrations || !selectedPropertyUrl) return;
+    setIsSavingProperty(true);
+    setPropertyError(null);
+    try {
+      const response = await fetch(
+        `/api/search-console/sites?businessId=${encodeURIComponent(businessId)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ property_url: selectedPropertyUrl }),
+        },
+      );
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        setPropertyError(
+          (payload as { message?: string } | null)?.message ??
+            "Could not save selected property.",
+        );
+        return;
+      }
+
+      const integration = (
+        payload as {
+          integration?: {
+            id?: string;
+            connected_at?: string | null;
+            updated_at?: string | null;
+            provider_account_id?: string | null;
+            provider_account_name?: string | null;
+          };
+        }
+      ).integration;
+
+      setConnected(
+        businessId,
+        "search_console",
+        integration?.id ?? integrations.search_console.integrationId,
+        {
+          connectedAt:
+            integration?.connected_at ?? integrations.search_console.connectedAt,
+          lastSyncAt: integration?.updated_at ?? new Date().toISOString(),
+          providerAccountId:
+            integration?.provider_account_id ?? selectedPropertyUrl,
+          providerAccountName:
+            integration?.provider_account_name ?? selectedPropertyUrl,
+        },
+      );
+      setToast({
+        type: "success",
+        message: "Search Console property selected.",
+      });
+      closeSearchConsoleSelector();
+    } catch {
+      setPropertyError("Could not save selected property.");
+    } finally {
+      setIsSavingProperty(false);
+    }
+  }, [
+    businessId,
+    closeSearchConsoleSelector,
+    integrations,
+    selectedPropertyUrl,
+    setConnected,
+    setToast,
+  ]);
+
   /** Disconnect: calls backend API for real providers, then updates local store */
   const handleDisconnect = useCallback(
     async (provider: IntegrationProvider) => {
@@ -90,8 +233,11 @@ export default function IntegrationsPage() {
       if (assignmentProvider === provider) {
         setAssignmentProvider(null);
       }
+      if (provider === "search_console") {
+        closeSearchConsoleSelector();
+      }
     },
-    [assignmentProvider, businessId, disconnect],
+    [assignmentProvider, businessId, closeSearchConsoleSelector, disconnect],
   );
 
   useEffect(() => {
@@ -99,13 +245,11 @@ export default function IntegrationsPage() {
     ensureBusiness(businessId);
   }, [businessId, ensureBusiness]);
 
-  // On mount: fetch real statuses from backend so stale "connecting" state is corrected.
   useEffect(() => {
     if (!businessId) return;
     fetchStatuses();
   }, [businessId, fetchStatuses]);
 
-  // Fetch GA4 property metadata when GA4 is connected
   useEffect(() => {
     if (!businessId) return;
     let cancelled = false;
@@ -128,7 +272,7 @@ export default function IntegrationsPage() {
           setGa4PropertyInfo(null);
         }
       } catch {
-        // silent — not critical for page load
+        // silent
       }
     })();
     return () => {
@@ -141,11 +285,6 @@ export default function IntegrationsPage() {
     const timeout = setTimeout(() => clearToast(), 3000);
     return () => clearTimeout(timeout);
   }, [toast, clearToast]);
-
-  const integrations = useMemo(() => {
-    if (!businessId) return null;
-    return byBusinessId[businessId];
-  }, [byBusinessId, businessId]);
 
   if (!businessId) return <BusinessEmptyState />;
   if (!integrations) return null;
@@ -192,33 +331,45 @@ export default function IntegrationsPage() {
       )}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {INTEGRATION_PROVIDERS.map((provider) => {
+        {DISPLAY_PROVIDERS.map((provider) => {
           const assignedIds =
             assignedAccountsByBusiness[businessId]?.[provider] ?? [];
+          const state = integrations[provider];
 
           const isGa4 = provider === "ga4";
           const ga4Connected = isGa4 && integrations.ga4.status === "connected";
+          const isSearchConsole = provider === "search_console";
+          const searchConsoleConnected =
+            isSearchConsole && state.status === "connected";
 
           return (
             <IntegrationsCard
               key={provider}
               provider={provider}
               description={DESCRIPTIONS[provider]}
-              state={integrations[provider]}
+              state={state}
               assignedAccountIds={assignedIds}
               connectedDetailText={
                 ga4Connected
                   ? ga4PropertyInfo
                     ? `Property: ${ga4PropertyInfo.propertyName}`
                     : "Connected — no property selected yet"
-                  : undefined
+                  : searchConsoleConnected
+                    ? `Property: ${
+                        state.providerAccountName ??
+                        state.providerAccountId ??
+                        "Not selected"
+                      }`
+                    : undefined
               }
               connectedActionLabel={
                 ga4Connected
                   ? ga4PropertyInfo
                     ? "Change Property"
                     : "Select Property"
-                  : undefined
+                  : searchConsoleConnected
+                    ? "Select Property"
+                    : undefined
               }
               onConnect={handleConnect}
               onReconnect={(p) => setActiveProvider(p)}
@@ -228,9 +379,13 @@ export default function IntegrationsPage() {
               onOpenAssignments={(p) => {
                 if (p === "ga4") {
                   setGa4PickerOpen(true);
-                } else {
-                  setAssignmentProvider(p);
+                  return;
                 }
+                if (p === "search_console") {
+                  void openSearchConsoleSelector();
+                  return;
+                }
+                setAssignmentProvider(p);
               }}
             />
           );
@@ -286,6 +441,72 @@ export default function IntegrationsPage() {
           });
         }}
       />
+
+      {isPropertySelectorOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-xl rounded-xl border bg-background p-5 shadow-xl">
+            <div className="mb-4">
+              <h3 className="text-lg font-semibold">
+                Select Search Console Property
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Choose the property Adsecute should use for Search Console sync.
+              </p>
+            </div>
+
+            <div className="max-h-[55vh] space-y-2 overflow-y-auto rounded-lg border p-3">
+              {isLoadingProperties ? (
+                <p className="text-sm text-muted-foreground">
+                  Loading properties...
+                </p>
+              ) : properties.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No Search Console properties found for this connection.
+                </p>
+              ) : (
+                properties.map((property) => (
+                  <label
+                    key={property.siteUrl}
+                    className="flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted/40"
+                  >
+                    <input
+                      type="radio"
+                      name="search-console-property"
+                      checked={selectedPropertyUrl === property.siteUrl}
+                      onChange={() => setSelectedPropertyUrl(property.siteUrl)}
+                    />
+                    <span className="font-medium">{property.siteUrl}</span>
+                  </label>
+                ))
+              )}
+            </div>
+
+            {propertyError ? (
+              <p className="mt-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                {propertyError}
+              </p>
+            ) : null}
+
+            <div className="mt-5 flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={closeSearchConsoleSelector}
+                disabled={isSavingProperty}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={saveSearchConsoleProperty}
+                disabled={
+                  isLoadingProperties || isSavingProperty || !selectedPropertyUrl
+                }
+              >
+                {isSavingProperty ? "Saving..." : "Save Property"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

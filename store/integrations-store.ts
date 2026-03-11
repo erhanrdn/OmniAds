@@ -5,6 +5,7 @@ export type IntegrationProvider =
   | "shopify"
   | "meta"
   | "google"
+  | "search_console"
   | "tiktok"
   | "pinterest"
   | "snapchat"
@@ -30,6 +31,8 @@ export interface IntegrationState {
   connectedAt?: string;
   lastSyncAt?: string;
   integrationId?: string;
+  providerAccountId?: string;
+  providerAccountName?: string;
   accounts: IntegrationAdAccount[];
 }
 
@@ -47,6 +50,7 @@ const PROVIDERS: IntegrationProvider[] = [
   "shopify",
   "meta",
   "google",
+  "search_console",
   "tiktok",
   "pinterest",
   "snapchat",
@@ -57,6 +61,7 @@ const DEFAULT_ACCOUNTS: Record<IntegrationProvider, IntegrationAdAccount[]> = {
   shopify: [],
   meta: [],
   google: [],
+  search_console: [],
   tiktok: [],
   pinterest: [],
   snapchat: [],
@@ -95,11 +100,13 @@ const normalizeBusinessIntegrations = (
           provider,
           status: existing.status,
           errorMessage: existing.errorMessage,
-          connectedAt: existing.connectedAt,
-          lastSyncAt: existing.lastSyncAt,
-          integrationId: existing.integrationId,
-          accounts: (existing.accounts ?? []).filter((account) => !isLegacyMockAccount(account)),
-        }
+                connectedAt: existing.connectedAt,
+                lastSyncAt: existing.lastSyncAt,
+                integrationId: existing.integrationId,
+                providerAccountId: existing.providerAccountId,
+                providerAccountName: existing.providerAccountName,
+                accounts: (existing.accounts ?? []).filter((account) => !isLegacyMockAccount(account)),
+              }
       : defaults[provider];
     return acc;
   }, {} as Record<IntegrationProvider, IntegrationState>);
@@ -133,7 +140,13 @@ interface IntegrationsStore {
   setConnected: (
     businessId: string,
     provider: IntegrationProvider,
-    integrationId?: string
+    integrationId?: string,
+    metadata?: {
+      connectedAt?: string;
+      lastSyncAt?: string;
+      providerAccountId?: string | null;
+      providerAccountName?: string | null;
+    }
   ) => void;
   setError: (
     businessId: string,
@@ -197,7 +210,7 @@ export const useIntegrationsStore = create<IntegrationsStore>()(
           },
         }));
       },
-      setConnected: (businessId, provider, integrationId) => {
+      setConnected: (businessId, provider, integrationId, metadata) => {
         get().ensureBusiness(businessId);
         set((state) => {
           const existing = state.byBusinessId[businessId][provider];
@@ -211,9 +224,18 @@ export const useIntegrationsStore = create<IntegrationsStore>()(
                   ...existing,
                   status: "connected",
                   errorMessage: undefined,
-                  connectedAt: existing.connectedAt ?? now,
-                  lastSyncAt: now,
+                  connectedAt:
+                    metadata?.connectedAt ??
+                    existing.connectedAt ??
+                    now,
+                  lastSyncAt: metadata?.lastSyncAt ?? now,
                   integrationId,
+                  providerAccountId:
+                    metadata?.providerAccountId ??
+                    existing.providerAccountId,
+                  providerAccountName:
+                    metadata?.providerAccountName ??
+                    existing.providerAccountName,
                   accounts:
                     existing.accounts.length > 0
                       ? existing.accounts
@@ -266,6 +288,8 @@ export const useIntegrationsStore = create<IntegrationsStore>()(
               [provider]: {
                 provider,
                 status: "disconnected",
+                providerAccountId: undefined,
+                providerAccountName: undefined,
                 accounts: [],
               },
             },

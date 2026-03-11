@@ -90,15 +90,27 @@ export function useIntegrationConnection(businessId: string) {
       );
       if (!res.ok) return;
       const data = await res.json();
-      const rows: Array<{ provider: IntegrationProvider; status: string; id: string }> =
-        data.integrations ?? [];
+      const rows: Array<{
+        provider: IntegrationProvider;
+        status: string;
+        id: string;
+        connected_at?: string | null;
+        updated_at?: string | null;
+        provider_account_id?: string | null;
+        provider_account_name?: string | null;
+      }> = data.integrations ?? [];
 
       ensureBusiness(businessId);
 
       for (const row of rows) {
         if (row.status === "connected") {
           clearTimer(row.provider);
-          setConnected(businessId, row.provider, row.id);
+          setConnected(businessId, row.provider, row.id, {
+            connectedAt: row.connected_at ?? undefined,
+            lastSyncAt: row.updated_at ?? undefined,
+            providerAccountId: row.provider_account_id,
+            providerAccountName: row.provider_account_name,
+          });
         } else if (row.status === "error") {
           clearTimer(row.provider);
           setError(businessId, row.provider, "Connection failed on the server.");
