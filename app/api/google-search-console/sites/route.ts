@@ -11,6 +11,21 @@ interface SearchConsoleSiteEntry {
   permissionLevel?: string;
 }
 
+function extractGoogleApiMessage(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const root = payload as {
+    error?: { message?: unknown; status?: unknown };
+  };
+  const msg = root.error?.message;
+  return typeof msg === "string" && msg.trim() ? msg : null;
+}
+
+function isServiceDisabled(payload: unknown): boolean {
+  if (!payload || typeof payload !== "object") return false;
+  const root = payload as { error?: { status?: unknown } };
+  return root.error?.status === "PERMISSION_DENIED";
+}
+
 export async function GET(request: NextRequest) {
   const businessId = request.nextUrl.searchParams.get("businessId");
   if (!businessId) {
@@ -46,10 +61,15 @@ export async function GET(request: NextRequest) {
       | null;
 
     if (!response.ok) {
+      const providerMessage = extractGoogleApiMessage(payload);
       return NextResponse.json(
         {
-          error: "search_console_sites_fetch_failed",
-          message: "Could not fetch Search Console properties.",
+          error: isServiceDisabled(payload)
+            ? "search_console_api_disabled"
+            : "search_console_sites_fetch_failed",
+          message:
+            providerMessage ??
+            "Could not fetch Search Console properties.",
           details: payload,
         },
         { status: response.status || 502 },
