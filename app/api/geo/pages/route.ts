@@ -5,15 +5,16 @@ import {
   runGA4Report,
   GA4AuthError,
 } from "@/lib/google-analytics-reporting";
-import {
-  GA4_AI_SOURCE_FILTER,
-} from "@/lib/geo-intelligence";
+import { GA4_AI_SOURCE_FILTER } from "@/lib/geo-intelligence";
 import {
   scorePageGeo,
+  scoreAiTrafficValue,
+  scorePageReadiness,
   assignPriority,
   assignEffort,
   assignConfidence,
 } from "@/lib/geo-scoring";
+import { computeMomentum, computePreviousPeriod } from "@/lib/geo-momentum";
 
 export async function GET(request: NextRequest) {
   const businessId = request.nextUrl.searchParams.get("businessId");
@@ -25,11 +26,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "missing_business_id" }, { status: 400 });
   }
 
-  const access = await requireBusinessAccess({
-    request,
-    businessId,
-    minRole: "collaborator",
-  });
+  const access = await requireBusinessAccess({ request, businessId, minRole: "collaborator" });
   if ("error" in access) return access.error;
 
   let accessToken: string;
@@ -46,11 +43,12 @@ export async function GET(request: NextRequest) {
     throw err;
   }
 
-  const [aiPagesReport, totalPagesReport] = await Promise.all([
-    // AI-origin traffic by landing page
+  const { prevStart, prevEnd } = computePreviousPeriod(startDate, endDate);
+
+  const [aiPagesReport, totalPagesReport, prevAiPagesReport] = await Promise.all([
+    // Current: AI-origin traffic by landing page
     runGA4Report({
-      propertyId,
-      accessToken,
+      propertyId, accessToken,
       dateRanges: [{ startDate, endDate }],
       dimensions: [{ name: "landingPage" }],
       metrics: [
@@ -64,37 +62,51 @@ export async function GET(request: NextRequest) {
       orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
       limit: 100,
     }),
-    // All traffic by landing page (for share calculation)
+    // All traffic (for total sessions + site avg CVR)
     runGA4Report({
-      propertyId,
-      accessToken,
+      propertyId, accessToken,
       dateRanges: [{ startDate, endDate }],
       dimensions: [{ name: "landingPage" }],
-      metrics: [{ name: "sessions" }, { name: "ecommercePurchases" }],
+      metrics: [{ name: "sessions" }, { name: "ecommercePurchases" }, { name: "engagementRate" }],
+      orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
+      limit: 100,
+    }),
+    // Previous period: AI-origin traffic (for momentum)
+    runGA4Report({
+      propertyId, accessToken,
+      dateRanges: [{ startDate: prevStart, endDate: prevEnd }],
+      dimensions: [{ name: "landingPage" }],
+      metrics: [{ name: "sessions" }],
+      dimensionFilter: GA4_AI_SOURCE_FILTER,
       orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
       limit: 100,
     }),
   ]);
 
-  // Build total sessions map for share calculation
+  // Build lookup maps
   const totalSessionsMap = new Map<string, number>();
+  const siteEngMap = new Map<string, number>();
   for (const row of totalPagesReport.rows) {
-    totalSessionsMap.set(
-      row.dimensions[0],
-      parseFloat(row.metrics[0] ?? "0")
-    );
+    totalSessionsMap.set(row.dimensions[0], parseFloat(row.metrics[0] ?? "0"));
+    siteEngMap.set(row.dimensions[0], parseFloat(row.metrics[2] ?? "0"));
   }
 
-  // Site-average CVR for delta calculations
+  const prevAiSessionsMap = new Map<string, number>();
+  for (const row of prevAiPagesReport.rows) {
+    prevAiSessionsMap.set(row.dimensions[0], parseFloat(row.metrics[0] ?? "0"));
+  }
+
+  // Site averages
   const totalSiteSessions = totalPagesReport.rows.reduce(
-    (s, r) => s + parseFloat(r.metrics[0] ?? "0"),
-    0
+    (s, r) => s + parseFloat(r.metrics[0] ?? "0"), 0
   );
   const totalSitePurchases = totalPagesReport.rows.reduce(
-    (s, r) => s + parseFloat(r.metrics[1] ?? "0"),
-    0
+    (s, r) => s + parseFloat(r.metrics[1] ?? "0"), 0
   );
   const siteAvgCvr = totalSiteSessions > 0 ? totalSitePurchases / totalSiteSessions : 0;
+  const siteAvgEngagement = totalSiteSessions > 0
+    ? totalPagesReport.rows.reduce((s, r) => s + parseFloat(r.metrics[2] ?? "0") * parseFloat(r.metrics[0] ?? "0"), 0) / totalSiteSessions
+    : 0;
 
   const pages = aiPagesReport.rows.map((row) => {
     const path = row.dimensions[0] ?? "/";
@@ -106,38 +118,56 @@ export async function GET(request: NextRequest) {
     const totalSessions = totalSessionsMap.get(path) ?? 0;
     const purchaseCvr = aiSessions > 0 ? purchases / aiSessions : 0;
 
-    // v2 scoring
-    const scored = scorePageGeo({
-      aiSessions,
-      totalSessions,
-      aiEngagementRate: engagementRate,
-      aiPurchaseCvr: purchaseCvr,
+    // GEO score with breakdown
+    const geoScored = scorePageGeo({
+      aiSessions, totalSessions, aiEngagementRate: engagementRate, aiPurchaseCvr: purchaseCvr,
     });
-    const geoScore = scored.total;
+    const geoScore = geoScored.total;
+
+    // AI traffic value score
+    const valueScored = scoreAiTrafficValue({
+      sessions: aiSessions,
+      engagementRate,
+      purchaseCvr,
+      revenue,
+      siteAvgEngagementRate: siteAvgEngagement,
+      siteAvgPurchaseCvr: siteAvgCvr,
+    });
+
+    // Page readiness score (heuristic — GA4-only, SC enrichment not available here)
+    const readinessScored = scorePageReadiness({
+      path,
+      aiEngagementRate: engagementRate,
+    });
+
+    // Momentum
+    const prevAiSessions = prevAiSessionsMap.get(path) ?? 0;
+    const momentum = computeMomentum(aiSessions, prevAiSessions, 3);
 
     const priority = assignPriority(geoScore, aiSessions, purchaseCvr - siteAvgCvr);
-    const effort = assignEffort(
-      purchaseCvr < siteAvgCvr * 0.5 ? "add_faq" : "expand_guide"
-    );
+    const effort = assignEffort(purchaseCvr < siteAvgCvr * 0.5 ? "add_faq" : "expand_guide");
     const confidence = assignConfidence(true, false, Math.round(aiSessions));
 
-    // Strongest signal for display
+    // Strongest signal
     let strongestSignal: string;
-    if (purchaseCvr >= 0.03) strongestSignal = "Strong AI CVR";
+    if (momentum.status === "breakout") strongestSignal = "Breakout growth";
+    else if (purchaseCvr >= 0.03) strongestSignal = "Strong AI CVR";
     else if (engagementRate >= 0.7) strongestSignal = "High engagement";
     else if (aiSessions >= 50) strongestSignal = "High AI traffic";
     else strongestSignal = "Emerging AI page";
 
-    // Recommendation
+    // Recommendation — more targeted with readiness + value context
     let recommendation: string | null = null;
-    if (engagementRate < 0.4 && aiSessions > 20)
-      recommendation = "Improve content relevance";
+    if (readinessScored.score < 30 && aiSessions > 10)
+      recommendation = "Low readiness — add FAQ / answer-first structure";
+    else if (engagementRate < 0.4 && aiSessions > 20)
+      recommendation = "Poor engagement — restructure for answer intent";
     else if (purchaseCvr < 0.01 && aiSessions > 30)
-      recommendation = "Add commercial intent CTAs";
-    else if (purchaseCvr >= 0.03)
-      recommendation = "Scale AI content strategy";
+      recommendation = "Low conversion — add commercial CTAs or comparison table";
+    else if (valueScored.label === "elite" || valueScored.label === "strong")
+      recommendation = "High-value AI channel — scale content strategy here";
     else if (engagementRate >= 0.7)
-      recommendation = "Expand topic depth";
+      recommendation = "Strong engagement — expand topic depth";
 
     return {
       path,
@@ -148,7 +178,23 @@ export async function GET(request: NextRequest) {
       revenue,
       purchaseCvr,
       totalSessions,
+      // GEO score + breakdown
       geoScore,
+      geoScoreBreakdown: geoScored.components,
+      // AI traffic value
+      aiTrafficValueScore: valueScored.score,
+      aiTrafficValueLabel: valueScored.label,
+      // Page readiness
+      pageReadinessScore: readinessScored.score,
+      pageReadinessLabel: readinessScored.label,
+      readinessBreakdown: readinessScored.breakdown,
+      // Momentum
+      momentum: {
+        status: momentum.status,
+        label: momentum.label,
+        score: momentum.score,
+        growthRate: momentum.growthRate,
+      },
       priority,
       effort,
       confidence,
@@ -157,8 +203,12 @@ export async function GET(request: NextRequest) {
     };
   });
 
-  // Sort by geoScore desc
-  pages.sort((a, b) => b.geoScore - a.geoScore);
+  // Sort: breakout/rising pages bumped up, then geoScore
+  pages.sort((a, b) => {
+    const aMomentumBoost = a.momentum.status === "breakout" ? 15 : a.momentum.status === "rising" ? 7 : 0;
+    const bMomentumBoost = b.momentum.status === "breakout" ? 15 : b.momentum.status === "rising" ? 7 : 0;
+    return (b.geoScore + bMomentumBoost) - (a.geoScore + aMomentumBoost);
+  });
 
   return NextResponse.json({ pages });
 }

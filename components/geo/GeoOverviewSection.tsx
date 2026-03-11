@@ -29,6 +29,7 @@ interface Top3Priority {
 interface Highlights {
   strongestGeoQuery?: { query: string; geoScore: number; impressions: number } | null;
   strongestGeoTopic?: { topic: string; geoScore: number; impressions: number; coverageStrength: string } | null;
+  highestAiValueSource?: { engine: string; label: string; score: number } | null;
 }
 
 interface GeoOverviewSectionProps {
@@ -184,8 +185,8 @@ export function GeoOverviewSection({
       )}
 
       {/* Strongest asset highlights */}
-      {!isLoading && highlights && (highlights.strongestGeoQuery || highlights.strongestGeoTopic) && (
-        <div className="grid gap-2.5 sm:grid-cols-2">
+      {!isLoading && highlights && (highlights.strongestGeoQuery || highlights.strongestGeoTopic || highlights.highestAiValueSource) && (
+        <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
           {highlights.strongestGeoQuery && (
             <div className="rounded-xl border bg-violet-50 dark:bg-violet-950/30 border-violet-200 dark:border-violet-900/50 p-4">
               <p className="text-xs font-medium uppercase tracking-wide text-violet-600 dark:text-violet-400 mb-1">
@@ -217,6 +218,29 @@ export function GeoOverviewSection({
                 </span>
                 <span className="rounded-full bg-emerald-100 dark:bg-emerald-900/40 px-2 py-0.5 text-xs font-semibold text-emerald-800 dark:text-emerald-300">
                   GEO {highlights.strongestGeoTopic.geoScore}
+                </span>
+              </div>
+            </div>
+          )}
+          {highlights.highestAiValueSource && (
+            <div className="rounded-xl border bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-900/50 p-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-blue-600 dark:text-blue-400 mb-1">
+                Highest AI Value Source
+              </p>
+              <p className="font-semibold text-sm">{highlights.highestAiValueSource.engine}</p>
+              <div className="mt-1 flex items-center gap-2">
+                <span className={cn(
+                  "rounded-full px-2 py-0.5 text-xs font-semibold capitalize",
+                  highlights.highestAiValueSource.label === "elite"
+                    ? "bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300"
+                    : highlights.highestAiValueSource.label === "strong"
+                    ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300"
+                    : "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+                )}>
+                  {highlights.highestAiValueSource.label}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  value score {highlights.highestAiValueSource.score}/100
                 </span>
               </div>
             </div>

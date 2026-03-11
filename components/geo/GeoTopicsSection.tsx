@@ -1,7 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { GeoScoreBreakdown, GeoMomentumBadge } from "./GeoScoreBreakdown";
 
 interface TopicRecommendation {
   title: string;
@@ -17,10 +19,19 @@ interface TopicCluster {
   clicks: number;
   avgPosition: number;
   geoScore: number;
+  geoScoreBreakdown?: Record<string, number>;
   coverageStrength: "Strong" | "Moderate" | "Weak";
+  coverageGap?: "high" | "medium" | "low";
+  authorityStrength?: string;
   queries: string[];
   priority?: "high" | "medium" | "low";
   confidence?: "high" | "medium" | "low";
+  momentum?: {
+    status: "breakout" | "rising" | "stable" | "declining";
+    label: string;
+    score: number;
+    growthRate: number;
+  };
   recommendation?: TopicRecommendation | null;
 }
 
@@ -44,13 +55,26 @@ const STRENGTH_CONFIG = {
   },
 };
 
+const COVERAGE_GAP_CONFIG: Record<"high" | "medium" | "low", string> = {
+  high: "text-rose-600 dark:text-rose-400",
+  medium: "text-amber-600 dark:text-amber-400",
+  low: "text-muted-foreground",
+};
+
 const PRIORITY_COLOR = {
   high: "text-rose-600 dark:text-rose-400",
   medium: "text-amber-600 dark:text-amber-400",
   low: "text-muted-foreground",
 };
 
-function GeoScoreBadge({ score }: { score: number }) {
+function GeoScorePill({
+  score,
+  breakdown,
+}: {
+  score: number;
+  breakdown?: Record<string, number>;
+}) {
+  const [expanded, setExpanded] = useState(false);
   const cls =
     score >= 60
       ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300"
@@ -58,9 +82,22 @@ function GeoScoreBadge({ score }: { score: number }) {
       ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
       : "bg-muted text-muted-foreground";
   return (
-    <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold", cls)}>
-      {score}
-    </span>
+    <div>
+      <button
+        onClick={() => breakdown && setExpanded(!expanded)}
+        className={cn(
+          "rounded-full px-2 py-0.5 text-xs font-semibold",
+          cls,
+          breakdown ? "cursor-pointer hover:opacity-80" : ""
+        )}
+        title={breakdown ? "Click to see score breakdown" : undefined}
+      >
+        GEO {score}
+      </button>
+      {expanded && breakdown && (
+        <GeoScoreBreakdown breakdown={breakdown} total={score} className="mt-1" />
+      )}
+    </div>
   );
 }
 
@@ -96,9 +133,9 @@ export function GeoTopicsSection({ topics, isLoading }: GeoTopicsSectionProps) {
   return (
     <div className="space-y-3">
       <p className="text-sm text-muted-foreground">
-        Topic clusters scored for GEO authority. Strong coverage = many queries ranking for this
-        topic. Weak coverage = priority expansion opportunity. GEO Score combines impressions,
-        position, query breadth, and informational density.
+        Topic clusters scored for GEO authority with momentum tracking. Strong coverage = many
+        queries ranking for this topic. Click a GEO score to see its breakdown. Momentum compares
+        to the previous equivalent period.
       </p>
       <div className="grid gap-2.5">
         {topics.slice(0, 20).map((topic) => {
@@ -114,9 +151,25 @@ export function GeoTopicsSection({ topics, isLoading }: GeoTopicsSectionProps) {
                     <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", cfg.cls)}>
                       {topic.coverageStrength}
                     </span>
+                    {topic.momentum && (
+                      <GeoMomentumBadge
+                        status={topic.momentum.status}
+                        label={topic.momentum.label}
+                      />
+                    )}
                     {topic.priority && (
                       <span className={cn("text-xs font-medium", PRIORITY_COLOR[topic.priority])}>
                         {topic.priority.charAt(0).toUpperCase() + topic.priority.slice(1)} priority
+                      </span>
+                    )}
+                    {topic.coverageGap && topic.coverageGap !== "low" && (
+                      <span
+                        className={cn(
+                          "text-[10px] font-medium uppercase tracking-wide",
+                          COVERAGE_GAP_CONFIG[topic.coverageGap]
+                        )}
+                      >
+                        {topic.coverageGap === "high" ? "↑ High gap" : "↗ Gap opp"}
                       </span>
                     )}
                     <span className="text-xs text-muted-foreground">
@@ -149,9 +202,13 @@ export function GeoTopicsSection({ topics, isLoading }: GeoTopicsSectionProps) {
                   {/* Recommendation */}
                   {topic.recommendation && (
                     <div className="mt-2 rounded-lg border border-border/50 bg-background/60 px-2.5 py-1.5">
-                      <p className="text-[10px] font-medium text-foreground">{topic.recommendation.title}</p>
+                      <p className="text-[10px] font-medium text-foreground">
+                        {topic.recommendation.title}
+                      </p>
                       <p className="mt-0.5 text-[10px] text-muted-foreground">
-                        <span className="text-emerald-600 dark:text-emerald-400">{topic.recommendation.impact}</span>
+                        <span className="text-emerald-600 dark:text-emerald-400">
+                          {topic.recommendation.impact}
+                        </span>
                         {" · "}
                         {topic.recommendation.effort} effort
                       </p>
@@ -162,11 +219,9 @@ export function GeoTopicsSection({ topics, isLoading }: GeoTopicsSectionProps) {
                 {/* Right stats */}
                 <div className="shrink-0 text-right space-y-0.5">
                   {topic.geoScore !== undefined && (
-                    <>
-                      <div className="flex justify-end mb-1">
-                        <GeoScoreBadge score={topic.geoScore} />
-                      </div>
-                    </>
+                    <div className="flex justify-end mb-1">
+                      <GeoScorePill score={topic.geoScore} breakdown={topic.geoScoreBreakdown} />
+                    </div>
                   )}
                   <p className="text-sm font-semibold">{fmt(topic.impressions)}</p>
                   <p className="text-xs text-muted-foreground">impressions</p>
@@ -175,6 +230,11 @@ export function GeoTopicsSection({ topics, isLoading }: GeoTopicsSectionProps) {
                   <p className="text-xs text-muted-foreground">
                     avg pos {topic.avgPosition.toFixed(1)}
                   </p>
+                  {topic.authorityStrength && (
+                    <p className="text-[10px] text-muted-foreground capitalize">
+                      {topic.authorityStrength} authority
+                    </p>
+                  )}
                 </div>
               </div>
             </div>

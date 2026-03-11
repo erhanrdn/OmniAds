@@ -2,6 +2,7 @@
 
 import { Skeleton } from "@/components/ui/skeleton";
 import { SortableTable, type ColumnDef } from "@/components/analytics/SortableTable";
+import { AiTrafficValueBadge, GeoMomentumBadge } from "./GeoScoreBreakdown";
 
 interface AiSource {
   engine: string;
@@ -12,6 +13,15 @@ interface AiSource {
   revenue: number;
   purchaseCvr: number;
   sources: string[];
+  aiTrafficValueScore?: number;
+  aiTrafficValueLabel?: "weak" | "promising" | "strong" | "elite";
+  momentum?: {
+    status: "breakout" | "rising" | "stable" | "declining";
+    label: string;
+    score: number;
+    growthRate: number;
+  };
+  recommendation?: string | null;
 }
 
 const ENGINE_COLORS: Record<string, string> = {
@@ -52,6 +62,26 @@ const columns: ColumnDef<AiSource>[] = [
     },
   },
   {
+    key: "aiTrafficValueLabel",
+    header: "AI Value",
+    accessor: (r) => ({ weak: 0, promising: 1, strong: 2, elite: 3 }[r.aiTrafficValueLabel ?? "weak"]),
+    align: "right",
+    render: (r) =>
+      r.aiTrafficValueLabel ? (
+        <AiTrafficValueBadge label={r.aiTrafficValueLabel} score={r.aiTrafficValueScore} />
+      ) : null,
+  },
+  {
+    key: "momentum",
+    header: "Momentum",
+    accessor: (r) => r.momentum?.score ?? 50,
+    sortable: false,
+    render: (r) =>
+      r.momentum ? (
+        <GeoMomentumBadge status={r.momentum.status} label={r.momentum.label} />
+      ) : null,
+  },
+  {
     key: "sessions",
     header: "Sessions",
     accessor: (r) => r.sessions,
@@ -87,6 +117,21 @@ const columns: ColumnDef<AiSource>[] = [
     accessor: (r) => r.revenue,
     align: "right",
     render: (r) => fmt(r.revenue, "currency"),
+  },
+  {
+    key: "recommendation",
+    header: "Recommendation",
+    accessor: (r) => r.recommendation ?? "",
+    sortable: false,
+    render: (r) =>
+      r.recommendation ? (
+        <span
+          className="rounded bg-muted px-1.5 py-0.5 text-[10px] block truncate max-w-[160px]"
+          title={r.recommendation}
+        >
+          {r.recommendation}
+        </span>
+      ) : null,
   },
 ];
 
@@ -124,8 +169,8 @@ export function AiTrafficSourcesSection({
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        Sessions arriving from known AI discovery engines. Higher engagement and purchase CVR
-        indicate high-intent visitors worth prioritizing.
+        Sessions arriving from known AI discovery engines. AI Value score reflects quality
+        relative to your site average. Momentum compares to the previous equivalent period.
       </p>
       <SortableTable
         columns={columns}

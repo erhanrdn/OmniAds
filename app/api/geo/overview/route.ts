@@ -16,7 +16,7 @@ import {
   generateGeoInsights,
   clusterQueryTopics,
 } from "@/lib/geo-intelligence";
-import { scorePageGeo, scoreQueryGeo, scoreTopicGeo } from "@/lib/geo-scoring";
+import { scorePageGeo, scoreQueryGeo, scoreTopicGeo, scoreAiTrafficValue } from "@/lib/geo-scoring";
 
 export async function GET(request: NextRequest) {
   const businessId = request.nextUrl.searchParams.get("businessId");
@@ -70,6 +70,7 @@ export async function GET(request: NextRequest) {
   let totalPurchaseCvr = 0;
   let aiPageCount = 0;
   let topAiSource: string | null = null;
+  let highestAiValueSource: { engine: string; label: string; score: number } | null = null;
   const aiSourceBreakdown: Array<{ engine: string; sessions: number; purchaseCvr: number; engagementRate: number }> = [];
 
   if (ga4Token && ga4PropertyId) {
@@ -148,6 +149,23 @@ export async function GET(request: NextRequest) {
 
     if (aiSourceBreakdown.length > 0) {
       topAiSource = aiSourceBreakdown.sort((a, b) => b.sessions - a.sessions)[0].engine;
+
+      // Highest AI value source
+      const maxSessions = Math.max(...aiSourceBreakdown.map((s) => s.sessions), 1);
+      const valuedSources = aiSourceBreakdown.map((s) => {
+        const valued = scoreAiTrafficValue({
+          sessions: s.sessions,
+          engagementRate: s.engagementRate,
+          purchaseCvr: s.purchaseCvr,
+          siteAvgEngagementRate: totalEngagementRate,
+          siteAvgPurchaseCvr: totalPurchaseCvr,
+        });
+        return { engine: s.engine, label: valued.label, score: valued.score };
+      });
+      const topValued = valuedSources.sort((a, b) => b.score - a.score)[0];
+      if (topValued && topValued.label !== "weak") {
+        highestAiValueSource = topValued;
+      }
     }
   }
 
@@ -342,6 +360,7 @@ export async function GET(request: NextRequest) {
     highlights: {
       strongestGeoQuery,
       strongestGeoTopic,
+      highestAiValueSource,
     },
   });
 }

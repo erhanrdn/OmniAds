@@ -308,3 +308,167 @@ export function assignConfidence(
   if (dataScore >= 3) return "medium";
   return "low";
 }
+
+// ── AI Traffic Value Score ────────────────────────────────────────────
+
+export type TrafficValueLabel = "weak" | "promising" | "strong" | "elite";
+
+export interface AiTrafficValueSignals {
+  sessions: number;
+  engagementRate: number;
+  purchaseCvr: number;
+  revenue?: number;
+  siteAvgEngagementRate: number;
+  siteAvgPurchaseCvr: number;
+}
+
+/**
+ * Score the quality and value of AI-source traffic.
+ *
+ * Components:
+ *   volume        0–20 pts — log-scaled session count
+ *   engagement    0–25 pts — AI engagement vs site avg ratio
+ *   conversion    0–30 pts — AI CVR vs site avg ratio + absolute CVR
+ *   revenueProxy  0–25 pts — revenue per session signal
+ *
+ * Returns 0–100 + a human label.
+ */
+export function scoreAiTrafficValue(signals: Partial<AiTrafficValueSignals>): {
+  score: number;
+  label: TrafficValueLabel;
+  breakdown: Record<string, number>;
+} {
+  // Volume: log-scaled (1 session → ~0 pts, 100 → ~13 pts, 1K → ~20 pts)
+  let volume = 0;
+  if (signals.sessions !== undefined && signals.sessions > 0) {
+    volume = Math.min(20, Math.round(Math.log10(signals.sessions + 1) * 7));
+  }
+
+  // Engagement quality: AI engagement rate vs site average
+  let engagement = 0;
+  if (signals.engagementRate !== undefined) {
+    const baseEng = signals.engagementRate;
+    const ratio =
+      signals.siteAvgEngagementRate && signals.siteAvgEngagementRate > 0
+        ? baseEng / signals.siteAvgEngagementRate
+        : baseEng;
+    // Ratio >= 1.2 → full points; ratio < 0.6 → near zero
+    engagement = Math.min(25, Math.max(0, Math.round((ratio - 0.4) * 31)));
+  }
+
+  // Conversion: both absolute CVR and relative to site avg
+  let conversion = 0;
+  if (signals.purchaseCvr !== undefined) {
+    // Absolute: 5% CVR → 15 pts
+    const absolute = Math.min(15, Math.round(signals.purchaseCvr * 300));
+    // Relative: AI CVR vs site avg (1.5x → bonus, 0.5x → penalty)
+    let relative = 0;
+    if (signals.siteAvgPurchaseCvr && signals.siteAvgPurchaseCvr > 0) {
+      const cvRatio = signals.purchaseCvr / signals.siteAvgPurchaseCvr;
+      relative = Math.min(15, Math.max(-5, Math.round((cvRatio - 0.5) * 15)));
+    }
+    conversion = Math.min(30, Math.max(0, absolute + relative));
+  }
+
+  // Revenue proxy: revenue per session (if available)
+  let revenueProxy = 0;
+  if (signals.revenue !== undefined && signals.sessions && signals.sessions > 0) {
+    const rps = signals.revenue / signals.sessions;
+    // $5/session → 10 pts, $25/session → 25 pts
+    revenueProxy = Math.min(25, Math.round(rps * 2));
+  } else if (signals.purchaseCvr !== undefined && signals.purchaseCvr > 0) {
+    // Estimate from CVR when revenue is unavailable
+    revenueProxy = Math.min(25, Math.round(signals.purchaseCvr * 200));
+  }
+
+  const score = Math.min(100, volume + engagement + conversion + revenueProxy);
+
+  let label: TrafficValueLabel;
+  if (score >= 75) label = "elite";
+  else if (score >= 50) label = "strong";
+  else if (score >= 25) label = "promising";
+  else label = "weak";
+
+  return { score, label, breakdown: { volume, engagement, conversion, revenueProxy } };
+}
+
+// ── Page Readiness Score ─────────────────────────────────────────────
+
+export type ReadinessLabel = "weak" | "developing" | "strong" | "excellent";
+
+/**
+ * Estimate how well a page is structurally suited for AI-era discoverability.
+ * Uses path heuristics, query profile, and engagement signals as proxies.
+ *
+ * Components:
+ *   answerStructure    0–30 pts — path hints at guide/FAQ/how-to structure
+ *   topicAlignment     0–25 pts — query profile: high informational density
+ *   formatting         0–25 pts — strong query breadth + list/how-to format hints
+ *   citationPotential  0–20 pts — ranking quality + AI engagement rate
+ */
+export function scorePageReadiness(signals: {
+  path: string;
+  informationalDensity?: number;   // 0–1 from SC query profile
+  avgPosition?: number;            // SC average position across queries
+  queryCount?: number;             // number of ranking SC queries
+  aiEngagementRate?: number;       // GA4: AI-source engaged session ratio
+  coverageStrength?: "Strong" | "Moderate" | "Weak";
+}): { score: number; label: ReadinessLabel; breakdown: Record<string, number> } {
+  const path = signals.path.toLowerCase();
+
+  // Answer structure: path-based heuristics
+  let answerStructure = 0;
+  const STRONG_PATH_PATTERNS = [
+    /\/guide\//i, /\/how-to\//i, /\/howto\//i, /\/tutorial\//i,
+    /\/faq\//i, /\/faqs\//i, /\/tips\//i, /\/learn\//i,
+    /\/what-is\//i, /\/what-are\//i, /\/(intro|introduction)\//i,
+    /\/(overview|explained?)\//i,
+  ];
+  const MODERATE_PATH_PATTERNS = [
+    /\/blog\//i, /\/article\//i, /\/post\//i, /\/resources?\//i,
+    /\/knowledge\//i, /\/help\//i, /\/support\//i, /\/wiki\//i,
+  ];
+  if (STRONG_PATH_PATTERNS.some((p) => p.test(path))) answerStructure = 28;
+  else if (MODERATE_PATH_PATTERNS.some((p) => p.test(path))) answerStructure = 16;
+  else if (path.includes("best-") || path.includes("top-") || path.includes("review")) answerStructure = 20;
+  else if (path === "/" || path === "/home") answerStructure = 5;
+  else answerStructure = 10; // default: some potential
+
+  // Topic alignment: how informational is the query profile?
+  let topicAlignment = 0;
+  if (signals.informationalDensity !== undefined) {
+    topicAlignment = Math.min(25, Math.round(signals.informationalDensity * 27));
+  } else if (signals.queryCount !== undefined && signals.queryCount > 0) {
+    // Breadth is a soft proxy without density data
+    topicAlignment = Math.min(15, Math.round(signals.queryCount * 1.5));
+  }
+
+  // Formatting suitability: query breadth + strong coverage
+  let formatting = 0;
+  if (signals.queryCount !== undefined && signals.queryCount > 0) {
+    formatting += Math.min(15, Math.round(Math.log2(signals.queryCount + 1) * 5));
+  }
+  if (signals.coverageStrength === "Strong") formatting += 10;
+  else if (signals.coverageStrength === "Moderate") formatting += 5;
+  formatting = Math.min(25, formatting);
+
+  // Citation potential: position quality + AI engagement
+  let citationPotential = 0;
+  if (signals.avgPosition !== undefined && signals.avgPosition > 0) {
+    citationPotential += Math.max(0, Math.min(12, Math.round(12 - (signals.avgPosition - 1) * 0.7)));
+  }
+  if (signals.aiEngagementRate !== undefined) {
+    citationPotential += Math.min(8, Math.round(signals.aiEngagementRate * 11));
+  }
+  citationPotential = Math.min(20, citationPotential);
+
+  const score = Math.min(100, answerStructure + topicAlignment + formatting + citationPotential);
+
+  let label: ReadinessLabel;
+  if (score >= 75) label = "excellent";
+  else if (score >= 50) label = "strong";
+  else if (score >= 25) label = "developing";
+  else label = "weak";
+
+  return { score, label, breakdown: { answerStructure, topicAlignment, formatting, citationPotential } };
+}
