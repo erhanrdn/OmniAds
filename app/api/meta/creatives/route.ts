@@ -172,17 +172,23 @@ interface MetaAdRecord {
     image_hash?: string | null;
     object_story_spec?: {
       link_data?: {
+        message?: string | null;
+        name?: string | null;
+        description?: string | null;
         picture?: string | null;
         image_hash?: string | null;
         child_attachments?: Array<{ picture?: string | null; image_url?: string | null; image_hash?: string | null }> | null;
       } | null;
-      video_data?: { video_id?: string | null; image_url?: string | null; thumbnail_url?: string | null } | null;
-      photo_data?: { image_url?: string | null } | null;
+      video_data?: { video_id?: string | null; image_url?: string | null; thumbnail_url?: string | null; message?: string | null; title?: string | null } | null;
+      photo_data?: { image_url?: string | null; message?: string | null; caption?: string | null } | null;
       template_data?: Record<string, unknown> | null;
     } | null;
     asset_feed_spec?: {
       catalog_id?: string | null;
       product_set_id?: string | null;
+      bodies?: Array<{ text?: string | null }> | null;
+      titles?: Array<{ text?: string | null }> | null;
+      descriptions?: Array<{ text?: string | null }> | null;
       images?: Array<{
         url?: string | null;
         image_url?: string | null;
@@ -225,6 +231,7 @@ interface RawCreativeRow {
   adset_id: string | null;
   adset_name: string | null;
   name: string;
+  copy_text: string | null;
   preview_url: string | null;
   preview_source: string | null;
   thumbnail_url: string | null;
@@ -295,6 +302,7 @@ export interface MetaCreativeApiRow {
   adset_name: string | null;
   currency: string | null;
   name: string;
+  copy_text?: string | null;
   preview_url: string | null;
   preview_source: string | null;
   thumbnail_url: string | null;
@@ -399,6 +407,41 @@ function parsePurchaseRoas(roas: MetaActionValue[] | undefined): number {
 function cleanDate(value?: string | null): string {
   if (!value) return "";
   return value.slice(0, 10);
+}
+
+function normalizeCopyText(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value
+    .replace(/\r\n/g, "\n")
+    .replace(/\u00a0/g, " ")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  if (!normalized) return null;
+  if (normalized.length < 2) return null;
+  return normalized;
+}
+
+function resolveCreativeCopyText(creative: MetaAdRecord["creative"]): string | null {
+  if (!creative) return null;
+
+  const candidates: Array<unknown> = [
+    creative.object_story_spec?.link_data?.message,
+    creative.object_story_spec?.video_data?.message,
+    creative.object_story_spec?.photo_data?.message,
+    creative.object_story_spec?.photo_data?.caption,
+    ...(creative.asset_feed_spec?.bodies ?? []).map((item) => item?.text),
+    ...(creative.asset_feed_spec?.titles ?? []).map((item) => item?.text),
+    ...(creative.asset_feed_spec?.descriptions ?? []).map((item) => item?.text),
+    creative.object_story_spec?.link_data?.description,
+    creative.object_story_spec?.link_data?.name,
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = normalizeCopyText(candidate);
+    if (normalized) return normalized;
+  }
+  return null;
 }
 
 const AI_TAG_LABEL_TO_KEY: Record<string, AiTagKey> = {
@@ -1122,8 +1165,8 @@ function getCreativeMediaFields(): string {
     "thumbnail_url",
     "image_url",
     "image_hash",
-    "object_story_spec{link_data{picture,image_hash,child_attachments{picture,image_url,image_hash}},video_data{video_id,image_url,thumbnail_url},photo_data{image_url},template_data}",
-    "asset_feed_spec{images{url,image_url,original_url,hash,image_hash},videos{video_id,thumbnail_url,image_url}}",
+    "object_story_spec{link_data{message,name,description,picture,image_hash,child_attachments{picture,image_url,image_hash}},video_data{video_id,image_url,thumbnail_url,message,title},photo_data{image_url,message,caption},template_data}",
+    "asset_feed_spec{bodies{text},titles{text},descriptions{text},images{url,image_url,original_url,hash,image_hash},videos{video_id,thumbnail_url,image_url}}",
   ].join(",");
 }
 
@@ -1139,8 +1182,8 @@ function getCreativeDetailFields(): string {
     "image_url",
     "image_hash",
     // Keep this set conservative for adcreative IDs endpoint stability.
-    "object_story_spec{link_data{picture,image_hash,child_attachments{picture,image_url,image_hash}},video_data{video_id,image_url,thumbnail_url},photo_data{image_url}}",
-    "asset_feed_spec{images{url,image_url,original_url,hash,image_hash},videos{video_id,thumbnail_url,image_url}}",
+    "object_story_spec{link_data{message,name,description,picture,image_hash,child_attachments{picture,image_url,image_hash}},video_data{video_id,image_url,thumbnail_url,message,title},photo_data{image_url,message,caption}}",
+    "asset_feed_spec{bodies{text},titles{text},descriptions{text},images{url,image_url,original_url,hash,image_hash},videos{video_id,thumbnail_url,image_url}}",
   ].join(",");
 }
 
@@ -1796,6 +1839,7 @@ function toRawRow(
 
   const launchDate = cleanDate(ad?.created_time) || cleanDate(insight.date_start) || toISODate(new Date());
   const name = insight.ad_name ?? ad?.name ?? creative?.name ?? "Unnamed ad";
+  const resolvedCopyText = resolveCreativeCopyText(creative);
   const creativeId = creative?.id ?? adId;
   const objectStoryId =
     typeof creative?.object_story_id === "string" && creative.object_story_id.trim().length > 0
@@ -1825,6 +1869,7 @@ function toRawRow(
     adset_id: insight.adset_id ?? ad?.adset_id ?? ad?.adset?.id ?? null,
     adset_name: insight.adset_name ?? ad?.adset?.name ?? null,
     name,
+    copy_text: resolvedCopyText,
     preview_url: finalPreview,
     preview_source: normalizedPreview.legacy.preview_source,
     thumbnail_url: finalThumbnail,
@@ -1985,6 +2030,11 @@ function groupRows(
       extractPostIdFromStoryIdentifier(groupedObjectStoryId) ??
       extractPostIdFromStoryIdentifier(groupedEffectiveObjectStoryId) ??
       null;
+    const groupedCopyText =
+      list
+        .map((item) => normalizeCopyText(item.copy_text))
+        .find((value): value is string => Boolean(value)) ??
+      null;
 
     const stableId =
       groupBy === "creative"
@@ -2005,6 +2055,7 @@ function groupRows(
       adset_id: sample.adset_id,
       adset_name: sample.adset_name,
       name: groupBy === "creative" ? sample.name : sample.adset_name ?? sample.name,
+      copy_text: groupedCopyText,
       preview_url: groupedPreview.video_url ?? groupedPreview.image_url ?? groupedPreview.poster_url ?? null,
       preview_source: groupedPreview.source,
       thumbnail_url: previewRow?.thumbnail_url ?? groupedPreview.poster_url ?? groupedPreview.image_url ?? null,
@@ -2979,6 +3030,7 @@ export async function GET(request: NextRequest) {
       adset_name: row.adset_name,
       currency: row.currency,
       name: row.name,
+      copy_text: row.copy_text ?? null,
       preview_url: finalPreviewUrl,
       preview_source: row.preview_source,
       thumbnail_url: finalThumbnailUrl,

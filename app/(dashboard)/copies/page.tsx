@@ -63,6 +63,23 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
+function normalizeCopyIdentity(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value
+    .replace(/\r\n/g, "\n")
+    .replace(/\u00a0/g, " ")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  if (!normalized) return null;
+  return normalized;
+}
+
+function excerptCopyText(value: string, max = 220): string {
+  if (value.length <= max) return value;
+  return `${value.slice(0, max).trim()}...`;
+}
+
 function hasMessage(payload: unknown): payload is { message: string } {
   if (!payload || typeof payload !== "object") return false;
   return "message" in payload && typeof payload.message === "string";
@@ -111,7 +128,11 @@ function mapApiRowToCopyRow(row: MetaCreativeApiRow): CopyMotionRow {
   const purchases = row.purchases ?? 0;
   const addToCart = row.add_to_cart ?? 0;
 
-  const copyText = row.name;
+  const copyText =
+    normalizeCopyIdentity(row.copy_text) ??
+    normalizeCopyIdentity(row.name) ??
+    "Copy unavailable";
+  const displayName = excerptCopyText(copyText, 180);
 
   return {
     id: row.id,
@@ -119,7 +140,7 @@ function mapApiRowToCopyRow(row: MetaCreativeApiRow): CopyMotionRow {
     objectStoryId: row.object_story_id ?? null,
     effectiveObjectStoryId: row.effective_object_story_id ?? null,
     postId: row.post_id ?? null,
-    name: row.name,
+    name: displayName,
     associatedAdsCount: row.associated_ads_count,
     accountId: row.account_id ?? null,
     accountName: row.account_name ?? null,
@@ -174,6 +195,80 @@ function mapApiRowToCopyRow(row: MetaCreativeApiRow): CopyMotionRow {
   };
 }
 
+function toCopyGroupKey(row: CopyMotionRow): string {
+  const normalized =
+    normalizeCopyIdentity(row.copyText) ??
+    normalizeCopyIdentity(row.name) ??
+    null;
+  if (!normalized) return `fallback:${row.id}`;
+  return normalized.toLowerCase();
+}
+
+function aggregateCopyRowsByText(rows: CopyMotionRow[]): CopyMotionRow[] {
+  const grouped = new Map<string, CopyMotionRow[]>();
+  for (const row of rows) {
+    const key = toCopyGroupKey(row);
+    const bucket = grouped.get(key) ?? [];
+    bucket.push(row);
+    grouped.set(key, bucket);
+  }
+
+  return Array.from(grouped.entries()).map(([key, bucket], index) => {
+    const sample = bucket[0];
+    const spend = bucket.reduce((sum, row) => sum + row.spend, 0);
+    const purchaseValue = bucket.reduce((sum, row) => sum + row.purchaseValue, 0);
+    const purchases = bucket.reduce((sum, row) => sum + row.purchases, 0);
+    const impressions = bucket.reduce((sum, row) => sum + row.impressions, 0);
+    const linkClicks = bucket.reduce((sum, row) => sum + row.linkClicks, 0);
+    const addToCart = bucket.reduce((sum, row) => sum + row.addToCart, 0);
+    const weightedCtr = impressions > 0 ? (linkClicks / impressions) * 100 : 0;
+    const weightedCpm = impressions > 0 ? (spend * 1000) / impressions : 0;
+    const weightedCpc = linkClicks > 0 ? spend / linkClicks : 0;
+    const copyText =
+      normalizeCopyIdentity(sample.copyText) ??
+      normalizeCopyIdentity(sample.name) ??
+      "Copy unavailable";
+    const displayName = excerptCopyText(copyText, 180);
+
+    return {
+      ...sample,
+      id: `copy_${index}_${key.slice(0, 16)}`,
+      creativeId: `copy_${index}_${key.slice(0, 16)}`,
+      name: displayName,
+      copyText,
+      spend,
+      purchaseValue,
+      roas: spend > 0 ? purchaseValue / spend : 0,
+      cpa: purchases > 0 ? spend / purchases : 0,
+      cpcLink: weightedCpc,
+      cpm: weightedCpm,
+      ctrAll: weightedCtr,
+      purchases,
+      impressions,
+      linkClicks,
+      addToCart,
+      clickToPurchase: linkClicks > 0 ? (purchases / linkClicks) * 100 : 0,
+      atcToPurchaseRatio: addToCart > 0 ? (purchases / addToCart) * 100 : 0,
+      seeMoreRate:
+        bucket.length > 0
+          ? bucket.reduce((sum, row) => sum + row.seeMoreRate, 0) / bucket.length
+          : 0,
+      associatedAdsCount: bucket.reduce(
+        (sum, row) => sum + Math.max(1, row.associatedAdsCount),
+        0,
+      ),
+      usedInCampaigns: Array.from(
+        new Set(bucket.flatMap((row) => row.usedInCampaigns)),
+      ),
+      usedInAds: Array.from(new Set(bucket.flatMap((row) => row.usedInAds))),
+      tags: Array.from(new Set(bucket.flatMap((row) => row.tags))).slice(0, 8),
+      launchDate: bucket
+        .map((row) => row.launchDate)
+        .sort((a, b) => (a > b ? -1 : 1))[0],
+    };
+  });
+}
+
 export default function CopiesPage() {
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const businesses = useAppStore((state) => state.businesses);
@@ -197,7 +292,8 @@ export default function CopiesPage() {
   const hasUserInteractedSelectionRef = useRef(false);
 
   const { start: drStart, end: drEnd } = resolveMotionDateRange(dateRangeValue);
-  const copyApiGroupBy = mapMotionGroupByToApi(groupBy);
+  const copyApiGroupBy =
+    groupBy === "copy" ? "adName" : mapMotionGroupByToApi(groupBy);
 
   const copiesQuery = useQuery({
     queryKey: ["copies-motion", businessId, drStart, drEnd, copyApiGroupBy],
@@ -211,10 +307,13 @@ export default function CopiesPage() {
       }),
   });
 
-  const allRows = useMemo(
-    () => (copiesQuery.data?.rows ?? []).map(mapApiRowToCopyRow),
-    [copiesQuery.data?.rows],
-  );
+  const allRows = useMemo(() => {
+    const mapped = (copiesQuery.data?.rows ?? []).map(mapApiRowToCopyRow);
+    if (groupBy === "copy") {
+      return aggregateCopyRowsByText(mapped).sort((a, b) => b.spend - a.spend);
+    }
+    return mapped;
+  }, [copiesQuery.data?.rows, groupBy]);
 
   const filteredRows = useMemo(
     () => applyMotionFilters(allRows, topFilters),
