@@ -18,10 +18,15 @@ export function getOAuthStartUrl(
   options?: { shop?: string },
 ) {
   // GA4 uses a different route segment than the provider name
-  const routeProvider = provider === "ga4" ? "google-analytics" : provider;
+  const routeProvider =
+    provider === "ga4"
+      ? "google-analytics"
+      : provider === "search_console"
+        ? "google"
+        : provider;
   const url = `/api/oauth/${routeProvider}/start?businessId=${businessId}&returnTo=${encodeURIComponent(
     returnTo,
-  )}`;
+  )}${provider === "search_console" ? "&provider=search_console" : ""}`;
   if (options?.shop) {
     return `${url}&shop=${encodeURIComponent(options.shop)}`;
   }

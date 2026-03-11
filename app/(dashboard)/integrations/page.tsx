@@ -50,6 +50,7 @@ const DESCRIPTIONS: Record<IntegrationProvider, string> = {
 interface SearchConsoleProperty {
   siteUrl: string;
   permissionLevel?: string;
+  siteType?: "domain" | "url-prefix";
 }
 
 function getFallbackIntegrationState(
@@ -131,7 +132,7 @@ export default function IntegrationsPage() {
     setIsPropertySelectorOpen(true);
     try {
       const response = await fetch(
-        `/api/search-console/sites?businessId=${encodeURIComponent(businessId)}`,
+        `/api/google-search-console/sites?businessId=${encodeURIComponent(businessId)}`,
       );
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
@@ -143,8 +144,8 @@ export default function IntegrationsPage() {
         return;
       }
 
-      const rows = Array.isArray((payload as { data?: unknown[] } | null)?.data)
-        ? ((payload as { data: SearchConsoleProperty[] }).data ?? [])
+      const rows = Array.isArray((payload as { sites?: unknown[] } | null)?.sites)
+        ? ((payload as { sites: SearchConsoleProperty[] }).sites ?? [])
         : [];
       setProperties(rows);
       const existingProperty =
@@ -166,11 +167,14 @@ export default function IntegrationsPage() {
     setPropertyError(null);
     try {
       const response = await fetch(
-        `/api/search-console/sites?businessId=${encodeURIComponent(businessId)}`,
+        `/api/google-search-console/select-site`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ property_url: selectedPropertyUrl }),
+          body: JSON.stringify({
+            businessId,
+            siteUrl: selectedPropertyUrl,
+          }),
         },
       );
       const payload = await response.json().catch(() => null);
@@ -379,11 +383,11 @@ export default function IntegrationsPage() {
               }
               connectedActionLabel={
                 ga4Connected
-                  ? ga4PropertyInfo
-                    ? "Change Property"
-                    : "Select Property"
+                    ? ga4PropertyInfo
+                      ? "Change Property"
+                      : "Select Property"
                   : searchConsoleConnected
-                    ? "Select Property"
+                    ? "Change Site"
                     : undefined
               }
               onConnect={handleConnect}

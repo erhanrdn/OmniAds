@@ -51,10 +51,13 @@ export async function GET(request: NextRequest) {
 
   // Decode businessId from state
   let businessId: string;
+  let oauthProvider: "google" | "search_console" = "google";
   try {
     const payload = JSON.parse(Buffer.from(state, "base64url").toString());
     businessId = payload.businessId;
     if (!businessId) throw new Error("No businessId in state payload");
+    oauthProvider =
+      payload.provider === "search_console" ? "search_console" : "google";
   } catch {
     return NextResponse.redirect(
       `${baseUrl}/integrations/callback/google?status=error&error=${encodeURIComponent(
@@ -70,7 +73,7 @@ export async function GET(request: NextRequest) {
   });
   if ("error" in access) {
     return NextResponse.redirect(
-      `${baseUrl}/integrations/callback/google?status=error&businessId=${businessId}&error=${encodeURIComponent(
+      `${baseUrl}/integrations/callback/${oauthProvider}?status=error&businessId=${businessId}&error=${encodeURIComponent(
         "You do not have permission to connect integrations for this business.",
       )}`,
     );
@@ -144,6 +147,20 @@ export async function GET(request: NextRequest) {
       scopes: GOOGLE_CONFIG.scopes.join(" "),
     });
 
+    let searchConsoleIntegrationId: string | null = null;
+    if (oauthProvider === "search_console") {
+      const searchConsoleIntegration = await upsertIntegration({
+        businessId,
+        provider: "search_console",
+        status: "connected",
+        providerAccountName: "Not selected",
+        metadata: {
+          connectedAt: new Date().toISOString(),
+        },
+      });
+      searchConsoleIntegrationId = searchConsoleIntegration.id;
+    }
+
     console.log("[google-oauth-callback] integration upserted", {
       businessId,
       integrationId: integration.id,
@@ -153,10 +170,17 @@ export async function GET(request: NextRequest) {
     });
 
     // ── Redirect to frontend callback with success ──────────────
-    const redirectUrl = new URL("/integrations/callback/google", baseUrl);
+    const redirectProvider =
+      oauthProvider === "search_console" ? "search_console" : "google";
+    const redirectUrl = new URL(`/integrations/callback/${redirectProvider}`, baseUrl);
     redirectUrl.searchParams.set("status", "success");
     redirectUrl.searchParams.set("businessId", businessId);
-    redirectUrl.searchParams.set("integrationId", integration.id);
+    redirectUrl.searchParams.set(
+      "integrationId",
+      oauthProvider === "search_console"
+        ? (searchConsoleIntegrationId ?? integration.id)
+        : integration.id,
+    );
 
     const response = NextResponse.redirect(redirectUrl.toString());
     // Clear the state cookie
@@ -174,7 +198,7 @@ export async function GET(request: NextRequest) {
     console.error("[google-oauth-callback] error", { businessId, message });
 
     return NextResponse.redirect(
-      `${baseUrl}/integrations/callback/google?status=error&businessId=${businessId}&error=${encodeURIComponent(
+      `${baseUrl}/integrations/callback/${oauthProvider}?status=error&businessId=${businessId}&error=${encodeURIComponent(
         message,
       )}`,
     );

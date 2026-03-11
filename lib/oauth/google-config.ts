@@ -42,6 +42,7 @@ export const GOOGLE_CONFIG = {
   userinfoUrl: "https://www.googleapis.com/oauth2/v2/userinfo",
   scopes: [
     "https://www.googleapis.com/auth/adwords",
+    "https://www.googleapis.com/auth/webmasters.readonly",
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/userinfo.profile",
   ],

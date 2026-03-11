@@ -13,6 +13,9 @@ import { requireBusinessAccess } from "@/lib/access";
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const businessId = searchParams.get("businessId");
+  const providerParam = searchParams.get("provider");
+  const oauthProvider =
+    providerParam === "search_console" ? "search_console" : "google";
 
   if (!businessId) {
     return NextResponse.json(
@@ -31,6 +34,7 @@ export async function GET(request: NextRequest) {
   // Generate a random state that encodes the businessId
   const statePayload = JSON.stringify({
     businessId,
+    provider: oauthProvider,
     nonce: crypto.randomBytes(16).toString("hex"),
   });
   const state = Buffer.from(statePayload).toString("base64url");
