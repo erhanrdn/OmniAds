@@ -13,6 +13,7 @@ import {
   applyMotionFilters,
   DEFAULT_COPY_TOP_METRIC_IDS,
   DEFAULT_MOTION_DATE_RANGE,
+  mapMotionGroupByToApi,
   MotionDateRangeValue,
   MotionFilterRule,
   MotionGroupBy,
@@ -21,14 +22,19 @@ import {
 } from "@/components/creatives/MotionTopSection";
 import type { MetaCreativeRow, MetaCreativePreview } from "@/components/creatives/metricConfig";
 import { useAppStore } from "@/store/app-store";
-import { getCopies } from "@/src/services";
-import type { Copy } from "@/src/types";
+import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
 
 type CopyMotionRow = MetaCreativeRow & {
   copyText: string;
   usedInCampaigns: string[];
   usedInAds: string[];
 };
+
+interface MetaCreativesResponse {
+  status?: string;
+  message?: string;
+  rows: MetaCreativeApiRow[];
+}
 
 const COPY_GROUP_OPTIONS: Array<{ value: MotionGroupBy; label: string }> = [
   { value: "copy", label: "Copy" },
@@ -57,148 +63,115 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-function toDateRangeFilter(value: MotionDateRangeValue): "7d" | "30d" {
-  const { start, end } = resolveMotionDateRange(value);
-  const ms = new Date(end).getTime() - new Date(start).getTime();
-  const days = Math.max(1, Math.ceil(ms / (1000 * 60 * 60 * 24)) + 1);
-  return days <= 7 ? "7d" : "30d";
+function hasMessage(payload: unknown): payload is { message: string } {
+  if (!payload || typeof payload !== "object") return false;
+  return "message" in payload && typeof payload.message === "string";
 }
 
-function normalizeCopyToRow(copy: Copy): CopyMotionRow {
-  const spend = copy.spend;
-  const purchaseValue = spend * copy.roas;
-  const purchases = Math.max(1, Math.round(purchaseValue / 120));
-  const impressions = Math.max(100, Math.round(spend * 180));
-  const ctrAll = copy.ctr;
-  const linkClicks = Math.max(1, Math.round(impressions * (ctrAll / 100)));
-  const cpm = impressions > 0 ? (spend * 1000) / impressions : 0;
-  const cpcLink = linkClicks > 0 ? spend / linkClicks : 0;
-  const addToCart = Math.max(purchases, Math.round(purchases * 1.9));
-  const clickToPurchase = linkClicks > 0 ? (purchases / linkClicks) * 100 : 0;
-  const atcToPurchaseRatio = addToCart > 0 ? (purchases / addToCart) * 100 : 0;
-  const seeMoreRate = clamp(12 + copy.usageCount * 1.7 + copy.ctr * 2.4, 0, 100);
+async function fetchCopyRows(params: {
+  businessId: string;
+  start: string;
+  end: string;
+  groupBy: "adName" | "creative" | "adSet";
+}): Promise<MetaCreativesResponse> {
+  const query = new URLSearchParams({
+    businessId: params.businessId,
+    start: params.start,
+    end: params.end,
+    groupBy: params.groupBy,
+    format: "all",
+    sort: "spend",
+  });
 
-  return {
-    id: copy.id,
-    creativeId: copy.id,
-    name: copy.headline,
-    associatedAdsCount: copy.usageCount,
-    accountId: null,
-    accountName: null,
-    campaignId: null,
-    campaignName: copy.usedIn.campaigns[0] ?? null,
-    adSetId: null,
-    adSetName: copy.usedIn.campaigns[0] ?? null,
-    currency: "USD",
-    format: "image",
-    creativeType: "feed",
-    creativeTypeLabel: "Copy",
-    thumbnailUrl: null,
-    previewUrl: null,
-    imageUrl: null,
-    tableThumbnailUrl: null,
-    cardPreviewUrl: null,
-    cachedThumbnailUrl: null,
-    isCatalog: false,
-    previewState: "unavailable",
-    preview: EMPTY_PREVIEW,
-    launchDate: copy.updatedAt,
-    tags: [copy.platform, copy.objective, copy.status],
-    aiTags: {},
-    spend,
-    purchaseValue,
-    roas: copy.roas,
-    cpa: purchases > 0 ? spend / purchases : 0,
-    cpcLink,
-    cpm,
-    ctrAll,
-    purchases,
-    impressions,
-    linkClicks,
-    addToCart,
-    thumbstop: clamp(copy.ctr * 9 + 18, 0, 100),
-    clickToPurchase,
-    seeMoreRate,
-    video25: 0,
-    video50: 0,
-    video75: 0,
-    video100: 0,
-    atcToPurchaseRatio,
-    copyText: copy.fullText || copy.body || `${copy.headline} ${copy.snippet}`,
-    usedInCampaigns: copy.usedIn.campaigns,
-    usedInAds: copy.usedIn.ads,
-  };
-}
+  const response = await fetch(`/api/meta/creatives?${query.toString()}`, {
+    headers: { Accept: "application/json" },
+  });
 
-function aggregateRows(rows: CopyMotionRow[], groupBy: MotionGroupBy): CopyMotionRow[] {
-  if (groupBy === "copy") return rows;
-
-  const grouped = new Map<string, CopyMotionRow[]>();
-  for (const row of rows) {
-    let key = row.name;
-    if (groupBy === "adName") key = row.usedInAds[0] ?? row.name;
-    if (groupBy === "campaign") key = row.usedInCampaigns[0] ?? row.name;
-    if (groupBy === "adSet") key = row.adSetName ?? row.campaignName ?? row.name;
-
-    const bucket = grouped.get(key) ?? [];
-    bucket.push(row);
-    grouped.set(key, bucket);
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message = hasMessage(payload)
+      ? payload.message
+      : `Could not load copies (${response.status}).`;
+    throw new Error(message);
   }
 
-  return Array.from(grouped.entries()).map(([key, bucket], index) => {
-    const spend = bucket.reduce((sum, row) => sum + row.spend, 0);
-    const purchaseValue = bucket.reduce((sum, row) => sum + row.purchaseValue, 0);
-    const purchases = bucket.reduce((sum, row) => sum + row.purchases, 0);
-    const impressions = bucket.reduce((sum, row) => sum + row.impressions, 0);
-    const linkClicks = bucket.reduce((sum, row) => sum + row.linkClicks, 0);
-    const addToCart = bucket.reduce((sum, row) => sum + row.addToCart, 0);
-    const usageCount = bucket.reduce((sum, row) => sum + row.associatedAdsCount, 0);
-    const avgSeeMore =
-      bucket.length > 0
-        ? bucket.reduce((sum, row) => sum + row.seeMoreRate, 0) / bucket.length
-        : 0;
+  if (
+    !payload ||
+    typeof payload !== "object" ||
+    !Array.isArray((payload as MetaCreativesResponse).rows)
+  ) {
+    throw new Error("Invalid copies response received from backend.");
+  }
 
-    const primary = bucket[0];
-    const tags = Array.from(new Set(bucket.flatMap((row) => row.tags))).slice(0, 6);
+  return payload as MetaCreativesResponse;
+}
 
-    return {
-      ...primary,
-      id: `${groupBy}_${index}_${key}`,
-      creativeId: `${groupBy}_${index}_${key}`,
-      name: key,
-      associatedAdsCount: usageCount,
-      campaignName: groupBy === "campaign" ? key : primary.campaignName,
-      adSetName: groupBy === "adSet" ? key : primary.adSetName,
-      launchDate: bucket
-        .map((row) => row.launchDate)
-        .sort((a, b) => (a > b ? -1 : 1))[0],
-      tags,
-      spend,
-      purchaseValue,
-      roas: spend > 0 ? purchaseValue / spend : 0,
-      purchases,
-      cpa: purchases > 0 ? spend / purchases : 0,
-      impressions,
-      linkClicks,
-      cpm: impressions > 0 ? (spend * 1000) / impressions : 0,
-      cpcLink: linkClicks > 0 ? spend / linkClicks : 0,
-      ctrAll: impressions > 0 ? (linkClicks / impressions) * 100 : 0,
-      addToCart,
-      clickToPurchase: linkClicks > 0 ? (purchases / linkClicks) * 100 : 0,
-      atcToPurchaseRatio: addToCart > 0 ? (purchases / addToCart) * 100 : 0,
-      seeMoreRate: avgSeeMore,
-      thumbstop: bucket.length
-        ? bucket.reduce((sum, row) => sum + row.thumbstop, 0) / bucket.length
-        : 0,
-      copyText: bucket
-        .map((row) => row.copyText)
-        .filter(Boolean)
-        .slice(0, 2)
-        .join("\n\n"),
-      usedInCampaigns: Array.from(new Set(bucket.flatMap((row) => row.usedInCampaigns))),
-      usedInAds: Array.from(new Set(bucket.flatMap((row) => row.usedInAds))),
-    };
-  });
+function mapApiRowToCopyRow(row: MetaCreativeApiRow): CopyMotionRow {
+  const linkClicks = row.link_clicks ?? 0;
+  const purchases = row.purchases ?? 0;
+  const addToCart = row.add_to_cart ?? 0;
+
+  const copyText = row.name;
+
+  return {
+    id: row.id,
+    creativeId: row.creative_id,
+    objectStoryId: row.object_story_id ?? null,
+    effectiveObjectStoryId: row.effective_object_story_id ?? null,
+    postId: row.post_id ?? null,
+    name: row.name,
+    associatedAdsCount: row.associated_ads_count,
+    accountId: row.account_id ?? null,
+    accountName: row.account_name ?? null,
+    campaignId: row.campaign_id ?? null,
+    campaignName: row.campaign_name ?? null,
+    adSetId: row.adset_id ?? null,
+    adSetName: row.adset_name ?? null,
+    currency: row.currency ?? null,
+    format: row.format,
+    creativeType: row.creative_type,
+    creativeTypeLabel: row.creative_type_label,
+    thumbnailUrl: row.thumbnail_url,
+    previewUrl: row.preview_url,
+    imageUrl: row.image_url,
+    tableThumbnailUrl: row.table_thumbnail_url ?? row.thumbnail_url ?? null,
+    cardPreviewUrl:
+      row.card_preview_url ?? row.image_url ?? row.thumbnail_url ?? row.preview_url ?? null,
+    cachedThumbnailUrl: null,
+    isCatalog: row.is_catalog,
+    previewState: row.preview_state,
+    preview: row.preview ?? EMPTY_PREVIEW,
+    launchDate: row.launch_date,
+    tags: row.tags ?? [],
+    aiTags: row.ai_tags ?? {},
+    spend: row.spend,
+    purchaseValue: row.purchase_value,
+    roas: row.roas,
+    cpa: row.cpa,
+    cpcLink: row.cpc_link,
+    cpm: row.cpm,
+    ctrAll: row.ctr_all,
+    purchases,
+    impressions: row.impressions ?? 0,
+    linkClicks,
+    addToCart,
+    thumbstop: row.thumbstop,
+    clickToPurchase: row.click_to_atc,
+    seeMoreRate: clamp(row.ctr_all * 1.5, 0, 100),
+    video25: row.video25,
+    video50: row.video50,
+    video75: row.video75,
+    video100: row.video100,
+    atcToPurchaseRatio:
+      row.atc_to_purchase > 0
+        ? row.atc_to_purchase
+        : addToCart > 0
+          ? (purchases / addToCart) * 100
+          : 0,
+    copyText,
+    usedInCampaigns: row.campaign_name ? [row.campaign_name] : [],
+    usedInAds: row.name ? [row.name] : [],
+  };
 }
 
 export default function CopiesPage() {
@@ -206,7 +179,7 @@ export default function CopiesPage() {
   const businesses = useAppStore((state) => state.businesses);
   const businessId = selectedBusinessId ?? "";
   const selectedBusinessCurrency =
-    businesses.find((business) => business.id === selectedBusinessId)?.currency ?? "USD";
+    businesses.find((business) => business.id === selectedBusinessId)?.currency ?? null;
 
   const [dateRangeValue, setDateRangeValue] = useState<MotionDateRangeValue>(
     DEFAULT_MOTION_DATE_RANGE,
@@ -223,17 +196,25 @@ export default function CopiesPage() {
   const hasInitializedDefaultSelectionRef = useRef(false);
   const hasUserInteractedSelectionRef = useRef(false);
 
+  const { start: drStart, end: drEnd } = resolveMotionDateRange(dateRangeValue);
+  const copyApiGroupBy = mapMotionGroupByToApi(groupBy);
+
   const copiesQuery = useQuery({
-    queryKey: ["copies-motion", businessId, dateRangeValue.preset],
+    queryKey: ["copies-motion", businessId, drStart, drEnd, copyApiGroupBy],
     enabled: Boolean(selectedBusinessId),
-    queryFn: () => getCopies(businessId, { dateRange: toDateRangeFilter(dateRangeValue) }),
+    queryFn: () =>
+      fetchCopyRows({
+        businessId,
+        start: drStart,
+        end: drEnd,
+        groupBy: copyApiGroupBy,
+      }),
   });
 
-  const allRows = useMemo(() => {
-    const normalized = (copiesQuery.data ?? []).map(normalizeCopyToRow);
-    const grouped = aggregateRows(normalized, groupBy);
-    return grouped.sort((a, b) => b.spend - a.spend);
-  }, [copiesQuery.data, groupBy]);
+  const allRows = useMemo(
+    () => (copiesQuery.data?.rows ?? []).map(mapApiRowToCopyRow),
+    [copiesQuery.data?.rows],
+  );
 
   const filteredRows = useMemo(
     () => applyMotionFilters(allRows, topFilters),
@@ -411,34 +392,6 @@ export default function CopiesPage() {
                     {tag}
                   </Badge>
                 ))}
-              </div>
-            </div>
-
-            <div className="mt-5 rounded-xl border p-4">
-              <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                Usage
-              </h3>
-              <div className="mt-3 space-y-3">
-                <div>
-                  <p className="text-xs text-muted-foreground">Campaigns</p>
-                  <div className="mt-1 flex flex-wrap gap-1.5">
-                    {(activeDetailRow as CopyMotionRow).usedInCampaigns.map((item) => (
-                      <Badge key={item} variant="outline">
-                        {item}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Ads</p>
-                  <div className="mt-1 flex flex-wrap gap-1.5">
-                    {(activeDetailRow as CopyMotionRow).usedInAds.map((item) => (
-                      <Badge key={item} variant="outline">
-                        {item}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
               </div>
             </div>
           </aside>
