@@ -27,7 +27,7 @@ export interface NavItem {
 export const navItems: NavItem[] = [
   { label: "Overview", href: "/overview", icon: LayoutDashboard, group: "Main" },
   { label: "Meta", href: "/platforms/meta", icon: Facebook, group: "Platforms" },
-  { label: "Google", href: "/platforms/google", icon: Search, group: "Platforms" },
+  { label: "Google Ads", href: "/google-ads", icon: Search, group: "Platforms" },
   { label: "TikTok", href: "/platforms/tiktok", icon: Music2, group: "Platforms" },
   { label: "Pinterest", href: "/platforms/pinterest", icon: Image, group: "Platforms" },
   { label: "Snapchat", href: "/platforms/snapchat", icon: Ghost, group: "Platforms" },

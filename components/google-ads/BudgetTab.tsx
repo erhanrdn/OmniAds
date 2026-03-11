@@ -1,0 +1,106 @@
+"use client";
+
+import { cn } from "@/lib/utils";
+import { fmtCurrency, fmtNumber, fmtRoas, fmtPercent, TabSkeleton, TabEmpty, SimpleTable, ColDef } from "./shared";
+
+interface BudgetCampaign {
+  id: string;
+  name: string;
+  dailyBudget: number;
+  spend: number;
+  conversions: number;
+  revenue: number;
+  roas: number;
+  cpa: number;
+  impressions: number;
+  clicks: number;
+  impressionShare: number | null;
+  lostIsBudget: number | null;
+}
+
+interface BudgetRec {
+  campaign: string;
+  currentSpend: number;
+  suggestedBudgetChange: number;
+  direction: "increase" | "decrease";
+  reason: string;
+}
+
+const cols: ColDef<BudgetCampaign>[] = [
+  { key: "name", header: "Campaign", accessor: (r) => r.name, render: (r) => <span className="text-xs font-medium truncate block max-w-[160px]">{r.name}</span> },
+  { key: "dailyBudget", header: "Daily Budget", accessor: (r) => r.dailyBudget, align: "right", render: (r) => r.dailyBudget > 0 ? fmtCurrency(r.dailyBudget) : "—" },
+  { key: "spend", header: "Spend", accessor: (r) => r.spend, align: "right", render: (r) => fmtCurrency(r.spend) },
+  { key: "conversions", header: "Conv.", accessor: (r) => r.conversions, align: "right", render: (r) => fmtNumber(r.conversions) },
+  {
+    key: "roas", header: "ROAS", accessor: (r) => r.roas, align: "right",
+    render: (r) => (
+      <span className={cn(r.roas >= 3 ? "text-emerald-600 dark:text-emerald-400 font-semibold" : r.roas < 1 ? "text-rose-600 dark:text-rose-400" : "")}>
+        {r.roas === 0 ? "—" : fmtRoas(r.roas)}
+      </span>
+    ),
+  },
+  {
+    key: "impressionShare", header: "IS", accessor: (r) => r.impressionShare ?? 0, align: "right",
+    render: (r) => r.impressionShare != null ? fmtPercent(r.impressionShare * 100) : "—",
+  },
+  {
+    key: "lostIsBudget", header: "Lost IS (Budget)", accessor: (r) => r.lostIsBudget ?? 0, align: "right",
+    render: (r) =>
+      r.lostIsBudget != null && r.lostIsBudget > 0
+        ? <span className="text-amber-600 dark:text-amber-400 font-semibold">{fmtPercent(r.lostIsBudget * 100)}</span>
+        : "—",
+  },
+];
+
+interface BudgetTabProps {
+  campaigns?: BudgetCampaign[];
+  recommendations?: BudgetRec[];
+  totalSpend?: number;
+  accountAvgRoas?: number;
+  isLoading: boolean;
+}
+
+export function BudgetTab({ campaigns, recommendations, totalSpend, accountAvgRoas, isLoading }: BudgetTabProps) {
+  if (isLoading) return <TabSkeleton />;
+  if (!campaigns || campaigns.length === 0) {
+    return <TabEmpty message="No budget data found for this period." />;
+  }
+
+  return (
+    <div className="space-y-6">
+      <p className="text-sm text-muted-foreground">
+        Budget distribution and impression share signals. Campaigns losing significant IS to budget
+        are constrained — consider reallocation from low-ROAS campaigns.
+      </p>
+
+      {/* Budget recommendations */}
+      {recommendations && recommendations.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Budget Recommendations</p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {recommendations.slice(0, 4).map((rec, i) => (
+              <div
+                key={i}
+                className={cn(
+                  "rounded-xl border p-4",
+                  rec.direction === "increase"
+                    ? "border-emerald-200 dark:border-emerald-900/50 bg-emerald-50 dark:bg-emerald-950/30"
+                    : "border-rose-200 dark:border-rose-900/50 bg-rose-50 dark:bg-rose-950/30"
+                )}
+              >
+                <p className="text-xs font-semibold truncate" title={rec.campaign}>{rec.campaign}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{rec.reason}</p>
+                <p className={cn("text-sm font-bold mt-2", rec.direction === "increase" ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400")}>
+                  {rec.direction === "increase" ? "+" : "-"}{fmtCurrency(Math.abs(rec.suggestedBudgetChange))}
+                  <span className="text-xs font-normal text-muted-foreground ml-1">suggested shift</span>
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <SimpleTable cols={cols} rows={campaigns} defaultSort="spend" />
+    </div>
+  );
+}
