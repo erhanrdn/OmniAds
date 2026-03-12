@@ -14,17 +14,29 @@ import { generateOverviewInsights } from "@/lib/google-ads-intelligence";
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const businessId = searchParams.get("businessId");
-  const dateRange = (searchParams.get("dateRange") || "30") as "7" | "14" | "30" | "custom";
+  const dateRange = (searchParams.get("dateRange") || "30") as
+    | "7"
+    | "14"
+    | "30"
+    | "custom";
 
   if (!businessId) {
-    return NextResponse.json({ error: "businessId is required" }, { status: 400 });
+    return NextResponse.json(
+      { error: "businessId is required" },
+      { status: 400 },
+    );
   }
 
-  const access = await requireBusinessAccess({ request, businessId, minRole: "guest" });
+  const access = await requireBusinessAccess({
+    request,
+    businessId,
+    minRole: "guest",
+  });
   if ("error" in access) return access.error;
 
   try {
     const { startDate, endDate } = getDateRangeForQuery(dateRange);
+    console.log("Dates:", startDate, endDate);
     const assignedAccounts = await getAssignedGoogleAccounts(businessId);
 
     if (assignedAccounts.length === 0) {
@@ -50,8 +62,8 @@ export async function GET(request: NextRequest) {
               WHERE segments.date >= '${startDate}'
                 AND segments.date <= '${endDate}'
             `,
-          }).catch(() => ({ results: [] }))
-        )
+          }).catch(() => ({ results: [] })),
+        ),
       ),
       Promise.all(
         assignedAccounts.map((customerId) =>
@@ -77,13 +89,17 @@ export async function GET(request: NextRequest) {
                 AND campaign.status != 'REMOVED'
               ORDER BY metrics.cost_micros DESC
             `,
-          }).catch(() => ({ results: [] }))
-        )
+          }).catch(() => ({ results: [] })),
+        ),
       ),
     ]);
 
     // Aggregate totals
-    let impressions = 0, clicks = 0, spend = 0, conversions = 0, revenue = 0;
+    let impressions = 0,
+      clicks = 0,
+      spend = 0,
+      conversions = 0,
+      revenue = 0;
     for (const result of totalsResults) {
       for (const row of result.results ?? []) {
         const m = (row as any).metrics ?? {};
@@ -124,7 +140,9 @@ export async function GET(request: NextRequest) {
           impressions: parseInt(m.impressions ?? "0"),
           clicks: parseInt(m.clicks ?? "0"),
           impressionShare: parseFloat(m.search_impression_share ?? "0"),
-          lostIsBudget: parseFloat(m.search_budget_lost_impression_share ?? "0"),
+          lostIsBudget: parseFloat(
+            m.search_budget_lost_impression_share ?? "0",
+          ),
         };
       })
       .filter((c) => c.id !== "unknown");
@@ -162,6 +180,9 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error("[google-ads/overview]", error);
-    return NextResponse.json({ error: (error as Error).message }, { status: 500 });
+    return NextResponse.json(
+      { error: (error as Error).message },
+      { status: 500 },
+    );
   }
 }
