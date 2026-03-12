@@ -57,18 +57,6 @@ export async function GET(request: NextRequest) {
     //       .replace(/\s+/g, " ")
     //       .trim();
 
-    const totalsQuery = `
-    SELECT
-      metrics.impressions,
-      metrics.clicks,
-      metrics.cost_micros,
-      metrics.conversions,
-      metrics.conversions_value
-    FROM customer_client
-    WHERE segments.date BETWEEN '${startDate}' AND '${endDate}'
-  `
-      .replace(/\s+/g, " ")
-      .trim();
     //     const campaignQuery = `
     //   SELECT
     //     campaign.id,
@@ -84,16 +72,52 @@ export async function GET(request: NextRequest) {
     //       .replace(/\s+/g, " ")
     //       .trim();
 
+    //   const campaignQuery = `
+    //   SELECT
+    //     metrics.impressions,
+    //     metrics.clicks,
+    //     metrics.cost_micros,
+    //     metrics.conversions,
+    //     metrics.conversions_value
+    //   FROM campaign
+    //   WHERE segments.date BETWEEN '${startDate}' AND '${endDate}'
+    // `
+    //     .replace(/\s+/g, " ")
+    //     .trim();
+
+    // route.ts içinde totalsQuery ve campaignQuery tanımlarını şu şekilde güncelleyin:
+
+    const totalsQuery = `
+  SELECT
+    metrics.impressions,
+    metrics.clicks,
+    metrics.cost_micros,
+    metrics.conversions,
+    metrics.conversions_value
+  FROM campaign
+  WHERE segments.date BETWEEN '${startDate}' AND '${endDate}'
+`
+      .replace(/\s+/g, " ")
+      .trim();
+
     const campaignQuery = `
-    SELECT
-      metrics.impressions,
-      metrics.clicks,
-      metrics.cost_micros,
-      metrics.conversions,
-      metrics.conversions_value
-    FROM campaign
-    WHERE segments.date BETWEEN '${startDate}' AND '${endDate}'
-  `
+  SELECT
+    campaign.id,
+    campaign.name,
+    campaign.status,
+    campaign.advertising_channel_type,
+    metrics.impressions,
+    metrics.clicks,
+    metrics.cost_micros,
+    metrics.conversions,
+    metrics.conversions_value,
+    metrics.search_impression_share,
+    metrics.search_budget_lost_impression_share
+  FROM campaign
+  WHERE segments.date BETWEEN '${startDate}' AND '${endDate}'
+    AND campaign.status != 'REMOVED'
+  ORDER BY metrics.cost_micros DESC
+`
       .replace(/\s+/g, " ")
       .trim();
 
