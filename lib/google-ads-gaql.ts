@@ -133,7 +133,7 @@ export async function executeGaqlQuery(params: {
     },
     body: JSON.stringify({
       query: params.query,
-      pageSize: 10000,
+      // pageSize: 10000,
     }),
     cache: "no-store",
   });
