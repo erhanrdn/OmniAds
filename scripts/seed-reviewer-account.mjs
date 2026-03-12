@@ -5,6 +5,11 @@ import path from "path";
 
 const DEMO_BUSINESS_ID = "11111111-1111-4111-8111-111111111111";
 const DEMO_OWNER_ID = "22222222-2222-4222-8222-222222222222";
+const ALLOWED_DEMO_USERS = [
+  "demo-owner@adsecute.local",
+  "shopify-review@adsecute.com",
+  "emrahbilaloglu@gmail.com",
+];
 const REVIEWER_EMAIL = (process.env.SHOPIFY_REVIEWER_EMAIL ?? "shopify-review@adsecute.com")
   .trim()
   .toLowerCase();
@@ -138,6 +143,23 @@ async function ensureDemoBusiness(sql) {
     DO UPDATE SET role = 'admin', status = 'active'
   `;
 
+  const allowedRows = await sql`
+    SELECT id, email
+    FROM users
+    WHERE lower(email) = ANY(${ALLOWED_DEMO_USERS.map((email) => email.toLowerCase())})
+  `;
+
+  for (const row of allowedRows) {
+    const email = String(row.email).toLowerCase();
+    const role = email === "shopify-review@adsecute.com" ? "collaborator" : "admin";
+    await sql`
+      INSERT INTO memberships (user_id, business_id, role, status)
+      VALUES (${row.id}, ${DEMO_BUSINESS_ID}, ${role}, 'active')
+      ON CONFLICT (user_id, business_id)
+      DO UPDATE SET role = EXCLUDED.role, status = 'active'
+    `;
+  }
+
   await sql`
     DELETE FROM invites
     WHERE business_id = ${DEMO_BUSINESS_ID}
@@ -179,7 +201,11 @@ async function main() {
   await sql`
     DELETE FROM memberships
     WHERE business_id = ${DEMO_BUSINESS_ID}
-      AND user_id NOT IN (${DEMO_OWNER_ID}, ${reviewer.id})
+      AND user_id NOT IN (
+        SELECT id
+        FROM users
+        WHERE lower(email) = ANY(${ALLOWED_DEMO_USERS.map((email) => email.toLowerCase())})
+      )
   `;
 
   await sql`
