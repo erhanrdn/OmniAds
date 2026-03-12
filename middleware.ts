@@ -2,7 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 
 const AUTH_COOKIE = "omniads_session";
 
-const PUBLIC_PAGE_PREFIXES = ["/login", "/signup", "/invite", "/share"];
+const PUBLIC_PAGE_PREFIXES = [
+  "/login",
+  "/signup",
+  "/invite",
+  "/share",
+  "/privacy",
+  "/terms",
+  "/contact",
+  "/security",
+];
 const PUBLIC_API_PREFIXES = [
   "/api/auth/login",
   "/api/auth/signup",
