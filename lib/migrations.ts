@@ -215,4 +215,22 @@ export async function runMigrations() {
     CREATE INDEX IF NOT EXISTS idx_creative_media_cache_expires
     ON creative_media_cache (expires_at)
   `;
+
+  // ── shopify billing subscriptions table ─────────────────────────
+  await sql`
+    CREATE TABLE IF NOT EXISTS shopify_subscriptions (
+      id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      shop_id        TEXT NOT NULL UNIQUE,
+      plan_id        TEXT NOT NULL,
+      status         TEXT NOT NULL,
+      billing_cycle  TEXT NOT NULL,
+      created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_shopify_subscriptions_shop_id
+    ON shopify_subscriptions (shop_id)
+  `;
 }
