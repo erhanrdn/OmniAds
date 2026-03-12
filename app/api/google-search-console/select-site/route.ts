@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { upsertIntegration } from "@/lib/integrations";
+import { isDemoBusinessId } from "@/lib/demo-business";
 import {
   getSearchConsoleSiteType,
   resolveSearchConsoleContext,
@@ -46,6 +47,26 @@ export async function POST(request: NextRequest) {
     minRole: "collaborator",
   });
   if ("error" in access) return access.error;
+  if (isDemoBusinessId(businessId)) {
+    return NextResponse.json({
+      success: true,
+      integration: {
+        id: "demo-search-console",
+        provider: "search_console",
+        status: "connected",
+        provider_account_id: siteUrl,
+        provider_account_name: siteUrl,
+        connected_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        metadata: {
+          siteUrl,
+          siteType: getSearchConsoleSiteType(siteUrl),
+          propertyName: "urbantrail.co",
+          connectedAt: new Date().toISOString(),
+        },
+      },
+    });
+  }
 
   try {
     const context = await resolveSearchConsoleContext({

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
+import { getDemoSearchConsoleAnalytics, isDemoBusinessId } from "@/lib/demo-business";
 import {
   resolveSearchConsoleContext,
   SearchConsoleAuthError,
@@ -39,6 +40,17 @@ export async function GET(request: NextRequest) {
     minRole: "guest",
   });
   if ("error" in access) return access.error;
+  if (isDemoBusinessId(businessId)) {
+    return NextResponse.json({
+      ...getDemoSearchConsoleAnalytics(),
+      meta: {
+        siteUrl: "sc-domain:urbantrail.co",
+        startDate,
+        endDate,
+        rowCount: getDemoSearchConsoleAnalytics().rows.length,
+      },
+    });
+  }
 
   try {
     const context = await resolveSearchConsoleContext({

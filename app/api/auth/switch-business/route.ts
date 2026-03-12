@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromRequest, setSessionActiveBusiness } from "@/lib/auth";
 import { findMembership } from "@/lib/access";
+import { isDemoBusinessId } from "@/lib/demo-business";
 
 interface SwitchBusinessBody {
   businessId?: string;
@@ -24,7 +25,9 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const membership = await findMembership({ userId: session.user.id, businessId });
+  const membership = isDemoBusinessId(businessId)
+    ? { status: "active" as const }
+    : await findMembership({ userId: session.user.id, businessId });
   if (!membership || membership.status !== "active") {
     return NextResponse.json(
       { error: "forbidden", message: "No access to this business." },
@@ -35,4 +38,3 @@ export async function POST(request: NextRequest) {
   await setSessionActiveBusiness(session.sessionId, businessId);
   return NextResponse.json({ status: "ok", activeBusinessId: businessId });
 }
-

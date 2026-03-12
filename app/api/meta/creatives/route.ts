@@ -4,6 +4,7 @@ import { getProviderAccountAssignments } from "@/lib/provider-account-assignment
 import { runMigrations } from "@/lib/migrations";
 import { requireBusinessAccess } from "@/lib/access";
 import { MediaCacheService } from "@/lib/media-cache/media-service";
+import { getDemoMetaCreatives, isDemoBusinessId } from "@/lib/demo-business";
 
 type GroupBy = "adName" | "creative" | "adSet";
 type FormatFilter = "all" | "image" | "video";
@@ -2520,6 +2521,9 @@ export async function GET(request: NextRequest) {
     minRole: "guest",
   });
   if ("error" in access) return access.error;
+  if (isDemoBusinessId(businessId)) {
+    return NextResponse.json(getDemoMetaCreatives());
+  }
 
   const integration = await getIntegration(businessId, "meta").catch(() => null);
   if (!integration || integration.status !== "connected") {

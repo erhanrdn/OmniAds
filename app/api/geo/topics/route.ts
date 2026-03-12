@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
+import { getDemoGeoTopics, isDemoBusinessId } from "@/lib/demo-business";
 import {
   resolveSearchConsoleContext,
   SearchConsoleAuthError,
@@ -56,6 +57,9 @@ export async function GET(request: NextRequest) {
 
   const access = await requireBusinessAccess({ request, businessId, minRole: "collaborator" });
   if ("error" in access) return access.error;
+  if (isDemoBusinessId(businessId)) {
+    return NextResponse.json(getDemoGeoTopics());
+  }
 
   let context: Awaited<ReturnType<typeof resolveSearchConsoleContext>>;
   try {

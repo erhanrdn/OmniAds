@@ -6,6 +6,9 @@ export interface Business {
   name: string;
   timezone: string;
   currency: string;
+  isDemoBusiness?: boolean;
+  industry?: string;
+  platform?: string;
 }
 
 interface AppState {

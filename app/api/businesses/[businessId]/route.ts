@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { getDb } from "@/lib/db";
 import { runMigrations } from "@/lib/migrations";
+import { isDemoBusinessId } from "@/lib/demo-business";
 
 export async function DELETE(
   request: NextRequest,
@@ -20,6 +21,12 @@ export async function DELETE(
     minRole: "admin",
   });
   if ("error" in access) return access.error;
+  if (isDemoBusinessId(businessId)) {
+    return NextResponse.json(
+      { error: "forbidden", message: "Demo business cannot be deleted." },
+      { status: 403 }
+    );
+  }
 
   await runMigrations().catch(() => null);
   const sql = getDb();

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
+import { getDemoMetaCopies, isDemoBusinessId } from "@/lib/demo-business";
 
 type CopyGroupBy = "copy" | "adName" | "campaign" | "adSet";
 type CopySortKey = "roas" | "spend" | "ctrAll" | "purchaseValue";
@@ -331,6 +332,9 @@ export async function GET(request: NextRequest) {
       { error: "missing_business_id", message: "businessId is required." },
       { status: 400 }
     );
+  }
+  if (isDemoBusinessId(businessId)) {
+    return NextResponse.json(getDemoMetaCopies());
   }
 
   const creativeUrl = new URL("/api/meta/creatives", request.nextUrl.origin);

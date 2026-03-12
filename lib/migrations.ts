@@ -26,9 +26,17 @@ export async function runMigrations() {
       owner_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       timezone    TEXT NOT NULL DEFAULT 'UTC',
       currency    TEXT NOT NULL DEFAULT 'USD',
+      is_demo_business BOOLEAN NOT NULL DEFAULT FALSE,
+      industry    TEXT,
+      platform    TEXT,
+      metadata    JSONB NOT NULL DEFAULT '{}'::jsonb,
       created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `;
+  await sql`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS is_demo_business BOOLEAN NOT NULL DEFAULT FALSE`;
+  await sql`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS industry TEXT`;
+  await sql`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS platform TEXT`;
+  await sql`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb`;
 
   await sql`
     CREATE TABLE IF NOT EXISTS memberships (

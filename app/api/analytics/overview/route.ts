@@ -1,4 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  isDemoBusinessId,
+  getDemoAnalyticsOverview,
+} from "@/lib/demo-business";
 import { requireBusinessAccess } from "@/lib/access";
 import {
   getGA4TokenAndProperty,
@@ -23,6 +27,9 @@ export async function GET(request: NextRequest) {
     minRole: "collaborator",
   });
   if ("error" in access) return access.error;
+  if (isDemoBusinessId(businessId)) {
+    return NextResponse.json(getDemoAnalyticsOverview());
+  }
 
   let accessToken: string;
   let propertyId: string;

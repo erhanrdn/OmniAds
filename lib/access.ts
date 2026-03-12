@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { MembershipRole, SessionContext, getSessionFromRequest } from "@/lib/auth";
 import { runMigrations } from "@/lib/migrations";
+import { DEMO_BUSINESS_ID, getDemoBusinessSummary, isDemoBusinessId } from "@/lib/demo-business";
 
 export interface MembershipRecord {
   id: string;
@@ -22,6 +23,16 @@ export async function findMembership(input: {
   userId: string;
   businessId: string;
 }): Promise<MembershipRecord | null> {
+  if (isDemoBusinessId(input.businessId)) {
+    return {
+      id: `demo-membership-${input.userId}`,
+      userId: input.userId,
+      businessId: DEMO_BUSINESS_ID,
+      role: "admin",
+      status: "active",
+      joinedAt: new Date(0).toISOString(),
+    };
+  }
   await runMigrations();
   const sql = getDb();
   const rows = await sql`
@@ -59,6 +70,9 @@ export async function listUserBusinesses(userId: string): Promise<
     currency: string;
     role: MembershipRole;
     membershipStatus: "active" | "invited" | "pending";
+    isDemoBusiness?: boolean;
+    industry?: string;
+    platform?: string;
   }>
 > {
   await runMigrations();
@@ -69,6 +83,9 @@ export async function listUserBusinesses(userId: string): Promise<
       b.name,
       b.timezone,
       b.currency,
+      b.is_demo_business,
+      b.industry,
+      b.platform,
       m.role,
       m.status
     FROM memberships m
@@ -76,14 +93,26 @@ export async function listUserBusinesses(userId: string): Promise<
     WHERE m.user_id = ${userId}
     ORDER BY b.created_at ASC
   `;
-  return rows as Array<{
-    id: string;
-    name: string;
-    timezone: string;
-    currency: string;
-    role: MembershipRole;
-    membershipStatus: "active" | "invited" | "pending";
-  }>;
+  const businesses = rows.map((row) => ({
+    id: String((row as { id: unknown }).id),
+    name: String((row as { name: unknown }).name),
+    timezone: String((row as { timezone: unknown }).timezone),
+    currency: String((row as { currency: unknown }).currency),
+    role: (row as { role: MembershipRole }).role,
+    membershipStatus: (row as { status: "active" | "invited" | "pending" }).status,
+    isDemoBusiness: Boolean((row as { is_demo_business?: unknown }).is_demo_business),
+    industry: typeof (row as { industry?: unknown }).industry === "string"
+      ? (row as { industry: string }).industry
+      : undefined,
+    platform: typeof (row as { platform?: unknown }).platform === "string"
+      ? (row as { platform: string }).platform
+      : undefined,
+  }));
+
+  if (!businesses.some((item) => item.id === DEMO_BUSINESS_ID)) {
+    businesses.unshift(getDemoBusinessSummary());
+  }
+  return businesses;
 }
 
 export function hasRole(required: MembershipRole, actual: MembershipRole): boolean {

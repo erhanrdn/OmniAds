@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
+import { getDemoGoogleAdsCampaigns, isDemoBusinessId } from "@/lib/demo-business";
 import {
   executeGaqlForAccounts,
   getAssignedGoogleAccounts,
@@ -26,6 +27,9 @@ export async function GET(request: NextRequest) {
 
   const access = await requireBusinessAccess({ request, businessId, minRole: "guest" });
   if ("error" in access) return access.error;
+  if (isDemoBusinessId(businessId)) {
+    return NextResponse.json(getDemoGoogleAdsCampaigns());
+  }
 
   try {
     const { startDate, endDate } = getDateRangeForQuery(dateRange);

@@ -3,6 +3,7 @@ import { getProviderAccountAssignments } from "@/lib/provider-account-assignment
 import { getIntegration } from "@/lib/integrations";
 import { runMigrations } from "@/lib/migrations";
 import { requireBusinessAccess } from "@/lib/access";
+import { getDemoOverview, isDemoBusinessId } from "@/lib/demo-business";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -120,6 +121,9 @@ export async function GET(request: NextRequest) {
     minRole: "guest",
   });
   if ("error" in access) return access.error;
+  if (isDemoBusinessId(businessId)) {
+    return NextResponse.json(getDemoOverview());
+  }
 
   const resolvedStart = startDate ?? toISODate(nDaysAgo(29));
   const resolvedEnd = endDate ?? toISODate(new Date());

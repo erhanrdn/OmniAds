@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
+import { getDemoGeoOverview, isDemoBusinessId } from "@/lib/demo-business";
 import {
   getGA4TokenAndProperty,
   runGA4Report,
@@ -34,6 +35,9 @@ export async function GET(request: NextRequest) {
     minRole: "collaborator",
   });
   if ("error" in access) return access.error;
+  if (isDemoBusinessId(businessId)) {
+    return NextResponse.json(getDemoGeoOverview());
+  }
 
   // Resolve both sources — neither is required to block the response
   let ga4Token: string | null = null;

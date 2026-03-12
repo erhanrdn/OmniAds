@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
+import { isDemoBusinessId } from "@/lib/demo-business";
 import {
   getSearchConsoleSiteType,
   resolveSearchConsoleContext,
@@ -41,6 +42,14 @@ export async function GET(request: NextRequest) {
     minRole: "guest",
   });
   if ("error" in access) return access.error;
+  if (isDemoBusinessId(businessId)) {
+    return NextResponse.json({
+      sites: [
+        { siteUrl: "sc-domain:urbantrail.co", permissionLevel: "siteOwner", siteType: "domain" },
+        { siteUrl: "https://urbantrail.co/", permissionLevel: "siteOwner", siteType: "url-prefix" },
+      ],
+    });
+  }
 
   try {
     const context = await resolveSearchConsoleContext({

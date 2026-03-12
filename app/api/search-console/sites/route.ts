@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { upsertIntegration } from "@/lib/integrations";
+import { isDemoBusinessId } from "@/lib/demo-business";
 import {
   getSearchConsoleSiteType,
   resolveSearchConsoleContext,
@@ -54,6 +55,13 @@ export async function GET(request: NextRequest) {
     minRole: "guest",
   });
   if ("error" in access) return access.error;
+  if (isDemoBusinessId(businessId)) {
+    const sites = [
+      { siteUrl: "sc-domain:urbantrail.co", permissionLevel: "siteOwner", siteType: "domain" },
+      { siteUrl: "https://urbantrail.co/", permissionLevel: "siteOwner", siteType: "url-prefix" },
+    ];
+    return NextResponse.json({ sites, data: sites });
+  }
 
   try {
     const context = await resolveSearchConsoleContext({
@@ -139,6 +147,23 @@ export async function POST(request: NextRequest) {
     minRole: "collaborator",
   });
   if ("error" in access) return access.error;
+  if (isDemoBusinessId(businessId)) {
+    return NextResponse.json({
+      success: true,
+      integration: {
+        id: "demo-search-console",
+        business_id: businessId,
+        provider: "search_console",
+        status: "connected",
+        metadata: {
+          siteUrl: "sc-domain:urbantrail.co",
+          siteType: "domain",
+          propertyName: "urbantrail.co",
+          connectedAt: new Date().toISOString(),
+        },
+      },
+    });
+  }
 
   const body = (await request.json().catch(() => null)) as
     | { property_url?: unknown; siteUrl?: unknown }

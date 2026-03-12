@@ -140,7 +140,14 @@ export default function SelectBusinessPage() {
                       .join("")}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium">{business.name}</p>
+                    <p className="text-sm font-medium">
+                      {business.name}
+                      {business.isDemoBusiness ? (
+                        <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+                          Demo
+                        </span>
+                      ) : null}
+                    </p>
                     <p className="text-xs text-muted-foreground">
                       {business.timezone} • {business.currency}
                     </p>
@@ -169,7 +176,7 @@ export default function SelectBusinessPage() {
                     <MoreHorizontal className="h-4 w-4" />
                   </button>
 
-                  {isMenuOpen && (
+                  {isMenuOpen && !business.isDemoBusiness && (
                     <div className="absolute right-0 top-9 z-40 w-44 rounded-lg border bg-background p-1.5 shadow-lg">
                       <button
                         type="button"

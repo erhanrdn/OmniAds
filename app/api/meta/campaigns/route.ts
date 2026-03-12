@@ -3,6 +3,7 @@ import { getIntegration } from "@/lib/integrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { runMigrations } from "@/lib/migrations";
 import { requireBusinessAccess } from "@/lib/access";
+import { getDemoMetaCampaigns, isDemoBusinessId } from "@/lib/demo-business";
 
 // ── Meta API types ────────────────────────────────────────────────────────────
 
@@ -173,6 +174,9 @@ export async function GET(request: NextRequest) {
     minRole: "guest",
   });
   if ("error" in access) return access.error;
+  if (isDemoBusinessId(businessId)) {
+    return NextResponse.json(getDemoMetaCampaigns());
+  }
 
   const resolvedStart = startDate ?? toISODate(nDaysAgo(29));
   const resolvedEnd = endDate ?? toISODate(new Date());

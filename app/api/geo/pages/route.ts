@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
+import { getDemoGeoPages, isDemoBusinessId } from "@/lib/demo-business";
 import {
   getGA4TokenAndProperty,
   runGA4Report,
@@ -28,6 +29,9 @@ export async function GET(request: NextRequest) {
 
   const access = await requireBusinessAccess({ request, businessId, minRole: "collaborator" });
   if ("error" in access) return access.error;
+  if (isDemoBusinessId(businessId)) {
+    return NextResponse.json(getDemoGeoPages());
+  }
 
   let accessToken: string;
   let propertyId: string;

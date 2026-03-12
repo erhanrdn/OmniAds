@@ -6,6 +6,7 @@ import {
 } from "@/lib/integrations";
 import type { IntegrationProviderType } from "@/lib/integrations";
 import { requireBusinessAccess } from "@/lib/access";
+import { getDemoIntegrations, isDemoBusinessId } from "@/lib/demo-business";
 
 /**
  * GET /api/integrations?businessId=...&provider=...
@@ -35,8 +36,16 @@ export async function GET(request: NextRequest) {
   ) as IntegrationProviderType | null;
 
   if (provider) {
+    if (isDemoBusinessId(businessId)) {
+      const integration = getDemoIntegrations().find((item) => item.provider === provider) ?? null;
+      return NextResponse.json({ integration });
+    }
     const integration = await getIntegration(businessId, provider);
     return NextResponse.json({ integration });
+  }
+
+  if (isDemoBusinessId(businessId)) {
+    return NextResponse.json({ integrations: getDemoIntegrations() });
   }
 
   const integrations = await getIntegrationsByBusiness(businessId);
@@ -67,6 +76,10 @@ export async function DELETE(request: NextRequest) {
     minRole: "collaborator",
   });
   if ("error" in access) return access.error;
+
+  if (isDemoBusinessId(businessId)) {
+    return NextResponse.json({ status: "disconnected" });
+  }
 
   await disconnectIntegration(businessId, provider);
   return NextResponse.json({ status: "disconnected" });
