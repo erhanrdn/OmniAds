@@ -44,8 +44,33 @@ export async function GET(request: NextRequest) {
     }
 
     // Fetch account-level totals + campaign breakdown in parallel
-    const totalsQuery = `SELECT metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions, metrics.conversions_value FROM customer WHERE segments.date BETWEEN '${startDate}' AND '${endDate}'`;
-    const campaignQuery = `SELECT campaign.id, campaign.name, campaign.status, metrics.impressions, metrics.clicks, metrics.cost_micros FROM campaign WHERE segments.date BETWEEN '${startDate}' AND '${endDate}' AND campaign.status != 'REMOVED'`;
+    // const totalsQuery = `SELECT metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions, metrics.conversions_value FROM customer WHERE segments.date BETWEEN '${startDate}' AND '${endDate}'`;
+    // const campaignQuery = `SELECT campaign.id, campaign.name, campaign.status, metrics.impressions, metrics.clicks, metrics.cost_micros FROM campaign WHERE segments.date BETWEEN '${startDate}' AND '${endDate}' AND campaign.status != 'REMOVED'`;
+    const totalsQuery = `
+  SELECT 
+    metrics.impressions, 
+    metrics.clicks, 
+    metrics.cost_micros 
+  FROM customer 
+  WHERE segments.date BETWEEN '${startDate}' AND '${endDate}'
+`
+      .replace(/\s+/g, " ")
+      .trim();
+    const campaignQuery = `
+  SELECT 
+    campaign.id, 
+    campaign.name, 
+    campaign.status, 
+    metrics.impressions, 
+    metrics.clicks, 
+    metrics.cost_micros 
+  FROM campaign 
+  WHERE segments.date BETWEEN '${startDate}' AND '${endDate}' 
+    AND campaign.status != 'REMOVED'
+`
+      .replace(/\s+/g, " ")
+      .trim();
+
     const [totalsResults, campaignResults] = await Promise.all([
       Promise.all(
         assignedAccounts.map((customerId) =>
