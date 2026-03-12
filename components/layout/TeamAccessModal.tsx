@@ -93,7 +93,11 @@ export function TeamAccessModal({ open, onOpenChange }: TeamAccessModalProps) {
   const inviteEmails = parseEmails(inviteInput);
 
   const fetchMembers = useCallback(async () => {
-    if (!businessId) return;
+    if (!businessId) {
+      setMembers([]);
+      setMembersError(null);
+      return;
+    }
     setMembersLoading(true);
     setMembersError(null);
     try {
@@ -120,7 +124,11 @@ export function TeamAccessModal({ open, onOpenChange }: TeamAccessModalProps) {
   }, [businessId]);
 
   const fetchRequests = useCallback(async () => {
-    if (!businessId) return;
+    if (!businessId) {
+      setRequests([]);
+      setRequestsError(null);
+      return;
+    }
     setRequestsLoading(true);
     setRequestsError(null);
     try {
@@ -164,6 +172,16 @@ export function TeamAccessModal({ open, onOpenChange }: TeamAccessModalProps) {
       setCopiedId(null);
     }
   }, [open]);
+
+  useEffect(() => {
+    setMemberMessage(null);
+    setRequestMessage(null);
+    if (!businessId) {
+      setMembers([]);
+      setRequests([]);
+      setCreatedInvites([]);
+    }
+  }, [businessId]);
 
   useEffect(() => {
     if (!open) return;

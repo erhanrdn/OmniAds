@@ -75,7 +75,12 @@ export default function TeamPage() {
   const parsedEmails = useMemo(() => parseEmails(inviteInput), [inviteInput]);
 
   async function loadTeamData() {
-    if (!selectedBusinessId) return;
+    if (!selectedBusinessId) {
+      setMembers([]);
+      setInvites([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setFlash(null);
     try {
@@ -91,9 +96,18 @@ export default function TeamPage() {
       const membersJson = (await membersRes.json().catch(() => null)) as { members?: TeamMember[] } | null;
       const invitesJson = (await invitesRes.json().catch(() => null)) as { invites?: InviteRow[] } | null;
 
+      if (!membersRes.ok || !invitesRes.ok) {
+        setMembers([]);
+        setInvites([]);
+        setFlash({ type: "error", text: "Could not load team data." });
+        return;
+      }
+
       setMembers(membersJson?.members ?? []);
       setInvites(invitesJson?.invites ?? []);
     } catch {
+      setMembers([]);
+      setInvites([]);
       setFlash({ type: "error", text: "Could not load team data." });
     } finally {
       setLoading(false);

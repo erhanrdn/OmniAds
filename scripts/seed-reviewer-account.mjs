@@ -137,6 +137,11 @@ async function ensureDemoBusiness(sql) {
     ON CONFLICT (user_id, business_id)
     DO UPDATE SET role = 'admin', status = 'active'
   `;
+
+  await sql`
+    DELETE FROM invites
+    WHERE business_id = ${DEMO_BUSINESS_ID}
+  `;
 }
 
 async function main() {
@@ -169,6 +174,12 @@ async function main() {
     VALUES (${reviewer.id}, ${DEMO_BUSINESS_ID}, 'collaborator', 'active')
     ON CONFLICT (user_id, business_id)
     DO UPDATE SET role = 'collaborator', status = 'active'
+  `;
+
+  await sql`
+    DELETE FROM memberships
+    WHERE business_id = ${DEMO_BUSINESS_ID}
+      AND user_id NOT IN (${DEMO_OWNER_ID}, ${reviewer.id})
   `;
 
   await sql`

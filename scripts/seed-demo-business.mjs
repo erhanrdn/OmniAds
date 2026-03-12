@@ -121,6 +121,17 @@ async function main() {
     DO UPDATE SET role = 'admin', status = 'active'
   `;
 
+  await sql`
+    DELETE FROM memberships
+    WHERE business_id = ${DEMO_BUSINESS_ID}
+      AND user_id <> ${DEMO_OWNER_ID}
+  `;
+
+  await sql`
+    DELETE FROM invites
+    WHERE business_id = ${DEMO_BUSINESS_ID}
+  `;
+
   console.log(
     JSON.stringify(
       {
