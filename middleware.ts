@@ -11,6 +11,9 @@ const PUBLIC_PAGE_PREFIXES = [
   "/terms",
   "/contact",
   "/security",
+  "/product",
+  "/pricing",
+  "/demo",
 ];
 const PUBLIC_API_PREFIXES = [
   "/api/auth/login",
@@ -46,11 +49,11 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  if (pathname === "/") {
-    return NextResponse.redirect(new URL(hasSession ? "/overview" : "/login", request.url));
+  if (pathname === "/" && hasSession) {
+    return NextResponse.redirect(new URL("/overview", request.url));
   }
 
-  if (!isPublicPage(pathname) && !pathname.startsWith("/_next") && !pathname.includes(".")) {
+  if (pathname !== "/" && !isPublicPage(pathname) && !pathname.startsWith("/_next") && !pathname.includes(".")) {
     if (!hasSession) {
       return NextResponse.redirect(new URL("/login", request.url));
     }

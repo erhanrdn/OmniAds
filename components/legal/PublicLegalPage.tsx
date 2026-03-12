@@ -16,7 +16,22 @@ const LEGAL_LINKS = [
 
 export function PublicLegalPage({ title, subtitle, children }: PublicLegalPageProps) {
   return (
-    <main className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen bg-background text-foreground flex flex-col">
+      <header className="border-b border-border">
+        <div className="mx-auto max-w-3xl px-5 sm:px-8 py-4 flex items-center justify-between">
+          <Link href="/" className="flex items-center gap-2">
+            <div className="flex h-6 w-6 items-center justify-center rounded bg-indigo-600 text-white text-xs font-bold select-none">
+              A
+            </div>
+            <span className="text-sm font-semibold text-foreground">Adsecute</span>
+          </Link>
+          <Link href="/" className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+            ← Back to home
+          </Link>
+        </div>
+      </header>
+
+      <main className="flex-1">
       <div className="mx-auto w-full max-w-3xl px-5 py-12 sm:px-8 sm:py-16">
         <header className="mb-10">
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -44,7 +59,8 @@ export function PublicLegalPage({ title, subtitle, children }: PublicLegalPagePr
           </nav>
         </footer>
       </div>
-    </main>
+      </main>
+    </div>
   );
 }
 
