@@ -32,6 +32,7 @@ export function BusinessSelector() {
 
   const selectedBusiness =
     businesses.find((item) => item.id === selectedBusinessId) ?? null;
+  const isDemoOnlyWorkspace = businesses.length === 1 && Boolean(businesses[0]?.isDemoBusiness);
 
   function handleSelect(businessId: string) {
     selectBusiness(businessId);
@@ -52,6 +53,17 @@ export function BusinessSelector() {
       <Button variant="outline" className="h-9 gap-2" onClick={() => router.push("/businesses/new")}>
         <Plus className="h-4 w-4" />
         <span className="hidden sm:inline">Create business</span>
+      </Button>
+    );
+  }
+
+  if (isDemoOnlyWorkspace && selectedBusiness) {
+    return (
+      <Button variant="outline" className="h-9 max-w-[220px] gap-2 px-3 text-sm" disabled>
+        <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-primary/10 text-[10px] font-bold text-primary">
+          {getInitials(selectedBusiness.name)}
+        </div>
+        <span className="truncate hidden sm:block">{selectedBusiness.name}</span>
       </Button>
     );
   }
@@ -97,21 +109,25 @@ export function BusinessSelector() {
             />
           </DropdownMenuItem>
         ))}
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          onClick={() => router.push("/select-business")}
-          className="cursor-pointer gap-2 text-muted-foreground"
-        >
-          <Building2 className="h-4 w-4" />
-          Manage businesses
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onClick={() => router.push("/businesses/new")}
-          className="cursor-pointer gap-2"
-        >
-          <Plus className="h-4 w-4" />
-          Create new business
-        </DropdownMenuItem>
+        {!isDemoOnlyWorkspace ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() => router.push("/select-business")}
+              className="cursor-pointer gap-2 text-muted-foreground"
+            >
+              <Building2 className="h-4 w-4" />
+              Manage businesses
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => router.push("/businesses/new")}
+              className="cursor-pointer gap-2"
+            >
+              <Plus className="h-4 w-4" />
+              Create new business
+            </DropdownMenuItem>
+          </>
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   );

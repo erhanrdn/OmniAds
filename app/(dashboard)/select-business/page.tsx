@@ -40,6 +40,7 @@ export default function SelectBusinessPage() {
     () => businesses.find((business) => business.id === confirmBusinessId) ?? null,
     [businesses, confirmBusinessId]
   );
+  const isDemoOnlyWorkspace = businesses.length === 1 && Boolean(businesses[0]?.isDemoBusiness);
 
   const hasLinkedData = useMemo(() => {
     if (!confirmBusiness) return false;
@@ -206,10 +207,16 @@ export default function SelectBusinessPage() {
         </div>
       )}
 
-      <Button variant="outline" className="gap-2" onClick={() => router.push("/businesses/new")}>
-        <Plus className="h-4 w-4" />
-        Create new business
-      </Button>
+      {!isDemoOnlyWorkspace ? (
+        <Button variant="outline" className="gap-2" onClick={() => router.push("/businesses/new")}>
+          <Plus className="h-4 w-4" />
+          Create new business
+        </Button>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          This account is restricted to the Adsecute demo workspace.
+        </p>
+      )}
 
       {confirmBusiness ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromRequest } from "@/lib/auth";
 import { listUserBusinesses } from "@/lib/access";
+import { scopeBusinessesForUser } from "@/lib/reviewer-access";
 
 export async function GET(request: NextRequest) {
   const session = await getSessionFromRequest(request);
@@ -8,7 +9,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ authenticated: false }, { status: 401 });
   }
 
-  const businesses = await listUserBusinesses(session.user.id);
+  const businesses = scopeBusinessesForUser(
+    session.user.email,
+    await listUserBusinesses(session.user.id)
+  );
   const activeBusinessId =
     session.activeBusinessId && businesses.some((b) => b.id === session.activeBusinessId)
       ? session.activeBusinessId
@@ -21,4 +25,3 @@ export async function GET(request: NextRequest) {
     activeBusinessId,
   });
 }
-

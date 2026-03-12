@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { MembershipRole, SessionContext, getSessionFromRequest } from "@/lib/auth";
 import { runMigrations } from "@/lib/migrations";
-import { DEMO_BUSINESS_ID, getDemoBusinessSummary } from "@/lib/demo-business";
-import { isDemoBusiness } from "@/lib/business-mode.server";
+import { canReviewerAccessBusiness } from "@/lib/reviewer-access";
 
 export interface MembershipRecord {
   id: string;
@@ -24,16 +23,6 @@ export async function findMembership(input: {
   userId: string;
   businessId: string;
 }): Promise<MembershipRecord | null> {
-  if (await isDemoBusiness(input.businessId)) {
-    return {
-      id: `demo-membership-${input.userId}`,
-      userId: input.userId,
-      businessId: DEMO_BUSINESS_ID,
-      role: "admin",
-      status: "active",
-      joinedAt: new Date(0).toISOString(),
-    };
-  }
   await runMigrations();
   const sql = getDb();
   const rows = await sql`
@@ -110,9 +99,6 @@ export async function listUserBusinesses(userId: string): Promise<
       : undefined,
   }));
 
-  if (!businesses.some((item) => item.id === DEMO_BUSINESS_ID)) {
-    businesses.unshift(getDemoBusinessSummary());
-  }
   return businesses;
 }
 
@@ -148,6 +134,9 @@ export async function requireBusinessAccess(input: {
   }
   const auth = await requireAuthedRequest(request);
   if ("error" in auth) return { error: auth.error };
+  if (!canReviewerAccessBusiness(auth.session.user.email, businessId)) {
+    return { error: authError("You do not have access to this business.", 403) };
+  }
 
   const membership = await findMembership({
     userId: auth.session.user.id,

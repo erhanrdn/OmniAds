@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "seed:demo-business": "node scripts/seed-demo-business.mjs"
+    "seed:demo-business": "node scripts/seed-demo-business.mjs",
+    "seed:reviewer-account": "node scripts/seed-reviewer-account.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",

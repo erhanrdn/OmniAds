@@ -1,9 +1,16 @@
+import bcrypt from "bcryptjs";
 import { neon } from "@neondatabase/serverless";
 import fs from "fs";
 import path from "path";
 
 const DEMO_BUSINESS_ID = "11111111-1111-4111-8111-111111111111";
 const DEMO_OWNER_ID = "22222222-2222-4222-8222-222222222222";
+const REVIEWER_EMAIL = (process.env.SHOPIFY_REVIEWER_EMAIL ?? "shopify-review@adsecute.com")
+  .trim()
+  .toLowerCase();
+const REVIEWER_NAME = process.env.SHOPIFY_REVIEWER_NAME ?? "Shopify App Reviewer";
+const REVIEWER_PASSWORD = process.env.SHOPIFY_REVIEWER_PASSWORD ?? "AdsecuteReview!2026";
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 
 function getEnv(name) {
   const value = process.env[name];
@@ -22,10 +29,7 @@ function getEnv(name) {
   throw new Error(`${name} is required`);
 }
 
-async function main() {
-  const databaseUrl = getEnv("DATABASE_URL");
-  const sql = neon(databaseUrl);
-
+async function ensureCoreTables(sql) {
   await sql`
     CREATE TABLE IF NOT EXISTS users (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -70,6 +74,19 @@ async function main() {
     )
   `;
 
+  await sql`
+    CREATE TABLE IF NOT EXISTS sessions (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token_hash TEXT NOT NULL UNIQUE,
+      active_business_id UUID REFERENCES businesses(id) ON DELETE SET NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+}
+
+async function ensureDemoBusiness(sql) {
   await sql`
     INSERT INTO users (id, name, email, password_hash)
     VALUES (${DEMO_OWNER_ID}, 'Adsecute Demo Owner', 'demo-owner@adsecute.local', 'demo-seeded-no-login')
@@ -120,14 +137,67 @@ async function main() {
     ON CONFLICT (user_id, business_id)
     DO UPDATE SET role = 'admin', status = 'active'
   `;
+}
+
+async function main() {
+  const databaseUrl = getEnv("DATABASE_URL");
+  const sql = neon(databaseUrl);
+
+  await ensureCoreTables(sql);
+  await ensureDemoBusiness(sql);
+
+  const passwordHash = await bcrypt.hash(REVIEWER_PASSWORD, 12);
+  const reviewerRows = await sql`
+    INSERT INTO users (name, email, password_hash)
+    VALUES (${REVIEWER_NAME}, ${REVIEWER_EMAIL}, ${passwordHash})
+    ON CONFLICT (email)
+    DO UPDATE SET
+      name = EXCLUDED.name,
+      password_hash = EXCLUDED.password_hash
+    RETURNING id, email
+  `;
+  const reviewer = reviewerRows[0];
+
+  await sql`
+    DELETE FROM memberships
+    WHERE user_id = ${reviewer.id}
+      AND business_id <> ${DEMO_BUSINESS_ID}
+  `;
+
+  await sql`
+    INSERT INTO memberships (user_id, business_id, role, status)
+    VALUES (${reviewer.id}, ${DEMO_BUSINESS_ID}, 'collaborator', 'active')
+    ON CONFLICT (user_id, business_id)
+    DO UPDATE SET role = 'collaborator', status = 'active'
+  `;
+
+  await sql`
+    UPDATE sessions
+    SET active_business_id = ${DEMO_BUSINESS_ID}
+    WHERE user_id = ${reviewer.id}
+  `;
+
+  const accessRows = await sql`
+    SELECT b.id, b.name
+    FROM memberships m
+    JOIN businesses b ON b.id = m.business_id
+    WHERE m.user_id = ${reviewer.id}
+      AND m.status = 'active'
+    ORDER BY b.created_at ASC
+  `;
 
   console.log(
     JSON.stringify(
       {
         ok: true,
-        demoBusinessId: DEMO_BUSINESS_ID,
-        businessName: "Adsecute Demo",
-        ownerAssigned: DEMO_OWNER_ID,
+        reviewer: {
+          email: REVIEWER_EMAIL,
+          password: REVIEWER_PASSWORD,
+          role: "collaborator",
+          emailVerified: true,
+        },
+        loginUrl: `${APP_URL.replace(/\/$/, "")}/login`,
+        accessibleBusinesses: accessRows,
       },
       null,
       2
@@ -136,6 +206,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error("[seed-demo-business] failed", error);
+  console.error("[seed-reviewer-account] failed", error);
   process.exit(1);
 });
