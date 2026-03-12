@@ -298,13 +298,13 @@ export function getDemoGoogleAdsOverview() {
       convRate: 0.0169,
     },
     topCampaigns: [
-      { name: "Backpack Search Campaign", spend: 4620, roas: 3.84, conversions: 171 },
-      { name: "Travel Gear Performance Max", spend: 3930, roas: 3.35, conversions: 146 },
-      { name: "Brand Campaign", spend: 1880, roas: 5.02, conversions: 112 },
+      { name: "Backpack Search Campaign", spend: 4620, roas: 3.84, conversions: 171, channel: "Search" },
+      { name: "Travel Gear Performance Max", spend: 3930, roas: 3.35, conversions: 146, channel: "Performance Max" },
+      { name: "Brand Campaign", spend: 1880, roas: 5.02, conversions: 112, channel: "Search" },
     ],
     insights: [
-      { severity: "warning", title: "Summer Hiking Campaign is budget-limited", description: "Lost impression share due to budget is above 24%." },
-      { severity: "positive", title: "Brand Campaign efficiency is strong", description: "ROAS 5.0x with low CPA and stable CTR." },
+      { id: "gads-ins-1", severity: "warning", title: "Summer Hiking Campaign is budget-limited", description: "Lost impression share due to budget is above 24%." },
+      { id: "gads-ins-2", severity: "positive", title: "Brand Campaign efficiency is strong", description: "ROAS 5.0x with low CPA and stable CTR." },
     ],
     period: { startDate: "2026-02-09", endDate: "2026-03-11" },
   };
@@ -349,79 +349,143 @@ export function getDemoGoogleAdsKeywords() {
       { keyword: "urbantrail backpack", matchType: "exact", campaign: "Brand Campaign", adGroup: "Brand", status: "active", spend: 390, conversions: 31, revenue: 2810, roas: 7.21, cpa: 12.58, ctr: 8.4, cpc: 0.33, qualityScore: 9 },
     ],
     count: 3,
-    insights: [
-      { severity: "critical", title: "High spend low-return keyword", description: "\"waterproof backpack\" has below-target ROAS and high CPA." },
-    ],
+    insights: {
+      highCtrLowConvCount: 1,
+      highConvLowBudgetCount: 1,
+      deserveOwnAdGroupCount: 1,
+    },
   };
 }
 
 export function getDemoGoogleAdsAds() {
+  const data = [
+    {
+      id: "ad-1",
+      headline: "Carry-On Backpack Built for Weekend Trips",
+      description: "Free shipping over $59. Built for airport-to-trail travel.",
+      type: "responsive_search_ad",
+      status: "active",
+      adGroup: "Carry On",
+      campaign: "Backpack Search Campaign",
+      spend: 970,
+      conversions: 44,
+      revenue: 4380,
+      roas: 4.52,
+      cpa: 22.05,
+      ctr: 5.3,
+      convRate: 6.8,
+      impressions: 18420,
+      clicks: 972,
+    },
+    {
+      id: "ad-2",
+      headline: "Waterproof Hiking Backpack | UrbanTrail",
+      description: "Rainproof shell, ergonomic frame, and hydration-ready design.",
+      type: "responsive_search_ad",
+      status: "active",
+      adGroup: "Hiking",
+      campaign: "Summer Hiking Campaign",
+      spend: 860,
+      conversions: 14,
+      revenue: 1290,
+      roas: 1.5,
+      cpa: 61.43,
+      ctr: 3.1,
+      convRate: 2.6,
+      impressions: 15080,
+      clicks: 534,
+    },
+    {
+      id: "ad-3",
+      headline: "UrbanTrail Official Site - Free Shipping",
+      description: "Shop backpacks and travel gear with 30-day returns.",
+      type: "expanded_text_ad",
+      status: "active",
+      adGroup: "Brand",
+      campaign: "Brand Campaign",
+      spend: 420,
+      conversions: 35,
+      revenue: 3170,
+      roas: 7.55,
+      cpa: 12,
+      ctr: 9.1,
+      convRate: 11.1,
+      impressions: 7420,
+      clicks: 316,
+    },
+  ];
   return {
-    data: [
-      { adId: "ad-1", headline: "Carry-On Backpack Built for Weekend Trips", campaign: "Backpack Search Campaign", status: "active", spend: 970, conversions: 44, revenue: 4380, roas: 4.52, ctr: 5.3, cpa: 22.05 },
-      { adId: "ad-2", headline: "Waterproof Hiking Backpack | UrbanTrail", campaign: "Summer Hiking Campaign", status: "active", spend: 860, conversions: 14, revenue: 1290, roas: 1.5, ctr: 3.1, cpa: 61.43 },
-      { adId: "ad-3", headline: "UrbanTrail Official Site - Free Shipping", campaign: "Brand Campaign", status: "active", spend: 420, conversions: 35, revenue: 3170, roas: 7.55, ctr: 9.1, cpa: 12 },
-    ],
-    count: 3,
-    insights: [{ severity: "opportunity", title: "Scale top ad", description: "Ad-1 has high ROAS and room for budget expansion." }],
+    data,
+    count: data.length,
+    insights: {
+      topPerformerCtr: 9.1,
+      bottomPerformerCtr: 3.1,
+      bestAd: data[2],
+      worstAd: data[1],
+    },
   };
 }
 
 export function getDemoGoogleAdsCreatives() {
   return {
     data: [
-      { creativeId: "gcr-1", name: "UGC Weekend Packing Reel", type: "video", campaign: "Travel Gear Performance Max", spend: 1320, conversions: 52, revenue: 4870, roas: 3.69, ctr: 2.9 },
-      { creativeId: "gcr-2", name: "Explorer Backpack Lifestyle Carousel", type: "image", campaign: "Remarketing Display", spend: 740, conversions: 12, revenue: 980, roas: 1.32, ctr: 1.1 },
-      { creativeId: "gcr-3", name: "Carry-On Checklist Static", type: "image", campaign: "Backpack Search Campaign", spend: 510, conversions: 21, revenue: 1830, roas: 3.59, ctr: 2.6 },
+      { id: "gcr-1", name: "UGC Weekend Packing Reel", type: "Performance Max", status: "active", adStrength: "Best", campaign: "Travel Gear Performance Max", spend: 1320, conversions: 52, revenue: 4870, roas: 3.69, cpa: 25.38, ctr: 2.9, impressions: 64000, clicks: 1856 },
+      { id: "gcr-2", name: "Explorer Backpack Lifestyle Carousel", type: "Performance Max", status: "active", adStrength: "Low", campaign: "Remarketing Display", spend: 740, conversions: 12, revenue: 980, roas: 1.32, cpa: 61.67, ctr: 1.1, impressions: 50200, clicks: 552 },
+      { id: "gcr-3", name: "Carry-On Checklist Static", type: "Performance Max", status: "active", adStrength: "Good", campaign: "Backpack Search Campaign", spend: 510, conversions: 21, revenue: 1830, roas: 3.59, cpa: 24.29, ctr: 2.6, impressions: 28400, clicks: 738 },
     ],
     count: 3,
-    insights: [{ severity: "warning", title: "Display creative fatigue", description: "Remarketing image creative has high frequency and weak ROAS." }],
+    insights: ["Display creative fatigue detected in Remarketing asset group; rotate new variants."],
   };
 }
 
 export function getDemoGoogleAdsAudiences() {
+  const data = [
+    { criterionId: "aud-1", type: "In-Market", adGroup: "Travel Core", campaign: "Backpack Search Campaign", spend: 2830, conversions: 103, revenue: 8920, roas: 3.15, cpa: 27.48, ctr: 3.8, impressions: 184000, clicks: 6992 },
+    { criterionId: "aud-2", type: "Remarketing", adGroup: "Site Visitors 30d", campaign: "Remarketing Display", spend: 2190, conversions: 76, revenue: 6540, roas: 2.99, cpa: 28.82, ctr: 4.1, impressions: 122400, clicks: 5018 },
+    { criterionId: "aud-3", type: "Affinity", adGroup: "Outdoor Interest", campaign: "Summer Hiking Campaign", spend: 1740, conversions: 47, revenue: 3210, roas: 1.84, cpa: 37.02, ctr: 2.7, impressions: 111800, clicks: 3019 },
+  ];
   return {
-    data: [
-      { audience: "In-market Travel Accessories", spend: 2830, conversions: 103, revenue: 8920, roas: 3.15, cpa: 27.48, ctr: 3.8 },
-      { audience: "Remarketing 30d", spend: 2190, conversions: 76, revenue: 6540, roas: 2.99, cpa: 28.82, ctr: 4.1 },
-      { audience: "Outdoor Enthusiasts", spend: 1740, conversions: 47, revenue: 3210, roas: 1.84, cpa: 37.02, ctr: 2.7 },
+    data,
+    summary: [
+      { type: "In-Market", conversions: 103, spend: 2830, roas: 3.15 },
+      { type: "Remarketing", conversions: 76, spend: 2190, roas: 2.99 },
+      { type: "Affinity", conversions: 47, spend: 1740, roas: 1.84 },
     ],
-    summary: { topAudience: "In-market Travel Accessories", weakAudience: "Outdoor Enthusiasts" },
-    insights: [{ severity: "critical", title: "Audience mismatch", description: "Outdoor Enthusiasts audience is spending heavily with low conversion efficiency." }],
+    insights: ["Affinity segment is over-spending relative to conversion quality; tighten targeting."],
   };
 }
 
 export function getDemoGoogleAdsGeo() {
   return {
     data: [
-      { location: "California", spend: 3120, conversions: 122, revenue: 11040, roas: 3.54, cpa: 25.57, ctr: 4.2 },
-      { location: "Texas", spend: 2120, conversions: 69, revenue: 5240, roas: 2.47, cpa: 30.72, ctr: 3.7 },
-      { location: "New York", spend: 1980, conversions: 73, revenue: 6760, roas: 3.41, cpa: 27.12, ctr: 4.1 },
+      { country: "California", criterionId: 21137, impressions: 165000, clicks: 6930, spend: 3120, conversions: 122, revenue: 11040, roas: 3.54, cpa: 25.57, ctr: 4.2, convRate: 1.76, vsAvgCpa: -8 },
+      { country: "Texas", criterionId: 21176, impressions: 123000, clicks: 4551, spend: 2120, conversions: 69, revenue: 5240, roas: 2.47, cpa: 30.72, ctr: 3.7, convRate: 1.52, vsAvgCpa: 9 },
+      { country: "New York", criterionId: 21167, impressions: 102000, clicks: 4182, spend: 1980, conversions: 73, revenue: 6760, roas: 3.41, cpa: 27.12, ctr: 4.1, convRate: 1.75, vsAvgCpa: -2 },
     ],
-    insights: [{ severity: "opportunity", title: "Geo reallocation opportunity", description: "Texas ROAS trails other top states; shift 10-15% budget to CA/NY." }],
+    insights: ["Texas ROAS trails other top states; shift 10-15% budget to CA/NY test pools."],
   };
 }
 
 export function getDemoGoogleAdsDevices() {
   return {
     data: [
-      { device: "Mobile", spend: 8420, conversions: 251, revenue: 19420, roas: 2.31, cpa: 33.55, ctr: 3.6 },
-      { device: "Desktop", spend: 4970, conversions: 226, revenue: 22840, roas: 4.6, cpa: 21.99, ctr: 4.8 },
-      { device: "Tablet", spend: 1150, conversions: 44, revenue: 4320, roas: 3.76, cpa: 26.14, ctr: 3.1 },
+      { device: "Mobile", impressions: 452000, clicks: 16272, spend: 8420, conversions: 251, revenue: 19420, roas: 2.31, cpa: 33.55, ctr: 3.6, convRate: 1.54 },
+      { device: "Desktop", impressions: 211000, clicks: 10128, spend: 4970, conversions: 226, revenue: 22840, roas: 4.6, cpa: 21.99, ctr: 4.8, convRate: 2.23 },
+      { device: "Tablet", impressions: 46100, clicks: 1429, spend: 1150, conversions: 44, revenue: 4320, roas: 3.76, cpa: 26.14, ctr: 3.1, convRate: 3.08 },
     ],
-    insights: [{ severity: "warning", title: "Mobile checkout friction", description: "Mobile has strong traffic but weak downstream conversion vs desktop." }],
+    insights: ["Mobile traffic is strong but conversion rate trails desktop; review mobile checkout friction."],
   };
 }
 
 export function getDemoGoogleAdsBudget() {
   return {
     data: [
-      { id: "g-4", name: "Summer Hiking Campaign", spend: 2410, conversions: 58, revenue: 6020, roas: 2.5, cpa: 41.55, lostIsBudget: 0.26, recommendation: "Increase budget by 18% and tighten keywords." },
-      { id: "g-5", name: "Remarketing Display", spend: 1700, conversions: 34, revenue: 4220, roas: 2.48, cpa: 50, lostIsBudget: 0.19, recommendation: "Shift 20% budget to high-intent search campaigns." },
+      { id: "g-4", name: "Summer Hiking Campaign", dailyBudget: 110, spend: 2410, conversions: 58, revenue: 6020, roas: 2.5, cpa: 41.55, impressions: 102800, clicks: 3650, impressionShare: 0.41, lostIsBudget: 0.26, recommendation: "Increase budget by 18% and tighten keywords." },
+      { id: "g-5", name: "Remarketing Display", dailyBudget: 70, spend: 1700, conversions: 34, revenue: 4220, roas: 2.48, cpa: 50, impressions: 90000, clicks: 2870, impressionShare: 0.38, lostIsBudget: 0.19, recommendation: "Shift 20% budget to high-intent search campaigns." },
     ],
     recommendations: [
-      { type: "budget_shift", title: "Reallocate from Display to Brand Search", impact: "+$3.2k monthly revenue potential", effort: "low", priority: "high" },
-      { type: "bid_adjustment", title: "Raise bids for Carry-On cluster", impact: "+18% impression share", effort: "medium", priority: "medium" },
+      { campaign: "Summer Hiking Campaign", currentSpend: 2410, suggestedBudgetChange: 430, direction: "increase", reason: "Budget-limited with healthy conversion depth." },
+      { campaign: "Remarketing Display", currentSpend: 1700, suggestedBudgetChange: -300, direction: "decrease", reason: "Below-target ROAS versus search campaigns." },
     ],
     totalSpend: 14540,
     accountAvgRoas: 3.2,
@@ -430,9 +494,9 @@ export function getDemoGoogleAdsBudget() {
 
 export function getDemoGoogleAdsOpportunities() {
   const data = [
-    { type: "budget_shift", title: "Move budget to Backpack Search", whyItMatters: "Search campaign delivers 1.5x better ROAS than Display.", evidence: "$1.7k spend at 2.48x ROAS in Display.", expectedImpact: "+$2.1k revenue / 30d", effort: "low", priority: "high" },
-    { type: "negative_keyword", title: "Add negatives for low-intent generic terms", whyItMatters: "Generic queries waste spend with weak conversion.", evidence: "\"cheap camping backpack\" spent $450 with 0.42x ROAS.", expectedImpact: "-8% wasted spend", effort: "low", priority: "high" },
-    { type: "ad_copy", title: "Scale high-CTR carry-on message", whyItMatters: "Carry-on angle has strongest CTR + CVR combo.", evidence: "5.3% CTR and 4.52x ROAS on top ad.", expectedImpact: "+12-18% conversions", effort: "medium", priority: "medium" },
+    { id: "opp-1", type: "budget_shift", title: "Move budget to Backpack Search", whyItMatters: "Search campaign delivers 1.5x better ROAS than Display.", evidence: "$1.7k spend at 2.48x ROAS in Display.", expectedImpact: "+$2.1k revenue / 30d", effort: "low", priority: "high" },
+    { id: "opp-2", type: "negative_keyword", title: "Add negatives for low-intent generic terms", whyItMatters: "Generic queries waste spend with weak conversion.", evidence: "\"cheap camping backpack\" spent $450 with 0.42x ROAS.", expectedImpact: "-8% wasted spend", effort: "low", priority: "high" },
+    { id: "opp-3", type: "ad_copy", title: "Scale high-CTR carry-on message", whyItMatters: "Carry-on angle has strongest CTR + CVR combo.", evidence: "5.3% CTR and 4.52x ROAS on top ad.", expectedImpact: "+12-18% conversions", effort: "medium", priority: "medium" },
   ];
   return { data, count: data.length };
 }

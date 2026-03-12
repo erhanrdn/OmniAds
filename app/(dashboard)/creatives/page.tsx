@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { useAppStore } from "@/store/app-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
+import { isDemoBusinessSelected } from "@/lib/business-mode";
 import { EmptyState } from "@/components/states/empty-state";
 import { IntegrationEmptyState } from "@/components/states/IntegrationEmptyState";
 import { LockedFeatureCard } from "@/components/states/LockedFeatureCard";
@@ -310,9 +311,10 @@ export default function CreativesPage() {
 
   const platform: "meta" = "meta";
   const platformStatus = integrations?.meta?.status;
-  const platformConnected = platformStatus === "connected";
+  const isDemoBusiness = isDemoBusinessSelected(selectedBusinessId, businesses);
+  const platformConnected = platformStatus === "connected" || isDemoBusiness;
   const assignedMetaAccounts = assignedAccountsByBusiness[businessId]?.meta ?? [];
-  const metaHasAssignments = assignedMetaAccounts.length > 0;
+  const metaHasAssignments = isDemoBusiness || assignedMetaAccounts.length > 0;
 
   const { start: drStart, end: drEnd } = resolveMotionDateRange(dateRangeValue);
   const mainTableApiGroupBy = mapMotionGroupByToApi(groupBy);

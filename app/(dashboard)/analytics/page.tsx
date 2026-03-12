@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAppStore } from "@/store/app-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
+import { isDemoBusinessSelected } from "@/lib/business-mode";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { IntegrationEmptyState } from "@/components/states/IntegrationEmptyState";
 import { ErrorState } from "@/components/states/error-state";
@@ -185,6 +186,7 @@ async function fetchCohorts(
 // ── Page ────────────────────────────────────────────────────────────
 
 export default function AnalyticsPage() {
+  const businesses = useAppStore((s) => s.businesses);
   const selectedBusinessId = useAppStore((s) => s.selectedBusinessId);
   const businessId = selectedBusinessId ?? "";
 
@@ -197,7 +199,8 @@ export default function AnalyticsPage() {
 
   const integrations = byBusinessId[businessId];
   const ga4State = integrations?.ga4;
-  const ga4Connected = ga4State?.status === "connected";
+  const isDemoBusiness = isDemoBusinessSelected(selectedBusinessId, businesses);
+  const ga4Connected = ga4State?.status === "connected" || isDemoBusiness;
   const ga4Status = ga4State?.status;
 
   const [activeTab, setActiveTab] = useState<Tab>("overview");

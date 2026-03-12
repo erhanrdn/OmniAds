@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isDemoBusiness } from "@/lib/business-mode.server";
 import { getIntegration } from "@/lib/integrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { runMigrations } from "@/lib/migrations";
 import { requireBusinessAccess } from "@/lib/access";
-import { getDemoMetaCampaigns, isDemoBusinessId } from "@/lib/demo-business";
+import { getDemoMetaCampaigns } from "@/lib/demo-business";
 
 // ── Meta API types ────────────────────────────────────────────────────────────
 
@@ -174,7 +175,7 @@ export async function GET(request: NextRequest) {
     minRole: "guest",
   });
   if ("error" in access) return access.error;
-  if (isDemoBusinessId(businessId)) {
+  if (await isDemoBusiness(businessId)) {
     return NextResponse.json(getDemoMetaCampaigns());
   }
 

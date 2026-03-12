@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAppStore } from "@/store/app-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
+import { isDemoBusinessSelected } from "@/lib/business-mode";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { ErrorState } from "@/components/states/error-state";
 import {
@@ -55,6 +56,7 @@ async function geoFetch(path: string, params: Record<string, string>) {
 // ── Page ────────────────────────────────────────────────────────────
 
 export default function GeoIntelligencePage() {
+  const businesses = useAppStore((s) => s.businesses);
   const selectedBusinessId = useAppStore((s) => s.selectedBusinessId);
   const businessId = selectedBusinessId ?? "";
 
@@ -66,8 +68,9 @@ export default function GeoIntelligencePage() {
   }, [businessId, ensureBusiness, selectedBusinessId]);
 
   const integrations = byBusinessId[businessId];
-  const ga4Connected = integrations?.ga4?.status === "connected";
-  const scConnected = integrations?.search_console?.status === "connected";
+  const isDemoBusiness = isDemoBusinessSelected(selectedBusinessId, businesses);
+  const ga4Connected = integrations?.ga4?.status === "connected" || isDemoBusiness;
+  const scConnected = integrations?.search_console?.status === "connected" || isDemoBusiness;
   const anyConnected = ga4Connected || scConnected;
 
   const [activeTab, setActiveTab] = useState<Tab>("overview");

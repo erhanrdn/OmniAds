@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isDemoBusiness } from "@/lib/business-mode.server";
 import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
-import { getDemoMetaCopies, isDemoBusinessId } from "@/lib/demo-business";
+import { getDemoMetaCopies } from "@/lib/demo-business";
 
 type CopyGroupBy = "copy" | "adName" | "campaign" | "adSet";
 type CopySortKey = "roas" | "spend" | "ctrAll" | "purchaseValue";
@@ -333,7 +334,7 @@ export async function GET(request: NextRequest) {
       { status: 400 }
     );
   }
-  if (isDemoBusinessId(businessId)) {
+  if (await isDemoBusiness(businessId)) {
     return NextResponse.json(getDemoMetaCopies());
   }
 

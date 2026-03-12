@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isDemoBusiness } from "@/lib/business-mode.server";
 import { requireBusinessAccess } from "@/lib/access";
-import { getDemoSearchConsoleAnalytics, isDemoBusinessId } from "@/lib/demo-business";
+import { getDemoSearchConsoleAnalytics } from "@/lib/demo-business";
 import {
   resolveSearchConsoleContext,
   SearchConsoleAuthError,
@@ -40,7 +41,7 @@ export async function GET(request: NextRequest) {
     minRole: "guest",
   });
   if ("error" in access) return access.error;
-  if (isDemoBusinessId(businessId)) {
+  if (await isDemoBusiness(businessId)) {
     return NextResponse.json({
       ...getDemoSearchConsoleAnalytics(),
       meta: {

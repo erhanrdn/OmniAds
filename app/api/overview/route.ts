@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isDemoBusiness } from "@/lib/business-mode.server";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { getIntegration } from "@/lib/integrations";
 import { runMigrations } from "@/lib/migrations";
 import { requireBusinessAccess } from "@/lib/access";
-import { getDemoOverview, isDemoBusinessId } from "@/lib/demo-business";
+import { getDemoOverview } from "@/lib/demo-business";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -121,7 +122,7 @@ export async function GET(request: NextRequest) {
     minRole: "guest",
   });
   if ("error" in access) return access.error;
-  if (isDemoBusinessId(businessId)) {
+  if (await isDemoBusiness(businessId)) {
     return NextResponse.json(getDemoOverview());
   }
 

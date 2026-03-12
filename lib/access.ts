@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { MembershipRole, SessionContext, getSessionFromRequest } from "@/lib/auth";
 import { runMigrations } from "@/lib/migrations";
-import { DEMO_BUSINESS_ID, getDemoBusinessSummary, isDemoBusinessId } from "@/lib/demo-business";
+import { DEMO_BUSINESS_ID, getDemoBusinessSummary } from "@/lib/demo-business";
+import { isDemoBusiness } from "@/lib/business-mode.server";
 
 export interface MembershipRecord {
   id: string;
@@ -23,7 +24,7 @@ export async function findMembership(input: {
   userId: string;
   businessId: string;
 }): Promise<MembershipRecord | null> {
-  if (isDemoBusinessId(input.businessId)) {
+  if (await isDemoBusiness(input.businessId)) {
     return {
       id: `demo-membership-${input.userId}`,
       userId: input.userId,

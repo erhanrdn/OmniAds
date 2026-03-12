@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { useAppStore } from "@/store/app-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
+import { isDemoBusinessSelected } from "@/lib/business-mode";
 import { IntegrationEmptyState } from "@/components/states/IntegrationEmptyState";
 import { LoadingSkeleton } from "@/components/states/loading-skeleton";
 import { DataEmptyState } from "@/components/states/DataEmptyState";
@@ -275,6 +276,7 @@ function MetaDrawer({ payload, onClose }: { payload: DrawerPayload; onClose: () 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function MetaPage() {
+  const businesses = useAppStore((state) => state.businesses);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const businessId = selectedBusinessId ?? "";
 
@@ -292,7 +294,8 @@ export default function MetaPage() {
   if (!selectedBusinessId) return <BusinessEmptyState />;
 
   const metaStatus = byBusinessId[businessId]?.meta?.status;
-  const metaConnected = metaStatus === "connected";
+  const isDemoBusiness = isDemoBusinessSelected(selectedBusinessId, businesses);
+  const metaConnected = metaStatus === "connected" || isDemoBusiness;
 
   const { start: startDate, end: endDate } = getPresetDates(
     dateRange.rangePreset,

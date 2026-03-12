@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isDemoBusiness } from "@/lib/business-mode.server";
 import {
-  isDemoBusinessId,
   getDemoAnalyticsProducts,
 } from "@/lib/demo-business";
 import { requireBusinessAccess } from "@/lib/access";
@@ -108,7 +108,7 @@ export async function GET(request: NextRequest) {
     minRole: "collaborator",
   });
   if ("error" in access) return access.error;
-  if (isDemoBusinessId(businessId)) {
+  if (await isDemoBusiness(businessId)) {
     return NextResponse.json(getDemoAnalyticsProducts());
   }
 

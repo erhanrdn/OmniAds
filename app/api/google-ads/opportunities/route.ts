@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isDemoBusiness } from "@/lib/business-mode.server";
 import { requireBusinessAccess } from "@/lib/access";
-import { getDemoGoogleAdsOpportunities, isDemoBusinessId } from "@/lib/demo-business";
+import { getDemoGoogleAdsOpportunities } from "@/lib/demo-business";
 import {
   executeGaqlQuery,
   getAssignedGoogleAccounts,
@@ -25,7 +26,7 @@ export async function GET(request: NextRequest) {
 
   const access = await requireBusinessAccess({ request, businessId, minRole: "guest" });
   if ("error" in access) return access.error;
-  if (isDemoBusinessId(businessId)) {
+  if (await isDemoBusiness(businessId)) {
     return NextResponse.json(getDemoGoogleAdsOpportunities());
   }
 

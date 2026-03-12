@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isDemoBusiness } from "@/lib/business-mode.server";
 import {
   getIntegrationsByBusiness,
   getIntegration,
@@ -6,7 +7,7 @@ import {
 } from "@/lib/integrations";
 import type { IntegrationProviderType } from "@/lib/integrations";
 import { requireBusinessAccess } from "@/lib/access";
-import { getDemoIntegrations, isDemoBusinessId } from "@/lib/demo-business";
+import { getDemoIntegrations } from "@/lib/demo-business";
 
 /**
  * GET /api/integrations?businessId=...&provider=...
@@ -36,7 +37,7 @@ export async function GET(request: NextRequest) {
   ) as IntegrationProviderType | null;
 
   if (provider) {
-    if (isDemoBusinessId(businessId)) {
+    if (await isDemoBusiness(businessId)) {
       const integration = getDemoIntegrations().find((item) => item.provider === provider) ?? null;
       return NextResponse.json({ integration });
     }
@@ -44,7 +45,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ integration });
   }
 
-  if (isDemoBusinessId(businessId)) {
+  if (await isDemoBusiness(businessId)) {
     return NextResponse.json({ integrations: getDemoIntegrations() });
   }
 
@@ -77,7 +78,7 @@ export async function DELETE(request: NextRequest) {
   });
   if ("error" in access) return access.error;
 
-  if (isDemoBusinessId(businessId)) {
+  if (await isDemoBusiness(businessId)) {
     return NextResponse.json({ status: "disconnected" });
   }
 

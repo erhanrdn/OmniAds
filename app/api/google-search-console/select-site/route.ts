@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isDemoBusiness } from "@/lib/business-mode.server";
 import { requireBusinessAccess } from "@/lib/access";
 import { upsertIntegration } from "@/lib/integrations";
-import { isDemoBusinessId } from "@/lib/demo-business";
+import {  } from "@/lib/demo-business";
 import {
   getSearchConsoleSiteType,
   resolveSearchConsoleContext,
@@ -47,7 +48,7 @@ export async function POST(request: NextRequest) {
     minRole: "collaborator",
   });
   if ("error" in access) return access.error;
-  if (isDemoBusinessId(businessId)) {
+  if (await isDemoBusiness(businessId)) {
     return NextResponse.json({
       success: true,
       integration: {
