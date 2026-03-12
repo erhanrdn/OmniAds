@@ -69,18 +69,31 @@ export async function GET(request: NextRequest) {
   `
       .replace(/\s+/g, " ")
       .trim();
+    //     const campaignQuery = `
+    //   SELECT
+    //     campaign.id,
+    //     campaign.name,
+    //     campaign.status,
+    //     metrics.impressions,
+    //     metrics.clicks,
+    //     metrics.cost_micros
+    //   FROM campaign
+    //   WHERE segments.date BETWEEN '${startDate}' AND '${endDate}'
+    //     AND campaign.status != 'REMOVED'
+    // `
+    //       .replace(/\s+/g, " ")
+    //       .trim();
+
     const campaignQuery = `
-  SELECT 
-    campaign.id, 
-    campaign.name, 
-    campaign.status, 
-    metrics.impressions, 
-    metrics.clicks, 
-    metrics.cost_micros 
-  FROM campaign 
-  WHERE segments.date BETWEEN '${startDate}' AND '${endDate}' 
-    AND campaign.status != 'REMOVED'
-`
+    SELECT
+      metrics.impressions,
+      metrics.clicks,
+      metrics.cost_micros,
+      metrics.conversions,
+      metrics.conversions_value
+    FROM campaign
+    WHERE segments.date BETWEEN '${startDate}' AND '${endDate}'
+  `
       .replace(/\s+/g, " ")
       .trim();
 
