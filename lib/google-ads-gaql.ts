@@ -143,15 +143,13 @@ export async function executeGaqlQuery(params: {
   if (!response.ok) {
     const error = data as GoogleAdsApiError;
 
-    const detailedErrors =
-      error.error?.details?.[0]?.errorCode?.googleAdsFailure?.errors;
+    // google-ads-gaql.ts içinde console.error kısmını bununla değiştirin:
     console.error("[google-ads-gaql] query failed details:", {
       customerId: params.customerId,
       status: response.status,
-      // Google'ın döndürdüğü gerçek hata dizisi:
-      apiErrors: JSON.stringify(detailedErrors, null, 2),
       message: error.error?.message,
-      // Sorgunun tam halini logla (kesik gelmediğinden emin olalım)
+      // Hata detaylarını daha güvenli bir şekilde logla
+      apiErrors: JSON.stringify(error.error?.details, null, 2),
       fullQuery: params.query,
     });
 
