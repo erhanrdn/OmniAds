@@ -62,7 +62,7 @@ export interface GoogleAdsAccountQueryFailure {
 }
 
 export function getGoogleAdsFailureMessage(
-  failures: GoogleAdsAccountQueryFailure[]
+  failures: GoogleAdsAccountQueryFailure[],
 ): string {
   if (failures.length === 0) {
     return "Google Ads query failed.";
@@ -103,7 +103,9 @@ export async function executeGaqlQuery(params: {
     const now = new Date();
     if (now >= expiresAt && integration.refresh_token) {
       try {
-        const refreshed = await refreshGoogleAccessToken(integration.refresh_token);
+        const refreshed = await refreshGoogleAccessToken(
+          integration.refresh_token,
+        );
         await upsertIntegration({
           businessId: params.businessId,
           provider: "google",
@@ -140,9 +142,21 @@ export async function executeGaqlQuery(params: {
 
   if (!response.ok) {
     const error = data as GoogleAdsApiError;
+
+    const detailedErrors =
+      error.error?.details?.[0]?.errorCode?.googleAdsFailure?.errors;
+    console.error("[google-ads-gaql] query failed details:", {
+      customerId: params.customerId,
+      status: response.status,
+      // Google'ın döndürdüğü gerçek hata dizisi:
+      apiErrors: JSON.stringify(detailedErrors, null, 2),
+      message: error.error?.message,
+      // Sorgunun tam halini logla (kesik gelmediğinden emin olalım)
+      fullQuery: params.query,
+    });
+
     const message =
-      error.error?.message ||
-      `Google Ads API error: ${response.status}`;
+      error.error?.message || `Google Ads API error: ${response.status}`;
     console.error("[google-ads-gaql] query failed", {
       customerId: params.customerId,
       status: response.status,
@@ -152,8 +166,13 @@ export async function executeGaqlQuery(params: {
     const firstDetailError =
       error.error?.details?.[0]?.errorCode?.googleAdsFailure?.errors?.[0];
     let apiErrorCode: string | undefined;
-    if (firstDetailError?.errorCode && typeof firstDetailError.errorCode === "object") {
-      const entry = Object.entries(firstDetailError.errorCode).find(([, value]) => Boolean(value));
+    if (
+      firstDetailError?.errorCode &&
+      typeof firstDetailError.errorCode === "object"
+    ) {
+      const entry = Object.entries(firstDetailError.errorCode).find(
+        ([, value]) => Boolean(value),
+      );
       if (entry) apiErrorCode = String(entry[1]);
     }
 
@@ -172,7 +191,7 @@ export async function executeGaqlQuery(params: {
  * Get assigned Google Ads customer accounts for a business
  */
 export async function getAssignedGoogleAccounts(
-  businessId: string
+  businessId: string,
 ): Promise<string[]> {
   const assignment = await getProviderAccountAssignments(businessId, "google");
   return assignment?.account_ids || [];
@@ -207,7 +226,7 @@ export async function executeGaqlForAccounts(params: {
           } satisfies GoogleAdsAccountQueryFailure,
         };
       }
-    })
+    }),
   );
 
   return {
@@ -224,7 +243,7 @@ export async function executeGaqlForAccounts(params: {
 export function getDateRangeForQuery(
   dateRange: "7" | "14" | "30" | "custom",
   customStart?: string,
-  customEnd?: string
+  customEnd?: string,
 ): { startDate: string; endDate: string } {
   const endDate = new Date();
   const startDate = new Date(endDate);
@@ -261,9 +280,12 @@ export function normalizeCostMicros(micros: number | string): number {
  */
 export function calculateRoas(
   conversionValue: number | string,
-  cost: number
+  cost: number,
 ): number {
-  const value = typeof conversionValue === "string" ? parseFloat(conversionValue) : conversionValue;
+  const value =
+    typeof conversionValue === "string"
+      ? parseFloat(conversionValue)
+      : conversionValue;
   if (cost === 0) return 0;
   return Number((value / cost).toFixed(2));
 }
@@ -273,9 +295,10 @@ export function calculateRoas(
  */
 export function calculateCpa(
   cost: number,
-  conversions: number | string
+  conversions: number | string,
 ): number {
-  const convCount = typeof conversions === "string" ? parseInt(conversions, 10) : conversions;
+  const convCount =
+    typeof conversions === "string" ? parseInt(conversions, 10) : conversions;
   if (convCount === 0) return 0;
   return Number((cost / convCount).toFixed(2));
 }
@@ -285,10 +308,11 @@ export function calculateCpa(
  */
 export function calculateCtr(
   clicks: number | string,
-  impressions: number | string
+  impressions: number | string,
 ): number {
   const c = typeof clicks === "string" ? parseInt(clicks, 10) : clicks;
-  const i = typeof impressions === "string" ? parseInt(impressions, 10) : impressions;
+  const i =
+    typeof impressions === "string" ? parseInt(impressions, 10) : impressions;
   if (i === 0) return 0;
   return Number(((c / i) * 100).toFixed(2));
 }
@@ -298,9 +322,10 @@ export function calculateCtr(
  */
 export function calculateCpm(
   cost: number,
-  impressions: number | string
+  impressions: number | string,
 ): number {
-  const i = typeof impressions === "string" ? parseInt(impressions, 10) : impressions;
+  const i =
+    typeof impressions === "string" ? parseInt(impressions, 10) : impressions;
   if (i === 0) return 0;
   return Number(((cost / i) * 1000).toFixed(2));
 }
@@ -308,7 +333,9 @@ export function calculateCpm(
 /**
  * Normalize Google Ads status enum to UI-safe label
  */
-export function normalizeStatus(status: string | undefined): "active" | "paused" | "removed" {
+export function normalizeStatus(
+  status: string | undefined,
+): "active" | "paused" | "removed" {
   if (!status) return "paused";
   const lower = status.toLowerCase();
   if (lower === "enabled") return "active";
