@@ -16,6 +16,7 @@ interface BudgetCampaign {
   clicks: number;
   impressionShare: number | null;
   lostIsBudget: number | null;
+  lostIsRank?: number | null;
 }
 
 interface BudgetRec {
@@ -48,6 +49,16 @@ const cols: ColDef<BudgetCampaign>[] = [
     render: (r) =>
       r.lostIsBudget != null && r.lostIsBudget > 0
         ? <span className="text-amber-600 dark:text-amber-400 font-semibold">{fmtPercent(r.lostIsBudget * 100)}</span>
+        : "—",
+  },
+  {
+    key: "lostIsRank",
+    header: "Lost IS (Rank)",
+    accessor: (r) => r.lostIsRank ?? 0,
+    align: "right",
+    render: (r) =>
+      r.lostIsRank != null && r.lostIsRank > 0
+        ? <span className="text-rose-600 dark:text-rose-400 font-semibold">{fmtPercent(r.lostIsRank * 100)}</span>
         : "—",
   },
 ];

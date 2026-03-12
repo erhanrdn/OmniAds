@@ -13,7 +13,8 @@ interface DeviceRow {
   roas: number;
   cpa: number;
   ctr: number;
-  convRate: number;
+  convRate?: number;
+  conversionRate?: number;
 }
 
 const DEVICE_ICON: Record<string, string> = {
@@ -42,7 +43,13 @@ const cols: ColDef<DeviceRow>[] = [
   },
   { key: "cpa", header: "CPA", accessor: (r) => r.cpa === 0 ? 99999 : r.cpa, align: "right", render: (r) => r.conversions === 0 ? "—" : fmtCurrency(r.cpa) },
   { key: "ctr", header: "CTR", accessor: (r) => r.ctr, align: "right", render: (r) => `${r.ctr.toFixed(1)}%` },
-  { key: "convRate", header: "Conv. Rate", accessor: (r) => r.convRate, align: "right", render: (r) => `${r.convRate.toFixed(1)}%` },
+  {
+    key: "convRate",
+    header: "Conv. Rate",
+    accessor: (r) => r.conversionRate ?? r.convRate ?? 0,
+    align: "right",
+    render: (r) => `${(r.conversionRate ?? r.convRate ?? 0).toFixed(1)}%`,
+  },
   { key: "impressions", header: "Impr.", accessor: (r) => r.impressions, align: "right", render: (r) => fmtNumber(r.impressions) },
   { key: "clicks", header: "Clicks", accessor: (r) => r.clicks, align: "right", render: (r) => fmtNumber(r.clicks) },
 ];

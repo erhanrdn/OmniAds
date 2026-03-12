@@ -8,6 +8,7 @@ interface Ad {
   headline: string;
   description: string;
   type: string;
+  adStrength?: string | null;
   status: string;
   adGroup: string;
   campaign: string;
@@ -17,7 +18,8 @@ interface Ad {
   roas: number;
   cpa: number;
   ctr: number;
-  convRate: number;
+  convRate?: number;
+  conversionRate?: number;
   impressions: number;
   clicks: number;
 }
@@ -34,13 +36,14 @@ const cols: ColDef<Ad>[] = [
     key: "headline", header: "Ad", accessor: (r) => r.headline,
     render: (r) => (
       <div className="max-w-[220px]">
-        <p className="text-xs font-medium truncate" title={r.headline}>{r.headline || "—"}</p>
+        <p className="text-xs font-medium truncate" title={r.headline || r.id}>{r.headline || r.id || "—"}</p>
         {r.description && (
           <p className="text-[10px] text-muted-foreground truncate" title={r.description}>{r.description}</p>
         )}
         <div className="flex items-center gap-1 mt-0.5">
           <StatusBadge status={r.status} />
           <span className="text-[9px] text-muted-foreground">{r.type?.replace(/_/g, " ")}</span>
+          {r.adStrength ? <span className="text-[9px] text-muted-foreground">· {r.adStrength}</span> : null}
         </div>
       </div>
     ),
@@ -56,7 +59,13 @@ const cols: ColDef<Ad>[] = [
     ),
   },
   { key: "conversions", header: "Conv.", accessor: (r) => r.conversions, align: "right", render: (r) => fmtNumber(r.conversions) },
-  { key: "convRate", header: "Conv. Rate", accessor: (r) => r.convRate, align: "right", render: (r) => `${r.convRate.toFixed(1)}%` },
+  {
+    key: "convRate",
+    header: "Conv. Rate",
+    accessor: (r) => r.conversionRate ?? r.convRate ?? 0,
+    align: "right",
+    render: (r) => `${(r.conversionRate ?? r.convRate ?? 0).toFixed(1)}%`,
+  },
   { key: "cpa", header: "CPA", accessor: (r) => r.cpa === 0 ? 99999 : r.cpa, align: "right", render: (r) => r.conversions === 0 ? "—" : fmtCurrency(r.cpa) },
   { key: "roas", header: "ROAS", accessor: (r) => r.roas, align: "right", render: (r) => r.roas === 0 ? "—" : fmtRoas(r.roas) },
 ];

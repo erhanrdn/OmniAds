@@ -231,6 +231,38 @@ export function TabEmpty({ message }: { message: string }) {
   );
 }
 
+export function TabAlert({
+  tone,
+  title,
+  items,
+}: {
+  tone: "error" | "warning" | "info";
+  title: string;
+  items: string[];
+}) {
+  if (items.length === 0) return null;
+
+  const styles =
+    tone === "error"
+      ? "border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-100"
+      : tone === "warning"
+      ? "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100"
+      : "border-slate-200 bg-slate-50 text-slate-900 dark:border-slate-800 dark:bg-slate-950/30 dark:text-slate-100";
+
+  return (
+    <div className={cn("rounded-xl border px-4 py-3", styles)}>
+      <p className="text-xs font-semibold uppercase tracking-wide">{title}</p>
+      <div className="mt-2 space-y-1">
+        {items.map((item, index) => (
+          <p key={`${title}-${index}`} className="text-xs">
+            {item}
+          </p>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Sortable table ────────────────────────────────────────────────────
 
 export interface ColDef<T> {

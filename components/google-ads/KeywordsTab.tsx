@@ -8,6 +8,9 @@ interface Keyword {
   matchType: string;
   status: string;
   qualityScore: number | null;
+  expectedCtr?: string | null;
+  adRelevance?: string | null;
+  landingPageExperience?: string | null;
   adGroup: string;
   campaign: string;
   spend: number;
@@ -46,6 +49,11 @@ const cols: ColDef<Keyword>[] = [
         <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-semibold", MATCH_TYPE_CONFIG[r.matchType] ?? "bg-muted text-muted-foreground")}>
           {r.matchType}
         </span>
+        {(r.expectedCtr || r.adRelevance || r.landingPageExperience) && (
+          <p className="mt-1 text-[9px] text-muted-foreground truncate">
+            {r.expectedCtr ?? "n/a"} CTR · {r.adRelevance ?? "n/a"} rel · {r.landingPageExperience ?? "n/a"} LP
+          </p>
+        )}
       </div>
     ),
   },

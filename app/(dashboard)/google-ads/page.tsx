@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAppStore } from "@/store/app-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
@@ -8,6 +8,7 @@ import { isDemoBusinessSelected } from "@/lib/business-mode";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { IntegrationEmptyState } from "@/components/states/IntegrationEmptyState";
 import { cn } from "@/lib/utils";
+import { TabAlert, TabEmpty } from "@/components/google-ads/shared";
 
 import { OverviewTab } from "@/components/google-ads/OverviewTab";
 import { CampaignsTab } from "@/components/google-ads/CampaignsTab";
@@ -66,6 +67,13 @@ async function fetchTab(endpoint: string, businessId: string, dateRange: string)
   const data = await res.json();
   if (!res.ok) throw new Error(data.error ?? `Failed to fetch ${endpoint}`);
   return data;
+}
+
+interface GoogleAdsMeta {
+  partial?: boolean;
+  warnings?: string[];
+  failed_queries?: Array<{ query: string; message: string; customerId: string }>;
+  unavailable_metrics?: string[];
 }
 
 // ── Page ──────────────────────────────────────────────────────────────
@@ -177,7 +185,6 @@ function TabContent({
   businessId: string;
   dateRange: DateRange;
 }) {
-  const qKey = [activeTab, businessId, dateRange];
   const enabled = !!businessId;
 
   const overviewQ = useQuery({
@@ -257,9 +264,66 @@ function TabContent({
     staleTime: 120_000,
   });
 
+  const activeQuery =
+    activeTab === "overview"
+      ? overviewQ
+      : activeTab === "campaigns"
+      ? campaignsQ
+      : activeTab === "search-terms"
+      ? searchTermsQ
+      : activeTab === "keywords"
+      ? keywordsQ
+      : activeTab === "ads"
+      ? adsQ
+      : activeTab === "creatives"
+      ? creativesQ
+      : activeTab === "audiences"
+      ? audiencesQ
+      : activeTab === "geo"
+      ? geoQ
+      : activeTab === "devices"
+      ? devicesQ
+      : activeTab === "budget"
+      ? budgetQ
+      : opportunitiesQ;
+
+  const meta = (activeQuery.data?.meta ?? null) as GoogleAdsMeta | null;
+  const failedQueries = (meta?.failed_queries ?? []).map(
+    (failure) => `${failure.query} (${failure.customerId}): ${failure.message}`
+  );
+
+  function wrap(content: ReactNode) {
+    if (activeQuery.isError) {
+      return (
+        <TabEmpty
+          message={
+            activeQuery.error instanceof Error
+              ? activeQuery.error.message
+              : "Google Ads data could not be loaded."
+          }
+        />
+      );
+    }
+
+    return (
+      <div className="space-y-4">
+        <TabAlert tone="error" title="Query failure" items={failedQueries} />
+        <TabAlert tone="warning" title="Partial data" items={meta?.warnings ?? []} />
+        <TabAlert
+          tone="info"
+          title="Unavailable metrics"
+          items={(meta?.unavailable_metrics ?? []).map((metric) =>
+            metric.replaceAll("_", " ")
+          )}
+        />
+        {content}
+      </div>
+    );
+  }
+
   switch (activeTab) {
     case "overview":
-      return (
+      return wrap(
         <OverviewTab
           kpis={overviewQ.data?.kpis}
           insights={overviewQ.data?.insights}
@@ -268,74 +332,76 @@ function TabContent({
         />
       );
     case "campaigns":
-      return (
+      return wrap(
         <CampaignsTab
-          campaigns={campaignsQ.data?.data}
+          campaigns={campaignsQ.data?.rows ?? campaignsQ.data?.data}
           isLoading={campaignsQ.isLoading}
-          emptyMessage={campaignsQ.data?.meta?.message}
+          emptyMessage={
+            campaignsQ.data?.meta?.warnings?.[0] ?? "No campaign data found for this period."
+          }
         />
       );
     case "search-terms":
-      return (
+      return wrap(
         <SearchTermsTab
-          terms={searchTermsQ.data?.data}
+          terms={searchTermsQ.data?.rows ?? searchTermsQ.data?.data}
           summary={searchTermsQ.data?.summary}
           isLoading={searchTermsQ.isLoading}
         />
       );
     case "keywords":
-      return (
+      return wrap(
         <KeywordsTab
-          keywords={keywordsQ.data?.data}
+          keywords={keywordsQ.data?.rows ?? keywordsQ.data?.data}
           insights={keywordsQ.data?.insights}
           isLoading={keywordsQ.isLoading}
         />
       );
     case "ads":
-      return (
+      return wrap(
         <AdsTab
-          ads={adsQ.data?.data}
+          ads={adsQ.data?.rows ?? adsQ.data?.data}
           insights={adsQ.data?.insights}
           isLoading={adsQ.isLoading}
         />
       );
     case "creatives":
-      return (
+      return wrap(
         <CreativesTab
-          creatives={creativesQ.data?.data}
+          creatives={creativesQ.data?.rows ?? creativesQ.data?.data}
           insights={creativesQ.data?.insights}
           isLoading={creativesQ.isLoading}
         />
       );
     case "audiences":
-      return (
+      return wrap(
         <AudiencesTab
-          audiences={audiencesQ.data?.data}
+          audiences={audiencesQ.data?.rows ?? audiencesQ.data?.data}
           insights={audiencesQ.data?.insights}
           summary={audiencesQ.data?.summary}
           isLoading={audiencesQ.isLoading}
         />
       );
     case "geo":
-      return (
+      return wrap(
         <GeoTab
-          geoData={geoQ.data?.data}
+          geoData={geoQ.data?.rows ?? geoQ.data?.data}
           insights={geoQ.data?.insights}
           isLoading={geoQ.isLoading}
         />
       );
     case "devices":
-      return (
+      return wrap(
         <DevicesTab
-          devices={devicesQ.data?.data}
+          devices={devicesQ.data?.rows ?? devicesQ.data?.data}
           insights={devicesQ.data?.insights}
           isLoading={devicesQ.isLoading}
         />
       );
     case "budget":
-      return (
+      return wrap(
         <BudgetTab
-          campaigns={budgetQ.data?.data}
+          campaigns={budgetQ.data?.rows ?? budgetQ.data?.data}
           recommendations={budgetQ.data?.recommendations}
           totalSpend={budgetQ.data?.totalSpend}
           accountAvgRoas={budgetQ.data?.accountAvgRoas}
@@ -343,9 +409,9 @@ function TabContent({
         />
       );
     case "opportunities":
-      return (
+      return wrap(
         <OpportunitiesTab
-          opportunities={opportunitiesQ.data?.data}
+          opportunities={opportunitiesQ.data?.rows ?? opportunitiesQ.data?.data}
           isLoading={opportunitiesQ.isLoading}
         />
       );

@@ -69,7 +69,7 @@ export function OverviewTab({ kpis, insights, topCampaigns, isLoading }: Overvie
         <GadsKpiCard label="CTR" value={fmtPercent(kpis.ctr)} />
         <GadsKpiCard label="Impressions" value={fmtNumber(kpis.impressions)} />
         <GadsKpiCard label="Clicks" value={fmtNumber(kpis.clicks)} />
-        <GadsKpiCard label="Conv. Rate" value={fmtPercent(kpis.convRate * 100)} />
+        <GadsKpiCard label="Conv. Rate" value={fmtPercent(kpis.convRate)} />
       </div>
 
       <div className="grid gap-5 lg:grid-cols-2">

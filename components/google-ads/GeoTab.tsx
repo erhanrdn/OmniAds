@@ -13,7 +13,8 @@ interface GeoRow {
   roas: number;
   cpa: number;
   ctr: number;
-  convRate: number;
+  convRate?: number;
+  conversionRate?: number;
   vsAvgCpa: number | null;
 }
 
