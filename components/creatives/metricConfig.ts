@@ -35,6 +35,8 @@ export type CreativeType = "feed" | "video" | "flexible" | "feed_catalog";
 export type PreviewState = "preview" | "catalog" | "unavailable";
 export type PreviewRenderMode = "video" | "image" | "unavailable";
 export type PreviewSource = "preview_url" | "thumbnail_url" | "image_url" | "image_hash" | null;
+export type PreviewReadiness = "ready" | "pending" | "missing";
+export type PreviewOrigin = "snapshot" | "cache" | "live" | "fallback" | null;
 
 export interface MetaCreativePreview {
   render_mode: PreviewRenderMode;
@@ -69,6 +71,8 @@ export interface MetaCreativeRow {
   tableThumbnailUrl?: string | null;
   cardPreviewUrl?: string | null;
   cachedThumbnailUrl?: string | null;
+  previewStatus?: PreviewReadiness;
+  previewOrigin?: PreviewOrigin;
   isCatalog: boolean;
   previewState: PreviewState;
   preview: MetaCreativePreview;

@@ -372,6 +372,8 @@ export interface MetaCreativeApiRow {
   video100: number;
   /** Internal cached URL. Prefer over thumbnail_url/image_url when available. */
   cached_thumbnail_url?: string | null;
+  preview_status?: "ready" | "missing";
+  preview_origin?: "snapshot" | "cache" | "live" | "fallback";
   debug_stage_fetch_source?: string | null;
   debug_stage_has_raw_ad?: boolean;
   debug_stage_raw_ad_id?: string | null;
@@ -432,6 +434,19 @@ function getPreviewReadyCount(rows: MetaCreativeApiRow[]): number {
         row.preview?.video_url
     )
   ).length;
+}
+
+function resolvePreviewOrigin(input: {
+  cachedThumbnailUrl: string | null;
+  finalPreviewUrl: string | null;
+  rowPreviewUrl: string | null;
+  finalThumbnailUrl: string | null;
+  finalImageUrl: string | null;
+}): "snapshot" | "cache" | "live" | "fallback" {
+  if (input.cachedThumbnailUrl) return "cache";
+  if (input.rowPreviewUrl) return "live";
+  if (input.finalThumbnailUrl || input.finalImageUrl || input.finalPreviewUrl) return "fallback";
+  return "snapshot";
 }
 
 async function hydrateRowsWithSnapshotCache(
@@ -3763,6 +3778,17 @@ export async function GET(request: NextRequest) {
       cardPrimary === tableThumbnailUrl
         ? cardCandidates.find((candidate) => candidate !== tableThumbnailUrl) ?? cardPrimary
         : cardPrimary;
+    const previewStatus: "ready" | "missing" =
+      finalPreviewUrl || finalThumbnailUrl || finalImageUrl || normalizeMediaUrl(cachedThumbnailUrl)
+        ? "ready"
+        : "missing";
+    const previewOrigin = resolvePreviewOrigin({
+      cachedThumbnailUrl: normalizeMediaUrl(cachedThumbnailUrl),
+      finalPreviewUrl,
+      rowPreviewUrl,
+      finalThumbnailUrl,
+      finalImageUrl,
+    });
     const baseRow: MetaCreativeApiRow = {
       id: row.id,
       creative_id: row.creative_id,
@@ -3819,6 +3845,8 @@ export async function GET(request: NextRequest) {
       video75: row.video75,
       video100: row.video100,
       cached_thumbnail_url: cachedThumbnailUrl,
+      preview_status: previewStatus,
+      preview_origin: previewOrigin,
     };
     if (!includeDebugFields) return baseRow;
     return {

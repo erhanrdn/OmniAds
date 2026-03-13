@@ -94,6 +94,14 @@ interface MotionTopSectionProps {
   shareUrl?: string | null;
   shareError?: string | null;
   csvError?: string | null;
+  previewStripState?: "ready" | "pending" | "missing";
+  previewStripSummary?: {
+    total: number;
+    ready: number;
+    pending: number;
+    missing: number;
+    minimumReady: number;
+  };
 }
 
 export const DEFAULT_MOTION_DATE_RANGE: MotionDateRangeValue = {
@@ -438,6 +446,8 @@ export function MotionTopSection({
   shareUrl = null,
   shareError = null,
   csvError = null,
+  previewStripState = "ready",
+  previewStripSummary,
 }: MotionTopSectionProps) {
   const metricDefs = useMemo(
     () => selectedMetricIds.map((id) => MOTION_METRIC_MAP[id]).filter(Boolean) as MotionMetricDefinition[],
@@ -552,6 +562,8 @@ export function MotionTopSection({
           onOpenRow={onOpenRow}
           previewMode={previewMode}
           getPreviewCopyText={getPreviewCopyText}
+          previewStripState={previewStripState}
+          previewStripSummary={previewStripSummary}
         />
       </div>
     </section>
@@ -1096,6 +1108,8 @@ function PreviewStrip({
   onOpenRow,
   previewMode = "media",
   getPreviewCopyText,
+  previewStripState = "ready",
+  previewStripSummary,
 }: {
   rows: MetaCreativeRow[];
   metrics: MotionMetricDefinition[];
@@ -1104,7 +1118,54 @@ function PreviewStrip({
   onOpenRow: (rowId: string) => void;
   previewMode?: "media" | "copy";
   getPreviewCopyText?: (row: MetaCreativeRow) => string;
+  previewStripState?: "ready" | "pending" | "missing";
+  previewStripSummary?: {
+    total: number;
+    ready: number;
+    pending: number;
+    missing: number;
+    minimumReady: number;
+  };
 }) {
+  if (previewStripState === "pending") {
+    return (
+      <div className="rounded-xl border border-dashed bg-muted/10 px-4 py-5">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-foreground">Preparing preview cards...</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {previewStripSummary
+                ? `${previewStripSummary.ready} of ${previewStripSummary.total} top creatives are preview-ready so far.`
+                : "The table is ready now, and preview cards will appear as soon as real media is available."}
+            </p>
+          </div>
+          <div className="hidden gap-2 md:flex">
+            {Array.from({ length: 3 }).map((_, index) => (
+              <div
+                key={index}
+                className="h-24 w-20 animate-pulse rounded-lg border bg-gradient-to-br from-slate-100 to-slate-200"
+                aria-hidden="true"
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (previewStripState === "missing") {
+    return (
+      <div className="rounded-xl border border-dashed bg-muted/10 px-4 py-5">
+        <p className="text-sm font-medium text-foreground">Preview cards unavailable for this selection</p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {previewStripSummary?.missing
+            ? `${previewStripSummary.missing} selected creatives do not have a usable preview from Meta right now.`
+            : "Meta did not return usable preview media for the current top creatives."}
+        </p>
+      </div>
+    );
+  }
+
   if (rows.length === 0) {
     return (
       <div className="rounded-xl border border-dashed p-6 text-sm text-muted-foreground">

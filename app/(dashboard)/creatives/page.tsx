@@ -48,6 +48,30 @@ interface MetaCreativesResponse {
   rows: MetaCreativeApiRow[];
   media_mode?: "metadata" | "full";
   media_hydrated?: boolean;
+  snapshot_level?: "metadata" | "full";
+  snapshot_source?: "persisted" | "live" | "refresh";
+  freshness_state?: "fresh" | "stale" | "expired";
+  is_refreshing?: boolean;
+  preview_coverage?: {
+    totalCreatives: number;
+    previewReadyCount: number;
+    previewMissingCount: number;
+    previewCoverage: number;
+  };
+}
+
+function hasRenderablePreview(row: MetaCreativeRow): boolean {
+  return Boolean(
+    row.cardPreviewUrl ??
+      row.cachedThumbnailUrl ??
+      row.tableThumbnailUrl ??
+      row.previewUrl ??
+      row.imageUrl ??
+      row.thumbnailUrl ??
+      row.preview?.image_url ??
+      row.preview?.poster_url ??
+      row.preview?.video_url
+  );
 }
 
 const PLATFORM_LABELS: Record<string, string> = {
@@ -271,6 +295,8 @@ function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
     video100: row.video100,
     atcToPurchaseRatio: row.atc_to_purchase,
     cachedThumbnailUrl: row.cached_thumbnail_url ?? null,
+    previewStatus: row.preview_status ?? (row.preview_url || row.thumbnail_url || row.image_url ? "ready" : "missing"),
+    previewOrigin: row.preview_origin ?? null,
   };
 }
 
@@ -564,6 +590,53 @@ export default function CreativesPage() {
     () => (selectedRows.length > 0 ? selectedRows : deferredFilteredRows.slice(0, 20)),
     [deferredFilteredRows, selectedRows]
   );
+  const topPreviewRows = useMemo(
+    () => topPanelRows.filter((row) => hasRenderablePreview(row)).slice(0, 20),
+    [topPanelRows]
+  );
+  const topPreviewSummary = useMemo(() => {
+    const mediaSettled =
+      creativesMediaQuery.data?.media_hydrated === true ||
+      creativesMediaQuery.isError ||
+      (!creativesMediaQuery.isFetching && creativesMediaQuery.isSuccess);
+    const counts = topPanelRows.reduce(
+      (acc, row) => {
+        if (hasRenderablePreview(row) || row.previewStatus === "ready") {
+          acc.ready += 1;
+          return acc;
+        }
+        if (!mediaSettled) {
+          acc.pending += 1;
+          return acc;
+        }
+        acc.missing += 1;
+        return acc;
+      },
+      { ready: 0, pending: 0, missing: 0 }
+    );
+    const minimumReady = topPanelRows.length <= 2 ? 1 : Math.min(3, topPanelRows.length);
+    const state: "ready" | "pending" | "missing" =
+      counts.ready >= minimumReady || (counts.ready > 0 && counts.pending === 0)
+        ? "ready"
+        : counts.pending > 0 || creativesMetadataQuery.isLoading || creativesMediaQuery.isFetching
+          ? "pending"
+          : "missing";
+    return {
+      state,
+      total: topPanelRows.length,
+      ready: counts.ready,
+      pending: counts.pending,
+      missing: counts.missing,
+      minimumReady,
+    };
+  }, [
+    creativesMediaQuery.data?.media_hydrated,
+    creativesMediaQuery.isError,
+    creativesMediaQuery.isFetching,
+    creativesMediaQuery.isSuccess,
+    creativesMetadataQuery.isLoading,
+    topPanelRows,
+  ]);
 
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return;
@@ -571,6 +644,7 @@ export default function CreativesPage() {
 
     console.log("[creatives-page] before MotionTopSection", {
       total: topPanelRows.length,
+      top_preview_summary: topPreviewSummary,
       samples: topPanelRows.slice(0, 3).map((row) => ({
         id: row.id,
         name: row.name,
@@ -594,7 +668,7 @@ export default function CreativesPage() {
         isCatalog: row.isCatalog,
       })),
     });
-  }, [filteredRows, topPanelRows]);
+  }, [filteredRows, topPanelRows, topPreviewSummary]);
 
   const activeCreativeRow = useMemo(
     () => filteredRows.find((row) => row.id === creativeDrawerState.activeRowId) ?? null,
@@ -810,7 +884,7 @@ export default function CreativesPage() {
               onFiltersChange={setTopFilters}
               selectedMetricIds={topMetricIds}
               onSelectedMetricIdsChange={setTopMetricIds}
-              selectedRows={topPanelRows}
+              selectedRows={topPreviewRows}
               allRowsForHeatmap={filteredRows}
               defaultCurrency={selectedBusinessCurrency}
               onOpenRow={(rowId) => openCreativeDrawer(rowId, true)}
@@ -821,6 +895,8 @@ export default function CreativesPage() {
               shareUrl={shareUrl}
               shareError={shareError}
               csvError={csvError}
+              previewStripState={topPreviewSummary.state}
+              previewStripSummary={topPreviewSummary}
             />
 
             {creativesMetadataQuery.isLoading && <CreativesTableShell />}
