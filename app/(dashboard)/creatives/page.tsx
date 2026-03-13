@@ -74,6 +74,16 @@ function hasRenderablePreview(row: MetaCreativeRow): boolean {
   );
 }
 
+function shouldPollForPreviewReadiness(payload: MetaCreativesResponse | undefined): boolean {
+  if (!payload || !Array.isArray(payload.rows) || payload.rows.length === 0) return false;
+  const previewCoverage = payload.preview_coverage?.previewCoverage ?? 0;
+  if (previewCoverage > 0) return false;
+  if (payload.media_hydrated) return false;
+  if (payload.is_refreshing) return true;
+  if (payload.snapshot_source === "live") return true;
+  return payload.freshness_state === "stale";
+}
+
 const PLATFORM_LABELS: Record<string, string> = {
   meta: "Meta",
   google: "Google",
@@ -224,6 +234,7 @@ async function fetchMetaCreatives(params: {
 
   const response = await fetch(`/api/meta/creatives?${query.toString()}`, {
     headers: { Accept: "application/json" },
+    cache: "no-store",
   });
 
   const payload: unknown = await response.json().catch(() => null);
@@ -441,6 +452,11 @@ export default function CreativesPage() {
         sort: "spend",
         mediaMode: "metadata",
       }),
+    refetchInterval: (query) =>
+      shouldPollForPreviewReadiness(query.state.data as MetaCreativesResponse | undefined)
+        ? 2500
+        : false,
+    refetchIntervalInBackground: true,
   });
   const creativesMediaQuery = useQuery({
     queryKey: [
@@ -466,6 +482,11 @@ export default function CreativesPage() {
         sort: "spend",
         mediaMode: "full",
       }),
+    refetchInterval: (query) =>
+      shouldPollForPreviewReadiness(query.state.data as MetaCreativesResponse | undefined)
+        ? 3000
+        : false,
+    refetchIntervalInBackground: true,
   });
   const adBreakdownQuery = useQuery({
     queryKey: ["meta-creatives-ad-breakdown", businessId, drStart, drEnd],
