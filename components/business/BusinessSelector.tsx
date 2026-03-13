@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -13,6 +14,7 @@ import { useAppStore } from "@/store/app-store";
 import { cn } from "@/lib/utils";
 import { Building2, Check, ChevronsUpDown, Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { logClientAuthEvent } from "@/lib/auth-diagnostics";
 
 function getInitials(name: string) {
   return name
@@ -26,25 +28,46 @@ function getInitials(name: string) {
 export function BusinessSelector() {
   const router = useRouter();
   const hasHydrated = useAppStore((state) => state.hasHydrated);
+  const authBootstrapStatus = useAppStore((state) => state.authBootstrapStatus);
   const businesses = useAppStore((state) => state.businesses);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const selectBusiness = useAppStore((state) => state.selectBusiness);
+  const [pendingBusinessId, setPendingBusinessId] = useState<string | null>(null);
 
   const selectedBusiness =
     businesses.find((item) => item.id === selectedBusinessId) ?? null;
   const isDemoOnlyWorkspace = businesses.length === 1 && Boolean(businesses[0]?.isDemoBusiness);
 
-  function handleSelect(businessId: string) {
+  async function handleSelect(businessId: string) {
+    if (businessId === selectedBusinessId || pendingBusinessId) return;
+    setPendingBusinessId(businessId);
+    const previousBusinessId = selectedBusinessId;
     selectBusiness(businessId);
-    fetch("/api/auth/switch-business", {
+    const response = await fetch("/api/auth/switch-business", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ businessId }),
     }).catch(() => null);
+
+    if (!response?.ok) {
+      selectBusiness(previousBusinessId ?? null);
+      logClientAuthEvent("business_switch_failed", {
+        attemptedBusinessId: businessId,
+        previousBusinessId,
+      });
+      setPendingBusinessId(null);
+      return;
+    }
+
+    logClientAuthEvent("business_switch_succeeded", {
+      activeBusinessId: businessId,
+    });
+    setPendingBusinessId(null);
     router.push("/overview");
+    router.refresh();
   }
 
-  if (!hasHydrated) {
+  if (!hasHydrated || authBootstrapStatus !== "ready") {
     return null;
   }
 
@@ -89,8 +112,9 @@ export function BusinessSelector() {
         {businesses.map((business) => (
           <DropdownMenuItem
             key={business.id}
-            onClick={() => handleSelect(business.id)}
+            onClick={() => void handleSelect(business.id)}
             className="cursor-pointer gap-2"
+            disabled={pendingBusinessId === business.id}
           >
             <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-primary/10 text-[10px] font-bold text-primary">
               {getInitials(business.name)}

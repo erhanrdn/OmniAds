@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
+export const INTEGRATIONS_STORE_PERSIST_KEY = "omniads-integrations-store-v1";
+
 export type IntegrationProvider =
   | "shopify"
   | "meta"
@@ -167,6 +169,7 @@ interface IntegrationsStore {
     accounts: Array<{ id: string; name: string }>
   ) => void;
   removeBusinessData: (businessId: string) => void;
+  retainBusinesses: (businessIds: string[]) => void;
   getAssignedAccounts: (businessId: string, provider: IntegrationProvider) => string[];
   hasAssignedAccounts: (businessId: string, provider: IntegrationProvider) => boolean;
   setToast: (toast: IntegrationToast) => void;
@@ -370,6 +373,19 @@ export const useIntegrationsStore = create<IntegrationsStore>()(
           };
         });
       },
+      retainBusinesses: (businessIds) => {
+        const allowed = new Set(businessIds);
+        set((state) => ({
+          byBusinessId: Object.fromEntries(
+            Object.entries(state.byBusinessId).filter(([businessId]) => allowed.has(businessId))
+          ),
+          assignedAccountsByBusiness: Object.fromEntries(
+            Object.entries(state.assignedAccountsByBusiness).filter(([businessId]) =>
+              allowed.has(businessId)
+            )
+          ),
+        }));
+      },
       getAssignedAccounts: (businessId, provider) =>
         get().assignedAccountsByBusiness[businessId]?.[provider] ?? [],
       hasAssignedAccounts: (businessId, provider) =>
@@ -378,7 +394,7 @@ export const useIntegrationsStore = create<IntegrationsStore>()(
       clearToast: () => set({ toast: null }),
     }),
     {
-      name: "omniads-integrations-store-v1",
+      name: INTEGRATIONS_STORE_PERSIST_KEY,
       partialize: (state) => ({
         byBusinessId: state.byBusinessId,
         assignedAccountsByBusiness: state.assignedAccountsByBusiness,

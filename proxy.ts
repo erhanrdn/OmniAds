@@ -32,7 +32,7 @@ function isPublicApi(pathname: string): boolean {
   return PUBLIC_API_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const hasSession = Boolean(request.cookies.get(AUTH_COOKIE)?.value);
 
@@ -49,18 +49,15 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  if (pathname === "/" && hasSession) {
-    return NextResponse.redirect(new URL("/overview", request.url));
-  }
-
   if (pathname !== "/" && !isPublicPage(pathname) && !pathname.startsWith("/_next") && !pathname.includes(".")) {
     if (!hasSession) {
-      return NextResponse.redirect(new URL("/login", request.url));
+      const loginUrl = new URL("/login", request.url);
+      const nextPath = `${pathname}${request.nextUrl.search}`;
+      if (nextPath !== "/") {
+        loginUrl.searchParams.set("next", nextPath);
+      }
+      return NextResponse.redirect(loginUrl);
     }
-  }
-
-  if ((pathname === "/login" || pathname === "/signup") && hasSession) {
-    return NextResponse.redirect(new URL("/overview", request.url));
   }
 
   return NextResponse.next();

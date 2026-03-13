@@ -24,6 +24,7 @@ export interface SessionContext {
 
 const AUTH_COOKIE_NAME = "omniads_session";
 const SESSION_TTL_DAYS = 14;
+const SESSION_TOKEN_PATTERN = /^[a-f0-9]{32}$/i;
 
 function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
@@ -42,6 +43,10 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
 }
 
 async function findSessionByToken(rawToken: string): Promise<SessionContext | null> {
+  if (!SESSION_TOKEN_PATTERN.test(rawToken)) {
+    return null;
+  }
+
   await runMigrations();
   const sql = getDb();
   const tokenHash = hashToken(rawToken);

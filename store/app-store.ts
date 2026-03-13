@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
+export const APP_STORE_PERSIST_KEY = "omniads-app-store-v2";
+
 export interface Business {
   id: string;
   name: string;
@@ -18,6 +20,7 @@ interface AppState {
   selectedBusinessId: string | null;
   workspaceOwnerId: string | null;
   hasHydrated: boolean;
+  authBootstrapStatus: "idle" | "loading" | "ready";
   toggleDesktopSidebar: () => void;
   setMobileSidebarOpen: (open: boolean) => void;
   createBusiness: (name: string, timezone: string, currency: string) => string;
@@ -30,6 +33,7 @@ interface AppState {
   selectBusiness: (id: string | null) => void;
   clearWorkspaceState: () => void;
   setHasHydrated: (value: boolean) => void;
+  setAuthBootstrapStatus: (value: "idle" | "loading" | "ready") => void;
 }
 
 export const useAppStore = create<AppState>()(
@@ -41,6 +45,7 @@ export const useAppStore = create<AppState>()(
       selectedBusinessId: null,
       workspaceOwnerId: null,
       hasHydrated: false,
+      authBootstrapStatus: "idle",
       toggleDesktopSidebar: () =>
         set((state) => ({ desktopSidebarOpen: !state.desktopSidebarOpen })),
       setMobileSidebarOpen: (open) => set({ mobileSidebarOpen: open }),
@@ -91,9 +96,10 @@ export const useAppStore = create<AppState>()(
         })),
       clearWorkspaceState: () => set({ businesses: [], selectedBusinessId: null, workspaceOwnerId: null }),
       setHasHydrated: (value) => set({ hasHydrated: value }),
+      setAuthBootstrapStatus: (value) => set({ authBootstrapStatus: value }),
     }),
     {
-      name: "omniads-app-store-v2",
+      name: APP_STORE_PERSIST_KEY,
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
         desktopSidebarOpen: state.desktopSidebarOpen,

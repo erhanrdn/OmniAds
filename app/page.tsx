@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import {
   BarChart3,
   Brain,
@@ -14,6 +15,9 @@ import {
   Users,
   ShoppingBag,
 } from "lucide-react";
+import { getSessionFromCookies } from "@/lib/auth";
+import { resolvePostLoginDestination } from "@/lib/auth-routing";
+import { resolveBusinessContext } from "@/lib/business-context";
 import { MarketingNavbar } from "@/components/marketing/MarketingNavbar";
 import { MarketingFooter } from "@/components/marketing/MarketingFooter";
 
@@ -22,6 +26,19 @@ export const metadata: Metadata = {
   description:
     "Adsecute helps Shopify brands analyze creatives, copies, campaigns, search terms, and AI-driven insights from one platform.",
 };
+
+async function maybeRedirectAuthenticatedUser() {
+  const session = await getSessionFromCookies();
+  if (!session) return;
+
+  const { businesses, activeBusinessId } = await resolveBusinessContext(session);
+  redirect(
+    resolvePostLoginDestination({
+      businesses,
+      activeBusinessId,
+    })
+  );
+}
 
 const PILLARS = [
   {
@@ -250,7 +267,9 @@ function DashboardMockup() {
   );
 }
 
-export default function HomePage() {
+export default async function HomePage() {
+  await maybeRedirectAuthenticatedUser();
+
   return (
     <div className="flex min-h-screen flex-col">
       <MarketingNavbar />

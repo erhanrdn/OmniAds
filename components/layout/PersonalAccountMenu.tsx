@@ -1,8 +1,9 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { ChevronDown, HelpCircle, LogOut, Settings, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { logClientAuthEvent } from "@/lib/auth-diagnostics";
 import { clearAuthScopedClientState } from "@/lib/client-auth-state";
 import {
   DropdownMenu,
@@ -18,13 +19,34 @@ interface PersonalAccountMenuProps {
 }
 
 export function PersonalAccountMenu({ userName }: PersonalAccountMenuProps) {
-  const router = useRouter();
+  const [isSigningOut, setIsSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState<string | null>(null);
 
   async function handleSignOut() {
-    clearAuthScopedClientState();
-    await fetch("/api/auth/logout", { method: "POST" }).catch(() => null);
-    router.push("/login");
-    router.refresh();
+    if (isSigningOut) return;
+
+    setIsSigningOut(true);
+    setSignOutError(null);
+    try {
+      const response = await fetch("/api/auth/logout", {
+        method: "POST",
+        headers: { "Cache-Control": "no-store" },
+      });
+      if (!response.ok) {
+        throw new Error("Could not sign out. Please try again.");
+      }
+
+      clearAuthScopedClientState();
+      logClientAuthEvent("logout_completed", { userName });
+      window.location.assign("/");
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : "Could not sign out. Please try again.";
+      setSignOutError(message);
+      logClientAuthEvent("logout_failed", { userName, message });
+    } finally {
+      setIsSigningOut(false);
+    }
   }
 
   return (
@@ -57,10 +79,19 @@ export function PersonalAccountMenu({ userName }: PersonalAccountMenuProps) {
         <DropdownMenuItem
           className="gap-2 text-destructive focus:text-destructive"
           onClick={handleSignOut}
+          disabled={isSigningOut}
         >
           <LogOut className="h-4 w-4 text-destructive" />
-          Sign out
+          {isSigningOut ? "Signing out..." : "Sign out"}
         </DropdownMenuItem>
+        {signOutError ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem disabled className="text-xs text-destructive opacity-100">
+              {signOutError}
+            </DropdownMenuItem>
+          </>
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   );

@@ -1,9 +1,30 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { logClientAuthEvent } from "@/lib/auth-diagnostics";
+import { resolvePostLoginDestination } from "@/lib/auth-routing";
+import { replaceAuthenticatedWorkspace } from "@/lib/client-auth-state";
+
+interface SignupResponse {
+  authenticated?: boolean;
+  user?: {
+    id: string;
+  };
+  businesses?: Array<{
+    id: string;
+    name: string;
+    timezone: string;
+    currency: string;
+    isDemoBusiness?: boolean;
+    industry?: string;
+    platform?: string;
+  }>;
+  activeBusinessId?: string | null;
+  message?: string;
+}
 
 function SignupPageClient() {
   const router = useRouter();
@@ -17,6 +38,45 @@ function SignupPageClient() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    const controller = new AbortController();
+    async function restoreExistingSession() {
+      const response = await fetch("/api/auth/me", {
+        cache: "no-store",
+        signal: controller.signal,
+      }).catch(() => null);
+      if (!response?.ok) return;
+      const payload = (await response.json().catch(() => null)) as SignupResponse | null;
+      if (!payload?.authenticated || !payload.user?.id) return;
+
+      replaceAuthenticatedWorkspace({
+        userId: payload.user.id,
+        businesses: (payload.businesses ?? []).map((business) => ({
+          id: business.id,
+          name: business.name,
+          timezone: business.timezone,
+          currency: business.currency,
+          isDemoBusiness: business.isDemoBusiness,
+          industry: business.industry,
+          platform: business.platform,
+        })),
+        activeBusinessId: payload.activeBusinessId ?? null,
+      });
+
+      router.replace(
+        resolvePostLoginDestination({
+          businesses: payload.businesses ?? [],
+          activeBusinessId: payload.activeBusinessId ?? null,
+          nextPath: searchParams.get("next"),
+        })
+      );
+      router.refresh();
+    }
+
+    void restoreExistingSession();
+    return () => controller.abort();
+  }, [router, searchParams]);
+
   async function handleSignup() {
     setLoading(true);
     setError(null);
@@ -26,11 +86,39 @@ function SignupPageClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, email, password, businessName, inviteToken: inviteToken || undefined }),
       });
-      const payload = (await res.json().catch(() => null)) as { message?: string } | null;
+      const payload = (await res.json().catch(() => null)) as SignupResponse | null;
       if (!res.ok) throw new Error(payload?.message ?? "Could not create account.");
-      router.push("/overview");
+      if (payload?.user?.id) {
+        replaceAuthenticatedWorkspace({
+          userId: payload.user.id,
+          businesses: (payload.businesses ?? []).map((business) => ({
+            id: business.id,
+            name: business.name,
+            timezone: business.timezone,
+            currency: business.currency,
+            isDemoBusiness: business.isDemoBusiness,
+            industry: business.industry,
+            platform: business.platform,
+          })),
+          activeBusinessId: payload.activeBusinessId ?? null,
+        });
+      }
+      const destination = resolvePostLoginDestination({
+        businesses: payload?.businesses ?? [],
+        activeBusinessId: payload?.activeBusinessId ?? null,
+        nextPath: searchParams.get("next"),
+      });
+      logClientAuthEvent("signup_succeeded", {
+        destination,
+        userId: payload?.user?.id ?? null,
+        membershipCount: payload?.businesses?.length ?? 0,
+      });
+      router.push(destination);
+      router.refresh();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Could not create account.");
+      const message = err instanceof Error ? err.message : "Could not create account.";
+      setError(message);
+      logClientAuthEvent("signup_failed", { email, message });
     } finally {
       setLoading(false);
     }

@@ -4,6 +4,8 @@ import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
+import { logClientAuthEvent } from "@/lib/auth-diagnostics";
+import { resolvePostLoginDestination } from "@/lib/auth-routing";
 import { replaceAuthenticatedWorkspace } from "@/lib/client-auth-state";
 import { BrandLogo } from "@/components/brand/BrandLogo";
 
@@ -23,6 +25,7 @@ interface LoginResponse {
     platform?: string;
   }>;
   activeBusinessId?: string | null;
+  authenticated?: boolean;
   message?: string;
 }
 
@@ -51,6 +54,48 @@ function LoginPageClient() {
       // no-op
     }
   }, [searchParams]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    async function restoreExistingSession() {
+      const response = await fetch("/api/auth/me", {
+        cache: "no-store",
+        signal: controller.signal,
+      }).catch(() => null);
+      if (!response?.ok) return;
+      const payload = (await response.json().catch(() => null)) as LoginResponse | null;
+      if (!payload?.authenticated || !payload.user?.id) return;
+
+      replaceAuthenticatedWorkspace({
+        userId: payload.user.id,
+        businesses: (payload.businesses ?? []).map((business) => ({
+          id: business.id,
+          name: business.name,
+          timezone: business.timezone,
+          currency: business.currency,
+          isDemoBusiness: business.isDemoBusiness,
+          industry: business.industry,
+          platform: business.platform,
+        })),
+        activeBusinessId: payload.activeBusinessId ?? null,
+      });
+
+      const destination = resolvePostLoginDestination({
+        businesses: payload.businesses ?? [],
+        activeBusinessId: payload.activeBusinessId ?? null,
+        nextPath: searchParams.get("next"),
+      });
+      logClientAuthEvent("login_page_redirect_existing_session", {
+        destination,
+        userId: payload.user.id,
+      });
+      router.replace(destination);
+      router.refresh();
+    }
+
+    void restoreExistingSession();
+    return () => controller.abort();
+  }, [router, searchParams]);
 
   async function handleLogin() {
     setLoading(true);
@@ -97,10 +142,23 @@ function LoginPageClient() {
           activeBusinessId: payload.activeBusinessId ?? null,
         });
       }
-      router.push("/overview");
+      const destination = resolvePostLoginDestination({
+        businesses: payload?.businesses ?? [],
+        activeBusinessId: payload?.activeBusinessId ?? null,
+        nextPath: searchParams.get("next"),
+      });
+      logClientAuthEvent("login_succeeded", {
+        destination,
+        userId: payload?.user?.id ?? null,
+        membershipCount: payload?.businesses?.length ?? 0,
+        activeBusinessId: payload?.activeBusinessId ?? null,
+      });
+      router.push(destination);
       router.refresh();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Could not sign in.");
+      const message = err instanceof Error ? err.message : "Could not sign in.";
+      setError(message);
+      logClientAuthEvent("login_failed", { email, message });
     } finally {
       setLoading(false);
     }

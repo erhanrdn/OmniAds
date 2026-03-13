@@ -9,6 +9,7 @@ import {
   useIntegrationsStore,
 } from "@/store/integrations-store";
 import { getProviderLabel } from "@/components/integrations/oauth";
+import { logClientAuthEvent } from "@/lib/auth-diagnostics";
 
 function IntegrationCallbackPageClient() {
   const router = useRouter();
@@ -36,34 +37,70 @@ function IntegrationCallbackPageClient() {
   const errorParam = searchParams.get("error");
 
   useEffect(() => {
-    if (!businessId) {
-      router.replace(businesses.length > 0 ? "/select-business" : "/businesses/new");
-      return;
-    }
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
-    selectBusiness(businessId);
-    ensureBusiness(businessId);
+    async function applyCallbackState() {
+      if (!businessId) {
+        router.replace(businesses.length > 0 ? "/select-business" : "/businesses/new");
+        return;
+      }
 
-    const integrationId = searchParams.get("integrationId") ?? undefined;
+      selectBusiness(businessId);
+      ensureBusiness(businessId);
+      const switchResponse = await fetch("/api/auth/switch-business", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ businessId }),
+      }).catch(() => null);
 
-    if (statusParam === "success") {
-      setConnected(businessId, provider, integrationId);
+      if (!switchResponse?.ok) {
+        logClientAuthEvent("oauth_callback_business_sync_failed", {
+          businessId,
+          provider,
+        });
+      }
+
+      if (cancelled) return;
+
+      const integrationId = searchParams.get("integrationId") ?? undefined;
+
+      if (statusParam === "success") {
+        setConnected(businessId, provider, integrationId);
+        setToast({
+          type: "success",
+          message: `${providerLabel} connected successfully.`,
+        });
+        logClientAuthEvent("oauth_callback_succeeded", {
+          businessId,
+          provider,
+          integrationId,
+        });
+        timeoutId = setTimeout(() => router.replace("/integrations"), 800);
+        return;
+      }
+
+      const message = errorParam ?? "OAuth connection failed. Please try again.";
+      setError(businessId, provider, message);
       setToast({
-        type: "success",
-        message: `${providerLabel} connected successfully.`,
+        type: "error",
+        message: `${providerLabel} connection failed: ${message}`,
       });
-      const successTimeout = setTimeout(() => router.replace("/integrations"), 800);
-      return () => clearTimeout(successTimeout);
+      logClientAuthEvent("oauth_callback_failed", {
+        businessId,
+        provider,
+        message,
+      });
+      timeoutId = setTimeout(() => router.replace("/integrations"), 1200);
     }
 
-    const message = errorParam ?? "OAuth connection failed. Please try again.";
-    setError(businessId, provider, message);
-    setToast({
-      type: "error",
-      message: `${providerLabel} connection failed: ${message}`,
-    });
-    const errorTimeout = setTimeout(() => router.replace("/integrations"), 1200);
-    return () => clearTimeout(errorTimeout);
+    void applyCallbackState();
+    return () => {
+      cancelled = true;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
   }, [
     businessId,
     businesses.length,

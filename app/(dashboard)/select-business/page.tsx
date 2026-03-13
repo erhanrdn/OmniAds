@@ -5,6 +5,7 @@ import { useAppStore } from "@/store/app-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
 import { useRouter } from "next/navigation";
 import { Check, MoreHorizontal, Plus, Trash2 } from "lucide-react";
+import { logClientAuthEvent } from "@/lib/auth-diagnostics";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useDropdownBehavior } from "@/hooks/use-dropdown-behavior";
@@ -55,9 +56,31 @@ export default function SelectBusinessPage() {
     return hasConnectedIntegration || assignedCount > 0;
   }, [assignedAccountsByBusiness, byBusinessId, confirmBusiness]);
 
-  function handleSelect(id: string) {
+  async function handleSelect(id: string) {
+    if (id === selectedBusinessId || deleteLoading) return;
+
+    const previousBusinessId = selectedBusinessId;
     selectBusiness(id);
+
+    const response = await fetch("/api/auth/switch-business", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ businessId: id }),
+    }).catch(() => null);
+
+    if (!response?.ok) {
+      selectBusiness(previousBusinessId ?? null);
+      setFeedback({ type: "error", message: "Could not switch business." });
+      logClientAuthEvent("select_business_failed", {
+        attemptedBusinessId: id,
+        previousBusinessId,
+      });
+      return;
+    }
+
+    logClientAuthEvent("select_business_succeeded", { activeBusinessId: id });
     router.push("/overview");
+    router.refresh();
   }
 
   async function handleDeleteBusiness() {
@@ -77,6 +100,11 @@ export default function SelectBusinessPage() {
       removeBusinessData(confirmBusiness.id);
       if (nextSelected && selectedBusinessId === confirmBusiness.id) {
         selectBusiness(nextSelected);
+        await fetch("/api/auth/switch-business", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ businessId: nextSelected }),
+        }).catch(() => null);
       }
 
       setConfirmBusinessId(null);
@@ -129,7 +157,7 @@ export default function SelectBusinessPage() {
               >
                 <button
                   type="button"
-                  onClick={() => handleSelect(business.id)}
+                  onClick={() => void handleSelect(business.id)}
                   className="flex min-w-0 flex-1 items-center gap-4 text-left"
                 >
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-sm font-bold text-primary">

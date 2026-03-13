@@ -18,7 +18,11 @@ function getPageTitle(pathname: string): string {
   return "Adsecute";
 }
 
-export function Topbar() {
+interface TopbarProps {
+  userName: string;
+}
+
+export function Topbar({ userName }: TopbarProps) {
   const toggleDesktopSidebar = useAppStore((s) => s.toggleDesktopSidebar);
   const setMobileSidebarOpen = useAppStore((s) => s.setMobileSidebarOpen);
   const pathname = usePathname();
@@ -62,7 +66,7 @@ export function Topbar() {
           <Users className="w-5 h-5" />
         </Button>
 
-        <PersonalAccountMenu userName="Admin" />
+        <PersonalAccountMenu userName={userName} />
       </div>
 
       <TeamAccessModal open={teamModalOpen} onOpenChange={setTeamModalOpen} />
