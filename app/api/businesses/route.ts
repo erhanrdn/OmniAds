@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromRequest, setSessionActiveBusiness } from "@/lib/auth";
 import { createBusinessWithAdminMembership } from "@/lib/account-store";
-import { listUserBusinesses } from "@/lib/access";
-import { isReviewerEmail, scopeBusinessesForUser } from "@/lib/reviewer-access";
+import { resolveBusinessContext } from "@/lib/business-context";
+import { isReviewerEmail } from "@/lib/reviewer-access";
 
 interface CreateBusinessBody {
   name?: string;
@@ -15,14 +15,7 @@ export async function GET(request: NextRequest) {
   if (!session) {
     return NextResponse.json({ error: "auth_error", message: "Authentication required." }, { status: 401 });
   }
-  const businesses = scopeBusinessesForUser(
-    session.user.email,
-    await listUserBusinesses(session.user.id)
-  );
-  const activeBusinessId =
-    session.activeBusinessId && businesses.some((b) => b.id === session.activeBusinessId)
-      ? session.activeBusinessId
-      : businesses.find((b) => b.membershipStatus === "active")?.id ?? null;
+  const { businesses, activeBusinessId } = await resolveBusinessContext(session);
   return NextResponse.json({
     businesses,
     activeBusinessId,

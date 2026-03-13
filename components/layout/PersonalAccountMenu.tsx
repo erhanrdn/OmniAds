@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { ChevronDown, HelpCircle, LogOut, Settings, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { clearAuthScopedClientState } from "@/lib/client-auth-state";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,8 +21,10 @@ export function PersonalAccountMenu({ userName }: PersonalAccountMenuProps) {
   const router = useRouter();
 
   async function handleSignOut() {
+    clearAuthScopedClientState();
     await fetch("/api/auth/logout", { method: "POST" }).catch(() => null);
     router.push("/login");
+    router.refresh();
   }
 
   return (

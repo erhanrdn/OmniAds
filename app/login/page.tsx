@@ -4,8 +4,26 @@ import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
+import { replaceAuthenticatedWorkspace } from "@/lib/client-auth-state";
 
 const REMEMBER_EMAIL_KEY = "omniads.remember_email";
+
+interface LoginResponse {
+  user?: {
+    id: string;
+  };
+  businesses?: Array<{
+    id: string;
+    name: string;
+    timezone: string;
+    currency: string;
+    isDemoBusiness?: boolean;
+    industry?: string;
+    platform?: string;
+  }>;
+  activeBusinessId?: string | null;
+  message?: string;
+}
 
 function LoginPageClient() {
   const router = useRouter();
@@ -42,7 +60,7 @@ function LoginPageClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
-      const payload = (await res.json().catch(() => null)) as { message?: string } | null;
+      const payload = (await res.json().catch(() => null)) as LoginResponse | null;
       if (!res.ok) {
         throw new Error(payload?.message ?? "Could not sign in.");
       }
@@ -63,7 +81,23 @@ function LoginPageClient() {
       } catch {
         // no-op
       }
+      if (payload?.user?.id) {
+        replaceAuthenticatedWorkspace({
+          userId: payload.user.id,
+          businesses: (payload.businesses ?? []).map((business) => ({
+            id: business.id,
+            name: business.name,
+            timezone: business.timezone,
+            currency: business.currency,
+            isDemoBusiness: business.isDemoBusiness,
+            industry: business.industry,
+            platform: business.platform,
+          })),
+          activeBusinessId: payload.activeBusinessId ?? null,
+        });
+      }
       router.push("/overview");
+      router.refresh();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Could not sign in.");
     } finally {

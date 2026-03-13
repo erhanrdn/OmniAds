@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 
 export default function NewBusinessPage() {
   const router = useRouter();
-  const setBusinessesFromServer = useAppStore((state) => state.setBusinessesFromServer);
+  const setWorkspaceSnapshot = useAppStore((state) => state.setWorkspaceSnapshot);
   const [error, setError] = useState<string | null>(null);
 
   return (
@@ -50,8 +50,13 @@ export default function NewBusinessPage() {
                   activeBusinessId?: string | null;
                 }
               | null;
-            if (allRes.ok && allPayload?.businesses) {
-              setBusinessesFromServer(allPayload.businesses, allPayload.activeBusinessId ?? payload.business.id);
+            const workspaceOwnerId = useAppStore.getState().workspaceOwnerId;
+            if (allRes.ok && allPayload?.businesses && workspaceOwnerId) {
+              setWorkspaceSnapshot(
+                workspaceOwnerId,
+                allPayload.businesses,
+                allPayload.activeBusinessId ?? payload.business.id
+              );
             }
             router.push("/integrations");
           }}

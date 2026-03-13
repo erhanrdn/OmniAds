@@ -19,6 +19,16 @@ export function clearAuthScopedClientState() {
 }
 
 export function applyAuthenticatedWorkspace(payload: WorkspacePayload) {
+  const currentOwnerId = useAppStore.getState().workspaceOwnerId;
+  if (currentOwnerId && currentOwnerId !== payload.userId) {
+    useIntegrationsStore.getState().clearAllState();
+  }
+  useAppStore
+    .getState()
+    .setWorkspaceSnapshot(payload.userId, payload.businesses, payload.activeBusinessId);
+}
+
+export function replaceAuthenticatedWorkspace(payload: WorkspacePayload) {
   clearAuthScopedClientState();
   useAppStore
     .getState()
