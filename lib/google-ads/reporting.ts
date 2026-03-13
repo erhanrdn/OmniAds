@@ -678,9 +678,10 @@ export async function getGoogleAdsKeywordsReport(params: {
 
   mergeFailures(meta, core);
   mergeFailures(meta, quality);
+  const qualityAvailable = quality.failures.length === 0;
 
   const qualityMap = new Map<string, Record<string, unknown>>();
-  for (const row of quality.rows) {
+  for (const row of qualityAvailable ? quality.rows : []) {
     const criterion = getCompatObject(row, "ad_group_criterion");
     const id = asString(getCompatValue(criterion, "criterion_id"));
     if (!id) continue;
@@ -694,11 +695,12 @@ export async function getGoogleAdsKeywordsReport(params: {
       const adGroup = getCompatObject(row, "ad_group");
       const metrics = getCompatObject(row, "metrics");
       const keyword = getCompatObject(criterion, "keyword");
-      const qualityInfo =
-        getCompatObject(
-          qualityMap.get(asString(getCompatValue(criterion, "criterion_id")) ?? "") ?? criterion,
-          "quality_info"
-        );
+      const qualityInfo = qualityAvailable
+        ? getCompatObject(
+            qualityMap.get(asString(getCompatValue(criterion, "criterion_id")) ?? "") ?? {},
+            "quality_info"
+          )
+        : {};
       const data = toMetricSet(metrics);
       return {
         criterionId: asString(getCompatValue(criterion, "criterion_id")),
