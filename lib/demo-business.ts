@@ -501,31 +501,6 @@ export function getDemoGoogleAdsOpportunities() {
   return { data, count: data.length };
 }
 
-export function getDemoGoogleAdsProductIntelligence() {
-  const products = [
-    { id: "ut-009", title: "UrbanTrail Carry-On Backpack", brand: "UrbanTrail", category: "Backpacks", spend: 3840, revenue: 19584, roas: 5.1, conversions: 152, clicks: 4820, impressions: 94200, cpa: 25.26, ctr: 5.12, price: 119, inventory: 69, profitProxy: 15744 },
-    { id: "ut-004", title: "UrbanTrail Hiking Backpack Pro", brand: "UrbanTrail", category: "Backpacks", spend: 2960, revenue: 12918, roas: 4.36, conversions: 98, clicks: 3640, impressions: 71800, cpa: 30.2, ctr: 5.07, price: 129, inventory: 76, profitProxy: 9958 },
-    { id: "ut-001", title: "UrbanTrail Explorer Backpack", brand: "UrbanTrail", category: "Backpacks", spend: 2450, revenue: 9065, roas: 3.7, conversions: 98, clicks: 3280, impressions: 68400, cpa: 25, ctr: 4.8, price: 89, inventory: 142, profitProxy: 6615 },
-    { id: "ut-006", title: "UrbanTrail Waterproof Backpack", brand: "UrbanTrail", category: "Backpacks", spend: 1820, revenue: 6552, roas: 3.6, conversions: 58, clicks: 2410, impressions: 51200, cpa: 31.38, ctr: 4.71, price: 109, inventory: 81, profitProxy: 4732 },
-    { id: "ut-002", title: "UrbanTrail Travel Duffel", brand: "UrbanTrail", category: "Travel Bags", spend: 1490, revenue: 4321, roas: 2.9, conversions: 43, clicks: 2140, impressions: 47800, cpa: 34.65, ctr: 4.48, price: 99, inventory: 98, profitProxy: 2831 },
-    { id: "ut-011", title: "UrbanTrail Adventure Backpack", brand: "UrbanTrail", category: "Backpacks", spend: 1280, revenue: 2944, roas: 2.3, conversions: 30, clicks: 1820, impressions: 39400, cpa: 42.67, ctr: 4.62, price: 95, inventory: 121, profitProxy: 1664 },
-    { id: "ut-007", title: "UrbanTrail Laptop Travel Bag", brand: "UrbanTrail", category: "Travel Bags", spend: 920, revenue: 2484, roas: 2.7, conversions: 31, clicks: 1340, impressions: 31600, cpa: 29.68, ctr: 4.24, price: 79, inventory: 117, profitProxy: 1564 },
-    { id: "ut-003", title: "UrbanTrail Daypack Lite", brand: "UrbanTrail", category: "Backpacks", spend: 680, revenue: 1020, roas: 1.5, conversions: 17, clicks: 1120, impressions: 28400, cpa: 40, ctr: 3.94, price: 59, inventory: 210, profitProxy: 340 },
-    { id: "ut-012", title: "UrbanTrail Outdoor Sling Bag", brand: "UrbanTrail", category: "Accessories", spend: 540, revenue: 1080, roas: 2.0, conversions: 22, clicks: 860, impressions: 19800, cpa: 24.55, ctr: 4.34, price: 49, inventory: 184, profitProxy: 540 },
-    { id: "ut-008", title: "UrbanTrail Packing Cubes", brand: "UrbanTrail", category: "Organizers", spend: 410, revenue: 624, roas: 1.52, conversions: 16, clicks: 720, impressions: 17200, cpa: 25.63, ctr: 4.19, price: 39, inventory: 260, profitProxy: 214 },
-    { id: "ut-010", title: "UrbanTrail Hiking Waist Pack", brand: "UrbanTrail", category: "Accessories", spend: 320, revenue: 420, roas: 1.31, conversions: 12, clicks: 560, impressions: 14100, cpa: 26.67, ctr: 3.97, price: 35, inventory: 238, profitProxy: 100 },
-    { id: "ut-005", title: "UrbanTrail Travel Organizer", brand: "UrbanTrail", category: "Organizers", spend: 280, revenue: 336, roas: 1.2, conversions: 12, clicks: 540, impressions: 13400, cpa: 23.33, ctr: 4.03, price: 29, inventory: 391, profitProxy: 56 },
-  ];
-  const totalSpend = products.reduce((s, p) => s + p.spend, 0);
-  return {
-    products,
-    totalSpend,
-    count: products.length,
-    available: true,
-    meta: { source: "shopping_performance_view", note: "Demo data" },
-  };
-}
-
 export function getDemoMetaCampaigns() {
   return {
     rows: [
