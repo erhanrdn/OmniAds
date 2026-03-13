@@ -23,6 +23,7 @@ import {
   WalletCards,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { buildCrossEntityIntelligence } from "@/lib/google-ads/cross-entity-intelligence";
 import {
   CampaignBadges,
   ColDef,
@@ -492,12 +493,14 @@ function OverviewView({
   opportunities,
   budget,
   products,
+  crossEntityInsights,
 }: {
   overview: QueryResult | undefined;
   campaigns: Array<Record<string, any>>;
   opportunities: Array<Record<string, any>>;
   budget: Array<Record<string, any>>;
   products: Array<Record<string, any>>;
+  crossEntityInsights: Array<Record<string, any>>;
 }) {
   if (!overview?.kpis) {
     return <TabEmpty message="No overview data is available for this period." />;
@@ -527,6 +530,10 @@ function OverviewView({
   const topProducts = [...products]
     .sort((a, b) => Number(b.revenue ?? 0) - Number(a.revenue ?? 0))
     .slice(0, 3);
+  const concentrationInsight = crossEntityInsights.find((insight) => insight.type === "spend_concentration");
+  const revenueDependencyInsight = crossEntityInsights.find((insight) => insight.type === "revenue_dependency");
+  const scalePathInsight = crossEntityInsights.find((insight) => insight.type === "scale_path");
+  const wasteConcentrationInsight = crossEntityInsights.find((insight) => insight.type === "waste_concentration");
   const budgetPressure = budget.filter((row) => Number(row.lostIsBudget ?? 0) > 0.15).length;
   const dataHealth = opportunities.length > 0 ? "healthy" : "warning";
 
@@ -662,6 +669,19 @@ function OverviewView({
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
+        <SectionCard title="Cross-Entity Signals" description="How concentration, dependency, and scale paths connect across the account.">
+          <div className="grid gap-3 md:grid-cols-2">
+            {[concentrationInsight, revenueDependencyInsight, scalePathInsight, wasteConcentrationInsight]
+              .filter(Boolean)
+              .map((insight) => (
+                <div key={String(insight?.id)} className="rounded-xl border bg-muted/20 p-3">
+                  <p className="text-xs font-semibold">{insight?.title}</p>
+                  <p className="mt-1 text-[11px] text-muted-foreground">{insight?.description}</p>
+                </div>
+              ))}
+          </div>
+        </SectionCard>
+
         <SectionCard title="Top Drivers" description="Where the account is creating the most return right now.">
           <div className="space-y-3">
             {topDrivers.length === 0 ? (
@@ -871,10 +891,12 @@ function SearchIntelligenceView({
   rows,
   summary,
   insights,
+  crossEntityInsights,
 }: {
   rows: Array<Record<string, any>>;
   summary: Record<string, any>;
   insights: Record<string, any>;
+  crossEntityInsights: Array<Record<string, any>>;
 }) {
   if (rows.length === 0) {
     return <TabEmpty message="No search intelligence is available for this period." />;
@@ -918,6 +940,9 @@ function SearchIntelligenceView({
   const bestThemes = (insights.bestConvertingThemes ?? []) as Array<Record<string, any>>;
   const wastefulThemes = (insights.wastefulThemes ?? []) as Array<Record<string, any>>;
   const newOpportunityQueries = (insights.newOpportunityQueries ?? []) as Array<Record<string, any>>;
+  const clusterProductInsights = crossEntityInsights
+    .filter((insight) => insight.type === "search_cluster_product")
+    .slice(0, 3);
 
   return (
     <div className="space-y-6">
@@ -971,6 +996,17 @@ function SearchIntelligenceView({
       </div>
 
       <div className="grid gap-4 xl:grid-cols-3">
+        <SectionCard title="Cluster To Product Alignment" description="Best-effort mapping between search demand and likely product support.">
+          <div className="space-y-3">
+            {clusterProductInsights.map((insight) => (
+              <div key={String(insight.id)} className="rounded-xl border border-sky-200 bg-sky-50 p-3">
+                <p className="text-xs font-semibold text-sky-900">{insight.title}</p>
+                <p className="mt-1 text-[11px] text-sky-700">{insight.reasoning}</p>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+
         <SectionCard title="Add As Exact Keyword" description="High-intent converting queries not yet under direct bid control.">
           <div className="space-y-3">
             {(insights.keywordCandidates ?? []).slice(0, 4).map((row: Record<string, any>) => (
@@ -1330,10 +1366,12 @@ function AssetGroupsView({
   rows,
   summary,
   insights,
+  crossEntityInsights,
 }: {
   rows: Array<Record<string, any>>;
   summary: Record<string, any>;
   insights: Record<string, any>;
+  crossEntityInsights: Array<Record<string, any>>;
 }) {
   if (rows.length === 0) {
     return <TabEmpty message="No Performance Max asset groups were found for this period." />;
@@ -1342,6 +1380,12 @@ function AssetGroupsView({
   const scaleCandidates = ((insights.scaleCandidates ?? []) as Array<Record<string, any>>).slice(0, 4);
   const weakGroups = ((insights.weakGroups ?? []) as Array<Record<string, any>>).slice(0, 4);
   const coverageGaps = ((insights.coverageGaps ?? []) as Array<Record<string, any>>).slice(0, 4);
+  const productSupport = crossEntityInsights
+    .filter((insight) => insight.type === "asset_group_product")
+    .slice(0, 3);
+  const themeMismatch = crossEntityInsights
+    .filter((insight) => insight.type === "asset_theme_alignment")
+    .slice(0, 3);
 
   return (
     <div className="space-y-6">
@@ -1353,6 +1397,17 @@ function AssetGroupsView({
       </div>
 
       <div className="grid gap-4 xl:grid-cols-3">
+        <SectionCard title="Dominant Products" description="Best-effort product drivers likely supporting these asset groups.">
+          <div className="space-y-3">
+            {productSupport.map((insight) => (
+              <div key={String(insight.id)} className="rounded-xl border border-sky-200 bg-sky-50 p-3">
+                <p className="text-xs font-semibold text-sky-900">{insight.title}</p>
+                <p className="mt-1 text-[11px] text-sky-700">{insight.reasoning}</p>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+
         <SectionCard title="Scale Candidates" description="Strong asset groups with healthy return and coverage.">
           <div className="space-y-3">
             {scaleCandidates.map((row) => (
@@ -1396,6 +1451,19 @@ function AssetGroupsView({
           </div>
         </SectionCard>
       </div>
+
+      {themeMismatch.length > 0 ? (
+        <SectionCard title="Theme Mismatch" description="Configured themes that lack enough support in current asset messaging.">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {themeMismatch.map((insight) => (
+              <div key={String(insight.id)} className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+                <p className="text-xs font-semibold text-amber-900">{insight.title}</p>
+                <p className="mt-1 text-[11px] text-amber-700">{insight.reasoning}</p>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+      ) : null}
 
       <SectionCard title="Asset Group Intelligence" description="Performance Max asset groups with share-of-spend, coverage, and search-theme alignment.">
         <SimpleTable
@@ -1459,10 +1527,24 @@ function AssetGroupsView({
   );
 }
 
-function ProductsView({ rows, summary, insights }: { rows: Array<Record<string, any>>; summary: Record<string, any>; insights: Record<string, any> }) {
+function ProductsView({
+  rows,
+  summary,
+  insights,
+  crossEntityInsights,
+}: {
+  rows: Array<Record<string, any>>;
+  summary: Record<string, any>;
+  insights: Record<string, any>;
+  crossEntityInsights: Array<Record<string, any>>;
+}) {
   if (rows.length === 0) {
     return <TabEmpty message="No product-level Google Ads data is available for this period." />;
   }
+
+  const productSupportInsights = crossEntityInsights
+    .filter((insight) => insight.type === "product_support")
+    .slice(0, 4);
 
   return (
     <div className="space-y-6">
@@ -1475,6 +1557,17 @@ function ProductsView({ rows, summary, insights }: { rows: Array<Record<string, 
       </div>
 
       <div className="grid gap-4 xl:grid-cols-3">
+        <SectionCard title="Likely Support Paths" description="Which campaigns and asset groups appear to be carrying these products.">
+          <div className="space-y-3">
+            {productSupportInsights.map((insight) => (
+              <div key={String(insight.id)} className="rounded-xl border border-sky-200 bg-sky-50 p-3">
+                <p className="text-xs font-semibold text-sky-900">{insight.title}</p>
+                <p className="mt-1 text-[11px] text-sky-700">{insight.reasoning}</p>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+
         <SectionCard title="Top Revenue Products" description="Products creating the most value from paid demand.">
           <div className="space-y-3">
             {(insights.topRevenueProducts ?? []).slice(0, 4).map((row: Record<string, any>) => (
@@ -2184,6 +2277,13 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
   const deviceRows = firstRows(devicesQ.data);
   const budgetRows = firstRows(budgetQ.data);
   const opportunityRows = firstRows(opportunitiesQ.data);
+  const crossEntity = buildCrossEntityIntelligence({
+    campaigns,
+    products: productRows,
+    assets: assetRows,
+    assetGroups: assetGroupRows,
+    searchTerms: searchRows,
+  });
 
   const activeMeta =
     activeTab === "overview"
@@ -2441,6 +2541,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
           opportunities={opportunityRows}
           budget={budgetRows}
           products={productRows}
+          crossEntityInsights={crossEntity.rows}
         />
       ) : activeTab === "campaigns" ? (
         <CampaignsView rows={campaigns} />
@@ -2449,6 +2550,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
           rows={searchRows}
           summary={(searchIntelligenceQ.data?.summary ?? {}) as Record<string, any>}
           insights={(searchIntelligenceQ.data?.insights ?? {}) as Record<string, any>}
+          crossEntityInsights={crossEntity.rows}
         />
       ) : activeTab === "keywords" ? (
         <KeywordsView
@@ -2467,12 +2569,14 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
           rows={assetGroupRows}
           summary={(assetGroupsQ.data?.summary ?? {}) as Record<string, any>}
           insights={(assetGroupsQ.data?.insights ?? {}) as Record<string, any>}
+          crossEntityInsights={crossEntity.rows}
         />
       ) : activeTab === "products" ? (
         <ProductsView
           rows={productRows}
           summary={(productsQ.data?.summary ?? {}) as Record<string, any>}
           insights={(productsQ.data?.insights ?? {}) as Record<string, any>}
+          crossEntityInsights={crossEntity.rows}
         />
       ) : activeTab === "audiences" ? (
         <AudienceView

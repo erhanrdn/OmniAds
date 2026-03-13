@@ -61,6 +61,10 @@ import {
   getCampaignBadges,
 } from "@/lib/google-ads-intelligence";
 import {
+  buildCrossEntityIntelligence,
+  type CrossEntityInsight,
+} from "@/lib/google-ads/cross-entity-intelligence";
+import {
   buildGoogleAdsOpportunityEngine,
   type GoogleAdsOpportunity,
 } from "@/lib/google-ads/opportunity-engine";
@@ -577,6 +581,52 @@ function buildCampaignMap(
   }
 
   return Array.from(map.values()) as Array<Record<string, unknown>>;
+}
+
+function mapCrossEntityInsightToOpportunity(insight: CrossEntityInsight): GoogleAdsOpportunity | null {
+  const primary = insight.relatedEntities[0];
+  if (!primary) return null;
+  return {
+    id: `cross-${insight.id}`,
+    type:
+      insight.type === "waste_concentration" || insight.type === "revenue_dependency"
+        ? "reduce"
+        : insight.type === "asset_theme_alignment"
+        ? "fix"
+        : "scale",
+    entityType:
+      primary.entityType === "assetGroup"
+        ? "assetGroup"
+        : primary.entityType === "product"
+        ? "product"
+        : primary.entityType === "campaign"
+        ? "campaign"
+        : "searchTerm",
+    entityId: primary.entityId,
+    title: insight.title,
+    description: insight.description,
+    reasoning: insight.reasoning,
+    expectedImpact: insight.impact,
+    confidence: insight.confidence,
+    metrics: {
+      spend:
+        typeof insight.metrics?.spend === "number"
+          ? insight.metrics.spend
+          : typeof insight.metrics?.campaignSpend === "number"
+          ? Number(insight.metrics.campaignSpend)
+          : undefined,
+      revenue:
+        typeof insight.metrics?.clusterRevenue === "number"
+          ? Number(insight.metrics.clusterRevenue)
+          : undefined,
+      roas:
+        typeof insight.metrics?.campaignRoas === "number"
+          ? Number(insight.metrics.campaignRoas)
+          : typeof insight.metrics?.productRoas === "number"
+          ? Number(insight.metrics.productRoas)
+          : undefined,
+    },
+  };
 }
 
 function aggregateOverviewKpis(customerRows: RawRow[]) {
@@ -3023,6 +3073,22 @@ export async function getGoogleAdsOpportunitiesReport(
     geo: geo.rows,
     devices: devices.rows,
   });
+  const crossEntity = buildCrossEntityIntelligence({
+    campaigns: campaigns.rows,
+    products: products.rows,
+    assets: assets.rows,
+    assetGroups: assetGroups.rows,
+    searchTerms: searchIntelligence.rows,
+  });
+  const crossEntityOpportunities = crossEntity.rows
+    .filter(
+      (insight) =>
+        insight.type === "scale_path" ||
+        insight.type === "waste_concentration" ||
+        insight.type === "asset_theme_alignment"
+    )
+    .map(mapCrossEntityInsightToOpportunity)
+    .filter((row): row is GoogleAdsOpportunity => Boolean(row));
 
   if (params.debug) {
     meta.debug = {
@@ -3040,9 +3106,23 @@ export async function getGoogleAdsOpportunitiesReport(
     };
   }
 
+  const mergedOpportunityRows = [...crossEntityOpportunities, ...opportunityResult.rows].sort(
+    (a, b) => Number(b.confidence ?? 0) - Number(a.confidence ?? 0)
+  );
+
   return {
-    rows: opportunityResult.rows,
-    summary: opportunityResult.summary,
+    rows: mergedOpportunityRows,
+    summary: {
+      scale: mergedOpportunityRows.filter((row) => row.type === "scale").length,
+      reduce: mergedOpportunityRows.filter((row) => row.type === "reduce").length,
+      fix: mergedOpportunityRows.filter((row) => row.type === "fix").length,
+      test: mergedOpportunityRows.filter((row) => row.type === "test").length,
+      total: mergedOpportunityRows.length,
+      crossEntity: crossEntityOpportunities.length,
+    },
+    insights: {
+      crossEntity: crossEntity.rows,
+    },
     meta,
   };
 }
