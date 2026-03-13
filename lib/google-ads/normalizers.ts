@@ -1,4 +1,5 @@
 import { normalizeChannelType, normalizeCostMicros, normalizeStatus } from "@/lib/google-ads-gaql";
+import type { GoogleAdsReportFamilyMeta } from "@/lib/google-ads/intelligence-model";
 
 export interface GoogleAdsReportMeta {
   partial: boolean;
@@ -15,6 +16,7 @@ export interface GoogleAdsReportMeta {
   unavailable_metrics: string[];
   query_names: string[];
   row_counts: Record<string, number>;
+  report_families: Record<string, GoogleAdsReportFamilyMeta>;
   debug?: Record<string, unknown>;
 }
 
@@ -186,6 +188,7 @@ export function createEmptyMeta(debug = false): GoogleAdsReportMeta {
     unavailable_metrics: [],
     query_names: [],
     row_counts: {},
+    report_families: {},
     ...(debug ? { debug: {} } : {}),
   };
 }

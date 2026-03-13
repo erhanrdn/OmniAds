@@ -5,6 +5,17 @@ import {
   getGoogleAdsFailureMessage,
   type GoogleAdsAccountQueryFailure,
 } from "@/lib/google-ads-gaql";
+import type {
+  AssetGroupPerformanceRow,
+  AssetPerformanceRow,
+  AudiencePerformanceRow,
+  CampaignPerformanceRow,
+  DevicePerformanceRow,
+  GeoPerformanceRow,
+  KeywordPerformanceRow,
+  ProductPerformanceRow,
+  SearchTermPerformanceRow,
+} from "@/lib/google-ads/intelligence-model";
 import { GOOGLE_ADS_METRICS_MATRIX, type GoogleAdsTabId } from "@/lib/google-ads/metrics-matrix";
 import {
   buildAdCoreQuery,
@@ -45,17 +56,43 @@ import {
   classifySearchIntent,
   classifySearchTerms,
   generateBudgetRecommendations,
-  generateOpportunities,
   type GadsCampaignRow,
-  type GadsOpportunity,
   generateOverviewInsights,
   getCampaignBadges,
 } from "@/lib/google-ads-intelligence";
+import {
+  buildGoogleAdsOpportunityEngine,
+  type GoogleAdsOpportunity,
+} from "@/lib/google-ads/opportunity-engine";
+import {
+  analyzeAssetGroups,
+  analyzeAssets,
+  analyzeBudgetScaling,
+  analyzeKeywords,
+  analyzeProducts,
+  analyzeSearchIntelligence,
+} from "@/lib/google-ads/tab-analysis";
 import { normalizeChannelType, normalizeStatus } from "@/lib/google-ads-gaql";
 
-type DateRange = "7" | "14" | "30" | "custom";
+type DateRange = "7" | "14" | "30" | "90" | "mtd" | "qtd" | "custom";
+type CompareMode = "none" | "previous_period" | "previous_year" | "custom";
 
 type RawRow = Record<string, unknown>;
+
+interface BaseReportParams {
+  businessId: string;
+  accountId?: string | null;
+  dateRange: DateRange;
+  customStart?: string | null;
+  customEnd?: string | null;
+  debug?: boolean;
+}
+
+interface ComparativeReportParams extends BaseReportParams {
+  compareMode?: CompareMode | null;
+  compareStart?: string | null;
+  compareEnd?: string | null;
+}
 
 interface QueryExecution {
   rows: RawRow[];
@@ -79,7 +116,7 @@ interface ReportResult<Row extends object> {
 
 interface OverviewReportResult {
   kpis: Record<string, unknown>;
-  kpiDeltas?: Record<string, number | null>;
+  kpiDeltas?: Record<string, number | null | undefined>;
   topCampaigns: Array<GadsCampaignRow & { badges: string[] }>;
   insights: unknown[];
   meta: GoogleAdsReportMeta;
@@ -89,11 +126,11 @@ interface OverviewReportResult {
 type AssetTypeSummary = Record<string, number>;
 
 interface TrendMetrics {
-  spendChange: number | null;
-  revenueChange: number | null;
-  conversionsChange: number | null;
-  roasChange: number | null;
-  ctrChange: number | null;
+  spendChange: number | null | undefined;
+  revenueChange: number | null | undefined;
+  conversionsChange: number | null | undefined;
+  roasChange: number | null | undefined;
+  ctrChange: number | null | undefined;
 }
 
 interface SearchThemeSignal {
@@ -182,6 +219,45 @@ function getPreviousDateWindow(startDate: string, endDate: string) {
   };
 }
 
+function getPreviousYearWindow(startDate: string, endDate: string) {
+  const previousStart = parseIsoDate(startDate);
+  previousStart.setUTCFullYear(previousStart.getUTCFullYear() - 1);
+
+  const previousEnd = parseIsoDate(endDate);
+  previousEnd.setUTCFullYear(previousEnd.getUTCFullYear() - 1);
+
+  return {
+    startDate: formatIsoDate(previousStart),
+    endDate: formatIsoDate(previousEnd),
+  };
+}
+
+function getComparisonWindow(params: {
+  compareMode?: CompareMode | null;
+  startDate: string;
+  endDate: string;
+  compareStart?: string | null;
+  compareEnd?: string | null;
+}) {
+  const mode = params.compareMode ?? "previous_period";
+  if (mode === "none") return null;
+  if (mode === "custom") {
+    if (!params.compareStart || !params.compareEnd) return null;
+    return {
+      mode,
+      startDate: params.compareStart,
+      endDate: params.compareEnd,
+    };
+  }
+
+  return {
+    mode,
+    ...(mode === "previous_year"
+      ? getPreviousYearWindow(params.startDate, params.endDate)
+      : getPreviousDateWindow(params.startDate, params.endDate)),
+  };
+}
+
 function pctDelta(current: number, previous: number) {
   if (previous === 0) {
     if (current === 0) return 0;
@@ -205,6 +281,16 @@ function buildTrendMetrics(
   },
   previous?: Partial<typeof current>
 ): TrendMetrics {
+  if (!previous) {
+    return {
+      spendChange: undefined,
+      revenueChange: undefined,
+      conversionsChange: undefined,
+      roasChange: undefined,
+      ctrChange: undefined,
+    };
+  }
+
   return {
     spendChange: pctDelta(current.spend, Number(previous?.spend ?? 0)),
     revenueChange: pctDelta(current.revenue, Number(previous?.revenue ?? 0)),
@@ -240,10 +326,30 @@ function slugifyQueryCluster(input: string) {
 function mergeFailures(meta: GoogleAdsReportMeta, execution: QueryExecution) {
   meta.query_names.push(execution.query.name);
   meta.row_counts[execution.query.name] = execution.rows.length;
-  if (execution.failures.length === 0) return;
+  const familyMeta = meta.report_families[execution.query.family] ?? {
+    partial: false,
+    warnings: [],
+    failed_queries: [],
+    unavailable_metrics: [],
+    query_names: [],
+    row_count: 0,
+  };
+  familyMeta.query_names.push(execution.query.name);
+  familyMeta.row_count += execution.rows.length;
+  if (execution.failures.length === 0) {
+    meta.report_families[execution.query.family] = {
+      ...familyMeta,
+      warnings: dedupeStrings(familyMeta.warnings),
+      unavailable_metrics: dedupeStrings(familyMeta.unavailable_metrics),
+      query_names: dedupeStrings(familyMeta.query_names),
+    };
+    return;
+  }
 
   meta.partial = true;
   meta.unavailable_metrics.push(...execution.query.metrics);
+  familyMeta.partial = true;
+  familyMeta.unavailable_metrics.push(...execution.query.metrics);
   meta.failed_queries.push(
     ...execution.failures.map((failure) => ({
       query: execution.query.name,
@@ -255,8 +361,45 @@ function mergeFailures(meta: GoogleAdsReportMeta, execution: QueryExecution) {
       apiErrorCode: failure.apiErrorCode,
     }))
   );
+  familyMeta.failed_queries.push(
+    ...execution.failures.map((failure) => ({
+      query: execution.query.name,
+      family: execution.query.family,
+      customerId: failure.customerId,
+      message: failure.message,
+      status: failure.status,
+      apiStatus: failure.apiStatus,
+      apiErrorCode: failure.apiErrorCode,
+    }))
+  );
+  familyMeta.warnings.push(
+    `${execution.query.name}: ${getGoogleAdsFailureMessage(execution.failures)}`
+  );
   meta.warnings.push(
     `${execution.query.name}: ${getGoogleAdsFailureMessage(execution.failures)}`
+  );
+  meta.report_families[execution.query.family] = {
+    ...familyMeta,
+    warnings: dedupeStrings(familyMeta.warnings),
+    unavailable_metrics: dedupeStrings(familyMeta.unavailable_metrics),
+    query_names: dedupeStrings(familyMeta.query_names),
+  };
+}
+
+function finalizeMeta(meta: GoogleAdsReportMeta) {
+  meta.warnings = dedupeStrings(meta.warnings);
+  meta.unavailable_metrics = dedupeStrings(meta.unavailable_metrics);
+  meta.query_names = dedupeStrings(meta.query_names);
+  meta.report_families = Object.fromEntries(
+    Object.entries(meta.report_families).map(([family, familyMeta]) => [
+      family,
+      {
+        ...familyMeta,
+        warnings: dedupeStrings(familyMeta.warnings),
+        unavailable_metrics: dedupeStrings(familyMeta.unavailable_metrics),
+        query_names: dedupeStrings(familyMeta.query_names),
+      },
+    ])
   );
 }
 
@@ -281,16 +424,22 @@ async function resolveContext(params: {
   businessId: string;
   accountId?: string | null;
   dateRange: DateRange;
+  customStart?: string | null;
+  customEnd?: string | null;
   debug: boolean;
 }): Promise<
   | { ok: true; context: ReportContext; startDate: string; endDate: string }
   | { ok: false; payload: { rows: []; meta: GoogleAdsReportMeta; summary?: Record<string, unknown> } }
 > {
-  const { businessId, accountId, dateRange, debug } = params;
+  const { businessId, accountId, dateRange, customStart, customEnd, debug } = params;
   const assignedAccounts = await getAssignedGoogleAccounts(businessId);
   const accountsToQuery =
     accountId && accountId !== "all" ? [accountId] : assignedAccounts;
-  const { startDate, endDate } = getDateRangeForQuery(dateRange);
+  const { startDate, endDate } = getDateRangeForQuery(
+    dateRange,
+    customStart ?? undefined,
+    customEnd ?? undefined
+  );
 
   if (accountsToQuery.length === 0) {
     return {
@@ -352,6 +501,24 @@ function mergeChildMeta(target: GoogleAdsReportMeta, child: GoogleAdsReportMeta)
   target.unavailable_metrics.push(...child.unavailable_metrics);
   target.query_names.push(...child.query_names);
   Object.assign(target.row_counts, child.row_counts);
+  for (const [family, familyMeta] of Object.entries(child.report_families)) {
+    const current = target.report_families[family] ?? {
+      partial: false,
+      warnings: [],
+      failed_queries: [],
+      unavailable_metrics: [],
+      query_names: [],
+      row_count: 0,
+    };
+    target.report_families[family] = {
+      partial: current.partial || familyMeta.partial,
+      warnings: current.warnings.concat(familyMeta.warnings),
+      failed_queries: current.failed_queries.concat(familyMeta.failed_queries),
+      unavailable_metrics: current.unavailable_metrics.concat(familyMeta.unavailable_metrics),
+      query_names: current.query_names.concat(familyMeta.query_names),
+      row_count: current.row_count + familyMeta.row_count,
+    };
+  }
 }
 
 function buildCampaignMap(
@@ -499,16 +666,15 @@ function aggregateOverviewKpis(customerRows: RawRow[]) {
   };
 }
 
-export async function getGoogleAdsOverviewReport(params: {
-  businessId: string;
-  accountId?: string | null;
-  dateRange: DateRange;
-  debug?: boolean;
-}): Promise<OverviewReportResult> {
+export async function getGoogleAdsOverviewReport(
+  params: ComparativeReportParams
+): Promise<OverviewReportResult> {
   const resolved = await resolveContext({
     businessId: params.businessId,
     accountId: params.accountId,
     dateRange: params.dateRange,
+    customStart: params.customStart,
+    customEnd: params.customEnd,
     debug: Boolean(params.debug),
   });
   if (!resolved.ok) {
@@ -523,39 +689,44 @@ export async function getGoogleAdsOverviewReport(params: {
 
   const { context, startDate, endDate } = resolved;
   const meta = createEmptyMeta(context.debug);
-  const previousWindow = getPreviousDateWindow(startDate, endDate);
+  const comparisonWindow = getComparisonWindow({
+    compareMode: params.compareMode,
+    startDate,
+    endDate,
+    compareStart: params.compareStart,
+    compareEnd: params.compareEnd,
+  });
 
-  const [
-    customerSummary,
-    campaignCore,
-    campaignShare,
-    previousCustomerSummary,
-    previousCampaignCore,
-    previousCampaignShare,
-  ] = await Promise.all([
+  const [customerSummary, campaignCore, campaignShare] = await Promise.all([
     runNamedQuery(context, buildCustomerSummaryQuery(startDate, endDate)),
     runNamedQuery(context, buildCampaignCoreBasicQuery(startDate, endDate)),
     runNamedQuery(context, buildCampaignShareQuery(startDate, endDate)),
-    runNamedQuery(
-      context,
-      buildCustomerSummaryQuery(previousWindow.startDate, previousWindow.endDate)
-    ),
-    runNamedQuery(
-      context,
-      buildCampaignCoreBasicQuery(previousWindow.startDate, previousWindow.endDate)
-    ),
-    runNamedQuery(
-      context,
-      buildCampaignShareQuery(previousWindow.startDate, previousWindow.endDate)
-    ),
   ]);
+  const previousQueries = comparisonWindow
+    ? await Promise.all([
+        runNamedQuery(
+          context,
+          buildCustomerSummaryQuery(comparisonWindow.startDate, comparisonWindow.endDate)
+        ),
+        runNamedQuery(
+          context,
+          buildCampaignCoreBasicQuery(comparisonWindow.startDate, comparisonWindow.endDate)
+        ),
+        runNamedQuery(
+          context,
+          buildCampaignShareQuery(comparisonWindow.startDate, comparisonWindow.endDate)
+        ),
+      ])
+    : null;
 
   mergeFailures(meta, customerSummary);
   mergeFailures(meta, campaignCore);
   mergeFailures(meta, campaignShare);
-  mergeFailures(meta, previousCustomerSummary);
-  mergeFailures(meta, previousCampaignCore);
-  mergeFailures(meta, previousCampaignShare);
+  if (previousQueries) {
+    mergeFailures(meta, previousQueries[0]);
+    mergeFailures(meta, previousQueries[1]);
+    mergeFailures(meta, previousQueries[2]);
+  }
 
   const campaigns = buildCampaignMap(campaignCore.rows, campaignShare.rows, [])
     .map((campaign) => ({
@@ -565,14 +736,17 @@ export async function getGoogleAdsOverviewReport(params: {
     .sort((a, b) => Number((b.spend as number) ?? 0) - Number((a.spend as number) ?? 0));
 
   const kpis = aggregateOverviewKpis(customerSummary.rows);
-  const previousKpis = aggregateOverviewKpis(previousCustomerSummary.rows);
+  const previousKpis = previousQueries
+    ? aggregateOverviewKpis(previousQueries[0].rows)
+    : undefined;
   const accountAvgRoas = Number(kpis.roas ?? 0);
   const accountAvgCpa = Number(kpis.cpa ?? 0);
   const previousCampaignMap = new Map(
-    buildCampaignMap(previousCampaignCore.rows, previousCampaignShare.rows, []).map((campaign) => [
-      String(campaign.id),
-      campaign,
-    ])
+    previousQueries
+      ? buildCampaignMap(previousQueries[1].rows, previousQueries[2].rows, []).map(
+          (campaign) => [String(campaign.id), campaign]
+        )
+      : []
   );
 
   const enrichedCampaigns = campaigns.map((campaign) => ({
@@ -585,13 +759,17 @@ export async function getGoogleAdsOverviewReport(params: {
         roas: Number(campaign.roas ?? 0),
         ctr: Number(campaign.ctr ?? 0),
       },
-      {
-        spend: Number(previousCampaignMap.get(String(campaign.id))?.spend ?? 0),
-        revenue: Number(previousCampaignMap.get(String(campaign.id))?.revenue ?? 0),
-        conversions: Number(previousCampaignMap.get(String(campaign.id))?.conversions ?? 0),
-        roas: Number(previousCampaignMap.get(String(campaign.id))?.roas ?? 0),
-        ctr: Number(previousCampaignMap.get(String(campaign.id))?.ctr ?? 0),
-      }
+      previousQueries
+        ? {
+            spend: Number(previousCampaignMap.get(String(campaign.id))?.spend ?? 0),
+            revenue: Number(previousCampaignMap.get(String(campaign.id))?.revenue ?? 0),
+            conversions: Number(
+              previousCampaignMap.get(String(campaign.id))?.conversions ?? 0
+            ),
+            roas: Number(previousCampaignMap.get(String(campaign.id))?.roas ?? 0),
+            ctr: Number(previousCampaignMap.get(String(campaign.id))?.ctr ?? 0),
+          }
+        : undefined
     ),
     badges: getCampaignBadges(
       {
@@ -623,20 +801,31 @@ export async function getGoogleAdsOverviewReport(params: {
 
   addDebugMeta(meta, "overview", context, {
     date_range: { startDate, endDate },
-    previous_date_range: previousWindow,
+    comparison_window: comparisonWindow,
   });
+  finalizeMeta(meta);
 
   return {
     kpis,
     kpiDeltas: {
-      spend: pctDelta(Number(kpis.spend ?? 0), Number(previousKpis.spend ?? 0)),
-      revenue: pctDelta(Number(kpis.revenue ?? 0), Number(previousKpis.revenue ?? 0)),
-      roas: pctDelta(Number(kpis.roas ?? 0), Number(previousKpis.roas ?? 0)),
-      conversions: pctDelta(
-        Number(kpis.conversions ?? 0),
-        Number(previousKpis.conversions ?? 0)
-      ),
-      cpa: pctDelta(Number(kpis.cpa ?? 0), Number(previousKpis.cpa ?? 0)),
+      spend: previousKpis
+        ? pctDelta(Number(kpis.spend ?? 0), Number(previousKpis.spend ?? 0))
+        : undefined,
+      revenue: previousKpis
+        ? pctDelta(Number(kpis.revenue ?? 0), Number(previousKpis.revenue ?? 0))
+        : undefined,
+      roas: previousKpis
+        ? pctDelta(Number(kpis.roas ?? 0), Number(previousKpis.roas ?? 0))
+        : undefined,
+      conversions: previousKpis
+        ? pctDelta(
+            Number(kpis.conversions ?? 0),
+            Number(previousKpis.conversions ?? 0)
+          )
+        : undefined,
+      cpa: previousKpis
+        ? pctDelta(Number(kpis.cpa ?? 0), Number(previousKpis.cpa ?? 0))
+        : undefined,
     },
     topCampaigns: enrichedCampaigns.slice(0, 5),
     insights: generateOverviewInsights({
@@ -655,48 +844,53 @@ export async function getGoogleAdsOverviewReport(params: {
   };
 }
 
-export async function getGoogleAdsCampaignsReport(params: {
-  businessId: string;
-  accountId?: string | null;
-  dateRange: DateRange;
-  debug?: boolean;
-}): Promise<ReportResult<Record<string, unknown>>> {
+export async function getGoogleAdsCampaignsReport(
+  params: ComparativeReportParams
+): Promise<ReportResult<CampaignPerformanceRow & Record<string, unknown>>> {
   const resolved = await resolveContext({
     businessId: params.businessId,
     accountId: params.accountId,
     dateRange: params.dateRange,
+    customStart: params.customStart,
+    customEnd: params.customEnd,
     debug: Boolean(params.debug),
   });
   if (!resolved.ok) return resolved.payload;
 
   const { context, startDate, endDate } = resolved;
   const meta = createEmptyMeta(context.debug);
-  const previousWindow = getPreviousDateWindow(startDate, endDate);
-  const [
-    campaignCoreBasic,
-    campaignShare,
-    campaignBudget,
-    previousCampaignCoreBasic,
-    previousCampaignShare,
-  ] = await Promise.all([
+  const comparisonWindow = getComparisonWindow({
+    compareMode: params.compareMode,
+    startDate,
+    endDate,
+    compareStart: params.compareStart,
+    compareEnd: params.compareEnd,
+  });
+  const [campaignCoreBasic, campaignShare, campaignBudget] = await Promise.all([
     runNamedQuery(context, buildCampaignCoreBasicQuery(startDate, endDate)),
     runNamedQuery(context, buildCampaignShareQuery(startDate, endDate)),
     runNamedQuery(context, buildCampaignBudgetQuery(startDate, endDate)),
-    runNamedQuery(
-      context,
-      buildCampaignCoreBasicQuery(previousWindow.startDate, previousWindow.endDate)
-    ),
-    runNamedQuery(
-      context,
-      buildCampaignShareQuery(previousWindow.startDate, previousWindow.endDate)
-    ),
   ]);
+  const previousQueries = comparisonWindow
+    ? await Promise.all([
+        runNamedQuery(
+          context,
+          buildCampaignCoreBasicQuery(comparisonWindow.startDate, comparisonWindow.endDate)
+        ),
+        runNamedQuery(
+          context,
+          buildCampaignShareQuery(comparisonWindow.startDate, comparisonWindow.endDate)
+        ),
+      ])
+    : null;
 
   mergeFailures(meta, campaignCoreBasic);
   mergeFailures(meta, campaignShare);
   mergeFailures(meta, campaignBudget);
-  mergeFailures(meta, previousCampaignCoreBasic);
-  mergeFailures(meta, previousCampaignShare);
+  if (previousQueries) {
+    mergeFailures(meta, previousQueries[0]);
+    mergeFailures(meta, previousQueries[1]);
+  }
 
   const campaigns = buildCampaignMap(
     campaignCoreBasic.rows,
@@ -714,9 +908,11 @@ export async function getGoogleAdsCampaignsReport(params: {
   const accountAvgCpa =
     totalConversions > 0 ? Number((totalSpend / totalConversions).toFixed(2)) : 0;
   const previousCampaignMap = new Map(
-    buildCampaignMap(previousCampaignCoreBasic.rows, previousCampaignShare.rows, []).map(
-      (campaign) => [String(campaign.id), campaign]
-    )
+    previousQueries
+      ? buildCampaignMap(previousQueries[0].rows, previousQueries[1].rows, []).map(
+          (campaign) => [String(campaign.id), campaign]
+        )
+      : []
   );
 
   const rows = campaigns.map((campaign) => {
@@ -750,8 +946,13 @@ export async function getGoogleAdsCampaignsReport(params: {
 
     return {
       ...campaign,
+      campaignId: String(campaign.id),
+      campaignName: String(campaign.name),
       spendShare,
       revenueShare,
+      roasDeltaVsAccount: Number((roas - accountAvgRoas).toFixed(2)),
+      scaleState: actionState === "scale" ? "scale" : "monitor",
+      wasteState: actionState === "reduce" ? "waste" : "healthy",
       performanceLabel,
       actionState,
       ...buildTrendMetrics(
@@ -762,13 +963,15 @@ export async function getGoogleAdsCampaignsReport(params: {
           roas,
           ctr,
         },
-        {
-          spend: Number(previous?.spend ?? 0),
-          revenue: Number(previous?.revenue ?? 0),
-          conversions: Number(previous?.conversions ?? 0),
-          roas: Number(previous?.roas ?? 0),
-          ctr: Number(previous?.ctr ?? 0),
-        }
+        previous
+          ? {
+              spend: Number(previous.spend ?? 0),
+              revenue: Number(previous.revenue ?? 0),
+              conversions: Number(previous.conversions ?? 0),
+              roas: Number(previous.roas ?? 0),
+              ctr: Number(previous.ctr ?? 0),
+            }
+          : undefined
       ),
       badges: getCampaignBadges(
         {
@@ -802,11 +1005,12 @@ export async function getGoogleAdsCampaignsReport(params: {
   });
   addDebugMeta(meta, "campaigns", context, {
     date_range: { startDate, endDate },
-    previous_date_range: previousWindow,
+    comparison_window: comparisonWindow,
   });
+  finalizeMeta(meta);
 
   return {
-    rows,
+    rows: rows as unknown as Array<CampaignPerformanceRow & Record<string, unknown>>,
     summary: {
       accountAvgRoas,
       accountAvgCpa,
@@ -816,17 +1020,15 @@ export async function getGoogleAdsCampaignsReport(params: {
   };
 }
 
-export async function getGoogleAdsSearchTermsReport(params: {
-  businessId: string;
-  accountId?: string | null;
-  dateRange: DateRange;
+export async function getGoogleAdsSearchTermsReport(params: BaseReportParams & {
   filter?: string;
-  debug?: boolean;
-}): Promise<ReportResult<Record<string, unknown>>> {
+}): Promise<ReportResult<SearchTermPerformanceRow & Record<string, unknown>>> {
   const resolved = await resolveContext({
     businessId: params.businessId,
     accountId: params.accountId,
     dateRange: params.dateRange,
+    customStart: params.customStart,
+    customEnd: params.customEnd,
     debug: Boolean(params.debug),
   });
   if (!resolved.ok) return resolved.payload;
@@ -866,8 +1068,10 @@ export async function getGoogleAdsSearchTermsReport(params: {
         status: asString(getCompatValue(searchTermView, "status")) ?? "UNKNOWN",
         campaignId: asString(getCompatValue(campaign, "id")),
         campaign: asString(getCompatValue(campaign, "name")) ?? "",
+        campaignName: asString(getCompatValue(campaign, "name")) ?? "",
         adGroupId: asString(getCompatValue(adGroup, "id")),
         adGroup: asString(getCompatValue(adGroup, "name")) ?? "",
+        adGroupName: asString(getCompatValue(adGroup, "name")) ?? "",
         impressions: data.impressions,
         clicks: data.clicks,
         spend: data.spend,
@@ -881,7 +1085,13 @@ export async function getGoogleAdsSearchTermsReport(params: {
         valuePerConversion: data.valuePerConversion,
         costPerConversion: data.costPerConversion,
         intent: classifySearchIntent(searchTerm),
+        intentClass: classifySearchIntent(searchTerm),
         isKeyword: keywordSet.has(searchTerm.toLowerCase()),
+        wasteFlag: data.spend > 20 && data.conversions === 0,
+        keywordOpportunityFlag:
+          !keywordSet.has(searchTerm.toLowerCase()) && data.conversions >= 2,
+        negativeKeywordFlag: data.clicks >= 20 && data.conversions === 0 && data.spend > 10,
+        clusterId: slugifyQueryCluster(searchTerm) || searchTerm.toLowerCase(),
       };
     })
     .filter((row) => row.searchTerm.length > 0)
@@ -891,9 +1101,10 @@ export async function getGoogleAdsSearchTermsReport(params: {
   addDebugMeta(meta, "search-terms", context, {
     date_range: { startDate, endDate },
   });
+  finalizeMeta(meta);
 
   return {
-    rows,
+    rows: rows as unknown as Array<SearchTermPerformanceRow & Record<string, unknown>>,
     summary: {
       wastefulCount: classified.wasteful.length,
       negativeKeywordCandidates: classified.negativeKeywordCandidates.length,
@@ -916,16 +1127,15 @@ function normalizeMatchType(raw: string | null): string {
   return raw;
 }
 
-export async function getGoogleAdsKeywordsReport(params: {
-  businessId: string;
-  accountId?: string | null;
-  dateRange: DateRange;
-  debug?: boolean;
-}): Promise<ReportResult<Record<string, unknown>>> {
+export async function getGoogleAdsKeywordsReport(
+  params: BaseReportParams
+): Promise<ReportResult<KeywordPerformanceRow & Record<string, unknown>>> {
   const resolved = await resolveContext({
     businessId: params.businessId,
     accountId: params.accountId,
     dateRange: params.dateRange,
+    customStart: params.customStart,
+    customEnd: params.customEnd,
     debug: Boolean(params.debug),
   });
   if (!resolved.ok) return resolved.payload;
@@ -966,6 +1176,7 @@ export async function getGoogleAdsKeywordsReport(params: {
       return {
         criterionId: asString(getCompatValue(criterion, "criterion_id")),
         keyword: asString(getCompatValue(keyword, "text")) ?? "",
+        keywordText: asString(getCompatValue(keyword, "text")) ?? "",
         matchType: normalizeMatchType(
           asString(getCompatValue(keyword, "match_type"))
         ),
@@ -976,8 +1187,10 @@ export async function getGoogleAdsKeywordsReport(params: {
         landingPageExperience: asString(getCompatValue(qualityInfo, "landing_page_experience")),
         adGroupId: asString(getCompatValue(adGroup, "id")),
         adGroup: asString(getCompatValue(adGroup, "name")) ?? "",
+        adGroupName: asString(getCompatValue(adGroup, "name")) ?? "",
         campaignId: asString(getCompatValue(campaign, "id")),
         campaign: asString(getCompatValue(campaign, "name")) ?? "",
+        campaignName: asString(getCompatValue(campaign, "name")) ?? "",
         impressions: data.impressions,
         clicks: data.clicks,
         spend: data.spend,
@@ -1003,9 +1216,26 @@ export async function getGoogleAdsKeywordsReport(params: {
     date_range: { startDate, endDate },
   });
 
+  const keywordAnalysis = analyzeKeywords(rows);
+  const typedRows = keywordAnalysis.rows.map((row) => ({
+    ...row,
+    keywordState: String(row.classification ?? "weak_keyword") === "scale_keyword"
+      ? "scale"
+      : String(row.classification ?? "weak_keyword") === "negative_candidate"
+      ? "negative_candidate"
+      : "weak",
+    scaleFlag: String(row.classification ?? "") === "scale_keyword",
+    negativeCandidateFlag: String(row.classification ?? "") === "negative_candidate",
+  }));
+  finalizeMeta(meta);
+
   return {
-    rows,
+    rows: typedRows as unknown as Array<KeywordPerformanceRow & Record<string, unknown>>,
     summary: {
+      scaleKeywordCount: keywordAnalysis.summary.scaleKeywordCount,
+      weakKeywordCount: keywordAnalysis.summary.weakKeywordCount,
+      negativeCandidateCount: keywordAnalysis.summary.negativeCandidateCount,
+      accountAverageRoas: keywordAnalysis.summary.accountAverageRoas,
       highCtrLowConvCount: rows.filter(
         (keyword) => keyword.ctr > 5 && keyword.conversions === 0 && keyword.clicks >= 20
       ).length,
@@ -1019,6 +1249,7 @@ export async function getGoogleAdsKeywordsReport(params: {
         (keyword) => keyword.conversions >= 5 && keyword.spend > 100
       ).length,
     },
+    insights: keywordAnalysis.insights,
     meta,
   };
 }
@@ -1138,17 +1369,15 @@ function buildSearchClusters(
     .sort((a, b) => b.spend - a.spend);
 }
 
-export async function getGoogleAdsSearchIntelligenceReport(params: {
-  businessId: string;
-  accountId?: string | null;
-  dateRange: DateRange;
+export async function getGoogleAdsSearchIntelligenceReport(params: BaseReportParams & {
   filter?: string;
-  debug?: boolean;
-}): Promise<ReportResult<Record<string, unknown>>> {
+}): Promise<ReportResult<SearchTermPerformanceRow & Record<string, unknown>>> {
   const resolved = await resolveContext({
     businessId: params.businessId,
     accountId: params.accountId,
     dateRange: params.dateRange,
+    customStart: params.customStart,
+    customEnd: params.customEnd,
     debug: Boolean(params.debug),
   });
   if (!resolved.ok) return resolved.payload;
@@ -1188,8 +1417,10 @@ export async function getGoogleAdsSearchIntelligenceReport(params: {
       searchTerm,
       campaignId: asString(getCompatValue(campaign, "id")),
       campaign: asString(getCompatValue(campaign, "name")) ?? "",
+      campaignName: asString(getCompatValue(campaign, "name")) ?? "",
       adGroupId: asString(getCompatValue(adGroup, "id")),
       adGroup: asString(getCompatValue(adGroup, "name")) ?? "",
+      adGroupName: asString(getCompatValue(adGroup, "name")) ?? "",
       matchSource: "SEARCH",
       source: "search_term_view",
       impressions: data.impressions,
@@ -1200,9 +1431,16 @@ export async function getGoogleAdsSearchIntelligenceReport(params: {
       roas: data.roas,
       cpa: data.cpa,
       ctr: data.ctr ?? 0,
+      cpc: data.averageCpc,
       conversionRate: data.conversionRate,
       intent: classifySearchIntent(searchTerm),
+      intentClass: classifySearchIntent(searchTerm),
       isKeyword: keywordSet.has(searchTerm.toLowerCase()),
+      wasteFlag: data.spend > 20 && data.conversions === 0,
+      keywordOpportunityFlag:
+        !keywordSet.has(searchTerm.toLowerCase()) && data.conversions >= 2,
+      negativeKeywordFlag: data.clicks >= 20 && data.conversions === 0 && data.spend > 10,
+      clusterId: slugifyQueryCluster(searchTerm) || searchTerm.toLowerCase(),
     };
   });
 
@@ -1218,8 +1456,10 @@ export async function getGoogleAdsSearchIntelligenceReport(params: {
       searchTerm,
       campaignId: asString(getCompatValue(campaign, "id")),
       campaign: asString(getCompatValue(campaign, "name")) ?? "",
+      campaignName: asString(getCompatValue(campaign, "name")) ?? "",
       adGroupId: null,
       adGroup: "Campaign scope",
+      adGroupName: "Campaign scope",
       matchSource: asString(getCompatValue(segments, "search_term_match_source")) ?? "UNKNOWN",
       source: "campaign_search_term_view",
       impressions: data.impressions,
@@ -1230,9 +1470,16 @@ export async function getGoogleAdsSearchIntelligenceReport(params: {
       roas: data.roas,
       cpa: data.cpa,
       ctr: data.ctr ?? 0,
+      cpc: data.averageCpc,
       conversionRate: data.conversionRate,
       intent: classifySearchIntent(searchTerm),
+      intentClass: classifySearchIntent(searchTerm),
       isKeyword: keywordSet.has(searchTerm.toLowerCase()),
+      wasteFlag: data.spend > 20 && data.conversions === 0,
+      keywordOpportunityFlag:
+        !keywordSet.has(searchTerm.toLowerCase()) && data.conversions >= 2,
+      negativeKeywordFlag: data.clicks >= 20 && data.conversions === 0 && data.spend > 10,
+      clusterId: slugifyQueryCluster(searchTerm) || searchTerm.toLowerCase(),
     };
   });
 
@@ -1255,6 +1502,7 @@ export async function getGoogleAdsSearchIntelligenceReport(params: {
     .sort((a, b) => b.spend - a.spend);
 
   const clusters = buildSearchClusters(rows);
+  const searchAnalysis = analyzeSearchIntelligence(rows);
   const keywordCandidates = rows.filter(
     (row) => row.recommendation === "Add as exact keyword"
   );
@@ -1274,9 +1522,10 @@ export async function getGoogleAdsSearchIntelligenceReport(params: {
   addDebugMeta(meta, "search-intelligence", context, {
     date_range: { startDate, endDate },
   });
+  finalizeMeta(meta);
 
   return {
-    rows,
+    rows: rows as unknown as Array<SearchTermPerformanceRow & Record<string, unknown>>,
     summary: {
       wastefulSpend: Number(
         negativeCandidates.reduce((sum, row) => sum + row.spend, 0).toFixed(2)
@@ -1285,12 +1534,19 @@ export async function getGoogleAdsSearchIntelligenceReport(params: {
       negativeKeywordCount: negativeCandidates.length,
       promotionSuggestionCount: promotionCandidates.length,
       clusterCount: clusters.length,
+      bestConvertingThemeCount: searchAnalysis.summary.bestConvertingThemeCount,
+      wastefulThemeCount: searchAnalysis.summary.wastefulThemeCount,
+      emergingThemeCount: searchAnalysis.summary.emergingThemeCount,
     },
     insights: {
       keywordCandidates: keywordCandidates.slice(0, 8),
       negativeCandidates: negativeCandidates.slice(0, 8),
       promotionCandidates: promotionCandidates.slice(0, 8),
       clusters: clusters.slice(0, 12),
+      bestConvertingThemes: searchAnalysis.insights.bestConvertingThemes,
+      wastefulThemes: searchAnalysis.insights.wastefulThemes,
+      newOpportunityQueries: searchAnalysis.insights.newOpportunityQueries,
+      semanticClusters: searchAnalysis.insights.semanticClusters,
     },
     meta,
   };
@@ -1339,16 +1595,15 @@ function normalizeAdStrength(value: string | null): string | null {
   return value;
 }
 
-export async function getGoogleAdsAdsReport(params: {
-  businessId: string;
-  accountId?: string | null;
-  dateRange: DateRange;
-  debug?: boolean;
-}): Promise<ReportResult<Record<string, unknown>>> {
+export async function getGoogleAdsAdsReport(
+  params: BaseReportParams
+): Promise<ReportResult<Record<string, unknown>>> {
   const resolved = await resolveContext({
     businessId: params.businessId,
     accountId: params.accountId,
     dateRange: params.dateRange,
+    customStart: params.customStart,
+    customEnd: params.customEnd,
     debug: Boolean(params.debug),
   });
   if (!resolved.ok) return resolved.payload;
@@ -1415,6 +1670,7 @@ export async function getGoogleAdsAdsReport(params: {
   addDebugMeta(meta, "ads", context, {
     date_range: { startDate, endDate },
   });
+  finalizeMeta(meta);
 
   return {
     rows,
@@ -1468,106 +1724,98 @@ function buildAssetPreview(params: {
   );
 }
 
-export async function getGoogleAdsAssetsReport(params: {
-  businessId: string;
-  accountId?: string | null;
-  dateRange: DateRange;
-  debug?: boolean;
-}): Promise<ReportResult<Record<string, unknown>>> {
+export async function getGoogleAdsAssetsReport(
+  params: BaseReportParams
+): Promise<ReportResult<AssetPerformanceRow & Record<string, unknown>>> {
   const resolved = await resolveContext({
     businessId: params.businessId,
     accountId: params.accountId,
     dateRange: params.dateRange,
+    customStart: params.customStart,
+    customEnd: params.customEnd,
     debug: Boolean(params.debug),
   });
   if (!resolved.ok) return resolved.payload;
 
   const { context, startDate, endDate } = resolved;
   const meta = createEmptyMeta(context.debug);
-  const [core, detail] = await Promise.all([
-    runNamedQuery(context, buildAssetPerformanceCoreQuery(startDate, endDate)),
-    runNamedQuery(context, buildAssetTextDetailQuery()),
-  ]);
-
+  const core = await runNamedQuery(context, buildAssetPerformanceCoreQuery(startDate, endDate));
   mergeFailures(meta, core);
-  mergeFailures(meta, detail);
-
-  const detailMap = new Map<
-    string,
-    {
-      name: string | null;
-      text: string | null;
-      videoTitle: string | null;
-      videoId: string | null;
-      type: string | null;
-    }
-  >();
-
-  for (const row of detail.rows) {
-    const asset = getCompatObject(row, "asset");
-    const textAsset = getCompatObject(asset, "text_asset");
-    const youtubeAsset = getCompatObject(asset, "youtube_video_asset");
-    const id = asString(getCompatValue(asset, "id"));
-    if (!id) continue;
-    detailMap.set(id, {
-      name: asString(getCompatValue(asset, "name")),
-      text: asString(getCompatValue(textAsset, "text")),
-      videoTitle: asString(getCompatValue(youtubeAsset, "youtube_video_title")),
-      videoId: asString(getCompatValue(youtubeAsset, "youtube_video_id")),
-      type: asString(getCompatValue(asset, "type")),
-    });
-  }
 
   const rows = core.rows
     .map((row) => {
       const assetGroup = getCompatObject(row, "asset_group");
       const campaign = getCompatObject(row, "campaign");
       const asset = getCompatObject(row, "asset");
-      const aga = getCompatObject(row, "asset_group_asset");
+      const assetGroupAsset = getCompatObject(row, "asset_group_asset");
       const metrics = getCompatObject(row, "metrics");
       const data = toMetricSet(metrics);
       const assetId = asString(getCompatValue(asset, "id")) ?? "unknown";
-      const details = detailMap.get(assetId);
-      const fieldType = asString(getCompatValue(aga, "field_type"));
-      const assetType = asString(getCompatValue(asset, "type")) ?? details?.type ?? null;
+      const fieldType = asString(getCompatValue(assetGroupAsset, "field_type"));
+      const assetType = asString(getCompatValue(asset, "type")) ?? null;
+      const textAsset = getCompatObject(asset, "text_asset");
+      const imageAsset = getCompatObject(asset, "image_asset");
+      const fullSize = getCompatObject(imageAsset, "full_size");
+      const youtubeAsset = getCompatObject(asset, "youtube_video_asset");
+      const assetText = asString(getCompatValue(textAsset, "text"));
+      const imageUrl = asString(getCompatValue(fullSize, "url"));
+      const videoTitle = asString(getCompatValue(youtubeAsset, "youtube_video_title"));
+      const videoId = asString(getCompatValue(youtubeAsset, "youtube_video_id"));
+      const preview = buildAssetPreview({
+        fieldType,
+        assetType,
+        name: asString(getCompatValue(asset, "name")),
+        text: assetText,
+        videoTitle,
+      });
       return {
         id: `${asString(getCompatValue(assetGroup, "id")) ?? "group"}:${assetId}`,
         assetId,
         assetGroupId: asString(getCompatValue(assetGroup, "id")),
+        assetGroupIdString: asString(getCompatValue(assetGroup, "id")),
         assetGroup: asString(getCompatValue(assetGroup, "name")) ?? "Unknown asset group",
+        assetGroupName: asString(getCompatValue(assetGroup, "name")) ?? "Unknown asset group",
         campaignId: asString(getCompatValue(campaign, "id")),
         campaign: asString(getCompatValue(campaign, "name")) ?? "",
+        campaignName: asString(getCompatValue(campaign, "name")) ?? "",
         fieldType,
         type: normalizeAssetKind(fieldType, assetType),
-        assetType,
-        name: details?.name ?? asString(getCompatValue(asset, "name")),
-        text: details?.text ?? null,
-        preview: buildAssetPreview({
-          fieldType,
-          assetType,
-          name: details?.name ?? asString(getCompatValue(asset, "name")),
-          text: details?.text ?? null,
-          videoTitle: details?.videoTitle ?? null,
-        }),
-        videoId: details?.videoId ?? null,
-        performanceLabel: normalizeAssetPerformanceLabel(
-          asString(getCompatValue(aga, "performance_label"))
-        ),
+        assetType: normalizeAssetKind(fieldType, assetType),
+        rawAssetType: assetType,
+        name: asString(getCompatValue(asset, "name")),
+        assetName: asString(getCompatValue(asset, "name")),
+        text: assetText ?? imageUrl ?? videoTitle ?? null,
+        assetText: assetText ?? preview,
+        imageUrl,
+        preview,
+        videoId,
         impressions: data.impressions,
         clicks: data.clicks,
         interactions: data.interactions,
         interactionRate: data.interactionRate,
         spend: data.spend,
+        cost: data.spend,
         conversions: data.conversions,
         revenue: data.conversionValue,
         roas: data.roas,
         ctr: data.ctr,
+        cpc: data.averageCpc,
+        cpa: data.cpa,
         conversionRate: data.conversionRate,
         valuePerConversion: data.valuePerConversion,
+        performanceLabel: "average" as "top" | "average" | "underperforming",
       };
     })
     .filter((row) => row.assetId !== "unknown");
 
+  const avgCtr =
+    rows.length > 0
+      ? rows.reduce((sum, row) => sum + Number(row.ctr ?? 0), 0) / rows.length
+      : 0;
+  const avgRoas =
+    rows.length > 0
+      ? rows.reduce((sum, row) => sum + Number(row.roas ?? 0), 0) / rows.length
+      : 0;
   const avgInteractionRate =
     rows.length > 0
       ? Number(
@@ -1585,37 +1833,103 @@ export async function getGoogleAdsAssetsReport(params: {
         )
       : 0;
 
-  const enrichedRows = rows.map((row) => ({
-    ...row,
-    hint:
-      Number(row.interactionRate ?? 0) < avgInteractionRate * 0.7 && row.impressions >= 100
-        ? "Low interaction rate versus account average"
-        : row.interactions >= 20 && row.conversions === 0
-        ? "High interaction but weak post-click conversion"
-        : Number(row.conversionRate ?? 0) < avgConversionRate * 0.7 && row.clicks >= 15
-        ? "Clicks are coming through but message or landing page may be misaligned"
-        : row.performanceLabel === "top"
-        ? "High-value asset to reuse in new variants"
-        : "",
-  }));
+  const enrichedRows = rows.map((row) => {
+    let performanceLabel: "top" | "average" | "underperforming" = "average";
+    if (
+      Number(row.conversions ?? 0) > 0 &&
+      Number(row.roas ?? 0) >= Math.max(avgRoas * 1.15, 1.5)
+    ) {
+      performanceLabel = "top";
+    } else if (
+      (Number(row.spend ?? 0) > 20 && Number(row.conversions ?? 0) === 0) ||
+      (Number(row.ctr ?? 0) > 0 && Number(row.ctr ?? 0) < avgCtr * 0.7) ||
+      (Number(row.interactionRate ?? 0) > 0 &&
+        Number(row.interactionRate ?? 0) < avgInteractionRate * 0.7)
+    ) {
+      performanceLabel = "underperforming";
+    }
 
-  if (detail.failures.length > 0) {
-    meta.warnings.push(
-      "Some asset previews are unavailable. Performance metrics still use stable asset_group_asset reporting."
-    );
-  }
+    return {
+      ...row,
+      performanceLabel,
+      hint:
+        Number(row.spend ?? 0) > 20 && Number(row.conversions ?? 0) === 0
+          ? "Spend is accumulating without any conversion value."
+          : row.interactions >= 20 && row.conversions === 0
+          ? "High interaction but weak post-click conversion."
+          : Number(row.interactionRate ?? 0) < avgInteractionRate * 0.7 && row.impressions >= 100
+          ? "Engagement is below account average."
+          : Number(row.conversionRate ?? 0) < avgConversionRate * 0.7 && row.clicks >= 15
+          ? "Message or landing-page fit looks weak after the click."
+          : performanceLabel === "top"
+          ? "Top-performing asset worth reusing in new variants."
+          : "Average performer; keep testing variety around it.",
+    };
+  });
 
   addDebugMeta(meta, "assets", context, {
     date_range: { startDate, endDate },
   });
 
+  const assetAnalysis = analyzeAssets(enrichedRows);
+  const groupTotals = assetAnalysis.rows.reduce((map, row) => {
+    const key = String(row.assetGroupId ?? "unknown");
+    const current = map.get(key) ?? { spend: 0, revenue: 0 };
+    current.spend += Number(row.spend ?? 0);
+    current.revenue += Number(row.revenue ?? 0);
+    map.set(key, current);
+    return map;
+  }, new Map<string, { spend: number; revenue: number }>());
+  const typedRows: Array<Record<string, unknown>> = assetAnalysis.rows.map((row) => {
+    const totals = groupTotals.get(String(row.assetGroupId ?? "unknown")) ?? {
+      spend: 0,
+      revenue: 0,
+    };
+    return {
+      ...row,
+      assetState: row.performanceLabel,
+      spendShareWithinGroup:
+        totals.spend > 0 ? Number(((Number(row.spend ?? 0) / totals.spend) * 100).toFixed(1)) : 0,
+      revenueShareWithinGroup:
+        totals.revenue > 0
+          ? Number(((Number(row.revenue ?? 0) / totals.revenue) * 100).toFixed(1))
+          : 0,
+      wasteFlag:
+        String(row.classification ?? "") === "budget_waste" ||
+        String(row.classification ?? "") === "weak",
+      expandFlag: String(row.classification ?? "") === "top_performer",
+    };
+  });
+  finalizeMeta(meta);
+
+  const topPerformingAssets = enrichedRows
+    .filter((row) => row.performanceLabel === "top")
+    .sort((a, b) => Number(b.revenue ?? 0) - Number(a.revenue ?? 0))
+    .slice(0, 6);
+  const weakAssets = enrichedRows
+    .filter((row) => row.performanceLabel === "underperforming")
+    .sort((a, b) => Number(b.spend ?? 0) - Number(a.spend ?? 0))
+    .slice(0, 6);
+  const spendNoConversionAssets = enrichedRows
+    .filter((row) => Number(row.spend ?? 0) > 20 && Number(row.conversions ?? 0) === 0)
+    .sort((a, b) => Number(b.spend ?? 0) - Number(a.spend ?? 0))
+    .slice(0, 6);
+
   return {
-    rows: enrichedRows.sort((a, b) => b.spend - a.spend),
+    rows: typedRows.sort((a, b) => Number(b.spend ?? 0) - Number(a.spend ?? 0)) as unknown as Array<
+      AssetPerformanceRow & Record<string, unknown>
+    >,
     summary: {
-      topPerformingCount: enrichedRows.filter((row) => row.performanceLabel === "top").length,
+      topPerformingCount: topPerformingAssets.length,
+      topPerformerCount: assetAnalysis.summary.topPerformerCount,
+      stableCount: assetAnalysis.summary.stableCount,
+      weakCount: assetAnalysis.summary.weakCount,
+      budgetWasteCount: assetAnalysis.summary.budgetWasteCount,
+      accountAverageRoas: assetAnalysis.summary.accountAverageRoas,
       underperformingCount: enrichedRows.filter(
         (row) => row.performanceLabel === "underperforming"
       ).length,
+      spendNoConversionCount: spendNoConversionAssets.length,
       lowCtrCount: enrichedRows.filter(
         (row) => Number(row.interactionRate ?? row.ctr ?? 0) < avgInteractionRate * 0.7
       ).length,
@@ -1625,6 +1939,21 @@ export async function getGoogleAdsAssetsReport(params: {
           return map;
         }, new Map<string, number>())
       ).map(([type, count]) => ({ type, count })),
+    },
+    insights: {
+      topPerformingAssets,
+      topConvertingAssets: assetAnalysis.insights.topConvertingAssets,
+      assetsWastingSpend: assetAnalysis.insights.assetsWastingSpend,
+      assetsToExpand: assetAnalysis.insights.assetsToExpand,
+      weakAssets,
+      spendNoConversionAssets,
+      bestConvertingHeadlines: enrichedRows
+        .filter(
+          (row) =>
+            String(row.type).toLowerCase() === "headline" && Number(row.conversions ?? 0) > 0
+        )
+        .sort((a, b) => Number(b.conversions ?? 0) - Number(a.conversions ?? 0))
+        .slice(0, 5),
     },
     meta,
   };
@@ -1642,16 +1971,15 @@ function normalizeAudienceType(raw: string | null): string {
   return raw.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (l) => l.toUpperCase());
 }
 
-export async function getGoogleAdsAudiencesReport(params: {
-  businessId: string;
-  accountId?: string | null;
-  dateRange: DateRange;
-  debug?: boolean;
-}): Promise<ReportResult<Record<string, unknown>>> {
+export async function getGoogleAdsAudiencesReport(
+  params: BaseReportParams
+): Promise<ReportResult<AudiencePerformanceRow & Record<string, unknown>>> {
   const resolved = await resolveContext({
     businessId: params.businessId,
     accountId: params.accountId,
     dateRange: params.dateRange,
+    customStart: params.customStart,
+    customEnd: params.customEnd,
     debug: Boolean(params.debug),
   });
   if (!resolved.ok) return resolved.payload;
@@ -1669,12 +1997,18 @@ export async function getGoogleAdsAudiencesReport(params: {
     const data = toMetricSet(metrics);
     return {
       criterionId: asString(getCompatValue(criterion, "criterion_id")) ?? "",
+      audienceKey: asString(getCompatValue(criterion, "criterion_id")) ?? "",
       name: asString(getCompatValue(criterion, "criterion_id")) ?? "Unknown audience",
+      audienceNameBestEffort:
+        asString(getCompatValue(criterion, "criterion_id")) ?? "Unknown audience",
       type: normalizeAudienceType(asString(getCompatValue(criterion, "type"))),
+      audienceType: normalizeAudienceType(asString(getCompatValue(criterion, "type"))),
       campaignId: asString(getCompatValue(campaign, "id")),
       campaign: asString(getCompatValue(campaign, "name")) ?? "",
+      campaignName: asString(getCompatValue(campaign, "name")) ?? "",
       adGroupId: asString(getCompatValue(adGroup, "id")),
       adGroup: asString(getCompatValue(adGroup, "name")) ?? "",
+      adGroupName: asString(getCompatValue(adGroup, "name")) ?? "",
       impressions: data.impressions,
       clicks: data.clicks,
       spend: data.spend,
@@ -1687,6 +2021,10 @@ export async function getGoogleAdsAudiencesReport(params: {
       conversionRate: data.conversionRate,
       valuePerConversion: data.valuePerConversion,
       costPerConversion: data.costPerConversion,
+      audienceState:
+        data.roas >= 3 ? "strong" : data.spend > 20 && data.conversions === 0 ? "weak" : "monitor",
+      weakSegmentFlag: data.spend > 20 && data.conversions === 0,
+      strongSegmentFlag: data.roas >= 3,
     };
   });
 
@@ -1703,9 +2041,12 @@ export async function getGoogleAdsAudiencesReport(params: {
   addDebugMeta(meta, "audiences", context, {
     date_range: { startDate, endDate },
   });
+  finalizeMeta(meta);
 
   return {
-    rows: rows.sort((a, b) => b.spend - a.spend),
+    rows: rows.sort((a, b) => b.spend - a.spend) as unknown as Array<
+      AudiencePerformanceRow & Record<string, unknown>
+    >,
     summary: {
       byType: Array.from(byType.entries()).map(([type, stats]) => ({
         type,
@@ -1719,16 +2060,15 @@ export async function getGoogleAdsAudiencesReport(params: {
   };
 }
 
-export async function getGoogleAdsGeoReport(params: {
-  businessId: string;
-  accountId?: string | null;
-  dateRange: DateRange;
-  debug?: boolean;
-}): Promise<ReportResult<Record<string, unknown>>> {
+export async function getGoogleAdsGeoReport(
+  params: BaseReportParams
+): Promise<ReportResult<GeoPerformanceRow & Record<string, unknown>>> {
   const resolved = await resolveContext({
     businessId: params.businessId,
     accountId: params.accountId,
     dateRange: params.dateRange,
+    customStart: params.customStart,
+    customEnd: params.customEnd,
     debug: Boolean(params.debug),
   });
   if (!resolved.ok) return resolved.payload;
@@ -1782,7 +2122,9 @@ export async function getGoogleAdsGeoReport(params: {
   const rows = Array.from(geoMap.entries())
     .map(([criterionId, metrics]) => ({
       criterionId,
+      geoId: criterionId,
       country: COUNTRY_MAP[criterionId] ?? `Country #${criterionId}`,
+      geoName: COUNTRY_MAP[criterionId] ?? `Country #${criterionId}`,
       impressions: metrics.impressions,
       clicks: metrics.clicks,
       spend: metrics.spend,
@@ -1803,26 +2145,39 @@ export async function getGoogleAdsGeoReport(params: {
         avgCpa && metrics.conversions > 0
           ? Number((((metrics.spend / metrics.conversions) / avgCpa - 1) * 100).toFixed(0))
           : null,
+      geoState:
+        metrics.spend > 20 && metrics.revenue > metrics.spend * 3
+          ? "scale"
+          : metrics.spend > 20 && metrics.conversions === 0
+          ? "reduce"
+          : "monitor",
+      scaleFlag: metrics.spend > 20 && metrics.revenue > metrics.spend * 3,
+      reduceFlag: metrics.spend > 20 && metrics.conversions === 0,
     }))
     .sort((a, b) => b.spend - a.spend);
 
   addDebugMeta(meta, "geo", context, {
     date_range: { startDate, endDate },
   });
+  finalizeMeta(meta);
 
-  return { rows, summary: { avgCpa }, insights: [], meta };
+  return {
+    rows: rows as unknown as Array<GeoPerformanceRow & Record<string, unknown>>,
+    summary: { avgCpa },
+    insights: [],
+    meta,
+  };
 }
 
-export async function getGoogleAdsDevicesReport(params: {
-  businessId: string;
-  accountId?: string | null;
-  dateRange: DateRange;
-  debug?: boolean;
-}): Promise<ReportResult<Record<string, unknown>>> {
+export async function getGoogleAdsDevicesReport(
+  params: BaseReportParams
+): Promise<ReportResult<DevicePerformanceRow & Record<string, unknown>>> {
   const resolved = await resolveContext({
     businessId: params.businessId,
     accountId: params.accountId,
     dateRange: params.dateRange,
+    customStart: params.customStart,
+    customEnd: params.customEnd,
     debug: Boolean(params.debug),
   });
   if (!resolved.ok) return resolved.payload;
@@ -1886,21 +2241,33 @@ export async function getGoogleAdsDevicesReport(params: {
         ? Number(((metrics.conversions / metrics.clicks) * 100).toFixed(2))
         : 0,
     videoViews: metrics.videoViews,
+    deviceState:
+      metrics.spend > 20 && metrics.revenue > metrics.spend * 3
+        ? "scale"
+        : metrics.spend > 20 && metrics.conversions === 0
+        ? "weak"
+        : "monitor",
+    scaleFlag: metrics.spend > 20 && metrics.revenue > metrics.spend * 3,
+    weakFlag: metrics.spend > 20 && metrics.conversions === 0,
   }));
 
   addDebugMeta(meta, "devices", context, {
     date_range: { startDate, endDate },
   });
+  finalizeMeta(meta);
 
-  return { rows: rows.sort((a, b) => b.spend - a.spend), insights: [], meta };
+  return {
+    rows: rows.sort((a, b) => b.spend - a.spend) as unknown as Array<
+      DevicePerformanceRow & Record<string, unknown>
+    >,
+    insights: [],
+    meta,
+  };
 }
 
-export async function getGoogleAdsBudgetReport(params: {
-  businessId: string;
-  accountId?: string | null;
-  dateRange: DateRange;
-  debug?: boolean;
-}): Promise<ReportResult<Record<string, unknown>>> {
+export async function getGoogleAdsBudgetReport(
+  params: BaseReportParams
+): Promise<ReportResult<Record<string, unknown>>> {
   const report = await getGoogleAdsCampaignsReport(params);
   const rows = report.rows.map((row) => ({
     id: row.id,
@@ -1919,57 +2286,68 @@ export async function getGoogleAdsBudgetReport(params: {
     status: row.status,
     channel: row.channel,
     ctr: row.ctr,
+    spendShare: row.spendShare ?? null,
+    revenueShare: row.revenueShare ?? null,
   }));
 
-  const totalSpend = rows.reduce((sum, row) => sum + Number(row.spend ?? 0), 0);
-  const totalRevenue = rows.reduce((sum, row) => sum + Number(row.revenue ?? 0), 0);
+  const budgetAnalysis = analyzeBudgetScaling(rows);
+
+  const totalSpend = budgetAnalysis.rows.reduce((sum, row) => sum + Number(row.spend ?? 0), 0);
+  const totalRevenue = budgetAnalysis.rows.reduce((sum, row) => sum + Number(row.revenue ?? 0), 0);
   const accountAvgRoas = totalSpend > 0 ? Number((totalRevenue / totalSpend).toFixed(2)) : 0;
 
   return {
-    rows,
+    rows: budgetAnalysis.rows,
     summary: {
       totalSpend: Number(totalSpend.toFixed(2)),
       accountAvgRoas,
+      scaleCampaignCount: budgetAnalysis.summary.scaleCampaignCount,
+      stableCampaignCount: budgetAnalysis.summary.stableCampaignCount,
+      budgetSinkCount: budgetAnalysis.summary.budgetSinkCount,
     },
-    insights: generateBudgetRecommendations(
-      rows.map((row) => ({
-        id: String(row.id),
-        name: String(row.name),
-        status: String(row.status ?? "paused"),
-        channel: String(row.channel ?? "Unknown"),
-        spend: Number(row.spend ?? 0),
-        conversions: Number(row.conversions ?? 0),
-        revenue: Number(row.revenue ?? 0),
-        roas: Number(row.roas ?? 0),
-        cpa: Number(row.cpa ?? 0),
-        ctr: Number(row.ctr ?? 0),
-        impressions: Number(row.impressions ?? 0),
-        clicks: Number(row.clicks ?? 0),
-        impressionShare:
-          typeof row.impressionShare === "number" ? row.impressionShare : undefined,
-        lostIsBudget:
-          typeof row.lostIsBudget === "number" ? row.lostIsBudget : undefined,
-        lostIsRank:
-          typeof row.lostIsRank === "number" ? row.lostIsRank : undefined,
-        budget:
-          typeof row.dailyBudget === "number" ? row.dailyBudget : undefined,
-      })),
-      accountAvgRoas
-    ),
+    insights: {
+      recommendations: generateBudgetRecommendations(
+        budgetAnalysis.rows.map((row) => ({
+          id: String(row.id),
+          name: String(row.name),
+          status: String(row.status ?? "paused"),
+          channel: String(row.channel ?? "Unknown"),
+          spend: Number(row.spend ?? 0),
+          conversions: Number(row.conversions ?? 0),
+          revenue: Number(row.revenue ?? 0),
+          roas: Number(row.roas ?? 0),
+          cpa: Number(row.cpa ?? 0),
+          ctr: Number(row.ctr ?? 0),
+          impressions: Number(row.impressions ?? 0),
+          clicks: Number(row.clicks ?? 0),
+          impressionShare:
+            typeof row.impressionShare === "number" ? row.impressionShare : undefined,
+          lostIsBudget:
+            typeof row.lostIsBudget === "number" ? row.lostIsBudget : undefined,
+          lostIsRank:
+            typeof row.lostIsRank === "number" ? row.lostIsRank : undefined,
+          budget:
+            typeof row.dailyBudget === "number" ? row.dailyBudget : undefined,
+        })),
+        accountAvgRoas
+      ),
+      scaleBudgetCandidates: budgetAnalysis.insights.scaleBudgetCandidates,
+      budgetWasteCampaigns: budgetAnalysis.insights.budgetWasteCampaigns,
+      balancedCampaigns: budgetAnalysis.insights.balancedCampaigns,
+    },
     meta: report.meta,
   };
 }
 
-export async function getGoogleAdsCreativesReport(params: {
-  businessId: string;
-  accountId?: string | null;
-  dateRange: DateRange;
-  debug?: boolean;
-}): Promise<ReportResult<Record<string, unknown>>> {
+export async function getGoogleAdsCreativesReport(
+  params: BaseReportParams
+): Promise<ReportResult<Record<string, unknown>>> {
   const resolved = await resolveContext({
     businessId: params.businessId,
     accountId: params.accountId,
     dateRange: params.dateRange,
+    customStart: params.customStart,
+    customEnd: params.customEnd,
     debug: Boolean(params.debug),
   });
   if (!resolved.ok) return resolved.payload;
@@ -2042,6 +2420,7 @@ export async function getGoogleAdsCreativesReport(params: {
   addDebugMeta(meta, "creatives", context, {
     date_range: { startDate, endDate },
   });
+  finalizeMeta(meta);
 
   return {
     rows,
@@ -2072,16 +2451,31 @@ function isThemeAligned(theme: string, corpus: string) {
   return tokens.some((token) => corpus.includes(token));
 }
 
-export async function getGoogleAdsAssetGroupsReport(params: {
-  businessId: string;
-  accountId?: string | null;
-  dateRange: DateRange;
-  debug?: boolean;
-}): Promise<ReportResult<Record<string, unknown>>> {
+function getThemeCoverage(theme: string, corpus: string) {
+  const tokens = slugifyQueryCluster(theme).split(" ").filter(Boolean);
+  if (tokens.length === 0) return "low";
+  const matched = tokens.filter((token) => corpus.includes(token)).length;
+  const ratio = matched / tokens.length;
+  if (ratio >= 0.67) return "high";
+  if (ratio > 0) return "medium";
+  return "low";
+}
+
+function getThemeRecommendation(theme: string, coverage: string) {
+  if (coverage === "high") return `Keep reinforcing ${theme} in current assets.`;
+  if (coverage === "medium") return `Strengthen messaging by naming ${theme} more directly in headlines.`;
+  return `Add headline and description language that explicitly mentions ${theme}.`;
+}
+
+export async function getGoogleAdsAssetGroupsReport(
+  params: BaseReportParams
+): Promise<ReportResult<AssetGroupPerformanceRow & Record<string, unknown>>> {
   const resolved = await resolveContext({
     businessId: params.businessId,
     accountId: params.accountId,
     dateRange: params.dateRange,
+    customStart: params.customStart,
+    customEnd: params.customEnd,
     debug: Boolean(params.debug),
   });
   if (!resolved.ok) return resolved.payload;
@@ -2173,29 +2567,51 @@ export async function getGoogleAdsAssetGroupsReport(params: {
     const coverageScore = getAssetGroupCoverageScore(assetMix);
     const searchThemes = searchThemesByGroup.get(id) ?? [];
     const corpus = (textCorpusByGroup.get(id) ?? []).join(" ").toLowerCase();
-    const alignedThemes = searchThemes.filter((theme) => isThemeAligned(theme.text, corpus));
+    const enrichedThemes = searchThemes.map((theme) => {
+      const coverage = getThemeCoverage(theme.text, corpus);
+      return {
+        ...theme,
+        coverage,
+        alignedMessaging: coverage !== "low",
+        messagingMismatch: coverage === "low",
+        recommendation: getThemeRecommendation(theme.text, coverage),
+      };
+    });
+    const mismatchedThemes = enrichedThemes.filter((theme) => theme.messagingMismatch);
     const spendShare = totalSpend > 0 ? Number(((data.spend / totalSpend) * 100).toFixed(1)) : 0;
     const revenueShare =
       totalRevenue > 0 ? Number(((data.conversionValue / totalRevenue) * 100).toFixed(1)) : 0;
+    const classification =
+      data.roas > avgRoas && revenueShare > spendShare
+        ? "scale_candidate"
+        : spendShare > revenueShare && data.roas < avgRoas
+        ? "budget_sink"
+        : data.roas >= avgRoas * 0.85 && coverageScore >= 70
+        ? "healthy"
+        : "weak";
     const state =
-      data.roas >= avgRoas * 1.15 && coverageScore >= 70
+      classification === "scale_candidate"
         ? "strong"
-        : data.spend > 100 && data.roas < avgRoas * 0.75
+        : classification === "budget_sink" || classification === "weak"
         ? "weak"
         : "watch";
 
     return {
       id,
+      assetGroupId: id,
       name: asString(getCompatValue(assetGroup, "name")) ?? "Unnamed Asset Group",
+      assetGroupName: asString(getCompatValue(assetGroup, "name")) ?? "Unnamed Asset Group",
       status: normalizeStatus(asString(getCompatValue(assetGroup, "status")) ?? undefined),
       campaignId: asString(getCompatValue(campaign, "id")),
       campaign: asString(getCompatValue(campaign, "name")) ?? "",
+      campaignName: asString(getCompatValue(campaign, "name")) ?? "",
       impressions: data.impressions,
       clicks: data.clicks,
       interactions: data.interactions,
       spend: data.spend,
       conversions: data.conversions,
       revenue: data.conversionValue,
+      ctr: data.ctr ?? 0,
       roas: data.roas,
       cpa: data.cpa,
       conversionRate: data.conversionRate,
@@ -2204,19 +2620,48 @@ export async function getGoogleAdsAssetGroupsReport(params: {
       coverageScore,
       assetCount: Object.values(assetMix).reduce((sum, count) => sum + count, 0),
       assetMix,
+      assetCountByType: assetMix,
+      classification,
       state,
       adStrength: null,
+      finalUrls: [],
       audienceSignalsSummary: null,
-      searchThemes: searchThemes.map((theme) => ({
-        ...theme,
-        alignedMessaging: isThemeAligned(theme.text, corpus),
-      })),
+      audienceSignals: [],
+      searchThemes: enrichedThemes,
+      searchThemesConfigured: searchThemes.map((theme) => theme.text),
       searchThemeSummary: searchThemes.map((theme) => theme.text).slice(0, 3).join(", "),
       searchThemeCount: searchThemes.length,
-      searchThemeAlignedCount: alignedThemes.length,
+      searchThemeAlignedCount: enrichedThemes.filter((theme) => theme.alignedMessaging).length,
+      messagingMismatchCount: mismatchedThemes.length,
       missingAssetFields: ASSET_GROUP_REQUIRED_FIELDS.filter(
         (field) => (assetMix[field] ?? 0) === 0
       ),
+      missingAssetTypes: ASSET_GROUP_REQUIRED_FIELDS.filter((field) => (assetMix[field] ?? 0) === 0),
+      scaleState: classification === "scale_candidate" ? "scale" : "monitor",
+      weakState: classification === "weak" || classification === "budget_sink" ? "weak" : "healthy",
+      coverageRisk:
+        coverageScore < 70 || Object.values(assetMix).reduce((sum, count) => sum + count, 0) < 6,
+      messagingAlignmentScore:
+        searchThemes.length > 0
+          ? Number(
+              (
+                (enrichedThemes.filter((theme) => theme.alignedMessaging).length /
+                  searchThemes.length) *
+                100
+              ).toFixed(0)
+            )
+          : 0,
+      recommendation:
+        mismatchedThemes[0]?.recommendation ??
+        (coverageScore < 70
+          ? `Add ${ASSET_GROUP_REQUIRED_FIELDS.filter((field) => (assetMix[field] ?? 0) === 0)
+              .join(", ")
+              .toLowerCase()} assets.`
+          : classification === "budget_sink"
+          ? "Reduce budget concentration and rebuild weak messaging."
+          : classification === "scale_candidate"
+          ? "Expand volume while preserving current message-theme fit."
+          : "Keep testing asset variety and tighten messaging."),
     };
   });
 
@@ -2233,36 +2678,51 @@ export async function getGoogleAdsAssetGroupsReport(params: {
     date_range: { startDate, endDate },
   });
 
+  const assetGroupAnalysis = analyzeAssetGroups(rows);
+  finalizeMeta(meta);
+
   return {
-    rows: rows.sort((a, b) => b.spend - a.spend),
+    rows: assetGroupAnalysis.rows.sort((a, b) => b.spend - a.spend) as unknown as Array<
+      AssetGroupPerformanceRow & Record<string, unknown>
+    >,
     summary: {
-      strongCount: rows.filter((row) => row.state === "strong").length,
-      weakCount: rows.filter((row) => row.state === "weak").length,
-      coverageGaps: rows.filter((row) => row.coverageScore < 70).length,
-      searchThemeCount: rows.reduce((sum, row) => sum + row.searchThemeCount, 0),
+      strongCount: assetGroupAnalysis.summary.scaleCandidateCount,
+      healthyCount: assetGroupAnalysis.summary.healthyCount,
+      weakCount: assetGroupAnalysis.summary.weakCount,
+      coverageRiskCount: assetGroupAnalysis.summary.coverageRiskCount,
+      accountAverageRoas: assetGroupAnalysis.summary.accountAverageRoas,
+      budgetSinkCount: rows.filter((row) => row.classification === "budget_sink").length,
+      coverageGaps: assetGroupAnalysis.insights.coverageGaps.length,
+      searchThemeCount: assetGroupAnalysis.rows.reduce((sum, row) => sum + row.searchThemeCount, 0),
+      searchThemeMismatches: assetGroupAnalysis.rows.reduce(
+        (sum, row) => sum + Number(row.messagingMismatchCount ?? 0),
+        0
+      ),
     },
     insights: {
-      scaleCandidates: rows
-        .filter((row) => row.state === "strong")
+      scaleCandidates: assetGroupAnalysis.insights.scaleCandidates,
+      healthyGroups: assetGroupAnalysis.rows
+        .filter((row) => row.classification === "healthy")
         .slice(0, 5),
-      reduceCandidates: rows
-        .filter((row) => row.state === "weak")
+      weakGroups: assetGroupAnalysis.insights.weakGroups,
+      budgetSinks: assetGroupAnalysis.rows
+        .filter((row) => row.classification === "budget_sink")
         .slice(0, 5),
+      coverageGaps: assetGroupAnalysis.insights.coverageGaps,
     },
     meta,
   };
 }
 
-export async function getGoogleAdsProductsReport(params: {
-  businessId: string;
-  accountId?: string | null;
-  dateRange: DateRange;
-  debug?: boolean;
-}): Promise<ReportResult<Record<string, unknown>>> {
+export async function getGoogleAdsProductsReport(
+  params: BaseReportParams
+): Promise<ReportResult<ProductPerformanceRow & Record<string, unknown>>> {
   const resolved = await resolveContext({
     businessId: params.businessId,
     accountId: params.accountId,
     dateRange: params.dateRange,
+    customStart: params.customStart,
+    customEnd: params.customEnd,
     debug: Boolean(params.debug),
   });
   if (!resolved.ok) return resolved.payload;
@@ -2275,110 +2735,161 @@ export async function getGoogleAdsProductsReport(params: {
   const productMap = new Map<
     string,
     {
-      itemId: string;
-      title: string;
-      brand: string | null;
-      feedPrice: number | null;
+      productId: string;
+      productTitle: string;
       impressions: number;
       clicks: number;
       spend: number;
-      conversions: number;
+      orders: number;
       revenue: number;
     }
   >();
 
   for (const row of products.rows) {
-    const product = getCompatObject(row, "shopping_product");
+    const segments = getCompatObject(row, "segments");
     const metrics = getCompatObject(row, "metrics");
-    const itemId = asString(getCompatValue(product, "item_id")) ?? "unknown";
-    const current = productMap.get(itemId) ?? {
-      itemId,
-      title: asString(getCompatValue(product, "title")) ?? "Unknown product",
-      brand: asString(getCompatValue(product, "brand")),
-      feedPrice: asNumber(getCompatValue(product, "custom_attribute0")),
+    const productId = asString(getCompatValue(segments, "product_item_id")) ?? "unknown";
+    const current = productMap.get(productId) ?? {
+      productId,
+      productTitle: asString(getCompatValue(segments, "product_title")) ?? "Unknown product",
       impressions: 0,
       clicks: 0,
       spend: 0,
-      conversions: 0,
+      orders: 0,
       revenue: 0,
     };
     const data = toMetricSet(metrics);
-    productMap.set(itemId, {
+    productMap.set(productId, {
       ...current,
       impressions: current.impressions + data.impressions,
       clicks: current.clicks + data.clicks,
       spend: Number((current.spend + data.spend).toFixed(2)),
-      conversions: Number((current.conversions + data.conversions).toFixed(2)),
+      orders: Number((current.orders + data.conversions).toFixed(2)),
       revenue: Number((current.revenue + data.conversionValue).toFixed(2)),
     });
   }
 
   const rows = Array.from(productMap.values())
-    .filter((row) => row.itemId !== "unknown")
+    .filter((row) => row.productId !== "unknown")
     .map((row) => {
       const roas = row.spend > 0 ? Number((row.revenue / row.spend).toFixed(2)) : 0;
-      const cpa =
-        row.conversions > 0 ? Number((row.spend / row.conversions).toFixed(2)) : 0;
-      const contributionProxy = Number((row.revenue - row.spend).toFixed(2));
-      const spendPerOrder =
-        row.conversions > 0 ? Number((row.spend / row.conversions).toFixed(2)) : null;
-      const avgOrderValue =
-        row.conversions > 0 ? Number((row.revenue / row.conversions).toFixed(2)) : null;
+      const cpa = row.orders > 0 ? Number((row.spend / row.orders).toFixed(2)) : 0;
+      const contribution = Number((row.revenue - row.spend).toFixed(2));
+      const spendPerOrder = row.orders > 0 ? Number((row.spend / row.orders).toFixed(2)) : null;
+      const avgOrderValue = row.orders > 0 ? Number((row.revenue / row.orders).toFixed(2)) : null;
 
       return {
         ...row,
+        productItemId: row.productId,
+        productTitle: row.productTitle,
+        itemId: row.productId,
+        title: row.productTitle,
         roas,
         cpa,
+        orders: row.orders,
+        conversions: row.orders,
         ctr:
           row.impressions > 0 ? Number(((row.clicks / row.impressions) * 100).toFixed(2)) : 0,
         avgOrderValue,
         spendPerOrder,
         valuePerClick: row.clicks > 0 ? Number((row.revenue / row.clicks).toFixed(2)) : null,
-        contributionProxy,
+        contribution,
+        contributionProxy: contribution,
         contributionState:
-          contributionProxy > 0 ? "positive" : contributionProxy < 0 ? "negative" : "neutral",
+          contribution > 0 ? "positive" : contribution < 0 ? "negative" : "neutral",
         statusLabel:
-          roas >= 3 ? "scale" : roas >= 1.5 ? "stable" : row.spend > 25 ? "reduce" : "test",
+          roas >= 3 && row.orders >= 2
+            ? "scale"
+            : row.spend > 25 && roas < 1.5
+            ? "reduce"
+            : row.orders >= 1 && contribution > 0
+            ? "stable"
+            : "test",
       };
     })
-    .sort((a, b) => b.spend - a.spend);
+    .sort((a, b) => b.revenue - a.revenue);
 
-  const totalSpend = rows.reduce((sum, row) => sum + row.spend, 0);
-  const totalRevenue = rows.reduce((sum, row) => sum + row.revenue, 0);
+  const productAnalysis = analyzeProducts(rows);
+  const typedProductRows: Array<Record<string, unknown>> = productAnalysis.rows.map((row) => ({
+    ...row,
+    productItemId: String(row.productId ?? row.itemId ?? ""),
+    productTitle: String(row.productTitle ?? row.title ?? ""),
+    scaleState: String(row.classification ?? "") === "scale_product" ? "scale" : "monitor",
+    underperformingState:
+      String(row.classification ?? "") === "underperforming_product"
+        ? "underperforming"
+        : "healthy",
+    hiddenWinnerState:
+      String(row.classification ?? "") === "hidden_winner" ? "hidden_winner" : "visible",
+  }));
+
+  const totalSpend = productAnalysis.rows.reduce((sum, row) => sum + row.spend, 0);
+  const totalRevenue = productAnalysis.rows.reduce((sum, row) => sum + row.revenue, 0);
+  const accountAvgRoas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
 
   addDebugMeta(meta, "products", context, {
     date_range: { startDate, endDate },
   });
+  finalizeMeta(meta);
+
+  const topRevenueProducts = [...productAnalysis.rows]
+    .sort((a, b) => b.revenue - a.revenue)
+    .slice(0, 5);
+  const lowReturnProducts = productAnalysis.rows
+    .filter((row) => row.spend > 20 && row.roas < Math.max(accountAvgRoas * 0.75, 1.5))
+    .sort((a, b) => b.spend - a.spend)
+    .slice(0, 5);
+  const scaleCandidates = productAnalysis.rows
+    .filter((row) => row.roas > Math.max(accountAvgRoas, 2) && row.revenue > 0)
+    .sort((a, b) => b.revenue - a.revenue)
+    .slice(0, 5);
+  const hiddenWinners = productAnalysis.rows
+    .filter(
+      (row) =>
+        row.roas > Math.max(accountAvgRoas * 1.15, 2) && row.spend > 0 && row.spend < totalSpend * 0.08
+    )
+    .sort((a, b) => b.roas - a.roas)
+    .slice(0, 5);
 
   return {
-    rows,
+    rows: typedProductRows as unknown as Array<ProductPerformanceRow & Record<string, unknown>>,
     summary: {
       totalSpend: Number(totalSpend.toFixed(2)),
       totalRevenue: Number(totalRevenue.toFixed(2)),
-      scaleCandidates: rows.filter((row) => row.statusLabel === "scale").length,
-      reduceCandidates: rows.filter((row) => row.statusLabel === "reduce").length,
+      accountAverageRoas: productAnalysis.summary.accountAverageRoas,
+      scaleCandidates: productAnalysis.summary.scaleProductCount,
+      reduceCandidates: productAnalysis.summary.underperformingProductCount,
+      hiddenWinnerCount: productAnalysis.summary.hiddenWinnerCount,
       spendConcentrationTop3: Number(
-        rows
+        productAnalysis.rows
           .slice(0, 3)
           .reduce((sum, row) => sum + (totalSpend > 0 ? row.spend / totalSpend : 0), 0)
           .toFixed(2)
       ),
     },
     insights: {
-      topRevenueProducts: [...rows].sort((a, b) => b.revenue - a.revenue).slice(0, 5),
-      lowRoasProducts: rows.filter((row) => row.roas < 1.5 && row.spend > 25).slice(0, 5),
-      spendWithoutReturn: rows.filter((row) => row.conversions === 0 && row.spend > 20).slice(0, 5),
+      topRevenueProducts:
+        productAnalysis.insights.topRevenueProducts.length > 0
+          ? productAnalysis.insights.topRevenueProducts
+          : topRevenueProducts,
+      lowReturnProducts,
+      scaleCandidates:
+        productAnalysis.insights.scaleCandidates.length > 0
+          ? productAnalysis.insights.scaleCandidates
+          : scaleCandidates,
+      hiddenWinners:
+        productAnalysis.insights.hiddenWinners.length > 0
+          ? productAnalysis.insights.hiddenWinners
+          : hiddenWinners,
+      spendWithoutReturn: productAnalysis.insights.spendWithoutReturn,
     },
     meta,
   };
 }
 
-export async function getGoogleAdsDiagnosticsReport(params: {
-  businessId: string;
-  accountId?: string | null;
-  dateRange: DateRange;
-  debug?: boolean;
-}): Promise<ReportResult<Record<string, unknown>>> {
+export async function getGoogleAdsDiagnosticsReport(
+  params: BaseReportParams
+): Promise<ReportResult<Record<string, unknown>>> {
   const reports = await Promise.all([
     getGoogleAdsOverviewReport(params),
     getGoogleAdsCampaignsReport(params),
@@ -2401,9 +2912,7 @@ export async function getGoogleAdsDiagnosticsReport(params: {
   for (const child of reports) {
     mergeChildMeta(meta, child.meta);
   }
-  meta.warnings = dedupeStrings(meta.warnings);
-  meta.unavailable_metrics = dedupeStrings(meta.unavailable_metrics);
-  meta.query_names = dedupeStrings(meta.query_names);
+  finalizeMeta(meta);
 
   const sections = [
     { label: "Overview", meta: overview.meta, rows: 1 },
@@ -2443,6 +2952,15 @@ export async function getGoogleAdsDiagnosticsReport(params: {
       generatedAt: new Date().toISOString(),
     },
     insights: {
+      reportFamilies: Object.entries(meta.report_families).map(([family, familyMeta]) => ({
+        family,
+        partial: familyMeta.partial,
+        rowCount: familyMeta.row_count,
+        warningCount: familyMeta.warnings.length,
+        failureCount: familyMeta.failed_queries.length,
+        unavailableMetricCount: familyMeta.unavailable_metrics.length,
+        queryNames: familyMeta.query_names,
+      })),
       limitations: [
         "Asset-group-level search theme performance metrics are not consistently exposed by Google Ads API; configured themes and messaging alignment are shown instead.",
         "Keyword quality metrics depend on Google Ads quality_info availability and may be absent for some criteria.",
@@ -2453,30 +2971,27 @@ export async function getGoogleAdsDiagnosticsReport(params: {
   };
 }
 
-export async function getGoogleAdsOpportunitiesReport(params: {
-  businessId: string;
-  accountId?: string | null;
-  dateRange: DateRange;
-  debug?: boolean;
-}): Promise<ReportResult<GadsOpportunity>> {
+export async function getGoogleAdsOpportunitiesReport(
+  params: BaseReportParams
+): Promise<ReportResult<GoogleAdsOpportunity>> {
   const [
     campaigns,
     keywords,
     searchIntelligence,
-    ads,
     assets,
     assetGroups,
     products,
+    geo,
     devices,
     audiences,
   ] = await Promise.all([
     getGoogleAdsCampaignsReport(params),
     getGoogleAdsKeywordsReport(params),
     getGoogleAdsSearchIntelligenceReport(params),
-    getGoogleAdsAdsReport(params),
     getGoogleAdsAssetsReport(params),
     getGoogleAdsAssetGroupsReport(params),
     getGoogleAdsProductsReport(params),
+    getGoogleAdsGeoReport(params),
     getGoogleAdsDevicesReport(params),
     getGoogleAdsAudiencesReport(params),
   ]);
@@ -2486,189 +3001,28 @@ export async function getGoogleAdsOpportunitiesReport(params: {
     campaigns.meta,
     keywords.meta,
     searchIntelligence.meta,
-    ads.meta,
     assets.meta,
     assetGroups.meta,
     products.meta,
+    geo.meta,
     devices.meta,
     audiences.meta,
   ]) {
     mergeChildMeta(meta, childMeta);
   }
-  meta.warnings = dedupeStrings(meta.warnings);
-  meta.unavailable_metrics = dedupeStrings(meta.unavailable_metrics);
-  meta.query_names = dedupeStrings(meta.query_names);
+  finalizeMeta(meta);
 
-  const totalSpend = campaigns.rows.reduce((sum, row) => sum + Number(row.spend ?? 0), 0);
-  const totalRevenue = campaigns.rows.reduce((sum, row) => sum + Number(row.revenue ?? 0), 0);
-  const totalConversions = campaigns.rows.reduce(
-    (sum, row) => sum + Number(row.conversions ?? 0),
-    0
-  );
-  const accountAvgRoas = totalSpend > 0 ? Number((totalRevenue / totalSpend).toFixed(2)) : 0;
-  const accountAvgCpa =
-    totalConversions > 0 ? Number((totalSpend / totalConversions).toFixed(2)) : 0;
-
-  const rows: GadsOpportunity[] = generateOpportunities({
-    campaigns: campaigns.rows as never,
-    keywords: keywords.rows as never,
-    searchTerms: searchIntelligence.rows as never,
-    ads: ads.rows as never,
-    accountAvgRoas,
-    accountAvgCpa,
+  const opportunityResult = buildGoogleAdsOpportunityEngine({
+    campaigns: campaigns.rows,
+    products: products.rows,
+    assets: assets.rows,
+    assetGroups: assetGroups.rows,
+    searchTerms: searchIntelligence.rows,
+    keywords: keywords.rows,
+    audiences: audiences.rows,
+    geo: geo.rows,
+    devices: devices.rows,
   });
-
-  if (devices.rows.length > 0) {
-    const mobile = devices.rows.find((row) => String(row.device).toLowerCase().includes("mobile"));
-    const desktop = devices.rows.find((row) => String(row.device).toLowerCase().includes("desktop"));
-    if (mobile && desktop && Number(desktop.roas ?? 0) > Number(mobile.roas ?? 0) * 1.5) {
-      rows.push({
-        id: "device_desktop_outperformance",
-        type: "bid_adjustment",
-        title: "Desktop outperforms mobile on ROAS",
-        whyItMatters: "Device mix shows stronger efficiency on desktop than mobile.",
-        evidence: `Desktop ROAS ${desktop.roas}x vs mobile ${mobile.roas}x`,
-        expectedImpact: "Improve blended efficiency with device bid adjustments",
-        impact: "Efficiency lift",
-        confidence: "medium",
-        effort: "low",
-        priority: "medium",
-        recommendedAction: "Apply mobile bid moderation or isolate desktop winners into their own tests.",
-      });
-    }
-  }
-
-  if (audiences.rows.length > 0) {
-    const weakAudience = audiences.rows.find(
-      (row) => Number(row.spend ?? 0) > 50 && Number(row.conversions ?? 0) === 0
-    );
-    if (weakAudience) {
-      rows.push({
-        id: "audience_underperformance",
-        type: "audience_expansion",
-        title: `Review ${weakAudience.type} audience targeting`,
-        whyItMatters: "Audience segment is consuming spend without producing conversions.",
-        evidence: `${weakAudience.type} spent $${weakAudience.spend} with 0 conversions`,
-        expectedImpact: "Reduce wasted spend and improve audience mix",
-        impact: "Waste reduction",
-        confidence: "medium",
-        effort: "medium",
-        priority: "medium",
-        recommendedAction: "Tighten or exclude the weak audience segment and redirect budget to stronger segments.",
-      });
-    }
-  }
-
-  const weakAsset = assets.rows.find(
-    (row) =>
-      String(row.performanceLabel) === "underperforming" &&
-      Number(row.spend ?? 0) > 20
-  );
-  if (weakAsset) {
-    rows.push({
-      id: "asset_refresh_underperformer",
-      type: "asset_refresh",
-      title: `Refresh ${weakAsset.type} assets in ${weakAsset.assetGroup}`,
-      whyItMatters: "Asset performance signals show this creative element is dragging the group down.",
-      evidence: `${weakAsset.preview} spent $${Number(weakAsset.spend ?? 0).toFixed(0)} at ${Number(weakAsset.roas ?? 0).toFixed(2)}x ROAS`,
-      expectedImpact: "Lift interaction quality and downstream conversion efficiency",
-      impact: "Creative lift",
-      confidence: "medium",
-      effort: "medium",
-      priority: "medium",
-      recommendedAction:
-        String(weakAsset.hint ?? "").length > 0
-          ? String(weakAsset.hint)
-          : "Replace the weakest asset with a sharper value proposition and stronger variety.",
-    });
-  }
-
-  const weakAssetGroup = assetGroups.rows.find(
-    (row) =>
-      (String(row.state) === "weak" || Number(row.coverageScore ?? 0) < 70) &&
-      Number(row.spend ?? 0) > 25
-  );
-  if (weakAssetGroup) {
-    rows.push({
-      id: "asset_group_fix",
-      type: "asset_group_fix",
-      title: `Improve asset group ${weakAssetGroup.name}`,
-      whyItMatters: "This asset group is consuming spend without matching asset coverage or return quality.",
-      evidence: `${weakAssetGroup.name} coverage ${weakAssetGroup.coverageScore}% with ${weakAssetGroup.roas}x ROAS`,
-      expectedImpact: "Stronger PMax coverage and better budget efficiency",
-      impact: "PMax quality lift",
-      confidence: "medium",
-      effort: "medium",
-      priority: "medium",
-      recommendedAction:
-        Array.isArray(weakAssetGroup.missingAssetFields) &&
-        weakAssetGroup.missingAssetFields.length > 0
-          ? `Add missing ${weakAssetGroup.missingAssetFields.join(", ").toLowerCase()} assets and tighten search themes.`
-          : "Rebuild the asset mix and audience/search theme signals for this group.",
-    });
-  }
-
-  const scaleProduct = products.rows.find(
-    (row) => String(row.statusLabel) === "scale" && Number(row.spend ?? 0) > 15
-  );
-  if (scaleProduct) {
-    rows.push({
-      id: "product_scale",
-      type: "product_scale",
-      title: `Scale spend behind ${scaleProduct.title}`,
-      whyItMatters: "This product is turning spend into value efficiently and can likely absorb more demand.",
-      evidence: `${scaleProduct.title} ROAS ${scaleProduct.roas}x with ${scaleProduct.conversions} orders`,
-      expectedImpact: "Incremental product revenue from a proven winner",
-      impact: "Revenue growth",
-      confidence: "medium",
-      effort: "low",
-      priority: "high",
-      recommendedAction:
-        "Increase bids or budget share on campaigns and asset groups where this product is already converting efficiently.",
-    });
-  }
-
-  const reduceProduct = products.rows.find(
-    (row) => String(row.statusLabel) === "reduce" && Number(row.spend ?? 0) > 20
-  );
-  if (reduceProduct) {
-    rows.push({
-      id: "product_reduce",
-      type: "product_reduce",
-      title: `Reduce poor-product spend on ${reduceProduct.title}`,
-      whyItMatters: "Budget is concentrated on a product that is not producing enough return.",
-      evidence: `${reduceProduct.title} spent $${Number(reduceProduct.spend ?? 0).toFixed(0)} at ${Number(reduceProduct.roas ?? 0).toFixed(2)}x ROAS`,
-      expectedImpact: "Lower waste and free budget for stronger SKUs",
-      impact: "Waste reduction",
-      confidence: "medium",
-      effort: "low",
-      priority: "high",
-      recommendedAction:
-        "Lower bids, restrict product group exposure, or shift emphasis toward higher-return products.",
-    });
-  }
-
-  const themeMismatch = assetGroups.rows.find(
-    (row) =>
-      Number(row.searchThemeCount ?? 0) > 0 &&
-      Number(row.searchThemeAlignedCount ?? 0) < Number(row.searchThemeCount ?? 0)
-  );
-  if (themeMismatch) {
-    rows.push({
-      id: "search_theme_mismatch",
-      type: "search_theme_alignment",
-      title: `Align search themes with messaging in ${themeMismatch.name}`,
-      whyItMatters: "Configured search themes are broader than the current asset messaging, which can dilute relevance.",
-      evidence: `${themeMismatch.searchThemeAlignedCount}/${themeMismatch.searchThemeCount} configured themes appear in current asset messaging`,
-      expectedImpact: "Tighter PMax relevance and stronger theme-to-asset coherence",
-      impact: "Relevance lift",
-      confidence: "low",
-      effort: "medium",
-      priority: "medium",
-      recommendedAction:
-        "Rewrite headlines and descriptions so the highest-value search themes show up directly in the asset copy.",
-    });
-  }
 
   if (params.debug) {
     meta.debug = {
@@ -2676,10 +3030,10 @@ export async function getGoogleAdsOpportunitiesReport(params: {
         "campaigns",
         "keywords",
         "search-intelligence",
-        "ads",
         "assets",
         "asset-groups",
         "products",
+        "geo",
         "devices",
         "audiences",
       ],
@@ -2687,14 +3041,8 @@ export async function getGoogleAdsOpportunitiesReport(params: {
   }
 
   return {
-    rows: rows.sort((a, b) => {
-      const priorityOrder = { high: 0, medium: 1, low: 2 };
-      return priorityOrder[a.priority] - priorityOrder[b.priority];
-    }),
-    summary: {
-      accountAvgRoas,
-      accountAvgCpa,
-    },
+    rows: opportunityResult.rows,
+    summary: opportunityResult.summary,
     meta,
   };
 }

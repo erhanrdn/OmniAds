@@ -28,11 +28,9 @@ import {
   ColDef,
   HealthBadge,
   PerfBadge,
-  SectionLabel,
   SimpleTable,
   SpendBar,
   StatusBadge,
-  TabAlert,
   TabEmpty,
   TabSkeleton,
   fmtCurrency,
@@ -41,7 +39,8 @@ import {
   fmtRoas,
 } from "@/components/google-ads/shared";
 
-type DateRange = "7" | "14" | "30";
+type DateRange = "7" | "14" | "30" | "90" | "mtd" | "qtd" | "custom";
+type CompareMode = "none" | "previous_period" | "previous_year" | "custom";
 
 type TabId =
   | "overview"
@@ -73,10 +72,21 @@ type QueryResult = {
   [key: string]: any;
 };
 
-const DATE_RANGE_OPTIONS: Array<{ value: DateRange; label: string }> = [
-  { value: "7", label: "Last 7 days" },
-  { value: "14", label: "Last 14 days" },
-  { value: "30", label: "Last 30 days" },
+const DATE_RANGE_OPTIONS: Array<{ value: DateRange; label: string; shortLabel: string }> = [
+  { value: "7", label: "Last 7 days", shortLabel: "7D" },
+  { value: "14", label: "Last 14 days", shortLabel: "14D" },
+  { value: "30", label: "Last 30 days", shortLabel: "30D" },
+  { value: "90", label: "Last 90 days", shortLabel: "90D" },
+  { value: "mtd", label: "Month to date", shortLabel: "MTD" },
+  { value: "qtd", label: "Quarter to date", shortLabel: "QTD" },
+  { value: "custom", label: "Custom range", shortLabel: "Custom" },
+];
+
+const COMPARE_OPTIONS: Array<{ value: CompareMode; label: string }> = [
+  { value: "none", label: "No comparison" },
+  { value: "previous_period", label: "Previous period" },
+  { value: "previous_year", label: "Same period last year" },
+  { value: "custom", label: "Custom comparison" },
 ];
 
 const TAB_GROUPS: Array<{
@@ -121,9 +131,12 @@ async function fetchReport(
   endpoint: string,
   businessId: string,
   dateRange: DateRange,
-  extra: Record<string, string> = {}
+  extra: Record<string, string | undefined> = {}
 ): Promise<QueryResult> {
-  const params = new URLSearchParams({ businessId, dateRange, ...extra });
+  const params = new URLSearchParams({ businessId, dateRange });
+  for (const [key, value] of Object.entries(extra)) {
+    if (value) params.set(key, value);
+  }
   const response = await fetch(`/api/google-ads/${endpoint}?${params.toString()}`);
   const data = (await response.json()) as QueryResult & { error?: string };
   if (!response.ok) {
@@ -166,7 +179,8 @@ function deltaTone(value: number | null | undefined) {
 }
 
 function formatDelta(value: number | null | undefined, suffix = "%") {
-  if (value === null || value === undefined) return "New";
+  if (value === undefined) return "No compare";
+  if (value === null) return "New";
   if (value === 0) return "Flat";
   const prefix = value > 0 ? "+" : "";
   return `${prefix}${value.toFixed(1)}${suffix}`;
@@ -191,6 +205,58 @@ function renderTrendBadge(value: number | null | undefined) {
       {formatDelta(value)}
     </span>
   );
+}
+
+function toIsoDate(date: Date) {
+  return date.toISOString().split("T")[0];
+}
+
+function parseIsoDate(value: string) {
+  return new Date(`${value}T00:00:00.000Z`);
+}
+
+function getDateWindow(dateRange: DateRange, customStart?: string, customEnd?: string) {
+  const endDate = new Date();
+  const startDate = new Date(endDate);
+
+  if (dateRange === "7") {
+    startDate.setDate(endDate.getDate() - 7);
+  } else if (dateRange === "14") {
+    startDate.setDate(endDate.getDate() - 14);
+  } else if (dateRange === "30") {
+    startDate.setDate(endDate.getDate() - 30);
+  } else if (dateRange === "90") {
+    startDate.setDate(endDate.getDate() - 90);
+  } else if (dateRange === "mtd") {
+    startDate.setDate(1);
+  } else if (dateRange === "qtd") {
+    const month = endDate.getMonth();
+    startDate.setMonth(Math.floor(month / 3) * 3, 1);
+  } else if (dateRange === "custom" && customStart && customEnd) {
+    return { startDate: customStart, endDate: customEnd };
+  }
+
+  return {
+    startDate: toIsoDate(startDate),
+    endDate: toIsoDate(endDate),
+  };
+}
+
+function getPreviousWindow(startDate: string, endDate: string) {
+  const start = parseIsoDate(startDate);
+  const end = parseIsoDate(endDate);
+  const daySpan = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1);
+
+  const previousEnd = new Date(start);
+  previousEnd.setUTCDate(previousEnd.getUTCDate() - 1);
+
+  const previousStart = new Date(previousEnd);
+  previousStart.setUTCDate(previousStart.getUTCDate() - (daySpan - 1));
+
+  return {
+    startDate: toIsoDate(previousStart),
+    endDate: toIsoDate(previousEnd),
+  };
 }
 
 function ActionStateBadge({ state }: { state: string }) {
@@ -318,40 +384,63 @@ function InsightStrip({
 }
 
 function OpportunityCard({ opportunity }: { opportunity: Record<string, any> }) {
+  const tone =
+    opportunity.type === "scale"
+      ? "bg-emerald-100 text-emerald-800"
+      : opportunity.type === "reduce"
+      ? "bg-rose-100 text-rose-800"
+      : opportunity.type === "fix"
+      ? "bg-amber-100 text-amber-800"
+      : "bg-sky-100 text-sky-800";
+  const impactTone =
+    opportunity.expectedImpact === "high"
+      ? "text-emerald-700"
+      : opportunity.expectedImpact === "medium"
+      ? "text-amber-700"
+      : "text-slate-700";
+
   return (
     <div className="rounded-2xl border bg-card p-4">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase text-muted-foreground">
+          <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase", tone)}>
             {String(opportunity.type ?? "").replaceAll("_", " ")}
           </span>
           <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold capitalize text-slate-700">
-            {opportunity.confidence ?? "medium"} confidence
+            {(Number(opportunity.confidence ?? 0)).toFixed(2)} confidence
           </span>
         </div>
-        <ActionStateBadge state={opportunity.priority ?? "medium"} />
+        <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+          {opportunity.entityType}
+        </span>
       </div>
       <h4 className="mt-3 text-sm font-semibold">{opportunity.title}</h4>
-      <p className="mt-1 text-xs text-muted-foreground">{opportunity.whyItMatters}</p>
-      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+      <p className="mt-1 text-xs text-muted-foreground">{opportunity.description}</p>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-xl bg-muted/30 p-3">
           <p className="text-[10px] font-semibold uppercase text-muted-foreground">Impact</p>
-          <p className="mt-1 text-xs font-medium">{opportunity.impact ?? opportunity.expectedImpact}</p>
+          <p className={cn("mt-1 text-xs font-medium capitalize", impactTone)}>{opportunity.expectedImpact}</p>
         </div>
         <div className="rounded-xl bg-muted/30 p-3">
-          <p className="text-[10px] font-semibold uppercase text-muted-foreground">Effort</p>
-          <p className="mt-1 text-xs font-medium capitalize">{opportunity.effort}</p>
+          <p className="text-[10px] font-semibold uppercase text-muted-foreground">Confidence</p>
+          <p className="mt-1 text-xs font-medium">{(Number(opportunity.confidence ?? 0)).toFixed(2)}</p>
         </div>
         <div className="rounded-xl bg-muted/30 p-3">
-          <p className="text-[10px] font-semibold uppercase text-muted-foreground">Evidence</p>
-          <p className="mt-1 text-xs font-medium">{opportunity.evidence}</p>
+          <p className="text-[10px] font-semibold uppercase text-muted-foreground">Spend</p>
+          <p className="mt-1 text-xs font-medium">
+            {opportunity.metrics?.spend != null ? fmtCurrency(Number(opportunity.metrics.spend ?? 0)) : "—"}
+          </p>
+        </div>
+        <div className="rounded-xl bg-muted/30 p-3">
+          <p className="text-[10px] font-semibold uppercase text-muted-foreground">ROAS</p>
+          <p className="mt-1 text-xs font-medium">
+            {opportunity.metrics?.roas != null ? fmtRoas(Number(opportunity.metrics.roas ?? 0)) : "—"}
+          </p>
         </div>
       </div>
       <div className="mt-3 rounded-xl border border-dashed p-3">
-        <p className="text-[10px] font-semibold uppercase text-muted-foreground">
-          Recommended Action
-        </p>
-        <p className="mt-1 text-xs">{opportunity.recommendedAction ?? opportunity.expectedImpact}</p>
+        <p className="text-[10px] font-semibold uppercase text-muted-foreground">Reasoning</p>
+        <p className="mt-1 text-xs">{opportunity.reasoning}</p>
       </div>
     </div>
   );
@@ -380,19 +469,19 @@ function MixCell({
 }
 
 function QueryIssueBanner({ meta }: { meta: ReturnType<typeof combineMetas> }) {
-  const failures = meta.failed_queries.map(
-    (failure) => `${failure.query}${failure.customerId ? ` (${failure.customerId})` : ""}: ${failure.message}`
-  );
+  const issueCount =
+    meta.failed_queries.length + meta.warnings.length + meta.unavailable_metrics.length;
+  if (issueCount === 0) return null;
 
   return (
-    <div className="space-y-3">
-      <TabAlert tone="error" title="Query failures" items={failures} />
-      <TabAlert tone="warning" title="Partial data" items={meta.warnings} />
-      <TabAlert
-        tone="info"
-        title="Unavailable metrics"
-        items={meta.unavailable_metrics.map((metric) => metric.replaceAll("_", " "))}
-      />
+    <div className="flex items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-900">
+      <p className="font-medium">
+        Some advanced metrics are unavailable for this view. See Diagnostics for query failures,
+        partial data, and API limitations.
+      </p>
+      <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+        {issueCount} issue{issueCount === 1 ? "" : "s"}
+      </span>
     </div>
   );
 }
@@ -415,7 +504,7 @@ function OverviewView({
   }
 
   const kpis = overview.kpis as Record<string, number>;
-  const deltas = (overview.kpiDeltas ?? {}) as Record<string, number | null>;
+  const deltas = (overview.kpiDeltas ?? {}) as Record<string, number | null | undefined>;
   const improved = [...campaigns]
     .filter((campaign) => Number(campaign.roasChange ?? 0) > 0)
     .sort((a, b) => Number(b.roasChange ?? 0) - Number(a.roasChange ?? 0))
@@ -503,7 +592,7 @@ function OverviewView({
       </div>
 
       <div className="grid gap-4 xl:grid-cols-3">
-        <SectionCard title="Improved" description="Campaigns gaining efficiency or revenue versus the previous period.">
+        <SectionCard title="Improved" description="Campaigns gaining efficiency or revenue versus the comparison window.">
           <div className="space-y-3">
             {improved.length === 0 ? (
               <p className="text-xs text-muted-foreground">No clear improving campaigns yet.</p>
@@ -517,7 +606,7 @@ function OverviewView({
                         {campaign.channel} · {fmtRoas(Number(campaign.roas ?? 0))}
                       </p>
                     </div>
-                    {renderTrendBadge(Number(campaign.roasChange ?? 0))}
+                    {renderTrendBadge(campaign.roasChange)}
                   </div>
                 </div>
               ))
@@ -525,7 +614,7 @@ function OverviewView({
           </div>
         </SectionCard>
 
-        <SectionCard title="Declined" description="Campaigns that lost efficiency and deserve faster review.">
+        <SectionCard title="Declined" description="Campaigns that lost efficiency versus the comparison window.">
           <div className="space-y-3">
             {declined.length === 0 ? (
               <p className="text-xs text-muted-foreground">No sharp efficiency declines detected.</p>
@@ -539,7 +628,7 @@ function OverviewView({
                         {campaign.channel} · {fmtCurrency(Number(campaign.spend ?? 0))} spend
                       </p>
                     </div>
-                    {renderTrendBadge(Number(campaign.roasChange ?? 0))}
+                    {renderTrendBadge(campaign.roasChange)}
                   </div>
                 </div>
               ))
@@ -695,9 +784,9 @@ function CampaignsView({ rows }: { rows: Array<Record<string, any>> }) {
       accessor: (row) => Number(row.roasChange ?? 0),
       render: (row) => (
         <div className="space-y-1">
-          {renderTrendBadge(Number(row.roasChange ?? 0))}
+          {renderTrendBadge(row.roasChange)}
           <p className="text-[10px] text-muted-foreground">
-            Rev {formatDelta(Number(row.revenueChange ?? 0))}
+            Rev {formatDelta(row.revenueChange)}
           </p>
         </div>
       ),
@@ -726,7 +815,7 @@ function CampaignsView({ rows }: { rows: Array<Record<string, any>> }) {
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <InsightStrip title="Scale" value={String(counts.scale)} note="High-return campaigns with headroom" tone="good" />
         <InsightStrip title="Optimize" value={String(counts.optimize)} note="Solid performers with room to tune" />
         <InsightStrip title="Test" value={String(counts.test)} note="Needs more signal or cleaner structure" />
@@ -745,7 +834,7 @@ function CampaignsView({ rows }: { rows: Array<Record<string, any>> }) {
                       {fmtRoas(Number(row.roas ?? 0))} ROAS · {fmtPercent(Number(row.lostIsBudget ?? 0) * 100)} lost to budget
                     </p>
                   </div>
-                  {renderTrendBadge(Number(row.revenueChange ?? 0))}
+                  {renderTrendBadge(row.revenueChange)}
                 </div>
               </div>
             ))}
@@ -826,14 +915,59 @@ function SearchIntelligenceView({
       ),
     },
   ];
+  const bestThemes = (insights.bestConvertingThemes ?? []) as Array<Record<string, any>>;
+  const wastefulThemes = (insights.wastefulThemes ?? []) as Array<Record<string, any>>;
+  const newOpportunityQueries = (insights.newOpportunityQueries ?? []) as Array<Record<string, any>>;
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <MetricCard label="Add As Exact" value={fmtNumber(Number(summary.keywordOpportunityCount ?? 0))} sublabel="Converting queries not yet keywords" />
         <MetricCard label="Recommended Negatives" value={fmtNumber(Number(summary.negativeKeywordCount ?? 0))} sublabel="Wasteful terms to block" />
         <MetricCard label="Wasteful Spend" value={fmtCurrency(Number(summary.wastefulSpend ?? 0))} sublabel="Spend tied to negative candidates" />
         <MetricCard label="Promotion Suggestions" value={fmtNumber(Number(summary.promotionSuggestionCount ?? 0))} sublabel="High-value language worth echoing in ads" />
+        <MetricCard label="Emerging Themes" value={fmtNumber(Number(summary.emergingThemeCount ?? 0))} sublabel="Low-spend clusters with early conversion signal" />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-3">
+        <SectionCard title="Best Converting Search Themes" description="Semantic clusters with the strongest early conversion and return signal.">
+          <div className="space-y-3">
+            {bestThemes.slice(0, 4).map((theme) => (
+              <div key={String(theme.cluster)} className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                <p className="text-xs font-semibold text-emerald-900">{theme.cluster}</p>
+                <p className="mt-1 text-[11px] text-emerald-700">
+                  {fmtRoas(Number(theme.roas ?? 0))} ROAS · {fmtNumber(Number(theme.conversions ?? 0))} conv
+                </p>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+
+        <SectionCard title="Wasteful Search Themes" description="Clusters drawing spend without enough conversion proof.">
+          <div className="space-y-3">
+            {wastefulThemes.slice(0, 4).map((theme) => (
+              <div key={String(theme.cluster)} className="rounded-xl border border-rose-200 bg-rose-50 p-3">
+                <p className="text-xs font-semibold text-rose-900">{theme.cluster}</p>
+                <p className="mt-1 text-[11px] text-rose-700">
+                  {fmtCurrency(Number(theme.spend ?? 0))} spend · {fmtNumber(Number(theme.conversions ?? 0))} conv
+                </p>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+
+        <SectionCard title="New Opportunity Queries" description="Converting search demand that still needs better direct coverage.">
+          <div className="space-y-3">
+            {newOpportunityQueries.slice(0, 4).map((row: Record<string, any>) => (
+              <div key={String(row.key)} className="rounded-xl border border-sky-200 bg-sky-50 p-3">
+                <p className="text-xs font-semibold text-sky-900">{row.searchTerm}</p>
+                <p className="mt-1 text-[11px] text-sky-700">
+                  {fmtNumber(Number(row.conversions ?? 0))} conv · {fmtRoas(Number(row.roas ?? 0))} ROAS
+                </p>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-3">
@@ -923,34 +1057,78 @@ function SearchIntelligenceView({
   );
 }
 
-function KeywordsView({ rows, summary, meta }: { rows: Array<Record<string, any>>; summary: Record<string, any>; meta: MetaShape | null }) {
+function KeywordsView({
+  rows,
+  summary,
+  insights,
+}: {
+  rows: Array<Record<string, any>>;
+  summary: Record<string, any>;
+  insights: Record<string, any>;
+}) {
   if (rows.length === 0) {
     return <TabEmpty message="No keyword management data is available for this period." />;
   }
 
   const qsAvailable = rows.some((row) => row.qualityScore != null);
-  const wastingCount = rows.filter((row) => Number(row.spend ?? 0) > 20 && Number(row.conversions ?? 0) === 0).length;
-  const scaleCount = rows.filter((row) => Number(row.conversions ?? 0) >= 3 && Number(row.impressionShare ?? 1) < 0.4).length;
+  const scaleKeywords = (insights.scaleKeywords ?? []) as Array<Record<string, any>>;
+  const weakKeywords = (insights.weakKeywords ?? []) as Array<Record<string, any>>;
+  const negativeCandidates = (insights.negativeCandidates ?? []) as Array<Record<string, any>>;
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <MetricCard label="High CTR, Low Conv." value={fmtNumber(Number(summary.highCtrLowConvCount ?? 0))} sublabel="Likely landing page or intent mismatch" />
-        <MetricCard label="Scale Candidates" value={fmtNumber(scaleCount)} sublabel="Low impression share despite conversions" />
-        <MetricCard label="Wasting Keywords" value={fmtNumber(wastingCount)} sublabel="Spend without sufficient conversion value" />
+        <MetricCard label="Scale Keywords" value={fmtNumber(Number(summary.scaleKeywordCount ?? 0))} sublabel="Keywords beating account-average return" />
+        <MetricCard label="Weak Keywords" value={fmtNumber(Number(summary.weakKeywordCount ?? 0))} sublabel="Keywords lagging account-average return" />
+        <MetricCard label="Negative Candidates" value={fmtNumber(Number(summary.negativeCandidateCount ?? 0))} sublabel="Spend without conversion proof" />
         <MetricCard label="Quality Coverage" value={qsAvailable ? "Available" : "Limited"} sublabel={qsAvailable ? "QS signals are flowing" : "Google quality fields unavailable"} />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-3">
+        <SectionCard title="Scale Keywords" description="Keywords outperforming the account average and worth broader coverage.">
+          <div className="space-y-3">
+            {scaleKeywords.slice(0, 4).map((row) => (
+              <div key={String(row.criterionId)} className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                <p className="text-xs font-semibold text-emerald-900">{row.keyword}</p>
+                <p className="mt-1 text-[11px] text-emerald-700">
+                  {fmtRoas(Number(row.roas ?? 0))} ROAS · {fmtNumber(Number(row.conversions ?? 0))} conv
+                </p>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+
+        <SectionCard title="Weak Keywords" description="Keywords that need tighter intent, new landing pages, or budget restraint.">
+          <div className="space-y-3">
+            {weakKeywords.slice(0, 4).map((row) => (
+              <div key={String(row.criterionId)} className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+                <p className="text-xs font-semibold text-amber-900">{row.keyword}</p>
+                <p className="mt-1 text-[11px] text-amber-700">
+                  {fmtCurrency(Number(row.spend ?? 0))} spend · {fmtRoas(Number(row.roas ?? 0))}
+                </p>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+
+        <SectionCard title="Negative Candidates" description="Keywords spending enough to justify exclusion or major cleanup.">
+          <div className="space-y-3">
+            {negativeCandidates.slice(0, 4).map((row) => (
+              <div key={String(row.criterionId)} className="rounded-xl border border-rose-200 bg-rose-50 p-3">
+                <p className="text-xs font-semibold text-rose-900">{row.keyword}</p>
+                <p className="mt-1 text-[11px] text-rose-700">
+                  {fmtCurrency(Number(row.spend ?? 0))} spend · {fmtNumber(Number(row.clicks ?? 0))} clicks
+                </p>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
       </div>
 
       <SectionCard
         title="Keyword Intelligence"
         description="Keyword-level management with honest quality signals and impression-share context."
-        action={
-          meta?.unavailable_metrics?.length ? (
-            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
-              Quality signals partial
-            </span>
-          ) : null
-        }
       >
         <SimpleTable
           cols={[
@@ -1002,21 +1180,86 @@ function KeywordsView({ rows, summary, meta }: { rows: Array<Record<string, any>
   );
 }
 
-function AssetsView({ rows, summary }: { rows: Array<Record<string, any>>; summary: Record<string, any> }) {
+function AssetsView({
+  rows,
+  summary,
+  insights,
+}: {
+  rows: Array<Record<string, any>>;
+  summary: Record<string, any>;
+  insights: Record<string, any>;
+}) {
   if (rows.length === 0) {
     return <TabEmpty message="No Google asset performance data is available for this period." />;
   }
 
   const byType = (summary.typeBreakdown ?? []) as Array<Record<string, any>>;
-  const underperformers = rows.filter((row) => row.performanceLabel === "underperforming").slice(0, 3);
+  const topPerformingAssets = (insights.topPerformingAssets ?? []) as Array<Record<string, any>>;
+  const weakAssets = (insights.weakAssets ?? []) as Array<Record<string, any>>;
+  const spendNoConversionAssets = (insights.spendNoConversionAssets ?? []) as Array<Record<string, any>>;
+  const topConvertingAssets = (insights.topConvertingAssets ?? []) as Array<Record<string, any>>;
+  const assetsWastingSpend = (insights.assetsWastingSpend ?? []) as Array<Record<string, any>>;
+  const assetsToExpand = (insights.assetsToExpand ?? []) as Array<Record<string, any>>;
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="Top Performing" value={fmtNumber(Number(summary.topPerformingCount ?? 0))} sublabel="Best-labelled assets" />
-        <MetricCard label="Underperforming" value={fmtNumber(Number(summary.underperformingCount ?? 0))} sublabel="Needs refresh or replacement" />
-        <MetricCard label="Low CTR / IR" value={fmtNumber(Number(summary.lowCtrCount ?? 0))} sublabel="Below-account engagement quality" />
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <MetricCard label="Top Performers" value={fmtNumber(Number(summary.topPerformerCount ?? summary.topPerformingCount ?? 0))} sublabel="Assets beating account-average return" />
+        <MetricCard label="Stable Assets" value={fmtNumber(Number(summary.stableCount ?? 0))} sublabel="Reliable assets worth protecting" />
+        <MetricCard label="Weak Assets" value={fmtNumber(Number(summary.weakCount ?? summary.underperformingCount ?? 0))} sublabel="Assets needing refresh or replacement" />
+        <MetricCard label="Budget Waste" value={fmtNumber(Number(summary.budgetWasteCount ?? summary.spendNoConversionCount ?? 0))} sublabel="Spend share ahead of revenue share" />
         <MetricCard label="Asset Types" value={fmtNumber(byType.length)} sublabel="Headline, image, video, and more" />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-3">
+        <SectionCard title="Top Converting Assets" description="Assets creating the strongest conversion value right now.">
+          <div className="space-y-3">
+            {(topConvertingAssets.length > 0 ? topConvertingAssets : topPerformingAssets).slice(0, 4).map((asset) => (
+              <div key={String(asset.id)} className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                <PerfBadge label="top" />
+                <p className="mt-3 text-xs font-semibold text-emerald-950">{asset.preview}</p>
+                <p className="mt-1 text-[11px] text-emerald-700">
+                  {fmtCurrency(Number(asset.revenue ?? 0))} value · {fmtRoas(Number(asset.roas ?? 0))}
+                </p>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+
+        <SectionCard title="Assets Wasting Spend" description="Low-efficiency assets that deserve refresh, replacement, or reduced rotation.">
+          <div className="space-y-3">
+            {(assetsWastingSpend.length > 0 ? assetsWastingSpend : weakAssets).slice(0, 4).map((asset) => (
+              <div key={String(asset.id)} className="rounded-2xl border border-rose-200 bg-rose-50 p-4">
+                <PerfBadge label="underperforming" />
+                <p className="mt-3 text-xs font-semibold text-rose-900">{asset.preview}</p>
+                <p className="mt-1 text-[11px] text-rose-700">{asset.hint}</p>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+
+        <SectionCard title="Assets To Expand" description="Creative winners that should be reused in more tests or asset groups.">
+          <div className="space-y-3">
+            {(assetsToExpand.length > 0 ? assetsToExpand : spendNoConversionAssets).slice(0, 4).map((asset) => (
+              <div
+                key={String(asset.id)}
+                className={cn(
+                  "rounded-2xl border p-4",
+                  assetsToExpand.length > 0
+                    ? "border-sky-200 bg-sky-50"
+                    : "border-amber-200 bg-amber-50"
+                )}
+              >
+                <p className={cn("text-xs font-semibold", assetsToExpand.length > 0 ? "text-sky-900" : "text-amber-900")}>{asset.preview}</p>
+                <p className={cn("mt-1 text-[11px]", assetsToExpand.length > 0 ? "text-sky-700" : "text-amber-700")}>
+                  {assetsToExpand.length > 0
+                    ? `${fmtRoas(Number(asset.roas ?? 0))} ROAS · ${fmtNumber(Number(asset.conversions ?? 0))} conv`
+                    : `${fmtCurrency(Number(asset.spend ?? 0))} spend · ${fmtNumber(Number(asset.clicks ?? asset.interactions ?? 0))} clicks/interactions`}
+                </p>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
       </div>
 
       <SectionCard title="Coverage By Asset Type" description="Real Google asset semantics, not ad-level creative clones.">
@@ -1029,27 +1272,6 @@ function AssetsView({ rows, summary }: { rows: Array<Record<string, any>>; summa
               note="Tracked asset count"
             />
           ))}
-        </div>
-      </SectionCard>
-
-      <SectionCard title="Optimization Hints" description="The clearest weak points based on interaction and conversion quality.">
-        <div className="grid gap-3 xl:grid-cols-3">
-          {underperformers.length === 0 ? (
-            <p className="text-xs text-muted-foreground">No underperforming assets surfaced for this period.</p>
-          ) : (
-            underperformers.map((asset) => (
-              <div key={String(asset.id)} className="rounded-2xl border border-rose-200 bg-rose-50 p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <PerfBadge label="underperforming" />
-                  <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold text-rose-700">
-                    {asset.type}
-                  </span>
-                </div>
-                <p className="mt-3 text-xs font-semibold text-rose-900">{asset.preview}</p>
-                <p className="mt-1 text-[11px] text-rose-700">{asset.hint || "Refresh asset messaging and variety."}</p>
-              </div>
-            ))
-          )}
         </div>
       </SectionCard>
 
@@ -1104,51 +1326,73 @@ function AssetsView({ rows, summary }: { rows: Array<Record<string, any>>; summa
   );
 }
 
-function AssetGroupsView({ rows, summary }: { rows: Array<Record<string, any>>; summary: Record<string, any> }) {
+function AssetGroupsView({
+  rows,
+  summary,
+  insights,
+}: {
+  rows: Array<Record<string, any>>;
+  summary: Record<string, any>;
+  insights: Record<string, any>;
+}) {
   if (rows.length === 0) {
     return <TabEmpty message="No Performance Max asset groups were found for this period." />;
   }
 
-  const weakGroup = rows.find((row) => row.state === "weak");
+  const scaleCandidates = ((insights.scaleCandidates ?? []) as Array<Record<string, any>>).slice(0, 4);
+  const weakGroups = ((insights.weakGroups ?? []) as Array<Record<string, any>>).slice(0, 4);
+  const coverageGaps = ((insights.coverageGaps ?? []) as Array<Record<string, any>>).slice(0, 4);
 
   return (
     <div className="space-y-6">
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="Strong Groups" value={fmtNumber(Number(summary.strongCount ?? 0))} sublabel="Ready to scale or defend" />
+        <MetricCard label="Scale Candidates" value={fmtNumber(Number(summary.strongCount ?? 0))} sublabel="Revenue share is outrunning spend share" />
+        <MetricCard label="Healthy Groups" value={fmtNumber(Number(summary.healthyCount ?? 0))} sublabel="Solid groups worth protecting" />
         <MetricCard label="Weak Groups" value={fmtNumber(Number(summary.weakCount ?? 0))} sublabel="Budget consumers with weak return" />
-        <MetricCard label="Coverage Gaps" value={fmtNumber(Number(summary.coverageGaps ?? 0))} sublabel="Missing required asset variety" />
-        <MetricCard label="Search Themes" value={fmtNumber(Number(summary.searchThemeCount ?? 0))} sublabel="Configured PMax theme signals" />
+        <MetricCard label="Coverage Risk" value={fmtNumber(Number(summary.coverageRiskCount ?? summary.coverageGaps ?? 0))} sublabel="Groups missing enough coverage to scale cleanly" />
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-2">
+      <div className="grid gap-4 xl:grid-cols-3">
         <SectionCard title="Scale Candidates" description="Strong asset groups with healthy return and coverage.">
           <div className="space-y-3">
-            {(rows.filter((row) => row.state === "strong").slice(0, 4)).map((row) => (
+            {scaleCandidates.map((row) => (
               <div key={String(row.id)} className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
                 <p className="text-xs font-semibold text-emerald-900">{row.name}</p>
                 <p className="mt-1 text-[11px] text-emerald-700">
-                  {fmtRoas(Number(row.roas ?? 0))} ROAS · coverage {row.coverageScore}%
+                  {fmtRoas(Number(row.roas ?? 0))} ROAS · revenue share {row.revenueShare}% vs spend share {row.spendShare}%
                 </p>
               </div>
             ))}
           </div>
         </SectionCard>
 
-        <SectionCard title="Coverage & Theme Risk" description="Underpowered groups missing enough assets or aligned search themes.">
+        <SectionCard title="Weak Groups" description="Groups that need efficiency fixes or budget reduction.">
           <div className="space-y-3">
-            {weakGroup ? (
-              <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-                <p className="text-xs font-semibold text-amber-900">{weakGroup.name}</p>
+            {weakGroups.map((row) => (
+              <div key={String(row.id)} className="rounded-xl border border-rose-200 bg-rose-50 p-4">
+                <p className="text-xs font-semibold text-rose-900">{row.name}</p>
+                <p className="mt-1 text-[11px] text-rose-700">
+                  {fmtCurrency(Number(row.spend ?? 0))} spend · {fmtRoas(Number(row.roas ?? 0))}
+                </p>
+                <p className="mt-2 text-xs text-rose-800">{row.recommendation}</p>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+
+        <SectionCard title="Coverage Gaps" description="Groups missing enough variety or theme coverage to support scale.">
+          <div className="space-y-3">
+            {coverageGaps.map((row) => (
+              <div key={String(row.id)} className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                <p className="text-xs font-semibold text-amber-900">{row.name}</p>
                 <p className="mt-1 text-[11px] text-amber-700">
-                  {weakGroup.coverageScore}% coverage · {weakGroup.searchThemeAlignedCount}/{weakGroup.searchThemeCount} themes aligned in messaging
+                  Coverage {row.coverageScore}% · {row.searchThemeAlignedCount}/{row.searchThemeCount} themes aligned
                 </p>
                 <p className="mt-2 text-xs text-amber-800">
-                  Missing: {Array.isArray(weakGroup.missingAssetFields) && weakGroup.missingAssetFields.length > 0 ? weakGroup.missingAssetFields.join(", ") : "No required types missing"}
+                  Missing: {Array.isArray(row.missingAssetFields) && row.missingAssetFields.length > 0 ? row.missingAssetFields.join(", ") : "No required types missing"}
                 </p>
               </div>
-            ) : (
-              <p className="text-xs text-muted-foreground">No obvious coverage or search-theme mismatch surfaced.</p>
-            )}
+            ))}
           </div>
         </SectionCard>
       </div>
@@ -1170,10 +1414,15 @@ function AssetGroupsView({ rows, summary }: { rows: Array<Record<string, any>>; 
                   </div>
                   <p className="text-xs font-semibold">{row.name}</p>
                   <p className="mt-1 text-[10px] text-muted-foreground">
-                    {row.campaign} · {row.searchThemeCount} search themes
+                    {row.campaign} · {row.searchThemeCount} search themes · {row.classification.replaceAll("_", " ")}
                   </p>
                   {row.searchThemeSummary ? (
                     <p className="mt-1 text-[10px] text-muted-foreground">{row.searchThemeSummary}</p>
+                  ) : null}
+                  {Number(row.messagingMismatchCount ?? 0) > 0 ? (
+                    <p className="mt-1 text-[10px] text-amber-700">
+                      Messaging mismatch on {row.messagingMismatchCount} theme{row.messagingMismatchCount === 1 ? "" : "s"}
+                    </p>
                   ) : null}
                 </div>
               ),
@@ -1221,6 +1470,7 @@ function ProductsView({ rows, summary, insights }: { rows: Array<Record<string, 
         <MetricCard label="Spend" value={fmtCurrency(Number(summary.totalSpend ?? 0))} sublabel="Tracked product-level spend" />
         <MetricCard label="Revenue" value={fmtCurrency(Number(summary.totalRevenue ?? 0))} sublabel="Tracked conversion value" tone="highlight" />
         <MetricCard label="Scale Candidates" value={fmtNumber(Number(summary.scaleCandidates ?? 0))} sublabel="Products with strong return" />
+        <MetricCard label="Hidden Winners" value={fmtNumber(Number(summary.hiddenWinnerCount ?? 0))} sublabel="High-return products with low current exposure" />
         <MetricCard label="Top 3 Concentration" value={`${Number(summary.spendConcentrationTop3 ?? 0) * 100}%`} sublabel="Dependency risk across leading products" />
       </div>
 
@@ -1237,9 +1487,9 @@ function ProductsView({ rows, summary, insights }: { rows: Array<Record<string, 
             ))}
           </div>
         </SectionCard>
-        <SectionCard title="Low-ROAS Products" description="Products spending enough to justify review or budget cuts.">
+        <SectionCard title="Spend Without Return" description="Products spending enough to justify review or budget cuts.">
           <div className="space-y-3">
-            {(insights.lowRoasProducts ?? []).slice(0, 4).map((row: Record<string, any>) => (
+            {((insights.spendWithoutReturn ?? insights.lowReturnProducts ?? []) as Array<Record<string, any>>).slice(0, 4).map((row: Record<string, any>) => (
               <div key={String(row.itemId)} className="rounded-xl border border-rose-200 bg-rose-50 p-3">
                 <p className="text-xs font-semibold text-rose-900">{row.title}</p>
                 <p className="mt-1 text-[11px] text-rose-700">
@@ -1249,13 +1499,25 @@ function ProductsView({ rows, summary, insights }: { rows: Array<Record<string, 
             ))}
           </div>
         </SectionCard>
-        <SectionCard title="Spend Without Enough Return" description="Products absorbing spend with weak contribution proxy.">
+        <SectionCard title="Scale Candidates" description="Products with strong return and room for more demand.">
           <div className="space-y-3">
-            {(insights.spendWithoutReturn ?? []).slice(0, 4).map((row: Record<string, any>) => (
-              <div key={String(row.itemId)} className="rounded-xl border border-amber-200 bg-amber-50 p-3">
-                <p className="text-xs font-semibold text-amber-900">{row.title}</p>
-                <p className="mt-1 text-[11px] text-amber-700">
-                  Contribution proxy {fmtCurrency(Number(row.contributionProxy ?? 0))}
+            {(insights.scaleCandidates ?? []).slice(0, 4).map((row: Record<string, any>) => (
+              <div key={String(row.itemId)} className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                <p className="text-xs font-semibold text-emerald-900">{row.title}</p>
+                <p className="mt-1 text-[11px] text-emerald-700">
+                  {fmtRoas(Number(row.roas ?? 0))} ROAS · {fmtCurrency(Number(row.revenue ?? 0))} revenue
+                </p>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+        <SectionCard title="Hidden Winners" description="High-ROAS products that still hold a small share of spend.">
+          <div className="space-y-3">
+            {(insights.hiddenWinners ?? []).slice(0, 4).map((row: Record<string, any>) => (
+              <div key={String(row.itemId)} className="rounded-xl border border-sky-200 bg-sky-50 p-3">
+                <p className="text-xs font-semibold text-sky-900">{row.title}</p>
+                <p className="mt-1 text-[11px] text-sky-700">
+                  {fmtRoas(Number(row.roas ?? 0))} ROAS · {Number(row.spendShare ?? 0).toFixed(1)}% spend share
                 </p>
               </div>
             ))}
@@ -1274,7 +1536,7 @@ function ProductsView({ rows, summary, insights }: { rows: Array<Record<string, 
                 <div className="max-w-[220px]">
                   <p className="text-xs font-semibold">{row.title}</p>
                   <p className="mt-1 text-[10px] text-muted-foreground">
-                    {row.brand ?? "No brand"} · {row.feedPrice ? fmtCurrency(Number(row.feedPrice)) : "Feed price unavailable"}
+                    {row.productId ?? row.itemId} · {fmtNumber(Number(row.orders ?? row.conversions ?? 0))} orders
                   </p>
                   <div className="mt-1">
                     <ActionStateBadge state={String(row.statusLabel ?? "stable")} />
@@ -1285,11 +1547,11 @@ function ProductsView({ rows, summary, insights }: { rows: Array<Record<string, 
             { key: "spend", header: "Spend", accessor: (row) => Number(row.spend ?? 0), align: "right", render: (row) => fmtCurrency(Number(row.spend ?? 0)) },
             { key: "revenue", header: "Revenue", accessor: (row) => Number(row.revenue ?? 0), align: "right", render: (row) => fmtCurrency(Number(row.revenue ?? 0)) },
             { key: "roas", header: "ROAS", accessor: (row) => Number(row.roas ?? 0), align: "right", render: (row) => fmtRoas(Number(row.roas ?? 0)) },
-            { key: "conversions", header: "Orders", accessor: (row) => Number(row.conversions ?? 0), align: "right", render: (row) => fmtNumber(Number(row.conversions ?? 0)) },
-            { key: "cpa", header: "CPA", accessor: (row) => Number(row.cpa ?? 0), align: "right", render: (row) => (Number(row.conversions ?? 0) > 0 ? fmtCurrency(Number(row.cpa ?? 0)) : "—") },
+            { key: "orders", header: "Orders", accessor: (row) => Number(row.orders ?? row.conversions ?? 0), align: "right", render: (row) => fmtNumber(Number(row.orders ?? row.conversions ?? 0)) },
+            { key: "cpa", header: "CPA", accessor: (row) => Number(row.cpa ?? 0), align: "right", render: (row) => (Number(row.orders ?? row.conversions ?? 0) > 0 ? fmtCurrency(Number(row.cpa ?? 0)) : "—") },
             {
               key: "contributionProxy",
-              header: "Contribution Proxy",
+              header: "Contribution Proxy (Not Profit)",
               accessor: (row) => Number(row.contributionProxy ?? 0),
               align: "right",
               render: (row) => (
@@ -1443,18 +1705,21 @@ function GeoDevicesView({
 function BudgetScalingView({
   budgetRows,
   budgetSummary,
+  budgetInsights,
   products,
 }: {
   budgetRows: Array<Record<string, any>>;
   budgetSummary: Record<string, any>;
+  budgetInsights: Record<string, any>;
   products: Array<Record<string, any>>;
 }) {
   if (budgetRows.length === 0) {
     return <TabEmpty message="No budget and scaling data is available for this period." />;
   }
 
-  const scaleCampaigns = budgetRows.filter((row) => Number(row.lostIsBudget ?? 0) > 0.1 && Number(row.roas ?? 0) >= Number(budgetSummary.accountAvgRoas ?? 0)).slice(0, 4);
-  const reduceCampaigns = budgetRows.filter((row) => Number(row.roas ?? 0) < Number(budgetSummary.accountAvgRoas ?? 0) * 0.7 && Number(row.spend ?? 0) > 50).slice(0, 4);
+  const scaleCampaigns = ((budgetInsights.scaleBudgetCandidates ?? []) as Array<Record<string, any>>).slice(0, 4);
+  const reduceCampaigns = ((budgetInsights.budgetWasteCampaigns ?? []) as Array<Record<string, any>>).slice(0, 4);
+  const balancedCampaigns = ((budgetInsights.balancedCampaigns ?? []) as Array<Record<string, any>>).slice(0, 4);
   const scaleProducts = products.filter((row) => row.statusLabel === "scale").slice(0, 3);
   const reduceProducts = products.filter((row) => row.statusLabel === "reduce").slice(0, 3);
   const totalSpend = Number(budgetSummary.totalSpend ?? 0);
@@ -1464,18 +1729,19 @@ function BudgetScalingView({
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard label="Total Spend" value={fmtCurrency(totalSpend)} sublabel="Campaign-level budget analysis" />
         <MetricCard label="Avg ROAS" value={fmtRoas(Number(budgetSummary.accountAvgRoas ?? 0))} sublabel="Blended campaign efficiency" tone="highlight" />
-        <MetricCard label="Scale Now" value={fmtNumber(scaleCampaigns.length + scaleProducts.length)} sublabel="Campaigns and products with headroom" />
-        <MetricCard label="Reduce Now" value={fmtNumber(reduceCampaigns.length + reduceProducts.length)} sublabel="Inefficient budget concentration" />
+        <MetricCard label="Scale Now" value={fmtNumber(Number(budgetSummary.scaleCampaignCount ?? scaleCampaigns.length) + scaleProducts.length)} sublabel="Campaigns and products with headroom" />
+        <MetricCard label="Reduce Now" value={fmtNumber(Number(budgetSummary.budgetSinkCount ?? reduceCampaigns.length) + reduceProducts.length)} sublabel="Inefficient budget concentration" />
+        <MetricCard label="Balanced" value={fmtNumber(Number(budgetSummary.stableCampaignCount ?? balancedCampaigns.length))} sublabel="Campaigns holding an efficient share mix" />
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-2">
-        <SectionCard title="Where To Put More Budget" description="Efficiency-backed scale opportunities across campaigns and products.">
+      <div className="grid gap-4 xl:grid-cols-3">
+        <SectionCard title="Scale Budget Candidates" description="Efficiency-backed scale opportunities across campaigns and products.">
           <div className="space-y-3">
             {scaleCampaigns.map((row) => (
               <div key={String(row.id)} className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
                 <p className="text-xs font-semibold text-emerald-900">{row.name}</p>
                 <p className="mt-1 text-[11px] text-emerald-700">
-                  {fmtRoas(Number(row.roas ?? 0))} ROAS · {fmtPercent(Number(row.lostIsBudget ?? 0) * 100)} lost to budget
+                  {fmtRoas(Number(row.roas ?? 0))} ROAS · revenue share {Number(row.revenueShare ?? 0).toFixed(1)}% vs spend share {Number(row.spendShare ?? 0).toFixed(1)}%
                 </p>
               </div>
             ))}
@@ -1490,7 +1756,7 @@ function BudgetScalingView({
           </div>
         </SectionCard>
 
-        <SectionCard title="Where To Pull Back" description="Spend concentration that is not earning enough return.">
+        <SectionCard title="Budget Waste Campaigns" description="Spend concentration that is not earning enough return.">
           <div className="space-y-3">
             {reduceCampaigns.map((row) => (
               <div key={String(row.id)} className="rounded-xl border border-rose-200 bg-rose-50 p-3">
@@ -1505,6 +1771,19 @@ function BudgetScalingView({
                 <p className="text-xs font-semibold text-rose-900">{row.title}</p>
                 <p className="mt-1 text-[11px] text-rose-700">
                   {fmtCurrency(Number(row.spend ?? 0))} spend · {fmtRoas(Number(row.roas ?? 0))}
+                </p>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+
+        <SectionCard title="Balanced Campaigns" description="Campaigns holding a healthier spend-to-revenue mix.">
+          <div className="space-y-3">
+            {balancedCampaigns.map((row) => (
+              <div key={String(row.id)} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <p className="text-xs font-semibold text-slate-900">{row.name}</p>
+                <p className="mt-1 text-[11px] text-slate-700">
+                  {fmtRoas(Number(row.roas ?? 0))} ROAS · spend share {Number(row.spendShare ?? 0).toFixed(1)}%
                 </p>
               </div>
             ))}
@@ -1538,23 +1817,72 @@ function BudgetScalingView({
   );
 }
 
-function OpportunitiesView({ rows }: { rows: Array<Record<string, any>> }) {
+function OpportunitiesView({
+  rows,
+  summary,
+}: {
+  rows: Array<Record<string, any>>;
+  summary: Record<string, any>;
+}) {
   if (rows.length === 0) {
     return <TabEmpty message="No opportunities are available for this period." />;
   }
 
+  const grouped = {
+    scale: rows.filter((row) => row.type === "scale"),
+    reduce: rows.filter((row) => row.type === "reduce"),
+    fix: rows.filter((row) => row.type === "fix"),
+    test: rows.filter((row) => row.type === "test"),
+  };
+
   return (
     <div className="space-y-6">
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="High Priority" value={fmtNumber(rows.filter((row) => row.priority === "high").length)} sublabel="Act-first opportunities" />
-        <MetricCard label="Medium Priority" value={fmtNumber(rows.filter((row) => row.priority === "medium").length)} sublabel="Important, but not urgent" />
-        <MetricCard label="Low Effort" value={fmtNumber(rows.filter((row) => row.effort === "low").length)} sublabel="Quick operational wins" />
-        <MetricCard label="Action Types" value={fmtNumber(Array.from(new Set(rows.map((row) => row.type))).length)} sublabel="Budget, keyword, asset, product, and more" />
+        <MetricCard label="Scale" value={fmtNumber(Number(summary.scale ?? grouped.scale.length))} sublabel="Growth opportunities" />
+        <MetricCard label="Reduce" value={fmtNumber(Number(summary.reduce ?? grouped.reduce.length))} sublabel="Budget waste to trim" />
+        <MetricCard label="Fix" value={fmtNumber(Number(summary.fix ?? grouped.fix.length))} sublabel="Structural issues to repair" />
+        <MetricCard label="Test" value={fmtNumber(Number(summary.test ?? grouped.test.length))} sublabel="Experiments worth running" />
       </div>
 
-      <SectionCard title="Ranked Opportunities" description="Evidence-based actions sorted by likely usefulness.">
+      <div className="grid gap-4 xl:grid-cols-2">
+        <SectionCard title="Scale" description="Where the account can lean in with confidence.">
+          <div className="space-y-4">
+            {grouped.scale.map((row) => (
+              <OpportunityCard key={String(row.id)} opportunity={row} />
+            ))}
+          </div>
+        </SectionCard>
+
+        <SectionCard title="Reduce" description="Where spend is outrunning value.">
+          <div className="space-y-4">
+            {grouped.reduce.map((row) => (
+              <OpportunityCard key={String(row.id)} opportunity={row} />
+            ))}
+          </div>
+        </SectionCard>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <SectionCard title="Fix" description="Structural improvements to unlock better performance.">
+          <div className="space-y-4">
+            {grouped.fix.map((row) => (
+              <OpportunityCard key={String(row.id)} opportunity={row} />
+            ))}
+          </div>
+        </SectionCard>
+
+        <SectionCard title="Test" description="Controlled experiments worth prioritizing next.">
+          <div className="space-y-4">
+            {grouped.test.map((row) => (
+              <OpportunityCard key={String(row.id)} opportunity={row} />
+            ))}
+          </div>
+        </SectionCard>
+      </div>
+
+      <SectionCard title="Ranked Opportunities" description="All decisions ranked by expected impact and confidence.">
         <div className="space-y-4">
-          {rows.map((row) => (
+          {rows.slice(0, 12).map((row) => (
             <OpportunityCard key={String(row.id)} opportunity={row} />
           ))}
         </div>
@@ -1563,7 +1891,13 @@ function OpportunitiesView({ rows }: { rows: Array<Record<string, any>> }) {
   );
 }
 
-function DiagnosticsView({ diagnostics }: { diagnostics: QueryResult | undefined }) {
+function DiagnosticsView({
+  diagnostics,
+  meta,
+}: {
+  diagnostics: QueryResult | undefined;
+  meta: ReturnType<typeof combineMetas>;
+}) {
   const rows = firstRows(diagnostics);
   if (rows.length === 0) {
     return <TabEmpty message="No diagnostics are available yet." />;
@@ -1574,6 +1908,14 @@ function DiagnosticsView({ diagnostics }: { diagnostics: QueryResult | undefined
 
   return (
     <div className="space-y-6">
+      <SectionCard title="Diagnostic Summary" description="Centralized view of query failures, partial data, and unavailable advanced metrics.">
+        <div className="grid gap-3 md:grid-cols-3">
+          <InsightStrip title="Query Failures" value={fmtNumber(meta.failed_queries.length)} note="Only shown here, not in main reporting tabs." tone={meta.failed_queries.length > 0 ? "bad" : "neutral"} />
+          <InsightStrip title="Partial Data" value={fmtNumber(meta.warnings.length)} note="Includes true API and report-shape limitations." tone={meta.warnings.length > 0 ? "bad" : "neutral"} />
+          <InsightStrip title="Unavailable Metrics" value={fmtNumber(meta.unavailable_metrics.length)} note="Unavailable vs zero handling is preserved." tone={meta.unavailable_metrics.length > 0 ? "bad" : "neutral"} />
+        </div>
+      </SectionCard>
+
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard label="Loaded Sections" value={fmtNumber(Number(summary.loadedSections ?? 0))} sublabel="Tabs included in the health scan" />
         <MetricCard label="Healthy Sections" value={fmtNumber(Number(summary.healthySections ?? 0))} sublabel="No warnings or failures" />
@@ -1643,19 +1985,103 @@ function DiagnosticsView({ diagnostics }: { diagnostics: QueryResult | undefined
 }
 
 export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: string }) {
+  const defaultPrimaryWindow = getDateWindow("30");
+  const defaultCompareWindow = getPreviousWindow(
+    defaultPrimaryWindow.startDate,
+    defaultPrimaryWindow.endDate
+  );
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   const [dateRange, setDateRange] = useState<DateRange>("30");
+  const [customStart, setCustomStart] = useState(defaultPrimaryWindow.startDate);
+  const [customEnd, setCustomEnd] = useState(defaultPrimaryWindow.endDate);
+  const [compareMode, setCompareMode] = useState<CompareMode>("previous_period");
+  const [compareStart, setCompareStart] = useState(defaultCompareWindow.startDate);
+  const [compareEnd, setCompareEnd] = useState(defaultCompareWindow.endDate);
+
+  const applyDateRange = (nextRange: DateRange) => {
+    setDateRange(nextRange);
+    if (nextRange === "custom" && (!customStart || !customEnd)) {
+      setCustomStart(defaultPrimaryWindow.startDate);
+      setCustomEnd(defaultPrimaryWindow.endDate);
+    }
+  };
+
+  const applyCompareMode = (nextMode: CompareMode) => {
+    setCompareMode(nextMode);
+    if (nextMode === "custom" && (!compareStart || !compareEnd)) {
+      const currentWindow = getDateWindow(dateRange, customStart, customEnd);
+      const fallbackWindow = getPreviousWindow(currentWindow.startDate, currentWindow.endDate);
+      setCompareStart(fallbackWindow.startDate);
+      setCompareEnd(fallbackWindow.endDate);
+    }
+  };
+
+  const resetControls = () => {
+    setDateRange("30");
+    setCustomStart(defaultPrimaryWindow.startDate);
+    setCustomEnd(defaultPrimaryWindow.endDate);
+    setCompareMode("previous_period");
+    setCompareStart(defaultCompareWindow.startDate);
+    setCompareEnd(defaultCompareWindow.endDate);
+  };
+
+  const rangeParams =
+    dateRange === "custom"
+      ? {
+          customStart,
+          customEnd,
+        }
+      : {};
+  const comparisonParams =
+    compareMode === "custom"
+      ? {
+          compareMode,
+          compareStart,
+          compareEnd,
+        }
+      : {
+          compareMode,
+        };
+  const dateLabel =
+    dateRange === "custom"
+      ? `${customStart} to ${customEnd}`
+      : DATE_RANGE_OPTIONS.find((option) => option.value === dateRange)?.label ?? "Last 30 days";
+  const dateBadgeLabel =
+    DATE_RANGE_OPTIONS.find((option) => option.value === dateRange)?.shortLabel ?? "30D";
+  const compareLabel =
+    compareMode === "custom"
+      ? `${compareStart} to ${compareEnd}`
+      : COMPARE_OPTIONS.find((option) => option.value === compareMode)?.label ??
+        "Previous period";
 
   const overviewQ = useQuery({
-    queryKey: ["google-ads-overview", businessId, dateRange],
-    queryFn: () => fetchReport("overview", businessId, dateRange),
+    queryKey: [
+      "google-ads-overview",
+      businessId,
+      dateRange,
+      customStart,
+      customEnd,
+      compareMode,
+      compareStart,
+      compareEnd,
+    ],
+    queryFn: () => fetchReport("overview", businessId, dateRange, { ...rangeParams, ...comparisonParams }),
     enabled: Boolean(businessId) && activeTab === "overview",
     staleTime: 60_000,
   });
 
   const campaignsQ = useQuery({
-    queryKey: ["google-ads-campaigns", businessId, dateRange],
-    queryFn: () => fetchReport("campaigns", businessId, dateRange),
+    queryKey: [
+      "google-ads-campaigns",
+      businessId,
+      dateRange,
+      customStart,
+      customEnd,
+      compareMode,
+      compareStart,
+      compareEnd,
+    ],
+    queryFn: () => fetchReport("campaigns", businessId, dateRange, { ...rangeParams, ...comparisonParams }),
     enabled:
       Boolean(businessId) &&
       ["overview", "campaigns", "budget-scaling"].includes(activeTab),
@@ -1663,29 +2089,29 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
   });
 
   const searchIntelligenceQ = useQuery({
-    queryKey: ["google-ads-search-intelligence", businessId, dateRange],
-    queryFn: () => fetchReport("search-intelligence", businessId, dateRange),
+    queryKey: ["google-ads-search-intelligence", businessId, dateRange, customStart, customEnd],
+    queryFn: () => fetchReport("search-intelligence", businessId, dateRange, rangeParams),
     enabled: Boolean(businessId) && activeTab === "search-intelligence",
     staleTime: 60_000,
   });
 
   const keywordsQ = useQuery({
-    queryKey: ["google-ads-keywords", businessId, dateRange],
-    queryFn: () => fetchReport("keywords", businessId, dateRange),
+    queryKey: ["google-ads-keywords", businessId, dateRange, customStart, customEnd],
+    queryFn: () => fetchReport("keywords", businessId, dateRange, rangeParams),
     enabled: Boolean(businessId) && activeTab === "keywords",
     staleTime: 60_000,
   });
 
   const assetsQ = useQuery({
-    queryKey: ["google-ads-assets", businessId, dateRange],
-    queryFn: () => fetchReport("assets", businessId, dateRange),
+    queryKey: ["google-ads-assets", businessId, dateRange, customStart, customEnd],
+    queryFn: () => fetchReport("assets", businessId, dateRange, rangeParams),
     enabled: Boolean(businessId) && ["assets", "opportunities"].includes(activeTab),
     staleTime: 60_000,
   });
 
   const assetGroupsQ = useQuery({
-    queryKey: ["google-ads-asset-groups", businessId, dateRange],
-    queryFn: () => fetchReport("asset-groups", businessId, dateRange),
+    queryKey: ["google-ads-asset-groups", businessId, dateRange, customStart, customEnd],
+    queryFn: () => fetchReport("asset-groups", businessId, dateRange, rangeParams),
     enabled:
       Boolean(businessId) &&
       ["asset-groups", "opportunities"].includes(activeTab),
@@ -1693,8 +2119,8 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
   });
 
   const productsQ = useQuery({
-    queryKey: ["google-ads-products", businessId, dateRange],
-    queryFn: () => fetchReport("products", businessId, dateRange),
+    queryKey: ["google-ads-products", businessId, dateRange, customStart, customEnd],
+    queryFn: () => fetchReport("products", businessId, dateRange, rangeParams),
     enabled:
       Boolean(businessId) &&
       ["overview", "products", "budget-scaling", "opportunities"].includes(activeTab),
@@ -1702,29 +2128,29 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
   });
 
   const audiencesQ = useQuery({
-    queryKey: ["google-ads-audiences", businessId, dateRange],
-    queryFn: () => fetchReport("audiences", businessId, dateRange),
+    queryKey: ["google-ads-audiences", businessId, dateRange, customStart, customEnd],
+    queryFn: () => fetchReport("audiences", businessId, dateRange, rangeParams),
     enabled: Boolean(businessId) && activeTab === "audiences",
     staleTime: 60_000,
   });
 
   const geoQ = useQuery({
-    queryKey: ["google-ads-geo", businessId, dateRange],
-    queryFn: () => fetchReport("geo", businessId, dateRange),
+    queryKey: ["google-ads-geo", businessId, dateRange, customStart, customEnd],
+    queryFn: () => fetchReport("geo", businessId, dateRange, rangeParams),
     enabled: Boolean(businessId) && activeTab === "geo-devices",
     staleTime: 60_000,
   });
 
   const devicesQ = useQuery({
-    queryKey: ["google-ads-devices", businessId, dateRange],
-    queryFn: () => fetchReport("devices", businessId, dateRange),
+    queryKey: ["google-ads-devices", businessId, dateRange, customStart, customEnd],
+    queryFn: () => fetchReport("devices", businessId, dateRange, rangeParams),
     enabled: Boolean(businessId) && activeTab === "geo-devices",
     staleTime: 60_000,
   });
 
   const budgetQ = useQuery({
-    queryKey: ["google-ads-budget", businessId, dateRange],
-    queryFn: () => fetchReport("budget", businessId, dateRange),
+    queryKey: ["google-ads-budget", businessId, dateRange, customStart, customEnd],
+    queryFn: () => fetchReport("budget", businessId, dateRange, rangeParams),
     enabled:
       Boolean(businessId) &&
       ["overview", "budget-scaling"].includes(activeTab),
@@ -1732,8 +2158,8 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
   });
 
   const opportunitiesQ = useQuery({
-    queryKey: ["google-ads-opportunities", businessId, dateRange],
-    queryFn: () => fetchReport("opportunities", businessId, dateRange),
+    queryKey: ["google-ads-opportunities", businessId, dateRange, customStart, customEnd],
+    queryFn: () => fetchReport("opportunities", businessId, dateRange, rangeParams),
     enabled:
       Boolean(businessId) &&
       ["overview", "opportunities"].includes(activeTab),
@@ -1741,8 +2167,8 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
   });
 
   const diagnosticsQ = useQuery({
-    queryKey: ["google-ads-diagnostics", businessId, dateRange],
-    queryFn: () => fetchReport("diagnostics", businessId, dateRange),
+    queryKey: ["google-ads-diagnostics", businessId, dateRange, customStart, customEnd],
+    queryFn: () => fetchReport("diagnostics", businessId, dateRange, rangeParams),
     enabled: Boolean(businessId) && activeTab === "diagnostics",
     staleTime: 60_000,
   });
@@ -1835,91 +2261,164 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
       : diagnosticsQ.isLoading;
 
   return (
-    <div className="space-y-6">
-      <div className="rounded-[28px] border bg-[linear-gradient(135deg,rgba(15,23,42,0.04),rgba(14,165,233,0.08),rgba(16,185,129,0.06))] p-6">
-        <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
-          <div className="max-w-3xl">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-              Google Ads Intelligence
-            </p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-tight">
-              Decision-first reporting for ecommerce teams
-            </h1>
-            <p className="mt-3 max-w-2xl text-sm text-muted-foreground">
-              See what changed, why it changed, what deserves attention, and which campaigns, products, assets, or search themes should move next.
-            </p>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div className="rounded-2xl border bg-white/70 p-4 backdrop-blur">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                Operating Mode
+    <div className="space-y-4">
+      <div className="space-y-3">
+        <div className="rounded-2xl border bg-[linear-gradient(135deg,rgba(15,23,42,0.015),rgba(14,165,233,0.06),rgba(16,185,129,0.04))] px-4 py-3">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-xl font-semibold tracking-tight">Google Ads Intelligence</h1>
+                <span className="rounded-full border bg-background/90 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                  {dateBadgeLabel}
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                See what changed and what to do next.
               </p>
-              <p className="mt-2 text-sm font-semibold">Intelligence Dashboard</p>
-              <p className="mt-1 text-xs text-muted-foreground">Campaign correctness preserved, UX upgraded.</p>
-            </div>
-            <div className="rounded-2xl border bg-white/70 p-4 backdrop-blur">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                Focus
-              </p>
-              <p className="mt-2 text-sm font-semibold">Scale, reduce, fix</p>
-              <p className="mt-1 text-xs text-muted-foreground">Priority sorted by value, waste, and confidence.</p>
-            </div>
-            <div className="rounded-2xl border bg-white/70 p-4 backdrop-blur">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                Date Range
-              </p>
-              <div className="mt-2 flex items-center gap-1 rounded-full border bg-background/90 p-1">
-                {DATE_RANGE_OPTIONS.map((option) => (
-                  <button
-                    key={option.value}
-                    onClick={() => setDateRange(option.value)}
-                    className={cn(
-                      "rounded-full px-3 py-1 text-[11px] font-semibold transition-colors",
-                      dateRange === option.value
-                        ? "bg-foreground text-background"
-                        : "text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    {option.label}
-                  </button>
-                ))}
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
+                  Intelligence mode
+                </span>
+                <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                  {compareMode === "none" ? "Snapshot mode" : "Analysis mode"}
+                </span>
+                <span className="rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700">
+                  Focus: scale, reduce, fix
+                </span>
               </div>
             </div>
+
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <span className="max-w-[240px] truncate rounded-full border bg-background/90 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                {dateLabel}
+              </span>
+              <span className="max-w-[240px] truncate rounded-full border bg-background/90 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                {compareLabel}
+              </span>
+              <button
+                onClick={resetControls}
+                className="rounded-full border px-3 py-1.5 text-[11px] font-semibold text-muted-foreground transition-colors hover:border-foreground/40 hover:text-foreground"
+              >
+                Reset filters
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              Range
+            </span>
+            <div className="flex flex-wrap gap-1">
+              {DATE_RANGE_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  onClick={() => applyDateRange(option.value)}
+                  className={cn(
+                    "rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors",
+                    dateRange === option.value
+                      ? "border-foreground bg-foreground text-background"
+                      : "bg-background/90 text-muted-foreground hover:border-foreground/40 hover:text-foreground"
+                  )}
+                >
+                  {option.shortLabel}
+                </button>
+              ))}
+            </div>
+
+            {dateRange === "custom" ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="date"
+                  value={customStart}
+                  max={customEnd}
+                  onChange={(event) => {
+                    setDateRange("custom");
+                    setCustomStart(event.target.value);
+                  }}
+                  className="h-8 rounded-xl border bg-background px-3 text-xs"
+                />
+                <input
+                  type="date"
+                  value={customEnd}
+                  min={customStart}
+                  onChange={(event) => {
+                    setDateRange("custom");
+                    setCustomEnd(event.target.value);
+                  }}
+                  className="h-8 rounded-xl border bg-background px-3 text-xs"
+                />
+              </div>
+            ) : null}
+
+            <div className="mx-1 hidden h-5 w-px bg-border lg:block" />
+
+            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              Compare
+            </span>
+            <select
+              value={compareMode}
+              onChange={(event) => applyCompareMode(event.target.value as CompareMode)}
+              className="h-8 min-w-[190px] rounded-xl border bg-background px-3 text-xs font-medium"
+            >
+              {COMPARE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+
+            {compareMode === "custom" ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="date"
+                  value={compareStart}
+                  max={compareEnd}
+                  onChange={(event) => setCompareStart(event.target.value)}
+                  className="h-8 rounded-xl border bg-background px-3 text-xs"
+                />
+                <input
+                  type="date"
+                  value={compareEnd}
+                  min={compareStart}
+                  onChange={(event) => setCompareEnd(event.target.value)}
+                  className="h-8 rounded-xl border bg-background px-3 text-xs"
+                />
+              </div>
+            ) : null}
           </div>
         </div>
-      </div>
 
-      <div className="rounded-[28px] border bg-card p-4">
-        <div className="flex flex-col gap-4">
-          {TAB_GROUPS.map((group) => (
-            <div key={group.label}>
-              <p className="mb-2 px-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                {group.label}
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {group.tabs.map((tab) => {
-                  const Icon = tab.icon;
-                  const active = activeTab === tab.id;
-                  return (
-                    <button
-                      key={tab.id}
-                      onClick={() => setActiveTab(tab.id)}
-                      className={cn(
-                        "inline-flex items-center gap-2 rounded-full border px-3 py-2 text-sm font-medium transition-colors",
-                        active
-                          ? "border-foreground bg-foreground text-background"
-                          : "bg-background text-muted-foreground hover:border-foreground/40 hover:text-foreground"
-                      )}
-                    >
-                      <Icon className="h-4 w-4" />
-                      {tab.label}
-                    </button>
-                  );
-                })}
+        <div className="rounded-2xl border bg-card px-3 py-2.5">
+          <div className="grid gap-2 xl:grid-cols-4">
+            {TAB_GROUPS.map((group) => (
+              <div key={group.label}>
+                <p className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                  {group.label}
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {group.tabs.map((tab) => {
+                    const Icon = tab.icon;
+                    const active = activeTab === tab.id;
+                    return (
+                      <button
+                        key={tab.id}
+                        onClick={() => setActiveTab(tab.id)}
+                        className={cn(
+                          "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs font-medium transition-colors",
+                          active
+                            ? "border-foreground bg-foreground text-background"
+                            : "bg-background text-muted-foreground hover:border-foreground/40 hover:text-foreground"
+                        )}
+                      >
+                        <Icon className="h-3.5 w-3.5" />
+                        {tab.label}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       </div>
 
@@ -1955,17 +2454,19 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
         <KeywordsView
           rows={keywordRows}
           summary={(keywordsQ.data?.summary ?? {}) as Record<string, any>}
-          meta={keywordsQ.data?.meta ?? null}
+          insights={(keywordsQ.data?.insights ?? {}) as Record<string, any>}
         />
       ) : activeTab === "assets" ? (
         <AssetsView
           rows={assetRows}
           summary={(assetsQ.data?.summary ?? {}) as Record<string, any>}
+          insights={(assetsQ.data?.insights ?? {}) as Record<string, any>}
         />
       ) : activeTab === "asset-groups" ? (
         <AssetGroupsView
           rows={assetGroupRows}
           summary={(assetGroupsQ.data?.summary ?? {}) as Record<string, any>}
+          insights={(assetGroupsQ.data?.insights ?? {}) as Record<string, any>}
         />
       ) : activeTab === "products" ? (
         <ProductsView
@@ -1984,12 +2485,16 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
         <BudgetScalingView
           budgetRows={budgetRows}
           budgetSummary={(budgetQ.data?.summary ?? {}) as Record<string, any>}
+          budgetInsights={(budgetQ.data?.insights ?? {}) as Record<string, any>}
           products={productRows}
         />
       ) : activeTab === "opportunities" ? (
-        <OpportunitiesView rows={opportunityRows} />
+        <OpportunitiesView
+          rows={opportunityRows}
+          summary={(opportunitiesQ.data?.summary ?? {}) as Record<string, any>}
+        />
       ) : (
-        <DiagnosticsView diagnostics={diagnosticsQ.data} />
+        <DiagnosticsView diagnostics={diagnosticsQ.data} meta={activeMeta} />
       )}
     </div>
   );

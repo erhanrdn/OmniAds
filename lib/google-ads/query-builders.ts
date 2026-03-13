@@ -443,7 +443,7 @@ export function buildAssetGroupAssetDetailQuery(
 ): GoogleAdsNamedQuery {
   return {
     name: "asset_group_asset_detail",
-    family: "asset_group_asset_detail",
+    family: "asset_group_coverage",
     resource: "asset_group_asset",
     mergeKey: "asset_group.id",
     metrics: [],
@@ -582,7 +582,7 @@ export function buildCampaignSearchTermCoreQuery(
 ): GoogleAdsNamedQuery {
   return {
     name: "campaign_search_term_core",
-    family: "campaign_search_term_core",
+    family: "search_term_cluster_support",
     resource: "campaign_search_term_view",
     mergeKey: "campaign.id + campaign_search_term_view.search_term",
     metrics: [
@@ -624,7 +624,7 @@ export function buildAssetPerformanceCoreQuery(
 ): GoogleAdsNamedQuery {
   return {
     name: "asset_performance_core",
-    family: "asset_performance_core",
+    family: "asset_core",
     resource: "asset_group_asset",
     mergeKey: "asset.id",
     metrics: [
@@ -634,7 +634,6 @@ export function buildAssetPerformanceCoreQuery(
       "conversions",
       "conversions_value",
       "interactions",
-      "performance_label",
     ],
     query: buildGoogleAdsQuery({
       select: [
@@ -643,10 +642,13 @@ export function buildAssetPerformanceCoreQuery(
         "campaign.id",
         "campaign.name",
         "asset_group_asset.field_type",
-        "asset_group_asset.performance_label",
         "asset.id",
         "asset.name",
         "asset.type",
+        "asset.text_asset.text",
+        "asset.image_asset.full_size.url",
+        "asset.youtube_video_asset.youtube_video_title",
+        "asset.youtube_video_asset.youtube_video_id",
         "metrics.impressions",
         "metrics.clicks",
         "metrics.interactions",
@@ -668,7 +670,7 @@ export function buildAssetPerformanceCoreQuery(
 export function buildAssetTextDetailQuery(): GoogleAdsNamedQuery {
   return {
     name: "asset_text_detail",
-    family: "asset_text_detail",
+    family: "asset_metadata",
     resource: "asset",
     mergeKey: "asset.id",
     metrics: [],
@@ -690,7 +692,7 @@ export function buildAssetTextDetailQuery(): GoogleAdsNamedQuery {
 export function buildAssetGroupSignalQuery(): GoogleAdsNamedQuery {
   return {
     name: "asset_group_signal",
-    family: "asset_group_signal",
+    family: "asset_group_signals",
     resource: "asset_group_signal",
     mergeKey: "asset_group.id",
     metrics: [],
@@ -715,9 +717,9 @@ export function buildProductPerformanceQuery(
 ): GoogleAdsNamedQuery {
   return {
     name: "product_performance",
-    family: "product_performance",
+    family: "product_core",
     resource: "shopping_product_view",
-    mergeKey: "shopping_product.item_id",
+    mergeKey: "segments.product_item_id",
     metrics: [
       "impressions",
       "clicks",
@@ -727,10 +729,8 @@ export function buildProductPerformanceQuery(
     ],
     query: buildGoogleAdsQuery({
       select: [
-        "shopping_product.item_id",
-        "shopping_product.title",
-        "shopping_product.brand",
-        "shopping_product.custom_attribute0",
+        "segments.product_item_id",
+        "segments.product_title",
         "metrics.impressions",
         "metrics.clicks",
         "metrics.cost_micros",

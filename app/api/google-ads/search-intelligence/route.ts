@@ -3,18 +3,12 @@ import { isDemoBusiness } from "@/lib/business-mode.server";
 import { requireBusinessAccess } from "@/lib/access";
 import { getDemoGoogleAdsSearchIntelligence } from "@/lib/demo-business";
 import { getGoogleAdsSearchIntelligenceReport } from "@/lib/google-ads/reporting";
+import { parseGoogleAdsRequestParams } from "@/lib/google-ads-request-params";
 
 export async function GET(request: NextRequest) {
-  const { searchParams } = request.nextUrl;
-  const businessId = searchParams.get("businessId");
-  const accountId = searchParams.get("accountId");
-  const dateRange = (searchParams.get("dateRange") || "30") as
-    | "7"
-    | "14"
-    | "30"
-    | "custom";
-  const filter = searchParams.get("filter") ?? undefined;
-  const debug = searchParams.get("debug") === "1";
+  const { businessId, accountId, dateRange, customStart, customEnd, debug } =
+    parseGoogleAdsRequestParams(request.nextUrl.searchParams);
+  const filter = request.nextUrl.searchParams.get("filter") ?? undefined;
 
   if (!businessId) {
     return NextResponse.json({ error: "businessId is required" }, { status: 400 });
@@ -31,6 +25,8 @@ export async function GET(request: NextRequest) {
     businessId,
     accountId,
     dateRange,
+    customStart,
+    customEnd,
     filter,
     debug,
   });

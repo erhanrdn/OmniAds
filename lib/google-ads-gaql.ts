@@ -239,7 +239,7 @@ export async function executeGaqlForAccounts(params: {
  * Normalize date range parameter to YYYY-MM-DD format for GAQL
  */
 export function getDateRangeForQuery(
-  dateRange: "7" | "14" | "30" | "custom",
+  dateRange: "7" | "14" | "30" | "90" | "mtd" | "qtd" | "custom",
   customStart?: string,
   customEnd?: string,
 ): { startDate: string; endDate: string } {
@@ -252,6 +252,14 @@ export function getDateRangeForQuery(
     startDate.setDate(endDate.getDate() - 14);
   } else if (dateRange === "30") {
     startDate.setDate(endDate.getDate() - 30);
+  } else if (dateRange === "90") {
+    startDate.setDate(endDate.getDate() - 90);
+  } else if (dateRange === "mtd") {
+    startDate.setDate(1);
+  } else if (dateRange === "qtd") {
+    const month = endDate.getMonth();
+    const quarterStartMonth = Math.floor(month / 3) * 3;
+    startDate.setMonth(quarterStartMonth, 1);
   } else if (dateRange === "custom" && customStart && customEnd) {
     return {
       startDate: customStart,
