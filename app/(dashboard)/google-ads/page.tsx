@@ -12,15 +12,15 @@ import { TabAlert, TabEmpty } from "@/components/google-ads/shared";
 
 import { OverviewTab } from "@/components/google-ads/OverviewTab";
 import { CampaignsTab } from "@/components/google-ads/CampaignsTab";
-import { SearchTermsTab } from "@/components/google-ads/SearchTermsTab";
-import { KeywordsTab } from "@/components/google-ads/KeywordsTab";
-import { AdsTab } from "@/components/google-ads/AdsTab";
-import { CreativesTab } from "@/components/google-ads/CreativesTab";
+import { SearchTab } from "@/components/google-ads/SearchTab";
+import { AssetsTab } from "@/components/google-ads/AssetsTab";
+import { AssetGroupsTab } from "@/components/google-ads/AssetGroupsTab";
 import { AudiencesTab } from "@/components/google-ads/AudiencesTab";
 import { GeoTab } from "@/components/google-ads/GeoTab";
 import { DevicesTab } from "@/components/google-ads/DevicesTab";
-import { BudgetTab } from "@/components/google-ads/BudgetTab";
+import { BudgetScalingTab } from "@/components/google-ads/BudgetScalingTab";
 import { OpportunitiesTab } from "@/components/google-ads/OpportunitiesTab";
+import { DiagnosticsTab } from "@/components/google-ads/DiagnosticsTab";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -29,28 +29,28 @@ type DateRange = "7" | "14" | "30";
 type Tab =
   | "overview"
   | "campaigns"
-  | "search-terms"
-  | "keywords"
-  | "ads"
-  | "creatives"
+  | "search"
+  | "assets"
+  | "asset-groups"
   | "audiences"
   | "geo"
   | "devices"
-  | "budget"
-  | "opportunities";
+  | "budget-scaling"
+  | "opportunities"
+  | "diagnostics";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "overview", label: "Overview" },
   { id: "campaigns", label: "Campaigns" },
-  { id: "search-terms", label: "Search Terms" },
-  { id: "keywords", label: "Keywords" },
-  { id: "ads", label: "Ads" },
-  { id: "creatives", label: "Creatives" },
+  { id: "search", label: "Search" },
+  { id: "assets", label: "Assets" },
+  { id: "asset-groups", label: "Asset Groups" },
   { id: "audiences", label: "Audiences" },
   { id: "geo", label: "Geo" },
   { id: "devices", label: "Devices" },
-  { id: "budget", label: "Budget" },
+  { id: "budget-scaling", label: "Budget & Scaling" },
   { id: "opportunities", label: "Opportunities" },
+  { id: "diagnostics", label: "Diagnostics" },
 ];
 
 const DATE_RANGE_OPTIONS: { value: DateRange; label: string }[] = [
@@ -204,28 +204,28 @@ function TabContent({
   const searchTermsQ = useQuery({
     queryKey: ["google-ads-search-terms", businessId, dateRange],
     queryFn: () => fetchTab("search-terms", businessId, dateRange),
-    enabled: enabled && activeTab === "search-terms",
+    enabled: enabled && activeTab === "search",
     staleTime: 60_000,
   });
 
   const keywordsQ = useQuery({
     queryKey: ["google-ads-keywords", businessId, dateRange],
     queryFn: () => fetchTab("keywords", businessId, dateRange),
-    enabled: enabled && activeTab === "keywords",
+    enabled: enabled && activeTab === "search",
     staleTime: 60_000,
   });
 
   const adsQ = useQuery({
     queryKey: ["google-ads-ads", businessId, dateRange],
     queryFn: () => fetchTab("ads", businessId, dateRange),
-    enabled: enabled && activeTab === "ads",
+    enabled: enabled && activeTab === "assets",
     staleTime: 60_000,
   });
 
   const creativesQ = useQuery({
     queryKey: ["google-ads-creatives", businessId, dateRange],
     queryFn: () => fetchTab("creatives", businessId, dateRange),
-    enabled: enabled && activeTab === "creatives",
+    enabled: enabled && activeTab === "asset-groups",
     staleTime: 60_000,
   });
 
@@ -253,7 +253,7 @@ function TabContent({
   const budgetQ = useQuery({
     queryKey: ["google-ads-budget", businessId, dateRange],
     queryFn: () => fetchTab("budget", businessId, dateRange),
-    enabled: enabled && activeTab === "budget",
+    enabled: enabled && activeTab === "budget-scaling",
     staleTime: 60_000,
   });
 
@@ -264,18 +264,19 @@ function TabContent({
     staleTime: 120_000,
   });
 
+  // For the Search tab, pick the "primary" query for error/meta display
+  const searchPrimaryQ = searchTermsQ.isError ? searchTermsQ : keywordsQ.isError ? keywordsQ : searchTermsQ;
+
   const activeQuery =
     activeTab === "overview"
       ? overviewQ
       : activeTab === "campaigns"
       ? campaignsQ
-      : activeTab === "search-terms"
-      ? searchTermsQ
-      : activeTab === "keywords"
-      ? keywordsQ
-      : activeTab === "ads"
+      : activeTab === "search"
+      ? searchPrimaryQ
+      : activeTab === "assets"
       ? adsQ
-      : activeTab === "creatives"
+      : activeTab === "asset-groups"
       ? creativesQ
       : activeTab === "audiences"
       ? audiencesQ
@@ -283,7 +284,7 @@ function TabContent({
       ? geoQ
       : activeTab === "devices"
       ? devicesQ
-      : activeTab === "budget"
+      : activeTab === "budget-scaling"
       ? budgetQ
       : opportunitiesQ;
 
@@ -291,6 +292,21 @@ function TabContent({
   const failedQueries = (meta?.failed_queries ?? []).map(
     (failure) => `${failure.query} (${failure.customerId}): ${failure.message}`
   );
+
+  // Collect all loaded tab metas for Diagnostics
+  const tabMetas = [
+    { label: "Overview", meta: overviewQ.data?.meta ?? null },
+    { label: "Campaigns", meta: campaignsQ.data?.meta ?? null },
+    { label: "Search Terms", meta: searchTermsQ.data?.meta ?? null },
+    { label: "Keywords", meta: keywordsQ.data?.meta ?? null },
+    { label: "Assets", meta: adsQ.data?.meta ?? null },
+    { label: "Asset Groups", meta: creativesQ.data?.meta ?? null },
+    { label: "Audiences", meta: audiencesQ.data?.meta ?? null },
+    { label: "Geo", meta: geoQ.data?.meta ?? null },
+    { label: "Devices", meta: devicesQ.data?.meta ?? null },
+    { label: "Budget & Scaling", meta: budgetQ.data?.meta ?? null },
+    { label: "Opportunities", meta: opportunitiesQ.data?.meta ?? null },
+  ].filter((t) => t.meta !== null) as Array<{ label: string; meta: GoogleAdsMeta }>;
 
   function wrap(content: ReactNode) {
     if (activeQuery.isError) {
@@ -341,33 +357,28 @@ function TabContent({
           }
         />
       );
-    case "search-terms":
+    case "search":
       return wrap(
-        <SearchTermsTab
+        <SearchTab
           terms={searchTermsQ.data?.rows ?? searchTermsQ.data?.data}
-          summary={searchTermsQ.data?.summary}
-          isLoading={searchTermsQ.isLoading}
-        />
-      );
-    case "keywords":
-      return wrap(
-        <KeywordsTab
+          termsSummary={searchTermsQ.data?.summary}
           keywords={keywordsQ.data?.rows ?? keywordsQ.data?.data}
-          insights={keywordsQ.data?.insights}
-          isLoading={keywordsQ.isLoading}
+          keywordInsights={keywordsQ.data?.insights}
+          isLoadingTerms={searchTermsQ.isLoading}
+          isLoadingKeywords={keywordsQ.isLoading}
         />
       );
-    case "ads":
+    case "assets":
       return wrap(
-        <AdsTab
+        <AssetsTab
           ads={adsQ.data?.rows ?? adsQ.data?.data}
           insights={adsQ.data?.insights}
           isLoading={adsQ.isLoading}
         />
       );
-    case "creatives":
+    case "asset-groups":
       return wrap(
-        <CreativesTab
+        <AssetGroupsTab
           creatives={creativesQ.data?.rows ?? creativesQ.data?.data}
           insights={creativesQ.data?.insights}
           isLoading={creativesQ.isLoading}
@@ -398,9 +409,9 @@ function TabContent({
           isLoading={devicesQ.isLoading}
         />
       );
-    case "budget":
+    case "budget-scaling":
       return wrap(
-        <BudgetTab
+        <BudgetScalingTab
           campaigns={budgetQ.data?.rows ?? budgetQ.data?.data}
           recommendations={budgetQ.data?.recommendations}
           totalSpend={budgetQ.data?.totalSpend}
@@ -415,6 +426,8 @@ function TabContent({
           isLoading={opportunitiesQ.isLoading}
         />
       );
+    case "diagnostics":
+      return <DiagnosticsTab tabMetas={tabMetas} />;
     default:
       return null;
   }

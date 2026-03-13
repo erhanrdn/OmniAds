@@ -352,3 +352,87 @@ export function SimpleTable<T extends object>({
     </div>
   );
 }
+
+// ── Health Badge ──────────────────────────────────────────────────────
+
+export type HealthState = "healthy" | "warning" | "critical" | "neutral";
+
+const HEALTH_CFG: Record<HealthState, string> = {
+  healthy: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300",
+  warning: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
+  critical: "bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300",
+  neutral: "bg-muted text-muted-foreground",
+};
+
+export function HealthBadge({ state, label }: { state: HealthState; label?: string }) {
+  const defaultLabel = state === "healthy" ? "Healthy" : state === "warning" ? "Warning" : state === "critical" ? "Critical" : "Neutral";
+  return (
+    <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase", HEALTH_CFG[state])}>
+      {label ?? defaultLabel}
+    </span>
+  );
+}
+
+// ── Performance label ─────────────────────────────────────────────────
+
+export type PerfLabel = "top" | "average" | "underperforming";
+
+export function PerfBadge({ label }: { label: PerfLabel }) {
+  const cfg: Record<PerfLabel, { cls: string; text: string }> = {
+    top: { cls: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300", text: "✦ Top" },
+    average: { cls: "bg-muted text-muted-foreground", text: "Average" },
+    underperforming: { cls: "bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300", text: "↓ Under" },
+  };
+  const c = cfg[label];
+  return (
+    <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-semibold", c.cls)}>{c.text}</span>
+  );
+}
+
+// ── Spend bar ─────────────────────────────────────────────────────────
+
+export function SpendBar({ value, max }: { value: number; max: number }) {
+  const pct = max > 0 ? Math.min((value / max) * 100, 100) : 0;
+  return (
+    <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+      <div className="h-full rounded-full bg-primary/40" style={{ width: `${pct}%` }} />
+    </div>
+  );
+}
+
+// ── Sub-tab navigation ────────────────────────────────────────────────
+
+export function SubTabNav<T extends string>({
+  tabs,
+  active,
+  onChange,
+}: {
+  tabs: { id: T; label: string }[];
+  active: T;
+  onChange: (id: T) => void;
+}) {
+  return (
+    <div className="flex gap-0 border-b">
+      {tabs.map((t) => (
+        <button
+          key={t.id}
+          onClick={() => onChange(t.id)}
+          className={cn(
+            "relative px-4 py-2.5 text-sm font-medium whitespace-nowrap transition-colors",
+            active === t.id
+              ? "text-foreground after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-primary"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+        >
+          {t.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ── Section label ─────────────────────────────────────────────────────
+
+export function SectionLabel({ children }: { children: React.ReactNode }) {
+  return <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{children}</p>;
+}
