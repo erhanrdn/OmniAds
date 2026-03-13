@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Sheet,
   SheetContent,
@@ -117,12 +117,19 @@ export function ProviderAssignmentDrawer({
   const [isSaving, setIsSaving] = useState(false);
   const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const isMeta = provider === "meta";
   const isGoogle = provider === "google";
   const isSupportedProvider = isMeta || isGoogle;
+  const initializedForOpenRef = useRef<string | null>(null);
+  const latestAssignedAccountIdsRef = useRef<string[]>(assignedAccountIds);
 
-  const loadAccounts = useMemo(
-    () => async () => {
+  useEffect(() => {
+    latestAssignedAccountIdsRef.current = assignedAccountIds;
+  }, [assignedAccountIds]);
+
+  const loadAccounts = useCallback(
+    async (options?: { preserveExisting?: boolean }) => {
       if (!open || !provider) return;
       if (!isSupportedProvider) {
         setAccounts([]);
@@ -139,8 +146,13 @@ export function ProviderAssignmentDrawer({
         return;
       }
 
-      setAccounts([]);
-      setFetchState("loading");
+      const preserveExisting = options?.preserveExisting === true;
+      if (!preserveExisting) {
+        setAccounts([]);
+        setFetchState("loading");
+      } else {
+        setIsRefreshing(true);
+      }
       setErrorMessage(null);
       setSaveErrorMessage(null);
 
@@ -204,16 +216,16 @@ export function ProviderAssignmentDrawer({
         });
 
         setAccounts(list);
-        const hasAssignedFlag = list.some(
-          (account) => typeof account.assigned === "boolean",
+        const hasAssignedFlag = list.some((account) => typeof account.assigned === "boolean");
+        const serverAssignedIds = hasAssignedFlag
+          ? list.filter((account) => account.assigned === true).map((account) => account.id)
+          : latestAssignedAccountIdsRef.current;
+        setDraftIds((prev) =>
+          initializedForOpenRef.current === `${businessId}:${provider}`
+            ? prev
+            : serverAssignedIds
         );
-        setDraftIds(
-          hasAssignedFlag
-            ? list
-                .filter((account) => account.assigned === true)
-                .map((account) => account.id)
-            : assignedAccountIds,
-        );
+        initializedForOpenRef.current = `${businessId}:${provider}`;
         setFetchState(list.length > 0 ? "success" : "empty");
       } catch (err) {
         console.error("[assignment-modal] ❌ FETCH EXCEPTION", {
@@ -224,24 +236,17 @@ export function ProviderAssignmentDrawer({
           `We couldn't fetch accessible ${provider === "google" ? "Google Ads" : "Meta"} ad accounts for this connection.`,
         );
         setFetchState("error");
+      } finally {
+        setIsRefreshing(false);
       }
     },
-    [assignedAccountIds, businessId, isSupportedProvider, open, provider],
+    [businessId, isSupportedProvider, open, provider],
   );
 
   useEffect(() => {
     if (!open || !provider) return;
-    let isCancelled = false;
-
-    (async () => {
-      if (isCancelled) return;
-      await loadAccounts();
-    })();
-
-    return () => {
-      isCancelled = true;
-    };
-  }, [open, provider, loadAccounts]);
+    void loadAccounts();
+  }, [businessId, open, provider, loadAccounts]);
 
   useEffect(() => {
     if (!open) {
@@ -251,7 +256,9 @@ export function ProviderAssignmentDrawer({
       setSaveErrorMessage(null);
       setDraftIds([]);
       setIsSaving(false);
+      setIsRefreshing(false);
       setSearchQuery("");
+      initializedForOpenRef.current = null;
     }
   }, [open]);
 
@@ -343,14 +350,19 @@ export function ProviderAssignmentDrawer({
         <div className="flex min-h-0 flex-1 flex-col px-6 py-4">
           {fetchState === "success" ? (
             <div className="shrink-0 pb-3">
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="Search ad accounts..."
-                aria-label="Search ad accounts by name"
-                className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-              />
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder="Search ad accounts..."
+                  aria-label="Search ad accounts by name"
+                  className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+                />
+                {isRefreshing ? (
+                  <span className="shrink-0 text-xs text-muted-foreground">Refreshing...</span>
+                ) : null}
+              </div>
             </div>
           ) : null}
 
@@ -374,7 +386,7 @@ export function ProviderAssignmentDrawer({
 
             {fetchState === "error" ? (
               <div className="flex justify-end">
-                <Button variant="outline" onClick={loadAccounts}>
+                <Button variant="outline" onClick={() => void loadAccounts()}>
                   Retry
                 </Button>
               </div>
