@@ -133,6 +133,23 @@ export async function GET(request: NextRequest) {
         });
 
     if (!snapshot) {
+      if (!refreshRequested) {
+        void requestProviderAccountSnapshotRefresh({
+          businessId,
+          provider: "meta",
+          freshnessMs: META_ACCOUNT_SNAPSHOT_FRESHNESS_MS,
+          failureCooldownMs: META_ACCOUNT_REFRESH_COOLDOWN_MS,
+          liveLoader: loadLiveAccounts,
+        }).catch(() => undefined);
+        return NextResponse.json(
+          {
+            error: "provider_snapshot_missing",
+            message: "Loading accounts...",
+          },
+          { status: 409 }
+        );
+      }
+
       return NextResponse.json(
         {
           error: "meta_accounts_unavailable",

@@ -211,6 +211,23 @@ export async function GET(request: NextRequest) {
         });
 
     if (!snapshot) {
+      if (!refreshRequested) {
+        void requestProviderAccountSnapshotRefresh({
+          businessId,
+          provider: "google",
+          freshnessMs: GOOGLE_ACCOUNT_SNAPSHOT_FRESHNESS_MS,
+          failureCooldownMs: GOOGLE_ACCOUNT_REFRESH_COOLDOWN_MS,
+          liveLoader: loadLiveAccounts,
+        }).catch(() => undefined);
+        return NextResponse.json(
+          {
+            error: "provider_snapshot_missing",
+            message: "Loading accounts...",
+          },
+          { status: 409 }
+        );
+      }
+
       return NextResponse.json(
         {
           error: "google_ads_discovery_unavailable",

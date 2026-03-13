@@ -8,6 +8,7 @@ interface ProviderAccountPayloadRow {
 }
 
 interface ProviderAccountsPayload {
+  error?: string;
   data?: ProviderAccountPayloadRow[];
   message?: string;
   notice?: string;
@@ -15,10 +16,23 @@ interface ProviderAccountsPayload {
 }
 
 export interface ProviderAccountSnapshot {
-  accounts: Array<{ id: string; name: string }>;
+  accounts: Array<{
+    id: string;
+    name: string;
+    currency?: string;
+    timezone?: string;
+    isManager?: boolean;
+  }>;
   assignedAccountIds: string[];
   meta: ProviderAccountSnapshotMeta | null;
   notice: string | null;
+}
+
+export class ProviderAccountSnapshotMissingError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ProviderAccountSnapshotMissingError";
+  }
 }
 
 export function supportsProviderAssignments(provider: IntegrationProvider) {
@@ -58,6 +72,11 @@ export async function fetchProviderAccountSnapshot(
   const payload = (await response.json().catch(() => null)) as ProviderAccountsPayload | null;
 
   if (!response.ok) {
+    if (payload?.error === "provider_snapshot_missing") {
+      throw new ProviderAccountSnapshotMissingError(
+        payload?.message ?? "Loading accounts..."
+      );
+    }
     throw new Error(payload?.message ?? `Could not load ${provider} account assignments.`);
   }
 

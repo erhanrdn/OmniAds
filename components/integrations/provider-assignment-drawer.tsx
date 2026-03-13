@@ -11,6 +11,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { IntegrationProvider } from "@/store/integrations-store";
 import { DataEmptyState } from "@/components/states/DataEmptyState";
+import {
+  fetchProviderAccountSnapshot,
+  ProviderAccountSnapshotMissingError,
+  warmProviderAccountSnapshot,
+} from "@/lib/provider-account-client";
 
 interface ProviderAccountRow {
   id: string;
@@ -120,6 +125,7 @@ export function ProviderAssignmentDrawer({
   const [searchQuery, setSearchQuery] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
+  const warmPollAttemptsRef = useRef(0);
   const isMeta = provider === "meta";
   const isGoogle = provider === "google";
   const isSupportedProvider = isMeta || isGoogle;
@@ -141,8 +147,7 @@ export function ProviderAssignmentDrawer({
         return;
       }
 
-      const fetchUrl = getFetchPath(provider, businessId);
-      if (!fetchUrl) {
+      if (!getFetchPath(provider, businessId)) {
         setAccounts([]);
         setFetchState("empty");
         setErrorMessage(null);
@@ -164,57 +169,15 @@ export function ProviderAssignmentDrawer({
       console.log("[assignment-modal] 🔹 FETCH STARTED", {
         provider,
         businessId,
-        fetchUrl,
+        mode: options?.preserveExisting ? "refresh" : "initial",
       });
 
       try {
-        const response = await fetch(fetchUrl, {
-          method: "GET",
-          headers: { Accept: "application/json" },
-          cache: "no-store",
-        });
-
-        console.log("[assignment-modal] ✓ Fetch response received", {
-          status: response.status,
-          ok: response.ok,
-        });
-
-        const payload: unknown = await response.json().catch((parseErr) => {
-          console.error("[assignment-modal] ❌ JSON PARSE FAILED", parseErr);
-          return null;
-        });
-
-        console.log("[assignment-modal] ℹ Response payload", {
-          hasError: payload && typeof payload === "object" && "error" in payload,
-          hasData: payload && typeof payload === "object" && "data" in payload,
-          dataLength: Array.isArray((payload as any)?.data) ? (payload as any).data.length : undefined,
-        });
-
-        if (!response.ok) {
-          const errorMsg =
-            (hasErrorMessage(payload) ? payload.message : null) ??
-            `We couldn't fetch accessible ${provider === "google" ? "Google Ads" : "Meta"} ad accounts for this connection.`;
-          console.error("[assignment-modal] ❌ FETCH NOT OK", {
-            status: response.status,
-            error: (payload as any)?.error,
-            message: errorMsg,
-          });
-          setErrorMessage(errorMsg);
-          setFetchState("error");
-          return;
-        }
-
-        const list = hasDataList(payload) ? payload.data : undefined;
-        if (!Array.isArray(list)) {
-          console.error("[assignment-modal] ❌ INVALID RESPONSE STRUCTURE", {
-            hasDataList: hasDataList(payload),
-            isArray: Array.isArray(list),
-            payloadKeys: payload && typeof payload === "object" ? Object.keys(payload) : [],
-          });
-          setErrorMessage("Invalid ad account response received from backend.");
-          setFetchState("error");
-          return;
-        }
+        const snapshot = await fetchProviderAccountSnapshot(provider, businessId);
+        const list = snapshot.accounts.map((account) => ({
+          ...account,
+          assigned: snapshot.assignedAccountIds.includes(account.id),
+        }));
 
         console.log("[assignment-modal] ✓ VALID DATA RECEIVED", {
           accountCount: list.length,
@@ -222,11 +185,8 @@ export function ProviderAssignmentDrawer({
         });
 
         setAccounts(list);
-        setNoticeMessage(
-          payload && typeof payload === "object" && "notice" in payload && typeof payload.notice === "string"
-            ? payload.notice
-            : null
-        );
+        warmPollAttemptsRef.current = 0;
+        setNoticeMessage(snapshot.notice);
         const hasAssignedFlag = list.some((account) => typeof account.assigned === "boolean");
         const serverAssignedIds = hasAssignedFlag
           ? list.filter((account) => account.assigned === true).map((account) => account.id)
@@ -239,6 +199,21 @@ export function ProviderAssignmentDrawer({
         initializedForOpenRef.current = `${businessId}:${provider}`;
         setFetchState(list.length > 0 ? "success" : "empty");
       } catch (err) {
+        if (
+          err instanceof ProviderAccountSnapshotMissingError &&
+          warmPollAttemptsRef.current < 6
+        ) {
+          warmPollAttemptsRef.current += 1;
+          setFetchState("loading");
+          setErrorMessage(null);
+          setNoticeMessage("Loading accounts...");
+          void warmProviderAccountSnapshot(provider, businessId).catch(() => undefined);
+          window.setTimeout(() => {
+            void loadAccounts({ preserveExisting: false });
+          }, 1500);
+          return;
+        }
+
         console.error("[assignment-modal] ❌ FETCH EXCEPTION", {
           error: err instanceof Error ? err.message : String(err),
           stack: err instanceof Error ? err.stack : undefined,
@@ -270,6 +245,7 @@ export function ProviderAssignmentDrawer({
       setIsRefreshing(false);
       setNoticeMessage(null);
       setSearchQuery("");
+      warmPollAttemptsRef.current = 0;
       initializedForOpenRef.current = null;
     }
   }, [open]);
