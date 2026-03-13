@@ -1,10 +1,14 @@
 export type GoogleAdsTabId =
   | "overview"
   | "campaigns"
+  | "search-intelligence"
   | "search-terms"
   | "keywords"
   | "ads"
+  | "assets"
   | "creatives"
+  | "asset-groups"
+  | "products"
   | "audiences"
   | "geo"
   | "devices"
@@ -86,6 +90,27 @@ export const GOOGLE_ADS_METRICS_MATRIX: Record<
       "top_impression_percentage",
       "absolute_top_impression_percentage",
     ],
+  },
+  "search-intelligence": {
+    tab: "search-intelligence",
+    primaryResource: "search_term_view + campaign_search_term_view",
+    mergeKey: "search term + campaign",
+    queryFamilies: ["search_term_core", "campaign_search_term_core", "keyword_lookup"],
+    primaryDimensions: [
+      "search_term_view.search_term",
+      "campaign_search_term_view.search_term",
+      "campaign.id",
+      "campaign.name",
+    ],
+    primaryMetrics: [
+      "impressions",
+      "clicks",
+      "cost_micros",
+      "conversions",
+      "conversions_value",
+      "interactions",
+    ],
+    fallbackMetrics: ["ctr", "conversion_rate", "cost_per_conversion", "roas"],
   },
   "search-terms": {
     tab: "search-terms",
@@ -171,6 +196,32 @@ export const GOOGLE_ADS_METRICS_MATRIX: Record<
     ],
     fallbackMetrics: ["ctr", "average_cpc", "conversion_rate", "cost_per_conversion", "value_per_conversion", "roas"],
   },
+  assets: {
+    tab: "assets",
+    primaryResource: "asset_group_asset + asset",
+    mergeKey: "asset.id + asset_group.id",
+    queryFamilies: ["asset_performance_core", "asset_text_detail"],
+    primaryDimensions: [
+      "asset.id",
+      "asset.name",
+      "asset.type",
+      "asset_group.id",
+      "asset_group.name",
+      "campaign.id",
+      "campaign.name",
+    ],
+    primaryMetrics: [
+      "impressions",
+      "clicks",
+      "interactions",
+      "cost_micros",
+      "conversions",
+      "conversions_value",
+      "performance_label",
+    ],
+    fallbackMetrics: ["ctr", "interaction_rate", "conversion_rate", "roas"],
+    unavailableByDesign: ["uniform_asset_preview_url"],
+  },
   creatives: {
     tab: "creatives",
     primaryResource: "asset_group + asset_group_asset",
@@ -199,6 +250,48 @@ export const GOOGLE_ADS_METRICS_MATRIX: Record<
       "visual_asset_level_spend",
       "asset_level_conversion_value",
     ],
+  },
+  "asset-groups": {
+    tab: "asset-groups",
+    primaryResource: "asset_group + asset_group_asset + asset_group_signal",
+    mergeKey: "asset_group.id",
+    queryFamilies: ["asset_group_core", "asset_group_asset_detail", "asset_group_signal"],
+    primaryDimensions: [
+      "asset_group.id",
+      "asset_group.name",
+      "campaign.id",
+      "campaign.name",
+    ],
+    primaryMetrics: [
+      "impressions",
+      "clicks",
+      "cost_micros",
+      "conversions",
+      "conversions_value",
+      "interactions",
+    ],
+    fallbackMetrics: ["ctr", "conversion_rate", "roas"],
+    unavailableByDesign: ["asset_group_level_search_theme_performance_metrics"],
+  },
+  products: {
+    tab: "products",
+    primaryResource: "shopping_product_view",
+    mergeKey: "shopping_product.item_id",
+    queryFamilies: ["product_performance"],
+    primaryDimensions: [
+      "shopping_product.item_id",
+      "shopping_product.title",
+      "shopping_product.brand",
+    ],
+    primaryMetrics: [
+      "impressions",
+      "clicks",
+      "cost_micros",
+      "conversions",
+      "conversions_value",
+    ],
+    fallbackMetrics: ["ctr", "cpa", "roas", "value_per_click"],
+    unavailableByDesign: ["true_margin", "true_cogs"],
   },
   audiences: {
     tab: "audiences",

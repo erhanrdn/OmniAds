@@ -27,13 +27,21 @@ export interface GadsOpportunity {
     | "ad_copy"
     | "audience_expansion"
     | "creative_test"
-    | "bid_adjustment";
+    | "bid_adjustment"
+    | "asset_refresh"
+    | "asset_group_fix"
+    | "product_scale"
+    | "product_reduce"
+    | "search_theme_alignment";
   title: string;
   whyItMatters: string;
   evidence: string;
   expectedImpact: string;
+  impact: string;
+  confidence: "high" | "medium" | "low";
   effort: "low" | "medium" | "high";
   priority: "high" | "medium" | "low";
+  recommendedAction: string;
 }
 
 export interface GadsCampaignRow {
@@ -303,8 +311,12 @@ export function generateOpportunities(params: {
           "High-performing campaigns are constrained while low-performers consume budget.",
         evidence: `${highRoasLowBudgetLimited.map((c) => c.name).slice(0, 2).join(", ")} limited by budget; ${lowRoasHighSpend.map((c) => c.name).slice(0, 2).join(", ")} underperforming.`,
         expectedImpact: `+15–30% revenue with ~$${budgetToShift.toFixed(0)} shifted`,
+        impact: "Revenue growth",
+        confidence: "high",
         effort: "low",
         priority: "high",
+        recommendedAction:
+          "Move incremental budget away from weak campaigns and into high-ROAS campaigns that are losing impression share to budget.",
       });
     }
   }
@@ -325,8 +337,12 @@ export function generateOpportunities(params: {
         .map((t) => `"${t.searchTerm}" (${t.clicks} clicks, $${t.spend.toFixed(0)})`)
         .join("; "),
       expectedImpact: `Recover $${totalWaste.toFixed(0)}/period + improved Quality Scores`,
+      impact: "Waste reduction",
+      confidence: "high",
       effort: "low",
       priority: "high",
+      recommendedAction:
+        "Add the worst terms as negatives at the campaign or shared-list level, then review the query mix after one reporting window.",
     });
   }
 
@@ -346,8 +362,12 @@ export function generateOpportunities(params: {
         .map((t) => `"${t.searchTerm}" (${t.conversions} conv, ROAS ${t.roas.toFixed(1)}x)`)
         .join("; "),
       expectedImpact: "+10–25% conversion efficiency on these terms",
+      impact: "Efficiency gain",
+      confidence: "high",
       effort: "low",
       priority: "high",
+      recommendedAction:
+        "Promote the best converting queries into exact-match keywords and separate them from broader exploratory traffic.",
     });
   }
 
@@ -366,8 +386,12 @@ export function generateOpportunities(params: {
         whyItMatters: "Removing weak ads forces budget toward high-performers and raises Quality Score.",
         evidence: `Top-quartile CTR: ${topCtr.toFixed(1)}% vs bottom-quartile: ${bottomCtr.toFixed(1)}%`,
         expectedImpact: "+10–20% CTR improvement across ad groups",
+        impact: "Creative lift",
+        confidence: "medium",
         effort: "low",
         priority: "medium",
+        recommendedAction:
+          "Pause the weakest ads, copy the strongest angles into new variants, and keep one challenger running per ad group.",
       });
     }
   }
@@ -388,8 +412,12 @@ export function generateOpportunities(params: {
         .map((k) => `"${k.keyword}" (QS ${k.qualityScore}, IS ${Math.round((k.impressionShare ?? 0) * 100)}%)`)
         .join("; "),
       expectedImpact: "+20–40% impression volume with low CPC increase",
+      impact: "Scale headroom",
+      confidence: "medium",
       effort: "low",
       priority: "medium",
+      recommendedAction:
+        "Increase bids or budget support on these high-QS keywords before broadening to lower-quality inventory.",
     });
   }
 
@@ -409,8 +437,12 @@ export function generateOpportunities(params: {
         .map((k) => `"${k.keyword}" ($${k.spend.toFixed(0)}, ${k.clicks} clicks)`)
         .join("; "),
       expectedImpact: `Recover $${totalWaste.toFixed(0)}/period`,
+      impact: "Waste reduction",
+      confidence: "high",
       effort: "low",
       priority: "high",
+      recommendedAction:
+        "Reduce bids, pause the weakest keywords, or move the spend into better-converting query coverage.",
     });
   }
 

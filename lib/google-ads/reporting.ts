@@ -9,9 +9,13 @@ import { GOOGLE_ADS_METRICS_MATRIX, type GoogleAdsTabId } from "@/lib/google-ads
 import {
   buildAdCoreQuery,
   buildAdDetailQuery,
+  buildAssetGroupSignalQuery,
   buildAssetGroupAssetDetailQuery,
   buildAssetGroupCoreQuery,
+  buildAssetPerformanceCoreQuery,
+  buildAssetTextDetailQuery,
   buildAudienceCoreQuery,
+  buildCampaignSearchTermCoreQuery,
   buildCampaignBudgetQuery,
   buildCampaignCoreBasicQuery,
   buildCampaignShareQuery,
@@ -21,6 +25,7 @@ import {
   buildKeywordCoreQuery,
   buildKeywordLookupQuery,
   buildKeywordQualityQuery,
+  buildProductPerformanceQuery,
   buildSearchTermCoreQuery,
   type GoogleAdsNamedQuery,
 } from "@/lib/google-ads/query-builders";
@@ -74,6 +79,7 @@ interface ReportResult<Row extends object> {
 
 interface OverviewReportResult {
   kpis: Record<string, unknown>;
+  kpiDeltas?: Record<string, number | null>;
   topCampaigns: Array<GadsCampaignRow & { badges: string[] }>;
   insights: unknown[];
   meta: GoogleAdsReportMeta;
@@ -81,6 +87,19 @@ interface OverviewReportResult {
 }
 
 type AssetTypeSummary = Record<string, number>;
+
+interface TrendMetrics {
+  spendChange: number | null;
+  revenueChange: number | null;
+  conversionsChange: number | null;
+  roasChange: number | null;
+  ctrChange: number | null;
+}
+
+interface SearchThemeSignal {
+  text: string;
+  approvalStatus: string | null;
+}
 
 const COUNTRY_MAP: Record<number, string> = {
   2840: "United States",
@@ -114,6 +133,109 @@ const COUNTRY_MAP: Record<number, string> = {
   2702: "Singapore",
   2764: "Thailand",
 };
+
+const STOP_WORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "best",
+  "buy",
+  "for",
+  "from",
+  "in",
+  "near",
+  "of",
+  "on",
+  "review",
+  "reviews",
+  "sale",
+  "shop",
+  "the",
+  "to",
+  "vs",
+  "with",
+]);
+
+function parseIsoDate(date: string) {
+  return new Date(`${date}T00:00:00.000Z`);
+}
+
+function formatIsoDate(date: Date) {
+  return date.toISOString().split("T")[0];
+}
+
+function getPreviousDateWindow(startDate: string, endDate: string) {
+  const start = parseIsoDate(startDate);
+  const end = parseIsoDate(endDate);
+  const daySpan =
+    Math.max(1, Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1);
+
+  const previousEnd = new Date(start);
+  previousEnd.setUTCDate(previousEnd.getUTCDate() - 1);
+
+  const previousStart = new Date(previousEnd);
+  previousStart.setUTCDate(previousStart.getUTCDate() - (daySpan - 1));
+
+  return {
+    startDate: formatIsoDate(previousStart),
+    endDate: formatIsoDate(previousEnd),
+  };
+}
+
+function pctDelta(current: number, previous: number) {
+  if (previous === 0) {
+    if (current === 0) return 0;
+    return null;
+  }
+  return Number((((current - previous) / previous) * 100).toFixed(1));
+}
+
+function roundOrNull(value: number | null, digits = 2) {
+  if (value === null) return null;
+  return Number(value.toFixed(digits));
+}
+
+function buildTrendMetrics(
+  current: {
+    spend: number;
+    revenue: number;
+    conversions: number;
+    roas: number;
+    ctr: number;
+  },
+  previous?: Partial<typeof current>
+): TrendMetrics {
+  return {
+    spendChange: pctDelta(current.spend, Number(previous?.spend ?? 0)),
+    revenueChange: pctDelta(current.revenue, Number(previous?.revenue ?? 0)),
+    conversionsChange: pctDelta(current.conversions, Number(previous?.conversions ?? 0)),
+    roasChange: pctDelta(current.roas, Number(previous?.roas ?? 0)),
+    ctrChange: pctDelta(current.ctr, Number(previous?.ctr ?? 0)),
+  };
+}
+
+function normalizeAssetPerformanceLabel(value: string | null): "top" | "average" | "underperforming" {
+  if (!value) return "average";
+  const lower = value.toLowerCase();
+  if (lower.includes("best")) return "top";
+  if (lower.includes("low")) return "underperforming";
+  return "average";
+}
+
+function getNumericShare(value: unknown) {
+  const parsed = asNumber(value);
+  return parsed === null ? 0 : parsed;
+}
+
+function slugifyQueryCluster(input: string) {
+  return input
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((token) => token.length >= 3 && !STOP_WORDS.has(token))
+    .slice(0, 3)
+    .join(" ");
+}
 
 function mergeFailures(meta: GoogleAdsReportMeta, execution: QueryExecution) {
   meta.query_names.push(execution.query.name);
@@ -221,6 +343,15 @@ function addDebugMeta(
 
 function dedupeStrings(values: string[]): string[] {
   return Array.from(new Set(values.filter(Boolean)));
+}
+
+function mergeChildMeta(target: GoogleAdsReportMeta, child: GoogleAdsReportMeta) {
+  target.partial = target.partial || child.partial;
+  target.warnings.push(...child.warnings);
+  target.failed_queries.push(...child.failed_queries);
+  target.unavailable_metrics.push(...child.unavailable_metrics);
+  target.query_names.push(...child.query_names);
+  Object.assign(target.row_counts, child.row_counts);
 }
 
 function buildCampaignMap(
@@ -392,16 +523,39 @@ export async function getGoogleAdsOverviewReport(params: {
 
   const { context, startDate, endDate } = resolved;
   const meta = createEmptyMeta(context.debug);
+  const previousWindow = getPreviousDateWindow(startDate, endDate);
 
-  const [customerSummary, campaignCore, campaignShare] = await Promise.all([
+  const [
+    customerSummary,
+    campaignCore,
+    campaignShare,
+    previousCustomerSummary,
+    previousCampaignCore,
+    previousCampaignShare,
+  ] = await Promise.all([
     runNamedQuery(context, buildCustomerSummaryQuery(startDate, endDate)),
     runNamedQuery(context, buildCampaignCoreBasicQuery(startDate, endDate)),
     runNamedQuery(context, buildCampaignShareQuery(startDate, endDate)),
+    runNamedQuery(
+      context,
+      buildCustomerSummaryQuery(previousWindow.startDate, previousWindow.endDate)
+    ),
+    runNamedQuery(
+      context,
+      buildCampaignCoreBasicQuery(previousWindow.startDate, previousWindow.endDate)
+    ),
+    runNamedQuery(
+      context,
+      buildCampaignShareQuery(previousWindow.startDate, previousWindow.endDate)
+    ),
   ]);
 
   mergeFailures(meta, customerSummary);
   mergeFailures(meta, campaignCore);
   mergeFailures(meta, campaignShare);
+  mergeFailures(meta, previousCustomerSummary);
+  mergeFailures(meta, previousCampaignCore);
+  mergeFailures(meta, previousCampaignShare);
 
   const campaigns = buildCampaignMap(campaignCore.rows, campaignShare.rows, [])
     .map((campaign) => ({
@@ -411,11 +565,34 @@ export async function getGoogleAdsOverviewReport(params: {
     .sort((a, b) => Number((b.spend as number) ?? 0) - Number((a.spend as number) ?? 0));
 
   const kpis = aggregateOverviewKpis(customerSummary.rows);
+  const previousKpis = aggregateOverviewKpis(previousCustomerSummary.rows);
   const accountAvgRoas = Number(kpis.roas ?? 0);
   const accountAvgCpa = Number(kpis.cpa ?? 0);
+  const previousCampaignMap = new Map(
+    buildCampaignMap(previousCampaignCore.rows, previousCampaignShare.rows, []).map((campaign) => [
+      String(campaign.id),
+      campaign,
+    ])
+  );
 
   const enrichedCampaigns = campaigns.map((campaign) => ({
     ...campaign,
+    ...buildTrendMetrics(
+      {
+        spend: Number(campaign.spend ?? 0),
+        revenue: Number(campaign.revenue ?? 0),
+        conversions: Number(campaign.conversions ?? 0),
+        roas: Number(campaign.roas ?? 0),
+        ctr: Number(campaign.ctr ?? 0),
+      },
+      {
+        spend: Number(previousCampaignMap.get(String(campaign.id))?.spend ?? 0),
+        revenue: Number(previousCampaignMap.get(String(campaign.id))?.revenue ?? 0),
+        conversions: Number(previousCampaignMap.get(String(campaign.id))?.conversions ?? 0),
+        roas: Number(previousCampaignMap.get(String(campaign.id))?.roas ?? 0),
+        ctr: Number(previousCampaignMap.get(String(campaign.id))?.ctr ?? 0),
+      }
+    ),
     badges: getCampaignBadges(
       {
         id: String(campaign.id),
@@ -446,10 +623,21 @@ export async function getGoogleAdsOverviewReport(params: {
 
   addDebugMeta(meta, "overview", context, {
     date_range: { startDate, endDate },
+    previous_date_range: previousWindow,
   });
 
   return {
     kpis,
+    kpiDeltas: {
+      spend: pctDelta(Number(kpis.spend ?? 0), Number(previousKpis.spend ?? 0)),
+      revenue: pctDelta(Number(kpis.revenue ?? 0), Number(previousKpis.revenue ?? 0)),
+      roas: pctDelta(Number(kpis.roas ?? 0), Number(previousKpis.roas ?? 0)),
+      conversions: pctDelta(
+        Number(kpis.conversions ?? 0),
+        Number(previousKpis.conversions ?? 0)
+      ),
+      cpa: pctDelta(Number(kpis.cpa ?? 0), Number(previousKpis.cpa ?? 0)),
+    },
     topCampaigns: enrichedCampaigns.slice(0, 5),
     insights: generateOverviewInsights({
       campaigns: enrichedCampaigns,
@@ -483,15 +671,32 @@ export async function getGoogleAdsCampaignsReport(params: {
 
   const { context, startDate, endDate } = resolved;
   const meta = createEmptyMeta(context.debug);
-  const [campaignCoreBasic, campaignShare, campaignBudget] = await Promise.all([
+  const previousWindow = getPreviousDateWindow(startDate, endDate);
+  const [
+    campaignCoreBasic,
+    campaignShare,
+    campaignBudget,
+    previousCampaignCoreBasic,
+    previousCampaignShare,
+  ] = await Promise.all([
     runNamedQuery(context, buildCampaignCoreBasicQuery(startDate, endDate)),
     runNamedQuery(context, buildCampaignShareQuery(startDate, endDate)),
     runNamedQuery(context, buildCampaignBudgetQuery(startDate, endDate)),
+    runNamedQuery(
+      context,
+      buildCampaignCoreBasicQuery(previousWindow.startDate, previousWindow.endDate)
+    ),
+    runNamedQuery(
+      context,
+      buildCampaignShareQuery(previousWindow.startDate, previousWindow.endDate)
+    ),
   ]);
 
   mergeFailures(meta, campaignCoreBasic);
   mergeFailures(meta, campaignShare);
   mergeFailures(meta, campaignBudget);
+  mergeFailures(meta, previousCampaignCoreBasic);
+  mergeFailures(meta, previousCampaignShare);
 
   const campaigns = buildCampaignMap(
     campaignCoreBasic.rows,
@@ -508,40 +713,96 @@ export async function getGoogleAdsCampaignsReport(params: {
   const accountAvgRoas = totalSpend > 0 ? Number((totalRevenue / totalSpend).toFixed(2)) : 0;
   const accountAvgCpa =
     totalConversions > 0 ? Number((totalSpend / totalConversions).toFixed(2)) : 0;
+  const previousCampaignMap = new Map(
+    buildCampaignMap(previousCampaignCoreBasic.rows, previousCampaignShare.rows, []).map(
+      (campaign) => [String(campaign.id), campaign]
+    )
+  );
 
-  const rows = campaigns.map((campaign) => ({
-    ...campaign,
-    badges: getCampaignBadges(
-      {
-        id: String(campaign.id),
-        name: String(campaign.name),
-        status: String(campaign.status ?? "paused"),
-        channel: String(campaign.channel ?? "Unknown"),
-        spend: Number(campaign.spend ?? 0),
-        conversions: Number(campaign.conversions ?? 0),
-        revenue: Number(campaign.revenue ?? 0),
-        roas: Number(campaign.roas ?? 0),
-        cpa: Number(campaign.cpa ?? 0),
-        ctr: Number(campaign.ctr ?? 0),
-        impressions: Number(campaign.impressions ?? 0),
-        clicks: Number(campaign.clicks ?? 0),
-        impressionShare:
-          typeof campaign.impressionShare === "number"
-            ? campaign.impressionShare
-            : undefined,
-        lostIsBudget:
-          typeof campaign.lostIsBudget === "number" ? campaign.lostIsBudget : undefined,
-        lostIsRank:
-          typeof campaign.lostIsRank === "number" ? campaign.lostIsRank : undefined,
-        budget:
-          typeof campaign.dailyBudget === "number" ? campaign.dailyBudget : undefined,
-      },
-      accountAvgRoas,
-      accountAvgCpa
-    ),
-  }));
+  const rows = campaigns.map((campaign) => {
+    const spend = Number(campaign.spend ?? 0);
+    const revenue = Number(campaign.revenue ?? 0);
+    const conversions = Number(campaign.conversions ?? 0);
+    const roas = Number(campaign.roas ?? 0);
+    const ctr = Number(campaign.ctr ?? 0);
+    const previous = previousCampaignMap.get(String(campaign.id));
+    const spendShare = totalSpend > 0 ? Number(((spend / totalSpend) * 100).toFixed(1)) : 0;
+    const revenueShare =
+      totalRevenue > 0 ? Number(((revenue / totalRevenue) * 100).toFixed(1)) : 0;
+
+    let actionState: "scale" | "optimize" | "test" | "reduce" = "optimize";
+    if (roas >= accountAvgRoas * 1.15 && getNumericShare(campaign.lostIsBudget) > 0.1) {
+      actionState = "scale";
+    } else if (spend > Math.max(100, totalSpend * 0.08) && roas < accountAvgRoas * 0.7) {
+      actionState = "reduce";
+    } else if (conversions === 0 && spend > 0) {
+      actionState = "test";
+    }
+
+    const performanceLabel =
+      roas >= accountAvgRoas * 1.25
+        ? "leader"
+        : roas >= accountAvgRoas * 0.9
+        ? "stable"
+        : roas > 0
+        ? "watch"
+        : "at-risk";
+
+    return {
+      ...campaign,
+      spendShare,
+      revenueShare,
+      performanceLabel,
+      actionState,
+      ...buildTrendMetrics(
+        {
+          spend,
+          revenue,
+          conversions,
+          roas,
+          ctr,
+        },
+        {
+          spend: Number(previous?.spend ?? 0),
+          revenue: Number(previous?.revenue ?? 0),
+          conversions: Number(previous?.conversions ?? 0),
+          roas: Number(previous?.roas ?? 0),
+          ctr: Number(previous?.ctr ?? 0),
+        }
+      ),
+      badges: getCampaignBadges(
+        {
+          id: String(campaign.id),
+          name: String(campaign.name),
+          status: String(campaign.status ?? "paused"),
+          channel: String(campaign.channel ?? "Unknown"),
+          spend,
+          conversions,
+          revenue,
+          roas,
+          cpa: Number(campaign.cpa ?? 0),
+          ctr,
+          impressions: Number(campaign.impressions ?? 0),
+          clicks: Number(campaign.clicks ?? 0),
+          impressionShare:
+            typeof campaign.impressionShare === "number"
+              ? campaign.impressionShare
+              : undefined,
+          lostIsBudget:
+            typeof campaign.lostIsBudget === "number" ? campaign.lostIsBudget : undefined,
+          lostIsRank:
+            typeof campaign.lostIsRank === "number" ? campaign.lostIsRank : undefined,
+          budget:
+            typeof campaign.dailyBudget === "number" ? campaign.dailyBudget : undefined,
+        },
+        accountAvgRoas,
+        accountAvgCpa
+      ),
+    };
+  });
   addDebugMeta(meta, "campaigns", context, {
     date_range: { startDate, endDate },
+    previous_date_range: previousWindow,
   });
 
   return {
@@ -762,6 +1023,279 @@ export async function getGoogleAdsKeywordsReport(params: {
   };
 }
 
+function classifySearchAction(row: {
+  isKeyword: boolean;
+  conversions: number;
+  spend: number;
+  clicks: number;
+  roas: number;
+  conversionRate: number | null;
+}) {
+  if (!row.isKeyword && row.conversions >= 2) return "Add as exact keyword";
+  if (row.clicks >= 20 && row.conversions === 0 && row.spend > 10) {
+    return "Add as negative keyword";
+  }
+  if (row.roas >= 3 && row.conversions >= 2) return "Promote in headlines";
+  if ((row.conversionRate ?? 0) < 1 && row.clicks >= 20) return "Review landing page";
+  return "Monitor";
+}
+
+function classifyClusterState(cluster: {
+  spend: number;
+  conversions: number;
+  roas: number;
+}) {
+  if (cluster.spend >= 100 && cluster.conversions === 0) return "Waste";
+  if (cluster.conversions >= 5 && cluster.roas >= 3) return "Top driver";
+  if (cluster.conversions >= 2 || cluster.roas >= 1.5) return "Promising";
+  return "Neutral";
+}
+
+function buildSearchClusters(
+  rows: Array<{
+    searchTerm: string;
+    campaign: string;
+    intent: string;
+    spend: number;
+    clicks: number;
+    conversions: number;
+    revenue: number;
+    roas: number;
+    isKeyword: boolean;
+  }>
+) {
+  const clusters = new Map<
+    string,
+    {
+      key: string;
+      label: string;
+      intent: string;
+      campaigns: Set<string>;
+      examples: string[];
+      spend: number;
+      clicks: number;
+      conversions: number;
+      revenue: number;
+      keywordBackedCount: number;
+    }
+  >();
+
+  for (const row of rows) {
+    const key = slugifyQueryCluster(row.searchTerm) || row.searchTerm.toLowerCase();
+    const current = clusters.get(key) ?? {
+      key,
+      label: key || row.searchTerm,
+      intent: row.intent,
+      campaigns: new Set<string>(),
+      examples: [],
+      spend: 0,
+      clicks: 0,
+      conversions: 0,
+      revenue: 0,
+      keywordBackedCount: 0,
+    };
+    current.campaigns.add(row.campaign);
+    if (current.examples.length < 3 && !current.examples.includes(row.searchTerm)) {
+      current.examples.push(row.searchTerm);
+    }
+    current.spend += row.spend;
+    current.clicks += row.clicks;
+    current.conversions += row.conversions;
+    current.revenue += row.revenue;
+    current.keywordBackedCount += row.isKeyword ? 1 : 0;
+    clusters.set(key, current);
+  }
+
+  return Array.from(clusters.values())
+    .map((cluster) => {
+      const roas = cluster.spend > 0 ? Number((cluster.revenue / cluster.spend).toFixed(2)) : 0;
+      return {
+        cluster: cluster.label,
+        intent: cluster.intent,
+        campaigns: Array.from(cluster.campaigns),
+        spend: Number(cluster.spend.toFixed(2)),
+        clicks: cluster.clicks,
+        conversions: Number(cluster.conversions.toFixed(2)),
+        revenue: Number(cluster.revenue.toFixed(2)),
+        roas,
+        coverage: cluster.keywordBackedCount > 0 ? "covered" : "open",
+        examples: cluster.examples,
+        state: classifyClusterState({
+          spend: cluster.spend,
+          conversions: cluster.conversions,
+          roas,
+        }),
+        recommendation:
+          cluster.conversions >= 3 && cluster.keywordBackedCount === 0
+            ? "Build exact-match coverage"
+            : cluster.spend >= 100 && cluster.conversions === 0
+            ? "Add negatives or tighten intent"
+            : roas >= 3
+            ? "Reflect this language in assets"
+            : "Keep watching",
+      };
+    })
+    .sort((a, b) => b.spend - a.spend);
+}
+
+export async function getGoogleAdsSearchIntelligenceReport(params: {
+  businessId: string;
+  accountId?: string | null;
+  dateRange: DateRange;
+  filter?: string;
+  debug?: boolean;
+}): Promise<ReportResult<Record<string, unknown>>> {
+  const resolved = await resolveContext({
+    businessId: params.businessId,
+    accountId: params.accountId,
+    dateRange: params.dateRange,
+    debug: Boolean(params.debug),
+  });
+  if (!resolved.ok) return resolved.payload;
+
+  const { context, startDate, endDate } = resolved;
+  const meta = createEmptyMeta(context.debug);
+  const [core, lookup, campaignSearchTerms] = await Promise.all([
+    runNamedQuery(context, buildSearchTermCoreQuery(startDate, endDate)),
+    runNamedQuery(context, buildKeywordLookupQuery()),
+    runNamedQuery(context, buildCampaignSearchTermCoreQuery(startDate, endDate)),
+  ]);
+
+  mergeFailures(meta, core);
+  mergeFailures(meta, lookup);
+  mergeFailures(meta, campaignSearchTerms);
+
+  const keywordSet = new Set(
+    lookup.rows
+      .map((row) => {
+        const criterion = getCompatObject(row, "ad_group_criterion");
+        const keyword = getCompatObject(criterion, "keyword");
+        return (asString(getCompatValue(keyword, "text")) ?? "").toLowerCase();
+      })
+      .filter(Boolean)
+  );
+
+  const filter = (params.filter ?? "").trim().toLowerCase();
+  const baseRows = core.rows.map((row) => {
+    const metrics = getCompatObject(row, "metrics");
+    const campaign = getCompatObject(row, "campaign");
+    const adGroup = getCompatObject(row, "ad_group");
+    const searchTermView = getCompatObject(row, "search_term_view");
+    const searchTerm = asString(getCompatValue(searchTermView, "search_term")) ?? "";
+    const data = toMetricSet(metrics);
+    return {
+      key: `${asString(getCompatValue(campaign, "id")) ?? "campaign"}:${searchTerm}`,
+      searchTerm,
+      campaignId: asString(getCompatValue(campaign, "id")),
+      campaign: asString(getCompatValue(campaign, "name")) ?? "",
+      adGroupId: asString(getCompatValue(adGroup, "id")),
+      adGroup: asString(getCompatValue(adGroup, "name")) ?? "",
+      matchSource: "SEARCH",
+      source: "search_term_view",
+      impressions: data.impressions,
+      clicks: data.clicks,
+      spend: data.spend,
+      conversions: data.conversions,
+      revenue: data.conversionValue,
+      roas: data.roas,
+      cpa: data.cpa,
+      ctr: data.ctr ?? 0,
+      conversionRate: data.conversionRate,
+      intent: classifySearchIntent(searchTerm),
+      isKeyword: keywordSet.has(searchTerm.toLowerCase()),
+    };
+  });
+
+  const campaignScopeRows = campaignSearchTerms.rows.map((row) => {
+    const metrics = getCompatObject(row, "metrics");
+    const campaign = getCompatObject(row, "campaign");
+    const view = getCompatObject(row, "campaign_search_term_view");
+    const segments = getCompatObject(row, "segments");
+    const searchTerm = asString(getCompatValue(view, "search_term")) ?? "";
+    const data = toMetricSet(metrics);
+    return {
+      key: `${asString(getCompatValue(campaign, "id")) ?? "campaign"}:${searchTerm}:campaign_scope`,
+      searchTerm,
+      campaignId: asString(getCompatValue(campaign, "id")),
+      campaign: asString(getCompatValue(campaign, "name")) ?? "",
+      adGroupId: null,
+      adGroup: "Campaign scope",
+      matchSource: asString(getCompatValue(segments, "search_term_match_source")) ?? "UNKNOWN",
+      source: "campaign_search_term_view",
+      impressions: data.impressions,
+      clicks: data.clicks,
+      spend: data.spend,
+      conversions: data.conversions,
+      revenue: data.conversionValue,
+      roas: data.roas,
+      cpa: data.cpa,
+      ctr: data.ctr ?? 0,
+      conversionRate: data.conversionRate,
+      intent: classifySearchIntent(searchTerm),
+      isKeyword: keywordSet.has(searchTerm.toLowerCase()),
+    };
+  });
+
+  const rows = [...baseRows, ...campaignScopeRows]
+    .filter((row) => row.searchTerm.length > 0)
+    .filter((row) => !filter || row.searchTerm.toLowerCase().includes(filter))
+    .map((row) => ({
+      ...row,
+      clusterKey: slugifyQueryCluster(row.searchTerm),
+      recommendation: classifySearchAction(row),
+      classification:
+        row.spend > 20 && row.conversions === 0
+          ? "waste"
+          : !row.isKeyword && row.conversions >= 2
+          ? "keyword_opportunity"
+          : row.roas >= 3
+          ? "top_driver"
+          : "monitor",
+    }))
+    .sort((a, b) => b.spend - a.spend);
+
+  const clusters = buildSearchClusters(rows);
+  const keywordCandidates = rows.filter(
+    (row) => row.recommendation === "Add as exact keyword"
+  );
+  const negativeCandidates = rows.filter(
+    (row) => row.recommendation === "Add as negative keyword"
+  );
+  const promotionCandidates = rows.filter(
+    (row) => row.recommendation === "Promote in headlines"
+  );
+
+  if (campaignSearchTerms.rows.length > 0) {
+    meta.warnings.push(
+      "Campaign-scope search terms are included where available to broaden Search Intelligence beyond standard search_term_view coverage."
+    );
+  }
+
+  addDebugMeta(meta, "search-intelligence", context, {
+    date_range: { startDate, endDate },
+  });
+
+  return {
+    rows,
+    summary: {
+      wastefulSpend: Number(
+        negativeCandidates.reduce((sum, row) => sum + row.spend, 0).toFixed(2)
+      ),
+      keywordOpportunityCount: keywordCandidates.length,
+      negativeKeywordCount: negativeCandidates.length,
+      promotionSuggestionCount: promotionCandidates.length,
+      clusterCount: clusters.length,
+    },
+    insights: {
+      keywordCandidates: keywordCandidates.slice(0, 8),
+      negativeCandidates: negativeCandidates.slice(0, 8),
+      promotionCandidates: promotionCandidates.slice(0, 8),
+      clusters: clusters.slice(0, 12),
+    },
+    meta,
+  };
+}
+
 function buildAdHeadline(ad: Record<string, unknown>): string {
   const rsa = getCompatObject(ad, "responsive_search_ad");
   const headlinesValue = getCompatValue(rsa, "headlines");
@@ -904,6 +1438,193 @@ export async function getGoogleAdsAdsReport(params: {
           : 0,
       bestAd: topQuartile[0] ?? null,
       worstAd: bottomQuartile[bottomQuartile.length - 1] ?? null,
+    },
+    meta,
+  };
+}
+
+function normalizeAssetKind(fieldType: string | null, assetType: string | null) {
+  const source = `${fieldType ?? ""} ${assetType ?? ""}`.toLowerCase();
+  if (source.includes("headline")) return "Headline";
+  if (source.includes("description")) return "Description";
+  if (source.includes("image")) return "Image";
+  if (source.includes("video")) return "Video";
+  if (source.includes("logo")) return "Logo";
+  return assetType?.replace(/_/g, " ") ?? "Asset";
+}
+
+function buildAssetPreview(params: {
+  fieldType: string | null;
+  assetType: string | null;
+  name: string | null;
+  text: string | null;
+  videoTitle: string | null;
+}) {
+  return (
+    params.text ??
+    params.videoTitle ??
+    params.name ??
+    `${normalizeAssetKind(params.fieldType, params.assetType)} asset`
+  );
+}
+
+export async function getGoogleAdsAssetsReport(params: {
+  businessId: string;
+  accountId?: string | null;
+  dateRange: DateRange;
+  debug?: boolean;
+}): Promise<ReportResult<Record<string, unknown>>> {
+  const resolved = await resolveContext({
+    businessId: params.businessId,
+    accountId: params.accountId,
+    dateRange: params.dateRange,
+    debug: Boolean(params.debug),
+  });
+  if (!resolved.ok) return resolved.payload;
+
+  const { context, startDate, endDate } = resolved;
+  const meta = createEmptyMeta(context.debug);
+  const [core, detail] = await Promise.all([
+    runNamedQuery(context, buildAssetPerformanceCoreQuery(startDate, endDate)),
+    runNamedQuery(context, buildAssetTextDetailQuery()),
+  ]);
+
+  mergeFailures(meta, core);
+  mergeFailures(meta, detail);
+
+  const detailMap = new Map<
+    string,
+    {
+      name: string | null;
+      text: string | null;
+      videoTitle: string | null;
+      videoId: string | null;
+      type: string | null;
+    }
+  >();
+
+  for (const row of detail.rows) {
+    const asset = getCompatObject(row, "asset");
+    const textAsset = getCompatObject(asset, "text_asset");
+    const youtubeAsset = getCompatObject(asset, "youtube_video_asset");
+    const id = asString(getCompatValue(asset, "id"));
+    if (!id) continue;
+    detailMap.set(id, {
+      name: asString(getCompatValue(asset, "name")),
+      text: asString(getCompatValue(textAsset, "text")),
+      videoTitle: asString(getCompatValue(youtubeAsset, "youtube_video_title")),
+      videoId: asString(getCompatValue(youtubeAsset, "youtube_video_id")),
+      type: asString(getCompatValue(asset, "type")),
+    });
+  }
+
+  const rows = core.rows
+    .map((row) => {
+      const assetGroup = getCompatObject(row, "asset_group");
+      const campaign = getCompatObject(row, "campaign");
+      const asset = getCompatObject(row, "asset");
+      const aga = getCompatObject(row, "asset_group_asset");
+      const metrics = getCompatObject(row, "metrics");
+      const data = toMetricSet(metrics);
+      const assetId = asString(getCompatValue(asset, "id")) ?? "unknown";
+      const details = detailMap.get(assetId);
+      const fieldType = asString(getCompatValue(aga, "field_type"));
+      const assetType = asString(getCompatValue(asset, "type")) ?? details?.type ?? null;
+      return {
+        id: `${asString(getCompatValue(assetGroup, "id")) ?? "group"}:${assetId}`,
+        assetId,
+        assetGroupId: asString(getCompatValue(assetGroup, "id")),
+        assetGroup: asString(getCompatValue(assetGroup, "name")) ?? "Unknown asset group",
+        campaignId: asString(getCompatValue(campaign, "id")),
+        campaign: asString(getCompatValue(campaign, "name")) ?? "",
+        fieldType,
+        type: normalizeAssetKind(fieldType, assetType),
+        assetType,
+        name: details?.name ?? asString(getCompatValue(asset, "name")),
+        text: details?.text ?? null,
+        preview: buildAssetPreview({
+          fieldType,
+          assetType,
+          name: details?.name ?? asString(getCompatValue(asset, "name")),
+          text: details?.text ?? null,
+          videoTitle: details?.videoTitle ?? null,
+        }),
+        videoId: details?.videoId ?? null,
+        performanceLabel: normalizeAssetPerformanceLabel(
+          asString(getCompatValue(aga, "performance_label"))
+        ),
+        impressions: data.impressions,
+        clicks: data.clicks,
+        interactions: data.interactions,
+        interactionRate: data.interactionRate,
+        spend: data.spend,
+        conversions: data.conversions,
+        revenue: data.conversionValue,
+        roas: data.roas,
+        ctr: data.ctr,
+        conversionRate: data.conversionRate,
+        valuePerConversion: data.valuePerConversion,
+      };
+    })
+    .filter((row) => row.assetId !== "unknown");
+
+  const avgInteractionRate =
+    rows.length > 0
+      ? Number(
+          (
+            rows.reduce((sum, row) => sum + Number(row.interactionRate ?? 0), 0) / rows.length
+          ).toFixed(2)
+        )
+      : 0;
+  const avgConversionRate =
+    rows.length > 0
+      ? Number(
+          (
+            rows.reduce((sum, row) => sum + Number(row.conversionRate ?? 0), 0) / rows.length
+          ).toFixed(2)
+        )
+      : 0;
+
+  const enrichedRows = rows.map((row) => ({
+    ...row,
+    hint:
+      Number(row.interactionRate ?? 0) < avgInteractionRate * 0.7 && row.impressions >= 100
+        ? "Low interaction rate versus account average"
+        : row.interactions >= 20 && row.conversions === 0
+        ? "High interaction but weak post-click conversion"
+        : Number(row.conversionRate ?? 0) < avgConversionRate * 0.7 && row.clicks >= 15
+        ? "Clicks are coming through but message or landing page may be misaligned"
+        : row.performanceLabel === "top"
+        ? "High-value asset to reuse in new variants"
+        : "",
+  }));
+
+  if (detail.failures.length > 0) {
+    meta.warnings.push(
+      "Some asset previews are unavailable. Performance metrics still use stable asset_group_asset reporting."
+    );
+  }
+
+  addDebugMeta(meta, "assets", context, {
+    date_range: { startDate, endDate },
+  });
+
+  return {
+    rows: enrichedRows.sort((a, b) => b.spend - a.spend),
+    summary: {
+      topPerformingCount: enrichedRows.filter((row) => row.performanceLabel === "top").length,
+      underperformingCount: enrichedRows.filter(
+        (row) => row.performanceLabel === "underperforming"
+      ).length,
+      lowCtrCount: enrichedRows.filter(
+        (row) => Number(row.interactionRate ?? row.ctr ?? 0) < avgInteractionRate * 0.7
+      ).length,
+      typeBreakdown: Array.from(
+        enrichedRows.reduce((map, row) => {
+          map.set(row.type, (map.get(row.type) ?? 0) + 1);
+          return map;
+        }, new Map<string, number>())
+      ).map(([type, count]) => ({ type, count })),
     },
     meta,
   };
@@ -1332,37 +2053,447 @@ export async function getGoogleAdsCreativesReport(params: {
   };
 }
 
+const ASSET_GROUP_REQUIRED_FIELDS = [
+  "HEADLINE",
+  "DESCRIPTION",
+  "MARKETING_IMAGE",
+  "LOGO",
+  "BUSINESS_NAME",
+];
+
+function getAssetGroupCoverageScore(assetMix: AssetTypeSummary) {
+  const covered = ASSET_GROUP_REQUIRED_FIELDS.filter((field) => (assetMix[field] ?? 0) > 0);
+  return Number(((covered.length / ASSET_GROUP_REQUIRED_FIELDS.length) * 100).toFixed(0));
+}
+
+function isThemeAligned(theme: string, corpus: string) {
+  const tokens = slugifyQueryCluster(theme).split(" ").filter(Boolean);
+  if (tokens.length === 0) return false;
+  return tokens.some((token) => corpus.includes(token));
+}
+
+export async function getGoogleAdsAssetGroupsReport(params: {
+  businessId: string;
+  accountId?: string | null;
+  dateRange: DateRange;
+  debug?: boolean;
+}): Promise<ReportResult<Record<string, unknown>>> {
+  const resolved = await resolveContext({
+    businessId: params.businessId,
+    accountId: params.accountId,
+    dateRange: params.dateRange,
+    debug: Boolean(params.debug),
+  });
+  if (!resolved.ok) return resolved.payload;
+
+  const { context, startDate, endDate } = resolved;
+  const meta = createEmptyMeta(context.debug);
+  const [core, detail, signals, assetDetails] = await Promise.all([
+    runNamedQuery(context, buildAssetGroupCoreQuery(startDate, endDate)),
+    runNamedQuery(context, buildAssetGroupAssetDetailQuery(startDate, endDate)),
+    runNamedQuery(context, buildAssetGroupSignalQuery()),
+    runNamedQuery(context, buildAssetTextDetailQuery()),
+  ]);
+
+  mergeFailures(meta, core);
+  mergeFailures(meta, detail);
+  mergeFailures(meta, signals);
+  mergeFailures(meta, assetDetails);
+
+  const detailMap = new Map<string, { text: string | null }>();
+  for (const row of assetDetails.rows) {
+    const asset = getCompatObject(row, "asset");
+    const textAsset = getCompatObject(asset, "text_asset");
+    const id = asString(getCompatValue(asset, "id"));
+    if (!id) continue;
+    detailMap.set(id, {
+      text: asString(getCompatValue(textAsset, "text")),
+    });
+  }
+
+  const assetBreakdown = new Map<string, AssetTypeSummary>();
+  const textCorpusByGroup = new Map<string, string[]>();
+  for (const row of detail.rows) {
+    const assetGroup = getCompatObject(row, "asset_group");
+    const asset = getCompatObject(row, "asset");
+    const id = asString(getCompatValue(assetGroup, "id"));
+    if (!id) continue;
+
+    const current = assetBreakdown.get(id) ?? {};
+    const fieldType = asString(
+      getCompatValue(getCompatObject(row, "asset_group_asset"), "field_type")
+    );
+    const assetType = asString(getCompatValue(asset, "type"));
+    const label = dedupeStrings([fieldType ?? "", assetType ?? "asset"]).join(":");
+    current[fieldType ?? label] = (current[fieldType ?? label] ?? 0) + 1;
+    assetBreakdown.set(id, current);
+
+    const assetId = asString(getCompatValue(asset, "id"));
+    const detailEntry = assetId ? detailMap.get(assetId) : null;
+    if (detailEntry?.text) {
+      const corpus = textCorpusByGroup.get(id) ?? [];
+      corpus.push(detailEntry.text.toLowerCase());
+      textCorpusByGroup.set(id, corpus);
+    }
+  }
+
+  const searchThemesByGroup = new Map<string, SearchThemeSignal[]>();
+  for (const row of signals.rows) {
+    const assetGroup = getCompatObject(row, "asset_group");
+    const signal = getCompatObject(row, "asset_group_signal");
+    const searchTheme = getCompatObject(signal, "search_theme");
+    const groupId = asString(getCompatValue(assetGroup, "id"));
+    const text = asString(getCompatValue(searchTheme, "text"));
+    if (!groupId || !text) continue;
+    const current = searchThemesByGroup.get(groupId) ?? [];
+    current.push({
+      text,
+      approvalStatus: asString(getCompatValue(signal, "approval_status")),
+    });
+    searchThemesByGroup.set(groupId, current);
+  }
+
+  const totalSpend = core.rows.reduce((sum, row) => {
+    const metrics = getCompatObject(row, "metrics");
+    return sum + toMetricSet(metrics).spend;
+  }, 0);
+  const totalRevenue = core.rows.reduce((sum, row) => {
+    const metrics = getCompatObject(row, "metrics");
+    return sum + toMetricSet(metrics).conversionValue;
+  }, 0);
+  const avgRoas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
+
+  const rows = core.rows.map((row) => {
+    const assetGroup = getCompatObject(row, "asset_group");
+    const campaign = getCompatObject(row, "campaign");
+    const metrics = getCompatObject(row, "metrics");
+    const data = toMetricSet(metrics);
+    const id = asString(getCompatValue(assetGroup, "id")) ?? "unknown";
+    const assetMix = assetBreakdown.get(id) ?? {};
+    const coverageScore = getAssetGroupCoverageScore(assetMix);
+    const searchThemes = searchThemesByGroup.get(id) ?? [];
+    const corpus = (textCorpusByGroup.get(id) ?? []).join(" ").toLowerCase();
+    const alignedThemes = searchThemes.filter((theme) => isThemeAligned(theme.text, corpus));
+    const spendShare = totalSpend > 0 ? Number(((data.spend / totalSpend) * 100).toFixed(1)) : 0;
+    const revenueShare =
+      totalRevenue > 0 ? Number(((data.conversionValue / totalRevenue) * 100).toFixed(1)) : 0;
+    const state =
+      data.roas >= avgRoas * 1.15 && coverageScore >= 70
+        ? "strong"
+        : data.spend > 100 && data.roas < avgRoas * 0.75
+        ? "weak"
+        : "watch";
+
+    return {
+      id,
+      name: asString(getCompatValue(assetGroup, "name")) ?? "Unnamed Asset Group",
+      status: normalizeStatus(asString(getCompatValue(assetGroup, "status")) ?? undefined),
+      campaignId: asString(getCompatValue(campaign, "id")),
+      campaign: asString(getCompatValue(campaign, "name")) ?? "",
+      impressions: data.impressions,
+      clicks: data.clicks,
+      interactions: data.interactions,
+      spend: data.spend,
+      conversions: data.conversions,
+      revenue: data.conversionValue,
+      roas: data.roas,
+      cpa: data.cpa,
+      conversionRate: data.conversionRate,
+      spendShare,
+      revenueShare,
+      coverageScore,
+      assetCount: Object.values(assetMix).reduce((sum, count) => sum + count, 0),
+      assetMix,
+      state,
+      adStrength: null,
+      audienceSignalsSummary: null,
+      searchThemes: searchThemes.map((theme) => ({
+        ...theme,
+        alignedMessaging: isThemeAligned(theme.text, corpus),
+      })),
+      searchThemeSummary: searchThemes.map((theme) => theme.text).slice(0, 3).join(", "),
+      searchThemeCount: searchThemes.length,
+      searchThemeAlignedCount: alignedThemes.length,
+      missingAssetFields: ASSET_GROUP_REQUIRED_FIELDS.filter(
+        (field) => (assetMix[field] ?? 0) === 0
+      ),
+    };
+  });
+
+  meta.warnings.push(
+    "Search themes are shown as configured asset-group signals. Google Ads does not consistently expose asset-group-level theme performance metrics, so alignment is based on configured themes plus available asset messaging."
+  );
+  if (assetDetails.failures.length > 0) {
+    meta.warnings.push(
+      "Theme-to-message alignment is partial because some asset text details could not be loaded."
+    );
+  }
+
+  addDebugMeta(meta, "asset-groups", context, {
+    date_range: { startDate, endDate },
+  });
+
+  return {
+    rows: rows.sort((a, b) => b.spend - a.spend),
+    summary: {
+      strongCount: rows.filter((row) => row.state === "strong").length,
+      weakCount: rows.filter((row) => row.state === "weak").length,
+      coverageGaps: rows.filter((row) => row.coverageScore < 70).length,
+      searchThemeCount: rows.reduce((sum, row) => sum + row.searchThemeCount, 0),
+    },
+    insights: {
+      scaleCandidates: rows
+        .filter((row) => row.state === "strong")
+        .slice(0, 5),
+      reduceCandidates: rows
+        .filter((row) => row.state === "weak")
+        .slice(0, 5),
+    },
+    meta,
+  };
+}
+
+export async function getGoogleAdsProductsReport(params: {
+  businessId: string;
+  accountId?: string | null;
+  dateRange: DateRange;
+  debug?: boolean;
+}): Promise<ReportResult<Record<string, unknown>>> {
+  const resolved = await resolveContext({
+    businessId: params.businessId,
+    accountId: params.accountId,
+    dateRange: params.dateRange,
+    debug: Boolean(params.debug),
+  });
+  if (!resolved.ok) return resolved.payload;
+
+  const { context, startDate, endDate } = resolved;
+  const meta = createEmptyMeta(context.debug);
+  const products = await runNamedQuery(context, buildProductPerformanceQuery(startDate, endDate));
+  mergeFailures(meta, products);
+
+  const productMap = new Map<
+    string,
+    {
+      itemId: string;
+      title: string;
+      brand: string | null;
+      feedPrice: number | null;
+      impressions: number;
+      clicks: number;
+      spend: number;
+      conversions: number;
+      revenue: number;
+    }
+  >();
+
+  for (const row of products.rows) {
+    const product = getCompatObject(row, "shopping_product");
+    const metrics = getCompatObject(row, "metrics");
+    const itemId = asString(getCompatValue(product, "item_id")) ?? "unknown";
+    const current = productMap.get(itemId) ?? {
+      itemId,
+      title: asString(getCompatValue(product, "title")) ?? "Unknown product",
+      brand: asString(getCompatValue(product, "brand")),
+      feedPrice: asNumber(getCompatValue(product, "custom_attribute0")),
+      impressions: 0,
+      clicks: 0,
+      spend: 0,
+      conversions: 0,
+      revenue: 0,
+    };
+    const data = toMetricSet(metrics);
+    productMap.set(itemId, {
+      ...current,
+      impressions: current.impressions + data.impressions,
+      clicks: current.clicks + data.clicks,
+      spend: Number((current.spend + data.spend).toFixed(2)),
+      conversions: Number((current.conversions + data.conversions).toFixed(2)),
+      revenue: Number((current.revenue + data.conversionValue).toFixed(2)),
+    });
+  }
+
+  const rows = Array.from(productMap.values())
+    .filter((row) => row.itemId !== "unknown")
+    .map((row) => {
+      const roas = row.spend > 0 ? Number((row.revenue / row.spend).toFixed(2)) : 0;
+      const cpa =
+        row.conversions > 0 ? Number((row.spend / row.conversions).toFixed(2)) : 0;
+      const contributionProxy = Number((row.revenue - row.spend).toFixed(2));
+      const spendPerOrder =
+        row.conversions > 0 ? Number((row.spend / row.conversions).toFixed(2)) : null;
+      const avgOrderValue =
+        row.conversions > 0 ? Number((row.revenue / row.conversions).toFixed(2)) : null;
+
+      return {
+        ...row,
+        roas,
+        cpa,
+        ctr:
+          row.impressions > 0 ? Number(((row.clicks / row.impressions) * 100).toFixed(2)) : 0,
+        avgOrderValue,
+        spendPerOrder,
+        valuePerClick: row.clicks > 0 ? Number((row.revenue / row.clicks).toFixed(2)) : null,
+        contributionProxy,
+        contributionState:
+          contributionProxy > 0 ? "positive" : contributionProxy < 0 ? "negative" : "neutral",
+        statusLabel:
+          roas >= 3 ? "scale" : roas >= 1.5 ? "stable" : row.spend > 25 ? "reduce" : "test",
+      };
+    })
+    .sort((a, b) => b.spend - a.spend);
+
+  const totalSpend = rows.reduce((sum, row) => sum + row.spend, 0);
+  const totalRevenue = rows.reduce((sum, row) => sum + row.revenue, 0);
+
+  addDebugMeta(meta, "products", context, {
+    date_range: { startDate, endDate },
+  });
+
+  return {
+    rows,
+    summary: {
+      totalSpend: Number(totalSpend.toFixed(2)),
+      totalRevenue: Number(totalRevenue.toFixed(2)),
+      scaleCandidates: rows.filter((row) => row.statusLabel === "scale").length,
+      reduceCandidates: rows.filter((row) => row.statusLabel === "reduce").length,
+      spendConcentrationTop3: Number(
+        rows
+          .slice(0, 3)
+          .reduce((sum, row) => sum + (totalSpend > 0 ? row.spend / totalSpend : 0), 0)
+          .toFixed(2)
+      ),
+    },
+    insights: {
+      topRevenueProducts: [...rows].sort((a, b) => b.revenue - a.revenue).slice(0, 5),
+      lowRoasProducts: rows.filter((row) => row.roas < 1.5 && row.spend > 25).slice(0, 5),
+      spendWithoutReturn: rows.filter((row) => row.conversions === 0 && row.spend > 20).slice(0, 5),
+    },
+    meta,
+  };
+}
+
+export async function getGoogleAdsDiagnosticsReport(params: {
+  businessId: string;
+  accountId?: string | null;
+  dateRange: DateRange;
+  debug?: boolean;
+}): Promise<ReportResult<Record<string, unknown>>> {
+  const reports = await Promise.all([
+    getGoogleAdsOverviewReport(params),
+    getGoogleAdsCampaignsReport(params),
+    getGoogleAdsSearchIntelligenceReport(params),
+    getGoogleAdsKeywordsReport(params),
+    getGoogleAdsAssetsReport(params),
+    getGoogleAdsAssetGroupsReport(params),
+    getGoogleAdsProductsReport(params),
+    getGoogleAdsAudiencesReport(params),
+    getGoogleAdsGeoReport(params),
+    getGoogleAdsDevicesReport(params),
+    getGoogleAdsBudgetReport(params),
+    getGoogleAdsOpportunitiesReport(params),
+  ]);
+
+  const [overview, campaigns, searchIntelligence, keywords, assets, assetGroups, products, audiences, geo, devices, budget, opportunities] =
+    reports;
+
+  const meta = createEmptyMeta(Boolean(params.debug));
+  for (const child of reports) {
+    mergeChildMeta(meta, child.meta);
+  }
+  meta.warnings = dedupeStrings(meta.warnings);
+  meta.unavailable_metrics = dedupeStrings(meta.unavailable_metrics);
+  meta.query_names = dedupeStrings(meta.query_names);
+
+  const sections = [
+    { label: "Overview", meta: overview.meta, rows: 1 },
+    { label: "Campaigns", meta: campaigns.meta, rows: campaigns.rows.length },
+    {
+      label: "Search Intelligence",
+      meta: searchIntelligence.meta,
+      rows: searchIntelligence.rows.length,
+    },
+    { label: "Keywords", meta: keywords.meta, rows: keywords.rows.length },
+    { label: "Assets", meta: assets.meta, rows: assets.rows.length },
+    { label: "Asset Groups", meta: assetGroups.meta, rows: assetGroups.rows.length },
+    { label: "Products", meta: products.meta, rows: products.rows.length },
+    { label: "Audience Intelligence", meta: audiences.meta, rows: audiences.rows.length },
+    { label: "Geo", meta: geo.meta, rows: geo.rows.length },
+    { label: "Devices", meta: devices.meta, rows: devices.rows.length },
+    { label: "Budget & Scaling", meta: budget.meta, rows: budget.rows.length },
+    { label: "Opportunities", meta: opportunities.meta, rows: opportunities.rows.length },
+  ].map((section) => ({
+    ...section,
+    partial: section.meta.partial,
+    warningCount: section.meta.warnings.length,
+    failureCount: section.meta.failed_queries.length,
+    unavailableMetricCount: section.meta.unavailable_metrics.length,
+  }));
+
+  return {
+    rows: sections,
+    summary: {
+      loadedSections: sections.length,
+      healthySections: sections.filter(
+        (section) =>
+          !section.partial && section.warningCount === 0 && section.failureCount === 0
+      ).length,
+      totalWarnings: sections.reduce((sum, section) => sum + section.warningCount, 0),
+      totalFailures: sections.reduce((sum, section) => sum + section.failureCount, 0),
+      generatedAt: new Date().toISOString(),
+    },
+    insights: {
+      limitations: [
+        "Asset-group-level search theme performance metrics are not consistently exposed by Google Ads API; configured themes and messaging alignment are shown instead.",
+        "Keyword quality metrics depend on Google Ads quality_info availability and may be absent for some criteria.",
+        "Product contribution is a value-minus-spend proxy, not a true margin model.",
+      ],
+    },
+    meta,
+  };
+}
+
 export async function getGoogleAdsOpportunitiesReport(params: {
   businessId: string;
   accountId?: string | null;
   dateRange: DateRange;
   debug?: boolean;
 }): Promise<ReportResult<GadsOpportunity>> {
-  const [campaigns, keywords, searchTerms, ads, devices, audiences] = await Promise.all([
+  const [
+    campaigns,
+    keywords,
+    searchIntelligence,
+    ads,
+    assets,
+    assetGroups,
+    products,
+    devices,
+    audiences,
+  ] = await Promise.all([
     getGoogleAdsCampaignsReport(params),
     getGoogleAdsKeywordsReport(params),
-    getGoogleAdsSearchTermsReport(params),
+    getGoogleAdsSearchIntelligenceReport(params),
     getGoogleAdsAdsReport(params),
+    getGoogleAdsAssetsReport(params),
+    getGoogleAdsAssetGroupsReport(params),
+    getGoogleAdsProductsReport(params),
     getGoogleAdsDevicesReport(params),
     getGoogleAdsAudiencesReport(params),
   ]);
 
   const meta = createEmptyMeta(Boolean(params.debug));
-  const reportMetas = [
+  for (const childMeta of [
     campaigns.meta,
     keywords.meta,
-    searchTerms.meta,
+    searchIntelligence.meta,
     ads.meta,
+    assets.meta,
+    assetGroups.meta,
+    products.meta,
     devices.meta,
     audiences.meta,
-  ];
-  for (const childMeta of reportMetas) {
-    meta.partial = meta.partial || childMeta.partial;
-    meta.warnings.push(...childMeta.warnings);
-    meta.failed_queries.push(...childMeta.failed_queries);
-    meta.unavailable_metrics.push(...childMeta.unavailable_metrics);
-    meta.query_names.push(...childMeta.query_names);
-    Object.assign(meta.row_counts, childMeta.row_counts);
+  ]) {
+    mergeChildMeta(meta, childMeta);
   }
   meta.warnings = dedupeStrings(meta.warnings);
   meta.unavailable_metrics = dedupeStrings(meta.unavailable_metrics);
@@ -1381,7 +2512,7 @@ export async function getGoogleAdsOpportunitiesReport(params: {
   const rows: GadsOpportunity[] = generateOpportunities({
     campaigns: campaigns.rows as never,
     keywords: keywords.rows as never,
-    searchTerms: searchTerms.rows as never,
+    searchTerms: searchIntelligence.rows as never,
     ads: ads.rows as never,
     accountAvgRoas,
     accountAvgCpa,
@@ -1398,8 +2529,11 @@ export async function getGoogleAdsOpportunitiesReport(params: {
         whyItMatters: "Device mix shows stronger efficiency on desktop than mobile.",
         evidence: `Desktop ROAS ${desktop.roas}x vs mobile ${mobile.roas}x`,
         expectedImpact: "Improve blended efficiency with device bid adjustments",
+        impact: "Efficiency lift",
+        confidence: "medium",
         effort: "low",
         priority: "medium",
+        recommendedAction: "Apply mobile bid moderation or isolate desktop winners into their own tests.",
       });
     }
   }
@@ -1416,20 +2550,147 @@ export async function getGoogleAdsOpportunitiesReport(params: {
         whyItMatters: "Audience segment is consuming spend without producing conversions.",
         evidence: `${weakAudience.type} spent $${weakAudience.spend} with 0 conversions`,
         expectedImpact: "Reduce wasted spend and improve audience mix",
+        impact: "Waste reduction",
+        confidence: "medium",
         effort: "medium",
         priority: "medium",
+        recommendedAction: "Tighten or exclude the weak audience segment and redirect budget to stronger segments.",
       });
     }
   }
 
+  const weakAsset = assets.rows.find(
+    (row) =>
+      String(row.performanceLabel) === "underperforming" &&
+      Number(row.spend ?? 0) > 20
+  );
+  if (weakAsset) {
+    rows.push({
+      id: "asset_refresh_underperformer",
+      type: "asset_refresh",
+      title: `Refresh ${weakAsset.type} assets in ${weakAsset.assetGroup}`,
+      whyItMatters: "Asset performance signals show this creative element is dragging the group down.",
+      evidence: `${weakAsset.preview} spent $${Number(weakAsset.spend ?? 0).toFixed(0)} at ${Number(weakAsset.roas ?? 0).toFixed(2)}x ROAS`,
+      expectedImpact: "Lift interaction quality and downstream conversion efficiency",
+      impact: "Creative lift",
+      confidence: "medium",
+      effort: "medium",
+      priority: "medium",
+      recommendedAction:
+        String(weakAsset.hint ?? "").length > 0
+          ? String(weakAsset.hint)
+          : "Replace the weakest asset with a sharper value proposition and stronger variety.",
+    });
+  }
+
+  const weakAssetGroup = assetGroups.rows.find(
+    (row) =>
+      (String(row.state) === "weak" || Number(row.coverageScore ?? 0) < 70) &&
+      Number(row.spend ?? 0) > 25
+  );
+  if (weakAssetGroup) {
+    rows.push({
+      id: "asset_group_fix",
+      type: "asset_group_fix",
+      title: `Improve asset group ${weakAssetGroup.name}`,
+      whyItMatters: "This asset group is consuming spend without matching asset coverage or return quality.",
+      evidence: `${weakAssetGroup.name} coverage ${weakAssetGroup.coverageScore}% with ${weakAssetGroup.roas}x ROAS`,
+      expectedImpact: "Stronger PMax coverage and better budget efficiency",
+      impact: "PMax quality lift",
+      confidence: "medium",
+      effort: "medium",
+      priority: "medium",
+      recommendedAction:
+        Array.isArray(weakAssetGroup.missingAssetFields) &&
+        weakAssetGroup.missingAssetFields.length > 0
+          ? `Add missing ${weakAssetGroup.missingAssetFields.join(", ").toLowerCase()} assets and tighten search themes.`
+          : "Rebuild the asset mix and audience/search theme signals for this group.",
+    });
+  }
+
+  const scaleProduct = products.rows.find(
+    (row) => String(row.statusLabel) === "scale" && Number(row.spend ?? 0) > 15
+  );
+  if (scaleProduct) {
+    rows.push({
+      id: "product_scale",
+      type: "product_scale",
+      title: `Scale spend behind ${scaleProduct.title}`,
+      whyItMatters: "This product is turning spend into value efficiently and can likely absorb more demand.",
+      evidence: `${scaleProduct.title} ROAS ${scaleProduct.roas}x with ${scaleProduct.conversions} orders`,
+      expectedImpact: "Incremental product revenue from a proven winner",
+      impact: "Revenue growth",
+      confidence: "medium",
+      effort: "low",
+      priority: "high",
+      recommendedAction:
+        "Increase bids or budget share on campaigns and asset groups where this product is already converting efficiently.",
+    });
+  }
+
+  const reduceProduct = products.rows.find(
+    (row) => String(row.statusLabel) === "reduce" && Number(row.spend ?? 0) > 20
+  );
+  if (reduceProduct) {
+    rows.push({
+      id: "product_reduce",
+      type: "product_reduce",
+      title: `Reduce poor-product spend on ${reduceProduct.title}`,
+      whyItMatters: "Budget is concentrated on a product that is not producing enough return.",
+      evidence: `${reduceProduct.title} spent $${Number(reduceProduct.spend ?? 0).toFixed(0)} at ${Number(reduceProduct.roas ?? 0).toFixed(2)}x ROAS`,
+      expectedImpact: "Lower waste and free budget for stronger SKUs",
+      impact: "Waste reduction",
+      confidence: "medium",
+      effort: "low",
+      priority: "high",
+      recommendedAction:
+        "Lower bids, restrict product group exposure, or shift emphasis toward higher-return products.",
+    });
+  }
+
+  const themeMismatch = assetGroups.rows.find(
+    (row) =>
+      Number(row.searchThemeCount ?? 0) > 0 &&
+      Number(row.searchThemeAlignedCount ?? 0) < Number(row.searchThemeCount ?? 0)
+  );
+  if (themeMismatch) {
+    rows.push({
+      id: "search_theme_mismatch",
+      type: "search_theme_alignment",
+      title: `Align search themes with messaging in ${themeMismatch.name}`,
+      whyItMatters: "Configured search themes are broader than the current asset messaging, which can dilute relevance.",
+      evidence: `${themeMismatch.searchThemeAlignedCount}/${themeMismatch.searchThemeCount} configured themes appear in current asset messaging`,
+      expectedImpact: "Tighter PMax relevance and stronger theme-to-asset coherence",
+      impact: "Relevance lift",
+      confidence: "low",
+      effort: "medium",
+      priority: "medium",
+      recommendedAction:
+        "Rewrite headlines and descriptions so the highest-value search themes show up directly in the asset copy.",
+    });
+  }
+
   if (params.debug) {
     meta.debug = {
-      child_reports: ["campaigns", "keywords", "search-terms", "ads", "devices", "audiences"],
+      child_reports: [
+        "campaigns",
+        "keywords",
+        "search-intelligence",
+        "ads",
+        "assets",
+        "asset-groups",
+        "products",
+        "devices",
+        "audiences",
+      ],
     };
   }
 
   return {
-    rows,
+    rows: rows.sort((a, b) => {
+      const priorityOrder = { high: 0, medium: 1, low: 2 };
+      return priorityOrder[a.priority] - priorityOrder[b.priority];
+    }),
     summary: {
       accountAvgRoas,
       accountAvgCpa,

@@ -297,10 +297,17 @@ export function getDemoGoogleAdsOverview() {
       clicks: 30780,
       convRate: 0.0169,
     },
+    kpiDeltas: {
+      spend: 8.4,
+      revenue: 13.2,
+      roas: 4.5,
+      conversions: 9.8,
+      cpa: -1.2,
+    },
     topCampaigns: [
-      { name: "Backpack Search Campaign", spend: 4620, roas: 3.84, conversions: 171, channel: "Search" },
-      { name: "Travel Gear Performance Max", spend: 3930, roas: 3.35, conversions: 146, channel: "Performance Max" },
-      { name: "Brand Campaign", spend: 1880, roas: 5.02, conversions: 112, channel: "Search" },
+      { name: "Backpack Search Campaign", spend: 4620, roas: 3.84, conversions: 171, channel: "Search", revenueChange: 16.4, roasChange: 5.2, spendChange: 11.8 },
+      { name: "Travel Gear Performance Max", spend: 3930, roas: 3.35, conversions: 146, channel: "Performance Max", revenueChange: 8.1, roasChange: 2.9, spendChange: 7.3 },
+      { name: "Brand Campaign", spend: 1880, roas: 5.02, conversions: 112, channel: "Search", revenueChange: 5.2, roasChange: 1.1, spendChange: 3.8 },
     ],
     insights: [
       { id: "gads-ins-1", severity: "warning", title: "Summer Hiking Campaign is budget-limited", description: "Lost impression share due to budget is above 24%." },
@@ -312,11 +319,11 @@ export function getDemoGoogleAdsOverview() {
 
 export function getDemoGoogleAdsCampaigns() {
   const data = [
-    { id: "g-1", name: "Backpack Search Campaign", status: "active", channel: "Search", spend: 4620, conversions: 171, revenue: 17740, roas: 3.84, cpa: 27.02, ctr: 4.8, cpc: 0.92, impressions: 214100, clicks: 10210, impressionShare: 0.63, lostIsBudget: 0.14, lostIsRank: 0.09, badges: ["strong_performer"] },
-    { id: "g-2", name: "Travel Gear Performance Max", status: "active", channel: "Performance Max", spend: 3930, conversions: 146, revenue: 13160, roas: 3.35, cpa: 26.92, ctr: 2.9, cpc: 0.67, impressions: 318200, clicks: 9240, impressionShare: 0.54, lostIsBudget: 0.08, lostIsRank: 0.13, badges: ["strong_performer"] },
-    { id: "g-3", name: "Brand Campaign", status: "active", channel: "Search", spend: 1880, conversions: 112, revenue: 9440, roas: 5.02, cpa: 16.79, ctr: 7.5, cpc: 0.41, impressions: 64200, clicks: 4810, impressionShare: 0.86, lostIsBudget: 0.03, lostIsRank: 0.04, badges: ["strong_performer"] },
-    { id: "g-4", name: "Summer Hiking Campaign", status: "active", channel: "Search", spend: 2410, conversions: 58, revenue: 6020, roas: 2.5, cpa: 41.55, ctr: 3.4, cpc: 0.96, impressions: 102800, clicks: 3650, impressionShare: 0.41, lostIsBudget: 0.26, lostIsRank: 0.17, badges: ["budget_limited", "high_cpa"] },
-    { id: "g-5", name: "Remarketing Display", status: "paused", channel: "Display", spend: 1700, conversions: 34, revenue: 4220, roas: 2.48, cpa: 50, ctr: 1.2, cpc: 0.58, impressions: 90000, clicks: 2870, impressionShare: 0.38, lostIsBudget: 0.19, lostIsRank: 0.21, badges: ["high_cpa", "wasted_spend"] },
+    { id: "g-1", name: "Backpack Search Campaign", status: "active", channel: "Search", spend: 4620, conversions: 171, revenue: 17740, roas: 3.84, cpa: 27.02, ctr: 4.8, cpc: 0.92, impressions: 214100, clicks: 10210, impressionShare: 0.63, lostIsBudget: 0.14, lostIsRank: 0.09, badges: ["strong_performer"], performanceLabel: "leader", actionState: "scale", spendShare: 31.8, revenueShare: 38.1, spendChange: 11.8, revenueChange: 16.4, roasChange: 5.2, conversionsChange: 12.6, ctrChange: 4.3 },
+    { id: "g-2", name: "Travel Gear Performance Max", status: "active", channel: "Performance Max", spend: 3930, conversions: 146, revenue: 13160, roas: 3.35, cpa: 26.92, ctr: 2.9, cpc: 0.67, impressions: 318200, clicks: 9240, impressionShare: 0.54, lostIsBudget: 0.08, lostIsRank: 0.13, badges: ["strong_performer"], performanceLabel: "stable", actionState: "optimize", spendShare: 27, revenueShare: 28.3, spendChange: 7.3, revenueChange: 8.1, roasChange: 2.9, conversionsChange: 6.4, ctrChange: 1.8 },
+    { id: "g-3", name: "Brand Campaign", status: "active", channel: "Search", spend: 1880, conversions: 112, revenue: 9440, roas: 5.02, cpa: 16.79, ctr: 7.5, cpc: 0.41, impressions: 64200, clicks: 4810, impressionShare: 0.86, lostIsBudget: 0.03, lostIsRank: 0.04, badges: ["strong_performer"], performanceLabel: "leader", actionState: "scale", spendShare: 12.9, revenueShare: 20.3, spendChange: 3.8, revenueChange: 5.2, roasChange: 1.1, conversionsChange: 4.2, ctrChange: 0.5 },
+    { id: "g-4", name: "Summer Hiking Campaign", status: "active", channel: "Search", spend: 2410, conversions: 58, revenue: 6020, roas: 2.5, cpa: 41.55, ctr: 3.4, cpc: 0.96, impressions: 102800, clicks: 3650, impressionShare: 0.41, lostIsBudget: 0.26, lostIsRank: 0.17, badges: ["budget_limited", "high_cpa"], performanceLabel: "watch", actionState: "optimize", spendShare: 16.6, revenueShare: 12.9, spendChange: 9.5, revenueChange: -4.2, roasChange: -12.6, conversionsChange: -6.4, ctrChange: -3.7 },
+    { id: "g-5", name: "Remarketing Display", status: "paused", channel: "Display", spend: 1700, conversions: 34, revenue: 4220, roas: 2.48, cpa: 50, ctr: 1.2, cpc: 0.58, impressions: 90000, clicks: 2870, impressionShare: 0.38, lostIsBudget: 0.19, lostIsRank: 0.21, badges: ["high_cpa", "wasted_spend"], performanceLabel: "at-risk", actionState: "reduce", spendShare: 11.7, revenueShare: 9.1, spendChange: 6.4, revenueChange: -8.8, roasChange: -14.1, conversionsChange: -11.5, ctrChange: -9.3 },
   ];
   return { data, count: data.length, accountAvgRoas: 3.2, accountAvgCpa: 27.91, meta: { empty: false } };
 }
@@ -354,6 +361,38 @@ export function getDemoGoogleAdsKeywords() {
       highConvLowBudgetCount: 1,
       deserveOwnAdGroupCount: 1,
     },
+  };
+}
+
+export function getDemoGoogleAdsSearchIntelligence() {
+  const rows = [
+    { key: "g-1:carry on backpack for travel", searchTerm: "carry on backpack for travel", campaign: "Backpack Search Campaign", adGroup: "Carry On", matchSource: "SEARCH", source: "search_term_view", impressions: 9800, clicks: 451, spend: 540, conversions: 24, revenue: 2560, roas: 4.74, cpa: 22.5, ctr: 4.6, conversionRate: 5.32, intent: "transactional", isKeyword: true, recommendation: "Promote in headlines", classification: "top_driver", clusterKey: "carry backpack travel" },
+    { key: "g-4:waterproof hiking backpack", searchTerm: "waterproof hiking backpack", campaign: "Summer Hiking Campaign", adGroup: "Hiking", matchSource: "SEARCH", source: "search_term_view", impressions: 15300, clicks: 474, spend: 710, conversions: 12, revenue: 1080, roas: 1.52, cpa: 59.17, ctr: 3.1, conversionRate: 2.53, intent: "transactional", isKeyword: false, recommendation: "Add as exact keyword", classification: "keyword_opportunity", clusterKey: "waterproof hiking backpack" },
+    { key: "g-4:cheap camping backpack", searchTerm: "cheap camping backpack", campaign: "Summer Hiking Campaign", adGroup: "Generic", matchSource: "SEARCH", source: "search_term_view", impressions: 12020, clicks: 256, spend: 450, conversions: 3, revenue: 190, roas: 0.42, cpa: 150, ctr: 2.1, conversionRate: 1.17, intent: "commercial", isKeyword: false, recommendation: "Add as negative keyword", classification: "waste", clusterKey: "cheap camping backpack" },
+    { key: "g-2:travel weekender bag:campaign_scope", searchTerm: "travel weekender bag", campaign: "Travel Gear Performance Max", adGroup: "Campaign scope", matchSource: "PERFORMANCE_MAX", source: "campaign_search_term_view", impressions: 8600, clicks: 332, spend: 298, conversions: 11, revenue: 1280, roas: 4.3, cpa: 27.09, ctr: 3.9, conversionRate: 3.31, intent: "commercial", isKeyword: false, recommendation: "Add as exact keyword", classification: "keyword_opportunity", clusterKey: "travel weekender bag" },
+  ];
+
+  return {
+    rows,
+    data: rows,
+    summary: {
+      wastefulSpend: 450,
+      keywordOpportunityCount: 2,
+      negativeKeywordCount: 1,
+      promotionSuggestionCount: 1,
+      clusterCount: 4,
+    },
+    insights: {
+      keywordCandidates: rows.filter((row) => row.recommendation === "Add as exact keyword"),
+      negativeCandidates: rows.filter((row) => row.recommendation === "Add as negative keyword"),
+      promotionCandidates: rows.filter((row) => row.recommendation === "Promote in headlines"),
+      clusters: [
+        { cluster: "carry backpack travel", intent: "transactional", campaigns: ["Backpack Search Campaign"], spend: 540, clicks: 451, conversions: 24, revenue: 2560, roas: 4.74, coverage: "covered", examples: ["carry on backpack for travel"], state: "Top driver", recommendation: "Reflect this language in assets" },
+        { cluster: "waterproof hiking backpack", intent: "transactional", campaigns: ["Summer Hiking Campaign"], spend: 710, clicks: 474, conversions: 12, revenue: 1080, roas: 1.52, coverage: "open", examples: ["waterproof hiking backpack"], state: "Promising", recommendation: "Build exact-match coverage" },
+        { cluster: "cheap camping backpack", intent: "commercial", campaigns: ["Summer Hiking Campaign"], spend: 450, clicks: 256, conversions: 3, revenue: 190, roas: 0.42, coverage: "open", examples: ["cheap camping backpack"], state: "Waste", recommendation: "Add negatives or tighten intent" },
+      ],
+    },
+    meta: { empty: false },
   };
 }
 
@@ -426,6 +465,32 @@ export function getDemoGoogleAdsAds() {
   };
 }
 
+export function getDemoGoogleAdsAssets() {
+  const rows = [
+    { id: "ag-1:asset-1", assetId: "asset-1", assetGroupId: "ag-1", assetGroup: "Travel Gear Prospecting", campaignId: "g-2", campaign: "Travel Gear Performance Max", fieldType: "HEADLINE", type: "Headline", assetType: "TEXT", name: "Carry-on ready headline", text: "Carry-On Travel Backpack Built for Weekend Trips", preview: "Carry-On Travel Backpack Built for Weekend Trips", videoId: null, performanceLabel: "top", impressions: 44200, clicks: 2140, interactions: 2140, interactionRate: 4.84, spend: 640, conversions: 31, revenue: 2980, roas: 4.66, ctr: 4.84, conversionRate: 1.45, valuePerConversion: 96.13, hint: "High-value asset to reuse in new variants" },
+    { id: "ag-1:asset-2", assetId: "asset-2", assetGroupId: "ag-1", assetGroup: "Travel Gear Prospecting", campaignId: "g-2", campaign: "Travel Gear Performance Max", fieldType: "DESCRIPTION", type: "Description", assetType: "TEXT", name: "Benefit-led description", text: "Built for airport-to-trail travel with free shipping over $59.", preview: "Built for airport-to-trail travel with free shipping over $59.", videoId: null, performanceLabel: "average", impressions: 39800, clicks: 1410, interactions: 1410, interactionRate: 3.54, spend: 410, conversions: 19, revenue: 1460, roas: 3.56, ctr: 3.54, conversionRate: 1.35, valuePerConversion: 76.84, hint: "" },
+    { id: "ag-2:asset-3", assetId: "asset-3", assetGroupId: "ag-2", assetGroup: "Remarketing Gear Push", campaignId: "g-5", campaign: "Remarketing Display", fieldType: "MARKETING_IMAGE", type: "Image", assetType: "IMAGE", name: "Static studio shot", text: null, preview: "Static studio shot", videoId: null, performanceLabel: "underperforming", impressions: 52200, clicks: 602, interactions: 602, interactionRate: 1.15, spend: 290, conversions: 4, revenue: 180, roas: 0.62, ctr: 1.15, conversionRate: 0.66, valuePerConversion: 45, hint: "Low interaction rate versus account average" },
+    { id: "ag-2:asset-4", assetId: "asset-4", assetGroupId: "ag-2", assetGroup: "Remarketing Gear Push", campaignId: "g-5", campaign: "Remarketing Display", fieldType: "VIDEO", type: "Video", assetType: "YOUTUBE_VIDEO", name: "Weekend packing reel", text: null, preview: "Weekend packing reel", videoId: "yt-123", performanceLabel: "average", impressions: 38200, clicks: 980, interactions: 980, interactionRate: 2.57, spend: 260, conversions: 9, revenue: 650, roas: 2.5, ctr: 2.57, conversionRate: 0.92, valuePerConversion: 72.22, hint: "Clicks are coming through but message or landing page may be misaligned" },
+  ];
+
+  return {
+    rows,
+    data: rows,
+    summary: {
+      topPerformingCount: 1,
+      underperformingCount: 1,
+      lowCtrCount: 1,
+      typeBreakdown: [
+        { type: "Headline", count: 1 },
+        { type: "Description", count: 1 },
+        { type: "Image", count: 1 },
+        { type: "Video", count: 1 },
+      ],
+    },
+    meta: { empty: false },
+  };
+}
+
 export function getDemoGoogleAdsCreatives() {
   return {
     data: [
@@ -435,6 +500,55 @@ export function getDemoGoogleAdsCreatives() {
     ],
     count: 3,
     insights: ["Display creative fatigue detected in Remarketing asset group; rotate new variants."],
+  };
+}
+
+export function getDemoGoogleAdsAssetGroups() {
+  const rows = [
+    { id: "ag-1", name: "Travel Gear Prospecting", status: "active", campaignId: "g-2", campaign: "Travel Gear Performance Max", impressions: 120400, clicks: 4420, interactions: 4420, spend: 1320, conversions: 52, revenue: 4870, roas: 3.69, cpa: 25.38, conversionRate: 1.18, spendShare: 28.4, revenueShare: 33.1, coverageScore: 80, assetCount: 9, assetMix: { HEADLINE: 4, DESCRIPTION: 3, MARKETING_IMAGE: 1, LOGO: 1, BUSINESS_NAME: 1 }, state: "strong", adStrength: null, audienceSignalsSummary: null, searchThemes: [{ text: "carry on travel backpack", approvalStatus: "APPROVED", alignedMessaging: true }, { text: "weekender backpack", approvalStatus: "APPROVED", alignedMessaging: true }], searchThemeSummary: "carry on travel backpack, weekender backpack", searchThemeCount: 2, searchThemeAlignedCount: 2, missingAssetFields: [] },
+    { id: "ag-2", name: "Remarketing Gear Push", status: "active", campaignId: "g-5", campaign: "Remarketing Display", impressions: 81200, clicks: 2150, interactions: 2150, spend: 740, conversions: 12, revenue: 980, roas: 1.32, cpa: 61.67, conversionRate: 0.56, spendShare: 15.9, revenueShare: 6.7, coverageScore: 40, assetCount: 5, assetMix: { HEADLINE: 2, DESCRIPTION: 1, MARKETING_IMAGE: 1, LOGO: 1 }, state: "weak", adStrength: null, audienceSignalsSummary: null, searchThemes: [{ text: "travel bag sale", approvalStatus: "APPROVED", alignedMessaging: false }, { text: "weekend luggage deal", approvalStatus: "PENDING", alignedMessaging: false }], searchThemeSummary: "travel bag sale, weekend luggage deal", searchThemeCount: 2, searchThemeAlignedCount: 0, missingAssetFields: ["BUSINESS_NAME", "DESCRIPTION"] },
+  ];
+
+  return {
+    rows,
+    data: rows,
+    summary: {
+      strongCount: 1,
+      weakCount: 1,
+      coverageGaps: 1,
+      searchThemeCount: 4,
+    },
+    insights: {
+      scaleCandidates: [rows[0]],
+      reduceCandidates: [rows[1]],
+    },
+    meta: { empty: false },
+  };
+}
+
+export function getDemoGoogleAdsProducts() {
+  const rows = [
+    { itemId: "sku-100", title: "UrbanTrail Carry-On Backpack", brand: "UrbanTrail", feedPrice: 89, impressions: 44200, clicks: 1920, spend: 880, conversions: 36, revenue: 3680, roas: 4.18, cpa: 24.44, ctr: 4.34, avgOrderValue: 102.22, spendPerOrder: 24.44, valuePerClick: 1.92, contributionProxy: 2800, contributionState: "positive", statusLabel: "scale" },
+    { itemId: "sku-101", title: "Waterproof Hiking Pack", brand: "UrbanTrail", feedPrice: 109, impressions: 35100, clicks: 1180, spend: 760, conversions: 17, revenue: 1420, roas: 1.87, cpa: 44.71, ctr: 3.36, avgOrderValue: 83.53, spendPerOrder: 44.71, valuePerClick: 1.2, contributionProxy: 660, contributionState: "positive", statusLabel: "stable" },
+    { itemId: "sku-102", title: "Travel Gear Cube Set", brand: "UrbanTrail", feedPrice: 42, impressions: 28400, clicks: 930, spend: 610, conversions: 9, revenue: 520, roas: 0.85, cpa: 67.78, ctr: 3.27, avgOrderValue: 57.78, spendPerOrder: 67.78, valuePerClick: 0.56, contributionProxy: -90, contributionState: "negative", statusLabel: "reduce" },
+  ];
+
+  return {
+    rows,
+    data: rows,
+    summary: {
+      totalSpend: 2250,
+      totalRevenue: 5620,
+      scaleCandidates: 1,
+      reduceCandidates: 1,
+      spendConcentrationTop3: 1,
+    },
+    insights: {
+      topRevenueProducts: [rows[0], rows[1]],
+      lowRoasProducts: [rows[2]],
+      spendWithoutReturn: [],
+    },
+    meta: { empty: false },
   };
 }
 
@@ -494,11 +608,41 @@ export function getDemoGoogleAdsBudget() {
 
 export function getDemoGoogleAdsOpportunities() {
   const data = [
-    { id: "opp-1", type: "budget_shift", title: "Move budget to Backpack Search", whyItMatters: "Search campaign delivers 1.5x better ROAS than Display.", evidence: "$1.7k spend at 2.48x ROAS in Display.", expectedImpact: "+$2.1k revenue / 30d", effort: "low", priority: "high" },
-    { id: "opp-2", type: "negative_keyword", title: "Add negatives for low-intent generic terms", whyItMatters: "Generic queries waste spend with weak conversion.", evidence: "\"cheap camping backpack\" spent $450 with 0.42x ROAS.", expectedImpact: "-8% wasted spend", effort: "low", priority: "high" },
-    { id: "opp-3", type: "ad_copy", title: "Scale high-CTR carry-on message", whyItMatters: "Carry-on angle has strongest CTR + CVR combo.", evidence: "5.3% CTR and 4.52x ROAS on top ad.", expectedImpact: "+12-18% conversions", effort: "medium", priority: "medium" },
+    { id: "opp-1", type: "budget_shift", title: "Move budget to Backpack Search", whyItMatters: "Search campaign delivers 1.5x better ROAS than Display.", evidence: "$1.7k spend at 2.48x ROAS in Display.", expectedImpact: "+$2.1k revenue / 30d", impact: "Revenue growth", confidence: "high", effort: "low", priority: "high", recommendedAction: "Shift 10-15% of low-efficiency display budget into Backpack Search and monitor impression share." },
+    { id: "opp-2", type: "negative_keyword", title: "Add negatives for low-intent generic terms", whyItMatters: "Generic queries waste spend with weak conversion.", evidence: "\"cheap camping backpack\" spent $450 with 0.42x ROAS.", expectedImpact: "-8% wasted spend", impact: "Waste reduction", confidence: "high", effort: "low", priority: "high", recommendedAction: "Add the generic low-intent terms as shared negatives across non-brand search." },
+    { id: "opp-3", type: "ad_copy", title: "Scale high-CTR carry-on message", whyItMatters: "Carry-on angle has strongest CTR + CVR combo.", evidence: "5.3% CTR and 4.52x ROAS on top ad.", expectedImpact: "+12-18% conversions", impact: "Creative lift", confidence: "medium", effort: "medium", priority: "medium", recommendedAction: "Rebuild weaker headlines around the carry-on angle and push the message into PMax headlines." },
+    { id: "opp-4", type: "product_reduce", title: "Reduce spend on Travel Gear Cube Set", whyItMatters: "The product is consuming spend without efficient return.", evidence: "$610 spent at 0.85x ROAS.", expectedImpact: "Free budget for stronger SKUs", impact: "Waste reduction", confidence: "medium", effort: "low", priority: "high", recommendedAction: "Lower bids on the weak SKU and reallocate budget into the best performing backpack lines." },
+    { id: "opp-5", type: "search_theme_alignment", title: "Align PMax search themes with asset messaging", whyItMatters: "Configured search themes are broader than the asset copy in Remarketing Gear Push.", evidence: "0 of 2 configured themes appear in current asset messaging.", expectedImpact: "Improve PMax relevance and click quality", impact: "Relevance lift", confidence: "low", effort: "medium", priority: "medium", recommendedAction: "Rewrite headlines and descriptions so the approved search themes show up directly in message copy." },
   ];
   return { data, count: data.length };
+}
+
+export function getDemoGoogleAdsDiagnostics() {
+  const rows = [
+    { label: "Overview", partial: false, warningCount: 0, failureCount: 0, unavailableMetricCount: 0, rows: 1, meta: { partial: false, warnings: [], failed_queries: [], unavailable_metrics: [] } },
+    { label: "Campaigns", partial: false, warningCount: 0, failureCount: 0, unavailableMetricCount: 0, rows: 5, meta: { partial: false, warnings: [], failed_queries: [], unavailable_metrics: [] } },
+    { label: "Search Intelligence", partial: false, warningCount: 1, failureCount: 0, unavailableMetricCount: 0, rows: 4, meta: { partial: false, warnings: ["Campaign-scope search terms are included where available to broaden Search Intelligence beyond standard search_term_view coverage."], failed_queries: [], unavailable_metrics: [] } },
+    { label: "Asset Groups", partial: true, warningCount: 1, failureCount: 0, unavailableMetricCount: 1, rows: 2, meta: { partial: true, warnings: ["Search themes are shown as configured asset-group signals. Performance metrics at the theme level remain limited."], failed_queries: [], unavailable_metrics: ["asset_group_level_search_theme_performance_metrics"] } },
+  ];
+
+  return {
+    rows,
+    data: rows,
+    summary: {
+      loadedSections: rows.length,
+      healthySections: 2,
+      totalWarnings: 2,
+      totalFailures: 0,
+      generatedAt: "2026-03-13T08:00:00.000Z",
+    },
+    insights: {
+      limitations: [
+        "Asset-group-level search theme performance metrics are not consistently exposed by Google Ads API.",
+        "Product contribution is a value-minus-spend proxy, not a true margin model.",
+      ],
+    },
+    meta: { empty: false },
+  };
 }
 
 export function getDemoMetaCampaigns() {

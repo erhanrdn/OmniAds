@@ -575,3 +575,172 @@ export function buildDeviceCoreQuery(
     }),
   };
 }
+
+export function buildCampaignSearchTermCoreQuery(
+  startDate: string,
+  endDate: string
+): GoogleAdsNamedQuery {
+  return {
+    name: "campaign_search_term_core",
+    family: "campaign_search_term_core",
+    resource: "campaign_search_term_view",
+    mergeKey: "campaign.id + campaign_search_term_view.search_term",
+    metrics: [
+      "impressions",
+      "clicks",
+      "cost_micros",
+      "conversions",
+      "conversions_value",
+      "interactions",
+    ],
+    query: buildGoogleAdsQuery({
+      select: [
+        "campaign.id",
+        "campaign.name",
+        "campaign_search_term_view.search_term",
+        "segments.search_term_match_source",
+        "segments.search_term_match_type",
+        "metrics.impressions",
+        "metrics.clicks",
+        "metrics.cost_micros",
+        "metrics.conversions",
+        "metrics.conversions_value",
+        "metrics.interactions",
+      ],
+      from: "campaign_search_term_view",
+      where: [
+        buildDateWhereClause(startDate, endDate),
+        "campaign.status != 'REMOVED'",
+      ],
+      orderBy: ["metrics.cost_micros DESC"],
+      limit: 1000,
+    }),
+  };
+}
+
+export function buildAssetPerformanceCoreQuery(
+  startDate: string,
+  endDate: string
+): GoogleAdsNamedQuery {
+  return {
+    name: "asset_performance_core",
+    family: "asset_performance_core",
+    resource: "asset_group_asset",
+    mergeKey: "asset.id",
+    metrics: [
+      "impressions",
+      "clicks",
+      "cost_micros",
+      "conversions",
+      "conversions_value",
+      "interactions",
+      "performance_label",
+    ],
+    query: buildGoogleAdsQuery({
+      select: [
+        "asset_group.id",
+        "asset_group.name",
+        "campaign.id",
+        "campaign.name",
+        "asset_group_asset.field_type",
+        "asset_group_asset.performance_label",
+        "asset.id",
+        "asset.name",
+        "asset.type",
+        "metrics.impressions",
+        "metrics.clicks",
+        "metrics.interactions",
+        "metrics.cost_micros",
+        "metrics.conversions",
+        "metrics.conversions_value",
+      ],
+      from: "asset_group_asset",
+      where: [
+        buildDateWhereClause(startDate, endDate),
+        "asset_group_asset.status != 'REMOVED'",
+      ],
+      orderBy: ["metrics.cost_micros DESC"],
+      limit: 2000,
+    }),
+  };
+}
+
+export function buildAssetTextDetailQuery(): GoogleAdsNamedQuery {
+  return {
+    name: "asset_text_detail",
+    family: "asset_text_detail",
+    resource: "asset",
+    mergeKey: "asset.id",
+    metrics: [],
+    query: buildGoogleAdsQuery({
+      select: [
+        "asset.id",
+        "asset.name",
+        "asset.type",
+        "asset.text_asset.text",
+        "asset.youtube_video_asset.youtube_video_title",
+        "asset.youtube_video_asset.youtube_video_id",
+      ],
+      from: "asset",
+      limit: 5000,
+    }),
+  };
+}
+
+export function buildAssetGroupSignalQuery(): GoogleAdsNamedQuery {
+  return {
+    name: "asset_group_signal",
+    family: "asset_group_signal",
+    resource: "asset_group_signal",
+    mergeKey: "asset_group.id",
+    metrics: [],
+    query: buildGoogleAdsQuery({
+      select: [
+        "asset_group.id",
+        "asset_group.name",
+        "campaign.id",
+        "campaign.name",
+        "asset_group_signal.search_theme.text",
+        "asset_group_signal.approval_status",
+      ],
+      from: "asset_group_signal",
+      limit: 2000,
+    }),
+  };
+}
+
+export function buildProductPerformanceQuery(
+  startDate: string,
+  endDate: string
+): GoogleAdsNamedQuery {
+  return {
+    name: "product_performance",
+    family: "product_performance",
+    resource: "shopping_product_view",
+    mergeKey: "shopping_product.item_id",
+    metrics: [
+      "impressions",
+      "clicks",
+      "cost_micros",
+      "conversions",
+      "conversions_value",
+    ],
+    query: buildGoogleAdsQuery({
+      select: [
+        "shopping_product.item_id",
+        "shopping_product.title",
+        "shopping_product.brand",
+        "shopping_product.custom_attribute0",
+        "metrics.impressions",
+        "metrics.clicks",
+        "metrics.cost_micros",
+        "metrics.conversions",
+        "metrics.conversions_value",
+      ],
+      from: "shopping_product_view",
+      where: [buildDateWhereClause(startDate, endDate)],
+      orderBy: ["metrics.cost_micros DESC"],
+      limit: 1000,
+    }),
+  };
+}
