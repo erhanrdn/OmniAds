@@ -32,6 +32,8 @@ import {
   asRatio,
   asString,
   createEmptyMeta,
+  getCompatObject,
+  getCompatValue,
   normalizeCampaignRow,
   ratioToPercent,
   toMetricSet,
@@ -240,48 +242,51 @@ function buildCampaignMap(
   }
 
   for (const row of shareRows) {
-    const campaign = (row.campaign as Record<string, unknown> | undefined) ?? {};
-    const metrics = (row.metrics as Record<string, unknown> | undefined) ?? {};
-    const id = asString(campaign.id);
+    const campaign = getCompatObject(row, "campaign");
+    const metrics = getCompatObject(row, "metrics");
+    const id = asString(getCompatValue(campaign, "id"));
     if (!id || !map.has(id)) continue;
     Object.assign(map.get(id)!, {
-      impressionShare: asRatio(metrics.search_impression_share),
-      lostIsBudget: asRatio(metrics.search_budget_lost_impression_share),
-      lostIsRank: asRatio(metrics.search_rank_lost_impression_share),
-      searchTopImpressionShare: asRatio(metrics.search_top_impression_share),
+      impressionShare: asRatio(getCompatValue(metrics, "search_impression_share")),
+      lostIsBudget: asRatio(getCompatValue(metrics, "search_budget_lost_impression_share")),
+      lostIsRank: asRatio(getCompatValue(metrics, "search_rank_lost_impression_share")),
+      searchTopImpressionShare: asRatio(getCompatValue(metrics, "search_top_impression_share")),
       searchAbsoluteTopImpressionShare: asRatio(
-        metrics.search_absolute_top_impression_share
+        getCompatValue(metrics, "search_absolute_top_impression_share")
       ),
-      topImpressionPercentage: asRatio(metrics.top_impression_percentage),
+      topImpressionPercentage: asRatio(getCompatValue(metrics, "top_impression_percentage")),
       absoluteTopImpressionPercentage: asRatio(
-        metrics.absolute_top_impression_percentage
+        getCompatValue(metrics, "absolute_top_impression_percentage")
       ),
     });
   }
 
   for (const row of budgetRows) {
-    const campaign = (row.campaign as Record<string, unknown> | undefined) ?? {};
-    const campaignBudget =
-      (row.campaign_budget as Record<string, unknown> | undefined) ?? {};
-    const id = asString(campaign.id);
+    const campaign = getCompatObject(row, "campaign");
+    const campaignBudget = getCompatObject(row, "campaign_budget");
+    const id = asString(getCompatValue(campaign, "id"));
     if (!id || !map.has(id)) continue;
     Object.assign(map.get(id)!, {
       dailyBudget:
-        asNumber(campaignBudget.amount_micros) !== null
-          ? Number(((asNumber(campaignBudget.amount_micros) ?? 0) / 1_000_000).toFixed(2))
+        asNumber(getCompatValue(campaignBudget, "amount_micros")) !== null
+          ? Number(
+              (
+                (asNumber(getCompatValue(campaignBudget, "amount_micros")) ?? 0) / 1_000_000
+              ).toFixed(2)
+            )
           : null,
-      budgetDeliveryMethod: asString(campaignBudget.delivery_method),
+      budgetDeliveryMethod: asString(getCompatValue(campaignBudget, "delivery_method")),
       budgetExplicitlyShared:
-        typeof campaignBudget.explicitly_shared === "boolean"
-          ? campaignBudget.explicitly_shared
+        typeof getCompatValue(campaignBudget, "explicitly_shared") === "boolean"
+          ? (getCompatValue(campaignBudget, "explicitly_shared") as boolean)
           : null,
     });
   }
 
   for (const row of efficiencyRows) {
-    const campaign = (row.campaign as Record<string, unknown> | undefined) ?? {};
-    const metrics = (row.metrics as Record<string, unknown> | undefined) ?? {};
-    const id = asString(campaign.id);
+    const campaign = getCompatObject(row, "campaign");
+    const metrics = getCompatObject(row, "metrics");
+    const id = asString(getCompatValue(campaign, "id"));
     if (!id || !map.has(id)) continue;
     const data = toMetricSet(metrics);
     Object.assign(map.get(id)!, {
@@ -294,9 +299,9 @@ function buildCampaignMap(
   }
 
   for (const row of engagementRows) {
-    const campaign = (row.campaign as Record<string, unknown> | undefined) ?? {};
-    const metrics = (row.metrics as Record<string, unknown> | undefined) ?? {};
-    const id = asString(campaign.id);
+    const campaign = getCompatObject(row, "campaign");
+    const metrics = getCompatObject(row, "metrics");
+    const id = asString(getCompatValue(campaign, "id"));
     if (!id || !map.has(id)) continue;
     const data = toMetricSet(metrics);
     Object.assign(map.get(id)!, {
