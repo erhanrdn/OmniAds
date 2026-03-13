@@ -22,6 +22,14 @@ function getGoogleDiscoveryFailureMessage(hasSnapshot: boolean) {
   return "We couldn't load your Google Ads accounts right now. Please wait a bit and try again.";
 }
 
+function buildAssignedFallbackRows(accountIds: string[]) {
+  return accountIds.map((accountId) => ({
+    id: accountId,
+    name: accountId,
+    assigned: true,
+  }));
+}
+
 /**
  * GET /api/google/accessible-accounts
  *
@@ -195,6 +203,23 @@ export async function GET(request: NextRequest) {
       }));
     };
 
+    let assignedSet = new Set<string>();
+    try {
+      const assignmentRow = await getProviderAccountAssignments(
+        businessId,
+        "google"
+      );
+      assignedSet = new Set(assignmentRow?.account_ids ?? []);
+      console.log("[accessible-accounts] ✓ Assignment records loaded", {
+        alreadyAssignedCount: assignedSet.size,
+      });
+    } catch (assignmentError) {
+      console.warn(
+        "[accessible-accounts] ⚠ Could not fetch assignments (non-fatal):",
+        assignmentError instanceof Error ? assignmentError.message : String(assignmentError)
+      );
+    }
+
     const snapshot = refreshRequested
       ? await requestProviderAccountSnapshotRefresh({
           businessId,
@@ -211,6 +236,23 @@ export async function GET(request: NextRequest) {
         });
 
     if (!snapshot) {
+      if (assignedSet.size > 0) {
+        return NextResponse.json({
+          data: buildAssignedFallbackRows(Array.from(assignedSet)),
+          count: assignedSet.size,
+          meta: {
+            source: "snapshot",
+            fetchedAt: null,
+            stale: true,
+            refreshFailed: false,
+            lastError: null,
+            lastKnownGoodAvailable: true,
+          },
+          notice:
+            "Showing your currently assigned Google Ads accounts while the full account list is being refreshed.",
+        });
+      }
+
       if (!refreshRequested) {
         void requestProviderAccountSnapshotRefresh({
           businessId,
@@ -245,24 +287,6 @@ export async function GET(request: NextRequest) {
       hasLastKnownGood: snapshot.meta.lastKnownGoodAvailable,
     });
 
-    // Fetch existing assignments to mark which accounts are already assigned
-    let assignedSet = new Set<string>();
-    try {
-      const assignmentRow = await getProviderAccountAssignments(
-        businessId,
-        "google"
-      );
-      assignedSet = new Set(assignmentRow?.account_ids ?? []);
-      console.log("[accessible-accounts] ✓ Assignment records loaded", {
-        alreadyAssignedCount: assignedSet.size,
-      });
-    } catch (assignmentError) {
-      console.warn(
-        "[accessible-accounts] ⚠ Could not fetch assignments (non-fatal):",
-        assignmentError instanceof Error ? assignmentError.message : String(assignmentError)
-      );
-    }
-
     // Return all accessible accounts with assigned flag
     // This allows the modal to show all accounts even before any are assigned
     const accounts = snapshot.accounts.map((account) => ({
@@ -294,6 +318,32 @@ export async function GET(request: NextRequest) {
         retryAfterMs: error.retryAfterMs,
         dueToRecentFailure: error.dueToRecentFailure,
       });
+
+      try {
+        const assignmentRow = await getProviderAccountAssignments(
+          businessId,
+          "google"
+        );
+        const assignedIds = assignmentRow?.account_ids ?? [];
+        if (assignedIds.length > 0) {
+          return NextResponse.json({
+            data: buildAssignedFallbackRows(assignedIds),
+            count: assignedIds.length,
+            meta: {
+              source: "snapshot",
+              fetchedAt: null,
+              stale: true,
+              refreshFailed: true,
+              lastError: error.message,
+              lastKnownGoodAvailable: true,
+            },
+            notice:
+              "Showing your currently assigned Google Ads accounts while the full account list could not be refreshed.",
+          });
+        }
+      } catch {
+        // fall through
+      }
 
       return NextResponse.json(
         {

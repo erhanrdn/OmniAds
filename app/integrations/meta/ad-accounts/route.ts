@@ -19,6 +19,14 @@ function getRefreshNotice(hasSnapshot: boolean) {
   return "We couldn't load your accounts right now. Please try again in a moment.";
 }
 
+function buildAssignedFallbackRows(accountIds: string[]) {
+  return accountIds.map((accountId) => ({
+    id: accountId,
+    name: accountId,
+    assigned: true,
+  }));
+}
+
 export async function GET(request: NextRequest) {
   const businessId = request.nextUrl.searchParams.get("businessId");
   const refreshRequested = request.nextUrl.searchParams.get("refresh") === "1";
@@ -117,6 +125,19 @@ export async function GET(request: NextRequest) {
       }));
     };
 
+    let assignedSet = new Set<string>();
+    try {
+      const assignmentRow = await getProviderAccountAssignments(businessId, "meta");
+      assignedSet = new Set(assignmentRow?.account_ids ?? []);
+    } catch (assignmentError: unknown) {
+      const msg =
+        assignmentError instanceof Error ? assignmentError.message : String(assignmentError);
+      console.warn("[meta-ad-accounts] assignment_read_failed (non-fatal)", {
+        businessId,
+        message: msg,
+      });
+    }
+
     const snapshot = refreshRequested
       ? await requestProviderAccountSnapshotRefresh({
           businessId,
@@ -133,6 +154,22 @@ export async function GET(request: NextRequest) {
         });
 
     if (!snapshot) {
+      if (assignedSet.size > 0) {
+        return NextResponse.json({
+          data: buildAssignedFallbackRows(Array.from(assignedSet)),
+          meta: {
+            source: "snapshot",
+            fetchedAt: null,
+            stale: true,
+            refreshFailed: false,
+            lastError: null,
+            lastKnownGoodAvailable: true,
+          },
+          notice:
+            "Showing your currently assigned Meta ad accounts while the full account list is being refreshed.",
+        });
+      }
+
       if (!refreshRequested) {
         void requestProviderAccountSnapshotRefresh({
           businessId,
@@ -157,19 +194,6 @@ export async function GET(request: NextRequest) {
         },
         { status: 503 }
       );
-    }
-
-    let assignedSet = new Set<string>();
-    try {
-      const assignmentRow = await getProviderAccountAssignments(businessId, "meta");
-      assignedSet = new Set(assignmentRow?.account_ids ?? []);
-    } catch (assignmentError: unknown) {
-      const msg =
-        assignmentError instanceof Error ? assignmentError.message : String(assignmentError);
-      console.warn("[meta-ad-accounts] assignment_read_failed (non-fatal)", {
-        businessId,
-        message: msg,
-      });
     }
 
     const accounts = snapshot.accounts.map((account) => ({
@@ -202,6 +226,28 @@ export async function GET(request: NextRequest) {
         retryAfterMs: error.retryAfterMs,
         dueToRecentFailure: error.dueToRecentFailure,
       });
+
+      try {
+        const assignmentRow = await getProviderAccountAssignments(businessId, "meta");
+        const assignedIds = assignmentRow?.account_ids ?? [];
+        if (assignedIds.length > 0) {
+          return NextResponse.json({
+            data: buildAssignedFallbackRows(assignedIds),
+            meta: {
+              source: "snapshot",
+              fetchedAt: null,
+              stale: true,
+              refreshFailed: true,
+              lastError: error.message,
+              lastKnownGoodAvailable: true,
+            },
+            notice:
+              "Showing your currently assigned Meta ad accounts while the full account list could not be refreshed.",
+          });
+        }
+      } catch {
+        // fall through to standard error response
+      }
 
       return NextResponse.json(
         {

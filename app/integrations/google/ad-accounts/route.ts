@@ -15,6 +15,14 @@ import {
 const GOOGLE_ACCOUNT_SNAPSHOT_FRESHNESS_MS = 60 * 60_000;
 const GOOGLE_ACCOUNT_REFRESH_COOLDOWN_MS = 10 * 60_000;
 
+function buildAssignedFallbackRows(accountIds: string[]) {
+  return accountIds.map((accountId) => ({
+    id: accountId,
+    name: accountId,
+    assigned: true,
+  }));
+}
+
 /**
  * GET /integrations/google/ad-accounts?businessId=...
  *
@@ -138,6 +146,24 @@ export async function GET(request: NextRequest) {
       }));
     };
 
+    let assignedSet = new Set<string>();
+    try {
+      const assignmentRow = await getProviderAccountAssignments(
+        businessId,
+        "google"
+      );
+      assignedSet = new Set(assignmentRow?.account_ids ?? []);
+    } catch (assignmentError: unknown) {
+      const msg =
+        assignmentError instanceof Error
+          ? assignmentError.message
+          : String(assignmentError);
+      console.warn("[google-ad-accounts] assignment_read_failed (non-fatal)", {
+        businessId,
+        message: msg,
+      });
+    }
+
     const snapshot = refreshRequested
       ? await requestProviderAccountSnapshotRefresh({
           businessId,
@@ -154,6 +180,22 @@ export async function GET(request: NextRequest) {
         });
 
     if (!snapshot) {
+      if (assignedSet.size > 0) {
+        return NextResponse.json({
+          data: buildAssignedFallbackRows(Array.from(assignedSet)),
+          meta: {
+            source: "snapshot",
+            fetchedAt: null,
+            stale: true,
+            refreshFailed: false,
+            lastError: null,
+            lastKnownGoodAvailable: true,
+          },
+          notice:
+            "Showing your currently assigned Google Ads accounts while the full account list is being refreshed.",
+        });
+      }
+
       if (!refreshRequested) {
         void requestProviderAccountSnapshotRefresh({
           businessId,
@@ -179,24 +221,6 @@ export async function GET(request: NextRequest) {
         },
         { status: 503 }
       );
-    }
-
-    let assignedSet = new Set<string>();
-    try {
-      const assignmentRow = await getProviderAccountAssignments(
-        businessId,
-        "google"
-      );
-      assignedSet = new Set(assignmentRow?.account_ids ?? []);
-    } catch (assignmentError: unknown) {
-      const msg =
-        assignmentError instanceof Error
-          ? assignmentError.message
-          : String(assignmentError);
-      console.warn("[google-ad-accounts] assignment_read_failed (non-fatal)", {
-        businessId,
-        message: msg,
-      });
     }
 
     console.log("[google-ad-accounts] normalized", {
@@ -227,6 +251,31 @@ export async function GET(request: NextRequest) {
         retryAfterMs: error.retryAfterMs,
         dueToRecentFailure: error.dueToRecentFailure,
       });
+
+      try {
+        const assignmentRow = await getProviderAccountAssignments(
+          businessId,
+          "google"
+        );
+        const assignedIds = assignmentRow?.account_ids ?? [];
+        if (assignedIds.length > 0) {
+          return NextResponse.json({
+            data: buildAssignedFallbackRows(assignedIds),
+            meta: {
+              source: "snapshot",
+              fetchedAt: null,
+              stale: true,
+              refreshFailed: true,
+              lastError: error.message,
+              lastKnownGoodAvailable: true,
+            },
+            notice:
+              "Showing your currently assigned Google Ads accounts while the full account list could not be refreshed.",
+          });
+        }
+      } catch {
+        // fall through
+      }
 
       return NextResponse.json(
         {
