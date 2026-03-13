@@ -16,6 +16,7 @@ import {
   buildCampaignCoreBasicQuery,
   buildCampaignShareQuery,
   buildCustomerSummaryQuery,
+  buildDateWhereClause,
   buildDeviceCoreQuery,
   buildGeoCoreQuery,
   buildKeywordCoreQuery,
@@ -1436,4 +1437,151 @@ export async function getGoogleAdsOpportunitiesReport(params: {
     },
     meta,
   };
+}
+
+// ── Product Intelligence ───────────────────────────────────────────────
+
+export interface ProductIntelligenceRow {
+  id: string;
+  title: string;
+  brand?: string;
+  category?: string;
+  spend: number;
+  revenue: number;
+  roas: number;
+  conversions: number;
+  clicks: number;
+  impressions: number;
+  cpa: number;
+  ctr: number;
+  profitProxy: number;
+}
+
+export interface ProductIntelligenceReport {
+  products: ProductIntelligenceRow[];
+  totalSpend: number;
+  available: boolean;
+  unavailableReason?: string;
+  meta: GoogleAdsReportMeta;
+}
+
+export async function getGoogleAdsProductIntelligenceReport(params: {
+  businessId: string;
+  accountId?: string | null;
+  dateRange: "7" | "14" | "30" | "custom";
+}): Promise<ProductIntelligenceReport> {
+  const meta = createEmptyMeta();
+
+  const ctx = await resolveContext({ businessId: params.businessId, dateRange: params.dateRange });
+  if ("error" in ctx) {
+    meta.warnings.push(ctx.error);
+    return { products: [], totalSpend: 0, available: false, unavailableReason: ctx.error, meta };
+  }
+
+  const { customerIds, startDate, endDate } = ctx;
+
+  const shoppingGaql = `
+    SELECT
+      segments.product_item_id,
+      segments.product_title,
+      segments.product_brand,
+      segments.product_type_l1,
+      metrics.cost_micros,
+      metrics.conversions,
+      metrics.conversions_value,
+      metrics.clicks,
+      metrics.impressions
+    FROM shopping_performance_view
+    WHERE ${buildDateWhereClause(startDate, endDate)}
+      AND metrics.clicks > 0
+    ORDER BY metrics.cost_micros DESC
+    LIMIT 500
+  `;
+
+  const { results, failures } = await executeGaqlForAccounts(
+    customerIds,
+    shoppingGaql,
+    params.accountId ?? null
+  );
+
+  if (failures.length > 0) {
+    meta.failed_queries.push(
+      ...failures.map((f) => ({
+        query: "shopping_performance",
+        message: getGoogleAdsFailureMessage(f.error),
+        customerId: f.customerId,
+      }))
+    );
+  }
+
+  if (results.length === 0) {
+    const reason =
+      meta.failed_queries.length > 0
+        ? "Shopping performance data could not be retrieved from the Google Ads API."
+        : "No shopping campaign data found. Product Intelligence requires Shopping or Performance Max campaigns with product feeds.";
+    return { products: [], totalSpend: 0, available: false, unavailableReason: reason, meta };
+  }
+
+  const productMap = new Map<string, ProductIntelligenceRow>();
+
+  for (const row of results) {
+    const itemId =
+      asString(getCompatValue(row, "segments.product_item_id", "segments", "product_item_id")) ||
+      "unknown";
+    const title =
+      asString(getCompatValue(row, "segments.product_title", "segments", "product_title")) || itemId;
+    const brand =
+      asString(getCompatValue(row, "segments.product_brand", "segments", "product_brand")) ||
+      undefined;
+    const category =
+      asString(getCompatValue(row, "segments.product_type_l1", "segments", "product_type_l1")) ||
+      undefined;
+
+    const metricsObj = getCompatObject(row, "metrics") ?? {};
+    const spend = asNumber(getCompatValue(metricsObj, "cost_micros")) / 1_000_000;
+    const conversions = asNumber(getCompatValue(metricsObj, "conversions"));
+    const revenue = asNumber(getCompatValue(metricsObj, "conversions_value"));
+    const clicks = asInteger(getCompatValue(metricsObj, "clicks"));
+    const impressions = asInteger(getCompatValue(metricsObj, "impressions"));
+
+    const existing = productMap.get(itemId);
+    if (existing) {
+      existing.spend += spend;
+      existing.revenue += revenue;
+      existing.conversions += conversions;
+      existing.clicks += clicks;
+      existing.impressions += impressions;
+    } else {
+      productMap.set(itemId, {
+        id: itemId,
+        title,
+        brand,
+        category,
+        spend,
+        revenue,
+        roas: 0,
+        conversions,
+        clicks,
+        impressions,
+        cpa: 0,
+        ctr: 0,
+        profitProxy: 0,
+      });
+    }
+  }
+
+  const products: ProductIntelligenceRow[] = [];
+  for (const p of productMap.values()) {
+    p.roas = p.spend > 0 ? p.revenue / p.spend : 0;
+    p.cpa = p.conversions > 0 ? p.spend / p.conversions : 0;
+    p.ctr = p.impressions > 0 ? (p.clicks / p.impressions) * 100 : 0;
+    p.profitProxy = p.revenue - p.spend;
+    products.push(p);
+  }
+
+  products.sort((a, b) => b.spend - a.spend);
+  const totalSpend = products.reduce((s, p) => s + p.spend, 0);
+  meta.row_counts.push({ query: "shopping_performance", count: products.length });
+
+  return { products, totalSpend, available: true, meta };
 }

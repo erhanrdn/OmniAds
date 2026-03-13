@@ -33,10 +33,9 @@ interface KpiCardProps {
   sub?: string;
   highlight?: boolean;
   isLoading?: boolean;
-  trend?: "up" | "down" | "neutral";
 }
 
-export function GadsKpiCard({ label, value, sub, highlight, isLoading, trend }: KpiCardProps) {
+export function GadsKpiCard({ label, value, sub, highlight, isLoading }: KpiCardProps) {
   if (isLoading) {
     return (
       <div className="rounded-xl border bg-card p-4">
@@ -260,6 +259,221 @@ export function TabAlert({
         ))}
       </div>
     </div>
+  );
+}
+
+// ── Efficiency Score Badge ────────────────────────────────────────────
+
+type EfficiencyLabel = "Scale" | "Stable" | "Needs Optimization" | "Wasting Spend";
+
+const EFFICIENCY_CONFIG: Record<EfficiencyLabel, string> = {
+  "Scale": "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300",
+  "Stable": "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300",
+  "Needs Optimization": "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
+  "Wasting Spend": "bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300",
+};
+
+export function computeEfficiencyLabel(
+  roas: number,
+  accountAvgRoas: number,
+  ctr: number,
+  accountAvgCtr: number,
+  conversions: number,
+  spend: number
+): EfficiencyLabel {
+  if (spend > 50 && conversions === 0) return "Wasting Spend";
+  if (accountAvgRoas <= 0) return "Stable";
+  const roasRatio = roas / accountAvgRoas;
+  const ctrRatio = accountAvgCtr > 0 ? ctr / accountAvgCtr : 1;
+  const weighted = roasRatio * 0.6 + ctrRatio * 0.4;
+  if (weighted >= 1.25) return "Scale";
+  if (weighted >= 0.75) return "Stable";
+  if (weighted >= 0.4) return "Needs Optimization";
+  return "Wasting Spend";
+}
+
+export function EfficiencyScoreBadge({ label }: { label: EfficiencyLabel }) {
+  return (
+    <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap", EFFICIENCY_CONFIG[label])}>
+      {label}
+    </span>
+  );
+}
+
+// ── Trend KPI Card ────────────────────────────────────────────────────
+
+type HealthState = "healthy" | "warning" | "critical" | "neutral";
+
+const HEALTH_CONFIG: Record<HealthState, { border: string; value: string }> = {
+  healthy: { border: "border-emerald-200 dark:border-emerald-900/50", value: "text-emerald-600 dark:text-emerald-400" },
+  warning: { border: "border-amber-200 dark:border-amber-900/50", value: "text-amber-600 dark:text-amber-400" },
+  critical: { border: "border-rose-200 dark:border-rose-900/50", value: "text-rose-600 dark:text-rose-400" },
+  neutral: { border: "", value: "" },
+};
+
+interface TrendKpiCardProps {
+  label: string;
+  value: string;
+  change?: number;
+  health?: HealthState;
+  sub?: string;
+  isLoading?: boolean;
+}
+
+export function TrendKpiCard({ label, value, change, health = "neutral", sub, isLoading }: TrendKpiCardProps) {
+  if (isLoading) {
+    return (
+      <div className="rounded-xl border bg-card p-4">
+        <Skeleton className="h-3 w-20 mb-3" />
+        <Skeleton className="h-7 w-16 mb-2" />
+        <Skeleton className="h-3 w-12" />
+      </div>
+    );
+  }
+  const cfg = HEALTH_CONFIG[health];
+  return (
+    <div className={cn("rounded-xl border bg-card p-4", cfg.border)}>
+      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1">{label}</p>
+      <p className={cn("text-2xl font-bold tracking-tight", cfg.value)}>{value}</p>
+      {change !== undefined && (
+        <p className={cn("mt-0.5 text-xs font-medium", change >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400")}>
+          {change >= 0 ? "↑" : "↓"} {Math.abs(change).toFixed(1)}% vs prior
+        </p>
+      )}
+      {sub && <p className="mt-0.5 text-xs text-muted-foreground">{sub}</p>}
+    </div>
+  );
+}
+
+// ── Sub-tab navigation ────────────────────────────────────────────────
+
+export function SubTabNav<T extends string>({
+  tabs,
+  active,
+  onChange,
+}: {
+  tabs: { id: T; label: string }[];
+  active: T;
+  onChange: (id: T) => void;
+}) {
+  return (
+    <div className="flex gap-1 rounded-lg border bg-muted/30 p-1 w-fit">
+      {tabs.map((t) => (
+        <button
+          key={t.id}
+          onClick={() => onChange(t.id)}
+          className={cn(
+            "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+            active === t.id
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+        >
+          {t.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ── Section label ─────────────────────────────────────────────────────
+
+export function SectionLabel({ children, action }: { children: React.ReactNode; action?: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between">
+      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{children}</p>
+      {action}
+    </div>
+  );
+}
+
+// ── Action Card ───────────────────────────────────────────────────────
+
+interface ActionCardProps {
+  title: string;
+  description: string;
+  urgency: "high" | "medium" | "low";
+}
+
+const URGENCY_BORDER: Record<string, string> = {
+  high: "border-rose-200 dark:border-rose-900/50",
+  medium: "border-amber-200 dark:border-amber-900/50",
+  low: "border-slate-200 dark:border-slate-700",
+};
+const URGENCY_DOT: Record<string, string> = {
+  high: "bg-rose-500",
+  medium: "bg-amber-400",
+  low: "bg-muted-foreground",
+};
+
+export function ActionCard({ title, description, urgency }: ActionCardProps) {
+  return (
+    <div className={cn("rounded-xl border bg-card p-4", URGENCY_BORDER[urgency])}>
+      <div className="flex items-start gap-2">
+        <span className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", URGENCY_DOT[urgency])} />
+        <div>
+          <p className="text-sm font-semibold">{title}</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Quadrant Badge ────────────────────────────────────────────────────
+
+export type QuadrantLabel = "Scale" | "Optimize" | "Test" | "Pause";
+
+const QUADRANT_CONFIG: Record<QuadrantLabel, string> = {
+  "Scale": "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300",
+  "Optimize": "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
+  "Test": "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300",
+  "Pause": "bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300",
+};
+
+export function computeQuadrant(roas: number, spend: number, avgRoas: number, medianSpend: number): QuadrantLabel {
+  const highRoas = roas >= avgRoas * 0.9;
+  const highSpend = spend >= medianSpend;
+  if (highRoas && highSpend) return "Scale";
+  if (highRoas && !highSpend) return "Test";
+  if (!highRoas && highSpend) return "Optimize";
+  return "Pause";
+}
+
+export function QuadrantBadge({ label }: { label: QuadrantLabel }) {
+  return (
+    <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap", QUADRANT_CONFIG[label])}>
+      {label}
+    </span>
+  );
+}
+
+// ── Spend bar ─────────────────────────────────────────────────────────
+
+export function SpendBar({ value, max }: { value: number; max: number }) {
+  const pct = max > 0 ? Math.min((value / max) * 100, 100) : 0;
+  return (
+    <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+      <div className="h-full rounded-full bg-primary/60" style={{ width: `${pct}%` }} />
+    </div>
+  );
+}
+
+// ── Intent badge ──────────────────────────────────────────────────────
+
+const INTENT_BADGE_CONFIG: Record<string, string> = {
+  transactional: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300",
+  commercial: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300",
+  informational: "bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300",
+  navigational: "bg-muted text-muted-foreground",
+};
+
+export function IntentBadge({ intent }: { intent: string }) {
+  const cls = INTENT_BADGE_CONFIG[intent] ?? "bg-muted text-muted-foreground";
+  return (
+    <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-semibold capitalize", cls)}>
+      {intent}
+    </span>
   );
 }
 
