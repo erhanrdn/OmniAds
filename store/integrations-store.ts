@@ -135,6 +135,7 @@ interface IntegrationsStore {
   byBusinessId: Record<string, Record<IntegrationProvider, IntegrationState>>;
   assignedAccountsByBusiness: AssignedAccountsByBusiness;
   toast: IntegrationToast | null;
+  clearAllState: () => void;
   ensureBusiness: (businessId: string) => void;
   startConnecting: (businessId: string, provider: IntegrationProvider) => void;
   setConnected: (
@@ -178,6 +179,12 @@ export const useIntegrationsStore = create<IntegrationsStore>()(
       byBusinessId: {},
       assignedAccountsByBusiness: {},
       toast: null,
+      clearAllState: () =>
+        set({
+          byBusinessId: {},
+          assignedAccountsByBusiness: {},
+          toast: null,
+        }),
       ensureBusiness: (businessId) => {
         set((state) => ({
           byBusinessId: {

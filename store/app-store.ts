@@ -16,12 +16,17 @@ interface AppState {
   mobileSidebarOpen: boolean;
   businesses: Business[];
   selectedBusinessId: string | null;
+  workspaceOwnerId: string | null;
   hasHydrated: boolean;
   toggleDesktopSidebar: () => void;
   setMobileSidebarOpen: (open: boolean) => void;
   createBusiness: (name: string, timezone: string, currency: string) => string;
   deleteBusiness: (id: string) => string | null;
-  setBusinessesFromServer: (businesses: Business[], selectedBusinessId: string | null) => void;
+  setWorkspaceSnapshot: (
+    workspaceOwnerId: string,
+    businesses: Business[],
+    selectedBusinessId: string | null
+  ) => void;
   selectBusiness: (id: string | null) => void;
   clearWorkspaceState: () => void;
   setHasHydrated: (value: boolean) => void;
@@ -34,6 +39,7 @@ export const useAppStore = create<AppState>()(
       mobileSidebarOpen: false,
       businesses: [],
       selectedBusinessId: null,
+      workspaceOwnerId: null,
       hasHydrated: false,
       toggleDesktopSidebar: () =>
         set((state) => ({ desktopSidebarOpen: !state.desktopSidebarOpen })),
@@ -70,24 +76,30 @@ export const useAppStore = create<AppState>()(
         });
         return nextSelected;
       },
-      setBusinessesFromServer: (businesses, selectedBusinessId) =>
+      setWorkspaceSnapshot: (workspaceOwnerId, businesses, selectedBusinessId) =>
         set({
+          workspaceOwnerId,
           businesses,
           selectedBusinessId:
             selectedBusinessId && businesses.some((item) => item.id === selectedBusinessId)
               ? selectedBusinessId
               : businesses[0]?.id ?? null,
         }),
-      selectBusiness: (id) => set({ selectedBusinessId: id }),
-      clearWorkspaceState: () => set({ businesses: [], selectedBusinessId: null }),
+      selectBusiness: (id) =>
+        set((state) => ({
+          selectedBusinessId: id && state.businesses.some((item) => item.id === id) ? id : null,
+        })),
+      clearWorkspaceState: () => set({ businesses: [], selectedBusinessId: null, workspaceOwnerId: null }),
       setHasHydrated: (value) => set({ hasHydrated: value }),
     }),
     {
       name: "omniads-app-store-v2",
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
+        desktopSidebarOpen: state.desktopSidebarOpen,
         businesses: state.businesses,
         selectedBusinessId: state.selectedBusinessId,
+        workspaceOwnerId: state.workspaceOwnerId,
       }),
       onRehydrateStorage: () => (state) => {
         state?.setHasHydrated(true);
