@@ -14,8 +14,6 @@ import {
   buildAudienceCoreQuery,
   buildCampaignBudgetQuery,
   buildCampaignCoreBasicQuery,
-  buildCampaignCoreEfficiencyQuery,
-  buildCampaignCoreEngagementQuery,
   buildCampaignShareQuery,
   buildCustomerSummaryQuery,
   buildDeviceCoreQuery,
@@ -35,7 +33,6 @@ import {
   getCompatObject,
   getCompatValue,
   normalizeCampaignRow,
-  ratioToPercent,
   toMetricSet,
   type GoogleAdsReportMeta,
 } from "@/lib/google-ads/normalizers";
@@ -226,34 +223,10 @@ function dedupeStrings(values: string[]): string[] {
   return Array.from(new Set(values.filter(Boolean)));
 }
 
-function pruneUnavailableMetrics(
-  meta: GoogleAdsReportMeta,
-  rows: Array<Record<string, unknown>>,
-  metricToRowKey: Record<string, string>
-) {
-  if (rows.length === 0 || meta.unavailable_metrics.length === 0) return;
-
-  meta.unavailable_metrics = dedupeStrings(
-    meta.unavailable_metrics.filter((metric) => {
-      const rowKey = metricToRowKey[metric];
-      if (!rowKey) return true;
-
-      const hasResolvedValue = rows.some((row) => {
-        const value = row[rowKey];
-        return value !== null && value !== undefined;
-      });
-
-      return !hasResolvedValue;
-    })
-  );
-}
-
 function buildCampaignMap(
   coreRows: RawRow[],
   shareRows: RawRow[],
-  budgetRows: RawRow[],
-  efficiencyRows: RawRow[] = [],
-  engagementRows: RawRow[] = []
+  budgetRows: RawRow[]
 ) {
   const map = new Map<string, Record<string, unknown>>();
 
@@ -302,33 +275,6 @@ function buildCampaignMap(
         typeof getCompatValue(campaignBudget, "explicitly_shared") === "boolean"
           ? (getCompatValue(campaignBudget, "explicitly_shared") as boolean)
           : null,
-    });
-  }
-
-  for (const row of efficiencyRows) {
-    const campaign = getCompatObject(row, "campaign");
-    const metrics = getCompatObject(row, "metrics");
-    const id = asString(getCompatValue(campaign, "id"));
-    if (!id || !map.has(id)) continue;
-    const data = toMetricSet(metrics);
-    Object.assign(map.get(id)!, {
-      cpc: data.averageCpc,
-      averageCost: data.averageCost,
-      conversionRate: data.conversionRate,
-      costPerConversion: data.costPerConversion,
-      valuePerConversion: data.valuePerConversion,
-    });
-  }
-
-  for (const row of engagementRows) {
-    const campaign = getCompatObject(row, "campaign");
-    const metrics = getCompatObject(row, "metrics");
-    const id = asString(getCompatValue(campaign, "id"));
-    if (!id || !map.has(id)) continue;
-    const data = toMetricSet(metrics);
-    Object.assign(map.get(id)!, {
-      interactions: data.interactions,
-      interactionRate: data.interactionRate,
     });
   }
 
@@ -537,26 +483,20 @@ export async function getGoogleAdsCampaignsReport(params: {
 
   const { context, startDate, endDate } = resolved;
   const meta = createEmptyMeta(context.debug);
-  const [campaignCoreBasic, campaignCoreEfficiency, campaignCoreEngagement, campaignShare, campaignBudget] = await Promise.all([
+  const [campaignCoreBasic, campaignShare, campaignBudget] = await Promise.all([
     runNamedQuery(context, buildCampaignCoreBasicQuery(startDate, endDate)),
-    runNamedQuery(context, buildCampaignCoreEfficiencyQuery(startDate, endDate)),
-    runNamedQuery(context, buildCampaignCoreEngagementQuery(startDate, endDate)),
     runNamedQuery(context, buildCampaignShareQuery(startDate, endDate)),
     runNamedQuery(context, buildCampaignBudgetQuery(startDate, endDate)),
   ]);
 
   mergeFailures(meta, campaignCoreBasic);
-  mergeFailures(meta, campaignCoreEfficiency);
-  mergeFailures(meta, campaignCoreEngagement);
   mergeFailures(meta, campaignShare);
   mergeFailures(meta, campaignBudget);
 
   const campaigns = buildCampaignMap(
     campaignCoreBasic.rows,
     campaignShare.rows,
-    campaignBudget.rows,
-    campaignCoreEfficiency.rows,
-    campaignCoreEngagement.rows
+    campaignBudget.rows
   );
 
   const totalSpend = campaigns.reduce((sum, row) => sum + Number(row.spend ?? 0), 0);
@@ -600,14 +540,6 @@ export async function getGoogleAdsCampaignsReport(params: {
       accountAvgCpa
     ),
   }));
-
-  pruneUnavailableMetrics(meta, rows, {
-    average_cpc: "cpc",
-    conversion_rate: "conversionRate",
-    cost_per_conversion: "costPerConversion",
-    value_per_conversion: "valuePerConversion",
-  });
-
   addDebugMeta(meta, "campaigns", context, {
     date_range: { startDate, endDate },
   });

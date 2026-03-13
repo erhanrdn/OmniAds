@@ -1,11 +1,4 @@
-import {
-  calculateCpa,
-  calculateCtr,
-  calculateRoas,
-  normalizeChannelType,
-  normalizeCostMicros,
-  normalizeStatus,
-} from "@/lib/google-ads-gaql";
+import { normalizeChannelType, normalizeCostMicros, normalizeStatus } from "@/lib/google-ads-gaql";
 
 export interface GoogleAdsReportMeta {
   partial: boolean;
@@ -100,15 +93,36 @@ export function toMetricSet(metrics: Record<string, unknown>) {
   const spend = microsToCurrencyOrNull(getCompatValue(metrics, "cost_micros")) ?? 0;
   const conversions = asNumber(getCompatValue(metrics, "conversions")) ?? 0;
   const conversionValue = asNumber(getCompatValue(metrics, "conversions_value")) ?? 0;
-  const ctrRatio = asRatio(getCompatValue(metrics, "ctr"));
-  const interactionRate = asRatio(getCompatValue(metrics, "interaction_rate"));
-  const conversionRate = asRatio(getCompatValue(metrics, "conversion_rate"));
-  const valuePerConversion = asNumber(getCompatValue(metrics, "value_per_conversion"));
-  const costPerConversionMicros = asNumber(getCompatValue(metrics, "cost_per_conversion"));
-  const averageCpcMicros = asNumber(getCompatValue(metrics, "average_cpc"));
-  const averageCostMicros = asNumber(getCompatValue(metrics, "average_cost"));
-  const videoViewRate = asRatio(getCompatValue(metrics, "video_view_rate"));
-  const averageCpvMicros = asNumber(getCompatValue(metrics, "average_cpv"));
+  const interactions = asInteger(getCompatValue(metrics, "interactions"));
+  const videoViews = asInteger(getCompatValue(metrics, "video_views"));
+  const engagements = asInteger(getCompatValue(metrics, "engagements"));
+  const ctr =
+    impressions > 0 ? Number(((clicks / impressions) * 100).toFixed(2)) : 0;
+  const averageCpc =
+    clicks > 0 ? Number((spend / clicks).toFixed(2)) : null;
+  const conversionRate =
+    clicks > 0 ? Number(((conversions / clicks) * 100).toFixed(2)) : null;
+  const valuePerConversion =
+    conversions > 0 ? Number((conversionValue / conversions).toFixed(2)) : null;
+  const costPerConversion =
+    conversions > 0 ? Number((spend / conversions).toFixed(2)) : null;
+  const averageCost =
+    interactions > 0 ? Number((spend / interactions).toFixed(2)) : null;
+  const roas =
+    spend > 0 ? Number((conversionValue / spend).toFixed(2)) : 0;
+  const cpa = conversions > 0 ? Number((spend / conversions).toFixed(2)) : 0;
+  const interactionRate =
+    impressions > 0 && interactions > 0
+      ? Number(((interactions / impressions) * 100).toFixed(2))
+      : null;
+  const videoViewRate =
+    impressions > 0 && videoViews > 0
+      ? Number(((videoViews / impressions) * 100).toFixed(2))
+      : null;
+  const engagementRate =
+    impressions > 0 && engagements > 0
+      ? Number(((engagements / impressions) * 100).toFixed(2))
+      : null;
 
   return {
     impressions,
@@ -116,35 +130,21 @@ export function toMetricSet(metrics: Record<string, unknown>) {
     spend,
     conversions,
     conversionValue,
-    ctr: pickFirstNonNull(ratioToPercent(ctrRatio), calculateCtr(clicks, impressions)),
-    interactionRate: ratioToPercent(interactionRate),
-    interactions: asInteger(getCompatValue(metrics, "interactions")),
-    conversionRate: pickFirstNonNull(
-      ratioToPercent(conversionRate),
-      clicks > 0 ? Number(((conversions / clicks) * 100).toFixed(2)) : null
-    ),
-    valuePerConversion: pickFirstNonNull(
-      valuePerConversion,
-      conversions > 0 ? Number((conversionValue / conversions).toFixed(2)) : null
-    ),
-    costPerConversion: pickFirstNonNull(
-      costPerConversionMicros !== null ? normalizeCostMicros(costPerConversionMicros) : null,
-      conversions > 0 ? calculateCpa(spend, conversions) : null
-    ),
-    averageCpc: pickFirstNonNull(
-      averageCpcMicros !== null ? normalizeCostMicros(averageCpcMicros) : null,
-      clicks > 0 ? Number((spend / clicks).toFixed(2)) : null
-    ),
-    averageCost:
-      averageCostMicros !== null ? normalizeCostMicros(averageCostMicros) : null,
-    roas: calculateRoas(conversionValue, spend),
-    cpa: calculateCpa(spend, conversions),
-    videoViews: asInteger(getCompatValue(metrics, "video_views")),
-    videoViewRate: ratioToPercent(videoViewRate),
-    averageCpv:
-      averageCpvMicros !== null ? normalizeCostMicros(averageCpvMicros) : null,
-    engagements: asInteger(getCompatValue(metrics, "engagements")),
-    engagementRate: ratioToPercent(asRatio(getCompatValue(metrics, "engagement_rate"))),
+    ctr,
+    interactionRate,
+    interactions,
+    conversionRate,
+    valuePerConversion,
+    costPerConversion,
+    averageCpc,
+    averageCost,
+    roas,
+    cpa,
+    videoViews,
+    videoViewRate,
+    averageCpv: null,
+    engagements,
+    engagementRate,
   };
 }
 
