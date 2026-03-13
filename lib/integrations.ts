@@ -50,12 +50,12 @@ export async function getIntegration(
   provider: IntegrationProviderType,
 ): Promise<IntegrationRow | null> {
   const sql = getDb();
-  const rows = await sql`
+  const rows = (await sql`
     SELECT * FROM integrations
     WHERE business_id = ${businessId} AND provider = ${provider}
     LIMIT 1
-  `;
-  return (rows[0] as IntegrationRow) ?? null;
+  `) as IntegrationRow[];
+  return rows[0] ?? null;
 }
 
 /** Upsert an integration record after successful OAuth */
@@ -76,7 +76,7 @@ export async function upsertIntegration(params: {
   const now = new Date().toISOString();
   const metadataJson = JSON.stringify(params.metadata ?? {});
 
-  const rows = await sql`
+  const rows = (await sql`
     INSERT INTO integrations (
       business_id, provider, status,
       provider_account_id, provider_account_name,
@@ -113,7 +113,7 @@ export async function upsertIntegration(params: {
       connected_at        = COALESCE(integrations.connected_at, EXCLUDED.connected_at),
       updated_at          = EXCLUDED.updated_at
     RETURNING *
-  `;
+  `) as IntegrationRow[];
   return rows[0] as IntegrationRow;
 }
 

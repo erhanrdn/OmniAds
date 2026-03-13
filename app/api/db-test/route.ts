@@ -20,7 +20,7 @@ export async function GET() {
     const sql = getDb();
 
     // 1. connection test
-    const ping = await sql`SELECT 1 AS ok`;
+    const ping = (await sql`SELECT 1 AS ok`) as Array<{ ok: number }>;
     report["1_connection"] = ping[0]?.ok === 1 ? "OK" : "UNEXPECTED";
 
     // 2. create test table
@@ -34,16 +34,16 @@ export async function GET() {
     report["2_create_table"] = "OK";
 
     // 3. insert
-    const inserted = await sql`
+    const inserted = (await sql`
       INSERT INTO _db_test (value) VALUES ('hello from Adsecute')
       RETURNING id, value
-    `;
+    `) as Array<{ id: number; value: string }>;
     report["3_insert"] =
       inserted[0]?.value === "hello from Adsecute" ? "OK" : "UNEXPECTED";
 
     // 4. read back
     const rows =
-      await sql`SELECT id, value FROM _db_test ORDER BY id DESC LIMIT 1`;
+      (await sql`SELECT id, value FROM _db_test ORDER BY id DESC LIMIT 1`) as Array<{ id: number; value: string }>;
     report["4_read"] =
       rows[0]?.value === "hello from Adsecute" ? "OK" : "UNEXPECTED";
 
@@ -52,12 +52,12 @@ export async function GET() {
     report["5_cleanup"] = "OK";
 
     // 6. verify integrations table exists
-    const tableCheck = await sql`
+    const tableCheck = (await sql`
       SELECT column_name, data_type
       FROM information_schema.columns
       WHERE table_name = 'integrations'
       ORDER BY ordinal_position
-    `;
+    `) as Array<{ column_name: string; data_type: string }>;
     report["6_integrations_table"] =
       tableCheck.length > 0 ? `OK (${tableCheck.length} columns)` : "NOT_FOUND";
 

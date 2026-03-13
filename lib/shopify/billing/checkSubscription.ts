@@ -118,7 +118,7 @@ export async function upsertSubscriptionRecord(input: {
 }): Promise<StoredSubscription> {
   await runMigrations();
   const sql = getDb();
-  const rows = await sql`
+  const rowsResult = await sql`
     INSERT INTO shopify_subscriptions (
       shop_id, plan_id, status, billing_cycle
     ) VALUES (
@@ -134,6 +134,14 @@ export async function upsertSubscriptionRecord(input: {
       updated_at = now()
     RETURNING id, shop_id, plan_id, status, billing_cycle, created_at
   `;
+  const rows = rowsResult as unknown as Array<{
+    id: string;
+    shop_id: string;
+    plan_id: PlanId;
+    status: string;
+    billing_cycle: ShopifyBillingCycle;
+    created_at: string;
+  }>;
   const row = rows[0] as {
     id: string;
     shop_id: string;
@@ -155,12 +163,13 @@ export async function upsertSubscriptionRecord(input: {
 export async function getCurrentPlan(shopId: string): Promise<PlanId> {
   await runMigrations();
   const sql = getDb();
-  const rows = await sql`
+  const rowsResult = await sql`
     SELECT plan_id, status
     FROM shopify_subscriptions
     WHERE shop_id = ${shopId}
     LIMIT 1
   `;
+  const rows = rowsResult as unknown as Array<{ plan_id?: PlanId; status?: string }>;
   const row = rows[0] as { plan_id?: PlanId; status?: string } | undefined;
   if (!row || row.status !== "active") return "starter";
   return row.plan_id ?? "starter";
@@ -241,4 +250,3 @@ export async function checkSubscription(input: {
     return { planId: "starter", status: "active", source: "default" };
   }
 }
-

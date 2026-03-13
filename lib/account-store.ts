@@ -15,25 +15,25 @@ export interface UserRow {
 export async function getUserByEmail(email: string): Promise<UserRow | null> {
   await runMigrations();
   const sql = getDb();
-  const rows = await sql`
+  const rows = (await sql`
     SELECT id, name, email, password_hash, avatar, created_at
     FROM users
     WHERE lower(email) = lower(${email})
     LIMIT 1
-  `;
-  return (rows[0] as UserRow | undefined) ?? null;
+  `) as UserRow[];
+  return rows[0] ?? null;
 }
 
 export async function getUserById(userId: string): Promise<UserRow | null> {
   await runMigrations();
   const sql = getDb();
-  const rows = await sql`
+  const rows = (await sql`
     SELECT id, name, email, password_hash, avatar, created_at
     FROM users
     WHERE id = ${userId}
     LIMIT 1
-  `;
-  return (rows[0] as UserRow | undefined) ?? null;
+  `) as UserRow[];
+  return rows[0] ?? null;
 }
 
 export async function createUser(input: {
@@ -43,11 +43,11 @@ export async function createUser(input: {
 }): Promise<UserRow> {
   await runMigrations();
   const sql = getDb();
-  const rows = await sql`
+  const rows = (await sql`
     INSERT INTO users (name, email, password_hash)
     VALUES (${input.name.trim()}, ${input.email.trim().toLowerCase()}, ${input.passwordHash})
     RETURNING id, name, email, password_hash, avatar, created_at
-  `;
+  `) as UserRow[];
   return rows[0] as UserRow;
 }
 
@@ -59,11 +59,11 @@ export async function createBusinessWithAdminMembership(input: {
 }): Promise<{ id: string; name: string; timezone: string; currency: string }> {
   await runMigrations();
   const sql = getDb();
-  const businessRows = await sql`
+  const businessRows = (await sql`
     INSERT INTO businesses (name, owner_id, timezone, currency)
     VALUES (${input.name.trim()}, ${input.ownerId}, ${input.timezone}, ${input.currency})
     RETURNING id, name, timezone, currency
-  `;
+  `) as Array<{ id: string; name: string; timezone: string; currency: string }>;
   const business = businessRows[0] as { id: string; name: string; timezone: string; currency: string };
   await sql`
     INSERT INTO memberships (user_id, business_id, role, status)
@@ -83,7 +83,7 @@ export async function createInvite(input: {
   await runMigrations();
   const sql = getDb();
   const token = randomBytes(32).toString("hex");
-  const rows = await sql`
+  const rows = (await sql`
     INSERT INTO invites (email, business_id, role, token, status, invited_by_user_id, expires_at)
     VALUES (
       ${input.email.trim().toLowerCase()},
@@ -95,7 +95,7 @@ export async function createInvite(input: {
       ${new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()}
     )
     RETURNING id, token, created_at, expires_at
-  `;
+  `) as Array<{ id: string; token: string; created_at: string; expires_at: string }>;
   return rows[0] as { id: string; token: string; created_at: string; expires_at: string };
 }
 
@@ -133,7 +133,7 @@ export async function listInvitesByBusiness(businessId: string) {
 export async function getInviteByToken(token: string) {
   await runMigrations();
   const sql = getDb();
-  const rows = await sql`
+  const rows = (await sql`
     SELECT
       id,
       email,
@@ -148,8 +148,7 @@ export async function getInviteByToken(token: string) {
     FROM invites
     WHERE token = ${token}
     LIMIT 1
-  `;
-  return (rows[0] as
+  `) as Array<
     | {
         id: string;
         email: string;
@@ -162,7 +161,8 @@ export async function getInviteByToken(token: string) {
         accepted_at: string | null;
         invited_by_user_id: string | null;
       }
-    | undefined) ?? null;
+  >;
+  return rows[0] ?? null;
 }
 
 export async function acceptInvite(token: string, userId: string): Promise<{ businessId: string } | null> {

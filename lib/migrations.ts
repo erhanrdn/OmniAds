@@ -1,10 +1,20 @@
 import { getDb } from "@/lib/db";
 
+let migrationsPromise: Promise<void> | null = null;
+let migrationsCompleted = false;
+
 /**
  * Run all migrations in order.
  * Each migration is idempotent (IF NOT EXISTS).
  */
 export async function runMigrations() {
+  if (migrationsCompleted) return;
+  if (migrationsPromise) {
+    await migrationsPromise;
+    return;
+  }
+
+  migrationsPromise = (async () => {
   const sql = getDb();
 
   // ── auth core tables ───────────────────────────────────────────────
@@ -233,4 +243,13 @@ export async function runMigrations() {
     CREATE INDEX IF NOT EXISTS idx_shopify_subscriptions_shop_id
     ON shopify_subscriptions (shop_id)
   `;
+    migrationsCompleted = true;
+  })();
+
+  try {
+    await migrationsPromise;
+  } catch (error) {
+    migrationsPromise = null;
+    throw error;
+  }
 }

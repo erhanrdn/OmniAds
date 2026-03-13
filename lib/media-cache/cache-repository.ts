@@ -62,12 +62,12 @@ export const CacheRepository = {
   /** Transition a pending row to downloading (returns false if already moved) */
   async setDownloading(id: string): Promise<boolean> {
     const sql = getDb();
-    const rows = await sql`
+    const rows = (await sql`
       UPDATE creative_media_cache
       SET status = 'downloading', updated_at = now()
       WHERE id = ${id} AND status IN ('pending', 'failed')
       RETURNING id
-    `;
+    `) as unknown as Array<{ id: string }>;
     return rows.length > 0;
   },
 
@@ -145,13 +145,13 @@ export const CacheRepository = {
    */
   async resetStaleDownloads(): Promise<number> {
     const sql = getDb();
-    const rows = await sql`
+    const rows = (await sql`
       UPDATE creative_media_cache
       SET status = 'pending', updated_at = now()
       WHERE status = 'downloading'
         AND updated_at < now() - interval '5 minutes'
       RETURNING id
-    `;
+    `) as unknown as Array<{ id: string }>;
     return rows.length;
   },
 };

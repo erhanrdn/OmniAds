@@ -9,11 +9,20 @@ import { neon } from "@neondatabase/serverless";
  *   const rows = await sql`SELECT 1 AS ok`;
  */
 export function getDb() {
+  const globalStore = globalThis as typeof globalThis & {
+    __omniadsDb?: ReturnType<typeof neon>;
+  };
+  if (globalStore.__omniadsDb) {
+    return globalStore.__omniadsDb;
+  }
+
   const url = process.env.DATABASE_URL;
   if (!url) {
     throw new Error(
       "DATABASE_URL is not set. Make sure your Neon database env vars are in .env.local",
     );
   }
-  return neon(url);
+  const client = neon(url) as ReturnType<typeof neon>;
+  globalStore.__omniadsDb = client;
+  return client;
 }

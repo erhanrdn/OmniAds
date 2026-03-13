@@ -25,13 +25,12 @@ export async function findMembership(input: {
 }): Promise<MembershipRecord | null> {
   await runMigrations();
   const sql = getDb();
-  const rows = await sql`
+  const rows = (await sql`
     SELECT id, user_id, business_id, role, status, joined_at
     FROM memberships
     WHERE user_id = ${input.userId} AND business_id = ${input.businessId}
     LIMIT 1
-  `;
-  const row = rows[0] as
+  `) as Array<
     | {
         id: string;
         user_id: string;
@@ -40,7 +39,8 @@ export async function findMembership(input: {
         status: "active" | "invited" | "pending";
         joined_at: string;
       }
-    | undefined;
+  >;
+  const row = rows[0];
   if (!row) return null;
   return {
     id: row.id,
@@ -67,7 +67,7 @@ export async function listUserBusinesses(userId: string): Promise<
 > {
   await runMigrations();
   const sql = getDb();
-  const rows = await sql`
+  const rows = (await sql`
     SELECT
       b.id,
       b.name,
@@ -82,20 +82,30 @@ export async function listUserBusinesses(userId: string): Promise<
     JOIN businesses b ON b.id = m.business_id
     WHERE m.user_id = ${userId}
     ORDER BY b.created_at ASC
-  `;
+  `) as Array<{
+    id: string;
+    name: string;
+    timezone: string;
+    currency: string;
+    is_demo_business?: boolean;
+    industry?: string | null;
+    platform?: string | null;
+    role: MembershipRole;
+    status: "active" | "invited" | "pending";
+  }>;
   const businesses = rows.map((row) => ({
-    id: String((row as { id: unknown }).id),
-    name: String((row as { name: unknown }).name),
-    timezone: String((row as { timezone: unknown }).timezone),
-    currency: String((row as { currency: unknown }).currency),
-    role: (row as { role: MembershipRole }).role,
-    membershipStatus: (row as { status: "active" | "invited" | "pending" }).status,
-    isDemoBusiness: Boolean((row as { is_demo_business?: unknown }).is_demo_business),
-    industry: typeof (row as { industry?: unknown }).industry === "string"
-      ? (row as { industry: string }).industry
+    id: row.id,
+    name: row.name,
+    timezone: row.timezone,
+    currency: row.currency,
+    role: row.role,
+    membershipStatus: row.status,
+    isDemoBusiness: Boolean(row.is_demo_business),
+    industry: typeof row.industry === "string"
+      ? row.industry
       : undefined,
-    platform: typeof (row as { platform?: unknown }).platform === "string"
-      ? (row as { platform: string }).platform
+    platform: typeof row.platform === "string"
+      ? row.platform
       : undefined,
   }));
 

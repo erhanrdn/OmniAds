@@ -33,13 +33,13 @@ export async function createCreativeShareSnapshot(
 export async function getCreativeShareSnapshot(token: string): Promise<SharePayload | null> {
   await ensureShareTable();
   const sql = getDb();
-  const rows = await sql`
+  const rows = (await sql`
     SELECT payload, expires_at
     FROM creative_share_snapshots
     WHERE token = ${token}
     LIMIT 1
-  `;
-  const row = rows[0] as { payload?: unknown; expires_at?: string } | undefined;
+  `) as Array<{ payload?: unknown; expires_at?: string }>;
+  const row = rows[0];
   if (!row?.payload || !row.expires_at) return null;
 
   const expires = new Date(row.expires_at).getTime();

@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { isDemoBusiness } from "@/lib/business-mode.server";
 import { getIntegration } from "@/lib/integrations";
@@ -6,6 +7,7 @@ import { runMigrations } from "@/lib/migrations";
 import { requireBusinessAccess } from "@/lib/access";
 import { MediaCacheService } from "@/lib/media-cache/media-service";
 import { getDemoMetaCreatives } from "@/lib/demo-business";
+import { getCachedValue, readThroughCache } from "@/lib/server-cache";
 
 type GroupBy = "adName" | "creative" | "adSet";
 type FormatFilter = "all" | "image" | "video";
@@ -394,6 +396,16 @@ function nDaysAgo(n: number) {
 
 function r2(n: number) {
   return Math.round(n * 100) / 100;
+}
+
+function hashForCache(value: string): string {
+  return createHash("sha1").update(value).digest("hex").slice(0, 12);
+}
+
+function metaCacheKey(parts: Array<string | number | boolean | null | undefined>) {
+  return parts
+    .map((part) => (part === null || part === undefined ? "null" : String(part)))
+    .join(":");
 }
 
 /** Deterministic short hash for composite grouping keys (not cryptographic). */
@@ -1049,18 +1061,24 @@ function mergeCreativeData(
 }
 
 async function fetchAssignedAccountIds(businessId: string): Promise<string[]> {
-  try {
-    const row = await getProviderAccountAssignments(businessId, "meta");
-    return row?.account_ids ?? [];
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message.includes("does not exist") || message.includes("relation")) {
-      await runMigrations().catch(() => null);
-      const row = await getProviderAccountAssignments(businessId, "meta").catch(() => null);
-      return row?.account_ids ?? [];
-    }
-    return [];
-  }
+  return readThroughCache({
+    key: metaCacheKey(["meta-assigned-accounts", businessId]),
+    ttlMs: 30_000,
+    loader: async () => {
+      try {
+        const row = await getProviderAccountAssignments(businessId, "meta");
+        return row?.account_ids ?? [];
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message.includes("does not exist") || message.includes("relation")) {
+          await runMigrations().catch(() => null);
+          const row = await getProviderAccountAssignments(businessId, "meta").catch(() => null);
+          return row?.account_ids ?? [];
+        }
+        return [];
+      }
+    },
+  });
 }
 
 async function fetchAccountInsights(
@@ -1069,75 +1087,88 @@ async function fetchAccountInsights(
   startDate: string,
   endDate: string
 ): Promise<MetaInsightRecord[]> {
-  if (process.env.NODE_ENV !== "production") {
-    console.log("[meta-creatives] insights query", {
-      account_id: accountId,
-      time_range: { since: startDate, until: endDate },
-      level: "ad",
-      fields: "ad_id,ad_name,campaign_id,campaign_name,adset_id,adset_name,spend,cpm,cpc,ctr,date_start,actions,action_values,purchase_roas",
-    });
-  }
+  return getCachedValue({
+    key: metaCacheKey(["meta-insights", accountId, startDate, endDate, hashForCache(accessToken)]),
+    ttlMs: 120_000,
+    staleWhileRevalidateMs: 300_000,
+    loader: async () => {
+      if (process.env.NODE_ENV !== "production") {
+        console.log("[meta-creatives] insights query", {
+          account_id: accountId,
+          time_range: { since: startDate, until: endDate },
+          level: "ad",
+          fields: "ad_id,ad_name,campaign_id,campaign_name,adset_id,adset_name,spend,cpm,cpc,ctr,date_start,actions,action_values,purchase_roas",
+        });
+      }
 
-  const url = new URL(`https://graph.facebook.com/v25.0/${accountId}/insights`);
-  url.searchParams.set(
-    "fields",
-    "ad_id,ad_name,campaign_id,campaign_name,adset_id,adset_name,spend,cpm,cpc,ctr,impressions,inline_link_clicks,date_start,actions,action_values,purchase_roas,video_play_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p100_watched_actions"
-  );
-  url.searchParams.set("level", "ad");
-  url.searchParams.set("time_range", JSON.stringify({ since: startDate, until: endDate }));
-  url.searchParams.set("limit", "500");
-  url.searchParams.set("access_token", accessToken);
+      const url = new URL(`https://graph.facebook.com/v25.0/${accountId}/insights`);
+      url.searchParams.set(
+        "fields",
+        "ad_id,ad_name,campaign_id,campaign_name,adset_id,adset_name,spend,cpm,cpc,ctr,impressions,inline_link_clicks,date_start,actions,action_values,purchase_roas,video_play_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p100_watched_actions"
+      );
+      url.searchParams.set("level", "ad");
+      url.searchParams.set("time_range", JSON.stringify({ since: startDate, until: endDate }));
+      url.searchParams.set("limit", "500");
+      url.searchParams.set("access_token", accessToken);
 
-  const res = await fetch(url.toString(), {
-    method: "GET",
-    headers: { Accept: "application/json" },
-    cache: "no-store",
-  });
+      const res = await fetch(url.toString(), {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        cache: "no-store",
+      });
 
-  if (!res.ok) {
-    const raw = await res.text().catch(() => "");
-    console.warn("[meta-creatives] insights non-ok", {
-      accountId,
-      status: res.status,
-      raw: raw.slice(0, 300),
-    });
-    return [];
-  }
+      if (!res.ok) {
+        const raw = await res.text().catch(() => "");
+        console.warn("[meta-creatives] insights non-ok", {
+          accountId,
+          status: res.status,
+          raw: raw.slice(0, 300),
+        });
+        return [];
+      }
 
-  const payload = (await res.json().catch(() => null)) as { data?: MetaInsightRecord[] } | null;
-  if (process.env.NODE_ENV !== "production") {
-    console.log("[meta-creatives] insights response", {
-      account_id: accountId,
-      rows: payload?.data?.length ?? 0,
-    });
-  }
-  return payload?.data ?? [];
+      const payload = (await res.json().catch(() => null)) as { data?: MetaInsightRecord[] } | null;
+      if (process.env.NODE_ENV !== "production") {
+        console.log("[meta-creatives] insights response", {
+          account_id: accountId,
+          rows: payload?.data?.length ?? 0,
+        });
+      }
+      return payload?.data ?? [];
+    },
+  }).then((result) => result.value);
 }
 
 async function fetchAccountMeta(
   accountId: string,
   accessToken: string
 ): Promise<MetaAccountMeta> {
-  const url = new URL(`https://graph.facebook.com/v25.0/${accountId}`);
-  url.searchParams.set("fields", "id,name,currency");
-  url.searchParams.set("access_token", accessToken);
+  return readThroughCache({
+    key: metaCacheKey(["meta-account-meta", accountId, hashForCache(accessToken)]),
+    ttlMs: 30 * 60_000,
+    loader: async () => {
+      const url = new URL(`https://graph.facebook.com/v25.0/${accountId}`);
+      url.searchParams.set("fields", "id,name,currency");
+      url.searchParams.set("access_token", accessToken);
 
-  const res = await fetch(url.toString(), {
-    method: "GET",
-    headers: { Accept: "application/json" },
-    cache: "no-store",
+      const res = await fetch(url.toString(), {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        cache: "no-store",
+      });
+
+      if (!res.ok) {
+        return { id: accountId, name: null, currency: null };
+      }
+
+      const payload = (await res.json().catch(() => null)) as MetaAccountRecord | null;
+      return {
+        id: payload?.id ?? accountId,
+        name: payload?.name ?? null,
+        currency: typeof payload?.currency === "string" ? payload.currency : null,
+      };
+    },
   });
-
-  if (!res.ok) {
-    return { id: accountId, name: null, currency: null };
-  }
-
-  const payload = (await res.json().catch(() => null)) as MetaAccountRecord | null;
-  return {
-    id: payload?.id ?? accountId,
-    name: payload?.name ?? null,
-    currency: typeof payload?.currency === "string" ? payload.currency : null,
-  };
 }
 
 async function fetchAdImageUrlMap(
@@ -1299,6 +1330,19 @@ function getCreativeMediaFields(): string {
   ].join(",");
 }
 
+function getCreativeSummaryFields(): string {
+  return [
+    "id",
+    "name",
+    "object_type",
+    "video_id",
+    "object_story_id",
+    "effective_object_story_id",
+    "thumbnail_url",
+    "image_url",
+  ].join(",");
+}
+
 function getCreativeDetailFields(): string {
   return [
     "id",
@@ -1346,51 +1390,55 @@ async function fetchVideoSourceMap(
   const map = new Map<string, { source: string | null; picture: string | null }>();
   const uniqueIds = Array.from(new Set(videoIds.filter((id) => id.trim().length > 0)));
   if (uniqueIds.length === 0) return map;
+  return readThroughCache({
+    key: metaCacheKey(["meta-video-sources", hashForCache(accessToken), hashForCache(uniqueIds.join(","))]),
+    ttlMs: 30 * 60_000,
+    loader: async () => {
+      const chunkSize = 40;
+      for (let i = 0; i < uniqueIds.length; i += chunkSize) {
+        const idsChunk = uniqueIds.slice(i, i + chunkSize);
+        const url = new URL("https://graph.facebook.com/v25.0/");
+        url.searchParams.set("ids", idsChunk.join(","));
+        url.searchParams.set("fields", "source,picture");
+        url.searchParams.set("access_token", accessToken);
 
-  const chunkSize = 40;
-  for (let i = 0; i < uniqueIds.length; i += chunkSize) {
-    const idsChunk = uniqueIds.slice(i, i + chunkSize);
-    const url = new URL("https://graph.facebook.com/v25.0/");
-    url.searchParams.set("ids", idsChunk.join(","));
-    url.searchParams.set("fields", "source,picture");
-    url.searchParams.set("access_token", accessToken);
+        try {
+          const res = await fetch(url.toString(), {
+            method: "GET",
+            headers: { Accept: "application/json" },
+            cache: "no-store",
+          });
+          if (!res.ok) {
+            const raw = await res.text().catch(() => "");
+            console.warn("[meta-creatives] video details non-ok", {
+              status: res.status,
+              chunk: i,
+              count: idsChunk.length,
+              raw: raw.slice(0, 240),
+            });
+            continue;
+          }
 
-    try {
-      const res = await fetch(url.toString(), {
-        method: "GET",
-        headers: { Accept: "application/json" },
-        cache: "no-store",
-      });
-      if (!res.ok) {
-        const raw = await res.text().catch(() => "");
-        console.warn("[meta-creatives] video details non-ok", {
-          status: res.status,
-          chunk: i,
-          count: idsChunk.length,
-          raw: raw.slice(0, 240),
-        });
-        continue;
+          const payload = (await res.json().catch(() => null)) as Record<string, { source?: string | null; picture?: string | null }> | null;
+          if (!payload || typeof payload !== "object") continue;
+
+          for (const [videoId, video] of Object.entries(payload)) {
+            if (!video || typeof video !== "object") continue;
+            map.set(videoId, {
+              source: normalizeMediaUrl(video.source ?? null),
+              picture: normalizeMediaUrl(video.picture ?? null),
+            });
+          }
+        } catch (e: unknown) {
+          console.warn("[meta-creatives] video details threw", {
+            chunk: i,
+            message: e instanceof Error ? e.message : String(e),
+          });
+        }
       }
-
-      const payload = (await res.json().catch(() => null)) as Record<string, { source?: string | null; picture?: string | null }> | null;
-      if (!payload || typeof payload !== "object") continue;
-
-      for (const [videoId, video] of Object.entries(payload)) {
-        if (!video || typeof video !== "object") continue;
-        map.set(videoId, {
-          source: normalizeMediaUrl(video.source ?? null),
-          picture: normalizeMediaUrl(video.picture ?? null),
-        });
-      }
-    } catch (e: unknown) {
-      console.warn("[meta-creatives] video details threw", {
-        chunk: i,
-        message: e instanceof Error ? e.message : String(e),
-      });
-    }
-  }
-
-  return map;
+      return Array.from(map.entries());
+    },
+  }).then((entries) => new Map(entries));
 }
 
 /**
@@ -1399,7 +1447,8 @@ async function fetchVideoSourceMap(
  */
 async function batchFetchAdsByIds(
   adIds: string[],
-  accessToken: string
+  accessToken: string,
+  mode: "metadata" | "full" = "full"
 ): Promise<Map<string, MetaAdRecord>> {
   const map = new Map<string, MetaAdRecord>();
   const uniqueIds = Array.from(new Set(adIds.filter((id) => id.trim().length > 0)));
@@ -1411,81 +1460,91 @@ async function batchFetchAdsByIds(
     "object_story_id",
     "effective_object_story_id",
     "adset_id",
-    "created_time",
-    `creative{${getCreativeMediaFields()}}`,
+    ...(mode === "full" ? ["created_time"] : []),
+    `creative{${mode === "full" ? getCreativeMediaFields() : getCreativeSummaryFields()}}`,
   ].join(",");
 
-  const chunkSize = 40;
-  for (let i = 0; i < uniqueIds.length; i += chunkSize) {
-    const idsChunk = uniqueIds.slice(i, i + chunkSize);
-    const buildUrl = (ids: string[]) => {
-      const url = new URL("https://graph.facebook.com/v25.0/");
-      url.searchParams.set("ids", ids.join(","));
-      url.searchParams.set("fields", fields);
-      url.searchParams.set("thumbnail_width", "150");
-      url.searchParams.set("thumbnail_height", "150");
-      url.searchParams.set("access_token", accessToken);
-      return url;
-    };
+  return readThroughCache({
+    key: metaCacheKey([
+      "meta-batch-ads",
+      mode,
+      hashForCache(accessToken),
+      hashForCache(uniqueIds.join(",")),
+    ]),
+    ttlMs: mode === "metadata" ? 5 * 60_000 : 10 * 60_000,
+    loader: async () => {
+      const chunkSize = 40;
+      for (let i = 0; i < uniqueIds.length; i += chunkSize) {
+        const idsChunk = uniqueIds.slice(i, i + chunkSize);
+        const buildUrl = (ids: string[]) => {
+          const url = new URL("https://graph.facebook.com/v25.0/");
+          url.searchParams.set("ids", ids.join(","));
+          url.searchParams.set("fields", fields);
+          url.searchParams.set("thumbnail_width", "150");
+          url.searchParams.set("thumbnail_height", "150");
+          url.searchParams.set("access_token", accessToken);
+          return url;
+        };
 
-    try {
-      const res = await fetch(buildUrl(idsChunk).toString(), {
-        method: "GET",
-        headers: { Accept: "application/json" },
-        cache: "no-store",
-      });
-      if (!res.ok) {
-        const errorPayload = (await res.json().catch(() => null)) as
-          | { error?: { code?: number; error_subcode?: number; message?: string } }
-          | null;
-        const isDeletedObjectsError =
-          errorPayload?.error?.code === 100 && errorPayload?.error?.error_subcode === 1815001;
-        console.warn("[meta-creatives] batchFetchAdsByIds non-ok", {
-          status: res.status,
-          chunk: i,
-          count: idsChunk.length,
-          error_code: errorPayload?.error?.code ?? null,
-          error_subcode: errorPayload?.error?.error_subcode ?? null,
-          error_message: errorPayload?.error?.message ?? null,
-        });
-        if (isDeletedObjectsError && idsChunk.length > 1) {
-          // Retry per-id so one deleted ad doesn't nuke the whole batch.
-          for (const adId of idsChunk) {
-            try {
-              const oneRes = await fetch(buildUrl([adId]).toString(), {
-                method: "GET",
-                headers: { Accept: "application/json" },
-                cache: "no-store",
-              });
-              if (!oneRes.ok) continue;
-              const onePayload = (await oneRes.json().catch(() => null)) as Record<string, MetaAdRecord> | null;
-              const oneAd = onePayload?.[adId];
-              if (oneAd && typeof oneAd === "object") {
-                map.set(adId, { ...oneAd, id: oneAd.id ?? adId });
+        try {
+          const res = await fetch(buildUrl(idsChunk).toString(), {
+            method: "GET",
+            headers: { Accept: "application/json" },
+            cache: "no-store",
+          });
+          if (!res.ok) {
+            const errorPayload = (await res.json().catch(() => null)) as
+              | { error?: { code?: number; error_subcode?: number; message?: string } }
+              | null;
+            const isDeletedObjectsError =
+              errorPayload?.error?.code === 100 && errorPayload?.error?.error_subcode === 1815001;
+            console.warn("[meta-creatives] batchFetchAdsByIds non-ok", {
+              status: res.status,
+              chunk: i,
+              count: idsChunk.length,
+              error_code: errorPayload?.error?.code ?? null,
+              error_subcode: errorPayload?.error?.error_subcode ?? null,
+              error_message: errorPayload?.error?.message ?? null,
+            });
+            if (isDeletedObjectsError && idsChunk.length > 1) {
+              for (const adId of idsChunk) {
+                try {
+                  const oneRes = await fetch(buildUrl([adId]).toString(), {
+                    method: "GET",
+                    headers: { Accept: "application/json" },
+                    cache: "no-store",
+                  });
+                  if (!oneRes.ok) continue;
+                  const onePayload = (await oneRes.json().catch(() => null)) as Record<string, MetaAdRecord> | null;
+                  const oneAd = onePayload?.[adId];
+                  if (oneAd && typeof oneAd === "object") {
+                    map.set(adId, { ...oneAd, id: oneAd.id ?? adId });
+                  }
+                } catch {
+                  // ignore per-id retry failures
+                }
               }
-            } catch {
-              // ignore per-id retry failures
             }
+            continue;
           }
+          const payload = (await res.json().catch(() => null)) as Record<string, MetaAdRecord> | null;
+          if (!payload || typeof payload !== "object") continue;
+
+          for (const [adId, ad] of Object.entries(payload)) {
+            if (!ad || typeof ad !== "object") continue;
+            map.set(adId, { ...ad, id: ad.id ?? adId });
+          }
+        } catch (e: unknown) {
+          console.warn("[meta-creatives] batchFetchAdsByIds threw", {
+            chunk: i,
+            message: e instanceof Error ? e.message : String(e),
+          });
         }
-        continue;
       }
-      const payload = (await res.json().catch(() => null)) as Record<string, MetaAdRecord> | null;
-      if (!payload || typeof payload !== "object") continue;
 
-      for (const [adId, ad] of Object.entries(payload)) {
-        if (!ad || typeof ad !== "object") continue;
-        map.set(adId, { ...ad, id: ad.id ?? adId });
-      }
-    } catch (e: unknown) {
-      console.warn("[meta-creatives] batchFetchAdsByIds threw", {
-        chunk: i,
-        message: e instanceof Error ? e.message : String(e),
-      });
-    }
-  }
-
-  return map;
+      return Array.from(map.entries());
+    },
+  }).then((entries) => new Map(entries));
 }
 
 async function fetchCreativeDetailsMap(
@@ -1497,50 +1556,54 @@ async function fetchCreativeDetailsMap(
   if (uniqueIds.length === 0) return map;
 
   const fields = getCreativeDetailFields();
+  return readThroughCache({
+    key: metaCacheKey(["meta-creative-details", hashForCache(accessToken), hashForCache(uniqueIds.join(","))]),
+    ttlMs: 15 * 60_000,
+    loader: async () => {
+      const chunkSize = 40;
+      for (let i = 0; i < uniqueIds.length; i += chunkSize) {
+        const idsChunk = uniqueIds.slice(i, i + chunkSize);
+        const url = new URL("https://graph.facebook.com/v25.0/");
+        url.searchParams.set("ids", idsChunk.join(","));
+        url.searchParams.set("fields", fields);
+        url.searchParams.set("thumbnail_width", "150");
+        url.searchParams.set("thumbnail_height", "150");
+        url.searchParams.set("access_token", accessToken);
 
-  const chunkSize = 40;
-  for (let i = 0; i < uniqueIds.length; i += chunkSize) {
-    const idsChunk = uniqueIds.slice(i, i + chunkSize);
-    const url = new URL("https://graph.facebook.com/v25.0/");
-    url.searchParams.set("ids", idsChunk.join(","));
-    url.searchParams.set("fields", fields);
-    url.searchParams.set("thumbnail_width", "150");
-    url.searchParams.set("thumbnail_height", "150");
-    url.searchParams.set("access_token", accessToken);
+        try {
+          const res = await fetch(url.toString(), {
+            method: "GET",
+            headers: { Accept: "application/json" },
+            cache: "no-store",
+          });
+          if (!res.ok) {
+            const raw = await res.text().catch(() => "");
+            console.warn("[meta-creatives] creative details non-ok", {
+              status: res.status,
+              chunk: i,
+              count: idsChunk.length,
+              raw: raw.slice(0, 300),
+            });
+            continue;
+          }
 
-    try {
-      const res = await fetch(url.toString(), {
-        method: "GET",
-        headers: { Accept: "application/json" },
-        cache: "no-store",
-      });
-      if (!res.ok) {
-        const raw = await res.text().catch(() => "");
-        console.warn("[meta-creatives] creative details non-ok", {
-          status: res.status,
-          chunk: i,
-          count: idsChunk.length,
-          raw: raw.slice(0, 300),
-        });
-        continue;
+          const payload = (await res.json().catch(() => null)) as Record<string, MetaAdRecord["creative"]> | null;
+          if (!payload || typeof payload !== "object") continue;
+
+          for (const [creativeId, creative] of Object.entries(payload)) {
+            if (!creative || typeof creative !== "object") continue;
+            map.set(creativeId, creative as NonNullable<MetaAdRecord["creative"]>);
+          }
+        } catch (e: unknown) {
+          console.warn("[meta-creatives] creative details threw", {
+            chunk: i,
+            message: e instanceof Error ? e.message : String(e),
+          });
+        }
       }
-
-      const payload = (await res.json().catch(() => null)) as Record<string, MetaAdRecord["creative"]> | null;
-      if (!payload || typeof payload !== "object") continue;
-
-      for (const [creativeId, creative] of Object.entries(payload)) {
-        if (!creative || typeof creative !== "object") continue;
-        map.set(creativeId, creative as NonNullable<MetaAdRecord["creative"]>);
-      }
-    } catch (e: unknown) {
-      console.warn("[meta-creatives] creative details threw", {
-        chunk: i,
-        message: e instanceof Error ? e.message : String(e),
-      });
-    }
-  }
-
-  return map;
+      return Array.from(map.entries());
+    },
+  }).then((entries) => new Map(entries));
 }
 
 async function fetchCreativeThumbnailMap(
@@ -1553,81 +1616,92 @@ async function fetchCreativeThumbnailMap(
   const map = new Map<string, string>();
   const uniqueIds = Array.from(new Set(creativeIds.filter((id) => id.trim().length > 0)));
   if (uniqueIds.length === 0) return map;
-
-  const chunkSize = 20;
-  for (let i = 0; i < uniqueIds.length; i += chunkSize) {
-    const idsChunk = uniqueIds.slice(i, i + chunkSize);
-    if (debug) {
-      console.log("[meta-creatives][thumb-debug] chunk start", {
-        chunk_index: i / chunkSize + 1,
-        chunk_size: idsChunk.length,
-        width,
-        height,
-      });
-    }
-    const chunkResults = await Promise.all(
-      idsChunk.map(async (creativeId) => {
-        const url = new URL(`https://graph.facebook.com/v25.0/${creativeId}`);
-        url.searchParams.set("thumbnail_width", String(width));
-        url.searchParams.set("thumbnail_height", String(height));
-        url.searchParams.set("fields", "thumbnail_url");
-        url.searchParams.set("access_token", accessToken);
+  return readThroughCache({
+    key: metaCacheKey([
+      "meta-creative-thumbs",
+      width,
+      height,
+      hashForCache(accessToken),
+      hashForCache(uniqueIds.join(",")),
+    ]),
+    ttlMs: 30 * 60_000,
+    loader: async () => {
+      const chunkSize = 20;
+      for (let i = 0; i < uniqueIds.length; i += chunkSize) {
+        const idsChunk = uniqueIds.slice(i, i + chunkSize);
         if (debug) {
-          const safeUrl = new URL(url.toString());
-          safeUrl.searchParams.set("access_token", "<REDACTED>");
-          console.log("[meta-creatives][thumb-debug] request", {
-            creative_id: creativeId,
-            url: safeUrl.toString(),
+          console.log("[meta-creatives][thumb-debug] chunk start", {
+            chunk_index: i / chunkSize + 1,
+            chunk_size: idsChunk.length,
+            width,
+            height,
           });
         }
-        try {
-          const res = await fetch(url.toString(), {
-            method: "GET",
-            headers: { Accept: "application/json" },
-            cache: "no-store",
-          });
-          if (!res.ok) {
-            const raw = await res.text().catch(() => "");
+        const chunkResults = await Promise.all(
+          idsChunk.map(async (creativeId) => {
+            const url = new URL(`https://graph.facebook.com/v25.0/${creativeId}`);
+            url.searchParams.set("thumbnail_width", String(width));
+            url.searchParams.set("thumbnail_height", String(height));
+            url.searchParams.set("fields", "thumbnail_url");
+            url.searchParams.set("access_token", accessToken);
             if (debug) {
-              console.log("[meta-creatives][thumb-debug] response non-ok", {
+              const safeUrl = new URL(url.toString());
+              safeUrl.searchParams.set("access_token", "<REDACTED>");
+              console.log("[meta-creatives][thumb-debug] request", {
                 creative_id: creativeId,
-                status: res.status,
-                body_sample: raw.slice(0, 220),
+                url: safeUrl.toString(),
               });
             }
-            return { creativeId, thumbnailUrl: null };
+            try {
+              const res = await fetch(url.toString(), {
+                method: "GET",
+                headers: { Accept: "application/json" },
+                cache: "no-store",
+              });
+              if (!res.ok) {
+                const raw = await res.text().catch(() => "");
+                if (debug) {
+                  console.log("[meta-creatives][thumb-debug] response non-ok", {
+                    creative_id: creativeId,
+                    status: res.status,
+                    body_sample: raw.slice(0, 220),
+                  });
+                }
+                return { creativeId, thumbnailUrl: null };
+              }
+              const payload = (await res.json().catch(() => null)) as { thumbnail_url?: string | null } | null;
+              const thumbnailUrl = normalizeMediaUrl(payload?.thumbnail_url ?? null);
+              if (debug) {
+                console.log("[meta-creatives][thumb-debug] response ok", {
+                  creative_id: creativeId,
+                  status: res.status,
+                  thumbnail_url_present: Boolean(thumbnailUrl),
+                  thumbnail_url_sample: thumbnailUrl ? thumbnailUrl.slice(0, 180) : null,
+                });
+              }
+              return { creativeId, thumbnailUrl };
+            } catch (error: unknown) {
+              if (debug) {
+                console.log("[meta-creatives][thumb-debug] request failed", {
+                  creative_id: creativeId,
+                  message: error instanceof Error ? error.message : String(error),
+                });
+              }
+              return { creativeId, thumbnailUrl: null };
+            }
+          })
+        );
+
+        for (const result of chunkResults) {
+          if (result.thumbnailUrl) {
+            map.set(result.creativeId, result.thumbnailUrl);
           }
-          const payload = (await res.json().catch(() => null)) as { thumbnail_url?: string | null } | null;
-          const thumbnailUrl = normalizeMediaUrl(payload?.thumbnail_url ?? null);
-          if (debug) {
-            console.log("[meta-creatives][thumb-debug] response ok", {
-              creative_id: creativeId,
-              status: res.status,
-              thumbnail_url_present: Boolean(thumbnailUrl),
-              thumbnail_url_sample: thumbnailUrl ? thumbnailUrl.slice(0, 180) : null,
-            });
-          }
-          return { creativeId, thumbnailUrl };
-        } catch (error: unknown) {
-          if (debug) {
-            console.log("[meta-creatives][thumb-debug] request failed", {
-              creative_id: creativeId,
-              message: error instanceof Error ? error.message : String(error),
-            });
-          }
-          return { creativeId, thumbnailUrl: null };
         }
-      })
-    );
-
-    for (const result of chunkResults) {
-      if (result.thumbnailUrl) {
-        map.set(result.creativeId, result.thumbnailUrl);
       }
-    }
-  }
 
-  return map;
+      return Array.from(map.entries());
+    },
+  }).then((entries) => new Map(entries));
 }
 
 async function fetchAdCreativeMediaByAdIds(
@@ -2498,7 +2572,7 @@ export async function GET(request: NextRequest) {
   const debugThumbnail = params.get("debugThumbnail") === "1";
   const debugPerf = params.get("debugPerf") === "1";
   // Keep normal /creatives rendering resilient; debug flags only expand diagnostics.
-  const enableCreativeBasicsFallback = params.get("creativeBasicsFallback") !== "0";
+  const enableCreativeBasicsFallback = enableFullMediaHydration && params.get("creativeBasicsFallback") !== "0";
   const enableCreativeDetails = enableFullMediaHydration && params.get("creativeDetails") !== "0";
   const enableThumbnailBackfill = enableFullMediaHydration && params.get("thumbnailBackfill") !== "0";
   const enableCardThumbnailBackfill = enableFullMediaHydration && params.get("cardThumbnailBackfill") !== "0";
@@ -2649,7 +2723,7 @@ export async function GET(request: NextRequest) {
       totalInsightAdIds += insightAdIds.length;
       if (insightAdIds.length > 0) {
         const tAds = Date.now();
-        const insightAdsMap = await batchFetchAdsByIds(insightAdIds, accessToken);
+        const insightAdsMap = await batchFetchAdsByIds(insightAdIds, accessToken, mediaMode);
         accountPerf.ads_ms += Date.now() - tAds;
         for (const [id, ad] of insightAdsMap.entries()) {
           adMap.set(id, ad);

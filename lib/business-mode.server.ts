@@ -25,13 +25,13 @@ export async function isDemoBusiness(
   try {
     await runMigrations();
     const sql = getDb();
-    const rows = await sql`
+    const rows = (await sql`
       SELECT is_demo_business
       FROM businesses
       WHERE id = ${businessId}
       LIMIT 1
-    `;
-    const row = rows[0] as { is_demo_business?: unknown } | undefined;
+    `) as Array<{ is_demo_business?: unknown }>;
+    const row = rows[0];
     value = Boolean(row?.is_demo_business);
   } catch {
     value = businessId === DEMO_BUSINESS_FALLBACK_ID;
@@ -53,4 +53,3 @@ export async function resolveBusinessDataMode(
     mode: demo ? "demo" : "live",
   };
 }
-

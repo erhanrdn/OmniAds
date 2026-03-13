@@ -45,7 +45,7 @@ async function findSessionByToken(rawToken: string): Promise<SessionContext | nu
   await runMigrations();
   const sql = getDb();
   const tokenHash = hashToken(rawToken);
-  const rows = await sql`
+  const rows = (await sql`
     SELECT
       s.id AS session_id,
       s.active_business_id,
@@ -58,8 +58,7 @@ async function findSessionByToken(rawToken: string): Promise<SessionContext | nu
     JOIN users u ON u.id = s.user_id
     WHERE s.token_hash = ${tokenHash}
     LIMIT 1
-  `;
-  const row = rows[0] as
+  `) as Array<
     | {
         session_id: string;
         active_business_id: string | null;
@@ -69,7 +68,8 @@ async function findSessionByToken(rawToken: string): Promise<SessionContext | nu
         user_email: string;
         user_avatar: string | null;
       }
-    | undefined;
+  >;
+  const row = rows[0];
   if (!row) return null;
 
   const expiresAtMs = new Date(row.expires_at).getTime();
@@ -112,12 +112,12 @@ export async function createSession(input: {
   const token = randomUUID().replace(/-/g, "");
   const tokenHash = hashToken(token);
   const expiresAt = sessionExpiryDate();
-  const rows = await sql`
+  const rows = (await sql`
     INSERT INTO sessions (user_id, token_hash, active_business_id, expires_at)
     VALUES (${input.userId}, ${tokenHash}, ${input.activeBusinessId ?? null}, ${expiresAt.toISOString()})
     RETURNING id
-  `;
-  const sessionId = (rows[0] as { id: string } | undefined)?.id ?? "";
+  `) as Array<{ id: string }>;
+  const sessionId = rows[0]?.id ?? "";
   return { token, sessionId, expiresAt };
 }
 

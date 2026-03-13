@@ -16,7 +16,7 @@ export async function upsertProviderAccountAssignments(params: {
   accountIds: string[];
 }): Promise<ProviderAccountAssignmentRow> {
   const sql = getDb();
-  const rows = await sql`
+  const rows = (await sql`
     INSERT INTO provider_account_assignments (
       business_id,
       provider,
@@ -33,7 +33,7 @@ export async function upsertProviderAccountAssignments(params: {
       account_ids = EXCLUDED.account_ids,
       updated_at = now()
     RETURNING *
-  `;
+  `) as ProviderAccountAssignmentRow[];
 
   return rows[0] as ProviderAccountAssignmentRow;
 }
@@ -43,13 +43,13 @@ export async function getProviderAccountAssignments(
   provider: IntegrationProviderType
 ): Promise<ProviderAccountAssignmentRow | null> {
   const sql = getDb();
-  const rows = await sql`
+  const rows = (await sql`
     SELECT *
     FROM provider_account_assignments
     WHERE business_id = ${businessId}
       AND provider = ${provider}
     LIMIT 1
-  `;
+  `) as ProviderAccountAssignmentRow[];
 
-  return (rows[0] as ProviderAccountAssignmentRow) ?? null;
+  return rows[0] ?? null;
 }
