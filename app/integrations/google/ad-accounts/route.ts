@@ -6,7 +6,13 @@ import {
   refreshGoogleAccessToken,
 } from "@/lib/google-ads-accounts";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
-import { resolveProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
+import {
+  ProviderAccountSnapshotRefreshError,
+  resolveProviderAccountSnapshot,
+} from "@/lib/provider-account-snapshots";
+
+const GOOGLE_ACCOUNT_SNAPSHOT_FRESHNESS_MS = 60 * 60_000;
+const GOOGLE_ACCOUNT_REFRESH_COOLDOWN_MS = 10 * 60_000;
 
 /**
  * GET /integrations/google/ad-accounts?businessId=...
@@ -115,6 +121,8 @@ export async function GET(request: NextRequest) {
     const snapshot = await resolveProviderAccountSnapshot({
       businessId,
       provider: "google",
+      freshnessMs: GOOGLE_ACCOUNT_SNAPSHOT_FRESHNESS_MS,
+      failureCooldownMs: GOOGLE_ACCOUNT_REFRESH_COOLDOWN_MS,
       liveLoader: async () => {
         const result = await fetchGoogleAdsAccounts(accessToken);
 
@@ -169,6 +177,24 @@ export async function GET(request: NextRequest) {
       meta: snapshot.meta,
     });
   } catch (error: unknown) {
+    if (error instanceof ProviderAccountSnapshotRefreshError) {
+      console.error("[google-ad-accounts] snapshot refresh failed", {
+        businessId,
+        message: error.message,
+        retryAfterMs: error.retryAfterMs,
+        dueToRecentFailure: error.dueToRecentFailure,
+      });
+
+      return NextResponse.json(
+        {
+          error: "google_ads_fetch_unavailable",
+          message:
+            "We couldn't load your Google Ads accounts right now. Please wait a bit and try again.",
+        },
+        { status: 503 }
+      );
+    }
+
     const message = error instanceof Error ? error.message : "Unknown error";
     console.error("[google-ad-accounts] unexpected_error", {
       businessId,
@@ -178,7 +204,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         error: "google_ads_fetch_failed",
-        message: "Could not load accessible Google Ads accounts.",
+        message: "We couldn't load your Google Ads accounts right now. Please wait a bit and try again.",
       },
       { status: 500 }
     );

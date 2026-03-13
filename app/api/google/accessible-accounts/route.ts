@@ -6,7 +6,20 @@ import {
   refreshGoogleAccessToken,
 } from "@/lib/google-ads-accounts";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
-import { resolveProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
+import {
+  ProviderAccountSnapshotRefreshError,
+  resolveProviderAccountSnapshot,
+} from "@/lib/provider-account-snapshots";
+
+const GOOGLE_ACCOUNT_SNAPSHOT_FRESHNESS_MS = 60 * 60_000;
+const GOOGLE_ACCOUNT_REFRESH_COOLDOWN_MS = 10 * 60_000;
+
+function getGoogleDiscoveryFailureMessage(hasSnapshot: boolean) {
+  if (hasSnapshot) {
+    return "We couldn't refresh your Google Ads accounts right now. Showing your last available list.";
+  }
+  return "We couldn't load your Google Ads accounts right now. Please wait a bit and try again.";
+}
 
 /**
  * GET /api/google/accessible-accounts
@@ -159,6 +172,8 @@ export async function GET(request: NextRequest) {
     const snapshot = await resolveProviderAccountSnapshot({
       businessId,
       provider: "google",
+      freshnessMs: GOOGLE_ACCOUNT_SNAPSHOT_FRESHNESS_MS,
+      failureCooldownMs: GOOGLE_ACCOUNT_REFRESH_COOLDOWN_MS,
       liveLoader: async () => {
         const result = await fetchGoogleAdsAccounts(accessToken);
 
@@ -230,6 +245,23 @@ export async function GET(request: NextRequest) {
       meta: snapshot.meta,
     });
   } catch (error) {
+    if (error instanceof ProviderAccountSnapshotRefreshError) {
+      console.error("[accessible-accounts] ❌ SNAPSHOT REFRESH FAILED", {
+        businessId,
+        message: error.message,
+        retryAfterMs: error.retryAfterMs,
+        dueToRecentFailure: error.dueToRecentFailure,
+      });
+
+      return NextResponse.json(
+        {
+          error: "google_ads_discovery_unavailable",
+          message: getGoogleDiscoveryFailureMessage(false),
+        },
+        { status: 503 }
+      );
+    }
+
     console.error("[accessible-accounts] ❌ UNEXPECTED ERROR", {
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
@@ -238,7 +270,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         error: "google_ads_discovery_error",
-        message: "Unexpected error during Google Ads account discovery.",
+        message: "We couldn't load your Google Ads accounts right now. Please wait a bit and try again.",
       },
       { status: 500 }
     );
