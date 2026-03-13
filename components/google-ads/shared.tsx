@@ -272,6 +272,7 @@ export interface ColDef<T> {
   render?: (r: T) => React.ReactNode;
   align?: "left" | "right";
   sortable?: boolean;
+  sticky?: boolean;
 }
 
 import { useState } from "react";
@@ -309,17 +310,18 @@ export function SimpleTable<T extends object>({
     : rows;
 
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto rounded-2xl border border-border/70">
       <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b">
+        <thead className="sticky top-0 z-30 bg-card/95 backdrop-blur">
+          <tr className="border-b border-border/70">
             {cols.map((c) => (
               <th
                 key={c.key}
                 className={cn(
-                  "py-2.5 pr-4 text-xs font-medium uppercase tracking-wide text-muted-foreground",
+                  "py-3 pr-4 text-xs font-medium uppercase tracking-wide text-muted-foreground",
                   c.align === "right" ? "text-right" : "text-left",
-                  c.sortable !== false && "cursor-pointer select-none hover:text-foreground"
+                  c.sortable !== false && "cursor-pointer select-none hover:text-foreground",
+                  c.sticky && "sticky left-0 z-20 bg-card px-4 shadow-[8px_0_18px_-16px_rgba(15,23,42,0.45)]"
                 )}
                 onClick={() => c.sortable !== false && toggleSort(c.key)}
               >
@@ -331,11 +333,15 @@ export function SimpleTable<T extends object>({
         </thead>
         <tbody>
           {sorted.slice(0, 100).map((row, i) => (
-            <tr key={i} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
+            <tr key={i} className="border-b border-border/70 last:border-0 hover:bg-muted/20 transition-colors">
               {cols.map((c) => (
                 <td
                   key={c.key}
-                  className={cn("py-2.5 pr-4 text-xs tabular-nums", c.align === "right" ? "text-right" : "")}
+                  className={cn(
+                    "py-3 pr-4 text-xs tabular-nums align-top",
+                    c.align === "right" ? "text-right" : "",
+                    c.sticky && "sticky left-0 z-10 bg-card px-4 shadow-[8px_0_18px_-16px_rgba(15,23,42,0.45)]"
+                  )}
                 >
                   {c.render ? c.render(row) : String(c.accessor(row))}
                 </td>

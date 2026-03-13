@@ -8,7 +8,8 @@ export type IntegrationProviderType =
   | "tiktok"
   | "pinterest"
   | "snapchat"
-  | "ga4";
+  | "ga4"
+  | "klaviyo";
 
 export interface IntegrationRow {
   id: string;

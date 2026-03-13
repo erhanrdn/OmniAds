@@ -1,8 +1,60 @@
 import { NextRequest, NextResponse } from "next/server";
+import { updateBusinessSettings } from "@/lib/account-store";
 import { requireBusinessAccess } from "@/lib/access";
 import { getDb } from "@/lib/db";
 import { runMigrations } from "@/lib/migrations";
 import { isDemoBusinessId } from "@/lib/demo-business";
+
+interface UpdateBusinessBody {
+  name?: string;
+  timezone?: string;
+  currency?: string;
+}
+
+export async function PATCH(
+  request: NextRequest,
+  context: { params: Promise<{ businessId: string }> }
+) {
+  const { businessId } = await context.params;
+  if (!businessId) {
+    return NextResponse.json(
+      { error: "missing_business_id", message: "businessId path parameter is required." },
+      { status: 400 }
+    );
+  }
+  const access = await requireBusinessAccess({
+    request,
+    businessId,
+    minRole: "admin",
+  });
+  if ("error" in access) return access.error;
+  if (isDemoBusinessId(businessId)) {
+    return NextResponse.json(
+      { error: "forbidden", message: "Demo business settings cannot be changed." },
+      { status: 403 }
+    );
+  }
+
+  const body = (await request.json().catch(() => null)) as UpdateBusinessBody | null;
+  const name = body?.name?.trim() ?? "";
+  const timezone = body?.timezone?.trim() ?? "";
+  const currency = body?.currency?.trim().toUpperCase() ?? "";
+
+  if (name.length < 2 || !timezone || !currency) {
+    return NextResponse.json(
+      { error: "invalid_payload", message: "Name, timezone, and currency are required." },
+      { status: 400 }
+    );
+  }
+
+  const business = await updateBusinessSettings({
+    businessId,
+    name,
+    timezone,
+    currency,
+  });
+  return NextResponse.json({ business });
+}
 
 export async function DELETE(
   request: NextRequest,

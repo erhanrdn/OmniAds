@@ -67,6 +67,7 @@ export function getDemoIntegrations() {
     "google",
     "ga4",
     "search_console",
+    "klaviyo",
     "tiktok",
     "pinterest",
     "snapchat",
@@ -76,8 +77,22 @@ export function getDemoIntegrations() {
     business_id: DEMO_BUSINESS_ID,
     provider,
     status: provider === "tiktok" || provider === "pinterest" || provider === "snapchat" ? "disconnected" : "connected",
-    provider_account_id: provider === "google" ? "5241455382" : provider === "meta" ? "act_210009998877" : null,
-    provider_account_name: provider === "google" ? "UrbanTrail US" : provider === "meta" ? "UrbanTrail DTC" : null,
+    provider_account_id:
+      provider === "google"
+        ? "5241455382"
+        : provider === "meta"
+          ? "act_210009998877"
+          : provider === "klaviyo"
+            ? "X8Y72L"
+            : null,
+    provider_account_name:
+      provider === "google"
+        ? "UrbanTrail US"
+        : provider === "meta"
+          ? "UrbanTrail DTC"
+          : provider === "klaviyo"
+            ? "UrbanTrail Lifecycle"
+            : null,
     access_token: null,
     refresh_token: null,
     token_expires_at: null,
@@ -90,7 +105,14 @@ export function getDemoIntegrations() {
           ? { siteUrl: "sc-domain:urbantrail.co", siteType: "domain", propertyName: "urbantrail.co", connectedAt: now }
           : provider === "shopify"
             ? { storeName: "UrbanTrail", platform: "shopify", syncedAt: now }
-            : {},
+            : provider === "klaviyo"
+              ? {
+                  accountName: "UrbanTrail Lifecycle",
+                  channelMix: { email: 0.74, sms: 0.26 },
+                  benchmarkTier: "shopify_growth",
+                  syncedAt: now,
+                }
+              : {},
     connected_at: now,
     disconnected_at: null,
     created_at: now,

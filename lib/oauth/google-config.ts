@@ -2,26 +2,34 @@
  * Google OAuth configuration for Google Ads integration.
  *
  * Required env vars:
- *   GOOGLE_ADS_CLIENT_ID       – Google OAuth Client ID
- *   GOOGLE_ADS_CLIENT_SECRET   – Google OAuth Client Secret
+ *   GOOGLE_ADS_CLIENT_ID or GOOGLE_CLIENT_ID           – Google OAuth Client ID
+ *   GOOGLE_ADS_CLIENT_SECRET or GOOGLE_CLIENT_SECRET   – Google OAuth Client Secret
  *   GOOGLE_ADS_DEVELOPER_TOKEN – Google Ads API Developer Token
  *   NEXT_PUBLIC_APP_URL        – e.g. https://localhost:3000 or https://yourdomain.com
  */
 
+function readGoogleClientId() {
+  return process.env.GOOGLE_ADS_CLIENT_ID ?? process.env.GOOGLE_CLIENT_ID;
+}
+
+function readGoogleClientSecret() {
+  return process.env.GOOGLE_ADS_CLIENT_SECRET ?? process.env.GOOGLE_CLIENT_SECRET;
+}
+
 export const GOOGLE_CONFIG = {
   get clientId() {
-    const v = process.env.GOOGLE_ADS_CLIENT_ID;
+    const v = readGoogleClientId();
     if (!v)
       throw new Error(
-        "GOOGLE_ADS_CLIENT_ID is not set in environment variables.",
+        "GOOGLE_ADS_CLIENT_ID or GOOGLE_CLIENT_ID is not set in environment variables.",
       );
     return v;
   },
   get clientSecret() {
-    const v = process.env.GOOGLE_ADS_CLIENT_SECRET;
+    const v = readGoogleClientSecret();
     if (!v)
       throw new Error(
-        "GOOGLE_ADS_CLIENT_SECRET is not set in environment variables.",
+        "GOOGLE_ADS_CLIENT_SECRET or GOOGLE_CLIENT_SECRET is not set in environment variables.",
       );
     return v;
   },

@@ -7,12 +7,14 @@ import type { LucideIcon } from "lucide-react";
 import {
   AlertTriangle,
   BarChart3,
+  Bot,
   Boxes,
   Calendar,
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Download,
   Image,
   KeyRound,
   LayoutDashboard,
@@ -44,6 +46,7 @@ import {
   fmtPercent,
   fmtRoas,
 } from "@/components/google-ads/shared";
+import { WorkspaceTaskCard } from "@/components/google-ads/workspace-cards";
 
 type DateRange = "7" | "14" | "30" | "90" | "mtd" | "qtd" | "custom";
 type CompareMode = "none" | "previous_period" | "previous_year" | "custom";
@@ -101,7 +104,7 @@ const TAB_GROUPS: Array<{
   {
     label: "Demand",
     tabs: [
-      { id: "search-intelligence", label: "Search Intelligence", icon: Target },
+      { id: "search-intelligence", label: "Search Terms", icon: Target },
       { id: "keywords", label: "Keywords", icon: KeyRound },
       { id: "products", label: "Products", icon: Package },
     ],
@@ -116,7 +119,7 @@ const TAB_GROUPS: Array<{
   {
     label: "Targeting & Trust",
     tabs: [
-      { id: "audiences", label: "Audience Intelligence", icon: Users2 },
+      { id: "audiences", label: "Audience", icon: Users2 },
       { id: "geo-devices", label: "Geo & Devices", icon: Map },
       { id: "diagnostics", label: "Diagnostics", icon: ShieldAlert },
     ],
@@ -698,6 +701,327 @@ function InsightStrip({
   );
 }
 
+function MiniStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-border/70 bg-card px-3 py-2">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+        {label}
+      </p>
+      <p className="mt-1 text-xs font-semibold">{value}</p>
+    </div>
+  );
+}
+
+function renderStateTone(
+  state: "healthy" | "warning" | "critical" | "neutral" | "opportunity",
+) {
+  return cn(
+    "border",
+    state === "healthy" && "border-emerald-200 bg-emerald-50 text-emerald-700",
+    state === "warning" && "border-amber-200 bg-amber-50 text-amber-800",
+    state === "critical" && "border-rose-200 bg-rose-50 text-rose-800",
+    state === "neutral" && "border-slate-200 bg-slate-50 text-slate-700",
+    state === "opportunity" && "border-sky-200 bg-sky-50 text-sky-700",
+  );
+}
+
+function DecisionClusterCard({
+  title,
+  stateLabel,
+  tone,
+  microcopy,
+  evidence,
+  action,
+}: {
+  title: string;
+  stateLabel: string;
+  tone: "healthy" | "warning" | "critical" | "neutral" | "opportunity";
+  microcopy: string;
+  evidence: string;
+  action: string;
+}) {
+  return (
+    <div className={cn("rounded-2xl border p-4", renderStateTone(tone))}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold tracking-tight">{title}</p>
+          <p className="mt-1 text-xs leading-5">{microcopy}</p>
+        </div>
+        <span className="rounded-full bg-background/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em]">
+          {stateLabel}
+        </span>
+      </div>
+      <p className="mt-3 text-xs font-medium">{evidence}</p>
+      <p className="mt-2 text-xs text-foreground/85">Action: {action}</p>
+    </div>
+  );
+}
+
+function SnapshotCard({
+  title,
+  state,
+  interpretation,
+  metrics,
+  actionHint,
+}: {
+  title: string;
+  state: "healthy" | "warning" | "critical" | "neutral" | "opportunity";
+  interpretation: string;
+  metrics: string[];
+  actionHint: string;
+}) {
+  return (
+    <div className={cn("rounded-2xl border p-4 shadow-sm", renderStateTone(state))}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold tracking-tight">{title}</p>
+          <p className="mt-1 text-xs leading-5">{interpretation}</p>
+        </div>
+        <span className="rounded-full bg-background/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em]">
+          {state === "opportunity" ? "opportunity" : state}
+        </span>
+      </div>
+      <div className="mt-4 space-y-1.5">
+        {metrics.map((metric) => (
+          <p key={metric} className="text-xs font-medium">
+            {metric}
+          </p>
+        ))}
+      </div>
+      <div className="mt-4 border-t border-border/50 pt-3">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+          Action hint
+        </p>
+        <p className="mt-1 text-xs">{actionHint}</p>
+      </div>
+    </div>
+  );
+}
+
+function PriorityInsightCard({
+  title,
+  severity,
+  explanation,
+  evidence,
+  action,
+}: {
+  title: string;
+  severity: "healthy" | "warning" | "critical" | "opportunity";
+  explanation: string;
+  evidence: string[];
+  action: string;
+}) {
+  return (
+    <div className={cn("rounded-2xl border p-4", renderStateTone(severity))}>
+      <div className="flex items-center justify-between gap-3">
+        <h4 className="text-sm font-semibold tracking-tight">{title}</h4>
+        <span className="rounded-full bg-background/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em]">
+          {severity}
+        </span>
+      </div>
+      <p className="mt-2 text-sm leading-6">{explanation}</p>
+      <div className="mt-3 rounded-xl bg-background/60 p-3">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+          Evidence
+        </p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {evidence.map((item) => (
+            <span
+              key={item}
+              className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground"
+            >
+              {item}
+            </span>
+          ))}
+        </div>
+      </div>
+      <p className="mt-3 text-xs font-medium">Suggested action: {action}</p>
+    </div>
+  );
+}
+
+function InterpretationCell({
+  title,
+  state,
+  issue,
+  microcopy,
+  evidence,
+  action,
+  meta,
+}: {
+  title: string;
+  state: string;
+  issue: string;
+  microcopy: string;
+  evidence: string;
+  action: string;
+  meta?: ReactNode;
+}) {
+  return (
+    <div className="min-w-[280px] max-w-[320px]">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <p className="text-xs font-semibold">{title}</p>
+        <ActionStateBadge state={state} />
+      </div>
+      <p className="mt-2 text-xs font-medium text-foreground">{issue}</p>
+      <p className="mt-1 text-[11px] leading-5 text-muted-foreground">{microcopy}</p>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+          {evidence}
+        </span>
+        <span className="rounded-full bg-background px-2 py-0.5 text-[10px] font-semibold text-foreground ring-1 ring-border/70">
+          {action}
+        </span>
+      </div>
+      {meta ? <div className="mt-2 flex flex-wrap items-center gap-1.5">{meta}</div> : null}
+    </div>
+  );
+}
+
+function getCampaignDecision(row: Record<string, any>) {
+  const actionState = String(row.actionState ?? "optimize");
+  const lostBudget = Number(row.lostIsBudget ?? 0);
+  const roas = Number(row.roas ?? 0);
+  const spendShare = Number(row.spendShare ?? 0);
+  const revenueShare = Number(row.revenueShare ?? 0);
+  const shareGap = revenueShare - spendShare;
+
+  if (actionState === "scale") {
+    return {
+      issue: "Budget pressure with healthy efficiency",
+      microcopy: "Return is holding up, but impression share loss suggests this campaign is capped before demand is exhausted.",
+      evidence: `${fmtRoas(roas)} ROAS · ${fmtPercent(lostBudget * 100)} lost to budget`,
+      action: "Scale candidate",
+    };
+  }
+  if (actionState === "reduce") {
+    return {
+      issue: "Spend outruns revenue contribution",
+      microcopy: "This campaign is absorbing more wallet share than the value it sends back to the account.",
+      evidence: `${spendShare.toFixed(1)}% spend share vs ${revenueShare.toFixed(1)}% revenue share`,
+      action: "Reduce or rebuild",
+    };
+  }
+  if (actionState === "test") {
+    return {
+      issue: "Signal is mixed and needs cleaner proof",
+      microcopy: "Performance is neither strong enough to scale nor weak enough to cut without a more controlled test.",
+      evidence: `${fmtRoas(roas)} ROAS · ${formatDelta(row.roasChange)}`,
+      action: "Test before scaling",
+    };
+  }
+  return {
+    issue: shareGap >= 0 ? "Healthy base with tuning room" : "Usable performance, but efficiency needs work",
+    microcopy:
+      shareGap >= 0
+        ? "This campaign is carrying its spend share, so optimization can focus on incremental gains."
+        : "The campaign is still contributing, but efficiency is not strong enough to call it a scale path yet.",
+    evidence: `${fmtRoas(roas)} ROAS · Rev ${formatDelta(row.revenueChange)}`,
+    action: "Optimize next",
+  };
+}
+
+function getSearchDecision(row: Record<string, any>) {
+  const recommendation = String(row.recommendation ?? "").toLowerCase();
+  if (recommendation.includes("negative")) {
+    return {
+      state: "reduce",
+      issue: "Waste-heavy intent leakage",
+      microcopy: "The cluster is pulling clicks and spend without enough conversion proof to justify wider coverage.",
+      action: "Block or narrow intent",
+    };
+  }
+  if (recommendation.includes("exact") || recommendation.includes("promote")) {
+    return {
+      state: "scale",
+      issue: "Strong intent deserves tighter coverage",
+      microcopy: "This demand is converting well enough that direct control should improve scale and message precision.",
+      action: "Promote coverage",
+    };
+  }
+  return {
+    state: "test",
+    issue: "Emerging intent with incomplete proof",
+    microcopy: "The cluster is promising, but it still needs clearer routing between keyword control, copy, and budget.",
+    action: "Monitor and test",
+  };
+}
+
+function getProductDecision(row: Record<string, any>) {
+  const state = String(row.statusLabel ?? "optimize");
+  const spendShare = Number(row.spendShare ?? 0);
+  const revenueShare = Number(row.revenueShare ?? 0);
+  if (state === "scale") {
+    return {
+      issue: "Healthy product with room to win more budget",
+      microcopy: "Revenue contribution is keeping up with or beating exposure, which makes this product a clean scale path.",
+      evidence: `${fmtRoas(Number(row.roas ?? 0))} ROAS · ${fmtCurrency(Number(row.revenue ?? 0))} revenue`,
+      action: "Increase exposure",
+    };
+  }
+  if (state === "reduce") {
+    return {
+      issue: "Product drag is soaking up spend",
+      microcopy: "Spend concentration is not converting into enough value to justify the current exposure level.",
+      evidence: `${fmtCurrency(Number(row.spend ?? 0))} spend · ${fmtRoas(Number(row.roas ?? 0))}`,
+      action: "Trim budget or fix feed/support",
+    };
+  }
+  return {
+    issue: "Support path needs validation",
+    microcopy:
+      revenueShare >= spendShare
+        ? "The product is healthy enough to keep funding, but support paths should be protected."
+        : "The product may still matter strategically, but contribution is not yet clear enough for aggressive spend.",
+    evidence: `${spendShare.toFixed(1)}% spend share · ${revenueShare.toFixed(1)}% revenue share`,
+    action: "Watch contribution",
+  };
+}
+
+function getRowAccountLabel(row: Record<string, any>) {
+  return String(
+    row.customerName ??
+      row.customerDescriptiveName ??
+      row.accountName ??
+      row.account ??
+      row.customerId ??
+      row.accountId ??
+      "All accounts",
+  );
+}
+
+function getRowCampaignType(row: Record<string, any>) {
+  return String(row.campaignType ?? row.channel ?? row.type ?? "All campaign types");
+}
+
+function filteredTaskFromOpportunities(opportunity?: Record<string, any> | null) {
+  if (!opportunity) return null;
+  return {
+    title: String(opportunity.title ?? "Investigate Google Ads opportunity"),
+    impact:
+      String(opportunity.expectedImpact ?? "medium").toLowerCase() === "high"
+        ? "High impact"
+        : String(opportunity.expectedImpact ?? "medium").toLowerCase() === "medium"
+          ? "Medium impact"
+          : "Low impact",
+    evidence: [
+      opportunity.metrics?.spend != null
+        ? `Spend ${fmtCurrency(Number(opportunity.metrics.spend ?? 0))}`
+        : "Spend not specified",
+      opportunity.metrics?.roas != null
+        ? `ROAS ${fmtRoas(Number(opportunity.metrics.roas ?? 0))}`
+        : "ROAS not specified",
+    ],
+    action: String(opportunity.reasoning ?? opportunity.description ?? "Review and act on this opportunity."),
+    tone:
+      opportunity.type === "scale"
+        ? ("good" as const)
+        : opportunity.type === "reduce" || opportunity.type === "fix"
+          ? ("risk" as const)
+          : ("warning" as const),
+  };
+}
+
 function OpportunityCard({ opportunity }: { opportunity: Record<string, any> }) {
   const tone =
     opportunity.type === "scale"
@@ -822,14 +1146,6 @@ function OverviewView({
 
   const kpis = overview.kpis as Record<string, number>;
   const deltas = (overview.kpiDeltas ?? {}) as Record<string, number | null | undefined>;
-  const improved = [...campaigns]
-    .filter((campaign) => Number(campaign.roasChange ?? 0) > 0)
-    .sort((a, b) => Number(b.roasChange ?? 0) - Number(a.roasChange ?? 0))
-    .slice(0, 3);
-  const declined = [...campaigns]
-    .filter((campaign) => Number(campaign.roasChange ?? 0) < 0)
-    .sort((a, b) => Number(a.roasChange ?? 0) - Number(b.roasChange ?? 0))
-    .slice(0, 3);
   const topDrivers = [...campaigns]
     .filter((campaign) => campaign.actionState === "scale")
     .sort((a, b) => Number(b.revenue ?? 0) - Number(a.revenue ?? 0))
@@ -850,215 +1166,463 @@ function OverviewView({
   const wasteConcentrationInsight = crossEntityInsights.find((insight) => insight.type === "waste_concentration");
   const budgetPressure = budget.filter((row) => Number(row.lostIsBudget ?? 0) > 0.15).length;
   const dataHealth = opportunities.length > 0 ? "healthy" : "warning";
+  const healthyBudgetPressure = budget.filter(
+    (row) => Number(row.lostIsBudget ?? 0) > 0.15 && Number(row.roas ?? 0) >= Number(kpis.roas ?? 0),
+  ).length;
+  const weakDemandCoverage = campaigns.filter(
+    (campaign) => Number(campaign.impressionShare ?? 0) > 0 && Number(campaign.impressionShare ?? 0) < 0.4,
+  ).length;
+  const avgConversionRate =
+    campaigns.length > 0
+      ? campaigns.reduce((sum, campaign) => sum + Number(campaign.conversionRate ?? 0), 0) /
+        campaigns.length
+      : Number(kpis.conversionRate ?? kpis.convRate ?? 0);
+  const efficiencyState =
+    Number(kpis.roas ?? 0) >= 3 ? "healthy" : Number(kpis.roas ?? 0) >= 2 ? "warning" : "critical";
+  const wasteSpendTotal = spendWaste.reduce((sum, row) => sum + Number(row.spend ?? 0), 0);
+  const top3ProductSpendShare =
+    (Number(products.slice(0, 3).reduce((sum, row) => sum + Number(row.spend ?? 0), 0)) /
+      Math.max(Number(products.reduce((sum, row) => sum + Number(row.spend ?? 0), 0)), 1)) *
+    100;
+  const efficiencyScore = Math.max(
+    0,
+    Math.min(
+      100,
+      Math.round(
+        Number(kpis.roas ?? 0) * 18 +
+          avgConversionRate * 800 -
+          Math.min(healthyBudgetPressure * 2, 10) -
+          spendWaste.length * 6,
+      ),
+    ),
+  );
+  const priorityInsights = [
+    {
+      title: "Budget pressure detected",
+      severity: healthyBudgetPressure > 0 ? "opportunity" : budgetPressure > 0 ? "warning" : "healthy",
+      explanation:
+        healthyBudgetPressure > 0
+          ? "Campaigns are efficient but limited by budget, so this looks like a scale constraint rather than a performance failure."
+          : budgetPressure > 0
+            ? "Budget loss exists, but the supporting efficiency is mixed enough that scaling should stay selective."
+            : "No major budget constraint is limiting account performance right now.",
+      evidence: [
+        `${budgetPressure} campaigns limited by budget`,
+        `${healthyBudgetPressure} efficient rows under budget pressure`,
+        `ROAS ${fmtRoas(Number(kpis.roas ?? 0))}`,
+      ],
+      action:
+        healthyBudgetPressure > 0
+          ? "Increase budget or run scale tests on the efficient subset."
+          : "Fix efficiency before broad budget expansion.",
+    },
+    {
+      title: "Waste and inefficiency concentration",
+      severity: spendWaste.length > 0 ? "critical" : "healthy",
+      explanation:
+        spendWaste.length > 0
+          ? "Spend is concentrated in campaigns where value is lagging, which makes the account feel heavier than it should."
+          : "No major waste pockets are dominating the account right now.",
+      evidence: [
+        `${spendWaste.length} waste-heavy campaigns`,
+        `${fmtCurrency(wasteSpendTotal)} flagged spend`,
+        `${fmtCurrency(Number(kpis.cpa ?? 0))} blended CPA`,
+      ],
+      action:
+        spendWaste.length > 0
+          ? "Trim, rebuild, or isolate weak spend before pushing more budget."
+          : "Keep monitoring waste while protecting efficient campaigns.",
+    },
+    {
+      title: "Demand coverage and scale path",
+      severity: scalingHeadroom.length > 0 ? "opportunity" : weakDemandCoverage > 0 ? "warning" : "healthy",
+      explanation:
+        scalingHeadroom.length > 0
+          ? "There are campaigns with both demand pressure and enough return to justify broader coverage."
+          : weakDemandCoverage > 0
+            ? "Coverage looks uneven and some demand may be leaking before it turns into efficient growth."
+            : "Demand capture appears balanced for the current account state.",
+      evidence: [
+        `${scalingHeadroom.length} scale-ready campaigns`,
+        `${weakDemandCoverage} low-impression-share campaigns`,
+        `${topDrivers.length} strong campaign drivers`,
+      ],
+      action:
+        scalingHeadroom.length > 0
+          ? "Expand coverage where demand exists and efficiency stays above account average."
+          : "Improve efficiency or messaging before broadening coverage.",
+    },
+  ] as const;
+  const aiTasks = [
+    healthyBudgetPressure > 0
+      ? {
+          title: `Increase budget for ${healthyBudgetPressure} campaign${healthyBudgetPressure === 1 ? "" : "s"}`,
+          impact: "Opportunity",
+          evidence: [
+            `${healthyBudgetPressure} efficient rows under budget pressure`,
+            `ROAS ${fmtRoas(Number(kpis.roas ?? 0))}`,
+          ],
+          action: "Review scale-ready campaigns and increase budget where lost impression share is tied to profitable traffic.",
+          tone: "good" as const,
+        }
+      : null,
+    spendWaste.length > 0
+      ? {
+          title: `Reduce waste in ${spendWaste.length} campaign${spendWaste.length === 1 ? "" : "s"}`,
+          impact: "Risk",
+          evidence: [
+            `${fmtCurrency(wasteSpendTotal)} flagged spend`,
+            `${spendWaste.length} low-return campaigns`,
+          ],
+          action: "Trim budget, rebuild structure, or isolate weak search demand before spending more.",
+          tone: "risk" as const,
+        }
+      : null,
+    top3ProductSpendShare >= 50
+      ? {
+          title: "Investigate product concentration",
+          impact: "Watch",
+          evidence: [
+            `Top 3 products hold ${top3ProductSpendShare.toFixed(0)}% of spend`,
+            `${topProducts.length} leading product drivers`,
+          ],
+          action: "Check whether scale depends too heavily on a narrow product set and spread support more deliberately.",
+          tone: "warning" as const,
+        }
+      : null,
+    filteredTaskFromOpportunities(opportunities[0]),
+    filteredTaskFromOpportunities(opportunities[1]),
+  ].filter(Boolean) as Array<{
+    title: string;
+    impact: string;
+    evidence: string[];
+    action: string;
+    tone: "good" | "warning" | "risk" | "neutral";
+  }>;
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-        <MetricCard label="Spend" value={fmtCurrency(Number(kpis.spend ?? 0))} delta={deltas.spend} />
-        <MetricCard label="Revenue" value={fmtCurrency(Number(kpis.revenue ?? 0))} delta={deltas.revenue} tone="highlight" />
-        <MetricCard label="ROAS" value={fmtRoas(Number(kpis.roas ?? 0))} delta={deltas.roas} tone="highlight" />
-        <MetricCard label="Conversions" value={fmtNumber(Number(kpis.conversions ?? 0))} delta={deltas.conversions} />
-        <MetricCard label="CPA" value={fmtCurrency(Number(kpis.cpa ?? 0))} delta={deltas.cpa} sublabel="Lower is better" />
-      </div>
+      <SectionCard
+        title="Section 1 — Account Health Snapshot"
+        description="Quick account state cards that combine health, pressure, and action hints so performance marketers do not need to hunt for related context."
+      >
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <SnapshotCard
+            title="Revenue"
+            state={Number(deltas.revenue ?? 0) >= 0 ? "healthy" : "warning"}
+            interpretation={
+              Number(deltas.revenue ?? 0) >= 0
+                ? "Revenue is growing versus the comparison window."
+                : "Revenue is slipping and needs fast diagnosis."
+            }
+            metrics={[`${fmtCurrency(Number(kpis.revenue ?? 0))}`, `${formatDelta(deltas.revenue)}`]}
+            actionHint="Check whether growth is coming from efficient scale or fragile spend."
+          />
+          <SnapshotCard
+            title="Spend"
+            state={Number(deltas.spend ?? 0) <= Number(deltas.revenue ?? 0) ? "healthy" : "warning"}
+            interpretation={
+              Number(deltas.spend ?? 0) <= Number(deltas.revenue ?? 0)
+                ? "Spend is rising no faster than revenue."
+                : "Spend is climbing faster than the value it produces."
+            }
+            metrics={[`${fmtCurrency(Number(kpis.spend ?? 0))}`, `${formatDelta(deltas.spend)}`]}
+            actionHint="Use waste and efficiency signals before increasing budgets further."
+          />
+          <SnapshotCard
+            title="ROAS"
+            state={efficiencyState}
+            interpretation={
+              efficiencyState === "healthy"
+                ? "Return is healthy enough to support selective scaling."
+                : efficiencyState === "warning"
+                  ? "Return is usable, but not strong enough to ignore inefficiency."
+                  : "Return is weak enough that expansion should pause."
+            }
+            metrics={[`${fmtRoas(Number(kpis.roas ?? 0))}`, `${formatDelta(deltas.roas)}`]}
+            actionHint="Judge scale decisions against ROAS and budget pressure together."
+          />
+          <SnapshotCard
+            title="Conversion Rate"
+            state={avgConversionRate >= 0.03 ? "healthy" : avgConversionRate >= 0.02 ? "warning" : "critical"}
+            interpretation={
+              avgConversionRate >= 0.03
+                ? "Conversion efficiency is holding up."
+                : avgConversionRate >= 0.02
+                  ? "Conversion efficiency is softening."
+                  : "Conversion efficiency is a drag on account growth."
+            }
+            metrics={[`${fmtPercent(avgConversionRate * 100)}`, `${fmtNumber(Number(kpis.conversions ?? 0))} conv`]}
+            actionHint="Use search intent, landing quality, and product drag signals to explain weakening conversion."
+          />
+          <SnapshotCard
+            title="Budget Pressure"
+            state={healthyBudgetPressure > 0 ? "opportunity" : budgetPressure > 0 ? "warning" : "healthy"}
+            interpretation={
+              healthyBudgetPressure > 0
+                ? "Healthy efficiency but limited by budget."
+                : budgetPressure > 0
+                  ? "Budget loss exists, but not all constrained campaigns are healthy enough to scale."
+                  : "Budget pressure is not a major limiter right now."
+            }
+            metrics={[
+              `Efficient budget-limited campaigns: ${healthyBudgetPressure}`,
+              `Lost IS (budget) rows: ${budgetPressure}`,
+            ]}
+            actionHint={healthyBudgetPressure > 0 ? "Scale budget cautiously." : "Fix efficiency before adding spend."}
+          />
+          <SnapshotCard
+            title="Demand Coverage"
+            state={scalingHeadroom.length > 0 ? "opportunity" : weakDemandCoverage > 0 ? "warning" : "healthy"}
+            interpretation={
+              scalingHeadroom.length > 0
+                ? "There is proven demand that could support broader coverage."
+                : weakDemandCoverage > 0
+                  ? "Coverage looks uneven and some demand may be leaking."
+                  : "Demand coverage looks balanced for the current account state."
+            }
+            metrics={[
+              `Scale-ready campaigns: ${scalingHeadroom.length}`,
+              `Low impression share campaigns: ${weakDemandCoverage}`,
+            ]}
+            actionHint="Protect proven demand before broadening into weaker traffic."
+          />
+          <SnapshotCard
+            title="Demand Coverage"
+            state={scalingHeadroom.length > 0 ? "opportunity" : weakDemandCoverage > 0 ? "warning" : "healthy"}
+            interpretation={
+              scalingHeadroom.length > 0
+                ? "There is proven demand that could support broader coverage."
+                : weakDemandCoverage > 0
+                  ? "Coverage looks uneven and some demand may be leaking."
+                  : "Demand coverage looks balanced for the current account state."
+            }
+            metrics={[
+              `Scale-ready campaigns: ${scalingHeadroom.length}`,
+              `Low impression share campaigns: ${weakDemandCoverage}`,
+            ]}
+            actionHint="Protect proven demand before broadening into weaker traffic."
+          />
+          <SnapshotCard
+            title="Efficiency Score"
+            state={efficiencyScore >= 70 ? "healthy" : efficiencyScore >= 50 ? "warning" : "critical"}
+            interpretation={
+              efficiencyScore >= 70
+                ? "The account is operating at a strong efficiency baseline."
+                : efficiencyScore >= 50
+                  ? "The account is workable but not yet clean enough to scale aggressively."
+                  : "The account needs material efficiency cleanup."
+            }
+            metrics={[`${efficiencyScore}/100`, `${spendWaste.length} waste-heavy campaigns`]}
+            actionHint="Use this as the blended read across return, conversion efficiency, and spend waste."
+          />
+        </div>
+      </SectionCard>
 
-      <div className="grid gap-4 xl:grid-cols-[1.4fr,0.9fr]">
-        <SectionCard
-          title="What To Act On First"
-          description="The highest-value actions based on current performance, efficiency pressure, and revenue upside."
-        >
-          <div className="space-y-3">
-            {opportunities.slice(0, 3).map((opportunity) => (
-              <OpportunityCard key={String(opportunity.id)} opportunity={opportunity} />
-            ))}
-          </div>
-        </SectionCard>
-
-        <SectionCard
-          title="Account Health"
-          description="A quick read on budget pressure, waste, concentration, and data trust."
-        >
-          <div className="space-y-3">
-            <div className="flex items-center justify-between rounded-xl bg-muted/30 p-3">
-              <div>
-                <p className="text-xs font-semibold">Budget Pressure</p>
-                <p className="text-xs text-muted-foreground">{budgetPressure} campaigns are budget-limited.</p>
-              </div>
-              <HealthBadge state={budgetPressure > 0 ? "warning" : "healthy"} />
-            </div>
-            <div className="flex items-center justify-between rounded-xl bg-muted/30 p-3">
-              <div>
-                <p className="text-xs font-semibold">Waste Exposure</p>
-                <p className="text-xs text-muted-foreground">{spendWaste.length} campaigns are consuming weak spend.</p>
-              </div>
-              <HealthBadge state={spendWaste.length > 0 ? "critical" : "healthy"} />
-            </div>
-            <div className="flex items-center justify-between rounded-xl bg-muted/30 p-3">
-              <div>
-                <p className="text-xs font-semibold">Product Dependency</p>
-                <p className="text-xs text-muted-foreground">
-                  Top 3 products account for {((Number(products.slice(0, 3).reduce((sum, row) => sum + Number(row.spend ?? 0), 0)) / Math.max(Number(products.reduce((sum, row) => sum + Number(row.spend ?? 0), 0)), 1)) * 100).toFixed(0)}% of tracked product spend.
-                </p>
-              </div>
-              <HealthBadge state={products.length > 0 ? "warning" : "neutral"} />
-            </div>
-            <div className="flex items-center justify-between rounded-xl bg-muted/30 p-3">
-              <div>
-                <p className="text-xs font-semibold">Data Trust</p>
-                <p className="text-xs text-muted-foreground">Diagnostics are ready with meta coverage across tabs.</p>
-              </div>
-              <HealthBadge state={dataHealth as "healthy" | "warning"} />
-            </div>
-          </div>
-        </SectionCard>
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-3">
-        <SectionCard title="Improved" description="Campaigns gaining efficiency or revenue versus the comparison window.">
-          <div className="space-y-3">
-            {improved.length === 0 ? (
-              <p className="text-xs text-muted-foreground">No clear improving campaigns yet.</p>
-            ) : (
-              improved.map((campaign) => (
-                <div key={String(campaign.id)} className="rounded-xl border p-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-xs font-semibold">{campaign.name}</p>
-                      <p className="text-[11px] text-muted-foreground">
-                        {campaign.channel} · {fmtRoas(Number(campaign.roas ?? 0))}
-                      </p>
-                    </div>
-                    {renderTrendBadge(campaign.roasChange)}
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </SectionCard>
-
-        <SectionCard title="Declined" description="Campaigns that lost efficiency versus the comparison window.">
-          <div className="space-y-3">
-            {declined.length === 0 ? (
-              <p className="text-xs text-muted-foreground">No sharp efficiency declines detected.</p>
-            ) : (
-              declined.map((campaign) => (
-                <div key={String(campaign.id)} className="rounded-xl border p-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-xs font-semibold">{campaign.name}</p>
-                      <p className="text-[11px] text-muted-foreground">
-                        {campaign.channel} · {fmtCurrency(Number(campaign.spend ?? 0))} spend
-                      </p>
-                    </div>
-                    {renderTrendBadge(campaign.roasChange)}
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </SectionCard>
-
-        <SectionCard title="Scale Signals" description="High-ROAS drivers with budget or product headroom.">
-          <div className="space-y-3">
-            {topDrivers.slice(0, 2).map((campaign) => (
-              <div key={String(campaign.id)} className="rounded-xl border p-3">
-                <p className="text-xs font-semibold">{campaign.name}</p>
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  {fmtRoas(Number(campaign.roas ?? 0))} ROAS · {campaign.lostIsBudget ? percentNumber(Number(campaign.lostIsBudget) * 100) : "No"} budget loss
-                </p>
-              </div>
-            ))}
-            {topProducts.map((product) => (
-              <div key={String(product.itemId)} className="rounded-xl border p-3">
-                <p className="text-xs font-semibold">{product.title}</p>
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  {fmtRoas(Number(product.roas ?? 0))} ROAS · {fmtCurrency(Number(product.revenue ?? 0))} revenue
-                </p>
-              </div>
-            ))}
-            {topDrivers.length === 0 && topProducts.length === 0 ? (
-              <p className="text-xs text-muted-foreground">Scale signals will appear as soon as tracked winners emerge.</p>
-            ) : null}
-          </div>
-        </SectionCard>
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-2">
-        <SectionCard title="Cross-Entity Signals" description="How concentration, dependency, and scale paths connect across the account.">
-          <div className="grid gap-3 md:grid-cols-2">
-            {[concentrationInsight, revenueDependencyInsight, scalePathInsight, wasteConcentrationInsight]
-              .filter(Boolean)
-              .map((insight) => (
-                <div key={String(insight?.id)} className="rounded-xl border bg-muted/20 p-3">
-                  <p className="text-xs font-semibold">{insight?.title}</p>
-                  <p className="mt-1 text-[11px] text-muted-foreground">{insight?.description}</p>
-                </div>
-              ))}
-          </div>
-        </SectionCard>
-
-        <SectionCard title="Top Drivers" description="Where the account is creating the most return right now.">
-          <div className="space-y-3">
-            {topDrivers.length === 0 ? (
-              <p className="text-xs text-muted-foreground">No scale-ready campaigns identified yet.</p>
-            ) : (
-              topDrivers.map((campaign) => (
-                <div key={String(campaign.id)} className="rounded-xl bg-muted/20 p-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-xs font-semibold">{campaign.name}</p>
-                      <p className="text-[11px] text-muted-foreground">
-                        Spend share {campaign.spendShare}% vs revenue share {campaign.revenueShare}%
-                      </p>
-                    </div>
-                    <MixCell
-                      spendShare={Number(campaign.spendShare ?? 0)}
-                      revenueShare={Number(campaign.revenueShare ?? 0)}
-                    />
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </SectionCard>
-
-        <SectionCard title="Spend Waste Highlights" description="Where money is working hardest against the account.">
-          <div className="space-y-3">
-            {spendWaste.length === 0 ? (
-              <p className="text-xs text-muted-foreground">No obvious spend waste hotspots surfaced for this period.</p>
-            ) : (
-              spendWaste.map((campaign) => (
-                <div key={String(campaign.id)} className="rounded-xl border border-rose-200 bg-rose-50 p-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-xs font-semibold text-rose-900">{campaign.name}</p>
-                      <p className="text-[11px] text-rose-700">
-                        {fmtCurrency(Number(campaign.spend ?? 0))} spend · {fmtRoas(Number(campaign.roas ?? 0))} ROAS
-                      </p>
-                    </div>
-                    <ActionStateBadge state={String(campaign.actionState ?? "reduce")} />
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </SectionCard>
-      </div>
-
-      <SectionCard title="Scaling Opportunities" description="Campaigns with budget pressure and enough efficiency to justify more spend.">
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {scalingHeadroom.length === 0 ? (
-            <p className="text-xs text-muted-foreground">No budget-limited winners detected in this period.</p>
+      <SectionCard
+        title="Section 2 — AI Tasks Today"
+        description="A daily task list for the ad manager so the system turns analysis into operational next steps."
+        className="scroll-mt-24"
+      >
+        <div id="ai-tasks-today" className="grid gap-4 xl:grid-cols-2">
+          {aiTasks.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No urgent AI tasks surfaced for the selected filters.
+            </p>
           ) : (
-            scalingHeadroom.map((row) => (
-              <InsightStrip
-                key={String(row.id)}
-                title={row.name}
-                value={`${fmtRoas(Number(row.roas ?? 0))} ROAS`}
-                note={`${percentNumber(Number(row.lostIsBudget ?? 0) * 100)} lost to budget`}
-                tone="good"
+            aiTasks.map((task) => (
+              <WorkspaceTaskCard
+                key={`${task.title}-${task.action}`}
+                title={task.title}
+                impact={task.impact}
+                evidence={task.evidence}
+                action={task.action}
+                tone={task.tone}
               />
             ))
           )}
+        </div>
+      </SectionCard>
+
+      <SectionCard
+        title="Section 3 — Decision Insights"
+        description="High-priority account issues are presented with explanation, evidence, and a recommended direction."
+      >
+        <div className="space-y-4">
+          {priorityInsights.map((insight) => (
+            <PriorityInsightCard
+              key={insight.title}
+              title={insight.title}
+              severity={insight.severity}
+              explanation={insight.explanation}
+              evidence={[...insight.evidence]}
+              action={insight.action}
+            />
+          ))}
+          {opportunities.slice(0, 2).map((opportunity) => (
+            <OpportunityCard key={String(opportunity.id)} opportunity={opportunity} />
+          ))}
+        </div>
+      </SectionCard>
+
+      <SectionCard
+        title="Decision Clusters"
+        description="Optimization work is grouped by category so users can understand where to focus without stitching together distant signals."
+      >
+        <div className="grid gap-4 xl:grid-cols-2">
+          <SectionCard
+            title="Scale Opportunities"
+            description="Campaigns and products where return, demand, and share mix support cautious expansion."
+            className="border-emerald-200 bg-emerald-50/50"
+          >
+            <div className="space-y-3">
+              {topDrivers.slice(0, 3).map((campaign) => (
+                <DecisionClusterCard
+                  key={String(campaign.id)}
+                  title={String(campaign.name ?? "")}
+                  stateLabel="scale"
+                  tone="healthy"
+                  microcopy={getCampaignDecision(campaign).microcopy}
+                  evidence={getCampaignDecision(campaign).evidence}
+                  action={getCampaignDecision(campaign).action}
+                />
+              ))}
+              {topProducts.slice(0, 2).map((product) => (
+                <DecisionClusterCard
+                  key={String(product.itemId)}
+                  title={String(product.title ?? "")}
+                  stateLabel="product"
+                  tone="opportunity"
+                  microcopy="Revenue contribution is concentrated here, which makes this product a likely scale lever."
+                  evidence={`${fmtRoas(Number(product.roas ?? 0))} ROAS · ${fmtCurrency(Number(product.revenue ?? 0))} revenue`}
+                  action="Protect and expand winning support paths"
+                />
+              ))}
+            </div>
+          </SectionCard>
+
+          <SectionCard
+            title="Budget Constraints"
+            description="Budget pressure is paired with efficiency so healthy pressure and unhealthy pressure are easy to separate."
+            className="border-amber-200 bg-amber-50/50"
+          >
+            <div className="space-y-3">
+              {scalingHeadroom.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No budget-limited winners detected in this period.</p>
+              ) : (
+                scalingHeadroom.map((row) => (
+                  <DecisionClusterCard
+                    key={String(row.id)}
+                    title={String(row.name ?? "")}
+                    stateLabel="budget"
+                    tone={Number(row.roas ?? 0) >= Number(kpis.roas ?? 0) ? "opportunity" : "warning"}
+                    microcopy={
+                      Number(row.roas ?? 0) >= Number(kpis.roas ?? 0)
+                        ? "Budget-limited but efficient."
+                        : "Budget pressure is present, but efficiency needs more proof."
+                    }
+                    evidence={`${fmtRoas(Number(row.roas ?? 0))} ROAS · ${fmtPercent(Number(row.lostIsBudget ?? 0) * 100)} lost IS`}
+                    action={
+                      Number(row.roas ?? 0) >= Number(kpis.roas ?? 0)
+                        ? "Increase budget or scale carefully"
+                        : "Fix efficiency before scaling"
+                    }
+                  />
+                ))
+              )}
+            </div>
+          </SectionCard>
+
+          <SectionCard
+            title="Waste & Inefficiency"
+            description="Where money is working against the account instead of creating scalable performance."
+            className="border-rose-200 bg-rose-50/50"
+          >
+            <div className="space-y-3">
+              {spendWaste.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No obvious spend waste hotspots surfaced for this period.</p>
+              ) : (
+                spendWaste.map((campaign) => (
+                  <DecisionClusterCard
+                    key={String(campaign.id)}
+                    title={String(campaign.name ?? "")}
+                    stateLabel="fix"
+                    tone="critical"
+                    microcopy={getCampaignDecision(campaign).microcopy}
+                    evidence={getCampaignDecision(campaign).evidence}
+                    action={getCampaignDecision(campaign).action}
+                  />
+                ))
+              )}
+            </div>
+          </SectionCard>
+
+          <SectionCard
+            title="Demand / Coverage Issues"
+            description="Coverage, dependency, and scale path signals are grouped so demand loss is easier to interpret."
+            className="border-sky-200 bg-sky-50/50"
+          >
+            <div className="space-y-3">
+              {[concentrationInsight, revenueDependencyInsight, scalePathInsight, wasteConcentrationInsight]
+                .filter(Boolean)
+                .map((insight) => (
+                  <DecisionClusterCard
+                    key={String(insight?.id)}
+                    title={String(insight?.title ?? "Coverage signal")}
+                    stateLabel="coverage"
+                    tone="opportunity"
+                    microcopy={String(insight?.description ?? "")}
+                    evidence={String(insight?.reasoning ?? "Cross-entity relationship detected.")}
+                    action="Use this signal to guide campaign and product prioritization"
+                  />
+                ))}
+            </div>
+          </SectionCard>
+
+          <SectionCard
+            title="Product Performance"
+            description="Product winners, drag, and dependency are kept together so spend and value can be judged quickly."
+            className="border-slate-200 bg-slate-50/60"
+          >
+            <div className="space-y-3">
+              <DecisionClusterCard
+                title="Product dependency"
+                stateLabel="watch"
+                tone={top3ProductSpendShare >= 50 ? "warning" : "neutral"}
+                microcopy="Revenue can still be healthy while product exposure becomes too concentrated."
+                evidence={`Top 3 products hold ${top3ProductSpendShare.toFixed(0)}% of tracked product spend`}
+                action="Make sure scale is not over-dependent on a narrow product set"
+              />
+              {topProducts.slice(0, 2).map((product) => (
+                <DecisionClusterCard
+                  key={String(product.itemId)}
+                  title={String(product.title ?? "")}
+                  stateLabel="driver"
+                  tone="healthy"
+                  microcopy="This product is currently doing real work for the account."
+                  evidence={`${fmtRoas(Number(product.roas ?? 0))} ROAS · ${fmtCurrency(Number(product.revenue ?? 0))} revenue`}
+                  action="Protect support and expand cleanly"
+                />
+              ))}
+            </div>
+          </SectionCard>
+
+          <SectionCard
+            title="Search Intent Quality"
+            description="The dedicated Search Intelligence tab carries the deepest view, but the account-level pressure is surfaced here first."
+            className="border-slate-200 bg-slate-50/60"
+          >
+            <div className="space-y-3">
+              <DecisionClusterCard
+                title="Intent quality signal"
+                stateLabel="search"
+                tone={Number(wasteSpendTotal) > 0 ? "warning" : "neutral"}
+                microcopy="Search quality should be judged by waste, conversion proof, and coverage together."
+                evidence={`${fmtCurrency(wasteSpendTotal)} waste-heavy spend · ${opportunities.length} account opportunities`}
+                action="Use Search Intelligence to tighten negatives, add winners, and align messaging"
+              />
+            </div>
+          </SectionCard>
         </div>
       </SectionCard>
     </div>
@@ -1076,125 +1640,198 @@ function CampaignsView({ rows }: { rows: Array<Record<string, any>> }) {
     test: rows.filter((row) => row.actionState === "test").length,
     reduce: rows.filter((row) => row.actionState === "reduce").length,
   };
+  const budgetPressuredHealthy = rows.filter(
+    (row) => Number(row.lostIsBudget ?? 0) > 0.15 && String(row.actionState ?? "") === "scale",
+  ).length;
+  const weakEfficiency = rows.filter(
+    (row) => String(row.actionState ?? "") === "reduce",
+  ).length;
+  const mixedSignal = rows.filter((row) => String(row.actionState ?? "") === "test").length;
 
   const campaignCols: Array<ColDef<Record<string, any>>> = [
     {
-      key: "name",
-      header: "Campaign",
+      key: "entity",
+      header: "Entity",
       accessor: (row) => String(row.name ?? ""),
+      sticky: true,
       render: (row) => (
-        <div className="max-w-[230px]">
+        <div className="min-w-[220px] max-w-[240px]">
           <p className="text-xs font-semibold">{row.name}</p>
-          <div className="mt-1 flex flex-wrap items-center gap-1">
+          <div className="mt-2 flex flex-wrap gap-1.5">
             <StatusBadge status={String(row.status ?? "")} />
-            <ActionStateBadge state={String(row.actionState ?? "optimize")} />
             <PerformanceLabelBadge label={String(row.performanceLabel ?? "stable")} />
-          </div>
-          <div className="mt-1 flex flex-wrap gap-1">
             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
               {row.channel}
             </span>
-            {Array.isArray(row.badges) && row.badges.length > 0 ? (
-              <CampaignBadges badges={row.badges as string[]} />
-            ) : null}
           </div>
         </div>
       ),
     },
     {
-      key: "mix",
-      header: "Spend vs Revenue Mix",
-      accessor: (row) => Number(row.revenueShare ?? 0) - Number(row.spendShare ?? 0),
+      key: "state",
+      header: "State",
+      accessor: (row) => String(row.actionState ?? "optimize"),
       render: (row) => (
-        <MixCell
-          spendShare={Number(row.spendShare ?? 0)}
-          revenueShare={Number(row.revenueShare ?? 0)}
-        />
+        <ActionStateBadge state={String(row.actionState ?? "optimize")} />
       ),
     },
     {
-      key: "trend",
-      header: "Trend",
-      accessor: (row) => Number(row.roasChange ?? 0),
+      key: "issue",
+      header: "Primary issue",
+      accessor: (row) => getCampaignDecision(row).issue,
       render: (row) => (
-        <div className="space-y-1">
-          {renderTrendBadge(row.roasChange)}
-          <p className="text-[10px] text-muted-foreground">
-            Rev {formatDelta(row.revenueChange)}
+        <div className="min-w-[200px] max-w-[240px]">
+          <p className="text-xs font-semibold">{getCampaignDecision(row).issue}</p>
+          <p className="mt-1 text-[10px] leading-5 text-muted-foreground">
+            {getCampaignDecision(row).microcopy}
           </p>
         </div>
       ),
     },
-    { key: "spend", header: "Spend", accessor: (row) => Number(row.spend ?? 0), align: "right", render: (row) => fmtCurrency(Number(row.spend ?? 0)) },
-    { key: "revenue", header: "Revenue", accessor: (row) => Number(row.revenue ?? 0), align: "right", render: (row) => fmtCurrency(Number(row.revenue ?? 0)) },
+    {
+      key: "action",
+      header: "Action bias",
+      accessor: (row) => getCampaignDecision(row).action,
+      render: (row) => (
+        <div className="space-y-1">
+          <span className="rounded-full bg-background px-2 py-0.5 text-[10px] font-semibold text-foreground ring-1 ring-border/70">
+            {getCampaignDecision(row).action}
+          </span>
+          <p className="text-[10px] text-muted-foreground">{getCampaignDecision(row).evidence}</p>
+        </div>
+      ),
+    },
     { key: "roas", header: "ROAS", accessor: (row) => Number(row.roas ?? 0), align: "right", render: (row) => fmtRoas(Number(row.roas ?? 0)) },
-    { key: "cpa", header: "CPA", accessor: (row) => Number(row.cpa ?? 0), align: "right", render: (row) => fmtCurrency(Number(row.cpa ?? 0)) },
-    { key: "conversions", header: "Conv.", accessor: (row) => Number(row.conversions ?? 0), align: "right", render: (row) => fmtNumber(Number(row.conversions ?? 0)) },
-    { key: "ctr", header: "CTR", accessor: (row) => Number(row.ctr ?? 0), align: "right", render: (row) => percentNumber(Number(row.ctr ?? 0)) },
     {
       key: "conversionRate",
-      header: "CVR",
+      header: "Conv Rate",
       accessor: (row) => Number(row.conversionRate ?? 0),
       align: "right",
       render: (row) => (row.conversionRate != null ? percentNumber(Number(row.conversionRate ?? 0)) : "—"),
     },
+    { key: "cpa", header: "CPA", accessor: (row) => Number(row.cpa ?? 0), align: "right", render: (row) => fmtCurrency(Number(row.cpa ?? 0)) },
+    { key: "spend", header: "Spend", accessor: (row) => Number(row.spend ?? 0), align: "right", render: (row) => fmtCurrency(Number(row.spend ?? 0)) },
+    { key: "revenue", header: "Revenue", accessor: (row) => Number(row.revenue ?? 0), align: "right", render: (row) => fmtCurrency(Number(row.revenue ?? 0)) },
+    { key: "conversions", header: "Conv.", accessor: (row) => Number(row.conversions ?? 0), align: "right", render: (row) => fmtNumber(Number(row.conversions ?? 0)) },
+    { key: "ctr", header: "CTR", accessor: (row) => Number(row.ctr ?? 0), align: "right", render: (row) => percentNumber(Number(row.ctr ?? 0)) },
+    { key: "cpc", header: "CPC", accessor: (row) => Number(row.cpc ?? 0), align: "right", render: (row) => fmtCurrency(Number(row.cpc ?? 0)) },
     {
       key: "impressionShare",
-      header: "IS",
+      header: "Search IS",
       accessor: (row) => Number(row.impressionShare ?? 0),
       align: "right",
       render: (row) => (row.impressionShare != null ? fmtPercent(Number(row.impressionShare ?? 0) * 100) : "—"),
+    },
+    {
+      key: "lostIsBudget",
+      header: "Lost IS (Budget)",
+      accessor: (row) => Number(row.lostIsBudget ?? 0),
+      align: "right",
+      render: (row) => fmtPercent(Number(row.lostIsBudget ?? 0) * 100),
+    },
+    {
+      key: "mix",
+      header: "Share Mix",
+      accessor: (row) => Number(row.revenueShare ?? 0) - Number(row.spendShare ?? 0),
+      render: (row) => (
+        <div className="space-y-1">
+          <MixCell
+            spendShare={Number(row.spendShare ?? 0)}
+            revenueShare={Number(row.revenueShare ?? 0)}
+          />
+          <p className="text-[10px] text-muted-foreground">
+            {Number(row.revenueShare ?? 0) >= Number(row.spendShare ?? 0)
+              ? "Revenue share supports spend"
+              : "Spend share is ahead of value"}
+          </p>
+        </div>
+      ),
+    },
+    {
+      key: "trend",
+      header: "Secondary",
+      accessor: (row) => Number(row.roasChange ?? 0),
+      render: (row) => (
+        <div className="space-y-1">
+          {renderTrendBadge(row.roasChange)}
+          <p className="text-[10px] text-muted-foreground">Rev {formatDelta(row.revenueChange)}</p>
+        </div>
+      ),
     },
   ];
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
         <InsightStrip title="Scale" value={String(counts.scale)} note="High-return campaigns with headroom" tone="good" />
         <InsightStrip title="Optimize" value={String(counts.optimize)} note="Solid performers with room to tune" />
         <InsightStrip title="Test" value={String(counts.test)} note="Needs more signal or cleaner structure" />
         <InsightStrip title="Reduce" value={String(counts.reduce)} note="Spend is outrunning value" tone="bad" />
+        <InsightStrip title="Healthy pressure" value={String(budgetPressuredHealthy)} note="Budget-limited but otherwise healthy" tone="good" />
+        <InsightStrip title="Efficiency risk" value={String(weakEfficiency + mixedSignal)} note="Rows needing fix or tighter test logic" tone="bad" />
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-2">
-        <SectionCard title="Scale Now" description="Campaigns combining efficiency with clear room to grow.">
+      <div className="grid gap-4 xl:grid-cols-3">
+        <SectionCard title="Scale Now" description="Budget pressure is shown with healthy efficiency so you can trust the push.">
           <div className="space-y-3">
             {rows.filter((row) => row.actionState === "scale").slice(0, 4).map((row) => (
-              <div key={String(row.id)} className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-semibold text-emerald-900">{row.name}</p>
-                    <p className="text-[11px] text-emerald-700">
-                      {fmtRoas(Number(row.roas ?? 0))} ROAS · {fmtPercent(Number(row.lostIsBudget ?? 0) * 100)} lost to budget
-                    </p>
-                  </div>
-                  {renderTrendBadge(row.revenueChange)}
-                </div>
-              </div>
+              <DecisionClusterCard
+                key={String(row.id)}
+                title={String(row.name ?? "")}
+                stateLabel="scale"
+                tone="healthy"
+                microcopy={getCampaignDecision(row).microcopy}
+                evidence={getCampaignDecision(row).evidence}
+                action={getCampaignDecision(row).action}
+              />
             ))}
           </div>
         </SectionCard>
 
-        <SectionCard title="Reduce Or Rebuild" description="Campaigns where spend share is ahead of revenue share.">
+        <SectionCard title="Reduce Or Rebuild" description="These rows are explicitly grouped as efficiency problems, not just weak numbers.">
           <div className="space-y-3">
             {rows.filter((row) => row.actionState === "reduce").slice(0, 4).map((row) => (
-              <div key={String(row.id)} className="rounded-xl border border-rose-200 bg-rose-50 p-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-semibold text-rose-900">{row.name}</p>
-                    <p className="text-[11px] text-rose-700">
-                      Spend share {row.spendShare}% vs revenue share {row.revenueShare}%
-                    </p>
-                  </div>
-                  <ActionStateBadge state="reduce" />
-                </div>
-              </div>
+              <DecisionClusterCard
+                key={String(row.id)}
+                title={String(row.name ?? "")}
+                stateLabel="reduce"
+                tone="critical"
+                microcopy={getCampaignDecision(row).microcopy}
+                evidence={getCampaignDecision(row).evidence}
+                action={getCampaignDecision(row).action}
+              />
             ))}
+          </div>
+        </SectionCard>
+
+        <SectionCard title="Watch And Test" description="Mixed-signal rows keep their nuance, but the likely reason and next move are now adjacent.">
+          <div className="space-y-3">
+            {rows
+              .filter((row) => ["optimize", "test"].includes(String(row.actionState ?? "")))
+              .slice(0, 4)
+              .map((row) => (
+                <DecisionClusterCard
+                  key={String(row.id)}
+                  title={String(row.name ?? "")}
+                  stateLabel={String(row.actionState ?? "optimize")}
+                  tone="warning"
+                  microcopy={getCampaignDecision(row).microcopy}
+                  evidence={getCampaignDecision(row).evidence}
+                  action={getCampaignDecision(row).action}
+                />
+              ))}
           </div>
         </SectionCard>
       </div>
 
-      <SectionCard title="Campaign Intelligence" description="Performance labels, share-of-wallet context, trend signals, and scale state in one view.">
+      <SectionCard title="Section 4 — Campaign Decision Table" description="Rows now read left to right as entity, state, issue, action, then supporting metrics so users can understand direction before parsing the full metric block.">
+        <div className="mb-4 grid gap-2 rounded-2xl border border-border/70 bg-muted/20 p-3 md:grid-cols-5">
+          <MiniStat label="Interpretation" value="Entity • State • Issue • Action" />
+          <MiniStat label="Efficiency" value="ROAS • Conv Rate • CPA" />
+          <MiniStat label="Revenue" value="Spend • Revenue • Conversions" />
+          <MiniStat label="Demand" value="CTR • CPC • Search IS • Lost IS" />
+          <MiniStat label="Secondary" value="Share mix • Trend" />
+        </div>
         <SimpleTable cols={campaignCols} rows={rows} defaultSort="spend" />
       </SectionCard>
     </div>
@@ -1218,22 +1855,29 @@ function SearchIntelligenceView({
 
   const clusterCols: Array<ColDef<Record<string, any>>> = [
     {
-      key: "cluster",
-      header: "Intent Cluster",
+      key: "decision",
+      header: "Interpretation",
       accessor: (row) => String(row.cluster ?? ""),
+      sticky: true,
       render: (row) => (
-        <div className="max-w-[220px]">
-          <p className="text-xs font-semibold">{row.cluster}</p>
-          <div className="mt-1 flex flex-wrap gap-1">
-            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold capitalize text-slate-700">
-              {row.intent}
-            </span>
-            <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
-              {row.state}
-            </span>
-          </div>
-          <p className="mt-1 text-[10px] text-muted-foreground">{row.examples?.join(", ")}</p>
-        </div>
+        <InterpretationCell
+          title={String(row.cluster ?? "")}
+          state={getSearchDecision(row).state}
+          issue={getSearchDecision(row).issue}
+          microcopy={getSearchDecision(row).microcopy}
+          evidence={`${fmtCurrency(Number(row.spend ?? 0))} spend • ${fmtRoas(Number(row.roas ?? 0))}`}
+          action={getSearchDecision(row).action}
+          meta={
+            <>
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold capitalize text-slate-700">
+                {row.intent}
+              </span>
+              <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                {row.state}
+              </span>
+            </>
+          }
+        />
       ),
     },
     { key: "spend", header: "Spend", accessor: (row) => Number(row.spend ?? 0), align: "right", render: (row) => fmtCurrency(Number(row.spend ?? 0)) },
@@ -1310,6 +1954,33 @@ function SearchIntelligenceView({
       </div>
 
       <div className="grid gap-4 xl:grid-cols-3">
+        <DecisionClusterCard
+          title="Search quality risk"
+          stateLabel="waste"
+          tone={Number(summary.wastefulSpend ?? 0) > 0 ? "critical" : "neutral"}
+          microcopy="Waste and negative-keyword opportunities are grouped together so leakage is visible before you inspect individual queries."
+          evidence={`${fmtCurrency(Number(summary.wastefulSpend ?? 0))} wasteful spend • ${fmtNumber(Number(summary.negativeKeywordCount ?? 0))} negative candidates`}
+          action="Trim low-intent traffic"
+        />
+        <DecisionClusterCard
+          title="Coverage opportunity"
+          stateLabel="scale"
+          tone={Number(summary.keywordOpportunityCount ?? 0) > 0 ? "opportunity" : "neutral"}
+          microcopy="Converting search demand that is still outside direct keyword control should be promoted faster."
+          evidence={`${fmtNumber(Number(summary.keywordOpportunityCount ?? 0))} exact-match adds • ${fmtNumber(Number(summary.emergingThemeCount ?? 0))} emerging themes`}
+          action="Add coverage deliberately"
+        />
+        <DecisionClusterCard
+          title="Messaging alignment"
+          stateLabel="message"
+          tone={Number(summary.promotionSuggestionCount ?? 0) > 0 ? "healthy" : "neutral"}
+          microcopy="Winning language deserves faster reuse in ads and landing paths so demand quality is not lost between query and message."
+          evidence={`${fmtNumber(Number(summary.promotionSuggestionCount ?? 0))} promotion suggestions`}
+          action="Echo winning search language"
+        />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-3">
         <SectionCard title="Cluster To Product Alignment" description="Best-effort mapping between search demand and likely product support.">
           <div className="space-y-3">
             {clusterProductInsights.map((insight) => (
@@ -1361,7 +2032,7 @@ function SearchIntelligenceView({
         </SectionCard>
       </div>
 
-      <SectionCard title="Intent Clusters" description="Grouped search demand so teams can see patterns, not just raw rows.">
+      <SectionCard title="Intent Clusters" description="The left side now tells you whether a cluster is a waste problem, coverage opportunity, or test candidate before the supporting metrics.">
         <SimpleTable
           cols={clusterCols}
           rows={(insights.clusters ?? []) as Array<Record<string, any>>}
@@ -1374,13 +2045,20 @@ function SearchIntelligenceView({
           cols={[
             {
               key: "searchTerm",
-              header: "Query",
+              header: "Query + action",
               accessor: (row) => String(row.searchTerm ?? ""),
+              sticky: true,
               render: (row) => (
-                <div className="max-w-[220px]">
+                <div className="min-w-[260px] max-w-[300px]">
                   <p className="text-xs font-semibold">{row.searchTerm}</p>
                   <p className="text-[10px] text-muted-foreground">
                     {row.campaign} · {row.matchSource}
+                  </p>
+                  <p className="mt-1 text-[10px] font-medium text-foreground">
+                    {getSearchDecision(row).issue}
+                  </p>
+                  <p className="mt-1 text-[10px] text-muted-foreground">
+                    {getSearchDecision(row).action}
                   </p>
                 </div>
               ),
@@ -1859,6 +2537,10 @@ function ProductsView({
   const productSupportInsights = crossEntityInsights
     .filter((insight) => insight.type === "product_support")
     .slice(0, 4);
+  const hiddenWinners = ((insights.hiddenWinners ?? []) as Array<Record<string, any>>).slice(0, 4);
+  const spendWithoutReturn = ((insights.spendWithoutReturn ?? insights.lowReturnProducts ?? []) as Array<Record<string, any>>).slice(0, 4);
+  const topRevenueProducts = ((insights.topRevenueProducts ?? []) as Array<Record<string, any>>).slice(0, 4);
+  const scaleCandidates = ((insights.scaleCandidates ?? []) as Array<Record<string, any>>).slice(0, 4);
 
   return (
     <div className="space-y-6">
@@ -1868,6 +2550,33 @@ function ProductsView({
         <MetricCard label="Scale Candidates" value={fmtNumber(Number(summary.scaleCandidates ?? 0))} sublabel="Products with strong return" />
         <MetricCard label="Hidden Winners" value={fmtNumber(Number(summary.hiddenWinnerCount ?? 0))} sublabel="High-return products with low current exposure" />
         <MetricCard label="Top 3 Concentration" value={`${Number(summary.spendConcentrationTop3 ?? 0) * 100}%`} sublabel="Dependency risk across leading products" />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-3">
+        <DecisionClusterCard
+          title="Scale candidates"
+          stateLabel="scale"
+          tone={scaleCandidates.length > 0 ? "healthy" : "neutral"}
+          microcopy="These products are earning the right to more demand because return is keeping up with or outrunning exposure."
+          evidence={`${scaleCandidates.length} products flagged for scale`}
+          action="Protect and expand winning product paths"
+        />
+        <DecisionClusterCard
+          title="Product drag"
+          stateLabel="reduce"
+          tone={spendWithoutReturn.length > 0 ? "critical" : "neutral"}
+          microcopy="These products are consuming spend without enough downstream value, which can hide healthier scale paths."
+          evidence={`${spendWithoutReturn.length} low-return products needing review`}
+          action="Trim or fix weak support paths"
+        />
+        <DecisionClusterCard
+          title="Hidden winners"
+          stateLabel="opportunity"
+          tone={hiddenWinners.length > 0 ? "opportunity" : "neutral"}
+          microcopy="Some products are efficient but still underexposed, which means budget trust is lagging behind performance proof."
+          evidence={`${hiddenWinners.length} products with strong return but low spend share`}
+          action="Increase exposure carefully"
+        />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-3">
@@ -1884,7 +2593,7 @@ function ProductsView({
 
         <SectionCard title="Top Revenue Products" description="Products creating the most value from paid demand.">
           <div className="space-y-3">
-            {(insights.topRevenueProducts ?? []).slice(0, 4).map((row: Record<string, any>) => (
+            {topRevenueProducts.map((row: Record<string, any>) => (
               <div key={String(row.itemId)} className="rounded-xl border p-3">
                 <p className="text-xs font-semibold">{row.title}</p>
                 <p className="mt-1 text-[11px] text-muted-foreground">
@@ -1896,7 +2605,7 @@ function ProductsView({
         </SectionCard>
         <SectionCard title="Spend Without Return" description="Products spending enough to justify review or budget cuts.">
           <div className="space-y-3">
-            {((insights.spendWithoutReturn ?? insights.lowReturnProducts ?? []) as Array<Record<string, any>>).slice(0, 4).map((row: Record<string, any>) => (
+            {spendWithoutReturn.map((row: Record<string, any>) => (
               <div key={String(row.itemId)} className="rounded-xl border border-rose-200 bg-rose-50 p-3">
                 <p className="text-xs font-semibold text-rose-900">{row.title}</p>
                 <p className="mt-1 text-[11px] text-rose-700">
@@ -1908,7 +2617,7 @@ function ProductsView({
         </SectionCard>
         <SectionCard title="Scale Candidates" description="Products with strong return and room for more demand.">
           <div className="space-y-3">
-            {(insights.scaleCandidates ?? []).slice(0, 4).map((row: Record<string, any>) => (
+            {scaleCandidates.map((row: Record<string, any>) => (
               <div key={String(row.itemId)} className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
                 <p className="text-xs font-semibold text-emerald-900">{row.title}</p>
                 <p className="mt-1 text-[11px] text-emerald-700">
@@ -1920,7 +2629,7 @@ function ProductsView({
         </SectionCard>
         <SectionCard title="Hidden Winners" description="High-ROAS products that still hold a small share of spend.">
           <div className="space-y-3">
-            {(insights.hiddenWinners ?? []).slice(0, 4).map((row: Record<string, any>) => (
+            {hiddenWinners.map((row: Record<string, any>) => (
               <div key={String(row.itemId)} className="rounded-xl border border-sky-200 bg-sky-50 p-3">
                 <p className="text-xs font-semibold text-sky-900">{row.title}</p>
                 <p className="mt-1 text-[11px] text-sky-700">
@@ -1932,22 +2641,44 @@ function ProductsView({
         </SectionCard>
       </div>
 
-      <SectionCard title="Product Intelligence" description="Which products are really receiving spend, value, and budget trust.">
+      <SectionCard title="Product Intelligence" description="Rows now lead with product state, why it matters, and the action bias before the economics table.">
         <SimpleTable
           cols={[
             {
-              key: "title",
-              header: "Product",
+              key: "decision",
+              header: "Interpretation",
               accessor: (row) => String(row.title ?? ""),
+              sticky: true,
               render: (row) => (
-                <div className="max-w-[220px]">
-                  <p className="text-xs font-semibold">{row.title}</p>
-                  <p className="mt-1 text-[10px] text-muted-foreground">
-                    {row.productId ?? row.itemId} · {fmtNumber(Number(row.orders ?? row.conversions ?? 0))} orders
+                <InterpretationCell
+                  title={String(row.title ?? "")}
+                  state={String(row.statusLabel ?? "optimize")}
+                  issue={getProductDecision(row).issue}
+                  microcopy={getProductDecision(row).microcopy}
+                  evidence={getProductDecision(row).evidence}
+                  action={getProductDecision(row).action}
+                  meta={
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                      {row.productId ?? row.itemId} • {fmtNumber(Number(row.orders ?? row.conversions ?? 0))} orders
+                    </span>
+                  }
+                />
+              ),
+            },
+            {
+              key: "shareMix",
+              header: "Exposure vs value",
+              accessor: (row) => Number(row.revenueShare ?? 0) - Number(row.spendShare ?? 0),
+              render: (row) => (
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold">
+                    {Number(row.spendShare ?? 0).toFixed(1)}% spend • {Number(row.revenueShare ?? 0).toFixed(1)}% revenue
                   </p>
-                  <div className="mt-1">
-                    <ActionStateBadge state={String(row.statusLabel ?? "stable")} />
-                  </div>
+                  <p className="text-[10px] text-muted-foreground">
+                    {Number(row.revenueShare ?? 0) >= Number(row.spendShare ?? 0)
+                      ? "Value share is keeping up"
+                      : "Exposure is ahead of value"}
+                  </p>
                 </div>
               ),
             },
@@ -2130,6 +2861,12 @@ function BudgetScalingView({
   const scaleProducts = products.filter((row) => row.statusLabel === "scale").slice(0, 3);
   const reduceProducts = products.filter((row) => row.statusLabel === "reduce").slice(0, 3);
   const totalSpend = Number(budgetSummary.totalSpend ?? 0);
+  const budgetLimitedHealthy = budgetRows.filter(
+    (row) => Number(row.lostIsBudget ?? 0) > 0.15 && Number(row.roas ?? 0) >= Number(budgetSummary.accountAvgRoas ?? 0),
+  ).length;
+  const budgetRiskRows = budgetRows.filter(
+    (row) => Number(row.lostIsBudget ?? 0) > 0.15 && Number(row.roas ?? 0) < Number(budgetSummary.accountAvgRoas ?? 0),
+  ).length;
 
   return (
     <div className="space-y-6">
@@ -2139,6 +2876,33 @@ function BudgetScalingView({
         <MetricCard label="Scale Now" value={fmtNumber(Number(budgetSummary.scaleCampaignCount ?? scaleCampaigns.length) + scaleProducts.length)} sublabel="Campaigns and products with headroom" />
         <MetricCard label="Reduce Now" value={fmtNumber(Number(budgetSummary.budgetSinkCount ?? reduceCampaigns.length) + reduceProducts.length)} sublabel="Inefficient budget concentration" />
         <MetricCard label="Balanced" value={fmtNumber(Number(budgetSummary.stableCampaignCount ?? balancedCampaigns.length))} sublabel="Campaigns holding an efficient share mix" />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-3">
+        <DecisionClusterCard
+          title="Healthy budget pressure"
+          stateLabel="scale"
+          tone={budgetLimitedHealthy > 0 ? "healthy" : "neutral"}
+          microcopy="These campaigns are limited by budget, but efficiency is still strong enough that pressure is a good sign, not a warning sign."
+          evidence={`${budgetLimitedHealthy} campaigns budget-limited above account-average ROAS`}
+          action="Lean into scale tests"
+        />
+        <DecisionClusterCard
+          title="Budget pressure with weak efficiency"
+          stateLabel="fix"
+          tone={budgetRiskRows > 0 ? "critical" : "neutral"}
+          microcopy="Not all pressure is healthy. Some campaigns are losing share while also failing to earn incremental budget trust."
+          evidence={`${budgetRiskRows} campaigns constrained below average efficiency`}
+          action="Fix return before adding spend"
+        />
+        <DecisionClusterCard
+          title="Budget concentration"
+          stateLabel="watch"
+          tone={totalSpend > 0 ? "warning" : "neutral"}
+          microcopy="Budget pooling matters most when it concentrates in weak return pockets or starves emerging winners."
+          evidence={`${fmtCurrency(totalSpend)} tracked spend across ${budgetRows.length} campaigns`}
+          action="Rebalance toward proven drivers"
+        />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-3">
@@ -2198,22 +2962,35 @@ function BudgetScalingView({
         </SectionCard>
       </div>
 
-      <SectionCard title="Spend Concentration" description="Where campaign budget is currently pooling.">
+      <SectionCard title="Spend Concentration" description="Budget share now sits beside efficiency context so pressure can be read as healthy, risky, or balanced without hunting elsewhere.">
         <div className="space-y-4">
           {budgetRows.slice(0, 8).map((row) => {
             const share = totalSpend > 0 ? (Number(row.spend ?? 0) / totalSpend) * 100 : 0;
+            const healthyPressure =
+              Number(row.lostIsBudget ?? 0) > 0.15 &&
+              Number(row.roas ?? 0) >= Number(budgetSummary.accountAvgRoas ?? 0);
             return (
-              <div key={String(row.id)} className="flex items-center gap-4">
-                <div className="min-w-0 flex-1">
-                  <div className="mb-1 flex items-center justify-between text-xs">
-                    <span className="truncate">{row.name}</span>
-                    <span className="text-muted-foreground">{share.toFixed(1)}%</span>
+              <div key={String(row.id)} className="rounded-2xl border border-border/70 bg-background/70 p-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="min-w-0 flex-1">
+                    <div className="mb-1 flex items-center justify-between gap-3 text-xs">
+                      <span className="truncate font-semibold">{row.name}</span>
+                      <span className="text-muted-foreground">{share.toFixed(1)}%</span>
+                    </div>
+                    <p className="mb-2 text-[11px] text-muted-foreground">
+                      {healthyPressure
+                        ? "Healthy efficiency, but budget constrained."
+                        : Number(row.roas ?? 0) >= Number(budgetSummary.accountAvgRoas ?? 0)
+                          ? "Balanced efficiency with moderate scale room."
+                          : "Budget is concentrated where efficiency is weaker."}
+                    </p>
+                    <SpendBar value={Number(row.spend ?? 0)} max={totalSpend} />
                   </div>
-                  <SpendBar value={Number(row.spend ?? 0)} max={totalSpend} />
-                </div>
-                <div className="w-20 text-right text-xs">
-                  <p>{fmtCurrency(Number(row.spend ?? 0))}</p>
-                  <p className="text-muted-foreground">{fmtRoas(Number(row.roas ?? 0))}</p>
+                  <div className="grid gap-2 sm:grid-cols-3 lg:w-[360px]">
+                    <MiniStat label="Spend" value={fmtCurrency(Number(row.spend ?? 0))} />
+                    <MiniStat label="ROAS" value={fmtRoas(Number(row.roas ?? 0))} />
+                    <MiniStat label="Budget loss" value={fmtPercent(Number(row.lostIsBudget ?? 0) * 100)} />
+                  </div>
                 </div>
               </div>
             );
@@ -2410,6 +3187,8 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
     start: defaultCompareWindow.startDate,
     end: defaultCompareWindow.endDate,
   });
+  const [campaignTypeFilter, setCampaignTypeFilter] = useState("all");
+  const [accountFilter, setAccountFilter] = useState("all");
 
   const applyDateRange = (nextRange: DateRange) => {
     setDateRange(nextRange);
@@ -2436,6 +3215,8 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
     setCompareMode("previous_period");
     setCompareStart(defaultCompareWindow.startDate);
     setCompareEnd(defaultCompareWindow.endDate);
+    setCampaignTypeFilter("all");
+    setAccountFilter("all");
   };
 
   const rangeParams =
@@ -2587,12 +3368,46 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
   const deviceRows = firstRows(devicesQ.data);
   const budgetRows = firstRows(budgetQ.data);
   const opportunityRows = firstRows(opportunitiesQ.data);
+  const accountOptions = Array.from(
+    new Set(campaigns.map((row) => getRowAccountLabel(row)).filter((value) => value && value !== "All accounts")),
+  ).sort((a, b) => a.localeCompare(b));
+  const campaignTypeOptions = Array.from(
+    new Set(campaigns.map((row) => getRowCampaignType(row)).filter((value) => value && value !== "All campaign types")),
+  ).sort((a, b) => a.localeCompare(b));
+
+  const matchesWorkspaceFilters = (row: Record<string, any>) => {
+    const matchesAccount =
+      accountFilter === "all" || getRowAccountLabel(row) === accountFilter;
+    const matchesType =
+      campaignTypeFilter === "all" || getRowCampaignType(row) === campaignTypeFilter;
+    return matchesAccount && matchesType;
+  };
+
+  const filteredCampaigns = campaigns.filter(matchesWorkspaceFilters);
+  const filteredSearchRows = searchRows.filter(matchesWorkspaceFilters);
+  const filteredKeywordRows = keywordRows.filter(matchesWorkspaceFilters);
+  const filteredAssetRows = assetRows.filter(matchesWorkspaceFilters);
+  const filteredAssetGroupRows = assetGroupRows.filter(matchesWorkspaceFilters);
+  const filteredProductRows = productRows.filter(matchesWorkspaceFilters);
+  const filteredAudienceRows = audienceRows.filter(matchesWorkspaceFilters);
+  const filteredGeoRows = geoRows.filter(matchesWorkspaceFilters);
+  const filteredDeviceRows = deviceRows.filter(matchesWorkspaceFilters);
+  const filteredBudgetRows = budgetRows.filter(matchesWorkspaceFilters);
+  const filteredOpportunityRows = opportunityRows.filter((row) => {
+    if (accountFilter === "all" && campaignTypeFilter === "all") return true;
+    const haystack = JSON.stringify(row).toLowerCase();
+    const accountOk =
+      accountFilter === "all" || haystack.includes(accountFilter.toLowerCase());
+    const typeOk =
+      campaignTypeFilter === "all" || haystack.includes(campaignTypeFilter.toLowerCase());
+    return accountOk && typeOk;
+  });
   const crossEntity = buildCrossEntityIntelligence({
-    campaigns,
-    products: productRows,
-    assets: assetRows,
-    assetGroups: assetGroupRows,
-    searchTerms: searchRows,
+    campaigns: filteredCampaigns,
+    products: filteredProductRows,
+    assets: filteredAssetRows,
+    assetGroups: filteredAssetGroupRows,
+    searchTerms: filteredSearchRows,
   });
 
   const activeMeta =
@@ -2670,32 +3485,136 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
       ? opportunitiesQ.isLoading
       : diagnosticsQ.isLoading;
 
+  const activeTabGuide: Record<TabId, { title: string; body: string }> = {
+    overview: {
+      title: "Start with the account decision clusters",
+      body: "Scan budget pressure, waste, scale paths, and concentration together before diving into the supporting tables below.",
+    },
+    campaigns: {
+      title: "Read state before metrics",
+      body: "Each campaign now leads with issue, action bias, and evidence so you can judge health before parsing the full metric block.",
+    },
+    "search-intelligence": {
+      title: "Intent quality first",
+      body: "Search term rows now pair intent classification with the likely action so waste, coverage gaps, and winning demand are easier to separate.",
+    },
+    keywords: {
+      title: "Keyword management stays deep",
+      body: "The emphasis remains on quality, return, and control, but the surrounding summaries help explain where to scale, fix, or suppress.",
+    },
+    assets: {
+      title: "Creative issues sit next to action",
+      body: "Weak asset support and expansion paths are grouped more tightly so message problems are easier to act on.",
+    },
+    "asset-groups": {
+      title: "Coverage and performance stay connected",
+      body: "Theme mismatch, coverage gaps, and scale readiness are clustered so PMax interpretation takes fewer jumps.",
+    },
+    products: {
+      title: "Product contribution is easier to judge",
+      body: "Products now surface state, support, and exposure context before the raw economics, which reduces row-by-row decoding.",
+    },
+    audiences: {
+      title: "Audience nuance is preserved",
+      body: "The view keeps depth while prioritizing which segments deserve protection, caution, or expansion.",
+    },
+    "geo-devices": {
+      title: "Geo and device read as levers",
+      body: "Top and weak regions remain available, but the interpretation path is cleaner for quick adjustment decisions.",
+    },
+    "budget-scaling": {
+      title: "Budget pressure is now read with efficiency",
+      body: "Scale candidates, waste sinks, and balanced campaigns are grouped so you can tell whether pressure is healthy or dangerous at a glance.",
+    },
+    opportunities: {
+      title: "Opportunity triage stays actionable",
+      body: "The recommendation set is still deep, but grouped to highlight what matters first and why.",
+    },
+    diagnostics: {
+      title: "Trust and limitations stay explicit",
+      body: "Diagnostics still surface partial data and query issues, but the hierarchy is calmer and easier to scan.",
+    },
+  };
+
+  const handleExport = () => {
+    const payload =
+      activeTab === "overview"
+        ? {
+            campaigns: filteredCampaigns,
+            budget: filteredBudgetRows,
+            products: filteredProductRows,
+            opportunities: filteredOpportunityRows,
+          }
+        : activeTab === "campaigns"
+          ? filteredCampaigns
+          : activeTab === "search-intelligence"
+            ? filteredSearchRows
+            : activeTab === "keywords"
+              ? filteredKeywordRows
+              : activeTab === "assets"
+                ? filteredAssetRows
+                : activeTab === "asset-groups"
+                  ? filteredAssetGroupRows
+                  : activeTab === "products"
+                    ? filteredProductRows
+                    : activeTab === "audiences"
+                      ? filteredAudienceRows
+                      : activeTab === "geo-devices"
+                        ? { geo: filteredGeoRows, devices: filteredDeviceRows }
+                        : activeTab === "budget-scaling"
+                          ? filteredBudgetRows
+                          : activeTab === "opportunities"
+                            ? filteredOpportunityRows
+                            : diagnosticsQ.data ?? {};
+
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `google-ads-${activeTab}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="space-y-4">
       <div className="space-y-3">
-        <div className="rounded-xl border bg-card px-3 py-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-base font-semibold tracking-tight">Google Ads Intelligence</h1>
+        <div className="sticky top-0 z-20 rounded-2xl border border-border/70 bg-card/95 px-3 py-3 shadow-sm backdrop-blur">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div className="space-y-1">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                Command Bar
+              </p>
+              <h1 className="text-base font-semibold tracking-tight">
+                Google Ads Management Workspace
+              </h1>
+            </div>
 
-            <DateRangeToolbarPopover
-              open={customRangeOpen}
-              onOpenChange={setCustomRangeOpen}
-              currentDateRange={dateRange}
-              customStart={customStart}
-              customEnd={customEnd}
-              onApply={({ preset, start, end }) => {
-                if (preset === "today" || preset === "yesterday" || preset === "custom") {
-                  setDateRange("custom");
-                  setCustomStart(start);
-                  setCustomEnd(end);
-                  return;
-                }
-                setDateRange(preset as DateRange);
-              }}
-            />
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex items-center gap-2 rounded-full border bg-background px-3 py-1.5 text-xs font-medium text-foreground">
+                <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+                <span>Date range</span>
+              </div>
 
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-medium text-muted-foreground">Compare:</span>
+              <DateRangeToolbarPopover
+                open={customRangeOpen}
+                onOpenChange={setCustomRangeOpen}
+                currentDateRange={dateRange}
+                customStart={customStart}
+                customEnd={customEnd}
+                onApply={({ preset, start, end }) => {
+                  if (preset === "today" || preset === "yesterday" || preset === "custom") {
+                    setDateRange("custom");
+                    setCustomStart(start);
+                    setCustomEnd(end);
+                    return;
+                  }
+                  setDateRange(preset as DateRange);
+                }}
+              />
+
               <select
                 value={compareMode}
                 onChange={(event) => applyCompareMode(event.target.value as CompareMode)}
@@ -2707,7 +3626,32 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                   </option>
                 ))}
               </select>
-            </div>
+
+              <select
+                value={campaignTypeFilter}
+                onChange={(event) => setCampaignTypeFilter(event.target.value)}
+                className="h-8 min-w-[168px] rounded-full border bg-background px-3 text-xs font-medium"
+              >
+                <option value="all">All campaign types</option>
+                {campaignTypeOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={accountFilter}
+                onChange={(event) => setAccountFilter(event.target.value)}
+                className="h-8 min-w-[168px] rounded-full border bg-background px-3 text-xs font-medium"
+              >
+                <option value="all">All accounts</option>
+                {accountOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
 
             {compareMode === "custom" ? (
               <Popover.Root
@@ -2797,15 +3741,53 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
             ) : null}
 
             <button
+              type="button"
+              onClick={handleExport}
+              className="inline-flex h-8 items-center gap-1 rounded-full border bg-background px-3 text-[11px] font-semibold text-foreground transition-colors hover:border-foreground/40"
+            >
+              <Download className="h-3.5 w-3.5 text-muted-foreground" />
+              Export
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab("overview");
+                requestAnimationFrame(() => {
+                  document.getElementById("ai-tasks-today")?.scrollIntoView({
+                    behavior: "smooth",
+                    block: "start",
+                  });
+                });
+              }}
+              className="inline-flex h-8 items-center gap-1 rounded-full bg-foreground px-3 text-[11px] font-semibold text-background"
+            >
+              <Bot className="h-3.5 w-3.5" />
+              AI Assistant
+            </button>
+
+            <button
+              type="button"
               onClick={resetControls}
               className="h-8 rounded-full border px-3 text-[11px] font-semibold text-muted-foreground transition-colors hover:border-foreground/40 hover:text-foreground"
-            >
-              Reset filters
-            </button>
-          </div>
-        </div>
+	            >
+	              Reset filters
+	            </button>
+	          </div>
+	        </div>
+	      </div>
 
-        <div className="rounded-2xl border bg-card px-3 py-2.5">
+	        <div className="rounded-2xl border bg-card px-3 py-2.5">
+          <div className="mb-3 flex items-center justify-between gap-3 px-1">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                Analysis Workspace
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Deep analysis modules for campaigns, search terms, products, assets, audience, and diagnostics.
+              </p>
+            </div>
+          </div>
           <div className="grid gap-2 xl:grid-cols-4">
             {TAB_GROUPS.map((group) => (
               <div key={group.label}>
@@ -2837,6 +3819,26 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
             ))}
           </div>
         </div>
+
+        <div className="rounded-2xl border border-border/70 bg-gradient-to-r from-card via-card to-muted/20 px-4 py-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            Scan guide
+          </p>
+          <div className="mt-2 flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold tracking-tight">
+                {activeTabGuide[activeTab].title}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                {activeTabGuide[activeTab].body}
+              </p>
+            </div>
+            <HealthBadge
+              state={activeMeta.failed_queries.length > 0 ? "critical" : activeMeta.warnings.length > 0 ? "warning" : "healthy"}
+              label={activeMeta.failed_queries.length > 0 ? "Issues present" : activeMeta.warnings.length > 0 ? "Partial data" : "Healthy data"}
+            />
+          </div>
+        </div>
       </div>
 
       <QueryIssueBanner meta={activeMeta} />
@@ -2854,64 +3856,64 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
       ) : activeTab === "overview" ? (
         <OverviewView
           overview={overviewQ.data}
-          campaigns={campaigns}
-          opportunities={opportunityRows}
-          budget={budgetRows}
-          products={productRows}
+          campaigns={filteredCampaigns}
+          opportunities={filteredOpportunityRows}
+          budget={filteredBudgetRows}
+          products={filteredProductRows}
           crossEntityInsights={crossEntity.rows}
         />
       ) : activeTab === "campaigns" ? (
-        <CampaignsView rows={campaigns} />
+        <CampaignsView rows={filteredCampaigns} />
       ) : activeTab === "search-intelligence" ? (
         <SearchIntelligenceView
-          rows={searchRows}
+          rows={filteredSearchRows}
           summary={(searchIntelligenceQ.data?.summary ?? {}) as Record<string, any>}
           insights={(searchIntelligenceQ.data?.insights ?? {}) as Record<string, any>}
           crossEntityInsights={crossEntity.rows}
         />
       ) : activeTab === "keywords" ? (
         <KeywordsView
-          rows={keywordRows}
+          rows={filteredKeywordRows}
           summary={(keywordsQ.data?.summary ?? {}) as Record<string, any>}
           insights={(keywordsQ.data?.insights ?? {}) as Record<string, any>}
         />
       ) : activeTab === "assets" ? (
         <AssetsView
-          rows={assetRows}
+          rows={filteredAssetRows}
           summary={(assetsQ.data?.summary ?? {}) as Record<string, any>}
           insights={(assetsQ.data?.insights ?? {}) as Record<string, any>}
         />
       ) : activeTab === "asset-groups" ? (
         <AssetGroupsView
-          rows={assetGroupRows}
+          rows={filteredAssetGroupRows}
           summary={(assetGroupsQ.data?.summary ?? {}) as Record<string, any>}
           insights={(assetGroupsQ.data?.insights ?? {}) as Record<string, any>}
           crossEntityInsights={crossEntity.rows}
         />
       ) : activeTab === "products" ? (
         <ProductsView
-          rows={productRows}
+          rows={filteredProductRows}
           summary={(productsQ.data?.summary ?? {}) as Record<string, any>}
           insights={(productsQ.data?.insights ?? {}) as Record<string, any>}
           crossEntityInsights={crossEntity.rows}
         />
       ) : activeTab === "audiences" ? (
         <AudienceView
-          rows={audienceRows}
+          rows={filteredAudienceRows}
           summary={(audiencesQ.data?.summary ?? {}) as Record<string, any>}
         />
       ) : activeTab === "geo-devices" ? (
-        <GeoDevicesView geoRows={geoRows} deviceRows={deviceRows} />
+        <GeoDevicesView geoRows={filteredGeoRows} deviceRows={filteredDeviceRows} />
       ) : activeTab === "budget-scaling" ? (
         <BudgetScalingView
-          budgetRows={budgetRows}
+          budgetRows={filteredBudgetRows}
           budgetSummary={(budgetQ.data?.summary ?? {}) as Record<string, any>}
           budgetInsights={(budgetQ.data?.insights ?? {}) as Record<string, any>}
-          products={productRows}
+          products={filteredProductRows}
         />
       ) : activeTab === "opportunities" ? (
         <OpportunitiesView
-          rows={opportunityRows}
+          rows={filteredOpportunityRows}
           summary={(opportunitiesQ.data?.summary ?? {}) as Record<string, any>}
         />
       ) : (

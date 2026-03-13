@@ -51,6 +51,34 @@ export async function createUser(input: {
   return rows[0] as UserRow;
 }
 
+export async function updateUserProfile(input: {
+  userId: string;
+  name: string;
+}): Promise<UserRow> {
+  await runMigrations();
+  const sql = getDb();
+  const rows = (await sql`
+    UPDATE users
+    SET name = ${input.name.trim()}
+    WHERE id = ${input.userId}
+    RETURNING id, name, email, password_hash, avatar, created_at
+  `) as UserRow[];
+  return rows[0] as UserRow;
+}
+
+export async function updateUserPassword(input: {
+  userId: string;
+  passwordHash: string;
+}): Promise<void> {
+  await runMigrations();
+  const sql = getDb();
+  await sql`
+    UPDATE users
+    SET password_hash = ${input.passwordHash}
+    WHERE id = ${input.userId}
+  `;
+}
+
 export async function createBusinessWithAdminMembership(input: {
   name: string;
   ownerId: string;
@@ -72,6 +100,32 @@ export async function createBusinessWithAdminMembership(input: {
     DO UPDATE SET role = 'admin', status = 'active'
   `;
   return business;
+}
+
+export async function updateBusinessSettings(input: {
+  businessId: string;
+  name: string;
+  timezone: string;
+  currency: string;
+}): Promise<{ id: string; name: string; timezone: string; currency: string }> {
+  await runMigrations();
+  const sql = getDb();
+  const rows = (await sql`
+    UPDATE businesses
+    SET
+      name = ${input.name.trim()},
+      timezone = ${input.timezone.trim()},
+      currency = ${input.currency.trim().toUpperCase()}
+    WHERE id = ${input.businessId}
+    RETURNING id, name, timezone, currency
+  `) as Array<{ id: string; name: string; timezone: string; currency: string }>;
+  return rows[0] as { id: string; name: string; timezone: string; currency: string };
+}
+
+export async function revokeAllUserSessions(userId: string): Promise<void> {
+  await runMigrations();
+  const sql = getDb();
+  await sql`DELETE FROM sessions WHERE user_id = ${userId}`;
 }
 
 export async function createInvite(input: {

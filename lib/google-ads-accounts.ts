@@ -2,6 +2,7 @@ import { GOOGLE_CONFIG } from "@/lib/oauth/google-config";
 
 export interface GoogleAdsCustomerNormalized {
   id: string;
+  rawId: string;
   name: string;
   currency: string | null;
   timezone: string | null;
@@ -31,6 +32,43 @@ interface GoogleAdsHttpResult {
   isJson: boolean;
   bodyText: string;
   payload: unknown;
+}
+
+interface GoogleAdsDiscoveryDiagnostics {
+  hasAccessToken: boolean;
+  hasDeveloperToken: boolean;
+  scopePresent?: boolean;
+}
+
+function normalizeGoogleAdsCustomerId(input: string): string {
+  const digits = input.replace(/\D/g, "");
+  if (digits.length !== 10) return input.trim();
+  return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
+}
+
+function classifyGoogleAdsError(payload: unknown, status: number) {
+  const message = getGoogleAdsErrorMessage(payload);
+  const upper = message?.toUpperCase() ?? "";
+
+  if (upper.includes("DEVELOPER_TOKEN_NOT_APPROVED")) {
+    return "Your Google Ads developer token is not approved for this request.";
+  }
+  if (upper.includes("AUTHENTICATION_ERROR")) {
+    return "Google rejected the OAuth credentials for Google Ads.";
+  }
+  if (upper.includes("PERMISSION_DENIED")) {
+    return "This Google login does not have permission to access Google Ads accounts.";
+  }
+  if (upper.includes("CUSTOMER_NOT_FOUND")) {
+    return "Google Ads could not find an accessible customer for this login.";
+  }
+  if (status === 401) {
+    return "Google Ads rejected the current OAuth access token.";
+  }
+  if (status === 403) {
+    return "Google Ads denied access. Check developer token approval and account permissions.";
+  }
+  return message;
 }
 
 export async function refreshGoogleAccessToken(refreshToken: string): Promise<{
@@ -71,6 +109,9 @@ export async function refreshGoogleAccessToken(refreshToken: string): Promise<{
  */
 export async function fetchGoogleAdsAccounts(
   accessToken: string,
+  options?: {
+    scopePresent?: boolean;
+  },
 ): Promise<GoogleAdsAccountsFetchResult> {
   let developerToken: string;
   try {
@@ -86,6 +127,11 @@ export async function fetchGoogleAdsAccounts(
       customers: [],
     };
   }
+  const diagnostics: GoogleAdsDiscoveryDiagnostics = {
+    hasAccessToken: Boolean(accessToken),
+    hasDeveloperToken: Boolean(developerToken),
+    scopePresent: options?.scopePresent,
+  };
 
   const baseCandidates = buildAdsApiBaseCandidates();
   let listResult: GoogleAdsHttpResult | null = null;
@@ -125,6 +171,10 @@ export async function fetchGoogleAdsAccounts(
 
   if (!listResult.ok || hasGoogleAdsError(listResult.payload)) {
     const apiMessage = getGoogleAdsErrorMessage(listResult.payload);
+    const classifiedMessage = classifyGoogleAdsError(
+      listResult.payload,
+      listResult.status,
+    );
     const isLikelyHtml =
       !listResult.isJson &&
       (listResult.bodyText.includes("<!DOCTYPE html") ||
@@ -137,12 +187,14 @@ export async function fetchGoogleAdsAccounts(
       status: listResult.status,
       isJson: listResult.isJson,
       apiMessage,
+      classifiedMessage,
       bodyExcerpt: listResult.bodyText.slice(0, 250),
       attempts: attemptLogs,
+      diagnostics,
     });
     return {
       ok: false,
-      error: `${GOOGLE_ADS_FETCH_FAILED_MESSAGE} (${detail}; attempts=${attemptLogs.map((a) => `${a.base}=>${a.status}/${a.isJson ? "json" : "non-json"}`).join(",")})`,
+      error: `${classifiedMessage ?? GOOGLE_ADS_FETCH_FAILED_MESSAGE} (${detail}; attempts=${attemptLogs.map((a) => `${a.base}=>${a.status}/${a.isJson ? "json" : "non-json"}`).join(",")})`,
       customers: [],
     };
   }
@@ -176,8 +228,9 @@ export async function fetchGoogleAdsAccounts(
     const fallbackId = customerIds[index];
     return (
       detail ?? {
-        id: fallbackId,
-        name: fallbackId,
+        id: normalizeGoogleAdsCustomerId(fallbackId),
+        rawId: fallbackId,
+        name: normalizeGoogleAdsCustomerId(fallbackId),
         currency: null,
         timezone: null,
         isManager: false,
@@ -232,8 +285,10 @@ async function fetchCustomerDetails({
     );
     if (fromResource) {
       return {
-        id: fromResource.id || customerId,
-        name: fromResource.name || fromResource.id || customerId,
+        id: normalizeGoogleAdsCustomerId(fromResource.id || customerId),
+        rawId: fromResource.id || customerId,
+        name:
+          fromResource.name || normalizeGoogleAdsCustomerId(fromResource.id || customerId),
         currency: fromResource.currency,
         timezone: fromResource.timezone,
         isManager: fromResource.isManager,
@@ -278,8 +333,10 @@ async function fetchCustomerDetails({
     if (!customer) continue;
 
     return {
-      id: customer.id || customerId,
-      name: customer.name || customer.id || customerId,
+      id: normalizeGoogleAdsCustomerId(customer.id || customerId),
+      rawId: customer.id || customerId,
+      name:
+        customer.name || normalizeGoogleAdsCustomerId(customer.id || customerId),
       currency: customer.currency,
       timezone: customer.timezone,
       isManager: customer.isManager,

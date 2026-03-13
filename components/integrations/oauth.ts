@@ -9,6 +9,7 @@ const PROVIDER_LABELS: Record<IntegrationProvider, string> = {
   pinterest: "Pinterest",
   snapchat: "Snapchat",
   ga4: "GA4",
+  klaviyo: "Klaviyo",
 };
 
 export function getOAuthStartUrl(
@@ -77,5 +78,10 @@ export const OAUTH_PERMISSIONS: Record<IntegrationProvider, string[]> = {
     "Read GA4 properties",
     "Read sessions and conversion events",
     "Sync landing page performance signals",
+  ],
+  klaviyo: [
+    "Read flows and campaigns",
+    "Read lifecycle performance metrics",
+    "Sync email and SMS intelligence signals",
   ],
 };

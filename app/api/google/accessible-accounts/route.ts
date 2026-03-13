@@ -5,6 +5,7 @@ import {
   fetchGoogleAdsAccounts,
   refreshGoogleAccessToken,
 } from "@/lib/google-ads-accounts";
+import { GOOGLE_CONFIG } from "@/lib/oauth/google-config";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import {
   ProviderAccountSnapshotRefreshError,
@@ -107,6 +108,7 @@ export async function GET(request: NextRequest) {
     hasAccessToken: !!integration.access_token,
     hasRefreshToken: !!integration.refresh_token,
     tokenExpiry: integration.token_expires_at,
+    scopes: integration.scopes ?? null,
   });
 
   let accessToken = integration.access_token;
@@ -178,14 +180,44 @@ export async function GET(request: NextRequest) {
   console.log("[accessible-accounts] ✓ access token validated");
 
   try {
+    let hasDeveloperToken = false;
+    try {
+      hasDeveloperToken = Boolean(GOOGLE_CONFIG.developerToken);
+    } catch {
+      hasDeveloperToken = false;
+    }
+    const hasAdsScope = Boolean(
+      integration.scopes?.split(/\s+/).includes("https://www.googleapis.com/auth/adwords")
+    );
+
+    if (!hasAdsScope) {
+      console.error("[accessible-accounts] ❌ REQUIRED ADS SCOPE MISSING", {
+        businessId,
+        integrationId: integration.id,
+        scopes: integration.scopes ?? null,
+      });
+      return NextResponse.json(
+        {
+          error: "google_ads_scope_missing",
+          message:
+            "This Google connection is missing the Google Ads scope. Reconnect Google Ads and approve Google Ads access.",
+        },
+        { status: 400 }
+      );
+    }
+
     console.log("[accessible-accounts] 🔄 Resolving Google Ads account snapshot...");
     const loadLiveAccounts = async () => {
-      const result = await fetchGoogleAdsAccounts(accessToken);
+      const result = await fetchGoogleAdsAccounts(accessToken, {
+        scopePresent: hasAdsScope,
+      });
 
       console.log("[accessible-accounts] Response from fetchGoogleAdsAccounts", {
         ok: result.ok,
         error: result.error || null,
         customerCount: result.customers?.length || 0,
+        hasDeveloperToken,
+        hasAdsScope,
       });
 
       if (!result.ok) {
@@ -355,6 +387,18 @@ export async function GET(request: NextRequest) {
     }
 
     console.error("[accessible-accounts] ❌ UNEXPECTED ERROR", {
+      businessId,
+      integrationId: integration.id,
+      hasAccessToken: Boolean(accessToken),
+      hasRefreshToken: Boolean(refreshToken),
+      hasDeveloperToken: (() => {
+        try {
+          return Boolean(GOOGLE_CONFIG.developerToken);
+        } catch {
+          return false;
+        }
+      })(),
+      scopes: integration.scopes ?? null,
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
@@ -362,7 +406,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         error: "google_ads_discovery_error",
-        message: "We couldn't load your Google Ads accounts right now. Please wait a bit and try again.",
+        message:
+          error instanceof Error && error.message
+            ? error.message
+            : "We couldn't load your Google Ads accounts right now. Please wait a bit and try again.",
       },
       { status: 500 }
     );

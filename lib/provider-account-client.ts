@@ -4,6 +4,9 @@ import type { ProviderAccountSnapshotMeta } from "@/lib/provider-account-snapsho
 interface ProviderAccountPayloadRow {
   id: string;
   name: string;
+  currency?: string;
+  timezone?: string;
+  isManager?: boolean;
   assigned?: boolean;
 }
 
@@ -82,7 +85,13 @@ export async function fetchProviderAccountSnapshot(
 
   const rows = Array.isArray(payload?.data) ? payload.data : [];
   return {
-    accounts: rows.map((row) => ({ id: row.id, name: row.name })),
+    accounts: rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      currency: row.currency,
+      timezone: row.timezone,
+      isManager: row.isManager,
+    })),
     assignedAccountIds: rows.filter((row) => row.assigned === true).map((row) => row.id),
     meta: payload?.meta ?? null,
     notice: payload?.notice ?? null,

@@ -1,8 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store/app-store";
 import {
   IntegrationProvider,
@@ -19,6 +22,8 @@ import {
   supportsProviderAssignments,
   warmProviderAccountSnapshot,
 } from "@/lib/provider-account-client";
+import { getProviderLabel } from "@/components/integrations/oauth";
+import { ArrowRight, CheckCircle2, Layers3, Link2, Sparkles } from "lucide-react";
 
 /** Providers that have real backend OAuth (not mock) */
 const REAL_PROVIDERS: IntegrationProvider[] = [
@@ -27,6 +32,7 @@ const REAL_PROVIDERS: IntegrationProvider[] = [
   "google",
   "ga4",
   "search_console",
+  "klaviyo",
 ];
 
 const DISPLAY_PROVIDERS: IntegrationProvider[] = [
@@ -35,9 +41,38 @@ const DISPLAY_PROVIDERS: IntegrationProvider[] = [
   "ga4",
   "search_console",
   "shopify",
+  "klaviyo",
   "tiktok",
   "pinterest",
   "snapchat",
+];
+
+const PROVIDER_GROUPS: Array<{
+  title: string;
+  description: string;
+  providers: IntegrationProvider[];
+}> = [
+  {
+    title: "Advertising Platforms",
+    description: "Connect ad channels and decide which accounts Adsecute should actively use.",
+    providers: ["meta", "google", "tiktok", "pinterest", "snapchat"],
+  },
+  {
+    title: "Analytics & Tracking",
+    description: "Bring in attribution, analytics, and organic search visibility.",
+    providers: ["ga4", "search_console"],
+  },
+  {
+    title: "Commerce",
+    description: "Link storefront and conversion data to complete the reporting picture.",
+    providers: ["shopify"],
+  },
+  {
+    title: "Lifecycle & Retention",
+    description:
+      "Connect your lifecycle marketing stack to monitor flow health, campaign revenue, and retention opportunities.",
+    providers: ["klaviyo"],
+  },
 ];
 
 const DESCRIPTIONS: Record<IntegrationProvider, string> = {
@@ -50,6 +85,8 @@ const DESCRIPTIONS: Record<IntegrationProvider, string> = {
   pinterest: "Import Pinterest Ads performance and audience insights.",
   snapchat: "Connect Snapchat Ads for campaign and creative reporting.",
   ga4: "Connect Google Analytics 4 to enrich landing page and conversion insights.",
+  klaviyo:
+    "Monitor email and SMS flow performance, campaign revenue, benchmark gaps, and lifecycle recommendations.",
 };
 
 interface SearchConsoleProperty {
@@ -69,6 +106,7 @@ function getFallbackIntegrationState(
 }
 
 export default function IntegrationsPage() {
+  const router = useRouter();
   const businesses = useAppStore((state) => state.businesses);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const businessId = selectedBusinessId;
@@ -378,21 +416,101 @@ export default function IntegrationsPage() {
   const assignedIdsForDrawer = assignmentProvider
     ? (assignedAccountsByBusiness[businessId]?.[assignmentProvider] ?? [])
     : [];
+  const providerCards = DISPLAY_PROVIDERS.map((provider) => {
+    const assignedIds =
+      assignedAccountsByBusiness[businessId]?.[provider] ?? [];
+    const state = integrations[provider] ?? getFallbackIntegrationState(provider);
+
+    const isGa4 = provider === "ga4";
+    const ga4Connected = isGa4 && ga4State.status === "connected";
+    const isSearchConsole = provider === "search_console";
+    const searchConsoleConnected =
+      isSearchConsole && state.status === "connected";
+
+    return {
+      provider,
+      assignedIds,
+      state,
+      connectedDetailText: provider === "klaviyo"
+        ? state.providerAccountName
+          ? `Workspace: ${state.providerAccountName}`
+          : "Lifecycle workspace linked"
+        : ga4Connected
+        ? ga4PropertyInfo
+          ? `Property: ${ga4PropertyInfo.propertyName}`
+          : "Connected - no property selected yet"
+        : searchConsoleConnected
+          ? `Site: ${
+              state.providerAccountName ??
+              state.providerAccountId ??
+              "Not selected"
+            }`
+          : undefined,
+      connectedActionLabel: provider === "klaviyo"
+        ? "Open intelligence"
+        : ga4Connected
+        ? ga4PropertyInfo
+          ? "Change Property"
+          : "Select Property"
+        : searchConsoleConnected
+          ? "Change Site"
+          : undefined,
+    };
+  });
+
+  const connectedCount = providerCards.filter(
+    (item) => item.state.status === "connected",
+  ).length;
+  const needsSetupCount = providerCards.filter(
+    (item) => item.state.status !== "connected",
+  ).length;
+  const assignedAccountsTotal = providerCards.reduce(
+    (sum, item) => sum + item.assignedIds.length,
+    0,
+  );
 
   return (
     <div className="space-y-6">
-      <div className="space-y-2">
-        <h1 className="text-2xl font-semibold tracking-tight">Integrations</h1>
-        <p className="text-sm text-muted-foreground">
-          Manage OAuth connections and account assignments for the active
-          business.
-        </p>
-        <p className="text-xs font-medium text-muted-foreground">
-          Active business:{" "}
-          <span className="text-foreground">
-            {activeBusiness?.name ?? "Unknown"}
-          </span>
-        </p>
+      <div className="rounded-3xl border border-border/70 bg-gradient-to-br from-card via-card to-muted/30 p-6 shadow-sm">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+          <div className="max-w-2xl space-y-3">
+            <div className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/80 px-3 py-1 text-xs font-medium text-muted-foreground">
+              <Sparkles className="h-3.5 w-3.5" />
+              Active business
+              <span className="text-foreground">{activeBusiness?.name ?? "Unknown"}</span>
+            </div>
+            <div className="space-y-2">
+              <h1 className="text-3xl font-semibold tracking-tight text-foreground">
+                Integrations
+              </h1>
+              <p className="text-sm leading-6 text-muted-foreground">
+                Connect your ad platforms, analytics tools, and storefront once, then
+                choose exactly which accounts Adsecute should use for this business.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-3 lg:min-w-[420px]">
+            <SummaryTile
+              label="Connected"
+              value={String(connectedCount)}
+              note="Live integrations"
+              tone="positive"
+            />
+            <SummaryTile
+              label="Needs setup"
+              value={String(needsSetupCount)}
+              note="Still disconnected or incomplete"
+              tone="neutral"
+            />
+            <SummaryTile
+              label="Assigned"
+              value={String(assignedAccountsTotal)}
+              note="Accounts, properties, and sites in use"
+              tone="accent"
+            />
+          </div>
+        </div>
       </div>
 
       {toast && (
@@ -407,64 +525,75 @@ export default function IntegrationsPage() {
         </div>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {DISPLAY_PROVIDERS.map((provider) => {
-          const assignedIds =
-            assignedAccountsByBusiness[businessId]?.[provider] ?? [];
-          const state = integrations[provider] ?? getFallbackIntegrationState(provider);
-
-          const isGa4 = provider === "ga4";
-          const ga4Connected = isGa4 && ga4State.status === "connected";
-          const isSearchConsole = provider === "search_console";
-          const searchConsoleConnected =
-            isSearchConsole && state.status === "connected";
+      <div className="space-y-8">
+        {PROVIDER_GROUPS.map((group) => {
+          const cards = providerCards.filter((item) =>
+            group.providers.includes(item.provider),
+          );
+          if (cards.length === 0) return null;
 
           return (
-            <IntegrationsCard
-              key={provider}
-              provider={provider}
-              description={DESCRIPTIONS[provider]}
-              state={state}
-              assignedAccountIds={assignedIds}
-              connectedDetailText={
-                ga4Connected
-                  ? ga4PropertyInfo
-                    ? `Property: ${ga4PropertyInfo.propertyName}`
-                    : "Connected — no property selected yet"
-                  : searchConsoleConnected
-                    ? `Property: ${
-                        state.providerAccountName ??
-                        state.providerAccountId ??
-                        "Not selected"
-                      }`
-                    : undefined
-              }
-              connectedActionLabel={
-                ga4Connected
-                    ? ga4PropertyInfo
-                      ? "Change Property"
-                      : "Select Property"
-                  : searchConsoleConnected
-                    ? "Change Site"
-                    : undefined
-              }
-              onConnect={handleConnect}
-              onReconnect={(p) => setActiveProvider(p)}
-              onRetry={handleRetry}
-              onCancel={(p) => cancel(p)}
-              onDisconnect={(p) => handleDisconnect(p)}
-              onOpenAssignments={(p) => {
-                if (p === "ga4") {
-                  setGa4PickerOpen(true);
-                  return;
-                }
-                if (p === "search_console") {
-                  void openSearchConsoleSelector();
-                  return;
-                }
-                setAssignmentProvider(p);
-              }}
-            />
+            <section key={group.title} className="space-y-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Layers3 className="h-4 w-4 text-muted-foreground" />
+                    <h2 className="text-lg font-semibold tracking-tight text-foreground">
+                      {group.title}
+                    </h2>
+                  </div>
+                  <p className="text-sm text-muted-foreground">{group.description}</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {cards
+                    .filter((item) => item.state.status === "connected")
+                    .slice(0, 3)
+                    .map((item) => (
+                      <Badge
+                        key={item.provider}
+                        className="border border-emerald-200 bg-emerald-50 text-emerald-700"
+                      >
+                        <CheckCircle2 className="h-3 w-3" />
+                        {getProviderLabel(item.provider)}
+                      </Badge>
+                    ))}
+                </div>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {cards.map((item) => (
+                  <IntegrationsCard
+                    key={item.provider}
+                    provider={item.provider}
+                    description={DESCRIPTIONS[item.provider]}
+                    state={item.state}
+                    assignedAccountIds={item.assignedIds}
+                    connectedDetailText={item.connectedDetailText}
+                    connectedActionLabel={item.connectedActionLabel}
+                    onConnect={handleConnect}
+                    onReconnect={(p) => setActiveProvider(p)}
+                    onRetry={handleRetry}
+                    onCancel={(p) => cancel(p)}
+                    onDisconnect={(p) => handleDisconnect(p)}
+                    onOpenAssignments={(p) => {
+                      if (p === "ga4") {
+                        setGa4PickerOpen(true);
+                        return;
+                      }
+                      if (p === "search_console") {
+                        void openSearchConsoleSelector();
+                        return;
+                      }
+                      if (p === "klaviyo") {
+                        router.push("/platforms/klaviyo");
+                        return;
+                      }
+                      setAssignmentProvider(p);
+                    }}
+                  />
+                ))}
+              </div>
+            </section>
           );
         })}
       </div>
@@ -585,6 +714,40 @@ export default function IntegrationsPage() {
           </div>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function SummaryTile({
+  label,
+  value,
+  note,
+  tone,
+}: {
+  label: string;
+  value: string;
+  note: string;
+  tone: "positive" | "neutral" | "accent";
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-2xl border px-4 py-4 shadow-sm",
+        tone === "positive" && "border-emerald-200 bg-emerald-50/70",
+        tone === "neutral" && "border-border bg-background/80",
+        tone === "accent" && "border-sky-200 bg-sky-50/70",
+      )}
+    >
+      <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+        {label}
+      </p>
+      <div className="mt-2 flex items-end gap-2">
+        <span className="text-3xl font-semibold tracking-tight text-foreground">
+          {value}
+        </span>
+        <ArrowRight className="mb-1 h-4 w-4 text-muted-foreground" />
+      </div>
+      <p className="mt-2 text-xs leading-5 text-muted-foreground">{note}</p>
     </div>
   );
 }

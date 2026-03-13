@@ -11,7 +11,8 @@ export type IntegrationProvider =
   | "tiktok"
   | "pinterest"
   | "snapchat"
-  | "ga4";
+  | "ga4"
+  | "klaviyo";
 
 export type IntegrationStatus =
   | "disconnected"
@@ -57,6 +58,7 @@ const PROVIDERS: IntegrationProvider[] = [
   "pinterest",
   "snapchat",
   "ga4",
+  "klaviyo",
 ];
 
 const DEFAULT_ACCOUNTS: Record<IntegrationProvider, IntegrationAdAccount[]> = {
@@ -68,6 +70,7 @@ const DEFAULT_ACCOUNTS: Record<IntegrationProvider, IntegrationAdAccount[]> = {
   pinterest: [],
   snapchat: [],
   ga4: [],
+  klaviyo: [],
 };
 
 const buildDefaultIntegrations = (): Record<IntegrationProvider, IntegrationState> =>
@@ -85,7 +88,8 @@ function isLegacyMockAccount(account: IntegrationAdAccount) {
     account.id.startsWith("meta-acct-") ||
     account.id.startsWith("google-acct-") ||
     account.id.startsWith("shopify-acct-") ||
-    account.id === "ga4-property-1"
+    account.id === "ga4-property-1" ||
+    account.id.startsWith("klaviyo-list-")
   );
 }
 
@@ -170,6 +174,7 @@ interface IntegrationsStore {
   ) => void;
   removeBusinessData: (businessId: string) => void;
   retainBusinesses: (businessIds: string[]) => void;
+  clearProviderAccountsForBusiness: (businessId: string) => void;
   getAssignedAccounts: (businessId: string, provider: IntegrationProvider) => string[];
   hasAssignedAccounts: (businessId: string, provider: IntegrationProvider) => boolean;
   setToast: (toast: IntegrationToast) => void;
@@ -384,6 +389,28 @@ export const useIntegrationsStore = create<IntegrationsStore>()(
               allowed.has(businessId)
             )
           ),
+        }));
+      },
+      clearProviderAccountsForBusiness: (businessId) => {
+        get().ensureBusiness(businessId);
+        set((state) => ({
+          byBusinessId: {
+            ...state.byBusinessId,
+            [businessId]: PROVIDERS.reduce<Record<IntegrationProvider, IntegrationState>>(
+              (acc, provider) => {
+                acc[provider] = {
+                  ...state.byBusinessId[businessId][provider],
+                  accounts: [],
+                };
+                return acc;
+              },
+              {} as Record<IntegrationProvider, IntegrationState>
+            ),
+          },
+          assignedAccountsByBusiness: {
+            ...state.assignedAccountsByBusiness,
+            [businessId]: {},
+          },
         }));
       },
       getAssignedAccounts: (businessId, provider) =>
