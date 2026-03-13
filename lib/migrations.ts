@@ -226,6 +226,39 @@ export async function runMigrations() {
     ON creative_media_cache (expires_at)
   `;
 
+  // ── meta creatives snapshots table ───────────────────────────────
+  await sql`
+    CREATE TABLE IF NOT EXISTS meta_creatives_snapshots (
+      id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      snapshot_key           TEXT NOT NULL UNIQUE,
+      business_id            TEXT NOT NULL,
+      assigned_accounts_hash TEXT NOT NULL,
+      start_date             DATE NOT NULL,
+      end_date               DATE NOT NULL,
+      group_by               TEXT NOT NULL,
+      format                 TEXT NOT NULL,
+      sort                   TEXT NOT NULL,
+      payload                JSONB NOT NULL,
+      snapshot_level         TEXT NOT NULL CHECK (snapshot_level IN ('metadata', 'full')),
+      row_count              INTEGER NOT NULL DEFAULT 0,
+      preview_ready_count    INTEGER NOT NULL DEFAULT 0,
+      last_synced_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+      refresh_started_at     TIMESTAMPTZ,
+      created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at             TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_meta_creatives_snapshots_business
+    ON meta_creatives_snapshots (business_id, last_synced_at DESC)
+  `;
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_meta_creatives_snapshots_refresh
+    ON meta_creatives_snapshots (refresh_started_at)
+  `;
+
   // ── shopify billing subscriptions table ─────────────────────────
   await sql`
     CREATE TABLE IF NOT EXISTS shopify_subscriptions (

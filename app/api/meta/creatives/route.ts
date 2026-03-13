@@ -8,6 +8,16 @@ import { requireBusinessAccess } from "@/lib/access";
 import { MediaCacheService } from "@/lib/media-cache/media-service";
 import { getDemoMetaCreatives } from "@/lib/demo-business";
 import { getCachedValue, readThroughCache } from "@/lib/server-cache";
+import {
+  getMetaCreativesSnapshot,
+  getMetaCreativesSnapshotFreshness,
+  getSnapshotCoverage,
+  markMetaCreativesSnapshotRefreshing,
+  persistMetaCreativesSnapshot,
+  startMetaCreativesSnapshotRefresh,
+  type MetaCreativesSnapshotLevel,
+  type MetaCreativesSnapshotQuery,
+} from "@/lib/meta-creatives-snapshot";
 
 type GroupBy = "adName" | "creative" | "adSet";
 type FormatFilter = "all" | "image" | "video";
@@ -406,6 +416,121 @@ function metaCacheKey(parts: Array<string | number | boolean | null | undefined>
   return parts
     .map((part) => (part === null || part === undefined ? "null" : String(part)))
     .join(":");
+}
+
+function getPreviewReadyCount(rows: MetaCreativeApiRow[]): number {
+  return rows.filter((row) =>
+    Boolean(
+      row.cached_thumbnail_url ??
+        row.table_thumbnail_url ??
+        row.card_preview_url ??
+        row.thumbnail_url ??
+        row.image_url ??
+        row.preview_url ??
+        row.preview?.image_url ??
+        row.preview?.poster_url ??
+        row.preview?.video_url
+    )
+  ).length;
+}
+
+async function hydrateRowsWithSnapshotCache(
+  rows: MetaCreativeApiRow[],
+  businessId: string,
+  enableMediaCache: boolean
+): Promise<MetaCreativeApiRow[]> {
+  if (!enableMediaCache || rows.length === 0) return rows;
+  const cacheMap = await MediaCacheService.resolveUrls(
+    rows.map((row) => ({
+      creative_id: row.creative_id,
+      thumbnail_url: row.thumbnail_url ?? row.table_thumbnail_url ?? row.preview?.poster_url ?? null,
+      image_url: row.image_url ?? row.card_preview_url ?? row.preview?.image_url ?? null,
+    })),
+    businessId
+  );
+
+  return rows.map((row) => {
+    const cached = cacheMap.get(row.creative_id);
+    if (!cached || cached.source !== "cache") return row;
+    const cachedUrl = normalizeMediaUrl(cached.url);
+    if (!cachedUrl) return row;
+    return {
+      ...row,
+      cached_thumbnail_url: cachedUrl,
+      thumbnail_url: row.thumbnail_url ?? cachedUrl,
+      table_thumbnail_url: row.table_thumbnail_url ?? cachedUrl,
+      card_preview_url:
+        row.card_preview_url ??
+        (row.preview.render_mode === "video" ? row.card_preview_url ?? cachedUrl : cachedUrl),
+      preview_url: row.preview_url ?? cachedUrl,
+      preview:
+        row.preview.render_mode === "video"
+          ? {
+              ...row.preview,
+              poster_url: row.preview.poster_url ?? cachedUrl,
+            }
+          : {
+              ...row.preview,
+              image_url: row.preview.image_url ?? cachedUrl,
+              poster_url: row.preview.poster_url ?? cachedUrl,
+            },
+    };
+  });
+}
+
+async function buildSnapshotApiResponse(input: {
+  snapshot: Awaited<ReturnType<typeof getMetaCreativesSnapshot>>;
+  businessId: string;
+  mediaMode: "metadata" | "full";
+  enableMediaCache: boolean;
+}) {
+  const snapshot = input.snapshot;
+  if (!snapshot) return null;
+  const payload = snapshot.payload as {
+    status?: string;
+    rows?: MetaCreativeApiRow[];
+    media_hydrated?: boolean;
+  };
+  const rows = Array.isArray(payload.rows) ? payload.rows : [];
+  const hydratedRows = await hydrateRowsWithSnapshotCache(rows, input.businessId, input.enableMediaCache);
+  const previewReadyCount = getPreviewReadyCount(hydratedRows);
+  const freshness = getMetaCreativesSnapshotFreshness(snapshot.lastSyncedAt);
+  return {
+    status: payload.status ?? "ok",
+    rows: hydratedRows,
+    media_mode: input.mediaMode,
+    media_hydrated: payload.media_hydrated ?? snapshot.snapshotLevel === "full",
+    snapshot_source: "persisted",
+    snapshot_level: snapshot.snapshotLevel,
+    last_synced_at: snapshot.lastSyncedAt,
+    snapshot_age_ms: freshness.snapshotAgeMs,
+    freshness_state: freshness.freshnessState,
+    is_refreshing: Boolean(snapshot.refreshStartedAt),
+    preview_coverage: getSnapshotCoverage(hydratedRows.length, previewReadyCount),
+  };
+}
+
+function buildLiveApiResponse(input: {
+  rows: MetaCreativeApiRow[];
+  mediaMode: "metadata" | "full";
+  mediaHydrated: boolean;
+  snapshotLevel: MetaCreativesSnapshotLevel;
+  snapshotSource?: "live" | "refresh";
+}) {
+  const previewReadyCount = getPreviewReadyCount(input.rows);
+  return {
+    status: "ok",
+    rows: input.rows,
+    media_mode: input.mediaMode,
+    media_hydrated: input.mediaHydrated,
+    snapshot_source: input.snapshotSource ?? "live",
+    snapshot_level: input.snapshotLevel,
+    last_synced_at: new Date().toISOString(),
+    snapshot_age_ms: 0,
+    freshness_state: "fresh" as const,
+    is_refreshing: false,
+    preview_coverage: getSnapshotCoverage(input.rows.length, previewReadyCount),
+  };
 }
 
 /** Deterministic short hash for composite grouping keys (not cryptographic). */
@@ -2556,6 +2681,31 @@ function summarizePreviewAudit(samples: PreviewAuditSample[]) {
   };
 }
 
+function triggerSnapshotRefresh(
+  request: NextRequest,
+  snapshotQuery: MetaCreativesSnapshotQuery
+) {
+  startMetaCreativesSnapshotRefresh(snapshotQuery, async () => {
+    await markMetaCreativesSnapshotRefreshing(snapshotQuery, true).catch(() => null);
+    try {
+      const refreshUrl = new URL(request.url);
+      refreshUrl.searchParams.set("mediaMode", "full");
+      refreshUrl.searchParams.set("snapshotBypass", "1");
+      refreshUrl.searchParams.set("snapshotWarm", "1");
+      await fetch(refreshUrl.toString(), {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          cookie: request.headers.get("cookie") ?? "",
+        },
+        cache: "no-store",
+      });
+    } finally {
+      await markMetaCreativesSnapshotRefreshing(snapshotQuery, false).catch(() => null);
+    }
+  });
+}
+
 export async function GET(request: NextRequest) {
   const requestStartedAt = Date.now();
   const params = request.nextUrl.searchParams;
@@ -2571,6 +2721,8 @@ export async function GET(request: NextRequest) {
   const debugPreview = params.get("debugPreview") === "1";
   const debugThumbnail = params.get("debugThumbnail") === "1";
   const debugPerf = params.get("debugPerf") === "1";
+  const snapshotBypass = params.get("snapshotBypass") === "1";
+  const snapshotWarm = params.get("snapshotWarm") === "1";
   // Keep normal /creatives rendering resilient; debug flags only expand diagnostics.
   const enableCreativeBasicsFallback = enableFullMediaHydration && params.get("creativeBasicsFallback") !== "0";
   const enableCreativeDetails = enableFullMediaHydration && params.get("creativeDetails") !== "0";
@@ -2639,6 +2791,40 @@ export async function GET(request: NextRequest) {
   const assignedAccountIds = await fetchAssignedAccountIds(businessId);
   if (assignedAccountIds.length === 0) {
     return NextResponse.json({ status: "no_accounts_assigned", rows: [] });
+  }
+
+  const snapshotQuery: MetaCreativesSnapshotQuery = {
+    businessId,
+    assignedAccountIds,
+    start,
+    end,
+    groupBy,
+    format,
+    sort,
+  };
+  const snapshotEligible =
+    !snapshotBypass &&
+    !detailPreviewCreativeId &&
+    !debugPreview &&
+    !debugThumbnail &&
+    !debugPerf;
+  if (snapshotEligible) {
+    const snapshot = await getMetaCreativesSnapshot(snapshotQuery);
+    if (snapshot) {
+      const freshness = getMetaCreativesSnapshotFreshness(snapshot.lastSyncedAt);
+      const snapshotPayload = await buildSnapshotApiResponse({
+        snapshot,
+        businessId,
+        mediaMode,
+        enableMediaCache,
+      });
+      if (snapshotPayload) {
+        if (freshness.freshnessState !== "fresh" && !snapshotWarm) {
+          triggerSnapshotRefresh(request, snapshotQuery);
+        }
+        return NextResponse.json(snapshotPayload);
+      }
+    }
   }
 
   const rawRows: RawCreativeRow[] = [];
@@ -3736,12 +3922,49 @@ export async function GET(request: NextRequest) {
       });
     });
   }
+
+  const liveApiPayload = buildLiveApiResponse({
+    rows: responseRows,
+    mediaMode,
+    mediaHydrated: enableFullMediaHydration,
+    snapshotLevel: mediaMode,
+    snapshotSource: snapshotWarm ? "refresh" : "live",
+  });
+
+  const snapshotPersistEligible =
+    !detailPreviewCreativeId &&
+    !debugPreview &&
+    !debugThumbnail &&
+    !debugPerf &&
+    responseRows.length > 0;
+
+  if (snapshotPersistEligible) {
+    await persistMetaCreativesSnapshot({
+      ...snapshotQuery,
+      payload: {
+        status: liveApiPayload.status,
+        rows: responseRows,
+        media_hydrated: enableFullMediaHydration,
+      },
+      snapshotLevel: mediaMode,
+      rowCount: responseRows.length,
+      previewReadyCount: liveApiPayload.preview_coverage.previewReadyCount,
+    }).catch((error: unknown) => {
+      console.warn("[meta-creatives] snapshot persist failed", {
+        businessId,
+        mediaMode,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
+
+  if (snapshotEligible && mediaMode === "metadata" && !snapshotWarm) {
+    triggerSnapshotRefresh(request, snapshotQuery);
+  }
+
   if (debugPreview) {
     return NextResponse.json({
-      status: "ok",
-      rows: responseRows,
-      media_mode: mediaMode,
-      media_hydrated: enableFullMediaHydration,
+      ...liveApiPayload,
       preview_debug: {
         sampled: previewAuditSamples,
         ranking: summarizePreviewAudit(previewAuditSamples),
@@ -3776,10 +3999,7 @@ export async function GET(request: NextRequest) {
 
   if (debugPerf) {
     return NextResponse.json({
-      status: "ok",
-      rows: responseRows,
-      media_mode: mediaMode,
-      media_hydrated: enableFullMediaHydration,
+      ...liveApiPayload,
       performance_debug: {
         ...perf,
         total_ms: Date.now() - requestStartedAt,
@@ -3806,10 +4026,5 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  return NextResponse.json({
-    status: "ok",
-    rows: responseRows,
-    media_mode: mediaMode,
-    media_hydrated: enableFullMediaHydration,
-  });
+  return NextResponse.json(liveApiPayload);
 }
