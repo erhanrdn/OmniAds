@@ -11,6 +11,8 @@ import {
   Calendar,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Image,
   KeyRound,
   LayoutDashboard,
@@ -75,16 +77,6 @@ type QueryResult = {
   meta?: MetaShape;
   [key: string]: any;
 };
-
-const DATE_RANGE_OPTIONS: Array<{ value: DateRange; label: string; shortLabel: string }> = [
-  { value: "7", label: "Last 7 days", shortLabel: "7D" },
-  { value: "14", label: "Last 14 days", shortLabel: "14D" },
-  { value: "30", label: "Last 30 days", shortLabel: "30D" },
-  { value: "90", label: "Last 90 days", shortLabel: "90D" },
-  { value: "mtd", label: "Month to date", shortLabel: "MTD" },
-  { value: "qtd", label: "Quarter to date", shortLabel: "QTD" },
-  { value: "custom", label: "Custom range", shortLabel: "Custom" },
-];
 
 const COMPARE_OPTIONS: Array<{ value: CompareMode; label: string }> = [
   { value: "none", label: "No comparison" },
@@ -211,6 +203,254 @@ function renderTrendBadge(value: number | null | undefined) {
   );
 }
 
+function DatePickerCalendar({
+  year,
+  month,
+  rangeStart,
+  rangeEnd,
+  hoverDate,
+  pickStep,
+  onDateClick,
+  onDateHover,
+  onMonthChange,
+}: {
+  year: number;
+  month: number;
+  rangeStart: string;
+  rangeEnd: string;
+  hoverDate: string;
+  pickStep: "start" | "end";
+  onDateClick: (date: string) => void;
+  onDateHover: (date: string) => void;
+  onMonthChange: (year: number, month: number) => void;
+}) {
+  const cells = buildMonthGrid(year, month);
+  const effectiveEnd = pickStep === "end" && hoverDate && hoverDate > rangeStart ? hoverDate : rangeEnd;
+
+  function getCellClass(date: string) {
+    const isStart = date === rangeStart;
+    const isEnd = date === effectiveEnd;
+    const inRange = rangeStart && effectiveEnd && date > rangeStart && date < effectiveEnd;
+    if (isStart || isEnd) {
+      return "flex h-8 w-8 items-center justify-center rounded-full bg-foreground text-[11px] font-medium text-background";
+    }
+    if (inRange) {
+      return "flex h-8 w-8 items-center justify-center bg-accent/70 text-[11px] text-accent-foreground";
+    }
+    return "flex h-8 w-8 items-center justify-center rounded-full text-[11px] transition-colors hover:bg-accent";
+  }
+
+  return (
+    <div className="w-[264px]">
+      <div className="mb-3 flex items-center justify-between">
+        <button
+          type="button"
+          onClick={() => {
+            const next = shiftMonth(year, month, -1);
+            onMonthChange(next.year, next.month);
+          }}
+          className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-accent"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+        <span className="text-sm font-medium">{MONTH_NAMES[month]} {year}</span>
+        <button
+          type="button"
+          onClick={() => {
+            const next = shiftMonth(year, month, 1);
+            onMonthChange(next.year, next.month);
+          }}
+          className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-accent"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      </div>
+      <div className="mb-1 grid grid-cols-7">
+        {DAYS_SHORT.map((day) => (
+          <div key={day} className="flex h-8 items-center justify-center text-[10px] font-medium text-muted-foreground">
+            {day}
+          </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7">
+        {cells.map((date, index) => (
+          <div key={index} className="flex items-center justify-center">
+            {date ? (
+              <button
+                type="button"
+                className={getCellClass(date)}
+                onClick={() => onDateClick(date)}
+                onMouseEnter={() => onDateHover(date)}
+              >
+                {Number(date.slice(8))}
+              </button>
+            ) : (
+              <div className="h-8 w-8" />
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DateRangeToolbarPopover({
+  open,
+  onOpenChange,
+  currentDateRange,
+  customStart,
+  customEnd,
+  onApply,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  currentDateRange: DateRange;
+  customStart: string;
+  customEnd: string;
+  onApply: (next: { preset: PickerPreset; start: string; end: string }) => void;
+}) {
+  const initialPreset = getPickerPreset(currentDateRange, customStart, customEnd);
+  const initialWindow = getPickerWindow(initialPreset, customStart, customEnd);
+  const [draftPreset, setDraftPreset] = useState<PickerPreset>(initialPreset);
+  const [draftStart, setDraftStart] = useState(initialWindow.startDate);
+  const [draftEnd, setDraftEnd] = useState(initialWindow.endDate);
+  const [pickStep, setPickStep] = useState<"start" | "end">("start");
+  const initialMonth = parseIsoDate(initialWindow.endDate);
+  const [calendarMonth, setCalendarMonth] = useState({ year: initialMonth.getFullYear(), month: initialMonth.getMonth() });
+  const [hoverDate, setHoverDate] = useState("");
+
+  const resetDraft = () => {
+    const nextPreset = getPickerPreset(currentDateRange, customStart, customEnd);
+    const nextWindow = getPickerWindow(nextPreset, customStart, customEnd);
+    const nextMonth = parseIsoDate(nextWindow.endDate);
+    setDraftPreset(nextPreset);
+    setDraftStart(nextWindow.startDate);
+    setDraftEnd(nextWindow.endDate);
+    setPickStep(nextPreset === "custom" ? "start" : "end");
+    setHoverDate("");
+    setCalendarMonth({ year: nextMonth.getFullYear(), month: nextMonth.getMonth() });
+  };
+
+  const displayWindow = getPickerWindow(draftPreset, draftStart, draftEnd);
+
+  return (
+    <Popover.Root
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (nextOpen) resetDraft();
+        onOpenChange(nextOpen);
+      }}
+    >
+      <Popover.Trigger asChild>
+        <button
+          type="button"
+          className="inline-flex h-8 items-center gap-2 rounded-full border bg-background px-3 text-xs font-medium"
+        >
+          <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+          <span>{`${formatCompactDate(getDateWindow(currentDateRange, customStart, customEnd).startDate)} — ${formatCompactDate(getDateWindow(currentDateRange, customStart, customEnd).endDate)}`}</span>
+          <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+        </button>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content sideOffset={8} align="start" className="z-50 overflow-hidden rounded-xl border bg-popover shadow-xl">
+          <div className="flex">
+            <div className="w-52 border-r py-2">
+              <p className="px-4 pb-2 pt-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                Date range
+              </p>
+              {RANGE_PICKER_PRESETS.map((preset) => (
+                <button
+                  key={preset.value}
+                  type="button"
+                  onClick={() => {
+                    setDraftPreset(preset.value);
+                    const nextWindow = getPickerWindow(preset.value, draftStart, draftEnd);
+                    setDraftStart(nextWindow.startDate);
+                    setDraftEnd(nextWindow.endDate);
+                    setPickStep(preset.value === "custom" ? "start" : "end");
+                    const nextMonth = parseIsoDate(nextWindow.endDate);
+                    setCalendarMonth({ year: nextMonth.getFullYear(), month: nextMonth.getMonth() });
+                  }}
+                  className={cn(
+                    "flex w-full items-center gap-2 px-4 py-2 text-left text-sm transition-colors hover:bg-accent",
+                    draftPreset === preset.value && "bg-accent font-medium text-accent-foreground"
+                  )}
+                >
+                  <span className={cn("h-1.5 w-1.5 rounded-full", draftPreset === preset.value ? "bg-foreground" : "bg-transparent")} />
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex flex-col gap-3 p-4">
+              <DatePickerCalendar
+                year={calendarMonth.year}
+                month={calendarMonth.month}
+                rangeStart={displayWindow.startDate}
+                rangeEnd={displayWindow.endDate}
+                hoverDate={hoverDate}
+                pickStep={pickStep}
+                onDateClick={(date) => {
+                  setDraftPreset("custom");
+                  if (pickStep === "start") {
+                    setDraftStart(date);
+                    setDraftEnd(date);
+                    setPickStep("end");
+                    return;
+                  }
+                  if (date < draftStart) {
+                    setDraftStart(date);
+                    setDraftEnd(draftStart);
+                  } else {
+                    setDraftEnd(date);
+                  }
+                  setPickStep("start");
+                }}
+                onDateHover={setHoverDate}
+                onMonthChange={(year, month) => setCalendarMonth({ year, month })}
+              />
+              <div className="rounded-lg border bg-muted/30 px-3 py-2 text-center text-xs">
+                {formatCompactDate(displayWindow.startDate)} — {formatCompactDate(displayWindow.endDate)}
+              </div>
+              {draftPreset === "custom" ? (
+                <p className="text-center text-[11px] text-muted-foreground">
+                  {pickStep === "start" ? "Select start date" : "Select end date"}
+                </p>
+              ) : null}
+            </div>
+          </div>
+          <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
+            <button
+              type="button"
+              onClick={() => {
+                resetDraft();
+                onOpenChange(false);
+              }}
+              className="rounded-md px-4 py-1.5 text-sm text-muted-foreground hover:bg-accent"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                onApply({
+                  preset: draftPreset,
+                  start: displayWindow.startDate,
+                  end: displayWindow.endDate,
+                });
+                onOpenChange(false);
+              }}
+              className="rounded-md bg-foreground px-4 py-1.5 text-sm font-medium text-background"
+            >
+              Apply
+            </button>
+          </div>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
+
 function toIsoDate(date: Date) {
   return date.toISOString().split("T")[0];
 }
@@ -227,6 +467,67 @@ function formatCompactDate(value: string) {
 
 function parseIsoDate(value: string) {
   return new Date(`${value}T00:00:00.000Z`);
+}
+
+type PickerPreset = "today" | "yesterday" | "7" | "14" | "30" | "90" | "mtd" | "qtd" | "custom";
+
+const RANGE_PICKER_PRESETS: Array<{ value: PickerPreset; label: string }> = [
+  { value: "today", label: "Today" },
+  { value: "yesterday", label: "Yesterday" },
+  { value: "7", label: "Last 7 Days" },
+  { value: "14", label: "Last 14 Days" },
+  { value: "30", label: "Last 30 Days" },
+  { value: "90", label: "Last 90 Days" },
+  { value: "mtd", label: "MTD" },
+  { value: "qtd", label: "QTD" },
+  { value: "custom", label: "Custom" },
+];
+
+const DAYS_SHORT = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+function buildMonthGrid(year: number, month: number): (string | null)[] {
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstDow = new Date(year, month, 1).getDay();
+  const cells: (string | null)[] = Array(firstDow).fill(null);
+  for (let d = 1; d <= daysInMonth; d++) {
+    cells.push(`${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`);
+  }
+  while (cells.length % 7 !== 0) cells.push(null);
+  return cells;
+}
+
+function shiftMonth(year: number, month: number, delta: number) {
+  const next = new Date(year, month + delta, 1);
+  return { year: next.getFullYear(), month: next.getMonth() };
+}
+
+function getPickerWindow(preset: PickerPreset, customStart: string, customEnd: string) {
+  if (preset === "today") {
+    const today = toIsoDate(new Date());
+    return { startDate: today, endDate: today };
+  }
+  if (preset === "yesterday") {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const iso = toIsoDate(yesterday);
+    return { startDate: iso, endDate: iso };
+  }
+  return getDateWindow(preset as DateRange, customStart, customEnd);
+}
+
+function getPickerPreset(dateRange: DateRange, customStart: string, customEnd: string): PickerPreset {
+  if (dateRange !== "custom") return dateRange;
+  const today = toIsoDate(new Date());
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayIso = toIsoDate(yesterday);
+  if (customStart === today && customEnd === today) return "today";
+  if (customStart === yesterdayIso && customEnd === yesterdayIso) return "yesterday";
+  return "custom";
 }
 
 function getDateWindow(dateRange: DateRange, customStart?: string, customEnd?: string) {
@@ -2104,10 +2405,6 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
   const [compareStart, setCompareStart] = useState(defaultCompareWindow.startDate);
   const [compareEnd, setCompareEnd] = useState(defaultCompareWindow.endDate);
   const [customRangeOpen, setCustomRangeOpen] = useState(false);
-  const [customRangeDraft, setCustomRangeDraft] = useState({
-    start: defaultPrimaryWindow.startDate,
-    end: defaultPrimaryWindow.endDate,
-  });
   const [customCompareOpen, setCustomCompareOpen] = useState(false);
   const [customCompareDraft, setCustomCompareDraft] = useState({
     start: defaultCompareWindow.startDate,
@@ -2158,7 +2455,6 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
       : {
           compareMode,
         };
-  const customRangeLabel = `${formatCompactDate(customStart)} — ${formatCompactDate(customEnd)}`;
   const customCompareLabel = `${formatCompactDate(compareStart)} — ${formatCompactDate(compareEnd)}`;
 
   const overviewQ = useQuery({
@@ -2379,232 +2675,133 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
       <div className="space-y-3">
         <div className="rounded-xl border bg-card px-3 py-2">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="mr-2 text-base font-semibold tracking-tight">Google Ads Intelligence</h1>
+            <h1 className="text-base font-semibold tracking-tight">Google Ads Intelligence</h1>
 
-            <div className="flex flex-wrap items-center gap-1">
-              {DATE_RANGE_OPTIONS.map((option) =>
-                option.value === "custom" ? (
-                  <Popover.Root
-                    key={option.value}
-                    open={customRangeOpen}
-                    onOpenChange={(open) => {
-                      setCustomRangeOpen(open);
-                      if (open) {
-                        setCustomRangeDraft({ start: customStart, end: customEnd });
-                      }
-                    }}
-                  >
-                    <Popover.Trigger asChild>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setDateRange("custom");
-                          setCustomRangeDraft({ start: customStart, end: customEnd });
-                        }}
-                        className={cn(
-                          "inline-flex h-8 items-center gap-1 rounded-full border px-2.5 text-[11px] font-semibold transition-colors",
-                          dateRange === "custom"
-                            ? "border-foreground bg-foreground text-background"
-                            : "bg-background text-muted-foreground hover:border-foreground/40 hover:text-foreground"
-                        )}
-                      >
-                        <Calendar className="h-3.5 w-3.5" />
-                        <span>{dateRange === "custom" ? customRangeLabel : option.shortLabel}</span>
-                        <ChevronDown className="h-3 w-3" />
-                      </button>
-                    </Popover.Trigger>
-                    <Popover.Portal>
-                      <Popover.Content
-                        sideOffset={6}
-                        align="start"
-                        className="z-50 w-[320px] rounded-xl border bg-popover p-3 shadow-xl"
-                      >
-                        <div className="space-y-3">
-                          <div>
-                            <p className="text-xs font-semibold">Custom range</p>
-                            <p className="text-[11px] text-muted-foreground">Choose a start and end date.</p>
-                          </div>
-                          <div className="grid gap-2 sm:grid-cols-2">
-                            <label className="space-y-1">
-                              <span className="text-[11px] text-muted-foreground">Start</span>
-                              <input
-                                type="date"
-                                value={customRangeDraft.start}
-                                max={customRangeDraft.end}
-                                onChange={(event) =>
-                                  setCustomRangeDraft((prev) => ({ ...prev, start: event.target.value }))
-                                }
-                                className="h-9 w-full rounded-lg border bg-background px-3 text-xs"
-                              />
-                            </label>
-                            <label className="space-y-1">
-                              <span className="text-[11px] text-muted-foreground">End</span>
-                              <input
-                                type="date"
-                                value={customRangeDraft.end}
-                                min={customRangeDraft.start}
-                                onChange={(event) =>
-                                  setCustomRangeDraft((prev) => ({ ...prev, end: event.target.value }))
-                                }
-                                className="h-9 w-full rounded-lg border bg-background px-3 text-xs"
-                              />
-                            </label>
-                          </div>
-                          <div className="flex justify-end gap-2">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setCustomRangeOpen(false);
-                                setCustomRangeDraft({ start: customStart, end: customEnd });
-                              }}
-                              className="rounded-lg border px-3 py-1.5 text-xs"
-                            >
-                              Cancel
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setCustomStart(customRangeDraft.start);
-                                setCustomEnd(customRangeDraft.end);
-                                setDateRange("custom");
-                                setCustomRangeOpen(false);
-                              }}
-                              className="rounded-lg bg-foreground px-3 py-1.5 text-xs text-background"
-                            >
-                              Apply
-                            </button>
-                          </div>
-                        </div>
-                      </Popover.Content>
-                    </Popover.Portal>
-                  </Popover.Root>
-                ) : (
-                  <button
-                    key={option.value}
-                    onClick={() => applyDateRange(option.value)}
-                    className={cn(
-                      "h-8 rounded-full border px-2.5 text-[11px] font-semibold transition-colors",
-                      dateRange === option.value
-                        ? "border-foreground bg-foreground text-background"
-                        : "bg-background text-muted-foreground hover:border-foreground/40 hover:text-foreground"
-                    )}
-                  >
-                    {option.shortLabel}
-                  </button>
-                )
-              )}
-            </div>
+            <DateRangeToolbarPopover
+              open={customRangeOpen}
+              onOpenChange={setCustomRangeOpen}
+              currentDateRange={dateRange}
+              customStart={customStart}
+              customEnd={customEnd}
+              onApply={({ preset, start, end }) => {
+                if (preset === "today" || preset === "yesterday" || preset === "custom") {
+                  setDateRange("custom");
+                  setCustomStart(start);
+                  setCustomEnd(end);
+                  return;
+                }
+                setDateRange(preset as DateRange);
+              }}
+            />
 
-            <div className="ml-auto flex flex-wrap items-center gap-2">
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] font-medium text-muted-foreground">Compare:</span>
-                <select
-                  value={compareMode}
-                  onChange={(event) => applyCompareMode(event.target.value as CompareMode)}
-                  className="h-8 min-w-[176px] rounded-full border bg-background px-3 text-xs font-medium"
-                >
-                  {COMPARE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {compareMode === "custom" ? (
-                <Popover.Root
-                  open={customCompareOpen}
-                  onOpenChange={(open) => {
-                    setCustomCompareOpen(open);
-                    if (open) {
-                      setCustomCompareDraft({ start: compareStart, end: compareEnd });
-                    }
-                  }}
-                >
-                  <Popover.Trigger asChild>
-                    <button
-                      type="button"
-                      className="inline-flex h-8 items-center gap-1 rounded-full border bg-background px-2.5 text-[11px] font-semibold text-foreground"
-                    >
-                      <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-                      <span>{customCompareLabel}</span>
-                      <ChevronDown className="h-3 w-3 text-muted-foreground" />
-                    </button>
-                  </Popover.Trigger>
-                  <Popover.Portal>
-                    <Popover.Content
-                      sideOffset={6}
-                      align="end"
-                      className="z-50 w-[320px] rounded-xl border bg-popover p-3 shadow-xl"
-                    >
-                      <div className="space-y-3">
-                        <div>
-                          <p className="text-xs font-semibold">Custom comparison</p>
-                          <p className="text-[11px] text-muted-foreground">Set the comparison window.</p>
-                        </div>
-                        <div className="grid gap-2 sm:grid-cols-2">
-                          <label className="space-y-1">
-                            <span className="text-[11px] text-muted-foreground">Start</span>
-                            <input
-                              type="date"
-                              value={customCompareDraft.start}
-                              max={customCompareDraft.end}
-                              onChange={(event) =>
-                                setCustomCompareDraft((prev) => ({ ...prev, start: event.target.value }))
-                              }
-                              className="h-9 w-full rounded-lg border bg-background px-3 text-xs"
-                            />
-                          </label>
-                          <label className="space-y-1">
-                            <span className="text-[11px] text-muted-foreground">End</span>
-                            <input
-                              type="date"
-                              value={customCompareDraft.end}
-                              min={customCompareDraft.start}
-                              onChange={(event) =>
-                                setCustomCompareDraft((prev) => ({ ...prev, end: event.target.value }))
-                              }
-                              className="h-9 w-full rounded-lg border bg-background px-3 text-xs"
-                            />
-                          </label>
-                        </div>
-                        <div className="flex justify-end gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setCustomCompareOpen(false);
-                              setCustomCompareDraft({ start: compareStart, end: compareEnd });
-                            }}
-                            className="rounded-lg border px-3 py-1.5 text-xs"
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setCompareStart(customCompareDraft.start);
-                              setCompareEnd(customCompareDraft.end);
-                              setCompareMode("custom");
-                              setCustomCompareOpen(false);
-                            }}
-                            className="rounded-lg bg-foreground px-3 py-1.5 text-xs text-background"
-                          >
-                            Apply
-                          </button>
-                        </div>
-                      </div>
-                    </Popover.Content>
-                  </Popover.Portal>
-                </Popover.Root>
-              ) : null}
-
-              <button
-                onClick={resetControls}
-                className="h-8 rounded-full border px-3 text-[11px] font-semibold text-muted-foreground transition-colors hover:border-foreground/40 hover:text-foreground"
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-medium text-muted-foreground">Compare:</span>
+              <select
+                value={compareMode}
+                onChange={(event) => applyCompareMode(event.target.value as CompareMode)}
+                className="h-8 min-w-[176px] rounded-full border bg-background px-3 text-xs font-medium"
               >
-                Reset filters
-              </button>
+                {COMPARE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
             </div>
+
+            {compareMode === "custom" ? (
+              <Popover.Root
+                open={customCompareOpen}
+                onOpenChange={(open) => {
+                  setCustomCompareOpen(open);
+                  if (open) {
+                    setCustomCompareDraft({ start: compareStart, end: compareEnd });
+                  }
+                }}
+              >
+                <Popover.Trigger asChild>
+                  <button
+                    type="button"
+                    className="inline-flex h-8 items-center gap-1 rounded-full border bg-background px-2.5 text-[11px] font-semibold text-foreground"
+                  >
+                    <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+                    <span>{customCompareLabel}</span>
+                    <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                  </button>
+                </Popover.Trigger>
+                <Popover.Portal>
+                  <Popover.Content
+                    sideOffset={6}
+                    align="start"
+                    className="z-50 w-[320px] rounded-xl border bg-popover p-3 shadow-xl"
+                  >
+                    <div className="space-y-3">
+                      <div>
+                        <p className="text-xs font-semibold">Custom comparison</p>
+                        <p className="text-[11px] text-muted-foreground">Set the comparison window.</p>
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <label className="space-y-1">
+                          <span className="text-[11px] text-muted-foreground">Start</span>
+                          <input
+                            type="date"
+                            value={customCompareDraft.start}
+                            max={customCompareDraft.end}
+                            onChange={(event) =>
+                              setCustomCompareDraft((prev) => ({ ...prev, start: event.target.value }))
+                            }
+                            className="h-9 w-full rounded-lg border bg-background px-3 text-xs"
+                          />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[11px] text-muted-foreground">End</span>
+                          <input
+                            type="date"
+                            value={customCompareDraft.end}
+                            min={customCompareDraft.start}
+                            onChange={(event) =>
+                              setCustomCompareDraft((prev) => ({ ...prev, end: event.target.value }))
+                            }
+                            className="h-9 w-full rounded-lg border bg-background px-3 text-xs"
+                          />
+                        </label>
+                      </div>
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCustomCompareOpen(false);
+                            setCustomCompareDraft({ start: compareStart, end: compareEnd });
+                          }}
+                          className="rounded-lg border px-3 py-1.5 text-xs"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCompareStart(customCompareDraft.start);
+                            setCompareEnd(customCompareDraft.end);
+                            setCompareMode("custom");
+                            setCustomCompareOpen(false);
+                          }}
+                          className="rounded-lg bg-foreground px-3 py-1.5 text-xs text-background"
+                        >
+                          Apply
+                        </button>
+                      </div>
+                    </div>
+                  </Popover.Content>
+                </Popover.Portal>
+              </Popover.Root>
+            ) : null}
+
+            <button
+              onClick={resetControls}
+              className="h-8 rounded-full border px-3 text-[11px] font-semibold text-muted-foreground transition-colors hover:border-foreground/40 hover:text-foreground"
+            >
+              Reset filters
+            </button>
           </div>
         </div>
 
