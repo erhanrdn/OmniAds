@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { BrandLogo } from "@/components/brand/BrandLogo";
 
 export function MarketingFooter() {
   return (
@@ -7,10 +8,7 @@ export function MarketingFooter() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-10">
           <div className="col-span-2 md:col-span-1">
             <Link href="/" className="flex items-center gap-2.5 mb-4">
-              <div className="flex h-7 w-7 items-center justify-center rounded-md bg-indigo-600 text-white text-sm font-bold select-none">
-                A
-              </div>
-              <span className="text-sm font-semibold tracking-tight">Adsecute</span>
+              <BrandLogo markClassName="h-8 w-8" size={32} />
             </Link>
             <p className="text-sm text-muted-foreground leading-relaxed max-w-[200px]">
               AI advertising intelligence for Shopify brands.

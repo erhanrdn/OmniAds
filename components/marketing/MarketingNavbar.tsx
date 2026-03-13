@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { Menu, X } from "lucide-react";
+import { BrandLogo } from "@/components/brand/BrandLogo";
 
 export function MarketingNavbar() {
   const [open, setOpen] = useState(false);
@@ -12,10 +13,7 @@ export function MarketingNavbar() {
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between">
           <Link href="/" className="flex items-center gap-2.5">
-            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-indigo-600 text-white text-sm font-bold select-none">
-              A
-            </div>
-            <span className="text-sm font-semibold tracking-tight text-foreground">Adsecute</span>
+            <BrandLogo markClassName="h-8 w-8" size={32} />
           </Link>
 
           <nav className="hidden md:flex items-center gap-7">

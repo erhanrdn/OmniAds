@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ReactNode } from "react";
+import { BrandLogo } from "@/components/brand/BrandLogo";
 
 interface PublicLegalPageProps {
   title: string;
@@ -20,10 +21,7 @@ export function PublicLegalPage({ title, subtitle, children }: PublicLegalPagePr
       <header className="border-b border-border">
         <div className="mx-auto max-w-3xl px-5 sm:px-8 py-4 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2">
-            <div className="flex h-6 w-6 items-center justify-center rounded bg-indigo-600 text-white text-xs font-bold select-none">
-              A
-            </div>
-            <span className="text-sm font-semibold text-foreground">Adsecute</span>
+            <BrandLogo markClassName="h-7 w-7" size={28} />
           </Link>
           <Link href="/" className="text-xs text-muted-foreground hover:text-foreground transition-colors">
             ← Back to home
@@ -63,4 +61,3 @@ export function PublicLegalPage({ title, subtitle, children }: PublicLegalPagePr
     </div>
   );
 }
-

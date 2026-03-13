@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { navItems } from "./nav-items";
 import { cn } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
+import { BrandLogo } from "@/components/brand/BrandLogo";
 
 const groups = ["Main", "Platforms", "Assets", "Manage"] as const;
 
@@ -14,10 +15,7 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <div className="flex flex-col h-full">
       <div className="px-6 py-5 flex items-center gap-2">
-        <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center">
-          <span className="text-primary-foreground font-bold text-sm">A</span>
-        </div>
-        <span className="font-semibold text-lg tracking-tight">Adsecute</span>
+        <BrandLogo markClassName="h-8 w-8" textClassName="text-lg" size={32} />
       </div>
 
       <Separator />

@@ -16,6 +16,16 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Adsecute",
   description: "Multi-platform ad management dashboard",
+  icons: {
+    icon: "/adsecute-mark.svg",
+    shortcut: "/adsecute-mark.svg",
+    apple: "/adsecute-mark.svg",
+  },
+  openGraph: {
+    title: "Adsecute",
+    description: "Multi-platform ad management dashboard",
+    images: ["/adsecute-mark.svg"],
+  },
 };
 
 export default function RootLayout({

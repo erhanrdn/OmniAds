@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { replaceAuthenticatedWorkspace } from "@/lib/client-auth-state";
+import { BrandLogo } from "@/components/brand/BrandLogo";
 
 const REMEMBER_EMAIL_KEY = "omniads.remember_email";
 
@@ -109,10 +110,12 @@ function LoginPageClient() {
     <div className="min-h-screen flex items-center justify-center bg-background">
       <div className="w-full max-w-sm space-y-8">
         <div className="text-center space-y-2">
-          <div className="mx-auto w-12 h-12 rounded-xl bg-primary flex items-center justify-center">
-            <span className="text-primary-foreground font-bold text-xl">A</span>
-          </div>
-          <h1 className="text-2xl font-semibold tracking-tight">Adsecute</h1>
+          <BrandLogo
+            className="justify-center"
+            markClassName="h-16 w-16"
+            textClassName="text-2xl"
+            size={64}
+          />
           <p className="text-muted-foreground text-sm">
             Sign in to your account to continue
           </p>
