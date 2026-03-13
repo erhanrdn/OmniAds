@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { useAppStore } from "@/store/app-store";
@@ -17,8 +18,6 @@ import { fetchProviderAccountSnapshot } from "@/lib/provider-account-client";
 import {
   type MetaCreativeRow,
 } from "@/components/creatives/metricConfig";
-import { CreativeDetailExperience } from "@/components/creatives/CreativeDetailExperience";
-import { CreativeAdBreakdownDrawer } from "@/components/creatives/CreativeAdBreakdownDrawer";
 import { MotionCreativesTableSection } from "@/components/creatives/MotionCreativesTableSection";
 import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
 import {
@@ -34,10 +33,21 @@ import {
 } from "@/components/creatives/MotionTopSection";
 import type { ShareMetricKey, SharePayload, SharedCreative } from "@/components/creatives/shareCreativeTypes";
 
+const CreativeDetailExperience = dynamic(
+  () => import("@/components/creatives/CreativeDetailExperience").then((mod) => mod.CreativeDetailExperience),
+  { ssr: false, loading: () => null }
+);
+const CreativeAdBreakdownDrawer = dynamic(
+  () => import("@/components/creatives/CreativeAdBreakdownDrawer").then((mod) => mod.CreativeAdBreakdownDrawer),
+  { ssr: false, loading: () => null }
+);
+
 interface MetaCreativesResponse {
   status?: string;
   message?: string;
   rows: MetaCreativeApiRow[];
+  media_mode?: "metadata" | "full";
+  media_hydrated?: boolean;
 }
 
 const PLATFORM_LABELS: Record<string, string> = {
@@ -176,6 +186,7 @@ async function fetchMetaCreatives(params: {
   groupBy: "adName" | "creative" | "adSet";
   format: "all" | "image" | "video";
   sort: "roas" | "spend" | "ctrAll" | "purchaseValue";
+  mediaMode?: "metadata" | "full";
 }): Promise<MetaCreativesResponse> {
   const query = new URLSearchParams({
     businessId: params.businessId,
@@ -184,6 +195,7 @@ async function fetchMetaCreatives(params: {
     groupBy: params.groupBy,
     format: params.format,
     sort: params.sort,
+    mediaMode: params.mediaMode ?? "full",
   });
 
   const response = await fetch(`/api/meta/creatives?${query.toString()}`, {
@@ -260,6 +272,33 @@ function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
     atcToPurchaseRatio: row.atc_to_purchase,
     cachedThumbnailUrl: row.cached_thumbnail_url ?? null,
   };
+}
+
+function CreativesTableShell() {
+  return (
+    <div className="rounded-xl border bg-white">
+      <div className="border-b px-4 py-3">
+        <div className="h-4 w-48 animate-pulse rounded bg-slate-200" />
+      </div>
+      <div className="divide-y">
+        {Array.from({ length: 8 }).map((_, index) => (
+          <div key={index} className="flex items-center gap-3 px-4 py-3">
+            <div className="h-4 w-4 animate-pulse rounded bg-slate-200" />
+            <div className="h-10 w-10 animate-pulse rounded-md bg-slate-200" />
+            <div className="min-w-0 flex-1 space-y-2">
+              <div className="h-4 w-56 animate-pulse rounded bg-slate-200" />
+              <div className="h-3 w-32 animate-pulse rounded bg-slate-100" />
+            </div>
+            <div className="hidden gap-3 md:flex">
+              <div className="h-4 w-16 animate-pulse rounded bg-slate-100" />
+              <div className="h-4 w-14 animate-pulse rounded bg-slate-100" />
+              <div className="h-4 w-12 animate-pulse rounded bg-slate-100" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export default function CreativesPage() {
@@ -357,9 +396,9 @@ export default function CreativesPage() {
   const { start: drStart, end: drEnd } = resolveMotionDateRange(dateRangeValue);
   const mainTableApiGroupBy = mapMotionGroupByToApi(groupBy);
 
-  const creativesQuery = useQuery({
+  const creativesMetadataQuery = useQuery({
     queryKey: [
-      "meta-creatives-motion",
+      "meta-creatives-motion-metadata",
       businessId,
       drStart,
       drEnd,
@@ -374,6 +413,32 @@ export default function CreativesPage() {
         groupBy: mainTableApiGroupBy,
         format: "all",
         sort: "spend",
+        mediaMode: "metadata",
+      }),
+  });
+  const creativesMediaQuery = useQuery({
+    queryKey: [
+      "meta-creatives-motion-media",
+      businessId,
+      drStart,
+      drEnd,
+      groupBy,
+    ],
+    enabled:
+      platform === "meta" &&
+      platformConnected &&
+      metaHasAssignments &&
+      creativesMetadataQuery.isSuccess &&
+      (creativesMetadataQuery.data?.rows?.length ?? 0) > 0,
+    queryFn: () =>
+      fetchMetaCreatives({
+        businessId,
+        start: drStart,
+        end: drEnd,
+        groupBy: mainTableApiGroupBy,
+        format: "all",
+        sort: "spend",
+        mediaMode: "full",
       }),
   });
   const adBreakdownQuery = useQuery({
@@ -396,7 +461,10 @@ export default function CreativesPage() {
   });
 
   const allRows = useMemo(() => {
-    const rows = (creativesQuery.data?.rows ?? []).map(mapApiRowToUiRow);
+    const metadataRows = creativesMetadataQuery.data?.rows ?? [];
+    const hydratedRows = creativesMediaQuery.data?.rows ?? [];
+    const hydratedById = new Map(hydratedRows.map((row) => [row.id, row]));
+    const rows = metadataRows.map((row) => mapApiRowToUiRow(hydratedById.get(row.id) ?? row));
     if (rows.length > 0 && process.env.NODE_ENV !== "production") {
       const withPreview = rows.filter((r) => r.previewUrl).length;
       console.log("[creatives-page] UI row preview summary", {
@@ -420,7 +488,7 @@ export default function CreativesPage() {
       });
       
       // DIAGNOSTIC: Log raw API data vs mapped rows
-      const rawRows = creativesQuery.data?.rows ?? [];
+      const rawRows = metadataRows;
       console.log("[DIAGNOSTIC] API -> UI mapping check", {
         first_3_raw: rawRows.slice(0, 3).map((r) => ({
           id: r.id,
@@ -447,18 +515,20 @@ export default function CreativesPage() {
       
       // DIAGNOSTIC: Full backend response status
       console.log("[DIAGNOSTIC] Backend response metadata", {
-        status: creativesQuery.data?.status,
+        status: creativesMetadataQuery.data?.status,
         total_rows: rawRows.length,
         has_preview_field: rawRows.length > 0 ? typeof rawRows[0]?.preview : "N/A",
+        media_hydrated: Boolean(creativesMediaQuery.data?.media_hydrated),
       });
     }
     return rows;
-  }, [creativesQuery.data?.rows]);
+  }, [creativesMediaQuery.data?.media_hydrated, creativesMediaQuery.data?.rows, creativesMetadataQuery.data?.rows]);
 
   const filteredRows = useMemo(() => {
     if (platform !== "meta") return [];
     return applyMotionFilters(allRows, topFilters);
   }, [allRows, platform, topFilters]);
+  const deferredFilteredRows = useDeferredValue(filteredRows);
 
   useEffect(() => {
     setSelectionState((prev) => {
@@ -485,14 +555,14 @@ export default function CreativesPage() {
 
   const selectedRows = useMemo(
     () =>
-      filteredRows
+      deferredFilteredRows
         .filter((row) => selectionState.selectedRowIds.includes(row.id))
         .slice(0, 20),
-    [filteredRows, selectionState.selectedRowIds]
+    [deferredFilteredRows, selectionState.selectedRowIds]
   );
   const topPanelRows = useMemo(
-    () => (selectedRows.length > 0 ? selectedRows : filteredRows.slice(0, 20)),
-    [filteredRows, selectedRows]
+    () => (selectedRows.length > 0 ? selectedRows : deferredFilteredRows.slice(0, 20)),
+    [deferredFilteredRows, selectedRows]
   );
 
   useEffect(() => {
@@ -537,39 +607,39 @@ export default function CreativesPage() {
   const adBreakdownRows = useMemo(() => {
     const creativeName = activeBreakdownCreativeRow?.name ?? null;
     if (!creativeName) return [];
-    const rows = (adBreakdownQuery.data?.rows ?? []).map(mapApiRowToUiRow);
+      const rows = (adBreakdownQuery.data?.rows ?? []).map(mapApiRowToUiRow);
     return rows.filter((row) => row.name === creativeName);
   }, [activeBreakdownCreativeRow?.name, adBreakdownQuery.data?.rows]);
 
-  const openCreativeDrawer = (rowId: string, scrollToRow = false) => {
+  const openCreativeDrawer = useCallback((rowId: string, scrollToRow = false) => {
     setCreativeDrawerState({ open: true, activeRowId: rowId });
     if (scrollToRow) {
       const target = document.getElementById(`creative-row-${rowId}`);
       if (target) target.scrollIntoView({ behavior: "smooth", block: "center" });
     }
-  };
-  const openAdBreakdownDrawer = (rowId: string) => {
+  }, []);
+  const openAdBreakdownDrawer = useCallback((rowId: string) => {
     setBreakdownDrawerState({ open: true, activeRowId: rowId });
     setHighlightedRowId(rowId);
     setTimeout(() => setHighlightedRowId((prev) => (prev === rowId ? null : prev)), 1400);
-  };
+  }, []);
 
-  const toggleRowSelection = (rowId: string) => {
+  const toggleRowSelection = useCallback((rowId: string) => {
     hasUserInteractedSelectionRef.current = true;
     setSelectionState((prev) => ({
       selectedRowIds: prev.selectedRowIds.includes(rowId)
         ? prev.selectedRowIds.filter((id) => id !== rowId)
         : [...prev.selectedRowIds, rowId],
     }));
-  };
+  }, []);
 
-  const toggleAllRows = () => {
+  const toggleAllRows = useCallback(() => {
     hasUserInteractedSelectionRef.current = true;
-    const allIds = filteredRows.map((row) => row.id);
+    const allIds = deferredFilteredRows.map((row) => row.id);
     setSelectionState((prev) => ({
       selectedRowIds: allIds.every((id) => prev.selectedRowIds.includes(id)) ? [] : allIds,
     }));
-  };
+  }, [deferredFilteredRows]);
 
   const handleCsvExport = async () => {
     setCsvError(null);
@@ -632,7 +702,17 @@ export default function CreativesPage() {
     }
   };
 
-  const dataStatus = creativesQuery.data?.status;
+  const dataStatus = creativesMetadataQuery.data?.status;
+  const mediaHydrationState =
+    creativesMetadataQuery.isSuccess && (creativesMetadataQuery.data?.rows.length ?? 0) > 0
+      ? creativesMediaQuery.isFetching
+        ? "loading"
+        : creativesMediaQuery.isError
+          ? "error"
+        : creativesMediaQuery.data?.media_hydrated
+          ? "ready"
+          : "idle"
+      : "idle";
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -743,45 +823,74 @@ export default function CreativesPage() {
               csvError={csvError}
             />
 
-            {creativesQuery.isLoading && <LoadingSkeleton rows={5} />}
+            {creativesMetadataQuery.isLoading && <CreativesTableShell />}
 
-            {creativesQuery.isError && (
+            {creativesMetadataQuery.isError && (
               <ErrorState
                 title="Could not load creatives"
                 description={
-                  creativesQuery.error instanceof Error
-                    ? creativesQuery.error.message
+                  creativesMetadataQuery.error instanceof Error
+                    ? creativesMetadataQuery.error.message
                     : "Could not load creative performance data."
                 }
-                onRetry={() => creativesQuery.refetch()}
+                onRetry={() => creativesMetadataQuery.refetch()}
               />
             )}
 
-            {!creativesQuery.isLoading &&
-              !creativesQuery.isError &&
-              (filteredRows.length === 0 || dataStatus === "no_data") && (
+            {!creativesMetadataQuery.isLoading &&
+              !creativesMetadataQuery.isError &&
+              (deferredFilteredRows.length === 0 || dataStatus === "no_data") && (
                 <EmptyState
                   title="No creative performance data found for the selected range"
                   description="Try a wider date range or verify that assigned Meta accounts have active ad delivery."
                 />
               )}
 
-            {!creativesQuery.isLoading &&
-              !creativesQuery.isError &&
-              filteredRows.length > 0 &&
+            {!creativesMetadataQuery.isLoading &&
+              !creativesMetadataQuery.isError &&
+              deferredFilteredRows.length > 0 &&
               dataStatus !== "no_data" && (
-                <MotionCreativesTableSection
-                  rows={filteredRows}
-                  selectedMetricIds={topMetricIds}
-                  onSelectedMetricIdsChange={setTopMetricIds}
-                  selectedRowIds={selectionState.selectedRowIds}
-                  highlightedRowId={highlightedRowId}
-                  defaultCurrency={selectedBusinessCurrency}
-                  onToggleRow={toggleRowSelection}
-                  onToggleAll={toggleAllRows}
-                  onOpenRow={(rowId) => openCreativeDrawer(rowId)}
-                  onOpenBreakdownRow={(rowId) => openAdBreakdownDrawer(rowId)}
-                />
+                <>
+                  <div className="rounded-xl border border-slate-200 bg-white/80 px-4 py-3 text-sm text-slate-600">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="font-medium text-slate-900">
+                          {mediaHydrationState === "loading"
+                            ? "Creatives loaded. Media previews are still hydrating."
+                            : mediaHydrationState === "error"
+                              ? "Creatives loaded. Some preview media could not be hydrated."
+                            : "Creatives loaded."}
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          {mediaHydrationState === "loading"
+                            ? "Rows are ready to scroll, filter, and select now. Thumbnails will continue appearing in the background."
+                            : mediaHydrationState === "error"
+                              ? "Metadata is available and usable. Any missing thumbnails reflect a media hydration issue rather than a no-data state."
+                            : "Preview media has been hydrated for the current view."}
+                        </p>
+                      </div>
+                      <p className="text-xs text-slate-500">
+                        {mediaHydrationState === "loading"
+                          ? "State: metadata ready, media loading"
+                          : mediaHydrationState === "error"
+                            ? "State: metadata ready, media partial"
+                          : "State: metadata + media ready"}
+                      </p>
+                    </div>
+                  </div>
+                  <MotionCreativesTableSection
+                    rows={deferredFilteredRows}
+                    selectedMetricIds={topMetricIds}
+                    onSelectedMetricIdsChange={setTopMetricIds}
+                    selectedRowIds={selectionState.selectedRowIds}
+                    highlightedRowId={highlightedRowId}
+                    defaultCurrency={selectedBusinessCurrency}
+                    onToggleRow={toggleRowSelection}
+                    onToggleAll={toggleAllRows}
+                    onOpenRow={openCreativeDrawer}
+                    onOpenBreakdownRow={openAdBreakdownDrawer}
+                  />
+                </>
               )}
           </>
         );

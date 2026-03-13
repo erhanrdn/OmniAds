@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
@@ -128,7 +128,13 @@ function PreviewFallback({ frameClass, name }: { frameClass: string; name: strin
   );
 }
 
-export function CreativeRenderSurface({
+function PreviewLoadingPlaceholder({ frameClass }: { frameClass: string }) {
+  return (
+    <div className={cn(frameClass, "animate-pulse bg-gradient-to-br from-slate-100 to-slate-200")} aria-hidden="true" />
+  );
+}
+
+export const CreativeRenderSurface = memo(function CreativeRenderSurface({
   id,
   name,
   preview,
@@ -222,7 +228,7 @@ export function CreativeRenderSurface({
   }
 
   return <PreviewFallback frameClass={frameClass} name={name} />;
-}
+});
 
 function AssetImage({
   id,
@@ -371,17 +377,47 @@ function AssetFrame({
   imageKey?: string;
 }) {
   const [failed, setFailed] = useState(false);
+  const frameRef = useRef<HTMLDivElement>(null);
+  const [shouldLoad, setShouldLoad] = useState(false);
 
   useEffect(() => {
     setFailed(false);
   }, [src]);
 
+  useEffect(() => {
+    if (shouldLoad) return;
+    const node = frameRef.current;
+    if (!node || typeof IntersectionObserver === "undefined") {
+      setShouldLoad(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting || entry.intersectionRatio > 0)) return;
+        setShouldLoad(true);
+        observer.disconnect();
+      },
+      { rootMargin: "240px" }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [shouldLoad]);
+
   if (failed) {
     return <>{fallback}</>;
   }
 
+  if (!shouldLoad) {
+    return (
+      <div ref={frameRef} className={frameClass}>
+        <PreviewLoadingPlaceholder frameClass="h-full w-full" />
+      </div>
+    );
+  }
+
   return (
-    <div className={frameClass}>
+    <div ref={frameRef} className={frameClass}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         key={imageKey ?? src}

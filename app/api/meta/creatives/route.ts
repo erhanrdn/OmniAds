@@ -2487,6 +2487,8 @@ export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   const businessId = params.get("businessId");
   const detailPreviewCreativeId = params.get("detailPreviewCreativeId")?.trim() ?? "";
+  const mediaMode = params.get("mediaMode") === "metadata" ? "metadata" : "full";
+  const enableFullMediaHydration = mediaMode === "full";
   const groupBy = (params.get("groupBy") as GroupBy | null) ?? "creative";
   const format = (params.get("format") as FormatFilter | null) ?? "all";
   const sort = (params.get("sort") as SortKey | null) ?? "roas";
@@ -2497,13 +2499,15 @@ export async function GET(request: NextRequest) {
   const debugPerf = params.get("debugPerf") === "1";
   // Keep normal /creatives rendering resilient; debug flags only expand diagnostics.
   const enableCreativeBasicsFallback = params.get("creativeBasicsFallback") !== "0";
-  const enableCreativeDetails = params.get("creativeDetails") !== "0";
-  const enableThumbnailBackfill = params.get("thumbnailBackfill") !== "0";
-  const enableCardThumbnailBackfill = params.get("cardThumbnailBackfill") !== "0";
-  const enableImageHashLookup = debugPreview || debugThumbnail || params.get("imageHashLookup") === "1";
-  const enableMediaRecovery = debugPreview || debugThumbnail || params.get("recoverMedia") === "1";
-  const enableMediaCache = debugPreview || debugThumbnail || params.get("mediaCache") === "1";
-  const enableDeepAudit = debugPreview || debugPerf;
+  const enableCreativeDetails = enableFullMediaHydration && params.get("creativeDetails") !== "0";
+  const enableThumbnailBackfill = enableFullMediaHydration && params.get("thumbnailBackfill") !== "0";
+  const enableCardThumbnailBackfill = enableFullMediaHydration && params.get("cardThumbnailBackfill") !== "0";
+  const enableImageHashLookup =
+    enableFullMediaHydration && (debugPreview || debugThumbnail || params.get("imageHashLookup") === "1");
+  const enableMediaRecovery =
+    enableFullMediaHydration && (debugPreview || debugThumbnail || params.get("recoverMedia") === "1");
+  const enableMediaCache = params.get("mediaCache") !== "0";
+  const enableDeepAudit = enableFullMediaHydration && (debugPreview || debugPerf);
   const previewSampleLimit = Number(params.get("previewSampleLimit") ?? "5");
   const perAccountSampleLimit =
     Number.isFinite(previewSampleLimit) && previewSampleLimit > 0
@@ -2680,24 +2684,26 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      const tAdCreativeMedia = Date.now();
-      const adCreativeMediaMap =
-        insightAdIds.length > 0
-          ? await fetchAdCreativeMediaByAdIds(insightAdIds, accessToken)
-          : new Map<string, MetaAdCreativeMediaOnlyRecord>();
-      accountPerf.creative_details_ms += Date.now() - tAdCreativeMedia;
-      for (const adId of insightAdIds) {
-        const existing = adMap.get(adId);
-        const mediaOnly = adCreativeMediaMap.get(adId);
-        if (!mediaOnly?.creative) continue;
-        if (!existing) {
-          adMap.set(adId, { id: adId, creative: mediaOnly.creative });
-          continue;
+      if (enableFullMediaHydration) {
+        const tAdCreativeMedia = Date.now();
+        const adCreativeMediaMap =
+          insightAdIds.length > 0
+            ? await fetchAdCreativeMediaByAdIds(insightAdIds, accessToken)
+            : new Map<string, MetaAdCreativeMediaOnlyRecord>();
+        accountPerf.creative_details_ms += Date.now() - tAdCreativeMedia;
+        for (const adId of insightAdIds) {
+          const existing = adMap.get(adId);
+          const mediaOnly = adCreativeMediaMap.get(adId);
+          if (!mediaOnly?.creative) continue;
+          if (!existing) {
+            adMap.set(adId, { id: adId, creative: mediaOnly.creative });
+            continue;
+          }
+          adMap.set(adId, {
+            ...existing,
+            creative: mergeCreativeData(existing.creative ?? null, mediaOnly.creative as NonNullable<MetaAdRecord["creative"]>),
+          });
         }
-        adMap.set(adId, {
-          ...existing,
-          creative: mergeCreativeData(existing.creative ?? null, mediaOnly.creative as NonNullable<MetaAdRecord["creative"]>),
-        });
       }
 
       // ── Fetch creative details only for ads in current insights window that still need enrichment ──
@@ -2735,7 +2741,7 @@ export async function GET(request: NextRequest) {
       );
       const tVideoDetails = Date.now();
       const videoSourceMap =
-        creativeVideoIds.length > 0
+        enableFullMediaHydration && creativeVideoIds.length > 0
           ? await fetchVideoSourceMap(creativeVideoIds, accessToken)
           : new Map<string, { source: string | null; picture: string | null }>();
       accountPerf.video_details_ms += Date.now() - tVideoDetails;
@@ -3177,20 +3183,22 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  const unresolvedCopyAdIds = rawRows
-    .filter(
-      (row) =>
-        !normalizeCopyText(row.copy_text) &&
-        row.copy_variants.length === 0 &&
-        row.headline_variants.length === 0 &&
-        row.description_variants.length === 0 &&
-        row.id &&
-        !row.id.startsWith("creative_") &&
-        !row.id.startsWith("adset_")
-    )
-    .map((row) => row.id);
+  const unresolvedCopyAdIds = enableFullMediaHydration
+    ? rawRows
+        .filter(
+          (row) =>
+            !normalizeCopyText(row.copy_text) &&
+            row.copy_variants.length === 0 &&
+            row.headline_variants.length === 0 &&
+            row.description_variants.length === 0 &&
+            row.id &&
+            !row.id.startsWith("creative_") &&
+            !row.id.startsWith("adset_")
+        )
+        .map((row) => row.id)
+    : [];
 
-  if (unresolvedCopyAdIds.length > 0) {
+  if (enableFullMediaHydration && unresolvedCopyAdIds.length > 0) {
     const tCopyRecovery = Date.now();
     const deepCopyMap = await fetchAdCreativeMediaDirectByAdIds(unresolvedCopyAdIds, accessToken);
     for (const row of rawRows) {
@@ -3246,8 +3254,8 @@ export async function GET(request: NextRequest) {
   rows = sortRows(rows, sort);
 
   // Copy enrichment fallback path for /copies use-cases.
-  const unresolvedCopyRows = rows.filter((row) => !normalizeCopyText(row.copy_text));
-  if (unresolvedCopyRows.length > 0) {
+  const unresolvedCopyRows = enableFullMediaHydration ? rows.filter((row) => !normalizeCopyText(row.copy_text)) : [];
+  if (enableFullMediaHydration && unresolvedCopyRows.length > 0) {
     const storyLookupIds = Array.from(
       new Set(
         unresolvedCopyRows.flatMap((row) => {
@@ -3372,7 +3380,12 @@ export async function GET(request: NextRequest) {
   }
 
   if (rows.length === 0) {
-    return NextResponse.json({ status: "no_data", rows: [] });
+    return NextResponse.json({
+      status: "no_data",
+      rows: [],
+      media_mode: mediaMode,
+      media_hydrated: enableFullMediaHydration,
+    });
   }
 
   // ── Resolve cached thumbnail URLs ──────────────────────────────────
@@ -3653,6 +3666,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       status: "ok",
       rows: responseRows,
+      media_mode: mediaMode,
+      media_hydrated: enableFullMediaHydration,
       preview_debug: {
         sampled: previewAuditSamples,
         ranking: summarizePreviewAudit(previewAuditSamples),
@@ -3689,6 +3704,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       status: "ok",
       rows: responseRows,
+      media_mode: mediaMode,
+      media_hydrated: enableFullMediaHydration,
       performance_debug: {
         ...perf,
         total_ms: Date.now() - requestStartedAt,
@@ -3715,5 +3732,10 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  return NextResponse.json({ status: "ok", rows: responseRows });
+  return NextResponse.json({
+    status: "ok",
+    rows: responseRows,
+    media_mode: mediaMode,
+    media_hydrated: enableFullMediaHydration,
+  });
 }

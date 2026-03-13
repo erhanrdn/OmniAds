@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ComponentType } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import {
   CalendarDays,
   ChevronDown,
@@ -174,6 +174,22 @@ interface HeatEvaluation {
   intensity: number;
   reason: string;
   applicable?: boolean;
+}
+
+interface CreativeTableRowProps {
+  row: MetaCreativeRow;
+  isSelected: boolean;
+  highlighted: boolean;
+  defaultCurrency: string | null;
+  tablePreset: TablePreset;
+  selectedAiTagColumns: TagKey[];
+  selectedColumns: TableColumnDefinition[];
+  ctx: TableCalcContext;
+  metricDistributions: Partial<Record<TableColumnKey, MetricDistribution>>;
+  metricSpendDistributions: Partial<Record<TableColumnKey, MetricDistribution>>;
+  onToggleRow: (rowId: string) => void;
+  onOpenRow: (rowId: string) => void;
+  onOpenBreakdownRow?: (rowId: string) => void;
 }
 
 
@@ -390,6 +406,8 @@ const AI_TAG_GROUPS: Array<{ label: string; items: Array<{ label: string; value:
 ];
 
 const PRESET_NOTES = "Preset controls only this table. Top creative cards keep their own metric model.";
+const VIRTUAL_ROW_HEIGHT = 58;
+const VIRTUAL_OVERSCAN = 6;
 
 const TABLE_TO_TOP_METRIC_ID: Partial<Record<TableColumnKey, string>> = {
   spend: "spend",
@@ -523,6 +541,8 @@ export function MotionCreativesTableSection({
     startWidth: number;
     minWidth: number;
   } | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [scrollTop, setScrollTop] = useState(0);
 
   useDropdownBehavior({
     id: "table-preset-menu",
@@ -616,6 +636,24 @@ export function MotionCreativesTableSection({
   const startIndex = (safePage - 1) * tablePreset.resultsPerPage;
   const endIndex = Math.min(totalResults, startIndex + tablePreset.resultsPerPage);
   const pagedRows = useMemo(() => sortedRows.slice(startIndex, endIndex), [sortedRows, startIndex, endIndex]);
+  const virtualizationEnabled = pagedRows.length > 30;
+  const visibleRowCount = virtualizationEnabled
+    ? Math.max(8, Math.ceil(620 / VIRTUAL_ROW_HEIGHT) + VIRTUAL_OVERSCAN * 2)
+    : pagedRows.length;
+  const virtualWindowStart = virtualizationEnabled
+    ? Math.max(0, Math.floor(scrollTop / VIRTUAL_ROW_HEIGHT) - VIRTUAL_OVERSCAN)
+    : 0;
+  const virtualWindowEnd = virtualizationEnabled
+    ? Math.min(pagedRows.length, virtualWindowStart + visibleRowCount)
+    : pagedRows.length;
+  const visiblePagedRows = useMemo(
+    () => pagedRows.slice(virtualWindowStart, virtualWindowEnd),
+    [pagedRows, virtualWindowEnd, virtualWindowStart]
+  );
+  const topSpacerHeight = virtualizationEnabled ? virtualWindowStart * VIRTUAL_ROW_HEIGHT : 0;
+  const bottomSpacerHeight = virtualizationEnabled
+    ? Math.max(0, (pagedRows.length - virtualWindowEnd) * VIRTUAL_ROW_HEIGHT)
+    : 0;
 
 
   const { metricDistributions, metricSpendDistributions } = useMemo(() => {
@@ -672,6 +710,14 @@ export function MotionCreativesTableSection({
     }
     return w;
   }, [columnWidths, tablePreset, selectedAiTagColumns, selectedColumns]);
+  const tableColumnCount =
+    1 +
+    selectedColumns.length +
+    selectedAiTagColumns.length +
+    Number(tablePreset.showLaunchDate) +
+    Number(tablePreset.showTags) +
+    Number(tablePreset.showActiveStatus) +
+    Number(tablePreset.showAdLength);
 
   const modalMetricGroups = useMemo(() => {
     const query = modalSearch.toLowerCase().trim();
@@ -709,6 +755,11 @@ export function MotionCreativesTableSection({
     setPage(1);
     setShowPresetMenu(false);
   };
+
+  useEffect(() => {
+    setScrollTop(0);
+    scrollContainerRef.current?.scrollTo({ top: 0 });
+  }, [page, rows, tablePreset.resultsPerPage]);
 
   const toggleTopMetricFromHeader = (columnKey: TableColumnKey) => {
     const topMetricId = TABLE_TO_TOP_METRIC_ID[columnKey];
@@ -1072,7 +1123,14 @@ export function MotionCreativesTableSection({
 
       {/* C) table */}
       {isResizing && <div className="fixed inset-0 z-[9999] cursor-col-resize select-none" />}
-      <div className="max-h-[620px] overflow-auto rounded-xl border">
+      <div
+        ref={scrollContainerRef}
+        className="max-h-[620px] overflow-auto rounded-xl border"
+        onScroll={(event) => {
+          if (!virtualizationEnabled) return;
+          setScrollTop(event.currentTarget.scrollTop);
+        }}
+      >
         <table className="table-fixed text-sm" style={{ width: totalTableWidth }}>
           <thead className="sticky top-0 z-20 bg-[#F9FAFB]">
             <tr className="border-b border-[#E5E7EB]">
@@ -1351,133 +1409,34 @@ export function MotionCreativesTableSection({
           </thead>
 
           <tbody>
-            {pagedRows.map((row) => {
-              const isSelected = selectedRowIdSet.has(row.id);
-              const assetFallbacks = [
-                row.tableThumbnailUrl ?? null,
-                row.cachedThumbnailUrl ?? null,
-                row.thumbnailUrl ?? null,
-                row.imageUrl ?? null,
-                row.preview?.image_url ?? null,
-                row.preview?.poster_url ?? null,
-                row.previewUrl ?? null,
-              ];
-              const resolvedRowCurrency = resolveCreativeCurrency(row.currency, defaultCurrency);
-              return (
-                <tr
-                  key={row.id}
-                  id={`creative-row-${row.id}`}
-                  onClick={() => onOpenRow(row.id)}
-                  className={cn("group cursor-pointer", highlightedRowId === row.id && "bg-emerald-500/10")}
-                >
-                <td className="sticky left-0 z-10 border-b border-r bg-background px-2.5 py-1.5">
-                  <div className="flex items-center gap-2.5">
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => onToggleRow(row.id)}
-                      onClick={(event) => event.stopPropagation()}
-                      className="shrink-0"
-                    />
-
-                    <CreativeRenderSurface
-                      id={row.id}
-                      name={row.name}
-                      preview={row.preview}
-                      size="thumb"
-                      mode="asset"
-                      assetFallbacks={assetFallbacks}
-                      className="h-9 w-9 shrink-0 rounded-md"
-                    />
-
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-[12px] font-medium leading-tight">{row.name}</p>
-                      <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
-                        {row.associatedAdsCount > 1 ? <span className="opacity-60">{row.associatedAdsCount} ads</span> : null}
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            if (onOpenBreakdownRow) {
-                              onOpenBreakdownRow(row.id);
-                              return;
-                            }
-                            onOpenRow(row.id);
-                          }}
-                          className="ml-2 rounded px-1 py-0.5 opacity-0 underline-offset-2 transition-opacity hover:underline group-hover:opacity-70"
-                        >
-                          Ad breakdown
-                        </button>
-                      </p>
-                    </div>
-                  </div>
-                </td>
-
-                {tablePreset.showLaunchDate && (
-                  <td className="border-b px-2.5 py-1.5 text-[12px] font-medium">{row.launchDate}</td>
-                )}
-
-                {tablePreset.showTags && (
-                  <td className="border-b px-2.5 py-1.5">
-                    <div className="flex flex-wrap gap-1">
-                      {(row.tags ?? []).slice(0, 3).map((tag) => (
-                        <span key={tag} className="rounded-full border bg-muted/20 px-1.5 py-0.5 text-[10px] text-[#6B7280]">
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  </td>
-                )}
-
-                {tablePreset.showActiveStatus && (
-                  <td className="border-b px-2.5 py-1.5 text-[12px] font-medium">Active</td>
-                )}
-
-                {tablePreset.showAdLength && (
-                  <td className="border-b px-2.5 py-1.5 text-[12px] font-medium">{row.format === "video" ? "15s" : "Static"}</td>
-                )}
-
-                {selectedAiTagColumns.map((tagKey) => (
-                  <td key={`${row.id}_ai_tag_${tagKey}`} className="border-b px-2.5 py-1">
-                    <AiTagPills values={row.aiTags?.[tagKey] ?? []} tagKey={tagKey} />
-                  </td>
-                ))}
-
-                {selectedColumns.map((column) => {
-                  const value = column.getValue(row, ctx);
-                  const evaluation = evaluateMetricCell({
-                    key: column.key,
-                    value,
-                    row,
-                    distribution: metricDistributions[column.key] ?? buildDistribution([value]),
-                    roasDistribution: metricDistributions.roas,
-                    spendDistribution: metricSpendDistributions[column.key] ?? buildDistribution([row.spend]),
-                  });
-                  const bg =
-                    tablePreset.colorFormatting === "heatmap"
-                      ? toHeatColor(evaluation.tone, evaluation.intensity)
-                      : "transparent";
-
-                  return (
-                    <td
-                      key={`${row.id}_${column.key}`}
-                      className={cn(
-                        "border-b px-2.5 py-1.5 text-[12px] font-medium",
-                        evaluation.applicable === false && "text-muted-foreground",
-                        column.align === "right" ? "text-right" : column.align === "center" ? "text-center" : "text-left"
-                      )}
-                      style={{ backgroundColor: bg }}
-                      title={tablePreset.colorFormatting === "heatmap" ? evaluation.reason : undefined}
-                    >
-                      {evaluation.applicable !== false
-                        ? column.format(value, resolvedRowCurrency, defaultCurrency)
-                        : "—"}
-                    </td>
-                  );
-                })}
-                </tr>
-              );
-            })}
+            {topSpacerHeight > 0 && (
+              <tr aria-hidden="true">
+                <td colSpan={tableColumnCount} style={{ height: topSpacerHeight }} />
+              </tr>
+            )}
+            {visiblePagedRows.map((row) => (
+              <CreativeTableRow
+                key={row.id}
+                row={row}
+                isSelected={selectedRowIdSet.has(row.id)}
+                highlighted={highlightedRowId === row.id}
+                defaultCurrency={defaultCurrency}
+                tablePreset={tablePreset}
+                selectedAiTagColumns={selectedAiTagColumns}
+                selectedColumns={selectedColumns}
+                ctx={ctx}
+                metricDistributions={metricDistributions}
+                metricSpendDistributions={metricSpendDistributions}
+                onToggleRow={onToggleRow}
+                onOpenRow={onOpenRow}
+                onOpenBreakdownRow={onOpenBreakdownRow}
+              />
+            ))}
+            {bottomSpacerHeight > 0 && (
+              <tr aria-hidden="true">
+                <td colSpan={tableColumnCount} style={{ height: bottomSpacerHeight }} />
+              </tr>
+            )}
           </tbody>
           <tfoot className="sticky bottom-0 z-10 bg-[#FAFAFA]/95 backdrop-blur">
             <tr className="border-t border-[#E5E7EB]">
@@ -1603,6 +1562,158 @@ export function MotionCreativesTableSection({
     </section>
   );
 }
+
+const CreativeTableRow = memo(function CreativeTableRow({
+  row,
+  isSelected,
+  highlighted,
+  defaultCurrency,
+  tablePreset,
+  selectedAiTagColumns,
+  selectedColumns,
+  ctx,
+  metricDistributions,
+  metricSpendDistributions,
+  onToggleRow,
+  onOpenRow,
+  onOpenBreakdownRow,
+}: CreativeTableRowProps) {
+  const assetFallbacks = useMemo(
+    () => [
+      row.tableThumbnailUrl ?? null,
+      row.cachedThumbnailUrl ?? null,
+      row.thumbnailUrl ?? null,
+      row.imageUrl ?? null,
+      row.preview?.image_url ?? null,
+      row.preview?.poster_url ?? null,
+      row.previewUrl ?? null,
+    ],
+    [
+      row.cachedThumbnailUrl,
+      row.imageUrl,
+      row.preview?.image_url,
+      row.preview?.poster_url,
+      row.previewUrl,
+      row.tableThumbnailUrl,
+      row.thumbnailUrl,
+    ]
+  );
+  const resolvedRowCurrency = resolveCreativeCurrency(row.currency, defaultCurrency);
+
+  return (
+    <tr
+      id={`creative-row-${row.id}`}
+      onClick={() => onOpenRow(row.id)}
+      className={cn("group cursor-pointer", highlighted && "bg-emerald-500/10")}
+    >
+      <td className="sticky left-0 z-10 border-b border-r bg-background px-2.5 py-1.5">
+        <div className="flex items-center gap-2.5">
+          <input
+            type="checkbox"
+            checked={isSelected}
+            onChange={() => onToggleRow(row.id)}
+            onClick={(event) => event.stopPropagation()}
+            className="shrink-0"
+          />
+
+          <CreativeRenderSurface
+            id={row.id}
+            name={row.name}
+            preview={row.preview}
+            size="thumb"
+            mode="asset"
+            assetFallbacks={assetFallbacks}
+            className="h-9 w-9 shrink-0 rounded-md"
+          />
+
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[12px] font-medium leading-tight">{row.name}</p>
+            <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+              {row.associatedAdsCount > 1 ? <span className="opacity-60">{row.associatedAdsCount} ads</span> : null}
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (onOpenBreakdownRow) {
+                    onOpenBreakdownRow(row.id);
+                    return;
+                  }
+                  onOpenRow(row.id);
+                }}
+                className="ml-2 rounded px-1 py-0.5 opacity-0 underline-offset-2 transition-opacity hover:underline group-hover:opacity-70"
+              >
+                Ad breakdown
+              </button>
+            </p>
+          </div>
+        </div>
+      </td>
+
+      {tablePreset.showLaunchDate && (
+        <td className="border-b px-2.5 py-1.5 text-[12px] font-medium">{row.launchDate}</td>
+      )}
+
+      {tablePreset.showTags && (
+        <td className="border-b px-2.5 py-1.5">
+          <div className="flex flex-wrap gap-1">
+            {(row.tags ?? []).slice(0, 3).map((tag) => (
+              <span key={tag} className="rounded-full border bg-muted/20 px-1.5 py-0.5 text-[10px] text-[#6B7280]">
+                {tag}
+              </span>
+            ))}
+          </div>
+        </td>
+      )}
+
+      {tablePreset.showActiveStatus && (
+        <td className="border-b px-2.5 py-1.5 text-[12px] font-medium">Active</td>
+      )}
+
+      {tablePreset.showAdLength && (
+        <td className="border-b px-2.5 py-1.5 text-[12px] font-medium">{row.format === "video" ? "15s" : "Static"}</td>
+      )}
+
+      {selectedAiTagColumns.map((tagKey) => (
+        <td key={`${row.id}_ai_tag_${tagKey}`} className="border-b px-2.5 py-1">
+          <AiTagPills values={row.aiTags?.[tagKey] ?? []} tagKey={tagKey} />
+        </td>
+      ))}
+
+      {selectedColumns.map((column) => {
+        const value = column.getValue(row, ctx);
+        const evaluation = evaluateMetricCell({
+          key: column.key,
+          value,
+          row,
+          distribution: metricDistributions[column.key] ?? buildDistribution([value]),
+          roasDistribution: metricDistributions.roas,
+          spendDistribution: metricSpendDistributions[column.key] ?? buildDistribution([row.spend]),
+        });
+        const bg =
+          tablePreset.colorFormatting === "heatmap"
+            ? toHeatColor(evaluation.tone, evaluation.intensity)
+            : "transparent";
+
+        return (
+          <td
+            key={`${row.id}_${column.key}`}
+            className={cn(
+              "border-b px-2.5 py-1.5 text-[12px] font-medium",
+              evaluation.applicable === false && "text-muted-foreground",
+              column.align === "right" ? "text-right" : column.align === "center" ? "text-center" : "text-left"
+            )}
+            style={{ backgroundColor: bg }}
+            title={tablePreset.colorFormatting === "heatmap" ? evaluation.reason : undefined}
+          >
+            {evaluation.applicable !== false
+              ? column.format(value, resolvedRowCurrency, defaultCurrency)
+              : "—"}
+          </td>
+        );
+      })}
+    </tr>
+  );
+});
 
 function MetricHeaderTooltip({ tooltip }: { tooltip: MetricTooltipState | null }) {
   const [mounted, setMounted] = useState(false);
