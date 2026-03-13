@@ -17,6 +17,7 @@ export interface GoogleAdsAccountsFetchResult {
 
 const GOOGLE_ADS_FETCH_FAILED_MESSAGE =
   "Could not load accessible Google Ads accounts.";
+const GOOGLE_ADS_TIMEOUT_MS = 12_000;
 
 interface GoogleAdsErrorPayload {
   error?: {
@@ -132,6 +133,7 @@ export async function fetchGoogleAdsAccounts(
     hasDeveloperToken: Boolean(developerToken),
     scopePresent: options?.scopePresent,
   };
+  console.log("[google-ads-accounts] discovery start", diagnostics);
 
   const baseCandidates = buildAdsApiBaseCandidates();
   let listResult: GoogleAdsHttpResult | null = null;
@@ -202,6 +204,7 @@ export async function fetchGoogleAdsAccounts(
   const resourceNames = readResourceNames(listResult.payload);
   console.log("[google-ads-accounts] accessible customers loaded", {
     count: resourceNames.length,
+    sample: resourceNames.slice(0, 5),
   });
 
   const customerIds = resourceNames
@@ -267,6 +270,10 @@ async function fetchCustomerDetails({
   loginCustomerIds: string[];
   adsApiBase: string;
 }): Promise<GoogleAdsCustomerNormalized | null> {
+  console.log("[google-ads-accounts] customer detail discovery start", {
+    customerId,
+    loginCustomerCandidateCount: loginCustomerIds.length,
+  });
   // Try the direct customer endpoint first.
   const customerResourceResult = await googleAdsRequest({
     url: `${adsApiBase}/customers/${customerId}`,
@@ -300,11 +307,12 @@ async function fetchCustomerDetails({
   const searchUrl = `${adsApiBase}/customers/${customerId}/googleAds:search`;
   const query =
     "SELECT customer.id, customer.descriptive_name, customer.currency_code, customer.time_zone, customer.manager FROM customer";
-  const loginHeaderCandidates = Array.from(
-    new Set([customerId, ...loginCustomerIds]),
+  const managerLoginCandidates = loginCustomerIds.filter((id) => id !== customerId);
+  const orderedLoginHeaderCandidates = Array.from(
+    new Set([...managerLoginCandidates, customerId]),
   ).slice(0, 25);
 
-  for (const loginCustomerId of [undefined, ...loginHeaderCandidates]) {
+  for (const loginCustomerId of [undefined, ...orderedLoginHeaderCandidates]) {
     const result = await googleAdsRequest({
       url: searchUrl,
       method: "POST",
@@ -331,6 +339,13 @@ async function fetchCustomerDetails({
 
     const customer = readCustomerFromSearchPayload(result.payload);
     if (!customer) continue;
+
+    console.log("[google-ads-accounts] customer detail resolved", {
+      customerId,
+      loginCustomerId: loginCustomerId ?? null,
+      resolvedName: customer.name || null,
+      isManager: customer.isManager,
+    });
 
     return {
       id: normalizeGoogleAdsCustomerId(customer.id || customerId),
@@ -393,13 +408,18 @@ async function googleAdsRequest({
     headers["Content-Type"] = "application/json";
   }
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), GOOGLE_ADS_TIMEOUT_MS);
+
   try {
     const response = await fetch(url, {
       method,
       headers,
       body: method === "POST" ? JSON.stringify(body ?? {}) : undefined,
       cache: "no-store",
+      signal: controller.signal,
     });
+    clearTimeout(timeout);
 
     const bodyText = await response.text().catch(() => "");
     const contentType = response.headers.get("content-type") ?? "";
@@ -412,6 +432,8 @@ async function googleAdsRequest({
       method,
       status: response.status,
       isJson,
+      hasLoginCustomerId: Boolean(extraHeaders?.["login-customer-id"]),
+      loginCustomerId: extraHeaders?.["login-customer-id"] ?? null,
     });
 
     return {
@@ -422,11 +444,14 @@ async function googleAdsRequest({
       payload: parsed,
     };
   } catch (error: unknown) {
+    clearTimeout(timeout);
     const message = error instanceof Error ? error.message : String(error);
     console.error("[google-ads-accounts] request threw", {
       endpoint: logLabel,
       method,
       message,
+      hasLoginCustomerId: Boolean(extraHeaders?.["login-customer-id"]),
+      loginCustomerId: extraHeaders?.["login-customer-id"] ?? null,
     });
 
     return {

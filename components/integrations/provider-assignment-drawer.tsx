@@ -17,6 +17,7 @@ import {
   ProviderAccountSnapshotMissingError,
   warmProviderAccountSnapshot,
 } from "@/lib/provider-account-client";
+import { Loader2, RefreshCw } from "lucide-react";
 
 interface ProviderAccountRow {
   id: string;
@@ -198,7 +199,11 @@ export function ProviderAssignmentDrawer({
         if (err instanceof ProviderAccountSnapshotMissingError) {
           setFetchState("loading");
           setErrorMessage(null);
-          setNoticeMessage("Loading accounts...");
+          setNoticeMessage(
+            provider === "google"
+              ? "Loading Google Ads accounts..."
+              : "Loading ad accounts..."
+          );
           try {
             const warmedSnapshot = await warmProviderAccountSnapshot(provider, businessId);
             applySnapshotResult(warmedSnapshot);
@@ -210,8 +215,8 @@ export function ProviderAssignmentDrawer({
             });
             setErrorMessage(
               provider === "google"
-                ? "Google Ads hesaplari su an yuklenemedi. Lutfen biraz sonra tekrar deneyin."
-                : "Meta reklam hesaplari su an yuklenemedi. Lutfen biraz sonra tekrar deneyin."
+                ? "Unable to retrieve Google Ads accounts. Retry."
+                : "Unable to retrieve Meta ad accounts. Retry."
             );
             setFetchState("error");
             return;
@@ -341,7 +346,26 @@ export function ProviderAssignmentDrawer({
         <div className="flex min-h-0 flex-1 flex-col px-6 py-4">
           {noticeMessage ? (
             <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-              {noticeMessage}
+              <div className="flex items-center justify-between gap-3">
+                <span>{noticeMessage}</span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-8 shrink-0"
+                  onClick={() =>
+                    void loadAccounts({ preserveExisting: accounts.length > 0 })
+                  }
+                  disabled={isRefreshing}
+                >
+                  {isRefreshing ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4" />
+                  )}
+                  Retry
+                </Button>
+              </div>
             </div>
           ) : null}
 
@@ -356,9 +380,20 @@ export function ProviderAssignmentDrawer({
                   aria-label="Search ad accounts by name"
                   className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
                 />
-                {isRefreshing ? (
-                  <span className="shrink-0 text-xs text-muted-foreground">Refreshing...</span>
-                ) : null}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void loadAccounts({ preserveExisting: true })}
+                  disabled={isRefreshing}
+                >
+                  {isRefreshing ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4" />
+                  )}
+                  Refresh
+                </Button>
               </div>
             </div>
           ) : null}
@@ -366,8 +401,13 @@ export function ProviderAssignmentDrawer({
           <div className="min-h-0 flex-1 overflow-y-auto">
             <div className="space-y-3">
             {fetchState === "loading" ? (
-              <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                Loading ad accounts...
+              <div className="flex items-center gap-2 rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>
+                  {provider === "google"
+                    ? "Loading Google Ads accounts..."
+                    : "Loading ad accounts..."}
+                </span>
               </div>
             ) : null}
 
@@ -376,7 +416,7 @@ export function ProviderAssignmentDrawer({
                 title="Could not load ad accounts"
                 description={
                   errorMessage ??
-                  `We couldn't fetch accessible ${provider === "google" ? "Google Ads" : "Meta"} ad accounts for this connection.`
+                  `Unable to retrieve ${provider === "google" ? "Google Ads" : "Meta"} accounts. Retry.`
                 }
               />
             ) : null}
@@ -384,6 +424,7 @@ export function ProviderAssignmentDrawer({
             {fetchState === "error" ? (
               <div className="flex justify-end">
                 <Button variant="outline" onClick={() => void loadAccounts()}>
+                  <RefreshCw className="h-4 w-4" />
                   Retry
                 </Button>
               </div>

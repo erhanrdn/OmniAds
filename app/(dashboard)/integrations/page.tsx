@@ -470,27 +470,27 @@ export default function IntegrationsPage() {
   );
 
   return (
-    <div className="space-y-6">
-      <div className="rounded-3xl border border-border/70 bg-gradient-to-br from-card via-card to-muted/30 p-6 shadow-sm">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-          <div className="max-w-2xl space-y-3">
-            <div className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/80 px-3 py-1 text-xs font-medium text-muted-foreground">
+    <div className="space-y-5">
+      <div className="rounded-2xl border border-border/70 bg-gradient-to-br from-card via-card to-muted/30 p-4 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="max-w-2xl space-y-2">
+            <div className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/80 px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
               <Sparkles className="h-3.5 w-3.5" />
               Active business
               <span className="text-foreground">{activeBusiness?.name ?? "Unknown"}</span>
             </div>
-            <div className="space-y-2">
-              <h1 className="text-3xl font-semibold tracking-tight text-foreground">
+            <div className="space-y-1">
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
                 Integrations
               </h1>
-              <p className="text-sm leading-6 text-muted-foreground">
+              <p className="text-sm leading-5 text-muted-foreground">
                 Connect your ad platforms, analytics tools, and storefront once, then
                 choose exactly which accounts Adsecute should use for this business.
               </p>
             </div>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-3 lg:min-w-[420px]">
+          <div className="grid gap-2 sm:grid-cols-3 lg:min-w-[360px]">
             <SummaryTile
               label="Connected"
               value={String(connectedCount)}
@@ -525,7 +525,7 @@ export default function IntegrationsPage() {
         </div>
       )}
 
-      <div className="space-y-8">
+      <div className="space-y-6">
         {PROVIDER_GROUPS.map((group) => {
           const cards = providerCards.filter((item) =>
             group.providers.includes(item.provider),
@@ -533,16 +533,16 @@ export default function IntegrationsPage() {
           if (cards.length === 0) return null;
 
           return (
-            <section key={group.title} className="space-y-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-                <div className="space-y-1">
+            <section key={group.title} className="space-y-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                <div className="space-y-0.5">
                   <div className="flex items-center gap-2">
                     <Layers3 className="h-4 w-4 text-muted-foreground" />
-                    <h2 className="text-lg font-semibold tracking-tight text-foreground">
+                    <h2 className="text-base font-semibold tracking-tight text-foreground">
                       {group.title}
                     </h2>
                   </div>
-                  <p className="text-sm text-muted-foreground">{group.description}</p>
+                  <p className="text-xs leading-5 text-muted-foreground">{group.description}</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {cards
@@ -560,7 +560,7 @@ export default function IntegrationsPage() {
                 </div>
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
                 {cards.map((item) => (
                   <IntegrationsCard
                     key={item.provider}

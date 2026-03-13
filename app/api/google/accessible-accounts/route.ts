@@ -8,6 +8,7 @@ import {
 import { GOOGLE_CONFIG } from "@/lib/oauth/google-config";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import {
+  forceProviderAccountSnapshotRefresh,
   ProviderAccountSnapshotRefreshError,
   readProviderAccountSnapshot,
   requestProviderAccountSnapshotRefresh,
@@ -59,7 +60,11 @@ export async function GET(request: NextRequest) {
   const businessId = searchParams.get("businessId");
   const refreshRequested = searchParams.get("refresh") === "1";
 
-  console.log("[accessible-accounts] 🔹 ROUTE ENTERED", { businessId, timestamp: new Date().toISOString() });
+  console.log("[accessible-accounts] 🔹 ROUTE ENTERED", {
+    businessId,
+    refreshRequested,
+    timestamp: new Date().toISOString(),
+  });
 
   if (!businessId) {
     console.log("[accessible-accounts] ❌ MISSING BUSINESS_ID");
@@ -206,8 +211,19 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    console.log("[accessible-accounts] 🔄 Resolving Google Ads account snapshot...");
+    console.log("[accessible-accounts] 🔄 Resolving Google Ads account snapshot...", {
+      refreshRequested,
+      hasDeveloperToken,
+      hasAdsScope,
+      scopes: integration.scopes ?? null,
+    });
     const loadLiveAccounts = async () => {
+      console.log("[accessible-accounts] 🌐 Starting live Google Ads discovery", {
+        businessId,
+        refreshRequested,
+        hasDeveloperToken,
+        hasAdsScope,
+      });
       const result = await fetchGoogleAdsAccounts(accessToken, {
         scopePresent: hasAdsScope,
       });
@@ -253,7 +269,7 @@ export async function GET(request: NextRequest) {
     }
 
     const snapshot = refreshRequested
-      ? await requestProviderAccountSnapshotRefresh({
+      ? await forceProviderAccountSnapshotRefresh({
           businessId,
           provider: "google",
           freshnessMs: GOOGLE_ACCOUNT_SNAPSHOT_FRESHNESS_MS,
@@ -269,6 +285,13 @@ export async function GET(request: NextRequest) {
 
     if (!snapshot) {
       if (assignedSet.size > 0) {
+        console.warn(
+          "[accessible-accounts] ⚠ Snapshot missing, returning assigned-account fallback while refresh warms",
+          {
+            businessId,
+            assignedCount: assignedSet.size,
+          }
+        );
         return NextResponse.json({
           data: buildAssignedFallbackRows(Array.from(assignedSet)),
           count: assignedSet.size,
@@ -357,7 +380,15 @@ export async function GET(request: NextRequest) {
           "google"
         );
         const assignedIds = assignmentRow?.account_ids ?? [];
-        if (assignedIds.length > 0) {
+    if (assignedIds.length > 0) {
+          console.warn(
+            "[accessible-accounts] ⚠ Returning assigned-account fallback after forced refresh failure",
+            {
+              businessId,
+              assignedCount: assignedIds.length,
+              message: error.message,
+            }
+          );
           return NextResponse.json({
             data: buildAssignedFallbackRows(assignedIds),
             count: assignedIds.length,
@@ -403,10 +434,10 @@ export async function GET(request: NextRequest) {
       stack: error instanceof Error ? error.stack : undefined,
     });
 
-    return NextResponse.json(
-      {
-        error: "google_ads_discovery_error",
-        message:
+      return NextResponse.json(
+        {
+          error: "google_ads_discovery_error",
+          message:
           error instanceof Error && error.message
             ? error.message
             : "We couldn't load your Google Ads accounts right now. Please wait a bit and try again.",

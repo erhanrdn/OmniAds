@@ -105,8 +105,8 @@ export function IntegrationsCard({
   return (
     <div
       className={cn(
-        "group flex h-full flex-col rounded-2xl border bg-card/95 p-5 shadow-sm transition-all duration-200",
-        "hover:-translate-y-0.5 hover:shadow-lg",
+        "group flex h-full flex-col rounded-xl border bg-card/95 p-3 shadow-sm transition-all duration-200",
+        "hover:-translate-y-0.5 hover:shadow-md",
         isConnected
           ? "border-emerald-200/70 bg-gradient-to-br from-card via-card to-emerald-50/50"
           : isError || isTimeout
@@ -114,11 +114,11 @@ export function IntegrationsCard({
             : "border-border/70 bg-gradient-to-br from-card via-card to-muted/25",
       )}
     >
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-start gap-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-2.5">
           <div
             className={cn(
-              "flex h-11 w-11 items-center justify-center rounded-2xl border shadow-sm",
+              "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border",
               isConnected
                 ? "border-emerald-200 bg-emerald-50 text-emerald-700"
                 : isError || isTimeout
@@ -126,13 +126,13 @@ export function IntegrationsCard({
                   : "border-border bg-muted/70 text-muted-foreground",
             )}
           >
-            <Icon className="h-5 w-5" />
+            <Icon className="h-4 w-4" />
           </div>
-          <div className="space-y-1">
-            <h2 className="text-base font-semibold tracking-tight text-foreground">
+          <div className="min-w-0 space-y-0.5">
+            <h2 className="truncate text-sm font-semibold tracking-tight text-foreground">
               {providerLabel}
             </h2>
-            <p className="max-w-[34ch] text-sm leading-5 text-muted-foreground">
+            <p className="line-clamp-2 text-xs leading-4 text-muted-foreground">
               {description}
             </p>
           </div>
@@ -140,109 +140,76 @@ export function IntegrationsCard({
         <StatusBadge status={state.status} />
       </div>
 
-      <div className="mt-5 grid gap-3 sm:grid-cols-2">
-        <MetadataTile
+      <div className="mt-3 grid gap-x-3 gap-y-2 sm:grid-cols-2">
+        <CompactMetaRow
           label="Connection"
           value={
             isConnected
-              ? "Live and ready"
+              ? "Live"
               : isConnecting
-                ? "Connecting now"
+                ? "Connecting"
                 : isError || isTimeout
                   ? "Needs attention"
                   : "Not connected"
           }
-          hint={
-            isConnected
-              ? state.connectedAt
-                ? `Connected ${formatDateTime(state.connectedAt)}`
-                : "Authorized"
-              : isDisconnected
-                ? "Connect to start syncing"
-                : state.errorMessage ?? "Waiting for authorization"
+        />
+        <CompactMetaRow
+          label={providerMetaLabel}
+          value={
+            provider === "ga4" || provider === "search_console" || provider === "klaviyo"
+              ? providerMetaValue
+              : hasAssignments
+                ? String(assignedCount)
+                : "0"
           }
         />
-        <MetadataTile
-          label={providerMetaLabel}
-          value={providerMetaValue}
-          hint={assignedSummaryText}
-        />
-        <MetadataTile
+        <CompactMetaRow
           label="Last sync"
           value={
             isConnected && state.lastSyncAt
-              ? formatDateTime(state.lastSyncAt)
+              ? formatShortDateTime(state.lastSyncAt)
               : isConnected
-                ? "Ready to sync"
-                : "Unavailable"
-          }
-          hint={
-            isConnected
-              ? "Latest provider refresh"
-              : "Available after connection"
+                ? "Ready"
+                : "—"
           }
         />
-        <MetadataTile
-          label="Linked account"
+        <CompactMetaRow
+          label="Account"
           value={
             state.providerAccountName ??
             state.providerAccountId ??
-            (isConnected ? "Connected workspace" : "Not linked")
-          }
-          hint={
-            assignedPreview.length > 0
-              ? `${assignedPreview.join(", ")}${
-                  assignedCount > assignedPreview.length
-                    ? ` +${assignedCount - assignedPreview.length}`
-                    : ""
-                }`
-              : isConnected
-                ? "Assignments can be managed below"
-                : "Will appear after connection"
+            (isConnected ? "Linked workspace" : "—")
           }
         />
       </div>
 
       {isError && state.errorMessage ? (
-        <p className="mt-4 rounded-xl border border-destructive/25 bg-destructive/8 px-3 py-2 text-xs text-destructive">
+        <p className="mt-2 rounded-lg border border-destructive/25 bg-destructive/8 px-2.5 py-2 text-[11px] leading-4 text-destructive">
           {state.errorMessage}
         </p>
       ) : null}
 
       {isTimeout && state.errorMessage ? (
-        <p className="mt-4 rounded-xl border border-amber-300/40 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+        <p className="mt-2 rounded-lg border border-amber-300/40 bg-amber-50 px-2.5 py-2 text-[11px] leading-4 text-amber-800">
           {state.errorMessage}
         </p>
       ) : null}
 
-      <div className="mt-5 border-t border-border/70 pt-4">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <div>
-            <p className="text-sm font-medium text-foreground">Next step</p>
-            <p className="text-xs text-muted-foreground">
-              {isDisconnected
-                ? "Connect this provider to start syncing data."
-                : isConnected
-                  ? "Review or update what Adsecute should use."
-                  : "Resolve this connection before continuing."}
-            </p>
-          </div>
-        </div>
-
-      <div className="flex flex-wrap gap-2">
+      <div className="mt-3 border-t border-border/70 pt-3">
+      <div className="flex flex-wrap items-center gap-1.5">
         {isDisconnected ? (
-          <Button className="min-w-[140px] flex-1" onClick={() => onConnect(provider)}>
+          <Button size="sm" className="min-w-[104px]" onClick={() => onConnect(provider)}>
             {primaryActionLabel}
           </Button>
         ) : null}
 
         {isConnecting ? (
           <>
-            <Button className="min-w-[160px] flex-1 cursor-default" tabIndex={-1}>
+            <Button size="sm" className="min-w-[118px] cursor-default" tabIndex={-1}>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               Connecting...
             </Button>
-            <Button variant="outline" onClick={() => onCancel(provider)}>
+            <Button size="sm" variant="outline" onClick={() => onCancel(provider)}>
               Cancel
             </Button>
           </>
@@ -251,17 +218,19 @@ export function IntegrationsCard({
         {isConnected ? (
           <>
             <Button
-              className="min-w-[180px] flex-1"
+              size="sm"
+              className="min-w-[126px]"
               onClick={() => onOpenAssignments(provider)}
             >
               {primaryActionLabel}
             </Button>
-            <Button variant="outline" onClick={() => onReconnect(provider)}>
+            <Button size="sm" variant="outline" onClick={() => onReconnect(provider)}>
               Reconnect
             </Button>
             <Button
+              size="sm"
               variant="ghost"
-              className="text-muted-foreground hover:text-destructive"
+              className="px-2.5 text-muted-foreground hover:text-destructive"
               onClick={() => onDisconnect(provider)}
             >
               Disconnect
@@ -271,15 +240,16 @@ export function IntegrationsCard({
 
         {isError ? (
           <>
-            <Button className="min-w-[160px] flex-1" onClick={() => onRetry(provider)}>
+            <Button size="sm" className="min-w-[108px]" onClick={() => onRetry(provider)}>
               Retry
             </Button>
-            <Button variant="outline" onClick={() => onReconnect(provider)}>
+            <Button size="sm" variant="outline" onClick={() => onReconnect(provider)}>
               Reconnect
             </Button>
             <Button
+              size="sm"
               variant="ghost"
-              className="text-muted-foreground hover:text-destructive"
+              className="px-2.5 text-muted-foreground hover:text-destructive"
               onClick={() => onDisconnect(provider)}
             >
               Disconnect
@@ -289,15 +259,16 @@ export function IntegrationsCard({
 
         {isTimeout ? (
           <>
-            <Button className="min-w-[160px] flex-1" onClick={() => onRetry(provider)}>
-              Retry connection
+            <Button size="sm" className="min-w-[124px]" onClick={() => onRetry(provider)}>
+              Retry
             </Button>
-            <Button variant="outline" onClick={() => onReconnect(provider)}>
+            <Button size="sm" variant="outline" onClick={() => onReconnect(provider)}>
               Reconnect
             </Button>
             <Button
+              size="sm"
               variant="ghost"
-              className="text-muted-foreground hover:text-destructive"
+              className="px-2.5 text-muted-foreground hover:text-destructive"
               onClick={() => onDisconnect(provider)}
             >
               Disconnect
@@ -313,45 +284,44 @@ export function IntegrationsCard({
 function StatusBadge({ status }: { status: IntegrationState["status"] }) {
   if (status === "connected") {
     return (
-      <Badge className="border border-emerald-200 bg-emerald-50 text-emerald-700">
+      <Badge className="border border-emerald-200 bg-emerald-50 text-[10px] text-emerald-700">
         Connected
       </Badge>
     );
   }
   if (status === "connecting") {
-    return <Badge className="border border-sky-200 bg-sky-50 text-sky-700">Connecting</Badge>;
+    return <Badge className="border border-sky-200 bg-sky-50 text-[10px] text-sky-700">Connecting</Badge>;
   }
   if (status === "error") {
-    return <Badge className="border border-amber-200 bg-amber-50 text-amber-800">Needs attention</Badge>;
+    return <Badge className="border border-amber-200 bg-amber-50 text-[10px] text-amber-800">Needs setup</Badge>;
   }
   if (status === "timeout") {
-    return <Badge className="border border-amber-200 bg-amber-50 text-amber-800">Timed out</Badge>;
+    return <Badge className="border border-amber-200 bg-amber-50 text-[10px] text-amber-800">Needs setup</Badge>;
   }
-  return <Badge className="border border-border bg-muted text-muted-foreground">Not connected</Badge>;
+  return <Badge className="border border-border bg-muted text-[10px] text-muted-foreground">Not connected</Badge>;
 }
 
-function MetadataTile({
+function CompactMetaRow({
   label,
   value,
-  hint,
 }: {
   label: string;
   value: string;
-  hint: string;
 }) {
   return (
-    <div className="rounded-xl border border-border/70 bg-background/70 px-3 py-3">
-      <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-        {label}
-      </p>
-      <p className="mt-1 text-sm font-medium text-foreground">{value}</p>
-      <p className="mt-1 text-xs leading-5 text-muted-foreground">{hint}</p>
+    <div className="grid grid-cols-[auto_1fr] items-start gap-2 text-xs">
+      <p className="font-medium text-muted-foreground">{label}:</p>
+      <p className="truncate font-medium text-foreground">{value}</p>
     </div>
   );
 }
 
 function formatDateTime(value: string) {
   return new Date(value).toLocaleString();
+}
+
+function formatShortDateTime(value: string) {
+  return new Date(value).toLocaleDateString();
 }
 
 function getProviderIcon(provider: IntegrationProvider) {

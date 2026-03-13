@@ -309,6 +309,77 @@ export async function requestProviderAccountSnapshotRefresh(
   return resolveProviderAccountSnapshot(input);
 }
 
+export async function forceProviderAccountSnapshotRefresh(
+  input: ResolveProviderAccountSnapshotInput
+): Promise<ProviderAccountSnapshotResult> {
+  const failureCooldownMs = input.failureCooldownMs ?? DEFAULT_FAILURE_COOLDOWN_MS;
+  const recentFailure = getRecentFailure(
+    input.businessId,
+    input.provider,
+    failureCooldownMs
+  );
+
+  if (recentFailure) {
+    clearRecentFailure(input.businessId, input.provider);
+  }
+
+  try {
+    const accounts = await input.liveLoader();
+    clearRecentFailure(input.businessId, input.provider);
+    await upsertSnapshotRow({
+      businessId: input.businessId,
+      provider: input.provider,
+      accounts,
+      refreshFailed: false,
+      lastError: null,
+    });
+
+    return {
+      accounts,
+      meta: {
+        source: "live",
+        fetchedAt: new Date().toISOString(),
+        stale: false,
+        refreshFailed: false,
+        lastError: null,
+        lastKnownGoodAvailable: false,
+      },
+    };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    setRecentFailure(input.businessId, input.provider, message);
+    const existing = await getSnapshotRow(input.businessId, input.provider);
+    if (existing) {
+      await upsertSnapshotRow({
+        businessId: input.businessId,
+        provider: input.provider,
+        accounts: existing.accounts_payload ?? [],
+        refreshFailed: true,
+        lastError: message,
+      });
+      return {
+        accounts: existing.accounts_payload ?? [],
+        meta: {
+          source: "snapshot",
+          fetchedAt: existing.fetched_at,
+          stale: true,
+          refreshFailed: true,
+          lastError: message,
+          lastKnownGoodAvailable: true,
+        },
+      };
+    }
+
+    throw new ProviderAccountSnapshotRefreshError({
+      provider: input.provider,
+      businessId: input.businessId,
+      message,
+      retryAfterMs: failureCooldownMs,
+      dueToRecentFailure: false,
+    });
+  }
+}
+
 export async function resolveProviderAccountSnapshot(
   input: ResolveProviderAccountSnapshotInput
 ): Promise<ProviderAccountSnapshotResult> {
