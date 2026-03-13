@@ -96,13 +96,13 @@ export function buildCustomerSummaryQuery(
   };
 }
 
-export function buildCampaignCoreQuery(
+export function buildCampaignCoreBasicQuery(
   startDate: string,
   endDate: string
 ): GoogleAdsNamedQuery {
   return {
-    name: "campaign_core",
-    family: "campaign_core",
+    name: "campaign_core_basic",
+    family: "campaign_core_basic",
     resource: "campaign",
     mergeKey: "campaign.id",
     metrics: [
@@ -112,13 +112,6 @@ export function buildCampaignCoreQuery(
       "cost_micros",
       "conversions",
       "conversions_value",
-      "average_cpc",
-      "average_cost",
-      "interaction_rate",
-      "interactions",
-      "conversion_rate",
-      "cost_per_conversion",
-      "value_per_conversion",
     ],
     query: buildGoogleAdsQuery({
       select: [
@@ -133,13 +126,67 @@ export function buildCampaignCoreQuery(
         "metrics.cost_micros",
         "metrics.conversions",
         "metrics.conversions_value",
+      ],
+      from: "campaign",
+      where: [
+        buildDateWhereClause(startDate, endDate),
+        "campaign.status != 'REMOVED'",
+      ],
+      orderBy: ["metrics.cost_micros DESC"],
+    }),
+  };
+}
+
+export function buildCampaignCoreEfficiencyQuery(
+  startDate: string,
+  endDate: string
+): GoogleAdsNamedQuery {
+  return {
+    name: "campaign_core_efficiency",
+    family: "campaign_core_efficiency",
+    resource: "campaign",
+    mergeKey: "campaign.id",
+    metrics: [
+      "average_cpc",
+      "average_cost",
+      "conversion_rate",
+      "cost_per_conversion",
+      "value_per_conversion",
+    ],
+    query: buildGoogleAdsQuery({
+      select: [
+        "campaign.id",
         "metrics.average_cpc",
         "metrics.average_cost",
-        "metrics.interaction_rate",
-        "metrics.interactions",
         "metrics.conversion_rate",
         "metrics.cost_per_conversion",
         "metrics.value_per_conversion",
+      ],
+      from: "campaign",
+      where: [
+        buildDateWhereClause(startDate, endDate),
+        "campaign.status != 'REMOVED'",
+      ],
+      orderBy: ["metrics.cost_micros DESC"],
+    }),
+  };
+}
+
+export function buildCampaignCoreEngagementQuery(
+  startDate: string,
+  endDate: string
+): GoogleAdsNamedQuery {
+  return {
+    name: "campaign_core_engagement",
+    family: "campaign_core_engagement",
+    resource: "campaign",
+    mergeKey: "campaign.id",
+    metrics: ["interaction_rate", "interactions"],
+    query: buildGoogleAdsQuery({
+      select: [
+        "campaign.id",
+        "metrics.interaction_rate",
+        "metrics.interactions",
       ],
       from: "campaign",
       where: [

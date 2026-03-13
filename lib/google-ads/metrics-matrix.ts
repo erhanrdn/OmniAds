@@ -30,7 +30,7 @@ export const GOOGLE_ADS_METRICS_MATRIX: Record<
     tab: "overview",
     primaryResource: "customer + campaign",
     mergeKey: "campaign.id",
-    queryFamilies: ["customer_summary", "campaign_core", "campaign_share"],
+    queryFamilies: ["customer_summary", "campaign_core_basic", "campaign_share"],
     primaryDimensions: ["customer.id", "campaign.id", "campaign.name", "campaign.channel"],
     primaryMetrics: [
       "impressions",
@@ -64,7 +64,13 @@ export const GOOGLE_ADS_METRICS_MATRIX: Record<
     tab: "campaigns",
     primaryResource: "campaign",
     mergeKey: "campaign.id",
-    queryFamilies: ["campaign_core", "campaign_share", "campaign_budget"],
+    queryFamilies: [
+      "campaign_core_basic",
+      "campaign_core_efficiency",
+      "campaign_core_engagement",
+      "campaign_share",
+      "campaign_budget",
+    ],
     primaryDimensions: [
       "campaign.id",
       "campaign.name",
@@ -79,6 +85,8 @@ export const GOOGLE_ADS_METRICS_MATRIX: Record<
       "cost_micros",
       "conversions",
       "conversions_value",
+    ],
+    fallbackMetrics: [
       "average_cpc",
       "average_cost",
       "conversion_rate",
@@ -293,7 +301,13 @@ export const GOOGLE_ADS_METRICS_MATRIX: Record<
     tab: "budget",
     primaryResource: "campaign + campaign_budget",
     mergeKey: "campaign.id",
-    queryFamilies: ["campaign_budget", "campaign_share", "campaign_core"],
+    queryFamilies: [
+      "campaign_budget",
+      "campaign_share",
+      "campaign_core_basic",
+      "campaign_core_efficiency",
+      "campaign_core_engagement",
+    ],
     primaryDimensions: [
       "campaign.id",
       "campaign.name",
@@ -316,7 +330,9 @@ export const GOOGLE_ADS_METRICS_MATRIX: Record<
     primaryResource: "derived from campaign + keyword + search term + ad + device + audience families",
     mergeKey: "derived",
     queryFamilies: [
-      "campaign_core",
+      "campaign_core_basic",
+      "campaign_core_efficiency",
+      "campaign_core_engagement",
       "campaign_share",
       "keyword_core",
       "keyword_quality",

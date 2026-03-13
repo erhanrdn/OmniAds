@@ -13,7 +13,9 @@ import {
   buildAssetGroupCoreQuery,
   buildAudienceCoreQuery,
   buildCampaignBudgetQuery,
-  buildCampaignCoreQuery,
+  buildCampaignCoreBasicQuery,
+  buildCampaignCoreEfficiencyQuery,
+  buildCampaignCoreEngagementQuery,
   buildCampaignShareQuery,
   buildCustomerSummaryQuery,
   buildDeviceCoreQuery,
@@ -222,7 +224,13 @@ function dedupeStrings(values: string[]): string[] {
   return Array.from(new Set(values.filter(Boolean)));
 }
 
-function buildCampaignMap(coreRows: RawRow[], shareRows: RawRow[], budgetRows: RawRow[]) {
+function buildCampaignMap(
+  coreRows: RawRow[],
+  shareRows: RawRow[],
+  budgetRows: RawRow[],
+  efficiencyRows: RawRow[] = [],
+  engagementRows: RawRow[] = []
+) {
   const map = new Map<string, Record<string, unknown>>();
 
   for (const row of coreRows) {
@@ -267,6 +275,33 @@ function buildCampaignMap(coreRows: RawRow[], shareRows: RawRow[], budgetRows: R
         typeof campaignBudget.explicitly_shared === "boolean"
           ? campaignBudget.explicitly_shared
           : null,
+    });
+  }
+
+  for (const row of efficiencyRows) {
+    const campaign = (row.campaign as Record<string, unknown> | undefined) ?? {};
+    const metrics = (row.metrics as Record<string, unknown> | undefined) ?? {};
+    const id = asString(campaign.id);
+    if (!id || !map.has(id)) continue;
+    const data = toMetricSet(metrics);
+    Object.assign(map.get(id)!, {
+      cpc: data.averageCpc,
+      averageCost: data.averageCost,
+      conversionRate: data.conversionRate,
+      costPerConversion: data.costPerConversion,
+      valuePerConversion: data.valuePerConversion,
+    });
+  }
+
+  for (const row of engagementRows) {
+    const campaign = (row.campaign as Record<string, unknown> | undefined) ?? {};
+    const metrics = (row.metrics as Record<string, unknown> | undefined) ?? {};
+    const id = asString(campaign.id);
+    if (!id || !map.has(id)) continue;
+    const data = toMetricSet(metrics);
+    Object.assign(map.get(id)!, {
+      interactions: data.interactions,
+      interactionRate: data.interactionRate,
     });
   }
 
@@ -387,7 +422,7 @@ export async function getGoogleAdsOverviewReport(params: {
 
   const [customerSummary, campaignCore, campaignShare] = await Promise.all([
     runNamedQuery(context, buildCustomerSummaryQuery(startDate, endDate)),
-    runNamedQuery(context, buildCampaignCoreQuery(startDate, endDate)),
+    runNamedQuery(context, buildCampaignCoreBasicQuery(startDate, endDate)),
     runNamedQuery(context, buildCampaignShareQuery(startDate, endDate)),
   ]);
 
@@ -475,20 +510,26 @@ export async function getGoogleAdsCampaignsReport(params: {
 
   const { context, startDate, endDate } = resolved;
   const meta = createEmptyMeta(context.debug);
-  const [campaignCore, campaignShare, campaignBudget] = await Promise.all([
-    runNamedQuery(context, buildCampaignCoreQuery(startDate, endDate)),
+  const [campaignCoreBasic, campaignCoreEfficiency, campaignCoreEngagement, campaignShare, campaignBudget] = await Promise.all([
+    runNamedQuery(context, buildCampaignCoreBasicQuery(startDate, endDate)),
+    runNamedQuery(context, buildCampaignCoreEfficiencyQuery(startDate, endDate)),
+    runNamedQuery(context, buildCampaignCoreEngagementQuery(startDate, endDate)),
     runNamedQuery(context, buildCampaignShareQuery(startDate, endDate)),
     runNamedQuery(context, buildCampaignBudgetQuery(startDate, endDate)),
   ]);
 
-  mergeFailures(meta, campaignCore);
+  mergeFailures(meta, campaignCoreBasic);
+  mergeFailures(meta, campaignCoreEfficiency);
+  mergeFailures(meta, campaignCoreEngagement);
   mergeFailures(meta, campaignShare);
   mergeFailures(meta, campaignBudget);
 
   const campaigns = buildCampaignMap(
-    campaignCore.rows,
+    campaignCoreBasic.rows,
     campaignShare.rows,
-    campaignBudget.rows
+    campaignBudget.rows,
+    campaignCoreEfficiency.rows,
+    campaignCoreEngagement.rows
   );
 
   const totalSpend = campaigns.reduce((sum, row) => sum + Number(row.spend ?? 0), 0);
