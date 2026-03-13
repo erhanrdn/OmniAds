@@ -14,6 +14,10 @@ import { ConnectModal } from "@/components/integrations/connect-modal";
 import { useIntegrationConnection } from "@/hooks/use-integration-connection";
 import { ProviderAssignmentDrawer } from "@/components/integrations/provider-assignment-drawer";
 import { GA4PropertyPicker } from "@/components/integrations/ga4-property-picker";
+import {
+  fetchProviderAccountSnapshot,
+  supportsProviderAssignments,
+} from "@/lib/provider-account-client";
 
 /** Providers that have real backend OAuth (not mock) */
 const REAL_PROVIDERS: IntegrationProvider[] = [
@@ -112,6 +116,30 @@ export default function IntegrationsPage() {
     if (!businessId) return null;
     return byBusinessId[businessId];
   }, [byBusinessId, businessId]);
+
+  const syncProviderAssignments = useCallback(
+    async (
+      provider: IntegrationProvider,
+      fallbackAccounts?: Array<{ id: string; name: string }>,
+      fallbackAssignedIds?: string[],
+    ) => {
+      if (!businessId || !supportsProviderAssignments(provider)) return;
+
+      try {
+        const snapshot = await fetchProviderAccountSnapshot(provider, businessId);
+        setProviderAccounts(businessId, provider, snapshot.accounts);
+        setAssignedAccounts(businessId, provider, snapshot.assignedAccountIds);
+      } catch {
+        if (fallbackAccounts) {
+          setProviderAccounts(businessId, provider, fallbackAccounts);
+        }
+        if (fallbackAssignedIds) {
+          setAssignedAccounts(businessId, provider, fallbackAssignedIds);
+        }
+      }
+    },
+    [businessId, setAssignedAccounts, setProviderAccounts],
+  );
 
   const ga4State = integrations?.ga4 ?? getFallbackIntegrationState("ga4");
   const searchConsoleState =
@@ -268,6 +296,28 @@ export default function IntegrationsPage() {
     if (!businessId) return;
     fetchStatuses();
   }, [businessId, fetchStatuses]);
+
+  useEffect(() => {
+    if (!businessId || !integrations) return;
+
+    let cancelled = false;
+    const providersToSync = (["meta", "google"] as const).filter(
+      (provider) => integrations[provider]?.status === "connected",
+    );
+
+    (async () => {
+      await Promise.all(
+        providersToSync.map(async (provider) => {
+          if (cancelled) return;
+          await syncProviderAssignments(provider);
+        }),
+      );
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [businessId, integrations, syncProviderAssignments]);
 
   useEffect(() => {
     if (!businessId) return;
@@ -428,12 +478,13 @@ export default function IntegrationsPage() {
         assignedAccountIds={assignedIdsForDrawer}
         onClose={() => setAssignmentProvider(null)}
         onSave={(provider, accountIds, accounts) => {
-          setProviderAccounts(
-            businessId,
-            provider,
-            accounts.map((account) => ({ id: account.id, name: account.name })),
-          );
+          const normalizedAccounts = accounts.map((account) => ({
+            id: account.id,
+            name: account.name,
+          }));
+          setProviderAccounts(businessId, provider, normalizedAccounts);
           setAssignedAccounts(businessId, provider, accountIds);
+          void syncProviderAssignments(provider, normalizedAccounts, accountIds);
           setToast({
             type: "success",
             message:
