@@ -20,16 +20,18 @@ interface ProviderAccountSnapshotRow {
   updated_at: string;
 }
 
+export interface ProviderAccountSnapshotMeta {
+  source: "live" | "snapshot";
+  fetchedAt: string | null;
+  stale: boolean;
+  refreshFailed: boolean;
+  lastError: string | null;
+  lastKnownGoodAvailable: boolean;
+}
+
 export interface ProviderAccountSnapshotResult {
   accounts: ProviderAccountSnapshotItem[];
-  meta: {
-    source: "live" | "snapshot";
-    fetchedAt: string | null;
-    stale: boolean;
-    refreshFailed: boolean;
-    lastError: string | null;
-    lastKnownGoodAvailable: boolean;
-  };
+  meta: ProviderAccountSnapshotMeta;
 }
 
 interface ResolveProviderAccountSnapshotInput {
@@ -236,6 +238,77 @@ async function refreshSnapshotInBackground(input: ResolveProviderAccountSnapshot
   locks.set(key, refreshPromise);
 }
 
+function toSnapshotMeta(input: {
+  snapshot: ProviderAccountSnapshotRow;
+  freshnessMs: number;
+  recentFailure: ReturnType<typeof getRecentFailure> | null;
+}): ProviderAccountSnapshotMeta {
+  return {
+    source: "snapshot",
+    fetchedAt: input.snapshot.fetched_at,
+    stale: !isFresh(input.snapshot, input.freshnessMs),
+    refreshFailed: input.snapshot.refresh_failed || Boolean(input.recentFailure),
+    lastError: input.recentFailure?.message ?? input.snapshot.last_error,
+    lastKnownGoodAvailable: true,
+  };
+}
+
+export async function readProviderAccountSnapshot(input: {
+  businessId: string;
+  provider: string;
+  freshnessMs?: number;
+  failureCooldownMs?: number;
+}): Promise<ProviderAccountSnapshotResult | null> {
+  const freshnessMs = input.freshnessMs ?? DEFAULT_FRESHNESS_MS;
+  const failureCooldownMs = input.failureCooldownMs ?? DEFAULT_FAILURE_COOLDOWN_MS;
+  const snapshot = await getSnapshotRow(input.businessId, input.provider);
+  if (!snapshot) return null;
+  const recentFailure = getRecentFailure(
+    input.businessId,
+    input.provider,
+    failureCooldownMs
+  );
+
+  return {
+    accounts: snapshot.accounts_payload ?? [],
+    meta: toSnapshotMeta({
+      snapshot,
+      freshnessMs,
+      recentFailure,
+    }),
+  };
+}
+
+export async function requestProviderAccountSnapshotRefresh(
+  input: ResolveProviderAccountSnapshotInput
+): Promise<ProviderAccountSnapshotResult | null> {
+  const snapshot = await readProviderAccountSnapshot({
+    businessId: input.businessId,
+    provider: input.provider,
+    freshnessMs: input.freshnessMs,
+    failureCooldownMs: input.failureCooldownMs,
+  });
+
+  if (snapshot && !snapshot.meta.stale) {
+    return snapshot;
+  }
+
+  if (snapshot) {
+    const failureCooldownMs = input.failureCooldownMs ?? DEFAULT_FAILURE_COOLDOWN_MS;
+    const recentFailure = getRecentFailure(
+      input.businessId,
+      input.provider,
+      failureCooldownMs
+    );
+    if (!recentFailure) {
+      void refreshSnapshotInBackground(input);
+    }
+    return snapshot;
+  }
+
+  return resolveProviderAccountSnapshot(input);
+}
+
 export async function resolveProviderAccountSnapshot(
   input: ResolveProviderAccountSnapshotInput
 ): Promise<ProviderAccountSnapshotResult> {
@@ -251,14 +324,11 @@ export async function resolveProviderAccountSnapshot(
   if (snapshot && isFresh(snapshot, freshnessMs)) {
     return {
       accounts: snapshot.accounts_payload ?? [],
-      meta: {
-        source: "snapshot",
-        fetchedAt: snapshot.fetched_at,
-        stale: false,
-        refreshFailed: snapshot.refresh_failed,
-        lastError: snapshot.last_error,
-        lastKnownGoodAvailable: true,
-      },
+      meta: toSnapshotMeta({
+        snapshot,
+        freshnessMs,
+        recentFailure,
+      }),
     };
   }
 
@@ -268,14 +338,11 @@ export async function resolveProviderAccountSnapshot(
     }
     return {
       accounts: snapshot.accounts_payload ?? [],
-      meta: {
-        source: "snapshot",
-        fetchedAt: snapshot.fetched_at,
-        stale: true,
-        refreshFailed: snapshot.refresh_failed || Boolean(recentFailure),
-        lastError: recentFailure?.message ?? snapshot.last_error,
-        lastKnownGoodAvailable: true,
-      },
+      meta: toSnapshotMeta({
+        snapshot,
+        freshnessMs,
+        recentFailure,
+      }),
     };
   }
 

@@ -94,7 +94,7 @@ interface MotionTopSectionProps {
   shareUrl?: string | null;
   shareError?: string | null;
   csvError?: string | null;
-  previewStripState?: "ready" | "pending" | "missing";
+  previewStripState?: "data_loading" | "media_hydrating" | "ready" | "missing";
   previewStripSummary?: {
     total: number;
     ready: number;
@@ -1118,7 +1118,7 @@ function PreviewStrip({
   onOpenRow: (rowId: string) => void;
   previewMode?: "media" | "copy";
   getPreviewCopyText?: (row: MetaCreativeRow) => string;
-  previewStripState?: "ready" | "pending" | "missing";
+  previewStripState?: "data_loading" | "media_hydrating" | "ready" | "missing";
   previewStripSummary?: {
     total: number;
     ready: number;
@@ -1127,23 +1127,25 @@ function PreviewStrip({
     minimumReady: number;
   };
 }) {
-  if (previewStripState === "pending") {
+  if (previewStripState === "data_loading" || previewStripState === "media_hydrating") {
+    const helperText =
+      previewStripState === "data_loading"
+        ? "Fetching creatives and media previews from Meta"
+        : "Preparing preview cards";
+
     return (
-      <div className="rounded-xl border border-dashed bg-muted/10 px-4 py-8">
-        <div className="mx-auto flex max-w-xl flex-col items-center justify-center text-center">
+      <div className="min-h-[280px] rounded-xl border border-dashed bg-muted/10 px-4 py-8">
+        <div className="mx-auto flex min-h-[248px] max-w-xl flex-col items-center justify-center text-center">
           <p className="text-sm font-medium text-foreground">Waiting for Facebook...</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Preview media is still loading for this selection.
-          </p>
-          <div className="mt-4 h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-slate-200/80">
+          <div className="mt-4 h-1.5 w-full max-w-sm overflow-hidden rounded-full bg-slate-200/80">
             <div className="h-full w-2/5 animate-pulse rounded-full bg-slate-500/70" />
           </div>
-          <p className="mt-3 text-[11px] text-muted-foreground/90">
-            The table is ready now. Preview cards will appear as soon as Meta media becomes available.
-          </p>
+          <p className="mt-3 text-xs text-muted-foreground">{helperText}</p>
           {previewStripSummary ? (
             <p className="mt-1 text-[11px] text-muted-foreground/80">
-              {previewStripSummary.ready} of {previewStripSummary.total} top creatives are preview-ready so far.
+              {previewStripSummary.total > 0
+                ? `${previewStripSummary.ready} of ${previewStripSummary.total} top creatives are preview-ready so far.`
+                : "Waiting for your top creatives selection to finish loading."}
             </p>
           ) : null}
         </div>

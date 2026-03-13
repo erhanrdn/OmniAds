@@ -17,6 +17,7 @@ import { GA4PropertyPicker } from "@/components/integrations/ga4-property-picker
 import {
   fetchProviderAccountSnapshot,
   supportsProviderAssignments,
+  warmProviderAccountSnapshot,
 } from "@/lib/provider-account-client";
 
 /** Providers that have real backend OAuth (not mock) */
@@ -129,12 +130,19 @@ export default function IntegrationsPage() {
         const snapshot = await fetchProviderAccountSnapshot(provider, businessId);
         setProviderAccounts(businessId, provider, snapshot.accounts);
         setAssignedAccounts(businessId, provider, snapshot.assignedAccountIds);
+        void warmProviderAccountSnapshot(provider, businessId).catch(() => undefined);
       } catch {
-        if (fallbackAccounts) {
-          setProviderAccounts(businessId, provider, fallbackAccounts);
-        }
-        if (fallbackAssignedIds) {
-          setAssignedAccounts(businessId, provider, fallbackAssignedIds);
+        try {
+          const snapshot = await warmProviderAccountSnapshot(provider, businessId);
+          setProviderAccounts(businessId, provider, snapshot.accounts);
+          setAssignedAccounts(businessId, provider, snapshot.assignedAccountIds);
+        } catch {
+          if (fallbackAccounts) {
+            setProviderAccounts(businessId, provider, fallbackAccounts);
+          }
+          if (fallbackAssignedIds) {
+            setAssignedAccounts(businessId, provider, fallbackAssignedIds);
+          }
         }
       }
     },

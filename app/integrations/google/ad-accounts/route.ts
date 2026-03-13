@@ -8,7 +8,8 @@ import {
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import {
   ProviderAccountSnapshotRefreshError,
-  resolveProviderAccountSnapshot,
+  readProviderAccountSnapshot,
+  requestProviderAccountSnapshotRefresh,
 } from "@/lib/provider-account-snapshots";
 
 const GOOGLE_ACCOUNT_SNAPSHOT_FRESHNESS_MS = 60 * 60_000;
@@ -23,6 +24,7 @@ const GOOGLE_ACCOUNT_REFRESH_COOLDOWN_MS = 10 * 60_000;
  */
 export async function GET(request: NextRequest) {
   const businessId = request.nextUrl.searchParams.get("businessId");
+  const refreshRequested = request.nextUrl.searchParams.get("refresh") === "1";
 
   console.log("[google-ad-accounts] request", { businessId });
 
@@ -118,29 +120,49 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const snapshot = await resolveProviderAccountSnapshot({
-      businessId,
-      provider: "google",
-      freshnessMs: GOOGLE_ACCOUNT_SNAPSHOT_FRESHNESS_MS,
-      failureCooldownMs: GOOGLE_ACCOUNT_REFRESH_COOLDOWN_MS,
-      liveLoader: async () => {
-        const result = await fetchGoogleAdsAccounts(accessToken);
+    const loadLiveAccounts = async () => {
+      const result = await fetchGoogleAdsAccounts(accessToken);
 
-        if (!result.ok) {
-          throw new Error(
-            result.error ?? "Could not load accessible Google Ads accounts."
-          );
-        }
+      if (!result.ok) {
+        throw new Error(
+          result.error ?? "Could not load accessible Google Ads accounts."
+        );
+      }
 
-        return result.customers.map((customer) => ({
-          id: customer.id,
-          name: customer.name,
-          currency: customer.currency ?? undefined,
-          timezone: customer.timezone ?? undefined,
-          isManager: customer.isManager,
-        }));
-      },
-    });
+      return result.customers.map((customer) => ({
+        id: customer.id,
+        name: customer.name,
+        currency: customer.currency ?? undefined,
+        timezone: customer.timezone ?? undefined,
+        isManager: customer.isManager,
+      }));
+    };
+
+    const snapshot = refreshRequested
+      ? await requestProviderAccountSnapshotRefresh({
+          businessId,
+          provider: "google",
+          freshnessMs: GOOGLE_ACCOUNT_SNAPSHOT_FRESHNESS_MS,
+          failureCooldownMs: GOOGLE_ACCOUNT_REFRESH_COOLDOWN_MS,
+          liveLoader: loadLiveAccounts,
+        })
+      : await readProviderAccountSnapshot({
+          businessId,
+          provider: "google",
+          freshnessMs: GOOGLE_ACCOUNT_SNAPSHOT_FRESHNESS_MS,
+          failureCooldownMs: GOOGLE_ACCOUNT_REFRESH_COOLDOWN_MS,
+        });
+
+    if (!snapshot) {
+      return NextResponse.json(
+        {
+          error: "google_ads_fetch_unavailable",
+          message:
+            "We couldn't load your Google Ads accounts right now. Please wait a bit and try again.",
+        },
+        { status: 503 }
+      );
+    }
 
     let assignedSet = new Set<string>();
     try {
@@ -175,6 +197,10 @@ export async function GET(request: NextRequest) {
         assigned: assignedSet.has(account.id),
       })),
       meta: snapshot.meta,
+      notice:
+        snapshot.meta.lastKnownGoodAvailable && snapshot.meta.refreshFailed
+          ? "Your accounts list could not be refreshed right now. Showing the last available list."
+          : null,
     });
   } catch (error: unknown) {
     if (error instanceof ProviderAccountSnapshotRefreshError) {

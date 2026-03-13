@@ -15,6 +15,7 @@ import { ErrorState } from "@/components/states/error-state";
 import { LoadingSkeleton } from "@/components/states/loading-skeleton";
 import { Button } from "@/components/ui/button";
 import { fetchProviderAccountSnapshot } from "@/lib/provider-account-client";
+import { warmProviderAccountSnapshot } from "@/lib/provider-account-client";
 import {
   type MetaCreativeRow,
 } from "@/components/creatives/metricConfig";
@@ -59,6 +60,8 @@ interface MetaCreativesResponse {
     previewCoverage: number;
   };
 }
+
+type PreviewStripState = "data_loading" | "media_hydrating" | "ready" | "missing";
 
 function hasRenderablePreview(row: MetaCreativeRow): boolean {
   return Boolean(
@@ -412,9 +415,18 @@ export default function CreativesPage() {
         setProviderAccounts(businessId, "meta", snapshot.accounts);
         setAssignedAccounts(businessId, "meta", snapshot.assignedAccountIds);
         setMetaAssignmentsState("ready");
+        void warmProviderAccountSnapshot("meta", businessId).catch(() => undefined);
       } catch {
-        if (cancelled) return;
-        setMetaAssignmentsState("error");
+        try {
+          const snapshot = await warmProviderAccountSnapshot("meta", businessId);
+          if (cancelled) return;
+          setProviderAccounts(businessId, "meta", snapshot.accounts);
+          setAssignedAccounts(businessId, "meta", snapshot.assignedAccountIds);
+          setMetaAssignmentsState("ready");
+        } catch {
+          if (cancelled) return;
+          setMetaAssignmentsState("error");
+        }
       }
     })();
 
@@ -611,53 +623,62 @@ export default function CreativesPage() {
     () => (selectedRows.length > 0 ? selectedRows : deferredFilteredRows.slice(0, 20)),
     [deferredFilteredRows, selectedRows]
   );
+  const previewStatusPayload = creativesMediaQuery.data ?? creativesMetadataQuery.data;
+  const previewStripState = useMemo<PreviewStripState>(() => {
+    const metadataRows = creativesMetadataQuery.data?.rows ?? [];
+    const hasMetadataRows = metadataRows.length > 0;
+
+    if (!hasMetadataRows) {
+      if (creativesMetadataQuery.isLoading || creativesMetadataQuery.isFetching) {
+        return "data_loading";
+      }
+      return "media_hydrating";
+    }
+
+    const mediaHydrated = previewStatusPayload?.media_hydrated === true;
+    const previewCoverage = previewStatusPayload?.preview_coverage?.previewCoverage ?? 0;
+
+    if (!mediaHydrated) {
+      return "media_hydrating";
+    }
+
+    if (previewCoverage > 0) {
+      return "ready";
+    }
+
+    return "missing";
+  }, [
+    creativesMetadataQuery.data?.rows,
+    creativesMetadataQuery.isFetching,
+    creativesMetadataQuery.isLoading,
+    previewStatusPayload,
+  ]);
   const topPreviewRows = useMemo(
-    () => topPanelRows.filter((row) => hasRenderablePreview(row)).slice(0, 20),
-    [topPanelRows]
+    () =>
+      previewStripState === "ready"
+        ? topPanelRows.filter((row) => hasRenderablePreview(row)).slice(0, 20)
+        : [],
+    [previewStripState, topPanelRows]
   );
   const topPreviewSummary = useMemo(() => {
-    const mediaSettled =
-      creativesMediaQuery.data?.media_hydrated === true ||
-      creativesMediaQuery.isError ||
-      (!creativesMediaQuery.isFetching && creativesMediaQuery.isSuccess);
-    const counts = topPanelRows.reduce(
-      (acc, row) => {
-        if (hasRenderablePreview(row) || row.previewStatus === "ready") {
-          acc.ready += 1;
-          return acc;
-        }
-        if (!mediaSettled) {
-          acc.pending += 1;
-          return acc;
-        }
-        acc.missing += 1;
-        return acc;
-      },
-      { ready: 0, pending: 0, missing: 0 }
-    );
-    const minimumReady = topPanelRows.length <= 2 ? 1 : Math.min(3, topPanelRows.length);
-    const state: "ready" | "pending" | "missing" =
-      counts.ready >= minimumReady || (counts.ready > 0 && counts.pending === 0)
-        ? "ready"
-        : counts.pending > 0 || creativesMetadataQuery.isLoading || creativesMediaQuery.isFetching
-          ? "pending"
-          : "missing";
+    const total = topPanelRows.length;
+    const ready = previewStripState === "ready" ? topPreviewRows.length : 0;
+    const pending =
+      previewStripState === "data_loading" || previewStripState === "media_hydrating"
+        ? total
+        : 0;
+    const missing = previewStripState === "missing" ? total : Math.max(total - ready - pending, 0);
+    const minimumReady = total <= 2 ? 1 : Math.min(3, total);
+
     return {
-      state,
-      total: topPanelRows.length,
-      ready: counts.ready,
-      pending: counts.pending,
-      missing: counts.missing,
+      state: previewStripState,
+      total,
+      ready,
+      pending,
+      missing,
       minimumReady,
     };
-  }, [
-    creativesMediaQuery.data?.media_hydrated,
-    creativesMediaQuery.isError,
-    creativesMediaQuery.isFetching,
-    creativesMediaQuery.isSuccess,
-    creativesMetadataQuery.isLoading,
-    topPanelRows,
-  ]);
+  }, [previewStripState, topPanelRows.length, topPreviewRows.length]);
 
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return;
@@ -916,7 +937,7 @@ export default function CreativesPage() {
               shareUrl={shareUrl}
               shareError={shareError}
               csvError={csvError}
-              previewStripState={topPreviewSummary.state}
+              previewStripState={previewStripState}
               previewStripSummary={topPreviewSummary}
             />
 

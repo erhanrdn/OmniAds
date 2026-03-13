@@ -8,7 +8,8 @@ import {
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import {
   ProviderAccountSnapshotRefreshError,
-  resolveProviderAccountSnapshot,
+  readProviderAccountSnapshot,
+  requestProviderAccountSnapshotRefresh,
 } from "@/lib/provider-account-snapshots";
 
 const GOOGLE_ACCOUNT_SNAPSHOT_FRESHNESS_MS = 60 * 60_000;
@@ -16,7 +17,7 @@ const GOOGLE_ACCOUNT_REFRESH_COOLDOWN_MS = 10 * 60_000;
 
 function getGoogleDiscoveryFailureMessage(hasSnapshot: boolean) {
   if (hasSnapshot) {
-    return "We couldn't refresh your Google Ads accounts right now. Showing your last available list.";
+    return "Your accounts list could not be refreshed right now. Showing the last available list.";
   }
   return "We couldn't load your Google Ads accounts right now. Please wait a bit and try again.";
 }
@@ -47,6 +48,7 @@ function getGoogleDiscoveryFailureMessage(hasSnapshot: boolean) {
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const businessId = searchParams.get("businessId");
+  const refreshRequested = searchParams.get("refresh") === "1";
 
   console.log("[accessible-accounts] 🔹 ROUTE ENTERED", { businessId, timestamp: new Date().toISOString() });
 
@@ -169,35 +171,54 @@ export async function GET(request: NextRequest) {
 
   try {
     console.log("[accessible-accounts] 🔄 Resolving Google Ads account snapshot...");
-    const snapshot = await resolveProviderAccountSnapshot({
-      businessId,
-      provider: "google",
-      freshnessMs: GOOGLE_ACCOUNT_SNAPSHOT_FRESHNESS_MS,
-      failureCooldownMs: GOOGLE_ACCOUNT_REFRESH_COOLDOWN_MS,
-      liveLoader: async () => {
-        const result = await fetchGoogleAdsAccounts(accessToken);
+    const loadLiveAccounts = async () => {
+      const result = await fetchGoogleAdsAccounts(accessToken);
 
-        console.log("[accessible-accounts] Response from fetchGoogleAdsAccounts", {
-          ok: result.ok,
-          error: result.error || null,
-          customerCount: result.customers?.length || 0,
+      console.log("[accessible-accounts] Response from fetchGoogleAdsAccounts", {
+        ok: result.ok,
+        error: result.error || null,
+        customerCount: result.customers?.length || 0,
+      });
+
+      if (!result.ok) {
+        throw new Error(
+          result.error ?? "Could not discover accessible Google Ads accounts."
+        );
+      }
+
+      return result.customers.map((customer) => ({
+        id: customer.id,
+        name: customer.name,
+        currency: customer.currency ?? undefined,
+        timezone: customer.timezone ?? undefined,
+        isManager: customer.isManager,
+      }));
+    };
+
+    const snapshot = refreshRequested
+      ? await requestProviderAccountSnapshotRefresh({
+          businessId,
+          provider: "google",
+          freshnessMs: GOOGLE_ACCOUNT_SNAPSHOT_FRESHNESS_MS,
+          failureCooldownMs: GOOGLE_ACCOUNT_REFRESH_COOLDOWN_MS,
+          liveLoader: loadLiveAccounts,
+        })
+      : await readProviderAccountSnapshot({
+          businessId,
+          provider: "google",
+          freshnessMs: GOOGLE_ACCOUNT_SNAPSHOT_FRESHNESS_MS,
+          failureCooldownMs: GOOGLE_ACCOUNT_REFRESH_COOLDOWN_MS,
         });
 
-        if (!result.ok) {
-          throw new Error(
-            result.error ?? "Could not discover accessible Google Ads accounts."
-          );
-        }
-
-        return result.customers.map((customer) => ({
-          id: customer.id,
-          name: customer.name,
-          currency: customer.currency ?? undefined,
-          timezone: customer.timezone ?? undefined,
-          isManager: customer.isManager,
-        }));
-      },
-    });
+    if (!snapshot) {
+      return NextResponse.json(
+        {
+          error: "google_ads_discovery_unavailable",
+          message: getGoogleDiscoveryFailureMessage(false),
+        },
+        { status: 503 }
+      );
+    }
 
     console.log("[accessible-accounts] ✓ Account snapshot resolved", {
       accessibleAccountCount: snapshot.accounts.length,
@@ -243,6 +264,10 @@ export async function GET(request: NextRequest) {
       data: accounts,
       count: accounts.length,
       meta: snapshot.meta,
+      notice:
+        snapshot.meta.lastKnownGoodAvailable && snapshot.meta.refreshFailed
+          ? getGoogleDiscoveryFailureMessage(true)
+          : null,
     });
   } catch (error) {
     if (error instanceof ProviderAccountSnapshotRefreshError) {

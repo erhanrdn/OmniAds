@@ -3,10 +3,25 @@ import { requireBusinessAccess } from "@/lib/access";
 import { getIntegration } from "@/lib/integrations";
 import { fetchMetaAdAccounts, getMetaApiErrorMessage } from "@/lib/meta-ad-accounts";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
-import { resolveProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
+import {
+  ProviderAccountSnapshotRefreshError,
+  readProviderAccountSnapshot,
+  requestProviderAccountSnapshotRefresh,
+} from "@/lib/provider-account-snapshots";
+
+const META_ACCOUNT_SNAPSHOT_FRESHNESS_MS = 60 * 60_000;
+const META_ACCOUNT_REFRESH_COOLDOWN_MS = 10 * 60_000;
+
+function getRefreshNotice(hasSnapshot: boolean) {
+  if (hasSnapshot) {
+    return "Your accounts list could not be refreshed right now. Showing the last available list.";
+  }
+  return "We couldn't load your accounts right now. Please try again in a moment.";
+}
 
 export async function GET(request: NextRequest) {
   const businessId = request.nextUrl.searchParams.get("businessId");
+  const refreshRequested = request.nextUrl.searchParams.get("refresh") === "1";
 
   console.log("[meta-ad-accounts] request", { businessId });
 
@@ -80,31 +95,52 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const snapshot = await resolveProviderAccountSnapshot({
-      businessId,
-      provider: "meta",
-      liveLoader: async () => {
-        const metaResult = await fetchMetaAdAccounts(accessToken);
+    const loadLiveAccounts = async () => {
+      const metaResult = await fetchMetaAdAccounts(accessToken);
 
-        console.log("[meta-ad-accounts] meta response", {
+      console.log("[meta-ad-accounts] meta response", {
+        businessId,
+        status: metaResult.status,
+        rawBody: metaResult.rawBody,
+      });
+
+      if (!metaResult.ok || metaResult.body?.error) {
+        throw new Error(getMetaApiErrorMessage(metaResult));
+      }
+
+      return metaResult.normalized.map((account) => ({
+        id: account.id,
+        name: account.name,
+        currency: account.currency ?? undefined,
+        timezone: account.timezone ?? undefined,
+        isManager: false,
+      }));
+    };
+
+    const snapshot = refreshRequested
+      ? await requestProviderAccountSnapshotRefresh({
           businessId,
-          status: metaResult.status,
-          rawBody: metaResult.rawBody,
+          provider: "meta",
+          freshnessMs: META_ACCOUNT_SNAPSHOT_FRESHNESS_MS,
+          failureCooldownMs: META_ACCOUNT_REFRESH_COOLDOWN_MS,
+          liveLoader: loadLiveAccounts,
+        })
+      : await readProviderAccountSnapshot({
+          businessId,
+          provider: "meta",
+          freshnessMs: META_ACCOUNT_SNAPSHOT_FRESHNESS_MS,
+          failureCooldownMs: META_ACCOUNT_REFRESH_COOLDOWN_MS,
         });
 
-        if (!metaResult.ok || metaResult.body?.error) {
-          throw new Error(getMetaApiErrorMessage(metaResult));
-        }
-
-        return metaResult.normalized.map((account) => ({
-          id: account.id,
-          name: account.name,
-          currency: account.currency ?? undefined,
-          timezone: account.timezone ?? undefined,
-          isManager: false,
-        }));
-      },
-    });
+    if (!snapshot) {
+      return NextResponse.json(
+        {
+          error: "meta_accounts_unavailable",
+          message: getRefreshNotice(false),
+        },
+        { status: 503 }
+      );
+    }
 
     let assignedSet = new Set<string>();
     try {
@@ -136,8 +172,29 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       data: accounts,
       meta: snapshot.meta,
+      notice:
+        snapshot.meta.lastKnownGoodAvailable && snapshot.meta.refreshFailed
+          ? getRefreshNotice(true)
+          : null,
     });
   } catch (error: unknown) {
+    if (error instanceof ProviderAccountSnapshotRefreshError) {
+      console.error("[meta-ad-accounts] snapshot_refresh_failed", {
+        businessId,
+        message: error.message,
+        retryAfterMs: error.retryAfterMs,
+        dueToRecentFailure: error.dueToRecentFailure,
+      });
+
+      return NextResponse.json(
+        {
+          error: "meta_accounts_unavailable",
+          message: getRefreshNotice(false),
+        },
+        { status: 503 }
+      );
+    }
+
     const message = error instanceof Error ? error.message : "Unknown error";
 
     console.error("[meta-ad-accounts] unexpected_error", {
@@ -148,7 +205,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         error: "meta_api_error",
-        message,
+        message: getRefreshNotice(false),
       },
       { status: 500 }
     );

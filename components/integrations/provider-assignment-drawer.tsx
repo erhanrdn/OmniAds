@@ -28,6 +28,7 @@ interface ProviderErrorBody {
 
 interface ProviderSuccessBody {
   data?: ProviderAccountRow[];
+  notice?: string;
 }
 
 interface SaveSuccessBody {
@@ -118,6 +119,7 @@ export function ProviderAssignmentDrawer({
   const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
   const isMeta = provider === "meta";
   const isGoogle = provider === "google";
   const isSupportedProvider = isMeta || isGoogle;
@@ -135,6 +137,7 @@ export function ProviderAssignmentDrawer({
         setAccounts([]);
         setFetchState("empty");
         setErrorMessage(null);
+        setNoticeMessage(null);
         return;
       }
 
@@ -143,6 +146,7 @@ export function ProviderAssignmentDrawer({
         setAccounts([]);
         setFetchState("empty");
         setErrorMessage(null);
+        setNoticeMessage(null);
         return;
       }
 
@@ -154,6 +158,7 @@ export function ProviderAssignmentDrawer({
         setIsRefreshing(true);
       }
       setErrorMessage(null);
+      setNoticeMessage(null);
       setSaveErrorMessage(null);
 
       console.log("[assignment-modal] 🔹 FETCH STARTED", {
@@ -217,6 +222,11 @@ export function ProviderAssignmentDrawer({
         });
 
         setAccounts(list);
+        setNoticeMessage(
+          payload && typeof payload === "object" && "notice" in payload && typeof payload.notice === "string"
+            ? payload.notice
+            : null
+        );
         const hasAssignedFlag = list.some((account) => typeof account.assigned === "boolean");
         const serverAssignedIds = hasAssignedFlag
           ? list.filter((account) => account.assigned === true).map((account) => account.id)
@@ -258,6 +268,7 @@ export function ProviderAssignmentDrawer({
       setDraftIds([]);
       setIsSaving(false);
       setIsRefreshing(false);
+      setNoticeMessage(null);
       setSearchQuery("");
       initializedForOpenRef.current = null;
     }
@@ -349,6 +360,12 @@ export function ProviderAssignmentDrawer({
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col px-6 py-4">
+          {noticeMessage ? (
+            <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              {noticeMessage}
+            </div>
+          ) : null}
+
           {fetchState === "success" ? (
             <div className="shrink-0 pb-3">
               <div className="flex items-center gap-2">

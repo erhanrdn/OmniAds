@@ -1,4 +1,5 @@
 import type { IntegrationProvider } from "@/store/integrations-store";
+import type { ProviderAccountSnapshotMeta } from "@/lib/provider-account-snapshots";
 
 interface ProviderAccountPayloadRow {
   id: string;
@@ -9,11 +10,15 @@ interface ProviderAccountPayloadRow {
 interface ProviderAccountsPayload {
   data?: ProviderAccountPayloadRow[];
   message?: string;
+  notice?: string;
+  meta?: ProviderAccountSnapshotMeta;
 }
 
 export interface ProviderAccountSnapshot {
   accounts: Array<{ id: string; name: string }>;
   assignedAccountIds: string[];
+  meta: ProviderAccountSnapshotMeta | null;
+  notice: string | null;
 }
 
 export function supportsProviderAssignments(provider: IntegrationProvider) {
@@ -36,13 +41,16 @@ export function getProviderAccountsFetchPath(
 export async function fetchProviderAccountSnapshot(
   provider: IntegrationProvider,
   businessId: string,
+  options?: { refresh?: boolean },
 ): Promise<ProviderAccountSnapshot> {
   const path = getProviderAccountsFetchPath(provider, businessId);
   if (!path) {
-    return { accounts: [], assignedAccountIds: [] };
+    return { accounts: [], assignedAccountIds: [], meta: null, notice: null };
   }
 
-  const response = await fetch(path, {
+  const url = options?.refresh ? `${path}&refresh=1` : path;
+
+  const response = await fetch(url, {
     method: "GET",
     headers: { Accept: "application/json" },
     cache: "no-store",
@@ -57,5 +65,14 @@ export async function fetchProviderAccountSnapshot(
   return {
     accounts: rows.map((row) => ({ id: row.id, name: row.name })),
     assignedAccountIds: rows.filter((row) => row.assigned === true).map((row) => row.id),
+    meta: payload?.meta ?? null,
+    notice: payload?.notice ?? null,
   };
+}
+
+export async function warmProviderAccountSnapshot(
+  provider: IntegrationProvider,
+  businessId: string,
+) {
+  return fetchProviderAccountSnapshot(provider, businessId, { refresh: true });
 }
