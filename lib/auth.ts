@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { runMigrations } from "@/lib/migrations";
+import { logStartupError } from "@/lib/startup-diagnostics";
 
 export type MembershipRole = "admin" | "collaborator" | "guest";
 export type MembershipStatus = "active" | "invited" | "pending";
@@ -47,7 +48,7 @@ async function findSessionByToken(rawToken: string): Promise<SessionContext | nu
     return null;
   }
 
-  await runMigrations();
+  await runMigrations({ reason: "auth_session_lookup" });
   const sql = getDb();
   const tokenHash = hashToken(rawToken);
   const rows = (await sql`
@@ -112,7 +113,7 @@ export async function createSession(input: {
   userId: string;
   activeBusinessId?: string | null;
 }): Promise<{ token: string; sessionId: string; expiresAt: Date }> {
-  await runMigrations();
+  await runMigrations({ reason: "auth_create_session" });
   const sql = getDb();
   const token = randomUUID().replace(/-/g, "");
   const tokenHash = hashToken(token);
@@ -139,7 +140,7 @@ export function attachSessionCookie(response: NextResponse, token: string, expir
 export async function destroySessionByRequest(request: NextRequest): Promise<void> {
   const token = request.cookies.get(AUTH_COOKIE_NAME)?.value;
   if (!token) return;
-  await runMigrations();
+  await runMigrations({ reason: "auth_destroy_session" });
   const sql = getDb();
   await sql`DELETE FROM sessions WHERE token_hash = ${hashToken(token)}`;
 }
@@ -155,7 +156,7 @@ export function clearSessionCookie(response: NextResponse) {
 }
 
 export async function setSessionActiveBusiness(sessionId: string, businessId: string | null): Promise<void> {
-  await runMigrations();
+  await runMigrations({ reason: "auth_set_active_business" });
   const sql = getDb();
   await sql`UPDATE sessions SET active_business_id = ${businessId} WHERE id = ${sessionId}`;
 }

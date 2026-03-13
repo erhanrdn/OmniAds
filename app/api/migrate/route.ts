@@ -9,7 +9,7 @@ import { runMigrations } from "@/lib/migrations";
  */
 export async function POST() {
   try {
-    await runMigrations();
+    await runMigrations({ force: true, reason: "api_migrate_route" });
     return NextResponse.json({
       status: "OK",
       message: "Migrations applied successfully.",

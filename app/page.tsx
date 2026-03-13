@@ -18,6 +18,7 @@ import {
 import { getSessionFromCookies } from "@/lib/auth";
 import { resolvePostLoginDestination } from "@/lib/auth-routing";
 import { resolveBusinessContext } from "@/lib/business-context";
+import { logStartupError } from "@/lib/startup-diagnostics";
 import { MarketingNavbar } from "@/components/marketing/MarketingNavbar";
 import { MarketingFooter } from "@/components/marketing/MarketingFooter";
 
@@ -28,16 +29,21 @@ export const metadata: Metadata = {
 };
 
 async function maybeRedirectAuthenticatedUser() {
-  const session = await getSessionFromCookies();
-  if (!session) return;
+  try {
+    const session = await getSessionFromCookies();
+    if (!session) return;
 
-  const { businesses, activeBusinessId } = await resolveBusinessContext(session);
-  redirect(
-    resolvePostLoginDestination({
-      businesses,
-      activeBusinessId,
-    })
-  );
+    const { businesses, activeBusinessId } = await resolveBusinessContext(session);
+    redirect(
+      resolvePostLoginDestination({
+        businesses,
+        activeBusinessId,
+      })
+    );
+  } catch (error) {
+    // Public landing page should still render even if auth/session lookup cannot reach the DB.
+    logStartupError("home_session_redirect_failed", error);
+  }
 }
 
 const PILLARS = [

@@ -1,20 +1,65 @@
 import { getDb } from "@/lib/db";
+import { logStartupError, logStartupEvent } from "@/lib/startup-diagnostics";
 
 let migrationsPromise: Promise<void> | null = null;
 let migrationsCompleted = false;
+let loggedMigrationSkip = false;
+
+const DEFAULT_MIGRATION_TIMEOUT_MS = 15_000;
+
+function runtimeMigrationsEnabled() {
+  if (process.env.NODE_ENV !== "production") return true;
+  return process.env.ENABLE_RUNTIME_MIGRATIONS === "1";
+}
+
+function getMigrationTimeoutMs() {
+  const raw = process.env.MIGRATION_TIMEOUT_MS?.trim();
+  if (!raw) return DEFAULT_MIGRATION_TIMEOUT_MS;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_MIGRATION_TIMEOUT_MS;
+}
+
+function withMigrationTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error(`Database migrations timed out after ${timeoutMs}ms.`));
+      }, timeoutMs);
+      promise.finally(() => clearTimeout(timer)).catch(() => clearTimeout(timer));
+    }),
+  ]);
+}
 
 /**
  * Run all migrations in order.
  * Each migration is idempotent (IF NOT EXISTS).
  */
-export async function runMigrations() {
+export async function runMigrations(options?: { force?: boolean; reason?: string }) {
+  const force = options?.force ?? false;
+  const reason = options?.reason ?? "unspecified";
+
+  if (!force && !runtimeMigrationsEnabled()) {
+    if (!loggedMigrationSkip) {
+      loggedMigrationSkip = true;
+      logStartupEvent("migrations_skipped_runtime_disabled", {
+        reason,
+        nodeEnv: process.env.NODE_ENV,
+      });
+    }
+    return;
+  }
+
   if (migrationsCompleted) return;
   if (migrationsPromise) {
     await migrationsPromise;
     return;
   }
 
-  migrationsPromise = (async () => {
+  const timeoutMs = getMigrationTimeoutMs();
+  logStartupEvent("migrations_started", { reason, force, timeoutMs });
+
+  migrationsPromise = withMigrationTimeout((async () => {
   const sql = getDb();
 
   // ── auth core tables ───────────────────────────────────────────────
@@ -302,12 +347,14 @@ export async function runMigrations() {
     ON shopify_subscriptions (shop_id)
   `;
     migrationsCompleted = true;
-  })();
+    logStartupEvent("migrations_completed", { reason });
+  })(), timeoutMs);
 
   try {
     await migrationsPromise;
   } catch (error) {
     migrationsPromise = null;
+    logStartupError("migrations_failed", error, { reason, force });
     throw error;
   }
 }
