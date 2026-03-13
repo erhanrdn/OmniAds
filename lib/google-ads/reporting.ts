@@ -1469,16 +1469,22 @@ export async function getGoogleAdsProductIntelligenceReport(params: {
   businessId: string;
   accountId?: string | null;
   dateRange: "7" | "14" | "30" | "custom";
+  debug?: boolean;
 }): Promise<ProductIntelligenceReport> {
   const meta = createEmptyMeta();
 
-  const ctx = await resolveContext({ businessId: params.businessId, dateRange: params.dateRange });
-  if ("error" in ctx) {
-    meta.warnings.push(ctx.error);
-    return { products: [], totalSpend: 0, available: false, unavailableReason: ctx.error, meta };
+  const ctx = await resolveContext({
+    businessId: params.businessId,
+    accountId: params.accountId,
+    dateRange: params.dateRange,
+    debug: params.debug ?? false,
+  });
+  if (!ctx.ok) {
+    return { products: [], totalSpend: 0, available: false, meta: ctx.payload.meta };
   }
 
-  const { customerIds, startDate, endDate } = ctx;
+  const { context, startDate, endDate } = ctx;
+  const { customerIds } = context;
 
   const shoppingGaql = `
     SELECT
@@ -1498,18 +1504,21 @@ export async function getGoogleAdsProductIntelligenceReport(params: {
     LIMIT 500
   `;
 
-  const { results, failures } = await executeGaqlForAccounts(
+  const { results, failures } = await executeGaqlForAccounts({
+    businessId: params.businessId,
     customerIds,
-    shoppingGaql,
-    params.accountId ?? null
-  );
+    query: shoppingGaql,
+  });
 
   if (failures.length > 0) {
     meta.failed_queries.push(
       ...failures.map((f) => ({
         query: "shopping_performance",
-        message: getGoogleAdsFailureMessage(f.error),
+        family: "shopping",
         customerId: f.customerId,
+        message: f.message,
+        status: f.status,
+        apiStatus: f.apiStatus,
       }))
     );
   }
@@ -1525,24 +1534,19 @@ export async function getGoogleAdsProductIntelligenceReport(params: {
   const productMap = new Map<string, ProductIntelligenceRow>();
 
   for (const row of results) {
-    const itemId =
-      asString(getCompatValue(row, "segments.product_item_id", "segments", "product_item_id")) ||
-      "unknown";
-    const title =
-      asString(getCompatValue(row, "segments.product_title", "segments", "product_title")) || itemId;
-    const brand =
-      asString(getCompatValue(row, "segments.product_brand", "segments", "product_brand")) ||
-      undefined;
-    const category =
-      asString(getCompatValue(row, "segments.product_type_l1", "segments", "product_type_l1")) ||
-      undefined;
+    const r = row as Record<string, unknown>;
+    const segmentsObj = getCompatObject(r, "segments") ?? {};
+    const itemId = asString(getCompatValue(segmentsObj, "product_item_id")) || "unknown";
+    const title = asString(getCompatValue(segmentsObj, "product_title")) || itemId;
+    const brand = asString(getCompatValue(segmentsObj, "product_brand")) || undefined;
+    const category = asString(getCompatValue(segmentsObj, "product_type_l1")) || undefined;
 
-    const metricsObj = getCompatObject(row, "metrics") ?? {};
-    const spend = asNumber(getCompatValue(metricsObj, "cost_micros")) / 1_000_000;
-    const conversions = asNumber(getCompatValue(metricsObj, "conversions"));
-    const revenue = asNumber(getCompatValue(metricsObj, "conversions_value"));
-    const clicks = asInteger(getCompatValue(metricsObj, "clicks"));
-    const impressions = asInteger(getCompatValue(metricsObj, "impressions"));
+    const metricsObj = getCompatObject(r, "metrics");
+    const spend = (asNumber(getCompatValue(metricsObj, "cost_micros")) ?? 0) / 1_000_000;
+    const conversions = asNumber(getCompatValue(metricsObj, "conversions")) ?? 0;
+    const revenue = asNumber(getCompatValue(metricsObj, "conversions_value")) ?? 0;
+    const clicks = asInteger(getCompatValue(metricsObj, "clicks")) ?? 0;
+    const impressions = asInteger(getCompatValue(metricsObj, "impressions")) ?? 0;
 
     const existing = productMap.get(itemId);
     if (existing) {
@@ -1581,7 +1585,7 @@ export async function getGoogleAdsProductIntelligenceReport(params: {
 
   products.sort((a, b) => b.spend - a.spend);
   const totalSpend = products.reduce((s, p) => s + p.spend, 0);
-  meta.row_counts.push({ query: "shopping_performance", count: products.length });
+  meta.row_counts["shopping_performance"] = products.length;
 
   return { products, totalSpend, available: true, meta };
 }
