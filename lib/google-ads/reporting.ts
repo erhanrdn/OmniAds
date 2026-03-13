@@ -226,6 +226,28 @@ function dedupeStrings(values: string[]): string[] {
   return Array.from(new Set(values.filter(Boolean)));
 }
 
+function pruneUnavailableMetrics(
+  meta: GoogleAdsReportMeta,
+  rows: Array<Record<string, unknown>>,
+  metricToRowKey: Record<string, string>
+) {
+  if (rows.length === 0 || meta.unavailable_metrics.length === 0) return;
+
+  meta.unavailable_metrics = dedupeStrings(
+    meta.unavailable_metrics.filter((metric) => {
+      const rowKey = metricToRowKey[metric];
+      if (!rowKey) return true;
+
+      const hasResolvedValue = rows.some((row) => {
+        const value = row[rowKey];
+        return value !== null && value !== undefined;
+      });
+
+      return !hasResolvedValue;
+    })
+  );
+}
+
 function buildCampaignMap(
   coreRows: RawRow[],
   shareRows: RawRow[],
@@ -339,7 +361,7 @@ function aggregateOverviewKpis(customerRows: RawRow[]) {
   };
 
   for (const row of customerRows) {
-    const metrics = (row.metrics as Record<string, unknown> | undefined) ?? {};
+    const metrics = getCompatObject(row, "metrics");
     const set = toMetricSet(metrics);
     totals.spend += set.spend;
     totals.conversions += set.conversions;
@@ -579,6 +601,13 @@ export async function getGoogleAdsCampaignsReport(params: {
     ),
   }));
 
+  pruneUnavailableMetrics(meta, rows, {
+    average_cpc: "cpc",
+    conversion_rate: "conversionRate",
+    cost_per_conversion: "costPerConversion",
+    value_per_conversion: "valuePerConversion",
+  });
+
   addDebugMeta(meta, "campaigns", context, {
     date_range: { startDate, endDate },
   });
@@ -622,8 +651,9 @@ export async function getGoogleAdsSearchTermsReport(params: {
   const keywordSet = new Set(
     lookup.rows
       .map((row) => {
-        const criterion = (row.ad_group_criterion as Record<string, unknown> | undefined) ?? {};
-        return (asString((criterion.keyword as Record<string, unknown> | undefined)?.text) ?? "").toLowerCase();
+        const criterion = getCompatObject(row, "ad_group_criterion");
+        const keyword = getCompatObject(criterion, "keyword");
+        return (asString(getCompatValue(keyword, "text")) ?? "").toLowerCase();
       })
       .filter(Boolean)
   );
@@ -631,21 +661,20 @@ export async function getGoogleAdsSearchTermsReport(params: {
   const filter = (params.filter ?? "").trim().toLowerCase();
   const rows = core.rows
     .map((row) => {
-      const metrics = (row.metrics as Record<string, unknown> | undefined) ?? {};
-      const campaign = (row.campaign as Record<string, unknown> | undefined) ?? {};
-      const adGroup = (row.ad_group as Record<string, unknown> | undefined) ?? {};
-      const searchTermView =
-        (row.search_term_view as Record<string, unknown> | undefined) ?? {};
-      const searchTerm = asString(searchTermView.search_term) ?? "";
+      const metrics = getCompatObject(row, "metrics");
+      const campaign = getCompatObject(row, "campaign");
+      const adGroup = getCompatObject(row, "ad_group");
+      const searchTermView = getCompatObject(row, "search_term_view");
+      const searchTerm = asString(getCompatValue(searchTermView, "search_term")) ?? "";
       const data = toMetricSet(metrics);
       return {
-        key: `${asString(campaign.id) ?? "campaign"}:${asString(adGroup.id) ?? "adgroup"}:${searchTerm}`,
+        key: `${asString(getCompatValue(campaign, "id")) ?? "campaign"}:${asString(getCompatValue(adGroup, "id")) ?? "adgroup"}:${searchTerm}`,
         searchTerm,
-        status: asString(searchTermView.status) ?? "UNKNOWN",
-        campaignId: asString(campaign.id),
-        campaign: asString(campaign.name) ?? "",
-        adGroupId: asString(adGroup.id),
-        adGroup: asString(adGroup.name) ?? "",
+        status: asString(getCompatValue(searchTermView, "status")) ?? "UNKNOWN",
+        campaignId: asString(getCompatValue(campaign, "id")),
+        campaign: asString(getCompatValue(campaign, "name")) ?? "",
+        adGroupId: asString(getCompatValue(adGroup, "id")),
+        adGroup: asString(getCompatValue(adGroup, "name")) ?? "",
         impressions: data.impressions,
         clicks: data.clicks,
         spend: data.spend,
@@ -720,39 +749,40 @@ export async function getGoogleAdsKeywordsReport(params: {
 
   const qualityMap = new Map<string, Record<string, unknown>>();
   for (const row of quality.rows) {
-    const criterion =
-      (row.ad_group_criterion as Record<string, unknown> | undefined) ?? {};
-    const id = asString(criterion.criterion_id);
+    const criterion = getCompatObject(row, "ad_group_criterion");
+    const id = asString(getCompatValue(criterion, "criterion_id"));
     if (!id) continue;
     qualityMap.set(id, criterion);
   }
 
   const rows = core.rows
     .map((row) => {
-      const criterion =
-        (row.ad_group_criterion as Record<string, unknown> | undefined) ?? {};
-      const campaign = (row.campaign as Record<string, unknown> | undefined) ?? {};
-      const adGroup = (row.ad_group as Record<string, unknown> | undefined) ?? {};
-      const metrics = (row.metrics as Record<string, unknown> | undefined) ?? {};
+      const criterion = getCompatObject(row, "ad_group_criterion");
+      const campaign = getCompatObject(row, "campaign");
+      const adGroup = getCompatObject(row, "ad_group");
+      const metrics = getCompatObject(row, "metrics");
+      const keyword = getCompatObject(criterion, "keyword");
       const qualityInfo =
-        ((qualityMap.get(asString(criterion.criterion_id) ?? "")?.quality_info ??
-          criterion.quality_info) as Record<string, unknown> | undefined) ?? {};
+        getCompatObject(
+          qualityMap.get(asString(getCompatValue(criterion, "criterion_id")) ?? "") ?? criterion,
+          "quality_info"
+        );
       const data = toMetricSet(metrics);
       return {
-        criterionId: asString(criterion.criterion_id),
-        keyword: asString((criterion.keyword as Record<string, unknown> | undefined)?.text) ?? "",
+        criterionId: asString(getCompatValue(criterion, "criterion_id")),
+        keyword: asString(getCompatValue(keyword, "text")) ?? "",
         matchType: normalizeMatchType(
-          asString((criterion.keyword as Record<string, unknown> | undefined)?.match_type)
+          asString(getCompatValue(keyword, "match_type"))
         ),
-        status: normalizeStatus(asString(criterion.status) ?? undefined),
-        qualityScore: asNumber(qualityInfo.quality_score),
-        expectedCtr: asString(qualityInfo.expected_click_through_rate),
-        adRelevance: asString(qualityInfo.ad_relevance),
-        landingPageExperience: asString(qualityInfo.landing_page_experience),
-        adGroupId: asString(adGroup.id),
-        adGroup: asString(adGroup.name) ?? "",
-        campaignId: asString(campaign.id),
-        campaign: asString(campaign.name) ?? "",
+        status: normalizeStatus(asString(getCompatValue(criterion, "status")) ?? undefined),
+        qualityScore: asNumber(getCompatValue(qualityInfo, "quality_score")),
+        expectedCtr: asString(getCompatValue(qualityInfo, "expected_click_through_rate")),
+        adRelevance: asString(getCompatValue(qualityInfo, "ad_relevance")),
+        landingPageExperience: asString(getCompatValue(qualityInfo, "landing_page_experience")),
+        adGroupId: asString(getCompatValue(adGroup, "id")),
+        adGroup: asString(getCompatValue(adGroup, "name")) ?? "",
+        campaignId: asString(getCompatValue(campaign, "id")),
+        campaign: asString(getCompatValue(campaign, "name")) ?? "",
         impressions: data.impressions,
         clicks: data.clicks,
         spend: data.spend,
@@ -765,10 +795,10 @@ export async function getGoogleAdsKeywordsReport(params: {
         conversionRate: data.conversionRate,
         valuePerConversion: data.valuePerConversion,
         costPerConversion: data.costPerConversion,
-        impressionShare: asRatio(metrics.search_impression_share),
-        searchTopImpressionShare: asRatio(metrics.search_top_impression_share),
+        impressionShare: asRatio(getCompatValue(metrics, "search_impression_share")),
+        searchTopImpressionShare: asRatio(getCompatValue(metrics, "search_top_impression_share")),
         searchAbsoluteTopImpressionShare: asRatio(
-          metrics.search_absolute_top_impression_share
+          getCompatValue(metrics, "search_absolute_top_impression_share")
         ),
       };
     })
@@ -799,34 +829,34 @@ export async function getGoogleAdsKeywordsReport(params: {
 }
 
 function buildAdHeadline(ad: Record<string, unknown>): string {
-  const rsa = (ad.responsive_search_ad as Record<string, unknown> | undefined) ?? {};
-  const headlines = Array.isArray(rsa.headlines) ? rsa.headlines : [];
-  const expanded =
-    (ad.expanded_text_ad as Record<string, unknown> | undefined) ?? {};
+  const rsa = getCompatObject(ad, "responsive_search_ad");
+  const headlinesValue = getCompatValue(rsa, "headlines");
+  const headlines = Array.isArray(headlinesValue) ? headlinesValue : [];
+  const expanded = getCompatObject(ad, "expanded_text_ad");
   if (headlines.length > 0) {
     return headlines
       .slice(0, 3)
-      .map((item) => asString((item as Record<string, unknown>).text) ?? "")
+        .map((item) => asString(getCompatValue(item as Record<string, unknown>, "text")) ?? "")
       .filter(Boolean)
       .join(" | ");
   }
   return (
-    asString(ad.name) ??
-    asString(expanded.headline_part1) ??
-    asString(expanded.headline_part2) ??
+    asString(getCompatValue(ad, "name")) ??
+    asString(getCompatValue(expanded, "headline_part1")) ??
+    asString(getCompatValue(expanded, "headline_part2")) ??
     "Ad"
   );
 }
 
 function buildAdDescription(ad: Record<string, unknown>): string {
-  const rsa = (ad.responsive_search_ad as Record<string, unknown> | undefined) ?? {};
-  const descriptions = Array.isArray(rsa.descriptions) ? rsa.descriptions : [];
-  const expanded =
-    (ad.expanded_text_ad as Record<string, unknown> | undefined) ?? {};
+  const rsa = getCompatObject(ad, "responsive_search_ad");
+  const descriptionsValue = getCompatValue(rsa, "descriptions");
+  const descriptions = Array.isArray(descriptionsValue) ? descriptionsValue : [];
+  const expanded = getCompatObject(ad, "expanded_text_ad");
   if (descriptions.length > 0) {
-    return asString((descriptions[0] as Record<string, unknown>).text) ?? "";
+    return asString(getCompatValue(descriptions[0] as Record<string, unknown>, "text")) ?? "";
   }
-  return asString(expanded.description) ?? "";
+  return asString(getCompatValue(expanded, "description")) ?? "";
 }
 
 function normalizeAdStrength(value: string | null): string | null {
@@ -866,38 +896,34 @@ export async function getGoogleAdsAdsReport(params: {
 
   const detailMap = new Map<string, RawRow>();
   for (const row of detail.rows) {
-    const adGroupAd = (row.ad_group_ad as Record<string, unknown> | undefined) ?? {};
-    const ad = (adGroupAd.ad as Record<string, unknown> | undefined) ?? {};
-    const id = asString(ad.id);
+    const adGroupAd = getCompatObject(row, "ad_group_ad");
+    const ad = getCompatObject(adGroupAd, "ad");
+    const id = asString(getCompatValue(ad, "id"));
     if (id) detailMap.set(id, row);
   }
 
   const rows = core.rows
     .map((row) => {
-      const adGroupAd = (row.ad_group_ad as Record<string, unknown> | undefined) ?? {};
-      const ad = (adGroupAd.ad as Record<string, unknown> | undefined) ?? {};
-      const campaign = (row.campaign as Record<string, unknown> | undefined) ?? {};
-      const adGroup = (row.ad_group as Record<string, unknown> | undefined) ?? {};
-      const metrics = (row.metrics as Record<string, unknown> | undefined) ?? {};
-      const detailRow = detailMap.get(asString(ad.id) ?? "");
-      const detailAd =
-        (((detailRow?.ad_group_ad as Record<string, unknown> | undefined) ?? {}).ad as
-          | Record<string, unknown>
-          | undefined) ?? ad;
-      const detailRoot =
-        (detailRow?.ad_group_ad as Record<string, unknown> | undefined) ?? adGroupAd;
+      const adGroupAd = getCompatObject(row, "ad_group_ad");
+      const ad = getCompatObject(adGroupAd, "ad");
+      const campaign = getCompatObject(row, "campaign");
+      const adGroup = getCompatObject(row, "ad_group");
+      const metrics = getCompatObject(row, "metrics");
+      const detailRow = detailMap.get(asString(getCompatValue(ad, "id")) ?? "");
+      const detailRoot = detailRow ? getCompatObject(detailRow, "ad_group_ad") : adGroupAd;
+      const detailAd = getCompatObject(detailRoot, "ad");
       const data = toMetricSet(metrics);
       return {
-        id: asString(ad.id) ?? "unknown",
+        id: asString(getCompatValue(ad, "id")) ?? "unknown",
         headline: buildAdHeadline(detailAd),
         description: buildAdDescription(detailAd),
-        type: asString(ad.type) ?? "unknown",
-        adStrength: normalizeAdStrength(asString(detailRoot.ad_strength)),
-        status: normalizeStatus(asString(adGroupAd.status) ?? undefined),
-        campaignId: asString(campaign.id),
-        campaign: asString(campaign.name) ?? "",
-        adGroupId: asString(adGroup.id),
-        adGroup: asString(adGroup.name) ?? "",
+        type: asString(getCompatValue(ad, "type")) ?? "unknown",
+        adStrength: normalizeAdStrength(asString(getCompatValue(detailRoot, "ad_strength"))),
+        status: normalizeStatus(asString(getCompatValue(adGroupAd, "status")) ?? undefined),
+        campaignId: asString(getCompatValue(campaign, "id")),
+        campaign: asString(getCompatValue(campaign, "name")) ?? "",
+        adGroupId: asString(getCompatValue(adGroup, "id")),
+        adGroup: asString(getCompatValue(adGroup, "name")) ?? "",
         impressions: data.impressions,
         clicks: data.clicks,
         spend: data.spend,
@@ -981,20 +1007,19 @@ export async function getGoogleAdsAudiencesReport(params: {
   mergeFailures(meta, core);
 
   const rows = core.rows.map((row) => {
-    const criterion =
-      (row.ad_group_criterion as Record<string, unknown> | undefined) ?? {};
-    const campaign = (row.campaign as Record<string, unknown> | undefined) ?? {};
-    const adGroup = (row.ad_group as Record<string, unknown> | undefined) ?? {};
-    const metrics = (row.metrics as Record<string, unknown> | undefined) ?? {};
+    const criterion = getCompatObject(row, "ad_group_criterion");
+    const campaign = getCompatObject(row, "campaign");
+    const adGroup = getCompatObject(row, "ad_group");
+    const metrics = getCompatObject(row, "metrics");
     const data = toMetricSet(metrics);
     return {
-      criterionId: asString(criterion.criterion_id) ?? "",
-      name: asString(criterion.criterion_id) ?? "Unknown audience",
-      type: normalizeAudienceType(asString(criterion.type)),
-      campaignId: asString(campaign.id),
-      campaign: asString(campaign.name) ?? "",
-      adGroupId: asString(adGroup.id),
-      adGroup: asString(adGroup.name) ?? "",
+      criterionId: asString(getCompatValue(criterion, "criterion_id")) ?? "",
+      name: asString(getCompatValue(criterion, "criterion_id")) ?? "Unknown audience",
+      type: normalizeAudienceType(asString(getCompatValue(criterion, "type"))),
+      campaignId: asString(getCompatValue(campaign, "id")),
+      campaign: asString(getCompatValue(campaign, "name")) ?? "",
+      adGroupId: asString(getCompatValue(adGroup, "id")),
+      adGroup: asString(getCompatValue(adGroup, "name")) ?? "",
       impressions: data.impressions,
       clicks: data.clicks,
       spend: data.spend,
@@ -1070,9 +1095,9 @@ export async function getGoogleAdsGeoReport(params: {
   >();
 
   for (const row of core.rows) {
-    const geo = (row.geographic_view as Record<string, unknown> | undefined) ?? {};
-    const metrics = (row.metrics as Record<string, unknown> | undefined) ?? {};
-    const id = asInteger(geo.country_criterion_id);
+    const geo = getCompatObject(row, "geographic_view");
+    const metrics = getCompatObject(row, "metrics");
+    const id = asInteger(getCompatValue(geo, "country_criterion_id"));
     if (!id) continue;
     const current = geoMap.get(id) ?? {
       impressions: 0,
@@ -1305,34 +1330,34 @@ export async function getGoogleAdsCreativesReport(params: {
 
   const assetBreakdown = new Map<string, AssetTypeSummary>();
   for (const row of detail.rows) {
-    const assetGroup = (row.asset_group as Record<string, unknown> | undefined) ?? {};
-    const asset = (row.asset as Record<string, unknown> | undefined) ?? {};
-    const id = asString(assetGroup.id);
+    const assetGroup = getCompatObject(row, "asset_group");
+    const asset = getCompatObject(row, "asset");
+    const id = asString(getCompatValue(assetGroup, "id"));
     if (!id) continue;
     const current = assetBreakdown.get(id) ?? {};
     const fieldType = asString(
-      ((row.asset_group_asset as Record<string, unknown> | undefined) ?? {}).field_type
+      getCompatValue(getCompatObject(row, "asset_group_asset"), "field_type")
     );
-    const assetType = asString(asset.type);
+    const assetType = asString(getCompatValue(asset, "type"));
     const label = dedupeStrings([fieldType ?? "", assetType ?? "asset"]).join(":");
     current[label] = (current[label] ?? 0) + 1;
     assetBreakdown.set(id, current);
   }
 
   const rows = core.rows.map((row) => {
-    const assetGroup = (row.asset_group as Record<string, unknown> | undefined) ?? {};
-    const campaign = (row.campaign as Record<string, unknown> | undefined) ?? {};
-    const metrics = (row.metrics as Record<string, unknown> | undefined) ?? {};
+    const assetGroup = getCompatObject(row, "asset_group");
+    const campaign = getCompatObject(row, "campaign");
+    const metrics = getCompatObject(row, "metrics");
     const data = toMetricSet(metrics);
-    const id = asString(assetGroup.id) ?? "unknown";
+    const id = asString(getCompatValue(assetGroup, "id")) ?? "unknown";
     const assetMix = assetBreakdown.get(id) ?? {};
     return {
       id,
-      name: asString(assetGroup.name) ?? "Unnamed Asset Group",
+      name: asString(getCompatValue(assetGroup, "name")) ?? "Unnamed Asset Group",
       type: "Performance Max",
-      status: normalizeStatus(asString(assetGroup.status) ?? undefined),
-      campaignId: asString(campaign.id),
-      campaign: asString(campaign.name) ?? "",
+      status: normalizeStatus(asString(getCompatValue(assetGroup, "status")) ?? undefined),
+      campaignId: asString(getCompatValue(campaign, "id")),
+      campaign: asString(getCompatValue(campaign, "name")) ?? "",
       impressions: data.impressions,
       clicks: data.clicks,
       spend: data.spend,
