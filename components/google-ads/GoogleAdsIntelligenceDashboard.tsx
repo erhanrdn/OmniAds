@@ -2,12 +2,15 @@
 
 import { useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
+import * as Popover from "@radix-ui/react-popover";
 import type { LucideIcon } from "lucide-react";
 import {
   AlertTriangle,
   BarChart3,
   Boxes,
+  Calendar,
   CheckCircle2,
+  ChevronDown,
   Image,
   KeyRound,
   LayoutDashboard,
@@ -210,6 +213,16 @@ function renderTrendBadge(value: number | null | undefined) {
 
 function toIsoDate(date: Date) {
   return date.toISOString().split("T")[0];
+}
+
+function formatCompactDate(value: string) {
+  const parsed = parseIsoDate(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
 }
 
 function parseIsoDate(value: string) {
@@ -2090,6 +2103,16 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
   const [compareMode, setCompareMode] = useState<CompareMode>("previous_period");
   const [compareStart, setCompareStart] = useState(defaultCompareWindow.startDate);
   const [compareEnd, setCompareEnd] = useState(defaultCompareWindow.endDate);
+  const [customRangeOpen, setCustomRangeOpen] = useState(false);
+  const [customRangeDraft, setCustomRangeDraft] = useState({
+    start: defaultPrimaryWindow.startDate,
+    end: defaultPrimaryWindow.endDate,
+  });
+  const [customCompareOpen, setCustomCompareOpen] = useState(false);
+  const [customCompareDraft, setCustomCompareDraft] = useState({
+    start: defaultCompareWindow.startDate,
+    end: defaultCompareWindow.endDate,
+  });
 
   const applyDateRange = (nextRange: DateRange) => {
     setDateRange(nextRange);
@@ -2135,17 +2158,8 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
       : {
           compareMode,
         };
-  const dateLabel =
-    dateRange === "custom"
-      ? `${customStart} to ${customEnd}`
-      : DATE_RANGE_OPTIONS.find((option) => option.value === dateRange)?.label ?? "Last 30 days";
-  const dateBadgeLabel =
-    DATE_RANGE_OPTIONS.find((option) => option.value === dateRange)?.shortLabel ?? "30D";
-  const compareLabel =
-    compareMode === "custom"
-      ? `${compareStart} to ${compareEnd}`
-      : COMPARE_OPTIONS.find((option) => option.value === compareMode)?.label ??
-        "Previous period";
+  const customRangeLabel = `${formatCompactDate(customStart)} — ${formatCompactDate(customEnd)}`;
+  const customCompareLabel = `${formatCompactDate(compareStart)} — ${formatCompactDate(compareEnd)}`;
 
   const overviewQ = useQuery({
     queryKey: [
@@ -2363,128 +2377,234 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
   return (
     <div className="space-y-4">
       <div className="space-y-3">
-        <div className="rounded-2xl border bg-[linear-gradient(135deg,rgba(15,23,42,0.015),rgba(14,165,233,0.06),rgba(16,185,129,0.04))] px-4 py-3">
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-xl font-semibold tracking-tight">Google Ads Intelligence</h1>
-                <span className="rounded-full border bg-background/90 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
-                  {dateBadgeLabel}
-                </span>
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                See what changed and what to do next.
-              </p>
-              <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
-                  Intelligence mode
-                </span>
-                <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
-                  {compareMode === "none" ? "Snapshot mode" : "Analysis mode"}
-                </span>
-                <span className="rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700">
-                  Focus: scale, reduce, fix
-                </span>
-              </div>
+        <div className="rounded-xl border bg-card px-3 py-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="mr-2 text-base font-semibold tracking-tight">Google Ads Intelligence</h1>
+
+            <div className="flex flex-wrap items-center gap-1">
+              {DATE_RANGE_OPTIONS.map((option) =>
+                option.value === "custom" ? (
+                  <Popover.Root
+                    key={option.value}
+                    open={customRangeOpen}
+                    onOpenChange={(open) => {
+                      setCustomRangeOpen(open);
+                      if (open) {
+                        setCustomRangeDraft({ start: customStart, end: customEnd });
+                      }
+                    }}
+                  >
+                    <Popover.Trigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDateRange("custom");
+                          setCustomRangeDraft({ start: customStart, end: customEnd });
+                        }}
+                        className={cn(
+                          "inline-flex h-8 items-center gap-1 rounded-full border px-2.5 text-[11px] font-semibold transition-colors",
+                          dateRange === "custom"
+                            ? "border-foreground bg-foreground text-background"
+                            : "bg-background text-muted-foreground hover:border-foreground/40 hover:text-foreground"
+                        )}
+                      >
+                        <Calendar className="h-3.5 w-3.5" />
+                        <span>{dateRange === "custom" ? customRangeLabel : option.shortLabel}</span>
+                        <ChevronDown className="h-3 w-3" />
+                      </button>
+                    </Popover.Trigger>
+                    <Popover.Portal>
+                      <Popover.Content
+                        sideOffset={6}
+                        align="start"
+                        className="z-50 w-[320px] rounded-xl border bg-popover p-3 shadow-xl"
+                      >
+                        <div className="space-y-3">
+                          <div>
+                            <p className="text-xs font-semibold">Custom range</p>
+                            <p className="text-[11px] text-muted-foreground">Choose a start and end date.</p>
+                          </div>
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            <label className="space-y-1">
+                              <span className="text-[11px] text-muted-foreground">Start</span>
+                              <input
+                                type="date"
+                                value={customRangeDraft.start}
+                                max={customRangeDraft.end}
+                                onChange={(event) =>
+                                  setCustomRangeDraft((prev) => ({ ...prev, start: event.target.value }))
+                                }
+                                className="h-9 w-full rounded-lg border bg-background px-3 text-xs"
+                              />
+                            </label>
+                            <label className="space-y-1">
+                              <span className="text-[11px] text-muted-foreground">End</span>
+                              <input
+                                type="date"
+                                value={customRangeDraft.end}
+                                min={customRangeDraft.start}
+                                onChange={(event) =>
+                                  setCustomRangeDraft((prev) => ({ ...prev, end: event.target.value }))
+                                }
+                                className="h-9 w-full rounded-lg border bg-background px-3 text-xs"
+                              />
+                            </label>
+                          </div>
+                          <div className="flex justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCustomRangeOpen(false);
+                                setCustomRangeDraft({ start: customStart, end: customEnd });
+                              }}
+                              className="rounded-lg border px-3 py-1.5 text-xs"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCustomStart(customRangeDraft.start);
+                                setCustomEnd(customRangeDraft.end);
+                                setDateRange("custom");
+                                setCustomRangeOpen(false);
+                              }}
+                              className="rounded-lg bg-foreground px-3 py-1.5 text-xs text-background"
+                            >
+                              Apply
+                            </button>
+                          </div>
+                        </div>
+                      </Popover.Content>
+                    </Popover.Portal>
+                  </Popover.Root>
+                ) : (
+                  <button
+                    key={option.value}
+                    onClick={() => applyDateRange(option.value)}
+                    className={cn(
+                      "h-8 rounded-full border px-2.5 text-[11px] font-semibold transition-colors",
+                      dateRange === option.value
+                        ? "border-foreground bg-foreground text-background"
+                        : "bg-background text-muted-foreground hover:border-foreground/40 hover:text-foreground"
+                    )}
+                  >
+                    {option.shortLabel}
+                  </button>
+                )
+              )}
             </div>
 
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <span className="max-w-[240px] truncate rounded-full border bg-background/90 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                {dateLabel}
-              </span>
-              <span className="max-w-[240px] truncate rounded-full border bg-background/90 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                {compareLabel}
-              </span>
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-medium text-muted-foreground">Compare:</span>
+                <select
+                  value={compareMode}
+                  onChange={(event) => applyCompareMode(event.target.value as CompareMode)}
+                  className="h-8 min-w-[176px] rounded-full border bg-background px-3 text-xs font-medium"
+                >
+                  {COMPARE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {compareMode === "custom" ? (
+                <Popover.Root
+                  open={customCompareOpen}
+                  onOpenChange={(open) => {
+                    setCustomCompareOpen(open);
+                    if (open) {
+                      setCustomCompareDraft({ start: compareStart, end: compareEnd });
+                    }
+                  }}
+                >
+                  <Popover.Trigger asChild>
+                    <button
+                      type="button"
+                      className="inline-flex h-8 items-center gap-1 rounded-full border bg-background px-2.5 text-[11px] font-semibold text-foreground"
+                    >
+                      <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span>{customCompareLabel}</span>
+                      <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                    </button>
+                  </Popover.Trigger>
+                  <Popover.Portal>
+                    <Popover.Content
+                      sideOffset={6}
+                      align="end"
+                      className="z-50 w-[320px] rounded-xl border bg-popover p-3 shadow-xl"
+                    >
+                      <div className="space-y-3">
+                        <div>
+                          <p className="text-xs font-semibold">Custom comparison</p>
+                          <p className="text-[11px] text-muted-foreground">Set the comparison window.</p>
+                        </div>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <label className="space-y-1">
+                            <span className="text-[11px] text-muted-foreground">Start</span>
+                            <input
+                              type="date"
+                              value={customCompareDraft.start}
+                              max={customCompareDraft.end}
+                              onChange={(event) =>
+                                setCustomCompareDraft((prev) => ({ ...prev, start: event.target.value }))
+                              }
+                              className="h-9 w-full rounded-lg border bg-background px-3 text-xs"
+                            />
+                          </label>
+                          <label className="space-y-1">
+                            <span className="text-[11px] text-muted-foreground">End</span>
+                            <input
+                              type="date"
+                              value={customCompareDraft.end}
+                              min={customCompareDraft.start}
+                              onChange={(event) =>
+                                setCustomCompareDraft((prev) => ({ ...prev, end: event.target.value }))
+                              }
+                              className="h-9 w-full rounded-lg border bg-background px-3 text-xs"
+                            />
+                          </label>
+                        </div>
+                        <div className="flex justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCustomCompareOpen(false);
+                              setCustomCompareDraft({ start: compareStart, end: compareEnd });
+                            }}
+                            className="rounded-lg border px-3 py-1.5 text-xs"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCompareStart(customCompareDraft.start);
+                              setCompareEnd(customCompareDraft.end);
+                              setCompareMode("custom");
+                              setCustomCompareOpen(false);
+                            }}
+                            className="rounded-lg bg-foreground px-3 py-1.5 text-xs text-background"
+                          >
+                            Apply
+                          </button>
+                        </div>
+                      </div>
+                    </Popover.Content>
+                  </Popover.Portal>
+                </Popover.Root>
+              ) : null}
+
               <button
                 onClick={resetControls}
-                className="rounded-full border px-3 py-1.5 text-[11px] font-semibold text-muted-foreground transition-colors hover:border-foreground/40 hover:text-foreground"
+                className="h-8 rounded-full border px-3 text-[11px] font-semibold text-muted-foreground transition-colors hover:border-foreground/40 hover:text-foreground"
               >
                 Reset filters
               </button>
             </div>
-          </div>
-
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-              Range
-            </span>
-            <div className="flex flex-wrap gap-1">
-              {DATE_RANGE_OPTIONS.map((option) => (
-                <button
-                  key={option.value}
-                  onClick={() => applyDateRange(option.value)}
-                  className={cn(
-                    "rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors",
-                    dateRange === option.value
-                      ? "border-foreground bg-foreground text-background"
-                      : "bg-background/90 text-muted-foreground hover:border-foreground/40 hover:text-foreground"
-                  )}
-                >
-                  {option.shortLabel}
-                </button>
-              ))}
-            </div>
-
-            {dateRange === "custom" ? (
-              <div className="flex flex-wrap items-center gap-2">
-                <input
-                  type="date"
-                  value={customStart}
-                  max={customEnd}
-                  onChange={(event) => {
-                    setDateRange("custom");
-                    setCustomStart(event.target.value);
-                  }}
-                  className="h-8 rounded-xl border bg-background px-3 text-xs"
-                />
-                <input
-                  type="date"
-                  value={customEnd}
-                  min={customStart}
-                  onChange={(event) => {
-                    setDateRange("custom");
-                    setCustomEnd(event.target.value);
-                  }}
-                  className="h-8 rounded-xl border bg-background px-3 text-xs"
-                />
-              </div>
-            ) : null}
-
-            <div className="mx-1 hidden h-5 w-px bg-border lg:block" />
-
-            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-              Compare
-            </span>
-            <select
-              value={compareMode}
-              onChange={(event) => applyCompareMode(event.target.value as CompareMode)}
-              className="h-8 min-w-[190px] rounded-xl border bg-background px-3 text-xs font-medium"
-            >
-              {COMPARE_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-
-            {compareMode === "custom" ? (
-              <div className="flex flex-wrap items-center gap-2">
-                <input
-                  type="date"
-                  value={compareStart}
-                  max={compareEnd}
-                  onChange={(event) => setCompareStart(event.target.value)}
-                  className="h-8 rounded-xl border bg-background px-3 text-xs"
-                />
-                <input
-                  type="date"
-                  value={compareEnd}
-                  min={compareStart}
-                  onChange={(event) => setCompareEnd(event.target.value)}
-                  className="h-8 rounded-xl border bg-background px-3 text-xs"
-                />
-              </div>
-            ) : null}
           </div>
         </div>
 
