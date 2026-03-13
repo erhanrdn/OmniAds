@@ -13,6 +13,7 @@ import { IntegrationProvider } from "@/store/integrations-store";
 import { DataEmptyState } from "@/components/states/DataEmptyState";
 import {
   fetchProviderAccountSnapshot,
+  type ProviderAccountSnapshot,
   ProviderAccountSnapshotMissingError,
   warmProviderAccountSnapshot,
 } from "@/lib/provider-account-client";
@@ -29,11 +30,6 @@ interface ProviderAccountRow {
 interface ProviderErrorBody {
   error?: string;
   message?: string;
-}
-
-interface ProviderSuccessBody {
-  data?: ProviderAccountRow[];
-  notice?: string;
 }
 
 interface SaveSuccessBody {
@@ -94,11 +90,6 @@ function hasErrorMessage(payload: unknown): payload is ProviderErrorBody {
   return "message" in payload && typeof payload.message === "string";
 }
 
-function hasDataList(payload: unknown): payload is ProviderSuccessBody {
-  if (!payload || typeof payload !== "object") return false;
-  return "data" in payload;
-}
-
 function hasAssignedAccounts(payload: unknown): payload is SaveSuccessBody {
   if (!payload || typeof payload !== "object") return false;
   if (!("assigned_accounts" in payload)) return false;
@@ -125,7 +116,6 @@ export function ProviderAssignmentDrawer({
   const [searchQuery, setSearchQuery] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
-  const warmPollAttemptsRef = useRef(0);
   const isMeta = provider === "meta";
   const isGoogle = provider === "google";
   const isSupportedProvider = isMeta || isGoogle;
@@ -135,6 +125,35 @@ export function ProviderAssignmentDrawer({
   useEffect(() => {
     latestAssignedAccountIdsRef.current = assignedAccountIds;
   }, [assignedAccountIds]);
+
+  const applySnapshotResult = useCallback(
+    (snapshot: ProviderAccountSnapshot) => {
+      const list = snapshot.accounts.map((account) => ({
+        ...account,
+        assigned: snapshot.assignedAccountIds.includes(account.id),
+      }));
+
+      console.log("[assignment-modal] ✓ VALID DATA RECEIVED", {
+        accountCount: list.length,
+        assignedAccounts: list.filter((a) => a.assigned).length,
+      });
+
+      setAccounts(list);
+      setNoticeMessage(snapshot.notice);
+      const hasAssignedFlag = list.some((account) => typeof account.assigned === "boolean");
+      const serverAssignedIds = hasAssignedFlag
+        ? list.filter((account) => account.assigned === true).map((account) => account.id)
+        : latestAssignedAccountIdsRef.current;
+      setDraftIds((prev) =>
+        initializedForOpenRef.current === `${businessId}:${provider}`
+          ? prev
+          : serverAssignedIds
+      );
+      initializedForOpenRef.current = `${businessId}:${provider}`;
+      setFetchState(list.length > 0 ? "success" : "empty");
+    },
+    [businessId, provider]
+  );
 
   const loadAccounts = useCallback(
     async (options?: { preserveExisting?: boolean }) => {
@@ -174,44 +193,29 @@ export function ProviderAssignmentDrawer({
 
       try {
         const snapshot = await fetchProviderAccountSnapshot(provider, businessId);
-        const list = snapshot.accounts.map((account) => ({
-          ...account,
-          assigned: snapshot.assignedAccountIds.includes(account.id),
-        }));
-
-        console.log("[assignment-modal] ✓ VALID DATA RECEIVED", {
-          accountCount: list.length,
-          assignedAccounts: list.filter((a) => a.assigned).length,
-        });
-
-        setAccounts(list);
-        warmPollAttemptsRef.current = 0;
-        setNoticeMessage(snapshot.notice);
-        const hasAssignedFlag = list.some((account) => typeof account.assigned === "boolean");
-        const serverAssignedIds = hasAssignedFlag
-          ? list.filter((account) => account.assigned === true).map((account) => account.id)
-          : latestAssignedAccountIdsRef.current;
-        setDraftIds((prev) =>
-          initializedForOpenRef.current === `${businessId}:${provider}`
-            ? prev
-            : serverAssignedIds
-        );
-        initializedForOpenRef.current = `${businessId}:${provider}`;
-        setFetchState(list.length > 0 ? "success" : "empty");
+        applySnapshotResult(snapshot);
       } catch (err) {
-        if (
-          err instanceof ProviderAccountSnapshotMissingError &&
-          warmPollAttemptsRef.current < 6
-        ) {
-          warmPollAttemptsRef.current += 1;
+        if (err instanceof ProviderAccountSnapshotMissingError) {
           setFetchState("loading");
           setErrorMessage(null);
           setNoticeMessage("Loading accounts...");
-          void warmProviderAccountSnapshot(provider, businessId).catch(() => undefined);
-          window.setTimeout(() => {
-            void loadAccounts({ preserveExisting: false });
-          }, 1500);
-          return;
+          try {
+            const warmedSnapshot = await warmProviderAccountSnapshot(provider, businessId);
+            applySnapshotResult(warmedSnapshot);
+            return;
+          } catch (warmError) {
+            console.error("[assignment-modal] ❌ WARM FETCH EXCEPTION", {
+              error: warmError instanceof Error ? warmError.message : String(warmError),
+              stack: warmError instanceof Error ? warmError.stack : undefined,
+            });
+            setErrorMessage(
+              provider === "google"
+                ? "Google Ads hesaplari su an yuklenemedi. Lutfen biraz sonra tekrar deneyin."
+                : "Meta reklam hesaplari su an yuklenemedi. Lutfen biraz sonra tekrar deneyin."
+            );
+            setFetchState("error");
+            return;
+          }
         }
 
         console.error("[assignment-modal] ❌ FETCH EXCEPTION", {
@@ -226,7 +230,7 @@ export function ProviderAssignmentDrawer({
         setIsRefreshing(false);
       }
     },
-    [businessId, isSupportedProvider, open, provider],
+    [applySnapshotResult, businessId, isSupportedProvider, open, provider],
   );
 
   useEffect(() => {
@@ -245,7 +249,6 @@ export function ProviderAssignmentDrawer({
       setIsRefreshing(false);
       setNoticeMessage(null);
       setSearchQuery("");
-      warmPollAttemptsRef.current = 0;
       initializedForOpenRef.current = null;
     }
   }, [open]);
