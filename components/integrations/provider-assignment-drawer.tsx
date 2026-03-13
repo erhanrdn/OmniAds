@@ -166,6 +166,7 @@ export function ProviderAssignmentDrawer({
         const response = await fetch(fetchUrl, {
           method: "GET",
           headers: { Accept: "application/json" },
+          cache: "no-store",
         });
 
         console.log("[assignment-modal] ✓ Fetch response received", {

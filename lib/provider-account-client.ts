@@ -45,6 +45,7 @@ export async function fetchProviderAccountSnapshot(
   const response = await fetch(path, {
     method: "GET",
     headers: { Accept: "application/json" },
+    cache: "no-store",
   });
   const payload = (await response.json().catch(() => null)) as ProviderAccountsPayload | null;
 

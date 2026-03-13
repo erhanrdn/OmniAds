@@ -1,16 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireBusinessAccess } from "@/lib/access";
 import { getIntegration, upsertIntegration } from "@/lib/integrations";
 import {
   fetchGoogleAdsAccounts,
   refreshGoogleAccessToken,
 } from "@/lib/google-ads-accounts";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
+import { resolveProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
 
 /**
  * GET /integrations/google/ad-accounts?businessId=...
  *
  * Returns accessible Google Ads customer accounts for the connected Google integration.
- * If the access token is expired, attempts a refresh using the stored refresh_token.
+ * Uses a persisted provider-account snapshot so assignment flows can open from the
+ * last known good list instead of depending on a fresh provider round-trip every time.
  */
 export async function GET(request: NextRequest) {
   const businessId = request.nextUrl.searchParams.get("businessId");
@@ -23,8 +26,18 @@ export async function GET(request: NextRequest) {
         error: "missing_business_id",
         message: "businessId query parameter is required.",
       },
-      { status: 400 },
+      { status: 400 }
     );
+  }
+
+  const access = await requireBusinessAccess({
+    request,
+    businessId,
+    minRole: "guest",
+  });
+
+  if ("error" in access) {
+    return access.error;
   }
 
   const integration = await getIntegration(businessId, "google");
@@ -39,24 +52,21 @@ export async function GET(request: NextRequest) {
         error: "integration_not_found",
         message: "Google integration not found for this business.",
       },
-      { status: 404 },
+      { status: 404 }
     );
   }
 
   let accessToken = integration.access_token;
   const refreshToken = integration.refresh_token;
 
-  // Check if token is expired and refresh if possible
   if (integration.token_expires_at) {
-    const isExpired =
-      new Date(integration.token_expires_at).getTime() <= Date.now();
+    const isExpired = new Date(integration.token_expires_at).getTime() <= Date.now();
     if (isExpired && refreshToken) {
       console.log("[google-ad-accounts] access token expired, refreshing...");
       try {
         const refreshed = await refreshGoogleAccessToken(refreshToken);
         accessToken = refreshed.accessToken;
 
-        // Update the stored access token
         await upsertIntegration({
           businessId,
           provider: "google",
@@ -75,7 +85,7 @@ export async function GET(request: NextRequest) {
             message:
               "Google access token has expired and could not be refreshed. Please reconnect.",
           },
-          { status: 401 },
+          { status: 401 }
         );
       }
     } else if (isExpired && !refreshToken) {
@@ -85,7 +95,7 @@ export async function GET(request: NextRequest) {
           message:
             "Google access token has expired and no refresh token is available. Please reconnect.",
         },
-        { status: 401 },
+        { status: 401 }
       );
     }
   }
@@ -97,34 +107,38 @@ export async function GET(request: NextRequest) {
         message:
           "Google access token is missing for this business integration.",
       },
-      { status: 401 },
+      { status: 401 }
     );
   }
 
   try {
-    const result = await fetchGoogleAdsAccounts(accessToken);
+    const snapshot = await resolveProviderAccountSnapshot({
+      businessId,
+      provider: "google",
+      liveLoader: async () => {
+        const result = await fetchGoogleAdsAccounts(accessToken);
 
-    if (!result.ok) {
-      console.error("[google-ad-accounts] Google Ads API error", {
-        businessId,
-        error: result.error,
-      });
-      return NextResponse.json(
-        {
-          error: "google_ads_fetch_failed",
-          message:
-            result.error ?? "Could not load accessible Google Ads accounts.",
-        },
-        { status: 502 },
-      );
-    }
+        if (!result.ok) {
+          throw new Error(
+            result.error ?? "Could not load accessible Google Ads accounts."
+          );
+        }
 
-    // Fetch existing assignments
+        return result.customers.map((customer) => ({
+          id: customer.id,
+          name: customer.name,
+          currency: customer.currency ?? undefined,
+          timezone: customer.timezone ?? undefined,
+          isManager: customer.isManager,
+        }));
+      },
+    });
+
     let assignedSet = new Set<string>();
     try {
       const assignmentRow = await getProviderAccountAssignments(
         businessId,
-        "google",
+        "google"
       );
       assignedSet = new Set(assignmentRow?.account_ids ?? []);
     } catch (assignmentError: unknown) {
@@ -140,19 +154,19 @@ export async function GET(request: NextRequest) {
 
     console.log("[google-ad-accounts] normalized", {
       businessId,
-      count: result.customers.length,
+      count: snapshot.accounts.length,
       assignedCount: assignedSet.size,
+      source: snapshot.meta.source,
+      stale: snapshot.meta.stale,
+      refreshFailed: snapshot.meta.refreshFailed,
     });
 
     return NextResponse.json({
-      data: result.customers.map((customer) => ({
-        id: customer.id,
-        name: customer.name,
-        currency: customer.currency,
-        timezone: customer.timezone,
-        isManager: customer.isManager,
-        assigned: assignedSet.has(customer.id),
+      data: snapshot.accounts.map((account) => ({
+        ...account,
+        assigned: assignedSet.has(account.id),
       })),
+      meta: snapshot.meta,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error";
@@ -166,7 +180,7 @@ export async function GET(request: NextRequest) {
         error: "google_ads_fetch_failed",
         message: "Could not load accessible Google Ads accounts.",
       },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }

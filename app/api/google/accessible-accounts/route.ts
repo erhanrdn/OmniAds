@@ -6,6 +6,7 @@ import {
   refreshGoogleAccessToken,
 } from "@/lib/google-ads-accounts";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
+import { resolveProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
 
 /**
  * GET /api/google/accessible-accounts
@@ -154,32 +155,41 @@ export async function GET(request: NextRequest) {
   console.log("[accessible-accounts] ✓ access token validated");
 
   try {
-    console.log("[accessible-accounts] 🔄 Starting Google Ads discovery...");
-    // Fetch all accessible Google Ads accounts
-    const result = await fetchGoogleAdsAccounts(accessToken);
+    console.log("[accessible-accounts] 🔄 Resolving Google Ads account snapshot...");
+    const snapshot = await resolveProviderAccountSnapshot({
+      businessId,
+      provider: "google",
+      liveLoader: async () => {
+        const result = await fetchGoogleAdsAccounts(accessToken);
 
-    console.log("[accessible-accounts] Response from fetchGoogleAdsAccounts", {
-      ok: result.ok,
-      error: result.error || null,
-      customerCount: result.customers?.length || 0,
+        console.log("[accessible-accounts] Response from fetchGoogleAdsAccounts", {
+          ok: result.ok,
+          error: result.error || null,
+          customerCount: result.customers?.length || 0,
+        });
+
+        if (!result.ok) {
+          throw new Error(
+            result.error ?? "Could not discover accessible Google Ads accounts."
+          );
+        }
+
+        return result.customers.map((customer) => ({
+          id: customer.id,
+          name: customer.name,
+          currency: customer.currency ?? undefined,
+          timezone: customer.timezone ?? undefined,
+          isManager: customer.isManager,
+        }));
+      },
     });
 
-    if (!result.ok) {
-      console.error("[accessible-accounts] ❌ GOOGLE ADS DISCOVERY FAILED", {
-        error: result.error,
-      });
-      return NextResponse.json(
-        {
-          error: "google_ads_discovery_failed",
-          message:
-            result.error ?? "Could not discover accessible Google Ads accounts.",
-        },
-        { status: 502 }
-      );
-    }
-
-    console.log("[accessible-accounts] ✓ Google Ads discovery succeeded", {
-      accessibleAccountCount: result.customers?.length || 0,
+    console.log("[accessible-accounts] ✓ Account snapshot resolved", {
+      accessibleAccountCount: snapshot.accounts.length,
+      source: snapshot.meta.source,
+      stale: snapshot.meta.stale,
+      refreshFailed: snapshot.meta.refreshFailed,
+      hasLastKnownGood: snapshot.meta.lastKnownGoodAvailable,
     });
 
     // Fetch existing assignments to mark which accounts are already assigned
@@ -202,13 +212,9 @@ export async function GET(request: NextRequest) {
 
     // Return all accessible accounts with assigned flag
     // This allows the modal to show all accounts even before any are assigned
-    const accounts = result.customers.map((customer) => ({
-      id: customer.id,
-      name: customer.name,
-      currency: customer.currency,
-      timezone: customer.timezone,
-      isManager: customer.isManager,
-      assigned: assignedSet.has(customer.id),
+    const accounts = snapshot.accounts.map((account) => ({
+      ...account,
+      assigned: assignedSet.has(account.id),
     }));
 
     console.log("[accessible-accounts] ✓ SUCCESS", {
@@ -221,6 +227,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       data: accounts,
       count: accounts.length,
+      meta: snapshot.meta,
     });
   } catch (error) {
     console.error("[accessible-accounts] ❌ UNEXPECTED ERROR", {

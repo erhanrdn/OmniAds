@@ -168,6 +168,31 @@ export async function runMigrations() {
     ON provider_account_assignments (business_id, provider)
   `;
 
+  // ── provider account snapshots table ────────────────────────────
+  await sql`
+    CREATE TABLE IF NOT EXISTS provider_account_snapshots (
+      id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      business_id      TEXT NOT NULL,
+      provider         TEXT NOT NULL,
+      accounts_payload JSONB NOT NULL DEFAULT '[]'::jsonb,
+      fetched_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+      refresh_failed   BOOLEAN NOT NULL DEFAULT FALSE,
+      last_error       TEXT,
+      created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_account_snapshots_biz_provider
+    ON provider_account_snapshots (business_id, provider)
+  `;
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_provider_account_snapshots_business
+    ON provider_account_snapshots (business_id)
+  `;
+
   // ── creative share snapshots table ──────────────────────────────
   await sql`
     CREATE TABLE IF NOT EXISTS creative_share_snapshots (

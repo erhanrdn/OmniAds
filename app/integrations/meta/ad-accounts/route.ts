@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireBusinessAccess } from "@/lib/access";
 import { getIntegration } from "@/lib/integrations";
 import { fetchMetaAdAccounts, getMetaApiErrorMessage } from "@/lib/meta-ad-accounts";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
+import { resolveProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
 
 export async function GET(request: NextRequest) {
   const businessId = request.nextUrl.searchParams.get("businessId");
@@ -16,6 +18,20 @@ export async function GET(request: NextRequest) {
       },
       { status: 400 }
     );
+  }
+
+  const access = await requireBusinessAccess({
+    request,
+    businessId,
+    minRole: "guest",
+  });
+
+  if ("error" in access) {
+    console.log("[meta-ad-accounts] business access failed", {
+      businessId,
+      error: access.error,
+    });
+    return access.error;
   }
 
   const integration = await getIntegration(businessId, "meta");
@@ -64,29 +80,32 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const metaResult = await fetchMetaAdAccounts(accessToken);
-
-    console.log("[meta-ad-accounts] meta response", {
+    const snapshot = await resolveProviderAccountSnapshot({
       businessId,
-      status: metaResult.status,
-      rawBody: metaResult.rawBody,
+      provider: "meta",
+      liveLoader: async () => {
+        const metaResult = await fetchMetaAdAccounts(accessToken);
+
+        console.log("[meta-ad-accounts] meta response", {
+          businessId,
+          status: metaResult.status,
+          rawBody: metaResult.rawBody,
+        });
+
+        if (!metaResult.ok || metaResult.body?.error) {
+          throw new Error(getMetaApiErrorMessage(metaResult));
+        }
+
+        return metaResult.normalized.map((account) => ({
+          id: account.id,
+          name: account.name,
+          currency: account.currency ?? undefined,
+          timezone: account.timezone ?? undefined,
+          isManager: false,
+        }));
+      },
     });
 
-    if (!metaResult.ok || metaResult.body?.error) {
-      const message = getMetaApiErrorMessage(metaResult);
-      return NextResponse.json(
-        {
-          error: "meta_api_error",
-          message,
-          meta: metaResult.body ?? metaResult.rawBody,
-        },
-        { status: 502 }
-      );
-    }
-
-    // Fetch assignments in a separate try/catch so a missing table
-    // does not fail the entire request. Accounts are still returned
-    // with assigned: false when assignments cannot be read.
     let assignedSet = new Set<string>();
     try {
       const assignmentRow = await getProviderAccountAssignments(businessId, "meta");
@@ -98,20 +117,25 @@ export async function GET(request: NextRequest) {
         businessId,
         message: msg,
       });
-      // assignedSet stays empty — all accounts returned with assigned: false
     }
+
+    const accounts = snapshot.accounts.map((account) => ({
+      ...account,
+      assigned: assignedSet.has(account.id),
+    }));
 
     console.log("[meta-ad-accounts] normalized", {
       businessId,
-      count: metaResult.normalized.length,
+      count: accounts.length,
       assignedCount: assignedSet.size,
+      source: snapshot.meta.source,
+      stale: snapshot.meta.stale,
+      refreshFailed: snapshot.meta.refreshFailed,
     });
 
     return NextResponse.json({
-      data: metaResult.normalized.map((account) => ({
-        ...account,
-        assigned: assignedSet.has(account.id),
-      })),
+      data: accounts,
+      meta: snapshot.meta,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error";
