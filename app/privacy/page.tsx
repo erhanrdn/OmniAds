@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { PublicLegalPage } from "@/components/legal/PublicLegalPage";
 
-const LAST_UPDATED = "March 12, 2026";
+const LAST_UPDATED = "March 13, 2026";
 
 export const metadata: Metadata = {
   title: "Privacy Policy | Adsecute",
@@ -107,7 +107,47 @@ export default function PrivacyPage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold tracking-tight">9. Contact</h2>
+        <h2 className="text-xl font-semibold tracking-tight">9. User Data Deletion Requests</h2>
+        <p className="mt-3">
+          You may request deletion of personal data associated with your Adsecute account by
+          contacting{" "}
+          <a href="mailto:support@adsecute.com" className="underline underline-offset-2">
+            support@adsecute.com
+          </a>
+          . To help us locate the correct account or workspace safely, please include identifying
+          information such as your name, email address, business or workspace name, and any
+          connected platform details relevant to the request.
+        </p>
+        <p className="mt-3">
+          If your request relates to Meta or Facebook-connected data, you may also remove Adsecute
+          from your Facebook or Meta business settings and revoke the app&apos;s access directly
+          through your Meta account controls. Disconnecting an integration helps prevent future data
+          access, but it does not automatically delete records that were previously stored in
+          Adsecute.
+        </p>
+        <p className="mt-3">
+          After receiving a valid request, we will review it and process deletion in accordance
+          with applicable legal obligations, security requirements, billing needs, fraud-prevention
+          controls, audit obligations, and operational retention requirements. Where full deletion
+          cannot be completed immediately, we may restrict access to the relevant data and retain it
+          only as required for those purposes.
+        </p>
+        <p className="mt-3">
+          Where an individual user is part of a shared business or workspace, deletion of that
+          user&apos;s personal account information may be handled separately from deletion of shared
+          business configuration, reporting history, synced performance data, or other records that
+          belong to the business account as a whole. We will evaluate each request based on the
+          relationship between the requesting user and the relevant business data.
+        </p>
+        <p className="mt-3">
+          We aim to review deletion requests promptly and will communicate next steps if we need
+          additional information to verify the request. Processing times may vary depending on the
+          scope of the request and any retention obligations that apply.
+        </p>
+      </section>
+
+      <section>
+        <h2 className="text-xl font-semibold tracking-tight">10. Contact</h2>
         <p className="mt-3">
           If you have questions about this Privacy Policy, contact:{" "}
           <a href="mailto:support@adsecute.com" className="underline underline-offset-2">
@@ -118,4 +158,3 @@ export default function PrivacyPage() {
     </PublicLegalPage>
   );
 }
-
