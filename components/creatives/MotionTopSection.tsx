@@ -1129,25 +1129,23 @@ function PreviewStrip({
 }) {
   if (previewStripState === "pending") {
     return (
-      <div className="rounded-xl border border-dashed bg-muted/10 px-4 py-5">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-sm font-medium text-foreground">Preparing preview cards...</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {previewStripSummary
-                ? `${previewStripSummary.ready} of ${previewStripSummary.total} top creatives are preview-ready so far.`
-                : "The table is ready now, and preview cards will appear as soon as real media is available."}
+      <div className="rounded-xl border border-dashed bg-muted/10 px-4 py-8">
+        <div className="mx-auto flex max-w-xl flex-col items-center justify-center text-center">
+          <p className="text-sm font-medium text-foreground">Waiting for Facebook...</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Preview media is still loading for this selection.
+          </p>
+          <div className="mt-4 h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-slate-200/80">
+            <div className="h-full w-2/5 animate-pulse rounded-full bg-slate-500/70" />
+          </div>
+          <p className="mt-3 text-[11px] text-muted-foreground/90">
+            The table is ready now. Preview cards will appear as soon as Meta media becomes available.
+          </p>
+          {previewStripSummary ? (
+            <p className="mt-1 text-[11px] text-muted-foreground/80">
+              {previewStripSummary.ready} of {previewStripSummary.total} top creatives are preview-ready so far.
             </p>
-          </div>
-          <div className="hidden gap-2 md:flex">
-            {Array.from({ length: 3 }).map((_, index) => (
-              <div
-                key={index}
-                className="h-24 w-20 animate-pulse rounded-lg border bg-gradient-to-br from-slate-100 to-slate-200"
-                aria-hidden="true"
-              />
-            ))}
-          </div>
+          ) : null}
         </div>
       </div>
     );
