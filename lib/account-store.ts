@@ -79,6 +79,51 @@ export async function updateUserPassword(input: {
   `;
 }
 
+/**
+ * Find an existing user by Google ID or email, or create a new one.
+ * Used by the "Sign in with Google" OAuth flow.
+ */
+export async function findOrCreateGoogleUser(input: {
+  googleId: string;
+  email: string;
+  name: string;
+  avatar: string | null;
+}): Promise<UserRow> {
+  await runMigrations();
+  const sql = getDb();
+
+  // First try to find by google_id
+  const byGoogleId = (await sql`
+    SELECT id, name, email, password_hash, avatar, created_at
+    FROM users WHERE google_id = ${input.googleId} LIMIT 1
+  `) as UserRow[];
+  if (byGoogleId[0]) return byGoogleId[0];
+
+  // Then try to find by email (existing password user linking their Google)
+  const byEmail = (await sql`
+    SELECT id, name, email, password_hash, avatar, created_at
+    FROM users WHERE lower(email) = lower(${input.email}) LIMIT 1
+  `) as UserRow[];
+  if (byEmail[0]) {
+    // Link Google ID to existing account
+    await sql`
+      UPDATE users
+      SET google_id = ${input.googleId},
+          avatar = COALESCE(users.avatar, ${input.avatar})
+      WHERE id = ${byEmail[0].id}
+    `;
+    return { ...byEmail[0], avatar: byEmail[0].avatar ?? input.avatar };
+  }
+
+  // Create new user (no password — Google-only account)
+  const created = (await sql`
+    INSERT INTO users (name, email, password_hash, avatar, google_id, auth_provider)
+    VALUES (${input.name.trim()}, ${input.email.trim().toLowerCase()}, '', ${input.avatar}, ${input.googleId}, 'google')
+    RETURNING id, name, email, password_hash, avatar, created_at
+  `) as UserRow[];
+  return created[0] as UserRow;
+}
+
 export async function createBusinessWithAdminMembership(input: {
   name: string;
   ownerId: string;
@@ -92,7 +137,12 @@ export async function createBusinessWithAdminMembership(input: {
     VALUES (${input.name.trim()}, ${input.ownerId}, ${input.timezone}, ${input.currency})
     RETURNING id, name, timezone, currency
   `) as Array<{ id: string; name: string; timezone: string; currency: string }>;
-  const business = businessRows[0] as { id: string; name: string; timezone: string; currency: string };
+  const business = businessRows[0] as {
+    id: string;
+    name: string;
+    timezone: string;
+    currency: string;
+  };
   await sql`
     INSERT INTO memberships (user_id, business_id, role, status)
     VALUES (${input.ownerId}, ${business.id}, 'admin', 'active')
@@ -119,7 +169,12 @@ export async function updateBusinessSettings(input: {
     WHERE id = ${input.businessId}
     RETURNING id, name, timezone, currency
   `) as Array<{ id: string; name: string; timezone: string; currency: string }>;
-  return rows[0] as { id: string; name: string; timezone: string; currency: string };
+  return rows[0] as {
+    id: string;
+    name: string;
+    timezone: string;
+    currency: string;
+  };
 }
 
 export async function revokeAllUserSessions(userId: string): Promise<void> {
@@ -133,7 +188,12 @@ export async function createInvite(input: {
   businessId: string;
   role: MembershipRole;
   invitedByUserId: string;
-}): Promise<{ id: string; token: string; created_at: string; expires_at: string }> {
+}): Promise<{
+  id: string;
+  token: string;
+  created_at: string;
+  expires_at: string;
+}> {
   await runMigrations();
   const sql = getDb();
   const token = randomBytes(32).toString("hex");
@@ -149,8 +209,18 @@ export async function createInvite(input: {
       ${new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()}
     )
     RETURNING id, token, created_at, expires_at
-  `) as Array<{ id: string; token: string; created_at: string; expires_at: string }>;
-  return rows[0] as { id: string; token: string; created_at: string; expires_at: string };
+  `) as Array<{
+    id: string;
+    token: string;
+    created_at: string;
+    expires_at: string;
+  }>;
+  return rows[0] as {
+    id: string;
+    token: string;
+    created_at: string;
+    expires_at: string;
+  };
 }
 
 export async function listInvitesByBusiness(businessId: string) {
@@ -202,24 +272,25 @@ export async function getInviteByToken(token: string) {
     FROM invites
     WHERE token = ${token}
     LIMIT 1
-  `) as Array<
-    | {
-        id: string;
-        email: string;
-        business_id: string;
-        role: MembershipRole;
-        token: string;
-        status: "pending" | "accepted" | "revoked" | "expired";
-        created_at: string;
-        expires_at: string;
-        accepted_at: string | null;
-        invited_by_user_id: string | null;
-      }
-  >;
+  `) as Array<{
+    id: string;
+    email: string;
+    business_id: string;
+    role: MembershipRole;
+    token: string;
+    status: "pending" | "accepted" | "revoked" | "expired";
+    created_at: string;
+    expires_at: string;
+    accepted_at: string | null;
+    invited_by_user_id: string | null;
+  }>;
   return rows[0] ?? null;
 }
 
-export async function acceptInvite(token: string, userId: string): Promise<{ businessId: string } | null> {
+export async function acceptInvite(
+  token: string,
+  userId: string,
+): Promise<{ businessId: string } | null> {
   await runMigrations();
   const sql = getDb();
   const invite = await getInviteByToken(token);
@@ -244,7 +315,10 @@ export async function acceptInvite(token: string, userId: string): Promise<{ bus
   return { businessId: invite.business_id };
 }
 
-export async function revokeInvite(input: { inviteId: string; businessId: string }) {
+export async function revokeInvite(input: {
+  inviteId: string;
+  businessId: string;
+}) {
   await runMigrations();
   const sql = getDb();
   await sql`
@@ -290,7 +364,10 @@ export async function updateMemberRole(input: {
   `;
 }
 
-export async function removeMember(input: { membershipId: string; businessId: string }) {
+export async function removeMember(input: {
+  membershipId: string;
+  businessId: string;
+}) {
   await runMigrations();
   const sql = getDb();
   await sql`
@@ -321,7 +398,10 @@ export async function listAccessRequestsByBusiness(businessId: string) {
   `;
 }
 
-export async function approveAccessRequest(input: { membershipId: string; businessId: string }) {
+export async function approveAccessRequest(input: {
+  membershipId: string;
+  businessId: string;
+}) {
   await runMigrations();
   const sql = getDb();
   await sql`
@@ -331,7 +411,10 @@ export async function approveAccessRequest(input: { membershipId: string; busine
   `;
 }
 
-export async function rejectAccessRequest(input: { membershipId: string; businessId: string }) {
+export async function rejectAccessRequest(input: {
+  membershipId: string;
+  businessId: string;
+}) {
   await runMigrations();
   const sql = getDb();
   await sql`
