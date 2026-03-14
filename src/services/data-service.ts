@@ -3,6 +3,7 @@ import {
   IntegrationConnection,
   IntegrationStatus,
   OverviewData,
+  OverviewSummaryData,
   Platform,
   PlatformLevel,
   PlatformTableRow,
@@ -992,6 +993,47 @@ export async function getOverview(
   }
 
   return data as OverviewData;
+}
+
+export async function getOverviewSummary(
+  businessId: string,
+  params: DateRange & { compareMode?: "none" | "previous_period" }
+): Promise<OverviewSummaryData> {
+  const url = new URL(
+    "/api/overview-summary",
+    typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"
+  );
+  url.searchParams.set("businessId", businessId);
+  url.searchParams.set("startDate", params.startDate);
+  url.searchParams.set("endDate", params.endDate);
+  if (params.compareMode) {
+    url.searchParams.set("compareMode", params.compareMode);
+  }
+
+  const response = await fetch(url.toString(), {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+    },
+  });
+
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const message =
+      payload && typeof payload === "object" && "message" in payload
+        ? String(payload.message)
+        : `Overview Summary API request failed with status ${response.status}`;
+    throw new Error(message);
+  }
+
+  const data = payload?.summary ?? payload;
+
+  if (!data || typeof data !== "object") {
+    throw new Error("Overview Summary API returned an invalid payload.");
+  }
+
+  return data as OverviewSummaryData;
 }
 
 export async function getPlatformTable(

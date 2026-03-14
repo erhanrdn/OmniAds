@@ -1,49 +1,59 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Download, RefreshCcw, Sparkles } from "lucide-react";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
-import { useAppStore } from "@/store/app-store";
-import { getOverview } from "@/src/services";
+import { BusinessSelector } from "@/components/business/BusinessSelector";
 import { ErrorState } from "@/components/states/error-state";
 import { Badge } from "@/components/ui/badge";
-import { OverviewKpiGrid } from "@/components/overview/OverviewKpiGrid";
-import {
-  OverviewTrendPanel,
-  TrendMetric,
-  TrendWindow,
-} from "@/components/overview/OverviewTrendPanel";
-import { PlatformEfficiencyTable } from "@/components/overview/PlatformEfficiencyTable";
-import { useIntegrationsStore } from "@/store/integrations-store";
-import { DataEmptyState } from "@/components/states/DataEmptyState";
-import { LockedFeatureCard } from "@/components/states/LockedFeatureCard";
+import { Button } from "@/components/ui/button";
+import { SummaryMetricCard } from "@/components/overview/SummaryMetricCard";
+import { SummarySection } from "@/components/overview/SummarySection";
+import { SummaryAttributionTable } from "@/components/overview/SummaryAttributionTable";
+import { SummaryInsightsGrid } from "@/components/overview/SummaryInsightsGrid";
 import {
   DateRangePicker,
   DateRangeValue,
   DEFAULT_DATE_RANGE,
   getPresetDates,
-  RangePreset,
 } from "@/components/date-range/DateRangePicker";
+import { useAppStore } from "@/store/app-store";
+import { useIntegrationsStore } from "@/store/integrations-store";
+import { getOverviewSummary } from "@/src/services";
+import type { OverviewMetricCardData } from "@/src/types/models";
 
 type CurrencyCode = "USD" | "EUR" | "GBP";
-
-type OverviewKpiKey = "spend" | "revenue" | "roas" | "purchases" | "cpa" | "aov";
+type CompareMode = "none" | "previous_period";
 
 export default function OverviewPage() {
+  const businesses = useAppStore((state) => state.businesses);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const businessId = selectedBusinessId ?? "";
+  const activeBusiness = useMemo(
+    () => businesses.find((business) => business.id === selectedBusinessId) ?? null,
+    [businesses, selectedBusinessId]
+  );
 
   const [dateRange, setDateRange] = useState<DateRangeValue>(DEFAULT_DATE_RANGE);
-  const [currency, setCurrency] = useState<CurrencyCode>("USD");
-  const [trendMetric, setTrendMetric] = useState<TrendMetric>("revenue");
+  const [compareMode, setCompareMode] = useState<CompareMode>("previous_period");
+  const [currency, setCurrency] = useState<CurrencyCode>((activeBusiness?.currency as CurrencyCode) ?? "USD");
+  const [accountFilter, setAccountFilter] = useState("all_accounts");
+  const [campaignType, setCampaignType] = useState("all_campaign_types");
 
   const ensureBusiness = useIntegrationsStore((state) => state.ensureBusiness);
-  const byBusinessId = useIntegrationsStore((state) => state.byBusinessId);
 
   useEffect(() => {
     if (!selectedBusinessId) return;
     ensureBusiness(businessId);
   }, [businessId, ensureBusiness, selectedBusinessId]);
+
+  useEffect(() => {
+    if (!activeBusiness?.currency) return;
+    if (["USD", "EUR", "GBP"].includes(activeBusiness.currency)) {
+      setCurrency(activeBusiness.currency as CurrencyCode);
+    }
+  }, [activeBusiness?.currency]);
 
   const { start: startDate, end: endDate } = getPresetDates(
     dateRange.rangePreset,
@@ -52,9 +62,14 @@ export default function OverviewPage() {
   );
 
   const query = useQuery({
-    queryKey: ["overview", businessId, startDate, endDate],
+    queryKey: ["overview-summary", businessId, startDate, endDate, compareMode],
     enabled: Boolean(selectedBusinessId),
-    queryFn: () => getOverview(businessId, { startDate, endDate }),
+    queryFn: () =>
+      getOverviewSummary(businessId, {
+        startDate,
+        endDate,
+        compareMode,
+      }),
   });
 
   if (!selectedBusinessId) return <BusinessEmptyState />;
@@ -62,64 +77,66 @@ export default function OverviewPage() {
   if (query.isError) {
     const errorMessage =
       query.error instanceof Error ? query.error.message : "The request failed. Please try again.";
-    return (
-      <ErrorState
-        description={errorMessage}
-        onRetry={() => query.refetch()}
-      />
-    );
+    return <ErrorState description={errorMessage} onRetry={() => query.refetch()} />;
   }
 
-  const integrations = byBusinessId[businessId];
-  const ga4Connected = integrations?.ga4?.status === "connected";
-  const shopifyConnected = integrations?.shopify?.status === "connected";
-  const adPlatformConnected =
-    integrations?.meta?.status === "connected" ||
-    integrations?.google?.status === "connected" ||
-    integrations?.tiktok?.status === "connected" ||
-    integrations?.pinterest?.status === "connected" ||
-    integrations?.snapchat?.status === "connected";
-
-  const kpis = query.data?.kpis;
-  const kpiSources = query.data?.kpiSources;
-  const kpiUnavailableReasons = resolveKpiUnavailableReasons({
-    kpis,
-    kpiSources,
-    adPlatformConnected,
-    shopifyConnected,
-    ga4Connected,
-  });
-
-  // Map the picker's preset to TrendWindow for the trend panel
-  const trendWindow: TrendWindow = presetToTrendWindow(dateRange.rangePreset);
-
-  const trendSource = query.data?.trends as
-    | Partial<Record<"7d" | "14d" | "30d" | "custom", Array<{
-        label: string;
-        spend: number;
-        revenue: number;
-        purchases: number;
-      }>>>
-    | undefined;
-  const trendDataByWindow = {
-    "7d": trendSource?.["7d"] ?? [],
-    "14d": trendSource?.["14d"] ?? [],
-    "30d": trendSource?.["30d"] ?? [],
-    custom: trendSource?.custom ?? [],
-  };
+  const summary = query.data;
+  const symbol = currencySymbol(currency);
 
   return (
-    <div className="space-y-6">
-      <header className="space-y-2">
-        <h1 className="text-3xl font-semibold tracking-tight">Overview</h1>
-        <p className="text-sm text-muted-foreground">
-          Unified performance snapshot from synced backend data.
-        </p>
-      </header>
+    <div className="space-y-6 pb-10">
+      <section className="rounded-[32px] border border-slate-200 bg-[radial-gradient(circle_at_top_left,_rgba(15,23,42,0.06),_transparent_42%),linear-gradient(180deg,#ffffff,#f8fafc)] p-5 shadow-sm shadow-slate-200/60">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="space-y-2">
+            <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/80 px-3 py-1 text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
+              Overview Command Center
+            </div>
+            <div>
+              <h1 className="text-3xl font-semibold tracking-tight text-slate-950">Summary</h1>
+              <p className="text-sm text-slate-600">
+                A stacked command center for business health, attribution, platform performance,
+                and opportunity signals.
+              </p>
+            </div>
+          </div>
 
-      <section className="rounded-2xl border bg-card p-4 shadow-sm">
-        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" className="gap-2 rounded-xl" disabled>
+              <Download className="h-4 w-4" />
+              Export
+            </Button>
+            <Button className="gap-2 rounded-xl" disabled>
+              <Sparkles className="h-4 w-4" />
+              AI Assistant
+            </Button>
+            <Button
+              variant="ghost"
+              className="gap-2 rounded-xl"
+              onClick={() => {
+                setDateRange(DEFAULT_DATE_RANGE);
+                setCompareMode("previous_period");
+                setAccountFilter("all_accounts");
+                setCampaignType("all_campaign_types");
+              }}
+            >
+              <RefreshCcw className="h-4 w-4" />
+              Reset Filters
+            </Button>
+          </div>
+        </div>
+
+        <div className="mt-5 flex flex-wrap items-center gap-3">
+          <BusinessSelector />
           <DateRangePicker value={dateRange} onChange={setDateRange} />
+          <ControlSelect
+            label="Compare"
+            value={compareMode}
+            onChange={(value) => setCompareMode(value as CompareMode)}
+            options={[
+              { label: "Previous period", value: "previous_period" },
+              { label: "No comparison", value: "none" },
+            ]}
+          />
           <ControlSelect
             label="Currency"
             value={currency}
@@ -130,135 +147,139 @@ export default function OverviewPage() {
               { label: "GBP", value: "GBP" },
             ]}
           />
+          <ControlSelect
+            label="Account"
+            value={accountFilter}
+            onChange={setAccountFilter}
+            options={[{ label: "All accounts", value: "all_accounts" }]}
+          />
+          <ControlSelect
+            label="Campaign type"
+            value={campaignType}
+            onChange={setCampaignType}
+            options={[{ label: "All campaign types", value: "all_campaign_types" }]}
+          />
         </div>
       </section>
 
       <DataStatusRow businessId={businessId} />
 
-      <OverviewKpiGrid
-        kpis={kpis}
-        kpiSources={kpiSources}
-        isLoading={query.isLoading}
-        currencySymbol={currencySymbol(currency)}
-        unavailableReasons={kpiUnavailableReasons}
-      />
+      <SummarySection
+        title="Pins"
+        description="Pinned top-line metrics for the selected business and period."
+      >
+        <MetricGrid metrics={summary?.pins ?? []} currencySymbol={symbol} loading={query.isLoading} />
+      </SummarySection>
 
-      <OverviewTrendPanel
-        dataByWindow={trendDataByWindow}
-        selectedWindow={trendWindow}
-        onWindowChange={(w) =>
-          setDateRange((prev) => ({ ...prev, rangePreset: w === "custom" ? "custom" : w }))
-        }
-        selectedMetric={trendMetric}
-        onMetricChange={setTrendMetric}
-        currencySymbol={currencySymbol(currency)}
-        isLoading={query.isLoading}
-      />
+      <SummarySection
+        title="Store Metrics"
+        description="Store health and ecommerce output with Shopify-first, GA4-fallback sourcing."
+      >
+        <MetricGrid metrics={summary?.storeMetrics ?? []} currencySymbol={symbol} loading={query.isLoading} />
+      </SummarySection>
 
-      <PlatformEfficiencyTable
-        rows={query.data?.platformEfficiency ?? []}
-        currencySymbol={currencySymbol(currency)}
-        isLoading={query.isLoading}
-      />
-
-      <section className="rounded-2xl border bg-card p-5 shadow-sm">
-        <div className="mb-4">
-          <h2 className="text-lg font-semibold tracking-tight">Opportunities</h2>
-          <p className="text-sm text-muted-foreground">
-            Recommendations will appear once enough synced backend performance data is available.
-          </p>
-        </div>
-
-        {!ga4Connected ? (
-          <LockedFeatureCard
-            providerLabel="GA4"
-            description="Connect GA4 to unlock behavior-based opportunities. No recommendations are generated until synced data is sufficient."
-          />
+      <SummarySection
+        title="Attribution"
+        description="Channel-level spend and revenue attribution from synced platform data."
+      >
+        {query.isLoading ? (
+          <LoadingTablePlaceholder />
         ) : (
-          <DataEmptyState
-            title="Opportunities will appear here"
-            description="Once enough synced performance data is available, Adsecute will surface actionable recommendations."
-          />
+          <SummaryAttributionTable rows={summary?.attribution ?? []} currencySymbol={symbol} />
         )}
-      </section>
+      </SummarySection>
+
+      <SummarySection
+        title="LTV"
+        description="Lifecycle and value metrics. Unavailable cards stay visible until the customer model is ready."
+      >
+        <MetricGrid metrics={summary?.ltv ?? []} currencySymbol={symbol} loading={query.isLoading} />
+      </SummarySection>
+
+      {(summary?.platforms ?? []).map((platform) => (
+        <SummarySection
+          key={platform.id}
+          title={platform.title}
+          description={`Mini dashboard for ${platform.title} performance.`}
+        >
+          <MetricGrid metrics={platform.metrics} currencySymbol={symbol} loading={query.isLoading} />
+        </SummarySection>
+      ))}
+
+      <SummarySection
+        title="Expenses"
+        description="Tracked expense coverage with explicit unavailable states where financial modeling is not yet connected."
+      >
+        <MetricGrid metrics={summary?.expenses ?? []} currencySymbol={symbol} loading={query.isLoading} />
+      </SummarySection>
+
+      <SummarySection
+        title="Custom Metrics"
+        description="Reusable business metrics that behave like standard summary cards."
+      >
+        <MetricGrid metrics={summary?.customMetrics ?? []} currencySymbol={symbol} loading={query.isLoading} />
+      </SummarySection>
+
+      <SummarySection
+        title="Web Analytics"
+        description="GA4-backed behavior metrics and ecommerce session health."
+      >
+        <MetricGrid metrics={summary?.webAnalytics ?? []} currencySymbol={symbol} loading={query.isLoading} />
+      </SummarySection>
+
+      <SummarySection
+        title="Opportunity Signals"
+        description="High-signal recommendations and AI-ready flags based on the current business snapshot."
+      >
+        {query.isLoading ? <LoadingInsightPlaceholder /> : <SummaryInsightsGrid insights={summary?.insights ?? []} />}
+      </SummarySection>
     </div>
   );
 }
 
-function resolveKpiUnavailableReasons({
-  kpis,
-  kpiSources,
-  adPlatformConnected,
-  shopifyConnected,
-  ga4Connected,
+function MetricGrid({
+  metrics,
+  currencySymbol,
+  loading,
 }: {
-  kpis: Partial<Record<OverviewKpiKey, number>> | undefined;
-  kpiSources:
-    | Partial<
-        Record<
-          OverviewKpiKey,
-          {
-            source: "shopify" | "ga4_fallback" | "ad_platforms" | "unavailable";
-            label: string;
-          }
-        >
-      >
-    | undefined;
-  adPlatformConnected: boolean;
-  shopifyConnected: boolean;
-  ga4Connected: boolean;
-}): Partial<Record<OverviewKpiKey, string>> {
-  const reasons: Partial<Record<OverviewKpiKey, string>> = {};
-
-  const adMetrics: OverviewKpiKey[] = ["spend", "roas", "cpa"];
-  const commerceMetrics: OverviewKpiKey[] = ["revenue", "purchases", "aov"];
-
-  for (const metric of adMetrics) {
-    const value = kpis?.[metric];
-    if (!adPlatformConnected) {
-      reasons[metric] = "Requires connected ad platforms";
-      continue;
-    }
-    if (typeof value !== "number" || Number.isNaN(value)) {
-      reasons[metric] = "Waiting for synced data";
-    }
+  metrics: OverviewMetricCardData[];
+  currencySymbol: string;
+  loading: boolean;
+}) {
+  if (loading) {
+    return (
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {Array.from({ length: 6 }).map((_, index) => (
+          <div
+            key={index}
+            className="h-48 animate-pulse rounded-2xl border border-slate-200 bg-white"
+          />
+        ))}
+      </div>
+    );
   }
 
-  for (const metric of commerceMetrics) {
-    const value = kpis?.[metric];
-    const source = kpiSources?.[metric]?.source;
-    if (source === "unavailable") {
-      reasons[metric] = shopifyConnected || ga4Connected
-        ? "Waiting for synced ecommerce data"
-        : "Connect Shopify or GA4";
-      continue;
-    }
-    if (typeof value !== "number" || Number.isNaN(value)) {
-      reasons[metric] = shopifyConnected || ga4Connected
-        ? "Waiting for synced ecommerce data"
-        : "Connect Shopify or GA4";
-    }
-  }
+  return (
+    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      {metrics.map((metric) => (
+        <SummaryMetricCard key={metric.id} metric={metric} currencySymbol={currencySymbol} />
+      ))}
+    </div>
+  );
+}
 
-  const roasSource = kpiSources?.roas?.source;
-  if (roasSource === "unavailable") {
-    reasons.roas = !adPlatformConnected
-      ? "Requires connected ad platforms"
-      : shopifyConnected || ga4Connected
-      ? "Waiting for synced ecommerce data"
-      : "Connect Shopify or GA4";
-  } else if (!reasons.roas) {
-    const roasValue = kpis?.roas;
-    if (typeof roasValue !== "number" || Number.isNaN(roasValue)) {
-      reasons.roas = !adPlatformConnected
-        ? "Requires connected ad platforms"
-        : shopifyConnected || ga4Connected
-        ? "Waiting for synced ecommerce data"
-        : "Connect Shopify or GA4";
-    }
-  }
+function LoadingTablePlaceholder() {
+  return <div className="h-72 animate-pulse rounded-2xl border border-slate-200 bg-white" />;
+}
 
-  return reasons;
+function LoadingInsightPlaceholder() {
+  return (
+    <div className="grid gap-4 xl:grid-cols-2">
+      {Array.from({ length: 4 }).map((_, index) => (
+        <div key={index} className="h-32 animate-pulse rounded-2xl border border-slate-200 bg-white" />
+      ))}
+    </div>
+  );
 }
 
 function DataStatusRow({ businessId }: { businessId: string }) {
@@ -272,12 +293,13 @@ function DataStatusRow({ businessId }: { businessId: string }) {
     { label: "Google", provider: "google" as const },
     { label: "Shopify", provider: "shopify" as const },
     { label: "GA4", provider: "ga4" as const },
+    { label: "Klaviyo", provider: "klaviyo" as const },
   ];
 
   return (
-    <section className="rounded-2xl border bg-card p-4 shadow-sm">
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/60">
       <div className="flex flex-wrap items-center gap-3">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
           Data status
         </p>
         {items.map((item) => {
@@ -286,14 +308,14 @@ function DataStatusRow({ businessId }: { businessId: string }) {
           return (
             <div
               key={item.provider}
-              className="inline-flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs"
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-2.5 py-1.5 text-xs"
             >
-              <span className="font-medium">{item.label}</span>
+              <span className="font-medium text-slate-700">{item.label}</span>
               <Badge variant={connected ? "default" : "secondary"}>
                 {connected ? "connected" : "not connected"}
               </Badge>
               {connected && state.lastSyncAt ? (
-                <span className="text-muted-foreground">
+                <span className="text-slate-500">
                   last sync {new Date(state.lastSyncAt).toLocaleTimeString()}
                 </span>
               ) : null}
@@ -317,12 +339,12 @@ function ControlSelect({
   options: Array<{ label: string; value: string }>;
 }) {
   return (
-    <label className="inline-flex items-center gap-2 rounded-md border bg-background px-2.5 py-1.5 text-xs">
-      <span className="text-muted-foreground">{label}</span>
+    <label className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs">
+      <span className="font-medium uppercase tracking-[0.16em] text-slate-500">{label}</span>
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="bg-transparent text-sm outline-none"
+        className="bg-transparent text-sm text-slate-900 outline-none"
       >
         {options.map((option) => (
           <option key={option.value} value={option.value}>
@@ -332,13 +354,6 @@ function ControlSelect({
       </select>
     </label>
   );
-}
-
-function presetToTrendWindow(preset: RangePreset): TrendWindow {
-  if (preset === "7d") return "7d";
-  if (preset === "14d") return "14d";
-  if (preset === "30d") return "30d";
-  return "custom";
 }
 
 function currencySymbol(code: CurrencyCode) {

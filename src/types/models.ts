@@ -194,3 +194,76 @@ export interface OverviewData {
     roas: number;
   }>;
 }
+
+export type OverviewMetricUnit =
+  | "currency"
+  | "count"
+  | "ratio"
+  | "percent"
+  | "duration_seconds";
+
+export type OverviewMetricStatus = "available" | "partial" | "unavailable";
+
+export interface OverviewMetricCardData {
+  id: string;
+  title: string;
+  subtitle?: string;
+  value: number | null;
+  previousValue?: number | null;
+  changePct: number | null;
+  sparklineData: number[];
+  trendDirection: "up" | "down" | "neutral";
+  dataSource: {
+    key: string;
+    label: string;
+  };
+  status: OverviewMetricStatus;
+  helperText?: string;
+  unit: OverviewMetricUnit;
+  icon?: string;
+}
+
+export interface OverviewAttributionRow {
+  channel: string;
+  spend: number | null;
+  revenue: number | null;
+  roas: number | null;
+  conversions: number | null;
+  clicks: number | null;
+  ctr: number | null;
+  source: string;
+}
+
+export interface OverviewPlatformSection {
+  id: string;
+  title: string;
+  provider: string;
+  metrics: OverviewMetricCardData[];
+}
+
+export interface OverviewInsightCard {
+  id: string;
+  title: string;
+  description: string;
+  severity: "high" | "medium" | "low";
+  status: "active" | "informational";
+}
+
+export interface OverviewSummaryData {
+  businessId: string;
+  dateRange: { startDate: string; endDate: string };
+  comparison: {
+    mode: "none" | "previous_period";
+    startDate: string | null;
+    endDate: string | null;
+  };
+  pins: OverviewMetricCardData[];
+  storeMetrics: OverviewMetricCardData[];
+  attribution: OverviewAttributionRow[];
+  ltv: OverviewMetricCardData[];
+  platforms: OverviewPlatformSection[];
+  expenses: OverviewMetricCardData[];
+  customMetrics: OverviewMetricCardData[];
+  webAnalytics: OverviewMetricCardData[];
+  insights: OverviewInsightCard[];
+}

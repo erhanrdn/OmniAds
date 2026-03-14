@@ -1,0 +1,186 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import type { OverviewAttributionRow } from "@/src/types/models";
+import { ArrowDown, ArrowUp, ArrowUpDown, SlidersHorizontal } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
+
+type SortKey = "channel" | "spend" | "revenue" | "roas" | "conversions" | "clicks" | "ctr";
+
+const DEFAULT_COLUMNS: Array<{ key: SortKey; label: string }> = [
+  { key: "channel", label: "Channel" },
+  { key: "spend", label: "Spend" },
+  { key: "revenue", label: "Revenue" },
+  { key: "roas", label: "ROAS" },
+  { key: "conversions", label: "Conversions" },
+  { key: "clicks", label: "Clicks" },
+  { key: "ctr", label: "CTR" },
+];
+
+export function SummaryAttributionTable({
+  rows,
+  currencySymbol,
+}: {
+  rows: OverviewAttributionRow[];
+  currencySymbol: string;
+}) {
+  const [sortKey, setSortKey] = useState<SortKey>("spend");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
+  const [filterText, setFilterText] = useState("");
+  const [visibleColumns, setVisibleColumns] = useState<SortKey[]>(
+    DEFAULT_COLUMNS.map((column) => column.key)
+  );
+
+  const filteredRows = useMemo(() => {
+    const normalizedFilter = filterText.trim().toLowerCase();
+    return rows
+      .filter((row) => row.channel.toLowerCase().includes(normalizedFilter))
+      .sort((left, right) => compareRows(left, right, sortKey, sortDirection));
+  }, [filterText, rows, sortDirection, sortKey]);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            value={filterText}
+            onChange={(event) => setFilterText(event.target.value)}
+            placeholder="Filter channels"
+            className="h-10 w-56 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-0 placeholder:text-slate-400"
+          />
+        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" className="gap-2 rounded-xl">
+              <SlidersHorizontal className="h-4 w-4" />
+              Columns
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-52">
+            {DEFAULT_COLUMNS.map((column) => (
+              <DropdownMenuCheckboxItem
+                key={column.key}
+                checked={visibleColumns.includes(column.key)}
+                onCheckedChange={(checked) =>
+                  setVisibleColumns((current) =>
+                    checked
+                      ? [...current, column.key]
+                      : current.filter((entry) => entry !== column.key)
+                  )
+                }
+              >
+                {column.label}
+              </DropdownMenuCheckboxItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
+      <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+        <table className="min-w-full text-sm">
+          <thead className="bg-slate-50 text-left text-xs uppercase tracking-[0.16em] text-slate-500">
+            <tr>
+              {DEFAULT_COLUMNS.filter((column) => visibleColumns.includes(column.key)).map((column) => (
+                <th key={column.key} className="px-4 py-3 font-medium">
+                  <button
+                    type="button"
+                    onClick={() => toggleSort(column.key)}
+                    className="inline-flex items-center gap-1"
+                  >
+                    {column.label}
+                    {sortKey === column.key ? (
+                      sortDirection === "asc" ? (
+                        <ArrowUp className="h-3.5 w-3.5" />
+                      ) : (
+                        <ArrowDown className="h-3.5 w-3.5" />
+                      )
+                    ) : (
+                      <ArrowUpDown className="h-3.5 w-3.5 text-slate-400" />
+                    )}
+                  </button>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {filteredRows.map((row) => (
+              <tr key={row.channel} className="border-t border-slate-100">
+                {visibleColumns.includes("channel") ? (
+                  <td className="px-4 py-3 font-medium text-slate-900">{row.channel}</td>
+                ) : null}
+                {visibleColumns.includes("spend") ? (
+                  <td className="px-4 py-3 text-slate-600">{formatCurrency(row.spend, currencySymbol)}</td>
+                ) : null}
+                {visibleColumns.includes("revenue") ? (
+                  <td className="px-4 py-3 text-slate-600">{formatCurrency(row.revenue, currencySymbol)}</td>
+                ) : null}
+                {visibleColumns.includes("roas") ? (
+                  <td className="px-4 py-3 text-slate-600">{formatRatio(row.roas)}</td>
+                ) : null}
+                {visibleColumns.includes("conversions") ? (
+                  <td className="px-4 py-3 text-slate-600">{formatCount(row.conversions)}</td>
+                ) : null}
+                {visibleColumns.includes("clicks") ? (
+                  <td className="px-4 py-3 text-slate-600">{formatCount(row.clicks)}</td>
+                ) : null}
+                {visibleColumns.includes("ctr") ? (
+                  <td className="px-4 py-3 text-slate-600">{formatPercent(row.ctr)}</td>
+                ) : null}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  function toggleSort(nextKey: SortKey) {
+    if (sortKey === nextKey) {
+      setSortDirection((current) => (current === "asc" ? "desc" : "asc"));
+      return;
+    }
+    setSortKey(nextKey);
+    setSortDirection(nextKey === "channel" ? "asc" : "desc");
+  }
+}
+
+function compareRows(
+  left: OverviewAttributionRow,
+  right: OverviewAttributionRow,
+  key: SortKey,
+  direction: "asc" | "desc"
+) {
+  const multiplier = direction === "asc" ? 1 : -1;
+  if (key === "channel") {
+    return left.channel.localeCompare(right.channel) * multiplier;
+  }
+  const numericLeft = typeof left[key] === "number" ? (left[key] as number) : -Infinity;
+  const numericRight = typeof right[key] === "number" ? (right[key] as number) : -Infinity;
+  return (numericLeft - numericRight) * multiplier;
+}
+
+function formatCurrency(value: number | null, currencySymbol: string) {
+  if (value === null) return "—";
+  return `${currencySymbol}${value.toLocaleString()}`;
+}
+
+function formatCount(value: number | null) {
+  if (value === null) return "—";
+  return Math.round(value).toLocaleString();
+}
+
+function formatRatio(value: number | null) {
+  if (value === null) return "—";
+  return value.toFixed(2);
+}
+
+function formatPercent(value: number | null) {
+  if (value === null) return "—";
+  return `${value.toFixed(1)}%`;
+}
