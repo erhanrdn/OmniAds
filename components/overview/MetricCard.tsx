@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -58,29 +58,53 @@ export function MetricCard({
   onMoveLeft?: (metricKey: string) => void;
   onMoveRight?: (metricKey: string) => void;
 }) {
-  const chartContainerRef = useRef<HTMLDivElement | null>(null);
+  const plotAreaRef = useRef<HTMLDivElement | null>(null);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
-  const chartWidth = 320;
-  const chartHeight = 76;
-  const chartPadding = { top: 6, right: 8, bottom: 10, left: 8 };
+  const [plotWidth, setPlotWidth] = useState(320);
+  const chartHeight = 84;
+  const chartPadding = { top: 6, right: 4, bottom: 6, left: 4 };
+  const yAxisWidth = 44;
+  const tooltipWidth = 188;
+
+  useEffect(() => {
+    const node = plotAreaRef.current;
+    if (!node) return;
+
+    const update = () => {
+      const width = Math.max(Math.round(node.getBoundingClientRect().width), 180);
+      setPlotWidth(width);
+    };
+
+    update();
+
+    const observer = new ResizeObserver(() => update());
+    observer.observe(node);
+    window.addEventListener("resize", update);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+
   const chartPoints = useMemo(() => {
     if (trendData.length === 0) return [];
     const min = Math.min(...trendData.map((point) => point.value));
     const max = Math.max(...trendData.map((point) => point.value));
     const range = max - min || 1;
+    const drawableWidth = plotWidth - chartPadding.left - chartPadding.right;
+    const drawableHeight = chartHeight - chartPadding.top - chartPadding.bottom;
     return trendData.map((point, index) => ({
       ...point,
       x:
         chartPadding.left +
         (index / Math.max(trendData.length - 1, 1)) *
-          (chartWidth - chartPadding.left - chartPadding.right),
+          drawableWidth,
       y:
         chartHeight -
         chartPadding.bottom -
-        ((point.value - min) / range) *
-          (chartHeight - chartPadding.top - chartPadding.bottom),
+        ((point.value - min) / range) * drawableHeight,
     }));
-  }, [trendData]);
+  }, [chartHeight, chartPadding.bottom, chartPadding.left, chartPadding.right, chartPadding.top, plotWidth, trendData]);
 
   const path = useMemo(() => createSmoothPath(chartPoints), [chartPoints]);
   const activePoint = hoverIndex !== null ? chartPoints[hoverIndex] : null;
@@ -88,13 +112,22 @@ export function MetricCard({
     activePoint && hoverIndex !== null && hoverIndex > 0
       ? calculateDayOverDayPct(activePoint.value, chartPoints[hoverIndex - 1].value)
       : null;
-  const yTicks = useMemo(() => buildYAxisTicks(trendData), [trendData]);
+  const yTicks = useMemo(
+    () => buildYAxisTicks(trendData, chartHeight, chartPadding),
+    [chartHeight, chartPadding, trendData]
+  );
   const xTicks = useMemo(() => buildXAxisTicks(trendData), [trendData]);
+  const tooltipLeft = useMemo(() => {
+    if (!activePoint) return 0;
+    const rawLeft = yAxisWidth + activePoint.x - tooltipWidth / 2;
+    return Math.max(0, Math.min(rawLeft, yAxisWidth + plotWidth - tooltipWidth));
+  }, [activePoint, plotWidth]);
 
   const handlePointerMove = (clientX: number) => {
-    const bounds = chartContainerRef.current?.getBoundingClientRect();
+    const bounds = plotAreaRef.current?.getBoundingClientRect();
     if (!bounds || chartPoints.length === 0) return;
-    const relativeX = ((clientX - bounds.left) / bounds.width) * chartWidth;
+    const boundedClientX = Math.max(bounds.left, Math.min(clientX, bounds.right));
+    const relativeX = ((boundedClientX - bounds.left) / bounds.width) * plotWidth;
     const nearestIndex = chartPoints.reduce((bestIndex, point, index, points) => {
       const bestDistance = Math.abs(points[bestIndex].x - relativeX);
       const currentDistance = Math.abs(point.x - relativeX);
@@ -161,61 +194,80 @@ export function MetricCard({
         </DropdownMenu>
       </div>
 
-      <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50/80 p-3">
+      <div className="mt-4 rounded-2xl border border-slate-200/80 bg-[linear-gradient(180deg,#fbfdff_0%,#f8fafc_100%)] p-3">
         {chartPoints.length > 1 ? (
-          <div
-            ref={chartContainerRef}
-            className="relative"
-            onMouseMove={(event) => handlePointerMove(event.clientX)}
-            onMouseLeave={() => setHoverIndex(null)}
-          >
-            <div className="pointer-events-none absolute inset-y-2 left-0 z-0 flex flex-col justify-between text-[10px] text-slate-400">
-              {yTicks.map((tick) => (
-                <span key={tick.label}>{formatAxisValue(tick.value, unit, currencySymbol)}</span>
-              ))}
+          <div className="relative">
+            <div className="flex items-start gap-2">
+              <div className="pointer-events-none flex h-[84px] w-11 flex-col justify-between pt-1 text-[10px] text-slate-400">
+                {yTicks.map((tick) => (
+                  <span key={tick.label}>{formatAxisValue(tick.value, unit, currencySymbol)}</span>
+                ))}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div
+                  ref={plotAreaRef}
+                  className="relative h-[84px] w-full"
+                  onMouseMove={(event) => handlePointerMove(event.clientX)}
+                  onMouseLeave={() => setHoverIndex(null)}
+                >
+                  <svg
+                    viewBox={`0 0 ${plotWidth} ${chartHeight}`}
+                    className="h-[84px] w-full overflow-visible"
+                    preserveAspectRatio="none"
+                  >
+                    {yTicks.map((tick) => (
+                      <line
+                        key={`grid-${tick.label}`}
+                        x1={chartPadding.left}
+                        x2={plotWidth - chartPadding.right}
+                        y1={tick.y}
+                        y2={tick.y}
+                        stroke="#E7EDF5"
+                        strokeWidth="1"
+                        strokeDasharray="2 5"
+                      />
+                    ))}
+                    <path
+                      d={path}
+                      fill="none"
+                      stroke="#475569"
+                      strokeWidth="2.35"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                    {activePoint ? (
+                      <line
+                        x1={activePoint.x}
+                        x2={activePoint.x}
+                        y1={chartPadding.top}
+                        y2={chartHeight - chartPadding.bottom}
+                        stroke="#CBD5E1"
+                        strokeWidth="1"
+                        strokeDasharray="2 4"
+                      />
+                    ) : null}
+                    {chartPoints.map((point, index) => (
+                      <circle
+                        key={`${point.date}-${index}`}
+                        cx={point.x}
+                        cy={point.y}
+                        r={hoverIndex === index ? 4.5 : 2.5}
+                        fill={hoverIndex === index ? "#2563EB" : "#64748B"}
+                        stroke={hoverIndex === index ? "#DBEAFE" : "#F8FAFC"}
+                        strokeWidth={hoverIndex === index ? "2" : "1.25"}
+                        opacity={hoverIndex === null || hoverIndex === index ? 1 : 0.72}
+                      />
+                    ))}
+                  </svg>
+                </div>
+              </div>
             </div>
-            <svg
-              viewBox={`0 0 ${chartWidth} ${chartHeight}`}
-              className="h-[78px] w-full overflow-visible"
-            >
-              {yTicks.map((tick) => (
-                <line
-                  key={`grid-${tick.label}`}
-                  x1={chartPadding.left}
-                  x2={chartWidth - chartPadding.right}
-                  y1={tick.y}
-                  y2={tick.y}
-                  stroke="#E2E8F0"
-                  strokeWidth="1"
-                  strokeDasharray="3 4"
-                />
-              ))}
-              <path d={path} fill="none" stroke="#0f172a" strokeWidth="2.75" strokeLinecap="round" strokeLinejoin="round" />
-              {activePoint ? (
-                <line
-                  x1={activePoint.x}
-                  x2={activePoint.x}
-                  y1={chartPadding.top}
-                  y2={chartHeight - chartPadding.bottom}
-                  stroke="#94A3B8"
-                  strokeWidth="1"
-                  strokeDasharray="3 4"
-                />
-              ) : null}
-              {chartPoints.map((point, index) => (
-                <circle
-                  key={`${point.date}-${index}`}
-                  cx={point.x}
-                  cy={point.y}
-                  r={hoverIndex === index ? 4 : 2.75}
-                  fill={hoverIndex === index ? "#2563eb" : "#0f172a"}
-                  opacity={hoverIndex === null || hoverIndex === index ? 1 : 0.55}
-                />
-              ))}
-            </svg>
             {activePoint ? (
-              <div className="absolute left-3 top-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs shadow-lg">
-                <p className="font-medium text-slate-900">{activePoint.date}</p>
+              <div
+                className="pointer-events-none absolute top-1 rounded-xl border border-slate-200/90 bg-white/95 px-3 py-2 text-xs shadow-[0_10px_30px_rgba(15,23,42,0.08)] backdrop-blur-sm"
+                style={{ left: tooltipLeft, width: tooltipWidth }}
+              >
+                <p className="font-medium text-slate-900">{formatTooltipDate(activePoint.date)}</p>
                 <p className="text-slate-700">
                   {title} {formatValue(activePoint.value, unit, currencySymbol)}
                 </p>
@@ -226,14 +278,21 @@ export function MetricCard({
                 </p>
               </div>
             ) : null}
-            <div className="mt-2 flex items-center justify-between pl-8 text-[10px] text-slate-400">
-              {xTicks.map((tick) => (
-                <span key={`${tick.date}-${tick.label}`}>{tick.label}</span>
+            <div className="mt-2 ml-[52px] grid grid-cols-3 text-[10px] text-slate-400">
+              {xTicks.map((tick, index) => (
+                <span
+                  key={`${tick.date}-${tick.label}`}
+                  className={
+                    index === 0 ? "text-left" : index === xTicks.length - 1 ? "text-right" : "text-center"
+                  }
+                >
+                  {tick.label}
+                </span>
               ))}
             </div>
           </div>
         ) : (
-          <div className="h-[78px] rounded-xl bg-slate-100" />
+          <div className="h-[84px] rounded-xl bg-slate-100" />
         )}
       </div>
 
@@ -293,16 +352,23 @@ function createSmoothPath(points: Array<{ x: number; y: number }>) {
   return path;
 }
 
-function buildYAxisTicks(data: MetricTrendPoint[]) {
+function buildYAxisTicks(
+  data: MetricTrendPoint[],
+  chartHeight: number,
+  chartPadding: { top: number; right: number; bottom: number; left: number }
+) {
   const values = data.map((point) => point.value);
   const min = Math.min(...values);
   const max = Math.max(...values);
   const mid = min + (max - min) / 2;
+  const bottomY = chartHeight - chartPadding.bottom;
+  const topY = chartPadding.top;
+  const midY = topY + (bottomY - topY) / 2;
 
   return [
-    { value: max, label: "max", y: 6 },
-    { value: mid, label: "mid", y: 36 },
-    { value: min, label: "min", y: 66 },
+    { value: max, label: "max", y: topY },
+    { value: mid, label: "mid", y: midY },
+    { value: min, label: "min", y: bottomY },
   ];
 }
 
@@ -316,6 +382,14 @@ function buildXAxisTicks(data: MetricTrendPoint[]) {
 }
 
 function formatAxisDate(value: string) {
+  const date = new Date(`${value}T00:00:00Z`);
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+  }).format(date);
+}
+
+function formatTooltipDate(value: string) {
   const date = new Date(`${value}T00:00:00Z`);
   return new Intl.DateTimeFormat("en-US", {
     month: "short",

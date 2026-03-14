@@ -65,7 +65,7 @@ export function PinsSection({
           startDate,
           endDate,
         }),
-      enabled: Boolean(businessId),
+      enabled: Boolean(businessId) && shouldFetchRemoteTrend(entry.metric),
       staleTime: 5 * 60 * 1000,
     })),
   });
@@ -107,7 +107,9 @@ export function PinsSection({
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {pinnedMetrics.map((entry, index) => {
-          const trend = trendQueries[index]?.data?.data ?? [];
+          const trend =
+            trendQueries[index]?.data?.data ??
+            buildFallbackTrend(entry.metric.sparklineData, startDate, endDate);
           return (
             <MetricCard
               key={entry.key}
@@ -139,4 +141,30 @@ export function PinsSection({
       </div>
     </div>
   );
+}
+
+function shouldFetchRemoteTrend(metric: OverviewMetricCatalogEntry["metric"]) {
+  return (metric.sparklineData?.length ?? 0) < 7;
+}
+
+function buildFallbackTrend(
+  sparklineData: number[] | undefined,
+  startDate: string,
+  endDate: string
+) {
+  if (!sparklineData || sparklineData.length === 0) return [];
+
+  const start = new Date(`${startDate}T00:00:00.000Z`);
+  const end = new Date(`${endDate}T00:00:00.000Z`);
+  const durationMs = Math.max(end.getTime() - start.getTime(), 0);
+
+  return sparklineData.map((value, index) => {
+    const ratio =
+      sparklineData.length === 1 ? 0 : index / Math.max(sparklineData.length - 1, 1);
+    const pointDate = new Date(start.getTime() + durationMs * ratio);
+    return {
+      date: pointDate.toISOString().slice(0, 10),
+      value,
+    };
+  });
 }
