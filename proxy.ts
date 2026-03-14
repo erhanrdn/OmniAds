@@ -23,6 +23,7 @@ const PUBLIC_API_PREFIXES = [
   "/api/invite",
   "/api/creatives/share",
   "/api/webhooks/shopify",
+  "/api/ai/cron",
 ];
 
 function isPublicPage(pathname: string): boolean {

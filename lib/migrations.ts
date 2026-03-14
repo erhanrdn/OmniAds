@@ -346,6 +346,33 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
     CREATE INDEX IF NOT EXISTS idx_shopify_subscriptions_shop_id
     ON shopify_subscriptions (shop_id)
   `;
+
+  // ── AI daily insights table ─────────────────────────────────────
+  await sql`
+    CREATE TABLE IF NOT EXISTS ai_daily_insights (
+      id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      business_id       TEXT NOT NULL,
+      insight_date      DATE NOT NULL,
+      summary           TEXT NOT NULL DEFAULT '',
+      risks             JSONB NOT NULL DEFAULT '[]'::jsonb,
+      opportunities     JSONB NOT NULL DEFAULT '[]'::jsonb,
+      recommendations   JSONB NOT NULL DEFAULT '[]'::jsonb,
+      raw_response      JSONB,
+      status            TEXT NOT NULL DEFAULT 'success' CHECK (status IN ('success', 'failed')),
+      error_message     TEXT,
+      created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_daily_insights_biz_date
+    ON ai_daily_insights (business_id, insight_date)
+  `;
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_ai_daily_insights_business
+    ON ai_daily_insights (business_id, insight_date DESC)
+  `;
     migrationsCompleted = true;
     logStartupEvent("migrations_completed", { reason });
   })(), timeoutMs);
