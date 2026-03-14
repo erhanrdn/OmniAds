@@ -51,6 +51,11 @@ function classifyGoogleAdsError(payload: unknown, status: number) {
   const message = getGoogleAdsErrorMessage(payload);
   const upper = message?.toUpperCase() ?? "";
 
+  console.log("[google-ads-accounts] Error", {
+    status,
+    message,
+  });
+
   if (upper.includes("DEVELOPER_TOKEN_NOT_APPROVED")) {
     return "Your Google Ads developer token is not approved for this request.";
   }
@@ -295,7 +300,8 @@ async function fetchCustomerDetails({
         id: normalizeGoogleAdsCustomerId(fromResource.id || customerId),
         rawId: fromResource.id || customerId,
         name:
-          fromResource.name || normalizeGoogleAdsCustomerId(fromResource.id || customerId),
+          fromResource.name ||
+          normalizeGoogleAdsCustomerId(fromResource.id || customerId),
         currency: fromResource.currency,
         timezone: fromResource.timezone,
         isManager: fromResource.isManager,
@@ -307,7 +313,9 @@ async function fetchCustomerDetails({
   const searchUrl = `${adsApiBase}/customers/${customerId}/googleAds:search`;
   const query =
     "SELECT customer.id, customer.descriptive_name, customer.currency_code, customer.time_zone, customer.manager FROM customer";
-  const managerLoginCandidates = loginCustomerIds.filter((id) => id !== customerId);
+  const managerLoginCandidates = loginCustomerIds.filter(
+    (id) => id !== customerId,
+  );
   const orderedLoginHeaderCandidates = Array.from(
     new Set([...managerLoginCandidates, customerId]),
   ).slice(0, 25);
@@ -351,7 +359,8 @@ async function fetchCustomerDetails({
       id: normalizeGoogleAdsCustomerId(customer.id || customerId),
       rawId: customer.id || customerId,
       name:
-        customer.name || normalizeGoogleAdsCustomerId(customer.id || customerId),
+        customer.name ||
+        normalizeGoogleAdsCustomerId(customer.id || customerId),
       currency: customer.currency,
       timezone: customer.timezone,
       isManager: customer.isManager,
