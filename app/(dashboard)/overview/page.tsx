@@ -89,6 +89,27 @@ export default function OverviewPage() {
   const symbol = currencySymbol(currency);
   const metricCatalog = useMemo(() => buildOverviewMetricCatalog(summary), [summary]);
   const pinContextKey = `${workspaceOwnerId ?? "anonymous"}:${businessId}`;
+  const storeMetrics = useMemo(() => filterVisibleMetrics(summary?.storeMetrics ?? []), [summary?.storeMetrics]);
+  const ltvMetrics = useMemo(() => filterVisibleMetrics(summary?.ltv ?? []), [summary?.ltv]);
+  const expenseMetrics = useMemo(() => filterVisibleMetrics(summary?.expenses ?? []), [summary?.expenses]);
+  const customMetrics = useMemo(
+    () => filterVisibleMetrics(summary?.customMetrics ?? []),
+    [summary?.customMetrics]
+  );
+  const webAnalyticsMetrics = useMemo(
+    () => filterVisibleMetrics(summary?.webAnalytics ?? []),
+    [summary?.webAnalytics]
+  );
+  const platformSections = useMemo(
+    () =>
+      (summary?.platforms ?? [])
+        .map((platform) => ({
+          ...platform,
+          metrics: filterVisibleMetrics(platform.metrics),
+        }))
+        .filter((platform) => platform.metrics.length > 0),
+    [summary?.platforms]
+  );
 
   return (
     <div className="space-y-6 pb-10">
@@ -108,14 +129,20 @@ export default function OverviewPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" className="gap-2 rounded-xl" disabled>
-              <Download className="h-4 w-4" />
-              Export
-            </Button>
-            <Button className="gap-2 rounded-xl" disabled>
-              <Sparkles className="h-4 w-4" />
-              AI Assistant
-            </Button>
+            {/* Restore when export workflow is wired to live overview data. */}
+            {false && (
+              <Button variant="outline" className="gap-2 rounded-xl" disabled>
+                <Download className="h-4 w-4" />
+                Export
+              </Button>
+            )}
+            {/* Restore when the assistant has live overview actions. */}
+            {false && (
+              <Button className="gap-2 rounded-xl" disabled>
+                <Sparkles className="h-4 w-4" />
+                AI Assistant
+              </Button>
+            )}
             <Button
               variant="ghost"
               className="gap-2 rounded-xl"
@@ -154,18 +181,24 @@ export default function OverviewPage() {
               { label: "GBP", value: "GBP" },
             ]}
           />
-          <ControlSelect
-            label="Account"
-            value={accountFilter}
-            onChange={setAccountFilter}
-            options={[{ label: "All accounts", value: "all_accounts" }]}
-          />
-          <ControlSelect
-            label="Campaign type"
-            value={campaignType}
-            onChange={setCampaignType}
-            options={[{ label: "All campaign types", value: "all_campaign_types" }]}
-          />
+          {/* Restore when account-level filtering is wired into the query key and API. */}
+          {false && (
+            <ControlSelect
+              label="Account"
+              value={accountFilter}
+              onChange={setAccountFilter}
+              options={[{ label: "All accounts", value: "all_accounts" }]}
+            />
+          )}
+          {/* Restore when campaign-type filtering is wired into the query key and API. */}
+          {false && (
+            <ControlSelect
+              label="Campaign type"
+              value={campaignType}
+              onChange={setCampaignType}
+              options={[{ label: "All campaign types", value: "all_campaign_types" }]}
+            />
+          )}
         </div>
       </section>
 
@@ -192,17 +225,19 @@ export default function OverviewPage() {
         )}
       </SummarySection>
 
-      <SummarySection
-        title="Store Metrics"
-        description="Store health and ecommerce output with Shopify-first, GA4-fallback sourcing."
-      >
-        <MetricGrid
-          metrics={summary?.storeMetrics ?? []}
-          currencySymbol={symbol}
-          loading={query.isLoading}
-          businessId={businessId}
-        />
-      </SummarySection>
+      {(query.isLoading || storeMetrics.length > 0) ? (
+        <SummarySection
+          title="Store Metrics"
+          description="Store health and ecommerce output sourced from GA4 ecommerce reporting."
+        >
+          <MetricGrid
+            metrics={storeMetrics}
+            currencySymbol={symbol}
+            loading={query.isLoading}
+            businessId={businessId}
+          />
+        </SummarySection>
+      ) : null}
 
       <SummarySection
         title="Attribution"
@@ -216,19 +251,21 @@ export default function OverviewPage() {
         )}
       </SummarySection>
 
-      <SummarySection
-        title="LTV"
-        description="Lifecycle and value metrics. Unavailable cards stay visible until the customer model is ready."
-      >
-        <MetricGrid
-          metrics={summary?.ltv ?? []}
-          currencySymbol={symbol}
-          loading={query.isLoading}
-          businessId={businessId}
-        />
-      </SummarySection>
+      {(query.isLoading || ltvMetrics.length > 0) ? (
+        <SummarySection
+          title="LTV"
+          description="Lifecycle and value metrics estimated from GA4 purchase behavior."
+        >
+          <MetricGrid
+            metrics={ltvMetrics}
+            currencySymbol={symbol}
+            loading={query.isLoading}
+            businessId={businessId}
+          />
+        </SummarySection>
+      ) : null}
 
-      {(summary?.platforms ?? []).map((platform) => (
+      {platformSections.map((platform) => (
         <SummarySection
           key={platform.id}
           title={platform.title}
@@ -243,50 +280,56 @@ export default function OverviewPage() {
         </SummarySection>
       ))}
 
-      <SummarySection
-        title="Expenses"
-        description="Tracked expense coverage with explicit unavailable states where financial modeling is not yet connected."
-        action={
-          <Button
-            variant={summary?.costModel.configured ? "outline" : "default"}
-            className="rounded-xl"
-            onClick={() => setCostModelSheetOpen(true)}
-          >
-            {summary?.costModel.configured ? "Edit cost model" : "Set cost model"}
-          </Button>
-        }
-      >
-        <MetricGrid
-          metrics={summary?.expenses ?? []}
-          currencySymbol={symbol}
-          loading={query.isLoading}
-          businessId={businessId}
-        />
-      </SummarySection>
+      {(query.isLoading || expenseMetrics.length > 0) ? (
+        <SummarySection
+          title="Expenses"
+          description="Tracked expense coverage with cost-model enrichment when configured."
+          action={
+            <Button
+              variant={summary?.costModel.configured ? "outline" : "default"}
+              className="rounded-xl"
+              onClick={() => setCostModelSheetOpen(true)}
+            >
+              {summary?.costModel.configured ? "Edit cost model" : "Set cost model"}
+            </Button>
+          }
+        >
+          <MetricGrid
+            metrics={expenseMetrics}
+            currencySymbol={symbol}
+            loading={query.isLoading}
+            businessId={businessId}
+          />
+        </SummarySection>
+      ) : null}
 
-      <SummarySection
-        title="Custom Metrics"
-        description="Reusable business metrics that behave like standard summary cards."
-      >
-        <MetricGrid
-          metrics={summary?.customMetrics ?? []}
-          currencySymbol={symbol}
-          loading={query.isLoading}
-          businessId={businessId}
-        />
-      </SummarySection>
+      {(query.isLoading || customMetrics.length > 0) ? (
+        <SummarySection
+          title="Custom Metrics"
+          description="Reusable business metrics that behave like standard summary cards."
+        >
+          <MetricGrid
+            metrics={customMetrics}
+            currencySymbol={symbol}
+            loading={query.isLoading}
+            businessId={businessId}
+          />
+        </SummarySection>
+      ) : null}
 
-      <SummarySection
-        title="Web Analytics"
-        description="GA4-backed behavior metrics and ecommerce session health."
-      >
-        <MetricGrid
-          metrics={summary?.webAnalytics ?? []}
-          currencySymbol={symbol}
-          loading={query.isLoading}
-          businessId={businessId}
-        />
-      </SummarySection>
+      {(query.isLoading || webAnalyticsMetrics.length > 0) ? (
+        <SummarySection
+          title="Web Analytics"
+          description="GA4-backed behavior metrics and ecommerce session health."
+        >
+          <MetricGrid
+            metrics={webAnalyticsMetrics}
+            currencySymbol={symbol}
+            loading={query.isLoading}
+            businessId={businessId}
+          />
+        </SummarySection>
+      ) : null}
 
       <SummarySection
         title="Opportunity Signals"
@@ -322,6 +365,7 @@ function MetricGrid({
   loading: boolean;
   businessId: string;
 }) {
+  const visibleMetrics = filterVisibleMetrics(metrics);
   if (loading) {
     return (
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -337,7 +381,7 @@ function MetricGrid({
 
   return (
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-      {metrics.map((metric) => (
+      {visibleMetrics.map((metric) => (
         <SummaryMetricCard
           key={metric.id}
           metric={metric}
@@ -364,48 +408,24 @@ function LoadingInsightPlaceholder() {
 }
 
 function DataStatusRow({ businessId }: { businessId: string }) {
-  const byBusinessId = useIntegrationsStore((state) => state.byBusinessId);
-  const integrations = byBusinessId[businessId];
-
-  if (!integrations) return null;
-
-  const items = [
-    { label: "Meta", provider: "meta" as const },
-    { label: "Google", provider: "google" as const },
-    { label: "Shopify", provider: "shopify" as const },
-    { label: "GA4", provider: "ga4" as const },
-    { label: "Klaviyo", provider: "klaviyo" as const },
-  ];
-
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/60">
       <div className="flex flex-wrap items-center gap-3">
         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-          Data status
+          Live Status
         </p>
-        {items.map((item) => {
-          const state = integrations[item.provider];
-          const connected = state?.status === "connected";
-          return (
-            <div
-              key={item.provider}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-2.5 py-1.5 text-xs"
-            >
-              <span className="font-medium text-slate-700">{item.label}</span>
-              <Badge variant={connected ? "default" : "secondary"}>
-                {connected ? "connected" : "not connected"}
-              </Badge>
-              {connected && state.lastSyncAt ? (
-                <span className="text-slate-500">
-                  last sync {new Date(state.lastSyncAt).toLocaleTimeString()}
-                </span>
-              ) : null}
-            </div>
-          );
-        })}
+        <div className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-2.5 py-1.5 text-xs">
+          <span className="font-medium text-slate-700">Overview Data</span>
+          <Badge>Active</Badge>
+          <span className="text-slate-500">Live API responses with cached provider snapshots.</span>
+        </div>
       </div>
     </section>
   );
+}
+
+function filterVisibleMetrics(metrics: OverviewMetricCardData[]) {
+  return metrics.filter((metric) => metric.status !== "unavailable");
 }
 
 function ControlSelect({

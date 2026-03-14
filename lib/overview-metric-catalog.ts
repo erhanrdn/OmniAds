@@ -12,7 +12,7 @@ export function buildOverviewMetricCatalog(
   const entries: OverviewMetricCatalogEntry[] = [];
 
   const register = (key: string, section: string, metric: OverviewMetricCardData | undefined) => {
-    if (!metric) return;
+    if (!metric || metric.status === "unavailable") return;
     entries.push({
       key,
       title: metric.title,

@@ -315,7 +315,7 @@ function formatValue(
   unit: "currency" | "count" | "ratio" | "percent" | "duration_seconds",
   currencySymbol: string
 ) {
-  if (value === null || Number.isNaN(value)) return "Unavailable";
+  if (value === null || Number.isNaN(value)) return "\u2014";
   if (unit === "currency") return `${currencySymbol}${value.toLocaleString()}`;
   if (unit === "count") return Math.round(value).toLocaleString();
   if (unit === "ratio") return value.toFixed(2);

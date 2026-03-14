@@ -511,6 +511,20 @@ export async function GET(request: NextRequest) {
   const engagementRatePrevious = previousAnalytics?.kpis?.engagementRate ?? null;
   const avgSessionDurationCurrent = currentAnalytics?.kpis?.avgSessionDuration ?? null;
   const avgSessionDurationPrevious = previousAnalytics?.kpis?.avgSessionDuration ?? null;
+  const averageOrderValueCurrent = currentAnalytics?.kpis?.averageOrderValue ?? null;
+  const averageOrderValuePrevious = previousAnalytics?.kpis?.averageOrderValue ?? null;
+  const firstTimePurchasersCurrent = currentAnalytics?.kpis?.firstTimePurchasers ?? null;
+  const firstTimePurchasersPrevious = previousAnalytics?.kpis?.firstTimePurchasers ?? null;
+  const totalPurchasersCurrent = currentAnalytics?.kpis?.totalPurchasers ?? null;
+  const totalPurchasersPrevious = previousAnalytics?.kpis?.totalPurchasers ?? null;
+  const returningPurchasersCurrent =
+    totalPurchasersCurrent !== null && firstTimePurchasersCurrent !== null
+      ? Math.max(totalPurchasersCurrent - firstTimePurchasersCurrent, 0)
+      : currentAnalytics?.newVsReturning?.returning?.purchases ?? null;
+  const returningPurchasersPrevious =
+    totalPurchasersPrevious !== null && firstTimePurchasersPrevious !== null
+      ? Math.max(totalPurchasersPrevious - firstTimePurchasersPrevious, 0)
+      : previousAnalytics?.newVsReturning?.returning?.purchases ?? null;
   const [currentGa4Ltv, previousGa4Ltv] = await Promise.all([
     analyticsConnected
       ? getGa4LtvSnapshot({
@@ -571,7 +585,7 @@ export async function GET(request: NextRequest) {
       unit: "ratio",
       sourceKey: revenueSource?.source ?? "unavailable",
       sourceLabel:
-        revenueSource?.source === "ga4_fallback" ? "GA4 fallback + ad platforms" : "Shopify + ad platforms",
+        revenueSource?.source === "ga4_fallback" ? "GA4 + ad platforms" : "Revenue + ad platforms",
       helperText:
         revenueSource?.source === "unavailable" ? "Connect Shopify or GA4" : undefined,
       compareMode,
@@ -624,30 +638,18 @@ export async function GET(request: NextRequest) {
   const storeMetrics: OverviewMetricCardData[] = [
     pins[0],
     pins[5],
-    buildUnavailableMetric({
-      id: "store-refunds",
-      title: "Refunds",
-      helperText: "Shopify refunds pipeline not available yet",
-      unit: "currency",
-    }),
     buildMetricCard({
       id: "store-aov",
       title: "AOV",
       subtitle: "Average order value",
-      value: currentOverview.kpis.aov ?? null,
-      previousValue: previousOverview?.kpis.aov ?? null,
+      value: averageOrderValueCurrent ?? currentOverview.kpis.aov ?? null,
+      previousValue: averageOrderValuePrevious ?? previousOverview?.kpis.aov ?? null,
       unit: "currency",
       sourceKey: aovSource?.source ?? "unavailable",
-      sourceLabel: aovSource?.label ?? "Unavailable",
+      sourceLabel: aovSource?.label ?? "GA4",
       helperText: aovSource?.source === "unavailable" ? "Connect Shopify or GA4" : undefined,
       compareMode,
       icon: "receipt",
-    }),
-    buildUnavailableMetric({
-      id: "store-net-revenue",
-      title: "Net Revenue",
-      helperText: "Requires refunds and fee modeling",
-      unit: "currency",
     }),
     buildMetricCard({
       id: "store-conversion-rate",
@@ -661,23 +663,27 @@ export async function GET(request: NextRequest) {
       compareMode,
       icon: "percent",
     }),
-    buildUnavailableMetric({
+    buildMetricCard({
       id: "store-new-customers",
       title: "New Customers",
-      helperText: "Requires customer identity model",
+      value: firstTimePurchasersCurrent,
+      previousValue: firstTimePurchasersPrevious,
       unit: "count",
+      sourceKey: analyticsConnected ? "ga4" : "unavailable",
+      sourceLabel: analyticsConnected ? "GA4" : "Unavailable",
+      helperText: analyticsConnected ? undefined : "Connect GA4",
+      compareMode,
     }),
-    buildUnavailableMetric({
+    buildMetricCard({
       id: "store-returning-customers",
       title: "Returning Customers",
-      helperText: "Requires customer identity model",
+      value: returningPurchasersCurrent,
+      previousValue: returningPurchasersPrevious,
       unit: "count",
-    }),
-    buildUnavailableMetric({
-      id: "store-units-sold",
-      title: "Units Sold",
-      helperText: "Requires order line-item sync",
-      unit: "count",
+      sourceKey: analyticsConnected ? "ga4" : "unavailable",
+      sourceLabel: analyticsConnected ? "GA4" : "Unavailable",
+      helperText: analyticsConnected ? undefined : "Connect GA4",
+      compareMode,
     }),
   ];
 
@@ -685,7 +691,6 @@ export async function GET(request: NextRequest) {
   const ltvEstimatedHelper = shopifyConnected
     ? "Estimated from GA4 because Shopify lifecycle data is unavailable for this view"
     : "Estimated from GA4";
-  const ltvUnavailableHelper = "Connect Shopify or enrich GA4 lifecycle data";
   const ltv: OverviewMetricCardData[] = [
     currentGa4Ltv?.averageCustomerLtv !== null && currentGa4Ltv?.averageCustomerLtv !== undefined
       ? buildMetricCard({
@@ -699,12 +704,7 @@ export async function GET(request: NextRequest) {
           sourceLabel: ltvSourceLabel,
           compareMode,
         })
-      : buildUnavailableMetric({
-          id: "ltv-average",
-          title: "Average Customer LTV",
-          helperText: ltvUnavailableHelper,
-          unit: "currency",
-        }),
+      : null,
     currentGa4Ltv?.ltvToCac !== null && currentGa4Ltv?.ltvToCac !== undefined
       ? buildMetricCard({
           id: "ltv-cac",
@@ -717,12 +717,7 @@ export async function GET(request: NextRequest) {
           sourceLabel: ltvSourceLabel,
           compareMode,
         })
-      : buildUnavailableMetric({
-          id: "ltv-cac",
-          title: "LTV / CAC",
-          helperText: ltvUnavailableHelper,
-          unit: "ratio",
-        }),
+      : null,
     currentGa4Ltv?.repeatPurchaseRate !== null && currentGa4Ltv?.repeatPurchaseRate !== undefined
       ? buildMetricCard({
           id: "ltv-repeat-rate",
@@ -735,18 +730,7 @@ export async function GET(request: NextRequest) {
           sourceLabel: ltvSourceLabel,
           compareMode,
         })
-      : buildUnavailableMetric({
-          id: "ltv-repeat-rate",
-          title: "Repeat Purchase Rate",
-          helperText: ltvUnavailableHelper,
-          unit: "percent",
-        }),
-    buildUnavailableMetric({
-      id: "ltv-lifespan",
-      title: "Customer Lifespan",
-      helperText: "Connect Shopify or enrich GA4 lifecycle data",
-      unit: "count",
-    }),
+      : null,
     currentGa4Ltv?.revenuePerCustomer !== null && currentGa4Ltv?.revenuePerCustomer !== undefined
       ? buildMetricCard({
           id: "ltv-revenue-per-customer",
@@ -759,13 +743,8 @@ export async function GET(request: NextRequest) {
           sourceLabel: ltvSourceLabel,
           compareMode,
         })
-      : buildUnavailableMetric({
-          id: "ltv-revenue-per-customer",
-          title: "Revenue per Customer",
-          helperText: ltvUnavailableHelper,
-          unit: "currency",
-        }),
-  ];
+      : null,
+  ].filter((metric): metric is OverviewMetricCardData => Boolean(metric));
 
   const costModelData = toCostModelData(costModel);
   const cogsValue =
@@ -941,7 +920,7 @@ export async function GET(request: NextRequest) {
       unit: "ratio",
       sourceKey: revenueSource?.source ?? "unavailable",
       sourceLabel:
-        revenueSource?.source === "ga4_fallback" ? "GA4 fallback + ad platforms" : "Shopify + ad platforms",
+        revenueSource?.source === "ga4_fallback" ? "GA4 + ad platforms" : "Revenue + ad platforms",
       helperText:
         revenueSource?.source === "unavailable" ? "Connect Shopify or GA4" : undefined,
       compareMode,
@@ -965,12 +944,6 @@ export async function GET(request: NextRequest) {
         revenueSource?.source === "unavailable" ? "Connect Shopify or GA4" : undefined,
       compareMode,
     }),
-    buildUnavailableMetric({
-      id: "custom-profit-margin",
-      title: "Profit Margin",
-      helperText: "Requires expense coverage beyond ad spend",
-      unit: "percent",
-    }),
     buildMetricCard({
       id: "custom-blended-cpa",
       title: "Blended CPA",
@@ -981,21 +954,9 @@ export async function GET(request: NextRequest) {
       sourceLabel: "Ad platforms",
       compareMode,
     }),
-    buildUnavailableMetric({
-      id: "custom-cac",
-      title: "Customer Acquisition Cost",
-      helperText: "Requires customer acquisition model",
-      unit: "currency",
-    }),
   ];
 
   const webAnalytics: OverviewMetricCardData[] = [
-    buildUnavailableMetric({
-      id: "web-users",
-      title: "Users",
-      helperText: "Users metric not included in current GA4 overview payload",
-      unit: "count",
-    }),
     buildMetricCard({
       id: "web-sessions",
       title: "Sessions",
@@ -1008,12 +969,6 @@ export async function GET(request: NextRequest) {
       compareMode,
       icon: "activity",
     }),
-    buildUnavailableMetric({
-      id: "web-bounce-rate",
-      title: "Bounce Rate",
-      helperText: "Bounce rate is not included in current GA4 overview payload",
-      unit: "percent",
-    }),
     buildMetricCard({
       id: "web-session-duration",
       title: "Session Duration",
@@ -1025,24 +980,6 @@ export async function GET(request: NextRequest) {
       helperText: analyticsConnected ? undefined : "Connect GA4",
       compareMode,
       icon: "clock-3",
-    }),
-    buildUnavailableMetric({
-      id: "web-pages-per-session",
-      title: "Pages / Session",
-      helperText: "Pages/session is not included in current GA4 overview payload",
-      unit: "ratio",
-    }),
-    buildUnavailableMetric({
-      id: "web-add-to-cart",
-      title: "Add To Cart",
-      helperText: "Requires GA4 ecommerce event summary",
-      unit: "count",
-    }),
-    buildUnavailableMetric({
-      id: "web-checkout-started",
-      title: "Checkout Started",
-      helperText: "Requires GA4 ecommerce event summary",
-      unit: "count",
     }),
     buildMetricCard({
       id: "web-engagement-rate",

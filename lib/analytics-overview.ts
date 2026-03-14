@@ -17,6 +17,11 @@ export interface AnalyticsOverviewResponse {
     purchaseCvr?: number;
     revenue?: number;
     avgSessionDuration?: number;
+    averageOrderValue?: number;
+    totalUsers?: number;
+    newUsers?: number;
+    totalPurchasers?: number;
+    firstTimePurchasers?: number;
   };
   newVsReturning?: {
     new: {
@@ -60,12 +65,17 @@ export async function getAnalyticsOverviewData(params: {
       accessToken,
       dateRanges,
       metrics: [
+        { name: "totalUsers" },
+        { name: "newUsers" },
         { name: "sessions" },
         { name: "engagedSessions" },
         { name: "engagementRate" },
         { name: "ecommercePurchases" },
         { name: "purchaseRevenue" },
         { name: "averageSessionDuration" },
+        { name: "totalPurchasers" },
+        { name: "firstTimePurchasers" },
+        { name: "averagePurchaseRevenuePerPayingUser" },
       ],
     }),
     runGA4Report({
@@ -84,12 +94,17 @@ export async function getAnalyticsOverviewData(params: {
   ]);
 
   const totalsRow = overviewReport.totals?.[0] ?? overviewReport.rows[0];
-  const sessions = parseFloat(totalsRow?.metrics[0] ?? "0");
-  const engagedSessions = parseFloat(totalsRow?.metrics[1] ?? "0");
-  const engagementRate = parseFloat(totalsRow?.metrics[2] ?? "0");
-  const purchases = parseFloat(totalsRow?.metrics[3] ?? "0");
-  const revenue = parseFloat(totalsRow?.metrics[4] ?? "0");
-  const avgSessionDuration = parseFloat(totalsRow?.metrics[5] ?? "0");
+  const totalUsers = parseFloat(totalsRow?.metrics[0] ?? "0");
+  const newUsers = parseFloat(totalsRow?.metrics[1] ?? "0");
+  const sessions = parseFloat(totalsRow?.metrics[2] ?? "0");
+  const engagedSessions = parseFloat(totalsRow?.metrics[3] ?? "0");
+  const engagementRate = parseFloat(totalsRow?.metrics[4] ?? "0");
+  const purchases = parseFloat(totalsRow?.metrics[5] ?? "0");
+  const revenue = parseFloat(totalsRow?.metrics[6] ?? "0");
+  const avgSessionDuration = parseFloat(totalsRow?.metrics[7] ?? "0");
+  const totalPurchasers = parseFloat(totalsRow?.metrics[8] ?? "0");
+  const firstTimePurchasers = parseFloat(totalsRow?.metrics[9] ?? "0");
+  const averageOrderValue = parseFloat(totalsRow?.metrics[10] ?? "0");
   const purchaseCvr = sessions > 0 ? purchases / sessions : 0;
 
   let newSessions = 0;
@@ -124,6 +139,11 @@ export async function getAnalyticsOverviewData(params: {
       purchaseCvr,
       revenue,
       avgSessionDuration,
+      averageOrderValue,
+      totalUsers,
+      newUsers,
+      totalPurchasers,
+      firstTimePurchasers,
     },
     newVsReturning: {
       new: {

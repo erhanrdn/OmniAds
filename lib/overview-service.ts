@@ -137,6 +137,7 @@ function round2(value: number): number {
 interface Ga4EcommerceFallback {
   revenue: number;
   purchases: number;
+  averageOrderValue: number | null;
 }
 
 interface MetaOverviewFragment {
@@ -184,15 +185,28 @@ async function getGa4EcommerceFallback(
       propertyId: context.propertyId,
       accessToken: context.accessToken,
       dateRanges: [{ startDate, endDate }],
-      metrics: [{ name: "ecommercePurchases" }, { name: "purchaseRevenue" }],
+      metrics: [
+        { name: "ecommercePurchases" },
+        { name: "purchaseRevenue" },
+        { name: "averagePurchaseRevenuePerPayingUser" },
+      ],
     });
 
     const totalsRow = report.totals?.[0] ?? report.rows[0];
     if (!totalsRow) return null;
 
+    const purchases = parseFloat(totalsRow.metrics[0] ?? "0") || 0;
+    const revenue = parseFloat(totalsRow.metrics[1] ?? "0") || 0;
+    const averageOrderValueMetric = parseFloat(totalsRow.metrics[2] ?? "0") || 0;
     const payload = {
-      purchases: parseFloat(totalsRow.metrics[0] ?? "0") || 0,
-      revenue: parseFloat(totalsRow.metrics[1] ?? "0") || 0,
+      purchases,
+      revenue,
+      averageOrderValue:
+        averageOrderValueMetric > 0
+          ? averageOrderValueMetric
+          : purchases > 0
+            ? revenue / purchases
+            : null,
     };
     await setCachedReport({
       businessId,
@@ -443,26 +457,21 @@ async function getGoogleOverviewFragment(input: {
 function applyEcommerceSourcePriority(
   overview: OverviewResponse,
   options: {
-    shopifyConnected: boolean;
     ga4Fallback: Ga4EcommerceFallback | null;
   }
 ) {
-  const { shopifyConnected, ga4Fallback } = options;
+  const { ga4Fallback } = options;
   const hasGa4Fallback = ga4Fallback !== null;
-  const shouldUseShopifyPrimary = shopifyConnected && !overview.status;
-
-  if (shouldUseShopifyPrimary) {
-    overview.kpiSources.revenue = { source: "shopify", label: "Shopify" };
-    overview.kpiSources.purchases = { source: "shopify", label: "Shopify" };
-    overview.kpiSources.aov = { source: "shopify", label: "Shopify" };
-    overview.kpiSources.roas = { source: "shopify", label: "Shopify" };
-    return;
-  }
 
   if (hasGa4Fallback && ga4Fallback) {
     const revenue = round2(ga4Fallback.revenue);
     const purchases = Math.round(ga4Fallback.purchases);
-    const aov = purchases > 0 ? round2(ga4Fallback.revenue / ga4Fallback.purchases) : 0;
+    const aov =
+      ga4Fallback.averageOrderValue !== null
+        ? round2(ga4Fallback.averageOrderValue)
+        : purchases > 0
+          ? round2(ga4Fallback.revenue / ga4Fallback.purchases)
+          : 0;
     const roas = overview.kpis.spend > 0 ? round2(ga4Fallback.revenue / overview.kpis.spend) : 0;
 
     overview.kpis.revenue = revenue;
@@ -475,10 +484,10 @@ function applyEcommerceSourcePriority(
     overview.totals.conversions = purchases;
     overview.totals.roas = roas;
 
-    overview.kpiSources.revenue = { source: "ga4_fallback", label: "GA4 fallback" };
-    overview.kpiSources.purchases = { source: "ga4_fallback", label: "GA4 fallback" };
-    overview.kpiSources.aov = { source: "ga4_fallback", label: "GA4 fallback" };
-    overview.kpiSources.roas = { source: "ga4_fallback", label: "GA4 fallback" };
+    overview.kpiSources.revenue = { source: "ga4_fallback", label: "GA4" };
+    overview.kpiSources.purchases = { source: "ga4_fallback", label: "GA4" };
+    overview.kpiSources.aov = { source: "ga4_fallback", label: "GA4" };
+    overview.kpiSources.roas = { source: "ga4_fallback", label: "GA4" };
     return;
   }
 
@@ -501,8 +510,7 @@ export async function getOverviewData(params: {
     return getDemoOverview() as OverviewResponse;
   }
 
-  const shopifyConnected =
-    (await getIntegration(businessId, "shopify"))?.status === "connected";
+  await getIntegration(businessId, "shopify");
 
   let totalSpend = 0;
   let totalRevenue = 0;
@@ -566,7 +574,6 @@ export async function getOverviewData(params: {
       resolvedEnd
     );
     applyEcommerceSourcePriority(emptyOverview, {
-      shopifyConnected,
       ga4Fallback,
     });
     return emptyOverview;
@@ -617,7 +624,6 @@ export async function getOverviewData(params: {
 
   const ga4Fallback = await getGa4EcommerceFallback(businessId, resolvedStart, resolvedEnd);
   applyEcommerceSourcePriority(overview, {
-    shopifyConnected,
     ga4Fallback,
   });
 

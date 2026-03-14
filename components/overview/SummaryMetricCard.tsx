@@ -75,7 +75,7 @@ export function SummaryMetricCard({
               ? "bg-slate-100 text-slate-700"
               : metric.status === "partial"
               ? "bg-amber-100 text-amber-700"
-              : "bg-slate-100 text-slate-500"
+              : "hidden"
           )}
         >
           {metric.status}
@@ -146,7 +146,7 @@ function MiniSparkline({
 }
 
 function formatMetricValue(metric: OverviewMetricCardData, currencySymbol: string) {
-  if (metric.value === null || Number.isNaN(metric.value)) return "Unavailable";
+  if (metric.value === null || Number.isNaN(metric.value)) return "\u2014";
   if (metric.unit === "currency") return `${currencySymbol}${metric.value.toLocaleString()}`;
   if (metric.unit === "count") return Math.round(metric.value).toLocaleString();
   if (metric.unit === "ratio") return metric.value.toFixed(2);
