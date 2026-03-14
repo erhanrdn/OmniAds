@@ -9,6 +9,10 @@ import {
   runGA4Report,
   GA4AuthError,
 } from "@/lib/google-analytics-reporting";
+import {
+  getCachedRouteReport,
+  setCachedRouteReport,
+} from "@/lib/route-report-cache";
 
 export async function GET(request: NextRequest) {
   const businessId = request.nextUrl.searchParams.get("businessId");
@@ -28,6 +32,16 @@ export async function GET(request: NextRequest) {
   if ("error" in access) return access.error;
   if (await isDemoBusiness(businessId)) {
     return NextResponse.json(getDemoAnalyticsLandingPages());
+  }
+
+  const cached = await getCachedRouteReport<{ pages: Array<Record<string, unknown>> }>({
+    businessId,
+    provider: "ga4",
+    reportType: "ga4_detailed_landing_pages",
+    searchParams: request.nextUrl.searchParams,
+  });
+  if (cached) {
+    return NextResponse.json(cached);
   }
 
   let accessToken: string;
@@ -87,5 +101,13 @@ export async function GET(request: NextRequest) {
     };
   });
 
-  return NextResponse.json({ pages });
+  const payload = { pages };
+  await setCachedRouteReport({
+    businessId,
+    provider: "ga4",
+    reportType: "ga4_detailed_landing_pages",
+    searchParams: request.nextUrl.searchParams,
+    payload,
+  });
+  return NextResponse.json(payload);
 }

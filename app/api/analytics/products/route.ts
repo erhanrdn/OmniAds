@@ -9,6 +9,10 @@ import {
   runGA4Report,
   GA4AuthError,
 } from "@/lib/google-analytics-reporting";
+import {
+  getCachedRouteReport,
+  setCachedRouteReport,
+} from "@/lib/route-report-cache";
 
 const PRODUCT_DIMENSION = { name: "itemName" };
 const PRODUCT_LIMIT = 100;
@@ -110,6 +114,20 @@ export async function GET(request: NextRequest) {
   if ("error" in access) return access.error;
   if (await isDemoBusiness(businessId)) {
     return NextResponse.json(getDemoAnalyticsProducts());
+  }
+
+  const cached = await getCachedRouteReport<{
+    rows: Array<Record<string, unknown>>;
+    products: Array<Record<string, unknown>>;
+    meta: Record<string, unknown>;
+  }>({
+    businessId,
+    provider: "ga4",
+    reportType: "ga4_detailed_products",
+    searchParams: request.nextUrl.searchParams,
+  });
+  if (cached) {
+    return NextResponse.json(cached);
   }
 
   let accessToken: string;
@@ -245,7 +263,7 @@ export async function GET(request: NextRequest) {
       unavailable_metrics: unavailableMetrics,
     };
 
-    return NextResponse.json({
+    const payload = {
       rows: products.map((row) => ({
         product: row.name,
         views: row.views,
@@ -259,7 +277,15 @@ export async function GET(request: NextRequest) {
       })),
       products,
       meta,
+    };
+    await setCachedRouteReport({
+      businessId,
+      provider: "ga4",
+      reportType: "ga4_detailed_products",
+      searchParams: request.nextUrl.searchParams,
+      payload,
     });
+    return NextResponse.json(payload);
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to load product funnel data.";

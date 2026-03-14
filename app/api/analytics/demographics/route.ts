@@ -9,6 +9,10 @@ import {
   runGA4Report,
   GA4AuthError,
 } from "@/lib/google-analytics-reporting";
+import {
+  getCachedRouteReport,
+  setCachedRouteReport,
+} from "@/lib/route-report-cache";
 
 const ALLOWED_DIMENSIONS = [
   "country",
@@ -45,6 +49,20 @@ export async function GET(request: NextRequest) {
   if ("error" in access) return access.error;
   if (await isDemoBusiness(businessId)) {
     return NextResponse.json(getDemoAnalyticsDemographics(dimension));
+  }
+
+  const cached = await getCachedRouteReport<{
+    dimension: string;
+    rows: Array<Record<string, unknown>>;
+    summary: Record<string, unknown> | null;
+  }>({
+    businessId,
+    provider: "ga4",
+    reportType: "ga4_detailed_demographics",
+    searchParams: request.nextUrl.searchParams,
+  });
+  if (cached) {
+    return NextResponse.json(cached);
   }
 
   let accessToken: string;
@@ -110,7 +128,7 @@ export async function GET(request: NextRequest) {
       ? rows.reduce((sum, r) => sum + r.purchaseCvr, 0) / rows.length
       : 0;
 
-  return NextResponse.json({
+  const payload = {
     dimension,
     rows,
     summary: topByPurchaseCvr
@@ -120,5 +138,13 @@ export async function GET(request: NextRequest) {
           avgPurchaseCvr,
         }
       : null,
+  };
+  await setCachedRouteReport({
+    businessId,
+    provider: "ga4",
+    reportType: "ga4_detailed_demographics",
+    searchParams: request.nextUrl.searchParams,
+    payload,
   });
+  return NextResponse.json(payload);
 }

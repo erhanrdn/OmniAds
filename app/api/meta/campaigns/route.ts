@@ -5,6 +5,10 @@ import { getProviderAccountAssignments } from "@/lib/provider-account-assignment
 import { runMigrations } from "@/lib/migrations";
 import { requireBusinessAccess } from "@/lib/access";
 import { getDemoMetaCampaigns } from "@/lib/demo-business";
+import {
+  getCachedRouteReport,
+  setCachedRouteReport,
+} from "@/lib/route-report-cache";
 
 // ── Meta API types ────────────────────────────────────────────────────────────
 
@@ -179,6 +183,16 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(getDemoMetaCampaigns());
   }
 
+  const cached = await getCachedRouteReport<{ rows: MetaCampaignRow[] }>({
+    businessId,
+    provider: "meta",
+    reportType: "meta_campaigns_list",
+    searchParams,
+  });
+  if (cached) {
+    return NextResponse.json(cached);
+  }
+
   const resolvedStart = startDate ?? toISODate(nDaysAgo(29));
   const resolvedEnd = endDate ?? toISODate(new Date());
 
@@ -250,5 +264,13 @@ export async function GET(request: NextRequest) {
   allRows.sort((a, b) => b.spend - a.spend);
 
   console.log("[meta-campaigns] response", { businessId, rowCount: allRows.length });
-  return NextResponse.json({ rows: allRows });
+  const payload = { rows: allRows };
+  await setCachedRouteReport({
+    businessId,
+    provider: "meta",
+    reportType: "meta_campaigns_list",
+    searchParams,
+    payload,
+  });
+  return NextResponse.json(payload);
 }

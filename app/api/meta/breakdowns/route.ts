@@ -3,6 +3,10 @@ import { requireBusinessAccess } from "@/lib/access";
 import { getIntegration } from "@/lib/integrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { runMigrations } from "@/lib/migrations";
+import {
+  getCachedRouteReport,
+  setCachedRouteReport,
+} from "@/lib/route-report-cache";
 
 type BreakdownType = "age" | "country" | "placement" | "adset" | "campaign";
 
@@ -226,9 +230,19 @@ export async function GET(request: NextRequest) {
   });
   if ("error" in access) return access.error;
 
+  const cached = await getCachedRouteReport<MetaBreakdownsResponse>({
+    businessId: businessId!,
+    provider: "meta",
+    reportType: "meta_breakdown",
+    searchParams,
+  });
+  if (cached) {
+    return NextResponse.json(cached);
+  }
+
   const integration = await getIntegration(businessId!, "meta").catch(() => null);
   if (!integration || integration.status !== "connected") {
-    return NextResponse.json({
+    const payload = {
       status: "no_connection",
       age: [],
       location: [],
@@ -236,10 +250,18 @@ export async function GET(request: NextRequest) {
       budget: { campaign: [], adset: [] },
       audience: { available: false, reason: "Audience type classification unavailable." },
       products: { available: false, reason: "Catalog product breakdown unavailable for current setup." },
-    } satisfies MetaBreakdownsResponse);
+    } satisfies MetaBreakdownsResponse;
+    await setCachedRouteReport({
+      businessId: businessId!,
+      provider: "meta",
+      reportType: "meta_breakdown",
+      searchParams,
+      payload,
+    });
+    return NextResponse.json(payload);
   }
   if (!integration.access_token) {
-    return NextResponse.json({
+    const payload = {
       status: "no_access_token",
       age: [],
       location: [],
@@ -247,12 +269,20 @@ export async function GET(request: NextRequest) {
       budget: { campaign: [], adset: [] },
       audience: { available: false, reason: "Audience type classification unavailable." },
       products: { available: false, reason: "Catalog product breakdown unavailable for current setup." },
-    } satisfies MetaBreakdownsResponse);
+    } satisfies MetaBreakdownsResponse;
+    await setCachedRouteReport({
+      businessId: businessId!,
+      provider: "meta",
+      reportType: "meta_breakdown",
+      searchParams,
+      payload,
+    });
+    return NextResponse.json(payload);
   }
 
   const assignedAccountIds = await fetchAssignedAccountIds(businessId!);
   if (assignedAccountIds.length === 0) {
-    return NextResponse.json({
+    const payload = {
       status: "no_accounts_assigned",
       age: [],
       location: [],
@@ -260,7 +290,15 @@ export async function GET(request: NextRequest) {
       budget: { campaign: [], adset: [] },
       audience: { available: false, reason: "Audience type classification unavailable." },
       products: { available: false, reason: "Catalog product breakdown unavailable for current setup." },
-    } satisfies MetaBreakdownsResponse);
+    } satisfies MetaBreakdownsResponse;
+    await setCachedRouteReport({
+      businessId: businessId!,
+      provider: "meta",
+      reportType: "meta_breakdown",
+      searchParams,
+      payload,
+    });
+    return NextResponse.json(payload);
   }
 
   const ageRows: BreakdownInsightRow[] = [];
@@ -330,7 +368,7 @@ export async function GET(request: NextRequest) {
     spend: row.spend,
   }));
 
-  return NextResponse.json({
+  const payload = {
     status: "ok",
     age: ageAgg,
     location: countryAgg,
@@ -349,6 +387,13 @@ export async function GET(request: NextRequest) {
       reason:
         "Top Products unavailable: product-level catalog breakdown is not available from current Meta insights endpoint/tokens.",
     },
-  } satisfies MetaBreakdownsResponse);
+  } satisfies MetaBreakdownsResponse;
+  await setCachedRouteReport({
+    businessId: businessId!,
+    provider: "meta",
+    reportType: "meta_breakdown",
+    searchParams,
+    payload,
+  });
+  return NextResponse.json(payload);
 }
-

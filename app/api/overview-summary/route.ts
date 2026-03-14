@@ -2,14 +2,25 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { getBusinessCostModel } from "@/lib/business-cost-model";
 import {
+  GA4AuthError,
+  getAnalyticsOverviewData,
+} from "@/lib/analytics-overview";
+import {
   resolveGa4AnalyticsContext,
   runGA4Report,
 } from "@/lib/google-analytics-reporting";
+import {
+  getIntegrationStatusByBusiness,
+  type IntegrationStatusResponse,
+} from "@/lib/integration-status";
 import { buildOverviewOpportunities } from "@/lib/overviewInsights";
+import {
+  getOverviewData,
+  type OverviewResponse as OverviewAggregateData,
+} from "@/lib/overview-service";
 import type {
   OverviewAttributionRow,
   BusinessCostModelData,
-  OverviewData,
   OverviewInsightCard,
   OverviewMetricCardData,
   OverviewMetricStatus,
@@ -19,21 +30,6 @@ import type {
 } from "@/src/types/models";
 
 type CompareMode = "none" | "previous_period";
-
-interface AnalyticsOverviewResponse {
-  propertyName?: string;
-  kpis?: {
-    sessions?: number;
-    engagedSessions?: number;
-    engagementRate?: number;
-    purchases?: number;
-    purchaseCvr?: number;
-    revenue?: number;
-    avgSessionDuration?: number;
-  };
-}
-
-type IntegrationStatusResponse = Record<string, boolean>;
 
 interface Ga4LtvSnapshot {
   revenuePerCustomer: number | null;
@@ -176,38 +172,18 @@ function buildUnavailableMetric(params: {
   };
 }
 
-function findPlatformRow(data: OverviewData | null, platform: string) {
+function findPlatformRow(data: OverviewAggregateData | null, platform: string) {
   return data?.platformEfficiency.find(
     (row) => row.platform.toLowerCase() === platform.toLowerCase()
   ) ?? null;
 }
 
-async function fetchInternalJson<T>(
-  request: NextRequest,
-  pathname: string,
-  searchParams: Record<string, string | null | undefined>
-): Promise<{ ok: true; data: T } | { ok: false; status: number; payload: unknown }> {
-  const url = new URL(pathname, request.nextUrl.origin);
-  for (const [key, value] of Object.entries(searchParams)) {
-    if (value) url.searchParams.set(key, value);
-  }
-  const response = await fetch(url.toString(), {
-    headers: {
-      Accept: "application/json",
-      cookie: request.headers.get("cookie") ?? "",
-    },
-    cache: "no-store",
-  });
-  const payload = await response.json().catch(() => null);
-  if (!response.ok) {
-    return { ok: false, status: response.status, payload };
-  }
-  return { ok: true, data: payload as T };
-}
-
-function mapInsights(data: OverviewData, ga4Connected: boolean): OverviewInsightCard[] {
+function mapInsights(data: OverviewAggregateData, ga4Connected: boolean): OverviewInsightCard[] {
   return buildOverviewOpportunities({
-    data,
+    data: {
+      ...data,
+      platformBreakdown: [],
+    } as unknown as import("@/src/types/models").OverviewData,
     ga4Connected,
   }).map((item) => ({
     id: item.id,
@@ -219,7 +195,7 @@ function mapInsights(data: OverviewData, ga4Connected: boolean): OverviewInsight
 }
 
 function buildAttributionRows(
-  overview: OverviewData,
+  overview: OverviewAggregateData,
   integrationsStatus: IntegrationStatusResponse | null
 ): OverviewAttributionRow[] {
   const connectedProviders = ATTRIBUTION_PROVIDER_ORDER.filter(
@@ -250,8 +226,8 @@ function buildAttributionRows(
 }
 
 function buildPlatformSections(
-  current: OverviewData,
-  previous: OverviewData | null,
+  current: OverviewAggregateData,
+  previous: OverviewAggregateData | null,
   compareMode: CompareMode
 ): OverviewPlatformSection[] {
   return current.platformEfficiency.map((row) => {
@@ -436,61 +412,86 @@ export async function GET(request: NextRequest) {
       ? getPreviousWindow(resolvedStart, resolvedEnd)
       : { startDate: null, endDate: null };
 
+  const analyticsAccess = await requireBusinessAccess({
+    request,
+    businessId,
+    minRole: "collaborator",
+  });
+  const canReadAnalytics = !("error" in analyticsAccess);
+
   const [
     currentOverviewResult,
     previousOverviewResult,
     currentAnalyticsResult,
     previousAnalyticsResult,
     integrationsStatusResult,
-    costModel,
-  ] =
-    await Promise.all([
-      fetchInternalJson<OverviewData>(request, "/api/overview", {
-        businessId,
-        startDate: resolvedStart,
-        endDate: resolvedEnd,
-      }),
-      compareMode === "previous_period"
-        ? fetchInternalJson<OverviewData>(request, "/api/overview", {
-            businessId,
-            startDate: previousWindow.startDate,
-            endDate: previousWindow.endDate,
-          })
-        : Promise.resolve({ ok: false as const, status: 204, payload: null }),
-      fetchInternalJson<AnalyticsOverviewResponse>(request, "/api/analytics/overview", {
-        businessId,
-        startDate: resolvedStart,
-        endDate: resolvedEnd,
-      }),
-      compareMode === "previous_period"
-        ? fetchInternalJson<AnalyticsOverviewResponse>(request, "/api/analytics/overview", {
-            businessId,
-            startDate: previousWindow.startDate,
-            endDate: previousWindow.endDate,
-          })
-        : Promise.resolve({ ok: false as const, status: 204, payload: null }),
-      fetchInternalJson<IntegrationStatusResponse>(request, "/api/integrations/status", {
-        businessId,
-      }),
-      getBusinessCostModel(businessId),
-    ]);
+    costModelResult,
+  ] = await Promise.allSettled([
+    getOverviewData({
+      businessId,
+      startDate: resolvedStart,
+      endDate: resolvedEnd,
+    }),
+    compareMode === "previous_period" && previousWindow.startDate && previousWindow.endDate
+      ? getOverviewData({
+          businessId,
+          startDate: previousWindow.startDate,
+          endDate: previousWindow.endDate,
+        })
+      : Promise.resolve(null),
+    canReadAnalytics
+      ? getAnalyticsOverviewData({
+          businessId,
+          startDate: resolvedStart,
+          endDate: resolvedEnd,
+        })
+      : Promise.resolve(null),
+    canReadAnalytics && previousWindow.startDate && previousWindow.endDate
+      ? getAnalyticsOverviewData({
+          businessId,
+          startDate: previousWindow.startDate,
+          endDate: previousWindow.endDate,
+        })
+      : Promise.resolve(null),
+    getIntegrationStatusByBusiness(businessId),
+    getBusinessCostModel(businessId),
+  ]);
 
-  if (!currentOverviewResult.ok) {
+  if (currentOverviewResult.status === "rejected") {
     return NextResponse.json(
       {
         error: "overview_summary_upstream_failed",
         message: "Unable to load overview summary.",
-        details: currentOverviewResult.payload,
+        details:
+          currentOverviewResult.reason instanceof Error
+            ? currentOverviewResult.reason.message
+            : String(currentOverviewResult.reason),
       },
-      { status: currentOverviewResult.status >= 400 ? currentOverviewResult.status : 500 }
+      { status: 500 }
     );
   }
 
-  const currentOverview = currentOverviewResult.data;
-  const previousOverview = previousOverviewResult.ok ? previousOverviewResult.data : null;
-  const currentAnalytics = currentAnalyticsResult.ok ? currentAnalyticsResult.data : null;
-  const previousAnalytics = previousAnalyticsResult.ok ? previousAnalyticsResult.data : null;
-  const integrationsStatus = integrationsStatusResult.ok ? integrationsStatusResult.data : null;
+  const currentOverview = currentOverviewResult.value;
+  const previousOverview =
+    previousOverviewResult.status === "fulfilled" ? previousOverviewResult.value : null;
+  const currentAnalytics =
+    currentAnalyticsResult.status === "fulfilled"
+      ? currentAnalyticsResult.value
+      : currentAnalyticsResult.reason instanceof GA4AuthError
+        ? null
+        : null;
+  const previousAnalytics =
+    previousAnalyticsResult.status === "fulfilled"
+      ? previousAnalyticsResult.value
+      : previousAnalyticsResult.reason instanceof GA4AuthError
+        ? null
+        : null;
+  const integrationsStatus =
+    integrationsStatusResult.status === "fulfilled"
+      ? integrationsStatusResult.value
+      : null;
+  const costModel =
+    costModelResult.status === "fulfilled" ? costModelResult.value : null;
   const analyticsConnected = Boolean(currentAnalytics?.kpis);
   const shopifyConnected = Boolean(integrationsStatus?.shopify);
 

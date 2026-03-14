@@ -1,20 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
-import { isDemoBusiness } from "@/lib/business-mode.server";
-import { getDemoIntegrations } from "@/lib/demo-business";
-import { getIntegrationsByBusiness } from "@/lib/integrations";
-
-const PROVIDERS = [
-  "meta",
-  "google",
-  "tiktok",
-  "pinterest",
-  "snapchat",
-  "klaviyo",
-  "shopify",
-  "ga4",
-  "search_console",
-] as const;
+import { getIntegrationStatusByBusiness } from "@/lib/integration-status";
 
 export async function GET(request: NextRequest) {
   const businessId = request.nextUrl.searchParams.get("businessId");
@@ -33,18 +19,5 @@ export async function GET(request: NextRequest) {
   });
   if ("error" in access) return access.error;
 
-  const integrations = (await isDemoBusiness(businessId))
-    ? getDemoIntegrations()
-    : await getIntegrationsByBusiness(businessId);
-
-  const status = Object.fromEntries(
-    PROVIDERS.map((provider) => [
-      provider,
-      integrations.some(
-        (integration) => integration.provider === provider && integration.status === "connected"
-      ),
-    ])
-  );
-
-  return NextResponse.json(status);
+  return NextResponse.json(await getIntegrationStatusByBusiness(businessId));
 }

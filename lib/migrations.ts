@@ -257,6 +257,30 @@ export async function runMigrations(options?: {
     ON provider_account_snapshots (business_id)
   `;
 
+      // ── provider reporting snapshots table ─────────────────────────
+      await sql`
+    CREATE TABLE IF NOT EXISTS provider_reporting_snapshots (
+      id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      business_id    TEXT NOT NULL,
+      provider       TEXT NOT NULL,
+      report_type    TEXT NOT NULL,
+      date_range_key TEXT NOT NULL,
+      payload        JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+
+      await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_reporting_snapshots_lookup
+    ON provider_reporting_snapshots (business_id, provider, report_type, date_range_key)
+  `;
+
+      await sql`
+    CREATE INDEX IF NOT EXISTS idx_provider_reporting_snapshots_business
+    ON provider_reporting_snapshots (business_id, updated_at DESC)
+  `;
+
       // ── creative share snapshots table ──────────────────────────────
       await sql`
     CREATE TABLE IF NOT EXISTS creative_share_snapshots (

@@ -4,6 +4,7 @@ import { requireBusinessAccess } from "@/lib/access";
 import { getDemoGoogleAdsAssets } from "@/lib/demo-business";
 import { getGoogleAdsAssetsReport } from "@/lib/google-ads/reporting";
 import { parseGoogleAdsRequestParams } from "@/lib/google-ads-request-params";
+import { getCachedRouteReport, setCachedRouteReport } from "@/lib/route-report-cache";
 
 export async function GET(request: NextRequest) {
   const { businessId, accountId, dateRange, customStart, customEnd, debug } =
@@ -20,6 +21,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(getDemoGoogleAdsAssets());
   }
 
+  const cached = await getCachedRouteReport<Record<string, unknown>>({
+    businessId,
+    provider: "google_ads",
+    reportType: "google_ads_assets",
+    searchParams: request.nextUrl.searchParams,
+  });
+  if (cached) return NextResponse.json(cached);
+
   const report = await getGoogleAdsAssetsReport({
     businessId,
     accountId,
@@ -29,11 +38,19 @@ export async function GET(request: NextRequest) {
     debug,
   });
 
-  return NextResponse.json({
+  const payload = {
     data: report.rows,
     rows: report.rows,
     count: report.rows.length,
     summary: report.summary,
     meta: report.meta,
+  };
+  await setCachedRouteReport({
+    businessId,
+    provider: "google_ads",
+    reportType: "google_ads_assets",
+    searchParams: request.nextUrl.searchParams,
+    payload,
   });
+  return NextResponse.json(payload);
 }
