@@ -1,6 +1,7 @@
 "use client";
 
 import type { OverviewData } from "@/src/types/models";
+import { MetricSourceLogos } from "@/components/overview/MetricSourceLogos";
 import { MetricLoadingCard } from "@/components/states/MetricLoadingCard";
 import { MetricUnavailableCard } from "@/components/states/MetricUnavailableCard";
 
@@ -94,9 +95,9 @@ function renderMetricCard(
     <article key={label} className="rounded-2xl border bg-card p-5 shadow-sm">
       <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
       <p className="mt-2 text-3xl font-semibold tracking-tight">{value}</p>
-      <p className="mt-3 text-xs text-muted-foreground">
-        {sourceMeta?.label ? `Source: ${sourceMeta.label}` : "Synced from backend"}
-      </p>
+      <div className="mt-3 flex justify-end">
+        <MetricSourceLogos sourceKey={sourceMeta?.source} sourceLabel={sourceMeta?.label} />
+      </div>
     </article>
   );
 }

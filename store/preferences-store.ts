@@ -10,10 +10,16 @@ interface PreferencesState {
   metricDisplay: MetricDisplayPreference;
   tableDensity: TableDensityPreference;
   heatmapEnabled: boolean;
+  overviewPinsByContext: Record<string, string[]>;
   setDefaultDateRange: (value: ReportDateRangePreference) => void;
   setMetricDisplay: (value: MetricDisplayPreference) => void;
   setTableDensity: (value: TableDensityPreference) => void;
   setHeatmapEnabled: (value: boolean) => void;
+  setOverviewPins: (contextKey: string, metrics: string[]) => void;
+  pinOverviewMetric: (contextKey: string, metricKey: string) => void;
+  unpinOverviewMetric: (contextKey: string, metricKey: string) => void;
+  replaceOverviewMetric: (contextKey: string, currentMetricKey: string, nextMetricKey: string) => void;
+  moveOverviewMetric: (contextKey: string, metricKey: string, direction: "left" | "right") => void;
 }
 
 export const usePreferencesStore = create<PreferencesState>()(
@@ -23,10 +29,67 @@ export const usePreferencesStore = create<PreferencesState>()(
       metricDisplay: "detailed",
       tableDensity: "comfortable",
       heatmapEnabled: true,
+      overviewPinsByContext: {},
       setDefaultDateRange: (value) => set({ defaultDateRange: value }),
       setMetricDisplay: (value) => set({ metricDisplay: value }),
       setTableDensity: (value) => set({ tableDensity: value }),
       setHeatmapEnabled: (value) => set({ heatmapEnabled: value }),
+      setOverviewPins: (contextKey, metrics) =>
+        set((state) => ({
+          overviewPinsByContext: {
+            ...state.overviewPinsByContext,
+            [contextKey]: Array.from(new Set(metrics)),
+          },
+        })),
+      pinOverviewMetric: (contextKey, metricKey) =>
+        set((state) => {
+          const current = state.overviewPinsByContext[contextKey] ?? [];
+          if (current.includes(metricKey)) return state;
+          return {
+            overviewPinsByContext: {
+              ...state.overviewPinsByContext,
+              [contextKey]: [...current, metricKey],
+            },
+          };
+        }),
+      unpinOverviewMetric: (contextKey, metricKey) =>
+        set((state) => ({
+          overviewPinsByContext: {
+            ...state.overviewPinsByContext,
+            [contextKey]: (state.overviewPinsByContext[contextKey] ?? []).filter(
+              (entry) => entry !== metricKey
+            ),
+          },
+        })),
+      replaceOverviewMetric: (contextKey, currentMetricKey, nextMetricKey) =>
+        set((state) => {
+          const current = state.overviewPinsByContext[contextKey] ?? [];
+          const next = current.map((entry) =>
+            entry === currentMetricKey ? nextMetricKey : entry
+          );
+          return {
+            overviewPinsByContext: {
+              ...state.overviewPinsByContext,
+              [contextKey]: Array.from(new Set(next)),
+            },
+          };
+        }),
+      moveOverviewMetric: (contextKey, metricKey, direction) =>
+        set((state) => {
+          const current = [...(state.overviewPinsByContext[contextKey] ?? [])];
+          const index = current.indexOf(metricKey);
+          if (index === -1) return state;
+          const targetIndex = direction === "left" ? index - 1 : index + 1;
+          if (targetIndex < 0 || targetIndex >= current.length) return state;
+          const [removed] = current.splice(index, 1);
+          current.splice(targetIndex, 0, removed);
+          return {
+            overviewPinsByContext: {
+              ...state.overviewPinsByContext,
+              [contextKey]: current,
+            },
+          };
+        }),
     }),
     {
       name: "omniads-preferences-store-v1",

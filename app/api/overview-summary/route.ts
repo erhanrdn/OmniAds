@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
+import { getBusinessCostModel } from "@/lib/business-cost-model";
+import {
+  resolveGa4AnalyticsContext,
+  runGA4Report,
+} from "@/lib/google-analytics-reporting";
 import { buildOverviewOpportunities } from "@/lib/overviewInsights";
 import type {
   OverviewAttributionRow,
+  BusinessCostModelData,
   OverviewData,
   OverviewInsightCard,
   OverviewMetricCardData,
@@ -26,6 +32,34 @@ interface AnalyticsOverviewResponse {
     avgSessionDuration?: number;
   };
 }
+
+type IntegrationStatusResponse = Record<string, boolean>;
+
+interface Ga4LtvSnapshot {
+  revenuePerCustomer: number | null;
+  repeatPurchaseRate: number | null;
+  averageCustomerLtv: number | null;
+  ltvToCac: number | null;
+  customerLifespan: number | null;
+}
+
+const ATTRIBUTION_PROVIDER_LABELS: Record<string, string> = {
+  meta: "Meta Ads",
+  google: "Google Ads",
+  tiktok: "TikTok Ads",
+  pinterest: "Pinterest",
+  snapchat: "Snapchat",
+  klaviyo: "Klaviyo",
+};
+
+const ATTRIBUTION_PROVIDER_ORDER = [
+  "meta",
+  "google",
+  "tiktok",
+  "pinterest",
+  "snapchat",
+  "klaviyo",
+] as const;
 
 function toIsoDate(date: Date) {
   return date.toISOString().slice(0, 10);
@@ -184,17 +218,35 @@ function mapInsights(data: OverviewData, ga4Connected: boolean): OverviewInsight
   }));
 }
 
-function buildAttributionRows(overview: OverviewData): OverviewAttributionRow[] {
-  return overview.platformEfficiency.map((row) => ({
-    channel: row.platform,
-    spend: row.spend,
-    revenue: row.revenue,
-    roas: row.roas,
-    conversions: row.purchases,
-    clicks: null,
-    ctr: null,
-    source: "Overview aggregation",
-  }));
+function buildAttributionRows(
+  overview: OverviewData,
+  integrationsStatus: IntegrationStatusResponse | null
+): OverviewAttributionRow[] {
+  const connectedProviders = ATTRIBUTION_PROVIDER_ORDER.filter(
+    (provider) => integrationsStatus?.[provider]
+  );
+  const metricsByProvider = new Map(
+    overview.platformEfficiency.map((row) => [row.platform.toLowerCase(), row])
+  );
+
+  return connectedProviders.map((provider) => {
+    const metrics = metricsByProvider.get(provider) ?? null;
+    const spend = metrics?.spend ?? 0;
+    const revenue = metrics?.revenue ?? 0;
+    const conversions = metrics?.purchases ?? 0;
+    return {
+      channel: ATTRIBUTION_PROVIDER_LABELS[provider],
+      spend,
+      revenue,
+      roas: metrics?.roas ?? 0,
+      conversions,
+      clicks: 0,
+      ctr: 0,
+      cpa: metrics?.cpa ?? 0,
+      aov: conversions > 0 ? Number((revenue / conversions).toFixed(2)) : 0,
+      source: metrics ? "Overview aggregation" : "Connected platform with no synced attribution data",
+    };
+  });
 }
 
 function buildPlatformSections(
@@ -270,6 +322,92 @@ function buildPlatformSections(
   });
 }
 
+function toCostModelData(
+  costModel: Awaited<ReturnType<typeof getBusinessCostModel>>
+): BusinessCostModelData | null {
+  if (!costModel) return null;
+  return {
+    cogsPercent: costModel.cogsPercent,
+    shippingPercent: costModel.shippingPercent,
+    feePercent: costModel.feePercent,
+    fixedCost: costModel.fixedCost,
+    updatedAt: costModel.updatedAt,
+  };
+}
+
+async function getGa4LtvSnapshot(params: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+  spend: number;
+}): Promise<Ga4LtvSnapshot | null> {
+  try {
+    const context = await resolveGa4AnalyticsContext(params.businessId, {
+      requireProperty: true,
+    });
+    if (!context.propertyId) return null;
+
+    const report = await runGA4Report({
+      propertyId: context.propertyId,
+      accessToken: context.accessToken,
+      dateRanges: [{ startDate: params.startDate, endDate: params.endDate }],
+      metrics: [
+        { name: "purchaseRevenue" },
+        { name: "totalPurchasers" },
+        { name: "firstTimePurchasers" },
+        { name: "transactionsPerPurchaser" },
+        { name: "averagePurchaseRevenuePerPayingUser" },
+      ],
+    });
+
+    const totalsRow = report.totals?.[0] ?? report.rows[0];
+    if (!totalsRow) return null;
+
+    const purchaseRevenue = parseFloat(totalsRow.metrics[0] ?? "0") || 0;
+    const totalPurchasers = parseFloat(totalsRow.metrics[1] ?? "0") || 0;
+    const firstTimePurchasers = parseFloat(totalsRow.metrics[2] ?? "0") || 0;
+    const averageRevenuePerPayingUser = parseFloat(totalsRow.metrics[4] ?? "0") || 0;
+
+    const revenuePerCustomer =
+      totalPurchasers > 0 ? Number((purchaseRevenue / totalPurchasers).toFixed(2)) : null;
+    const repeatPurchaseRate =
+      totalPurchasers > 0
+        ? Number(
+            (
+              (Math.max(totalPurchasers - firstTimePurchasers, 0) / totalPurchasers) *
+              100
+            ).toFixed(1)
+          )
+        : null;
+    const averageCustomerLtv =
+      averageRevenuePerPayingUser > 0
+        ? Number(averageRevenuePerPayingUser.toFixed(2))
+        : revenuePerCustomer;
+    const cac =
+      params.spend > 0 && firstTimePurchasers > 0
+        ? Number((params.spend / firstTimePurchasers).toFixed(2))
+        : null;
+    const ltvToCac =
+      averageCustomerLtv !== null && cac !== null && cac > 0
+        ? Number((averageCustomerLtv / cac).toFixed(2))
+        : null;
+
+    return {
+      revenuePerCustomer,
+      repeatPurchaseRate,
+      averageCustomerLtv,
+      ltvToCac,
+      customerLifespan: null,
+    };
+  } catch (error) {
+    console.warn("[overview-summary] ga4_ltv_snapshot_unavailable", {
+      businessId: params.businessId,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
 export async function GET(request: NextRequest) {
   const businessId = request.nextUrl.searchParams.get("businessId");
   const startDate = request.nextUrl.searchParams.get("startDate");
@@ -298,7 +436,14 @@ export async function GET(request: NextRequest) {
       ? getPreviousWindow(resolvedStart, resolvedEnd)
       : { startDate: null, endDate: null };
 
-  const [currentOverviewResult, previousOverviewResult, currentAnalyticsResult, previousAnalyticsResult] =
+  const [
+    currentOverviewResult,
+    previousOverviewResult,
+    currentAnalyticsResult,
+    previousAnalyticsResult,
+    integrationsStatusResult,
+    costModel,
+  ] =
     await Promise.all([
       fetchInternalJson<OverviewData>(request, "/api/overview", {
         businessId,
@@ -324,6 +469,10 @@ export async function GET(request: NextRequest) {
             endDate: previousWindow.endDate,
           })
         : Promise.resolve({ ok: false as const, status: 204, payload: null }),
+      fetchInternalJson<IntegrationStatusResponse>(request, "/api/integrations/status", {
+        businessId,
+      }),
+      getBusinessCostModel(businessId),
     ]);
 
   if (!currentOverviewResult.ok) {
@@ -341,7 +490,9 @@ export async function GET(request: NextRequest) {
   const previousOverview = previousOverviewResult.ok ? previousOverviewResult.data : null;
   const currentAnalytics = currentAnalyticsResult.ok ? currentAnalyticsResult.data : null;
   const previousAnalytics = previousAnalyticsResult.ok ? previousAnalyticsResult.data : null;
+  const integrationsStatus = integrationsStatusResult.ok ? integrationsStatusResult.data : null;
   const analyticsConnected = Boolean(currentAnalytics?.kpis);
+  const shopifyConnected = Boolean(integrationsStatus?.shopify);
 
   const revenueSource = currentOverview.kpiSources?.revenue;
   const purchasesSource = currentOverview.kpiSources?.purchases;
@@ -359,6 +510,24 @@ export async function GET(request: NextRequest) {
   const engagementRatePrevious = previousAnalytics?.kpis?.engagementRate ?? null;
   const avgSessionDurationCurrent = currentAnalytics?.kpis?.avgSessionDuration ?? null;
   const avgSessionDurationPrevious = previousAnalytics?.kpis?.avgSessionDuration ?? null;
+  const [currentGa4Ltv, previousGa4Ltv] = await Promise.all([
+    analyticsConnected
+      ? getGa4LtvSnapshot({
+          businessId,
+          startDate: resolvedStart,
+          endDate: resolvedEnd,
+          spend: currentOverview.kpis.spend ?? 0,
+        })
+      : Promise.resolve(null),
+    analyticsConnected && previousWindow.startDate && previousWindow.endDate
+      ? getGa4LtvSnapshot({
+          businessId,
+          startDate: previousWindow.startDate,
+          endDate: previousWindow.endDate,
+          spend: previousOverview?.kpis.spend ?? 0,
+        })
+      : Promise.resolve(null),
+  ]);
 
   const pins: OverviewMetricCardData[] = [
     buildMetricCard({
@@ -511,39 +680,134 @@ export async function GET(request: NextRequest) {
     }),
   ];
 
+  const ltvSourceLabel = "GA4 fallback";
+  const ltvEstimatedHelper = shopifyConnected
+    ? "Estimated from GA4 because Shopify lifecycle data is unavailable for this view"
+    : "Estimated from GA4";
+  const ltvUnavailableHelper = "Connect Shopify or enrich GA4 lifecycle data";
   const ltv: OverviewMetricCardData[] = [
-    buildUnavailableMetric({
-      id: "ltv-average",
-      title: "Average Customer LTV",
-      helperText: "Requires customer lifecycle model",
-      unit: "currency",
-    }),
-    buildUnavailableMetric({
-      id: "ltv-cac",
-      title: "LTV / CAC",
-      helperText: "Requires customer lifecycle model",
-      unit: "ratio",
-    }),
-    buildUnavailableMetric({
-      id: "ltv-repeat-rate",
-      title: "Repeat Purchase Rate",
-      helperText: "Requires customer lifecycle model",
-      unit: "percent",
-    }),
+    currentGa4Ltv?.averageCustomerLtv !== null && currentGa4Ltv?.averageCustomerLtv !== undefined
+      ? buildMetricCard({
+          id: "ltv-average",
+          title: "Average Customer LTV",
+          helperText: ltvEstimatedHelper,
+          value: currentGa4Ltv.averageCustomerLtv,
+          previousValue: previousGa4Ltv?.averageCustomerLtv ?? null,
+          unit: "currency",
+          sourceKey: "ga4_fallback",
+          sourceLabel: ltvSourceLabel,
+          compareMode,
+        })
+      : buildUnavailableMetric({
+          id: "ltv-average",
+          title: "Average Customer LTV",
+          helperText: ltvUnavailableHelper,
+          unit: "currency",
+        }),
+    currentGa4Ltv?.ltvToCac !== null && currentGa4Ltv?.ltvToCac !== undefined
+      ? buildMetricCard({
+          id: "ltv-cac",
+          title: "LTV / CAC",
+          helperText: ltvEstimatedHelper,
+          value: currentGa4Ltv.ltvToCac,
+          previousValue: previousGa4Ltv?.ltvToCac ?? null,
+          unit: "ratio",
+          sourceKey: "ga4_fallback",
+          sourceLabel: ltvSourceLabel,
+          compareMode,
+        })
+      : buildUnavailableMetric({
+          id: "ltv-cac",
+          title: "LTV / CAC",
+          helperText: ltvUnavailableHelper,
+          unit: "ratio",
+        }),
+    currentGa4Ltv?.repeatPurchaseRate !== null && currentGa4Ltv?.repeatPurchaseRate !== undefined
+      ? buildMetricCard({
+          id: "ltv-repeat-rate",
+          title: "Repeat Purchase Rate",
+          helperText: ltvEstimatedHelper,
+          value: currentGa4Ltv.repeatPurchaseRate,
+          previousValue: previousGa4Ltv?.repeatPurchaseRate ?? null,
+          unit: "percent",
+          sourceKey: "ga4_fallback",
+          sourceLabel: ltvSourceLabel,
+          compareMode,
+        })
+      : buildUnavailableMetric({
+          id: "ltv-repeat-rate",
+          title: "Repeat Purchase Rate",
+          helperText: ltvUnavailableHelper,
+          unit: "percent",
+        }),
     buildUnavailableMetric({
       id: "ltv-lifespan",
       title: "Customer Lifespan",
-      helperText: "Requires customer lifecycle model",
+      helperText: "Connect Shopify or enrich GA4 lifecycle data",
       unit: "count",
     }),
-    buildUnavailableMetric({
-      id: "ltv-revenue-per-customer",
-      title: "Revenue per Customer",
-      helperText: "Requires customer lifecycle model",
-      unit: "currency",
-    }),
+    currentGa4Ltv?.revenuePerCustomer !== null && currentGa4Ltv?.revenuePerCustomer !== undefined
+      ? buildMetricCard({
+          id: "ltv-revenue-per-customer",
+          title: "Revenue per Customer",
+          helperText: ltvEstimatedHelper,
+          value: currentGa4Ltv.revenuePerCustomer,
+          previousValue: previousGa4Ltv?.revenuePerCustomer ?? null,
+          unit: "currency",
+          sourceKey: "ga4_fallback",
+          sourceLabel: ltvSourceLabel,
+          compareMode,
+        })
+      : buildUnavailableMetric({
+          id: "ltv-revenue-per-customer",
+          title: "Revenue per Customer",
+          helperText: ltvUnavailableHelper,
+          unit: "currency",
+        }),
   ];
 
+  const costModelData = toCostModelData(costModel);
+  const cogsValue =
+    costModelData && currentOverview.kpis.revenue
+      ? Number((currentOverview.kpis.revenue * costModelData.cogsPercent).toFixed(2))
+      : null;
+  const shippingValue =
+    costModelData && currentOverview.kpis.revenue
+      ? Number((currentOverview.kpis.revenue * costModelData.shippingPercent).toFixed(2))
+      : null;
+  const feeValue =
+    costModelData && currentOverview.kpis.revenue
+      ? Number((currentOverview.kpis.revenue * costModelData.feePercent).toFixed(2))
+      : null;
+  const variableCosts =
+    cogsValue !== null && shippingValue !== null && feeValue !== null
+      ? Number(
+          (
+            currentOverview.kpis.spend +
+            cogsValue +
+            shippingValue +
+            feeValue
+          ).toFixed(2)
+        )
+      : null;
+  const totalExpensesValue =
+    variableCosts !== null && costModelData
+      ? Number((variableCosts + costModelData.fixedCost).toFixed(2))
+      : null;
+  const netProfitValue =
+    totalExpensesValue !== null
+      ? Number((currentOverview.kpis.revenue - totalExpensesValue).toFixed(2))
+      : null;
+  const contributionMarginValue =
+    variableCosts !== null && currentOverview.kpis.revenue > 0
+      ? Number(
+          (
+            ((currentOverview.kpis.revenue - variableCosts) / currentOverview.kpis.revenue) *
+            100
+          ).toFixed(1)
+        )
+      : null;
+  const costModelMissingHelper = "Set cost model";
   const expenses: OverviewMetricCardData[] = [
     buildMetricCard({
       id: "expenses-ad-spend",
@@ -557,25 +821,70 @@ export async function GET(request: NextRequest) {
       compareMode,
       icon: "wallet",
     }),
-    buildUnavailableMetric({
-      id: "expenses-cogs",
-      title: "COGS",
-      helperText: "Connect expense or product cost data",
-      unit: "currency",
-    }),
-    buildUnavailableMetric({
-      id: "expenses-shipping",
-      title: "Shipping",
-      helperText: "Connect expense or fulfillment data",
-      unit: "currency",
-    }),
-    buildUnavailableMetric({
-      id: "expenses-fees",
-      title: "Fees",
-      helperText: "Connect expense data",
-      unit: "currency",
-    }),
-    buildMetricCard({
+    costModelData
+      ? buildMetricCard({
+          id: "expenses-cogs",
+          title: "COGS",
+          subtitle: `${Math.round(costModelData.cogsPercent * 100)}% of revenue`,
+          value: cogsValue,
+          unit: "currency",
+          sourceKey: "manual_cost_model",
+          sourceLabel: "Manual cost model",
+          compareMode,
+        })
+      : buildUnavailableMetric({
+          id: "expenses-cogs",
+          title: "COGS",
+          helperText: costModelMissingHelper,
+          unit: "currency",
+        }),
+    costModelData
+      ? buildMetricCard({
+          id: "expenses-shipping",
+          title: "Shipping",
+          subtitle: `${Math.round(costModelData.shippingPercent * 100)}% of revenue`,
+          value: shippingValue,
+          unit: "currency",
+          sourceKey: "manual_cost_model",
+          sourceLabel: "Manual cost model",
+          compareMode,
+        })
+      : buildUnavailableMetric({
+          id: "expenses-shipping",
+          title: "Shipping",
+          helperText: costModelMissingHelper,
+          unit: "currency",
+        }),
+    costModelData
+      ? buildMetricCard({
+          id: "expenses-fees",
+          title: "Fees",
+          subtitle: `${Math.round(costModelData.feePercent * 100)}% of revenue`,
+          value: feeValue,
+          unit: "currency",
+          sourceKey: "manual_cost_model",
+          sourceLabel: "Manual cost model",
+          compareMode,
+        })
+      : buildUnavailableMetric({
+          id: "expenses-fees",
+          title: "Fees",
+          helperText: costModelMissingHelper,
+          unit: "currency",
+        }),
+    costModelData
+      ? buildMetricCard({
+          id: "expenses-total-tracked",
+          title: "Total Expenses",
+          subtitle: "Ad spend + modeled costs",
+          value: totalExpensesValue,
+          unit: "currency",
+          sourceKey: "manual_cost_model",
+          sourceLabel: "Ad platforms + manual cost model",
+          compareMode,
+          icon: "badge-dollar-sign",
+        })
+      : buildMetricCard({
       id: "expenses-total-tracked",
       title: "Total Expenses",
       subtitle: "Tracked expenses",
@@ -584,22 +893,42 @@ export async function GET(request: NextRequest) {
       unit: "currency",
       sourceKey: "ad_platforms",
       sourceLabel: "Ad spend only",
-      helperText: "Only ad spend is tracked in this view today",
+      helperText: "Set cost model to include COGS, shipping, fees, and fixed cost",
       compareMode,
       icon: "badge-dollar-sign",
     }),
-    buildUnavailableMetric({
-      id: "expenses-net-profit",
-      title: "Net Profit",
-      helperText: "Requires expenses beyond ad spend",
-      unit: "currency",
-    }),
-    buildUnavailableMetric({
-      id: "expenses-contribution-margin",
-      title: "Contribution Margin",
-      helperText: "Requires expenses beyond ad spend",
-      unit: "percent",
-    }),
+    costModelData
+      ? buildMetricCard({
+          id: "expenses-net-profit",
+          title: "Net Profit",
+          value: netProfitValue,
+          unit: "currency",
+          sourceKey: "manual_cost_model",
+          sourceLabel: "Revenue + ad spend + manual cost model",
+          compareMode,
+        })
+      : buildUnavailableMetric({
+          id: "expenses-net-profit",
+          title: "Net Profit",
+          helperText: costModelMissingHelper,
+          unit: "currency",
+        }),
+    costModelData
+      ? buildMetricCard({
+          id: "expenses-contribution-margin",
+          title: "Contribution Margin",
+          value: contributionMarginValue,
+          unit: "percent",
+          sourceKey: "manual_cost_model",
+          sourceLabel: "Revenue + variable costs",
+          compareMode,
+        })
+      : buildUnavailableMetric({
+          id: "expenses-contribution-margin",
+          title: "Contribution Margin",
+          helperText: costModelMissingHelper,
+          unit: "percent",
+        }),
     buildMetricCard({
       id: "expenses-mer",
       title: "MER",
@@ -741,10 +1070,14 @@ export async function GET(request: NextRequest) {
     },
     pins,
     storeMetrics,
-    attribution: buildAttributionRows(currentOverview),
+    attribution: buildAttributionRows(currentOverview, integrationsStatus),
     ltv,
     platforms: buildPlatformSections(currentOverview, previousOverview, compareMode),
     expenses,
+    costModel: {
+      configured: Boolean(costModelData),
+      values: costModelData,
+    },
     customMetrics,
     webAnalytics,
     insights: mapInsights(currentOverview, analyticsConnected),

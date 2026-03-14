@@ -1,4 +1,5 @@
 import {
+  BusinessCostModelData,
   DateRange,
   IntegrationConnection,
   IntegrationStatus,
@@ -1034,6 +1035,95 @@ export async function getOverviewSummary(
   }
 
   return data as OverviewSummaryData;
+}
+
+export async function getMetricTrend(
+  businessId: string,
+  params: DateRange & { metric: string }
+): Promise<{ metric: string; data: Array<{ date: string; value: number }> }> {
+  const url = new URL(
+    "/api/metrics/trend",
+    typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"
+  );
+  url.searchParams.set("businessId", businessId);
+  url.searchParams.set("metric", params.metric);
+  url.searchParams.set("startDate", params.startDate);
+  url.searchParams.set("endDate", params.endDate);
+
+  const response = await fetch(url.toString(), {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+    },
+  });
+
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const message =
+      payload && typeof payload === "object" && "message" in payload
+        ? String(payload.message)
+        : `Metric Trend API request failed with status ${response.status}`;
+    throw new Error(message);
+  }
+
+  if (!payload || typeof payload !== "object" || !Array.isArray(payload.data)) {
+    throw new Error("Metric Trend API returned an invalid payload.");
+  }
+
+  return payload as { metric: string; data: Array<{ date: string; value: number }> };
+}
+
+export async function getBusinessCostModel(
+  businessId: string
+): Promise<BusinessCostModelData | null> {
+  const url = new URL(
+    "/api/business-cost-model",
+    typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"
+  );
+  url.searchParams.set("businessId", businessId);
+
+  const response = await fetch(url.toString(), {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  });
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const message =
+      payload && typeof payload === "object" && "message" in payload
+        ? String(payload.message)
+        : `Business Cost Model request failed with status ${response.status}`;
+    throw new Error(message);
+  }
+
+  return (payload?.costModel ?? null) as BusinessCostModelData | null;
+}
+
+export async function upsertBusinessCostModel(input: {
+  businessId: string;
+  cogsPercent: number;
+  shippingPercent: number;
+  feePercent: number;
+  fixedCost: number;
+}): Promise<BusinessCostModelData> {
+  const response = await fetch("/api/business-cost-model", {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message =
+      payload && typeof payload === "object" && "message" in payload
+        ? String(payload.message)
+        : `Business Cost Model update failed with status ${response.status}`;
+    throw new Error(message);
+  }
+  return payload.costModel as BusinessCostModelData;
 }
 
 export async function getPlatformTable(

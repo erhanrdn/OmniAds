@@ -85,6 +85,7 @@ export async function DELETE(
 
   await sql`DELETE FROM memberships WHERE business_id = ${businessId}`;
   await sql`DELETE FROM invites WHERE business_id = ${businessId}`;
+  await sql`DELETE FROM business_cost_models WHERE business_id = ${businessId}`;
   await sql`DELETE FROM provider_account_assignments WHERE business_id = ${businessId}`;
   await sql`DELETE FROM integrations WHERE business_id = ${businessId}`;
   await sql`

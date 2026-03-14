@@ -360,6 +360,26 @@ export async function runMigrations(options?: {
     ON shopify_subscriptions (shop_id)
   `;
 
+      // ── business cost models table ──────────────────────────────────
+      await sql`
+    CREATE TABLE IF NOT EXISTS business_cost_models (
+      id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      business_id       UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+      cogs_percent      DOUBLE PRECISION NOT NULL DEFAULT 0,
+      shipping_percent  DOUBLE PRECISION NOT NULL DEFAULT 0,
+      fee_percent       DOUBLE PRECISION NOT NULL DEFAULT 0,
+      fixed_cost        DOUBLE PRECISION NOT NULL DEFAULT 0,
+      created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (business_id)
+    )
+  `;
+
+      await sql`
+    CREATE INDEX IF NOT EXISTS idx_business_cost_models_business_id
+    ON business_cost_models (business_id)
+  `;
+
       // ── AI daily insights table ─────────────────────────────────────
       await sql`
     CREATE TABLE IF NOT EXISTS ai_daily_insights (

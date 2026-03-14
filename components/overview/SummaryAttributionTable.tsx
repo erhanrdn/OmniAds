@@ -11,7 +11,16 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 
-type SortKey = "channel" | "spend" | "revenue" | "roas" | "conversions" | "clicks" | "ctr";
+type SortKey =
+  | "channel"
+  | "spend"
+  | "revenue"
+  | "roas"
+  | "conversions"
+  | "clicks"
+  | "ctr"
+  | "cpa"
+  | "aov";
 
 const DEFAULT_COLUMNS: Array<{ key: SortKey; label: string }> = [
   { key: "channel", label: "Channel" },
@@ -19,8 +28,13 @@ const DEFAULT_COLUMNS: Array<{ key: SortKey; label: string }> = [
   { key: "revenue", label: "Revenue" },
   { key: "roas", label: "ROAS" },
   { key: "conversions", label: "Conversions" },
+];
+
+const OPTIONAL_COLUMNS: Array<{ key: SortKey; label: string }> = [
   { key: "clicks", label: "Clicks" },
   { key: "ctr", label: "CTR" },
+  { key: "cpa", label: "CPA" },
+  { key: "aov", label: "AOV" },
 ];
 
 export function SummaryAttributionTable({
@@ -63,7 +77,7 @@ export function SummaryAttributionTable({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-52">
-            {DEFAULT_COLUMNS.map((column) => (
+            {[...DEFAULT_COLUMNS, ...OPTIONAL_COLUMNS].map((column) => (
               <DropdownMenuCheckboxItem
                 key={column.key}
                 checked={visibleColumns.includes(column.key)}
@@ -86,7 +100,9 @@ export function SummaryAttributionTable({
         <table className="min-w-full text-sm">
           <thead className="bg-slate-50 text-left text-xs uppercase tracking-[0.16em] text-slate-500">
             <tr>
-              {DEFAULT_COLUMNS.filter((column) => visibleColumns.includes(column.key)).map((column) => (
+              {[...DEFAULT_COLUMNS, ...OPTIONAL_COLUMNS]
+                .filter((column) => visibleColumns.includes(column.key))
+                .map((column) => (
                 <th key={column.key} className="px-4 py-3 font-medium">
                   <button
                     type="button"
@@ -131,6 +147,12 @@ export function SummaryAttributionTable({
                 ) : null}
                 {visibleColumns.includes("ctr") ? (
                   <td className="px-4 py-3 text-slate-600">{formatPercent(row.ctr)}</td>
+                ) : null}
+                {visibleColumns.includes("cpa") ? (
+                  <td className="px-4 py-3 text-slate-600">{formatCurrency(row.cpa, currencySymbol)}</td>
+                ) : null}
+                {visibleColumns.includes("aov") ? (
+                  <td className="px-4 py-3 text-slate-600">{formatCurrency(row.aov, currencySymbol)}</td>
                 ) : null}
               </tr>
             ))}

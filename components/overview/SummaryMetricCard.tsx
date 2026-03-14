@@ -14,6 +14,7 @@ import {
   Wallet,
   type LucideIcon,
 } from "lucide-react";
+import { MetricSourceLogos } from "@/components/overview/MetricSourceLogos";
 import { cn } from "@/lib/utils";
 
 const ICONS: Record<string, LucideIcon> = {
@@ -33,9 +34,11 @@ const ICONS: Record<string, LucideIcon> = {
 export function SummaryMetricCard({
   metric,
   currencySymbol,
+  businessId,
 }: {
   metric: OverviewMetricCardData;
   currencySymbol: string;
+  businessId?: string;
 }) {
   const Icon = metric.icon ? ICONS[metric.icon] : null;
   const tone =
@@ -91,9 +94,15 @@ export function SummaryMetricCard({
         <MiniSparkline data={metric.sparklineData} tone={metric.trendDirection} />
       </div>
 
-      <div className="mt-4 space-y-1 text-xs">
-        <p className="text-slate-500">Source: {metric.dataSource.label}</p>
-        {metric.helperText ? <p className="text-slate-500">{metric.helperText}</p> : null}
+      <div className="mt-4 flex items-end justify-between gap-3">
+        <div className="space-y-1 text-xs">
+          {metric.helperText ? <p className="text-slate-500">{metric.helperText}</p> : null}
+        </div>
+        <MetricSourceLogos
+          sourceKey={metric.dataSource.key}
+          sourceLabel={metric.dataSource.label}
+          businessId={businessId}
+        />
       </div>
     </article>
   );

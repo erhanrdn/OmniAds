@@ -12,15 +12,18 @@ import { SummaryMetricCard } from "@/components/overview/SummaryMetricCard";
 import { SummarySection } from "@/components/overview/SummarySection";
 import { SummaryAttributionTable } from "@/components/overview/SummaryAttributionTable";
 import { SummaryInsightsGrid } from "@/components/overview/SummaryInsightsGrid";
+import { PinsSection } from "@/components/overview/PinsSection";
+import { CostModelSheet } from "@/components/overview/CostModelSheet";
 import {
   DateRangePicker,
   DateRangeValue,
   DEFAULT_DATE_RANGE,
   getPresetDates,
 } from "@/components/date-range/DateRangePicker";
+import { buildOverviewMetricCatalog } from "@/lib/overview-metric-catalog";
 import { useAppStore } from "@/store/app-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
-import { getOverviewSummary } from "@/src/services";
+import { getOverviewSummary, upsertBusinessCostModel } from "@/src/services";
 import type { OverviewMetricCardData } from "@/src/types/models";
 
 type CurrencyCode = "USD" | "EUR" | "GBP";
@@ -29,6 +32,7 @@ type CompareMode = "none" | "previous_period";
 export default function OverviewPage() {
   const businesses = useAppStore((state) => state.businesses);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
+  const workspaceOwnerId = useAppStore((state) => state.workspaceOwnerId);
   const businessId = selectedBusinessId ?? "";
   const activeBusiness = useMemo(
     () => businesses.find((business) => business.id === selectedBusinessId) ?? null,
@@ -40,6 +44,7 @@ export default function OverviewPage() {
   const [currency, setCurrency] = useState<CurrencyCode>((activeBusiness?.currency as CurrencyCode) ?? "USD");
   const [accountFilter, setAccountFilter] = useState("all_accounts");
   const [campaignType, setCampaignType] = useState("all_campaign_types");
+  const [costModelSheetOpen, setCostModelSheetOpen] = useState(false);
 
   const ensureBusiness = useIntegrationsStore((state) => state.ensureBusiness);
 
@@ -82,6 +87,8 @@ export default function OverviewPage() {
 
   const summary = query.data;
   const symbol = currencySymbol(currency);
+  const metricCatalog = useMemo(() => buildOverviewMetricCatalog(summary), [summary]);
+  const pinContextKey = `${workspaceOwnerId ?? "anonymous"}:${businessId}`;
 
   return (
     <div className="space-y-6 pb-10">
@@ -168,20 +175,40 @@ export default function OverviewPage() {
         title="Pins"
         description="Pinned top-line metrics for the selected business and period."
       >
-        <MetricGrid metrics={summary?.pins ?? []} currencySymbol={symbol} loading={query.isLoading} />
+        {query.isLoading ? (
+          <MetricGrid metrics={[]} currencySymbol={symbol} loading businessId={businessId} />
+        ) : (
+          <PinsSection
+            businessId={businessId}
+            contextKey={pinContextKey}
+            startDate={startDate}
+            endDate={endDate}
+            currencySymbol={symbol}
+            catalog={metricCatalog}
+            onViewBreakdown={() => {
+              window.location.hash = "#attribution";
+            }}
+          />
+        )}
       </SummarySection>
 
       <SummarySection
         title="Store Metrics"
         description="Store health and ecommerce output with Shopify-first, GA4-fallback sourcing."
       >
-        <MetricGrid metrics={summary?.storeMetrics ?? []} currencySymbol={symbol} loading={query.isLoading} />
+        <MetricGrid
+          metrics={summary?.storeMetrics ?? []}
+          currencySymbol={symbol}
+          loading={query.isLoading}
+          businessId={businessId}
+        />
       </SummarySection>
 
       <SummarySection
         title="Attribution"
         description="Channel-level spend and revenue attribution from synced platform data."
       >
+        <div id="attribution" />
         {query.isLoading ? (
           <LoadingTablePlaceholder />
         ) : (
@@ -193,7 +220,12 @@ export default function OverviewPage() {
         title="LTV"
         description="Lifecycle and value metrics. Unavailable cards stay visible until the customer model is ready."
       >
-        <MetricGrid metrics={summary?.ltv ?? []} currencySymbol={symbol} loading={query.isLoading} />
+        <MetricGrid
+          metrics={summary?.ltv ?? []}
+          currencySymbol={symbol}
+          loading={query.isLoading}
+          businessId={businessId}
+        />
       </SummarySection>
 
       {(summary?.platforms ?? []).map((platform) => (
@@ -202,29 +234,58 @@ export default function OverviewPage() {
           title={platform.title}
           description={`Mini dashboard for ${platform.title} performance.`}
         >
-          <MetricGrid metrics={platform.metrics} currencySymbol={symbol} loading={query.isLoading} />
+          <MetricGrid
+            metrics={platform.metrics}
+            currencySymbol={symbol}
+            loading={query.isLoading}
+            businessId={businessId}
+          />
         </SummarySection>
       ))}
 
       <SummarySection
         title="Expenses"
         description="Tracked expense coverage with explicit unavailable states where financial modeling is not yet connected."
+        action={
+          <Button
+            variant={summary?.costModel.configured ? "outline" : "default"}
+            className="rounded-xl"
+            onClick={() => setCostModelSheetOpen(true)}
+          >
+            {summary?.costModel.configured ? "Edit cost model" : "Set cost model"}
+          </Button>
+        }
       >
-        <MetricGrid metrics={summary?.expenses ?? []} currencySymbol={symbol} loading={query.isLoading} />
+        <MetricGrid
+          metrics={summary?.expenses ?? []}
+          currencySymbol={symbol}
+          loading={query.isLoading}
+          businessId={businessId}
+        />
       </SummarySection>
 
       <SummarySection
         title="Custom Metrics"
         description="Reusable business metrics that behave like standard summary cards."
       >
-        <MetricGrid metrics={summary?.customMetrics ?? []} currencySymbol={symbol} loading={query.isLoading} />
+        <MetricGrid
+          metrics={summary?.customMetrics ?? []}
+          currencySymbol={symbol}
+          loading={query.isLoading}
+          businessId={businessId}
+        />
       </SummarySection>
 
       <SummarySection
         title="Web Analytics"
         description="GA4-backed behavior metrics and ecommerce session health."
       >
-        <MetricGrid metrics={summary?.webAnalytics ?? []} currencySymbol={symbol} loading={query.isLoading} />
+        <MetricGrid
+          metrics={summary?.webAnalytics ?? []}
+          currencySymbol={symbol}
+          loading={query.isLoading}
+          businessId={businessId}
+        />
       </SummarySection>
 
       <SummarySection
@@ -233,6 +294,19 @@ export default function OverviewPage() {
       >
         {query.isLoading ? <LoadingInsightPlaceholder /> : <SummaryInsightsGrid insights={summary?.insights ?? []} />}
       </SummarySection>
+
+      <CostModelSheet
+        open={costModelSheetOpen}
+        onOpenChange={setCostModelSheetOpen}
+        initialValue={summary?.costModel.values ?? null}
+        onSave={async (input) => {
+          await upsertBusinessCostModel({
+            businessId,
+            ...input,
+          });
+          await query.refetch();
+        }}
+      />
     </div>
   );
 }
@@ -241,10 +315,12 @@ function MetricGrid({
   metrics,
   currencySymbol,
   loading,
+  businessId,
 }: {
   metrics: OverviewMetricCardData[];
   currencySymbol: string;
   loading: boolean;
+  businessId: string;
 }) {
   if (loading) {
     return (
@@ -262,7 +338,12 @@ function MetricGrid({
   return (
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
       {metrics.map((metric) => (
-        <SummaryMetricCard key={metric.id} metric={metric} currencySymbol={currencySymbol} />
+        <SummaryMetricCard
+          key={metric.id}
+          metric={metric}
+          currencySymbol={currencySymbol}
+          businessId={businessId}
+        />
       ))}
     </div>
   );

@@ -223,6 +223,13 @@ export interface OverviewMetricCardData {
   icon?: string;
 }
 
+export interface OverviewMetricCatalogEntry {
+  key: string;
+  title: string;
+  metric: OverviewMetricCardData;
+  section: string;
+}
+
 export interface OverviewAttributionRow {
   channel: string;
   spend: number | null;
@@ -231,6 +238,8 @@ export interface OverviewAttributionRow {
   conversions: number | null;
   clicks: number | null;
   ctr: number | null;
+  cpa: number | null;
+  aov: number | null;
   source: string;
 }
 
@@ -249,6 +258,14 @@ export interface OverviewInsightCard {
   status: "active" | "informational";
 }
 
+export interface BusinessCostModelData {
+  cogsPercent: number;
+  shippingPercent: number;
+  feePercent: number;
+  fixedCost: number;
+  updatedAt: string | null;
+}
+
 export interface OverviewSummaryData {
   businessId: string;
   dateRange: { startDate: string; endDate: string };
@@ -263,6 +280,10 @@ export interface OverviewSummaryData {
   ltv: OverviewMetricCardData[];
   platforms: OverviewPlatformSection[];
   expenses: OverviewMetricCardData[];
+  costModel: {
+    configured: boolean;
+    values: BusinessCostModelData | null;
+  };
   customMetrics: OverviewMetricCardData[];
   webAnalytics: OverviewMetricCardData[];
   insights: OverviewInsightCard[];
