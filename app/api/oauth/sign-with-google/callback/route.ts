@@ -178,6 +178,7 @@ export async function GET(request: NextRequest) {
       err instanceof Error
         ? err.message
         : "Unknown error during Google sign-in.";
+    console.error("[Google Sign-In Error]", message, err);
     logServerAuthEvent("google_login_error", { message });
     return errorRedirect("An error occurred during Google sign-in.");
   }
