@@ -443,6 +443,24 @@ export async function runMigrations(options?: {
     await migrationsPromise;
   } catch (error) {
     migrationsPromise = null;
+
+    // Concurrent serverless instances can race on CREATE TABLE/INDEX IF NOT EXISTS,
+    // causing 23505 on pg_type or pg_class system catalogs. This means the object
+    // was already created by another instance — safe to treat as success.
+    const isSystemCatalogRace =
+      error instanceof Error &&
+      "code" in error &&
+      (error as { code: string }).code === "23505" &&
+      "table" in error &&
+      typeof (error as { table: string }).table === "string" &&
+      ["pg_type", "pg_class"].includes((error as { table: string }).table);
+
+    if (isSystemCatalogRace) {
+      migrationsCompleted = true;
+      logStartupEvent("migrations_completed_after_race", { reason });
+      return;
+    }
+
     logStartupError("migrations_failed", error, { reason, force });
     throw error;
   }
