@@ -25,7 +25,7 @@ export interface SessionContext {
 
 const AUTH_COOKIE_NAME = "omniads_session";
 const SESSION_TTL_DAYS = 14;
-const SESSION_TOKEN_PATTERN = /^[a-f0-9]{32}$/i;
+const SESSION_TOKEN_PATTERN = /^[a-f0-9]{64}$/i;
 
 function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
