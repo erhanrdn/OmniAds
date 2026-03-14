@@ -12,7 +12,9 @@ import { SHOPIFY_CONFIG } from "@/lib/oauth/shopify-config";
  */
 export async function verifyShopifyWebhook(
   request: NextRequest,
-): Promise<{ valid: true; body: string } | { valid: false; response: NextResponse }> {
+): Promise<
+  { valid: true; body: string } | { valid: false; response: NextResponse }
+> {
   const hmacHeader = request.headers.get("x-shopify-hmac-sha256");
 
   if (!hmacHeader) {

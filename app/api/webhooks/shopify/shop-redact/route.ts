@@ -35,12 +35,12 @@ export async function POST(request: NextRequest) {
   const sql = getDb();
 
   // Delete integration records for this Shopify shop across all businesses
-  const deleted = await sql`
+  const deleted = (await sql`
     DELETE FROM integrations
     WHERE provider = 'shopify'
       AND provider_account_id = ${shopDomain}
     RETURNING business_id
-  ` as Record<string, unknown>[];
+  `) as Record<string, unknown>[];
 
   // Delete related Shopify subscription records
   await sql`

@@ -26,11 +26,15 @@ const PUBLIC_API_PREFIXES = [
 ];
 
 function isPublicPage(pathname: string): boolean {
-  return PUBLIC_PAGE_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+  return PUBLIC_PAGE_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
 }
 
 function isPublicApi(pathname: string): boolean {
-  return PUBLIC_API_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+  return PUBLIC_API_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
 }
 
 export function proxy(request: NextRequest) {
@@ -44,13 +48,18 @@ export function proxy(request: NextRequest) {
     if (!hasSession) {
       return NextResponse.json(
         { error: "auth_error", message: "Authentication required." },
-        { status: 401 }
+        { status: 401 },
       );
     }
     return NextResponse.next();
   }
 
-  if (pathname !== "/" && !isPublicPage(pathname) && !pathname.startsWith("/_next") && !pathname.includes(".")) {
+  if (
+    pathname !== "/" &&
+    !isPublicPage(pathname) &&
+    !pathname.startsWith("/_next") &&
+    !pathname.includes(".")
+  ) {
     if (!hasSession) {
       const loginUrl = new URL("/login", request.url);
       const nextPath = `${pathname}${request.nextUrl.search}`;
