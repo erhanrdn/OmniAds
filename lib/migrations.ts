@@ -16,17 +16,26 @@ function getMigrationTimeoutMs() {
   const raw = process.env.MIGRATION_TIMEOUT_MS?.trim();
   if (!raw) return DEFAULT_MIGRATION_TIMEOUT_MS;
   const parsed = Number(raw);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_MIGRATION_TIMEOUT_MS;
+  return Number.isFinite(parsed) && parsed > 0
+    ? parsed
+    : DEFAULT_MIGRATION_TIMEOUT_MS;
 }
 
-function withMigrationTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+function withMigrationTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+): Promise<T> {
   return Promise.race([
     promise,
     new Promise<T>((_, reject) => {
       const timer = setTimeout(() => {
-        reject(new Error(`Database migrations timed out after ${timeoutMs}ms.`));
+        reject(
+          new Error(`Database migrations timed out after ${timeoutMs}ms.`),
+        );
       }, timeoutMs);
-      promise.finally(() => clearTimeout(timer)).catch(() => clearTimeout(timer));
+      promise
+        .finally(() => clearTimeout(timer))
+        .catch(() => clearTimeout(timer));
     }),
   ]);
 }
@@ -35,7 +44,10 @@ function withMigrationTimeout<T>(promise: Promise<T>, timeoutMs: number): Promis
  * Run all migrations in order.
  * Each migration is idempotent (IF NOT EXISTS).
  */
-export async function runMigrations(options?: { force?: boolean; reason?: string }) {
+export async function runMigrations(options?: {
+  force?: boolean;
+  reason?: string;
+}) {
   const force = options?.force ?? false;
   const reason = options?.reason ?? "unspecified";
 
@@ -59,11 +71,12 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
   const timeoutMs = getMigrationTimeoutMs();
   logStartupEvent("migrations_started", { reason, force, timeoutMs });
 
-  migrationsPromise = withMigrationTimeout((async () => {
-  const sql = getDb();
+  migrationsPromise = withMigrationTimeout(
+    (async () => {
+      const sql = getDb();
 
-  // ── auth core tables ───────────────────────────────────────────────
-  await sql`
+      // ── auth core tables ───────────────────────────────────────────────
+      await sql`
     CREATE TABLE IF NOT EXISTS users (
       id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       name           TEXT NOT NULL,
@@ -74,7 +87,7 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
     )
   `;
 
-  await sql`
+      await sql`
     CREATE TABLE IF NOT EXISTS businesses (
       id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       name        TEXT NOT NULL,
@@ -88,12 +101,12 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
       created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `;
-  await sql`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS is_demo_business BOOLEAN NOT NULL DEFAULT FALSE`;
-  await sql`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS industry TEXT`;
-  await sql`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS platform TEXT`;
-  await sql`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb`;
+      await sql`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS is_demo_business BOOLEAN NOT NULL DEFAULT FALSE`;
+      await sql`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS industry TEXT`;
+      await sql`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS platform TEXT`;
+      await sql`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb`;
 
-  await sql`
+      await sql`
     CREATE TABLE IF NOT EXISTS memberships (
       id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -106,7 +119,7 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
     )
   `;
 
-  await sql`
+      await sql`
     CREATE TABLE IF NOT EXISTS invites (
       id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       email        TEXT NOT NULL,
@@ -121,22 +134,22 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
     )
   `;
 
-  // keep old databases compatible
-  await sql`ALTER TABLE invites ADD COLUMN IF NOT EXISTS invited_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL`;
-  await sql`ALTER TABLE invites ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '7 days')`;
-  await sql`ALTER TABLE invites ADD COLUMN IF NOT EXISTS accepted_at TIMESTAMPTZ`;
+      // keep old databases compatible
+      await sql`ALTER TABLE invites ADD COLUMN IF NOT EXISTS invited_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL`;
+      await sql`ALTER TABLE invites ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '7 days')`;
+      await sql`ALTER TABLE invites ADD COLUMN IF NOT EXISTS accepted_at TIMESTAMPTZ`;
 
-  await sql`
+      await sql`
     CREATE INDEX IF NOT EXISTS idx_invites_business_id
     ON invites (business_id)
   `;
 
-  await sql`
+      await sql`
     CREATE INDEX IF NOT EXISTS idx_invites_email
     ON invites (email)
   `;
 
-  await sql`
+      await sql`
     CREATE TABLE IF NOT EXISTS sessions (
       id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       user_id             UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -147,13 +160,13 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
     )
   `;
 
-  await sql`
+      await sql`
     CREATE INDEX IF NOT EXISTS idx_sessions_user_id
     ON sessions (user_id)
   `;
 
-  // ── integrations table ────────────────────────────────────────────
-  await sql`
+      // ── integrations table ────────────────────────────────────────────
+      await sql`
     CREATE TABLE IF NOT EXISTS integrations (
       id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       business_id     TEXT        NOT NULL,
@@ -181,23 +194,23 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
     )
   `;
 
-  // unique: one integration per provider per business
-  await sql`
+      // unique: one integration per provider per business
+      await sql`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_integrations_biz_provider
     ON integrations (business_id, provider)
   `;
 
-  // extensible metadata for provider-specific data (e.g. GA4 property info)
-  await sql`ALTER TABLE integrations ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb`;
+      // extensible metadata for provider-specific data (e.g. GA4 property info)
+      await sql`ALTER TABLE integrations ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb`;
 
-  // fast lookup by business
-  await sql`
+      // fast lookup by business
+      await sql`
     CREATE INDEX IF NOT EXISTS idx_integrations_business_id
     ON integrations (business_id)
   `;
 
-  // ── provider account assignments table ───────────────────────────
-  await sql`
+      // ── provider account assignments table ───────────────────────────
+      await sql`
     CREATE TABLE IF NOT EXISTS provider_account_assignments (
       id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       business_id  TEXT NOT NULL,
@@ -208,13 +221,13 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
     )
   `;
 
-  await sql`
+      await sql`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_account_assignments_biz_provider
     ON provider_account_assignments (business_id, provider)
   `;
 
-  // ── provider account snapshots table ────────────────────────────
-  await sql`
+      // ── provider account snapshots table ────────────────────────────
+      await sql`
     CREATE TABLE IF NOT EXISTS provider_account_snapshots (
       id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       business_id      TEXT NOT NULL,
@@ -228,18 +241,18 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
     )
   `;
 
-  await sql`
+      await sql`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_account_snapshots_biz_provider
     ON provider_account_snapshots (business_id, provider)
   `;
 
-  await sql`
+      await sql`
     CREATE INDEX IF NOT EXISTS idx_provider_account_snapshots_business
     ON provider_account_snapshots (business_id)
   `;
 
-  // ── creative share snapshots table ──────────────────────────────
-  await sql`
+      // ── creative share snapshots table ──────────────────────────────
+      await sql`
     CREATE TABLE IF NOT EXISTS creative_share_snapshots (
       id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       token       TEXT NOT NULL UNIQUE,
@@ -249,13 +262,13 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
     )
   `;
 
-  await sql`
+      await sql`
     CREATE INDEX IF NOT EXISTS idx_creative_share_snapshots_token
     ON creative_share_snapshots (token)
   `;
 
-  // ── creative media cache table ──────────────────────────────────
-  await sql`
+      // ── creative media cache table ──────────────────────────────────
+      await sql`
     CREATE TABLE IF NOT EXISTS creative_media_cache (
       id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       creative_id     TEXT NOT NULL,
@@ -276,28 +289,28 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
     )
   `;
 
-  await sql`
+      await sql`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_creative_media_cache_creative_biz
     ON creative_media_cache (creative_id, business_id, provider)
   `;
 
-  await sql`
+      await sql`
     CREATE INDEX IF NOT EXISTS idx_creative_media_cache_status
     ON creative_media_cache (status)
   `;
 
-  await sql`
+      await sql`
     CREATE INDEX IF NOT EXISTS idx_creative_media_cache_storage_key
     ON creative_media_cache (storage_key)
   `;
 
-  await sql`
+      await sql`
     CREATE INDEX IF NOT EXISTS idx_creative_media_cache_expires
     ON creative_media_cache (expires_at)
   `;
 
-  // ── meta creatives snapshots table ───────────────────────────────
-  await sql`
+      // ── meta creatives snapshots table ───────────────────────────────
+      await sql`
     CREATE TABLE IF NOT EXISTS meta_creatives_snapshots (
       id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       snapshot_key           TEXT NOT NULL UNIQUE,
@@ -319,18 +332,18 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
     )
   `;
 
-  await sql`
+      await sql`
     CREATE INDEX IF NOT EXISTS idx_meta_creatives_snapshots_business
     ON meta_creatives_snapshots (business_id, last_synced_at DESC)
   `;
 
-  await sql`
+      await sql`
     CREATE INDEX IF NOT EXISTS idx_meta_creatives_snapshots_refresh
     ON meta_creatives_snapshots (refresh_started_at)
   `;
 
-  // ── shopify billing subscriptions table ─────────────────────────
-  await sql`
+      // ── shopify billing subscriptions table ─────────────────────────
+      await sql`
     CREATE TABLE IF NOT EXISTS shopify_subscriptions (
       id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       shop_id        TEXT NOT NULL UNIQUE,
@@ -342,13 +355,13 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
     )
   `;
 
-  await sql`
+      await sql`
     CREATE INDEX IF NOT EXISTS idx_shopify_subscriptions_shop_id
     ON shopify_subscriptions (shop_id)
   `;
 
-  // ── AI daily insights table ─────────────────────────────────────
-  await sql`
+      // ── AI daily insights table ─────────────────────────────────────
+      await sql`
     CREATE TABLE IF NOT EXISTS ai_daily_insights (
       id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       business_id       TEXT NOT NULL,
@@ -364,18 +377,20 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
     )
   `;
 
-  await sql`
+      await sql`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_daily_insights_biz_date
     ON ai_daily_insights (business_id, insight_date)
   `;
 
-  await sql`
+      await sql`
     CREATE INDEX IF NOT EXISTS idx_ai_daily_insights_business
     ON ai_daily_insights (business_id, insight_date DESC)
   `;
-    migrationsCompleted = true;
-    logStartupEvent("migrations_completed", { reason });
-  })(), timeoutMs);
+      migrationsCompleted = true;
+      logStartupEvent("migrations_completed", { reason });
+    })(),
+    timeoutMs,
+  );
 
   try {
     await migrationsPromise;

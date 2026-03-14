@@ -21,27 +21,18 @@ export async function POST(request: NextRequest) {
   }
 
   const authHeader = request.headers.get("authorization");
-  const token = authHeader?.startsWith("Bearer ")
-    ? authHeader.slice(7)
-    : null;
+  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
 
   if (token !== cronSecret) {
-    return NextResponse.json(
-      { error: "Unauthorized." },
-      { status: 401 },
-    );
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
 
   try {
     const result = await runDailyInsights();
     return NextResponse.json({ ok: true, result });
   } catch (err) {
-    const message =
-      err instanceof Error ? err.message : "Unknown error";
+    const message = err instanceof Error ? err.message : "Unknown error";
     console.error("[ai-cron] Fatal error:", message);
-    return NextResponse.json(
-      { ok: false, error: message },
-      { status: 500 },
-    );
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }

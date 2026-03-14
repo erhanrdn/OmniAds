@@ -12,9 +12,7 @@ export async function GET() {
     const response = await openai.chat.completions.create({
       model: "gpt-4.1-nano",
       max_tokens: 20,
-      messages: [
-        { role: "user", content: "Reply with exactly: OK" },
-      ],
+      messages: [{ role: "user", content: "Reply with exactly: OK" }],
     });
 
     const content = response.choices[0]?.message?.content ?? "";
@@ -26,8 +24,7 @@ export async function GET() {
       reply: content.trim(),
     });
   } catch (err) {
-    const message =
-      err instanceof Error ? err.message : "Unknown error";
+    const message = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json(
       { ok: false, message, error: "openai_connection_failed" },
       { status: 500 },

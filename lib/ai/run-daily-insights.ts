@@ -43,9 +43,7 @@ async function buildBusinessSummary(
     WHERE business_id = ${business.id} AND status = 'connected'
   `) as Array<{ provider: string; status: string }>;
 
-  const connectedProviders = new Set(
-    integrations.map((i) => i.provider),
-  );
+  const connectedProviders = new Set(integrations.map((i) => i.provider));
 
   const channels: BusinessMetricsSummary["channels"] = {};
   let totalSpend = 0;
@@ -123,9 +121,7 @@ async function buildBusinessSummary(
     }>;
 
     if (Array.isArray(creatives)) {
-      const withSpend = creatives.filter(
-        (c) => (c.spend ?? 0) > 0 && c.name,
-      );
+      const withSpend = creatives.filter((c) => (c.spend ?? 0) > 0 && c.name);
       const sorted = [...withSpend].sort(
         (a, b) => (b.roas ?? 0) - (a.roas ?? 0),
       );
@@ -200,7 +196,10 @@ export async function runDailyInsights(): Promise<DailyInsightRunResult> {
       const summary = await buildBusinessSummary(business, today);
 
       // Skip businesses with no data (no spend at all)
-      if (summary.metrics.totalSpend === 0 && Object.keys(summary.channels).length === 0) {
+      if (
+        summary.metrics.totalSpend === 0 &&
+        Object.keys(summary.channels).length === 0
+      ) {
         result.skipped++;
         console.log(
           `[ai-daily] Skipping ${business.name} (${business.id}) — no metrics data`,
@@ -222,8 +221,7 @@ export async function runDailyInsights(): Promise<DailyInsightRunResult> {
         `[ai-daily] Generated insight for ${business.name} (${business.id})`,
       );
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Unknown error";
+      const message = err instanceof Error ? err.message : "Unknown error";
       result.failed++;
       result.errors.push({ businessId: business.id, error: message });
 

@@ -97,14 +97,18 @@ function buildUserPrompt(metrics: BusinessMetricsSummary): string {
   if (metrics.topWinners.length > 0) {
     parts.push("", "=== Top Winners (by ROAS) ===");
     for (const w of metrics.topWinners.slice(0, 5)) {
-      parts.push(`${w.name}: roas=${w.roas.toFixed(2)}, spend=${w.spend.toFixed(2)}`);
+      parts.push(
+        `${w.name}: roas=${w.roas.toFixed(2)}, spend=${w.spend.toFixed(2)}`,
+      );
     }
   }
 
   if (metrics.topLosers.length > 0) {
     parts.push("", "=== Top Losers (by ROAS) ===");
     for (const l of metrics.topLosers.slice(0, 5)) {
-      parts.push(`${l.name}: roas=${l.roas.toFixed(2)}, spend=${l.spend.toFixed(2)}`);
+      parts.push(
+        `${l.name}: roas=${l.roas.toFixed(2)}, spend=${l.spend.toFixed(2)}`,
+      );
     }
   }
 
