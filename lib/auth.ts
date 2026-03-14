@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "crypto";
+import { createHash, randomBytes, randomUUID } from "crypto";
 import bcrypt from "bcryptjs";
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
@@ -39,11 +39,16 @@ export async function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, 12);
 }
 
-export async function verifyPassword(password: string, hash: string): Promise<boolean> {
+export async function verifyPassword(
+  password: string,
+  hash: string,
+): Promise<boolean> {
   return bcrypt.compare(password, hash);
 }
 
-async function findSessionByToken(rawToken: string): Promise<SessionContext | null> {
+async function findSessionByToken(
+  rawToken: string,
+): Promise<SessionContext | null> {
   if (!SESSION_TOKEN_PATTERN.test(rawToken)) {
     return null;
   }
@@ -64,17 +69,15 @@ async function findSessionByToken(rawToken: string): Promise<SessionContext | nu
     JOIN users u ON u.id = s.user_id
     WHERE s.token_hash = ${tokenHash}
     LIMIT 1
-  `) as Array<
-    | {
-        session_id: string;
-        active_business_id: string | null;
-        expires_at: string;
-        user_id: string;
-        user_name: string;
-        user_email: string;
-        user_avatar: string | null;
-      }
-  >;
+  `) as Array<{
+    session_id: string;
+    active_business_id: string | null;
+    expires_at: string;
+    user_id: string;
+    user_name: string;
+    user_email: string;
+    user_avatar: string | null;
+  }>;
   const row = rows[0];
   if (!row) return null;
 
@@ -97,7 +100,9 @@ async function findSessionByToken(rawToken: string): Promise<SessionContext | nu
   };
 }
 
-export async function getSessionFromRequest(request: NextRequest): Promise<SessionContext | null> {
+export async function getSessionFromRequest(
+  request: NextRequest,
+): Promise<SessionContext | null> {
   const token = request.cookies.get(AUTH_COOKIE_NAME)?.value;
   if (!token) return null;
   return findSessionByToken(token);
@@ -115,19 +120,52 @@ export async function createSession(input: {
 }): Promise<{ token: string; sessionId: string; expiresAt: Date }> {
   await runMigrations({ reason: "auth_create_session" });
   const sql = getDb();
-  const token = randomUUID().replace(/-/g, "");
-  const tokenHash = hashToken(token);
   const expiresAt = sessionExpiryDate();
-  const rows = (await sql`
-    INSERT INTO sessions (user_id, token_hash, active_business_id, expires_at)
-    VALUES (${input.userId}, ${tokenHash}, ${input.activeBusinessId ?? null}, ${expiresAt.toISOString()})
-    RETURNING id
-  `) as Array<{ id: string }>;
-  const sessionId = rows[0]?.id ?? "";
-  return { token, sessionId, expiresAt };
+
+  // Retry up to 3 times in case of an astronomically rare hash collision
+  const MAX_ATTEMPTS = 3;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const token = randomBytes(32).toString("hex");
+    const tokenHash = hashToken(token);
+
+    try {
+      const rows = (await sql`
+        INSERT INTO sessions (user_id, token_hash, active_business_id, expires_at)
+        VALUES (${input.userId}, ${tokenHash}, ${input.activeBusinessId ?? null}, ${expiresAt.toISOString()})
+        RETURNING id
+      `) as Array<{ id: string }>;
+      const sessionId = rows[0]?.id ?? "";
+      console.log("[auth] session created", {
+        userId: input.userId,
+        sessionId,
+        attempt,
+      });
+      return { token, sessionId, expiresAt };
+    } catch (err: unknown) {
+      const isUniqueViolation =
+        err instanceof Error &&
+        "code" in err &&
+        (err as { code: string }).code === "23505";
+      if (isUniqueViolation && attempt < MAX_ATTEMPTS) {
+        console.warn("[auth] session token collision, retrying", {
+          userId: input.userId,
+          attempt,
+        });
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  // Unreachable, but satisfies TypeScript
+  throw new Error("Failed to create session after maximum attempts.");
 }
 
-export function attachSessionCookie(response: NextResponse, token: string, expiresAt: Date) {
+export function attachSessionCookie(
+  response: NextResponse,
+  token: string,
+  expiresAt: Date,
+) {
   response.cookies.set(AUTH_COOKIE_NAME, token, {
     httpOnly: true,
     sameSite: "lax",
@@ -137,7 +175,9 @@ export function attachSessionCookie(response: NextResponse, token: string, expir
   });
 }
 
-export async function destroySessionByRequest(request: NextRequest): Promise<void> {
+export async function destroySessionByRequest(
+  request: NextRequest,
+): Promise<void> {
   const token = request.cookies.get(AUTH_COOKIE_NAME)?.value;
   if (!token) return;
   await runMigrations({ reason: "auth_destroy_session" });
@@ -155,7 +195,10 @@ export function clearSessionCookie(response: NextResponse) {
   });
 }
 
-export async function setSessionActiveBusiness(sessionId: string, businessId: string | null): Promise<void> {
+export async function setSessionActiveBusiness(
+  sessionId: string,
+  businessId: string | null,
+): Promise<void> {
   await runMigrations({ reason: "auth_set_active_business" });
   const sql = getDb();
   await sql`UPDATE sessions SET active_business_id = ${businessId} WHERE id = ${sessionId}`;

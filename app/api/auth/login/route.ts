@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
     logServerAuthEvent("login_rejected_invalid_payload", { email });
     return NextResponse.json(
       { error: "invalid_payload", message: "Email and password are required." },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -28,7 +28,23 @@ export async function POST(request: NextRequest) {
     logServerAuthEvent("login_rejected_unknown_user", { email });
     return NextResponse.json(
       { error: "invalid_credentials", message: "Invalid email or password." },
-      { status: 401 }
+      { status: 401 },
+    );
+  }
+
+  // Google-only accounts have no password — tell user to use Google sign-in
+  if (!user.password_hash) {
+    logServerAuthEvent("login_rejected_google_only_user", {
+      email,
+      userId: user.id,
+    });
+    return NextResponse.json(
+      {
+        error: "google_only",
+        message:
+          'This account uses Google sign-in. Please use the "Sign in with Google" button.',
+      },
+      { status: 401 },
     );
   }
 
@@ -40,11 +56,14 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json(
       { error: "invalid_credentials", message: "Invalid email or password." },
-      { status: 401 }
+      { status: 401 },
     );
   }
 
-  const businesses = scopeBusinessesForUser(user.email, await listUserBusinesses(user.id));
+  const businesses = scopeBusinessesForUser(
+    user.email,
+    await listUserBusinesses(user.id),
+  );
   if (isReviewerEmail(user.email) && businesses.length === 0) {
     logServerAuthEvent("login_rejected_reviewer_not_ready", {
       email: user.email,
@@ -55,7 +74,7 @@ export async function POST(request: NextRequest) {
         error: "reviewer_account_not_ready",
         message: "Reviewer account is not assigned to the demo workspace.",
       },
-      { status: 403 }
+      { status: 403 },
     );
   }
   const firstActiveBusiness =
@@ -71,11 +90,14 @@ export async function POST(request: NextRequest) {
     activeBusinessId: firstActiveBusiness,
   });
 
-  const response = NextResponse.json({
-    user: { id: user.id, name: user.name, email: user.email },
-    businesses,
-    activeBusinessId: firstActiveBusiness,
-  }, { headers: { "Cache-Control": "no-store, max-age=0", Vary: "Cookie" } });
+  const response = NextResponse.json(
+    {
+      user: { id: user.id, name: user.name, email: user.email },
+      businesses,
+      activeBusinessId: firstActiveBusiness,
+    },
+    { headers: { "Cache-Control": "no-store, max-age=0", Vary: "Cookie" } },
+  );
   attachSessionCookie(response, token, expiresAt);
   return response;
 }
