@@ -125,6 +125,14 @@ export function getDemoOverview() {
     businessId: DEMO_BUSINESS_ID,
     dateRange: { startDate: "2026-02-10", endDate: "2026-03-11" },
     kpis: { spend: 38240, revenue: 124860, roas: 3.27, purchases: 1420, cpa: 26.93, aov: 87.93 },
+    kpiSources: {
+      spend: { source: "ad_platforms", label: "Ad platforms" },
+      revenue: { source: "shopify", label: "Shopify" },
+      roas: { source: "shopify", label: "Shopify" },
+      purchases: { source: "shopify", label: "Shopify" },
+      cpa: { source: "ad_platforms", label: "Ad platforms" },
+      aov: { source: "shopify", label: "Shopify" },
+    },
     totals: {
       impressions: 2361800,
       clicks: 81220,

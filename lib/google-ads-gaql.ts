@@ -3,6 +3,7 @@ import { getIntegration, upsertIntegration } from "@/lib/integrations";
 import { refreshGoogleAccessToken } from "@/lib/google-ads-accounts";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { runProviderRequestWithGovernance } from "@/lib/provider-request-governance";
+import { createHash } from "node:crypto";
 
 interface GaqlSearchResult {
   results?: Array<{
@@ -63,6 +64,12 @@ export interface GoogleAdsAccountQueryFailure {
 }
 
 const GOOGLE_ADS_GAQL_TIMEOUT_MS = 10_000;
+
+function buildGaqlRequestType(customerId: string, query: string) {
+  const normalizedCustomerId = customerId.replace(/^customers\//, "");
+  const queryHash = createHash("sha1").update(query).digest("hex").slice(0, 12);
+  return `gaql:${normalizedCustomerId}:${queryHash}`;
+}
 
 export function getGoogleAdsFailureMessage(
   failures: GoogleAdsAccountQueryFailure[],
@@ -130,7 +137,7 @@ export async function executeGaqlQuery(params: {
   return runProviderRequestWithGovernance({
     provider: "google",
     businessId: params.businessId,
-    requestType: "gaql",
+    requestType: buildGaqlRequestType(params.customerId, params.query),
     execute: async () => {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), GOOGLE_ADS_GAQL_TIMEOUT_MS);

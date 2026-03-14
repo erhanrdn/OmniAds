@@ -81,10 +81,13 @@ export default function OverviewPage() {
     integrations?.snapchat?.status === "connected";
 
   const kpis = query.data?.kpis;
+  const kpiSources = query.data?.kpiSources;
   const kpiUnavailableReasons = resolveKpiUnavailableReasons({
     kpis,
+    kpiSources,
     adPlatformConnected,
     shopifyConnected,
+    ga4Connected,
   });
 
   // Map the picker's preset to TrendWindow for the trend panel
@@ -134,6 +137,7 @@ export default function OverviewPage() {
 
       <OverviewKpiGrid
         kpis={kpis}
+        kpiSources={kpiSources}
         isLoading={query.isLoading}
         currencySymbol={currencySymbol(currency)}
         unavailableReasons={kpiUnavailableReasons}
@@ -183,12 +187,26 @@ export default function OverviewPage() {
 
 function resolveKpiUnavailableReasons({
   kpis,
+  kpiSources,
   adPlatformConnected,
   shopifyConnected,
+  ga4Connected,
 }: {
   kpis: Partial<Record<OverviewKpiKey, number>> | undefined;
+  kpiSources:
+    | Partial<
+        Record<
+          OverviewKpiKey,
+          {
+            source: "shopify" | "ga4_fallback" | "ad_platforms" | "unavailable";
+            label: string;
+          }
+        >
+      >
+    | undefined;
   adPlatformConnected: boolean;
   shopifyConnected: boolean;
+  ga4Connected: boolean;
 }): Partial<Record<OverviewKpiKey, string>> {
   const reasons: Partial<Record<OverviewKpiKey, string>> = {};
 
@@ -208,12 +226,35 @@ function resolveKpiUnavailableReasons({
 
   for (const metric of commerceMetrics) {
     const value = kpis?.[metric];
-    if (!shopifyConnected) {
-      reasons[metric] = "Requires Shopify";
+    const source = kpiSources?.[metric]?.source;
+    if (source === "unavailable") {
+      reasons[metric] = shopifyConnected || ga4Connected
+        ? "Waiting for synced ecommerce data"
+        : "Connect Shopify or GA4";
       continue;
     }
     if (typeof value !== "number" || Number.isNaN(value)) {
-      reasons[metric] = "Waiting for synced data";
+      reasons[metric] = shopifyConnected || ga4Connected
+        ? "Waiting for synced ecommerce data"
+        : "Connect Shopify or GA4";
+    }
+  }
+
+  const roasSource = kpiSources?.roas?.source;
+  if (roasSource === "unavailable") {
+    reasons.roas = !adPlatformConnected
+      ? "Requires connected ad platforms"
+      : shopifyConnected || ga4Connected
+      ? "Waiting for synced ecommerce data"
+      : "Connect Shopify or GA4";
+  } else if (!reasons.roas) {
+    const roasValue = kpis?.roas;
+    if (typeof roasValue !== "number" || Number.isNaN(roasValue)) {
+      reasons.roas = !adPlatformConnected
+        ? "Requires connected ad platforms"
+        : shopifyConnected || ga4Connected
+        ? "Waiting for synced ecommerce data"
+        : "Connect Shopify or GA4";
     }
   }
 

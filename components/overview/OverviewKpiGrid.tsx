@@ -11,6 +11,7 @@ interface OverviewKpiGridProps {
   currencySymbol: string;
   isLoading?: boolean;
   unavailableReasons?: Partial<Record<KpiKey, string>>;
+  kpiSources?: OverviewData["kpiSources"];
 }
 
 export function OverviewKpiGrid({
@@ -18,6 +19,7 @@ export function OverviewKpiGrid({
   currencySymbol,
   isLoading = false,
   unavailableReasons,
+  kpiSources,
 }: OverviewKpiGridProps) {
   if (isLoading) {
     return (
@@ -32,18 +34,19 @@ export function OverviewKpiGrid({
   const u = unavailableReasons ?? {};
   return (
     <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-      {renderMetricCard("Spend", kpis?.spend, currencySymbol, "currency", u.spend)}
-      {renderMetricCard("Revenue", kpis?.revenue, currencySymbol, "currency", u.revenue)}
-      {renderMetricCard("ROAS", kpis?.roas, currencySymbol, "ratio", u.roas)}
+      {renderMetricCard("Spend", kpis?.spend, currencySymbol, "currency", u.spend, kpiSources?.spend)}
+      {renderMetricCard("Revenue", kpis?.revenue, currencySymbol, "currency", u.revenue, kpiSources?.revenue)}
+      {renderMetricCard("ROAS", kpis?.roas, currencySymbol, "ratio", u.roas, kpiSources?.roas)}
       {renderMetricCard(
         "Purchases",
         kpis?.purchases,
         currencySymbol,
         "count",
-        u.purchases
+        u.purchases,
+        kpiSources?.purchases
       )}
-      {renderMetricCard("CPA", kpis?.cpa, currencySymbol, "currency", u.cpa)}
-      {renderMetricCard("AOV", kpis?.aov, currencySymbol, "currency", u.aov)}
+      {renderMetricCard("CPA", kpis?.cpa, currencySymbol, "currency", u.cpa, kpiSources?.cpa)}
+      {renderMetricCard("AOV", kpis?.aov, currencySymbol, "currency", u.aov, kpiSources?.aov)}
     </section>
   );
 }
@@ -53,7 +56,12 @@ function renderMetricCard(
   rawValue: number | null | undefined,
   currencySymbol: string,
   kind: "currency" | "count" | "ratio",
-  unavailableReason?: string
+  unavailableReason?: string,
+  sourceMeta?: OverviewData["kpiSources"] extends infer T
+    ? T extends Partial<Record<string, infer V>>
+      ? V
+      : never
+    : never
 ) {
   if (unavailableReason) {
     return (
@@ -86,7 +94,9 @@ function renderMetricCard(
     <article key={label} className="rounded-2xl border bg-card p-5 shadow-sm">
       <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
       <p className="mt-2 text-3xl font-semibold tracking-tight">{value}</p>
-      <p className="mt-3 text-xs text-muted-foreground">Synced from backend</p>
+      <p className="mt-3 text-xs text-muted-foreground">
+        {sourceMeta?.label ? `Source: ${sourceMeta.label}` : "Synced from backend"}
+      </p>
     </article>
   );
 }

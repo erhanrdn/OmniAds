@@ -150,6 +150,15 @@ export interface OverviewData {
     cpa: number;
     aov: number;
   };
+  kpiSources?: Partial<
+    Record<
+      keyof OverviewData["kpis"],
+      {
+        source: "shopify" | "ga4_fallback" | "ad_platforms" | "unavailable";
+        label: string;
+      }
+    >
+  >;
   platformEfficiency: Array<{
     platform: Platform;
     spend: number;

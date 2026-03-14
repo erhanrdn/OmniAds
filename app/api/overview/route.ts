@@ -5,6 +5,7 @@ import { getIntegration } from "@/lib/integrations";
 import { runMigrations } from "@/lib/migrations";
 import { requireBusinessAccess } from "@/lib/access";
 import { getDemoOverview } from "@/lib/demo-business";
+import { resolveGa4AnalyticsContext, runGA4Report } from "@/lib/google-analytics-reporting";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -36,6 +37,15 @@ interface OverviewResponse {
     cpa: number;
     aov: number;
   };
+  kpiSources: Partial<
+    Record<
+      keyof OverviewResponse["kpis"],
+      {
+        source: "shopify" | "ga4_fallback" | "ad_platforms" | "unavailable";
+        label: string;
+      }
+    >
+  >;
   totals: {
     impressions: number;
     clicks: number;
@@ -72,6 +82,14 @@ function buildEmptyOverview(
     dateRange: { startDate, endDate },
     ...(status ? { status } : {}),
     kpis,
+    kpiSources: {
+      spend: { source: "ad_platforms", label: "Ad platforms" },
+      revenue: { source: "unavailable", label: "Unavailable" },
+      roas: { source: "unavailable", label: "Unavailable" },
+      purchases: { source: "unavailable", label: "Unavailable" },
+      cpa: { source: "ad_platforms", label: "Ad platforms" },
+      aov: { source: "unavailable", label: "Unavailable" },
+    },
     totals: {
       impressions: 0,
       clicks: 0,
@@ -128,6 +146,7 @@ export async function GET(request: NextRequest) {
 
   const resolvedStart = startDate ?? toISODate(nDaysAgo(29));
   const resolvedEnd = endDate ?? toISODate(new Date());
+  const shopifyConnected = (await getIntegration(businessId, "shopify"))?.status === "connected";
 
   // Step 2: Read assigned Meta ad accounts from DB
   // Auto-run migrations if table is missing, then retry once.
@@ -170,9 +189,18 @@ export async function GET(request: NextRequest) {
   // Step 3: No assigned accounts → empty metrics (not an error)
   if (assignedAccountIds.length === 0) {
     console.log("[overview] no assigned accounts, returning empty metrics", { businessId });
-    return NextResponse.json(
-      buildEmptyOverview(businessId, resolvedStart, resolvedEnd, "no_accounts_assigned")
+    const emptyOverview = buildEmptyOverview(
+      businessId,
+      resolvedStart,
+      resolvedEnd,
+      "no_accounts_assigned"
     );
+    const ga4Fallback = await getGa4EcommerceFallback(businessId, resolvedStart, resolvedEnd);
+    applyEcommerceSourcePriority(emptyOverview, {
+      shopifyConnected,
+      ga4Fallback,
+    });
+    return NextResponse.json(emptyOverview);
   }
 
   // Step 4: Get Meta integration for access token
@@ -187,9 +215,18 @@ export async function GET(request: NextRequest) {
 
   if (!accessToken) {
     console.log("[overview] no access token, returning empty metrics", { businessId });
-    return NextResponse.json(
-      buildEmptyOverview(businessId, resolvedStart, resolvedEnd, "no_access_token")
+    const emptyOverview = buildEmptyOverview(
+      businessId,
+      resolvedStart,
+      resolvedEnd,
+      "no_access_token"
     );
+    const ga4Fallback = await getGa4EcommerceFallback(businessId, resolvedStart, resolvedEnd);
+    applyEcommerceSourcePriority(emptyOverview, {
+      shopifyConnected,
+      ga4Fallback,
+    });
+    return NextResponse.json(emptyOverview);
   }
 
   // Step 5: Fetch Meta Graph API insights per account
@@ -298,9 +335,13 @@ export async function GET(request: NextRequest) {
   // If all account fetches failed, return no_data fallback
   if (platformEfficiency.length === 0 && assignedAccountIds.length > 0) {
     console.log("[overview] all account fetches failed, returning no_data", { businessId });
-    return NextResponse.json(
-      buildEmptyOverview(businessId, resolvedStart, resolvedEnd, "no_data")
-    );
+    const emptyOverview = buildEmptyOverview(businessId, resolvedStart, resolvedEnd, "no_data");
+    const ga4Fallback = await getGa4EcommerceFallback(businessId, resolvedStart, resolvedEnd);
+    applyEcommerceSourcePriority(emptyOverview, {
+      shopifyConnected,
+      ga4Fallback,
+    });
+    return NextResponse.json(emptyOverview);
   }
 
   const overview: OverviewResponse = {
@@ -313,6 +354,14 @@ export async function GET(request: NextRequest) {
       purchases: Math.round(totalPurchases),
       cpa: round2(cpa),
       aov: round2(aov),
+    },
+    kpiSources: {
+      spend: { source: "ad_platforms", label: "Ad platforms" },
+      revenue: { source: "unavailable", label: "Unavailable" },
+      roas: { source: "unavailable", label: "Unavailable" },
+      purchases: { source: "unavailable", label: "Unavailable" },
+      cpa: { source: "ad_platforms", label: "Ad platforms" },
+      aov: { source: "unavailable", label: "Unavailable" },
     },
     totals: {
       impressions: 0,
@@ -337,6 +386,12 @@ export async function GET(request: NextRequest) {
     })),
     trends: { "7d": [], "14d": [], "30d": [], custom: [] },
   };
+
+  const ga4Fallback = await getGa4EcommerceFallback(businessId, resolvedStart, resolvedEnd);
+  applyEcommerceSourcePriority(overview, {
+    shopifyConnected,
+    ga4Fallback,
+  });
 
   console.log("[overview] response", {
     businessId,
@@ -363,4 +418,89 @@ function nDaysAgo(n: number): Date {
 
 function round2(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+interface Ga4EcommerceFallback {
+  revenue: number;
+  purchases: number;
+}
+
+async function getGa4EcommerceFallback(
+  businessId: string,
+  startDate: string,
+  endDate: string
+): Promise<Ga4EcommerceFallback | null> {
+  try {
+    const context = await resolveGa4AnalyticsContext(businessId, {
+      requireProperty: true,
+    });
+    if (!context.propertyId) return null;
+
+    const report = await runGA4Report({
+      propertyId: context.propertyId,
+      accessToken: context.accessToken,
+      dateRanges: [{ startDate, endDate }],
+      metrics: [{ name: "ecommercePurchases" }, { name: "purchaseRevenue" }],
+    });
+
+    const totalsRow = report.totals?.[0] ?? report.rows[0];
+    if (!totalsRow) return null;
+
+    return {
+      purchases: parseFloat(totalsRow.metrics[0] ?? "0") || 0,
+      revenue: parseFloat(totalsRow.metrics[1] ?? "0") || 0,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn("[overview] ga4 ecommerce fallback unavailable", { businessId, message });
+    return null;
+  }
+}
+
+function applyEcommerceSourcePriority(
+  overview: OverviewResponse,
+  options: {
+    shopifyConnected: boolean;
+    ga4Fallback: Ga4EcommerceFallback | null;
+  }
+) {
+  const { shopifyConnected, ga4Fallback } = options;
+  const hasGa4Fallback = ga4Fallback !== null;
+  const shouldUseShopifyPrimary = shopifyConnected && !overview.status;
+
+  if (shouldUseShopifyPrimary) {
+    overview.kpiSources.revenue = { source: "shopify", label: "Shopify" };
+    overview.kpiSources.purchases = { source: "shopify", label: "Shopify" };
+    overview.kpiSources.aov = { source: "shopify", label: "Shopify" };
+    overview.kpiSources.roas = { source: "shopify", label: "Shopify" };
+    return;
+  }
+
+  if (hasGa4Fallback && ga4Fallback) {
+    const revenue = round2(ga4Fallback.revenue);
+    const purchases = Math.round(ga4Fallback.purchases);
+    const aov = purchases > 0 ? round2(ga4Fallback.revenue / ga4Fallback.purchases) : 0;
+    const roas = overview.kpis.spend > 0 ? round2(ga4Fallback.revenue / overview.kpis.spend) : 0;
+
+    overview.kpis.revenue = revenue;
+    overview.kpis.purchases = purchases;
+    overview.kpis.aov = aov;
+    overview.kpis.roas = roas;
+
+    overview.totals.revenue = revenue;
+    overview.totals.purchases = purchases;
+    overview.totals.conversions = purchases;
+    overview.totals.roas = roas;
+
+    overview.kpiSources.revenue = { source: "ga4_fallback", label: "GA4 fallback" };
+    overview.kpiSources.purchases = { source: "ga4_fallback", label: "GA4 fallback" };
+    overview.kpiSources.aov = { source: "ga4_fallback", label: "GA4 fallback" };
+    overview.kpiSources.roas = { source: "ga4_fallback", label: "GA4 fallback" };
+    return;
+  }
+
+  overview.kpiSources.revenue = { source: "unavailable", label: "Unavailable" };
+  overview.kpiSources.purchases = { source: "unavailable", label: "Unavailable" };
+  overview.kpiSources.aov = { source: "unavailable", label: "Unavailable" };
+  overview.kpiSources.roas = { source: "unavailable", label: "Unavailable" };
 }
