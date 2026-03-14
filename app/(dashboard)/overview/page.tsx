@@ -368,11 +368,11 @@ function MetricGrid({
   const visibleMetrics = filterVisibleMetrics(metrics);
   if (loading) {
     return (
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
         {Array.from({ length: 6 }).map((_, index) => (
           <div
             key={index}
-            className="h-48 animate-pulse rounded-2xl border border-slate-200 bg-white"
+            className="h-40 animate-pulse rounded-xl border border-slate-200 bg-white"
           />
         ))}
       </div>
@@ -380,7 +380,7 @@ function MetricGrid({
   }
 
   return (
-    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
       {visibleMetrics.map((metric) => (
         <SummaryMetricCard
           key={metric.id}
