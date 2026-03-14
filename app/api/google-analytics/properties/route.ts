@@ -8,6 +8,10 @@ import {
   type GA4ResolvedAnalyticsContext,
 } from "@/lib/google-analytics-reporting";
 import { requireBusinessAccess } from "@/lib/access";
+import {
+  ProviderRequestCooldownError,
+  runProviderRequestWithGovernance,
+} from "@/lib/provider-request-governance";
 
 /**
  * GET /api/google-analytics/properties?businessId=...
@@ -55,20 +59,37 @@ export async function GET(request: NextRequest) {
     throw err;
   }
 
-  const result = await fetchGA4Properties(ga4Context.accessToken);
-
-  if (!result.ok) {
-    console.error("[ga4-properties] fetch failed", {
+  let result;
+  try {
+    result = await runProviderRequestWithGovernance({
+      provider: "ga4",
       businessId,
-      error: result.error,
-    });
-    return NextResponse.json(
-      {
-        error: "ga4_fetch_failed",
-        message: result.error ?? "Could not load accessible GA4 properties.",
+      requestType: "properties",
+      execute: async () => {
+        const propertiesResult = await fetchGA4Properties(ga4Context.accessToken);
+        if (!propertiesResult.ok) {
+          const error = new Error(
+            propertiesResult.error ?? "Could not load accessible GA4 properties.",
+          ) as Error & { status?: number };
+          error.status = propertiesResult.status;
+          throw error;
+        }
+        return propertiesResult;
       },
-      { status: 502 },
-    );
+    });
+  } catch (error) {
+    if (error instanceof ProviderRequestCooldownError) {
+      return NextResponse.json(
+        {
+          error: "ga4_properties_cooldown",
+          message:
+            "GA4 property refresh is temporarily paused after repeated failures. Please try again shortly.",
+          retryAfterMs: error.retryAfterMs,
+        },
+        { status: 503 },
+      );
+    }
+    throw error;
   }
 
   return NextResponse.json({

@@ -2,6 +2,7 @@ import { GOOGLE_CONFIG } from "@/lib/oauth/google-config";
 import { getIntegration, upsertIntegration } from "@/lib/integrations";
 import { refreshGoogleAccessToken } from "@/lib/google-ads-accounts";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
+import { runProviderRequestWithGovernance } from "@/lib/provider-request-governance";
 
 interface GaqlSearchResult {
   results?: Array<{
@@ -60,6 +61,8 @@ export interface GoogleAdsAccountQueryFailure {
   apiStatus?: string;
   apiErrorCode?: string;
 }
+
+const GOOGLE_ADS_GAQL_TIMEOUT_MS = 10_000;
 
 export function getGoogleAdsFailureMessage(
   failures: GoogleAdsAccountQueryFailure[],
@@ -124,65 +127,73 @@ export async function executeGaqlQuery(params: {
 
   const searchUrl = `${GOOGLE_CONFIG.adsApiBase}/customers/${params.customerId.replace(/^customers\//, "")}/googleAds:search`;
 
-  const response = await fetch(searchUrl, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "developer-token": GOOGLE_CONFIG.developerToken,
-      "Content-Type": "application/json",
+  return runProviderRequestWithGovernance({
+    provider: "google",
+    businessId: params.businessId,
+    requestType: "gaql",
+    execute: async () => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), GOOGLE_ADS_GAQL_TIMEOUT_MS);
+      const response = await fetch(searchUrl, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "developer-token": GOOGLE_CONFIG.developerToken,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          query: params.query,
+        }),
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        const error = data as GoogleAdsApiError;
+
+        console.error("[google-ads-gaql] query failed details:", {
+          customerId: params.customerId,
+          status: response.status,
+          message: error.error?.message,
+          apiErrors: JSON.stringify(error.error?.details, null, 2),
+          fullQuery: params.query,
+        });
+
+        const message =
+          error.error?.message || `Google Ads API error: ${response.status}`;
+        console.error("[google-ads-gaql] query failed", {
+          customerId: params.customerId,
+          status: response.status,
+          message,
+          query: params.query.slice(0, 100),
+        });
+        const firstDetailError =
+          error.error?.details?.[0]?.errorCode?.googleAdsFailure?.errors?.[0];
+        let apiErrorCode: string | undefined;
+        if (
+          firstDetailError?.errorCode &&
+          typeof firstDetailError.errorCode === "object"
+        ) {
+          const entry = Object.entries(firstDetailError.errorCode).find(
+            ([, value]) => Boolean(value),
+          );
+          if (entry) apiErrorCode = String(entry[1]);
+        }
+
+        throw new GoogleAdsQueryError({
+          message,
+          status: response.status,
+          apiStatus: error.error?.status,
+          apiErrorCode,
+        });
+      }
+
+      return data as GaqlSearchResult;
     },
-    body: JSON.stringify({
-      query: params.query,
-      // pageSize: 10000,
-    }),
-    cache: "no-store",
   });
-
-  const data = await response.json();
-
-  if (!response.ok) {
-    const error = data as GoogleAdsApiError;
-
-    // google-ads-gaql.ts içinde console.error kısmını bununla değiştirin:
-    console.error("[google-ads-gaql] query failed details:", {
-      customerId: params.customerId,
-      status: response.status,
-      message: error.error?.message,
-      // Hata detaylarını daha güvenli bir şekilde logla
-      apiErrors: JSON.stringify(error.error?.details, null, 2),
-      fullQuery: params.query,
-    });
-
-    const message =
-      error.error?.message || `Google Ads API error: ${response.status}`;
-    console.error("[google-ads-gaql] query failed", {
-      customerId: params.customerId,
-      status: response.status,
-      message,
-      query: params.query.slice(0, 100),
-    });
-    const firstDetailError =
-      error.error?.details?.[0]?.errorCode?.googleAdsFailure?.errors?.[0];
-    let apiErrorCode: string | undefined;
-    if (
-      firstDetailError?.errorCode &&
-      typeof firstDetailError.errorCode === "object"
-    ) {
-      const entry = Object.entries(firstDetailError.errorCode).find(
-        ([, value]) => Boolean(value),
-      );
-      if (entry) apiErrorCode = String(entry[1]);
-    }
-
-    throw new GoogleAdsQueryError({
-      message,
-      status: response.status,
-      apiStatus: error.error?.status,
-      apiErrorCode,
-    });
-  }
-
-  return data as GaqlSearchResult;
 }
 
 /**

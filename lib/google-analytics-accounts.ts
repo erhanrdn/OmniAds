@@ -35,8 +35,11 @@ export interface GA4PropertyOption {
 export interface GA4PropertiesFetchResult {
   ok: boolean;
   error?: string;
+  status?: number;
   properties: GA4PropertyOption[];
 }
+
+const GA4_PROPERTIES_TIMEOUT_MS = 10_000;
 
 // ── Token Refresh ──────────────────────────────────────────────────
 
@@ -90,13 +93,18 @@ export async function fetchGA4Properties(
       const url = new URL(`${GA_CONFIG.adminApiBase}/accountSummaries`);
       url.searchParams.set("pageSize", "200");
       if (pageToken) url.searchParams.set("pageToken", pageToken);
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), GA4_PROPERTIES_TIMEOUT_MS);
 
       const res = await fetch(url.toString(), {
         headers: {
           Authorization: `Bearer ${accessToken}`,
           Accept: "application/json",
         },
+        signal: controller.signal,
+        cache: "no-store",
       });
+      clearTimeout(timeout);
 
       if (!res.ok) {
         const errorBody = await res.text();
@@ -108,6 +116,7 @@ export async function fetchGA4Properties(
         if (res.status === 401 || res.status === 403) {
           return {
             ok: false,
+            status: res.status,
             error:
               "Access denied. The Google Analytics scope may not be authorized, or the token is invalid.",
             properties: [],
@@ -116,6 +125,7 @@ export async function fetchGA4Properties(
 
         return {
           ok: false,
+          status: res.status,
           error: `Google Analytics API returned status ${res.status}.`,
           properties: [],
         };
@@ -147,7 +157,7 @@ export async function fetchGA4Properties(
         ? err.message
         : "Unknown error fetching GA4 properties.";
     console.error("[ga4-properties] fetch error", { message });
-    return { ok: false, error: message, properties: [] };
+    return { ok: false, status: 500, error: message, properties: [] };
   }
 }
 

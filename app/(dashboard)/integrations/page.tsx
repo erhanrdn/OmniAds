@@ -168,7 +168,9 @@ export default function IntegrationsPage() {
         const snapshot = await fetchProviderAccountSnapshot(provider, businessId);
         setProviderAccounts(businessId, provider, snapshot.accounts);
         setAssignedAccounts(businessId, provider, snapshot.assignedAccountIds);
-        void warmProviderAccountSnapshot(provider, businessId).catch(() => undefined);
+        if (snapshot.meta?.stale) {
+          void warmProviderAccountSnapshot(provider, businessId).catch(() => undefined);
+        }
       } catch {
         try {
           const snapshot = await warmProviderAccountSnapshot(provider, businessId);
@@ -363,7 +365,12 @@ export default function IntegrationsPage() {
     return () => {
       cancelled = true;
     };
-  }, [businessId, integrations, syncProviderAssignments]);
+  }, [
+    businessId,
+    integrations?.meta?.status,
+    integrations?.google?.status,
+    syncProviderAssignments,
+  ]);
 
   useEffect(() => {
     if (!businessId) return;

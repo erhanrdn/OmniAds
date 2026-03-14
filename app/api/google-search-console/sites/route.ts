@@ -7,11 +7,17 @@ import {
   resolveSearchConsoleContext,
   SearchConsoleAuthError,
 } from "@/lib/search-console";
+import {
+  ProviderRequestCooldownError,
+  runProviderRequestWithGovernance,
+} from "@/lib/provider-request-governance";
 
 interface SearchConsoleSiteEntry {
   siteUrl?: string;
   permissionLevel?: string;
 }
+
+const SEARCH_CONSOLE_SITES_TIMEOUT_MS = 10_000;
 
 function extractGoogleApiMessage(payload: unknown): string | null {
   if (!payload || typeof payload !== "object") return null;
@@ -57,33 +63,54 @@ export async function GET(request: NextRequest) {
       businessId,
       requireSite: false,
     });
+    let payload;
+    try {
+      payload = await runProviderRequestWithGovernance({
+        provider: "search_console",
+        businessId,
+        requestType: "sites",
+        execute: async () => {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), SEARCH_CONSOLE_SITES_TIMEOUT_MS);
+          const response = await fetch("https://www.googleapis.com/webmasters/v3/sites", {
+            headers: {
+              Authorization: `Bearer ${context.accessToken}`,
+              Accept: "application/json",
+            },
+            cache: "no-store",
+            signal: controller.signal,
+          });
+          clearTimeout(timeout);
 
-    const response = await fetch("https://www.googleapis.com/webmasters/v3/sites", {
-      headers: {
-        Authorization: `Bearer ${context.accessToken}`,
-        Accept: "application/json",
-      },
-      cache: "no-store",
-    });
+          const parsed = (await response.json().catch(() => null)) as
+            | { siteEntry?: SearchConsoleSiteEntry[] }
+            | null;
 
-    const payload = (await response.json().catch(() => null)) as
-      | { siteEntry?: SearchConsoleSiteEntry[] }
-      | null;
+          if (!response.ok) {
+            const providerMessage = extractGoogleApiMessage(parsed);
+            const error = new Error(
+              providerMessage ?? "Could not fetch Search Console properties.",
+            ) as Error & { status?: number };
+            error.status = response.status || 502;
+            throw error;
+          }
 
-    if (!response.ok) {
-      const providerMessage = extractGoogleApiMessage(payload);
-      return NextResponse.json(
-        {
-          error: isServiceDisabled(payload)
-            ? "search_console_api_disabled"
-            : "search_console_sites_fetch_failed",
-          message:
-            providerMessage ??
-            "Could not fetch Search Console properties.",
-          details: payload,
+          return parsed;
         },
-        { status: response.status || 502 },
-      );
+      });
+    } catch (error) {
+      if (error instanceof ProviderRequestCooldownError) {
+        return NextResponse.json(
+          {
+            error: "search_console_sites_cooldown",
+            message:
+              "Search Console refresh is temporarily paused after repeated failures. Please try again shortly.",
+            retryAfterMs: error.retryAfterMs,
+          },
+          { status: 503 },
+        );
+      }
+      throw error;
     }
 
     const sites = (payload?.siteEntry ?? [])

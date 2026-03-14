@@ -415,7 +415,9 @@ export default function CreativesPage() {
         setProviderAccounts(businessId, "meta", snapshot.accounts);
         setAssignedAccounts(businessId, "meta", snapshot.assignedAccountIds);
         setMetaAssignmentsState("ready");
-        void warmProviderAccountSnapshot("meta", businessId).catch(() => undefined);
+        if (snapshot.meta?.stale) {
+          void warmProviderAccountSnapshot("meta", businessId).catch(() => undefined);
+        }
       } catch {
         try {
           const snapshot = await warmProviderAccountSnapshot("meta", businessId);

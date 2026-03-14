@@ -18,7 +18,10 @@ import {
   SettingsSelect,
   SettingsStat,
 } from "@/components/settings/settings-section";
-import { warmProviderAccountSnapshot } from "@/lib/provider-account-client";
+import {
+  fetchProviderAccountSnapshot,
+  warmProviderAccountSnapshot,
+} from "@/lib/provider-account-client";
 
 type WorkspaceRole = "admin" | "collaborator" | "guest";
 
@@ -197,15 +200,19 @@ export default function SettingsPage() {
     const nextHealth: Record<string, { label: string; value: string }> = {};
     for (const provider of ["meta", "google"] as const) {
       try {
-        const snapshot = await warmProviderAccountSnapshot(provider, selectedBusinessId);
+        const snapshot = await fetchProviderAccountSnapshot(provider, selectedBusinessId);
         nextHealth[provider] = {
-          label: snapshot.meta?.refreshFailed ? "Attention needed" : "Healthy",
-          value: snapshot.notice ?? snapshot.meta?.fetchedAt ?? "Snapshot refreshed",
+          label: snapshot.meta?.refreshFailed
+            ? "Attention needed"
+            : snapshot.meta?.stale
+              ? "Stale snapshot"
+              : "Healthy",
+          value: snapshot.notice ?? snapshot.meta?.fetchedAt ?? "Snapshot available",
         };
       } catch {
         nextHealth[provider] = {
           label: "Unavailable",
-          value: "Snapshot refresh failed",
+          value: "Snapshot unavailable",
         };
       }
     }

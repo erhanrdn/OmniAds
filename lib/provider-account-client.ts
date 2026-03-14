@@ -31,6 +31,32 @@ export interface ProviderAccountSnapshot {
   notice: string | null;
 }
 
+const CLIENT_REFRESH_COOLDOWN_MS = 30_000;
+
+function getClientRequestStore() {
+  const globalStore = globalThis as typeof globalThis & {
+    __omniadsProviderAccountClientRequests?: Map<string, Promise<ProviderAccountSnapshot>>;
+    __omniadsProviderAccountClientFailures?: Map<
+      string,
+      { failedAt: number; message: string }
+    >;
+  };
+  if (!globalStore.__omniadsProviderAccountClientRequests) {
+    globalStore.__omniadsProviderAccountClientRequests = new Map();
+  }
+  if (!globalStore.__omniadsProviderAccountClientFailures) {
+    globalStore.__omniadsProviderAccountClientFailures = new Map();
+  }
+  return {
+    requests: globalStore.__omniadsProviderAccountClientRequests,
+    failures: globalStore.__omniadsProviderAccountClientFailures,
+  };
+}
+
+function getClientRequestKey(provider: IntegrationProvider, businessId: string, refresh: boolean) {
+  return `${provider}:${businessId}:${refresh ? "refresh" : "read"}`;
+}
+
 export class ProviderAccountSnapshotMissingError extends Error {
   constructor(message: string) {
     super(message);
@@ -66,36 +92,65 @@ export async function fetchProviderAccountSnapshot(
   }
 
   const url = options?.refresh ? `${path}&refresh=1` : path;
-
-  const response = await fetch(url, {
-    method: "GET",
-    headers: { Accept: "application/json" },
-    cache: "no-store",
-  });
-  const payload = (await response.json().catch(() => null)) as ProviderAccountsPayload | null;
-
-  if (!response.ok) {
-    if (payload?.error === "provider_snapshot_missing") {
-      throw new ProviderAccountSnapshotMissingError(
-        payload?.message ?? "Loading accounts..."
-      );
+  const { requests, failures } = getClientRequestStore();
+  const requestKey = getClientRequestKey(provider, businessId, options?.refresh === true);
+  const failureKey = `${provider}:${businessId}`;
+  const recentFailure = failures.get(failureKey);
+  if (options?.refresh && recentFailure) {
+    const retryAfterMs = recentFailure.failedAt + CLIENT_REFRESH_COOLDOWN_MS - Date.now();
+    if (retryAfterMs > 0) {
+      throw new Error(recentFailure.message);
     }
-    throw new Error(payload?.message ?? `Could not load ${provider} account assignments.`);
+    failures.delete(failureKey);
   }
 
-  const rows = Array.isArray(payload?.data) ? payload.data : [];
-  return {
-    accounts: rows.map((row) => ({
-      id: row.id,
-      name: row.name,
-      currency: row.currency,
-      timezone: row.timezone,
-      isManager: row.isManager,
-    })),
-    assignedAccountIds: rows.filter((row) => row.assigned === true).map((row) => row.id),
-    meta: payload?.meta ?? null,
-    notice: payload?.notice ?? null,
-  };
+  const existingRequest = requests.get(requestKey);
+  if (existingRequest) {
+    return existingRequest;
+  }
+
+  const requestPromise = (async () => {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    const payload = (await response.json().catch(() => null)) as ProviderAccountsPayload | null;
+
+    if (!response.ok) {
+      if (payload?.error === "provider_snapshot_missing") {
+        throw new ProviderAccountSnapshotMissingError(
+          payload?.message ?? "Loading accounts..."
+        );
+      }
+      const message =
+        payload?.message ?? `Could not load ${provider} account assignments.`;
+      if (options?.refresh && (response.status >= 500 || response.status === 401 || response.status === 403 || response.status === 429)) {
+        failures.set(failureKey, { failedAt: Date.now(), message });
+      }
+      throw new Error(message);
+    }
+
+    failures.delete(failureKey);
+    const rows = Array.isArray(payload?.data) ? payload.data : [];
+    return {
+      accounts: rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        currency: row.currency,
+        timezone: row.timezone,
+        isManager: row.isManager,
+      })),
+      assignedAccountIds: rows.filter((row) => row.assigned === true).map((row) => row.id),
+      meta: payload?.meta ?? null,
+      notice: payload?.notice ?? null,
+    };
+  })().finally(() => {
+    requests.delete(requestKey);
+  });
+
+  requests.set(requestKey, requestPromise);
+  return requestPromise;
 }
 
 export async function warmProviderAccountSnapshot(

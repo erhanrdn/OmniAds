@@ -207,6 +207,10 @@ async function refreshSnapshotInBackground(input: ResolveProviderAccountSnapshot
   if (locks.has(key)) return;
 
   const refreshPromise = (async () => {
+    console.log("[provider-snapshot] background_refresh_start", {
+      provider: input.provider,
+      businessId: input.businessId,
+    });
     try {
       const accounts = await input.liveLoader();
       clearRecentFailure(input.businessId, input.provider);
@@ -217,9 +221,19 @@ async function refreshSnapshotInBackground(input: ResolveProviderAccountSnapshot
         refreshFailed: false,
         lastError: null,
       });
+      console.log("[provider-snapshot] background_refresh_success", {
+        provider: input.provider,
+        businessId: input.businessId,
+        accountCount: accounts.length,
+      });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       setRecentFailure(input.businessId, input.provider, message);
+      console.warn("[provider-snapshot] background_refresh_failed", {
+        provider: input.provider,
+        businessId: input.businessId,
+        message,
+      });
       const existing = await getSnapshotRow(input.businessId, input.provider);
       if (existing) {
         await upsertSnapshotRow({
@@ -282,6 +296,10 @@ export async function readProviderAccountSnapshot(input: {
 export async function requestProviderAccountSnapshotRefresh(
   input: ResolveProviderAccountSnapshotInput
 ): Promise<ProviderAccountSnapshotResult | null> {
+  console.log("[provider-snapshot] request_refresh", {
+    provider: input.provider,
+    businessId: input.businessId,
+  });
   const snapshot = await readProviderAccountSnapshot({
     businessId: input.businessId,
     provider: input.provider,
@@ -302,6 +320,12 @@ export async function requestProviderAccountSnapshotRefresh(
     );
     if (!recentFailure) {
       void refreshSnapshotInBackground(input);
+    } else {
+      console.warn("[provider-snapshot] request_refresh_cooldown", {
+        provider: input.provider,
+        businessId: input.businessId,
+        retryAfterMs: recentFailure.retryAfterMs,
+      });
     }
     return snapshot;
   }
@@ -320,10 +344,40 @@ export async function forceProviderAccountSnapshotRefresh(
   );
 
   if (recentFailure) {
-    clearRecentFailure(input.businessId, input.provider);
+    const existing = await getSnapshotRow(input.businessId, input.provider);
+    console.warn("[provider-snapshot] force_refresh_cooldown", {
+      provider: input.provider,
+      businessId: input.businessId,
+      retryAfterMs: recentFailure.retryAfterMs,
+      hasSnapshot: Boolean(existing),
+    });
+    if (existing) {
+      return {
+        accounts: existing.accounts_payload ?? [],
+        meta: {
+          source: "snapshot",
+          fetchedAt: existing.fetched_at,
+          stale: true,
+          refreshFailed: true,
+          lastError: recentFailure.message,
+          lastKnownGoodAvailable: true,
+        },
+      };
+    }
+    throw new ProviderAccountSnapshotRefreshError({
+      provider: input.provider,
+      businessId: input.businessId,
+      message: recentFailure.message,
+      retryAfterMs: recentFailure.retryAfterMs,
+      dueToRecentFailure: true,
+    });
   }
 
   try {
+    console.log("[provider-snapshot] force_refresh_start", {
+      provider: input.provider,
+      businessId: input.businessId,
+    });
     const accounts = await input.liveLoader();
     clearRecentFailure(input.businessId, input.provider);
     await upsertSnapshotRow({
@@ -347,6 +401,11 @@ export async function forceProviderAccountSnapshotRefresh(
     };
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
+    console.warn("[provider-snapshot] force_refresh_failed", {
+      provider: input.provider,
+      businessId: input.businessId,
+      message,
+    });
     setRecentFailure(input.businessId, input.provider, message);
     const existing = await getSnapshotRow(input.businessId, input.provider);
     if (existing) {
@@ -406,6 +465,12 @@ export async function resolveProviderAccountSnapshot(
   if (snapshot) {
     if (!recentFailure) {
       void refreshSnapshotInBackground(input);
+    } else {
+      console.warn("[provider-snapshot] resolve_snapshot_cooldown", {
+        provider: input.provider,
+        businessId: input.businessId,
+        retryAfterMs: recentFailure.retryAfterMs,
+      });
     }
     return {
       accounts: snapshot.accounts_payload ?? [],
@@ -428,6 +493,10 @@ export async function resolveProviderAccountSnapshot(
   }
 
   try {
+    console.log("[provider-snapshot] resolve_live_start", {
+      provider: input.provider,
+      businessId: input.businessId,
+    });
     const accounts = await input.liveLoader();
     clearRecentFailure(input.businessId, input.provider);
     await upsertSnapshotRow({
@@ -451,6 +520,11 @@ export async function resolveProviderAccountSnapshot(
     };
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
+    console.warn("[provider-snapshot] resolve_live_failed", {
+      provider: input.provider,
+      businessId: input.businessId,
+      message,
+    });
     setRecentFailure(input.businessId, input.provider, message);
     throw new ProviderAccountSnapshotRefreshError({
       provider: input.provider,
