@@ -411,14 +411,31 @@ async function runNamedQuery(
   context: ReportContext,
   query: GoogleAdsNamedQuery
 ): Promise<QueryExecution> {
+  console.log("[google-ads-reporting] run_named_query", {
+    businessId: context.businessId,
+    customerIds: context.customerIds,
+    queryName: query.name,
+    resource: query.resource,
+    family: query.family,
+  });
   const { results, failures } = await executeGaqlForAccounts({
     businessId: context.businessId,
     customerIds: context.customerIds,
     query: query.query,
   });
 
+  const rows = results.flatMap((result) => (result.results ?? []) as RawRow[]);
+  console.log("[google-ads-reporting] query_result", {
+    businessId: context.businessId,
+    queryName: query.name,
+    customerIds: context.customerIds,
+    resultSets: results.length,
+    rowCount: rows.length,
+    failureCount: failures.length,
+  });
+
   return {
-    rows: results.flatMap((result) => (result.results ?? []) as RawRow[]),
+    rows,
     failures,
     query,
   };
@@ -465,6 +482,16 @@ async function resolveContext(params: {
       },
     };
   }
+
+  console.log("[google-ads-reporting] resolve_context", {
+    businessId,
+    assignedAccounts,
+    requestedAccountId: accountId ?? "all",
+    accountsToQuery,
+    dateRange,
+    startDate,
+    endDate,
+  });
 
   return {
     ok: true,
@@ -854,6 +881,16 @@ export async function getGoogleAdsOverviewReport(
     comparison_window: comparisonWindow,
   });
   finalizeMeta(meta);
+
+  console.log("[google-ads-reporting] overview_summary", {
+    businessId: params.businessId,
+    customerIds: context.customerIds,
+    kpis,
+    topCampaignCount: enrichedCampaigns.length,
+    queryFailures: meta.failed_queries.length,
+    warnings: meta.warnings.length,
+    rowCounts: meta.row_counts,
+  });
 
   return {
     kpis,

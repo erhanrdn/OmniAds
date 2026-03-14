@@ -4,6 +4,7 @@ import { refreshGoogleAccessToken } from "@/lib/google-ads-accounts";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { runProviderRequestWithGovernance } from "@/lib/provider-request-governance";
 import { createHash } from "node:crypto";
+import { readProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
 
 interface GaqlSearchResult {
   results?: Array<{
@@ -71,6 +72,37 @@ function buildGaqlRequestType(customerId: string, query: string) {
   return `gaql:${normalizedCustomerId}:${queryHash}`;
 }
 
+function normalizeCustomerIdForRequest(value: string) {
+  return value.replace(/^customers\//, "").replace(/\D/g, "");
+}
+
+async function getLoginCustomerIdCandidates(
+  businessId: string,
+  customerId: string
+): Promise<string[]> {
+  const normalizedCustomerId = normalizeCustomerIdForRequest(customerId);
+  const snapshot = await readProviderAccountSnapshot({
+    businessId,
+    provider: "google",
+  }).catch(() => null);
+
+  const accounts = snapshot?.accounts ?? [];
+  const managerIds = accounts
+    .filter((account) => account.isManager)
+    .map((account) => normalizeCustomerIdForRequest(account.id))
+    .filter(Boolean)
+    .filter((id) => id !== normalizedCustomerId);
+  const accessibleIds = accounts
+    .map((account) => normalizeCustomerIdForRequest(account.id))
+    .filter(Boolean)
+    .filter((id) => id !== normalizedCustomerId);
+
+  return Array.from(new Set([...managerIds, ...accessibleIds, normalizedCustomerId])).slice(
+    0,
+    25
+  );
+}
+
 export function getGoogleAdsFailureMessage(
   failures: GoogleAdsAccountQueryFailure[],
 ): string {
@@ -133,50 +165,60 @@ export async function executeGaqlQuery(params: {
   }
 
   const searchUrl = `${GOOGLE_CONFIG.adsApiBase}/customers/${params.customerId.replace(/^customers\//, "")}/googleAds:search`;
+  const loginCustomerIdCandidates = await getLoginCustomerIdCandidates(
+    params.businessId,
+    params.customerId
+  );
 
   return runProviderRequestWithGovernance({
     provider: "google",
     businessId: params.businessId,
     requestType: buildGaqlRequestType(params.customerId, params.query),
     execute: async () => {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), GOOGLE_ADS_GAQL_TIMEOUT_MS);
-      const response = await fetch(searchUrl, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "developer-token": GOOGLE_CONFIG.developerToken,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          query: params.query,
-        }),
-        cache: "no-store",
-        signal: controller.signal,
+      let lastError: GoogleAdsQueryError | null = null;
+
+      console.log("[google-ads-gaql] query start", {
+        businessId: params.businessId,
+        customerId: params.customerId,
+        queryHash: buildGaqlRequestType(params.customerId, params.query),
+        loginCustomerIdCandidates,
       });
-      clearTimeout(timeout);
 
-      const data = await response.json();
+      for (const loginCustomerId of [undefined, ...loginCustomerIdCandidates]) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), GOOGLE_ADS_GAQL_TIMEOUT_MS);
+        const response = await fetch(searchUrl, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "developer-token": GOOGLE_CONFIG.developerToken,
+            "Content-Type": "application/json",
+            ...(loginCustomerId
+              ? { "login-customer-id": normalizeCustomerIdForRequest(loginCustomerId) }
+              : {}),
+          },
+          body: JSON.stringify({
+            query: params.query,
+          }),
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
 
-      if (!response.ok) {
+        const data = await response.json();
+
+        if (response.ok) {
+          const result = data as GaqlSearchResult;
+          console.log("[google-ads-gaql] query success", {
+            customerId: params.customerId,
+            loginCustomerId: loginCustomerId ?? null,
+            rowCount: result.results?.length ?? 0,
+          });
+          return result;
+        }
+
         const error = data as GoogleAdsApiError;
-
-        console.error("[google-ads-gaql] query failed details:", {
-          customerId: params.customerId,
-          status: response.status,
-          message: error.error?.message,
-          apiErrors: JSON.stringify(error.error?.details, null, 2),
-          fullQuery: params.query,
-        });
-
-        const message =
-          error.error?.message || `Google Ads API error: ${response.status}`;
-        console.error("[google-ads-gaql] query failed", {
-          customerId: params.customerId,
-          status: response.status,
-          message,
-          query: params.query.slice(0, 100),
-        });
+        const message = error.error?.message || `Google Ads API error: ${response.status}`;
         const firstDetailError =
           error.error?.details?.[0]?.errorCode?.googleAdsFailure?.errors?.[0];
         let apiErrorCode: string | undefined;
@@ -190,15 +232,37 @@ export async function executeGaqlQuery(params: {
           if (entry) apiErrorCode = String(entry[1]);
         }
 
-        throw new GoogleAdsQueryError({
+        lastError = new GoogleAdsQueryError({
           message,
           status: response.status,
           apiStatus: error.error?.status,
           apiErrorCode,
         });
+
+        console.warn("[google-ads-gaql] query attempt failed", {
+          customerId: params.customerId,
+          loginCustomerId: loginCustomerId ?? null,
+          status: response.status,
+          apiStatus: error.error?.status ?? null,
+          apiErrorCode: apiErrorCode ?? null,
+          message,
+        });
       }
 
-      return data as GaqlSearchResult;
+      if (lastError) {
+        console.error("[google-ads-gaql] query failed after retries", {
+          customerId: params.customerId,
+          candidateCount: loginCustomerIdCandidates.length,
+          message: lastError.message,
+          status: lastError.status,
+          apiStatus: lastError.apiStatus ?? null,
+          apiErrorCode: lastError.apiErrorCode ?? null,
+          query: params.query.slice(0, 160),
+        });
+        throw lastError;
+      }
+
+      throw new Error("Google Ads query failed without a captured error.");
     },
   });
 }
