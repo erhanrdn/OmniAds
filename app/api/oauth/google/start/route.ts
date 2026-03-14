@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { GOOGLE_CONFIG } from "@/lib/oauth/google-config";
 import crypto from "crypto";
 import { requireBusinessAccess } from "@/lib/access";
+import { sanitizeNextPath } from "@/lib/auth-routing";
 
 /**
  * GET /api/oauth/google/start?businessId=...
@@ -14,6 +15,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const businessId = searchParams.get("businessId");
   const providerParam = searchParams.get("provider");
+  const returnTo = sanitizeNextPath(searchParams.get("returnTo"));
   const oauthProvider =
     providerParam === "search_console" ? "search_console" : "google";
 
@@ -35,6 +37,7 @@ export async function GET(request: NextRequest) {
   const statePayload = JSON.stringify({
     businessId,
     provider: oauthProvider,
+    returnTo,
     nonce: crypto.randomBytes(16).toString("hex"),
   });
   const state = Buffer.from(statePayload).toString("base64url");

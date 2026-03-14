@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
   getOAuthStartUrl,
@@ -25,6 +26,8 @@ export function ConnectModal({
 }: ConnectModalProps) {
   const [shopDomain, setShopDomain] = useState("");
   const [shopError, setShopError] = useState<string | null>(null);
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
 
   if (!provider) return null;
 
@@ -34,9 +37,11 @@ export function ConnectModal({
   const isShopify = activeProvider === "shopify";
   const providerLabel = getProviderLabel(activeProvider);
   const permissions = OAUTH_PERMISSIONS[activeProvider];
-  const returnTo = `/integrations/callback/${activeProvider}?businessId=${encodeURIComponent(
-    businessId,
-  )}`;
+  const currentSearch = searchParams.toString();
+  const returnTo =
+    pathname === "/"
+      ? "/integrations"
+      : `${pathname}${currentSearch ? `?${currentSearch}` : ""}`;
 
   function handleContinue() {
     if (isShopify) {

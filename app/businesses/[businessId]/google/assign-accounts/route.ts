@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getIntegration } from "@/lib/integrations";
 import { upsertProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { runMigrations } from "@/lib/migrations";
+import { readProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
+
+const GOOGLE_ACCOUNT_SNAPSHOT_FRESHNESS_MS = 60 * 60_000;
+const GOOGLE_ACCOUNT_REFRESH_COOLDOWN_MS = 10 * 60_000;
 
 /**
  * POST /businesses/:businessId/google/assign-accounts
@@ -65,6 +69,42 @@ export async function POST(
   const cleaned = Array.from(
     new Set(accountIds.map((id) => id.trim()).filter(Boolean)),
   );
+
+  const snapshot = await readProviderAccountSnapshot({
+    businessId,
+    provider: "google",
+    freshnessMs: GOOGLE_ACCOUNT_SNAPSHOT_FRESHNESS_MS,
+    failureCooldownMs: GOOGLE_ACCOUNT_REFRESH_COOLDOWN_MS,
+  });
+
+  if (!snapshot) {
+    return NextResponse.json(
+      {
+        error: "google_accounts_not_loaded",
+        message:
+          "Google Ads accounts must be loaded before assignments can be saved. Refresh the account list and try again.",
+      },
+      { status: 409 }
+    );
+  }
+
+  const validAccountIds = new Set(snapshot.accounts.map((account) => account.id));
+  const invalidIds = cleaned.filter((id) => !validAccountIds.has(id));
+  if (invalidIds.length > 0) {
+    console.warn("[google-assign-accounts] rejected unknown account ids", {
+      businessId,
+      invalidIds,
+      snapshotCount: snapshot.accounts.length,
+    });
+    return NextResponse.json(
+      {
+        error: "invalid_google_account_selection",
+        message:
+          "One or more selected Google Ads accounts are no longer available. Refresh the account list and try again.",
+      },
+      { status: 400 }
+    );
+  }
 
   async function doUpsert() {
     return upsertProviderAccountAssignments({

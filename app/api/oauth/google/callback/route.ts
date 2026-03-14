@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { GOOGLE_CONFIG } from "@/lib/oauth/google-config";
 import { upsertIntegration } from "@/lib/integrations";
 import { requireBusinessAccess } from "@/lib/access";
+import { sanitizeNextPath } from "@/lib/auth-routing";
 
 /**
  * GET /api/oauth/google/callback?code=...&state=...
@@ -21,21 +22,52 @@ export async function GET(request: NextRequest) {
   const errorDescription = searchParams.get("error_description");
 
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  const buildFrontendCallbackUrl = (input: {
+    provider: "google" | "search_console";
+    status: "success" | "error";
+    businessId?: string;
+    returnTo?: string | null;
+    integrationId?: string;
+    error?: string;
+  }) => {
+    const url = new URL(`/integrations/callback/${input.provider}`, baseUrl);
+    url.searchParams.set("status", input.status);
+    if (input.businessId) {
+      url.searchParams.set("businessId", input.businessId);
+    }
+    if (input.integrationId) {
+      url.searchParams.set("integrationId", input.integrationId);
+    }
+    const safeReturnTo = sanitizeNextPath(input.returnTo);
+    if (safeReturnTo) {
+      url.searchParams.set("returnTo", safeReturnTo);
+    }
+    if (input.error) {
+      url.searchParams.set("error", input.error);
+    }
+    return url.toString();
+  };
 
   // ── User denied or Google returned an error ────────────────
   if (error) {
-    const msg = encodeURIComponent(errorDescription || error);
+    const msg = errorDescription || error;
     return NextResponse.redirect(
-      `${baseUrl}/integrations/callback/google?status=error&error=${msg}`,
+      buildFrontendCallbackUrl({
+        provider: "google",
+        status: "error",
+        error: msg,
+      }),
     );
   }
 
   // ── Validate required params ───────────────────────────────
   if (!code || !state) {
     return NextResponse.redirect(
-      `${baseUrl}/integrations/callback/google?status=error&error=${encodeURIComponent(
-        "Missing code or state parameter.",
-      )}`,
+      buildFrontendCallbackUrl({
+        provider: "google",
+        status: "error",
+        error: "Missing code or state parameter.",
+      }),
     );
   }
 
@@ -43,26 +75,34 @@ export async function GET(request: NextRequest) {
   const cookieState = request.cookies.get("google_oauth_state")?.value;
   if (!cookieState || cookieState !== state) {
     return NextResponse.redirect(
-      `${baseUrl}/integrations/callback/google?status=error&error=${encodeURIComponent(
-        "Invalid OAuth state. Please try again.",
-      )}`,
+      buildFrontendCallbackUrl({
+        provider: "google",
+        status: "error",
+        error: "Invalid OAuth state. Please try again.",
+      }),
     );
   }
 
   // Decode businessId from state
   let businessId: string;
   let oauthProvider: "google" | "search_console" = "google";
+  let returnTo: string | null = null;
   try {
     const payload = JSON.parse(Buffer.from(state, "base64url").toString());
     businessId = payload.businessId;
     if (!businessId) throw new Error("No businessId in state payload");
     oauthProvider =
       payload.provider === "search_console" ? "search_console" : "google";
+    returnTo = sanitizeNextPath(
+      typeof payload.returnTo === "string" ? payload.returnTo : null,
+    );
   } catch {
     return NextResponse.redirect(
-      `${baseUrl}/integrations/callback/google?status=error&error=${encodeURIComponent(
-        "Malformed OAuth state.",
-      )}`,
+      buildFrontendCallbackUrl({
+        provider: "google",
+        status: "error",
+        error: "Malformed OAuth state.",
+      }),
     );
   }
 
@@ -73,9 +113,13 @@ export async function GET(request: NextRequest) {
   });
   if ("error" in access) {
     return NextResponse.redirect(
-      `${baseUrl}/integrations/callback/${oauthProvider}?status=error&businessId=${businessId}&error=${encodeURIComponent(
-        "You do not have permission to connect integrations for this business.",
-      )}`,
+      buildFrontendCallbackUrl({
+        provider: oauthProvider,
+        status: "error",
+        businessId,
+        returnTo,
+        error: "You do not have permission to connect integrations for this business.",
+      }),
     );
   }
 
@@ -167,22 +211,24 @@ export async function GET(request: NextRequest) {
       providerAccountId,
       providerAccountName,
       hasRefreshToken: Boolean(refreshToken),
+      returnTo,
     });
 
     // ── Redirect to frontend callback with success ──────────────
     const redirectProvider =
       oauthProvider === "search_console" ? "search_console" : "google";
-    const redirectUrl = new URL(`/integrations/callback/${redirectProvider}`, baseUrl);
-    redirectUrl.searchParams.set("status", "success");
-    redirectUrl.searchParams.set("businessId", businessId);
-    redirectUrl.searchParams.set(
-      "integrationId",
-      oauthProvider === "search_console"
-        ? (searchConsoleIntegrationId ?? integration.id)
-        : integration.id,
-    );
+    const redirectUrl = buildFrontendCallbackUrl({
+      provider: redirectProvider,
+      status: "success",
+      businessId,
+      returnTo,
+      integrationId:
+        oauthProvider === "search_console"
+          ? (searchConsoleIntegrationId ?? integration.id)
+          : integration.id,
+    });
 
-    const response = NextResponse.redirect(redirectUrl.toString());
+    const response = NextResponse.redirect(redirectUrl);
     // Clear the state cookie
     response.cookies.set("google_oauth_state", "", {
       httpOnly: true,
@@ -195,12 +241,16 @@ export async function GET(request: NextRequest) {
   } catch (err: unknown) {
     const message =
       err instanceof Error ? err.message : "Unknown error during Google OAuth.";
-    console.error("[google-oauth-callback] error", { businessId, message });
+    console.error("[google-oauth-callback] error", { businessId, message, returnTo });
 
     return NextResponse.redirect(
-      `${baseUrl}/integrations/callback/${oauthProvider}?status=error&businessId=${businessId}&error=${encodeURIComponent(
-        message,
-      )}`,
+      buildFrontendCallbackUrl({
+        provider: oauthProvider,
+        status: "error",
+        businessId,
+        returnTo,
+        error: message,
+      }),
     );
   }
 }

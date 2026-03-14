@@ -10,6 +10,7 @@ import {
 } from "@/store/integrations-store";
 import { getProviderLabel } from "@/components/integrations/oauth";
 import { logClientAuthEvent } from "@/lib/auth-diagnostics";
+import { sanitizeNextPath } from "@/lib/auth-routing";
 
 function IntegrationCallbackPageClient() {
   const router = useRouter();
@@ -20,6 +21,7 @@ function IntegrationCallbackPageClient() {
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const selectBusiness = useAppStore((state) => state.selectBusiness);
   const businessId = searchParams.get("businessId") ?? selectedBusinessId;
+  const returnTo = sanitizeNextPath(searchParams.get("returnTo")) ?? "/integrations";
 
   const ensureBusiness = useIntegrationsStore((state) => state.ensureBusiness);
   const setConnected = useIntegrationsStore((state) => state.setConnected);
@@ -42,7 +44,7 @@ function IntegrationCallbackPageClient() {
 
     async function applyCallbackState() {
       if (!businessId) {
-        router.replace(businesses.length > 0 ? "/select-business" : "/businesses/new");
+        router.replace(businesses.length > 0 ? returnTo : "/businesses/new");
         return;
       }
 
@@ -75,8 +77,9 @@ function IntegrationCallbackPageClient() {
           businessId,
           provider,
           integrationId,
+          returnTo,
         });
-        timeoutId = setTimeout(() => router.replace("/integrations"), 800);
+        timeoutId = setTimeout(() => router.replace(returnTo), 800);
         return;
       }
 
@@ -90,8 +93,9 @@ function IntegrationCallbackPageClient() {
         businessId,
         provider,
         message,
+        returnTo,
       });
-      timeoutId = setTimeout(() => router.replace("/integrations"), 1200);
+      timeoutId = setTimeout(() => router.replace(returnTo), 1200);
     }
 
     void applyCallbackState();
@@ -107,6 +111,7 @@ function IntegrationCallbackPageClient() {
     ensureBusiness,
     provider,
     providerLabel,
+    returnTo,
     router,
     selectBusiness,
     statusParam,

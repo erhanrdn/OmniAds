@@ -24,14 +24,6 @@ function getGoogleDiscoveryFailureMessage(hasSnapshot: boolean) {
   return "We couldn't load your Google Ads accounts right now. Please wait a bit and try again.";
 }
 
-function buildAssignedFallbackRows(accountIds: string[]) {
-  return accountIds.map((accountId) => ({
-    id: accountId,
-    name: accountId,
-    assigned: true,
-  }));
-}
-
 /**
  * GET /api/google/accessible-accounts
  *
@@ -284,30 +276,6 @@ export async function GET(request: NextRequest) {
         });
 
     if (!snapshot) {
-      if (assignedSet.size > 0) {
-        console.warn(
-          "[accessible-accounts] ⚠ Snapshot missing, returning assigned-account fallback while refresh warms",
-          {
-            businessId,
-            assignedCount: assignedSet.size,
-          }
-        );
-        return NextResponse.json({
-          data: buildAssignedFallbackRows(Array.from(assignedSet)),
-          count: assignedSet.size,
-          meta: {
-            source: "snapshot",
-            fetchedAt: null,
-            stale: true,
-            refreshFailed: false,
-            lastError: null,
-            lastKnownGoodAvailable: true,
-          },
-          notice:
-            "Showing your currently assigned Google Ads accounts while the full account list is being refreshed.",
-        });
-      }
-
       if (!refreshRequested) {
         void requestProviderAccountSnapshotRefresh({
           businessId,
@@ -373,40 +341,6 @@ export async function GET(request: NextRequest) {
         retryAfterMs: error.retryAfterMs,
         dueToRecentFailure: error.dueToRecentFailure,
       });
-
-      try {
-        const assignmentRow = await getProviderAccountAssignments(
-          businessId,
-          "google"
-        );
-        const assignedIds = assignmentRow?.account_ids ?? [];
-    if (assignedIds.length > 0) {
-          console.warn(
-            "[accessible-accounts] ⚠ Returning assigned-account fallback after forced refresh failure",
-            {
-              businessId,
-              assignedCount: assignedIds.length,
-              message: error.message,
-            }
-          );
-          return NextResponse.json({
-            data: buildAssignedFallbackRows(assignedIds),
-            count: assignedIds.length,
-            meta: {
-              source: "snapshot",
-              fetchedAt: null,
-              stale: true,
-              refreshFailed: true,
-              lastError: error.message,
-              lastKnownGoodAvailable: true,
-            },
-            notice:
-              "Showing your currently assigned Google Ads accounts while the full account list could not be refreshed.",
-          });
-        }
-      } catch {
-        // fall through
-      }
 
       return NextResponse.json(
         {
