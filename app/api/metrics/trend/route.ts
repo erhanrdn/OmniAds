@@ -10,6 +10,14 @@ interface OverviewPayload {
     roas?: number;
     cpa?: number;
   };
+  platformEfficiency?: Array<{
+    platform?: string;
+    spend?: number;
+    revenue?: number;
+    roas?: number;
+    purchases?: number;
+    cpa?: number;
+  }>;
 }
 
 interface GoogleOverviewPayload {
@@ -77,9 +85,14 @@ function getMetricValue(metric: string, input: {
   analytics: AnalyticsOverviewPayload | null;
 }) {
   const overview = input.overview?.kpis ?? {};
+  const platformEfficiency = input.overview?.platformEfficiency ?? [];
+  const metaRow =
+    platformEfficiency.find((row) => row.platform?.toLowerCase() === "meta") ?? null;
+  const googleRow =
+    platformEfficiency.find((row) => row.platform?.toLowerCase() === "google") ?? null;
   const google = input.google?.kpis ?? {};
   const analytics = input.analytics?.kpis ?? {};
-  const totalSpend = Number(overview.spend ?? 0) + Number(google.spend ?? 0);
+  const totalSpend = Number(overview.spend ?? 0);
   const revenue = Number(overview.revenue ?? 0);
   const purchases = Number(overview.purchases ?? 0);
 
@@ -96,20 +109,20 @@ function getMetricValue(metric: string, input: {
 
   if (metric.startsWith("meta-")) {
     const key = metric.replace("meta-", "");
-    if (key === "spend") return Number(overview.spend ?? 0);
-    if (key === "revenue") return Number(overview.revenue ?? 0);
-    if (key === "purchases") return Number(overview.purchases ?? 0);
-    if (key === "roas") return Number(overview.roas ?? 0);
-    if (key === "cpa") return Number(overview.cpa ?? 0);
+    if (key === "spend") return Number(metaRow?.spend ?? 0);
+    if (key === "revenue") return Number(metaRow?.revenue ?? 0);
+    if (key === "purchases") return Number(metaRow?.purchases ?? 0);
+    if (key === "roas") return Number(metaRow?.roas ?? 0);
+    if (key === "cpa") return Number(metaRow?.cpa ?? 0);
   }
 
   if (metric.startsWith("google-")) {
     const key = metric.replace("google-", "");
-    if (key === "spend") return Number(google.spend ?? 0);
-    if (key === "revenue") return Number(google.revenue ?? 0);
-    if (key === "purchases") return Number(google.conversions ?? 0);
-    if (key === "roas") return Number(google.roas ?? 0);
-    if (key === "cpa") return Number(google.cpa ?? 0);
+    if (key === "spend") return Number(googleRow?.spend ?? google.spend ?? 0);
+    if (key === "revenue") return Number(googleRow?.revenue ?? google.revenue ?? 0);
+    if (key === "purchases") return Number(googleRow?.purchases ?? google.conversions ?? 0);
+    if (key === "roas") return Number(googleRow?.roas ?? google.roas ?? 0);
+    if (key === "cpa") return Number(googleRow?.cpa ?? google.cpa ?? 0);
     if (key === "clicks") return Number(google.clicks ?? 0);
     if (key === "impressions") return Number(google.impressions ?? 0);
     if (key === "ctr") return Number(google.ctr ?? 0);

@@ -5,6 +5,7 @@ import { getIntegration } from "@/lib/integrations";
 import { runMigrations } from "@/lib/migrations";
 import { requireBusinessAccess } from "@/lib/access";
 import { getDemoOverview } from "@/lib/demo-business";
+import { getGoogleAdsOverviewReport } from "@/lib/google-ads/reporting";
 import { resolveGa4AnalyticsContext, runGA4Report } from "@/lib/google-analytics-reporting";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -184,24 +185,7 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  console.log("[overview] assigned accounts", { businessId, count: assignedAccountIds.length });
-
-  // Step 3: No assigned accounts → empty metrics (not an error)
-  if (assignedAccountIds.length === 0) {
-    console.log("[overview] no assigned accounts, returning empty metrics", { businessId });
-    const emptyOverview = buildEmptyOverview(
-      businessId,
-      resolvedStart,
-      resolvedEnd,
-      "no_accounts_assigned"
-    );
-    const ga4Fallback = await getGa4EcommerceFallback(businessId, resolvedStart, resolvedEnd);
-    applyEcommerceSourcePriority(emptyOverview, {
-      shopifyConnected,
-      ga4Fallback,
-    });
-    return NextResponse.json(emptyOverview);
-  }
+  console.log("[overview] assigned meta accounts", { businessId, count: assignedAccountIds.length });
 
   // Step 4: Get Meta integration for access token
   let accessToken: string | null = null;
@@ -213,118 +197,150 @@ export async function GET(request: NextRequest) {
     console.warn("[overview] integration read failed", { businessId, message: msg });
   }
 
-  if (!accessToken) {
-    console.log("[overview] no access token, returning empty metrics", { businessId });
-    const emptyOverview = buildEmptyOverview(
-      businessId,
-      resolvedStart,
-      resolvedEnd,
-      "no_access_token"
-    );
-    const ga4Fallback = await getGa4EcommerceFallback(businessId, resolvedStart, resolvedEnd);
-    applyEcommerceSourcePriority(emptyOverview, {
-      shopifyConnected,
-      ga4Fallback,
-    });
-    return NextResponse.json(emptyOverview);
-  }
-
   // Step 5: Fetch Meta Graph API insights per account
   let totalSpend = 0;
   let totalRevenue = 0;
   let totalPurchases = 0;
+  let totalClicks = 0;
+  let totalImpressions = 0;
   const platformEfficiency: PlatformEfficiencyRow[] = [];
 
-  for (const accountId of assignedAccountIds) {
-    try {
-      const insightsUrl = new URL(
-        `https://graph.facebook.com/v25.0/${accountId}/insights`
-      );
-      insightsUrl.searchParams.set(
-        "fields",
-        "spend,actions,action_values,purchase_roas"
-      );
-      insightsUrl.searchParams.set(
-        "time_range",
-        JSON.stringify({ since: resolvedStart, until: resolvedEnd })
-      );
-      insightsUrl.searchParams.set("access_token", accessToken);
+  if (accessToken && assignedAccountIds.length > 0) {
+    for (const accountId of assignedAccountIds) {
+      try {
+        const insightsUrl = new URL(
+          `https://graph.facebook.com/v25.0/${accountId}/insights`
+        );
+        insightsUrl.searchParams.set(
+          "fields",
+          "spend,actions,action_values,purchase_roas"
+        );
+        insightsUrl.searchParams.set(
+          "time_range",
+          JSON.stringify({ since: resolvedStart, until: resolvedEnd })
+        );
+        insightsUrl.searchParams.set("access_token", accessToken);
 
-      console.log("[overview] fetching meta insights", { businessId, accountId });
-      const res = await fetch(insightsUrl.toString(), {
-        method: "GET",
-        headers: { Accept: "application/json" },
-        cache: "no-store",
-      });
+        console.log("[overview] fetching meta insights", { businessId, accountId });
+        const res = await fetch(insightsUrl.toString(), {
+          method: "GET",
+          headers: { Accept: "application/json" },
+          cache: "no-store",
+        });
 
-      if (!res.ok) {
-        const raw = await res.text().catch(() => "");
-        console.warn("[overview] meta insights non-ok", {
+        if (!res.ok) {
+          const raw = await res.text().catch(() => "");
+          console.warn("[overview] meta insights non-ok", {
+            businessId,
+            accountId,
+            status: res.status,
+            raw: raw.slice(0, 200),
+          });
+          continue;
+        }
+
+        const json = (await res.json()) as {
+          data?: Array<{
+            spend?: string;
+            actions?: Array<{ action_type: string; value: string }>;
+            action_values?: Array<{ action_type: string; value: string }>;
+            purchase_roas?: Array<{ action_type: string; value: string }>;
+          }>;
+        };
+
+        const data = json?.data?.[0];
+        if (!data) {
+          console.log("[overview] meta insights empty data", { businessId, accountId });
+          continue;
+        }
+
+        const spend = parseFloat(data.spend ?? "0") || 0;
+        const purchases = parseActionValue(data.actions, "purchase");
+        const revenueFromActionValues = parseActionValue(data.action_values, "purchase");
+        const purchaseRoasValue = parseActionValue(
+          data.purchase_roas as Array<{ action_type: string; value: string }> | undefined,
+          "omni_purchase"
+        );
+        const revenue =
+          revenueFromActionValues > 0
+            ? revenueFromActionValues
+            : spend * purchaseRoasValue;
+
+        console.log("[overview] meta insights parsed", {
           businessId,
           accountId,
-          status: res.status,
-          raw: raw.slice(0, 200),
+          spend,
+          purchases,
+          revenue,
         });
-        continue;
+
+        totalSpend += spend;
+        totalRevenue += revenue;
+        totalPurchases += purchases;
+
+        platformEfficiency.push({
+          platform: "meta",
+          spend,
+          revenue,
+          roas: spend > 0 ? revenue / spend : 0,
+          purchases,
+          cpa: purchases > 0 ? spend / purchases : 0,
+        });
+      } catch (accountError: unknown) {
+        const msg = accountError instanceof Error ? accountError.message : String(accountError);
+        console.warn("[overview] meta insights fetch failed for account", {
+          businessId,
+          accountId,
+          message: msg,
+        });
       }
+    }
+  }
 
-      const json = (await res.json()) as {
-        data?: Array<{
-          spend?: string;
-          actions?: Array<{ action_type: string; value: string }>;
-          action_values?: Array<{ action_type: string; value: string }>;
-          purchase_roas?: Array<{ action_type: string; value: string }>;
-        }>;
-      };
+  try {
+    const googleOverview = await getGoogleAdsOverviewReport({
+      businessId,
+      accountId: null,
+      dateRange: "custom",
+      customStart: resolvedStart,
+      customEnd: resolvedEnd,
+      compareMode: "none",
+      compareStart: null,
+      compareEnd: null,
+      debug: false,
+    });
 
-      const data = json?.data?.[0];
-      if (!data) {
-        console.log("[overview] meta insights empty data", { businessId, accountId });
-        continue;
-      }
+    const googleSpend = Number(googleOverview.kpis.spend ?? 0);
+    const googleRevenue = Number(googleOverview.kpis.revenue ?? 0);
+    const googlePurchases = Number(googleOverview.kpis.conversions ?? 0);
+    const googleClicks = Number(googleOverview.kpis.clicks ?? 0);
+    const googleImpressions = Number(googleOverview.kpis.impressions ?? 0);
 
-      const spend = parseFloat(data.spend ?? "0") || 0;
-      const purchases = parseActionValue(data.actions, "purchase");
-      // prefer action_values for revenue; fall back to spend * purchase_roas
-      const revenueFromActionValues = parseActionValue(data.action_values, "purchase");
-      const purchaseRoasValue = parseActionValue(
-        data.purchase_roas as Array<{ action_type: string; value: string }> | undefined,
-        "omni_purchase"
-      );
-      const revenue =
-        revenueFromActionValues > 0
-          ? revenueFromActionValues
-          : spend * purchaseRoasValue;
-
-      console.log("[overview] meta insights parsed", {
-        businessId,
-        accountId,
-        spend,
-        purchases,
-        revenue,
-      });
-
-      totalSpend += spend;
-      totalRevenue += revenue;
-      totalPurchases += purchases;
+    if (
+      googleSpend > 0 ||
+      googleRevenue > 0 ||
+      googlePurchases > 0 ||
+      googleClicks > 0 ||
+      googleImpressions > 0
+    ) {
+      totalSpend += googleSpend;
+      totalRevenue += googleRevenue;
+      totalPurchases += googlePurchases;
+      totalClicks += googleClicks;
+      totalImpressions += googleImpressions;
 
       platformEfficiency.push({
-        platform: "meta",
-        spend,
-        revenue,
-        roas: spend > 0 ? revenue / spend : 0,
-        purchases,
-        cpa: purchases > 0 ? spend / purchases : 0,
+        platform: "google",
+        spend: googleSpend,
+        revenue: googleRevenue,
+        roas: Number(googleOverview.kpis.roas ?? 0),
+        purchases: googlePurchases,
+        cpa: Number(googleOverview.kpis.cpa ?? 0),
       });
-    } catch (accountError: unknown) {
-      const msg = accountError instanceof Error ? accountError.message : String(accountError);
-      console.warn("[overview] meta insights fetch failed for account", {
-        businessId,
-        accountId,
-        message: msg,
-      });
-      // Skip this account, continue with others
     }
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn("[overview] google ads overview unavailable", { businessId, message });
   }
 
   // Step 6: Build and return OverviewData
@@ -332,8 +348,7 @@ export async function GET(request: NextRequest) {
   const cpa = totalPurchases > 0 ? totalSpend / totalPurchases : 0;
   const aov = totalPurchases > 0 ? totalRevenue / totalPurchases : 0;
 
-  // If all account fetches failed, return no_data fallback
-  if (platformEfficiency.length === 0 && assignedAccountIds.length > 0) {
+  if (platformEfficiency.length === 0) {
     console.log("[overview] all account fetches failed, returning no_data", { businessId });
     const emptyOverview = buildEmptyOverview(businessId, resolvedStart, resolvedEnd, "no_data");
     const ga4Fallback = await getGa4EcommerceFallback(businessId, resolvedStart, resolvedEnd);
@@ -364,15 +379,15 @@ export async function GET(request: NextRequest) {
       aov: { source: "unavailable", label: "Unavailable" },
     },
     totals: {
-      impressions: 0,
-      clicks: 0,
+      impressions: Math.round(totalImpressions),
+      clicks: Math.round(totalClicks),
       purchases: Math.round(totalPurchases),
       spend: round2(totalSpend),
       conversions: Math.round(totalPurchases),
       revenue: round2(totalRevenue),
-      ctr: 0,
-      cpm: 0,
-      cpc: 0,
+      ctr: totalImpressions > 0 ? round2((totalClicks / totalImpressions) * 100) : 0,
+      cpm: totalImpressions > 0 ? round2((totalSpend / totalImpressions) * 1000) : 0,
+      cpc: totalClicks > 0 ? round2(totalSpend / totalClicks) : 0,
       cpa: round2(cpa),
       roas: round2(roas),
     },
