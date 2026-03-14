@@ -560,6 +560,7 @@ async function runNamedQuery(
     queryName: query.name,
     resource: query.resource,
     family: query.family,
+    queryText: query.query,
   });
   const { results, failures } = await executeGaqlForAccounts({
     businessId: context.businessId,
@@ -575,6 +576,7 @@ async function runNamedQuery(
     resultSets: results.length,
     rowCount: rows.length,
     failureCount: failures.length,
+    queryText: query.query,
   });
 
   return {
@@ -613,6 +615,13 @@ async function resolveContext(params: {
       businessId,
       requestedAccountId: accountId ?? "all",
       assignedAccounts,
+      envCheck: {
+        hasGoogleAdsDeveloperToken: Boolean(process.env.GOOGLE_ADS_DEVELOPER_TOKEN),
+        tokenLength: process.env.GOOGLE_ADS_DEVELOPER_TOKEN?.length ?? 0,
+      },
+      runtime: "nodejs",
+      vercelEnv: process.env.VERCEL_ENV ?? null,
+      vercelUrl: process.env.VERCEL_URL ?? null,
       message,
     });
     return {

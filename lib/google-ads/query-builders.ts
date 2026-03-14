@@ -95,7 +95,6 @@ export function buildCampaignCoreBasicQuery(
         "campaign.name",
         "campaign.status",
         "campaign.advertising_channel_type",
-        "campaign.serving_status",
         "metrics.impressions",
         "metrics.clicks",
         "metrics.cost_micros",
@@ -128,8 +127,6 @@ export function buildCampaignShareQuery(
       "search_rank_lost_impression_share",
       "search_top_impression_share",
       "search_absolute_top_impression_share",
-      "top_impression_percentage",
-      "absolute_top_impression_percentage",
     ],
     query: buildGoogleAdsQuery({
       select: [
@@ -139,21 +136,20 @@ export function buildCampaignShareQuery(
         "metrics.search_rank_lost_impression_share",
         "metrics.search_top_impression_share",
         "metrics.search_absolute_top_impression_share",
-        "metrics.top_impression_percentage",
-        "metrics.absolute_top_impression_percentage",
       ],
       from: "campaign",
       where: [
         buildDateWhereClause(startDate, endDate),
         "campaign.status != 'REMOVED'",
+        "campaign.advertising_channel_type IN ('SEARCH', 'SHOPPING')",
       ],
     }),
   };
 }
 
 export function buildCampaignBudgetQuery(
-  startDate: string,
-  endDate: string
+  _startDate: string,
+  _endDate: string
 ): GoogleAdsNamedQuery {
   return {
     name: "campaign_budget",
@@ -170,7 +166,6 @@ export function buildCampaignBudgetQuery(
       ],
       from: "campaign",
       where: [
-        buildDateWhereClause(startDate, endDate),
         "campaign.status != 'REMOVED'",
       ],
     }),
