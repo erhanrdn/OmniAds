@@ -372,11 +372,34 @@ export async function runMigrations(options?: {
       cogs_percent      DOUBLE PRECISION NOT NULL DEFAULT 0,
       shipping_percent  DOUBLE PRECISION NOT NULL DEFAULT 0,
       fee_percent       DOUBLE PRECISION NOT NULL DEFAULT 0,
+      fixed_monthly_cost DOUBLE PRECISION NOT NULL DEFAULT 0,
       fixed_cost        DOUBLE PRECISION NOT NULL DEFAULT 0,
       created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
       UNIQUE (business_id)
     )
+  `;
+
+      await sql`
+    ALTER TABLE business_cost_models
+    ADD COLUMN IF NOT EXISTS fixed_monthly_cost DOUBLE PRECISION NOT NULL DEFAULT 0
+  `;
+
+      await sql`
+    ALTER TABLE business_cost_models
+    ADD COLUMN IF NOT EXISTS fixed_cost DOUBLE PRECISION NOT NULL DEFAULT 0
+  `;
+
+      await sql`
+    UPDATE business_cost_models
+    SET fixed_monthly_cost = fixed_cost
+    WHERE fixed_monthly_cost = 0 AND fixed_cost <> 0
+  `;
+
+      await sql`
+    UPDATE business_cost_models
+    SET fixed_cost = fixed_monthly_cost
+    WHERE fixed_cost = 0 AND fixed_monthly_cost <> 0
   `;
 
       await sql`
