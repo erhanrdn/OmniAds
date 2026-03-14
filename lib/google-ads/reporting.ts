@@ -5,6 +5,7 @@ import {
   getGoogleAdsFailureMessage,
   type GoogleAdsAccountQueryFailure,
 } from "@/lib/google-ads-gaql";
+import { GOOGLE_CONFIG } from "@/lib/oauth/google-config";
 import type {
   AssetGroupPerformanceRow,
   AssetPerformanceRow,
@@ -473,6 +474,33 @@ function finalizeMeta(meta: GoogleAdsReportMeta) {
   meta.warnings = dedupeStrings(meta.warnings);
   meta.unavailable_metrics = dedupeStrings(meta.unavailable_metrics);
   meta.query_names = dedupeStrings(meta.query_names);
+  meta.failed_queries = meta.failed_queries.filter((failure, index, list) => {
+    const key = [
+      failure.query,
+      failure.family,
+      failure.customerId ?? "",
+      failure.loginCustomerId ?? "",
+      failure.status ?? "",
+      failure.apiStatus ?? "",
+      failure.apiErrorCode ?? "",
+      failure.message,
+    ].join("|");
+    return (
+      index ===
+      list.findIndex((candidate) =>
+        [
+          candidate.query,
+          candidate.family,
+          candidate.customerId ?? "",
+          candidate.loginCustomerId ?? "",
+          candidate.status ?? "",
+          candidate.apiStatus ?? "",
+          candidate.apiErrorCode ?? "",
+          candidate.message,
+        ].join("|") === key
+      )
+    );
+  });
   meta.report_families = Object.fromEntries(
     Object.entries(meta.report_families).map(([family, familyMeta]) => [
       family,
@@ -484,6 +512,42 @@ function finalizeMeta(meta: GoogleAdsReportMeta) {
       },
     ])
   );
+}
+
+function createPrerequisiteFailureMeta(
+  debug: boolean,
+  message: string,
+  input: {
+    businessId: string;
+    accountId?: string | null;
+    assignedAccounts: string[];
+    startDate: string;
+    endDate: string;
+  }
+): GoogleAdsReportMeta {
+  return {
+    ...createEmptyMeta(debug),
+    partial: true,
+    warnings: [message],
+    failed_queries: [
+      {
+        query: "google_ads_prerequisite",
+        family: "configuration",
+        customerId: input.accountId ?? input.assignedAccounts[0] ?? "unresolved",
+        message,
+        severity: "core",
+        category: "auth_permission_context",
+      },
+    ],
+    debug: debug
+      ? {
+          businessId: input.businessId,
+          assignedAccounts: input.assignedAccounts,
+          requestedAccountId: input.accountId ?? "all",
+          date_range: { startDate: input.startDate, endDate: input.endDate },
+        }
+      : undefined,
+  };
 }
 
 async function runNamedQuery(
@@ -540,6 +604,35 @@ async function resolveContext(params: {
     customStart ?? undefined,
     customEnd ?? undefined
   );
+
+  try {
+    void GOOGLE_CONFIG.developerToken;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("[google-ads-reporting] prerequisite_failed", {
+      businessId,
+      requestedAccountId: accountId ?? "all",
+      assignedAccounts,
+      message,
+    });
+    return {
+      ok: false,
+      payload: {
+        rows: [],
+        summary: {
+          totalAccounts: accountsToQuery.length,
+          blockedBy: "missing_google_ads_developer_token",
+        },
+        meta: createPrerequisiteFailureMeta(debug, message, {
+          businessId,
+          accountId,
+          assignedAccounts,
+          startDate,
+          endDate,
+        }),
+      },
+    };
+  }
 
   if (accountsToQuery.length === 0) {
     return {

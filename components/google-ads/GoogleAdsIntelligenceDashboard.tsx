@@ -182,7 +182,27 @@ function combineMetas(metas: Array<MetaShape | null | undefined>) {
   return {
     partial: combined.partial,
     warnings: Array.from(new Set(combined.warnings)),
-    failed_queries: combined.failed_queries,
+    failed_queries: combined.failed_queries.filter((failure, index, list) => {
+      const key = [
+        failure.query,
+        failure.customerId ?? "",
+        failure.loginCustomerId ?? "",
+        failure.category ?? "",
+        failure.message,
+      ].join("|");
+      return (
+        index ===
+        list.findIndex((candidate) =>
+          [
+            candidate.query,
+            candidate.customerId ?? "",
+            candidate.loginCustomerId ?? "",
+            candidate.category ?? "",
+            candidate.message,
+          ].join("|") === key
+        )
+      );
+    }),
     unavailable_metrics: Array.from(new Set(combined.unavailable_metrics)),
   };
 }
