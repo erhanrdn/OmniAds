@@ -71,7 +71,7 @@ export interface GoogleAdsAccountQueryFailure {
 const GOOGLE_ADS_GAQL_TIMEOUT_MS = 10_000;
 
 function buildGaqlRequestType(customerId: string, query: string) {
-  const normalizedCustomerId = customerId.replace(/^customers\//, "");
+  const normalizedCustomerId = normalizeCustomerIdForRequest(customerId);
   const queryHash = createHash("sha1").update(query).digest("hex").slice(0, 12);
   return `gaql:${normalizedCustomerId}:${queryHash}`;
 }
@@ -168,11 +168,33 @@ export async function executeGaqlQuery(params: {
     }
   }
 
-  const searchUrl = `${GOOGLE_CONFIG.adsApiBase}/customers/${params.customerId.replace(/^customers\//, "")}/googleAds:search`;
+  const normalizedCustomerId = normalizeCustomerIdForRequest(params.customerId);
+  const searchUrl = `${GOOGLE_CONFIG.adsApiBase}/customers/${normalizedCustomerId}/googleAds:search`;
   const loginCustomerIdCandidates = await getLoginCustomerIdCandidates(
     params.businessId,
     params.customerId
   );
+  const snapshot = await readProviderAccountSnapshot({
+    businessId: params.businessId,
+    provider: "google",
+  }).catch(() => null);
+  const accounts = snapshot?.accounts ?? [];
+  const targetAccount =
+    accounts.find((account) => normalizeCustomerIdForRequest(account.id) === normalizedCustomerId) ??
+    null;
+  const managerLoginCustomerIdCandidates = loginCustomerIdCandidates.filter((candidate) =>
+    accounts.some(
+      (account) =>
+        account.isManager && normalizeCustomerIdForRequest(account.id) === candidate
+    )
+  );
+  const orderedLoginCustomerIdCandidates = Array.from(
+    new Set([
+      ...managerLoginCustomerIdCandidates,
+      ...loginCustomerIdCandidates.filter((candidate) => candidate !== normalizedCustomerId),
+      normalizedCustomerId,
+    ])
+  ).filter(Boolean);
 
   return runProviderRequestWithGovernance({
     provider: "google",
@@ -184,11 +206,20 @@ export async function executeGaqlQuery(params: {
       console.log("[google-ads-gaql] query start", {
         businessId: params.businessId,
         customerId: params.customerId,
+        normalizedCustomerId,
+        searchUrl,
+        targetAccount: targetAccount
+          ? {
+              id: targetAccount.id,
+              name: targetAccount.name,
+              isManager: Boolean(targetAccount.isManager),
+            }
+          : null,
         queryHash: buildGaqlRequestType(params.customerId, params.query),
-        loginCustomerIdCandidates,
+        loginCustomerIdCandidates: orderedLoginCustomerIdCandidates,
       });
 
-      for (const loginCustomerId of [undefined, ...loginCustomerIdCandidates]) {
+      for (const loginCustomerId of [undefined, ...orderedLoginCustomerIdCandidates]) {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), GOOGLE_ADS_GAQL_TIMEOUT_MS);
         const response = await fetch(searchUrl, {
@@ -215,7 +246,9 @@ export async function executeGaqlQuery(params: {
           const result = data as GaqlSearchResult;
           console.log("[google-ads-gaql] query success", {
             customerId: params.customerId,
+            normalizedCustomerId,
             loginCustomerId: loginCustomerId ?? null,
+            targetIsManager: Boolean(targetAccount?.isManager),
             rowCount: result.results?.length ?? 0,
           });
           return result;
@@ -246,7 +279,9 @@ export async function executeGaqlQuery(params: {
 
         console.warn("[google-ads-gaql] query attempt failed", {
           customerId: params.customerId,
+          normalizedCustomerId,
           loginCustomerId: loginCustomerId ?? null,
+          targetIsManager: Boolean(targetAccount?.isManager),
           status: response.status,
           apiStatus: error.error?.status ?? null,
           apiErrorCode: apiErrorCode ?? null,
@@ -257,7 +292,9 @@ export async function executeGaqlQuery(params: {
       if (lastError) {
         console.error("[google-ads-gaql] query failed after retries", {
           customerId: params.customerId,
-          candidateCount: loginCustomerIdCandidates.length,
+          normalizedCustomerId,
+          candidateCount: orderedLoginCustomerIdCandidates.length,
+          targetIsManager: Boolean(targetAccount?.isManager),
           message: lastError.message,
           status: lastError.status,
           apiStatus: lastError.apiStatus ?? null,
