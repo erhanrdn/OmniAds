@@ -41,18 +41,21 @@ export class GoogleAdsQueryError extends Error {
   status: number;
   apiStatus?: string;
   apiErrorCode?: string;
+  loginCustomerId?: string;
 
   constructor(params: {
     message: string;
     status: number;
     apiStatus?: string;
     apiErrorCode?: string;
+    loginCustomerId?: string;
   }) {
     super(params.message);
     this.name = "GoogleAdsQueryError";
     this.status = params.status;
     this.apiStatus = params.apiStatus;
     this.apiErrorCode = params.apiErrorCode;
+    this.loginCustomerId = params.loginCustomerId;
   }
 }
 
@@ -62,6 +65,7 @@ export interface GoogleAdsAccountQueryFailure {
   status?: number;
   apiStatus?: string;
   apiErrorCode?: string;
+  loginCustomerId?: string;
 }
 
 const GOOGLE_ADS_GAQL_TIMEOUT_MS = 10_000;
@@ -237,6 +241,7 @@ export async function executeGaqlQuery(params: {
           status: response.status,
           apiStatus: error.error?.status,
           apiErrorCode,
+          loginCustomerId: loginCustomerId ?? undefined,
         });
 
         console.warn("[google-ads-gaql] query attempt failed", {
@@ -303,6 +308,7 @@ export async function executeGaqlForAccounts(params: {
             status: queryError.status,
             apiStatus: queryError.apiStatus,
             apiErrorCode: queryError.apiErrorCode,
+            loginCustomerId: queryError.loginCustomerId,
           } satisfies GoogleAdsAccountQueryFailure,
         };
       }

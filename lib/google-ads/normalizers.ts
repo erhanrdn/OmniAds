@@ -12,6 +12,15 @@ export interface GoogleAdsReportMeta {
     status?: number;
     apiStatus?: string;
     apiErrorCode?: string;
+    loginCustomerId?: string;
+    severity?: "core" | "optional";
+    category?:
+      | "auth_permission_context"
+      | "unsupported_query_shape"
+      | "unavailable_metric"
+      | "bad_query_shape"
+      | "optional_advanced_failure"
+      | "unknown";
   }>;
   unavailable_metrics: string[];
   query_names: string[];

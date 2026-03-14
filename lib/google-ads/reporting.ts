@@ -104,6 +104,15 @@ interface QueryExecution {
   query: GoogleAdsNamedQuery;
 }
 
+type QuerySeverity = "core" | "optional";
+type QueryFailureCategory =
+  | "auth_permission_context"
+  | "unsupported_query_shape"
+  | "unavailable_metric"
+  | "bad_query_shape"
+  | "optional_advanced_failure"
+  | "unknown";
+
 interface ReportContext {
   businessId: string;
   customerIds: string[];
@@ -140,6 +149,58 @@ interface TrendMetrics {
 interface SearchThemeSignal {
   text: string;
   approvalStatus: string | null;
+}
+
+const CORE_QUERY_NAMES = new Set(["customer_summary", "campaign_core_basic"]);
+
+function getQuerySeverity(queryName: string): QuerySeverity {
+  return CORE_QUERY_NAMES.has(queryName) ? "core" : "optional";
+}
+
+function classifyFailureCategory(input: {
+  queryName: string;
+  message: string;
+  status?: number;
+  apiStatus?: string;
+  apiErrorCode?: string;
+}): QueryFailureCategory {
+  const text = `${input.message} ${input.apiStatus ?? ""} ${input.apiErrorCode ?? ""}`.toUpperCase();
+  if (
+    input.status === 401 ||
+    input.status === 403 ||
+    text.includes("PERMISSION_DENIED") ||
+    text.includes("UNAUTHENTICATED") ||
+    text.includes("LOGIN-CUSTOMER-ID") ||
+    text.includes("DEVELOPER_TOKEN")
+  ) {
+    return "auth_permission_context";
+  }
+  if (
+    text.includes("PROHIBITED") ||
+    text.includes("UNSUPPORTED") ||
+    text.includes("CANNOT SELECT") ||
+    text.includes("NOT SELECTABLE") ||
+    text.includes("UNRECOGNIZED_FIELD")
+  ) {
+    return "unsupported_query_shape";
+  }
+  if (
+    text.includes("METRIC") &&
+    (text.includes("UNAVAILABLE") || text.includes("CANNOT BE REQUESTED") || text.includes("INCOMPATIBLE"))
+  ) {
+    return "unavailable_metric";
+  }
+  if (
+    text.includes("INVALID_ARGUMENT") ||
+    text.includes("PARSE") ||
+    text.includes("SYNTAX")
+  ) {
+    return "bad_query_shape";
+  }
+  if (getQuerySeverity(input.queryName) === "optional") {
+    return "optional_advanced_failure";
+  }
+  return "unknown";
 }
 
 const COUNTRY_MAP: Record<number, string> = {
@@ -363,6 +424,15 @@ function mergeFailures(meta: GoogleAdsReportMeta, execution: QueryExecution) {
       status: failure.status,
       apiStatus: failure.apiStatus,
       apiErrorCode: failure.apiErrorCode,
+      loginCustomerId: failure.loginCustomerId,
+      severity: getQuerySeverity(execution.query.name),
+      category: classifyFailureCategory({
+        queryName: execution.query.name,
+        message: failure.message,
+        status: failure.status,
+        apiStatus: failure.apiStatus,
+        apiErrorCode: failure.apiErrorCode,
+      }),
     }))
   );
   familyMeta.failed_queries.push(
@@ -374,6 +444,15 @@ function mergeFailures(meta: GoogleAdsReportMeta, execution: QueryExecution) {
       status: failure.status,
       apiStatus: failure.apiStatus,
       apiErrorCode: failure.apiErrorCode,
+      loginCustomerId: failure.loginCustomerId,
+      severity: getQuerySeverity(execution.query.name),
+      category: classifyFailureCategory({
+        queryName: execution.query.name,
+        message: failure.message,
+        status: failure.status,
+        apiStatus: failure.apiStatus,
+        apiErrorCode: failure.apiErrorCode,
+      }),
     }))
   );
   familyMeta.warnings.push(
@@ -743,6 +822,26 @@ function aggregateOverviewKpis(customerRows: RawRow[]) {
   };
 }
 
+function aggregateOverviewKpisFromCampaigns(rows: Array<Record<string, unknown>>) {
+  return rows.reduce<{
+    spend: number;
+    revenue: number;
+    conversions: number;
+    clicks: number;
+    impressions: number;
+  }>(
+    (acc, row) => {
+      acc.spend += Number(row.spend ?? 0);
+      acc.revenue += Number(row.revenue ?? 0);
+      acc.conversions += Number(row.conversions ?? 0);
+      acc.clicks += Number(row.clicks ?? 0);
+      acc.impressions += Number(row.impressions ?? 0);
+      return acc;
+    },
+    { spend: 0, revenue: 0, conversions: 0, clicks: 0, impressions: 0 }
+  );
+}
+
 export async function getGoogleAdsOverviewReport(
   params: ComparativeReportParams
 ): Promise<OverviewReportResult> {
@@ -812,7 +911,56 @@ export async function getGoogleAdsOverviewReport(
     }))
     .sort((a, b) => Number((b.spend as number) ?? 0) - Number((a.spend as number) ?? 0));
 
-  const kpis = aggregateOverviewKpis(customerSummary.rows);
+  const customerSummaryKpis = aggregateOverviewKpis(customerSummary.rows);
+  const campaignFallback = aggregateOverviewKpisFromCampaigns(campaigns);
+  const hasCustomerSummaryData =
+    customerSummary.rows.length > 0 && Number(customerSummaryKpis.spend ?? 0) > 0;
+  const hasCampaignFallbackData = campaigns.length > 0 && campaignFallback.spend > 0;
+  const kpis = hasCustomerSummaryData
+    ? customerSummaryKpis
+    : hasCampaignFallbackData
+    ? {
+        spend: Number(campaignFallback.spend.toFixed(2)),
+        conversions: Number(campaignFallback.conversions.toFixed(2)),
+        revenue: Number(campaignFallback.revenue.toFixed(2)),
+        roas:
+          campaignFallback.spend > 0
+            ? Number((campaignFallback.revenue / campaignFallback.spend).toFixed(2))
+            : 0,
+        cpa:
+          campaignFallback.conversions > 0
+            ? Number((campaignFallback.spend / campaignFallback.conversions).toFixed(2))
+            : 0,
+        ctr:
+          campaignFallback.impressions > 0
+            ? Number(((campaignFallback.clicks / campaignFallback.impressions) * 100).toFixed(2))
+            : 0,
+        cpc:
+          campaignFallback.clicks > 0
+            ? Number((campaignFallback.spend / campaignFallback.clicks).toFixed(2))
+            : 0,
+        impressions: campaignFallback.impressions,
+        clicks: campaignFallback.clicks,
+        interactions: 0,
+        interactionRate: null,
+        convRate:
+          campaignFallback.clicks > 0
+            ? Number(((campaignFallback.conversions / campaignFallback.clicks) * 100).toFixed(2))
+            : 0,
+        valuePerConversion:
+          campaignFallback.conversions > 0
+            ? Number((campaignFallback.revenue / campaignFallback.conversions).toFixed(2))
+            : null,
+        costPerConversion:
+          campaignFallback.conversions > 0
+            ? Number((campaignFallback.spend / campaignFallback.conversions).toFixed(2))
+            : null,
+        videoViews: 0,
+        videoViewRate: null,
+        engagements: 0,
+        engagementRate: null,
+      }
+    : customerSummaryKpis;
   const previousKpis = previousQueries
     ? aggregateOverviewKpis(previousQueries[0].rows)
     : undefined;
@@ -926,6 +1074,12 @@ export async function getGoogleAdsOverviewReport(
     summary: {
       topCampaignCount: enrichedCampaigns.length,
       resource: GOOGLE_ADS_METRICS_MATRIX.overview.primaryResource,
+      usedCoreFallback: !hasCustomerSummaryData && hasCampaignFallbackData,
+      overviewDataSource: hasCustomerSummaryData
+        ? "customer_summary"
+        : hasCampaignFallbackData
+        ? "campaign_core_basic_fallback"
+        : "empty",
     },
     meta,
   };
@@ -3036,6 +3190,13 @@ export async function getGoogleAdsDiagnosticsReport(
       ).length,
       totalWarnings: sections.reduce((sum, section) => sum + section.warningCount, 0),
       totalFailures: sections.reduce((sum, section) => sum + section.failureCount, 0),
+      coreBlockers: meta.failed_queries.filter((failure) => failure.severity === "core").length,
+      optionalFailures: meta.failed_queries.filter((failure) => failure.severity !== "core").length,
+      apiLimitations: meta.failed_queries.filter(
+        (failure) =>
+          failure.category === "unsupported_query_shape" ||
+          failure.category === "unavailable_metric"
+      ).length,
       generatedAt: new Date().toISOString(),
     },
     insights: {
@@ -3048,6 +3209,38 @@ export async function getGoogleAdsDiagnosticsReport(
         unavailableMetricCount: familyMeta.unavailable_metrics.length,
         queryNames: familyMeta.query_names,
       })),
+      issueInventory: meta.failed_queries.map((failure) => ({
+        query: failure.query,
+        family: failure.family,
+        severity: failure.severity ?? getQuerySeverity(failure.query),
+        category:
+          failure.category ??
+          classifyFailureCategory({
+            queryName: failure.query,
+            message: failure.message,
+            status: failure.status,
+            apiStatus: failure.apiStatus,
+            apiErrorCode: failure.apiErrorCode,
+          }),
+        customerId: failure.customerId,
+        loginCustomerId: failure.loginCustomerId ?? null,
+        status: failure.status ?? null,
+        apiStatus: failure.apiStatus ?? null,
+        apiErrorCode: failure.apiErrorCode ?? null,
+        message: failure.message,
+      })),
+      groupedIssues: {
+        coreBlockers: meta.failed_queries.filter((failure) => failure.severity === "core"),
+        optionalFailures: meta.failed_queries.filter((failure) => failure.severity !== "core"),
+        permissionContext: meta.failed_queries.filter(
+          (failure) => failure.category === "auth_permission_context"
+        ),
+        apiLimitations: meta.failed_queries.filter(
+          (failure) =>
+            failure.category === "unsupported_query_shape" ||
+            failure.category === "unavailable_metric"
+        ),
+      },
       limitations: [
         "Asset-group-level search theme performance metrics are not consistently exposed by Google Ads API; configured themes and messaging alignment are shown instead.",
         "Keyword quality metrics depend on Google Ads quality_info availability and may be absent for some criteria.",

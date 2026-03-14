@@ -68,9 +68,24 @@ type TabId =
 type MetaShape = {
   partial?: boolean;
   warnings?: string[];
-  failed_queries?: Array<{ query: string; message: string; customerId?: string }>;
+  failed_queries?: Array<{
+    query: string;
+    message: string;
+    customerId?: string;
+    loginCustomerId?: string;
+    severity?: "core" | "optional";
+    category?:
+      | "auth_permission_context"
+      | "unsupported_query_shape"
+      | "unavailable_metric"
+      | "bad_query_shape"
+      | "optional_advanced_failure"
+      | "unknown";
+  }>;
   unavailable_metrics?: string[];
 };
+
+type QueryFailureShape = NonNullable<MetaShape["failed_queries"]>[number];
 
 type QueryResult = {
   rows?: Array<Record<string, any>>;
@@ -152,7 +167,7 @@ function combineMetas(metas: Array<MetaShape | null | undefined>) {
   const combined = {
     partial: false,
     warnings: [] as string[],
-    failed_queries: [] as Array<{ query: string; message: string; customerId?: string }>,
+    failed_queries: [] as QueryFailureShape[],
     unavailable_metrics: [] as string[],
   };
 
@@ -1108,18 +1123,30 @@ function MixCell({
 }
 
 function QueryIssueBanner({ meta }: { meta: ReturnType<typeof combineMetas> }) {
-  const issueCount =
-    meta.failed_queries.length + meta.warnings.length + meta.unavailable_metrics.length;
-  if (issueCount === 0) return null;
+  const coreBlockers = meta.failed_queries.filter((failure) => failure.severity === "core").length;
+  const optionalFailures = meta.failed_queries.filter((failure) => failure.severity !== "core").length;
+  const limitationCount = meta.failed_queries.filter(
+    (failure) =>
+      failure.category === "unsupported_query_shape" ||
+      failure.category === "unavailable_metric"
+  ).length;
+  const issueCount = coreBlockers + optionalFailures + limitationCount;
+  if (issueCount === 0 && meta.warnings.length === 0) return null;
 
   return (
     <div className="flex items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-900">
-      <p className="font-medium">
-        Some advanced metrics are unavailable for this view. See Diagnostics for query failures,
-        partial data, and API limitations.
-      </p>
+      <div className="space-y-1">
+        <p className="font-medium">
+          {coreBlockers > 0
+            ? "Some core Google Ads queries are blocked. Core data may be partial until customer context or permissions are fixed."
+            : "Some optional Google Ads metrics are unavailable. Core reporting can still render from successful queries."}
+        </p>
+        <p className="text-[11px] text-amber-800/80">
+          {coreBlockers} core blockers, {optionalFailures} optional failures, {limitationCount} API limitations
+        </p>
+      </div>
       <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold text-amber-800">
-        {issueCount} issue{issueCount === 1 ? "" : "s"}
+        {coreBlockers} core / {optionalFailures} optional
       </span>
     </div>
   );
@@ -3089,14 +3116,17 @@ function DiagnosticsView({
 
   const summary = (diagnostics?.summary ?? {}) as Record<string, any>;
   const insights = (diagnostics?.insights ?? {}) as Record<string, any>;
+  const groupedIssues = (insights.groupedIssues ?? {}) as Record<string, Array<Record<string, any>>>;
+  const issueInventory = (insights.issueInventory ?? []) as Array<Record<string, any>>;
 
   return (
     <div className="space-y-6">
       <SectionCard title="Diagnostic Summary" description="Centralized view of query failures, partial data, and unavailable advanced metrics.">
-        <div className="grid gap-3 md:grid-cols-3">
-          <InsightStrip title="Query Failures" value={fmtNumber(meta.failed_queries.length)} note="Only shown here, not in main reporting tabs." tone={meta.failed_queries.length > 0 ? "bad" : "neutral"} />
-          <InsightStrip title="Partial Data" value={fmtNumber(meta.warnings.length)} note="Includes true API and report-shape limitations." tone={meta.warnings.length > 0 ? "bad" : "neutral"} />
-          <InsightStrip title="Unavailable Metrics" value={fmtNumber(meta.unavailable_metrics.length)} note="Unavailable vs zero handling is preserved." tone={meta.unavailable_metrics.length > 0 ? "bad" : "neutral"} />
+        <div className="grid gap-3 md:grid-cols-4">
+          <InsightStrip title="Core Blockers" value={fmtNumber(Number(summary.coreBlockers ?? 0))} note="Queries that can block overview/account health." tone={Number(summary.coreBlockers ?? 0) > 0 ? "bad" : "neutral"} />
+          <InsightStrip title="Optional Failures" value={fmtNumber(Number(summary.optionalFailures ?? 0))} note="Advanced modules that failed without blocking core data." tone={Number(summary.optionalFailures ?? 0) > 0 ? "bad" : "neutral"} />
+          <InsightStrip title="API Limitations" value={fmtNumber(Number(summary.apiLimitations ?? 0))} note="Unsupported fields or unavailable metrics." tone={Number(summary.apiLimitations ?? 0) > 0 ? "bad" : "neutral"} />
+          <InsightStrip title="Warnings" value={fmtNumber(meta.warnings.length)} note="Partial-data notices after fail-soft handling." tone={meta.warnings.length > 0 ? "bad" : "neutral"} />
         </div>
       </SectionCard>
 
@@ -3106,6 +3136,41 @@ function DiagnosticsView({
         <MetricCard label="Warnings" value={fmtNumber(Number(summary.totalWarnings ?? 0))} sublabel="Partial-data or limitation notices" />
         <MetricCard label="Query Failures" value={fmtNumber(Number(summary.totalFailures ?? 0))} sublabel={summary.generatedAt ? `Generated ${new Date(String(summary.generatedAt)).toLocaleString()}` : "Latest scan"} />
       </div>
+
+      <SectionCard title="Issue Groups" description="Failures are grouped so core blockers are separated from optional advanced-query problems.">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <MetricCard label="Core Blockers" value={fmtNumber((groupedIssues.coreBlockers ?? []).length)} sublabel="Customer summary or core campaign queries" />
+          <MetricCard label="Optional Failures" value={fmtNumber((groupedIssues.optionalFailures ?? []).length)} sublabel="Assets, products, enrichment, and similar modules" />
+          <MetricCard label="Permission / Context" value={fmtNumber((groupedIssues.permissionContext ?? []).length)} sublabel="Auth, manager header, or customer-access issues" />
+          <MetricCard label="API Limitations" value={fmtNumber((groupedIssues.apiLimitations ?? []).length)} sublabel="Unsupported field/resource combinations" />
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Failure Inventory" description="Exact query failures with severity and category for debugging.">
+        <div className="space-y-3">
+          {issueInventory.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No query failures captured.</p>
+          ) : (
+            issueInventory.map((issue, index) => (
+              <div key={`${issue.query}-${issue.customerId}-${index}`} className="rounded-2xl border p-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-semibold">{String(issue.query)}</span>
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase text-muted-foreground">
+                    {String(issue.severity ?? "optional")}
+                  </span>
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                    {String(issue.category ?? "unknown")}
+                  </span>
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  customer {String(issue.customerId ?? "—")} · login {String(issue.loginCustomerId ?? "—")} · status {String(issue.status ?? "—")} · api {String(issue.apiStatus ?? "—")} · code {String(issue.apiErrorCode ?? "—")}
+                </p>
+                <p className="mt-2 text-sm">{String(issue.message ?? "Unknown query failure")}</p>
+              </div>
+            ))
+          )}
+        </div>
+      </SectionCard>
 
       <SectionCard title="Section Health" description="Readable diagnostics aggregated per tab or report family.">
         <div className="space-y-3">
