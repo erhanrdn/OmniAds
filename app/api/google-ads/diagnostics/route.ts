@@ -27,6 +27,7 @@ export async function GET(request: NextRequest) {
     customStart,
     customEnd,
     debug,
+    source: "google_ads_diagnostics_route",
   });
 
   return NextResponse.json({

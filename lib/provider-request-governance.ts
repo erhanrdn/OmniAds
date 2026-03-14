@@ -81,6 +81,7 @@ function shouldEnterCooldown(error: unknown) {
   if (status === 401 || status === 403 || status === 429) return true;
   return (
     message.includes("QUOTA") ||
+    message.includes("RESOURCE_EXHAUSTED") ||
     message.includes("RATE LIMIT") ||
     message.includes("TOO MANY REQUESTS") ||
     message.includes("PERMISSION") ||

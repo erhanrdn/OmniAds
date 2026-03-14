@@ -69,6 +69,13 @@ export interface GoogleAdsAccountQueryFailure {
 }
 
 const GOOGLE_ADS_GAQL_TIMEOUT_MS = 10_000;
+const GOOGLE_ADS_SEARCH_CACHE_TTL_MS = 30_000;
+const GOOGLE_ADS_OPTIONAL_SEARCH_CACHE_TTL_MS = 15_000;
+
+interface CachedGaqlResult {
+  expiresAt: number;
+  value: GaqlSearchResult;
+}
 
 function buildGaqlRequestType(customerId: string, query: string) {
   const normalizedCustomerId = normalizeCustomerIdForRequest(customerId);
@@ -78,6 +85,26 @@ function buildGaqlRequestType(customerId: string, query: string) {
 
 function normalizeCustomerIdForRequest(value: string) {
   return value.replace(/^customers\//, "").replace(/\D/g, "");
+}
+
+function getGaqlCacheStore() {
+  const globalStore = globalThis as typeof globalThis & {
+    __omniadsGoogleAdsGaqlCache?: Map<string, CachedGaqlResult>;
+  };
+  if (!globalStore.__omniadsGoogleAdsGaqlCache) {
+    globalStore.__omniadsGoogleAdsGaqlCache = new Map();
+  }
+  return globalStore.__omniadsGoogleAdsGaqlCache;
+}
+
+function buildGaqlCacheKey(input: {
+  businessId: string;
+  customerId: string;
+  query: string;
+}) {
+  return `${input.businessId}:${normalizeCustomerIdForRequest(input.customerId)}:${createHash("sha1")
+    .update(input.query)
+    .digest("hex")}`;
 }
 
 async function getLoginCustomerIdCandidates(
@@ -134,6 +161,10 @@ export async function executeGaqlQuery(params: {
   businessId: string;
   customerId: string;
   query: string;
+  queryName?: string;
+  queryFamily?: string;
+  source?: string;
+  requestId?: string;
 }): Promise<GaqlSearchResult> {
   let integration = await getIntegration(params.businessId, "google");
 
@@ -170,6 +201,23 @@ export async function executeGaqlQuery(params: {
 
   const normalizedCustomerId = normalizeCustomerIdForRequest(params.customerId);
   const searchUrl = `${GOOGLE_CONFIG.adsApiBase}/customers/${normalizedCustomerId}/googleAds:search`;
+  const cacheKey = buildGaqlCacheKey(params);
+  const cacheStore = getGaqlCacheStore();
+  const cached = cacheStore.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    console.log("[google-ads-search] cache_hit", {
+      source: params.source ?? "unknown",
+      requestId: params.requestId ?? null,
+      businessId: params.businessId,
+      customerId: normalizedCustomerId,
+      queryName: params.queryName ?? "unknown",
+      queryFamily: params.queryFamily ?? "unknown",
+    });
+    return cached.value;
+  }
+  if (cached && cached.expiresAt <= Date.now()) {
+    cacheStore.delete(cacheKey);
+  }
   const loginCustomerIdCandidates = await getLoginCustomerIdCandidates(
     params.businessId,
     params.customerId
@@ -203,11 +251,15 @@ export async function executeGaqlQuery(params: {
     execute: async () => {
       let lastError: GoogleAdsQueryError | null = null;
 
-      console.log("[google-ads-gaql] query start", {
+      console.log("[google-ads-search] live_start", {
+        source: params.source ?? "unknown",
+        requestId: params.requestId ?? null,
         businessId: params.businessId,
         customerId: params.customerId,
         normalizedCustomerId,
         searchUrl,
+        queryName: params.queryName ?? "unknown",
+        queryFamily: params.queryFamily ?? "unknown",
         targetAccount: targetAccount
           ? {
               id: targetAccount.id,
@@ -244,10 +296,22 @@ export async function executeGaqlQuery(params: {
 
         if (response.ok) {
           const result = data as GaqlSearchResult;
-          console.log("[google-ads-gaql] query success", {
+          cacheStore.set(cacheKey, {
+            value: result,
+            expiresAt:
+              Date.now() +
+              (params.queryName === "customer_summary" || params.queryName === "campaign_core_basic"
+                ? GOOGLE_ADS_SEARCH_CACHE_TTL_MS
+                : GOOGLE_ADS_OPTIONAL_SEARCH_CACHE_TTL_MS),
+          });
+          console.log("[google-ads-search] success", {
+            source: params.source ?? "unknown",
+            requestId: params.requestId ?? null,
             customerId: params.customerId,
             normalizedCustomerId,
             loginCustomerId: loginCustomerId ?? null,
+            queryName: params.queryName ?? "unknown",
+            queryFamily: params.queryFamily ?? "unknown",
             targetIsManager: Boolean(targetAccount?.isManager),
             rowCount: result.results?.length ?? 0,
           });
@@ -277,22 +341,34 @@ export async function executeGaqlQuery(params: {
           loginCustomerId: loginCustomerId ?? undefined,
         });
 
-        console.warn("[google-ads-gaql] query attempt failed", {
+        console.warn("[google-ads-search] live_failure", {
+          source: params.source ?? "unknown",
+          requestId: params.requestId ?? null,
           customerId: params.customerId,
           normalizedCustomerId,
           loginCustomerId: loginCustomerId ?? null,
+          queryName: params.queryName ?? "unknown",
+          queryFamily: params.queryFamily ?? "unknown",
           targetIsManager: Boolean(targetAccount?.isManager),
           status: response.status,
           apiStatus: error.error?.status ?? null,
           apiErrorCode: apiErrorCode ?? null,
           message,
         });
+
+        if (response.status === 429 || error.error?.status === "RESOURCE_EXHAUSTED") {
+          break;
+        }
       }
 
       if (lastError) {
-        console.error("[google-ads-gaql] query failed after retries", {
+        console.error("[google-ads-search] failed_after_retries", {
+          source: params.source ?? "unknown",
+          requestId: params.requestId ?? null,
           customerId: params.customerId,
           normalizedCustomerId,
+          queryName: params.queryName ?? "unknown",
+          queryFamily: params.queryFamily ?? "unknown",
           candidateCount: orderedLoginCustomerIdCandidates.length,
           targetIsManager: Boolean(targetAccount?.isManager),
           message: lastError.message,
@@ -323,6 +399,10 @@ export async function executeGaqlForAccounts(params: {
   businessId: string;
   customerIds: string[];
   query: string;
+  queryName?: string;
+  queryFamily?: string;
+  source?: string;
+  requestId?: string;
 }): Promise<{
   results: GaqlSearchResult[];
   failures: GoogleAdsAccountQueryFailure[];
@@ -334,6 +414,10 @@ export async function executeGaqlForAccounts(params: {
           businessId: params.businessId,
           customerId,
           query: params.query,
+          queryName: params.queryName,
+          queryFamily: params.queryFamily,
+          source: params.source,
+          requestId: params.requestId,
         });
         return { result };
       } catch (error) {

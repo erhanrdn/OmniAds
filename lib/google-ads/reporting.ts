@@ -91,6 +91,7 @@ interface BaseReportParams {
   customStart?: string | null;
   customEnd?: string | null;
   debug?: boolean;
+  source?: string;
 }
 
 interface ComparativeReportParams extends BaseReportParams {
@@ -119,6 +120,8 @@ interface ReportContext {
   customerIds: string[];
   dateRange: DateRange;
   debug: boolean;
+  source: string;
+  requestId: string;
 }
 
 interface ReportResult<Row extends object> {
@@ -555,6 +558,8 @@ async function runNamedQuery(
   query: GoogleAdsNamedQuery
 ): Promise<QueryExecution> {
   console.log("[google-ads-reporting] run_named_query", {
+    source: context.source,
+    requestId: context.requestId,
     businessId: context.businessId,
     customerIds: context.customerIds,
     queryName: query.name,
@@ -566,10 +571,16 @@ async function runNamedQuery(
     businessId: context.businessId,
     customerIds: context.customerIds,
     query: query.query,
+    queryName: query.name,
+    queryFamily: query.family,
+    source: context.source,
+    requestId: context.requestId,
   });
 
   const rows = results.flatMap((result) => (result.results ?? []) as RawRow[]);
   console.log("[google-ads-reporting] query_result", {
+    source: context.source,
+    requestId: context.requestId,
     businessId: context.businessId,
     queryName: query.name,
     customerIds: context.customerIds,
@@ -593,6 +604,7 @@ async function resolveContext(params: {
   customStart?: string | null;
   customEnd?: string | null;
   debug: boolean;
+  source?: string;
 }): Promise<
   | { ok: true; context: ReportContext; startDate: string; endDate: string }
   | { ok: false; payload: { rows: []; meta: GoogleAdsReportMeta; summary?: Record<string, unknown> } }
@@ -676,14 +688,16 @@ async function resolveContext(params: {
 
   return {
     ok: true,
-    context: {
-      businessId,
-      customerIds: accountsToQuery,
-      dateRange,
-      debug,
-    },
-    startDate,
-    endDate,
+      context: {
+        businessId,
+        customerIds: accountsToQuery,
+        dateRange,
+        debug,
+        source: params.source ?? "google_ads_reporting",
+        requestId: `${params.source ?? "google_ads_reporting"}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 8)}`,
+      },
+      startDate,
+      endDate,
   };
 }
 
@@ -954,6 +968,7 @@ export async function getGoogleAdsOverviewReport(
     customStart: params.customStart,
     customEnd: params.customEnd,
     debug: Boolean(params.debug),
+    source: params.source ?? "google_ads_overview_report",
   });
   if (!resolved.ok) {
     return {
@@ -1197,6 +1212,7 @@ export async function getGoogleAdsCampaignsReport(
     customStart: params.customStart,
     customEnd: params.customEnd,
     debug: Boolean(params.debug),
+    source: params.source ?? "google_ads_campaigns_report",
   });
   if (!resolved.ok) return resolved.payload;
 
@@ -1373,6 +1389,7 @@ export async function getGoogleAdsSearchTermsReport(params: BaseReportParams & {
     customStart: params.customStart,
     customEnd: params.customEnd,
     debug: Boolean(params.debug),
+    source: params.source ?? "google_ads_search_terms_report",
   });
   if (!resolved.ok) return resolved.payload;
 
@@ -1480,6 +1497,7 @@ export async function getGoogleAdsKeywordsReport(
     customStart: params.customStart,
     customEnd: params.customEnd,
     debug: Boolean(params.debug),
+    source: params.source ?? "google_ads_keywords_report",
   });
   if (!resolved.ok) return resolved.payload;
 
@@ -1722,6 +1740,7 @@ export async function getGoogleAdsSearchIntelligenceReport(params: BaseReportPar
     customStart: params.customStart,
     customEnd: params.customEnd,
     debug: Boolean(params.debug),
+    source: params.source ?? "google_ads_search_intelligence_report",
   });
   if (!resolved.ok) return resolved.payload;
 
@@ -1948,6 +1967,7 @@ export async function getGoogleAdsAdsReport(
     customStart: params.customStart,
     customEnd: params.customEnd,
     debug: Boolean(params.debug),
+    source: params.source ?? "google_ads_ads_report",
   });
   if (!resolved.ok) return resolved.payload;
 
@@ -2077,6 +2097,7 @@ export async function getGoogleAdsAssetsReport(
     customStart: params.customStart,
     customEnd: params.customEnd,
     debug: Boolean(params.debug),
+    source: params.source ?? "google_ads_assets_report",
   });
   if (!resolved.ok) return resolved.payload;
 
@@ -2324,6 +2345,7 @@ export async function getGoogleAdsAudiencesReport(
     customStart: params.customStart,
     customEnd: params.customEnd,
     debug: Boolean(params.debug),
+    source: params.source ?? "google_ads_audiences_report",
   });
   if (!resolved.ok) return resolved.payload;
 
@@ -2413,6 +2435,7 @@ export async function getGoogleAdsGeoReport(
     customStart: params.customStart,
     customEnd: params.customEnd,
     debug: Boolean(params.debug),
+    source: params.source ?? "google_ads_geo_report",
   });
   if (!resolved.ok) return resolved.payload;
 
@@ -2522,6 +2545,7 @@ export async function getGoogleAdsDevicesReport(
     customStart: params.customStart,
     customEnd: params.customEnd,
     debug: Boolean(params.debug),
+    source: params.source ?? "google_ads_devices_report",
   });
   if (!resolved.ok) return resolved.payload;
 
@@ -2692,6 +2716,7 @@ export async function getGoogleAdsCreativesReport(
     customStart: params.customStart,
     customEnd: params.customEnd,
     debug: Boolean(params.debug),
+    source: params.source ?? "google_ads_creatives_report",
   });
   if (!resolved.ok) return resolved.payload;
 
@@ -2820,6 +2845,7 @@ export async function getGoogleAdsAssetGroupsReport(
     customStart: params.customStart,
     customEnd: params.customEnd,
     debug: Boolean(params.debug),
+    source: params.source ?? "google_ads_asset_groups_report",
   });
   if (!resolved.ok) return resolved.payload;
 
@@ -3067,6 +3093,7 @@ export async function getGoogleAdsProductsReport(
     customStart: params.customStart,
     customEnd: params.customEnd,
     debug: Boolean(params.debug),
+    source: params.source ?? "google_ads_products_report",
   });
   if (!resolved.ok) return resolved.payload;
 

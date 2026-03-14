@@ -308,6 +308,7 @@ export async function GET(request: NextRequest) {
       compareStart: null,
       compareEnd: null,
       debug: false,
+      source: "overview_aggregation_route",
     });
 
     const googleSpend = Number(googleOverview.kpis.spend ?? 0);

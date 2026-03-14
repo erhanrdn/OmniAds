@@ -39,6 +39,7 @@ export async function GET(request: NextRequest) {
     compareStart,
     compareEnd,
     debug,
+    source: "google_ads_workspace_overview_route",
   });
 
   return NextResponse.json({
