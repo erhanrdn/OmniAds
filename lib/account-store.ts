@@ -124,6 +124,51 @@ export async function findOrCreateGoogleUser(input: {
   return created[0] as UserRow;
 }
 
+/**
+ * Find an existing user by Facebook ID or email, or create a new one.
+ * Used by the "Sign in with Facebook" OAuth flow.
+ */
+export async function findOrCreateFacebookUser(input: {
+  facebookId: string;
+  email: string;
+  name: string;
+  avatar: string | null;
+}): Promise<UserRow> {
+  await runMigrations();
+  const sql = getDb();
+
+  // First try to find by facebook_id
+  const byFacebookId = (await sql`
+    SELECT id, name, email, password_hash, avatar, created_at
+    FROM users WHERE facebook_id = ${input.facebookId} LIMIT 1
+  `) as UserRow[];
+  if (byFacebookId[0]) return byFacebookId[0];
+
+  // Then try to find by email (existing user linking their Facebook)
+  const byEmail = (await sql`
+    SELECT id, name, email, password_hash, avatar, created_at
+    FROM users WHERE lower(email) = lower(${input.email}) LIMIT 1
+  `) as UserRow[];
+  if (byEmail[0]) {
+    // Link Facebook ID to existing account
+    await sql`
+      UPDATE users
+      SET facebook_id = ${input.facebookId},
+          avatar = COALESCE(users.avatar, ${input.avatar})
+      WHERE id = ${byEmail[0].id}
+    `;
+    return { ...byEmail[0], avatar: byEmail[0].avatar ?? input.avatar };
+  }
+
+  // Create new user (no password — Facebook-only account)
+  const created = (await sql`
+    INSERT INTO users (name, email, password_hash, avatar, facebook_id, auth_provider)
+    VALUES (${input.name.trim()}, ${input.email.trim().toLowerCase()}, '', ${input.avatar}, ${input.facebookId}, 'facebook')
+    RETURNING id, name, email, password_hash, avatar, created_at
+  `) as UserRow[];
+  return created[0] as UserRow;
+}
+
 export async function createBusinessWithAdminMembership(input: {
   name: string;
   ownerId: string;

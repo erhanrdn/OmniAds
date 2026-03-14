@@ -32,17 +32,17 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Google-only accounts have no password — tell user to use Google sign-in
+  // Social-only accounts have no password — tell user to use social sign-in
   if (!user.password_hash) {
-    logServerAuthEvent("login_rejected_google_only_user", {
+    logServerAuthEvent("login_rejected_social_only_user", {
       email,
       userId: user.id,
     });
     return NextResponse.json(
       {
-        error: "google_only",
+        error: "social_only",
         message:
-          'This account uses Google sign-in. Please use the "Sign in with Google" button.',
+          'This account uses social sign-in. Please use the "Sign in with Google" or "Sign in with Facebook" button.',
       },
       { status: 401 },
     );
