@@ -38,11 +38,12 @@ import type { MetaBreakdownsResponse } from "@/app/api/meta/breakdowns/route";
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
 import {
   DateRangePicker,
+  type ComparisonPreset,
   DateRangeValue,
   DEFAULT_DATE_RANGE,
   getPresetDates,
 } from "@/components/date-range/DateRangePicker";
-import { MetaCampaignTable } from "@/components/meta/meta-campaign-table";
+import { MetaCampaignTable, type MetaCampaignTableRow } from "@/components/meta/meta-campaign-table";
 import { PlacementBreakdownChart } from "@/components/meta/placement-breakdown-chart";
 
 // ── Data fetchers ─────────────────────────────────────────────────────────────
@@ -101,6 +102,69 @@ function pct(part: number, whole: number): string {
   return `${((part / whole) * 100).toFixed(1)}%`;
 }
 
+function parseISODate(value: string): Date {
+  return new Date(`${value}T00:00:00.000Z`);
+}
+
+function addDaysToISO(value: string, days: number): string {
+  const date = parseISODate(value);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function dayDiffInclusive(startDate: string, endDate: string): number {
+  const start = parseISODate(startDate).getTime();
+  const end = parseISODate(endDate).getTime();
+  return Math.max(1, Math.floor((end - start) / 86_400_000) + 1);
+}
+
+function getComparisonWindow(
+  startDate: string,
+  endDate: string,
+  preset: ComparisonPreset,
+  comparisonStart?: string,
+  comparisonEnd?: string
+): { startDate: string; endDate: string } | null {
+  if (preset === "none") return null;
+
+  if (comparisonStart && comparisonEnd) {
+    return { startDate: comparisonStart, endDate: comparisonEnd };
+  }
+
+  if (preset === "previousPeriod") {
+    const days = dayDiffInclusive(startDate, endDate);
+    const previousEnd = addDaysToISO(startDate, -1);
+    const previousStart = addDaysToISO(previousEnd, -(days - 1));
+    return { startDate: previousStart, endDate: previousEnd };
+  }
+
+  if (preset === "previousWeek") {
+    return {
+      startDate: addDaysToISO(startDate, -7),
+      endDate: addDaysToISO(endDate, -7),
+    };
+  }
+
+  if (preset === "previousMonth") {
+    return {
+      startDate: addDaysToISO(startDate, -30),
+      endDate: addDaysToISO(endDate, -30),
+    };
+  }
+
+  if (preset === "previousQuarter") {
+    return {
+      startDate: addDaysToISO(startDate, -90),
+      endDate: addDaysToISO(endDate, -90),
+    };
+  }
+
+  return {
+    startDate: addDaysToISO(startDate, -365),
+    endDate: addDaysToISO(endDate, -365),
+  };
+}
+
 // ── KPI Cards ─────────────────────────────────────────────────────────────────
 
 interface KpiData {
@@ -108,6 +172,12 @@ interface KpiData {
   totalRevenue: number;
   avgCpa: number;
   blendedRoas: number;
+}
+
+function computeChangePct(current: number, previous: number): number | null {
+  if (!Number.isFinite(current) || !Number.isFinite(previous)) return null;
+  if (previous <= 0) return null;
+  return ((current - previous) / previous) * 100;
 }
 
 function computeKpis(rows: MetaCampaignRow[]): KpiData {
@@ -129,6 +199,8 @@ interface KpiCardProps {
   icon: React.ElementType;
   accentClass: string; // left-border color
   valueClass?: string; // optional value color override
+  changePct?: number | null;
+  positiveIsGood?: boolean;
 }
 
 function KpiCard({
@@ -138,7 +210,27 @@ function KpiCard({
   icon: Icon,
   accentClass,
   valueClass = "text-foreground",
+  changePct = null,
+  positiveIsGood = true,
 }: KpiCardProps) {
+  const hasChange = typeof changePct === "number";
+  const isPositive = hasChange ? changePct > 0 : false;
+  const isNegative = hasChange ? changePct < 0 : false;
+  const colorClass = !hasChange
+    ? "text-muted-foreground"
+    : positiveIsGood
+      ? isPositive
+        ? "text-emerald-600"
+        : isNegative
+          ? "text-red-500"
+          : "text-muted-foreground"
+      : isPositive
+        ? "text-red-500"
+        : isNegative
+          ? "text-emerald-600"
+          : "text-muted-foreground";
+  const sign = hasChange && changePct > 0 ? "+" : "";
+
   return (
     <div
       className={`relative overflow-hidden rounded-2xl border bg-card p-5 shadow-sm ${accentClass}`}
@@ -157,6 +249,12 @@ function KpiCard({
             {value}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">{subLabel}</p>
+          {hasChange && (
+            <p className={`mt-1 text-[11px] font-semibold ${colorClass}`}>
+              {sign}
+              {changePct.toFixed(1)}% vs previous period
+            </p>
+          )}
         </div>
         <div className="shrink-0 rounded-xl bg-muted/50 p-2.5">
           <Icon className="h-5 w-5 text-muted-foreground" />
@@ -390,6 +488,13 @@ export default function MetaPage() {
     dateRange.customStart,
     dateRange.customEnd
   );
+  const comparisonWindow = getComparisonWindow(
+    startDate,
+    endDate,
+    dateRange.comparisonPreset,
+    dateRange.comparisonStart,
+    dateRange.comparisonEnd
+  );
 
   const campaignsQuery = useQuery({
     queryKey: ["meta-campaigns", businessId, startDate, endDate],
@@ -403,11 +508,53 @@ export default function MetaPage() {
     queryFn: () => fetchMetaBreakdowns(businessId, startDate, endDate),
   });
 
+  const comparisonCampaignsQuery = useQuery({
+    queryKey: [
+      "meta-campaigns-compare",
+      businessId,
+      comparisonWindow?.startDate,
+      comparisonWindow?.endDate,
+    ],
+    enabled: metaConnected && Boolean(comparisonWindow),
+    queryFn: () =>
+      fetchMetaCampaigns(
+        businessId,
+        comparisonWindow!.startDate,
+        comparisonWindow!.endDate
+      ),
+  });
+
   // KPIs are derived from the campaign rows — no extra API call
   const kpis = useMemo(
     () => computeKpis(campaignsQuery.data?.rows ?? []),
     [campaignsQuery.data]
   );
+  const previousKpis = useMemo(
+    () => computeKpis(comparisonCampaignsQuery.data?.rows ?? []),
+    [comparisonCampaignsQuery.data]
+  );
+
+  const campaignRowsForTable = useMemo<MetaCampaignTableRow[]>(() => {
+    const rows = campaignsQuery.data?.rows ?? [];
+    if (!comparisonWindow || !comparisonCampaignsQuery.data?.rows?.length) {
+      return rows;
+    }
+
+    const previousById = new Map(
+      comparisonCampaignsQuery.data.rows.map((row) => [row.id, row])
+    );
+
+    return rows.map((row) => {
+      const prev = previousById.get(row.id);
+      return {
+        ...row,
+        previousSpend: prev?.spend,
+        previousRevenue: prev?.revenue,
+        previousRoas: prev?.roas,
+        previousCpa: prev?.cpa,
+      };
+    });
+  }, [campaignsQuery.data?.rows, comparisonCampaignsQuery.data?.rows, comparisonWindow]);
 
   return (
     <div className="space-y-5">
@@ -450,6 +597,11 @@ export default function MetaPage() {
               subLabel={`${campaignsQuery.data?.rows?.length ?? 0} campaigns`}
               icon={DollarSign}
               accentClass="border-l-4 border-l-blue-500/60"
+              changePct={
+                comparisonWindow
+                  ? computeChangePct(kpis.totalSpend, previousKpis.totalSpend)
+                  : null
+              }
             />
             <KpiCard
               label="Total Revenue"
@@ -460,6 +612,11 @@ export default function MetaPage() {
               icon={TrendingUp}
               accentClass="border-l-4 border-l-emerald-500/60"
               valueClass="text-emerald-600"
+              changePct={
+                comparisonWindow
+                  ? computeChangePct(kpis.totalRevenue, previousKpis.totalRevenue)
+                  : null
+              }
             />
             <KpiCard
               label="Avg. CPA"
@@ -469,6 +626,12 @@ export default function MetaPage() {
               subLabel="Cost per conversion"
               icon={Target}
               accentClass="border-l-4 border-l-violet-500/60"
+              changePct={
+                comparisonWindow
+                  ? computeChangePct(kpis.avgCpa, previousKpis.avgCpa)
+                  : null
+              }
+              positiveIsGood={false}
             />
             <KpiCard
               label="Blended ROAS"
@@ -493,6 +656,11 @@ export default function MetaPage() {
                   ? "text-amber-500"
                   : "text-red-500"
               }
+              changePct={
+                comparisonWindow
+                  ? computeChangePct(kpis.blendedRoas, previousKpis.blendedRoas)
+                  : null
+              }
             />
           </div>
 
@@ -515,6 +683,11 @@ export default function MetaPage() {
             <h2 className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">
               Campaign Performance
             </h2>
+            {comparisonWindow && (
+              <p className="text-xs text-muted-foreground">
+                Comparison active: deltas are shown against {comparisonWindow.startDate} - {comparisonWindow.endDate}.
+              </p>
+            )}
 
             {campaignsQuery.isLoading && <LoadingSkeleton rows={5} />}
 
@@ -546,7 +719,7 @@ export default function MetaPage() {
 
               return (
                 <MetaCampaignTable
-                  campaigns={rows}
+                  campaigns={campaignRowsForTable}
                   businessId={businessId}
                   since={startDate}
                   until={endDate}

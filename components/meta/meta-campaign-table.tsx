@@ -27,13 +27,20 @@ import type { MetaAdSetsResponse } from "@/app/api/meta/adsets/route";
 type ColumnMode = "full" | "compact";
 
 interface MetaCampaignTableProps {
-  campaigns: MetaCampaignData[];
+  campaigns: MetaCampaignTableRow[];
   businessId: string;
   since: string;
   until: string;
   showMicroBars?: boolean;
   columns?: ColumnMode;
 }
+
+export type MetaCampaignTableRow = MetaCampaignData & {
+  previousSpend?: number;
+  previousRevenue?: number;
+  previousRoas?: number;
+  previousCpa?: number;
+};
 
 // ── Formatters ────────────────────────────────────────────────────────────────
 
@@ -48,6 +55,28 @@ function fmtBudget(daily: number | null, lifetime: number | null): string {
   if (daily != null) return `${fmt$(daily / 100)}/day`;
   if (lifetime != null) return `${fmt$(lifetime / 100)} lifetime`;
   return "—";
+}
+
+function diffPct(current: number, previous?: number): number | null {
+  if (typeof previous !== "number") return null;
+  if (!Number.isFinite(current) || !Number.isFinite(previous)) return null;
+  if (previous <= 0) return null;
+  return ((current - previous) / previous) * 100;
+}
+
+function diffPctText(current: number, previous?: number): string | null {
+  const pct = diffPct(current, previous);
+  if (pct === null) return null;
+  const sign = pct > 0 ? "+" : "";
+  return `${sign}${pct.toFixed(1)}%`;
+}
+
+function diffClass(current: number, previous?: number) {
+  if (typeof previous !== "number") return "text-muted-foreground";
+  const diff = current - previous;
+  if (diff > 0) return "text-emerald-600";
+  if (diff < 0) return "text-red-500";
+  return "text-muted-foreground";
 }
 
 // ── Micro-bar ─────────────────────────────────────────────────────────────────
@@ -198,7 +227,7 @@ function AdSetSubTable({ rows }: { rows: MetaAdSetData[] }) {
 // ── Campaign row ──────────────────────────────────────────────────────────────
 
 interface CampaignRowProps {
-  campaign: MetaCampaignData;
+  campaign: MetaCampaignTableRow;
   isExpanded: boolean;
   onToggle: () => void;
   businessId: string;
@@ -274,6 +303,16 @@ function CampaignRow({
         {/* Spend + micro-bar */}
         <td className="px-3 py-2.5">
           <span className="tabular-nums">{fmt$(campaign.spend)}</span>
+          {typeof campaign.previousSpend === "number" && (
+            <div
+              className={`mt-0.5 text-[10px] font-medium tabular-nums ${diffClass(
+                campaign.spend,
+                campaign.previousSpend
+              )}`}
+            >
+              {diffPctText(campaign.spend, campaign.previousSpend)}
+            </div>
+          )}
           {showMicroBars && (
             <MicroBar
               value={campaign.spend}
@@ -293,6 +332,16 @@ function CampaignRow({
         {/* Revenue + micro-bar */}
         <td className="px-3 py-2.5">
           <span className="tabular-nums">{fmt$(campaign.revenue)}</span>
+          {typeof campaign.previousRevenue === "number" && (
+            <div
+              className={`mt-0.5 text-[10px] font-medium tabular-nums ${diffClass(
+                campaign.revenue,
+                campaign.previousRevenue
+              )}`}
+            >
+              {diffPctText(campaign.revenue, campaign.previousRevenue)}
+            </div>
+          )}
           {showMicroBars && (
             <MicroBar
               value={campaign.revenue}
@@ -305,10 +354,32 @@ function CampaignRow({
         {/* ROAS */}
         <td className="px-3 py-2.5">
           <RoasCell roas={campaign.roas} />
+          {typeof campaign.previousRoas === "number" && (
+            <div
+              className={`mt-0.5 text-[10px] font-medium tabular-nums ${diffClass(
+                campaign.roas,
+                campaign.previousRoas
+              )}`}
+            >
+              {diffPctText(campaign.roas, campaign.previousRoas)}
+            </div>
+          )}
         </td>
 
         {/* CPA */}
-        <td className="px-3 py-2.5 tabular-nums">{fmt$(campaign.cpa)}</td>
+        <td className="px-3 py-2.5 tabular-nums">
+          {fmt$(campaign.cpa)}
+          {typeof campaign.previousCpa === "number" && (
+            <div
+              className={`mt-0.5 text-[10px] font-medium tabular-nums ${diffClass(
+                campaign.previousCpa,
+                campaign.cpa
+              )}`}
+            >
+              {diffPctText(campaign.cpa, campaign.previousCpa)}
+            </div>
+          )}
+        </td>
 
         {/* CTR — full mode only */}
         {columns === "full" && (
