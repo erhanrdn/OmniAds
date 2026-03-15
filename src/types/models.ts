@@ -212,6 +212,7 @@ export interface OverviewMetricCardData {
   previousValue?: number | null;
   changePct: number | null;
   sparklineData: number[];
+  sparklineLabels?: string[];
   trendDirection: "up" | "down" | "neutral";
   dataSource: {
     key: string;

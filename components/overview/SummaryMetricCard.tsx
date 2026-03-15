@@ -105,7 +105,7 @@ export function SummaryMetricCard({
         <MiniTrendAreaChart
           data={metric.sparklineData}
           tone={metric.trendDirection}
-          labels={metric.sparklineData.map((_, index) => `Period ${index + 1}`)}
+          labels={metric.sparklineLabels}
           valueFormatter={(value) => formatMetricNumber(value, metric.unit, currencySymbol)}
           className="h-12 w-full"
         />

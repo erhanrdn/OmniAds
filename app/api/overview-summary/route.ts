@@ -84,6 +84,20 @@ function getPreviousWindow(startDate: string, endDate: string) {
   };
 }
 
+function enumerateDays(startDate: string, endDate: string) {
+  const start = new Date(`${startDate}T00:00:00.000Z`);
+  const end = new Date(`${endDate}T00:00:00.000Z`);
+  const dates: string[] = [];
+  const cursor = new Date(start);
+
+  while (cursor <= end) {
+    dates.push(toIsoDate(cursor));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+
+  return dates;
+}
+
 function computeChangePct(current: number | null, previous: number | null, compareMode: CompareMode) {
   if (compareMode === "none") return null;
   if (current === null || previous === null || previous === 0) return null;
@@ -170,6 +184,70 @@ function buildUnavailableMetric(params: {
     unit: params.unit ?? "count",
     icon: params.icon,
   };
+}
+
+function sanitizeSeriesValue(value: number | null | undefined) {
+  if (typeof value !== "number" || Number.isNaN(value) || !Number.isFinite(value)) return 0;
+  return value;
+}
+
+function interpolateSeries(values: number[], targetLength: number) {
+  if (targetLength <= 0) return [];
+
+  const sanitized = values.map((value) => sanitizeSeriesValue(value));
+  if (sanitized.length === 0) return [];
+  if (sanitized.length === targetLength) return sanitized;
+  if (sanitized.length === 1) return Array.from({ length: targetLength }, () => sanitized[0]);
+
+  return Array.from({ length: targetLength }, (_, index) => {
+    if (targetLength === 1) return sanitized[sanitized.length - 1];
+
+    const position = (index / (targetLength - 1)) * (sanitized.length - 1);
+    const leftIndex = Math.floor(position);
+    const rightIndex = Math.min(Math.ceil(position), sanitized.length - 1);
+    const leftValue = sanitized[leftIndex];
+    const rightValue = sanitized[rightIndex];
+
+    if (leftIndex === rightIndex) return leftValue;
+
+    const weight = position - leftIndex;
+    return Number((leftValue + (rightValue - leftValue) * weight).toFixed(2));
+  });
+}
+
+function normalizeMetricSparkline(
+  metric: OverviewMetricCardData,
+  labels: string[]
+): OverviewMetricCardData {
+  if (!metric.sparklineData.length) {
+    return {
+      ...metric,
+      sparklineData: [],
+      sparklineLabels: [],
+    };
+  }
+
+  const targetLength = labels.length;
+  if (targetLength <= 0) {
+    return {
+      ...metric,
+      sparklineData: metric.sparklineData.map((value) => sanitizeSeriesValue(value)),
+      sparklineLabels: metric.sparklineLabels ?? [],
+    };
+  }
+
+  return {
+    ...metric,
+    sparklineData: interpolateSeries(metric.sparklineData, targetLength),
+    sparklineLabels: labels,
+  };
+}
+
+function normalizeMetricCollection(
+  metrics: OverviewMetricCardData[],
+  labels: string[]
+) {
+  return metrics.map((metric) => normalizeMetricSparkline(metric, labels));
 }
 
 function findPlatformRow(data: OverviewAggregateData | null, platform: string) {
@@ -407,6 +485,7 @@ export async function GET(request: NextRequest) {
 
   const resolvedStart = toIsoDate(parseIsoDate(startDate, new Date(Date.now() - 29 * 86_400_000)));
   const resolvedEnd = toIsoDate(parseIsoDate(endDate, new Date()));
+  const dailyLabels = enumerateDays(resolvedStart, resolvedEnd);
   const previousWindow =
     compareMode === "previous_period"
       ? getPreviousWindow(resolvedStart, resolvedEnd)
@@ -544,7 +623,7 @@ export async function GET(request: NextRequest) {
       : Promise.resolve(null),
   ]);
 
-  const pins: OverviewMetricCardData[] = [
+  const pins = normalizeMetricCollection([
     buildMetricCard({
       id: "pins-revenue",
       title: "Total Revenue",
@@ -633,9 +712,9 @@ export async function GET(request: NextRequest) {
       compareMode,
       icon: "shopping-cart",
     }),
-  ];
+  ], dailyLabels);
 
-  const storeMetrics: OverviewMetricCardData[] = [
+  const storeMetrics = normalizeMetricCollection([
     pins[0],
     pins[5],
     buildMetricCard({
@@ -685,13 +764,13 @@ export async function GET(request: NextRequest) {
       helperText: analyticsConnected ? undefined : "Connect GA4",
       compareMode,
     }),
-  ];
+  ], dailyLabels);
 
   const ltvSourceLabel = "GA4 fallback";
   const ltvEstimatedHelper = shopifyConnected
     ? "Estimated from GA4 because Shopify lifecycle data is unavailable for this view"
     : "Estimated from GA4";
-  const ltv: OverviewMetricCardData[] = [
+  const ltv = normalizeMetricCollection([
     currentGa4Ltv?.averageCustomerLtv !== null && currentGa4Ltv?.averageCustomerLtv !== undefined
       ? buildMetricCard({
           id: "ltv-average",
@@ -744,7 +823,7 @@ export async function GET(request: NextRequest) {
           compareMode,
         })
       : null,
-  ].filter((metric): metric is OverviewMetricCardData => Boolean(metric));
+  ].filter((metric): metric is OverviewMetricCardData => Boolean(metric)), dailyLabels);
 
   const costModelData = toCostModelData(costModel);
   const cogsValue =
@@ -788,7 +867,7 @@ export async function GET(request: NextRequest) {
         )
       : null;
   const costModelMissingHelper = "Set cost model";
-  const expenses: OverviewMetricCardData[] = [
+  const expenses = normalizeMetricCollection([
     buildMetricCard({
       id: "expenses-ad-spend",
       title: "Ad Spend",
@@ -926,9 +1005,9 @@ export async function GET(request: NextRequest) {
       compareMode,
       icon: "chart-line",
     }),
-  ];
+  ], dailyLabels);
 
-  const customMetrics: OverviewMetricCardData[] = [
+  const customMetrics = normalizeMetricCollection([
     buildMetricCard({
       id: "custom-mer",
       title: "MER",
@@ -954,9 +1033,9 @@ export async function GET(request: NextRequest) {
       sourceLabel: "Ad platforms",
       compareMode,
     }),
-  ];
+  ], dailyLabels);
 
-  const webAnalytics: OverviewMetricCardData[] = [
+  const webAnalytics = normalizeMetricCollection([
     buildMetricCard({
       id: "web-sessions",
       title: "Sessions",
@@ -993,7 +1072,14 @@ export async function GET(request: NextRequest) {
       compareMode,
       icon: "gauge",
     }),
-  ];
+  ], dailyLabels);
+
+  const platforms = buildPlatformSections(currentOverview, previousOverview, compareMode).map(
+    (platform) => ({
+      ...platform,
+      metrics: normalizeMetricCollection(platform.metrics, dailyLabels),
+    })
+  );
 
   const summary: OverviewSummaryData = {
     businessId,
@@ -1010,7 +1096,7 @@ export async function GET(request: NextRequest) {
     storeMetrics,
     attribution: buildAttributionRows(currentOverview, integrationsStatus),
     ltv,
-    platforms: buildPlatformSections(currentOverview, previousOverview, compareMode),
+    platforms,
     expenses,
     costModel: {
       configured: Boolean(costModelData),

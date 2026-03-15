@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { PointerEvent } from "react";
 import type { OverviewMetricCardData } from "@/src/types/models";
 
@@ -10,7 +10,7 @@ const CHART_PADDING = 4;
 
 export function MiniTrendAreaChart({
   data,
-  tone,
+  tone: _tone,
   loading = false,
   className = "h-12 w-full",
   labels,
@@ -24,7 +24,6 @@ export function MiniTrendAreaChart({
   valueFormatter?: (value: number) => string;
 }) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
-  const gradientId = useId();
 
   const points = useMemo(() => {
     if (!data || data.length < 2) return [];
@@ -58,8 +57,6 @@ export function MiniTrendAreaChart({
   const activePoint = points[activeIndex];
   const linePath = createSmoothPath(points);
   const areaPath = `${linePath} L ${points[points.length - 1].x} ${CHART_HEIGHT - CHART_PADDING} L ${points[0].x} ${CHART_HEIGHT - CHART_PADDING} Z`;
-  const stopTop = tone === "neutral" ? "#60a5fa" : "#10b981";
-  const stopBottom = tone === "neutral" ? "#94a3b8" : "#f43f5e";
   const activeLabel = formatPointLabel(labels?.[activeIndex] ?? `Period ${activeIndex + 1}`);
   const formattedValue = valueFormatter
     ? valueFormatter(activePoint.value)
@@ -93,22 +90,12 @@ export function MiniTrendAreaChart({
         onPointerMove={handlePointerMove}
         onPointerLeave={() => setHoverIndex(null)}
       >
-        <defs>
-          <linearGradient id={`${gradientId}-stroke`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={stopTop} />
-            <stop offset="100%" stopColor={stopBottom} />
-          </linearGradient>
-          <linearGradient id={`${gradientId}-fill`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={stopTop} stopOpacity="0.18" />
-            <stop offset="100%" stopColor={stopBottom} stopOpacity="0.03" />
-          </linearGradient>
-        </defs>
-        <path d={areaPath} fill={`url(#${gradientId}-fill)`} />
+        <path d={areaPath} fill="#3b82f6" fillOpacity="0.15" />
         <path
           d={linePath}
           fill="none"
-          stroke={`url(#${gradientId}-stroke)`}
-          strokeWidth="1.5"
+          stroke="#3b82f6"
+          strokeWidth="2"
           strokeLinecap="round"
           strokeLinejoin="round"
         />
@@ -128,8 +115,8 @@ export function MiniTrendAreaChart({
               cy={activePoint.y}
               r="3"
               fill="#ffffff"
-              stroke={`url(#${gradientId}-stroke)`}
-              strokeWidth="1.5"
+              stroke="#3b82f6"
+              strokeWidth="2"
             />
           </>
         ) : null}
