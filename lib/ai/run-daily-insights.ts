@@ -4,12 +4,34 @@ import {
   type BusinessMetricsSummary,
 } from "@/lib/ai/generate-daily-insights";
 import { saveInsight, saveInsightFailure } from "@/lib/ai/save-insight";
+import { getOverviewData } from "@/lib/overview-service";
 
 interface BusinessRow {
   id: string;
   name: string;
   currency: string;
   is_demo_business: boolean;
+}
+
+export interface SingleBusinessInsightResult {
+  businessId: string;
+  insightDate: string;
+  status: "success" | "failed" | "skipped";
+  error?: string;
+}
+
+function sanitizeAiErrorMessage(input: string): string {
+  const normalized = input.toLowerCase();
+  if (normalized.includes("incorrect api key") || normalized.includes("invalid_api_key")) {
+    return "AI service is not configured correctly (invalid API key).";
+  }
+  if (normalized.includes("api key") && normalized.includes("not set")) {
+    return "AI service is not configured (missing API key).";
+  }
+  if (normalized.includes("rate limit") || normalized.includes("quota")) {
+    return "AI service is temporarily rate limited. Please try again shortly.";
+  }
+  return "AI generation failed. Please try again.";
 }
 
 /**
@@ -26,10 +48,21 @@ async function fetchAllBusinesses(): Promise<BusinessRow[]> {
   return rows;
 }
 
+async function fetchBusinessById(businessId: string): Promise<BusinessRow | null> {
+  const sql = getDb();
+  const rows = (await sql`
+    SELECT id, name, currency, is_demo_business
+    FROM businesses
+    WHERE id = ${businessId}
+    LIMIT 1
+  `) as BusinessRow[];
+  return rows[0] ?? null;
+}
+
 /**
  * Build a summarized metrics payload for a business.
- * Gathers data from integrations, provider_account_snapshots,
- * and meta_creatives_snapshots — keeps payload small for AI.
+ * Gathers data from overview aggregates and creatives snapshots
+ * to keep payload small for AI while staying metric-accurate.
  */
 async function buildBusinessSummary(
   business: BusinessRow,
@@ -37,69 +70,36 @@ async function buildBusinessSummary(
 ): Promise<BusinessMetricsSummary> {
   const sql = getDb();
 
-  // Get connected integrations for this business
-  const integrations = (await sql`
-    SELECT provider, status FROM integrations
-    WHERE business_id = ${business.id} AND status = 'connected'
-  `) as Array<{ provider: string; status: string }>;
+  const endDate = insightDate;
+  const start = new Date(`${insightDate}T00:00:00.000Z`);
+  start.setUTCDate(start.getUTCDate() - 6);
+  const startDate = start.toISOString().slice(0, 10);
 
-  const connectedProviders = new Set(integrations.map((i) => i.provider));
+  const overview = await getOverviewData({
+    businessId: business.id,
+    startDate,
+    endDate,
+    includeTrends: false,
+  });
 
   const channels: BusinessMetricsSummary["channels"] = {};
-  let totalSpend = 0;
-  let totalRevenue = 0;
-  let totalPurchases = 0;
 
-  // Pull latest provider account snapshots (contains aggregated metrics)
-  const snapshots = (await sql`
-    SELECT provider, accounts_payload
-    FROM provider_account_snapshots
-    WHERE business_id = ${business.id}
-      AND refresh_failed = FALSE
-    ORDER BY fetched_at DESC
-  `) as Array<{ provider: string; accounts_payload: unknown }>;
-
-  for (const snapshot of snapshots) {
-    if (!connectedProviders.has(snapshot.provider)) continue;
-    const accounts = snapshot.accounts_payload as Array<{
-      name?: string;
-      spend?: number;
-      revenue?: number;
-      roas?: number;
-      purchases?: number;
-      cpa?: number;
-    }>;
-
-    if (!Array.isArray(accounts)) continue;
-
-    let chSpend = 0;
-    let chRevenue = 0;
-    let chPurchases = 0;
-
-    for (const account of accounts) {
-      chSpend += account.spend ?? 0;
-      chRevenue += account.revenue ?? 0;
-      chPurchases += account.purchases ?? 0;
-    }
-
-    const chRoas = chSpend > 0 ? chRevenue / chSpend : 0;
-    const chCpa = chPurchases > 0 ? chSpend / chPurchases : 0;
-
-    channels[snapshot.provider] = {
-      spend: chSpend,
-      revenue: chRevenue,
-      roas: chRoas,
-      purchases: chPurchases,
-      cpa: chCpa,
+  for (const row of overview.platformEfficiency ?? []) {
+    channels[row.platform] = {
+      spend: row.spend ?? 0,
+      revenue: row.revenue ?? 0,
+      roas: row.roas ?? 0,
+      purchases: row.purchases ?? 0,
+      cpa: row.cpa ?? 0,
     };
-
-    totalSpend += chSpend;
-    totalRevenue += chRevenue;
-    totalPurchases += chPurchases;
   }
 
-  const overallRoas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
-  const overallCpa = totalPurchases > 0 ? totalSpend / totalPurchases : 0;
+  const totalSpend = overview.kpis?.spend ?? 0;
+  const totalRevenue = overview.kpis?.revenue ?? 0;
+  const totalPurchases = overview.kpis?.purchases ?? 0;
+  const overallRoas = overview.kpis?.roas ?? 0;
+  const overallCpa = overview.kpis?.cpa ?? 0;
+  const overallCtr = overview.totals?.ctr ?? 0;
 
   // Pull latest creative snapshot for top winners/losers
   const creativeSnapshot = (await sql`
@@ -114,7 +114,14 @@ async function buildBusinessSummary(
   const topLosers: BusinessMetricsSummary["topLosers"] = [];
 
   if (creativeSnapshot[0]?.payload) {
-    const creatives = creativeSnapshot[0].payload as Array<{
+    const rawPayload = creativeSnapshot[0].payload;
+    const creatives = (Array.isArray(rawPayload)
+      ? rawPayload
+      : rawPayload &&
+          typeof rawPayload === "object" &&
+          Array.isArray((rawPayload as { rows?: unknown }).rows)
+        ? (rawPayload as { rows: unknown[] }).rows
+        : []) as Array<{
       name?: string;
       roas?: number;
       spend?: number;
@@ -155,7 +162,7 @@ async function buildBusinessSummary(
       roas: overallRoas,
       totalPurchases,
       cpa: overallCpa,
-      ctr: 0, // CTR requires impression-level data, omit if unavailable
+      ctr: overallCtr,
     },
     trends7d: [], // Populated from overview endpoint if available
     topWinners,
@@ -169,6 +176,68 @@ export interface DailyInsightRunResult {
   failed: number;
   skipped: number;
   errors: Array<{ businessId: string; error: string }>;
+}
+
+export async function runDailyInsightForBusiness(params: {
+  businessId: string;
+  insightDate?: string;
+}): Promise<SingleBusinessInsightResult> {
+  const insightDate = params.insightDate ?? new Date().toISOString().split("T")[0];
+  const business = await fetchBusinessById(params.businessId);
+
+  if (!business || business.is_demo_business) {
+    return {
+      businessId: params.businessId,
+      insightDate,
+      status: "skipped",
+      error: "Business not found or is demo.",
+    };
+  }
+
+  try {
+    const summary = await buildBusinessSummary(business, insightDate);
+
+    if (
+      summary.metrics.totalSpend === 0 &&
+      Object.keys(summary.channels).length === 0
+    ) {
+      return {
+        businessId: business.id,
+        insightDate,
+        status: "skipped",
+        error: "No metrics data.",
+      };
+    }
+
+    const { insight, raw } = await generateDailyInsights(summary);
+    await saveInsight({
+      businessId: business.id,
+      insightDate,
+      insight,
+      rawResponse: raw,
+    });
+
+    return {
+      businessId: business.id,
+      insightDate,
+      status: "success",
+    };
+  } catch (err) {
+    const rawMessage = err instanceof Error ? err.message : "Unknown error";
+    const message = sanitizeAiErrorMessage(rawMessage);
+    await saveInsightFailure({
+      businessId: params.businessId,
+      insightDate,
+      errorMessage: message,
+    }).catch(() => undefined);
+
+    return {
+      businessId: params.businessId,
+      insightDate,
+      status: "failed",
+      error: message,
+    };
+  }
 }
 
 /**
@@ -192,55 +261,34 @@ export async function runDailyInsights(): Promise<DailyInsightRunResult> {
   };
 
   for (const business of businesses) {
-    try {
-      const summary = await buildBusinessSummary(business, today);
+    const single = await runDailyInsightForBusiness({
+      businessId: business.id,
+      insightDate: today,
+    });
 
-      // Skip businesses with no data (no spend at all)
-      if (
-        summary.metrics.totalSpend === 0 &&
-        Object.keys(summary.channels).length === 0
-      ) {
-        result.skipped++;
-        console.log(
-          `[ai-daily] Skipping ${business.name} (${business.id}) — no metrics data`,
-        );
-        continue;
-      }
-
-      const { insight, raw } = await generateDailyInsights(summary);
-
-      await saveInsight({
-        businessId: business.id,
-        insightDate: today,
-        insight,
-        rawResponse: raw,
-      });
-
+    if (single.status === "success") {
       result.succeeded++;
-      console.log(
-        `[ai-daily] Generated insight for ${business.name} (${business.id})`,
-      );
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Unknown error";
-      result.failed++;
-      result.errors.push({ businessId: business.id, error: message });
-
-      console.error(
-        `[ai-daily] Failed for ${business.name} (${business.id}):`,
-        message,
-      );
-
-      // Save failure record for audit trail
-      try {
-        await saveInsightFailure({
-          businessId: business.id,
-          insightDate: today,
-          errorMessage: message,
-        });
-      } catch {
-        // Don't let failure logging crash the loop
-      }
+      console.log(`[ai-daily] Generated insight for ${business.name} (${business.id})`);
+      continue;
     }
+
+    if (single.status === "skipped") {
+      result.skipped++;
+      console.log(
+        `[ai-daily] Skipping ${business.name} (${business.id}) — ${single.error ?? "no metrics data"}`,
+      );
+      continue;
+    }
+
+    result.failed++;
+    result.errors.push({
+      businessId: business.id,
+      error: single.error ?? "Unknown error",
+    });
+    console.error(
+      `[ai-daily] Failed for ${business.name} (${business.id}):`,
+      single.error ?? "Unknown error",
+    );
   }
 
   console.log(

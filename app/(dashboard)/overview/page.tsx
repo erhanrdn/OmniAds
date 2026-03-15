@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { SummaryMetricCard } from "@/components/overview/SummaryMetricCard";
 import { SummarySection } from "@/components/overview/SummarySection";
 import { SummaryAttributionTable } from "@/components/overview/SummaryAttributionTable";
-import { SummaryInsightsGrid } from "@/components/overview/SummaryInsightsGrid";
+import { AiDailyBrief } from "@/components/overview/AiDailyBrief";
 import { PinsSection } from "@/components/overview/PinsSection";
 import { CostModelSheet } from "@/components/overview/CostModelSheet";
 import {
@@ -24,6 +24,8 @@ import { useIntegrationsStore } from "@/store/integrations-store";
 import {
   getOverviewSummary,
   getOverviewSparklines,
+  getLatestAiInsight,
+  generateAiInsight,
   upsertBusinessCostModel,
   type SparklineBundle,
 } from "@/src/services";
@@ -56,6 +58,8 @@ export default function OverviewPage() {
   const [dateRange, setDateRange] = useState<DateRangeValue>(DEFAULT_DATE_RANGE);
   const [currency, setCurrency] = useState<CurrencyCode>((activeBusiness?.currency as CurrencyCode) ?? "USD");
   const [costModelSheetOpen, setCostModelSheetOpen] = useState(false);
+  const [aiBriefRegenerating, setAiBriefRegenerating] = useState(false);
+  const [aiBriefActionError, setAiBriefActionError] = useState<string | null>(null);
 
   const ensureBusiness = useIntegrationsStore((state) => state.ensureBusiness);
 
@@ -99,6 +103,29 @@ export default function OverviewPage() {
     queryFn: () => getOverviewSparklines(businessId, { startDate, endDate }),
     staleTime: 15 * 60 * 1000,
   });
+
+  const aiBriefQuery = useQuery({
+    queryKey: ["ai-daily-brief", businessId],
+    enabled: Boolean(selectedBusinessId),
+    queryFn: () => getLatestAiInsight(businessId),
+    staleTime: 15 * 60 * 1000,
+  });
+
+  const handleRegenerateAiBrief = async () => {
+    if (!businessId || aiBriefRegenerating) return;
+    setAiBriefActionError(null);
+    setAiBriefRegenerating(true);
+    try {
+      await generateAiInsight(businessId);
+      await aiBriefQuery.refetch();
+    } catch (error: unknown) {
+      setAiBriefActionError(
+        error instanceof Error ? error.message : "Could not regenerate AI brief."
+      );
+    } finally {
+      setAiBriefRegenerating(false);
+    }
+  };
 
   // Merge sparklines into the summary once they arrive.
   // Uses the same formula the server-side route used to generate sparklines,
@@ -307,10 +334,19 @@ export default function OverviewPage() {
       ) : null}
 
       <SummarySection
-        title="Opportunity Signals"
-        description="High-signal recommendations and AI-ready flags based on the current business snapshot."
+        title="AI Daily Brief"
+        description="Daily AI summary generated from the latest available cross-channel performance snapshot."
       >
-        {query.isLoading ? <LoadingInsightPlaceholder /> : <SummaryInsightsGrid insights={effectiveSummary?.insights ?? []} />}
+        <AiDailyBrief
+          insight={aiBriefQuery.data}
+          loading={aiBriefQuery.isLoading}
+          error={
+            aiBriefActionError ??
+            (aiBriefQuery.error instanceof Error ? aiBriefQuery.error.message : null)
+          }
+          onRegenerate={handleRegenerateAiBrief}
+          regenerating={aiBriefRegenerating}
+        />
       </SummarySection>
 
       <CostModelSheet

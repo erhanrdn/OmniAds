@@ -5,6 +5,7 @@ import {
   IntegrationStatus,
   OverviewData,
   OverviewSummaryData,
+  AiDailyInsightSnapshot,
   Platform,
   PlatformLevel,
   PlatformTableRow,
@@ -1083,6 +1084,66 @@ export async function getOverviewSummary(
   }
 
   return data as OverviewSummaryData;
+}
+
+export async function getLatestAiInsight(
+  businessId: string
+): Promise<AiDailyInsightSnapshot | null> {
+  const url = new URL(
+    "/api/ai/insights/latest",
+    typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"
+  );
+  url.searchParams.set("businessId", businessId);
+
+  const response = await fetch(url.toString(), {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  });
+
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const message =
+      payload && typeof payload === "object" && "message" in payload
+        ? String(payload.message)
+        : `AI insight request failed with status ${response.status}`;
+    throw new Error(message);
+  }
+
+  if (!payload || typeof payload !== "object") {
+    throw new Error("AI insight API returned an invalid payload.");
+  }
+
+  const insight = "insight" in payload ? (payload as { insight: unknown }).insight : null;
+  if (!insight) return null;
+
+  return insight as AiDailyInsightSnapshot;
+}
+
+export async function generateAiInsight(businessId: string): Promise<void> {
+  const url = new URL(
+    "/api/ai/insights/generate",
+    typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"
+  );
+
+  const response = await fetch(url.toString(), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({ businessId }),
+  });
+
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const message =
+      payload && typeof payload === "object" && "message" in payload
+        ? String((payload as { message?: string }).message ?? "Could not generate AI insight.")
+        : `AI insight generation failed with status ${response.status}`;
+    throw new Error(message);
+  }
 }
 
 export async function getMetricTrend(

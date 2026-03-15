@@ -258,6 +258,15 @@ export interface OverviewInsightCard {
   status: "active" | "informational";
 }
 
+export interface AiDailyInsightSnapshot {
+  insightDate: string;
+  summary: string;
+  risks: string[];
+  opportunities: string[];
+  recommendations: string[];
+  createdAt: string;
+}
+
 export interface BusinessCostModelData {
   cogsPercent: number;
   shippingPercent: number;
