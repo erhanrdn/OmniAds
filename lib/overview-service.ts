@@ -65,6 +65,7 @@ export interface OverviewResponse {
     roas: number;
   };
   platformEfficiency: PlatformEfficiencyRow[];
+  providerTrends?: Partial<Record<"meta" | "google", TrendPoint[]>>;
   trends: {
     "7d": TrendPoint[];
     "14d": TrendPoint[];
@@ -93,6 +94,11 @@ interface GoogleOverviewFragment {
   clicks: number;
   impressions: number;
   row: PlatformEfficiencyRow | null;
+}
+
+interface DailyTrendsBundle {
+  combined: TrendPoint[];
+  providerTrends: Partial<Record<"meta" | "google", TrendPoint[]>>;
 }
 
 const META_OVERVIEW_CACHE_TTL_MINUTES = 15;
@@ -518,10 +524,9 @@ async function buildDailyTrends(params: {
   businessId: string;
   startDate: string;
   endDate: string;
-}): Promise<TrendPoint[]> {
+}): Promise<DailyTrendsBundle> {
   const dates = enumerateDays(params.startDate, params.endDate);
-
-  return Promise.all(
+  const snapshots = await Promise.all(
     dates.map(async (date) => {
       const [metaResult, googleResult, ga4Result] = await Promise.allSettled([
         getMetaOverviewFragment({
@@ -541,26 +546,60 @@ async function buildDailyTrends(params: {
         (metaResult.status === "fulfilled" ? Number(metaResult.value.spend ?? 0) : 0) +
         (googleResult.status === "fulfilled" ? Number(googleResult.value.spend ?? 0) : 0);
 
+      const metaSpend =
+        metaResult.status === "fulfilled" ? Number(metaResult.value.spend ?? 0) : 0;
+      const metaRevenue =
+        metaResult.status === "fulfilled" ? Number(metaResult.value.revenue ?? 0) : 0;
+      const metaPurchases =
+        metaResult.status === "fulfilled" ? Number(metaResult.value.purchases ?? 0) : 0;
+
+      const googleSpend =
+        googleResult.status === "fulfilled" ? Number(googleResult.value.spend ?? 0) : 0;
+      const googleRevenue =
+        googleResult.status === "fulfilled" ? Number(googleResult.value.revenue ?? 0) : 0;
+      const googlePurchases =
+        googleResult.status === "fulfilled" ? Number(googleResult.value.purchases ?? 0) : 0;
+
       const revenue =
         ga4Result.status === "fulfilled" && ga4Result.value
           ? Number(ga4Result.value.revenue ?? 0)
-          : (metaResult.status === "fulfilled" ? Number(metaResult.value.revenue ?? 0) : 0) +
-            (googleResult.status === "fulfilled" ? Number(googleResult.value.revenue ?? 0) : 0);
+          : metaRevenue + googleRevenue;
 
       const purchases =
         ga4Result.status === "fulfilled" && ga4Result.value
           ? Number(ga4Result.value.purchases ?? 0)
-          : (metaResult.status === "fulfilled" ? Number(metaResult.value.purchases ?? 0) : 0) +
-            (googleResult.status === "fulfilled" ? Number(googleResult.value.purchases ?? 0) : 0);
+          : metaPurchases + googlePurchases;
 
       return {
-        date,
-        spend: round2(spend),
-        revenue: round2(revenue),
-        purchases: Math.round(purchases),
+        combined: {
+          date,
+          spend: round2(spend),
+          revenue: round2(revenue),
+          purchases: Math.round(purchases),
+        },
+        meta: {
+          date,
+          spend: round2(metaSpend),
+          revenue: round2(metaRevenue),
+          purchases: Math.round(metaPurchases),
+        },
+        google: {
+          date,
+          spend: round2(googleSpend),
+          revenue: round2(googleRevenue),
+          purchases: Math.round(googlePurchases),
+        },
       };
     })
   );
+
+  return {
+    combined: snapshots.map((snapshot) => snapshot.combined),
+    providerTrends: {
+      meta: snapshots.map((snapshot) => snapshot.meta),
+      google: snapshots.map((snapshot) => snapshot.google),
+    },
+  };
 }
 
 export async function getOverviewData(params: {
@@ -673,10 +712,11 @@ export async function getOverviewData(params: {
       purchases: Math.round(row.purchases),
       cpa: round2(row.cpa),
     })),
+    providerTrends: {},
     trends: { "7d": [], "14d": [], "30d": [], custom: [] },
   };
 
-  const [ga4Fallback, customTrends] = await Promise.all([
+  const [ga4Fallback, dailyTrends] = await Promise.all([
     getGa4EcommerceFallback(businessId, resolvedStart, resolvedEnd),
     buildDailyTrends({
       businessId,
@@ -686,10 +726,11 @@ export async function getOverviewData(params: {
   ]);
 
   applyEcommerceSourcePriority(overview, { ga4Fallback });
-  overview.trends.custom = customTrends;
-  overview.trends["7d"] = customTrends.slice(-7);
-  overview.trends["14d"] = customTrends.slice(-14);
-  overview.trends["30d"] = customTrends.slice(-30);
+  overview.providerTrends = dailyTrends.providerTrends;
+  overview.trends.custom = dailyTrends.combined;
+  overview.trends["7d"] = dailyTrends.combined.slice(-7);
+  overview.trends["14d"] = dailyTrends.combined.slice(-14);
+  overview.trends["30d"] = dailyTrends.combined.slice(-30);
 
   if (overview.status === "no_data" && ga4Fallback) {
     delete overview.status;

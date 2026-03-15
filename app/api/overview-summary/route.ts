@@ -39,6 +39,22 @@ interface Ga4LtvSnapshot {
   customerLifespan: number | null;
 }
 
+interface SparklinePoint {
+  date: string;
+  value: number;
+}
+
+interface Ga4DailyTrendPoint {
+  date: string;
+  sessions: number;
+  purchases: number;
+  revenue: number;
+  engagementRate: number;
+  avgSessionDuration: number;
+  totalPurchasers: number;
+  firstTimePurchasers: number;
+}
+
 const ATTRIBUTION_PROVIDER_LABELS: Record<string, string> = {
   meta: "Meta Ads",
   google: "Google Ads",
@@ -169,6 +185,54 @@ function buildUnavailableMetric(params: {
   };
 }
 
+function roundSparklineValue(value: number) {
+  if (!Number.isFinite(value)) return 0;
+  return Number(value.toFixed(2));
+}
+
+function toSparklineSeries<T>(
+  points: T[] | undefined,
+  mapper: (point: T) => number | null | undefined
+): SparklinePoint[] {
+  if (!points || points.length === 0) return [];
+  return points.map((point) => ({
+    date: (point as { date: string }).date,
+    value: roundSparklineValue(mapper(point) ?? 0),
+  }));
+}
+
+function toRatioSparklineSeries<T>(
+  points: T[] | undefined,
+  numerator: (point: T) => number | null | undefined,
+  denominator: (point: T) => number | null | undefined
+): SparklinePoint[] {
+  if (!points || points.length === 0) return [];
+  return points.map((point) => {
+    const top = numerator(point) ?? 0;
+    const bottom = denominator(point) ?? 0;
+    return {
+      date: (point as { date: string }).date,
+      value: bottom > 0 ? roundSparklineValue(top / bottom) : 0,
+    };
+  });
+}
+
+function toPercentSparklineSeries<T>(
+  points: T[] | undefined,
+  numerator: (point: T) => number | null | undefined,
+  denominator: (point: T) => number | null | undefined
+): SparklinePoint[] {
+  if (!points || points.length === 0) return [];
+  return points.map((point) => {
+    const top = numerator(point) ?? 0;
+    const bottom = denominator(point) ?? 0;
+    return {
+      date: (point as { date: string }).date,
+      value: bottom > 0 ? roundSparklineValue((top / bottom) * 100) : 0,
+    };
+  });
+}
+
 function findPlatformRow(data: OverviewAggregateData | null, platform: string) {
   return data?.platformEfficiency.find(
     (row) => row.platform.toLowerCase() === platform.toLowerCase()
@@ -230,6 +294,7 @@ function buildPlatformSections(
   return current.platformEfficiency.map((row) => {
     const previousRow = findPlatformRow(previous, row.platform);
     const provider = row.platform.toLowerCase();
+    const providerTrendSeries = current.providerTrends?.[provider as "meta" | "google"] ?? [];
     return {
       id: provider,
       title: row.platform,
@@ -243,6 +308,7 @@ function buildPlatformSections(
           unit: "currency",
           sourceKey: provider,
           sourceLabel: row.platform,
+          sparklineData: toSparklineSeries(providerTrendSeries, (point) => point.spend),
           compareMode,
           icon: "wallet",
         }),
@@ -254,6 +320,7 @@ function buildPlatformSections(
           unit: "currency",
           sourceKey: provider,
           sourceLabel: row.platform,
+          sparklineData: toSparklineSeries(providerTrendSeries, (point) => point.revenue),
           compareMode,
           icon: "badge-dollar-sign",
         }),
@@ -265,6 +332,11 @@ function buildPlatformSections(
           unit: "ratio",
           sourceKey: provider,
           sourceLabel: row.platform,
+          sparklineData: toRatioSparklineSeries(
+            providerTrendSeries,
+            (point) => point.revenue,
+            (point) => point.spend
+          ),
           compareMode,
           icon: "chart-line",
         }),
@@ -276,6 +348,7 @@ function buildPlatformSections(
           unit: "count",
           sourceKey: provider,
           sourceLabel: row.platform,
+          sparklineData: toSparklineSeries(providerTrendSeries, (point) => point.purchases),
           compareMode,
           icon: "shopping-cart",
         }),
@@ -287,6 +360,11 @@ function buildPlatformSections(
           unit: "currency",
           sourceKey: provider,
           sourceLabel: row.platform,
+          sparklineData: toRatioSparklineSeries(
+            providerTrendSeries,
+            (point) => point.spend,
+            (point) => point.purchases
+          ),
           compareMode,
           icon: "target",
         }),
@@ -379,6 +457,61 @@ async function getGa4LtvSnapshot(params: {
     });
     return null;
   }
+}
+
+async function getGa4DailyTrendSnapshot(params: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+}): Promise<Ga4DailyTrendPoint[]> {
+  try {
+    const context = await resolveGa4AnalyticsContext(params.businessId, {
+      requireProperty: true,
+    });
+    if (!context.propertyId) return [];
+
+    const report = await runGA4Report({
+      propertyId: context.propertyId,
+      accessToken: context.accessToken,
+      dateRanges: [{ startDate: params.startDate, endDate: params.endDate }],
+      dimensions: [{ name: "date" }],
+      metrics: [
+        { name: "sessions" },
+        { name: "ecommercePurchases" },
+        { name: "purchaseRevenue" },
+        { name: "engagementRate" },
+        { name: "averageSessionDuration" },
+        { name: "totalPurchasers" },
+        { name: "firstTimePurchasers" },
+      ],
+      orderBys: [{ dimension: { dimensionName: "date" } }],
+      limit: 400,
+    });
+
+    return report.rows.map((row) => ({
+      date: normalizeGa4Date(row.dimensions[0] ?? ""),
+      sessions: parseFloat(row.metrics[0] ?? "0") || 0,
+      purchases: parseFloat(row.metrics[1] ?? "0") || 0,
+      revenue: parseFloat(row.metrics[2] ?? "0") || 0,
+      engagementRate: parseFloat(row.metrics[3] ?? "0") || 0,
+      avgSessionDuration: parseFloat(row.metrics[4] ?? "0") || 0,
+      totalPurchasers: parseFloat(row.metrics[5] ?? "0") || 0,
+      firstTimePurchasers: parseFloat(row.metrics[6] ?? "0") || 0,
+    }));
+  } catch (error) {
+    console.warn("[overview-summary] ga4_daily_trends_unavailable", {
+      businessId: params.businessId,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return [];
+  }
+}
+
+function normalizeGa4Date(value: string) {
+  if (/^\d{8}$/.test(value)) {
+    return `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`;
+  }
+  return value;
 }
 
 export async function GET(request: NextRequest) {
@@ -492,22 +625,70 @@ export async function GET(request: NextRequest) {
   const analyticsConnected = Boolean(currentAnalytics?.kpis);
   const shopifyConnected = Boolean(integrationsStatus?.shopify);
 
+  const ga4DailyTrends = canReadAnalytics
+    ? await getGa4DailyTrendSnapshot({
+        businessId,
+        startDate: resolvedStart,
+        endDate: resolvedEnd,
+      })
+    : [];
+
   const revenueSource = currentOverview.kpiSources?.revenue;
   const purchasesSource = currentOverview.kpiSources?.purchases;
   const aovSource = currentOverview.kpiSources?.aov;
   const roasSource = currentOverview.kpiSources?.roas;
-  const spendSeries = currentOverview.trends.custom.map((point) => ({
-    date: point.date,
-    value: point.spend,
-  }));
-  const revenueSeries = currentOverview.trends.custom.map((point) => ({
-    date: point.date,
-    value: point.revenue,
-  }));
-  const purchaseSeries = currentOverview.trends.custom.map((point) => ({
-    date: point.date,
-    value: point.purchases,
-  }));
+  const spendSeries = toSparklineSeries(currentOverview.trends.custom, (point) => point.spend);
+  const revenueSeries = toSparklineSeries(currentOverview.trends.custom, (point) => point.revenue);
+  const purchaseSeries = toSparklineSeries(currentOverview.trends.custom, (point) => point.purchases);
+  const merSeries = toRatioSparklineSeries(
+    currentOverview.trends.custom,
+    (point) => point.revenue,
+    (point) => point.spend
+  );
+  const blendedCpaSeries = toRatioSparklineSeries(
+    currentOverview.trends.custom,
+    (point) => point.spend,
+    (point) => point.purchases
+  );
+  const ga4RevenueSeries = toSparklineSeries(ga4DailyTrends, (point) => point.revenue);
+  const ga4PurchaseSeries = toSparklineSeries(ga4DailyTrends, (point) => point.purchases);
+  const ga4AovSeries = toRatioSparklineSeries(
+    ga4DailyTrends,
+    (point) => point.revenue,
+    (point) => point.purchases
+  );
+  const ga4ConversionRateSeries = toPercentSparklineSeries(
+    ga4DailyTrends,
+    (point) => point.purchases,
+    (point) => point.sessions
+  );
+  const ga4NewCustomersSeries = toSparklineSeries(
+    ga4DailyTrends,
+    (point) => point.firstTimePurchasers
+  );
+  const ga4ReturningCustomersSeries = toSparklineSeries(
+    ga4DailyTrends,
+    (point) => Math.max(point.totalPurchasers - point.firstTimePurchasers, 0)
+  );
+  const ga4SessionsSeries = toSparklineSeries(ga4DailyTrends, (point) => point.sessions);
+  const ga4EngagementRateSeries = toSparklineSeries(
+    ga4DailyTrends,
+    (point) => point.engagementRate * 100
+  );
+  const ga4AvgSessionDurationSeries = toSparklineSeries(
+    ga4DailyTrends,
+    (point) => point.avgSessionDuration
+  );
+  const ga4RevenuePerCustomerSeries = toRatioSparklineSeries(
+    ga4DailyTrends,
+    (point) => point.revenue,
+    (point) => point.totalPurchasers
+  );
+  const ga4RepeatPurchaseRateSeries = toPercentSparklineSeries(
+    ga4DailyTrends,
+    (point) => Math.max(point.totalPurchasers - point.firstTimePurchasers, 0),
+    (point) => point.totalPurchasers
+  );
 
   const conversionRateCurrent = currentAnalytics?.kpis?.purchaseCvr ?? null;
   const conversionRatePrevious = previousAnalytics?.kpis?.purchaseCvr ?? null;
@@ -594,6 +775,7 @@ export async function GET(request: NextRequest) {
         revenueSource?.source === "ga4_fallback" ? "GA4 + ad platforms" : "Revenue + ad platforms",
       helperText:
         revenueSource?.source === "unavailable" ? "Connect Shopify or GA4" : undefined,
+      sparklineData: merSeries,
       compareMode,
       icon: "line-chart",
     }),
@@ -608,6 +790,7 @@ export async function GET(request: NextRequest) {
       sourceLabel: roasSource?.label ?? "Unavailable",
       helperText:
         roasSource?.source === "unavailable" ? "Connect Shopify or GA4" : undefined,
+      sparklineData: merSeries,
       compareMode,
       icon: "chart-line",
     }),
@@ -621,6 +804,7 @@ export async function GET(request: NextRequest) {
       sourceKey: analyticsConnected ? "ga4" : "unavailable",
       sourceLabel: analyticsConnected ? "GA4" : "Unavailable",
       helperText: analyticsConnected ? undefined : "Connect GA4",
+      sparklineData: ga4ConversionRateSeries,
       compareMode,
       icon: "target",
     }),
@@ -654,6 +838,11 @@ export async function GET(request: NextRequest) {
       sourceKey: aovSource?.source ?? "unavailable",
       sourceLabel: aovSource?.label ?? "GA4",
       helperText: aovSource?.source === "unavailable" ? "Connect Shopify or GA4" : undefined,
+      sparklineData: ga4AovSeries.length > 0 ? ga4AovSeries : toRatioSparklineSeries(
+        currentOverview.trends.custom,
+        (point) => point.revenue,
+        (point) => point.purchases
+      ),
       compareMode,
       icon: "receipt",
     }),
@@ -666,6 +855,7 @@ export async function GET(request: NextRequest) {
       sourceKey: analyticsConnected ? "ga4" : "unavailable",
       sourceLabel: analyticsConnected ? "GA4" : "Unavailable",
       helperText: analyticsConnected ? undefined : "Connect GA4",
+      sparklineData: ga4ConversionRateSeries,
       compareMode,
       icon: "percent",
     }),
@@ -678,6 +868,7 @@ export async function GET(request: NextRequest) {
       sourceKey: analyticsConnected ? "ga4" : "unavailable",
       sourceLabel: analyticsConnected ? "GA4" : "Unavailable",
       helperText: analyticsConnected ? undefined : "Connect GA4",
+      sparklineData: ga4NewCustomersSeries,
       compareMode,
     }),
     buildMetricCard({
@@ -689,6 +880,7 @@ export async function GET(request: NextRequest) {
       sourceKey: analyticsConnected ? "ga4" : "unavailable",
       sourceLabel: analyticsConnected ? "GA4" : "Unavailable",
       helperText: analyticsConnected ? undefined : "Connect GA4",
+      sparklineData: ga4ReturningCustomersSeries,
       compareMode,
     }),
   ];
@@ -708,6 +900,7 @@ export async function GET(request: NextRequest) {
           unit: "currency",
           sourceKey: "ga4_fallback",
           sourceLabel: ltvSourceLabel,
+          sparklineData: ga4RevenuePerCustomerSeries,
           compareMode,
         })
       : null,
@@ -721,6 +914,21 @@ export async function GET(request: NextRequest) {
           unit: "ratio",
           sourceKey: "ga4_fallback",
           sourceLabel: ltvSourceLabel,
+          sparklineData: currentOverview.kpis.spend > 0
+            ? toRatioSparklineSeries(
+                ga4RevenuePerCustomerSeries,
+                (point) => point.value,
+                () => {
+                  return 1;
+                }
+              ).map((point, index) => ({
+                date: point.date,
+                value:
+                  blendedCpaSeries[index] && blendedCpaSeries[index].value > 0
+                    ? roundSparklineValue(point.value / blendedCpaSeries[index].value)
+                    : 0,
+              }))
+            : [],
           compareMode,
         })
       : null,
@@ -734,6 +942,7 @@ export async function GET(request: NextRequest) {
           unit: "percent",
           sourceKey: "ga4_fallback",
           sourceLabel: ltvSourceLabel,
+          sparklineData: ga4RepeatPurchaseRateSeries,
           compareMode,
         })
       : null,
@@ -747,6 +956,7 @@ export async function GET(request: NextRequest) {
           unit: "currency",
           sourceKey: "ga4_fallback",
           sourceLabel: ltvSourceLabel,
+          sparklineData: ga4RevenuePerCustomerSeries,
           compareMode,
         })
       : null,
@@ -867,6 +1077,15 @@ export async function GET(request: NextRequest) {
           unit: "currency",
           sourceKey: "manual_cost_model",
           sourceLabel: "Ad platforms + manual cost model",
+          sparklineData: revenueSeries.map((point, index) => ({
+            date: point.date,
+            value: roundSparklineValue(
+              (spendSeries[index]?.value ?? 0) +
+                point.value *
+                  (costModelData.cogsPercent + costModelData.shippingPercent + costModelData.feePercent) +
+                costModelData.fixedCost
+            ),
+          })),
           compareMode,
           icon: "badge-dollar-sign",
         })
@@ -880,6 +1099,7 @@ export async function GET(request: NextRequest) {
       sourceKey: "ad_platforms",
       sourceLabel: "Ad spend only",
       helperText: "Set cost model to include COGS, shipping, fees, and fixed cost",
+      sparklineData: spendSeries,
       compareMode,
       icon: "badge-dollar-sign",
     }),
@@ -891,6 +1111,16 @@ export async function GET(request: NextRequest) {
           unit: "currency",
           sourceKey: "manual_cost_model",
           sourceLabel: "Revenue + ad spend + manual cost model",
+          sparklineData: revenueSeries.map((point, index) => ({
+            date: point.date,
+            value: roundSparklineValue(
+              point.value -
+                ((spendSeries[index]?.value ?? 0) +
+                  point.value *
+                    (costModelData.cogsPercent + costModelData.shippingPercent + costModelData.feePercent) +
+                  costModelData.fixedCost)
+            ),
+          })),
           compareMode,
         })
       : buildUnavailableMetric({
@@ -907,6 +1137,17 @@ export async function GET(request: NextRequest) {
           unit: "percent",
           sourceKey: "manual_cost_model",
           sourceLabel: "Revenue + variable costs",
+          sparklineData: revenueSeries.map((point, index) => {
+            const spendValue = spendSeries[index]?.value ?? 0;
+            const variableCost =
+              spendValue +
+              point.value *
+                (costModelData.cogsPercent + costModelData.shippingPercent + costModelData.feePercent);
+            return {
+              date: point.date,
+              value: point.value > 0 ? roundSparklineValue(((point.value - variableCost) / point.value) * 100) : 0,
+            };
+          }),
           compareMode,
         })
       : buildUnavailableMetric({
@@ -929,6 +1170,7 @@ export async function GET(request: NextRequest) {
         revenueSource?.source === "ga4_fallback" ? "GA4 + ad platforms" : "Revenue + ad platforms",
       helperText:
         revenueSource?.source === "unavailable" ? "Connect Shopify or GA4" : undefined,
+      sparklineData: merSeries,
       compareMode,
       icon: "chart-line",
     }),
@@ -948,6 +1190,7 @@ export async function GET(request: NextRequest) {
       sourceLabel: "Derived",
       helperText:
         revenueSource?.source === "unavailable" ? "Connect Shopify or GA4" : undefined,
+      sparklineData: merSeries,
       compareMode,
     }),
     buildMetricCard({
@@ -958,6 +1201,7 @@ export async function GET(request: NextRequest) {
       unit: "currency",
       sourceKey: "ad_platforms",
       sourceLabel: "Ad platforms",
+      sparklineData: blendedCpaSeries,
       compareMode,
     }),
   ];
@@ -972,6 +1216,7 @@ export async function GET(request: NextRequest) {
       sourceKey: analyticsConnected ? "ga4" : "unavailable",
       sourceLabel: analyticsConnected ? "GA4" : "Unavailable",
       helperText: analyticsConnected ? undefined : "Connect GA4",
+      sparklineData: ga4SessionsSeries,
       compareMode,
       icon: "activity",
     }),
@@ -984,6 +1229,7 @@ export async function GET(request: NextRequest) {
       sourceKey: analyticsConnected ? "ga4" : "unavailable",
       sourceLabel: analyticsConnected ? "GA4" : "Unavailable",
       helperText: analyticsConnected ? undefined : "Connect GA4",
+      sparklineData: ga4AvgSessionDurationSeries,
       compareMode,
       icon: "clock-3",
     }),
@@ -996,6 +1242,7 @@ export async function GET(request: NextRequest) {
       sourceKey: analyticsConnected ? "ga4" : "unavailable",
       sourceLabel: analyticsConnected ? "GA4" : "Unavailable",
       helperText: analyticsConnected ? undefined : "Connect GA4",
+      sparklineData: ga4EngagementRateSeries,
       compareMode,
       icon: "gauge",
     }),
