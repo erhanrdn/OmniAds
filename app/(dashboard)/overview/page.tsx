@@ -34,6 +34,17 @@ import type { BusinessCostModelData, OverviewMetricCardData, OverviewSummaryData
 type CurrencyCode = "USD" | "EUR" | "GBP";
 type CompareMode = "none" | "previous_period";
 
+const PLATFORM_TITLE_META: Record<
+  string,
+  { label: string; logo: string }
+> = {
+  meta: { label: "Meta Ads", logo: "/platform-logos/Meta.png" },
+  google: { label: "Google Ads", logo: "/platform-logos/googleAds.svg" },
+  google_ads: { label: "Google Ads", logo: "/platform-logos/googleAds.svg" },
+  tiktok: { label: "TikTok Ads", logo: "/platform-logos/tiktok.svg" },
+  tiktok_ads: { label: "TikTok Ads", logo: "/platform-logos/tiktok.svg" },
+};
+
 export default function OverviewPage() {
   const businesses = useAppStore((state) => state.businesses);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
@@ -288,8 +299,8 @@ export default function OverviewPage() {
       {platformSections.map((platform) => (
         <SummarySection
           key={platform.id}
-          title={platform.title}
-          description={`Mini dashboard for ${platform.title} performance.`}
+          title={renderPlatformSectionTitle(platform.provider, platform.title)}
+          description={`Mini dashboard for ${resolvePlatformLabel(platform.provider, platform.title)} performance.`}
         >
           <MetricGrid
             metrics={platform.metrics}
@@ -376,6 +387,29 @@ export default function OverviewPage() {
         }}
       />
     </div>
+  );
+}
+
+function resolvePlatformLabel(provider: string, fallbackTitle: string) {
+  return PLATFORM_TITLE_META[provider]?.label ?? fallbackTitle;
+}
+
+function renderPlatformSectionTitle(provider: string, fallbackTitle: string) {
+  const configured = PLATFORM_TITLE_META[provider];
+  if (!configured) return fallbackTitle;
+
+  return (
+    <span className="inline-flex items-center gap-2">
+      <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-white ring-1 ring-slate-200">
+        <img
+          src={configured.logo}
+          alt={configured.label}
+          className="h-4 w-4 object-contain"
+          loading="lazy"
+        />
+      </span>
+      <span>{configured.label}</span>
+    </span>
   );
 }
 

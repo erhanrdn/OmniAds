@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Calculator, LineChart, ShoppingBag } from "lucide-react";
+import { Calculator } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useIntegrationsStore, type IntegrationProvider } from "@/store/integrations-store";
 
@@ -83,6 +83,16 @@ const AD_PLATFORM_PROVIDER_MAP: Record<IntegrationProvider, SupportedSource | nu
   klaviyo: null,
 };
 
+const LOGO_ASSET_BY_SOURCE: Partial<Record<SupportedSource, string>> = {
+  meta: "/platform-logos/Meta.png",
+  google_ads: "/platform-logos/googleAds.svg",
+  tiktok_ads: "/platform-logos/tiktok.svg",
+  pinterest: "/platform-logos/Pinterest.svg",
+  shopify: "/platform-logos/shopify.svg",
+  ga4: "/platform-logos/GA4.svg",
+  klaviyo: "/platform-logos/Klaviyo.svg",
+};
+
 export function MetricSourceLogos({
   sourceKey,
   sourceLabel,
@@ -114,18 +124,15 @@ export function MetricSourceLogos({
       aria-label={`Metric sources: ${sources.map((source) => BRAND_META[source].label).join(", ")}`}
     >
       {visible.map((source) => {
-        if (source === "ga4") {
+        const logoSrc = LOGO_ASSET_BY_SOURCE[source];
+        if (logoSrc) {
           return (
-            <SourceMonogram key={source} source={source} title={BRAND_META[source].label}>
-              <LineChart className="h-3.5 w-3.5" aria-hidden="true" />
-            </SourceMonogram>
-          );
-        }
-        if (source === "shopify") {
-          return (
-            <SourceMonogram key={source} source={source} title={BRAND_META[source].label}>
-              <ShoppingBag className="h-3.5 w-3.5" aria-hidden="true" />
-            </SourceMonogram>
+            <SourceLogo
+              key={source}
+              source={source}
+              title={BRAND_META[source].label}
+              src={logoSrc}
+            />
           );
         }
         if (source === "cost_model") {
@@ -153,6 +160,34 @@ export function MetricSourceLogos({
         </span>
       ) : null}
     </div>
+  );
+}
+
+function SourceLogo({
+  source,
+  title,
+  src,
+}: {
+  source: SupportedSource;
+  title: string;
+  src: string;
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex h-[18px] w-[18px] items-center justify-center overflow-hidden rounded-full bg-white ring-1",
+        BRAND_META[source].className.split(" ").find((token) => token.startsWith("ring-"))
+      )}
+      title={title}
+      aria-label={title}
+    >
+      <img
+        src={src}
+        alt={title}
+        className="h-[12px] w-[12px] object-contain"
+        loading="lazy"
+      />
+    </span>
   );
 }
 

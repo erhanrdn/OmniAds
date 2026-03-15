@@ -9,6 +9,15 @@ import { BrandLogo } from "@/components/brand/BrandLogo";
 
 const groups = ["Main", "Platforms", "Assets", "Manage"] as const;
 
+const PLATFORM_LOGOS_BY_HREF: Record<string, string> = {
+  "/platforms/meta": "/platform-logos/Meta.png",
+  "/google-ads": "/platform-logos/googleAds.svg",
+  "/platforms/tiktok": "/platform-logos/tiktok.svg",
+  "/platforms/pinterest": "/platform-logos/Pinterest.svg",
+  "/platforms/snapchat": "/platform-logos/snapchat.svg",
+  "/platforms/klaviyo": "/platform-logos/Klaviyo.svg",
+};
+
 export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
 
@@ -33,6 +42,10 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
                 {items.map((item) => {
                   const Icon = item.icon;
                   const active = pathname === item.href;
+                  const logoSrc =
+                    item.group === "Platforms"
+                      ? PLATFORM_LOGOS_BY_HREF[item.href]
+                      : undefined;
                   return (
                     <li key={item.href}>
                       <Link
@@ -45,7 +58,23 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
                             : "text-muted-foreground hover:bg-accent hover:text-foreground"
                         )}
                       >
-                        <Icon className="w-4 h-4 shrink-0" />
+                        {logoSrc ? (
+                          <span
+                            className={cn(
+                              "inline-flex h-4 w-4 shrink-0 items-center justify-center overflow-hidden rounded-sm",
+                              active ? "bg-white/85" : "bg-transparent"
+                            )}
+                          >
+                            <img
+                              src={logoSrc}
+                              alt={`${item.label} logo`}
+                              className="h-4 w-4 object-contain"
+                              loading="lazy"
+                            />
+                          </span>
+                        ) : (
+                          <Icon className="w-4 h-4 shrink-0" />
+                        )}
                         {item.label}
                       </Link>
                     </li>

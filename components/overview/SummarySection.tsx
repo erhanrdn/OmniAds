@@ -8,7 +8,7 @@ export function SummarySection({
   action,
   children,
 }: {
-  title: string;
+  title: ReactNode;
   description?: string;
   action?: ReactNode;
   children: ReactNode;
