@@ -105,6 +105,8 @@ export function SummaryMetricCard({
         <MiniTrendAreaChart
           data={metric.sparklineData}
           tone={metric.trendDirection}
+          labels={metric.sparklineData.map((_, index) => `Period ${index + 1}`)}
+          valueFormatter={(value) => formatMetricNumber(value, metric.unit, currencySymbol)}
           className="h-12 w-full"
         />
       </div>
@@ -125,12 +127,20 @@ export function SummaryMetricCard({
 
 function formatMetricValue(metric: OverviewMetricCardData, currencySymbol: string) {
   if (metric.value === null || Number.isNaN(metric.value)) return "\u2014";
-  if (metric.unit === "currency") return `${currencySymbol}${metric.value.toLocaleString()}`;
-  if (metric.unit === "count") return Math.round(metric.value).toLocaleString();
-  if (metric.unit === "ratio") return metric.value.toFixed(2);
-  if (metric.unit === "percent") return `${metric.value.toFixed(1)}%`;
-  if (metric.unit === "duration_seconds") return `${Math.round(metric.value)}s`;
-  return String(metric.value);
+  return formatMetricNumber(metric.value, metric.unit, currencySymbol);
+}
+
+function formatMetricNumber(
+  value: number,
+  unit: OverviewMetricCardData["unit"],
+  currencySymbol: string
+) {
+  if (unit === "currency") return `${currencySymbol}${value.toLocaleString()}`;
+  if (unit === "count") return Math.round(value).toLocaleString();
+  if (unit === "ratio") return value.toFixed(2);
+  if (unit === "percent") return `${value.toFixed(1)}%`;
+  if (unit === "duration_seconds") return `${Math.round(value)}s`;
+  return String(value);
 }
 
 function resolveDelta(

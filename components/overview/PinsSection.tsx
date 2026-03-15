@@ -109,9 +109,13 @@ export function PinsSection({
         {pinnedMetrics.map((entry, index) => {
           const queryState = trendQueries[index];
           const usesRemoteTrend = shouldFetchRemoteTrend(entry.metric);
+          const trendPoints = queryState?.data?.data ?? [];
           const trendValues = usesRemoteTrend
-            ? queryState?.data?.data?.map((point) => point.value) ?? []
+            ? trendPoints.map((point) => point.value)
             : entry.metric.sparklineData ?? [];
+          const trendLabels = usesRemoteTrend
+            ? trendPoints.map((point) => point.date)
+            : entry.metric.sparklineData?.map((_, pointIndex) => `Period ${pointIndex + 1}`) ?? [];
           const trendLoading = usesRemoteTrend
             ? Boolean(queryState?.isLoading || queryState?.isFetching) && trendValues.length === 0
             : false;
@@ -122,6 +126,7 @@ export function PinsSection({
               value={entry.metric.value}
               changePercent={entry.metric.changePct}
               trendValues={trendValues}
+              trendLabels={trendLabels}
               trendLoading={trendLoading}
               dataSource={entry.metric.dataSource.label}
               sourceKey={entry.metric.dataSource.key}

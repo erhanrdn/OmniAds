@@ -1,71 +1,140 @@
 "use client";
 
-import { useId } from "react";
+import { useId, useMemo, useState } from "react";
+import type { PointerEvent } from "react";
 import type { OverviewMetricCardData } from "@/src/types/models";
+
+const CHART_WIDTH = 160;
+const CHART_HEIGHT = 52;
+const CHART_PADDING = 4;
 
 export function MiniTrendAreaChart({
   data,
   tone,
   loading = false,
   className = "h-12 w-full",
+  labels,
+  valueFormatter,
 }: {
   data: number[];
   tone: OverviewMetricCardData["trendDirection"];
   loading?: boolean;
   className?: string;
+  labels?: string[];
+  valueFormatter?: (value: number) => string;
 }) {
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const gradientId = useId();
+
+  const points = useMemo(() => {
+    if (!data || data.length < 2) return [];
+
+    const min = Math.min(...data);
+    const max = Math.max(...data);
+    const range = max - min || 1;
+
+    return data.map((point, index) => {
+      const x =
+        CHART_PADDING +
+        (index / Math.max(data.length - 1, 1)) * (CHART_WIDTH - CHART_PADDING * 2);
+      const y =
+        CHART_HEIGHT -
+        CHART_PADDING -
+        ((point - min) / range) * (CHART_HEIGHT - CHART_PADDING * 2);
+
+      return { x, y, value: point, index };
+    });
+  }, [data]);
+
   if (loading) {
     return <div className={`animate-pulse rounded-lg bg-slate-100 ${className}`} />;
   }
 
-  if (!data || data.length < 2) {
+  if (!data || data.length < 2 || points.length < 2) {
     return <div className={`rounded-lg bg-slate-100/70 ${className}`} />;
   }
 
-  const width = 160;
-  const height = 52;
-  const padding = 4;
-  const min = Math.min(...data);
-  const max = Math.max(...data);
-  const range = max - min || 1;
-  const gradientId = useId();
-
-  const points = data.map((point, index) => {
-    const x = padding + (index / Math.max(data.length - 1, 1)) * (width - padding * 2);
-    const y = height - padding - ((point - min) / range) * (height - padding * 2);
-    return { x, y };
-  });
-
+  const activeIndex = hoverIndex ?? points.length - 1;
+  const activePoint = points[activeIndex];
   const linePath = createSmoothPath(points);
-  const areaPath = `${linePath} L ${points[points.length - 1].x} ${height - padding} L ${points[0].x} ${height - padding} Z`;
-  const stroke =
-    tone === "up" ? "#10b981" : tone === "down" ? "#f43f5e" : "#64748b";
-  const fill =
-    tone === "up" ? "rgba(16, 185, 129, 0.16)" : tone === "down" ? "rgba(244, 63, 94, 0.14)" : "rgba(100, 116, 139, 0.12)";
+  const areaPath = `${linePath} L ${points[points.length - 1].x} ${CHART_HEIGHT - CHART_PADDING} L ${points[0].x} ${CHART_HEIGHT - CHART_PADDING} Z`;
+  const stopTop = tone === "neutral" ? "#60a5fa" : "#10b981";
+  const stopBottom = tone === "neutral" ? "#94a3b8" : "#f43f5e";
+  const activeLabel = formatPointLabel(labels?.[activeIndex] ?? `Period ${activeIndex + 1}`);
+  const formattedValue = valueFormatter
+    ? valueFormatter(activePoint.value)
+    : formatCompactValue(activePoint.value);
+
+  const handlePointerMove = (event: PointerEvent<SVGSVGElement>) => {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    if (!bounds.width) return;
+    const x = ((event.clientX - bounds.left) / bounds.width) * CHART_WIDTH;
+    const nextIndex = points.reduce((bestIndex, point, index, chartPoints) => {
+      const bestDistance = Math.abs(chartPoints[bestIndex].x - x);
+      const currentDistance = Math.abs(point.x - x);
+      return currentDistance < bestDistance ? index : bestIndex;
+    }, 0);
+    setHoverIndex(nextIndex);
+  };
 
   return (
-    <svg
-      viewBox={`0 0 ${width} ${height}`}
-      className={className}
-      preserveAspectRatio="none"
-      aria-hidden="true"
-    >
-      <defs>
-        <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0%" stopColor={fill} />
-          <stop offset="100%" stopColor="rgba(255,255,255,0)" />
-        </linearGradient>
-      </defs>
-      <path d={areaPath} fill={`url(#${gradientId})`} />
-      <path
-        d={linePath}
-        fill="none"
-        stroke={stroke}
-        strokeWidth="2.35"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
+    <div className="relative">
+      {hoverIndex !== null ? (
+        <div className="pointer-events-none absolute left-0 top-0 z-10 rounded-md border border-slate-200 bg-white/95 px-2.5 py-1.5 text-[11px] shadow-md shadow-slate-200/70 backdrop-blur-sm">
+          <p className="font-medium text-slate-500">{activeLabel}</p>
+          <p className="mt-0.5 font-semibold text-slate-950">{formattedValue}</p>
+        </div>
+      ) : null}
+      <svg
+        viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
+        className={className}
+        preserveAspectRatio="none"
+        aria-hidden="true"
+        onPointerMove={handlePointerMove}
+        onPointerLeave={() => setHoverIndex(null)}
+      >
+        <defs>
+          <linearGradient id={`${gradientId}-stroke`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={stopTop} />
+            <stop offset="100%" stopColor={stopBottom} />
+          </linearGradient>
+          <linearGradient id={`${gradientId}-fill`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={stopTop} stopOpacity="0.18" />
+            <stop offset="100%" stopColor={stopBottom} stopOpacity="0.03" />
+          </linearGradient>
+        </defs>
+        <path d={areaPath} fill={`url(#${gradientId}-fill)`} />
+        <path
+          d={linePath}
+          fill="none"
+          stroke={`url(#${gradientId}-stroke)`}
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        {hoverIndex !== null ? (
+          <>
+            <line
+              x1={activePoint.x}
+              x2={activePoint.x}
+              y1={CHART_PADDING}
+              y2={CHART_HEIGHT - CHART_PADDING}
+              stroke="#cbd5e1"
+              strokeDasharray="2 4"
+              strokeWidth="1"
+            />
+            <circle
+              cx={activePoint.x}
+              cy={activePoint.y}
+              r="3"
+              fill="#ffffff"
+              stroke={`url(#${gradientId}-stroke)`}
+              strokeWidth="1.5"
+            />
+          </>
+        ) : null}
+      </svg>
+    </div>
   );
 }
 
@@ -81,4 +150,24 @@ function createSmoothPath(points: Array<{ x: number; y: number }>) {
     path += ` C ${controlX} ${current.y}, ${controlX} ${next.y}, ${next.x} ${next.y}`;
   }
   return path;
+}
+
+function formatCompactValue(value: number) {
+  if (Number.isNaN(value)) return "\u2014";
+  if (Math.abs(value) >= 1000) return value.toLocaleString();
+  if (Number.isInteger(value)) return String(value);
+  return value.toFixed(2);
+}
+
+function formatPointLabel(value: string) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const date = new Date(`${value}T00:00:00Z`);
+    if (!Number.isNaN(date.getTime())) {
+      return new Intl.DateTimeFormat("en-US", {
+        month: "short",
+        day: "numeric",
+      }).format(date);
+    }
+  }
+  return value;
 }
