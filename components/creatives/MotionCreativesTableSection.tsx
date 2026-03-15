@@ -1137,7 +1137,7 @@ export function MotionCreativesTableSection({
       </div>
 
       {/* B) selection info */}
-      <div className="text-xs text-muted-foreground">{selectedRowIds.length} ad groups selected</div>
+      <div className="text-[10px] text-muted-foreground">{selectedRowIds.length} ad groups selected</div>
 
       {/* C) table */}
       {isResizing && <div className="fixed inset-0 z-[9999] cursor-col-resize select-none" />}
@@ -1149,11 +1149,11 @@ export function MotionCreativesTableSection({
           setScrollTop(event.currentTarget.scrollTop);
         }}
       >
-        <table className="table-fixed text-sm" style={{ width: totalTableWidth }}>
+        <table className="table-fixed text-[10px]" style={{ width: totalTableWidth }}>
           <thead className="sticky top-0 z-20 bg-[#F9FAFB]">
             <tr className="border-b border-[#E5E7EB]">
               <th
-                className="sticky left-0 z-30 border-r border-[#E5E7EB] bg-[#F9FAFB] px-2.5 py-1.5 text-left text-[12px] font-medium tracking-[0.01em] text-[#6B7280]"
+                className="sticky left-0 z-30 border-r border-[#E5E7EB] bg-[#F9FAFB] px-2.5 py-1.5 text-left text-[10px] font-medium tracking-[0.01em] text-[#6B7280]"
                 style={{
                   minWidth: STATIC_COLUMN_SPECS.creativeName.minWidth,
                   width: getColumnWidth(
@@ -1195,7 +1195,7 @@ export function MotionCreativesTableSection({
 
               {tablePreset.showLaunchDate && (
                 <th
-                  className="group relative px-2.5 py-1.5 text-left text-[12px] font-medium tracking-[0.01em] text-[#6B7280]"
+                  className="group relative px-2.5 py-1.5 text-left text-[10px] font-medium tracking-[0.01em] text-[#6B7280]"
                   style={{
                     minWidth: STATIC_COLUMN_SPECS.launchDate.minWidth,
                     width: getColumnWidth(
@@ -1229,7 +1229,7 @@ export function MotionCreativesTableSection({
 
               {tablePreset.showTags && (
                 <th
-                  className="group relative px-2.5 py-1.5 text-left text-[12px] font-medium tracking-[0.01em] text-[#6B7280]"
+                  className="group relative px-2.5 py-1.5 text-left text-[10px] font-medium tracking-[0.01em] text-[#6B7280]"
                   style={{
                     minWidth: STATIC_COLUMN_SPECS.tags.minWidth,
                     width: getColumnWidth(
@@ -1255,7 +1255,7 @@ export function MotionCreativesTableSection({
 
               {tablePreset.showActiveStatus && (
                 <th
-                  className="group relative px-2.5 py-1.5 text-left text-[12px] font-medium tracking-[0.01em] text-[#6B7280]"
+                  className="group relative px-2.5 py-1.5 text-left text-[10px] font-medium tracking-[0.01em] text-[#6B7280]"
                   style={{
                     minWidth: STATIC_COLUMN_SPECS.activeStatus.minWidth,
                     width: getColumnWidth(
@@ -1286,7 +1286,7 @@ export function MotionCreativesTableSection({
 
               {tablePreset.showAdLength && (
                 <th
-                  className="group relative px-2.5 py-1.5 text-left text-[12px] font-medium tracking-[0.01em] text-[#6B7280]"
+                  className="group relative px-2.5 py-1.5 text-left text-[10px] font-medium tracking-[0.01em] text-[#6B7280]"
                   style={{
                     minWidth: STATIC_COLUMN_SPECS.adLength.minWidth,
                     width: getColumnWidth(
@@ -1323,7 +1323,7 @@ export function MotionCreativesTableSection({
                 return (
                   <th
                     key={`ai_tag_header_${tagKey}`}
-                    className="group relative px-2.5 py-1.5 text-left text-[11px] font-medium leading-tight tracking-[0.01em] text-[#6B7280]"
+                    className="group relative px-2.5 py-1.5 text-left text-[9px] font-medium leading-tight tracking-[0.01em] text-[#6B7280]"
                     style={{
                       minWidth: widthSpec.minWidth,
                       width: getColumnWidth(
@@ -1364,7 +1364,7 @@ export function MotionCreativesTableSection({
               {selectedColumns.map((column) => (
                 <th
                   key={column.key}
-                  className="group relative px-2.5 py-1 text-left text-[11px] font-medium leading-tight tracking-[0.01em] text-[#6B7280]"
+                  className="group relative px-2.5 py-1 text-left text-[9px] font-medium leading-tight tracking-[0.01em] text-[#6B7280]"
                   style={{
                     minWidth: column.minWidth,
                     width: getColumnWidth(column.key, column.minWidth, column.preferredWidth),
@@ -1459,7 +1459,7 @@ export function MotionCreativesTableSection({
           <tfoot className="sticky bottom-0 z-10 bg-[#FAFAFA]/95 backdrop-blur">
             <tr className="border-t border-[#E5E7EB]">
               <td
-                className="sticky left-0 z-20 border-r bg-[#FAFAFA] px-2.5 py-1.5 text-[11px] font-semibold text-[#6B7280]"
+                className="sticky left-0 z-20 border-r bg-[#FAFAFA] px-2.5 py-1.5 text-[9px] font-semibold text-[#6B7280]"
                 style={{
                   minWidth: STATIC_COLUMN_SPECS.creativeName.minWidth,
                   width: getColumnWidth(
@@ -1472,12 +1472,12 @@ export function MotionCreativesTableSection({
                 Net Results
               </td>
 
-              {tablePreset.showLaunchDate && <td className="px-2.5 py-1.5 text-[11px] text-muted-foreground">-</td>}
-              {tablePreset.showTags && <td className="px-2.5 py-1.5 text-[11px] text-muted-foreground">-</td>}
-              {tablePreset.showActiveStatus && <td className="px-2.5 py-1.5 text-[11px] text-muted-foreground">-</td>}
-              {tablePreset.showAdLength && <td className="px-2.5 py-1.5 text-[11px] text-muted-foreground">-</td>}
+              {tablePreset.showLaunchDate && <td className="px-2.5 py-1.5 text-[9px] text-muted-foreground">-</td>}
+              {tablePreset.showTags && <td className="px-2.5 py-1.5 text-[9px] text-muted-foreground">-</td>}
+              {tablePreset.showActiveStatus && <td className="px-2.5 py-1.5 text-[9px] text-muted-foreground">-</td>}
+              {tablePreset.showAdLength && <td className="px-2.5 py-1.5 text-[9px] text-muted-foreground">-</td>}
               {selectedAiTagColumns.map((tagKey) => (
-                <td key={`summary_ai_tag_${tagKey}`} className="px-2.5 py-1.5 text-[11px] text-muted-foreground">
+                <td key={`summary_ai_tag_${tagKey}`} className="px-2.5 py-1.5 text-[9px] text-muted-foreground">
                   -
                 </td>
               ))}
@@ -1492,7 +1492,7 @@ export function MotionCreativesTableSection({
                   <td
                     key={`summary_${column.key}`}
                     className={cn(
-                      "px-2.5 py-1.5 text-[11px]",
+                      "px-2.5 py-1.5 text-[9px]",
                       column.align === "right"
                         ? "text-right"
                         : column.align === "center"
@@ -1517,7 +1517,7 @@ export function MotionCreativesTableSection({
       </div>
 
       {/* D/E) pagination row */}
-      <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-[10px]">
         <div className="flex items-center gap-2">
           <label className="inline-flex items-center gap-1">
             <span className="text-muted-foreground">Results per page</span>
@@ -1529,7 +1529,7 @@ export function MotionCreativesTableSection({
                   resultsPerPage: Number(event.target.value) as 20 | 50 | 100,
                 })
               }
-              className="h-7 rounded border bg-background px-2 text-xs"
+              className="h-7 rounded border bg-background px-2 text-[10px]"
             >
               <option value={20}>20</option>
               <option value={50}>50</option>
@@ -1645,8 +1645,8 @@ const CreativeTableRow = memo(function CreativeTableRow({
           />
 
           <div className="min-w-0 flex-1">
-            <p className="truncate text-[12px] font-medium leading-tight">{row.name}</p>
-            <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+            <p className="truncate text-[10px] font-medium leading-tight">{row.name}</p>
+            <p className="mt-0.5 truncate text-[9px] text-muted-foreground">
               {row.associatedAdsCount > 1 ? <span className="opacity-60">{row.associatedAdsCount} ads</span> : null}
               <button
                 type="button"
@@ -1668,14 +1668,14 @@ const CreativeTableRow = memo(function CreativeTableRow({
       </td>
 
       {tablePreset.showLaunchDate && (
-        <td className="border-b px-2.5 py-1.5 text-[12px] font-medium">{row.launchDate}</td>
+        <td className="border-b px-2.5 py-1.5 text-[10px] font-medium">{row.launchDate}</td>
       )}
 
       {tablePreset.showTags && (
         <td className="border-b px-2.5 py-1.5">
           <div className="flex flex-wrap gap-1">
             {(row.tags ?? []).slice(0, 3).map((tag) => (
-              <span key={tag} className="rounded-full border bg-muted/20 px-1.5 py-0.5 text-[10px] text-[#6B7280]">
+              <span key={tag} className="rounded-full border bg-muted/20 px-1.5 py-0.5 text-[8px] text-[#6B7280]">
                 {tag}
               </span>
             ))}
@@ -1684,11 +1684,11 @@ const CreativeTableRow = memo(function CreativeTableRow({
       )}
 
       {tablePreset.showActiveStatus && (
-        <td className="border-b px-2.5 py-1.5 text-[12px] font-medium">Active</td>
+        <td className="border-b px-2.5 py-1.5 text-[10px] font-medium">Active</td>
       )}
 
       {tablePreset.showAdLength && (
-        <td className="border-b px-2.5 py-1.5 text-[12px] font-medium">{row.format === "video" ? "15s" : "Static"}</td>
+        <td className="border-b px-2.5 py-1.5 text-[10px] font-medium">{row.format === "video" ? "15s" : "Static"}</td>
       )}
 
       {selectedAiTagColumns.map((tagKey) => (
@@ -1716,7 +1716,7 @@ const CreativeTableRow = memo(function CreativeTableRow({
           <td
             key={`${row.id}_${column.key}`}
             className={cn(
-              "border-b px-2.5 py-1.5 text-[12px] font-medium",
+              "border-b px-2.5 py-1.5 text-[10px] font-medium",
               evaluation.applicable === false && "text-muted-foreground",
               column.align === "right" ? "text-right" : column.align === "center" ? "text-center" : "text-left"
             )}

@@ -818,16 +818,6 @@ export default function CreativesPage() {
   };
 
   const dataStatus = creativesMetadataQuery.data?.status;
-  const mediaHydrationState =
-    creativesMetadataQuery.isSuccess && (creativesMetadataQuery.data?.rows.length ?? 0) > 0
-      ? creativesMediaQuery.isFetching
-        ? "loading"
-        : creativesMediaQuery.isError
-          ? "error"
-        : creativesMediaQuery.data?.media_hydrated
-          ? "ready"
-          : "idle"
-      : "idle";
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -968,33 +958,6 @@ export default function CreativesPage() {
               deferredFilteredRows.length > 0 &&
               dataStatus !== "no_data" && (
                 <>
-                  <div className="rounded-xl border border-slate-200 bg-white/80 px-4 py-3 text-sm text-slate-600">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        <p className="font-medium text-slate-900">
-                          {mediaHydrationState === "loading"
-                            ? "Creatives loaded. Media previews are still hydrating."
-                            : mediaHydrationState === "error"
-                              ? "Creatives loaded. Some preview media could not be hydrated."
-                            : "Creatives loaded."}
-                        </p>
-                        <p className="text-xs text-slate-500">
-                          {mediaHydrationState === "loading"
-                            ? "Rows are ready to scroll, filter, and select now. Thumbnails will continue appearing in the background."
-                            : mediaHydrationState === "error"
-                              ? "Metadata is available and usable. Any missing thumbnails reflect a media hydration issue rather than a no-data state."
-                            : "Preview media has been hydrated for the current view."}
-                        </p>
-                      </div>
-                      <p className="text-xs text-slate-500">
-                        {mediaHydrationState === "loading"
-                          ? "State: metadata ready, media loading"
-                          : mediaHydrationState === "error"
-                            ? "State: metadata ready, media partial"
-                          : "State: metadata + media ready"}
-                      </p>
-                    </div>
-                  </div>
                   <MotionCreativesTableSection
                     rows={deferredFilteredRows}
                     selectedMetricIds={topMetricIds}
