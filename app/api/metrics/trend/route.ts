@@ -131,6 +131,14 @@ function getMetricValue(metric: string, input: {
   return null;
 }
 
+function metricNeedsAnalytics(metric: string) {
+  return metric === "conversion_rate";
+}
+
+function metricNeedsGoogle(metric: string) {
+  return metric === "clicks" || metric === "impressions" || metric === "ctr";
+}
+
 export async function GET(request: NextRequest) {
   const businessId = request.nextUrl.searchParams.get("businessId");
   const metric = request.nextUrl.searchParams.get("metric");
@@ -152,6 +160,8 @@ export async function GET(request: NextRequest) {
   if ("error" in access) return access.error;
 
   const dates = enumerateDays(startDate, endDate);
+  const includeAnalytics = metricNeedsAnalytics(metric);
+  const includeGoogle = metricNeedsGoogle(metric) || metric.startsWith("google-");
 
   const data = await Promise.all(
     dates.map(async (date) => {
@@ -161,18 +171,22 @@ export async function GET(request: NextRequest) {
           startDate: date,
           endDate: date,
         }),
-        fetchInternal<GoogleOverviewPayload>(request, "/api/google-ads/overview", {
-          businessId,
-          dateRange: "custom",
-          customStart: date,
-          customEnd: date,
-          compareMode: "none",
-        }),
-        fetchInternal<AnalyticsOverviewPayload>(request, "/api/analytics/overview", {
-          businessId,
-          startDate: date,
-          endDate: date,
-        }),
+        includeGoogle
+          ? fetchInternal<GoogleOverviewPayload>(request, "/api/google-ads/overview", {
+              businessId,
+              dateRange: "custom",
+              customStart: date,
+              customEnd: date,
+              compareMode: "none",
+            })
+          : Promise.resolve(null),
+        includeAnalytics
+          ? fetchInternal<AnalyticsOverviewPayload>(request, "/api/analytics/overview", {
+              businessId,
+              startDate: date,
+              endDate: date,
+            })
+          : Promise.resolve(null),
       ]);
 
       return {
