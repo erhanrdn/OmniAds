@@ -8,6 +8,7 @@ import {
   getGA4TokenAndProperty,
   runGA4Report,
   GA4AuthError,
+  isGa4InvalidArgumentError,
 } from "@/lib/google-analytics-reporting";
 import {
   getCachedRouteReport,
@@ -69,19 +70,38 @@ export async function GET(request: NextRequest) {
   const dateRanges = [{ startDate, endDate }];
 
   const [newVsReturning, channelReport] = await Promise.all([
-    runGA4Report({
-      propertyId,
-      accessToken,
-      dateRanges,
-      dimensions: [{ name: "newVsReturning" }],
-      metrics: [
-        { name: "sessions" },
-        { name: "engagedSessions" },
-        { name: "engagementRate" },
-        { name: "ecommercePurchases" },
-        { name: "purchaseRevenue" },
-      ],
-    }),
+    (async () => {
+      try {
+        return await runGA4Report({
+          propertyId,
+          accessToken,
+          dateRanges,
+          dimensions: [{ name: "newVsReturning" }],
+          metrics: [
+            { name: "sessions" },
+            { name: "engagedSessions" },
+            { name: "engagementRate" },
+            { name: "ecommercePurchases" },
+            { name: "purchaseRevenue" },
+          ],
+        });
+      } catch (error) {
+        if (!isGa4InvalidArgumentError(error)) throw error;
+        return {
+          dimensionHeaders: ["newVsReturning"],
+          metricHeaders: [
+            "sessions",
+            "engagedSessions",
+            "engagementRate",
+            "ecommercePurchases",
+            "purchaseRevenue",
+          ],
+          rows: [],
+          rowCount: 0,
+          totals: undefined,
+        };
+      }
+    })(),
     runGA4Report({
       propertyId,
       accessToken,

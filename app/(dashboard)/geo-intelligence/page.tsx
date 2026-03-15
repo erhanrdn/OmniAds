@@ -41,6 +41,11 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "opportunities", label: "Opportunities" },
 ];
 
+const geoQueryOptions = {
+  retry: false,
+  refetchOnWindowFocus: false,
+} as const;
+
 // ── Fetch helpers ───────────────────────────────────────────────────
 
 async function geoFetch(path: string, params: Record<string, string>) {
@@ -88,36 +93,42 @@ export default function GeoIntelligencePage() {
     queryKey: ["geo-overview", businessId, startDate, endDate],
     enabled: anyConnected,
     queryFn: () => geoFetch("overview", params),
+    ...geoQueryOptions,
   });
 
   const sourcesQuery = useQuery({
     queryKey: ["geo-sources", businessId, startDate, endDate],
     enabled: ga4Connected && activeTab === "ai-sources",
     queryFn: () => geoFetch("traffic-sources", params),
+    ...geoQueryOptions,
   });
 
   const pagesQuery = useQuery({
     queryKey: ["geo-pages", businessId, startDate, endDate],
     enabled: ga4Connected && activeTab === "pages",
     queryFn: () => geoFetch("pages", params),
+    ...geoQueryOptions,
   });
 
   const queriesQuery = useQuery({
     queryKey: ["geo-queries", businessId, startDate, endDate],
     enabled: scConnected && activeTab === "queries",
     queryFn: () => geoFetch("queries", params),
+    ...geoQueryOptions,
   });
 
   const topicsQuery = useQuery({
     queryKey: ["geo-topics", businessId, startDate, endDate],
     enabled: scConnected && activeTab === "topics",
     queryFn: () => geoFetch("topics", params),
+    ...geoQueryOptions,
   });
 
   const opportunitiesQuery = useQuery({
     queryKey: ["geo-opportunities", businessId, startDate, endDate],
     enabled: anyConnected && activeTab === "opportunities",
     queryFn: () => geoFetch("opportunities", params),
+    ...geoQueryOptions,
   });
 
   if (!selectedBusinessId) return <BusinessEmptyState />;

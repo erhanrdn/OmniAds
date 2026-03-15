@@ -2,6 +2,16 @@ import { getIntegration, upsertIntegration } from "@/lib/integrations";
 import { refreshGA4AccessToken } from "@/lib/google-analytics-accounts";
 
 const REPORTING_API_BASE = "https://analyticsdata.googleapis.com/v1beta";
+const QUOTA_COOLDOWN_MS = 60_000;
+let quotaCooldownUntil = 0;
+
+export function isGa4InvalidArgumentError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return (
+    error.message.includes("GA4 Reporting API error 400") &&
+    error.message.includes("INVALID_ARGUMENT")
+  );
+}
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -54,6 +64,15 @@ interface ResolveGa4AnalyticsContextOptions {
 export async function runGA4Report(
   params: RunReportParams
 ): Promise<GA4ReportResult> {
+  if (Date.now() < quotaCooldownUntil) {
+    throw new GA4AuthError(
+      "ga4_quota_exceeded",
+      "GA4 request quota is temporarily exhausted. Please try again in a few minutes.",
+      429,
+      "retry_later"
+    );
+  }
+
   // Strip "properties/" prefix if present to get numeric ID
   const numericId = params.propertyId.replace(/^properties\//, "");
   const url = `${REPORTING_API_BASE}/properties/${numericId}:runReport`;
@@ -89,6 +108,7 @@ export async function runGA4Report(
       normalizedError.includes("RATE LIMIT") ||
       normalizedError.includes("TOO MANY REQUESTS")
     ) {
+      quotaCooldownUntil = Date.now() + QUOTA_COOLDOWN_MS;
       throw new GA4AuthError(
         "ga4_quota_exceeded",
         "GA4 request quota is temporarily exhausted. Please try again in a few minutes.",

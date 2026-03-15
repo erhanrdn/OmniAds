@@ -8,6 +8,7 @@ import {
   getGA4TokenAndProperty,
   runGA4Report,
   GA4AuthError,
+  isGa4InvalidArgumentError,
 } from "@/lib/google-analytics-reporting";
 import {
   getCachedRouteReport,
@@ -70,19 +71,32 @@ export async function GET(request: NextRequest) {
   // We approximate with weekly date dimension + new vs returning breakdown
   const [weeklyReport, returningTrend] = await Promise.all([
     // Weekly sessions breakdown: new vs returning by week
-    runGA4Report({
-      propertyId,
-      accessToken,
-      dateRanges: [{ startDate, endDate }],
-      dimensions: [{ name: "week" }, { name: "newVsReturning" }],
-      metrics: [
-        { name: "sessions" },
-        { name: "ecommercePurchases" },
-        { name: "engagementRate" },
-      ],
-      orderBys: [{ dimension: { dimensionName: "week" }, desc: false }],
-      limit: 200,
-    }),
+    (async () => {
+      try {
+        return await runGA4Report({
+          propertyId,
+          accessToken,
+          dateRanges: [{ startDate, endDate }],
+          dimensions: [{ name: "week" }, { name: "newVsReturning" }],
+          metrics: [
+            { name: "sessions" },
+            { name: "ecommercePurchases" },
+            { name: "engagementRate" },
+          ],
+          orderBys: [{ dimension: { dimensionName: "week" }, desc: false }],
+          limit: 200,
+        });
+      } catch (error) {
+        if (!isGa4InvalidArgumentError(error)) throw error;
+        return {
+          dimensionHeaders: ["week", "newVsReturning"],
+          metricHeaders: ["sessions", "ecommercePurchases", "engagementRate"],
+          rows: [],
+          rowCount: 0,
+          totals: undefined,
+        };
+      }
+    })(),
     // Monthly new user trend for cohort approximation
     runGA4Report({
       propertyId,

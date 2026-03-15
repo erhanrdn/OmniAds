@@ -116,6 +116,8 @@ interface DailyTrendsBundle {
 const META_OVERVIEW_CACHE_TTL_MINUTES = 15;
 const GOOGLE_OVERVIEW_CACHE_TTL_MINUTES = 15;
 const GA4_FALLBACK_CACHE_TTL_MINUTES = 15;
+const GA4_FALLBACK_ERROR_COOLDOWN_MS = 10 * 60 * 1000;
+const ga4FallbackFailureUntilByBusiness = new Map<string, number>();
 
 function buildEmptyOverview(
   businessId: string,
@@ -201,6 +203,9 @@ async function getGa4EcommerceFallback(
   startDate: string,
   endDate: string
 ): Promise<Ga4EcommerceFallback | null> {
+  const failureUntil = ga4FallbackFailureUntilByBusiness.get(businessId) ?? 0;
+  if (failureUntil > Date.now()) return null;
+
   const dateRangeKey = getReportingDateRangeKey(startDate, endDate);
   const cached = await getCachedReport<Ga4EcommerceFallback>({
     businessId,
@@ -254,8 +259,14 @@ async function getGa4EcommerceFallback(
       payload,
     });
 
+    ga4FallbackFailureUntilByBusiness.delete(businessId);
+
     return payload;
   } catch (error) {
+    ga4FallbackFailureUntilByBusiness.set(
+      businessId,
+      Date.now() + GA4_FALLBACK_ERROR_COOLDOWN_MS
+    );
     const message = error instanceof Error ? error.message : String(error);
     console.warn("[overview] ga4 ecommerce fallback unavailable", { businessId, message });
     return null;
