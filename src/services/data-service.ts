@@ -996,6 +996,54 @@ export async function getOverview(
   return data as OverviewData;
 }
 
+export interface SparklineBundle {
+  combined: Array<{ date: string; spend: number; revenue: number; purchases: number }>;
+  providerTrends: {
+    meta?: Array<{ date: string; spend: number; revenue: number; purchases: number }>;
+    google?: Array<{ date: string; spend: number; revenue: number; purchases: number }>;
+  };
+  ga4Daily: Array<{
+    date: string;
+    sessions: number;
+    purchases: number;
+    revenue: number;
+    engagementRate: number;
+    avgSessionDuration: number;
+    totalPurchasers: number;
+    firstTimePurchasers: number;
+  }>;
+}
+
+export async function getOverviewSparklines(
+  businessId: string,
+  params: { startDate: string; endDate: string }
+): Promise<SparklineBundle> {
+  const url = new URL(
+    "/api/overview-sparklines",
+    typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"
+  );
+  url.searchParams.set("businessId", businessId);
+  url.searchParams.set("startDate", params.startDate);
+  url.searchParams.set("endDate", params.endDate);
+
+  const response = await fetch(url.toString(), {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  });
+
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const message =
+      payload && typeof payload === "object" && "message" in payload
+        ? String(payload.message)
+        : `Overview sparklines request failed with status ${response.status}`;
+    throw new Error(message);
+  }
+
+  return (payload?.sparklines ?? payload) as SparklineBundle;
+}
+
 export async function getOverviewSummary(
   businessId: string,
   params: DateRange & { compareMode?: "none" | "previous_period" }

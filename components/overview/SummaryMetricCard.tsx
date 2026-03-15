@@ -39,10 +39,12 @@ export function SummaryMetricCard({
   metric,
   currencySymbol,
   businessId,
+  chartLoading = false,
 }: {
   metric: OverviewMetricCardData;
   currencySymbol: string;
   businessId?: string;
+  chartLoading?: boolean;
 }) {
   const Icon = metric.icon ? ICONS[metric.icon] : null;
   const delta = resolveDelta(metric.changePct, metric.trendDirection);
@@ -107,6 +109,7 @@ export function SummaryMetricCard({
           tone={metric.trendDirection}
           valueFormatter={(value) => formatMetricNumber(value, metric.unit, currencySymbol)}
           className="h-12 w-full"
+          loading={chartLoading && metric.sparklineData.length === 0}
         />
       </div>
 

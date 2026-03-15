@@ -30,6 +30,18 @@ interface PlatformEfficiencyRow {
   cpa: number;
 }
 
+export interface DailyTrendPoint {
+  date: string;
+  spend: number;
+  revenue: number;
+  purchases: number;
+}
+
+export interface OverviewTrendBundle {
+  combined: DailyTrendPoint[];
+  providerTrends: Partial<Record<"meta" | "google", DailyTrendPoint[]>>;
+}
+
 export interface OverviewResponse {
   businessId: string;
   dateRange: { startDate: string; endDate: string };
@@ -588,10 +600,29 @@ async function buildDailyTrends(params: {
   };
 }
 
+/**
+ * Returns only the batched daily trend data. Used by the /api/overview-sparklines
+ * endpoint so the main summary response can return KPIs immediately.
+ */
+export async function getOverviewTrendBundle(params: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+}): Promise<OverviewTrendBundle> {
+  return buildDailyTrends(params);
+}
+
 export async function getOverviewData(params: {
   businessId: string;
   startDate?: string | null;
   endDate?: string | null;
+  /**
+   * When false the expensive daily-trend batching is skipped. The returned
+   * OverviewResponse will have all `trends` arrays empty. Use this flag when
+   * sparkline data will be fetched separately via getOverviewTrendBundle().
+   * Defaults to true for backwards compatibility.
+   */
+  includeTrends?: boolean;
 }): Promise<OverviewResponse> {
   const { businessId } = params;
   const resolvedStart = params.startDate ?? toISODate(nDaysAgo(29));
@@ -702,21 +733,24 @@ export async function getOverviewData(params: {
     trends: { "7d": [], "14d": [], "30d": [], custom: [] },
   };
 
+  const skipTrends = params.includeTrends === false;
+
   const [ga4Fallback, dailyTrends] = await Promise.all([
     getGa4EcommerceFallback(businessId, resolvedStart, resolvedEnd),
-    buildDailyTrends({
-      businessId,
-      startDate: resolvedStart,
-      endDate: resolvedEnd,
-    }),
+    skipTrends
+      ? Promise.resolve(null)
+      : buildDailyTrends({ businessId, startDate: resolvedStart, endDate: resolvedEnd }),
   ]);
 
   applyEcommerceSourcePriority(overview, { ga4Fallback });
-  overview.providerTrends = dailyTrends.providerTrends;
-  overview.trends.custom = dailyTrends.combined;
-  overview.trends["7d"] = dailyTrends.combined.slice(-7);
-  overview.trends["14d"] = dailyTrends.combined.slice(-14);
-  overview.trends["30d"] = dailyTrends.combined.slice(-30);
+
+  if (dailyTrends) {
+    overview.providerTrends = dailyTrends.providerTrends;
+    overview.trends.custom = dailyTrends.combined;
+    overview.trends["7d"] = dailyTrends.combined.slice(-7);
+    overview.trends["14d"] = dailyTrends.combined.slice(-14);
+    overview.trends["30d"] = dailyTrends.combined.slice(-30);
+  }
 
   if (overview.status === "no_data" && ga4Fallback) {
     delete overview.status;

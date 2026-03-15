@@ -23,8 +23,13 @@ import {
 import { buildOverviewMetricCatalog } from "@/lib/overview-metric-catalog";
 import { useAppStore } from "@/store/app-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
-import { getOverviewSummary, upsertBusinessCostModel } from "@/src/services";
-import type { OverviewMetricCardData } from "@/src/types/models";
+import {
+  getOverviewSummary,
+  getOverviewSparklines,
+  upsertBusinessCostModel,
+  type SparklineBundle,
+} from "@/src/services";
+import type { BusinessCostModelData, OverviewMetricCardData, OverviewSummaryData } from "@/src/types/models";
 
 type CurrencyCode = "USD" | "EUR" | "GBP";
 type CompareMode = "none" | "previous_period";
@@ -77,6 +82,32 @@ export default function OverviewPage() {
       }),
   });
 
+  // Secondary query: fetches daily trend bundles independently so the metric
+  // cards above can render as soon as the summary resolves, while sparkline
+  // charts skeleton until this slower query settles.
+  const sparklineQuery = useQuery({
+    queryKey: ["overview-sparklines", businessId, startDate, endDate],
+    enabled: Boolean(selectedBusinessId),
+    queryFn: () => getOverviewSparklines(businessId, { startDate, endDate }),
+    staleTime: 15 * 60 * 1000,
+  });
+
+  // Merge sparklines into the summary once they arrive.
+  // Uses the same formula the server-side route used to generate sparklines,
+  // so ROAS and MER values are identical.
+  const effectiveSummary = useMemo(
+    () =>
+      query.data
+        ? sparklineQuery.data
+          ? patchSummarySparklines(query.data, sparklineQuery.data)
+          : query.data
+        : undefined,
+    [query.data, sparklineQuery.data]
+  );
+
+  // Charts show a pulsing skeleton while sparklines are loading.
+  const chartsLoading = sparklineQuery.isLoading && !sparklineQuery.data;
+
   if (!selectedBusinessId) return <BusinessEmptyState />;
 
   if (query.isError) {
@@ -85,30 +116,43 @@ export default function OverviewPage() {
     return <ErrorState description={errorMessage} onRetry={() => query.refetch()} />;
   }
 
-  const summary = query.data;
   const symbol = currencySymbol(currency);
-  const metricCatalog = useMemo(() => buildOverviewMetricCatalog(summary), [summary]);
+  // All render data reads from effectiveSummary so sparklines are reflected
+  // as soon as the secondary query resolves.
+  const metricCatalog = useMemo(
+    () => buildOverviewMetricCatalog(effectiveSummary),
+    [effectiveSummary]
+  );
   const pinContextKey = `${workspaceOwnerId ?? "anonymous"}:${businessId}`;
-  const storeMetrics = useMemo(() => filterVisibleMetrics(summary?.storeMetrics ?? []), [summary?.storeMetrics]);
-  const ltvMetrics = useMemo(() => filterVisibleMetrics(summary?.ltv ?? []), [summary?.ltv]);
-  const expenseMetrics = useMemo(() => filterVisibleMetrics(summary?.expenses ?? []), [summary?.expenses]);
+  const storeMetrics = useMemo(
+    () => filterVisibleMetrics(effectiveSummary?.storeMetrics ?? []),
+    [effectiveSummary?.storeMetrics]
+  );
+  const ltvMetrics = useMemo(
+    () => filterVisibleMetrics(effectiveSummary?.ltv ?? []),
+    [effectiveSummary?.ltv]
+  );
+  const expenseMetrics = useMemo(
+    () => filterVisibleMetrics(effectiveSummary?.expenses ?? []),
+    [effectiveSummary?.expenses]
+  );
   const customMetrics = useMemo(
-    () => filterVisibleMetrics(summary?.customMetrics ?? []),
-    [summary?.customMetrics]
+    () => filterVisibleMetrics(effectiveSummary?.customMetrics ?? []),
+    [effectiveSummary?.customMetrics]
   );
   const webAnalyticsMetrics = useMemo(
-    () => filterVisibleMetrics(summary?.webAnalytics ?? []),
-    [summary?.webAnalytics]
+    () => filterVisibleMetrics(effectiveSummary?.webAnalytics ?? []),
+    [effectiveSummary?.webAnalytics]
   );
   const platformSections = useMemo(
     () =>
-      (summary?.platforms ?? [])
+      (effectiveSummary?.platforms ?? [])
         .map((platform) => ({
           ...platform,
           metrics: filterVisibleMetrics(platform.metrics),
         }))
         .filter((platform) => platform.metrics.length > 0),
-    [summary?.platforms]
+    [effectiveSummary?.platforms]
   );
 
   return (
@@ -183,7 +227,7 @@ export default function OverviewPage() {
         description="Pinned top-line metrics for the selected business and period."
       >
         {query.isLoading ? (
-          <MetricGrid metrics={[]} currencySymbol={symbol} loading businessId={businessId} />
+          <MetricGrid metrics={[]} currencySymbol={symbol} loading chartLoading={chartsLoading} businessId={businessId} />
         ) : (
           <PinsSection
             businessId={businessId}
@@ -208,6 +252,7 @@ export default function OverviewPage() {
             metrics={storeMetrics}
             currencySymbol={symbol}
             loading={query.isLoading}
+            chartLoading={chartsLoading}
             businessId={businessId}
           />
         </SummarySection>
@@ -221,7 +266,7 @@ export default function OverviewPage() {
         {query.isLoading ? (
           <LoadingTablePlaceholder />
         ) : (
-          <SummaryAttributionTable rows={summary?.attribution ?? []} currencySymbol={symbol} />
+          <SummaryAttributionTable rows={effectiveSummary?.attribution ?? []} currencySymbol={symbol} />
         )}
       </SummarySection>
 
@@ -234,6 +279,7 @@ export default function OverviewPage() {
             metrics={ltvMetrics}
             currencySymbol={symbol}
             loading={query.isLoading}
+            chartLoading={chartsLoading}
             businessId={businessId}
           />
         </SummarySection>
@@ -249,6 +295,7 @@ export default function OverviewPage() {
             metrics={platform.metrics}
             currencySymbol={symbol}
             loading={query.isLoading}
+            chartLoading={chartsLoading}
             businessId={businessId}
           />
         </SummarySection>
@@ -260,11 +307,11 @@ export default function OverviewPage() {
           description="Tracked expense coverage with cost-model enrichment when configured."
           action={
             <Button
-              variant={summary?.costModel.configured ? "outline" : "default"}
+              variant={effectiveSummary?.costModel.configured ? "outline" : "default"}
               className="rounded-xl"
               onClick={() => setCostModelSheetOpen(true)}
             >
-              {summary?.costModel.configured ? "Edit cost model" : "Set cost model"}
+              {effectiveSummary?.costModel.configured ? "Edit cost model" : "Set cost model"}
             </Button>
           }
         >
@@ -272,6 +319,7 @@ export default function OverviewPage() {
             metrics={expenseMetrics}
             currencySymbol={symbol}
             loading={query.isLoading}
+            chartLoading={chartsLoading}
             businessId={businessId}
           />
         </SummarySection>
@@ -287,6 +335,7 @@ export default function OverviewPage() {
             metrics={customMetrics}
             currencySymbol={symbol}
             loading={query.isLoading}
+            chartLoading={chartsLoading}
             businessId={businessId}
           />
         </SummarySection>
@@ -301,6 +350,7 @@ export default function OverviewPage() {
             metrics={webAnalyticsMetrics}
             currencySymbol={symbol}
             loading={query.isLoading}
+            chartLoading={chartsLoading}
             businessId={businessId}
           />
         </SummarySection>
@@ -310,13 +360,13 @@ export default function OverviewPage() {
         title="Opportunity Signals"
         description="High-signal recommendations and AI-ready flags based on the current business snapshot."
       >
-        {query.isLoading ? <LoadingInsightPlaceholder /> : <SummaryInsightsGrid insights={summary?.insights ?? []} />}
+        {query.isLoading ? <LoadingInsightPlaceholder /> : <SummaryInsightsGrid insights={effectiveSummary?.insights ?? []} />}
       </SummarySection>
 
       <CostModelSheet
         open={costModelSheetOpen}
         onOpenChange={setCostModelSheetOpen}
-        initialValue={summary?.costModel.values ?? null}
+        initialValue={effectiveSummary?.costModel.values ?? null}
         onSave={async (input) => {
           await upsertBusinessCostModel({
             businessId,
@@ -333,11 +383,13 @@ function MetricGrid({
   metrics,
   currencySymbol,
   loading,
+  chartLoading = false,
   businessId,
 }: {
   metrics: OverviewMetricCardData[];
   currencySymbol: string;
   loading: boolean;
+  chartLoading?: boolean;
   businessId: string;
 }) {
   const visibleMetrics = filterVisibleMetrics(metrics);
@@ -362,6 +414,7 @@ function MetricGrid({
           metric={metric}
           currencySymbol={currencySymbol}
           businessId={businessId}
+          chartLoading={chartLoading}
         />
       ))}
     </div>
@@ -438,4 +491,199 @@ function currencySymbol(code: CurrencyCode) {
   if (code === "EUR") return "€";
   if (code === "GBP") return "£";
   return "$";
+}
+
+// ---------------------------------------------------------------------------
+// Sparkline patching — runs client-side once the secondary query resolves.
+// Formulas mirror the server-side overview-summary route exactly so ROAS/MER
+// values are always consistent.
+// ---------------------------------------------------------------------------
+
+type SparklinePoint = { date: string; value: number };
+
+function rv(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Number(value.toFixed(2));
+}
+
+function buildSparklineMap(
+  bundle: SparklineBundle,
+  costModel: BusinessCostModelData | null
+): Record<string, SparklinePoint[]> {
+  const { combined, providerTrends, ga4Daily } = bundle;
+
+  const spendSeries = combined.map((p) => ({ date: p.date, value: rv(p.spend) }));
+  const revenueSeries = combined.map((p) => ({ date: p.date, value: rv(p.revenue) }));
+  const purchaseSeries = combined.map((p) => ({ date: p.date, value: rv(p.purchases) }));
+  const merSeries = combined.map((p) => ({
+    date: p.date,
+    value: p.spend > 0 ? rv(p.revenue / p.spend) : 0,
+  }));
+  const blendedCpaSeries = combined.map((p) => ({
+    date: p.date,
+    value: p.purchases > 0 ? rv(p.spend / p.purchases) : 0,
+  }));
+
+  // GA4 daily derived series
+  const ga4AovSeries = ga4Daily.map((p) => ({
+    date: p.date,
+    value: p.purchases > 0 ? rv(p.revenue / p.purchases) : 0,
+  }));
+  const ga4ConvRateSeries = ga4Daily.map((p) => ({
+    date: p.date,
+    value: p.sessions > 0 ? rv((p.purchases / p.sessions) * 100) : 0,
+  }));
+  const ga4NewCustomersSeries = ga4Daily.map((p) => ({ date: p.date, value: rv(p.firstTimePurchasers) }));
+  const ga4ReturningCustomersSeries = ga4Daily.map((p) => ({
+    date: p.date,
+    value: rv(Math.max(p.totalPurchasers - p.firstTimePurchasers, 0)),
+  }));
+  const ga4RevenuePerCustomerSeries = ga4Daily.map((p) => ({
+    date: p.date,
+    value: p.totalPurchasers > 0 ? rv(p.revenue / p.totalPurchasers) : 0,
+  }));
+  const ga4RepeatRateSeries = ga4Daily.map((p) => ({
+    date: p.date,
+    value:
+      p.totalPurchasers > 0
+        ? rv((Math.max(p.totalPurchasers - p.firstTimePurchasers, 0) / p.totalPurchasers) * 100)
+        : 0,
+  }));
+  const ga4SessionsSeries = ga4Daily.map((p) => ({ date: p.date, value: rv(p.sessions) }));
+  const ga4EngagementSeries = ga4Daily.map((p) => ({
+    date: p.date,
+    value: rv(p.engagementRate * 100),
+  }));
+  const ga4SessionDurationSeries = ga4Daily.map((p) => ({
+    date: p.date,
+    value: rv(p.avgSessionDuration),
+  }));
+
+  const aovSeries = ga4AovSeries.length > 0
+    ? ga4AovSeries
+    : combined.map((p) => ({
+        date: p.date,
+        value: p.purchases > 0 ? rv(p.revenue / p.purchases) : 0,
+      }));
+
+  const ltvCacSeries = ga4RevenuePerCustomerSeries.map((point, i) => ({
+    date: point.date,
+    value: blendedCpaSeries[i] && blendedCpaSeries[i].value > 0
+      ? rv(point.value / blendedCpaSeries[i].value)
+      : 0,
+  }));
+
+  // Cost-model dependent sparklines
+  const cm = costModel;
+  const totalExpensesSeries: SparklinePoint[] = cm
+    ? revenueSeries.map((point, i) => ({
+        date: point.date,
+        value: rv(
+          (spendSeries[i]?.value ?? 0) +
+            point.value * (cm.cogsPercent + cm.shippingPercent + cm.feePercent) +
+            cm.fixedCost
+        ),
+      }))
+    : spendSeries;
+
+  const netProfitSeries: SparklinePoint[] = cm
+    ? revenueSeries.map((point, i) => ({
+        date: point.date,
+        value: rv(
+          point.value -
+            ((spendSeries[i]?.value ?? 0) +
+              point.value * (cm.cogsPercent + cm.shippingPercent + cm.feePercent) +
+              cm.fixedCost)
+        ),
+      }))
+    : [];
+
+  const contributionMarginSeries: SparklinePoint[] = cm
+    ? revenueSeries.map((point, i) => {
+        const spendVal = spendSeries[i]?.value ?? 0;
+        const varCost =
+          spendVal + point.value * (cm.cogsPercent + cm.shippingPercent + cm.feePercent);
+        return {
+          date: point.date,
+          value: point.value > 0 ? rv(((point.value - varCost) / point.value) * 100) : 0,
+        };
+      })
+    : [];
+
+  // Per-provider sparklines (meta, google)
+  const providerSparklines: Record<string, SparklinePoint[]> = {};
+  for (const [provider, trends] of Object.entries(providerTrends)) {
+    if (!trends) continue;
+    providerSparklines[`${provider}-spend`] = trends.map((p) => ({ date: p.date, value: rv(p.spend) }));
+    providerSparklines[`${provider}-revenue`] = trends.map((p) => ({ date: p.date, value: rv(p.revenue) }));
+    providerSparklines[`${provider}-roas`] = trends.map((p) => ({
+      date: p.date,
+      value: p.spend > 0 ? rv(p.revenue / p.spend) : 0,
+    }));
+    providerSparklines[`${provider}-purchases`] = trends.map((p) => ({
+      date: p.date,
+      value: rv(p.purchases),
+    }));
+    providerSparklines[`${provider}-cpa`] = trends.map((p) => ({
+      date: p.date,
+      value: p.purchases > 0 ? rv(p.spend / p.purchases) : 0,
+    }));
+  }
+
+  return {
+    "pins-revenue": revenueSeries,
+    "pins-spend": spendSeries,
+    "pins-mer": merSeries,
+    "pins-blended-roas": merSeries,
+    "pins-conversion-rate": ga4ConvRateSeries,
+    "pins-orders": purchaseSeries,
+    "store-aov": aovSeries,
+    "store-conversion-rate": ga4ConvRateSeries,
+    "store-new-customers": ga4NewCustomersSeries,
+    "store-returning-customers": ga4ReturningCustomersSeries,
+    "ltv-average": ga4RevenuePerCustomerSeries,
+    "ltv-cac": ltvCacSeries,
+    "ltv-repeat-rate": ga4RepeatRateSeries,
+    "ltv-revenue-per-customer": ga4RevenuePerCustomerSeries,
+    "expenses-ad-spend": spendSeries,
+    "expenses-total-tracked": totalExpensesSeries,
+    "expenses-net-profit": netProfitSeries,
+    "expenses-contribution-margin": contributionMarginSeries,
+    "expenses-mer": merSeries,
+    "custom-mer": merSeries,
+    "custom-blended-cpa": blendedCpaSeries,
+    "web-sessions": ga4SessionsSeries,
+    "web-session-duration": ga4SessionDurationSeries,
+    "web-engagement-rate": ga4EngagementSeries,
+    ...providerSparklines,
+  };
+}
+
+function patchCard(
+  card: OverviewMetricCardData,
+  sparkMap: Record<string, SparklinePoint[]>
+): OverviewMetricCardData {
+  const patches = sparkMap[card.id];
+  if (!patches || patches.length === 0) return card;
+  return { ...card, sparklineData: patches };
+}
+
+function patchSummarySparklines(
+  summary: OverviewSummaryData,
+  bundle: SparklineBundle
+): OverviewSummaryData {
+  const sparkMap = buildSparklineMap(bundle, summary.costModel.values);
+  return {
+    ...summary,
+    pins: summary.pins.map((m) => patchCard(m, sparkMap)),
+    storeMetrics: summary.storeMetrics.map((m) => patchCard(m, sparkMap)),
+    ltv: summary.ltv.map((m) => patchCard(m, sparkMap)),
+    expenses: summary.expenses.map((m) => patchCard(m, sparkMap)),
+    customMetrics: summary.customMetrics.map((m) => patchCard(m, sparkMap)),
+    webAnalytics: summary.webAnalytics.map((m) => patchCard(m, sparkMap)),
+    platforms: summary.platforms.map((platform) => ({
+      ...platform,
+      metrics: platform.metrics.map((m) => patchCard(m, sparkMap)),
+    })),
+  };
 }

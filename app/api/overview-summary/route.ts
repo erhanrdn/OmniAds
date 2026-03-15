@@ -558,12 +558,14 @@ export async function GET(request: NextRequest) {
       businessId,
       startDate: resolvedStart,
       endDate: resolvedEnd,
+      includeTrends: false,
     }),
     compareMode === "previous_period" && previousWindow.startDate && previousWindow.endDate
       ? getOverviewData({
           businessId,
           startDate: previousWindow.startDate,
           endDate: previousWindow.endDate,
+          includeTrends: false,
         })
       : Promise.resolve(null),
     canReadAnalytics
@@ -622,13 +624,9 @@ export async function GET(request: NextRequest) {
   const analyticsConnected = Boolean(currentAnalytics?.kpis);
   const shopifyConnected = Boolean(integrationsStatus?.shopify);
 
-  const ga4DailyTrends = canReadAnalytics
-    ? await getGa4DailyTrendSnapshot({
-        businessId,
-        startDate: resolvedStart,
-        endDate: resolvedEnd,
-      })
-    : [];
+  // GA4 daily trends are deferred to the /api/overview-sparklines endpoint.
+  // The summary endpoint only needs aggregate KPI values (handled above).
+  const ga4DailyTrends: Awaited<ReturnType<typeof getGa4DailyTrendSnapshot>> = [];
 
   const revenueSource = currentOverview.kpiSources?.revenue;
   const purchasesSource = currentOverview.kpiSources?.purchases;
