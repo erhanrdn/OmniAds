@@ -40,9 +40,9 @@ import {
   DateRangePicker,
   type ComparisonPreset,
   DateRangeValue,
-  DEFAULT_DATE_RANGE,
   getPresetDates,
 } from "@/components/date-range/DateRangePicker";
+import { usePersistentDateRange } from "@/hooks/use-persistent-date-range";
 import { MetaCampaignTable, type MetaCampaignTableRow } from "@/components/meta/meta-campaign-table";
 import { PlacementBreakdownChart } from "@/components/meta/placement-breakdown-chart";
 
@@ -475,7 +475,7 @@ export default function MetaPage() {
     ensureBusiness(businessId);
   }, [businessId, ensureBusiness, selectedBusinessId]);
 
-  const [dateRange, setDateRange] = useState<DateRangeValue>(DEFAULT_DATE_RANGE);
+  const [dateRange, setDateRange] = usePersistentDateRange();
 
   if (!selectedBusinessId) return <BusinessEmptyState />;
 

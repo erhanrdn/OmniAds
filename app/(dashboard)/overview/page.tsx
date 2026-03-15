@@ -15,9 +15,9 @@ import { CostModelSheet } from "@/components/overview/CostModelSheet";
 import {
   DateRangePicker,
   DateRangeValue,
-  DEFAULT_DATE_RANGE,
   getPresetDates,
 } from "@/components/date-range/DateRangePicker";
+import { usePersistentDateRange } from "@/hooks/use-persistent-date-range";
 import { buildOverviewMetricCatalog } from "@/lib/overview-metric-catalog";
 import { useAppStore } from "@/store/app-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
@@ -55,7 +55,7 @@ export default function OverviewPage() {
     [businesses, selectedBusinessId]
   );
 
-  const [dateRange, setDateRange] = useState<DateRangeValue>(DEFAULT_DATE_RANGE);
+  const [dateRange, setDateRange] = usePersistentDateRange();
   const [currency, setCurrency] = useState<CurrencyCode>((activeBusiness?.currency as CurrencyCode) ?? "USD");
   const [costModelSheetOpen, setCostModelSheetOpen] = useState(false);
   const [aiBriefRegenerating, setAiBriefRegenerating] = useState(false);

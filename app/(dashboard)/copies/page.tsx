@@ -12,13 +12,13 @@ import { MotionCreativesTableSection } from "@/components/creatives/MotionCreati
 import {
   applyMotionFilters,
   DEFAULT_COPY_TOP_METRIC_IDS,
-  DEFAULT_MOTION_DATE_RANGE,
   MotionDateRangeValue,
   MotionFilterRule,
   MotionGroupBy,
   MotionTopSection,
   resolveMotionDateRange,
 } from "@/components/creatives/MotionTopSection";
+import { usePersistentMotionDateRange } from "@/hooks/use-persistent-date-range";
 import type { MetaCreativeRow, MetaCreativePreview } from "@/components/creatives/metricConfig";
 import { useAppStore } from "@/store/app-store";
 import type { MetaCopyApiRow } from "@/app/api/meta/copies/route";
@@ -212,9 +212,7 @@ export default function CopiesPage() {
   const selectedBusinessCurrency =
     businesses.find((business) => business.id === selectedBusinessId)?.currency ?? null;
 
-  const [dateRangeValue, setDateRangeValue] = useState<MotionDateRangeValue>(
-    DEFAULT_MOTION_DATE_RANGE,
-  );
+  const [dateRangeValue, setDateRangeValue] = usePersistentMotionDateRange();
   const [groupBy, setGroupBy] = useState<MotionGroupBy>("copy");
   const [topFilters, setTopFilters] = useState<MotionFilterRule[]>([]);
   const [topMetricIds, setTopMetricIds] = useState<string[]>(

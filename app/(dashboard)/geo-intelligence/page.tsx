@@ -10,9 +10,9 @@ import { ErrorState } from "@/components/states/error-state";
 import {
   DateRangePicker,
   DateRangeValue,
-  DEFAULT_DATE_RANGE,
   getPresetDates,
 } from "@/components/date-range/DateRangePicker";
+import { usePersistentDateRange } from "@/hooks/use-persistent-date-range";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { GeoOverviewSection } from "@/components/geo/GeoOverviewSection";
@@ -79,7 +79,7 @@ export default function GeoIntelligencePage() {
   const anyConnected = ga4Connected || scConnected;
 
   const [activeTab, setActiveTab] = useState<Tab>("overview");
-  const [dateRange, setDateRange] = useState<DateRangeValue>(DEFAULT_DATE_RANGE);
+  const [dateRange, setDateRange] = usePersistentDateRange();
 
   const { start: startDate, end: endDate } = getPresetDates(
     dateRange.rangePreset,

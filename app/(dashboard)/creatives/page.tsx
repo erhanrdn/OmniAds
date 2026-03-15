@@ -23,7 +23,6 @@ import { MotionCreativesTableSection } from "@/components/creatives/MotionCreati
 import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
 import {
   applyMotionFilters,
-  DEFAULT_MOTION_DATE_RANGE,
   formatMotionDateLabel,
   mapMotionGroupByToApi,
   MotionDateRangeValue,
@@ -32,6 +31,7 @@ import {
   MotionTopSection,
   resolveMotionDateRange,
 } from "@/components/creatives/MotionTopSection";
+import { usePersistentMotionDateRange } from "@/hooks/use-persistent-date-range";
 import type { ShareMetricKey, SharePayload, SharedCreative } from "@/components/creatives/shareCreativeTypes";
 
 const CreativeDetailExperience = dynamic(
@@ -364,9 +364,7 @@ export default function CreativesPage() {
 
   const integrations = byBusinessId[businessId];
 
-  const [dateRangeValue, setDateRangeValue] = useState<MotionDateRangeValue>(
-    DEFAULT_MOTION_DATE_RANGE
-  );
+  const [dateRangeValue, setDateRangeValue] = usePersistentMotionDateRange();
   const [groupBy, setGroupBy] = useState<MotionGroupBy>("creative");
   const [topFilters, setTopFilters] = useState<MotionFilterRule[]>([]);
   const [topMetricIds, setTopMetricIds] = useState<string[]>(["spend", "roas"]);

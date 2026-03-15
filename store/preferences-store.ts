@@ -1,5 +1,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import type { DateRangeValue } from "@/components/date-range/DateRangePicker";
+import type { MotionDateRangeValue } from "@/components/creatives/MotionTopSection";
 
 export type ReportDateRangePreference = "7d" | "14d" | "30d" | "90d";
 export type MetricDisplayPreference = "compact" | "detailed";
@@ -11,6 +13,11 @@ interface PreferencesState {
   tableDensity: TableDensityPreference;
   heatmapEnabled: boolean;
   overviewPinsByContext: Record<string, string[]>;
+  // Persistent date range selections per surface
+  dashboardDateRange: DateRangeValue | null;
+  motionDateRange: MotionDateRangeValue | null;
+  setDashboardDateRange: (value: DateRangeValue) => void;
+  setMotionDateRange: (value: MotionDateRangeValue) => void;
   setDefaultDateRange: (value: ReportDateRangePreference) => void;
   setMetricDisplay: (value: MetricDisplayPreference) => void;
   setTableDensity: (value: TableDensityPreference) => void;
@@ -30,6 +37,10 @@ export const usePreferencesStore = create<PreferencesState>()(
       tableDensity: "comfortable",
       heatmapEnabled: true,
       overviewPinsByContext: {},
+      dashboardDateRange: null,
+      motionDateRange: null,
+      setDashboardDateRange: (value) => set({ dashboardDateRange: value }),
+      setMotionDateRange: (value) => set({ motionDateRange: value }),
       setDefaultDateRange: (value) => set({ defaultDateRange: value }),
       setMetricDisplay: (value) => set({ metricDisplay: value }),
       setTableDensity: (value) => set({ tableDensity: value }),

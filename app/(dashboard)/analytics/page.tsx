@@ -11,9 +11,9 @@ import { ErrorState } from "@/components/states/error-state";
 import {
   DateRangePicker,
   DateRangeValue,
-  DEFAULT_DATE_RANGE,
   getPresetDates,
 } from "@/components/date-range/DateRangePicker";
+import { usePersistentDateRange } from "@/hooks/use-persistent-date-range";
 import { Badge } from "@/components/ui/badge";
 import { OverviewSection } from "@/components/analytics/OverviewSection";
 import { ProductFunnelSection } from "@/components/analytics/ProductFunnelSection";
@@ -212,7 +212,7 @@ export default function AnalyticsPage() {
   const ga4Status = ga4State?.status;
 
   const [activeTab, setActiveTab] = useState<Tab>("overview");
-  const [dateRange, setDateRange] = useState<DateRangeValue>(DEFAULT_DATE_RANGE);
+  const [dateRange, setDateRange] = usePersistentDateRange();
   const [demoDimension, setDemoDimension] = useState<DemoDimension>("country");
 
   const { start: startDate, end: endDate } = getPresetDates(
