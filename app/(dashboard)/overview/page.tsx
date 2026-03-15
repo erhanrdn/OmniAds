@@ -113,22 +113,38 @@ export default function OverviewPage() {
 
   return (
     <div className="flex flex-col space-y-6 pb-10">
-      <section className="rounded-[32px] border border-slate-200 bg-[radial-gradient(circle_at_top_left,_rgba(15,23,42,0.06),_transparent_42%),linear-gradient(180deg,#ffffff,#f8fafc)] p-5 shadow-sm shadow-slate-200/60">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="space-y-2">
-            <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/80 px-3 py-1 text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
-              Overview Command Center
-            </div>
-            <div>
-              <h1 className="text-3xl font-semibold tracking-tight text-slate-950">Summary</h1>
-              <p className="text-sm text-slate-600">
-                A stacked command center for business health, attribution, platform performance,
-                and opportunity signals.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
+      <section className="border-b border-slate-200 pb-4">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <h1 className="text-3xl font-semibold tracking-tight text-slate-950">Overview</h1>
+          <div className="flex flex-wrap items-center gap-3 md:justify-end">
+            <BusinessSelector />
+            <DateRangePicker
+              value={dateRange}
+              onChange={setDateRange}
+              showComparisonTrigger={false}
+            />
+            {/* Restore if the standalone compare control is needed again. */}
+            {false && (
+              <ControlSelect
+                label="Compare"
+                value={compareMode}
+                onChange={(value) => setCompareMode(value as CompareMode)}
+                options={[
+                  { label: "Previous period", value: "previous_period" },
+                  { label: "No comparison", value: "none" },
+                ]}
+              />
+            )}
+            <ControlSelect
+              label="Currency"
+              value={currency}
+              onChange={(value) => setCurrency(value as CurrencyCode)}
+              options={[
+                { label: "USD", value: "USD" },
+                { label: "EUR", value: "EUR" },
+                { label: "GBP", value: "GBP" },
+              ]}
+            />
             {/* Restore when export workflow is wired to live overview data. */}
             {false && (
               <Button variant="outline" className="gap-2 rounded-xl" disabled>
@@ -156,50 +172,6 @@ export default function OverviewPage() {
               <RefreshCcw className="h-4 w-4" />
               Reset Filters
             </Button>
-          </div>
-        </div>
-
-        <div className="mt-5 border-t border-slate-200/80 pt-4">
-          <div className="flex flex-wrap items-center gap-3">
-          <BusinessSelector />
-          <DateRangePicker value={dateRange} onChange={setDateRange} />
-          <ControlSelect
-            label="Compare"
-            value={compareMode}
-            onChange={(value) => setCompareMode(value as CompareMode)}
-            options={[
-              { label: "Previous period", value: "previous_period" },
-              { label: "No comparison", value: "none" },
-            ]}
-          />
-          <ControlSelect
-            label="Currency"
-            value={currency}
-            onChange={(value) => setCurrency(value as CurrencyCode)}
-            options={[
-              { label: "USD", value: "USD" },
-              { label: "EUR", value: "EUR" },
-              { label: "GBP", value: "GBP" },
-            ]}
-          />
-          {/* Restore when account-level filtering is wired into the query key and API. */}
-          {false && (
-            <ControlSelect
-              label="Account"
-              value={accountFilter}
-              onChange={setAccountFilter}
-              options={[{ label: "All accounts", value: "all_accounts" }]}
-            />
-          )}
-          {/* Restore when campaign-type filtering is wired into the query key and API. */}
-          {false && (
-            <ControlSelect
-              label="Campaign type"
-              value={campaignType}
-              onChange={setCampaignType}
-              options={[{ label: "All campaign types", value: "all_campaign_types" }]}
-            />
-          )}
           </div>
         </div>
       </section>

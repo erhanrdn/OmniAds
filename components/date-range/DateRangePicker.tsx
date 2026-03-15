@@ -433,9 +433,15 @@ export interface DateRangePickerProps {
   value: DateRangeValue;
   onChange: (value: DateRangeValue) => void;
   className?: string;
+  showComparisonTrigger?: boolean;
 }
 
-export function DateRangePicker({ value, onChange, className }: DateRangePickerProps) {
+export function DateRangePicker({
+  value,
+  onChange,
+  className,
+  showComparisonTrigger = true,
+}: DateRangePickerProps) {
   const [openMode, setOpenMode] = useState<"range" | "comparison" | null>(null);
   const [draft, setDraft] = useState<DateRangeValue>(value);
 
@@ -496,45 +502,46 @@ export function DateRangePicker({ value, onChange, className }: DateRangePickerP
         </Popover.Portal>
       </Popover.Root>
 
-      {/* Comparison trigger */}
-      <Popover.Root
-        open={openMode === "comparison"}
-        onOpenChange={(open) => {
-          if (open) openPanel("comparison");
-          else if (openMode === "comparison") handleCancel();
-        }}
-      >
-        <Popover.Trigger asChild>
-          <button
-            type="button"
-            className={cn(
-              "inline-flex h-9 items-center gap-1.5 rounded-lg border bg-background px-3 text-sm transition-colors",
-              hasComparison
-                ? "border-foreground/40 font-medium"
-                : "text-muted-foreground hover:bg-accent"
-            )}
-          >
-            <span>{compLabel}</span>
-            <ChevronDownIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-          </button>
-        </Popover.Trigger>
-        <Popover.Portal>
-          <Popover.Content
-            sideOffset={6}
-            align="start"
-            className="z-50 overflow-hidden rounded-xl border bg-popover shadow-xl"
-            onInteractOutside={handleCancel}
-          >
-            <Panel
-              mode="comparison"
-              draft={draft}
-              onDraftChange={setDraft}
-              onApply={handleApply}
-              onCancel={handleCancel}
-            />
-          </Popover.Content>
-        </Popover.Portal>
-      </Popover.Root>
+      {showComparisonTrigger ? (
+        <Popover.Root
+          open={openMode === "comparison"}
+          onOpenChange={(open) => {
+            if (open) openPanel("comparison");
+            else if (openMode === "comparison") handleCancel();
+          }}
+        >
+          <Popover.Trigger asChild>
+            <button
+              type="button"
+              className={cn(
+                "inline-flex h-9 items-center gap-1.5 rounded-lg border bg-background px-3 text-sm transition-colors",
+                hasComparison
+                  ? "border-foreground/40 font-medium"
+                  : "text-muted-foreground hover:bg-accent"
+              )}
+            >
+              <span>{compLabel}</span>
+              <ChevronDownIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            </button>
+          </Popover.Trigger>
+          <Popover.Portal>
+            <Popover.Content
+              sideOffset={6}
+              align="start"
+              className="z-50 overflow-hidden rounded-xl border bg-popover shadow-xl"
+              onInteractOutside={handleCancel}
+            >
+              <Panel
+                mode="comparison"
+                draft={draft}
+                onDraftChange={setDraft}
+                onApply={handleApply}
+                onCancel={handleCancel}
+              />
+            </Popover.Content>
+          </Popover.Portal>
+        </Popover.Root>
+      ) : null}
     </div>
   );
 }

@@ -49,7 +49,7 @@ export function MiniTrendAreaChart({
   }
 
   if (!data || data.length < 2 || points.length < 2) {
-    return <div className={`rounded-lg bg-slate-100/70 ${className}`} />;
+    return <div className={className} aria-hidden="true" />;
   }
 
   const activeIndex = hoverIndex ?? points.length - 1;
