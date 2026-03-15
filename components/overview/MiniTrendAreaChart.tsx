@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import type { PointerEvent } from "react";
 import type { OverviewMetricCardData } from "@/src/types/models";
 
@@ -73,10 +73,23 @@ export function MiniTrendAreaChart({
     setHoverIndex(nextIndex);
   };
 
+  // Position tooltip horizontally above the active point, clamped so it
+  // never overflows the left or right edge of the chart area.
+  const xPercent = (activePoint.x / CHART_WIDTH) * 100;
+  const tooltipStyle: React.CSSProperties =
+    xPercent > 65
+      ? { right: 0 }
+      : xPercent < 15
+        ? { left: 0 }
+        : { left: `${xPercent}%`, transform: "translateX(-50%)" };
+
   return (
-    <div className="relative">
+    <div className="relative overflow-visible">
       {hoverIndex !== null ? (
-        <div className="pointer-events-none absolute left-0 top-0 z-50 rounded-md border border-slate-200 bg-white/95 px-2.5 py-1.5 text-[11px] shadow-md shadow-slate-200/70 backdrop-blur-sm">
+        <div
+          className="pointer-events-none absolute bottom-full z-20 mb-1.5 min-w-[7rem] rounded-md border border-slate-200 bg-white/95 px-2.5 py-1.5 text-[11px] shadow-md shadow-slate-200/70 backdrop-blur-sm"
+          style={tooltipStyle}
+        >
           <p className="font-medium text-slate-500">{activeLabel}</p>
           <p className="mt-0.5 font-semibold text-slate-950">{formattedValue}</p>
         </div>

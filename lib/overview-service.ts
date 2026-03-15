@@ -520,84 +520,70 @@ function applyEcommerceSourcePriority(
   overview.kpiSources.roas = { source: "unavailable", label: "Unavailable" };
 }
 
+// Cap concurrent per-day fetches to avoid overwhelming upstream providers.
+const DAILY_TREND_BATCH_SIZE = 7;
+
+async function fetchDaySnapshot(businessId: string, date: string) {
+  const [metaResult, googleResult, ga4Result] = await Promise.allSettled([
+    getMetaOverviewFragment({ businessId, startDate: date, endDate: date }),
+    getGoogleOverviewFragment({ businessId, startDate: date, endDate: date }),
+    getGa4EcommerceFallback(businessId, date, date),
+  ]);
+
+  const metaSpend =
+    metaResult.status === "fulfilled" ? Number(metaResult.value.spend ?? 0) : 0;
+  const metaRevenue =
+    metaResult.status === "fulfilled" ? Number(metaResult.value.revenue ?? 0) : 0;
+  const metaPurchases =
+    metaResult.status === "fulfilled" ? Number(metaResult.value.purchases ?? 0) : 0;
+
+  const googleSpend =
+    googleResult.status === "fulfilled" ? Number(googleResult.value.spend ?? 0) : 0;
+  const googleRevenue =
+    googleResult.status === "fulfilled" ? Number(googleResult.value.revenue ?? 0) : 0;
+  const googlePurchases =
+    googleResult.status === "fulfilled" ? Number(googleResult.value.purchases ?? 0) : 0;
+
+  const spend = metaSpend + googleSpend;
+
+  const revenue =
+    ga4Result.status === "fulfilled" && ga4Result.value
+      ? Number(ga4Result.value.revenue ?? 0)
+      : metaRevenue + googleRevenue;
+
+  const purchases =
+    ga4Result.status === "fulfilled" && ga4Result.value
+      ? Number(ga4Result.value.purchases ?? 0)
+      : metaPurchases + googlePurchases;
+
+  return {
+    combined: { date, spend: round2(spend), revenue: round2(revenue), purchases: Math.round(purchases) },
+    meta: { date, spend: round2(metaSpend), revenue: round2(metaRevenue), purchases: Math.round(metaPurchases) },
+    google: { date, spend: round2(googleSpend), revenue: round2(googleRevenue), purchases: Math.round(googlePurchases) },
+  };
+}
+
 async function buildDailyTrends(params: {
   businessId: string;
   startDate: string;
   endDate: string;
 }): Promise<DailyTrendsBundle> {
   const dates = enumerateDays(params.startDate, params.endDate);
-  const snapshots = await Promise.all(
-    dates.map(async (date) => {
-      const [metaResult, googleResult, ga4Result] = await Promise.allSettled([
-        getMetaOverviewFragment({
-          businessId: params.businessId,
-          startDate: date,
-          endDate: date,
-        }),
-        getGoogleOverviewFragment({
-          businessId: params.businessId,
-          startDate: date,
-          endDate: date,
-        }),
-        getGa4EcommerceFallback(params.businessId, date, date),
-      ]);
 
-      const spend =
-        (metaResult.status === "fulfilled" ? Number(metaResult.value.spend ?? 0) : 0) +
-        (googleResult.status === "fulfilled" ? Number(googleResult.value.spend ?? 0) : 0);
-
-      const metaSpend =
-        metaResult.status === "fulfilled" ? Number(metaResult.value.spend ?? 0) : 0;
-      const metaRevenue =
-        metaResult.status === "fulfilled" ? Number(metaResult.value.revenue ?? 0) : 0;
-      const metaPurchases =
-        metaResult.status === "fulfilled" ? Number(metaResult.value.purchases ?? 0) : 0;
-
-      const googleSpend =
-        googleResult.status === "fulfilled" ? Number(googleResult.value.spend ?? 0) : 0;
-      const googleRevenue =
-        googleResult.status === "fulfilled" ? Number(googleResult.value.revenue ?? 0) : 0;
-      const googlePurchases =
-        googleResult.status === "fulfilled" ? Number(googleResult.value.purchases ?? 0) : 0;
-
-      const revenue =
-        ga4Result.status === "fulfilled" && ga4Result.value
-          ? Number(ga4Result.value.revenue ?? 0)
-          : metaRevenue + googleRevenue;
-
-      const purchases =
-        ga4Result.status === "fulfilled" && ga4Result.value
-          ? Number(ga4Result.value.purchases ?? 0)
-          : metaPurchases + googlePurchases;
-
-      return {
-        combined: {
-          date,
-          spend: round2(spend),
-          revenue: round2(revenue),
-          purchases: Math.round(purchases),
-        },
-        meta: {
-          date,
-          spend: round2(metaSpend),
-          revenue: round2(metaRevenue),
-          purchases: Math.round(metaPurchases),
-        },
-        google: {
-          date,
-          spend: round2(googleSpend),
-          revenue: round2(googleRevenue),
-          purchases: Math.round(googlePurchases),
-        },
-      };
-    })
-  );
+  const snapshots: Awaited<ReturnType<typeof fetchDaySnapshot>>[] = [];
+  for (let i = 0; i < dates.length; i += DAILY_TREND_BATCH_SIZE) {
+    const batch = dates.slice(i, i + DAILY_TREND_BATCH_SIZE);
+    const batchResults = await Promise.all(
+      batch.map((date) => fetchDaySnapshot(params.businessId, date))
+    );
+    snapshots.push(...batchResults);
+  }
 
   return {
-    combined: snapshots.map((snapshot) => snapshot.combined),
+    combined: snapshots.map((s) => s.combined),
     providerTrends: {
-      meta: snapshots.map((snapshot) => snapshot.meta),
-      google: snapshots.map((snapshot) => snapshot.google),
+      meta: snapshots.map((s) => s.meta),
+      google: snapshots.map((s) => s.google),
     },
   };
 }

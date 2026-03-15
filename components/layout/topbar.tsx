@@ -38,35 +38,37 @@ export function Topbar({ userName }: TopbarProps) {
   }
 
   return (
-    <header className="h-14 border-b bg-background flex items-center px-4 gap-3 shrink-0">
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={handleMenuClick}
-        aria-label="Toggle sidebar"
-      >
-        <Menu className="w-5 h-5" />
-      </Button>
-
-      <h1 className="font-semibold text-base flex-1">{title}</h1>
-
-      <div className="flex items-center gap-2">
-        <BusinessSelector />
-
-        <Button variant="ghost" size="icon" aria-label="Notifications">
-          <Bell className="w-5 h-5" />
-        </Button>
-
+    <header className="border-b bg-background shrink-0">
+      <div className="flex min-h-14 flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2">
         <Button
           variant="ghost"
           size="icon"
-          aria-label="Team access"
-          onClick={() => setTeamModalOpen(true)}
+          onClick={handleMenuClick}
+          aria-label="Toggle sidebar"
         >
-          <Users className="w-5 h-5" />
+          <Menu className="w-5 h-5" />
         </Button>
 
-        <PersonalAccountMenu userName={userName} />
+        <h1 className="min-w-0 flex-1 truncate font-semibold text-base">{title}</h1>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <BusinessSelector />
+
+          <Button variant="ghost" size="icon" aria-label="Notifications">
+            <Bell className="w-5 h-5" />
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Team access"
+            onClick={() => setTeamModalOpen(true)}
+          >
+            <Users className="w-5 h-5" />
+          </Button>
+
+          <PersonalAccountMenu userName={userName} />
+        </div>
       </div>
 
       <TeamAccessModal open={teamModalOpen} onOpenChange={setTeamModalOpen} />

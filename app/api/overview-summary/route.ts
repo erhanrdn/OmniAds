@@ -241,10 +241,7 @@ function findPlatformRow(data: OverviewAggregateData | null, platform: string) {
 
 function mapInsights(data: OverviewAggregateData, ga4Connected: boolean): OverviewInsightCard[] {
   return buildOverviewOpportunities({
-    data: {
-      ...data,
-      platformBreakdown: [],
-    } as unknown as import("@/src/types/models").OverviewData,
+    data,
     ga4Connected,
   }).map((item) => ({
     id: item.id,
