@@ -38,6 +38,124 @@ export interface AnalyticsOverviewResponse {
   insights?: Array<{ type: string; text: string }>;
 }
 
+function isGa4InvalidArgumentError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return (
+    error.message.includes("GA4 Reporting API error 400") &&
+    error.message.includes("INVALID_ARGUMENT")
+  );
+}
+
+async function runOverviewSummaryReport(params: {
+  propertyId: string;
+  accessToken: string;
+  dateRanges: Array<{ startDate: string; endDate: string }>;
+}) {
+  const metricSets = [
+    [
+      "totalUsers",
+      "newUsers",
+      "sessions",
+      "engagedSessions",
+      "engagementRate",
+      "ecommercePurchases",
+      "purchaseRevenue",
+      "averageSessionDuration",
+      "totalPurchasers",
+      "firstTimePurchasers",
+      "averagePurchaseRevenuePerPayingUser",
+    ],
+    [
+      "totalUsers",
+      "newUsers",
+      "sessions",
+      "engagedSessions",
+      "engagementRate",
+      "ecommercePurchases",
+      "purchaseRevenue",
+      "averageSessionDuration",
+      "totalPurchasers",
+      "firstTimePurchasers",
+    ],
+    [
+      "totalUsers",
+      "newUsers",
+      "sessions",
+      "engagedSessions",
+      "engagementRate",
+      "ecommercePurchases",
+      "purchaseRevenue",
+      "averageSessionDuration",
+    ],
+  ] as const;
+
+  for (const metricNames of metricSets) {
+    try {
+      return await runGA4Report({
+        propertyId: params.propertyId,
+        accessToken: params.accessToken,
+        dateRanges: params.dateRanges,
+        metrics: metricNames.map((name) => ({ name })),
+      });
+    } catch (error) {
+      if (isGa4InvalidArgumentError(error)) {
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw new Error("GA4 overview metrics are incompatible with the selected property.");
+}
+
+async function runNewVsReturningReport(params: {
+  propertyId: string;
+  accessToken: string;
+  dateRanges: Array<{ startDate: string; endDate: string }>;
+}) {
+  try {
+    return await runGA4Report({
+      propertyId: params.propertyId,
+      accessToken: params.accessToken,
+      dateRanges: params.dateRanges,
+      dimensions: [{ name: "newVsReturning" }],
+      metrics: [
+        { name: "sessions" },
+        { name: "ecommercePurchases" },
+        { name: "purchaseRevenue" },
+        { name: "engagementRate" },
+      ],
+      limit: 5,
+    });
+  } catch (error) {
+    if (isGa4InvalidArgumentError(error)) {
+      return {
+        dimensionHeaders: ["newVsReturning"],
+        metricHeaders: [
+          "sessions",
+          "ecommercePurchases",
+          "purchaseRevenue",
+          "engagementRate",
+        ],
+        rows: [],
+        rowCount: 0,
+        totals: undefined,
+      };
+    }
+    throw error;
+  }
+}
+
+function readMetric(
+  report: { metricHeaders: string[]; totals?: Array<{ metrics: string[] }>; rows: Array<{ metrics: string[] }> },
+  metricName: string
+) {
+  const index = report.metricHeaders.findIndex((name) => name === metricName);
+  if (index === -1) return 0;
+  const row = report.totals?.[0] ?? report.rows[0];
+  return parseFloat(row?.metrics[index] ?? "0");
+}
+
 export async function getAnalyticsOverviewData(params: {
   businessId: string;
   startDate?: string | null;
@@ -60,51 +178,38 @@ export async function getAnalyticsOverviewData(params: {
   const dateRanges = [{ startDate, endDate }];
 
   const [overviewReport, newVsReturningReport] = await Promise.all([
-    runGA4Report({
+    runOverviewSummaryReport({
       propertyId,
       accessToken,
       dateRanges,
-      metrics: [
-        { name: "totalUsers" },
-        { name: "newUsers" },
-        { name: "sessions" },
-        { name: "engagedSessions" },
-        { name: "engagementRate" },
-        { name: "ecommercePurchases" },
-        { name: "purchaseRevenue" },
-        { name: "averageSessionDuration" },
-        { name: "totalPurchasers" },
-        { name: "firstTimePurchasers" },
-        { name: "averagePurchaseRevenuePerPayingUser" },
-      ],
     }),
-    runGA4Report({
+    runNewVsReturningReport({
       propertyId,
       accessToken,
       dateRanges,
-      dimensions: [{ name: "newVsReturning" }],
-      metrics: [
-        { name: "sessions" },
-        { name: "ecommercePurchases" },
-        { name: "purchaseRevenue" },
-        { name: "engagementRate" },
-      ],
-      limit: 5,
     }),
   ]);
 
-  const totalsRow = overviewReport.totals?.[0] ?? overviewReport.rows[0];
-  const totalUsers = parseFloat(totalsRow?.metrics[0] ?? "0");
-  const newUsers = parseFloat(totalsRow?.metrics[1] ?? "0");
-  const sessions = parseFloat(totalsRow?.metrics[2] ?? "0");
-  const engagedSessions = parseFloat(totalsRow?.metrics[3] ?? "0");
-  const engagementRate = parseFloat(totalsRow?.metrics[4] ?? "0");
-  const purchases = parseFloat(totalsRow?.metrics[5] ?? "0");
-  const revenue = parseFloat(totalsRow?.metrics[6] ?? "0");
-  const avgSessionDuration = parseFloat(totalsRow?.metrics[7] ?? "0");
-  const totalPurchasers = parseFloat(totalsRow?.metrics[8] ?? "0");
-  const firstTimePurchasers = parseFloat(totalsRow?.metrics[9] ?? "0");
-  const averageOrderValue = parseFloat(totalsRow?.metrics[10] ?? "0");
+  const totalUsers = readMetric(overviewReport, "totalUsers");
+  const newUsers = readMetric(overviewReport, "newUsers");
+  const sessions = readMetric(overviewReport, "sessions");
+  const engagedSessions = readMetric(overviewReport, "engagedSessions");
+  const engagementRate = readMetric(overviewReport, "engagementRate");
+  const purchases = readMetric(overviewReport, "ecommercePurchases");
+  const revenue = readMetric(overviewReport, "purchaseRevenue");
+  const avgSessionDuration = readMetric(overviewReport, "averageSessionDuration");
+  const totalPurchasers = readMetric(overviewReport, "totalPurchasers");
+  const firstTimePurchasers = readMetric(overviewReport, "firstTimePurchasers");
+  const averageOrderValueRaw = readMetric(
+    overviewReport,
+    "averagePurchaseRevenuePerPayingUser"
+  );
+  const averageOrderValue =
+    averageOrderValueRaw > 0
+      ? averageOrderValueRaw
+      : purchases > 0
+        ? revenue / purchases
+        : 0;
   const purchaseCvr = sessions > 0 ? purchases / sessions : 0;
 
   let newSessions = 0;

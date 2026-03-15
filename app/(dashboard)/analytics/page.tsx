@@ -87,8 +87,16 @@ function formatAnalyticsErrorMessage(error: unknown, fallback: string): string {
   if (typed.action === "reconnect_ga4") {
     return `${typed.message} Reconnect GA4 in Integrations.`;
   }
+  if (typed.action === "retry_later") {
+    return `${typed.message} The page stopped retrying automatically to avoid consuming more GA4 quota.`;
+  }
   return typed.message || fallback;
 }
+
+const analyticsQueryOptions = {
+  retry: false,
+  refetchOnWindowFocus: false,
+} as const;
 
 // ── API Fetch Helpers ───────────────────────────────────────────────
 
@@ -218,36 +226,42 @@ export default function AnalyticsPage() {
     queryKey: ["analytics-overview", businessId, startDate, endDate],
     enabled: ga4Connected,
     queryFn: () => fetchOverview(businessId, startDate, endDate),
+    ...analyticsQueryOptions,
   });
 
   const productsQuery = useQuery({
     queryKey: ["analytics-products", businessId, startDate, endDate],
     enabled: ga4Connected && (activeTab === "products" || activeTab === "opportunities"),
     queryFn: () => fetchProducts(businessId, startDate, endDate),
+    ...analyticsQueryOptions,
   });
 
   const landingPagesQuery = useQuery({
     queryKey: ["analytics-landing-pages", businessId, startDate, endDate],
     enabled: ga4Connected && (activeTab === "landing-pages" || activeTab === "opportunities"),
     queryFn: () => fetchLandingPages(businessId, startDate, endDate),
+    ...analyticsQueryOptions,
   });
 
   const audienceQuery = useQuery({
     queryKey: ["analytics-audience", businessId, startDate, endDate],
     enabled: ga4Connected && (activeTab === "audience" || activeTab === "opportunities"),
     queryFn: () => fetchAudience(businessId, startDate, endDate),
+    ...analyticsQueryOptions,
   });
 
   const demographicsQuery = useQuery({
     queryKey: ["analytics-demographics", businessId, startDate, endDate, demoDimension],
     enabled: ga4Connected && activeTab === "demographics",
     queryFn: () => fetchDemographics(businessId, startDate, endDate, demoDimension),
+    ...analyticsQueryOptions,
   });
 
   const cohortsQuery = useQuery({
     queryKey: ["analytics-cohorts", businessId, startDate, endDate],
     enabled: ga4Connected && activeTab === "cohorts",
     queryFn: () => fetchCohorts(businessId, startDate, endDate),
+    ...analyticsQueryOptions,
   });
 
   if (!selectedBusinessId) return <BusinessEmptyState />;

@@ -80,6 +80,46 @@ export async function runGA4Report(
 
   if (!res.ok) {
     const errorText = await res.text();
+    const normalizedError = errorText.toUpperCase();
+
+    if (
+      res.status === 429 ||
+      normalizedError.includes("RESOURCE_EXHAUSTED") ||
+      normalizedError.includes("QUOTA") ||
+      normalizedError.includes("RATE LIMIT") ||
+      normalizedError.includes("TOO MANY REQUESTS")
+    ) {
+      throw new GA4AuthError(
+        "ga4_quota_exceeded",
+        "GA4 request quota is temporarily exhausted. Please try again in a few minutes.",
+        429,
+        "retry_later"
+      );
+    }
+
+    if (res.status === 401) {
+      throw new GA4AuthError(
+        "ga4_unauthenticated",
+        "GA4 credentials were rejected by Google. Please reconnect GA4.",
+        401,
+        "reconnect_ga4"
+      );
+    }
+
+    if (
+      res.status === 403 &&
+      (normalizedError.includes("PERMISSION") ||
+        normalizedError.includes("ACCESS") ||
+        normalizedError.includes("SCOPE"))
+    ) {
+      throw new GA4AuthError(
+        "ga4_permission_denied",
+        "GA4 access was denied for the selected property. Check permissions or reconnect GA4.",
+        403,
+        "reconnect_ga4"
+      );
+    }
+
     throw new Error(`GA4 Reporting API error ${res.status}: ${errorText}`);
   }
 
