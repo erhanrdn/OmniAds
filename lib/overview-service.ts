@@ -15,7 +15,7 @@ import {
 } from "@/lib/reporting-cache";
 
 interface TrendPoint {
-  label: string;
+  date: string;
   spend: number;
   revenue: number;
   purchases: number;
@@ -73,6 +73,32 @@ export interface OverviewResponse {
   };
 }
 
+interface Ga4EcommerceFallback {
+  revenue: number;
+  purchases: number;
+  averageOrderValue: number | null;
+}
+
+interface MetaOverviewFragment {
+  spend: number;
+  revenue: number;
+  purchases: number;
+  rows: PlatformEfficiencyRow[];
+}
+
+interface GoogleOverviewFragment {
+  spend: number;
+  revenue: number;
+  purchases: number;
+  clicks: number;
+  impressions: number;
+  row: PlatformEfficiencyRow | null;
+}
+
+const META_OVERVIEW_CACHE_TTL_MINUTES = 15;
+const GOOGLE_OVERVIEW_CACHE_TTL_MINUTES = 15;
+const GA4_FALLBACK_CACHE_TTL_MINUTES = 15;
+
 function buildEmptyOverview(
   businessId: string,
   startDate: string,
@@ -116,7 +142,7 @@ function parseActionValue(
   actionType: string
 ): number {
   if (!Array.isArray(actions)) return 0;
-  const found = actions.find((a) => a.action_type === actionType);
+  const found = actions.find((action) => action.action_type === actionType);
   return found ? parseFloat(found.value) || 0 : 0;
 }
 
@@ -124,41 +150,33 @@ function toISODate(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
+function parseISODate(value: string): Date {
+  return new Date(`${value}T00:00:00.000Z`);
+}
+
+function enumerateDays(startDate: string, endDate: string) {
+  const start = parseISODate(startDate);
+  const end = parseISODate(endDate);
+  const dates: string[] = [];
+  const cursor = new Date(start);
+
+  while (cursor <= end) {
+    dates.push(toISODate(cursor));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+
+  return dates;
+}
+
 function nDaysAgo(n: number): Date {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return d;
+  const date = new Date();
+  date.setDate(date.getDate() - n);
+  return date;
 }
 
 function round2(value: number): number {
   return Math.round(value * 100) / 100;
 }
-
-interface Ga4EcommerceFallback {
-  revenue: number;
-  purchases: number;
-  averageOrderValue: number | null;
-}
-
-interface MetaOverviewFragment {
-  spend: number;
-  revenue: number;
-  purchases: number;
-  rows: PlatformEfficiencyRow[];
-}
-
-interface GoogleOverviewFragment {
-  spend: number;
-  revenue: number;
-  purchases: number;
-  clicks: number;
-  impressions: number;
-  row: PlatformEfficiencyRow | null;
-}
-
-const META_OVERVIEW_CACHE_TTL_MINUTES = 15;
-const GOOGLE_OVERVIEW_CACHE_TTL_MINUTES = 15;
-const GA4_FALLBACK_CACHE_TTL_MINUTES = 15;
 
 async function getGa4EcommerceFallback(
   businessId: string,
@@ -198,6 +216,7 @@ async function getGa4EcommerceFallback(
     const purchases = parseFloat(totalsRow.metrics[0] ?? "0") || 0;
     const revenue = parseFloat(totalsRow.metrics[1] ?? "0") || 0;
     const averageOrderValueMetric = parseFloat(totalsRow.metrics[2] ?? "0") || 0;
+
     const payload = {
       purchases,
       revenue,
@@ -208,6 +227,7 @@ async function getGa4EcommerceFallback(
             ? revenue / purchases
             : null,
     };
+
     await setCachedReport({
       businessId,
       provider: "ga4",
@@ -215,6 +235,7 @@ async function getGa4EcommerceFallback(
       dateRangeKey,
       payload,
     });
+
     return payload;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -243,31 +264,27 @@ async function getMetaOverviewFragment(input: {
     const row = await getProviderAccountAssignments(input.businessId, "meta");
     assignedAccountIds = row?.account_ids ?? [];
   } catch (firstError: unknown) {
-    const msg = firstError instanceof Error ? firstError.message : String(firstError);
-    console.warn("[overview] assignment read failed (first attempt)", {
-      businessId: input.businessId,
-      message: msg,
-    });
+    const message = firstError instanceof Error ? firstError.message : String(firstError);
+    const isMissingTable = message.includes("does not exist") || message.includes("relation");
 
-    const isMissingTable = msg.includes("does not exist") || msg.includes("relation");
     if (isMissingTable) {
       try {
         await runMigrations();
         const row = await getProviderAccountAssignments(input.businessId, "meta");
         assignedAccountIds = row?.account_ids ?? [];
       } catch (retryError: unknown) {
-        const retryMsg =
+        const retryMessage =
           retryError instanceof Error ? retryError.message : String(retryError);
         console.error("[overview] assignment read failed after migration", {
           businessId: input.businessId,
-          message: retryMsg,
+          message: retryMessage,
         });
         assignedAccountIds = [];
       }
     } else {
-      console.error("[overview] assignment read failed (non-table error)", {
+      console.error("[overview] assignment read failed", {
         businessId: input.businessId,
-        message: msg,
+        message,
       });
       assignedAccountIds = [];
     }
@@ -277,11 +294,11 @@ async function getMetaOverviewFragment(input: {
   try {
     const integration = await getIntegration(input.businessId, "meta");
     accessToken = integration?.access_token ?? null;
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
     console.warn("[overview] integration read failed", {
       businessId: input.businessId,
-      message: msg,
+      message,
     });
   }
 
@@ -291,9 +308,7 @@ async function getMetaOverviewFragment(input: {
 
   const metaResults = await Promise.allSettled(
     assignedAccountIds.map(async (accountId) => {
-      const insightsUrl = new URL(
-        `https://graph.facebook.com/v25.0/${accountId}/insights`
-      );
+      const insightsUrl = new URL(`https://graph.facebook.com/v25.0/${accountId}/insights`);
       insightsUrl.searchParams.set(
         "fields",
         "spend,actions,action_values,purchase_roas"
@@ -304,18 +319,18 @@ async function getMetaOverviewFragment(input: {
       );
       insightsUrl.searchParams.set("access_token", accessToken);
 
-      const res = await fetch(insightsUrl.toString(), {
+      const response = await fetch(insightsUrl.toString(), {
         method: "GET",
         headers: { Accept: "application/json" },
         cache: "no-store",
       });
 
-      if (!res.ok) {
-        const raw = await res.text().catch(() => "");
-        throw new Error(`Meta insights ${res.status}: ${raw.slice(0, 200)}`);
+      if (!response.ok) {
+        const raw = await response.text().catch(() => "");
+        throw new Error(`Meta insights ${response.status}: ${raw.slice(0, 200)}`);
       }
 
-      const json = (await res.json()) as {
+      const json = (await response.json()) as {
         data?: Array<{
           spend?: string;
           actions?: Array<{ action_type: string; value: string }>;
@@ -324,7 +339,7 @@ async function getMetaOverviewFragment(input: {
         }>;
       };
 
-      const data = json?.data?.[0];
+      const data = json.data?.[0];
       if (!data) return null;
 
       const spend = parseFloat(data.spend ?? "0") || 0;
@@ -381,6 +396,7 @@ async function getMetaOverviewFragment(input: {
     purchases: totalPurchases,
     rows,
   };
+
   await setCachedReport({
     businessId: input.businessId,
     provider: "meta",
@@ -388,6 +404,7 @@ async function getMetaOverviewFragment(input: {
     dateRangeKey,
     payload,
   });
+
   return payload;
 }
 
@@ -451,6 +468,7 @@ async function getGoogleOverviewFragment(input: {
     dateRangeKey,
     payload,
   });
+
   return payload;
 }
 
@@ -461,9 +479,8 @@ function applyEcommerceSourcePriority(
   }
 ) {
   const { ga4Fallback } = options;
-  const hasGa4Fallback = ga4Fallback !== null;
 
-  if (hasGa4Fallback && ga4Fallback) {
+  if (ga4Fallback) {
     const revenue = round2(ga4Fallback.revenue);
     const purchases = Math.round(ga4Fallback.purchases);
     const aov =
@@ -497,6 +514,55 @@ function applyEcommerceSourcePriority(
   overview.kpiSources.roas = { source: "unavailable", label: "Unavailable" };
 }
 
+async function buildDailyTrends(params: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+}): Promise<TrendPoint[]> {
+  const dates = enumerateDays(params.startDate, params.endDate);
+
+  return Promise.all(
+    dates.map(async (date) => {
+      const [metaResult, googleResult, ga4Result] = await Promise.allSettled([
+        getMetaOverviewFragment({
+          businessId: params.businessId,
+          startDate: date,
+          endDate: date,
+        }),
+        getGoogleOverviewFragment({
+          businessId: params.businessId,
+          startDate: date,
+          endDate: date,
+        }),
+        getGa4EcommerceFallback(params.businessId, date, date),
+      ]);
+
+      const spend =
+        (metaResult.status === "fulfilled" ? Number(metaResult.value.spend ?? 0) : 0) +
+        (googleResult.status === "fulfilled" ? Number(googleResult.value.spend ?? 0) : 0);
+
+      const revenue =
+        ga4Result.status === "fulfilled" && ga4Result.value
+          ? Number(ga4Result.value.revenue ?? 0)
+          : (metaResult.status === "fulfilled" ? Number(metaResult.value.revenue ?? 0) : 0) +
+            (googleResult.status === "fulfilled" ? Number(googleResult.value.revenue ?? 0) : 0);
+
+      const purchases =
+        ga4Result.status === "fulfilled" && ga4Result.value
+          ? Number(ga4Result.value.purchases ?? 0)
+          : (metaResult.status === "fulfilled" ? Number(metaResult.value.purchases ?? 0) : 0) +
+            (googleResult.status === "fulfilled" ? Number(googleResult.value.purchases ?? 0) : 0);
+
+      return {
+        date,
+        spend: round2(spend),
+        revenue: round2(revenue),
+        purchases: Math.round(purchases),
+      };
+    })
+  );
+}
+
 export async function getOverviewData(params: {
   businessId: string;
   startDate?: string | null;
@@ -507,7 +573,7 @@ export async function getOverviewData(params: {
   const resolvedEnd = params.endDate ?? toISODate(new Date());
 
   if (await isDemoBusiness(businessId)) {
-    return getDemoOverview() as OverviewResponse;
+    return getDemoOverview() as unknown as OverviewResponse;
   }
 
   await getIntegration(businessId, "shopify");
@@ -566,22 +632,10 @@ export async function getOverviewData(params: {
   const cpa = totalPurchases > 0 ? totalSpend / totalPurchases : 0;
   const aov = totalPurchases > 0 ? totalRevenue / totalPurchases : 0;
 
-  if (platformEfficiency.length === 0) {
-    const emptyOverview = buildEmptyOverview(businessId, resolvedStart, resolvedEnd, "no_data");
-    const ga4Fallback = await getGa4EcommerceFallback(
-      businessId,
-      resolvedStart,
-      resolvedEnd
-    );
-    applyEcommerceSourcePriority(emptyOverview, {
-      ga4Fallback,
-    });
-    return emptyOverview;
-  }
-
   const overview: OverviewResponse = {
     businessId,
     dateRange: { startDate: resolvedStart, endDate: resolvedEnd },
+    ...(platformEfficiency.length === 0 ? { status: "no_data" } : {}),
     kpis: {
       spend: round2(totalSpend),
       revenue: round2(totalRevenue),
@@ -622,10 +676,24 @@ export async function getOverviewData(params: {
     trends: { "7d": [], "14d": [], "30d": [], custom: [] },
   };
 
-  const ga4Fallback = await getGa4EcommerceFallback(businessId, resolvedStart, resolvedEnd);
-  applyEcommerceSourcePriority(overview, {
-    ga4Fallback,
-  });
+  const [ga4Fallback, customTrends] = await Promise.all([
+    getGa4EcommerceFallback(businessId, resolvedStart, resolvedEnd),
+    buildDailyTrends({
+      businessId,
+      startDate: resolvedStart,
+      endDate: resolvedEnd,
+    }),
+  ]);
+
+  applyEcommerceSourcePriority(overview, { ga4Fallback });
+  overview.trends.custom = customTrends;
+  overview.trends["7d"] = customTrends.slice(-7);
+  overview.trends["14d"] = customTrends.slice(-14);
+  overview.trends["30d"] = customTrends.slice(-30);
+
+  if (overview.status === "no_data" && ga4Fallback) {
+    delete overview.status;
+  }
 
   return overview;
 }

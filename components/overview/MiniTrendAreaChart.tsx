@@ -13,14 +13,12 @@ export function MiniTrendAreaChart({
   tone: _tone,
   loading = false,
   className = "h-12 w-full",
-  labels,
   valueFormatter,
 }: {
-  data: number[];
+  data: Array<{ date: string; value: number }>;
   tone: OverviewMetricCardData["trendDirection"];
   loading?: boolean;
   className?: string;
-  labels?: string[];
   valueFormatter?: (value: number) => string;
 }) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
@@ -28,8 +26,9 @@ export function MiniTrendAreaChart({
   const points = useMemo(() => {
     if (!data || data.length < 2) return [];
 
-    const min = Math.min(...data);
-    const max = Math.max(...data);
+    const values = data.map((point) => point.value);
+    const min = Math.min(...values);
+    const max = Math.max(...values);
     const range = max - min || 1;
 
     return data.map((point, index) => {
@@ -39,9 +38,9 @@ export function MiniTrendAreaChart({
       const y =
         CHART_HEIGHT -
         CHART_PADDING -
-        ((point - min) / range) * (CHART_HEIGHT - CHART_PADDING * 2);
+        ((point.value - min) / range) * (CHART_HEIGHT - CHART_PADDING * 2);
 
-      return { x, y, value: point, index };
+      return { x, y, value: point.value, date: point.date, index };
     });
   }, [data]);
 
@@ -57,7 +56,7 @@ export function MiniTrendAreaChart({
   const activePoint = points[activeIndex];
   const linePath = createSmoothPath(points);
   const areaPath = `${linePath} L ${points[points.length - 1].x} ${CHART_HEIGHT - CHART_PADDING} L ${points[0].x} ${CHART_HEIGHT - CHART_PADDING} Z`;
-  const activeLabel = formatPointLabel(labels?.[activeIndex] ?? `Period ${activeIndex + 1}`);
+  const activeLabel = formatPointLabel(activePoint.date);
   const formattedValue = valueFormatter
     ? valueFormatter(activePoint.value)
     : formatCompactValue(activePoint.value);
@@ -153,6 +152,7 @@ function formatPointLabel(value: string) {
       return new Intl.DateTimeFormat("en-US", {
         month: "short",
         day: "numeric",
+        year: "numeric",
       }).format(date);
     }
   }

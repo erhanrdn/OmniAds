@@ -211,8 +211,7 @@ export interface OverviewMetricCardData {
   value: number | null;
   previousValue?: number | null;
   changePct: number | null;
-  sparklineData: number[];
-  sparklineLabels?: string[];
+  sparklineData: Array<{ date: string; value: number }>;
   trendDirection: "up" | "down" | "neutral";
   dataSource: {
     key: string;

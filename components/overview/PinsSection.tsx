@@ -104,14 +104,9 @@ export function PinsSection({
           const queryState = trendQueries[index];
           const usesRemoteTrend = shouldFetchRemoteTrend(entry.metric);
           const trendPoints = queryState?.data?.data ?? [];
-          const trendValues = usesRemoteTrend
-            ? trendPoints.map((point) => point.value)
-            : entry.metric.sparklineData ?? [];
-          const trendLabels = usesRemoteTrend
-            ? trendPoints.map((point) => point.date)
-            : entry.metric.sparklineData?.map((_, pointIndex) => `Period ${pointIndex + 1}`) ?? [];
+          const trendData = usesRemoteTrend ? trendPoints : entry.metric.sparklineData ?? [];
           const trendLoading = usesRemoteTrend
-            ? Boolean(queryState?.isLoading || queryState?.isFetching) && trendValues.length === 0
+            ? Boolean(queryState?.isLoading || queryState?.isFetching) && trendData.length === 0
             : false;
           return (
             <MetricCard
@@ -119,8 +114,7 @@ export function PinsSection({
               title={entry.metric.title}
               value={entry.metric.value}
               changePercent={entry.metric.changePct}
-              trendValues={trendValues}
-              trendLabels={trendLabels}
+              trendData={trendData}
               trendLoading={trendLoading}
               dataSource={entry.metric.dataSource.label}
               sourceKey={entry.metric.dataSource.key}

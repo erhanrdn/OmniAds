@@ -20,8 +20,7 @@ export function MetricCard({
   title,
   value,
   changePercent,
-  trendValues,
-  trendLabels,
+  trendData,
   trendLoading = false,
   dataSource,
   sourceKey,
@@ -40,8 +39,7 @@ export function MetricCard({
   title: string;
   value: number | null;
   changePercent: number | null;
-  trendValues: number[];
-  trendLabels?: string[];
+  trendData: Array<{ date: string; value: number }>;
   trendLoading?: boolean;
   dataSource: string;
   sourceKey?: string;
@@ -127,9 +125,8 @@ export function MetricCard({
 
       <div className="mt-3">
         <MiniTrendAreaChart
-          data={trendValues}
+          data={trendData}
           tone={delta.direction === "up" ? "up" : delta.direction === "down" ? "down" : "neutral"}
-          labels={trendLabels}
           valueFormatter={(nextValue) => formatValue(nextValue, unit, currencySymbol)}
           loading={trendLoading}
           className="h-12 w-full"
