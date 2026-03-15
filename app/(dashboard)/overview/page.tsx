@@ -2,9 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Download, RefreshCcw, Sparkles } from "lucide-react";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
-import { BusinessSelector } from "@/components/business/BusinessSelector";
 import { ErrorState } from "@/components/states/error-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -56,10 +54,7 @@ export default function OverviewPage() {
   );
 
   const [dateRange, setDateRange] = useState<DateRangeValue>(DEFAULT_DATE_RANGE);
-  const [compareMode, setCompareMode] = useState<CompareMode>("previous_period");
   const [currency, setCurrency] = useState<CurrencyCode>((activeBusiness?.currency as CurrencyCode) ?? "USD");
-  const [accountFilter, setAccountFilter] = useState("all_accounts");
-  const [campaignType, setCampaignType] = useState("all_campaign_types");
   const [costModelSheetOpen, setCostModelSheetOpen] = useState(false);
 
   const ensureBusiness = useIntegrationsStore((state) => state.ensureBusiness);
@@ -81,6 +76,8 @@ export default function OverviewPage() {
     dateRange.customStart,
     dateRange.customEnd
   );
+  const compareMode: CompareMode =
+    dateRange.comparisonPreset === "none" ? "none" : "previous_period";
 
   const query = useQuery({
     queryKey: ["overview-summary", businessId, startDate, endDate, compareMode],
@@ -168,70 +165,12 @@ export default function OverviewPage() {
 
   return (
     <div className="flex flex-col space-y-6 pb-10">
-      <section className="border-b border-slate-200 pb-4">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <h1 className="text-3xl font-semibold tracking-tight text-slate-950">Overview</h1>
-          <div className="flex flex-wrap items-center gap-3 md:justify-end">
-            <BusinessSelector />
-            <DateRangePicker
-              value={dateRange}
-              onChange={setDateRange}
-              showComparisonTrigger={false}
-            />
-            {/* Restore if the standalone compare control is needed again. */}
-            {false && (
-              <ControlSelect
-                label="Compare"
-                value={compareMode}
-                onChange={(value) => setCompareMode(value as CompareMode)}
-                options={[
-                  { label: "Previous period", value: "previous_period" },
-                  { label: "No comparison", value: "none" },
-                ]}
-              />
-            )}
-            <ControlSelect
-              label="Currency"
-              value={currency}
-              onChange={(value) => setCurrency(value as CurrencyCode)}
-              options={[
-                { label: "USD", value: "USD" },
-                { label: "EUR", value: "EUR" },
-                { label: "GBP", value: "GBP" },
-              ]}
-            />
-            {/* Restore when export workflow is wired to live overview data. */}
-            {false && (
-              <Button variant="outline" className="gap-2 rounded-xl" disabled>
-                <Download className="h-4 w-4" />
-                Export
-              </Button>
-            )}
-            {/* Restore when the assistant has live overview actions. */}
-            {false && (
-              <Button className="gap-2 rounded-xl" disabled>
-                <Sparkles className="h-4 w-4" />
-                AI Assistant
-              </Button>
-            )}
-            <Button
-              variant="ghost"
-              className="h-9 gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm transition-colors hover:bg-slate-50"
-              onClick={() => {
-                setDateRange(DEFAULT_DATE_RANGE);
-                setCompareMode("previous_period");
-                setAccountFilter("all_accounts");
-                setCampaignType("all_campaign_types");
-              }}
-            >
-              <RefreshCcw className="h-4 w-4" />
-              Reset Filters
-            </Button>
-          </div>
-        </div>
-      </section>
-
-      <DataStatusRow businessId={businessId} />
+      <DataStatusRow
+        dateRange={dateRange}
+        onDateRangeChange={setDateRange}
+        currency={currency}
+        onCurrencyChange={setCurrency}
+      />
 
       <SummarySection
         title="Pins"
@@ -469,17 +408,43 @@ function LoadingInsightPlaceholder() {
   );
 }
 
-function DataStatusRow({ businessId }: { businessId: string }) {
+function DataStatusRow({
+  dateRange,
+  onDateRangeChange,
+  currency,
+  onCurrencyChange,
+}: {
+  dateRange: DateRangeValue;
+  onDateRangeChange: (value: DateRangeValue) => void;
+  currency: CurrencyCode;
+  onCurrencyChange: (value: CurrencyCode) => void;
+}) {
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/60">
-      <div className="flex flex-wrap items-center gap-3">
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-          Live Status
-        </p>
-        <div className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-2.5 py-1.5 text-xs">
-          <span className="font-medium text-slate-700">Overview Data</span>
-          <Badge>Active</Badge>
-          <span className="text-slate-500">Live API responses with cached provider snapshots.</span>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+            Live Status
+          </p>
+          <div className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-2.5 py-1.5 text-xs">
+            <span className="font-medium text-slate-700">Overview Data</span>
+            <Badge>Active</Badge>
+            <span className="text-slate-500">Live API responses with cached provider snapshots.</span>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3 lg:justify-end">
+          <DateRangePicker value={dateRange} onChange={onDateRangeChange} />
+          <ControlSelect
+            label="Currency"
+            value={currency}
+            onChange={(value) => onCurrencyChange(value as CurrencyCode)}
+            options={[
+              { label: "USD", value: "USD" },
+              { label: "EUR", value: "EUR" },
+              { label: "GBP", value: "GBP" },
+            ]}
+          />
         </div>
       </div>
     </section>

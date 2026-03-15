@@ -27,6 +27,7 @@ export function Topbar({ userName }: TopbarProps) {
   const setMobileSidebarOpen = useAppStore((s) => s.setMobileSidebarOpen);
   const pathname = usePathname();
   const title = getPageTitle(pathname);
+  const isOverviewPage = pathname === "/overview";
   const [teamModalOpen, setTeamModalOpen] = useState(false);
 
   function handleMenuClick() {
@@ -49,7 +50,13 @@ export function Topbar({ userName }: TopbarProps) {
           <Menu className="w-5 h-5" />
         </Button>
 
-        <h1 className="min-w-0 flex-1 truncate font-semibold text-base">{title}</h1>
+        <h1
+          className={`min-w-0 flex-1 truncate font-semibold ${
+            isOverviewPage ? "text-3xl tracking-tight" : "text-base"
+          }`}
+        >
+          {title}
+        </h1>
 
         <div className="flex flex-wrap items-center gap-2">
           <BusinessSelector />
