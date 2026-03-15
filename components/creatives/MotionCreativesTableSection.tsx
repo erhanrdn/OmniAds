@@ -636,7 +636,7 @@ export function MotionCreativesTableSection({
   const startIndex = (safePage - 1) * tablePreset.resultsPerPage;
   const endIndex = Math.min(totalResults, startIndex + tablePreset.resultsPerPage);
   const pagedRows = useMemo(() => sortedRows.slice(startIndex, endIndex), [sortedRows, startIndex, endIndex]);
-  const virtualizationEnabled = pagedRows.length > 30;
+  const virtualizationEnabled = false;
   const visibleRowCount = virtualizationEnabled
     ? Math.max(8, Math.ceil(620 / VIRTUAL_ROW_HEIGHT) + VIRTUAL_OVERSCAN * 2)
     : pagedRows.length;
@@ -1116,6 +1116,24 @@ export function MotionCreativesTableSection({
         >
           + Add metric
         </button>
+
+        <div
+          className="inline-flex items-center gap-2 rounded-full border border-dashed bg-emerald-50/40 px-3 py-1 text-[11px] text-muted-foreground"
+          title="Heatmap colors compare each creative against the account average for that metric. Cost metrics (CPA, CPC, CPM) are interpreted in reverse, so lower than average is better."
+        >
+          <span className="inline-flex items-center gap-1">
+            <span className="h-2 w-2 rounded-full bg-emerald-500" />
+            Above avg
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <span className="h-2 w-2 rounded-full bg-slate-400" />
+            Near avg
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <span className="h-2 w-2 rounded-full bg-red-500" />
+            Below avg
+          </span>
+        </div>
       </div>
 
       {/* B) selection info */}
@@ -1125,7 +1143,7 @@ export function MotionCreativesTableSection({
       {isResizing && <div className="fixed inset-0 z-[9999] cursor-col-resize select-none" />}
       <div
         ref={scrollContainerRef}
-        className="max-h-[620px] overflow-auto rounded-xl border"
+        className="overflow-x-auto overflow-y-visible rounded-xl border"
         onScroll={(event) => {
           if (!virtualizationEnabled) return;
           setScrollTop(event.currentTarget.scrollTop);
@@ -2118,6 +2136,69 @@ function downgradeTone(tone: HeatTone): HeatTone {
   }
 }
 
+function evaluateByAverage(input: {
+  value: number;
+  average: number;
+  direction: MetricDirectionMode;
+}): HeatEvaluation {
+  const { value, average, direction } = input;
+
+  if (direction === "neutral") {
+    return {
+      tone: "neutral",
+      intensity: 0.18,
+      reason: "Neutral metric: average-based heatmap is informational only.",
+    };
+  }
+
+  if (average <= 0) {
+    return {
+      tone: "neutral",
+      intensity: 0.14,
+      reason: "Average baseline is too low for stable comparison.",
+    };
+  }
+
+  const rawDeltaRatio = (value - average) / average;
+  const directionalDelta =
+    direction === "lower_better" ? -rawDeltaRatio : rawDeltaRatio;
+  const absDelta = Math.abs(directionalDelta);
+
+  if (directionalDelta >= 0.35) {
+    return {
+      tone: "strong_positive",
+      intensity: 0.92,
+      reason: `Strongly above account average (${(directionalDelta * 100).toFixed(0)}%).`,
+    };
+  }
+  if (directionalDelta >= 0.15) {
+    return {
+      tone: "positive",
+      intensity: 0.7,
+      reason: `Above account average (${(directionalDelta * 100).toFixed(0)}%).`,
+    };
+  }
+  if (absDelta <= 0.1) {
+    return {
+      tone: "neutral",
+      intensity: 0.22,
+      reason: "Within ±10% of account average.",
+    };
+  }
+  if (directionalDelta <= -0.35) {
+    return {
+      tone: "strong_negative",
+      intensity: 0.9,
+      reason: `Strongly below account average (${(Math.abs(directionalDelta) * 100).toFixed(0)}%).`,
+    };
+  }
+  return {
+    tone: "negative",
+    intensity: 0.68,
+    reason: `Below account average (${(Math.abs(directionalDelta) * 100).toFixed(0)}%).`,
+  };
+}
+
 function evaluateMetricCell(input: {
   key: TableColumnKey;
   value: number;
@@ -2146,37 +2227,11 @@ function evaluateMetricCell(input: {
     };
   }
 
-  let evaluation: HeatEvaluation;
-  if (cfg.colorMode === "semantic" && (key === "roas" || key === "websitePurchaseRoas")) {
-    if (value < 1) evaluation = { tone: "strong_negative", intensity: 0.95, reason: "ROAS below 1.0 (unprofitable)." };
-    else if (value < 2) evaluation = { tone: "negative", intensity: 0.72, reason: "ROAS between 1.0 and 2.0 (weak)." };
-    else if (value < 3) evaluation = { tone: "negative", intensity: 0.42, reason: "ROAS between 2.0 and 3.0 (below target)." };
-    else if (value < 4) evaluation = { tone: "neutral", intensity: 0.24, reason: "ROAS between 3.0 and 4.0 (neutral)." };
-    else if (value <= 6) evaluation = { tone: "positive", intensity: 0.64, reason: "ROAS between 4.0 and 6.0 (good)." };
-    else evaluation = { tone: "strong_positive", intensity: 0.9, reason: "ROAS above 6.0 (very good)." };
-  } else if (cfg.colorMode === "semantic" && cfg.direction === "lower_better") {
-    const median = Math.max(distribution.median, 0.000001);
-    const nearBand = Math.max(median * 0.1, 0.05);
-    if (value <= distribution.q1 * 0.95) {
-      evaluation = { tone: "strong_positive", intensity: 0.78, reason: "Meaningfully below account distribution." };
-    } else if (value < median - nearBand) {
-      evaluation = { tone: "positive", intensity: 0.55, reason: "Below account median cost." };
-    } else if (Math.abs(value - median) <= nearBand) {
-      evaluation = { tone: "neutral", intensity: 0.2, reason: "Close to account median cost." };
-    } else if (value <= distribution.q3 * 1.05) {
-      evaluation = { tone: "negative", intensity: 0.45, reason: "Above account median cost." };
-    } else {
-      evaluation = { tone: "strong_negative", intensity: 0.72, reason: "Meaningfully above account distribution." };
-    }
-  } else {
-    const rawQuantile = resolveQuantilePosition(value, distribution);
-    const quantile = cfg.direction === "lower_better" ? 1 - rawQuantile : rawQuantile;
-    if (quantile < 0.15) evaluation = { tone: "strong_negative", intensity: 0.58, reason: "Bottom quantile band." };
-    else if (quantile < 0.35) evaluation = { tone: "negative", intensity: 0.38, reason: "Below median band." };
-    else if (quantile <= 0.65) evaluation = { tone: "neutral", intensity: 0.2, reason: "Middle quantile band." };
-    else if (quantile <= 0.85) evaluation = { tone: "positive", intensity: 0.4, reason: "Upper quantile band." };
-    else evaluation = { tone: "strong_positive", intensity: 0.6, reason: "Top quantile band." };
-  }
+  let evaluation = evaluateByAverage({
+    value,
+    average: distribution.avg,
+    direction: cfg.direction,
+  });
 
   // Volume metrics should not look "great" if efficiency is weak.
   if ((key === "purchaseValue" || key === "purchases") && roasDistribution) {
@@ -2243,13 +2298,13 @@ function evaluateMetricCell(input: {
 
 function toHeatColor(tone: HeatTone, intensity: number): string {
   if (intensity <= 0) return "transparent";
-  const alpha = clamp(intensity * 0.24, 0.035, 0.28);
+  const alpha = clamp(intensity * 0.32, 0.06, 0.4);
   const palette: Record<HeatTone, [number, number, number]> = {
-    strong_negative: [244, 63, 94],
-    negative: [251, 113, 133],
+    strong_negative: [220, 38, 38],
+    negative: [239, 68, 68],
     neutral: [148, 163, 184],
-    positive: [52, 211, 153],
-    strong_positive: [16, 185, 129],
+    positive: [34, 197, 94],
+    strong_positive: [22, 163, 74],
   };
   const [r, g, b] = palette[tone];
   return `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(3)})`;

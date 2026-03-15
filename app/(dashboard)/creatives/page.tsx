@@ -373,7 +373,6 @@ export default function CreativesPage() {
   const [selectionState, setSelectionState] = useState<{ selectedRowIds: string[] }>({
     selectedRowIds: [],
   });
-  const hasInitializedDefaultSelectionRef = useRef(false);
   const hasUserInteractedSelectionRef = useRef(false);
   const [creativeDrawerState, setCreativeDrawerState] = useState<{ open: boolean; activeRowId: string | null }>({
     open: false,
@@ -597,12 +596,10 @@ export default function CreativesPage() {
       const kept = prev.selectedRowIds.filter((id) => filteredIds.has(id));
 
       if (
-        !hasInitializedDefaultSelectionRef.current &&
         !hasUserInteractedSelectionRef.current &&
         kept.length === 0 &&
         filteredRows.length > 0
       ) {
-        hasInitializedDefaultSelectionRef.current = true;
         return { selectedRowIds: filteredRows.slice(0, 5).map((row) => row.id) };
       }
 
