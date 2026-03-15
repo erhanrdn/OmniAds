@@ -73,7 +73,11 @@ export function BusinessSelector() {
 
   if (businesses.length === 0) {
     return (
-      <Button variant="outline" className="h-9 gap-2" onClick={() => router.push("/businesses/new")}>
+      <Button
+        variant="outline"
+        className="h-9 gap-2 rounded-lg border-slate-200 bg-white px-3 text-sm shadow-sm transition-colors hover:bg-slate-50"
+        onClick={() => router.push("/businesses/new")}
+      >
         <Plus className="h-4 w-4" />
         <span className="hidden sm:inline">Create business</span>
       </Button>
@@ -82,7 +86,11 @@ export function BusinessSelector() {
 
   if (isDemoOnlyWorkspace && selectedBusiness) {
     return (
-      <Button variant="outline" className="h-9 max-w-[220px] gap-2 px-3 text-sm" disabled>
+      <Button
+        variant="outline"
+        className="h-9 max-w-[220px] gap-2 rounded-lg border-slate-200 bg-white px-3 text-sm shadow-sm"
+        disabled
+      >
         <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-primary/10 text-[10px] font-bold text-primary">
           {getInitials(selectedBusiness.name)}
         </div>
@@ -94,7 +102,10 @@ export function BusinessSelector() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" className="h-9 max-w-[220px] gap-2 px-3 text-sm">
+        <Button
+          variant="outline"
+          className="h-9 max-w-[220px] gap-2 rounded-lg border-slate-200 bg-white px-3 text-sm shadow-sm transition-colors hover:bg-slate-50"
+        >
           <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-primary/10 text-[10px] font-bold text-primary">
             {selectedBusiness ? getInitials(selectedBusiness.name) : "SB"}
           </div>

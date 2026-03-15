@@ -17,6 +17,7 @@ import {
   Wallet,
   type LucideIcon,
 } from "lucide-react";
+import { MiniTrendAreaChart } from "@/components/overview/MiniTrendAreaChart";
 import { MetricSourceLogos } from "@/components/overview/MetricSourceLogos";
 import { cn } from "@/lib/utils";
 
@@ -98,7 +99,14 @@ export function SummaryMetricCard({
             </span>
           </div>
         </div>
-        <MiniSparkline data={metric.sparklineData} tone={metric.trendDirection} />
+      </div>
+
+      <div className="mt-3">
+        <MiniTrendAreaChart
+          data={metric.sparklineData}
+          tone={metric.trendDirection}
+          className="h-12 w-full"
+        />
       </div>
 
       <div className="mt-3 flex items-end justify-between gap-3">
@@ -112,43 +120,6 @@ export function SummaryMetricCard({
         />
       </div>
     </article>
-  );
-}
-
-function MiniSparkline({
-  data,
-  tone,
-}: {
-  data: number[];
-  tone: OverviewMetricCardData["trendDirection"];
-}) {
-  if (!data || data.length < 2) {
-    return <div className="h-10 w-20 rounded-lg bg-slate-100/70" />;
-  }
-
-  const width = 96;
-  const height = 40;
-  const min = Math.min(...data);
-  const max = Math.max(...data);
-  const range = max - min || 1;
-  const stroke =
-    tone === "up" ? "#059669" : tone === "down" ? "#e11d48" : "#475569";
-  const path = data
-    .map((point, index) => {
-      const x = (index / Math.max(data.length - 1, 1)) * width;
-      const y = height - ((point - min) / range) * (height - 4) - 2;
-      return `${index === 0 ? "M" : "L"} ${x} ${y}`;
-    })
-    .join(" ");
-
-  return (
-    <svg
-      viewBox={`0 0 ${width} ${height}`}
-      className="h-10 w-20 overflow-visible md:h-12 md:w-24"
-      aria-hidden="true"
-    >
-      <path d={path} fill="none" stroke={stroke} strokeWidth="2.5" strokeLinecap="round" />
-    </svg>
   );
 }
 

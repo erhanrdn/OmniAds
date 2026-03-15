@@ -112,7 +112,7 @@ export default function OverviewPage() {
   );
 
   return (
-    <div className="space-y-6 pb-10">
+    <div className="flex flex-col space-y-6 pb-10">
       <section className="rounded-[32px] border border-slate-200 bg-[radial-gradient(circle_at_top_left,_rgba(15,23,42,0.06),_transparent_42%),linear-gradient(180deg,#ffffff,#f8fafc)] p-5 shadow-sm shadow-slate-200/60">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="space-y-2">
@@ -145,7 +145,7 @@ export default function OverviewPage() {
             )}
             <Button
               variant="ghost"
-              className="gap-2 rounded-xl"
+              className="h-9 gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm transition-colors hover:bg-slate-50"
               onClick={() => {
                 setDateRange(DEFAULT_DATE_RANGE);
                 setCompareMode("previous_period");
@@ -159,7 +159,8 @@ export default function OverviewPage() {
           </div>
         </div>
 
-        <div className="mt-5 flex flex-wrap items-center gap-3">
+        <div className="mt-5 border-t border-slate-200/80 pt-4">
+          <div className="flex flex-wrap items-center gap-3">
           <BusinessSelector />
           <DateRangePicker value={dateRange} onChange={setDateRange} />
           <ControlSelect
@@ -199,6 +200,7 @@ export default function OverviewPage() {
               options={[{ label: "All campaign types", value: "all_campaign_types" }]}
             />
           )}
+          </div>
         </div>
       </section>
 
@@ -303,7 +305,8 @@ export default function OverviewPage() {
         </SummarySection>
       ) : null}
 
-      {(query.isLoading || customMetrics.length > 0) ? (
+      {/* Restore when the custom metrics set is finalized for the live overview experience. */}
+      {false && ((query.isLoading || customMetrics.length > 0) ? (
         <SummarySection
           title="Custom Metrics"
           description="Reusable business metrics that behave like standard summary cards."
@@ -315,7 +318,7 @@ export default function OverviewPage() {
             businessId={businessId}
           />
         </SummarySection>
-      ) : null}
+      ) : null)}
 
       {(query.isLoading || webAnalyticsMetrics.length > 0) ? (
         <SummarySection
@@ -440,12 +443,14 @@ function ControlSelect({
   options: Array<{ label: string; value: string }>;
 }) {
   return (
-    <label className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs">
-      <span className="font-medium uppercase tracking-[0.16em] text-slate-500">{label}</span>
+    <label className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm transition-colors hover:bg-slate-50">
+      <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+        {label}
+      </span>
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="bg-transparent text-sm text-slate-900 outline-none"
+        className="bg-transparent text-sm font-medium text-slate-900 outline-none"
       >
         {options.map((option) => (
           <option key={option.value} value={option.value}>

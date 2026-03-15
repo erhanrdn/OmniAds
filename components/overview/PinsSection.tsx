@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect } from "react";
 import { useQueries } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -107,16 +107,22 @@ export function PinsSection({
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {pinnedMetrics.map((entry, index) => {
-          const trend =
-            trendQueries[index]?.data?.data ??
-            buildFallbackTrend(entry.metric.sparklineData, startDate, endDate);
+          const queryState = trendQueries[index];
+          const usesRemoteTrend = shouldFetchRemoteTrend(entry.metric);
+          const trendValues = usesRemoteTrend
+            ? queryState?.data?.data?.map((point) => point.value) ?? []
+            : entry.metric.sparklineData ?? [];
+          const trendLoading = usesRemoteTrend
+            ? Boolean(queryState?.isLoading || queryState?.isFetching) && trendValues.length === 0
+            : false;
           return (
             <MetricCard
               key={entry.key}
               title={entry.metric.title}
               value={entry.metric.value}
               changePercent={entry.metric.changePct}
-              trendData={trend}
+              trendValues={trendValues}
+              trendLoading={trendLoading}
               dataSource={entry.metric.dataSource.label}
               sourceKey={entry.metric.dataSource.key}
               businessId={businessId}
@@ -145,26 +151,4 @@ export function PinsSection({
 
 function shouldFetchRemoteTrend(metric: OverviewMetricCatalogEntry["metric"]) {
   return (metric.sparklineData?.length ?? 0) < 7;
-}
-
-function buildFallbackTrend(
-  sparklineData: number[] | undefined,
-  startDate: string,
-  endDate: string
-) {
-  if (!sparklineData || sparklineData.length === 0) return [];
-
-  const start = new Date(`${startDate}T00:00:00.000Z`);
-  const end = new Date(`${endDate}T00:00:00.000Z`);
-  const durationMs = Math.max(end.getTime() - start.getTime(), 0);
-
-  return sparklineData.map((value, index) => {
-    const ratio =
-      sparklineData.length === 1 ? 0 : index / Math.max(sparklineData.length - 1, 1);
-    const pointDate = new Date(start.getTime() + durationMs * ratio);
-    return {
-      date: pointDate.toISOString().slice(0, 10),
-      value,
-    };
-  });
 }
