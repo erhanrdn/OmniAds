@@ -80,7 +80,7 @@ export function MiniTrendAreaChart({
   return (
     <div className="relative">
       {hoverIndex !== null ? (
-        <div className="pointer-events-none absolute left-0 top-0 z-10 rounded-md border border-slate-200 bg-white/95 px-2.5 py-1.5 text-[11px] shadow-md shadow-slate-200/70 backdrop-blur-sm">
+        <div className="pointer-events-none absolute left-0 top-0 z-50 rounded-md border border-slate-200 bg-white/95 px-2.5 py-1.5 text-[11px] shadow-md shadow-slate-200/70 backdrop-blur-sm">
           <p className="font-medium text-slate-500">{activeLabel}</p>
           <p className="mt-0.5 font-semibold text-slate-950">{formattedValue}</p>
         </div>
@@ -108,7 +108,7 @@ export function MiniTrendAreaChart({
           d={linePath}
           fill="none"
           stroke={`url(#${gradientId}-stroke)`}
-          strokeWidth="2"
+          strokeWidth="1.5"
           strokeLinecap="round"
           strokeLinejoin="round"
         />

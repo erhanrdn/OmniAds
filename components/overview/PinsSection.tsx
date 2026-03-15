@@ -74,13 +74,7 @@ export function PinsSection({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-semibold tracking-tight text-slate-950">Pins</h2>
-          <p className="text-sm text-slate-500">
-            Pin the metrics you want at the top and inspect their daily trend directly on hover.
-          </p>
-        </div>
+      <div className="flex flex-wrap items-center justify-end gap-3">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button className="gap-2 rounded-xl">
