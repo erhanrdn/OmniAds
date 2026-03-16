@@ -1,6 +1,6 @@
 import { getOpenAI } from "@/lib/openai";
 
-const AI_MODEL = "gpt-4.1-nano";
+const AI_MODEL = "gpt-5-nano";
 
 export interface BusinessMetricsSummary {
   businessId: string;

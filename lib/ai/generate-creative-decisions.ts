@@ -1,6 +1,6 @@
 import { getOpenAI } from "@/lib/openai";
 
-const AI_MODEL = "gpt-4.1-mini";
+const AI_MODEL = "gpt-5-nano";
 const CREATIVE_DECISION_BATCH_SIZE = 220;
 const CREATIVE_DECISION_MAX_TOKENS = 9000;
 const CREATIVE_DECISION_RETRY_BATCH_SIZE = 4;

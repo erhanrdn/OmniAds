@@ -10,7 +10,7 @@ export async function GET() {
   try {
     const openai = getOpenAI();
     const response = await openai.chat.completions.create({
-      model: "gpt-4.1-nano",
+      model: "gpt-5-nano",
       max_tokens: 20,
       messages: [{ role: "user", content: "Reply with exactly: OK" }],
     });
