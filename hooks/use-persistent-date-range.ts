@@ -7,9 +7,9 @@ import {
   type DateRangeValue,
 } from "@/components/date-range/DateRangePicker";
 import {
-  DEFAULT_MOTION_DATE_RANGE,
-  type MotionDateRangeValue,
-} from "@/components/creatives/MotionTopSection";
+  DEFAULT_CREATIVE_DATE_RANGE,
+  type CreativeDateRangeValue,
+} from "@/components/creatives/CreativesTopSection";
 
 /**
  * Persists the standard DateRangePicker value across page navigations.
@@ -32,15 +32,15 @@ export function usePersistentDateRange(): [
 /**
  * Persists the Motion (Creatives / Copies) date range value across navigations.
  */
-export function usePersistentMotionDateRange(): [
-  MotionDateRangeValue,
-  (value: MotionDateRangeValue) => void,
+export function usePersistentCreativeDateRange(): [
+  CreativeDateRangeValue,
+  (value: CreativeDateRangeValue) => void,
 ] {
-  const stored = usePreferencesStore((s) => s.motionDateRange);
-  const set = usePreferencesStore((s) => s.setMotionDateRange);
-  const value = stored ?? DEFAULT_MOTION_DATE_RANGE;
+  const stored = usePreferencesStore((s) => s.creativeDateRange);
+  const set = usePreferencesStore((s) => s.setCreativeDateRange);
+  const value = stored ?? DEFAULT_CREATIVE_DATE_RANGE;
   const setValue = useCallback(
-    (next: MotionDateRangeValue) => set(next),
+    (next: CreativeDateRangeValue) => set(next),
     [set]
   );
   return [value, setValue];

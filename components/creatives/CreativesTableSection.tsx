@@ -167,7 +167,7 @@ interface TablePreset {
   showAdLength: boolean;
 }
 
-interface MotionCreativesTableSectionProps {
+interface CreativesTableSectionProps {
   rows: MetaCreativeRow[];
   businessId?: string;
   defaultCurrency: string | null;
@@ -567,7 +567,7 @@ const TABLE_METRIC_CONFIG: Partial<Record<TableColumnKey, TableMetricConfig>> = 
   linkClicks: { direction: "neutral", colorMode: "none", spendSensitive: false, footerAggregation: "sum", heatStrength: "soft", applicableFormats: ["image", "video"] },
 };
 
-export function MotionCreativesTableSection({
+export function CreativesTableSection({
   rows,
   businessId,
   defaultCurrency,
@@ -580,7 +580,7 @@ export function MotionCreativesTableSection({
   onToggleAll,
   onOpenRow,
   onOpenBreakdownRow,
-}: MotionCreativesTableSectionProps) {
+}: CreativesTableSectionProps) {
   const queryClient = useQueryClient();
   const defaultPreset = PRESETS.find((p) => p.presetName === "Facebook Ecommerce") ?? PRESETS[0];
   const [tablePreset, setTablePreset] = useState<TablePreset>(defaultPreset);
@@ -763,6 +763,7 @@ export function MotionCreativesTableSection({
       }),
     [rows]
   );
+  const analyzeScopeCount = aiDecisionInputRows.length;
 
   const aiDecisionSignature = useMemo(
     () =>
@@ -1410,8 +1411,9 @@ export function MotionCreativesTableSection({
                 onClick={() => analyzeMutation.mutate()}
                 disabled={analyzeMutation.isPending || !businessId || aiDecisionInputRows.length === 0}
                 className="inline-flex items-center rounded-full border bg-background px-2.5 py-0.5 text-[11px] font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                title={analyzeScopeCount > 0 ? `Analyze ${analyzeScopeCount} filtered creatives` : "No creatives to analyze"}
               >
-                {analyzeMutation.isPending ? "Analyzing..." : "Analyze"}
+                {analyzeMutation.isPending ? `Analyzing ${analyzeScopeCount}...` : `Analyze (${analyzeScopeCount})`}
               </button>
               {aiDecisionFilter && (
                 <button

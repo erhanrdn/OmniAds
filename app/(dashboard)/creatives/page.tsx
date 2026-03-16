@@ -19,19 +19,19 @@ import { warmProviderAccountSnapshot } from "@/lib/provider-account-client";
 import {
   type MetaCreativeRow,
 } from "@/components/creatives/metricConfig";
-import { MotionCreativesTableSection } from "@/components/creatives/MotionCreativesTableSection";
+import { CreativesTableSection } from "@/components/creatives/CreativesTableSection";
 import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
 import {
-  applyMotionFilters,
-  formatMotionDateLabel,
-  mapMotionGroupByToApi,
-  MotionDateRangeValue,
-  MotionFilterRule,
-  MotionGroupBy,
-  MotionTopSection,
-  resolveMotionDateRange,
-} from "@/components/creatives/MotionTopSection";
-import { usePersistentMotionDateRange } from "@/hooks/use-persistent-date-range";
+  applyCreativeFilters,
+  formatCreativeDateLabel,
+  mapCreativeGroupByToApi,
+  CreativeDateRangeValue,
+  CreativeFilterRule,
+  CreativeGroupBy,
+  CreativesTopSection,
+  resolveCreativeDateRange,
+} from "@/components/creatives/CreativesTopSection";
+import { usePersistentCreativeDateRange } from "@/hooks/use-persistent-date-range";
 import type { ShareMetricKey, SharePayload, SharedCreative } from "@/components/creatives/shareCreativeTypes";
 
 const CreativeDetailExperience = dynamic(
@@ -364,9 +364,9 @@ export default function CreativesPage() {
 
   const integrations = byBusinessId[businessId];
 
-  const [dateRangeValue, setDateRangeValue] = usePersistentMotionDateRange();
-  const [groupBy, setGroupBy] = useState<MotionGroupBy>("creative");
-  const [topFilters, setTopFilters] = useState<MotionFilterRule[]>([]);
+  const [dateRangeValue, setDateRangeValue] = usePersistentCreativeDateRange();
+  const [groupBy, setGroupBy] = useState<CreativeGroupBy>("creative");
+  const [topFilters, setTopFilters] = useState<CreativeFilterRule[]>([]);
   const [topMetricIds, setTopMetricIds] = useState<string[]>(["spend", "roas"]);
   const [selectionState, setSelectionState] = useState<{ selectedRowIds: string[] }>({
     selectedRowIds: [],
@@ -441,12 +441,12 @@ export default function CreativesPage() {
     setProviderAccounts,
   ]);
 
-  const { start: drStart, end: drEnd } = resolveMotionDateRange(dateRangeValue);
-  const mainTableApiGroupBy = mapMotionGroupByToApi(groupBy);
+  const { start: drStart, end: drEnd } = resolveCreativeDateRange(dateRangeValue);
+  const mainTableApiGroupBy = mapCreativeGroupByToApi(groupBy);
 
   const creativesMetadataQuery = useQuery({
     queryKey: [
-      "meta-creatives-motion-metadata",
+      "meta-creatives-creatives-metadata",
       businessId,
       drStart,
       drEnd,
@@ -471,7 +471,7 @@ export default function CreativesPage() {
   });
   const creativesMediaQuery = useQuery({
     queryKey: [
-      "meta-creatives-motion-media",
+      "meta-creatives-creatives-media",
       businessId,
       drStart,
       drEnd,
@@ -584,7 +584,7 @@ export default function CreativesPage() {
 
   const filteredRows = useMemo(() => {
     if (platform !== "meta") return [];
-    return applyMotionFilters(allRows, topFilters);
+    return applyCreativeFilters(allRows, topFilters);
   }, [allRows, platform, topFilters]);
   const deferredFilteredRows = useDeferredValue(filteredRows);
 
@@ -680,7 +680,7 @@ export default function CreativesPage() {
     if (process.env.NODE_ENV === "production") return;
     if (topPanelRows.length === 0 && filteredRows.length === 0) return;
 
-    console.log("[creatives-page] before MotionTopSection", {
+    console.log("[creatives-page] before CreativesTopSection", {
       total: topPanelRows.length,
       top_preview_summary: topPreviewSummary,
       samples: topPanelRows.slice(0, 3).map((row) => ({
@@ -694,7 +694,7 @@ export default function CreativesPage() {
       })),
     });
 
-    console.log("[creatives-page] before MotionCreativesTableSection", {
+    console.log("[creatives-page] before CreativesTableSection", {
       total: filteredRows.length,
       samples: filteredRows.slice(0, 3).map((row) => ({
         id: row.id,
@@ -783,7 +783,7 @@ export default function CreativesPage() {
       const shareMetrics = topMetricIds.filter((id): id is ShareMetricKey => SHARE_METRIC_IDS.has(id as ShareMetricKey));
       const payload: Omit<SharePayload, "token" | "createdAt"> = {
         title: "Top Creatives",
-        dateRange: formatMotionDateLabel(dateRangeValue),
+        dateRange: formatCreativeDateLabel(dateRangeValue),
         expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString(),
         businessId,
         groupBy,
@@ -902,8 +902,9 @@ export default function CreativesPage() {
 
         return (
           <>
-            <MotionTopSection
+            <CreativesTopSection
               showHeader={false}
+              showAiActionsRow={false}
               dateRange={dateRangeValue}
               onDateRangeChange={setDateRangeValue}
               groupBy={groupBy}
@@ -955,7 +956,7 @@ export default function CreativesPage() {
               deferredFilteredRows.length > 0 &&
               dataStatus !== "no_data" && (
                 <>
-                  <MotionCreativesTableSection
+                  <CreativesTableSection
                     rows={deferredFilteredRows}
                     businessId={businessId}
                     selectedMetricIds={topMetricIds}

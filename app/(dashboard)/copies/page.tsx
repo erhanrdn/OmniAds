@@ -8,17 +8,17 @@ import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
 import { LoadingSkeleton } from "@/components/states/loading-skeleton";
 import { Badge } from "@/components/ui/badge";
-import { MotionCreativesTableSection } from "@/components/creatives/MotionCreativesTableSection";
+import { CreativesTableSection } from "@/components/creatives/CreativesTableSection";
 import {
-  applyMotionFilters,
+  applyCreativeFilters,
   DEFAULT_COPY_TOP_METRIC_IDS,
-  MotionDateRangeValue,
-  MotionFilterRule,
-  MotionGroupBy,
-  MotionTopSection,
-  resolveMotionDateRange,
-} from "@/components/creatives/MotionTopSection";
-import { usePersistentMotionDateRange } from "@/hooks/use-persistent-date-range";
+  CreativeDateRangeValue,
+  CreativeFilterRule,
+  CreativeGroupBy,
+  CreativesTopSection,
+  resolveCreativeDateRange,
+} from "@/components/creatives/CreativesTopSection";
+import { usePersistentCreativeDateRange } from "@/hooks/use-persistent-date-range";
 import type { MetaCreativeRow, MetaCreativePreview } from "@/components/creatives/metricConfig";
 import { useAppStore } from "@/store/app-store";
 import type { MetaCopyApiRow } from "@/app/api/meta/copies/route";
@@ -38,7 +38,7 @@ interface MetaCopiesResponse {
   };
 }
 
-const COPY_GROUP_OPTIONS: Array<{ value: MotionGroupBy; label: string }> = [
+const COPY_GROUP_OPTIONS: Array<{ value: CreativeGroupBy; label: string }> = [
   { value: "copy", label: "Copy" },
   { value: "adName", label: "Ad Name" },
   { value: "campaign", label: "Campaign" },
@@ -212,9 +212,9 @@ export default function CopiesPage() {
   const selectedBusinessCurrency =
     businesses.find((business) => business.id === selectedBusinessId)?.currency ?? null;
 
-  const [dateRangeValue, setDateRangeValue] = usePersistentMotionDateRange();
-  const [groupBy, setGroupBy] = useState<MotionGroupBy>("copy");
-  const [topFilters, setTopFilters] = useState<MotionFilterRule[]>([]);
+  const [dateRangeValue, setDateRangeValue] = usePersistentCreativeDateRange();
+  const [groupBy, setGroupBy] = useState<CreativeGroupBy>("copy");
+  const [topFilters, setTopFilters] = useState<CreativeFilterRule[]>([]);
   const [topMetricIds, setTopMetricIds] = useState<string[]>(
     DEFAULT_COPY_TOP_METRIC_IDS,
   );
@@ -225,14 +225,14 @@ export default function CopiesPage() {
   const hasInitializedDefaultSelectionRef = useRef(false);
   const hasUserInteractedSelectionRef = useRef(false);
 
-  const { start: drStart, end: drEnd } = resolveMotionDateRange(dateRangeValue);
+  const { start: drStart, end: drEnd } = resolveCreativeDateRange(dateRangeValue);
   const copyApiGroupBy: "copy" | "adName" | "campaign" | "adSet" =
     groupBy === "copy" || groupBy === "adName" || groupBy === "campaign" || groupBy === "adSet"
       ? groupBy
       : "copy";
 
   const copiesQuery = useQuery({
-    queryKey: ["copies-motion", businessId, drStart, drEnd, copyApiGroupBy],
+    queryKey: ["copies-creatives", businessId, drStart, drEnd, copyApiGroupBy],
     enabled: Boolean(selectedBusinessId),
     queryFn: () =>
       fetchCopyRows({
@@ -248,7 +248,7 @@ export default function CopiesPage() {
   }, [copiesQuery.data?.rows]);
 
   const filteredRows = useMemo(
-    () => applyMotionFilters(allRows, topFilters),
+    () => applyCreativeFilters(allRows, topFilters),
     [allRows, topFilters],
   );
 
@@ -322,7 +322,7 @@ export default function CopiesPage() {
         </p>
       </div>
 
-      <MotionTopSection
+      <CreativesTopSection
         showHeader={false}
         title="Top copy"
         description="Compare high-performing ad texts, isolate winning angles, and scale copy that drives efficient purchases."
@@ -368,7 +368,7 @@ export default function CopiesPage() {
       )}
 
       {!copiesQuery.isLoading && !copiesQuery.isError && filteredRows.length > 0 && (
-        <MotionCreativesTableSection
+        <CreativesTableSection
           rows={filteredRows}
           businessId={businessId}
           selectedMetricIds={topMetricIds}

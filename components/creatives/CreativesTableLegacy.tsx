@@ -10,7 +10,7 @@ import {
 } from "@/components/creatives/metricConfig";
 import { cn } from "@/lib/utils";
 
-interface CreativesMotionTableProps {
+interface CreativesTableLegacyProps {
   rows: MetaCreativeRow[];
   selectedMetrics: MetaMetricKey[];
   selectedRowIds: string[];
@@ -45,7 +45,7 @@ type CreativeRowLike = MetaCreativeRow & {
   thumbnail_url?: string | null;
 };
 
-export function CreativesMotionTable({
+export function CreativesTableLegacy({
   rows,
   selectedMetrics,
   selectedRowIds,
@@ -55,7 +55,7 @@ export function CreativesMotionTable({
   onToggleRow,
   onToggleAll,
   onOpenRow,
-}: CreativesMotionTableProps) {
+}: CreativesTableLegacyProps) {
   const selectedRowIdSet = useMemo(() => new Set(selectedRowIds), [selectedRowIds]);
 
   const allSelected = rows.length > 0 && rows.every((row) => selectedRowIdSet.has(row.id));

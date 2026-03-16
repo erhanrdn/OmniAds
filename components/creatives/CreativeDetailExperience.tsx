@@ -7,7 +7,7 @@ import { Bot, Clipboard, Copy, Download, FileText, MessageCircle, Sparkles, X } 
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { formatMoney, resolveCreativeCurrency } from "@/components/creatives/money";
 import { cn } from "@/lib/utils";
-import { formatMotionDateLabel, type MotionDateRangeValue } from "@/components/creatives/MotionTopSection";
+import { formatCreativeDateLabel, type CreativeDateRangeValue } from "@/components/creatives/CreativesTopSection";
 import { getAiCreativeDecisions, type AiCreativeDecision, type AiCreativeDecisionInputRow } from "@/src/services";
 
 interface CreativeDetailExperienceProps {
@@ -16,11 +16,11 @@ interface CreativeDetailExperienceProps {
   allRows: MetaCreativeRow[];
   open: boolean;
   notes: string;
-  dateRange: MotionDateRangeValue;
+  dateRange: CreativeDateRangeValue;
   defaultCurrency: string | null;
   onOpenChange: (open: boolean) => void;
   onNotesChange: (value: string) => void;
-  onDateRangeChange: (next: MotionDateRangeValue) => void;
+  onDateRangeChange: (next: CreativeDateRangeValue) => void;
 }
 
 type DetailTab = "overview" | "performance" | "comments" | "transcript" | "notes";
@@ -34,7 +34,7 @@ const TAB_ITEMS: Array<{ id: DetailTab; label: string }> = [
   { id: "notes", label: "Notes" },
 ];
 
-const RANGE_PRESETS: Array<{ value: string; label: string; next: MotionDateRangeValue }> = [
+const RANGE_PRESETS: Array<{ value: string; label: string; next: CreativeDateRangeValue }> = [
   {
     value: "today",
     label: "Today",
@@ -331,12 +331,12 @@ function CreativeTopBar({
   onCopyPostId,
   onClose,
 }: {
-  dateRange: MotionDateRangeValue;
+  dateRange: CreativeDateRangeValue;
   copiedLink: boolean;
   copiedPostId: boolean;
   canCopyLink: boolean;
   canCopyPostId: boolean;
-  onDateRangeChange: (next: MotionDateRangeValue) => void;
+  onDateRangeChange: (next: CreativeDateRangeValue) => void;
   onCopyLink: () => void;
   onCopyPostId: () => void;
   onClose: () => void;
@@ -347,7 +347,7 @@ function CreativeTopBar({
     <div className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-slate-200 bg-white/92 px-4 backdrop-blur md:px-6">
       <div className="min-w-0">
         <p className="truncate text-sm font-semibold text-slate-900">Creative Detail</p>
-        <p className="truncate text-xs text-slate-500">{formatMotionDateLabel(dateRange)}</p>
+        <p className="truncate text-xs text-slate-500">{formatCreativeDateLabel(dateRange)}</p>
       </div>
 
       <div className="flex items-center gap-2">

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Trophy, ChevronDown, X, Search, Plus, SlidersHorizontal, LayoutGrid, Ellipsis, Check, Copy, FileDown, Link2 } from "lucide-react";
+import { Trophy, ChevronDown, ChevronRight, X, Search, Plus, SlidersHorizontal, LayoutGrid, Ellipsis, Check, Copy, FileDown, Link2 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
@@ -9,9 +9,9 @@ import { formatMoney, resolveCreativeCurrency } from "@/components/creatives/mon
 import { cn } from "@/lib/utils";
 import { useDropdownBehavior } from "@/hooks/use-dropdown-behavior";
 
-export type MotionGroupBy = "adName" | "creative" | "copy" | "headline" | "landingPage" | "campaign" | "adSet";
+export type CreativeGroupBy = "adName" | "creative" | "copy" | "headline" | "landingPage" | "campaign" | "adSet";
 
-export type MotionDatePreset =
+export type CreativeDatePreset =
   | "today"
   | "yesterday"
   | "thisWeek"
@@ -26,21 +26,24 @@ export type MotionDatePreset =
   | "last"
   | "since";
 
-export interface MotionDateRangeValue {
-  preset: MotionDatePreset;
+export interface CreativeDateRangeValue {
+  preset: CreativeDatePreset;
   customStart: string;
   customEnd: string;
   lastDays: number;
   sinceDate: string;
 }
 
-export interface MotionFilterRule {
+export interface CreativeFilterRule {
   id: string;
-  field: MotionFilterField;
+  field: CreativeFilterField;
+  operator?: CreativeFilterOperator;
   query: string;
 }
 
-export type MotionFilterField =
+export type CreativeFilterOperator = "contains" | "equals" | "not_equals" | "starts_with" | "before" | "after";
+
+export type CreativeFilterField =
   | "campaignName"
   | "adSetName"
   | "adName"
@@ -54,27 +57,27 @@ export type MotionFilterField =
 
 type GoodDirection = "high" | "low" | "neutral";
 
-export interface MotionMetricDefinition {
+export interface CreativeMetricDefinition {
   id: string;
   label: string;
   direction: GoodDirection;
   format: (n: number, rowCurrency?: string | null, defaultCurrency?: string | null) => string;
-  getValue: (row: MetaCreativeRow, context: MotionMetricContext) => number;
+  getValue: (row: MetaCreativeRow, context: CreativeMetricContext) => number;
 }
 
-interface MotionMetricContext {
+interface CreativeMetricContext {
   totalSpend: number;
   totalPurchaseValue: number;
 }
 
-interface MotionTopSectionProps {
+interface CreativesTopSectionProps {
   showHeader?: boolean;
-  dateRange: MotionDateRangeValue;
-  onDateRangeChange: (next: MotionDateRangeValue) => void;
-  groupBy: MotionGroupBy;
-  onGroupByChange: (next: MotionGroupBy) => void;
-  filters: MotionFilterRule[];
-  onFiltersChange: (next: MotionFilterRule[]) => void;
+  dateRange: CreativeDateRangeValue;
+  onDateRangeChange: (next: CreativeDateRangeValue) => void;
+  groupBy: CreativeGroupBy;
+  onGroupByChange: (next: CreativeGroupBy) => void;
+  filters: CreativeFilterRule[];
+  onFiltersChange: (next: CreativeFilterRule[]) => void;
   selectedMetricIds: string[];
   onSelectedMetricIdsChange: (next: string[]) => void;
   selectedRows: MetaCreativeRow[];
@@ -86,7 +89,7 @@ interface MotionTopSectionProps {
   title?: string;
   description?: string;
   aiActions?: string[];
-  groupByOptions?: Array<{ value: MotionGroupBy; label: string }>;
+  groupByOptions?: Array<{ value: CreativeGroupBy; label: string }>;
   previewMode?: "media" | "copy";
   getPreviewCopyText?: (row: MetaCreativeRow) => string;
   shareExportLoading?: boolean;
@@ -95,6 +98,7 @@ interface MotionTopSectionProps {
   shareError?: string | null;
   csvError?: string | null;
   previewStripState?: "data_loading" | "media_hydrating" | "ready" | "missing";
+  showAiActionsRow?: boolean;
   previewStripSummary?: {
     total: number;
     ready: number;
@@ -104,7 +108,7 @@ interface MotionTopSectionProps {
   };
 }
 
-export const DEFAULT_MOTION_DATE_RANGE: MotionDateRangeValue = {
+export const DEFAULT_CREATIVE_DATE_RANGE: CreativeDateRangeValue = {
   preset: "last14Days",
   customStart: "",
   customEnd: "",
@@ -112,7 +116,7 @@ export const DEFAULT_MOTION_DATE_RANGE: MotionDateRangeValue = {
   sinceDate: "",
 };
 
-const GROUP_BY_OPTIONS: Array<{ value: MotionGroupBy; label: string }> = [
+const GROUP_BY_OPTIONS: Array<{ value: CreativeGroupBy; label: string }> = [
   { value: "adName", label: "Ad Name" },
   { value: "creative", label: "Creative" },
   { value: "copy", label: "Copy" },
@@ -122,7 +126,7 @@ const GROUP_BY_OPTIONS: Array<{ value: MotionGroupBy; label: string }> = [
   { value: "landingPage", label: "Landing Page" },
 ];
 
-const FILTER_TREE: Array<{ label: string; children: Array<{ label: string; value: MotionFilterField }> }> = [
+const FILTER_TREE: Array<{ label: string; children: Array<{ label: string; value: CreativeFilterField }> }> = [
   {
     label: "Names",
     children: [
@@ -161,7 +165,7 @@ const AI_ACTIONS = [
   "Analyze this report",
 ];
 
-const PRESET_OPTIONS: Array<{ value: MotionDatePreset; label: string }> = [
+const PRESET_OPTIONS: Array<{ value: CreativeDatePreset; label: string }> = [
   { value: "today", label: "Today" },
   { value: "yesterday", label: "Yesterday" },
   { value: "thisWeek", label: "This week" },
@@ -180,7 +184,7 @@ const PRESET_OPTIONS: Array<{ value: MotionDatePreset; label: string }> = [
 const METRIC_COLOR_TOKENS = ["bg-blue-100 text-blue-700", "bg-emerald-100 text-emerald-700", "bg-amber-100 text-amber-700", "bg-rose-100 text-rose-700", "bg-cyan-100 text-cyan-700", "bg-indigo-100 text-indigo-700"];
 let topRowPropLogCount = 0;
 
-const METRIC_DEFS: MotionMetricDefinition[] = [
+const METRIC_DEFS: CreativeMetricDefinition[] = [
   { id: "spend", label: "Spend", direction: "neutral", format: fmtCurrency, getValue: (r) => r.spend },
   { id: "roas", label: "ROAS", direction: "high", format: (n) => n.toFixed(2), getValue: (r) => r.roas },
   { id: "hookScore", label: "Hook score", direction: "high", format: fmtInteger, getValue: (r) => r.thumbstop },
@@ -286,23 +290,23 @@ const METRIC_DEFS: MotionMetricDefinition[] = [
   },
 ];
 
-const MOTION_METRIC_MAP: Record<string, MotionMetricDefinition> = METRIC_DEFS.reduce(
+const CREATIVE_METRIC_MAP: Record<string, CreativeMetricDefinition> = METRIC_DEFS.reduce(
   (acc, metric) => {
     acc[metric.id] = metric;
     return acc;
   },
-  {} as Record<string, MotionMetricDefinition>
+  {} as Record<string, CreativeMetricDefinition>
 );
 
 export const DEFAULT_TOP_METRIC_IDS = ["spend", "roas", "hookScore", "purchaseValueShare", "purchases"];
 
 export const DEFAULT_COPY_TOP_METRIC_IDS = ["spend", "roas", "ctrAll", "clickToPurchaseRatio", "seeMoreRate"];
 
-export function getMotionMetricDefinition(id: string): MotionMetricDefinition | undefined {
-  return MOTION_METRIC_MAP[id];
+export function getCreativeMetricDefinition(id: string): CreativeMetricDefinition | undefined {
+  return CREATIVE_METRIC_MAP[id];
 }
 
-export function resolveMotionDateRange(value: MotionDateRangeValue): { start: string; end: string } {
+export function resolveCreativeDateRange(value: CreativeDateRangeValue): { start: string; end: string } {
   const today = startOfDay(new Date());
 
   switch (value.preset) {
@@ -360,7 +364,7 @@ export function resolveMotionDateRange(value: MotionDateRangeValue): { start: st
   }
 }
 
-export function formatMotionDateLabel(value: MotionDateRangeValue): string {
+export function formatCreativeDateLabel(value: CreativeDateRangeValue): string {
   const preset = PRESET_OPTIONS.find((item) => item.value === value.preset);
   if (value.preset !== "custom" && value.preset !== "last" && value.preset !== "since") {
     return preset?.label ?? "Last 14 days";
@@ -370,48 +374,73 @@ export function formatMotionDateLabel(value: MotionDateRangeValue): string {
     return `Last ${Math.max(1, Math.floor(value.lastDays || 14))} days`;
   }
 
-  const { start, end } = resolveMotionDateRange(value);
+  const { start, end } = resolveCreativeDateRange(value);
   return `${formatDate(start)} - ${formatDate(end)}`;
 }
 
-export function applyMotionFilters(rows: MetaCreativeRow[], rules: MotionFilterRule[]): MetaCreativeRow[] {
+export function applyCreativeFilters(rows: MetaCreativeRow[], rules: CreativeFilterRule[]): MetaCreativeRow[] {
   if (rules.length === 0) return rows;
+
+  const normalize = (value: string) =>
+    value
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/\p{Diacritic}/gu, "")
+      .trim();
+
+  const includesAny = (candidates: Array<string | null | undefined>, query: string) =>
+    candidates.some((candidate) => normalize(candidate ?? "").includes(query));
+  const equalsAny = (candidates: Array<string | null | undefined>, query: string) =>
+    candidates.some((candidate) => normalize(candidate ?? "") === query);
+  const startsWithAny = (candidates: Array<string | null | undefined>, query: string) =>
+    candidates.some((candidate) => normalize(candidate ?? "").startsWith(query));
 
   return rows.filter((row) =>
     rules.every((rule) => {
-      const query = rule.query.trim().toLowerCase();
+      const query = normalize(rule.query);
+      const operator = rule.operator ?? "contains";
       if (!query) return true;
 
       const metricsBlob = [row.spend, row.purchaseValue, row.roas, row.cpa, row.cpcLink, row.cpm, row.ctrAll, row.purchases]
         .map((value) => String(value))
-        .join(" ")
-        .toLowerCase();
-      const tagsBlob = row.tags.join(" ").toLowerCase();
-      const campaignBlob = (row.campaignName ?? "").toLowerCase();
-      const adSetBlob = (row.adSetName ?? "").toLowerCase();
+        .join(" ");
+      const tagsBlob = row.tags.join(" ");
+
+      const evaluate = (candidates: Array<string | null | undefined>) => {
+        if (operator === "equals") return equalsAny(candidates, query);
+        if (operator === "not_equals") return !equalsAny(candidates, query);
+        if (operator === "starts_with") return startsWithAny(candidates, query);
+        return includesAny(candidates, query);
+      };
 
       if (rule.field === "campaignName") {
-        return campaignBlob.includes(query);
+        return evaluate([row.campaignName, row.campaignId, row.name]);
       }
       if (rule.field === "adSetName") {
-        return adSetBlob.includes(query);
+        return evaluate([row.adSetName, row.adSetId, row.name]);
       }
       if (rule.field === "adName" || rule.field === "namingConvention") {
-        return row.name.toLowerCase().includes(query);
+        return evaluate([row.name]);
       }
       if (rule.field === "launchDate") {
-        return row.launchDate.toLowerCase().includes(query);
+        if (operator === "before") return row.launchDate < rule.query.trim();
+        if (operator === "after") return row.launchDate > rule.query.trim();
+        return evaluate([row.launchDate]);
       }
       if (rule.field === "performanceMetrics") {
-        return metricsBlob.includes(query);
+        return evaluate([metricsBlob]);
+      }
+      if (rule.field === "aiTags") {
+        const aiTagValues = Object.values(row.aiTags ?? {}).flat().join(" ");
+        return evaluate([aiTagValues, tagsBlob]);
       }
 
-      return `${row.name} ${tagsBlob}`.toLowerCase().includes(query);
+      return evaluate([row.name, tagsBlob, row.campaignName, row.adSetName]);
     })
   );
 }
 
-export function mapMotionGroupByToApi(groupBy: MotionGroupBy): "adName" | "creative" | "adSet" {
+export function mapCreativeGroupByToApi(groupBy: CreativeGroupBy): "adName" | "creative" | "adSet" {
   if (groupBy === "creative") return "creative";
   if (groupBy === "adSet" || groupBy === "campaign") return "adSet";
   if (groupBy === "landingPage") return "adSet";
@@ -419,7 +448,7 @@ export function mapMotionGroupByToApi(groupBy: MotionGroupBy): "adName" | "creat
   return "adName";
 }
 
-export function MotionTopSection({
+export function CreativesTopSection({
   showHeader = true,
   dateRange,
   onDateRangeChange,
@@ -447,10 +476,11 @@ export function MotionTopSection({
   shareError = null,
   csvError = null,
   previewStripState = "ready",
+  showAiActionsRow = true,
   previewStripSummary,
-}: MotionTopSectionProps) {
+}: CreativesTopSectionProps) {
   const metricDefs = useMemo(
-    () => selectedMetricIds.map((id) => MOTION_METRIC_MAP[id]).filter(Boolean) as MotionMetricDefinition[],
+    () => selectedMetricIds.map((id) => CREATIVE_METRIC_MAP[id]).filter(Boolean) as CreativeMetricDefinition[],
     [selectedMetricIds]
   );
 
@@ -474,13 +504,13 @@ export function MotionTopSection({
       {/* B — Filters */}
       <div className={cn(showHeader ? "mt-6" : "mt-0", "rounded-xl border bg-card px-3 py-2")}>
         <div className="flex flex-wrap items-center gap-2">
-          <MotionDateRangePicker value={dateRange} onChange={onDateRangeChange} />
+          <CreativeDateRangePicker value={dateRange} onChange={onDateRangeChange} />
 
           <div className="inline-flex items-center gap-2 rounded-full border bg-background px-3 py-2 text-xs">
             <span className="text-muted-foreground">Group by</span>
             <select
               value={groupBy}
-              onChange={(event) => onGroupByChange(event.target.value as MotionGroupBy)}
+              onChange={(event) => onGroupByChange(event.target.value as CreativeGroupBy)}
               className="border-0 bg-transparent pr-6 text-xs outline-none"
             >
               {groupByOptions.map((option) => (
@@ -491,7 +521,7 @@ export function MotionTopSection({
             </select>
           </div>
 
-          <AddFilterDropdown filters={filters} onChange={onFiltersChange} />
+          <AddFilterDropdown filters={filters} rows={allRowsForHeatmap} onChange={onFiltersChange} />
 
           <div className="ml-auto">
             <TopExportDropdown
@@ -507,20 +537,21 @@ export function MotionTopSection({
         </div>
       </div>
 
-      {/* C — AI action row */}
-      <div className="mt-3 rounded-xl border bg-muted/20 px-3 py-2">
-        <div className="flex flex-wrap items-center gap-2">
-          {aiActions.map((action) => (
-            <button
-              key={action}
-              type="button"
-              className="rounded-full border border-border/60 bg-background/80 px-3 py-1.5 text-xs text-foreground/85 hover:bg-background"
-            >
-              {action}
-            </button>
-          ))}
+      {showAiActionsRow && (
+        <div className="mt-3 rounded-xl border bg-muted/20 px-3 py-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {aiActions.map((action) => (
+              <button
+                key={action}
+                type="button"
+                className="rounded-full border border-border/60 bg-background/80 px-3 py-1.5 text-xs text-foreground/85 hover:bg-background"
+              >
+                {action}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* D — Selected creatives workspace */}
       <div className="mt-4 rounded-2xl border bg-card p-3">
@@ -570,9 +601,9 @@ export function MotionTopSection({
   );
 }
 
-function MotionDateRangePicker({ value, onChange }: { value: MotionDateRangeValue; onChange: (next: MotionDateRangeValue) => void }) {
+function CreativeDateRangePicker({ value, onChange }: { value: CreativeDateRangeValue; onChange: (next: CreativeDateRangeValue) => void }) {
   const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState<MotionDateRangeValue>(value);
+  const [draft, setDraft] = useState<CreativeDateRangeValue>(value);
   const [monthCursor, setMonthCursor] = useState(() => {
     const now = new Date();
     return { year: now.getFullYear(), month: now.getMonth() };
@@ -598,8 +629,8 @@ function MotionDateRangePicker({ value, onChange }: { value: MotionDateRangeValu
     setOpen(false);
   };
 
-  const label = formatMotionDateLabel(value);
-  const { start, end } = resolveMotionDateRange(draft);
+  const label = formatCreativeDateLabel(value);
+  const { start, end } = resolveCreativeDateRange(draft);
 
   return (
     <div ref={wrapRef} className="relative">
@@ -713,14 +744,28 @@ function MotionDateRangePicker({ value, onChange }: { value: MotionDateRangeValu
   );
 }
 
-function AddFilterDropdown({ filters, onChange }: { filters: MotionFilterRule[]; onChange: (next: MotionFilterRule[]) => void }) {
+function AddFilterDropdown({
+  filters,
+  rows,
+  onChange,
+}: {
+  filters: CreativeFilterRule[];
+  rows: MetaCreativeRow[];
+  onChange: (next: CreativeFilterRule[]) => void;
+}) {
   const [open, setOpen] = useState(false);
+  const [step, setStep] = useState<"pick" | "compose">("pick");
+  const [fieldMenuOpen, setFieldMenuOpen] = useState(false);
+  const [operatorMenuOpen, setOperatorMenuOpen] = useState(false);
+  const [expandedCampaigns, setExpandedCampaigns] = useState<string[]>([]);
   const [search, setSearch] = useState("");
-  const [field, setField] = useState<MotionFilterField>("adName");
+  const [field, setField] = useState<CreativeFilterField>("campaignName");
+  const [operator, setOperator] = useState<CreativeFilterOperator>("contains");
   const [query, setQuery] = useState("");
   const wrapRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const queryRef = useRef<HTMLInputElement>(null);
 
   useDropdownBehavior({
     id: "top-add-filter",
@@ -728,108 +773,253 @@ function AddFilterDropdown({ filters, onChange }: { filters: MotionFilterRule[];
     setOpen,
     containerRef: wrapRef,
     triggerRef,
-    focusRef: searchRef,
+    focusRef: step === "pick" ? searchRef : queryRef,
   });
 
-  const filteredTree = FILTER_TREE.map((group) => ({
-    ...group,
-    children: group.children.filter((option) => option.label.toLowerCase().includes(search.toLowerCase())),
-  })).filter((group) => group.children.length > 0);
+  const filterOptions = useMemo(
+    () => [
+      { label: "Campaign name", value: "campaignName" as CreativeFilterField },
+      { label: "Ad set name", value: "adSetName" as CreativeFilterField },
+      { label: "Ad name", value: "adName" as CreativeFilterField },
+      { label: "Ad setup", value: "adSetup" as CreativeFilterField, showChevron: true },
+      { label: "Landing page", value: "landingPage" as CreativeFilterField },
+      { label: "Launch date", value: "launchDate" as CreativeFilterField },
+      { label: "Performance metrics", value: "performanceMetrics" as CreativeFilterField, showChevron: true },
+      { label: "AI Tags", value: "aiTags" as CreativeFilterField },
+      { label: "Naming convention", value: "namingConvention" as CreativeFilterField },
+      { label: "Custom tags", value: "customTags" as CreativeFilterField },
+    ],
+    []
+  );
 
-  const addRule = () => {
-    const cleanQuery = query.trim();
+  const filteredOptions = useMemo(() => {
+    const normalizedSearch = search.trim().toLowerCase();
+    if (!normalizedSearch) return filterOptions;
+    return filterOptions.filter((option) => option.label.toLowerCase().includes(normalizedSearch));
+  }, [filterOptions, search]);
+
+  const operatorOptions = useMemo(() => {
+    if (field === "launchDate") {
+      return [
+        { value: "contains" as CreativeFilterOperator, label: "contains" },
+        { value: "equals" as CreativeFilterOperator, label: "is" },
+        { value: "before" as CreativeFilterOperator, label: "before" },
+        { value: "after" as CreativeFilterOperator, label: "after" },
+      ];
+    }
+    return [
+      { value: "contains" as CreativeFilterOperator, label: "contains" },
+      { value: "equals" as CreativeFilterOperator, label: "is" },
+      { value: "not_equals" as CreativeFilterOperator, label: "is not" },
+      { value: "starts_with" as CreativeFilterOperator, label: "starts with" },
+    ];
+  }, [field]);
+
+  const fieldSuggestions = useMemo(() => {
+    const collect = (values: Array<string | null | undefined>) =>
+      Array.from(
+        new Set(
+          values
+            .map((value) => (value ?? "").trim())
+            .filter(Boolean)
+        )
+      ).slice(0, 80);
+
+    switch (field) {
+      case "campaignName":
+        return collect(rows.map((row) => row.campaignName));
+      case "adSetName":
+        return collect(rows.map((row) => row.adSetName));
+      case "adName":
+      case "namingConvention":
+        return collect(rows.map((row) => row.name));
+      case "launchDate":
+        return collect(rows.map((row) => row.launchDate)).sort((a, b) => a.localeCompare(b));
+      case "aiTags":
+        return collect(rows.flatMap((row) => [...row.tags, ...Object.values(row.aiTags ?? {}).flat()]));
+      default:
+        return [];
+    }
+  }, [field, rows]);
+
+  const filteredSuggestions = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) return fieldSuggestions.slice(0, 8);
+    return fieldSuggestions.filter((value) => value.toLowerCase().includes(normalizedQuery)).slice(0, 8);
+  }, [fieldSuggestions, query]);
+
+  const campaignGroups = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    const groups = new Map<string, Set<string>>();
+
+    for (const row of rows) {
+      if (!(row.spend > 0)) continue;
+      const campaignName = row.campaignName?.trim();
+      if (!campaignName) continue;
+      if (!groups.has(campaignName)) groups.set(campaignName, new Set());
+      const adSetName = row.adSetName?.trim();
+      if (adSetName) groups.get(campaignName)?.add(adSetName);
+    }
+
+    return Array.from(groups.entries())
+      .map(([campaignName, adSetNames]) => ({
+        campaignName,
+        adSetNames: Array.from(adSetNames).sort((a, b) => a.localeCompare(b)),
+      }))
+      .filter((group) => {
+        if (!normalizedQuery) return true;
+        if (group.campaignName.toLowerCase().includes(normalizedQuery)) return true;
+        return group.adSetNames.some((adSetName) => adSetName.toLowerCase().includes(normalizedQuery));
+      })
+      .sort((a, b) => a.campaignName.localeCompare(b.campaignName));
+  }, [query, rows]);
+
+  const showCampaignBrowser = field === "campaignName" || field === "adSetName";
+
+  const toggleCampaignExpanded = (campaignName: string) => {
+    setExpandedCampaigns((prev) =>
+      prev.includes(campaignName)
+        ? prev.filter((item) => item !== campaignName)
+        : [...prev, campaignName]
+    );
+  };
+
+  const addRuleWith = (nextField: CreativeFilterField, nextOperator: CreativeFilterOperator, nextQuery: string) => {
+    const cleanQuery = nextQuery.trim();
     if (!cleanQuery) return;
 
     onChange([
       ...filters,
       {
         id: `rule_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        field,
+        field: nextField,
+        operator: nextOperator,
         query: cleanQuery,
       },
     ]);
     setQuery("");
+    setSearch("");
+    setStep("compose");
+    setField(nextField);
+    setOperator(nextOperator);
+    setFieldMenuOpen(false);
+    setOperatorMenuOpen(false);
     setOpen(false);
   };
 
+  const addRule = () => {
+    const cleanQuery = query.trim();
+    if (!cleanQuery) return;
+    addRuleWith(field, operator, cleanQuery);
+  };
+
+  const selectedFieldLabel = prettyFieldLabel(field);
+  const selectedOperatorLabel = operatorOptions.find((item) => item.value === operator)?.label ?? "contains";
+
   const removeRule = (ruleId: string) => onChange(filters.filter((rule) => rule.id !== ruleId));
 
+  const openBuilder = (nextField: CreativeFilterField) => {
+    setField(nextField);
+    setOperator(nextField === "launchDate" ? "equals" : "contains");
+    setStep("compose");
+    setFieldMenuOpen(false);
+    setOperatorMenuOpen(false);
+    window.setTimeout(() => queryRef.current?.focus(), 0);
+  };
+
   return (
-    <div ref={wrapRef} className="relative">
-      <button
-        ref={triggerRef}
-        type="button"
-        onClick={() => setOpen((prev) => !prev)}
-        className="inline-flex items-center gap-2 rounded-full border bg-background px-3 py-2 text-xs"
-      >
-        <Plus className="h-3.5 w-3.5" />
-        Add filter
-      </button>
+    <div className="flex flex-wrap items-center gap-2">
+      <div ref={wrapRef} className="relative">
+        <button
+          ref={triggerRef}
+          type="button"
+          onClick={() => {
+            setOpen((prev) => {
+              const next = !prev;
+              if (next) {
+                setStep("compose");
+                setField("campaignName");
+                setOperator("equals");
+                setSearch("");
+                setQuery("");
+              }
+              return next;
+            });
+          }}
+          className="inline-flex items-center gap-2 rounded-full border bg-background px-3 py-2 text-xs"
+        >
+          <SlidersHorizontal className="h-3.5 w-3.5" />
+          Add filter
+        </button>
 
-      {open && (
-        <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-11 z-50 w-[360px] rounded-xl border bg-background p-3 shadow-lg duration-150">
-          <div className="mb-2 flex items-center gap-2 rounded-md border px-2 py-1.5">
-            <Search className="h-3.5 w-3.5 text-muted-foreground" />
-            <input
-              ref={searchRef}
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search filters"
-              className="w-full bg-transparent text-xs outline-none"
-            />
-          </div>
+        {open && (
+          <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-11 z-50 w-[min(460px,calc(100vw-32px))] max-w-[calc(100vw-32px)] rounded-[28px] border bg-background p-3 shadow-lg duration-150">
+            <div className="flex items-center gap-2 rounded-2xl border px-3 py-2">
+              <Search className="h-4 w-4 text-muted-foreground" />
+              <input
+                ref={queryRef}
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search campaigns or ad sets..."
+                className="w-full bg-transparent text-sm outline-none"
+              />
+            </div>
 
-          <div className="max-h-48 space-y-2 overflow-auto pr-1">
-            {filteredTree.map((group) => (
-              <div key={group.label} className="space-y-1">
-                <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{group.label}</p>
-                {group.children.map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => setField(option.value)}
-                    className={cn(
-                      "w-full rounded-md px-2 py-1.5 text-left text-xs",
-                      field === option.value ? "bg-accent" : "hover:bg-accent/60"
+            <div className="mt-2 max-h-80 overflow-auto rounded-2xl border bg-muted/10 p-1.5">
+              {campaignGroups.map((group) => {
+                const isExpanded = expandedCampaigns.includes(group.campaignName) || query.trim().length > 0;
+                return (
+                  <div key={group.campaignName} className="rounded-xl">
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => toggleCampaignExpanded(group.campaignName)}
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-xl hover:bg-accent/50"
+                        aria-label={`${isExpanded ? "Collapse" : "Expand"} ${group.campaignName}`}
+                      >
+                        <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", !isExpanded && "-rotate-90")} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => addRuleWith("campaignName", "equals", group.campaignName)}
+                        className="flex-1 rounded-xl px-3 py-2 text-left text-sm hover:bg-accent/50"
+                      >
+                        {group.campaignName}
+                      </button>
+                    </div>
+                    {isExpanded && group.adSetNames.length > 0 && (
+                      <div className="ml-9 mt-1 space-y-1 border-l pl-3">
+                        {group.adSetNames.map((adSetName) => (
+                          <button
+                            key={`${group.campaignName}-${adSetName}`}
+                            type="button"
+                            onClick={() => addRuleWith("adSetName", "equals", adSetName)}
+                            className="block w-full rounded-lg px-3 py-2 text-left text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                          >
+                            {adSetName}
+                          </button>
+                        ))}
+                      </div>
                     )}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            ))}
+                  </div>
+                );
+              })}
+              {campaignGroups.length === 0 && (
+                <p className="px-3 py-2 text-sm text-muted-foreground">No campaigns found.</p>
+              )}
+            </div>
           </div>
+        )}
+      </div>
 
-          <div className="mt-3 space-y-2 border-t pt-2">
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Contains..."
-              className="h-8 w-full rounded-md border bg-background px-2 text-xs"
-            />
-            <button
-              type="button"
-              onClick={addRule}
-              className="h-8 w-full rounded-md bg-foreground text-xs text-background"
-            >
-              Apply filter
-            </button>
-          </div>
-        </div>
-      )}
-
-      {filters.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {filters.map((rule) => (
-            <span key={rule.id} className="inline-flex items-center gap-1 rounded-full border bg-muted/20 px-2 py-1 text-[11px]">
-              {prettyFieldLabel(rule.field)}: {rule.query}
-              <button type="button" onClick={() => removeRule(rule.id)}>
-                <X className="h-3 w-3" />
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
+      {filters.map((rule) => (
+        <span key={rule.id} className="inline-flex items-center gap-1 rounded-full border bg-muted/20 px-3 py-2 text-xs">
+          {prettyFieldLabel(rule.field)} {prettyOperatorLabel(rule.operator ?? "contains")} {rule.query}
+          <button type="button" onClick={() => removeRule(rule.id)}>
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </span>
+      ))}
     </div>
   );
 }
@@ -964,8 +1154,8 @@ function MetricSelectorBar({ selectedMetricIds, onChange }: { selectedMetricIds:
   });
 
   const selectedDefs = selectedMetricIds
-    .map((id) => getMotionMetricDefinition(id))
-    .filter(Boolean) as MotionMetricDefinition[];
+    .map((id) => getCreativeMetricDefinition(id))
+    .filter(Boolean) as CreativeMetricDefinition[];
 
   const selectedMetricIdSet = useMemo(() => new Set(selectedMetricIds), [selectedMetricIds]);
 
@@ -1112,7 +1302,7 @@ function PreviewStrip({
   previewStripSummary,
 }: {
   rows: MetaCreativeRow[];
-  metrics: MotionMetricDefinition[];
+  metrics: CreativeMetricDefinition[];
   allRowsForHeatmap: MetaCreativeRow[];
   defaultCurrency: string | null;
   onOpenRow: (rowId: string) => void;
@@ -1174,7 +1364,7 @@ function PreviewStrip({
     );
   }
 
-  const context = useMemo<MotionMetricContext>(
+  const context = useMemo<CreativeMetricContext>(
     () => ({
       totalSpend: rows.reduce((sum, row) => sum + row.spend, 0),
       totalPurchaseValue: rows.reduce((sum, row) => sum + row.purchaseValue, 0),
@@ -1359,7 +1549,7 @@ function MonthCalendar({
   );
 }
 
-function normalizeRange(range: MotionDateRangeValue): MotionDateRangeValue {
+function normalizeRange(range: CreativeDateRangeValue): CreativeDateRangeValue {
   const next = { ...range };
 
   if (next.preset === "last") {
@@ -1367,7 +1557,7 @@ function normalizeRange(range: MotionDateRangeValue): MotionDateRangeValue {
   }
 
   if (next.preset === "custom") {
-    const { start, end } = resolveMotionDateRange(next);
+    const { start, end } = resolveCreativeDateRange(next);
     next.customStart = start;
     next.customEnd = end;
   }
@@ -1379,7 +1569,7 @@ function normalizeRange(range: MotionDateRangeValue): MotionDateRangeValue {
   return next;
 }
 
-function selectCalendarDate(range: MotionDateRangeValue, iso: string): MotionDateRangeValue {
+function selectCalendarDate(range: CreativeDateRangeValue, iso: string): CreativeDateRangeValue {
   if (range.preset !== "custom") {
     return {
       ...range,
@@ -1459,8 +1649,8 @@ function formatDate(iso: string): string {
   });
 }
 
-function prettyFieldLabel(field: MotionFilterField): string {
-  const lookup: Record<MotionFilterField, string> = {
+function prettyFieldLabel(field: CreativeFilterField): string {
+  const lookup: Record<CreativeFilterField, string> = {
     campaignName: "Campaign",
     adSetName: "Ad Set",
     adName: "Ad",
@@ -1474,6 +1664,19 @@ function prettyFieldLabel(field: MotionFilterField): string {
   };
 
   return lookup[field];
+}
+
+function prettyOperatorLabel(operator: CreativeFilterOperator): string {
+  const lookup: Record<CreativeFilterOperator, string> = {
+    contains: "contains",
+    equals: "is",
+    not_equals: "is not",
+    starts_with: "starts with",
+    before: "before",
+    after: "after",
+  };
+
+  return lookup[operator];
 }
 
 function fmtCurrency(n: number, rowCurrency?: string | null, defaultCurrency?: string | null): string {
