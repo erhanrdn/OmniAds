@@ -616,8 +616,8 @@ export default function CreativesPage() {
     [deferredFilteredRows, selectionState.selectedRowIds]
   );
   const topPanelRows = useMemo(
-    () => (selectedRows.length > 0 ? selectedRows : deferredFilteredRows),
-    [deferredFilteredRows, selectedRows]
+    () => selectedRows,
+    [selectedRows]
   );
   const previewStatusPayload = creativesMediaQuery.data ?? creativesMetadataQuery.data;
   const previewStripState = useMemo<PreviewStripState>(() => {
