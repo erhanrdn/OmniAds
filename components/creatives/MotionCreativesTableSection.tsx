@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CalendarDays,
   ChevronDown,
@@ -22,7 +23,61 @@ import { getAiTagPillStyles } from "@/components/creatives/aiTagPillStyles";
 import { formatMoney, resolveCreativeCurrency } from "@/components/creatives/money";
 import { cn } from "@/lib/utils";
 import { useDropdownBehavior } from "@/hooks/use-dropdown-behavior";
+import { getAiCreativeDecisions, type AiCreativeDecision, type AiCreativeDecisionInputRow } from "@/src/services";
 import { createPortal } from "react-dom";
+
+type AiSignalAction = AiCreativeDecision["action"];
+
+const AI_SIGNAL_SEGMENTS: Array<{
+  key: AiSignalAction;
+  label: string;
+  inactiveCls: string;
+  activeCls: string;
+  dotCls: string;
+}> = [
+  {
+    key: "scale_hard",
+    label: "SCALE HARD",
+    inactiveCls: "bg-emerald-100 border-emerald-300 text-emerald-800 hover:bg-emerald-200",
+    activeCls: "bg-emerald-700 border-emerald-700 text-white",
+    dotCls: "bg-emerald-700",
+  },
+  {
+    key: "scale",
+    label: "SCALE",
+    inactiveCls: "bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100",
+    activeCls: "bg-emerald-500 border-emerald-500 text-white",
+    dotCls: "bg-emerald-500",
+  },
+  {
+    key: "watch",
+    label: "WATCH",
+    inactiveCls: "bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100",
+    activeCls: "bg-amber-500 border-amber-500 text-white",
+    dotCls: "bg-amber-500",
+  },
+  {
+    key: "test_more",
+    label: "TEST MORE",
+    inactiveCls: "bg-sky-50 border-sky-200 text-sky-700 hover:bg-sky-100",
+    activeCls: "bg-sky-600 border-sky-600 text-white",
+    dotCls: "bg-sky-600",
+  },
+  {
+    key: "pause",
+    label: "PAUSE",
+    inactiveCls: "bg-orange-50 border-orange-200 text-orange-700 hover:bg-orange-100",
+    activeCls: "bg-orange-500 border-orange-500 text-white",
+    dotCls: "bg-orange-500",
+  },
+  {
+    key: "kill",
+    label: "KILL",
+    inactiveCls: "bg-red-50 border-red-200 text-red-700 hover:bg-red-100",
+    activeCls: "bg-red-600 border-red-600 text-white",
+    dotCls: "bg-red-600",
+  },
+];
 
 type GoodDirection = "high" | "low" | "neutral";
 type ColorFormattingMode = "heatmap" | "none";
@@ -95,6 +150,9 @@ interface TableColumnDefinition {
 interface TableCalcContext {
   totalSpend: number;
   totalPurchaseValue: number;
+  totalPurchases: number;
+  totalImpressions: number;
+  totalLinkClicks: number;
 }
 
 interface TablePreset {
@@ -111,10 +169,12 @@ interface TablePreset {
 
 interface MotionCreativesTableSectionProps {
   rows: MetaCreativeRow[];
+  businessId?: string;
   defaultCurrency: string | null;
   selectedMetricIds: string[];
   onSelectedMetricIdsChange: (next: string[]) => void;
   selectedRowIds: string[];
+  onReplaceSelectedRowIds?: (rowIds: string[]) => void;
   highlightedRowId?: string | null;
   onToggleRow: (rowId: string) => void;
   onToggleAll: () => void;
@@ -251,6 +311,14 @@ function getDefaultColumnWidths(): Record<string, number> {
 function parseLaunchDate(value: string): number {
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function calculateCreativeAgeDays(launchDate: string): number {
+  const parsed = Date.parse(launchDate);
+  if (!Number.isFinite(parsed)) return 0;
+  const ageMs = Date.now() - parsed;
+  if (ageMs <= 0) return 0;
+  return Math.floor(ageMs / (1000 * 60 * 60 * 24));
 }
 
 const FACEBOOK_ECOMMERCE_COLUMNS: TableColumnKey[] = [
@@ -501,16 +569,19 @@ const TABLE_METRIC_CONFIG: Partial<Record<TableColumnKey, TableMetricConfig>> = 
 
 export function MotionCreativesTableSection({
   rows,
+  businessId,
   defaultCurrency,
   selectedMetricIds,
   onSelectedMetricIdsChange,
   selectedRowIds,
+  onReplaceSelectedRowIds,
   highlightedRowId = null,
   onToggleRow,
   onToggleAll,
   onOpenRow,
   onOpenBreakdownRow,
 }: MotionCreativesTableSectionProps) {
+  const queryClient = useQueryClient();
   const defaultPreset = PRESETS.find((p) => p.presetName === "Facebook Ecommerce") ?? PRESETS[0];
   const [tablePreset, setTablePreset] = useState<TablePreset>(defaultPreset);
   const [presetSearch, setPresetSearch] = useState("");
@@ -543,6 +614,7 @@ export function MotionCreativesTableSection({
   } | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
+  const [aiDecisionFilter, setAiDecisionFilter] = useState<AiSignalAction | null>(null);
 
   useDropdownBehavior({
     id: "table-preset-menu",
@@ -588,6 +660,9 @@ export function MotionCreativesTableSection({
     () => ({
       totalSpend: rows.reduce((sum, row) => sum + row.spend, 0),
       totalPurchaseValue: rows.reduce((sum, row) => sum + row.purchaseValue, 0),
+      totalPurchases: rows.reduce((sum, row) => sum + row.purchases, 0),
+      totalImpressions: rows.reduce((sum, row) => sum + row.impressions, 0),
+      totalLinkClicks: rows.reduce((sum, row) => sum + row.linkClicks, 0),
     }),
     [rows]
   );
@@ -628,14 +703,165 @@ export function MotionCreativesTableSection({
     return next;
   }, [ctx, rows, sortState.direction, sortState.key]);
 
-  const allSelected = rows.length > 0 && rows.every((row) => selectedRowIdSet.has(row.id));
+  const heuristicAiDecisions = useMemo((): Map<string, AiSignalAction> => {
+    if (rows.length === 0) return new Map();
+    const roasValues = rows.map((r) => r.roas).filter((v) => Number.isFinite(v) && v >= 0);
+    const spendValues = rows.map((r) => r.spend).filter((v) => Number.isFinite(v) && v > 0);
+    const roasDist = buildDistribution(roasValues);
+    const spendDist = buildDistribution(spendValues);
+    const spendFloor = Math.max(1, spendDist.p20);
+    const result = new Map<string, AiSignalAction>();
+    for (const row of rows) {
+      const lowSignal = row.spend < spendFloor || row.purchases < 2;
+      if (lowSignal) {
+        result.set(row.id, "test_more");
+      } else if (roasDist.avg > 0 && row.roas >= roasDist.avg * 1.45 && row.purchases >= 3 && row.spend >= Math.max(1, spendDist.median)) {
+        result.set(row.id, "scale_hard");
+      } else if (roasDist.avg > 0 && row.roas >= roasDist.avg * 1.2) {
+        result.set(row.id, "scale");
+      } else if (roasDist.avg > 0 && row.roas < roasDist.avg * 0.55 && row.spend >= Math.max(1, spendDist.p80) && row.purchases === 0) {
+        result.set(row.id, "kill");
+      } else if (roasDist.avg > 0 && row.roas < roasDist.avg * 0.75) {
+        result.set(row.id, "pause");
+      } else {
+        result.set(row.id, "watch");
+      }
+    }
+    return result;
+  }, [rows]);
 
-  const totalResults = sortedRows.length;
+  const aiDecisionInputRows = useMemo<AiCreativeDecisionInputRow[]>(
+    () =>
+      rows.map((row) => {
+        const creativeAgeDays = calculateCreativeAgeDays(row.launchDate);
+        const frequency = Number((row as MetaCreativeRow & { frequency?: number }).frequency ?? 0);
+        return {
+          creativeId: row.id,
+          name: row.name,
+          creativeFormat: row.format,
+          creativeAgeDays,
+          spendVelocity: row.spend / Math.max(1, creativeAgeDays),
+          frequency,
+          spend: row.spend,
+          purchaseValue: row.purchaseValue,
+          roas: row.roas,
+          cpa: row.cpa,
+          ctr: row.ctrAll,
+          cpm: row.cpm,
+          cpc: row.cpcLink,
+          purchases: row.purchases,
+          impressions: row.impressions,
+          linkClicks: row.linkClicks,
+          hookRate: row.thumbstop,
+          holdRate: row.video100,
+          video25Rate: row.video25,
+          watchRate: row.video50,
+          video75Rate: row.video75,
+          clickToPurchaseRate: row.clickToPurchase,
+          atcToPurchaseRate: row.atcToPurchaseRatio,
+        };
+      }),
+    [rows]
+  );
+
+  const aiDecisionSignature = useMemo(
+    () =>
+      aiDecisionInputRows
+        .map((row) => `${row.creativeId}:${row.spend.toFixed(2)}:${row.roas.toFixed(3)}:${row.cpa.toFixed(2)}:${row.hookRate.toFixed(2)}:${row.holdRate.toFixed(2)}`)
+        .join("|"),
+    [aiDecisionInputRows]
+  );
+
+  const aiDecisionQuery = useQuery({
+    queryKey: ["ai-creative-decisions", businessId, aiDecisionSignature],
+    enabled: Boolean(businessId) && aiDecisionInputRows.length > 0,
+    staleTime: Number.POSITIVE_INFINITY,
+    refetchOnWindowFocus: false,
+    retry: 1,
+    queryFn: () =>
+      getAiCreativeDecisions(
+        businessId as string,
+        defaultCurrency ?? "USD",
+        aiDecisionInputRows,
+        false
+      ),
+  });
+
+  const analyzeMutation = useMutation({
+    mutationFn: () =>
+      getAiCreativeDecisions(
+        businessId as string,
+        defaultCurrency ?? "USD",
+        aiDecisionInputRows,
+        true
+      ),
+    onSuccess: (data) => {
+      queryClient.setQueryData(["ai-creative-decisions", businessId, aiDecisionSignature], data);
+    },
+  });
+
+  const aiDecisions = useMemo((): Map<string, AiSignalAction> => {
+    if (!aiDecisionQuery.data || aiDecisionQuery.data.decisions.length === 0) {
+      return heuristicAiDecisions;
+    }
+    const map = new Map<string, AiSignalAction>();
+    for (const decision of aiDecisionQuery.data.decisions) {
+      map.set(decision.creativeId, decision.action);
+    }
+    return map;
+  }, [aiDecisionQuery.data, heuristicAiDecisions]);
+
+  const aiLastSyncedLabel = useMemo(() => {
+    const value = aiDecisionQuery.data?.lastSyncedAt;
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    return date.toLocaleString("en-US", {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }, [aiDecisionQuery.data?.lastSyncedAt]);
+
+  const aiDecisionCounts = useMemo(() => {
+    const counts: Record<AiSignalAction, number> = {
+      scale_hard: 0,
+      scale: 0,
+      watch: 0,
+      test_more: 0,
+      pause: 0,
+      kill: 0,
+    };
+    for (const d of aiDecisions.values()) counts[d]++;
+    return counts;
+  }, [aiDecisions]);
+
+  const aiFilteredRows = useMemo(() => {
+    if (!aiDecisionFilter) return sortedRows;
+    return sortedRows.filter((row) => aiDecisions.get(row.id) === aiDecisionFilter);
+  }, [aiDecisionFilter, aiDecisions, sortedRows]);
+
+  const applyAiDecisionSelection = (nextFilter: AiSignalAction | null) => {
+    if (!onReplaceSelectedRowIds) return;
+    if (!nextFilter) {
+      onReplaceSelectedRowIds([]);
+      return;
+    }
+    const matchingRowIds = sortedRows
+      .filter((row) => aiDecisions.get(row.id) === nextFilter)
+      .map((row) => row.id);
+    onReplaceSelectedRowIds(matchingRowIds);
+  };
+
+  const allSelected = aiFilteredRows.length > 0 && aiFilteredRows.every((row) => selectedRowIdSet.has(row.id));
+
+  const totalResults = aiFilteredRows.length;
   const pageCount = Math.max(1, Math.ceil(totalResults / tablePreset.resultsPerPage));
   const safePage = Math.min(page, pageCount);
   const startIndex = (safePage - 1) * tablePreset.resultsPerPage;
   const endIndex = Math.min(totalResults, startIndex + tablePreset.resultsPerPage);
-  const pagedRows = useMemo(() => sortedRows.slice(startIndex, endIndex), [sortedRows, startIndex, endIndex]);
+  const pagedRows = useMemo(() => aiFilteredRows.slice(startIndex, endIndex), [aiFilteredRows, startIndex, endIndex]);
   const virtualizationEnabled = false;
   const visibleRowCount = virtualizationEnabled
     ? Math.max(8, Math.ceil(620 / VIRTUAL_ROW_HEIGHT) + VIRTUAL_OVERSCAN * 2)
@@ -1117,22 +1343,92 @@ export function MotionCreativesTableSection({
           + Add metric
         </button>
 
-        <div
-          className="inline-flex items-center gap-2 rounded-full border border-dashed bg-emerald-50/40 px-3 py-1 text-[11px] text-muted-foreground"
-          title="Heatmap colors compare each creative against the account average for that metric. Cost metrics (CPA, CPC, CPM) are interpreted in reverse, so lower than average is better."
-        >
-          <span className="inline-flex items-center gap-1">
-            <span className="h-2 w-2 rounded-full bg-emerald-500" />
-            Above avg
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <span className="h-2 w-2 rounded-full bg-slate-400" />
-            Near avg
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <span className="h-2 w-2 rounded-full bg-red-500" />
-            Below avg
-          </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <div
+            className="inline-flex items-center gap-2 rounded-full border border-dashed bg-emerald-50/40 px-3 py-1 text-[11px] text-muted-foreground"
+            title="Heatmap colors compare each creative against the account average for that metric. Cost metrics (CPA, CPC, CPM) are interpreted in reverse, so lower than average is better."
+          >
+            <span className="inline-flex items-center gap-1">
+              <span className="h-2 w-2 rounded-full bg-emerald-500" />
+              Above avg
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="h-2 w-2 rounded-full bg-slate-400" />
+              Near avg
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="h-2 w-2 rounded-full bg-red-500" />
+              Below avg
+            </span>
+          </div>
+
+          {/* AI Signals — decision filter chips */}
+          {aiDecisions.size > 0 && (
+            <div className="inline-flex items-center gap-1.5">
+              <span className="text-[11px] font-medium text-muted-foreground">AI Signals:</span>
+              {aiDecisionQuery.isFetching && (
+                <span className="text-[10px] text-muted-foreground/80">Analyzing...</span>
+              )}
+              {aiDecisionQuery.data?.source === "fallback" && (
+                <span className="text-[10px] text-amber-600">Fallback mode</span>
+              )}
+              {AI_SIGNAL_SEGMENTS.map(({ key, label, inactiveCls, activeCls, dotCls }) => {
+                const count = aiDecisionCounts[key];
+                if (count === 0) return null;
+                const isActive = aiDecisionFilter === key;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => {
+                      const nextFilter = isActive ? null : key;
+                      setAiDecisionFilter(nextFilter);
+                      applyAiDecisionSelection(nextFilter);
+                      setPage(1);
+                    }}
+                    className={cn(
+                      "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors",
+                      isActive ? activeCls : inactiveCls
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "h-1.5 w-1.5 rounded-full",
+                        isActive ? "bg-white opacity-80" : dotCls
+                      )}
+                    />
+                    {label}
+                    <span className="opacity-70">{count}</span>
+                  </button>
+                );
+              })}
+              {aiLastSyncedLabel && (
+                <span className="text-[10px] text-muted-foreground">Last sync {aiLastSyncedLabel}</span>
+              )}
+              <button
+                type="button"
+                onClick={() => analyzeMutation.mutate()}
+                disabled={analyzeMutation.isPending || !businessId || aiDecisionInputRows.length === 0}
+                className="inline-flex items-center rounded-full border bg-background px-2.5 py-0.5 text-[11px] font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {analyzeMutation.isPending ? "Analyzing..." : "Analyze"}
+              </button>
+              {aiDecisionFilter && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAiDecisionFilter(null);
+                    applyAiDecisionSelection(null);
+                    setPage(1);
+                  }}
+                  className="ml-0.5 text-[11px] text-muted-foreground hover:text-foreground"
+                  aria-label="Clear AI filter"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -1703,6 +1999,7 @@ const CreativeTableRow = memo(function CreativeTableRow({
           key: column.key,
           value,
           row,
+          ctx,
           distribution: metricDistributions[column.key] ?? buildDistribution([value]),
           roasDistribution: metricDistributions.roas,
           spendDistribution: metricSpendDistributions[column.key] ?? buildDistribution([row.spend]),
@@ -2199,15 +2496,39 @@ function evaluateByAverage(input: {
   };
 }
 
+function getComparisonAverageForMetric(input: {
+  key: TableColumnKey;
+  distribution: MetricDistribution;
+  ctx: TableCalcContext;
+}): number {
+  const { key, distribution, ctx } = input;
+
+  switch (key) {
+    case "roas":
+    case "websitePurchaseRoas":
+      return ctx.totalSpend > 0 ? ctx.totalPurchaseValue / ctx.totalSpend : distribution.avg;
+    case "cpa":
+      return ctx.totalPurchases > 0 ? ctx.totalSpend / ctx.totalPurchases : distribution.avg;
+    case "cpcLink":
+    case "cpcAll":
+      return ctx.totalLinkClicks > 0 ? ctx.totalSpend / ctx.totalLinkClicks : distribution.avg;
+    case "cpm":
+      return ctx.totalImpressions > 0 ? (ctx.totalSpend / ctx.totalImpressions) * 1000 : distribution.avg;
+    default:
+      return distribution.avg;
+  }
+}
+
 function evaluateMetricCell(input: {
   key: TableColumnKey;
   value: number;
   row: MetaCreativeRow;
+  ctx: TableCalcContext;
   distribution: MetricDistribution;
   roasDistribution?: MetricDistribution;
   spendDistribution: MetricDistribution;
 }): HeatEvaluation {
-  const { key, value, row, distribution, roasDistribution, spendDistribution } = input;
+  const { key, value, row, ctx, distribution, roasDistribution, spendDistribution } = input;
   const cfg = getMetricConfig(key);
   if (!isMetricApplicable(key, row)) {
     return {
@@ -2227,9 +2548,11 @@ function evaluateMetricCell(input: {
     };
   }
 
+  const comparisonAverage = getComparisonAverageForMetric({ key, distribution, ctx });
+
   let evaluation = evaluateByAverage({
     value,
-    average: distribution.avg,
+    average: comparisonAverage,
     direction: cfg.direction,
   });
 

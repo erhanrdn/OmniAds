@@ -2,15 +2,18 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Bot, Clipboard, Copy, Download, FileText, MessageCircle, Sparkles, X } from "lucide-react";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { formatMoney, resolveCreativeCurrency } from "@/components/creatives/money";
 import { cn } from "@/lib/utils";
 import { formatMotionDateLabel, type MotionDateRangeValue } from "@/components/creatives/MotionTopSection";
+import { getAiCreativeDecisions, type AiCreativeDecision, type AiCreativeDecisionInputRow } from "@/src/services";
 
 interface CreativeDetailExperienceProps {
   businessId: string;
   row: MetaCreativeRow | null;
+  allRows: MetaCreativeRow[];
   open: boolean;
   notes: string;
   dateRange: MotionDateRangeValue;
@@ -83,6 +86,7 @@ const HTML_VIEWPORT_RULES: Record<
 export function CreativeDetailExperience({
   businessId,
   row,
+  allRows,
   open,
   notes,
   dateRange,
@@ -299,6 +303,8 @@ export function CreativeDetailExperience({
 
           <CreativeAnalysisRail
             row={row}
+            allRows={allRows}
+            businessId={businessId}
             tab={activeTab}
             currency={currency}
             defaultCurrency={defaultCurrency}
@@ -662,6 +668,8 @@ function DownloadItem({ label, onClick, disabled = false }: { label: string; onC
 
 function CreativeAnalysisRail({
   row,
+  allRows,
+  businessId,
   tab,
   currency,
   defaultCurrency,
@@ -672,6 +680,8 @@ function CreativeAnalysisRail({
   onNotesChange,
 }: {
   row: MetaCreativeRow;
+  allRows: MetaCreativeRow[];
+  businessId: string;
   tab: DetailTab;
   currency: string | null;
   defaultCurrency: string | null;
@@ -681,28 +691,63 @@ function CreativeAnalysisRail({
   onTabChange: (tab: DetailTab) => void;
   onNotesChange: (value: string) => void;
 }) {
+  const railBadges = [
+    row.creativeTypeLabel,
+    row.format === "video" ? "Video" : row.format === "catalog" ? "Catalog" : "Image",
+    row.launchDate ? `Launched ${row.launchDate}` : null,
+  ].filter(Boolean) as string[];
+
   return (
-    <aside className="min-h-0 overflow-y-auto border-l border-slate-200 bg-white">
-      <div className="sticky top-0 z-10 border-b border-slate-200 bg-white px-4 pt-4">
-        <div className="flex flex-wrap gap-1 pb-3">
+    <aside className="min-h-0 overflow-y-auto border-l border-slate-200 bg-[linear-gradient(180deg,#f8fafc_0%,#ffffff_16%,#ffffff_100%)]">
+      <div className="sticky top-0 z-10 border-b border-slate-200/90 bg-white/92 px-4 pt-4 backdrop-blur">
+        <div className="rounded-[22px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-3 shadow-[0_14px_34px_rgba(15,23,42,0.06)]">
+          <div className="space-y-2.5">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-400">Creative workspace</p>
+              <h2 className="mt-1 line-clamp-2 text-sm font-semibold leading-5 text-slate-950">{row.name}</h2>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {railBadges.map((badge) => (
+                <span
+                  key={badge}
+                  className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-medium text-slate-600"
+                >
+                  {badge}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-1.5">
           {TAB_ITEMS.map((item) => (
             <button
               key={item.id}
               type="button"
               onClick={() => onTabChange(item.id)}
               className={cn(
-                "rounded-md px-2.5 py-1.5 text-xs font-medium transition",
-                tab === item.id ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"
+                "rounded-full px-3 py-1.5 text-[11px] font-medium transition",
+                tab === item.id
+                  ? "bg-slate-950 text-white shadow-[0_8px_20px_rgba(15,23,42,0.18)]"
+                  : "border border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"
               )}
             >
               {item.label}
             </button>
           ))}
+          </div>
         </div>
       </div>
 
       <div className="space-y-4 p-4">
-        {tab === "overview" && <CreativeOverviewTab row={row} currency={currency} defaultCurrency={defaultCurrency} />}
+        {tab === "overview" && (
+          <CreativeOverviewTab
+            row={row}
+            allRows={allRows}
+            businessId={businessId}
+            currency={currency}
+            defaultCurrency={defaultCurrency}
+          />
+        )}
         {tab === "performance" && (
           <CreativePerformanceTab
             row={row}
@@ -722,18 +767,137 @@ function CreativeAnalysisRail({
 
 function CreativeOverviewTab({
   row,
+  allRows,
+  businessId,
   currency,
   defaultCurrency,
 }: {
   row: MetaCreativeRow;
+  allRows: MetaCreativeRow[];
+  businessId: string;
   currency: string | null;
   defaultCurrency: string | null;
 }) {
   const insight = summarizePerformance(row);
+  const aiDecisionInputRows = useMemo<AiCreativeDecisionInputRow[]>(
+    () =>
+      allRows.map((item) => {
+        const creativeAgeDays = calculateCreativeAgeDays(item.launchDate);
+        const frequency = Number((item as MetaCreativeRow & { frequency?: number }).frequency ?? 0);
+        return {
+          creativeId: item.id,
+          name: item.name,
+          creativeFormat: item.format,
+          creativeAgeDays,
+          spendVelocity: item.spend / Math.max(1, creativeAgeDays),
+          frequency,
+          spend: item.spend,
+          purchaseValue: item.purchaseValue,
+          roas: item.roas,
+          cpa: item.cpa,
+          ctr: item.ctrAll,
+          cpm: item.cpm,
+          cpc: item.cpcLink,
+          purchases: item.purchases,
+          impressions: item.impressions,
+          linkClicks: item.linkClicks,
+          hookRate: item.thumbstop,
+          holdRate: item.video100,
+          video25Rate: item.video25,
+          watchRate: item.video50,
+          video75Rate: item.video75,
+          clickToPurchaseRate: item.clickToPurchase,
+          atcToPurchaseRate: item.atcToPurchaseRatio,
+        };
+      }),
+    [allRows]
+  );
+  const aiDecisionSignature = useMemo(
+    () => aiDecisionInputRows.map((item) => `${item.creativeId}:${item.spend.toFixed(2)}:${item.roas.toFixed(3)}`).join("|"),
+    [aiDecisionInputRows]
+  );
+  const aiDecisionQuery = useQuery({
+    queryKey: ["creative-detail-ai-decisions", businessId, aiDecisionSignature],
+    enabled: Boolean(businessId) && aiDecisionInputRows.length > 0,
+    staleTime: Number.POSITIVE_INFINITY,
+    refetchOnWindowFocus: false,
+    retry: 1,
+    queryFn: () => getAiCreativeDecisions(businessId, currency ?? defaultCurrency ?? "USD", aiDecisionInputRows, false),
+  });
+  const aiDecision = useMemo(
+    () => aiDecisionQuery.data?.decisions.find((item) => item.creativeId === row.id) ?? null,
+    [aiDecisionQuery.data?.decisions, row.id]
+  );
+  const decisionContext = useMemo(() => buildCreativeDecisionContext(row, allRows), [allRows, row]);
+  const whyBullets = useMemo(() => buildWhyBullets(row, aiDecision, decisionContext), [aiDecision, decisionContext, row]);
+  const signalBullets = useMemo(() => buildSignalBullets(row, decisionContext), [decisionContext, row]);
+  const nextMoveBullets = useMemo(() => buildNextMoveBullets(row, aiDecision, decisionContext), [aiDecision, decisionContext, row]);
+  const lastSyncLabel = useMemo(() => {
+    const value = aiDecisionQuery.data?.lastSyncedAt;
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    return date.toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  }, [aiDecisionQuery.data?.lastSyncedAt]);
+  const decisionTheme = getDecisionTheme(aiDecision?.action ?? null);
+  const decisionHeadline = aiDecision
+    ? aiDecision.action === "scale_hard"
+      ? "High-conviction scale candidate"
+      : aiDecision.action === "scale"
+      ? "Ready for controlled scale"
+      : aiDecision.action === "kill"
+        ? "Immediate stop recommended"
+      : aiDecision.action === "pause"
+        ? "Loss prevention recommended"
+        : aiDecision.action === "test_more"
+          ? "Collect stronger test evidence"
+        : "Monitor before committing more budget"
+    : "Decision pending";
+  const decisionSummary = aiDecision?.reasons?.[0] ?? insight;
+  const supportingSummary = aiDecision?.nextStep?.trim() || insight;
+  const quickStats = [
+    { label: "Spend", value: formatMoney(row.spend, currency, defaultCurrency) },
+    { label: "ROAS", value: `${row.roas.toFixed(2)}x` },
+    { label: "CPA", value: formatMoney(row.cpa, currency, defaultCurrency) },
+    { label: "Purchases", value: row.purchases.toLocaleString() },
+  ];
+  const promptStarters = buildThoughtStarters(aiDecision?.action ?? null);
+
   return (
     <>
+      <section className={cn("rounded-[24px] border p-4 shadow-[0_18px_40px_rgba(15,23,42,0.08)]", decisionTheme.panelClass)}>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">Decision snapshot</p>
+            <h3 className="mt-1 text-base font-semibold leading-6 text-slate-950">{decisionHeadline}</h3>
+          </div>
+          {aiDecision ? <DecisionBadge action={aiDecision.action} /> : null}
+        </div>
+
+        <p className="mt-3 text-sm leading-6 text-slate-700">{decisionSummary}</p>
+        <p className="mt-2 text-xs leading-5 text-slate-500">{supportingSummary}</p>
+
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          {quickStats.map((item) => (
+            <DecisionStatCard key={item.label} label={item.label} value={item.value} />
+          ))}
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          <InfoBadge label={aiDecision ? `Confidence ${Math.round(aiDecision.confidence * 100)}%` : "Awaiting analysis"} />
+          {lastSyncLabel ? <InfoBadge label={`Last sync ${lastSyncLabel}`} subtle /> : null}
+          {aiDecisionQuery.data?.source ? <InfoBadge label={aiDecisionQuery.data.source === "ai" ? "AI-backed" : "Fallback logic"} subtle /> : null}
+        </div>
+
+        {aiDecisionQuery.data?.warning ? (
+          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50/80 px-3 py-2.5 text-xs leading-5 text-amber-800">
+            {aiDecisionQuery.data.warning}
+          </div>
+        ) : null}
+      </section>
+
       <MetricCardGrid
-        title="Summary"
+        title="Commercial snapshot"
         items={[
           { label: "Spend", value: formatMoney(row.spend, currency, defaultCurrency) },
           { label: "ROAS", value: `${row.roas.toFixed(2)}x` },
@@ -742,42 +906,61 @@ function CreativeOverviewTab({
         ]}
       />
 
-      <section className="rounded-xl border border-slate-200 p-3.5">
-        <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Metadata</h3>
-        <div className="grid grid-cols-2 gap-2 text-xs">
-          <MetadataField label="Launch date" value={row.launchDate || "Unknown"} />
-          <MetadataField label="Status" value="Active" />
-          <MetadataField label="Active ads" value={String(row.associatedAdsCount || 0)} />
-          <MetadataField label="Creative type" value={row.creativeTypeLabel} />
-          <MetadataField label="Platform" value="Meta" />
-          <MetadataField label="Format" value={row.format === "video" ? "Video" : row.format === "catalog" ? "Catalog" : "Image"} />
-        </div>
+      <section className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-[0_12px_28px_rgba(15,23,42,0.05)]">
+        <h3 className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">Executive readout</h3>
+        <p className="mt-2 text-sm leading-6 text-slate-700">{insight}</p>
       </section>
 
-      <section className="rounded-xl border border-slate-200 p-3.5">
-        <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Tags & messaging</h3>
-        <div className="flex flex-wrap gap-1.5">
-          {row.tags.length > 0 ? row.tags.map((tag) => <TagPill key={tag} value={tag} />) : <p className="text-xs text-slate-500">No tags available.</p>}
-        </div>
-      </section>
+      <BulletSection title="Why this decision" items={whyBullets} tone={decisionTheme.sectionTone} />
 
-      <section className="rounded-xl border border-slate-200 p-3.5">
-        <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Operator interpretation</h3>
-        <p className="text-xs leading-5 text-slate-700">{insight}</p>
-      </section>
+      <BulletSection title="Signals considered" items={signalBullets} tone="neutral" />
 
-      <section className="rounded-xl border border-slate-200 p-3.5">
-        <h3 className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+      <BulletSection title="What to do next" items={nextMoveBullets} tone="positive" ordered />
+
+      <section className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-[0_12px_28px_rgba(15,23,42,0.05)]">
+        <div className="mb-3 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">
           <Sparkles className="h-3.5 w-3.5" />
-          Thought starters
-        </h3>
-        <div className="space-y-1.5">
-          {["Analyze this ad", "Give new hook ideas based on this ad", "Ask me anything"].map((item) => (
-            <button key={item} type="button" className="flex w-full items-center gap-2 rounded-md border border-slate-200 px-2.5 py-2 text-left text-xs hover:bg-slate-50">
-              <Bot className="h-3.5 w-3.5 text-slate-500" />
-              <span>{item}</span>
+          Ask better follow-ups
+        </div>
+        <div className="space-y-2">
+          {promptStarters.map((item) => (
+            <button
+              key={item.title}
+              type="button"
+              className="flex w-full items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 px-3 py-3 text-left transition hover:border-slate-300 hover:bg-white"
+            >
+              <span className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-slate-600 shadow-sm">
+                <Bot className="h-3.5 w-3.5" />
+              </span>
+              <span>
+                <span className="block text-xs font-semibold text-slate-800">{item.title}</span>
+                <span className="mt-1 block text-[11px] leading-5 text-slate-500">{item.description}</span>
+              </span>
             </button>
           ))}
+        </div>
+      </section>
+
+      <section className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-[0_12px_28px_rgba(15,23,42,0.05)]">
+        <div className="grid grid-cols-1 gap-4">
+          <div>
+            <h3 className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">Metadata</h3>
+            <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+              <MetadataField label="Launch date" value={row.launchDate || "Unknown"} />
+              <MetadataField label="Status" value="Active" />
+              <MetadataField label="Active ads" value={String(row.associatedAdsCount || 0)} />
+              <MetadataField label="Creative type" value={row.creativeTypeLabel} />
+              <MetadataField label="Platform" value="Meta" />
+              <MetadataField label="Format" value={row.format === "video" ? "Video" : row.format === "catalog" ? "Catalog" : "Image"} />
+            </div>
+          </div>
+
+          <div className="border-t border-slate-100 pt-4">
+            <h3 className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">Tags & messaging</h3>
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {row.tags.length > 0 ? row.tags.map((tag) => <TagPill key={tag} value={tag} />) : <p className="text-xs text-slate-500">No tags available.</p>}
+            </div>
+          </div>
         </div>
       </section>
     </>
@@ -1055,13 +1238,13 @@ function MetricCardGrid({
   items: Array<{ label: string; value: string }>;
 }) {
   return (
-    <section className="rounded-xl border border-slate-200 p-3.5">
-      <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">{title}</h3>
+    <section className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-[0_12px_28px_rgba(15,23,42,0.05)]">
+      <h3 className="mb-3 text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">{title}</h3>
       <div className="grid grid-cols-2 gap-2">
         {items.map((item) => (
-          <div key={item.label} className="rounded-md border border-slate-100 bg-slate-50 p-2.5">
+          <div key={item.label} className="rounded-2xl border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-3">
             <p className="text-[11px] text-slate-500">{item.label}</p>
-            <p className="mt-1 text-sm font-semibold tabular-nums text-slate-900">{item.value}</p>
+            <p className="mt-1.5 text-sm font-semibold tabular-nums text-slate-950">{item.value}</p>
           </div>
         ))}
       </div>
@@ -1071,15 +1254,105 @@ function MetricCardGrid({
 
 function MetadataField({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border border-slate-100 bg-slate-50 p-2">
+    <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-2.5">
       <p className="text-[11px] text-slate-500">{label}</p>
-      <p className="mt-0.5 text-xs font-semibold text-slate-800">{value}</p>
+      <p className="mt-1 text-xs font-semibold text-slate-800">{value}</p>
     </div>
   );
 }
 
 function TagPill({ value }: { value: string }) {
-  return <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-600">{value}</span>;
+  return <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] text-slate-600">{value}</span>;
+}
+
+function BulletSection({
+  title,
+  items,
+  tone = "neutral",
+  ordered = false,
+}: {
+  title: string;
+  items: string[];
+  tone?: "neutral" | "positive" | "warning";
+  ordered?: boolean;
+}) {
+  const toneClasses =
+    tone === "positive"
+      ? "border-emerald-200 bg-emerald-50/50"
+      : tone === "warning"
+        ? "border-amber-200 bg-amber-50/55"
+        : "border-slate-200 bg-white";
+
+  return (
+    <section className={cn("rounded-[22px] border p-4 shadow-[0_12px_28px_rgba(15,23,42,0.05)]", toneClasses)}>
+      <h3 className="mb-3 text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">{title}</h3>
+      <div className="space-y-2">
+        {items.map((item, index) => (
+          <div key={item} className="flex gap-3 text-xs leading-5 text-slate-700">
+            <span className={cn(
+              "mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold",
+              ordered ? "bg-slate-900 text-white" : "bg-slate-200 text-slate-600"
+            )}>
+              {ordered ? index + 1 : "•"}
+            </span>
+            <span>{item}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function DecisionBadge({ action }: { action: AiCreativeDecision["action"] }) {
+  const label =
+    action === "scale_hard"
+      ? "SCALE HARD"
+      : action === "test_more"
+        ? "TEST MORE"
+        : action.toUpperCase();
+
+  return (
+    <span
+      className={cn(
+        "rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase",
+        action === "scale_hard"
+          ? "bg-emerald-700 text-white"
+          : action === "scale"
+          ? "bg-emerald-100 text-emerald-700"
+          : action === "test_more"
+            ? "bg-sky-100 text-sky-700"
+            : action === "kill"
+              ? "bg-red-200 text-red-800"
+          : action === "pause"
+            ? "bg-orange-100 text-orange-700"
+            : "bg-amber-100 text-amber-700"
+      )}
+    >
+      {label}
+    </span>
+  );
+}
+
+function DecisionStatCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-white/70 bg-white/80 p-3 shadow-sm backdrop-blur">
+      <p className="text-[11px] text-slate-500">{label}</p>
+      <p className="mt-1.5 text-sm font-semibold text-slate-950">{value}</p>
+    </div>
+  );
+}
+
+function InfoBadge({ label, subtle = false }: { label: string; subtle?: boolean }) {
+  return (
+    <span
+      className={cn(
+        "rounded-full px-2.5 py-1 text-[11px] font-medium",
+        subtle ? "border border-slate-200 bg-white/85 text-slate-600" : "bg-slate-900 text-white"
+      )}
+    >
+      {label}
+    </span>
+  );
 }
 
 function StageEmptyState() {
@@ -1161,6 +1434,291 @@ function summarizePerformance(row: MetaCreativeRow): string {
     return "This creative is stable but not dominant. Prioritize hook/copy variants and test against stronger controls before broader scale.";
   }
   return "This creative is currently underperforming on return. Treat it as an iteration candidate: test new hooks, creative framing, and audience alignment before adding spend.";
+}
+
+function calculateCreativeAgeDays(launchDate: string): number {
+  const parsed = Date.parse(launchDate);
+  if (!Number.isFinite(parsed)) return 0;
+  const ageMs = Date.now() - parsed;
+  if (ageMs <= 0) return 0;
+  return Math.floor(ageMs / (1000 * 60 * 60 * 24));
+}
+
+interface CreativeDecisionContext {
+  roasAvg: number;
+  cpaAvg: number;
+  ctrAvg: number;
+  spendAvg: number;
+  spendMedian: number;
+  hookAvg: number;
+  holdAvg: number;
+}
+
+function buildCreativeDecisionContext(row: MetaCreativeRow, allRows: MetaCreativeRow[]): CreativeDecisionContext {
+  const sourceRows = allRows.length > 0 ? allRows : [row];
+  const avg = (values: number[]) => {
+    const valid = values.filter((value) => Number.isFinite(value));
+    return valid.length > 0 ? valid.reduce((sum, value) => sum + value, 0) / valid.length : 0;
+  };
+  const median = (values: number[]) => {
+    const valid = values.filter((value) => Number.isFinite(value)).sort((a, b) => a - b);
+    if (valid.length === 0) return 0;
+    const mid = Math.floor(valid.length / 2);
+    return valid.length % 2 === 0 ? (valid[mid - 1] + valid[mid]) / 2 : valid[mid];
+  };
+  return {
+    roasAvg: avg(sourceRows.map((item) => item.roas)),
+    cpaAvg: avg(sourceRows.map((item) => item.cpa)),
+    ctrAvg: avg(sourceRows.map((item) => item.ctrAll)),
+    spendAvg: avg(sourceRows.map((item) => item.spend)),
+    spendMedian: median(sourceRows.map((item) => item.spend)),
+    hookAvg: avg(sourceRows.map((item) => item.thumbstop)),
+    holdAvg: avg(sourceRows.map((item) => item.video100)),
+  };
+}
+
+function pctDelta(value: number, avg: number, inverse = false): string {
+  if (!(avg > 0)) return "in line with baseline";
+  const delta = ((value - avg) / avg) * 100;
+  const effective = inverse ? -delta : delta;
+  if (Math.abs(effective) < 5) return "roughly in line with baseline";
+  return effective > 0 ? `${Math.abs(effective).toFixed(0)}% better than baseline` : `${Math.abs(effective).toFixed(0)}% worse than baseline`;
+}
+
+function buildWhyBullets(
+  row: MetaCreativeRow,
+  decision: AiCreativeDecision | null,
+  context: CreativeDecisionContext
+): string[] {
+  const items = [...(decision?.reasons ?? [])];
+  if (decision?.action === "scale_hard") {
+    items.push("This creative has both strong efficiency and commercially meaningful signal depth.");
+  }
+  if (decision?.action === "watch") {
+    items.push(`ROAS is ${pctDelta(row.roas, context.roasAvg)} and spend is ${row.spend >= context.spendMedian ? "already meaningful" : "still below the account median"}.`);
+  }
+  if (decision?.action === "test_more") {
+    items.push("Current evidence is too thin for a confident scale or stop decision.");
+  }
+  if (decision?.action === "pause") {
+    items.push(`CPA is ${pctDelta(row.cpa, context.cpaAvg, true)} while spend is high enough to treat this as a reliable warning signal.`);
+  }
+  if (decision?.action === "kill") {
+    items.push("Downside risk is strong enough to stop this variant and reallocate budget immediately.");
+  }
+  if (decision?.action === "scale") {
+    items.push(`This creative combines healthy efficiency with enough spend to justify a scale test.`);
+  }
+  if (items.length === 0) {
+    items.push("No AI decision details are available yet for this creative.");
+  }
+  return items.slice(0, 4);
+}
+
+function buildSignalBullets(row: MetaCreativeRow, context: CreativeDecisionContext): string[] {
+  const items = [
+    `ROAS is ${row.roas.toFixed(2)}x vs account average ${context.roasAvg.toFixed(2)}x.` ,
+    `CPA is ${row.cpa.toFixed(2)} vs account average ${context.cpaAvg.toFixed(2)}.` ,
+    `CTR is ${row.ctrAll.toFixed(2)}% vs account average ${context.ctrAvg.toFixed(2)}%.`,
+    `Spend is ${formatCompactCurrency(row.spend)} vs median creative spend ${formatCompactCurrency(context.spendMedian)}.`,
+  ];
+  if (row.format === "video" || row.video50 > 0 || row.video100 > 0) {
+    items.push(`Hook rate is ${row.thumbstop.toFixed(2)}% vs average ${context.hookAvg.toFixed(2)}%; hold rate is ${row.video100.toFixed(2)}% vs average ${context.holdAvg.toFixed(2)}%.`);
+  }
+  return items;
+}
+
+function buildNextMoveBullets(
+  row: MetaCreativeRow,
+  decision: AiCreativeDecision | null,
+  context: CreativeDecisionContext
+): string[] {
+  if (decision?.action === "scale_hard") {
+    return [
+      "Increase budget in larger controlled steps while monitoring intraday efficiency.",
+      "Replicate this winner into adjacent audiences and placements quickly.",
+      "Protect performance with fail-fast guardrails on CPA/ROAS drift.",
+    ];
+  }
+  if (decision?.action === "scale") {
+    return [
+      "Increase budget gradually instead of all at once.",
+      "Watch CPA and ROAS for the next 3 days to confirm stability.",
+      row.format === "video"
+        ? "Duplicate the hook/opening and test 2-3 new message angles."
+        : "Keep the winning visual but test stronger copy and CTA variants.",
+    ];
+  }
+  if (decision?.action === "pause") {
+    return [
+      "Stop allocating more budget to this variant.",
+      "Replace it with a new hook, offer framing, or angle rather than small cosmetic edits.",
+      context.cpaAvg > 0 && row.cpa > context.cpaAvg ? "Use the current CPA gap as the minimum improvement target for the next test." : "Use a stronger control creative for the next test iteration.",
+    ];
+  }
+  if (decision?.action === "kill") {
+    return [
+      "Stop this creative immediately and move budget to stronger variants.",
+      "Document the failure pattern (hook, angle, offer, or audience mismatch).",
+      "Launch a replacement test with a clearly different concept, not minor cosmetic edits.",
+    ];
+  }
+  if (decision?.action === "test_more") {
+    return [
+      "Keep spend minimal while collecting clearer signal.",
+      "Run one focused variable test (hook, angle, or CTA) instead of broad changes.",
+      "Re-evaluate once data reaches meaningful volume.",
+    ];
+  }
+  return [
+    "Keep spend controlled until the signal becomes clearer.",
+    row.roas < context.roasAvg
+      ? "Test a stronger hook or clearer offer before trying to scale."
+      : "Let this run longer to confirm whether the efficiency can hold at higher spend.",
+    "Re-evaluate after additional spend or a clearer conversion signal.",
+  ];
+}
+
+function getDecisionTheme(action: AiCreativeDecision["action"] | null): {
+  panelClass: string;
+  sectionTone: "neutral" | "positive" | "warning";
+} {
+  if (action === "scale_hard") {
+    return {
+      panelClass: "border-emerald-300 bg-[linear-gradient(180deg,rgba(209,250,229,0.96)_0%,rgba(255,255,255,0.98)_100%)]",
+      sectionTone: "positive",
+    };
+  }
+  if (action === "scale") {
+    return {
+      panelClass: "border-emerald-200 bg-[linear-gradient(180deg,rgba(236,253,245,0.95)_0%,rgba(255,255,255,0.98)_100%)]",
+      sectionTone: "positive",
+    };
+  }
+  if (action === "kill") {
+    return {
+      panelClass: "border-red-300 bg-[linear-gradient(180deg,rgba(254,226,226,0.96)_0%,rgba(255,255,255,0.98)_100%)]",
+      sectionTone: "warning",
+    };
+  }
+  if (action === "pause") {
+    return {
+      panelClass: "border-orange-200 bg-[linear-gradient(180deg,rgba(255,247,237,0.96)_0%,rgba(255,255,255,0.98)_100%)]",
+      sectionTone: "warning",
+    };
+  }
+  if (action === "test_more") {
+    return {
+      panelClass: "border-sky-200 bg-[linear-gradient(180deg,rgba(240,249,255,0.96)_0%,rgba(255,255,255,0.98)_100%)]",
+      sectionTone: "neutral",
+    };
+  }
+  return {
+    panelClass: "border-amber-200 bg-[linear-gradient(180deg,rgba(255,251,235,0.95)_0%,rgba(255,255,255,0.98)_100%)]",
+    sectionTone: "neutral",
+  };
+}
+
+function buildThoughtStarters(action: AiCreativeDecision["action"] | null): Array<{ title: string; description: string }> {
+  if (action === "scale_hard") {
+    return [
+      {
+        title: "How fast can I scale this safely?",
+        description: "Design an aggressive scaling ladder with risk thresholds and rollback rules.",
+      },
+      {
+        title: "Where should I duplicate this first?",
+        description: "Prioritize audience, placement, and geo expansions with the highest expected carryover.",
+      },
+      {
+        title: "What protects this from performance decay?",
+        description: "Define monitoring triggers and creative refresh cadence before scaling fatigue appears.",
+      },
+    ];
+  }
+  if (action === "scale") {
+    return [
+      {
+        title: "How do I scale this without breaking efficiency?",
+        description: "Use the current winning signals to plan gradual budget expansion and monitoring rules.",
+      },
+      {
+        title: "Which variants should I test next?",
+        description: "Generate adjacent hooks, copy angles, or landing page changes without losing the core winner.",
+      },
+      {
+        title: "What could make this fall out of Scale?",
+        description: "Review the failure conditions that would justify pulling this back to Watch.",
+      },
+    ];
+  }
+  if (action === "pause") {
+    return [
+      {
+        title: "What is the likely root cause here?",
+        description: "Break down whether the issue is hook weakness, offer mismatch, CTR, or conversion efficiency.",
+      },
+      {
+        title: "What should replace this creative?",
+        description: "Turn the failed signals into a better test brief for the next creative iteration.",
+      },
+      {
+        title: "Which part is worth salvaging?",
+        description: "Identify whether any element of the visual, hook, or angle is still worth keeping.",
+      },
+    ];
+  }
+  if (action === "kill") {
+    return [
+      {
+        title: "Why is this a hard stop?",
+        description: "Summarize the strongest downside signals that justify immediate budget cut.",
+      },
+      {
+        title: "What should replace this now?",
+        description: "Generate a replacement concept focused on fixing the likely root failure.",
+      },
+      {
+        title: "What is salvageable from this creative?",
+        description: "Identify any reusable elements worth carrying into the next iteration.",
+      },
+    ];
+  }
+  if (action === "test_more") {
+    return [
+      {
+        title: "Which test should I run next?",
+        description: "Pick the single highest-impact variable to test with minimal spend.",
+      },
+      {
+        title: "What evidence is missing?",
+        description: "Clarify what spend/conversion/engagement signal is needed before a stronger action.",
+      },
+      {
+        title: "How do I avoid overreacting early?",
+        description: "Set a short learning plan with checkpoints before deciding pause or scale.",
+      },
+    ];
+  }
+  return [
+    {
+      title: "Why is this still Watch?",
+      description: "Explain which signals are mixed and what extra spend or data would resolve the uncertainty.",
+    },
+    {
+      title: "How can this become Scale?",
+      description: "Translate the current gaps into specific creative or offer tests that improve the decision.",
+    },
+    {
+      title: "What should I monitor next?",
+      description: "Focus on the few metrics that matter most before changing budget or pausing.",
+    },
+  ];
+}
+
+function formatCompactCurrency(value: number): string {
+  if (value >= 1000) return `$${(value / 1000).toFixed(1)}k`;
+  return `$${value.toFixed(0)}`;
 }
 
 async function copyText(value: string): Promise<boolean> {

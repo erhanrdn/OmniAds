@@ -612,12 +612,11 @@ export default function CreativesPage() {
   const selectedRows = useMemo(
     () =>
       deferredFilteredRows
-        .filter((row) => selectionState.selectedRowIds.includes(row.id))
-        .slice(0, 20),
+        .filter((row) => selectionState.selectedRowIds.includes(row.id)),
     [deferredFilteredRows, selectionState.selectedRowIds]
   );
   const topPanelRows = useMemo(
-    () => (selectedRows.length > 0 ? selectedRows : deferredFilteredRows.slice(0, 20)),
+    () => (selectedRows.length > 0 ? selectedRows : deferredFilteredRows),
     [deferredFilteredRows, selectedRows]
   );
   const previewStatusPayload = creativesMediaQuery.data ?? creativesMetadataQuery.data;
@@ -958,9 +957,14 @@ export default function CreativesPage() {
                 <>
                   <MotionCreativesTableSection
                     rows={deferredFilteredRows}
+                    businessId={businessId}
                     selectedMetricIds={topMetricIds}
                     onSelectedMetricIdsChange={setTopMetricIds}
                     selectedRowIds={selectionState.selectedRowIds}
+                    onReplaceSelectedRowIds={(rowIds) => {
+                      hasUserInteractedSelectionRef.current = true;
+                      setSelectionState({ selectedRowIds: rowIds });
+                    }}
                     highlightedRowId={highlightedRowId}
                     defaultCurrency={selectedBusinessCurrency}
                     onToggleRow={toggleRowSelection}
@@ -977,6 +981,7 @@ export default function CreativesPage() {
       <CreativeDetailExperience
         businessId={businessId}
         row={activeCreativeRow}
+        allRows={filteredRows}
         open={creativeDrawerState.open}
         notes={activeCreativeRow ? notesByRowId[activeCreativeRow.id] ?? "" : ""}
         dateRange={dateRangeValue}

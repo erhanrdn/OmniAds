@@ -1146,6 +1146,98 @@ export async function generateAiInsight(businessId: string): Promise<void> {
   }
 }
 
+export interface AiCreativeDecisionInputRow {
+  creativeId: string;
+  name: string;
+  creativeFormat?: "image" | "video" | "catalog";
+  creativeAgeDays: number;
+  spendVelocity: number;
+  frequency: number;
+  spend: number;
+  purchaseValue: number;
+  roas: number;
+  cpa: number;
+  ctr: number;
+  cpm: number;
+  cpc: number;
+  purchases: number;
+  impressions: number;
+  linkClicks: number;
+  hookRate: number;
+  holdRate: number;
+  video25Rate: number;
+  watchRate: number;
+  video75Rate: number;
+  clickToPurchaseRate: number;
+  atcToPurchaseRate: number;
+}
+
+export interface AiCreativeDecision {
+  creativeId: string;
+  action: "scale_hard" | "scale" | "watch" | "test_more" | "pause" | "kill";
+  confidence: number;
+  reasons: string[];
+  nextStep: string;
+}
+
+export interface AiCreativeDecisionResponse {
+  decisions: AiCreativeDecision[];
+  source: "cache" | "ai" | "fallback";
+  lastSyncedAt: string;
+  warning?: string | null;
+}
+
+export async function getAiCreativeDecisions(
+  businessId: string,
+  currency: string,
+  creatives: AiCreativeDecisionInputRow[],
+  forceRefresh = false
+): Promise<AiCreativeDecisionResponse> {
+  const url = new URL(
+    "/api/ai/creatives/decisions",
+    typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"
+  );
+
+  const response = await fetch(url.toString(), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({ businessId, currency, creatives, forceRefresh }),
+  });
+
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const message =
+      payload && typeof payload === "object" && "message" in payload
+        ? String((payload as { message?: string }).message ?? "Could not generate AI creative decisions.")
+        : `AI creative decisions request failed with status ${response.status}`;
+    throw new Error(message);
+  }
+
+  if (!payload || typeof payload !== "object" || !Array.isArray((payload as { decisions?: unknown }).decisions)) {
+    throw new Error("AI creative decisions API returned an invalid payload.");
+  }
+
+  return {
+    decisions: (payload as { decisions: AiCreativeDecision[] }).decisions,
+    source:
+      payload && typeof payload === "object" && "source" in payload
+        ? ((payload as { source?: "cache" | "ai" | "fallback" }).source ?? "ai")
+        : "ai",
+    lastSyncedAt:
+      payload && typeof payload === "object" && "lastSyncedAt" in payload
+        ? String((payload as { lastSyncedAt?: string }).lastSyncedAt ?? "")
+        : "",
+    warning:
+      payload && typeof payload === "object" && "warning" in payload
+        ? ((payload as { warning?: string | null }).warning ?? null)
+        : null,
+  };
+}
+
 export async function getMetricTrend(
   businessId: string,
   params: DateRange & { metric: string }

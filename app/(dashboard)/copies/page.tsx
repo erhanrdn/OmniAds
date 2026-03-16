@@ -278,13 +278,12 @@ export default function CopiesPage() {
   const selectedRows = useMemo(
     () =>
       filteredRows
-        .filter((row) => selectionState.selectedRowIds.includes(row.id))
-        .slice(0, 20),
+        .filter((row) => selectionState.selectedRowIds.includes(row.id)),
     [filteredRows, selectionState.selectedRowIds],
   );
 
   const topPanelRows = useMemo(
-    () => (selectedRows.length > 0 ? selectedRows : filteredRows.slice(0, 20)),
+    () => (selectedRows.length > 0 ? selectedRows : filteredRows),
     [filteredRows, selectedRows],
   );
 
@@ -371,9 +370,14 @@ export default function CopiesPage() {
       {!copiesQuery.isLoading && !copiesQuery.isError && filteredRows.length > 0 && (
         <MotionCreativesTableSection
           rows={filteredRows}
+          businessId={businessId}
           selectedMetricIds={topMetricIds}
           onSelectedMetricIdsChange={setTopMetricIds}
           selectedRowIds={selectionState.selectedRowIds}
+          onReplaceSelectedRowIds={(rowIds) => {
+            hasUserInteractedSelectionRef.current = true;
+            setSelectionState({ selectedRowIds: rowIds });
+          }}
           defaultCurrency={selectedBusinessCurrency}
           onToggleRow={toggleRowSelection}
           onToggleAll={toggleAllRows}

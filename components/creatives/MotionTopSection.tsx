@@ -454,7 +454,7 @@ export function MotionTopSection({
     [selectedMetricIds]
   );
 
-  const topRows = useMemo(() => selectedRows.slice(0, 20), [selectedRows]);
+  const topRows = useMemo(() => selectedRows, [selectedRows]);
 
   return (
     <section>
@@ -1182,14 +1182,13 @@ function PreviewStrip({
     [rows]
   );
 
-  const extremes = useMemo(() => {
-    return metrics.reduce<Record<string, { min: number; max: number }>>((acc, metric) => {
+  const metricAverages = useMemo(() => {
+    return metrics.reduce<Record<string, number>>((acc, metric) => {
       const sourceRows = allRowsForHeatmap.length > 0 ? allRowsForHeatmap : rows;
-      const values = sourceRows.map((row) => metric.getValue(row, context));
-      acc[metric.id] = {
-        min: values.length ? Math.min(...values) : 0,
-        max: values.length ? Math.max(...values) : 0,
-      };
+      const values = sourceRows
+        .map((row) => metric.getValue(row, context))
+        .filter((value) => Number.isFinite(value));
+      acc[metric.id] = values.length > 0 ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
       return acc;
     }, {});
   }, [allRowsForHeatmap, context, metrics, rows]);
@@ -1259,11 +1258,8 @@ function PreviewStrip({
                 <div className="mt-2 space-y-0.5">
                   {metrics.map((metric) => {
                     const value = metric.getValue(row, context);
-                    const range = extremes[metric.id] ?? { min: value, max: value };
-                    const heat =
-                      metric.direction === "neutral"
-                        ? "rgba(148, 163, 184, 0.12)"
-                        : withIntensity(getHeatColor(metric.direction, value, range.min, range.max), 0.8);
+                    const average = metricAverages[metric.id] ?? value;
+                    const heat = resolveAverageHeatColor(metric.direction, value, average);
 
                     return (
                       <div key={metric.id} className="flex items-center justify-between gap-2 text-[11px]">
@@ -1492,31 +1488,30 @@ function fmtInteger(n: number): string {
   return Math.round(n).toLocaleString();
 }
 
-function withIntensity(color: string, multiplier: number) {
-  const match = color.match(/rgba\((\d+),\s*(\d+),\s*(\d+),\s*([0-9.]+)\)/);
-  if (!match) return color;
-  const [, r, g, b, alpha] = match;
-  const nextAlpha = Math.max(0.04, Math.min(0.38, Number(alpha) * multiplier));
-  return `rgba(${r}, ${g}, ${b}, ${nextAlpha.toFixed(3)})`;
-}
-
-
-function getHeatColor(direction: GoodDirection, value: number, min: number, max: number) {
-  if (max <= min) return "transparent";
-
-  const normalize = (value - min) / (max - min);
-
+function resolveAverageHeatColor(direction: GoodDirection, value: number, average: number) {
   if (direction === "neutral") {
-    const alpha = 0.06 + normalize * 0.14;
-    return `rgba(148, 163, 184, ${alpha.toFixed(3)})`;
+    return "rgba(148, 163, 184, 0.070)";
   }
 
-  const score = direction === "low" ? 1 - normalize : normalize;
-  if (score >= 0.5) {
-    const alpha = 0.08 + ((score - 0.5) / 0.5) * 0.22;
-    return `rgba(16, 185, 129, ${alpha.toFixed(3)})`;
+  if (!Number.isFinite(average) || average <= 0) {
+    return "rgba(148, 163, 184, 0.060)";
   }
 
-  const alpha = 0.08 + ((0.5 - score) / 0.5) * 0.22;
-  return `rgba(239, 68, 68, ${alpha.toFixed(3)})`;
+  const rawDeltaRatio = (value - average) / average;
+  const directionalDelta = direction === "low" ? -rawDeltaRatio : rawDeltaRatio;
+  const absDelta = Math.abs(directionalDelta);
+
+  if (directionalDelta >= 0.35) {
+    return "rgba(22, 163, 74, 0.294)";
+  }
+  if (directionalDelta >= 0.15) {
+    return "rgba(34, 197, 94, 0.224)";
+  }
+  if (absDelta <= 0.1) {
+    return "rgba(148, 163, 184, 0.070)";
+  }
+  if (directionalDelta <= -0.35) {
+    return "rgba(220, 38, 38, 0.288)";
+  }
+  return "rgba(239, 68, 68, 0.218)";
 }
