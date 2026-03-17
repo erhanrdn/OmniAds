@@ -121,6 +121,7 @@ export function CreativeDetailExperience({
   const context = useMemo(() => (row ? buildCreativeDecisionContext(row, allRows) : null), [allRows, row]);
   const report = useMemo(() => (row && context ? buildCreativeRuleReport(row, context) : null), [context, row]);
   const decision = useMemo(() => (report ? buildDecisionFromRuleReport(report) : null), [report]);
+  const scoreBreakdown = useMemo(() => (row && context ? buildScoreBreakdown(row, context) : []), [context, row]);
   const decisionTheme = getDecisionTheme(decision?.action ?? "watch");
 
   const commentaryQuery = useQuery({
@@ -251,20 +252,32 @@ export function CreativeDetailExperience({
 
           <aside className="min-h-0 overflow-y-auto border-l border-slate-200 bg-[linear-gradient(180deg,#f8fafc_0%,#ffffff_20%,#ffffff_100%)] p-4 md:p-5">
             <div className="space-y-4">
-              <section className={cn("rounded-2xl border p-4 shadow-[0_12px_30px_rgba(15,23,42,0.08)]", decisionTheme.panelClass)}>
-                <div className="flex items-start justify-between gap-3">
+              <section className={cn("rounded-2xl border p-3 shadow-[0_10px_24px_rgba(15,23,42,0.08)]", decisionTheme.panelClass)}>
+                <div className="flex items-start justify-between gap-2">
                   <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">Decision snapshot</p>
-                    <h3 className="mt-1 text-base font-semibold text-slate-950">{decisionHeadline(decision.action)}</h3>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Decision + key metrics</p>
+                    <h3 className="mt-0.5 text-[15px] font-semibold leading-5 text-slate-950">{decisionHeadline(decision.action)}</h3>
                   </div>
                   <DecisionBadge action={decision.action} />
                 </div>
-                <p className="mt-3 text-sm leading-6 text-slate-700">{decision.reasons[0] ?? report.summary}</p>
-                <div className="mt-4 grid grid-cols-2 gap-2">
-                  <StatCard label="Decision score" value={`${decision.score}/100`} />
-                  <StatCard label="Confidence" value={`${Math.round(decision.confidence * 100)}%`} />
-                  <StatCard label="ROAS" value={`${row.roas.toFixed(2)}x`} />
-                  <StatCard label="CPA" value={formatMoney(row.cpa, currency, defaultCurrency)} />
+                <p className="mt-2 text-xs leading-5 text-slate-700">{decision.reasons[0] ?? report.summary}</p>
+
+                <div className="mt-2.5 grid grid-cols-2 gap-1.5">
+                  <CompactMetricCell label="Decision score" value={`${decision.score}/100`} />
+                  <CompactMetricCell label="Confidence" value={`${Math.round(decision.confidence * 100)}%`} />
+                </div>
+
+                <div className="mt-2 border-t border-slate-200/70 pt-2">
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <CompactMetricCell label="Spend" value={formatMoney(row.spend, currency, defaultCurrency)} />
+                    <CompactMetricCell label="Purchase value" value={formatMoney(row.purchaseValue, currency, defaultCurrency)} />
+                    <CompactMetricCell label="ROAS" value={`${row.roas.toFixed(2)}x`} />
+                    <CompactMetricCell label="CPA" value={formatMoney(row.cpa, currency, defaultCurrency)} />
+                    <CompactMetricCell label="CTR" value={`${row.ctrAll.toFixed(2)}%`} />
+                    <CompactMetricCell label="Purchases" value={formatInteger(row.purchases)} />
+                    <CompactMetricCell label="Impressions" value={formatInteger(row.impressions)} />
+                    <CompactMetricCell label="Link clicks" value={formatInteger(row.linkClicks)} />
+                  </div>
                 </div>
               </section>
 
@@ -289,12 +302,25 @@ export function CreativeDetailExperience({
               </section>
 
               <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.06)]">
-                <h4 className="text-sm font-semibold text-slate-900">Why this classification</h4>
-                <ul className="mt-2 space-y-1.5 text-sm text-slate-700">
-                  {decision.scoringFactors.slice(0, 4).map((item) => (
-                    <li key={item}>• {item}</li>
-                  ))}
-                </ul>
+                <h4 className="text-sm font-semibold text-slate-900">Score breakdown</h4>
+                <p className="mt-1 text-xs text-slate-500">Shows where the {decision.score}/100 score comes from.</p>
+                <div className="mt-3 space-y-2.5">
+                  {scoreBreakdown.map((item) => {
+                    const width = item.maxPoints > 0 ? Math.max(6, Math.min(100, (item.points / item.maxPoints) * 100)) : 0;
+                    return (
+                      <div key={item.key} className="rounded-xl border border-slate-200 bg-slate-50/70 p-2.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-xs font-semibold text-slate-800">{item.label}</p>
+                          <p className="text-xs font-semibold text-slate-900">{item.points}/{item.maxPoints}</p>
+                        </div>
+                        <div className="mt-2 h-1.5 rounded-full bg-slate-200">
+                          <div className="h-1.5 rounded-full bg-sky-500" style={{ width: `${width}%` }} />
+                        </div>
+                        <p className="mt-1.5 text-[11px] text-slate-600">{item.detail}</p>
+                      </div>
+                    );
+                  })}
+                </div>
               </section>
 
               <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.06)]">
@@ -365,8 +391,21 @@ function StatCard({ label, value }: { label: string; value: string }) {
   );
 }
 
+function CompactMetricCell({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white/85 px-2 py-1.5">
+      <p className="text-[9px] uppercase tracking-[0.14em] text-slate-500">{label}</p>
+      <p className="mt-0.5 text-[13px] font-semibold leading-4 text-slate-900">{value}</p>
+    </div>
+  );
+}
+
 function Pill({ value }: { value: string }) {
   return <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-medium text-slate-600">{value}</span>;
+}
+
+function formatInteger(value: number): string {
+  return Math.round(value).toLocaleString();
 }
 
 function getDecisionTheme(action: AiCreativeDecision["action"]) {
@@ -387,6 +426,14 @@ interface CreativeDecisionContext {
   spendP50: number;
   spendP80: number;
   hookAvg: number;
+}
+
+interface ScoreBreakdownItem {
+  key: "efficiency" | "engagement" | "conversion" | "reliability";
+  label: string;
+  points: number;
+  maxPoints: number;
+  detail: string;
 }
 
 function buildCreativeDecisionContext(row: MetaCreativeRow, allRows: MetaCreativeRow[]): CreativeDecisionContext {
@@ -508,6 +555,49 @@ function buildCreativeRuleReport(row: MetaCreativeRow, context: CreativeDecision
     },
     factors,
   };
+}
+
+function buildScoreBreakdown(row: MetaCreativeRow, context: CreativeDecisionContext): ScoreBreakdownItem[] {
+  const roasRatio = context.roasAvg > 0 ? row.roas / context.roasAvg : 1;
+  const cpaRatio = context.cpaAvg > 0 ? row.cpa / context.cpaAvg : 1;
+  const ctrRatio = context.ctrAvg > 0 ? row.ctrAll / context.ctrAvg : 1;
+  const spendReliability = context.spendP50 > 0 ? Math.min(1.2, row.spend / context.spendP50) : 0.6;
+
+  const efficiencyScore = Math.max(0, Math.min(40, 25 + (roasRatio - 1) * 28 - Math.max(0, cpaRatio - 1) * 8));
+  const engagementScore = Math.max(0, Math.min(20, 10 + (ctrRatio - 1) * 10 + ((row.thumbstop - context.hookAvg) / 100) * 8));
+  const conversionScore = Math.max(0, Math.min(20, 8 + Math.min(12, row.purchases * 1.8)));
+  const reliabilityScore = Math.max(0, Math.min(20, 8 + spendReliability * 8 + (row.purchases >= 3 ? 4 : row.purchases >= 1 ? 2 : 0)));
+
+  return [
+    {
+      key: "efficiency",
+      label: "Efficiency",
+      points: Math.round(efficiencyScore),
+      maxPoints: 40,
+      detail: `ROAS ${row.roas.toFixed(2)}x vs avg ${context.roasAvg.toFixed(2)}x, CPA ${row.cpa.toFixed(2)} vs avg ${context.cpaAvg.toFixed(2)}.`,
+    },
+    {
+      key: "engagement",
+      label: "Engagement",
+      points: Math.round(engagementScore),
+      maxPoints: 20,
+      detail: `CTR ${row.ctrAll.toFixed(2)}% vs avg ${context.ctrAvg.toFixed(2)}%, Thumbstop ${row.thumbstop.toFixed(2)}%.`,
+    },
+    {
+      key: "conversion",
+      label: "Conversion depth",
+      points: Math.round(conversionScore),
+      maxPoints: 20,
+      detail: `${formatInteger(row.purchases)} purchases contribute to conversion confidence.`,
+    },
+    {
+      key: "reliability",
+      label: "Reliability",
+      points: Math.round(reliabilityScore),
+      maxPoints: 20,
+      detail: `Spend ${row.spend.toFixed(2)} vs median ${context.spendP50.toFixed(2)} and signal consistency.`,
+    },
+  ];
 }
 
 function buildDecisionFromRuleReport(report: CreativeRuleReportPayload): AiCreativeDecision {
