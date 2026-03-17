@@ -54,6 +54,7 @@ export function CreativeDetailExperience({
   const [source, setSource] = useState<StageSource>("html");
   const [detailPreviewHtml, setDetailPreviewHtml] = useState<string | null>(null);
   const [detailPreviewLoading, setDetailPreviewLoading] = useState(false);
+  const [aiInterpretationRequested, setAiInterpretationRequested] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -72,6 +73,7 @@ export function CreativeDetailExperience({
     setDetailPreviewHtml(null);
     setDetailPreviewLoading(false);
     setSource("html");
+    setAiInterpretationRequested(false);
   }, [row?.id]);
 
   useEffect(() => {
@@ -134,7 +136,7 @@ export function CreativeDetailExperience({
       report?.confidence ?? 0,
       (report?.factors ?? []).map((item) => `${item.label}:${item.impact}:${item.value}`).join("|"),
     ],
-    enabled: Boolean(row) && Boolean(businessId) && Boolean(report?.creativeId),
+    enabled: false,
     staleTime: Number.POSITIVE_INFINITY,
     refetchOnWindowFocus: false,
     retry: 1,
@@ -282,21 +284,67 @@ export function CreativeDetailExperience({
               </section>
 
               <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.06)]">
-                <div className="mb-2 flex items-center gap-2">
-                  <Sparkles className="h-4 w-4 text-sky-600" />
-                  <h4 className="text-sm font-semibold text-slate-900">AI strategy interpretation</h4>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="h-4 w-4 text-sky-600" />
+                    <h4 className="text-sm font-semibold text-slate-900">AI strategy interpretation</h4>
+                  </div>
+                  {aiInterpretationRequested && commentaryQuery.data ? (
+                    <span
+                      className={cn(
+                        "rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                        commentaryQuery.data.source === "fallback"
+                          ? "border-amber-300 bg-amber-50 text-amber-700"
+                          : "border-sky-300 bg-sky-50 text-sky-700"
+                      )}
+                    >
+                      {commentaryQuery.data.source === "fallback" ? "Fallback" : "AI"}
+                    </span>
+                  ) : null}
                 </div>
-                {commentaryQuery.isLoading ? (
+                {!aiInterpretationRequested ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAiInterpretationRequested(true);
+                      commentaryQuery.refetch();
+                    }}
+                    className="inline-flex items-center rounded-lg border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-100"
+                  >
+                    Generate AI interpretation
+                  </button>
+                ) : commentaryQuery.isLoading || commentaryQuery.isFetching ? (
                   <p className="text-sm text-slate-600">Analyzing report...</p>
                 ) : commentaryQuery.isError ? (
-                  <p className="text-sm text-rose-700">AI interpretation is temporarily unavailable.</p>
+                  <div className="space-y-2">
+                    <p className="text-sm text-rose-700">AI interpretation is temporarily unavailable.</p>
+                    <button
+                      type="button"
+                      onClick={() => commentaryQuery.refetch()}
+                      className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      Retry
+                    </button>
+                  </div>
                 ) : commentaryQuery.data?.commentary ? (
                   <div className="space-y-3">
+                    {commentaryQuery.data.warning ? (
+                      <p className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-800">
+                        {commentaryQuery.data.warning}
+                      </p>
+                    ) : null}
                     <p className="text-sm font-semibold text-slate-900">{commentaryQuery.data.commentary.headline}</p>
                     <p className="text-sm leading-6 text-slate-700">{commentaryQuery.data.commentary.summary}</p>
                     <ListBlock title="Opportunities" items={commentaryQuery.data.commentary.opportunities} />
                     <ListBlock title="Risks" items={commentaryQuery.data.commentary.risks} />
                     <ListBlock title="Next actions" items={commentaryQuery.data.commentary.nextActions} ordered />
+                    <button
+                      type="button"
+                      onClick={() => commentaryQuery.refetch()}
+                      className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      Refresh interpretation
+                    </button>
                   </div>
                 ) : null}
               </section>
