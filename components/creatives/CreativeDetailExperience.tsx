@@ -471,8 +471,12 @@ interface CreativeDecisionContext {
   ctrAvg: number;
   cvrAvg: number;
   aovAvg: number;
+  lpvToClickAvg: number;
   spendAvg: number;
   spendTopAvg: number;
+  clickTopAvg: number;
+  addToCartTopAvg: number;
+  initiateCheckoutTopAvg: number;
   purchasesAvg: number;
   purchasesTopAvg: number;
   spendMedian: number;
@@ -483,7 +487,7 @@ interface CreativeDecisionContext {
 }
 
 interface ScoreBreakdownItem {
-  key: "efficiency" | "engagement" | "conversion" | "reliability";
+  key: "efficiency" | "engagement" | "conversion" | "reliability" | "funnel";
   label: string;
   points: number;
   maxPoints: number;
@@ -503,6 +507,9 @@ function buildCreativeDecisionContext(row: MetaCreativeRow, allRows: MetaCreativ
       const purchases = Number.isFinite(item.purchases) ? item.purchases : 0;
       const impressions = Number.isFinite(item.impressions) ? item.impressions : 0;
       const linkClicks = Number.isFinite(item.linkClicks) ? item.linkClicks : 0;
+      const landingPageViews = Number.isFinite(item.landingPageViews) ? item.landingPageViews : 0;
+      const addToCart = Number.isFinite(item.addToCart) ? item.addToCart : 0;
+      const initiateCheckout = Number.isFinite(item.initiateCheckout) ? item.initiateCheckout : 0;
 
       if (spend > 0) {
         acc.spend += spend;
@@ -517,10 +524,19 @@ function buildCreativeDecisionContext(row: MetaCreativeRow, allRows: MetaCreativ
       if (linkClicks > 0) {
         acc.linkClicks += linkClicks;
       }
+      if (landingPageViews > 0) {
+        acc.landingPageViews += landingPageViews;
+      }
+      if (addToCart > 0) {
+        acc.addToCart += addToCart;
+      }
+      if (initiateCheckout > 0) {
+        acc.initiateCheckout += initiateCheckout;
+      }
 
       return acc;
     },
-    { spend: 0, purchaseValue: 0, purchases: 0, impressions: 0, linkClicks: 0 }
+    { spend: 0, purchaseValue: 0, purchases: 0, impressions: 0, linkClicks: 0, landingPageViews: 0, addToCart: 0, initiateCheckout: 0 }
   );
 
   const roasAvg = totals.spend > 0 ? totals.purchaseValue / totals.spend : avg(sourceRows.map((item) => item.roas));
@@ -528,12 +544,28 @@ function buildCreativeDecisionContext(row: MetaCreativeRow, allRows: MetaCreativ
   const ctrAvg = totals.impressions > 0 ? (totals.linkClicks / totals.impressions) * 100 : avg(sourceRows.map((item) => item.ctrAll));
   const cvrAvg = totals.linkClicks > 0 ? (totals.purchases / totals.linkClicks) * 100 : avg(sourceRows.map((item) => (item.linkClicks > 0 ? (item.purchases / item.linkClicks) * 100 : 0)));
   const aovAvg = totals.purchases > 0 ? totals.purchaseValue / totals.purchases : avg(sourceRows.map((item) => (item.purchases > 0 ? item.purchaseValue / item.purchases : 0)));
+  const lpvToClickAvg = totals.linkClicks > 0 ? (totals.landingPageViews / totals.linkClicks) * 100 : avg(sourceRows.map((item) => (item.linkClicks > 0 ? (item.landingPageViews / item.linkClicks) * 100 : 0)));
 
   const count = sourceRows.length || 1;
   const spendValues = sourceRows.map((item) => (Number.isFinite(item.spend) ? item.spend : 0)).sort((a, b) => a - b);
   const topQuartileStart = Math.ceil(spendValues.length * 0.75);
   const topQuartileSpends = spendValues.slice(topQuartileStart);
   const spendTopAvg = topQuartileSpends.length > 0 ? topQuartileSpends.reduce((s, v) => s + v, 0) / topQuartileSpends.length : totals.spend / count;
+
+  const clickValues = sourceRows.map((item) => (Number.isFinite(item.linkClicks) ? item.linkClicks : 0)).sort((a, b) => a - b);
+  const topQuartileClicksStart = Math.ceil(clickValues.length * 0.75);
+  const topQuartileClicks = clickValues.slice(topQuartileClicksStart);
+  const clickTopAvg = topQuartileClicks.length > 0 ? topQuartileClicks.reduce((s, v) => s + v, 0) / topQuartileClicks.length : totals.linkClicks / count;
+
+  const addToCartValues = sourceRows.map((item) => (Number.isFinite(item.addToCart) ? item.addToCart : 0)).sort((a, b) => a - b);
+  const topQuartileAddToCartStart = Math.ceil(addToCartValues.length * 0.75);
+  const topQuartileAddToCart = addToCartValues.slice(topQuartileAddToCartStart);
+  const addToCartTopAvg = topQuartileAddToCart.length > 0 ? topQuartileAddToCart.reduce((s, v) => s + v, 0) / topQuartileAddToCart.length : totals.addToCart / count;
+
+  const initiateCheckoutValues = sourceRows.map((item) => (Number.isFinite(item.initiateCheckout) ? item.initiateCheckout : 0)).sort((a, b) => a - b);
+  const topQuartileInitiateCheckoutStart = Math.ceil(initiateCheckoutValues.length * 0.75);
+  const topQuartileInitiateCheckout = initiateCheckoutValues.slice(topQuartileInitiateCheckoutStart);
+  const initiateCheckoutTopAvg = topQuartileInitiateCheckout.length > 0 ? topQuartileInitiateCheckout.reduce((s, v) => s + v, 0) / topQuartileInitiateCheckout.length : totals.initiateCheckout / count;
 
   const purchasesValues = sourceRows.map((item) => (Number.isFinite(item.purchases) ? item.purchases : 0)).sort((a, b) => a - b);
   const topQuartilePurchasesStart = Math.ceil(purchasesValues.length * 0.75);
@@ -546,8 +578,12 @@ function buildCreativeDecisionContext(row: MetaCreativeRow, allRows: MetaCreativ
     ctrAvg,
     cvrAvg,
     aovAvg,
+    lpvToClickAvg,
     spendAvg: totals.spend / count,
     spendTopAvg,
+    clickTopAvg,
+    addToCartTopAvg,
+    initiateCheckoutTopAvg,
     purchasesAvg: totals.purchases / count,
     purchasesTopAvg,
     spendMedian: percentile(sourceRows.map((item) => item.spend), 0.5),
@@ -571,29 +607,39 @@ function percentile(values: number[], ratio: number): number {
 
 function buildCreativeRuleReport(row: MetaCreativeRow, context: CreativeDecisionContext): CreativeRuleReportPayload {
   const lowReliability = row.spend < Math.max(1, context.spendP20) || row.purchases < 2;
-  let action: AiCreativeDecision["action"] = "watch";
-  if (!lowReliability && context.roasAvg > 0 && row.roas >= context.roasAvg * 1.45 && row.spend >= Math.max(1, context.spendP50) && row.purchases >= 3) action = "scale_hard";
-  else if (!lowReliability && context.roasAvg > 0 && row.roas >= context.roasAvg * 1.2) action = "scale";
-  else if (!lowReliability && context.roasAvg > 0 && row.roas < context.roasAvg * 0.55 && row.spend >= Math.max(1, context.spendP80) && row.purchases === 0) action = "kill";
-  else if (!lowReliability && context.roasAvg > 0 && row.roas < context.roasAvg * 0.8) action = "pause";
-  else if (lowReliability) action = "test_more";
 
   const roasRatio = context.roasAvg > 0 ? row.roas / context.roasAvg : 1;
   const cpaRatio = context.cpaAvg > 0 ? row.cpa / context.cpaAvg : 1;
   const ctrRatio = context.ctrAvg > 0 ? row.ctrAll / context.ctrAvg : 1;
   const spendReliability = context.spendTopAvg > 0 ? Math.min(1.0, row.spend / context.spendTopAvg) : 0.4;
   const purchaseRatio = context.purchasesTopAvg > 0 ? row.purchases / context.purchasesTopAvg : 0;
-  const purchaseBonus = purchaseRatio >= 1 ? 4 : purchaseRatio >= 0.5 ? 2 : 0;
+  const purchaseBonus = purchaseRatio >= 1 ? 3 : purchaseRatio >= 0.5 ? 1.5 : 0;
   const cvr = row.linkClicks > 0 ? (row.purchases / row.linkClicks) * 100 : 0;
   const cvrRatio = context.cvrAvg > 0 ? cvr / context.cvrAvg : 1;
   const aov = row.purchases > 0 ? row.purchaseValue / row.purchases : 0;
   const aovRatio = context.aovAvg > 0 ? aov / context.aovAvg : 1;
+  const lpvToClick = row.linkClicks > 0 ? (row.landingPageViews / row.linkClicks) * 100 : 0;
+  const lpvToClickRatio = context.lpvToClickAvg > 0 ? lpvToClick / context.lpvToClickAvg : 1;
+  const addToCartVolumeRatio = context.addToCartTopAvg > 0 ? row.addToCart / context.addToCartTopAvg : 0;
+  const initiateCheckoutVolumeRatio = context.initiateCheckoutTopAvg > 0 ? row.initiateCheckout / context.initiateCheckoutTopAvg : 0;
+  const lpvToClickScore = Math.max(0, Math.min(5, 2.5 + (lpvToClickRatio - 1) * 2.5));
+  const addToCartVolumeScore = Math.max(0, Math.min(5, addToCartVolumeRatio * 5));
+  const initiateCheckoutVolumeScore = Math.max(0, Math.min(5, initiateCheckoutVolumeRatio * 5));
+  const funnelScore = Math.max(0, Math.min(15, lpvToClickScore + addToCartVolumeScore + initiateCheckoutVolumeScore));
 
   const efficiencyScore = Math.max(0, Math.min(40, 25 + (roasRatio - 1) * 28 - Math.max(0, cpaRatio - 1) * 8));
-  const engagementScore = Math.max(0, Math.min(20, 10 + (ctrRatio - 1) * 10 + ((row.thumbstop - context.hookAvg) / 100) * 8));
-  const conversionScore = Math.max(0, Math.min(20, 10 + (cvrRatio - 1) * 6 + (aovRatio - 1) * 4));
-  const reliabilityScore = Math.max(0, Math.min(20, 8 + spendReliability * 8 + purchaseBonus));
-  const score = Math.round(efficiencyScore + engagementScore + conversionScore + reliabilityScore);
+  const engagementScore = Math.max(0, Math.min(15, 7 + (ctrRatio - 1) * 7 + ((row.thumbstop - context.hookAvg) / 100) * 5));
+  const conversionScore = Math.max(0, Math.min(15, 7 + (cvrRatio - 1) * 5 + (aovRatio - 1) * 3));
+  const reliabilityScore = Math.max(0, Math.min(15, 5 + spendReliability * 7 + purchaseBonus));
+  const score = Math.round(efficiencyScore + engagementScore + conversionScore + reliabilityScore + funnelScore);
+
+  let action: AiCreativeDecision["action"] = "watch";
+  if (reliabilityScore < 7) action = "test_more";
+  else if (reliabilityScore < 10) action = "watch";
+  else if (context.roasAvg > 0 && row.roas >= context.roasAvg * 1.45 && row.spend >= Math.max(1, context.spendP50) && row.purchases >= 3) action = "scale_hard";
+  else if (context.roasAvg > 0 && row.roas >= context.roasAvg * 1.2) action = "scale";
+  else if (context.roasAvg > 0 && row.roas < context.roasAvg * 0.55 && row.spend >= Math.max(1, context.spendP80) && row.purchases === 0) action = "kill";
+  else if (context.roasAvg > 0 && row.roas < context.roasAvg * 0.8) action = "pause";
 
   const confidenceBase = lowReliability ? 0.4 : row.spend >= context.spendP50 ? 0.72 : 0.58;
   const confidence = Math.max(0.3, Math.min(0.88, action === "watch" || action === "test_more" ? confidenceBase - 0.06 : confidenceBase));
@@ -642,16 +688,24 @@ function buildScoreBreakdown(row: MetaCreativeRow, context: CreativeDecisionCont
   const ctrRatio = context.ctrAvg > 0 ? row.ctrAll / context.ctrAvg : 1;
   const spendReliability = context.spendTopAvg > 0 ? Math.min(1.0, row.spend / context.spendTopAvg) : 0.4;
   const purchaseRatio = context.purchasesTopAvg > 0 ? row.purchases / context.purchasesTopAvg : 0;
-  const purchaseBonus = purchaseRatio >= 1 ? 4 : purchaseRatio >= 0.5 ? 2 : 0;
+  const purchaseBonus = purchaseRatio >= 1 ? 3 : purchaseRatio >= 0.5 ? 1.5 : 0;
   const cvr = row.linkClicks > 0 ? (row.purchases / row.linkClicks) * 100 : 0;
   const cvrRatio = context.cvrAvg > 0 ? cvr / context.cvrAvg : 1;
   const aov = row.purchases > 0 ? row.purchaseValue / row.purchases : 0;
   const aovRatio = context.aovAvg > 0 ? aov / context.aovAvg : 1;
+  const lpvToClick = row.linkClicks > 0 ? (row.landingPageViews / row.linkClicks) * 100 : 0;
+  const lpvToClickRatio = context.lpvToClickAvg > 0 ? lpvToClick / context.lpvToClickAvg : 1;
+  const addToCartVolumeRatio = context.addToCartTopAvg > 0 ? row.addToCart / context.addToCartTopAvg : 0;
+  const initiateCheckoutVolumeRatio = context.initiateCheckoutTopAvg > 0 ? row.initiateCheckout / context.initiateCheckoutTopAvg : 0;
+  const lpvToClickScore = Math.max(0, Math.min(5, 2.5 + (lpvToClickRatio - 1) * 2.5));
+  const addToCartVolumeScore = Math.max(0, Math.min(5, addToCartVolumeRatio * 5));
+  const initiateCheckoutVolumeScore = Math.max(0, Math.min(5, initiateCheckoutVolumeRatio * 5));
+  const funnelScore = Math.max(0, Math.min(15, lpvToClickScore + addToCartVolumeScore + initiateCheckoutVolumeScore));
 
   const efficiencyScore = Math.max(0, Math.min(40, 25 + (roasRatio - 1) * 28 - Math.max(0, cpaRatio - 1) * 8));
-  const engagementScore = Math.max(0, Math.min(20, 10 + (ctrRatio - 1) * 10 + ((row.thumbstop - context.hookAvg) / 100) * 8));
-  const conversionScore = Math.max(0, Math.min(20, 10 + (cvrRatio - 1) * 6 + (aovRatio - 1) * 4));
-  const reliabilityScore = Math.max(0, Math.min(20, 8 + spendReliability * 8 + purchaseBonus));
+  const engagementScore = Math.max(0, Math.min(15, 7 + (ctrRatio - 1) * 7 + ((row.thumbstop - context.hookAvg) / 100) * 5));
+  const conversionScore = Math.max(0, Math.min(15, 7 + (cvrRatio - 1) * 5 + (aovRatio - 1) * 3));
+  const reliabilityScore = Math.max(0, Math.min(15, 5 + spendReliability * 7 + purchaseBonus));
 
   return [
     {
@@ -665,22 +719,29 @@ function buildScoreBreakdown(row: MetaCreativeRow, context: CreativeDecisionCont
       key: "engagement",
       label: "Engagement",
       points: Math.round(engagementScore),
-      maxPoints: 20,
+      maxPoints: 15,
       detail: `CTR ${row.ctrAll.toFixed(2)}% vs avg ${context.ctrAvg.toFixed(2)}%, Thumbstop ${row.thumbstop.toFixed(2)}% vs avg ${context.hookAvg.toFixed(2)}%.`,
     },
     {
       key: "conversion",
       label: "Conversion depth",
       points: Math.round(conversionScore),
-      maxPoints: 20,
+      maxPoints: 15,
       detail: `CVR ${cvr.toFixed(2)}% vs avg ${context.cvrAvg.toFixed(2)}%, AOV ${aov.toFixed(2)} vs avg ${context.aovAvg.toFixed(2)}.`,
     },
     {
       key: "reliability",
       label: "Reliability",
       points: Math.round(reliabilityScore),
-      maxPoints: 20,
+      maxPoints: 15,
       detail: `Spend ${row.spend.toFixed(2)} vs top-25% avg ${context.spendTopAvg.toFixed(2)} · Orders ${row.purchases} vs top-25% avg ${context.purchasesTopAvg.toFixed(1)}.`,
+    },
+    {
+      key: "funnel",
+      label: "Funnel depth",
+      points: Math.round(funnelScore),
+      maxPoints: 15,
+      detail: `LPV/Click ${lpvToClick.toFixed(2)}% vs avg ${context.lpvToClickAvg.toFixed(2)}%, ATC ${formatInteger(row.addToCart)} vs top-25% avg ${context.addToCartTopAvg.toFixed(1)}, IC ${formatInteger(row.initiateCheckout)} vs top-25% avg ${context.initiateCheckoutTopAvg.toFixed(1)}.`,
     },
   ];
 }

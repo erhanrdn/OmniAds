@@ -284,7 +284,9 @@ interface RawCreativeRow {
   purchases: number;
   impressions: number;
   link_clicks: number;
+  landing_page_views: number;
   add_to_cart: number;
+  initiate_checkout: number;
   thumbstop: number;
   click_to_atc: number;
   atc_to_purchase: number;
@@ -362,7 +364,9 @@ export interface MetaCreativeApiRow {
   purchases: number;
   impressions: number;
   link_clicks: number;
+  landing_page_views: number;
   add_to_cart: number;
+  initiate_checkout: number;
   thumbstop: number;
   click_to_atc: number;
   atc_to_purchase: number;
@@ -2256,10 +2260,19 @@ function toRawRow(
   const impressions = parseFloat(insight.impressions ?? "0") || 0;
   const inlineLinkClicks = parseFloat(insight.inline_link_clicks ?? "0") || 0;
   const effectiveLinkClicks = linkClicks || inlineLinkClicks;
+  const landingPageViews = Math.round(
+    parseAction(insight.actions, "landing_page_view") ||
+    parseAction(insight.actions, "omni_landing_page_view")
+  );
   const addToCart = Math.round(
     parseAction(insight.actions, "omni_add_to_cart") ||
     parseAction(insight.actions, "add_to_cart") ||
     parseAction(insight.actions, "fb_mobile_add_to_cart")
+  );
+  const initiateCheckout = Math.round(
+    parseAction(insight.actions, "omni_initiated_checkout") ||
+    parseAction(insight.actions, "initiate_checkout") ||
+    parseAction(insight.actions, "fb_mobile_initiated_checkout")
   );
   const video3sViews = parseFloat(insight.video_play_actions?.[0]?.value ?? "0") || 0;
   const video25Views = parseFloat(insight.video_p25_watched_actions?.[0]?.value ?? "0") || 0;
@@ -2418,7 +2431,9 @@ function toRawRow(
     purchases,
     impressions,
     link_clicks: effectiveLinkClicks,
+    landing_page_views: landingPageViews,
     add_to_cart: addToCart,
+    initiate_checkout: initiateCheckout,
     thumbstop,
     click_to_atc: clickToAtc,
     atc_to_purchase: atcToPurchase,
@@ -2505,7 +2520,9 @@ function groupRows(
     const purchases = list.reduce((acc, item) => acc + item.purchases, 0);
     const impressions = list.reduce((acc, item) => acc + item.impressions, 0);
     const linkClicks = list.reduce((acc, item) => acc + item.link_clicks, 0);
+    const landingPageViews = list.reduce((acc, item) => acc + item.landing_page_views, 0);
     const addToCart = list.reduce((acc, item) => acc + item.add_to_cart, 0);
+    const initiateCheckout = list.reduce((acc, item) => acc + item.initiate_checkout, 0);
     const video3sViews = list.reduce((acc, item) => acc + (impressions > 0 ? (item.thumbstop / 100) * item.impressions : 0), 0);
     const video25Views = list.reduce((acc, item) => acc + (item.impressions > 0 ? (item.video25 / 100) * item.impressions : 0), 0);
     const video50Views = list.reduce((acc, item) => acc + (item.impressions > 0 ? (item.video50 / 100) * item.impressions : 0), 0);
@@ -2637,7 +2654,9 @@ function groupRows(
       purchases,
       impressions,
       link_clicks: linkClicks,
+      landing_page_views: landingPageViews,
       add_to_cart: addToCart,
+      initiate_checkout: initiateCheckout,
       thumbstop: impressions > 0 ? r2((video3sViews / impressions) * 100) : 0,
       click_to_atc: linkClicks > 0 ? r2((addToCart / linkClicks) * 100) : 0,
       atc_to_purchase: addToCart > 0 ? r2((purchases / addToCart) * 100) : 0,
@@ -3836,7 +3855,9 @@ export async function GET(request: NextRequest) {
       purchases: row.purchases,
       impressions: row.impressions,
       link_clicks: row.link_clicks,
+      landing_page_views: row.landing_page_views,
       add_to_cart: row.add_to_cart,
+      initiate_checkout: row.initiate_checkout,
       thumbstop: row.thumbstop,
       click_to_atc: row.click_to_atc,
       atc_to_purchase: row.atc_to_purchase,

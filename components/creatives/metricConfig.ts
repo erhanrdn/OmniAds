@@ -89,7 +89,9 @@ export interface MetaCreativeRow {
   purchases: number;
   impressions: number;
   linkClicks: number;
+  landingPageViews: number;
   addToCart: number;
+  initiateCheckout: number;
   thumbstop: number;
   clickToPurchase: number;
   seeMoreRate: number;
