@@ -552,6 +552,24 @@ function buildLiveApiResponse(input: {
   };
 }
 
+function hasSuspiciousMissingFunnelMetrics(rows: MetaCreativeApiRow[]): boolean {
+  if (!Array.isArray(rows) || rows.length < 5) return false;
+  const totals = rows.reduce(
+    (acc, row) => {
+      acc.linkClicks += Number.isFinite(row.link_clicks) ? row.link_clicks : 0;
+      acc.purchases += Number.isFinite(row.purchases) ? row.purchases : 0;
+      acc.landingPageViews += Number.isFinite(row.landing_page_views) ? row.landing_page_views : 0;
+      acc.initiateCheckout += Number.isFinite(row.initiate_checkout) ? row.initiate_checkout : 0;
+      return acc;
+    },
+    { linkClicks: 0, purchases: 0, landingPageViews: 0, initiateCheckout: 0 }
+  );
+
+  // If account has real traffic/conversions but funnel metrics are universally zero,
+  // a stale/incomplete snapshot is likely; prefer live fetch for this request.
+  return totals.linkClicks > 0 && totals.purchases > 0 && totals.landingPageViews === 0 && totals.initiateCheckout === 0;
+}
+
 /** Deterministic short hash for composite grouping keys (not cryptographic). */
 function simpleHash(input: string): string {
   let h = 0x811c9dc5;
@@ -564,8 +582,17 @@ function simpleHash(input: string): string {
 
 function parseAction(arr: MetaActionValue[] | undefined, type: string): number {
   if (!Array.isArray(arr)) return 0;
-  const found = arr.find((item) => item.action_type === type);
-  return found ? parseFloat(found.value) || 0 : 0;
+  const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  const target = normalize(type);
+  let total = 0;
+  for (const item of arr) {
+    const actionType = typeof item?.action_type === "string" ? normalize(item.action_type) : "";
+    if (!actionType) continue;
+    if (actionType === target || actionType.endsWith(`_${target}`)) {
+      total += parseFloat(item.value) || 0;
+    }
+  }
+  return total;
 }
 
 function parsePurchaseCount(actions: MetaActionValue[] | undefined): number {
@@ -2271,8 +2298,10 @@ function toRawRow(
   );
   const initiateCheckout = Math.round(
     parseAction(insight.actions, "omni_initiated_checkout") ||
+    parseAction(insight.actions, "initiated_checkout") ||
     parseAction(insight.actions, "initiate_checkout") ||
-    parseAction(insight.actions, "fb_mobile_initiated_checkout")
+    parseAction(insight.actions, "fb_mobile_initiated_checkout") ||
+    parseAction(insight.actions, "fb_mobile_initiate_checkout")
   );
   const video3sViews = parseFloat(insight.video_play_actions?.[0]?.value ?? "0") || 0;
   const video25Views = parseFloat(insight.video_p25_watched_actions?.[0]?.value ?? "0") || 0;
@@ -2853,10 +2882,22 @@ export async function GET(request: NextRequest) {
         enableMediaCache,
       });
       if (snapshotPayload) {
+        if (hasSuspiciousMissingFunnelMetrics(snapshotPayload.rows ?? [])) {
+          if (process.env.NODE_ENV !== "production") {
+            console.log("[meta-creatives] bypassing suspicious snapshot with zero funnel metrics", {
+              business_id: businessId,
+              last_synced_at: snapshot.lastSyncedAt,
+              freshness_state: freshness.freshnessState,
+              rows: Array.isArray(snapshotPayload.rows) ? snapshotPayload.rows.length : 0,
+            });
+          }
+          triggerSnapshotRefresh(request, snapshotQuery);
+        } else {
         if (freshness.freshnessState !== "fresh" && !snapshotWarm) {
           triggerSnapshotRefresh(request, snapshotQuery);
         }
         return NextResponse.json(snapshotPayload);
+        }
       }
     }
   }

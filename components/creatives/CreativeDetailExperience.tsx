@@ -453,7 +453,7 @@ function Pill({ value }: { value: string }) {
 }
 
 function formatInteger(value: number): string {
-  return Math.round(value).toLocaleString();
+  return Math.round(Number.isFinite(value) ? value : 0).toLocaleString();
 }
 
 function getDecisionTheme(action: AiCreativeDecision["action"]) {
@@ -607,6 +607,10 @@ function percentile(values: number[], ratio: number): number {
 
 function buildCreativeRuleReport(row: MetaCreativeRow, context: CreativeDecisionContext): CreativeRuleReportPayload {
   const lowReliability = row.spend < Math.max(1, context.spendP20) || row.purchases < 2;
+  const safeLinkClicks = Number.isFinite(row.linkClicks) ? row.linkClicks : 0;
+  const safeLandingPageViews = Number.isFinite(row.landingPageViews) ? row.landingPageViews : 0;
+  const safeAddToCart = Number.isFinite(row.addToCart) ? row.addToCart : 0;
+  const safeInitiateCheckout = Number.isFinite(row.initiateCheckout) ? row.initiateCheckout : 0;
 
   const roasRatio = context.roasAvg > 0 ? row.roas / context.roasAvg : 1;
   const cpaRatio = context.cpaAvg > 0 ? row.cpa / context.cpaAvg : 1;
@@ -614,14 +618,14 @@ function buildCreativeRuleReport(row: MetaCreativeRow, context: CreativeDecision
   const spendReliability = context.spendTopAvg > 0 ? Math.min(1.0, row.spend / context.spendTopAvg) : 0.4;
   const purchaseRatio = context.purchasesTopAvg > 0 ? row.purchases / context.purchasesTopAvg : 0;
   const purchaseBonus = purchaseRatio >= 1 ? 3 : purchaseRatio >= 0.5 ? 1.5 : 0;
-  const cvr = row.linkClicks > 0 ? (row.purchases / row.linkClicks) * 100 : 0;
+  const cvr = safeLinkClicks > 0 ? (row.purchases / safeLinkClicks) * 100 : 0;
   const cvrRatio = context.cvrAvg > 0 ? cvr / context.cvrAvg : 1;
   const aov = row.purchases > 0 ? row.purchaseValue / row.purchases : 0;
   const aovRatio = context.aovAvg > 0 ? aov / context.aovAvg : 1;
-  const lpvToClick = row.linkClicks > 0 ? (row.landingPageViews / row.linkClicks) * 100 : 0;
+  const lpvToClick = safeLinkClicks > 0 ? (safeLandingPageViews / safeLinkClicks) * 100 : 0;
   const lpvToClickRatio = context.lpvToClickAvg > 0 ? lpvToClick / context.lpvToClickAvg : 1;
-  const addToCartVolumeRatio = context.addToCartTopAvg > 0 ? row.addToCart / context.addToCartTopAvg : 0;
-  const initiateCheckoutVolumeRatio = context.initiateCheckoutTopAvg > 0 ? row.initiateCheckout / context.initiateCheckoutTopAvg : 0;
+  const addToCartVolumeRatio = context.addToCartTopAvg > 0 ? safeAddToCart / context.addToCartTopAvg : 0;
+  const initiateCheckoutVolumeRatio = context.initiateCheckoutTopAvg > 0 ? safeInitiateCheckout / context.initiateCheckoutTopAvg : 0;
   const lpvToClickScore = Math.max(0, Math.min(5, 2.5 + (lpvToClickRatio - 1) * 2.5));
   const addToCartVolumeScore = Math.max(0, Math.min(5, addToCartVolumeRatio * 5));
   const initiateCheckoutVolumeScore = Math.max(0, Math.min(5, initiateCheckoutVolumeRatio * 5));
@@ -690,17 +694,21 @@ function buildScoreBreakdown(row: MetaCreativeRow, context: CreativeDecisionCont
   const roasRatio = context.roasAvg > 0 ? row.roas / context.roasAvg : 1;
   const cpaRatio = context.cpaAvg > 0 ? row.cpa / context.cpaAvg : 1;
   const ctrRatio = context.ctrAvg > 0 ? row.ctrAll / context.ctrAvg : 1;
+  const safeLinkClicks = Number.isFinite(row.linkClicks) ? row.linkClicks : 0;
+  const safeLandingPageViews = Number.isFinite(row.landingPageViews) ? row.landingPageViews : 0;
+  const safeAddToCart = Number.isFinite(row.addToCart) ? row.addToCart : 0;
+  const safeInitiateCheckout = Number.isFinite(row.initiateCheckout) ? row.initiateCheckout : 0;
   const spendReliability = context.spendTopAvg > 0 ? Math.min(1.0, row.spend / context.spendTopAvg) : 0.4;
   const purchaseRatio = context.purchasesTopAvg > 0 ? row.purchases / context.purchasesTopAvg : 0;
   const purchaseBonus = purchaseRatio >= 1 ? 3 : purchaseRatio >= 0.5 ? 1.5 : 0;
-  const cvr = row.linkClicks > 0 ? (row.purchases / row.linkClicks) * 100 : 0;
+  const cvr = safeLinkClicks > 0 ? (row.purchases / safeLinkClicks) * 100 : 0;
   const cvrRatio = context.cvrAvg > 0 ? cvr / context.cvrAvg : 1;
   const aov = row.purchases > 0 ? row.purchaseValue / row.purchases : 0;
   const aovRatio = context.aovAvg > 0 ? aov / context.aovAvg : 1;
-  const lpvToClick = row.linkClicks > 0 ? (row.landingPageViews / row.linkClicks) * 100 : 0;
+  const lpvToClick = safeLinkClicks > 0 ? (safeLandingPageViews / safeLinkClicks) * 100 : 0;
   const lpvToClickRatio = context.lpvToClickAvg > 0 ? lpvToClick / context.lpvToClickAvg : 1;
-  const addToCartVolumeRatio = context.addToCartTopAvg > 0 ? row.addToCart / context.addToCartTopAvg : 0;
-  const initiateCheckoutVolumeRatio = context.initiateCheckoutTopAvg > 0 ? row.initiateCheckout / context.initiateCheckoutTopAvg : 0;
+  const addToCartVolumeRatio = context.addToCartTopAvg > 0 ? safeAddToCart / context.addToCartTopAvg : 0;
+  const initiateCheckoutVolumeRatio = context.initiateCheckoutTopAvg > 0 ? safeInitiateCheckout / context.initiateCheckoutTopAvg : 0;
   const lpvToClickScore = Math.max(0, Math.min(5, 2.5 + (lpvToClickRatio - 1) * 2.5));
   const addToCartVolumeScore = Math.max(0, Math.min(5, addToCartVolumeRatio * 5));
   const initiateCheckoutVolumeScore = Math.max(0, Math.min(5, initiateCheckoutVolumeRatio * 5));
@@ -749,7 +757,7 @@ function buildScoreBreakdown(row: MetaCreativeRow, context: CreativeDecisionCont
       label: "Funnel depth",
       points: Math.round(funnelScore),
       maxPoints: 15,
-      detail: `LPV/Click ${lpvToClick.toFixed(2)}% vs avg ${context.lpvToClickAvg.toFixed(2)}%, ATC ${formatInteger(row.addToCart)} vs top-25% avg ${context.addToCartTopAvg.toFixed(1)}, IC ${formatInteger(row.initiateCheckout)} vs top-25% avg ${context.initiateCheckoutTopAvg.toFixed(1)}.`,
+      detail: `LPV/Click ${lpvToClick.toFixed(2)}% vs avg ${context.lpvToClickAvg.toFixed(2)}%, ATC ${formatInteger(safeAddToCart)} vs top-25% avg ${context.addToCartTopAvg.toFixed(1)}, IC ${formatInteger(safeInitiateCheckout)} vs top-25% avg ${context.initiateCheckoutTopAvg.toFixed(1)}.`,
     },
   ];
 }
