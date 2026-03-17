@@ -615,6 +615,7 @@ export function CreativesTableSection({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [aiDecisionFilter, setAiDecisionFilter] = useState<AiSignalAction | null>(null);
+  const [aiSignalsHost, setAiSignalsHost] = useState<HTMLElement | null>(null);
 
   useDropdownBehavior({
     id: "table-preset-menu",
@@ -855,6 +856,74 @@ export function CreativesTableSection({
     onReplaceSelectedRowIds(matchingRowIds);
   };
 
+  const aiSignalsControls = aiDecisions.size > 0 ? (
+    <div className="inline-flex items-center gap-1.5">
+      <span className="text-[11px] font-medium text-muted-foreground">AI Signals:</span>
+      {aiDecisionQuery.isFetching && (
+        <span className="text-[10px] text-muted-foreground/80">Analyzing...</span>
+      )}
+      {aiDecisionQuery.data?.source === "fallback" && (
+        <span className="text-[10px] text-amber-600">Fallback mode</span>
+      )}
+      {AI_SIGNAL_SEGMENTS.map(({ key, label, inactiveCls, activeCls, dotCls }) => {
+        const count = aiDecisionCounts[key];
+        if (count === 0) return null;
+        const isActive = aiDecisionFilter === key;
+        return (
+          <button
+            key={key}
+            type="button"
+            onClick={() => {
+              const nextFilter = isActive ? null : key;
+              setAiDecisionFilter(nextFilter);
+              applyAiDecisionSelection(nextFilter);
+              setPage(1);
+            }}
+            className={cn(
+              "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors",
+              isActive ? activeCls : inactiveCls
+            )}
+          >
+            <span
+              className={cn(
+                "h-1.5 w-1.5 rounded-full",
+                isActive ? "bg-white opacity-80" : dotCls
+              )}
+            />
+            {label}
+            <span className="opacity-70">{count}</span>
+          </button>
+        );
+      })}
+      {aiLastSyncedLabel && (
+        <span className="text-[10px] text-muted-foreground">Last sync {aiLastSyncedLabel}</span>
+      )}
+      <button
+        type="button"
+        onClick={() => analyzeMutation.mutate()}
+        disabled={analyzeMutation.isPending || !businessId || aiDecisionInputRows.length === 0}
+        className="inline-flex items-center rounded-full border bg-background px-2.5 py-0.5 text-[11px] font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+        title={analyzeScopeCount > 0 ? `Analyze ${analyzeScopeCount} filtered creatives` : "No creatives to analyze"}
+      >
+        {analyzeMutation.isPending ? `Analyzing ${analyzeScopeCount}...` : `Analyze (${analyzeScopeCount})`}
+      </button>
+      {aiDecisionFilter && (
+        <button
+          type="button"
+          onClick={() => {
+            setAiDecisionFilter(null);
+            applyAiDecisionSelection(null);
+            setPage(1);
+          }}
+          className="ml-0.5 text-[11px] text-muted-foreground hover:text-foreground"
+          aria-label="Clear AI filter"
+        >
+          ✕
+        </button>
+      )}
+    </div>
+  ) : null;
+
   const allSelected = aiFilteredRows.length > 0 && aiFilteredRows.every((row) => selectedRowIdSet.has(row.id));
 
   const totalResults = aiFilteredRows.length;
@@ -1059,6 +1128,10 @@ export function CreativesTableSection({
     if (sortState.key !== key || !sortState.direction) return "↕";
     return sortState.direction === "asc" ? "↑" : "↓";
   };
+
+  useEffect(() => {
+    setAiSignalsHost(document.getElementById("creative-ai-signals-slot"));
+  }, []);
 
   useEffect(() => {
     const handleMouseMove = (event: MouseEvent) => {
@@ -1363,76 +1436,12 @@ export function CreativesTableSection({
             </span>
           </div>
 
-          {/* AI Signals — decision filter chips */}
-          {aiDecisions.size > 0 && (
-            <div className="inline-flex items-center gap-1.5">
-              <span className="text-[11px] font-medium text-muted-foreground">AI Signals:</span>
-              {aiDecisionQuery.isFetching && (
-                <span className="text-[10px] text-muted-foreground/80">Analyzing...</span>
-              )}
-              {aiDecisionQuery.data?.source === "fallback" && (
-                <span className="text-[10px] text-amber-600">Fallback mode</span>
-              )}
-              {AI_SIGNAL_SEGMENTS.map(({ key, label, inactiveCls, activeCls, dotCls }) => {
-                const count = aiDecisionCounts[key];
-                if (count === 0) return null;
-                const isActive = aiDecisionFilter === key;
-                return (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => {
-                      const nextFilter = isActive ? null : key;
-                      setAiDecisionFilter(nextFilter);
-                      applyAiDecisionSelection(nextFilter);
-                      setPage(1);
-                    }}
-                    className={cn(
-                      "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors",
-                      isActive ? activeCls : inactiveCls
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        "h-1.5 w-1.5 rounded-full",
-                        isActive ? "bg-white opacity-80" : dotCls
-                      )}
-                    />
-                    {label}
-                    <span className="opacity-70">{count}</span>
-                  </button>
-                );
-              })}
-              {aiLastSyncedLabel && (
-                <span className="text-[10px] text-muted-foreground">Last sync {aiLastSyncedLabel}</span>
-              )}
-              <button
-                type="button"
-                onClick={() => analyzeMutation.mutate()}
-                disabled={analyzeMutation.isPending || !businessId || aiDecisionInputRows.length === 0}
-                className="inline-flex items-center rounded-full border bg-background px-2.5 py-0.5 text-[11px] font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-                title={analyzeScopeCount > 0 ? `Analyze ${analyzeScopeCount} filtered creatives` : "No creatives to analyze"}
-              >
-                {analyzeMutation.isPending ? `Analyzing ${analyzeScopeCount}...` : `Analyze (${analyzeScopeCount})`}
-              </button>
-              {aiDecisionFilter && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAiDecisionFilter(null);
-                    applyAiDecisionSelection(null);
-                    setPage(1);
-                  }}
-                  className="ml-0.5 text-[11px] text-muted-foreground hover:text-foreground"
-                  aria-label="Clear AI filter"
-                >
-                  ✕
-                </button>
-              )}
-            </div>
-          )}
+          {/* AI Signals fallback if toolbar slot is unavailable */}
+          {!aiSignalsHost && aiSignalsControls}
         </div>
       </div>
+
+      {aiSignalsHost && aiSignalsControls ? createPortal(aiSignalsControls, aiSignalsHost) : null}
 
       {/* B) selection info */}
       <div className="text-[10px] text-muted-foreground">{selectedRowIds.length} ad groups selected</div>

@@ -523,6 +523,8 @@ export function CreativesTopSection({
 
           <AddFilterDropdown filters={filters} rows={allRowsForHeatmap} onChange={onFiltersChange} />
 
+          <div id="creative-ai-signals-slot" className="inline-flex items-center gap-1.5" />
+
           <div className="ml-auto">
             <TopExportDropdown
               onShareExport={onShareExport}
