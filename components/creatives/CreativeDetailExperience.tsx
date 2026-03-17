@@ -666,7 +666,7 @@ function buildScoreBreakdown(row: MetaCreativeRow, context: CreativeDecisionCont
       label: "Engagement",
       points: Math.round(engagementScore),
       maxPoints: 20,
-      detail: `CTR ${row.ctrAll.toFixed(2)}% vs avg ${context.ctrAvg.toFixed(2)}%, Thumbstop ${row.thumbstop.toFixed(2)}%.`,
+      detail: `CTR ${row.ctrAll.toFixed(2)}% vs avg ${context.ctrAvg.toFixed(2)}%, Thumbstop ${row.thumbstop.toFixed(2)}% vs avg ${context.hookAvg.toFixed(2)}%.`,
     },
     {
       key: "conversion",
