@@ -486,30 +486,44 @@ export function buildHeuristicCreativeDecisions(
       : roasValues.length > 0
         ? roasValues.reduce((a, b) => a + b, 0) / roasValues.length
         : 0;
-  const spendP20 = percentile(spendValues, 0.2);
   const spendP50 = percentile(spendValues, 0.5);
   const spendP80 = percentile(spendValues, 0.8);
 
+  // Top-quartile baselines (same as detail page scoring)
+  const spendP75 = percentile(spendValues, 0.75);
+  const topQuartileSpends = spendValues.filter((v) => v >= spendP75);
+  const spendTopAvg = topQuartileSpends.length > 0 ? topQuartileSpends.reduce((a, b) => a + b, 0) / topQuartileSpends.length : (spendValues.length > 0 ? spendValues[spendValues.length - 1] : 1);
+
+  const purchaseValues = safeRows.map((r) => r.purchases).filter((v) => Number.isFinite(v) && v > 0).sort((a, b) => a - b);
+  const purchasesP75 = percentile(purchaseValues, 0.75);
+  const topQuartilePurchases = purchaseValues.filter((v) => v >= purchasesP75);
+  const purchasesTopAvg = topQuartilePurchases.length > 0 ? topQuartilePurchases.reduce((a, b) => a + b, 0) / topQuartilePurchases.length : (purchaseValues.length > 0 ? purchaseValues[purchaseValues.length - 1] : 1);
+
   const base = safeRows.map((row) => {
-    const lowReliability = row.spend < Math.max(1, spendP20) || row.purchases < 2;
+    // Reliability score (0-15), same formula as detail page
+    const spendReliability = spendTopAvg > 0 ? Math.min(1.0, row.spend / spendTopAvg) : 0.4;
+    const purchaseRatio = purchasesTopAvg > 0 ? row.purchases / purchasesTopAvg : 0;
+    const purchaseBonus = purchaseRatio >= 1 ? 3 : purchaseRatio >= 0.5 ? 1.5 : 0;
+    const reliabilityScore = Math.max(0, Math.min(15, 5 + spendReliability * 7 + purchaseBonus));
+
     let action: CreativeDecisionAction = "watch";
 
-    if (!lowReliability && roasAvg > 0 && row.roas >= roasAvg * 1.45 && row.spend >= spendP50 && row.purchases >= 3) {
-      action = "scale_hard";
-    } else if (!lowReliability && roasAvg > 0 && row.roas >= roasAvg * 1.2) {
-      action = "scale";
-    } else if (!lowReliability && roasAvg > 0 && row.roas < roasAvg * 0.55 && row.spend >= spendP80 && row.purchases === 0) {
-      action = "kill";
-    } else if (!lowReliability && roasAvg > 0 && row.roas < roasAvg * 0.8) {
-      action = "pause";
-    } else if (lowReliability) {
+    if (reliabilityScore < 7) {
       action = "test_more";
-    } else {
+    } else if (reliabilityScore < 10) {
       action = "watch";
+    } else if (roasAvg > 0 && row.roas >= roasAvg * 1.45 && row.spend >= Math.max(1, spendP50) && row.purchases >= 3) {
+      action = "scale_hard";
+    } else if (roasAvg > 0 && row.roas >= roasAvg * 1.2) {
+      action = "scale";
+    } else if (roasAvg > 0 && row.roas < roasAvg * 0.55 && row.spend >= Math.max(1, spendP80) && row.purchases === 0) {
+      action = "kill";
+    } else if (roasAvg > 0 && row.roas < roasAvg * 0.8) {
+      action = "pause";
     }
 
     const confidenceBase =
-      lowReliability
+      reliabilityScore < 7
         ? 0.4
         : row.spend >= spendP50
           ? 0.72
@@ -534,7 +548,7 @@ export function buildHeuristicCreativeDecisions(
                 ? 34
                 : 18;
     const roasLift = roasAvg > 0 ? ((row.roas / roasAvg) - 1) * 18 : 0;
-    const reliabilityAdj = lowReliability ? -8 : row.purchases >= 3 ? 5 : row.purchases >= 1 ? 2 : -2;
+    const reliabilityAdj = reliabilityScore < 7 ? -8 : row.purchases >= 3 ? 5 : row.purchases >= 1 ? 2 : -2;
     const spendAdj = row.spend >= spendP50 ? 2 : -2;
     const score = Math.round(clamp(actionBaseScore + roasLift + reliabilityAdj + spendAdj, 0, 100));
 
