@@ -798,7 +798,8 @@ export default function CreativesPage() {
         includeNotes: false,
         note: "",
         creatives: selectedForShare.map(toSharedCreative),
-        benchmarkCreatives: filteredRows.map(toSharedCreative),
+        // Keep share payload compact; public page falls back to `creatives` as benchmark when omitted.
+        benchmarkCreatives: undefined,
       };
 
       const res = await fetch("/api/creatives/share", {
@@ -806,9 +807,20 @@ export default function CreativesPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const json = (await res.json().catch(() => null)) as { url?: string; message?: string } | null;
+      const text = await res.text();
+      const json = (() => {
+        if (!text) return null;
+        try {
+          return JSON.parse(text) as { url?: string; message?: string };
+        } catch {
+          return null;
+        }
+      })();
       if (!res.ok || !json?.url) {
-        throw new Error(json?.message ?? "Could not create share link.");
+        const fallbackMessage = res.status === 413
+          ? "Share payload is too large. Narrow the selection and try again."
+          : "Could not create share link.";
+        throw new Error(json?.message ?? fallbackMessage);
       }
       setShareUrl(json.url);
     } catch (error: unknown) {
