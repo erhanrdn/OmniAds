@@ -469,6 +469,10 @@ interface CreativeDecisionContext {
   roasAvg: number;
   cpaAvg: number;
   ctrAvg: number;
+  spendAvg: number;
+  spendTopAvg: number;
+  purchasesAvg: number;
+  purchasesTopAvg: number;
   spendMedian: number;
   spendP20: number;
   spendP50: number;
@@ -521,10 +525,25 @@ function buildCreativeDecisionContext(row: MetaCreativeRow, allRows: MetaCreativ
   const cpaAvg = totals.purchases > 0 ? totals.spend / totals.purchases : avg(sourceRows.map((item) => item.cpa));
   const ctrAvg = totals.impressions > 0 ? (totals.linkClicks / totals.impressions) * 100 : avg(sourceRows.map((item) => item.ctrAll));
 
+  const count = sourceRows.length || 1;
+  const spendValues = sourceRows.map((item) => (Number.isFinite(item.spend) ? item.spend : 0)).sort((a, b) => a - b);
+  const topQuartileStart = Math.ceil(spendValues.length * 0.75);
+  const topQuartileSpends = spendValues.slice(topQuartileStart);
+  const spendTopAvg = topQuartileSpends.length > 0 ? topQuartileSpends.reduce((s, v) => s + v, 0) / topQuartileSpends.length : totals.spend / count;
+
+  const purchasesValues = sourceRows.map((item) => (Number.isFinite(item.purchases) ? item.purchases : 0)).sort((a, b) => a - b);
+  const topQuartilePurchasesStart = Math.ceil(purchasesValues.length * 0.75);
+  const topQuartilePurchases = purchasesValues.slice(topQuartilePurchasesStart);
+  const purchasesTopAvg = topQuartilePurchases.length > 0 ? topQuartilePurchases.reduce((s, v) => s + v, 0) / topQuartilePurchases.length : totals.purchases / count;
+
   return {
     roasAvg,
     cpaAvg,
     ctrAvg,
+    spendAvg: totals.spend / count,
+    spendTopAvg,
+    purchasesAvg: totals.purchases / count,
+    purchasesTopAvg,
     spendMedian: percentile(sourceRows.map((item) => item.spend), 0.5),
     spendP20: percentile(sourceRows.map((item) => item.spend), 0.2),
     spendP50: percentile(sourceRows.map((item) => item.spend), 0.5),
@@ -556,12 +575,14 @@ function buildCreativeRuleReport(row: MetaCreativeRow, context: CreativeDecision
   const roasRatio = context.roasAvg > 0 ? row.roas / context.roasAvg : 1;
   const cpaRatio = context.cpaAvg > 0 ? row.cpa / context.cpaAvg : 1;
   const ctrRatio = context.ctrAvg > 0 ? row.ctrAll / context.ctrAvg : 1;
-  const spendReliability = context.spendP50 > 0 ? Math.min(1.2, row.spend / context.spendP50) : 0.6;
+  const spendReliability = context.spendTopAvg > 0 ? Math.min(1.0, row.spend / context.spendTopAvg) : 0.4;
+  const purchaseRatio = context.purchasesTopAvg > 0 ? row.purchases / context.purchasesTopAvg : 0;
+  const purchaseBonus = purchaseRatio >= 1 ? 4 : purchaseRatio >= 0.5 ? 2 : 0;
 
   const efficiencyScore = Math.max(0, Math.min(40, 25 + (roasRatio - 1) * 28 - Math.max(0, cpaRatio - 1) * 8));
   const engagementScore = Math.max(0, Math.min(20, 10 + (ctrRatio - 1) * 10 + ((row.thumbstop - context.hookAvg) / 100) * 8));
   const conversionScore = Math.max(0, Math.min(20, 8 + Math.min(12, row.purchases * 1.8)));
-  const reliabilityScore = Math.max(0, Math.min(20, 8 + spendReliability * 8 + (row.purchases >= 3 ? 4 : row.purchases >= 1 ? 2 : 0)));
+  const reliabilityScore = Math.max(0, Math.min(20, 8 + spendReliability * 8 + purchaseBonus));
   const score = Math.round(efficiencyScore + engagementScore + conversionScore + reliabilityScore);
 
   const confidenceBase = lowReliability ? 0.4 : row.spend >= context.spendP50 ? 0.72 : 0.58;
@@ -609,12 +630,14 @@ function buildScoreBreakdown(row: MetaCreativeRow, context: CreativeDecisionCont
   const roasRatio = context.roasAvg > 0 ? row.roas / context.roasAvg : 1;
   const cpaRatio = context.cpaAvg > 0 ? row.cpa / context.cpaAvg : 1;
   const ctrRatio = context.ctrAvg > 0 ? row.ctrAll / context.ctrAvg : 1;
-  const spendReliability = context.spendP50 > 0 ? Math.min(1.2, row.spend / context.spendP50) : 0.6;
+  const spendReliability = context.spendTopAvg > 0 ? Math.min(1.0, row.spend / context.spendTopAvg) : 0.4;
+  const purchaseRatio = context.purchasesTopAvg > 0 ? row.purchases / context.purchasesTopAvg : 0;
+  const purchaseBonus = purchaseRatio >= 1 ? 4 : purchaseRatio >= 0.5 ? 2 : 0;
 
   const efficiencyScore = Math.max(0, Math.min(40, 25 + (roasRatio - 1) * 28 - Math.max(0, cpaRatio - 1) * 8));
   const engagementScore = Math.max(0, Math.min(20, 10 + (ctrRatio - 1) * 10 + ((row.thumbstop - context.hookAvg) / 100) * 8));
   const conversionScore = Math.max(0, Math.min(20, 8 + Math.min(12, row.purchases * 1.8)));
-  const reliabilityScore = Math.max(0, Math.min(20, 8 + spendReliability * 8 + (row.purchases >= 3 ? 4 : row.purchases >= 1 ? 2 : 0)));
+  const reliabilityScore = Math.max(0, Math.min(20, 8 + spendReliability * 8 + purchaseBonus));
 
   return [
     {
@@ -643,7 +666,7 @@ function buildScoreBreakdown(row: MetaCreativeRow, context: CreativeDecisionCont
       label: "Reliability",
       points: Math.round(reliabilityScore),
       maxPoints: 20,
-      detail: `Spend ${row.spend.toFixed(2)} vs median ${context.spendP50.toFixed(2)} and signal consistency.`,
+      detail: `Spend ${row.spend.toFixed(2)} vs top-25% avg ${context.spendTopAvg.toFixed(2)} · Orders ${row.purchases} vs top-25% avg ${context.purchasesTopAvg.toFixed(1)}.`,
     },
   ];
 }
