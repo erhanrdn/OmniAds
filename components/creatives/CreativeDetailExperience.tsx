@@ -627,11 +627,15 @@ function buildCreativeRuleReport(row: MetaCreativeRow, context: CreativeDecision
   const initiateCheckoutVolumeScore = Math.max(0, Math.min(5, initiateCheckoutVolumeRatio * 5));
   const funnelScore = Math.max(0, Math.min(15, lpvToClickScore + addToCartVolumeScore + initiateCheckoutVolumeScore));
 
+  const thumbstopRatio = context.hookAvg > 0 ? row.thumbstop / context.hookAvg : 1;
+  const ctrSignal = Math.max(-1, Math.min(1, (ctrRatio - 1) / (ctrRatio + 1)));
+  const thumbstopSignal = Math.max(-1, Math.min(1, (thumbstopRatio - 1) / (thumbstopRatio + 1)));
+
   const efficiencyScore = Math.max(0, Math.min(40, 25 + (roasRatio - 1) * 28 - Math.max(0, cpaRatio - 1) * 8));
-  const engagementScore = Math.max(0, Math.min(15, 7 + (ctrRatio - 1) * 7 + ((row.thumbstop - context.hookAvg) / 100) * 5));
+  const engagementScore = ((ctrSignal + 1) / 2) * 7.5 + ((thumbstopSignal + 1) / 2) * 7.5;
   const conversionScore = Math.max(0, Math.min(15, 7 + (cvrRatio - 1) * 5 + (aovRatio - 1) * 3));
   const reliabilityScore = Math.max(0, Math.min(15, 5 + spendReliability * 7 + purchaseBonus));
-  const score = Math.round(efficiencyScore + engagementScore + conversionScore + reliabilityScore + funnelScore);
+  const score = Math.round(Math.max(0, Math.min(100, efficiencyScore + engagementScore + conversionScore + reliabilityScore + funnelScore)));
 
   let action: AiCreativeDecision["action"] = "watch";
   if (reliabilityScore < 7) action = "test_more";
@@ -702,8 +706,12 @@ function buildScoreBreakdown(row: MetaCreativeRow, context: CreativeDecisionCont
   const initiateCheckoutVolumeScore = Math.max(0, Math.min(5, initiateCheckoutVolumeRatio * 5));
   const funnelScore = Math.max(0, Math.min(15, lpvToClickScore + addToCartVolumeScore + initiateCheckoutVolumeScore));
 
+  const thumbstopRatio = context.hookAvg > 0 ? row.thumbstop / context.hookAvg : 1;
+  const ctrSignal = Math.max(-1, Math.min(1, (ctrRatio - 1) / (ctrRatio + 1)));
+  const thumbstopSignal = Math.max(-1, Math.min(1, (thumbstopRatio - 1) / (thumbstopRatio + 1)));
+
   const efficiencyScore = Math.max(0, Math.min(40, 25 + (roasRatio - 1) * 28 - Math.max(0, cpaRatio - 1) * 8));
-  const engagementScore = Math.max(0, Math.min(15, 7 + (ctrRatio - 1) * 7 + ((row.thumbstop - context.hookAvg) / 100) * 5));
+  const engagementScore = ((ctrSignal + 1) / 2) * 7.5 + ((thumbstopSignal + 1) / 2) * 7.5;
   const conversionScore = Math.max(0, Math.min(15, 7 + (cvrRatio - 1) * 5 + (aovRatio - 1) * 3));
   const reliabilityScore = Math.max(0, Math.min(15, 5 + spendReliability * 7 + purchaseBonus));
 
