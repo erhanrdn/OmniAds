@@ -233,6 +233,7 @@ async function fetchMetaCreatives(params: {
     format: params.format,
     sort: params.sort,
     mediaMode: params.mediaMode ?? "full",
+    snapshotBypass: "1",
   });
 
   const response = await fetch(`/api/meta/creatives?${query.toString()}`, {

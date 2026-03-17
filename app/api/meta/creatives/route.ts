@@ -580,31 +580,50 @@ function simpleHash(input: string): string {
   return (h >>> 0).toString(36);
 }
 
+function normalizeActionType(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+}
+
 function parseAction(arr: MetaActionValue[] | undefined, type: string): number {
   if (!Array.isArray(arr)) return 0;
-  const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
-  const target = normalize(type);
+  const target = normalizeActionType(type);
   let total = 0;
   for (const item of arr) {
-    const actionType = typeof item?.action_type === "string" ? normalize(item.action_type) : "";
-    if (!actionType) continue;
-    if (actionType === target || actionType.endsWith(`_${target}`)) {
-      total += parseFloat(item.value) || 0;
-    }
+    const actionType = typeof item?.action_type === "string" ? normalizeActionType(item.action_type) : "";
+    if (actionType !== target) continue;
+    total += parseFloat(item.value) || 0;
   }
   return total;
 }
 
+function parseActionAny(arr: MetaActionValue[] | undefined, candidates: string[]): number {
+  for (const candidate of candidates) {
+    const value = parseAction(arr, candidate);
+    if (value > 0) return value;
+  }
+  return 0;
+}
+
 function parsePurchaseCount(actions: MetaActionValue[] | undefined): number {
-  return parseAction(actions, "purchase") || parseAction(actions, "omni_purchase");
+  return parseActionAny(actions, [
+    "purchase",
+    "omni_purchase",
+    "offsite_conversion.fb_pixel_purchase",
+    "offsite_conversion_fb_pixel_purchase",
+  ]);
 }
 
 function parsePurchaseValue(values: MetaActionValue[] | undefined): number {
-  return parseAction(values, "purchase") || parseAction(values, "omni_purchase");
+  return parseActionAny(values, [
+    "purchase",
+    "omni_purchase",
+    "offsite_conversion.fb_pixel_purchase",
+    "offsite_conversion_fb_pixel_purchase",
+  ]);
 }
 
 function parsePurchaseRoas(roas: MetaActionValue[] | undefined): number {
-  return parseAction(roas, "purchase") || parseAction(roas, "omni_purchase");
+  return parseActionAny(roas, ["purchase", "omni_purchase"]);
 }
 
 
@@ -2278,7 +2297,7 @@ function toRawRow(
   const derivedPurchaseValue = purchaseValue > 0 ? purchaseValue : spend * purchaseRoas;
   const cpa = purchases > 0 ? spend / purchases : 0;
 
-  const linkClicks = parseAction(insight.actions, "link_click");
+  const linkClicks = parseActionAny(insight.actions, ["link_click", "omni_link_click"]);
   const cpcFromInsight = parseFloat(insight.cpc ?? "0") || 0;
   const cpcLink = linkClicks > 0 ? spend / linkClicks : cpcFromInsight;
   const cpm = parseFloat(insight.cpm ?? "0") || 0;
@@ -2288,20 +2307,34 @@ function toRawRow(
   const inlineLinkClicks = parseFloat(insight.inline_link_clicks ?? "0") || 0;
   const effectiveLinkClicks = linkClicks || inlineLinkClicks;
   const landingPageViews = Math.round(
-    parseAction(insight.actions, "landing_page_view") ||
-    parseAction(insight.actions, "omni_landing_page_view")
+    parseActionAny(insight.actions, [
+      "landing_page_view",
+      "omni_landing_page_view",
+      "offsite_conversion.fb_pixel_landing_page_view",
+      "offsite_conversion_fb_pixel_landing_page_view",
+    ])
   );
   const addToCart = Math.round(
-    parseAction(insight.actions, "omni_add_to_cart") ||
-    parseAction(insight.actions, "add_to_cart") ||
-    parseAction(insight.actions, "fb_mobile_add_to_cart")
+    parseActionAny(insight.actions, [
+      "omni_add_to_cart",
+      "add_to_cart",
+      "fb_mobile_add_to_cart",
+      "offsite_conversion.fb_pixel_add_to_cart",
+      "offsite_conversion_fb_pixel_add_to_cart",
+    ])
   );
   const initiateCheckout = Math.round(
-    parseAction(insight.actions, "omni_initiated_checkout") ||
-    parseAction(insight.actions, "initiated_checkout") ||
-    parseAction(insight.actions, "initiate_checkout") ||
-    parseAction(insight.actions, "fb_mobile_initiated_checkout") ||
-    parseAction(insight.actions, "fb_mobile_initiate_checkout")
+    parseActionAny(insight.actions, [
+      "omni_initiated_checkout",
+      "initiated_checkout",
+      "initiate_checkout",
+      "fb_mobile_initiated_checkout",
+      "fb_mobile_initiate_checkout",
+      "offsite_conversion.fb_pixel_initiate_checkout",
+      "offsite_conversion_fb_pixel_initiate_checkout",
+      "offsite_conversion.fb_pixel_initiated_checkout",
+      "offsite_conversion_fb_pixel_initiated_checkout",
+    ])
   );
   const video3sViews = parseFloat(insight.video_play_actions?.[0]?.value ?? "0") || 0;
   const video25Views = parseFloat(insight.video_p25_watched_actions?.[0]?.value ?? "0") || 0;
@@ -2557,9 +2590,9 @@ function groupRows(
     const video50Views = list.reduce((acc, item) => acc + (item.impressions > 0 ? (item.video50 / 100) * item.impressions : 0), 0);
     const video75Views = list.reduce((acc, item) => acc + (item.impressions > 0 ? (item.video75 / 100) * item.impressions : 0), 0);
     const video100Views = list.reduce((acc, item) => acc + (item.impressions > 0 ? (item.video100 / 100) * item.impressions : 0), 0);
-    const weightedCtr = spend > 0 ? list.reduce((acc, item) => acc + item.ctr_all * item.spend, 0) / spend : 0;
-    const weightedCpm = spend > 0 ? list.reduce((acc, item) => acc + item.cpm * item.spend, 0) / spend : 0;
-    const weightedCpc = spend > 0 ? list.reduce((acc, item) => acc + item.cpc_link * item.spend, 0) / spend : 0;
+    const weightedCtr = impressions > 0 ? list.reduce((acc, item) => acc + item.ctr_all * item.impressions, 0) / impressions : 0;
+    const weightedCpm = impressions > 0 ? (spend / impressions) * 1000 : 0;
+    const weightedCpc = linkClicks > 0 ? spend / linkClicks : 0;
     const earliestLaunch = [...list]
       .map((item) => item.launch_date)
       .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))[0];
@@ -3849,6 +3882,21 @@ export async function GET(request: NextRequest) {
       finalThumbnailUrl,
       finalImageUrl,
     });
+    const safeSpend = Number.isFinite(row.spend) ? Math.max(0, row.spend) : 0;
+    const safePurchases = Number.isFinite(row.purchases) ? Math.max(0, row.purchases) : 0;
+    const safeImpressions = Number.isFinite(row.impressions) ? Math.max(0, row.impressions) : 0;
+    const safeLinkClicks = Number.isFinite(row.link_clicks) ? Math.max(0, row.link_clicks) : 0;
+    const safeAddToCart = Number.isFinite(row.add_to_cart) ? Math.max(0, row.add_to_cart) : 0;
+    const basePurchaseValue = Number.isFinite(row.purchase_value) ? Math.max(0, row.purchase_value) : 0;
+    const roasFallbackValue = Number.isFinite(row.roas) && row.roas > 0 && safeSpend > 0 ? row.roas * safeSpend : 0;
+    const normalizedPurchaseValue = basePurchaseValue > 0 ? basePurchaseValue : roasFallbackValue;
+    const normalizedRoas = safeSpend > 0 ? normalizedPurchaseValue / safeSpend : 0;
+    const normalizedCpa = safePurchases > 0 ? safeSpend / safePurchases : 0;
+    const normalizedCpcLink = safeLinkClicks > 0 ? safeSpend / safeLinkClicks : 0;
+    const normalizedCpm = safeImpressions > 0 ? (safeSpend / safeImpressions) * 1000 : 0;
+    const normalizedCtrAll = safeImpressions > 0 ? (safeLinkClicks / safeImpressions) * 100 : 0;
+    const normalizedClickToAtc = safeLinkClicks > 0 ? (safeAddToCart / safeLinkClicks) * 100 : 0;
+    const normalizedAtcToPurchase = safeAddToCart > 0 ? (safePurchases / safeAddToCart) * 100 : 0;
     const baseRow: MetaCreativeApiRow = {
       id: row.id,
       creative_id: row.creative_id,
@@ -3886,22 +3934,22 @@ export async function GET(request: NextRequest) {
       format: row.format,
       creative_type: row.creative_type,
       creative_type_label: row.creative_type_label,
-      spend: row.spend,
-      purchase_value: row.purchase_value,
-      roas: row.roas,
-      cpa: row.cpa,
-      cpc_link: row.cpc_link,
-      cpm: row.cpm,
-      ctr_all: row.ctr_all,
-      purchases: row.purchases,
-      impressions: row.impressions,
-      link_clicks: row.link_clicks,
+      spend: r2(safeSpend),
+      purchase_value: r2(normalizedPurchaseValue),
+      roas: r2(normalizedRoas),
+      cpa: r2(normalizedCpa),
+      cpc_link: r2(normalizedCpcLink),
+      cpm: r2(normalizedCpm),
+      ctr_all: r2(normalizedCtrAll),
+      purchases: Math.round(safePurchases),
+      impressions: Math.round(safeImpressions),
+      link_clicks: Math.round(safeLinkClicks),
       landing_page_views: row.landing_page_views,
       add_to_cart: row.add_to_cart,
       initiate_checkout: row.initiate_checkout,
       thumbstop: row.thumbstop,
-      click_to_atc: row.click_to_atc,
-      atc_to_purchase: row.atc_to_purchase,
+      click_to_atc: r2(normalizedClickToAtc),
+      atc_to_purchase: r2(normalizedAtcToPurchase),
       video25: row.video25,
       video50: row.video50,
       video75: row.video75,
