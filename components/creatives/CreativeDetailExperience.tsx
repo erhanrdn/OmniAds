@@ -469,6 +469,8 @@ interface CreativeDecisionContext {
   roasAvg: number;
   cpaAvg: number;
   ctrAvg: number;
+  cvrAvg: number;
+  aovAvg: number;
   spendAvg: number;
   spendTopAvg: number;
   purchasesAvg: number;
@@ -524,6 +526,8 @@ function buildCreativeDecisionContext(row: MetaCreativeRow, allRows: MetaCreativ
   const roasAvg = totals.spend > 0 ? totals.purchaseValue / totals.spend : avg(sourceRows.map((item) => item.roas));
   const cpaAvg = totals.purchases > 0 ? totals.spend / totals.purchases : avg(sourceRows.map((item) => item.cpa));
   const ctrAvg = totals.impressions > 0 ? (totals.linkClicks / totals.impressions) * 100 : avg(sourceRows.map((item) => item.ctrAll));
+  const cvrAvg = totals.linkClicks > 0 ? (totals.purchases / totals.linkClicks) * 100 : avg(sourceRows.map((item) => (item.linkClicks > 0 ? (item.purchases / item.linkClicks) * 100 : 0)));
+  const aovAvg = totals.purchases > 0 ? totals.purchaseValue / totals.purchases : avg(sourceRows.map((item) => (item.purchases > 0 ? item.purchaseValue / item.purchases : 0)));
 
   const count = sourceRows.length || 1;
   const spendValues = sourceRows.map((item) => (Number.isFinite(item.spend) ? item.spend : 0)).sort((a, b) => a - b);
@@ -540,6 +544,8 @@ function buildCreativeDecisionContext(row: MetaCreativeRow, allRows: MetaCreativ
     roasAvg,
     cpaAvg,
     ctrAvg,
+    cvrAvg,
+    aovAvg,
     spendAvg: totals.spend / count,
     spendTopAvg,
     purchasesAvg: totals.purchases / count,
@@ -578,10 +584,14 @@ function buildCreativeRuleReport(row: MetaCreativeRow, context: CreativeDecision
   const spendReliability = context.spendTopAvg > 0 ? Math.min(1.0, row.spend / context.spendTopAvg) : 0.4;
   const purchaseRatio = context.purchasesTopAvg > 0 ? row.purchases / context.purchasesTopAvg : 0;
   const purchaseBonus = purchaseRatio >= 1 ? 4 : purchaseRatio >= 0.5 ? 2 : 0;
+  const cvr = row.linkClicks > 0 ? (row.purchases / row.linkClicks) * 100 : 0;
+  const cvrRatio = context.cvrAvg > 0 ? cvr / context.cvrAvg : 1;
+  const aov = row.purchases > 0 ? row.purchaseValue / row.purchases : 0;
+  const aovRatio = context.aovAvg > 0 ? aov / context.aovAvg : 1;
 
   const efficiencyScore = Math.max(0, Math.min(40, 25 + (roasRatio - 1) * 28 - Math.max(0, cpaRatio - 1) * 8));
   const engagementScore = Math.max(0, Math.min(20, 10 + (ctrRatio - 1) * 10 + ((row.thumbstop - context.hookAvg) / 100) * 8));
-  const conversionScore = Math.max(0, Math.min(20, 8 + Math.min(12, row.purchases * 1.8)));
+  const conversionScore = Math.max(0, Math.min(20, 10 + (cvrRatio - 1) * 6 + (aovRatio - 1) * 4));
   const reliabilityScore = Math.max(0, Math.min(20, 8 + spendReliability * 8 + purchaseBonus));
   const score = Math.round(efficiencyScore + engagementScore + conversionScore + reliabilityScore);
 
@@ -633,10 +643,14 @@ function buildScoreBreakdown(row: MetaCreativeRow, context: CreativeDecisionCont
   const spendReliability = context.spendTopAvg > 0 ? Math.min(1.0, row.spend / context.spendTopAvg) : 0.4;
   const purchaseRatio = context.purchasesTopAvg > 0 ? row.purchases / context.purchasesTopAvg : 0;
   const purchaseBonus = purchaseRatio >= 1 ? 4 : purchaseRatio >= 0.5 ? 2 : 0;
+  const cvr = row.linkClicks > 0 ? (row.purchases / row.linkClicks) * 100 : 0;
+  const cvrRatio = context.cvrAvg > 0 ? cvr / context.cvrAvg : 1;
+  const aov = row.purchases > 0 ? row.purchaseValue / row.purchases : 0;
+  const aovRatio = context.aovAvg > 0 ? aov / context.aovAvg : 1;
 
   const efficiencyScore = Math.max(0, Math.min(40, 25 + (roasRatio - 1) * 28 - Math.max(0, cpaRatio - 1) * 8));
   const engagementScore = Math.max(0, Math.min(20, 10 + (ctrRatio - 1) * 10 + ((row.thumbstop - context.hookAvg) / 100) * 8));
-  const conversionScore = Math.max(0, Math.min(20, 8 + Math.min(12, row.purchases * 1.8)));
+  const conversionScore = Math.max(0, Math.min(20, 10 + (cvrRatio - 1) * 6 + (aovRatio - 1) * 4));
   const reliabilityScore = Math.max(0, Math.min(20, 8 + spendReliability * 8 + purchaseBonus));
 
   return [
@@ -659,7 +673,7 @@ function buildScoreBreakdown(row: MetaCreativeRow, context: CreativeDecisionCont
       label: "Conversion depth",
       points: Math.round(conversionScore),
       maxPoints: 20,
-      detail: `${formatInteger(row.purchases)} purchases contribute to conversion confidence.`,
+      detail: `CVR ${cvr.toFixed(2)}% vs avg ${context.cvrAvg.toFixed(2)}%, AOV ${aov.toFixed(2)} vs avg ${context.aovAvg.toFixed(2)}.`,
     },
     {
       key: "reliability",
