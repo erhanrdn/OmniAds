@@ -41,6 +41,7 @@ export interface GenerateCreativeDecisionsInput {
   currency: string;
   creatives: CreativeDecisionInputRow[];
 }
+export const CREATIVE_DECISION_ENGINE_VERSION = "2026-03-17-cq-seg-v1";
 
 export interface CreativeDecisionResult {
   creativeId: string;
@@ -498,6 +499,12 @@ export function buildHeuristicCreativeDecisions(
   const purchasesP75 = percentile(purchaseValues, 0.75);
   const topQuartilePurchases = purchaseValues.filter((v) => v >= purchasesP75);
   const purchasesTopAvg = topQuartilePurchases.length > 0 ? topQuartilePurchases.reduce((a, b) => a + b, 0) / topQuartilePurchases.length : (purchaseValues.length > 0 ? purchaseValues[purchaseValues.length - 1] : 1);
+  const totalPurchases = safeRows.reduce((acc, row) => acc + (Number.isFinite(row.purchases) ? row.purchases : 0), 0);
+  const totalLinkClicks = safeRows.reduce((acc, row) => acc + (Number.isFinite(row.linkClicks) ? row.linkClicks : 0), 0);
+  const totalPurchaseValue = safeRows.reduce((acc, row) => acc + (Number.isFinite(row.purchaseValue) ? row.purchaseValue : 0), 0);
+  const cvrAvg = totalLinkClicks > 0 ? (totalPurchases / totalLinkClicks) * 100 : 0;
+  const aovAvg = totalPurchases > 0 ? totalPurchaseValue / totalPurchases : 0;
+  const avgConversionQuality = cvrAvg * aovAvg;
 
   const base = safeRows.map((row) => {
     // Reliability score (0-15), same formula as detail page
@@ -505,6 +512,12 @@ export function buildHeuristicCreativeDecisions(
     const purchaseRatio = purchasesTopAvg > 0 ? row.purchases / purchasesTopAvg : 0;
     const purchaseBonus = purchaseRatio >= 1 ? 3 : purchaseRatio >= 0.5 ? 1.5 : 0;
     const reliabilityScore = Math.max(0, Math.min(15, 5 + spendReliability * 7 + purchaseBonus));
+    const cvr = row.linkClicks > 0 ? (row.purchases / row.linkClicks) * 100 : 0;
+    const aov = row.purchases > 0 ? row.purchaseValue / row.purchases : 0;
+    const conversionQuality = cvr * aov;
+    const conversionQualityRatio = avgConversionQuality > 0 ? conversionQuality / avgConversionQuality : 0;
+    const strongConversionQuality = conversionQualityRatio >= 1.05;
+    const acceptableConversionQuality = conversionQualityRatio >= 0.9;
 
     let action: CreativeDecisionAction = "watch";
 
@@ -512,9 +525,9 @@ export function buildHeuristicCreativeDecisions(
       action = "test_more";
     } else if (reliabilityScore < 10) {
       action = "watch";
-    } else if (roasAvg > 0 && row.roas >= roasAvg * 1.45 && row.spend >= Math.max(1, spendP50) && row.purchases >= 3) {
+    } else if (roasAvg > 0 && row.roas >= roasAvg * 1.45 && row.spend >= Math.max(1, spendP50) && row.purchases >= 3 && strongConversionQuality) {
       action = "scale_hard";
-    } else if (roasAvg > 0 && row.roas >= roasAvg * 1.2) {
+    } else if (roasAvg > 0 && row.roas >= roasAvg * 1.2 && acceptableConversionQuality) {
       action = "scale";
     } else if (roasAvg > 0 && row.roas < roasAvg * 0.55 && row.spend >= Math.max(1, spendP80) && row.purchases === 0) {
       action = "kill";
@@ -554,6 +567,7 @@ export function buildHeuristicCreativeDecisions(
 
     const scoringFactors = [
       `ROAS ${row.roas.toFixed(2)} vs avg ${roasAvg.toFixed(2)}.`,
+      `Conversion quality ${conversionQuality.toFixed(2)} vs avg ${avgConversionQuality.toFixed(2)}.`,
       `Spend ${row.spend.toFixed(2)} vs median ${spendP50.toFixed(2)}.`,
       `Purchases ${row.purchases.toFixed(0)} and confidence ${Math.round(confidence * 100)}%.`,
     ];

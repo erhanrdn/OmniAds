@@ -619,9 +619,10 @@ function buildCreativeRuleReport(row: MetaCreativeRow, context: CreativeDecision
   const purchaseRatio = context.purchasesTopAvg > 0 ? row.purchases / context.purchasesTopAvg : 0;
   const purchaseBonus = purchaseRatio >= 1 ? 3 : purchaseRatio >= 0.5 ? 1.5 : 0;
   const cvr = safeLinkClicks > 0 ? (row.purchases / safeLinkClicks) * 100 : 0;
-  const cvrRatio = context.cvrAvg > 0 ? cvr / context.cvrAvg : 1;
   const aov = row.purchases > 0 ? row.purchaseValue / row.purchases : 0;
-  const aovRatio = context.aovAvg > 0 ? aov / context.aovAvg : 1;
+  const conversionQuality = cvr * aov;
+  const avgConversionQuality = context.cvrAvg * context.aovAvg;
+  const conversionQualityRatio = avgConversionQuality > 0 ? conversionQuality / avgConversionQuality : 0;
   const lpvToClick = safeLinkClicks > 0 ? (safeLandingPageViews / safeLinkClicks) * 100 : 0;
   const lpvToClickRatio = context.lpvToClickAvg > 0 ? lpvToClick / context.lpvToClickAvg : 1;
   const addToCartVolumeRatio = context.addToCartTopAvg > 0 ? safeAddToCart / context.addToCartTopAvg : 0;
@@ -637,15 +638,17 @@ function buildCreativeRuleReport(row: MetaCreativeRow, context: CreativeDecision
 
   const efficiencyScore = Math.max(0, Math.min(40, 25 + (roasRatio - 1) * 28 - Math.max(0, cpaRatio - 1) * 8));
   const engagementScore = ((ctrSignal + 1) / 2) * 7.5 + ((thumbstopSignal + 1) / 2) * 7.5;
-  const conversionScore = Math.max(0, Math.min(15, 7 + (cvrRatio - 1) * 5 + (aovRatio - 1) * 3));
+  const conversionScore = Math.max(0, Math.min(15, conversionQualityRatio * 15));
   const reliabilityScore = Math.max(0, Math.min(15, 5 + spendReliability * 7 + purchaseBonus));
   const score = Math.round(Math.max(0, Math.min(100, efficiencyScore + engagementScore + conversionScore + reliabilityScore + funnelScore)));
+  const strongConversionQuality = conversionQualityRatio >= 1.05;
+  const acceptableConversionQuality = conversionQualityRatio >= 0.9;
 
   let action: AiCreativeDecision["action"] = "watch";
   if (reliabilityScore < 7) action = "test_more";
   else if (reliabilityScore < 10) action = "watch";
-  else if (context.roasAvg > 0 && row.roas >= context.roasAvg * 1.45 && row.spend >= Math.max(1, context.spendP50) && row.purchases >= 3) action = "scale_hard";
-  else if (context.roasAvg > 0 && row.roas >= context.roasAvg * 1.2) action = "scale";
+  else if (context.roasAvg > 0 && row.roas >= context.roasAvg * 1.45 && row.spend >= Math.max(1, context.spendP50) && row.purchases >= 3 && strongConversionQuality) action = "scale_hard";
+  else if (context.roasAvg > 0 && row.roas >= context.roasAvg * 1.2 && acceptableConversionQuality) action = "scale";
   else if (context.roasAvg > 0 && row.roas < context.roasAvg * 0.55 && row.spend >= Math.max(1, context.spendP80) && row.purchases === 0) action = "kill";
   else if (context.roasAvg > 0 && row.roas < context.roasAvg * 0.8) action = "pause";
 
@@ -702,9 +705,10 @@ function buildScoreBreakdown(row: MetaCreativeRow, context: CreativeDecisionCont
   const purchaseRatio = context.purchasesTopAvg > 0 ? row.purchases / context.purchasesTopAvg : 0;
   const purchaseBonus = purchaseRatio >= 1 ? 3 : purchaseRatio >= 0.5 ? 1.5 : 0;
   const cvr = safeLinkClicks > 0 ? (row.purchases / safeLinkClicks) * 100 : 0;
-  const cvrRatio = context.cvrAvg > 0 ? cvr / context.cvrAvg : 1;
   const aov = row.purchases > 0 ? row.purchaseValue / row.purchases : 0;
-  const aovRatio = context.aovAvg > 0 ? aov / context.aovAvg : 1;
+  const conversionQuality = cvr * aov;
+  const avgConversionQuality = context.cvrAvg * context.aovAvg;
+  const conversionQualityRatio = avgConversionQuality > 0 ? conversionQuality / avgConversionQuality : 0;
   const lpvToClick = safeLinkClicks > 0 ? (safeLandingPageViews / safeLinkClicks) * 100 : 0;
   const lpvToClickRatio = context.lpvToClickAvg > 0 ? lpvToClick / context.lpvToClickAvg : 1;
   const addToCartVolumeRatio = context.addToCartTopAvg > 0 ? safeAddToCart / context.addToCartTopAvg : 0;
@@ -720,7 +724,7 @@ function buildScoreBreakdown(row: MetaCreativeRow, context: CreativeDecisionCont
 
   const efficiencyScore = Math.max(0, Math.min(40, 25 + (roasRatio - 1) * 28 - Math.max(0, cpaRatio - 1) * 8));
   const engagementScore = ((ctrSignal + 1) / 2) * 7.5 + ((thumbstopSignal + 1) / 2) * 7.5;
-  const conversionScore = Math.max(0, Math.min(15, 7 + (cvrRatio - 1) * 5 + (aovRatio - 1) * 3));
+  const conversionScore = Math.max(0, Math.min(15, conversionQualityRatio * 15));
   const reliabilityScore = Math.max(0, Math.min(15, 5 + spendReliability * 7 + purchaseBonus));
 
   return [
@@ -740,7 +744,7 @@ function buildScoreBreakdown(row: MetaCreativeRow, context: CreativeDecisionCont
     },
     {
       key: "conversion",
-      label: "Conversion depth",
+      label: "Conversion quality",
       points: Math.round(conversionScore),
       maxPoints: 15,
       detail: `CVR ${cvr.toFixed(2)}% vs avg ${context.cvrAvg.toFixed(2)}%, AOV ${aov.toFixed(2)} vs avg ${context.aovAvg.toFixed(2)}.`,

@@ -27,6 +27,7 @@ import { getAiCreativeDecisions, type AiCreativeDecision, type AiCreativeDecisio
 import { createPortal } from "react-dom";
 
 type AiSignalAction = AiCreativeDecision["action"];
+const AI_DECISION_ENGINE_VERSION = "2026-03-17-cq-seg-v1";
 
 const AI_SIGNAL_SEGMENTS: Array<{
   key: AiSignalAction;
@@ -712,15 +713,24 @@ export function CreativesTableSection({
     const spendDist = buildDistribution(spendValues);
     const totals = computeAggregateTotals(rows);
     const roasBaseline = totals.totalSpend > 0 ? totals.totalPurchaseValue / totals.totalSpend : roasDist.avg;
+    const cvrAvg = totals.totalLinkClicks > 0 ? (totals.totalPurchases / totals.totalLinkClicks) * 100 : 0;
+    const aovAvg = totals.totalPurchases > 0 ? totals.totalPurchaseValue / totals.totalPurchases : 0;
+    const avgConversionQuality = cvrAvg * aovAvg;
     const spendFloor = Math.max(1, spendDist.p20);
     const result = new Map<string, AiSignalAction>();
     for (const row of rows) {
       const lowSignal = row.spend < spendFloor || row.purchases < 2;
+      const cvr = row.linkClicks > 0 ? (row.purchases / row.linkClicks) * 100 : 0;
+      const aov = row.purchases > 0 ? row.purchaseValue / row.purchases : 0;
+      const conversionQuality = cvr * aov;
+      const conversionQualityRatio = avgConversionQuality > 0 ? conversionQuality / avgConversionQuality : 0;
+      const strongConversionQuality = conversionQualityRatio >= 1.05;
+      const acceptableConversionQuality = conversionQualityRatio >= 0.9;
       if (lowSignal) {
         result.set(row.id, "test_more");
-      } else if (roasBaseline > 0 && row.roas >= roasBaseline * 1.45 && row.purchases >= 3 && row.spend >= Math.max(1, spendDist.median)) {
+      } else if (roasBaseline > 0 && row.roas >= roasBaseline * 1.45 && row.purchases >= 3 && row.spend >= Math.max(1, spendDist.median) && strongConversionQuality) {
         result.set(row.id, "scale_hard");
-      } else if (roasBaseline > 0 && row.roas >= roasBaseline * 1.2) {
+      } else if (roasBaseline > 0 && row.roas >= roasBaseline * 1.2 && acceptableConversionQuality) {
         result.set(row.id, "scale");
       } else if (roasBaseline > 0 && row.roas < roasBaseline * 0.55 && row.spend >= Math.max(1, spendDist.p80) && row.purchases === 0) {
         result.set(row.id, "kill");
@@ -777,7 +787,7 @@ export function CreativesTableSection({
   );
 
   const aiDecisionQuery = useQuery({
-    queryKey: ["ai-creative-decisions", businessId, aiDecisionSignature],
+    queryKey: ["ai-creative-decisions", AI_DECISION_ENGINE_VERSION, businessId, aiDecisionSignature],
     enabled: Boolean(businessId) && aiDecisionInputRows.length > 0,
     staleTime: Number.POSITIVE_INFINITY,
     refetchOnWindowFocus: false,
@@ -800,7 +810,7 @@ export function CreativesTableSection({
         true
       ),
     onSuccess: (data) => {
-      queryClient.setQueryData(["ai-creative-decisions", businessId, aiDecisionSignature], data);
+      queryClient.setQueryData(["ai-creative-decisions", AI_DECISION_ENGINE_VERSION, businessId, aiDecisionSignature], data);
     },
   });
 

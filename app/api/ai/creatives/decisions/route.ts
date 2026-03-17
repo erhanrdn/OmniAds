@@ -4,6 +4,7 @@ import { requireBusinessAccess } from "@/lib/access";
 import { getDb } from "@/lib/db";
 import {
   buildHeuristicCreativeDecisions,
+  CREATIVE_DECISION_ENGINE_VERSION,
   type CreativeDecisionResult,
   type CreativeDecisionInputRow,
 } from "@/lib/ai/generate-creative-decisions";
@@ -74,6 +75,7 @@ function buildAnalysisKey(currency: string, creatives: CreativeDecisionInputRow[
   return createHash("sha256")
     .update(
       JSON.stringify({
+        decisionEngineVersion: CREATIVE_DECISION_ENGINE_VERSION,
         currency,
         creatives,
       })
