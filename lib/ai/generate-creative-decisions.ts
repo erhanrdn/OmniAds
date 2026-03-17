@@ -45,7 +45,9 @@ export interface GenerateCreativeDecisionsInput {
 export interface CreativeDecisionResult {
   creativeId: string;
   action: CreativeDecisionAction;
+  score: number;
   confidence: number;
+  scoringFactors: string[];
   reasons: string[];
   nextStep: string;
 }
@@ -264,6 +266,57 @@ function chunkRows<T>(rows: T[], size: number): T[][] {
   return chunks;
 }
 
+function computeWeightedRoas(rows: CreativeDecisionInputRow[]): number {
+  let totalSpend = 0;
+  let totalPurchaseValue = 0;
+
+  for (const row of rows) {
+    const spend = Number.isFinite(row.spend) ? row.spend : 0;
+    const purchaseValue = Number.isFinite(row.purchaseValue) ? row.purchaseValue : 0;
+    if (spend > 0) {
+      totalSpend += spend;
+      totalPurchaseValue += purchaseValue;
+    }
+  }
+
+  if (totalSpend <= 0) return 0;
+  return totalPurchaseValue / totalSpend;
+}
+
+function computeWeightedCpa(rows: CreativeDecisionInputRow[]): number {
+  let totalSpend = 0;
+  let totalPurchases = 0;
+  for (const row of rows) {
+    const spend = Number.isFinite(row.spend) ? row.spend : 0;
+    const purchases = Number.isFinite(row.purchases) ? row.purchases : 0;
+    if (spend > 0) {
+      totalSpend += spend;
+    }
+    if (purchases > 0) {
+      totalPurchases += purchases;
+    }
+  }
+  if (totalPurchases <= 0) return 0;
+  return totalSpend / totalPurchases;
+}
+
+function computeWeightedCtr(rows: CreativeDecisionInputRow[]): number {
+  let totalImpressions = 0;
+  let totalLinkClicks = 0;
+  for (const row of rows) {
+    const impressions = Number.isFinite(row.impressions) ? row.impressions : 0;
+    const linkClicks = Number.isFinite(row.linkClicks) ? row.linkClicks : 0;
+    if (impressions > 0) {
+      totalImpressions += impressions;
+    }
+    if (linkClicks > 0) {
+      totalLinkClicks += linkClicks;
+    }
+  }
+  if (totalImpressions <= 0) return 0;
+  return (totalLinkClicks / totalImpressions) * 100;
+}
+
 function buildUserPrompt(input: GenerateCreativeDecisionsInput): string {
   const spendValues = input.creatives
     .map((row) => (Number.isFinite(row.spend) ? row.spend : 0))
@@ -282,15 +335,30 @@ function buildUserPrompt(input: GenerateCreativeDecisionsInput): string {
   const spendP25 = percentile(spendValues, 0.25);
   const spendP75 = percentile(spendValues, 0.75);
   const roasMedian = percentile(roasValues, 0.5);
+  const weightedRoas = computeWeightedRoas(input.creatives);
+  const weightedCpa = computeWeightedCpa(input.creatives);
+  const weightedCtr = computeWeightedCtr(input.creatives);
   const accountAverageRoas =
-    roasValues.length > 0 ? roasValues.reduce((sum, value) => sum + value, 0) / roasValues.length : 0;
+    weightedRoas > 0
+      ? weightedRoas
+      : roasValues.length > 0
+        ? roasValues.reduce((sum, value) => sum + value, 0) / roasValues.length
+        : 0;
   const accountAverageCpa =
-    cpaValues.length > 0 ? cpaValues.reduce((sum, value) => sum + value, 0) / cpaValues.length : 0;
+    weightedCpa > 0
+      ? weightedCpa
+      : cpaValues.length > 0
+        ? cpaValues.reduce((sum, value) => sum + value, 0) / cpaValues.length
+        : 0;
   const ctrValues = input.creatives
     .map((row) => (Number.isFinite(row.ctr) ? row.ctr : 0))
     .filter((value) => value >= 0);
   const accountAverageCTR =
-    ctrValues.length > 0 ? ctrValues.reduce((sum, value) => sum + value, 0) / ctrValues.length : 0;
+    weightedCtr > 0
+      ? weightedCtr
+      : ctrValues.length > 0
+        ? ctrValues.reduce((sum, value) => sum + value, 0) / ctrValues.length
+        : 0;
   const totalImpressions = input.creatives.reduce(
     (sum, row) => sum + (Number.isFinite(row.impressions) ? row.impressions : 0),
     0
@@ -411,7 +479,13 @@ export function buildHeuristicCreativeDecisions(
   const roasValues = safeRows.map((r) => r.roas).filter((v) => Number.isFinite(v) && v >= 0).sort((a, b) => a - b);
   const spendValues = safeRows.map((r) => r.spend).filter((v) => Number.isFinite(v) && v > 0).sort((a, b) => a - b);
 
-  const roasAvg = roasValues.length > 0 ? roasValues.reduce((a, b) => a + b, 0) / roasValues.length : 0;
+  const weightedRoas = computeWeightedRoas(safeRows);
+  const roasAvg =
+    weightedRoas > 0
+      ? weightedRoas
+      : roasValues.length > 0
+        ? roasValues.reduce((a, b) => a + b, 0) / roasValues.length
+        : 0;
   const spendP20 = percentile(spendValues, 0.2);
   const spendP50 = percentile(spendValues, 0.5);
   const spendP80 = percentile(spendValues, 0.8);
@@ -446,6 +520,29 @@ export function buildHeuristicCreativeDecisions(
       0.3,
       0.88
     );
+
+    const actionBaseScore =
+      action === "scale_hard"
+        ? 90
+        : action === "scale"
+          ? 80
+          : action === "watch"
+            ? 60
+            : action === "test_more"
+              ? 52
+              : action === "pause"
+                ? 34
+                : 18;
+    const roasLift = roasAvg > 0 ? ((row.roas / roasAvg) - 1) * 18 : 0;
+    const reliabilityAdj = lowReliability ? -8 : row.purchases >= 3 ? 5 : row.purchases >= 1 ? 2 : -2;
+    const spendAdj = row.spend >= spendP50 ? 2 : -2;
+    const score = Math.round(clamp(actionBaseScore + roasLift + reliabilityAdj + spendAdj, 0, 100));
+
+    const scoringFactors = [
+      `ROAS ${row.roas.toFixed(2)} vs avg ${roasAvg.toFixed(2)}.`,
+      `Spend ${row.spend.toFixed(2)} vs median ${spendP50.toFixed(2)}.`,
+      `Purchases ${row.purchases.toFixed(0)} and confidence ${Math.round(confidence * 100)}%.`,
+    ];
 
     const reasons =
       action === "scale_hard"
@@ -494,7 +591,9 @@ export function buildHeuristicCreativeDecisions(
     return {
       creativeId: row.creativeId,
       action,
+      score,
       confidence,
+      scoringFactors,
       reasons,
       nextStep,
     };
@@ -522,8 +621,15 @@ function applyDecisionGuardrails(
     .filter((v) => Number.isFinite(v) && v > 0)
     .sort((a, b) => a - b);
 
-  const roasAvg = roasValues.length > 0 ? roasValues.reduce((a, b) => a + b, 0) / roasValues.length : 0;
-  const cpaAvg = cpaValues.length > 0 ? cpaValues.reduce((a, b) => a + b, 0) / cpaValues.length : 0;
+  const weightedRoas = computeWeightedRoas(rows);
+  const roasAvg =
+    weightedRoas > 0
+      ? weightedRoas
+      : roasValues.length > 0
+        ? roasValues.reduce((a, b) => a + b, 0) / roasValues.length
+        : 0;
+  const weightedCpa = computeWeightedCpa(rows);
+  const cpaAvg = weightedCpa > 0 ? weightedCpa : cpaValues.length > 0 ? cpaValues.reduce((a, b) => a + b, 0) / cpaValues.length : 0;
   const spendP60 = percentile(spendValues, 0.6);
   const spendP75 = percentile(spendValues, 0.75);
   const spendP35 = percentile(spendValues, 0.35);
@@ -545,7 +651,15 @@ function applyDecisionGuardrails(
       return {
         ...decision,
         action: "pause",
+        score: Math.min(decision.score, veryHighSpend ? 36 : 42),
         confidence: Math.max(decision.confidence, veryHighSpend ? 0.82 : 0.74),
+        scoringFactors: [
+          `High spend pressure: ${row.spend.toFixed(2)} (>= p60 ${spendP60.toFixed(2)}).`,
+          `ROAS ${row.roas.toFixed(2)} is weak vs avg ${roasAvg.toFixed(2)}.`,
+          weakCpa
+            ? `CPA ${row.cpa.toFixed(2)} is above avg ${cpaAvg.toFixed(2)}.`
+            : "Conversion output is weak for current spend.",
+        ],
         reasons: [
           "Spend is high relative to this account while ROAS is significantly below average.",
           weakCpa
@@ -561,7 +675,13 @@ function applyDecisionGuardrails(
       return {
         ...decision,
         action: "watch",
+        score: Math.min(decision.score, 58),
         confidence: Math.min(decision.confidence, 0.56),
+        scoringFactors: [
+          `ROAS ${row.roas.toFixed(2)} underperforms avg ${roasAvg.toFixed(2)}.`,
+          `CPA ${row.cpa.toFixed(2)} exceeds avg ${cpaAvg.toFixed(2)}.`,
+          "Scale confidence reduced until efficiency recovers.",
+        ],
         reasons: [
           "Efficiency signals are weaker than account baseline.",
           "Hold budget increase until ROAS/CPA stabilizes.",
@@ -636,12 +756,33 @@ export async function generateCreativeDecisions(
         const analysisText = typeof item.analysis === "string" ? item.analysis.trim() : "";
         const reasonsFromAnalysis = analysisText.length > 0 ? [analysisText] : [];
         const reasons = sanitizeReasonList(item.reasons);
+        const score =
+          typeof item.score === "number" && Number.isFinite(item.score)
+            ? Math.round(clamp(item.score, 0, 100))
+            : action === "scale_hard"
+              ? 88
+              : action === "scale"
+                ? 74
+                : action === "watch"
+                  ? 58
+                  : action === "test_more"
+                    ? 52
+                    : action === "pause"
+                      ? 38
+                      : 24;
+        const reasonsForOutput = reasons.length > 0 ? reasons : reasonsFromAnalysis;
+        const scoringFactors =
+          reasonsForOutput.length > 0
+            ? reasonsForOutput.slice(0, 4)
+            : ["Score derived from normalized action and confidence."];
 
         decisions.push({
           creativeId,
           action,
+          score,
           confidence: mappedConfidence,
-          reasons: reasons.length > 0 ? reasons : reasonsFromAnalysis,
+          scoringFactors,
+          reasons: reasonsForOutput,
           nextStep:
             typeof item.nextStep === "string" && item.nextStep.trim().length > 0
               ? item.nextStep.trim()

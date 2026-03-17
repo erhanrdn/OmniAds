@@ -710,19 +710,21 @@ export function CreativesTableSection({
     const spendValues = rows.map((r) => r.spend).filter((v) => Number.isFinite(v) && v > 0);
     const roasDist = buildDistribution(roasValues);
     const spendDist = buildDistribution(spendValues);
+    const totals = computeAggregateTotals(rows);
+    const roasBaseline = totals.totalSpend > 0 ? totals.totalPurchaseValue / totals.totalSpend : roasDist.avg;
     const spendFloor = Math.max(1, spendDist.p20);
     const result = new Map<string, AiSignalAction>();
     for (const row of rows) {
       const lowSignal = row.spend < spendFloor || row.purchases < 2;
       if (lowSignal) {
         result.set(row.id, "test_more");
-      } else if (roasDist.avg > 0 && row.roas >= roasDist.avg * 1.45 && row.purchases >= 3 && row.spend >= Math.max(1, spendDist.median)) {
+      } else if (roasBaseline > 0 && row.roas >= roasBaseline * 1.45 && row.purchases >= 3 && row.spend >= Math.max(1, spendDist.median)) {
         result.set(row.id, "scale_hard");
-      } else if (roasDist.avg > 0 && row.roas >= roasDist.avg * 1.2) {
+      } else if (roasBaseline > 0 && row.roas >= roasBaseline * 1.2) {
         result.set(row.id, "scale");
-      } else if (roasDist.avg > 0 && row.roas < roasDist.avg * 0.55 && row.spend >= Math.max(1, spendDist.p80) && row.purchases === 0) {
+      } else if (roasBaseline > 0 && row.roas < roasBaseline * 0.55 && row.spend >= Math.max(1, spendDist.p80) && row.purchases === 0) {
         result.set(row.id, "kill");
-      } else if (roasDist.avg > 0 && row.roas < roasDist.avg * 0.75) {
+      } else if (roasBaseline > 0 && row.roas < roasBaseline * 0.75) {
         result.set(row.id, "pause");
       } else {
         result.set(row.id, "watch");

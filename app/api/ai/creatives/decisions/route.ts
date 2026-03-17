@@ -4,7 +4,6 @@ import { requireBusinessAccess } from "@/lib/access";
 import { getDb } from "@/lib/db";
 import {
   buildHeuristicCreativeDecisions,
-  generateCreativeDecisions,
   type CreativeDecisionResult,
   type CreativeDecisionInputRow,
 } from "@/lib/ai/generate-creative-decisions";
@@ -21,42 +20,6 @@ interface CachedCreativeDecisionRow {
   source: "ai" | "fallback";
   warning: string | null;
   updated_at: string;
-}
-
-function sanitizeAiErrorMessage(input: string): string {
-  const normalized = input.toLowerCase();
-  if (normalized.includes("incorrect api key") || normalized.includes("invalid_api_key")) {
-    return "AI service is not configured correctly (invalid API key).";
-  }
-  if (normalized.includes("api key") && normalized.includes("not set")) {
-    return "AI service is not configured (missing API key).";
-  }
-  if (normalized.includes("rate limit") || normalized.includes("quota")) {
-    return "AI service is temporarily rate limited. Please try again shortly.";
-  }
-  if (normalized.includes("empty response")) {
-    return "AI returned an empty response for creative decisions.";
-  }
-  if (normalized.includes("json") && normalized.includes("schema")) {
-    return "AI returned a response that did not match the expected decision schema.";
-  }
-  if (normalized.includes("unexpected token") || normalized.includes("json") && normalized.includes("position")) {
-    return "AI returned invalid JSON for creative decisions.";
-  }
-  if (normalized.includes("timed out")) {
-    return "AI creative decision request timed out.";
-  }
-  if (normalized.includes("response_format") || normalized.includes("json_object")) {
-    return "AI model response format is not compatible with structured JSON mode for this request.";
-  }
-  if (normalized.includes("context length") || normalized.includes("maximum context length")) {
-    return "AI request exceeded model context limits. Try a smaller selection or rerun analysis.";
-  }
-  if (normalized.includes("all creative decision batches failed")) {
-    const short = input.slice(0, 220);
-    return `AI decision generation failed (${short}).`;
-  }
-  return "AI decision generation failed. Please try again.";
 }
 
 function toFinite(value: unknown): number {
@@ -137,10 +100,17 @@ function normalizeDecisionArray(value: unknown): CreativeDecisionResult[] {
       return {
         creativeId: source.creativeId,
         action,
+        score:
+          typeof source.score === "number" && Number.isFinite(source.score)
+            ? Math.max(0, Math.min(100, Math.round(source.score)))
+            : 50,
         confidence:
           typeof source.confidence === "number" && Number.isFinite(source.confidence)
             ? source.confidence
             : 0.5,
+        scoringFactors: Array.isArray(source.scoringFactors)
+          ? source.scoringFactors.filter((factor): factor is string => typeof factor === "string")
+          : [],
         reasons: Array.isArray(source.reasons)
           ? source.reasons.filter((reason): reason is string => typeof reason === "string")
           : [],
@@ -245,73 +215,23 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  try {
-    const decisions = await generateCreativeDecisions({
-      businessId: access.membership.businessId,
-      currency,
-      creatives,
-    });
+  const decisions = buildHeuristicCreativeDecisions(creatives);
 
-    const byId = new Map(decisions.map((item) => [item.creativeId, item]));
-    const heuristicById = new Map(
-      buildHeuristicCreativeDecisions(creatives).map((item) => [item.creativeId, item])
-    );
-    const completeDecisions = creatives.map((row) => {
-      const matched = byId.get(row.creativeId);
-      if (matched) return matched;
-      return (
-        heuristicById.get(row.creativeId) ?? {
-          creativeId: row.creativeId,
-          action: "watch" as const,
-          confidence: 0.35,
-          reasons: ["AI did not return a decision for this creative."],
-          nextStep: "Keep active and re-evaluate after more spend.",
-        }
-      );
-    });
-    const matchedCount = decisions.length;
-    const partialWarning =
-      matchedCount < creatives.length
-        ? `AI returned decisions for ${matchedCount}/${creatives.length} creatives. Remaining creatives used rule-based fallback.`
-        : null;
+  await saveCreativeDecisions({
+    businessId: access.membership.businessId,
+    analysisKey,
+    currency,
+    creativeCount: creatives.length,
+    decisions,
+    source: "ai",
+    warning: null,
+  });
 
-    await saveCreativeDecisions({
-      businessId: access.membership.businessId,
-      analysisKey,
-      currency,
-      creativeCount: creatives.length,
-      decisions: completeDecisions,
-      source: "ai",
-      warning: partialWarning,
-    });
-
-    return NextResponse.json({
-      ok: true,
-      source: "ai",
-      warning: partialWarning,
-      lastSyncedAt: new Date().toISOString(),
-      decisions: completeDecisions,
-    });
-  } catch (err) {
-    const rawMessage = err instanceof Error ? err.message : "Unknown error";
-    console.error("[ai/creatives/decisions] generation failed", rawMessage);
-    const message = sanitizeAiErrorMessage(rawMessage);
-    const fallbackDecisions = buildHeuristicCreativeDecisions(creatives);
-    await saveCreativeDecisions({
-      businessId: access.membership.businessId,
-      analysisKey,
-      currency,
-      creativeCount: creatives.length,
-      decisions: fallbackDecisions,
-      source: "fallback",
-      warning: message,
-    });
-    return NextResponse.json({
-      ok: true,
-      source: "fallback",
-      warning: message,
-      lastSyncedAt: new Date().toISOString(),
-      decisions: fallbackDecisions,
-    });
-  }
+  return NextResponse.json({
+    ok: true,
+    source: "ai",
+    warning: null,
+    lastSyncedAt: new Date().toISOString(),
+    decisions,
+  });
 }
