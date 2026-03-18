@@ -234,9 +234,10 @@ function fmtNumber(n: number): string {
 }
 
 type TrendLabelMode = "day" | "month";
-type PanelKey = "insights" | "assetGroupAudience" | "products" | "assets";
+type PanelKey = "summary" | "insights" | "assetGroupAudience" | "products" | "assets";
 
 const PANEL_ITEMS: Array<{ key: PanelKey; label: string }> = [
+  { key: "summary", label: "Summary" },
   { key: "insights", label: "Insights & Reports" },
   { key: "assetGroupAudience", label: "Asset Group & Audience Signals" },
   { key: "products", label: "Product Spend & Performance" },
@@ -308,7 +309,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
   const [channelFilter, setChannelFilter] = useState<string>("all");
   const [selectedCampaignNames, setSelectedCampaignNames] = useState<string[]>([]);
   const [includeSpentInactive, setIncludeSpentInactive] = useState(false);
-  const [activePanel, setActivePanel] = useState<PanelKey>("insights");
+  const [activePanel, setActivePanel] = useState<PanelKey>("summary");
 
   const { start: startDate, end: endDate } = getPresetDates(
     dateRange.rangePreset,
@@ -692,6 +693,24 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
 
   return (
     <div className="space-y-5">
+      <div className="flex justify-center border-b border-border -mx-6 px-6 -mt-3">
+        {PANEL_ITEMS.map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            onClick={() => setActivePanel(item.key)}
+            className={cn(
+              "whitespace-nowrap px-5 pb-2.5 pt-0 text-sm font-semibold transition-all border-b-2 -mb-px",
+              activePanel === item.key
+                ? "border-foreground text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
+            )}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="flex flex-wrap items-center gap-2">
@@ -758,47 +777,79 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
         </div>
       </div>
 
-      <div className="flex gap-1 overflow-auto rounded-xl border border-border/70 bg-muted/20 p-1">
-        {PANEL_ITEMS.map((item) => (
-          <button
-            key={item.key}
-            type="button"
-            onClick={() => setActivePanel(item.key)}
-            className={cn(
-              "whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
-              activePanel === item.key
-                ? "bg-card text-foreground shadow-sm"
-                : "text-muted-foreground hover:bg-background/60 hover:text-foreground"
+      {activePanel === "summary" && <section className="mb-6">
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-5">
+            {isLoading ? Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-xl" />) : (
+              <>
+                <Kpi label="Spend" value={fmtCurrency(totalSpend)} series={trendData(totalSpend, trendTimelineDates)} formatter={fmtCurrency} dateLabelMode={trendLabelMode} />
+                <Kpi label="ROAS" value={fmtRoas(blendedRoas)} series={trendData(blendedRoas, trendTimelineDates)} formatter={fmtRoas} dateLabelMode={trendLabelMode} highlight={blendedRoas >= 3} />
+                <Kpi label="Revenue" value={fmtCurrency(totalRevenue)} series={trendData(totalRevenue, trendTimelineDates)} formatter={fmtCurrency} dateLabelMode={trendLabelMode} />
+                <Kpi label="Conv" value={totalConv.toFixed(0)} series={trendData(totalConv, trendTimelineDates)} formatter={(v) => v.toFixed(0)} dateLabelMode={trendLabelMode} />
+                <Kpi label="CPA" value={totalConv > 0 ? fmtCurrency(blendedCpa) : "-"} series={trendData(blendedCpa, trendTimelineDates)} formatter={fmtCurrency} dateLabelMode={trendLabelMode} />
+              </>
             )}
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
+        </div>
+        <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-7">
+            <OverviewMetric
+              label="Impressions"
+              value={fmtNumber(totalImpressions)}
+              accent="sky"
+              series={trendData(totalImpressions, trendTimelineDates)}
+              formatter={fmtNumber}
+              dateLabelMode={trendLabelMode}
+            />
+            <OverviewMetric
+              label="Clicks"
+              value={fmtNumber(totalClicks)}
+              accent="emerald"
+              series={trendData(totalClicks, trendTimelineDates)}
+              formatter={fmtNumber}
+              dateLabelMode={trendLabelMode}
+            />
+            <OverviewMetric
+              label="CTR"
+              value={fmtPct(blendedCtr)}
+              accent="indigo"
+              series={trendData(blendedCtr, trendTimelineDates)}
+              formatter={fmtPct}
+              dateLabelMode={trendLabelMode}
+            />
+            <OverviewMetric
+              label="Average CPC"
+              value={totalClicks > 0 ? fmtCurrency(blendedCpc) : "-"}
+              accent="amber"
+              series={trendData(totalClicks > 0 ? blendedCpc : 0, trendTimelineDates)}
+              formatter={fmtCurrency}
+              dateLabelMode={trendLabelMode}
+            />
+            <OverviewMetric
+              label="Conversion Rate"
+              value={totalClicks > 0 ? fmtPct(blendedCvR) : "-"}
+              accent="teal"
+              series={trendData(totalClicks > 0 ? blendedCvR : 0, trendTimelineDates)}
+              formatter={fmtPct}
+              dateLabelMode={trendLabelMode}
+            />
+            <OverviewMetric
+              label="Impression Share"
+              value={avgImpressionShare > 0 ? fmtPct(avgImpressionShare) : "-"}
+              accent="violet"
+              series={trendData(avgImpressionShare > 0 ? avgImpressionShare : 0, trendTimelineDates)}
+              formatter={fmtPct}
+              dateLabelMode={trendLabelMode}
+            />
+            <OverviewMetric
+              label="Lost IS (Budget)"
+              value={avgLostIsBudget > 0 ? fmtPct(avgLostIsBudget) : "-"}
+              accent="rose"
+              series={trendData(avgLostIsBudget > 0 ? avgLostIsBudget : 0, trendTimelineDates)}
+              formatter={fmtPct}
+              dateLabelMode={trendLabelMode}
+            />
+        </div>
+      </section>}
 
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-5">
-        {isLoading ? Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-xl" />) : (
-          <>
-            <Kpi label="Spend" value={fmtCurrency(totalSpend)} series={trendData(totalSpend, trendTimelineDates)} formatter={fmtCurrency} dateLabelMode={trendLabelMode} />
-            <Kpi label="ROAS" value={fmtRoas(blendedRoas)} series={trendData(blendedRoas, trendTimelineDates)} formatter={fmtRoas} dateLabelMode={trendLabelMode} highlight={blendedRoas >= 3} />
-            <Kpi label="Revenue" value={fmtCurrency(totalRevenue)} series={trendData(totalRevenue, trendTimelineDates)} formatter={fmtCurrency} dateLabelMode={trendLabelMode} />
-            <Kpi label="Conv" value={totalConv.toFixed(0)} series={trendData(totalConv, trendTimelineDates)} formatter={(v) => v.toFixed(0)} dateLabelMode={trendLabelMode} />
-            <Kpi label="CPA" value={totalConv > 0 ? fmtCurrency(blendedCpa) : "-"} series={trendData(blendedCpa, trendTimelineDates)} formatter={fmtCurrency} dateLabelMode={trendLabelMode} />
-          </>
-        )}
-      </div>
-
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-7">
-        <Metric label="Impr." value={fmtNumber(totalImpressions)} />
-        <Metric label="Clicks" value={fmtNumber(totalClicks)} />
-        <Metric label="CTR" value={fmtPct(blendedCtr)} />
-        <Metric label="CPC" value={totalClicks > 0 ? fmtCurrency(blendedCpc) : "-"} />
-        <Metric label="Conv. Rate" value={totalClicks > 0 ? fmtPct(blendedCvR) : "-"} />
-        <Metric label="Impr. Share" value={avgImpressionShare > 0 ? fmtPct(avgImpressionShare) : "-"} />
-        <Metric label="Lost IS (Budget)" value={avgLostIsBudget > 0 ? fmtPct(avgLostIsBudget) : "-"} />
-      </div>
-
-      {isLoading ? (
+      {activePanel === "summary" && (isLoading ? (
         <div className="space-y-2.5">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-xl" />)}</div>
       ) : sortedRows.length === 0 ? (
         <div className="flex min-h-[18vh] flex-col items-center justify-center rounded-2xl border border-dashed">
@@ -808,7 +859,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
         <div className="grid gap-2 md:grid-cols-3 xl:grid-cols-5 2xl:grid-cols-6">
           {sortedRows.map((c) => <CampaignCard key={c.id} campaign={c} accountAvgRoas={data?.summary.accountAvgRoas ?? blendedRoas} />)}
         </div>
-      )}
+      ))}
 
       {activePanel === "insights" ? (
         <section className="space-y-3 rounded-xl border border-border/70 bg-card p-3">
@@ -1105,6 +1156,43 @@ function Metric({ label, value, valueColor }: { label: string; value: string; va
     <div>
       <p className="text-[9px] font-medium text-muted-foreground">{label}</p>
       <p className={cn("text-[13px] font-semibold", valueColor)}>{value}</p>
+    </div>
+  );
+}
+
+function OverviewMetric({
+  label,
+  value,
+  accent,
+  series,
+  formatter,
+  dateLabelMode,
+}: {
+  label: string;
+  value: string;
+  accent: "sky" | "emerald" | "indigo" | "amber" | "teal" | "violet" | "rose";
+  series: Array<{ date: string; value: number }>;
+  formatter: (value: number) => string;
+  dateLabelMode: TrendLabelMode;
+}) {
+  const accentClasses: Record<typeof accent, string> = {
+    sky: "from-sky-200/80 to-sky-400/80",
+    emerald: "from-emerald-200/80 to-emerald-400/80",
+    indigo: "from-indigo-200/80 to-indigo-400/80",
+    amber: "from-amber-200/80 to-amber-400/80",
+    teal: "from-teal-200/80 to-teal-400/80",
+    violet: "from-violet-200/80 to-violet-400/80",
+    rose: "from-rose-200/80 to-rose-400/80",
+  };
+
+  return (
+    <div className="rounded-xl border border-border/70 bg-card/90 p-2.5 shadow-sm transition-colors hover:bg-card">
+      <div className={cn("h-1 w-10 rounded-full bg-gradient-to-r", accentClasses[accent])} />
+      <p className="mt-2 text-[10px] font-medium tracking-wide text-muted-foreground">{label}</p>
+      <p className="mt-1 text-[18px] font-semibold leading-none tracking-tight text-foreground">{value}</p>
+      <div className="mt-1.5">
+        <MiniTrendAreaChart data={series} tone="neutral" valueFormatter={formatter} dateLabelMode={dateLabelMode} className="h-8 w-full" />
+      </div>
     </div>
   );
 }

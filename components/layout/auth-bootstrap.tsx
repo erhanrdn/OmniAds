@@ -72,7 +72,7 @@ export function AuthBootstrap() {
           activeBusinessId: payload.activeBusinessId ?? null,
         });
       } catch (error: unknown) {
-        if (!mounted || controller.signal.aborted) return;
+        if (!mounted || controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError")) return;
         logClientAuthEvent("bootstrap_request_failed", {
           pathname,
           message: error instanceof Error ? error.message : "unknown_error",

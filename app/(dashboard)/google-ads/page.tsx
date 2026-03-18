@@ -20,9 +20,7 @@ export default function GoogleAdsPage() {
     if (businessId) ensureBusiness(businessId);
   }, [businessId, ensureBusiness]);
 
-  if (!selectedBusinessId) {
-    return <BusinessEmptyState />;
-  }
+  if (!selectedBusinessId) return <BusinessEmptyState />;
 
   const googleStatus = byBusinessId[businessId]?.google?.status;
   const isDemoBusiness = isDemoBusinessSelected(selectedBusinessId, businesses);
