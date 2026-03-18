@@ -635,6 +635,11 @@ export default function CreativesPage() {
       return "media_hydrating";
     }
 
+    // For demo businesses, skip media hydration check — rows have local image URLs and are always ready.
+    if (isDemoBusiness) {
+      return "ready";
+    }
+
     const mediaHydrated = previewStatusPayload?.media_hydrated === true;
     const previewCoverage = previewStatusPayload?.preview_coverage?.previewCoverage ?? 0;
 
@@ -651,6 +656,7 @@ export default function CreativesPage() {
     creativesMetadataQuery.data?.rows,
     creativesMetadataQuery.isFetching,
     creativesMetadataQuery.isLoading,
+    isDemoBusiness,
     previewStatusPayload,
   ]);
   const topPreviewRows = useMemo(

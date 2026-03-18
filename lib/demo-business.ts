@@ -168,6 +168,58 @@ export function getDemoOverview() {
   };
 }
 
+export function getDemoSparklines() {
+  const days: Array<{ date: string; spend: number; revenue: number; purchases: number }> = [
+    { date: "2026-02-10", spend: 980, revenue: 3140, purchases: 36 },
+    { date: "2026-02-11", spend: 1050, revenue: 3320, purchases: 38 },
+    { date: "2026-02-12", spend: 1090, revenue: 3480, purchases: 40 },
+    { date: "2026-02-13", spend: 1140, revenue: 3620, purchases: 42 },
+    { date: "2026-02-14", spend: 1200, revenue: 3850, purchases: 44 },
+    { date: "2026-02-15", spend: 1230, revenue: 3780, purchases: 44 },
+    { date: "2026-02-16", spend: 1180, revenue: 3700, purchases: 43 },
+    { date: "2026-02-17", spend: 1220, revenue: 3910, purchases: 45 },
+    { date: "2026-02-18", spend: 1260, revenue: 3980, purchases: 46 },
+    { date: "2026-02-19", spend: 1240, revenue: 3950, purchases: 45 },
+    { date: "2026-02-20", spend: 1270, revenue: 4010, purchases: 45 },
+    { date: "2026-02-21", spend: 1290, revenue: 4070, purchases: 46 },
+    { date: "2026-02-22", spend: 1310, revenue: 4150, purchases: 47 },
+    { date: "2026-02-23", spend: 1300, revenue: 4100, purchases: 47 },
+    { date: "2026-02-24", spend: 1280, revenue: 4080, purchases: 46 },
+    { date: "2026-02-25", spend: 1320, revenue: 4250, purchases: 48 },
+    { date: "2026-02-26", spend: 1340, revenue: 4310, purchases: 49 },
+    { date: "2026-02-27", spend: 1360, revenue: 4380, purchases: 50 },
+    { date: "2026-02-28", spend: 1380, revenue: 4420, purchases: 50 },
+    { date: "2026-03-01", spend: 1410, revenue: 4510, purchases: 51 },
+    { date: "2026-03-02", spend: 1420, revenue: 4540, purchases: 52 },
+    { date: "2026-03-03", spend: 1440, revenue: 4600, purchases: 52 },
+    { date: "2026-03-04", spend: 1460, revenue: 4650, purchases: 53 },
+    { date: "2026-03-05", spend: 1450, revenue: 4630, purchases: 53 },
+    { date: "2026-03-06", spend: 1490, revenue: 4720, purchases: 54 },
+    { date: "2026-03-07", spend: 1500, revenue: 4760, purchases: 54 },
+    { date: "2026-03-08", spend: 1510, revenue: 4790, purchases: 55 },
+    { date: "2026-03-09", spend: 1530, revenue: 4840, purchases: 55 },
+    { date: "2026-03-10", spend: 1540, revenue: 4860, purchases: 56 },
+    { date: "2026-03-11", spend: 1560, revenue: 4890, purchases: 56 },
+  ];
+  const metaDays = days.map((d) => ({ ...d, spend: Math.round(d.spend * 0.56), revenue: Math.round(d.revenue * 0.58) }));
+  const googleDays = days.map((d) => ({ ...d, spend: Math.round(d.spend * 0.38), revenue: Math.round(d.revenue * 0.37) }));
+  const ga4Daily = days.map((d) => ({
+    date: d.date,
+    sessions: Math.round(d.purchases * 28.5),
+    purchases: d.purchases,
+    revenue: d.revenue,
+    engagementRate: 0.56,
+    avgSessionDuration: 112,
+    totalPurchasers: Math.round(d.purchases * 0.92),
+    firstTimePurchasers: Math.round(d.purchases * 0.51),
+  }));
+  return {
+    combined: days,
+    providerTrends: { meta: metaDays, google: googleDays },
+    ga4Daily,
+  };
+}
+
 export function getDemoAnalyticsOverview() {
   return {
     propertyName: "UrbanTrail Store GA4",
@@ -355,7 +407,7 @@ export function getDemoGoogleAdsCampaigns() {
     { id: "g-4", name: "Summer Hiking Campaign", status: "active", channel: "Search", spend: 2410, conversions: 58, revenue: 6020, roas: 2.5, cpa: 41.55, ctr: 3.4, cpc: 0.96, impressions: 102800, clicks: 3650, impressionShare: 0.41, lostIsBudget: 0.26, lostIsRank: 0.17, badges: ["budget_limited", "high_cpa"], performanceLabel: "watch", actionState: "optimize", spendShare: 16.6, revenueShare: 12.9, spendChange: 9.5, revenueChange: -4.2, roasChange: -12.6, conversionsChange: -6.4, ctrChange: -3.7 },
     { id: "g-5", name: "Remarketing Display", status: "paused", channel: "Display", spend: 1700, conversions: 34, revenue: 4220, roas: 2.48, cpa: 50, ctr: 1.2, cpc: 0.58, impressions: 90000, clicks: 2870, impressionShare: 0.38, lostIsBudget: 0.19, lostIsRank: 0.21, badges: ["high_cpa", "wasted_spend"], performanceLabel: "at-risk", actionState: "reduce", spendShare: 11.7, revenueShare: 9.1, spendChange: 6.4, revenueChange: -8.8, roasChange: -14.1, conversionsChange: -11.5, ctrChange: -9.3 },
   ];
-  return { data, count: data.length, accountAvgRoas: 3.2, accountAvgCpa: 27.91, meta: { empty: false } };
+  return { rows: data, data, count: data.length, summary: { accountAvgRoas: 3.2, accountAvgCpa: 27.91 }, accountAvgRoas: 3.2, accountAvgCpa: 27.91, meta: { empty: false } };
 }
 
 export function getDemoGoogleAdsSearchTerms() {
@@ -589,6 +641,7 @@ export function getDemoGoogleAdsAudiences() {
     { criterionId: "aud-3", type: "Affinity", adGroup: "Outdoor Interest", campaign: "Summer Hiking Campaign", spend: 1740, conversions: 47, revenue: 3210, roas: 1.84, cpa: 37.02, ctr: 2.7, impressions: 111800, clicks: 3019 },
   ];
   return {
+    rows: data,
     data,
     summary: [
       { type: "In-Market", conversions: 103, spend: 2830, roas: 3.15 },
@@ -596,28 +649,35 @@ export function getDemoGoogleAdsAudiences() {
       { type: "Affinity", conversions: 47, spend: 1740, roas: 1.84 },
     ],
     insights: ["Affinity segment is over-spending relative to conversion quality; tighten targeting."],
+    meta: { empty: false },
   };
 }
 
 export function getDemoGoogleAdsGeo() {
+  const data = [
+    { country: "California", criterionId: 21137, impressions: 165000, clicks: 6930, spend: 3120, conversions: 122, revenue: 11040, roas: 3.54, cpa: 25.57, ctr: 4.2, convRate: 1.76, vsAvgCpa: -8 },
+    { country: "Texas", criterionId: 21176, impressions: 123000, clicks: 4551, spend: 2120, conversions: 69, revenue: 5240, roas: 2.47, cpa: 30.72, ctr: 3.7, convRate: 1.52, vsAvgCpa: 9 },
+    { country: "New York", criterionId: 21167, impressions: 102000, clicks: 4182, spend: 1980, conversions: 73, revenue: 6760, roas: 3.41, cpa: 27.12, ctr: 4.1, convRate: 1.75, vsAvgCpa: -2 },
+  ];
   return {
-    data: [
-      { country: "California", criterionId: 21137, impressions: 165000, clicks: 6930, spend: 3120, conversions: 122, revenue: 11040, roas: 3.54, cpa: 25.57, ctr: 4.2, convRate: 1.76, vsAvgCpa: -8 },
-      { country: "Texas", criterionId: 21176, impressions: 123000, clicks: 4551, spend: 2120, conversions: 69, revenue: 5240, roas: 2.47, cpa: 30.72, ctr: 3.7, convRate: 1.52, vsAvgCpa: 9 },
-      { country: "New York", criterionId: 21167, impressions: 102000, clicks: 4182, spend: 1980, conversions: 73, revenue: 6760, roas: 3.41, cpa: 27.12, ctr: 4.1, convRate: 1.75, vsAvgCpa: -2 },
-    ],
+    rows: data,
+    data,
     insights: ["Texas ROAS trails other top states; shift 10-15% budget to CA/NY test pools."],
+    meta: { empty: false },
   };
 }
 
 export function getDemoGoogleAdsDevices() {
+  const data = [
+    { device: "Mobile", impressions: 452000, clicks: 16272, spend: 8420, conversions: 251, revenue: 19420, roas: 2.31, cpa: 33.55, ctr: 3.6, convRate: 1.54 },
+    { device: "Desktop", impressions: 211000, clicks: 10128, spend: 4970, conversions: 226, revenue: 22840, roas: 4.6, cpa: 21.99, ctr: 4.8, convRate: 2.23 },
+    { device: "Tablet", impressions: 46100, clicks: 1429, spend: 1150, conversions: 44, revenue: 4320, roas: 3.76, cpa: 26.14, ctr: 3.1, convRate: 3.08 },
+  ];
   return {
-    data: [
-      { device: "Mobile", impressions: 452000, clicks: 16272, spend: 8420, conversions: 251, revenue: 19420, roas: 2.31, cpa: 33.55, ctr: 3.6, convRate: 1.54 },
-      { device: "Desktop", impressions: 211000, clicks: 10128, spend: 4970, conversions: 226, revenue: 22840, roas: 4.6, cpa: 21.99, ctr: 4.8, convRate: 2.23 },
-      { device: "Tablet", impressions: 46100, clicks: 1429, spend: 1150, conversions: 44, revenue: 4320, roas: 3.76, cpa: 26.14, ctr: 3.1, convRate: 3.08 },
-    ],
+    rows: data,
+    data,
     insights: ["Mobile traffic is strong but conversion rate trails desktop; review mobile checkout friction."],
+    meta: { empty: false },
   };
 }
 
@@ -805,6 +865,16 @@ export function getDemoMetaCopies() {
   return {
     status: "ok",
     rows,
+    media_hydrated: true,
+    snapshot_level: "full",
+    snapshot_source: "live",
+    freshness_state: "fresh",
+    preview_coverage: {
+      totalCreatives: rows.length,
+      previewReadyCount: rows.length,
+      previewMissingCount: 0,
+      previewCoverage: 1,
+    },
     meta: {
       group_by: "copy",
       sort: "spend",
@@ -989,4 +1059,49 @@ export function getDemoSearchConsoleAnalytics() {
     { query: "travel backpack vs duffel", page: "/blog/travel-backpack-vs-duffel", clicks: 206, impressions: 5640, ctr: 0.0365, position: 9.4 },
   ];
   return { rows };
+}
+
+export function getDemoMetaBreakdowns() {
+  return {
+    status: "ok" as const,
+    age: [
+      { key: "25-34", label: "25–34", spend: 8620, purchases: 342, revenue: 28940, clicks: 14820, impressions: 612000 },
+      { key: "18-24", label: "18–24", spend: 5140, purchases: 184, revenue: 14280, clicks: 9630, impressions: 448000 },
+      { key: "35-44", label: "35–44", spend: 4980, purchases: 221, revenue: 19120, clicks: 11240, impressions: 389000 },
+      { key: "45-54", label: "45–54", spend: 2690, purchases: 98, revenue: 7860, clicks: 5820, impressions: 241000 },
+      { key: "55+", label: "55+", spend: 990, purchases: 31, revenue: 2240, clicks: 1840, impressions: 91000 },
+    ],
+    location: [
+      { key: "US", label: "United States", spend: 16480, purchases: 634, revenue: 54280, clicks: 29420, impressions: 1182000 },
+      { key: "CA", label: "Canada", spend: 3260, purchases: 117, revenue: 9740, clicks: 5610, impressions: 228000 },
+      { key: "GB", label: "United Kingdom", spend: 1980, purchases: 68, revenue: 5820, clicks: 3430, impressions: 138000 },
+      { key: "AU", label: "Australia", spend: 700, purchases: 24, revenue: 1820, clicks: 1180, impressions: 49000 },
+    ],
+    placement: [
+      { key: "facebook_feed", label: "Facebook Feed", spend: 10240, purchases: 418, revenue: 35840, clicks: 18620, impressions: 742000 },
+      { key: "instagram_feed", label: "Instagram Feed", spend: 6420, purchases: 242, revenue: 20480, clicks: 11440, impressions: 461000 },
+      { key: "instagram_stories", label: "Instagram Stories", spend: 3420, purchases: 118, revenue: 9640, clicks: 6480, impressions: 382000 },
+      { key: "facebook_marketplace", label: "Facebook Marketplace", spend: 1340, purchases: 45, revenue: 3020, clicks: 2380, impressions: 105000 },
+      { key: "audience_network", label: "Audience Network", spend: 1000, purchases: 33, revenue: 2660, clicks: 1980, impressions: 91000 },
+    ],
+    budget: {
+      campaign: [
+        { key: "m-c1", label: "Backpack Video Ads", spend: 7140 },
+        { key: "m-c2", label: "UGC Travel Creatives", spend: 5240 },
+        { key: "m-c3", label: "Remarketing Campaign", spend: 4260 },
+        { key: "m-c4", label: "Adventure Lifestyle Campaign", spend: 3180 },
+        { key: "m-c5", label: "Summer Gear Promotion", spend: 1600 },
+      ],
+      adset: [
+        { key: "m-as-1", label: "Backpack Prospecting", spend: 4820 },
+        { key: "m-as-2", label: "UGC Broad", spend: 3640 },
+        { key: "m-as-3", label: "Retargeting 7D", spend: 3180 },
+        { key: "m-as-4", label: "Lookalike 1%", spend: 2910 },
+        { key: "m-as-5", label: "Summer Hiking Interest", spend: 2470 },
+        { key: "m-as-6", label: "Lifestyle Broad", spend: 1400 },
+      ],
+    },
+    audience: { available: true },
+    products: { available: true },
+  };
 }

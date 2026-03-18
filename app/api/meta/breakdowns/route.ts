@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
+import { isDemoBusiness } from "@/lib/business-mode.server";
+import { getDemoMetaBreakdowns } from "@/lib/demo-business";
 import { getIntegration } from "@/lib/integrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { runMigrations } from "@/lib/migrations";
@@ -229,6 +231,10 @@ export async function GET(request: NextRequest) {
     minRole: "guest",
   });
   if ("error" in access) return access.error;
+
+  if (await isDemoBusiness(businessId!)) {
+    return NextResponse.json(getDemoMetaBreakdowns());
+  }
 
   const cached = await getCachedRouteReport<MetaBreakdownsResponse>({
     businessId: businessId!,

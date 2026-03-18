@@ -84,7 +84,7 @@ export function AuthBootstrap() {
         }
       }
     }
-    load();
+    void load().catch(() => {});
     return () => {
       mounted = false;
       controller.abort();

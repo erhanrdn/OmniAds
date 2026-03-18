@@ -17,6 +17,8 @@ import {
 
 const MOCK_DELAY_MS = 250;
 
+const DEMO_BUSINESS_ID = "11111111-1111-4111-8111-111111111111";
+
 const makeMetrics = (input: {
   impressions: number;
   clicks: number;
@@ -576,7 +578,7 @@ const PLATFORM_TABLE_ROWS: PlatformTableRow[] = [
 const CREATIVES: Creative[] = [
   {
     id: "cr-1",
-    businessId: "1",
+    businessId: DEMO_BUSINESS_ID,
     platform: Platform.META,
     name: "UGC Testimonial",
     format: "video",
@@ -596,7 +598,7 @@ const CREATIVES: Creative[] = [
   },
   {
     id: "cr-2",
-    businessId: "1",
+    businessId: DEMO_BUSINESS_ID,
     platform: Platform.GOOGLE,
     name: "Search Promo Banner",
     format: "image",
@@ -616,7 +618,7 @@ const CREATIVES: Creative[] = [
   },
   {
     id: "cr-3",
-    businessId: "1",
+    businessId: DEMO_BUSINESS_ID,
     platform: Platform.TIKTOK,
     name: "Hook Variant A",
     format: "video",
@@ -636,7 +638,7 @@ const CREATIVES: Creative[] = [
   },
   {
     id: "cr-4",
-    businessId: "1",
+    businessId: DEMO_BUSINESS_ID,
     platform: Platform.PINTEREST,
     name: "Seasonal Pin Creative",
     format: "image",
@@ -656,7 +658,7 @@ const CREATIVES: Creative[] = [
   },
   {
     id: "cr-5",
-    businessId: "1",
+    businessId: DEMO_BUSINESS_ID,
     platform: Platform.SNAPCHAT,
     name: "Story Creative A",
     format: "video",
@@ -676,7 +678,7 @@ const CREATIVES: Creative[] = [
   },
   {
     id: "cr-6",
-    businessId: "1",
+    businessId: DEMO_BUSINESS_ID,
     platform: Platform.META,
     name: "Static Promo Card",
     format: "image",
@@ -699,7 +701,7 @@ const CREATIVES: Creative[] = [
 const LANDING_PAGES: LandingPage[] = [
   {
     id: "lp-1",
-    businessId: "1",
+    businessId: DEMO_BUSINESS_ID,
     name: "Spring Sale LP",
     platform: Platform.META,
     url: "https://example.com/spring-sale",
@@ -718,7 +720,7 @@ const LANDING_PAGES: LandingPage[] = [
   },
   {
     id: "lp-2",
-    businessId: "1",
+    businessId: DEMO_BUSINESS_ID,
     name: "Starter Bundle LP",
     platform: Platform.GOOGLE,
     url: "https://example.com/starter-bundle",
@@ -737,7 +739,7 @@ const LANDING_PAGES: LandingPage[] = [
   },
   {
     id: "lp-3",
-    businessId: "1",
+    businessId: DEMO_BUSINESS_ID,
     name: "Creator Bundle LP",
     platform: Platform.TIKTOK,
     url: "https://example.com/creator-bundle",
@@ -756,7 +758,7 @@ const LANDING_PAGES: LandingPage[] = [
   },
   {
     id: "lp-4",
-    businessId: "1",
+    businessId: DEMO_BUSINESS_ID,
     name: "Spring Collection LP",
     platform: Platform.PINTEREST,
     url: "https://example.com/spring-collection",
@@ -778,7 +780,7 @@ const LANDING_PAGES: LandingPage[] = [
 const COPIES: Copy[] = [
   {
     id: "cp-1",
-    businessId: "1",
+    businessId: DEMO_BUSINESS_ID,
     platform: Platform.META,
     objective: "conversions",
     headline: "Save 20% This Week",
@@ -804,7 +806,7 @@ const COPIES: Copy[] = [
   },
   {
     id: "cp-2",
-    businessId: "1",
+    businessId: DEMO_BUSINESS_ID,
     platform: Platform.GOOGLE,
     objective: "traffic",
     headline: "Official Store - Fast Shipping",
@@ -830,7 +832,7 @@ const COPIES: Copy[] = [
   },
   {
     id: "cp-3",
-    businessId: "1",
+    businessId: DEMO_BUSINESS_ID,
     platform: Platform.TIKTOK,
     objective: "awareness",
     headline: "Watch It. Want It. Get It.",
@@ -856,7 +858,7 @@ const COPIES: Copy[] = [
   },
   {
     id: "cp-4",
-    businessId: "1",
+    businessId: DEMO_BUSINESS_ID,
     platform: Platform.PINTEREST,
     objective: "traffic",
     headline: "Spring Collection Now Live",
@@ -882,7 +884,7 @@ const COPIES: Copy[] = [
   },
   {
     id: "cp-5",
-    businessId: "1",
+    businessId: DEMO_BUSINESS_ID,
     platform: Platform.SNAPCHAT,
     objective: "conversions",
     headline: "Limited Drop. 48 Hours Only.",
@@ -911,28 +913,28 @@ const COPIES: Copy[] = [
 const INTEGRATIONS: IntegrationConnection[] = [
   {
     id: "int-shopify-1",
-    businessId: "1",
+    businessId: DEMO_BUSINESS_ID,
     platform: Platform.SHOPIFY,
     status: IntegrationStatus.DISCONNECTED,
     lastSyncAt: null,
   },
   {
     id: "int-meta-1",
-    businessId: "1",
+    businessId: DEMO_BUSINESS_ID,
     platform: Platform.META,
     status: IntegrationStatus.CONNECTED,
     lastSyncAt: "2026-03-04T08:45:00.000Z",
   },
   {
     id: "int-google-1",
-    businessId: "1",
+    businessId: DEMO_BUSINESS_ID,
     platform: Platform.GOOGLE,
     status: IntegrationStatus.CONNECTED,
     lastSyncAt: "2026-03-04T09:14:00.000Z",
   },
   {
     id: "int-tiktok-1",
-    businessId: "1",
+    businessId: DEMO_BUSINESS_ID,
     platform: Platform.TIKTOK,
     status: IntegrationStatus.ERROR,
     lastSyncAt: "2026-03-03T20:10:00.000Z",
@@ -940,14 +942,14 @@ const INTEGRATIONS: IntegrationConnection[] = [
   },
   {
     id: "int-pinterest-1",
-    businessId: "1",
+    businessId: DEMO_BUSINESS_ID,
     platform: Platform.PINTEREST,
     status: IntegrationStatus.DISCONNECTED,
     lastSyncAt: null,
   },
   {
     id: "int-snapchat-1",
-    businessId: "1",
+    businessId: DEMO_BUSINESS_ID,
     platform: Platform.SNAPCHAT,
     status: IntegrationStatus.DISCONNECTED,
     lastSyncAt: null,

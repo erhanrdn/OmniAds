@@ -1,5 +1,5 @@
 import { isDemoBusiness } from "@/lib/business-mode.server";
-import { getDemoOverview } from "@/lib/demo-business";
+import { getDemoOverview, getDemoSparklines, isDemoBusinessId } from "@/lib/demo-business";
 import { getGoogleAdsOverviewReport } from "@/lib/google-ads/reporting";
 import {
   resolveGa4AnalyticsContext,
@@ -620,6 +620,9 @@ export async function getOverviewTrendBundle(params: {
   startDate: string;
   endDate: string;
 }): Promise<OverviewTrendBundle> {
+  if (isDemoBusinessId(params.businessId)) {
+    return getDemoSparklines();
+  }
   return buildDailyTrends(params);
 }
 
