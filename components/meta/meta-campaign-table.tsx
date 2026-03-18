@@ -16,6 +16,7 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useCurrencySymbol } from "@/hooks/use-currency";
 import { ChevronDown, ChevronRight, Loader2, AlertCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -44,16 +45,16 @@ export type MetaCampaignTableRow = MetaCampaignData & {
 
 // ── Formatters ────────────────────────────────────────────────────────────────
 
-function fmt$(n: number): string {
-  return `$${n.toLocaleString(undefined, {
+function fmt$(n: number, sym = "$"): string {
+  return `${sym}${n.toLocaleString(undefined, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
 }
 
-function fmtBudget(daily: number | null, lifetime: number | null): string {
-  if (daily != null) return `${fmt$(daily / 100)}/day`;
-  if (lifetime != null) return `${fmt$(lifetime / 100)} lifetime`;
+function fmtBudget(daily: number | null, lifetime: number | null, sym = "$"): string {
+  if (daily != null) return `${fmt$(daily / 100, sym)}/day`;
+  if (lifetime != null) return `${fmt$(lifetime / 100, sym)} lifetime`;
   return "—";
 }
 
@@ -163,6 +164,7 @@ export function RoasCell({ roas }: { roas: number }) {
 // ── Ad set sub-table (always shows all columns) ───────────────────────────────
 
 function AdSetSubTable({ rows }: { rows: MetaAdSetData[] }) {
+  const sym = useCurrencySymbol();
   if (rows.length === 0) {
     return (
       <div className="px-4 py-3 text-xs text-muted-foreground">
@@ -201,21 +203,21 @@ function AdSetSubTable({ rows }: { rows: MetaAdSetData[] }) {
                 <StatusBadge status={adset.status} />
               </td>
               <td className="px-3 py-2 text-muted-foreground">
-                {fmtBudget(adset.dailyBudget, adset.lifetimeBudget)}
+                {fmtBudget(adset.dailyBudget, adset.lifetimeBudget, sym)}
               </td>
-              <td className="px-3 py-2 tabular-nums">{fmt$(adset.spend)}</td>
+              <td className="px-3 py-2 tabular-nums">{fmt$(adset.spend, sym)}</td>
               <td className="px-3 py-2 tabular-nums">
                 {adset.purchases.toLocaleString()}
               </td>
-              <td className="px-3 py-2 tabular-nums">{fmt$(adset.revenue)}</td>
+              <td className="px-3 py-2 tabular-nums">{fmt$(adset.revenue, sym)}</td>
               <td className="px-3 py-2">
                 <RoasCell roas={adset.roas} />
               </td>
-              <td className="px-3 py-2 tabular-nums">{fmt$(adset.cpa)}</td>
+              <td className="px-3 py-2 tabular-nums">{fmt$(adset.cpa, sym)}</td>
               <td className="px-3 py-2 tabular-nums">
                 {adset.ctr.toFixed(2)}%
               </td>
-              <td className="px-3 py-2 tabular-nums">{fmt$(adset.cpm)}</td>
+              <td className="px-3 py-2 tabular-nums">{fmt$(adset.cpm, sym)}</td>
             </tr>
           ))}
         </tbody>
@@ -251,6 +253,7 @@ function CampaignRow({
   showMicroBars,
   columns,
 }: CampaignRowProps) {
+  const sym = useCurrencySymbol();
   const colSpan = columns === "compact" ? 6 : 9;
 
   const adSetsQuery = useQuery<MetaAdSetsResponse>({
@@ -302,7 +305,7 @@ function CampaignRow({
 
         {/* Spend + micro-bar */}
         <td className="px-3 py-2.5">
-          <span className="tabular-nums">{fmt$(campaign.spend)}</span>
+          <span className="tabular-nums">{fmt$(campaign.spend, sym)}</span>
           {typeof campaign.previousSpend === "number" && (
             <div
               className={`mt-0.5 text-[10px] font-medium tabular-nums ${diffClass(
@@ -331,7 +334,7 @@ function CampaignRow({
 
         {/* Revenue + micro-bar */}
         <td className="px-3 py-2.5">
-          <span className="tabular-nums">{fmt$(campaign.revenue)}</span>
+          <span className="tabular-nums">{fmt$(campaign.revenue, sym)}</span>
           {typeof campaign.previousRevenue === "number" && (
             <div
               className={`mt-0.5 text-[10px] font-medium tabular-nums ${diffClass(
@@ -368,7 +371,7 @@ function CampaignRow({
 
         {/* CPA */}
         <td className="px-3 py-2.5 tabular-nums">
-          {fmt$(campaign.cpa)}
+          {fmt$(campaign.cpa, sym)}
           {typeof campaign.previousCpa === "number" && (
             <div
               className={`mt-0.5 text-[10px] font-medium tabular-nums ${diffClass(
@@ -390,7 +393,7 @@ function CampaignRow({
 
         {/* CPM — full mode only */}
         {columns === "full" && (
-          <td className="px-3 py-2.5 tabular-nums">{fmt$(campaign.cpm)}</td>
+          <td className="px-3 py-2.5 tabular-nums">{fmt$(campaign.cpm, sym)}</td>
         )}
       </tr>
 

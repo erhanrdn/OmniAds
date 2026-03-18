@@ -197,6 +197,19 @@ export async function createBusinessWithAdminMembership(input: {
   return business;
 }
 
+export async function updateBusinessCurrency(
+  businessId: string,
+  currency: string,
+): Promise<void> {
+  await runMigrations();
+  const sql = getDb();
+  await sql`
+    UPDATE businesses
+    SET currency = ${currency.trim().toUpperCase()}
+    WHERE id = ${businessId}
+  `;
+}
+
 export async function updateBusinessSettings(input: {
   businessId: string;
   name: string;

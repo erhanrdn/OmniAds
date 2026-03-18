@@ -26,6 +26,7 @@ import { ErrorState } from "@/components/states/error-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useCurrencySymbol, getCurrencySymbol } from "@/hooks/use-currency";
 import {
   Sheet,
   SheetContent,
@@ -148,6 +149,7 @@ const EXTRA_GROWTH_RECOMMENDATIONS: GoogleRecommendation[] = [
 export default function GooglePage() {
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const businessId = selectedBusinessId ?? "";
+  const sym = useCurrencySymbol();
 
   const ensureBusiness = useIntegrationsStore((state) => state.ensureBusiness);
   const byBusinessId = useIntegrationsStore((state) => state.byBusinessId);
@@ -513,7 +515,7 @@ export default function GooglePage() {
                       </td>
                       {DEFAULT_COLUMNS.map((column) => (
                         <td key={column} className="px-4 py-3">
-                          {formatMetricCell(column, row)}
+                          {formatMetricCell(column, row, sym)}
                         </td>
                       ))}
                     </tr>
@@ -778,11 +780,11 @@ export default function GooglePage() {
                         <td className="px-3 py-2">{row.ad_group}</td>
                         <td className="px-3 py-2">{row.clicks}</td>
                         <td className="px-3 py-2">{row.impressions}</td>
-                        <td className="px-3 py-2">${row.cost}</td>
+                        <td className="px-3 py-2">{sym}{row.cost}</td>
                         <td className="px-3 py-2">{row.conversions}</td>
-                        <td className="px-3 py-2">${row.conv_value}</td>
+                        <td className="px-3 py-2">{sym}{row.conv_value}</td>
                         <td className="px-3 py-2">{row.roas.toFixed(2)}</td>
-                        <td className="px-3 py-2">${row.cpa.toFixed(2)}</td>
+                        <td className="px-3 py-2">{sym}{row.cpa.toFixed(2)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -830,11 +832,11 @@ export default function GooglePage() {
                           <td className="px-3 py-2">{row.item_id}</td>
                           <td className="px-3 py-2">{row.title}</td>
                           <td className="px-3 py-2">{row.brand}</td>
-                          <td className="px-3 py-2">${row.price}</td>
+                          <td className="px-3 py-2">{sym}{row.price}</td>
                           <td className="px-3 py-2">{row.clicks}</td>
-                          <td className="px-3 py-2">${row.cost}</td>
+                          <td className="px-3 py-2">{sym}{row.cost}</td>
                           <td className="px-3 py-2">{row.conversions}</td>
-                          <td className="px-3 py-2">${row.conv_value}</td>
+                          <td className="px-3 py-2">{sym}{row.conv_value}</td>
                           <td className="px-3 py-2">{row.roas.toFixed(2)}</td>
                         </tr>
                       ))}
@@ -880,8 +882,8 @@ export default function GooglePage() {
                           {row.performance_label}
                         </Badge>
                       </td>
-                      <td className="px-3 py-2">${row.cost}</td>
-                      <td className="px-3 py-2">${row.conv_value}</td>
+                      <td className="px-3 py-2">{sym}{row.cost}</td>
+                      <td className="px-3 py-2">{sym}{row.conv_value}</td>
                       <td className="px-3 py-2">{row.roas.toFixed(2)}</td>
                     </tr>
                   ))}
@@ -906,11 +908,11 @@ export default function GooglePage() {
   );
 }
 
-function formatMetricCell(column: MetricColumn, row: PlatformTableRow) {
+function formatMetricCell(column: MetricColumn, row: PlatformTableRow, sym = "$") {
   const value = row.metrics[column];
   if (typeof value !== "number") return "-";
   if (column === "spend" || column === "revenue" || column === "cpa" || column === "cpm") {
-    return `$${value.toLocaleString()}`;
+    return `${sym}${value.toLocaleString()}`;
   }
   if (column === "roas") return value.toFixed(2);
   if (column === "ctr") return `${value.toFixed(2)}%`;
@@ -988,6 +990,7 @@ function GoogleInsightsDrawer({
   onClose: () => void;
   onToast: (message: string) => void;
 }) {
+  const sym = useCurrencySymbol();
   return (
     <Sheet open={Boolean(payload)} onOpenChange={(open) => (open ? null : onClose())}>
       <SheetContent side="right" className="w-full sm:max-w-2xl">
@@ -1028,7 +1031,7 @@ function GoogleInsightsDrawer({
                   <ul className="mt-3 space-y-1">
                     <li>- Match type: {payload.data.match_type}</li>
                     <li>- ROAS: {payload.data.roas.toFixed(2)}</li>
-                    <li>- CPA: ${payload.data.cpa.toFixed(2)}</li>
+                    <li>- CPA: {sym}{payload.data.cpa.toFixed(2)}</li>
                   </ul>
                 </section>
               )}
@@ -1044,8 +1047,8 @@ function GoogleInsightsDrawer({
                   <ul className="mt-3 space-y-1">
                     <li>- Brand: {payload.data.brand}</li>
                     <li>- ROAS: {payload.data.roas.toFixed(2)}</li>
-                    <li>- Cost: ${payload.data.cost.toLocaleString()}</li>
-                    <li>- Conversion value: ${payload.data.conv_value.toLocaleString()}</li>
+                    <li>- Cost: {sym}{payload.data.cost.toLocaleString()}</li>
+                    <li>- Conversion value: {sym}{payload.data.conv_value.toLocaleString()}</li>
                   </ul>
                 </section>
               )}
@@ -1205,6 +1208,7 @@ function ProductWasteDrawer({
   selectedProductSku: string;
   shopifyProducts: ShopifyProductPerformance[];
 }) {
+  const sym = useCurrencySymbol();
   const selectedProduct =
     shopifyProducts.find((product) => product.sku === selectedProductSku) ?? shopifyProducts[0];
   const scopeRows =
@@ -1237,10 +1241,10 @@ function ProductWasteDrawer({
               return (
                 <tr key={row.sku} className="border-b last:border-0">
                   <td className="py-2">{row.sku}</td>
-                  <td className="py-2">${row.adSpend.toLocaleString()}</td>
-                  <td className="py-2">${row.revenue.toLocaleString()}</td>
-                  <td className="py-2">${margin.toLocaleString()}</td>
-                  <td className="py-2">${profit.toLocaleString()}</td>
+                  <td className="py-2">{sym}{row.adSpend.toLocaleString()}</td>
+                  <td className="py-2">{sym}{row.revenue.toLocaleString()}</td>
+                  <td className="py-2">{sym}{margin.toLocaleString()}</td>
+                  <td className="py-2">{sym}{profit.toLocaleString()}</td>
                   <td className="py-2">{profitRoas.toFixed(2)}</td>
                 </tr>
               );
@@ -1269,8 +1273,8 @@ function ProductWasteDrawer({
           <tbody>
             <tr className="border-b">
               <td className="py-2">Profit</td>
-              <td className="py-2">${simulation.currentProfit.toLocaleString()}</td>
-              <td className="py-2">${simulation.simulatedProfit.toLocaleString()}</td>
+              <td className="py-2">{sym}{simulation.currentProfit.toLocaleString()}</td>
+              <td className="py-2">{sym}{simulation.simulatedProfit.toLocaleString()}</td>
             </tr>
             <tr>
               <td className="py-2">Profit ROAS</td>
@@ -1413,6 +1417,7 @@ function SectionEvidence({
 }
 
 function SectionSimulation({ recommendation }: { recommendation: GoogleRecommendation }) {
+  const sym = useCurrencySymbol();
   const simulation = generateSimulationImpact(recommendation);
   return (
     <section className="rounded-xl border p-4">
@@ -1428,13 +1433,13 @@ function SectionSimulation({ recommendation }: { recommendation: GoogleRecommend
         <tbody>
           <tr className="border-b">
             <td className="py-2">Spend</td>
-            <td className="py-2">${simulation.current.spend.toLocaleString()}</td>
-            <td className="py-2">${simulation.simulated.spend.toLocaleString()}</td>
+            <td className="py-2">{sym}{simulation.current.spend.toLocaleString()}</td>
+            <td className="py-2">{sym}{simulation.simulated.spend.toLocaleString()}</td>
           </tr>
           <tr className="border-b">
             <td className="py-2">Revenue</td>
-            <td className="py-2">${simulation.current.revenue.toLocaleString()}</td>
-            <td className="py-2">${simulation.simulated.revenue.toLocaleString()}</td>
+            <td className="py-2">{sym}{simulation.current.revenue.toLocaleString()}</td>
+            <td className="py-2">{sym}{simulation.simulated.revenue.toLocaleString()}</td>
           </tr>
           <tr>
             <td className="py-2">ROAS</td>
@@ -1556,10 +1561,11 @@ function reweightRecommendationForScope(
 }
 
 function scaleEvidenceValue(value: string, multiplier: number) {
-  const money = value.match(/^\$([\d,.]+)$/);
+  const money = value.match(/^[^\d]*([\d,.]+)$/);
   if (money) {
+    const sym = getCurrencySymbol();
     const amount = Number(money[1].replace(/,/g, ""));
-    return `$${Math.round(amount * multiplier).toLocaleString()}`;
+    return `${sym}${Math.round(amount * multiplier).toLocaleString()}`;
   }
 
   const percent = value.match(/^([+-]?[\d.]+)%$/);

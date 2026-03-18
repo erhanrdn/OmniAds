@@ -43,6 +43,7 @@ import {
   getPresetDates,
 } from "@/components/date-range/DateRangePicker";
 import { usePersistentDateRange } from "@/hooks/use-persistent-date-range";
+import { useCurrencySymbol } from "@/hooks/use-currency";
 import { MetaCampaignTable, type MetaCampaignTableRow } from "@/components/meta/meta-campaign-table";
 import { PlacementBreakdownChart } from "@/components/meta/placement-breakdown-chart";
 
@@ -84,17 +85,17 @@ async function fetchMetaBreakdowns(
 
 // ── Formatters ────────────────────────────────────────────────────────────────
 
-function fmt$(n: number): string {
-  return `$${n.toLocaleString(undefined, {
+function fmt$(n: number, sym = "$"): string {
+  return `${sym}${n.toLocaleString(undefined, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
 }
 
-function fmtK(n: number): string {
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
-  if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}k`;
-  return fmt$(n);
+function fmtK(n: number, sym = "$"): string {
+  if (n >= 1_000_000) return `${sym}${(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 1_000) return `${sym}${(n / 1_000).toFixed(1)}k`;
+  return fmt$(n, sym);
 }
 
 function pct(part: number, whole: number): string {
@@ -322,6 +323,7 @@ function AgeBreakdownBadges({
 }: {
   rows: AggregatedBreakdownRow[];
 }) {
+  const sym = useCurrencySymbol();
   if (rows.length === 0) {
     return (
       <p className="text-xs text-muted-foreground">
@@ -366,7 +368,7 @@ function AgeBreakdownBadges({
               <span className="ml-0.5 text-xs font-normal opacity-70">×</span>
             </p>
             <p className="mt-0.5 text-[10px] text-muted-foreground">
-              {fmtK(row.spend)}
+              {fmtK(row.spend, sym)}
             </p>
           </div>
         );
@@ -382,6 +384,7 @@ function LocationBreakdownList({
 }: {
   rows: AggregatedBreakdownRow[];
 }) {
+  const sym = useCurrencySymbol();
   const total = rows.reduce((a, r) => a + r.spend, 0);
   const top = rows.slice(0, 7);
 
@@ -432,7 +435,7 @@ function LocationBreakdownList({
 
             {/* Spend value */}
             <span className="w-10 shrink-0 text-right text-[10px] tabular-nums text-muted-foreground">
-              {fmtK(row.spend)}
+              {fmtK(row.spend, sym)}
             </span>
           </div>
         );
@@ -466,6 +469,7 @@ export default function MetaPage() {
   const businesses = useAppStore((s) => s.businesses);
   const selectedBusinessId = useAppStore((s) => s.selectedBusinessId);
   const businessId = selectedBusinessId ?? "";
+  const sym = useCurrencySymbol();
 
   const ensureBusiness = useIntegrationsStore((s) => s.ensureBusiness);
   const byBusinessId = useIntegrationsStore((s) => s.byBusinessId);
@@ -592,7 +596,7 @@ export default function MetaPage() {
             <KpiCard
               label="Total Spend"
               value={
-                campaignsQuery.isLoading ? "—" : fmtK(kpis.totalSpend)
+                campaignsQuery.isLoading ? "—" : fmtK(kpis.totalSpend, sym)
               }
               subLabel={`${campaignsQuery.data?.rows?.length ?? 0} campaigns`}
               icon={DollarSign}
@@ -606,7 +610,7 @@ export default function MetaPage() {
             <KpiCard
               label="Total Revenue"
               value={
-                campaignsQuery.isLoading ? "—" : fmtK(kpis.totalRevenue)
+                campaignsQuery.isLoading ? "—" : fmtK(kpis.totalRevenue, sym)
               }
               subLabel="Attributed purchases"
               icon={TrendingUp}
@@ -621,7 +625,7 @@ export default function MetaPage() {
             <KpiCard
               label="Avg. CPA"
               value={
-                campaignsQuery.isLoading ? "—" : fmt$(kpis.avgCpa)
+                campaignsQuery.isLoading ? "—" : fmt$(kpis.avgCpa, sym)
               }
               subLabel="Cost per conversion"
               icon={Target}

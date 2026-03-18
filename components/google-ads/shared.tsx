@@ -2,13 +2,15 @@
 
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
+import { getCurrencySymbol } from "@/hooks/use-currency";
 
 // ── Formatting ────────────────────────────────────────────────────────
 
 export function fmtCurrency(n: number): string {
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}K`;
-  return `$${n.toFixed(0)}`;
+  const sym = getCurrencySymbol();
+  if (n >= 1_000_000) return `${sym}${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${sym}${(n / 1_000).toFixed(1)}K`;
+  return `${sym}${n.toFixed(0)}`;
 }
 
 export function fmtNumber(n: number): string {

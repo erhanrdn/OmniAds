@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useCurrencySymbol } from "@/hooks/use-currency";
 import { useQuery } from "@tanstack/react-query";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { useAppStore } from "@/store/app-store";
@@ -26,6 +27,7 @@ const PLATFORM_OPTIONS: Array<{ value: "all" | Platform; label: string }> = [
 export default function LandingPagesPage() {
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const businessId = selectedBusinessId ?? "";
+  const sym = useCurrencySymbol();
 
   const [platform, setPlatform] = useState<"all" | Platform>("all");
   const [dateRange, setDateRange] = useState<DateRangeFilter>("30d");
@@ -136,7 +138,7 @@ export default function LandingPagesPage() {
                   <td className="px-4 py-3">{row.clicks.toLocaleString()}</td>
                   <td className="px-4 py-3">{row.sessions.toLocaleString()}</td>
                   <td className="px-4 py-3">{row.purchases.toLocaleString()}</td>
-                  <td className="px-4 py-3">${row.revenue.toLocaleString()}</td>
+                  <td className="px-4 py-3">{sym}{row.revenue.toLocaleString()}</td>
                   <td className="px-4 py-3">{row.roas.toFixed(2)}</td>
                   <td className="px-4 py-3">{row.conversionRate.toFixed(2)}%</td>
                 </tr>

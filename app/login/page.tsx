@@ -62,10 +62,16 @@ function LoginPageClient() {
   useEffect(() => {
     const controller = new AbortController();
     async function restoreExistingSession() {
-      const response = await fetch("/api/auth/me", {
-        cache: "no-store",
-        signal: controller.signal,
-      }).catch(() => null);
+      let response: Response | null = null;
+      try {
+        response = await fetch("/api/auth/me", {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        return;
+      }
       if (!response?.ok) return;
       const payload = (await response
         .json()

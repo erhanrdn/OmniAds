@@ -31,7 +31,7 @@ import {
 } from "@/src/services";
 import type { BusinessCostModelData, OverviewMetricCardData, OverviewSummaryData } from "@/src/types/models";
 
-type CurrencyCode = "USD" | "EUR" | "GBP";
+type CurrencyCode = string;
 type CompareMode = "none" | "previous_period";
 
 const PLATFORM_TITLE_META: Record<
@@ -56,7 +56,7 @@ export default function OverviewPage() {
   );
 
   const [dateRange, setDateRange] = usePersistentDateRange();
-  const [currency, setCurrency] = useState<CurrencyCode>((activeBusiness?.currency as CurrencyCode) ?? "USD");
+  const currency: CurrencyCode = (activeBusiness?.currency as CurrencyCode) ?? "USD";
   const [costModelSheetOpen, setCostModelSheetOpen] = useState(false);
   const [aiBriefRegenerating, setAiBriefRegenerating] = useState(false);
   const [aiBriefActionError, setAiBriefActionError] = useState<string | null>(null);
@@ -67,13 +67,6 @@ export default function OverviewPage() {
     if (!selectedBusinessId) return;
     ensureBusiness(businessId);
   }, [businessId, ensureBusiness, selectedBusinessId]);
-
-  useEffect(() => {
-    if (!activeBusiness?.currency) return;
-    if (["USD", "EUR", "GBP"].includes(activeBusiness.currency)) {
-      setCurrency(activeBusiness.currency as CurrencyCode);
-    }
-  }, [activeBusiness?.currency]);
 
   const { start: startDate, end: endDate } = getPresetDates(
     dateRange.rangePreset,
@@ -195,8 +188,6 @@ export default function OverviewPage() {
       <DataStatusRow
         dateRange={dateRange}
         onDateRangeChange={setDateRange}
-        currency={currency}
-        onCurrencyChange={setCurrency}
       />
 
       <SummarySection
@@ -447,13 +438,9 @@ function LoadingInsightPlaceholder() {
 function DataStatusRow({
   dateRange,
   onDateRangeChange,
-  currency,
-  onCurrencyChange,
 }: {
   dateRange: DateRangeValue;
   onDateRangeChange: (value: DateRangeValue) => void;
-  currency: CurrencyCode;
-  onCurrencyChange: (value: CurrencyCode) => void;
 }) {
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/60">
@@ -471,16 +458,6 @@ function DataStatusRow({
 
         <div className="flex flex-wrap items-center gap-3 lg:justify-end">
           <DateRangePicker value={dateRange} onChange={onDateRangeChange} />
-          <ControlSelect
-            label="Currency"
-            value={currency}
-            onChange={(value) => onCurrencyChange(value as CurrencyCode)}
-            options={[
-              { label: "USD", value: "USD" },
-              { label: "EUR", value: "EUR" },
-              { label: "GBP", value: "GBP" },
-            ]}
-          />
         </div>
       </div>
     </section>
@@ -491,41 +468,33 @@ function filterVisibleMetrics(metrics: OverviewMetricCardData[]) {
   return metrics.filter((metric) => metric.status !== "unavailable");
 }
 
-function ControlSelect({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  options: Array<{ label: string; value: string }>;
-}) {
-  return (
-    <label className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm transition-colors hover:bg-slate-50">
-      <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-        {label}
-      </span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="bg-transparent text-sm font-medium text-slate-900 outline-none"
-      >
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
+
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  USD: "$",
+  EUR: "€",
+  GBP: "£",
+  TRY: "₺",
+  JPY: "¥",
+  CAD: "CA$",
+  AUD: "A$",
+  CHF: "Fr",
+  SEK: "kr",
+  NOK: "kr",
+  DKK: "kr",
+  PLN: "zł",
+  CZK: "Kč",
+  HUF: "Ft",
+  RON: "lei",
+  BRL: "R$",
+  MXN: "MX$",
+  INR: "₹",
+  ZAR: "R",
+  AED: "د.إ",
+  SAR: "﷼",
+};
 
 function currencySymbol(code: CurrencyCode) {
-  if (code === "EUR") return "€";
-  if (code === "GBP") return "£";
-  return "$";
+  return CURRENCY_SYMBOLS[code] ?? code;
 }
 
 // ---------------------------------------------------------------------------

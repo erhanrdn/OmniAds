@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { SHOPIFY_CONFIG } from "@/lib/oauth/shopify-config";
 import { upsertIntegration } from "@/lib/integrations";
+import { updateBusinessCurrency } from "@/lib/account-store";
 import { requireBusinessAccess } from "@/lib/access";
 
 /**
@@ -123,6 +124,7 @@ export async function GET(request: NextRequest) {
 
     // ── Fetch shop metadata ─────────────────────────────────────
     let shopName: string = shop;
+    let shopCurrency: string | null = null;
     try {
       const shopRes = await fetch(SHOPIFY_CONFIG.shopInfoUrl(shop), {
         headers: {
@@ -133,6 +135,7 @@ export async function GET(request: NextRequest) {
       if (shopRes.ok) {
         const shopData = await shopRes.json();
         shopName = shopData.shop?.name ?? shop;
+        shopCurrency = shopData.shop?.currency ?? null;
       }
     } catch (shopErr) {
       console.warn(
@@ -151,7 +154,17 @@ export async function GET(request: NextRequest) {
       providerAccountName: shopName, // Human-readable shop name
       accessToken,
       scopes: grantedScopes,
+      metadata: shopCurrency ? { currency: shopCurrency } : undefined,
     });
+
+    // Sync the shop's currency to the business record so the app uses it everywhere
+    if (shopCurrency) {
+      try {
+        await updateBusinessCurrency(businessId, shopCurrency);
+      } catch (currencyErr) {
+        console.warn("[shopify-oauth-callback] Failed to sync shop currency (non-fatal):", currencyErr);
+      }
+    }
 
     console.log("[shopify-oauth-callback] integration upserted", {
       businessId,
