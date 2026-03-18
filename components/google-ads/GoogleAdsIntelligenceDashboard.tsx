@@ -30,6 +30,11 @@ interface Campaign {
   name: string;
   status: string;
   channel: string;
+  impressions?: number;
+  clicks?: number;
+  ctr?: number;
+  cpc?: number;
+  conversionRate?: number;
   spend: number;
   revenue: number;
   conversions: number;
@@ -221,7 +226,22 @@ function fmtPct(n: number): string {
   return `${n.toFixed(0)}%`;
 }
 
+function fmtNumber(n: number): string {
+  if (!Number.isFinite(n)) return "0";
+  if (Math.abs(n) >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (Math.abs(n) >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return `${Math.round(n)}`;
+}
+
 type TrendLabelMode = "day" | "month";
+type PanelKey = "insights" | "assetGroupAudience" | "products" | "assets";
+
+const PANEL_ITEMS: Array<{ key: PanelKey; label: string }> = [
+  { key: "insights", label: "Insights & Reports" },
+  { key: "assetGroupAudience", label: "Asset Group & Audience Signals" },
+  { key: "products", label: "Product Spend & Performance" },
+  { key: "assets", label: "Asset Performance Radar" },
+];
 
 function toIsoDate(date: Date): string {
   return date.toISOString().slice(0, 10);
@@ -288,6 +308,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
   const [channelFilter, setChannelFilter] = useState<string>("all");
   const [selectedCampaignNames, setSelectedCampaignNames] = useState<string[]>([]);
   const [includeSpentInactive, setIncludeSpentInactive] = useState(false);
+  const [activePanel, setActivePanel] = useState<PanelKey>("insights");
 
   const { start: startDate, end: endDate } = getPresetDates(
     dateRange.rangePreset,
@@ -438,6 +459,27 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
   const totalConv = sortedRows.reduce((s, r) => s + r.conversions, 0);
   const blendedRoas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
   const blendedCpa = totalConv > 0 ? totalSpend / totalConv : 0;
+  const totalImpressions = sortedRows.reduce((s, r) => s + Number(r.impressions ?? 0), 0);
+  const totalClicks = sortedRows.reduce((s, r) => s + Number(r.clicks ?? 0), 0);
+  const blendedCtr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
+  const blendedCpc = totalClicks > 0 ? totalSpend / totalClicks : 0;
+  const blendedCvR = totalClicks > 0 ? (totalConv / totalClicks) * 100 : 0;
+  const avgImpressionShare =
+    sortedRows.filter((r) => typeof r.impressionShare === "number").length > 0
+      ? (sortedRows
+          .filter((r) => typeof r.impressionShare === "number")
+          .reduce((s, r) => s + Number(r.impressionShare ?? 0), 0) /
+          sortedRows.filter((r) => typeof r.impressionShare === "number").length) *
+        100
+      : 0;
+  const avgLostIsBudget =
+    sortedRows.filter((r) => typeof r.lostIsBudget === "number").length > 0
+      ? (sortedRows
+          .filter((r) => typeof r.lostIsBudget === "number")
+          .reduce((s, r) => s + Number(r.lostIsBudget ?? 0), 0) /
+          sortedRows.filter((r) => typeof r.lostIsBudget === "number").length) *
+        100
+      : 0;
 
   const assetGroupsByCampaignKey = useMemo(() => {
     const map = new Map<string, AssetGroupRow[]>();
@@ -716,6 +758,24 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
         </div>
       </div>
 
+      <div className="flex gap-1 overflow-auto rounded-xl border border-border/70 bg-muted/20 p-1">
+        {PANEL_ITEMS.map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            onClick={() => setActivePanel(item.key)}
+            className={cn(
+              "whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+              activePanel === item.key
+                ? "bg-card text-foreground shadow-sm"
+                : "text-muted-foreground hover:bg-background/60 hover:text-foreground"
+            )}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+
       <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-5">
         {isLoading ? Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-xl" />) : (
           <>
@@ -726,6 +786,16 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
             <Kpi label="CPA" value={totalConv > 0 ? fmtCurrency(blendedCpa) : "-"} series={trendData(blendedCpa, trendTimelineDates)} formatter={fmtCurrency} dateLabelMode={trendLabelMode} />
           </>
         )}
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-7">
+        <Metric label="Impr." value={fmtNumber(totalImpressions)} />
+        <Metric label="Clicks" value={fmtNumber(totalClicks)} />
+        <Metric label="CTR" value={fmtPct(blendedCtr)} />
+        <Metric label="CPC" value={totalClicks > 0 ? fmtCurrency(blendedCpc) : "-"} />
+        <Metric label="Conv. Rate" value={totalClicks > 0 ? fmtPct(blendedCvR) : "-"} />
+        <Metric label="Impr. Share" value={avgImpressionShare > 0 ? fmtPct(avgImpressionShare) : "-"} />
+        <Metric label="Lost IS (Budget)" value={avgLostIsBudget > 0 ? fmtPct(avgLostIsBudget) : "-"} />
       </div>
 
       {isLoading ? (
@@ -740,321 +810,255 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
         </div>
       )}
 
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold tracking-tight">Insights &amp; Reports</h2>
-          <p className="text-xs text-muted-foreground">Search terms ve when/where ads showed metrikleri</p>
-        </div>
-
-        {isSearchTermsLoading || isGeoLoading || isDevicesLoading ? (
-          <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-xl" />)}</div>
-        ) : (
-          <>
-            <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-              <span className="rounded-full border border-border px-2 py-0.5 text-muted-foreground">Search terms {scopedSearchTerms.length}</span>
-              <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-sky-700">PMax scope {searchSourceCounts.pmax}</span>
-              <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-slate-700">Search scope {searchSourceCounts.search}</span>
-              <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-rose-700">Negative candidates {searchTermNegativeRows.length}</span>
-              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-emerald-700">Positive candidates {searchTermPositiveRows.length}</span>
-              <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-rose-700">Negative spend {fmtCurrency(negativeSpendTotal)}</span>
-              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-emerald-700">Positive spend {fmtCurrency(positiveSpendTotal)}</span>
-            </div>
-
-            <div className="grid gap-2 xl:grid-cols-2">
-              <div className="rounded-xl border bg-card p-3">
-                <p className="text-xs font-semibold tracking-tight text-rose-800">Search terms - Negative / waste</p>
-                {searchTermNegativeRows.length === 0 ? (
-                  <p className="mt-2 text-[11px] text-muted-foreground">No high-risk search term in this filter.</p>
-                ) : (
-                  <div className="mt-2 space-y-1.5">
-                    {searchTermNegativeRows.map((row) => (
-                      <div key={row.key ?? `${row.searchTerm}-${row.campaign ?? ""}`} className="rounded-md border border-rose-200 bg-rose-50/70 p-2">
-                        <div className="flex items-start justify-between gap-2">
-                          <p className="line-clamp-1 text-[11px] font-medium text-rose-900">{row.searchTerm}</p>
-                          <div className="flex items-center gap-1">
-                            <span className="rounded-full border border-rose-200 bg-white px-1.5 py-0.5 text-[9px] text-rose-700">{row.campaign ?? "Campaign"}</span>
-                            <span className="rounded-full border border-slate-200 bg-white px-1.5 py-0.5 text-[9px] text-slate-700">{(row.matchSource ?? row.source ?? "SEARCH").toString().replaceAll("_", " ")}</span>
-                          </div>
-                        </div>
-                        <p className="mt-0.5 text-[10px] text-rose-800">Spend {fmtCurrency(row.spend)} · ROAS {fmtRoas(row.roas)} · Conv {row.conversions.toFixed(0)}</p>
-                        <div className="mt-1 flex flex-wrap gap-1">
-                          <span className="rounded-full border border-rose-200 bg-white px-1.5 py-0.5 text-[9px] text-rose-700">Add negative</span>
-                          {row.recommendation ? <span className="rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[9px] text-amber-700">{row.recommendation}</span> : null}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+      {activePanel === "insights" ? (
+        <section className="space-y-3 rounded-xl border border-border/70 bg-card p-3">
+          <p className="text-xs text-muted-foreground">Search terms and when/where ads appeared metrics</p>
+          {isSearchTermsLoading || isGeoLoading || isDevicesLoading ? (
+            <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-xl" />)}</div>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                <span className="rounded-full border border-border/70 px-2 py-0.5 text-muted-foreground">Search terms {scopedSearchTerms.length}</span>
+                <span className="rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 text-foreground/80">PMax {searchSourceCounts.pmax}</span>
+                <span className="rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 text-foreground/80">Search {searchSourceCounts.search}</span>
+                <span className="rounded-full border border-border/70 bg-rose-50/40 px-2 py-0.5 text-rose-700">Negative {searchTermNegativeRows.length}</span>
+                <span className="rounded-full border border-border/70 bg-emerald-50/40 px-2 py-0.5 text-emerald-700">Positive {searchTermPositiveRows.length}</span>
               </div>
 
-              <div className="rounded-xl border bg-card p-3">
-                <p className="text-xs font-semibold tracking-tight text-emerald-800">Search terms - Positive / opportunity</p>
-                {searchTermPositiveRows.length === 0 ? (
-                  <p className="mt-2 text-[11px] text-muted-foreground">No strong search term opportunity in this filter.</p>
-                ) : (
-                  <div className="mt-2 space-y-1.5">
-                    {searchTermPositiveRows.map((row) => (
-                      <div key={row.key ?? `${row.searchTerm}-${row.campaign ?? ""}`} className="rounded-md border border-emerald-200 bg-emerald-50/70 p-2">
-                        <div className="flex items-start justify-between gap-2">
-                          <p className="line-clamp-1 text-[11px] font-medium text-emerald-900">{row.searchTerm}</p>
-                          <div className="flex items-center gap-1">
-                            <span className="rounded-full border border-emerald-200 bg-white px-1.5 py-0.5 text-[9px] text-emerald-700">{row.campaign ?? "Campaign"}</span>
-                            <span className="rounded-full border border-slate-200 bg-white px-1.5 py-0.5 text-[9px] text-slate-700">{(row.matchSource ?? row.source ?? "SEARCH").toString().replaceAll("_", " ")}</span>
-                          </div>
-                        </div>
-                        <p className="mt-0.5 text-[10px] text-emerald-800">Spend {fmtCurrency(row.spend)} · ROAS {fmtRoas(row.roas)} · Conv {row.conversions.toFixed(0)}</p>
-                        <div className="mt-1 flex flex-wrap gap-1">
-                          <span className="rounded-full border border-emerald-200 bg-white px-1.5 py-0.5 text-[9px] text-emerald-700">
-                            {row.recommendation === "Promote in headlines" ? "Promote headline" : "Add exact"}
-                          </span>
-                          {row.recommendation ? <span className="rounded-full border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[9px] text-sky-700">{row.recommendation}</span> : null}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="grid gap-2 xl:grid-cols-2">
-              <div className="rounded-xl border bg-card p-3">
-                <p className="text-xs font-semibold tracking-tight">When and where ads showed - Locations</p>
-                <div className="mt-2 space-y-1.5">
-                  {topGeoRows.length === 0 ? (
-                    <p className="text-[11px] text-muted-foreground">No geo data in this range.</p>
+              <div className="grid gap-2 xl:grid-cols-2">
+                <div className="rounded-lg border border-border/70 bg-card p-3">
+                  <p className="text-xs font-semibold tracking-tight">Search terms - Negative / waste</p>
+                  {searchTermNegativeRows.length === 0 ? (
+                    <p className="mt-2 text-[11px] text-muted-foreground">No high-risk search term in this filter.</p>
                   ) : (
-                    topGeoRows.map((row) => (
-                      <div key={row.country} className="flex items-center justify-between rounded-md border border-border/70 bg-muted/20 px-2 py-1.5 text-[11px]">
-                        <span className="truncate font-medium">{row.country}</span>
-                        <span className="text-muted-foreground">Spend {fmtCurrency(row.spend)} · ROAS {fmtRoas(row.roas)}</span>
-                      </div>
-                    ))
+                    <div className="mt-2 space-y-1.5">
+                      {searchTermNegativeRows.map((row) => (
+                        <div key={row.key ?? `${row.searchTerm}-${row.campaign ?? ""}`} className="rounded-md border border-border/70 bg-muted/20 p-2">
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="line-clamp-1 text-[11px] font-medium">{row.searchTerm}</p>
+                            <div className="flex items-center gap-1">
+                              <span className="rounded-full border border-border/70 bg-background px-1.5 py-0.5 text-[9px] text-foreground/80">{row.campaign ?? "Campaign"}</span>
+                              <span className="rounded-full border border-border/70 bg-background px-1.5 py-0.5 text-[9px] text-muted-foreground">{(row.matchSource ?? row.source ?? "SEARCH").toString().replaceAll("_", " ")}</span>
+                            </div>
+                          </div>
+                          <p className="mt-0.5 text-[10px] text-muted-foreground">Spend {fmtCurrency(row.spend)} · ROAS {fmtRoas(row.roas)} · Conv {row.conversions.toFixed(0)}</p>
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            <span className="rounded-full border border-border/70 bg-rose-50/40 px-1.5 py-0.5 text-[9px] text-rose-700">Add negative</span>
+                            {row.recommendation ? <span className="rounded-full border border-border/70 bg-amber-50/40 px-1.5 py-0.5 text-[9px] text-amber-700">{row.recommendation}</span> : null}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-lg border border-border/70 bg-card p-3">
+                  <p className="text-xs font-semibold tracking-tight">Search terms - Positive / opportunity</p>
+                  {searchTermPositiveRows.length === 0 ? (
+                    <p className="mt-2 text-[11px] text-muted-foreground">No strong search term opportunity in this filter.</p>
+                  ) : (
+                    <div className="mt-2 space-y-1.5">
+                      {searchTermPositiveRows.map((row) => (
+                        <div key={row.key ?? `${row.searchTerm}-${row.campaign ?? ""}`} className="rounded-md border border-border/70 bg-muted/20 p-2">
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="line-clamp-1 text-[11px] font-medium">{row.searchTerm}</p>
+                            <div className="flex items-center gap-1">
+                              <span className="rounded-full border border-border/70 bg-background px-1.5 py-0.5 text-[9px] text-foreground/80">{row.campaign ?? "Campaign"}</span>
+                              <span className="rounded-full border border-border/70 bg-background px-1.5 py-0.5 text-[9px] text-muted-foreground">{(row.matchSource ?? row.source ?? "SEARCH").toString().replaceAll("_", " ")}</span>
+                            </div>
+                          </div>
+                          <p className="mt-0.5 text-[10px] text-muted-foreground">Spend {fmtCurrency(row.spend)} · ROAS {fmtRoas(row.roas)} · Conv {row.conversions.toFixed(0)}</p>
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            <span className="rounded-full border border-border/70 bg-emerald-50/40 px-1.5 py-0.5 text-[9px] text-emerald-700">{row.recommendation === "Promote in headlines" ? "Promote headline" : "Add exact"}</span>
+                            {row.recommendation ? <span className="rounded-full border border-border/70 bg-sky-50/40 px-1.5 py-0.5 text-[9px] text-sky-700">{row.recommendation}</span> : null}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </div>
               </div>
 
-              <div className="rounded-xl border bg-card p-3">
-                <p className="text-xs font-semibold tracking-tight">When and where ads showed - Devices</p>
-                <div className="mt-2 space-y-1.5">
-                  {topDeviceRows.length === 0 ? (
-                    <p className="text-[11px] text-muted-foreground">No device data in this range.</p>
-                  ) : (
-                    topDeviceRows.map((row) => (
-                      <div key={row.device} className="flex items-center justify-between rounded-md border border-border/70 bg-muted/20 px-2 py-1.5 text-[11px]">
-                        <span className="truncate font-medium">{row.device}</span>
-                        <span className="text-muted-foreground">Spend {fmtCurrency(row.spend)} · ROAS {fmtRoas(row.roas)}</span>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            </div>
-          </>
-        )}
-      </div>
-
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold tracking-tight">Asset Group &amp; Audience Signals</h2>
-          <p className="text-xs text-muted-foreground">Campaign altinda asset group performansi, search theme uyumu ve audience riskleri</p>
-        </div>
-
-        {isAssetGroupsLoading || isAudiencesLoading ? (
-          <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-28 w-full rounded-xl" />)}</div>
-        ) : campaignSignalCards.length === 0 ? (
-          <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">Bu filtrede asset group detaylari bulunamadi.</div>
-        ) : (
-          <div className="space-y-2.5">
-            {campaignSignalCards.map(({ campaign, groups, totalThemes, alignedThemes, themeAlignment, weakAudienceSegments, audienceRows }) => (
-              <div key={campaign.id} className="rounded-xl border bg-card p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <p className="text-sm font-semibold">{campaign.name}</p>
-                    <p className="text-[11px] text-muted-foreground">{groups.length} asset group · {totalThemes} search theme · {audienceRows.length} audience signal</p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-                    <span className={cn("rounded-full border px-2 py-0.5", themeAlignment >= 70 ? "border-emerald-200 bg-emerald-50 text-emerald-800" : themeAlignment >= 45 ? "border-amber-200 bg-amber-50 text-amber-800" : "border-rose-200 bg-rose-50 text-rose-700")}>Theme match {fmtPct(themeAlignment)} ({alignedThemes}/{totalThemes})</span>
-                    <span className={cn("rounded-full border px-2 py-0.5", weakAudienceSegments.length === 0 ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-rose-200 bg-rose-50 text-rose-700")}>Audience risk {weakAudienceSegments.length}</span>
-                  </div>
-                </div>
-
-                <div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                  {groups.map((group) => {
-                    const groupThemeCount = group.searchThemeCount ?? group.searchThemes?.length ?? 0;
-                    const groupAlignedCount = group.searchThemeAlignedCount ?? 0;
-                    const groupThemeAlignment = groupThemeCount > 0 ? (groupAlignedCount / groupThemeCount) * 100 : 0;
-
-                    return (
-                      <div key={group.id} className="rounded-lg border border-border/70 bg-muted/20 p-2.5">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <p className="truncate text-xs font-semibold">{group.name}</p>
-                            <p className="text-[10px] text-muted-foreground">Spend {fmtCurrency(group.spend)} · ROAS {fmtRoas(group.roas)}</p>
-                          </div>
-                          <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-semibold", group.roas >= blendedRoas ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700")}>{group.roas >= blendedRoas ? "Above avg" : "Below avg"}</span>
-                        </div>
-
-                        <div className="mt-2 flex flex-wrap gap-1">
-                          <span className={cn("rounded-full border px-1.5 py-0.5 text-[9px]", groupThemeAlignment >= 70 ? "border-emerald-200 bg-emerald-50 text-emerald-800" : groupThemeAlignment >= 45 ? "border-amber-200 bg-amber-50 text-amber-800" : "border-rose-200 bg-rose-50 text-rose-700")}>Theme fit {fmtPct(groupThemeAlignment)}</span>
-                          <span className={cn("rounded-full border px-1.5 py-0.5 text-[9px]", (group.coverageScore ?? 0) >= 70 ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800")}>Coverage {fmtPct(group.coverageScore ?? 0)}</span>
-                          {group.messagingMismatchCount ? <span className="rounded-full border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-[9px] text-rose-700">{group.messagingMismatchCount} mismatch</span> : null}
-                        </div>
-
-                        {group.searchThemes?.length ? (
-                          <div className="mt-2 flex flex-wrap gap-1">
-                            {group.searchThemes.slice(0, 3).map((theme) => (
-                              <span
-                                key={`${group.id}-${theme.text}`}
-                                className={cn(
-                                  "rounded-full px-1.5 py-0.5 text-[9px]",
-                                  theme.coverage === "high"
-                                    ? "bg-emerald-100 text-emerald-700"
-                                    : theme.coverage === "medium"
-                                    ? "bg-amber-100 text-amber-800"
-                                    : "bg-rose-100 text-rose-700"
-                                )}
-                              >
-                                {theme.text}
-                              </span>
-                            ))}
-                          </div>
-                        ) : null}
-
-                        {group.recommendation ? (
-                          <p className="mt-2 line-clamp-2 text-[10px] text-muted-foreground">{group.recommendation}</p>
-                        ) : null}
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {weakAudienceSegments.length > 0 ? (
-                  <div className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-2 py-1.5 text-[11px] text-rose-800">
-                    Audience signal action: {weakAudienceSegments
-                      .slice(0, 2)
-                      .map((a) => `${a.type} (ROAS ${fmtRoas(a.roas)})`)
-                      .join(" · ")}.
-                  </div>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold tracking-tight">Product Spend &amp; Performance</h2>
-          <p className="text-xs text-muted-foreground">Urun bazinda harcama, gelir, ROAS ve aksiyon durumu</p>
-        </div>
-
-        {isProductsLoading ? (
-          <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20 w-full rounded-xl" />)}</div>
-        ) : productRows.length === 0 ? (
-          <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">Bu filtrede product verisi bulunamadi.</div>
-        ) : (
-          <>
-            <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-              <span className="rounded-full border border-border px-2 py-0.5 text-muted-foreground">Products {productRows.length}</span>
-              <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-slate-700">Total spend {fmtCurrency(totalProductSpend)}</span>
-              <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-slate-700">Avg ROAS {fmtRoas(avgProductRoas)}</span>
-              <span className={cn("rounded-full border px-2 py-0.5", weakProducts.length === 0 ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-rose-200 bg-rose-50 text-rose-700")}>Low performers {weakProducts.length}</span>
-              {!hasRealProductRows ? (
-                <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-amber-800">Showing campaign proxy (product feed data unavailable)</span>
-              ) : null}
-            </div>
-
-            <div className="max-h-[360px] space-y-1 overflow-auto pr-1">
-              {productRows.slice(0, 20).map((product, index) => {
-                const spendShare = totalProductSpend > 0 ? (product.spend / totalProductSpend) * 100 : 0;
-                const isWeak = product.spend > 20 && product.roas < Math.max(avgProductRoas * 0.8, 1.5);
-                return (
-                  <div key={product.itemId ?? `${product.title ?? "product"}-${index}`} className="rounded-lg border bg-card px-2.5 py-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="truncate text-[12px] font-medium">{product.title ?? product.itemId ?? "Unnamed product"}</p>
-                        <p className="truncate text-[10px] text-muted-foreground">{product.itemId ?? "No item id"}</p>
-                      </div>
-                      <div className="flex flex-wrap items-center justify-end gap-1 text-[10px]">
-                        <span className="rounded-full border border-border px-1.5 py-0.5">S {fmtCurrency(product.spend)}</span>
-                        <span className="rounded-full border border-border px-1.5 py-0.5">R {fmtCurrency(product.revenue)}</span>
-                        <span className={cn("rounded-full border px-1.5 py-0.5", product.roas >= avgProductRoas ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700")}>ROAS {fmtRoas(product.roas)}</span>
-                        <span className="rounded-full border border-border/70 bg-muted/20 px-1.5 py-0.5">Conv {product.conversions.toFixed(0)}</span>
-                        <span className="rounded-full border border-border/70 bg-muted/20 px-1.5 py-0.5">Share {fmtPct(spendShare)}</span>
-                        <span className="rounded-full border border-border/70 bg-muted/20 px-1.5 py-0.5">{product.statusLabel ?? "monitor"}</span>
-                        <span className={cn("rounded-full border px-1.5 py-0.5", isWeak ? "border-rose-200 bg-rose-50 text-rose-700" : "border-emerald-200 bg-emerald-50 text-emerald-700")}>{isWeak ? "Needs action" : "Healthy"}</span>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </>
-        )}
-      </div>
-
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold tracking-tight">Asset Performance Radar</h2>
-          <p className="text-xs text-muted-foreground">Zayif headline, description, image ve video varliklarini aninda gosterir</p>
-        </div>
-
-        {isAssetsLoading ? (
-          <div className="space-y-2">{Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-28 w-full rounded-xl" />)}</div>
-        ) : scopedAssets.length === 0 ? (
-          <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">Bu filtrede asset verisi bulunamadi.</div>
-        ) : (
-          <>
-            <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-              <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-rose-700">Underperforming {underperformingAssets.length}</span>
-              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-emerald-700">Top assets {topAssets.length}</span>
-              <span className="rounded-full border border-border px-2 py-0.5 text-muted-foreground">Total assets {scopedAssets.length}</span>
-            </div>
-
-            <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-              {["Headline", "Description", "Image", "Video"].map((type) => {
-                const list = weakAssetsByType.get(type) ?? [];
-                return (
-                  <div key={type} className="rounded-xl border bg-card p-3">
-                    <div className="mb-2 flex items-center justify-between">
-                      <p className="text-xs font-semibold">{type}</p>
-                      <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-semibold", list.length === 0 ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700")}>{list.length === 0 ? "Healthy" : `${list.length} issue`}</span>
-                    </div>
-
-                    {list.length === 0 ? (
-                      <p className="text-[11px] text-muted-foreground">Bu tipte kritik bir problem gorunmuyor.</p>
+              <div className="grid gap-2 xl:grid-cols-2">
+                <div className="rounded-lg border border-border/70 bg-card p-3">
+                  <p className="text-xs font-semibold tracking-tight">When and where ads showed - Locations</p>
+                  <div className="mt-2 space-y-1.5">
+                    {topGeoRows.length === 0 ? (
+                      <p className="text-[11px] text-muted-foreground">No geo data in this range.</p>
                     ) : (
-                      <div className="space-y-1.5">
-                        {list.map((asset) => (
-                          <div key={asset.id} className="rounded-md border border-rose-200 bg-rose-50/70 p-2">
-                            <p className="line-clamp-1 text-[11px] font-medium text-rose-900">{asset.preview ?? asset.assetText ?? "Unnamed asset"}</p>
-                            <p className="mt-0.5 text-[10px] text-rose-800">Spend {fmtCurrency(asset.spend)} · ROAS {fmtRoas(asset.roas)} · Conv {asset.conversions.toFixed(0)}</p>
-                            {asset.hint ? <p className="mt-0.5 line-clamp-2 text-[10px] text-rose-700/90">{asset.hint}</p> : null}
-                          </div>
-                        ))}
-                      </div>
+                      topGeoRows.map((row) => (
+                        <div key={row.country} className="flex items-center justify-between rounded-md border border-border/70 bg-muted/20 px-2 py-1.5 text-[11px]">
+                          <span className="truncate font-medium">{row.country}</span>
+                          <span className="text-muted-foreground">Spend {fmtCurrency(row.spend)} · ROAS {fmtRoas(row.roas)}</span>
+                        </div>
+                      ))
                     )}
                   </div>
-                );
-              })}
-            </div>
+                </div>
 
-            {topAssets.length > 0 ? (
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3">
-                <p className="text-xs font-semibold text-emerald-800">Top performers to reuse</p>
-                <div className="mt-1.5 grid gap-1.5 md:grid-cols-2 xl:grid-cols-3">
-                  {topAssets.map((asset) => (
-                    <div key={asset.id} className="rounded-md border border-emerald-200 bg-white/80 p-2">
-                      <p className="line-clamp-1 text-[11px] font-medium text-emerald-900">{asset.preview ?? asset.assetText ?? "Unnamed asset"}</p>
-                      <p className="mt-0.5 text-[10px] text-emerald-800">{asset.type} · ROAS {fmtRoas(asset.roas)} · {asset.assetGroup ?? "Asset group"}</p>
-                    </div>
-                  ))}
+                <div className="rounded-lg border border-border/70 bg-card p-3">
+                  <p className="text-xs font-semibold tracking-tight">When and where ads showed - Devices</p>
+                  <div className="mt-2 space-y-1.5">
+                    {topDeviceRows.length === 0 ? (
+                      <p className="text-[11px] text-muted-foreground">No device data in this range.</p>
+                    ) : (
+                      topDeviceRows.map((row) => (
+                        <div key={row.device} className="flex items-center justify-between rounded-md border border-border/70 bg-muted/20 px-2 py-1.5 text-[11px]">
+                          <span className="truncate font-medium">{row.device}</span>
+                          <span className="text-muted-foreground">Spend {fmtCurrency(row.spend)} · ROAS {fmtRoas(row.roas)}</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
                 </div>
               </div>
-            ) : null}
-          </>
-        )}
-      </div>
+            </>
+          )}
+        </section>
+      ) : null}
+
+      {activePanel === "assetGroupAudience" ? (
+        <section className="space-y-3 rounded-xl border border-border/70 bg-card p-3">
+          <p className="text-xs text-muted-foreground">Asset group performance, search theme alignment, and audience risks by campaign</p>
+          {isAssetGroupsLoading || isAudiencesLoading ? (
+            <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-28 w-full rounded-xl" />)}</div>
+          ) : campaignSignalCards.length === 0 ? (
+            <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">No asset group details found for this filter.</div>
+          ) : (
+            <div className="max-h-[520px] space-y-2.5 overflow-auto pr-1">
+              {campaignSignalCards.map(({ campaign, groups, totalThemes, alignedThemes, themeAlignment, weakAudienceSegments, audienceRows }) => (
+                <div key={campaign.id} className="rounded-lg border border-border/70 bg-card p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-semibold">{campaign.name}</p>
+                      <p className="text-[11px] text-muted-foreground">{groups.length} asset group · {totalThemes} search theme · {audienceRows.length} audience signal</p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                      <span className="rounded-full border border-border/70 bg-muted/30 px-2 py-0.5 text-foreground/80">Theme match {fmtPct(themeAlignment)} ({alignedThemes}/{totalThemes})</span>
+                      <span className={cn("rounded-full border border-border/70 px-2 py-0.5", weakAudienceSegments.length === 0 ? "bg-emerald-50/40 text-emerald-700" : "bg-rose-50/40 text-rose-700")}>Audience risk {weakAudienceSegments.length}</span>
+                    </div>
+                  </div>
+
+                  <div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                    {groups.map((group) => {
+                      const groupThemeCount = group.searchThemeCount ?? group.searchThemes?.length ?? 0;
+                      const groupAlignedCount = group.searchThemeAlignedCount ?? 0;
+                      const groupThemeAlignment = groupThemeCount > 0 ? (groupAlignedCount / groupThemeCount) * 100 : 0;
+
+                      return (
+                        <div key={group.id} className="rounded-lg border border-border/70 bg-muted/20 p-2.5">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="truncate text-xs font-semibold">{group.name}</p>
+                              <p className="text-[10px] text-muted-foreground">Spend {fmtCurrency(group.spend)} · ROAS {fmtRoas(group.roas)}</p>
+                            </div>
+                            <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-semibold", group.roas >= blendedRoas ? "bg-emerald-50/50 text-emerald-700" : "bg-rose-50/50 text-rose-700")}>{group.roas >= blendedRoas ? "Above avg" : "Below avg"}</span>
+                          </div>
+
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            <span className="rounded-full border border-border/70 bg-muted/30 px-1.5 py-0.5 text-[9px] text-foreground/80">Theme fit {fmtPct(groupThemeAlignment)}</span>
+                            <span className="rounded-full border border-border/70 bg-muted/30 px-1.5 py-0.5 text-[9px] text-foreground/80">Coverage {fmtPct(group.coverageScore ?? 0)}</span>
+                            {group.messagingMismatchCount ? <span className="rounded-full border border-border/70 bg-rose-50/40 px-1.5 py-0.5 text-[9px] text-rose-700">{group.messagingMismatchCount} mismatch</span> : null}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      ) : null}
+
+      {activePanel === "products" ? (
+        <section className="space-y-3 rounded-xl border border-border/70 bg-card p-3">
+          <p className="text-xs text-muted-foreground">Product-level spend, revenue, ROAS, and action status</p>
+          {isProductsLoading ? (
+            <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20 w-full rounded-xl" />)}</div>
+          ) : productRows.length === 0 ? (
+            <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">No product data found for this filter.</div>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                <span className="rounded-full border border-border/70 px-2 py-0.5 text-muted-foreground">Products {productRows.length}</span>
+                <span className="rounded-full border border-border/70 bg-muted/30 px-2 py-0.5 text-foreground/80">Total spend {fmtCurrency(totalProductSpend)}</span>
+                <span className="rounded-full border border-border/70 bg-muted/30 px-2 py-0.5 text-foreground/80">Avg ROAS {fmtRoas(avgProductRoas)}</span>
+                <span className={cn("rounded-full border border-border/70 px-2 py-0.5", weakProducts.length === 0 ? "bg-emerald-50/40 text-emerald-700" : "bg-rose-50/40 text-rose-700")}>Low performers {weakProducts.length}</span>
+              </div>
+
+              <div className="max-h-[360px] space-y-1 overflow-auto pr-1">
+                {productRows.slice(0, 20).map((product, index) => {
+                  const spendShare = totalProductSpend > 0 ? (product.spend / totalProductSpend) * 100 : 0;
+                  const isWeak = product.spend > 20 && product.roas < Math.max(avgProductRoas * 0.8, 1.5);
+                  return (
+                    <div key={product.itemId ?? `${product.title ?? "product"}-${index}`} className="rounded-lg border border-border/70 bg-card px-2.5 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-[12px] font-medium">{product.title ?? product.itemId ?? "Unnamed product"}</p>
+                          <p className="truncate text-[10px] text-muted-foreground">{product.itemId ?? "No item id"}</p>
+                        </div>
+                        <div className="flex flex-wrap items-center justify-end gap-1 text-[10px]">
+                          <span className="rounded-full border border-border/70 px-1.5 py-0.5">S {fmtCurrency(product.spend)}</span>
+                          <span className="rounded-full border border-border/70 px-1.5 py-0.5">R {fmtCurrency(product.revenue)}</span>
+                          <span className="rounded-full border border-border/70 bg-muted/30 px-1.5 py-0.5">ROAS {fmtRoas(product.roas)}</span>
+                          <span className="rounded-full border border-border/70 bg-muted/20 px-1.5 py-0.5">Conv {product.conversions.toFixed(0)}</span>
+                          <span className="rounded-full border border-border/70 bg-muted/20 px-1.5 py-0.5">Share {fmtPct(spendShare)}</span>
+                          <span className={cn("rounded-full border border-border/70 px-1.5 py-0.5", isWeak ? "bg-rose-50/40 text-rose-700" : "bg-emerald-50/40 text-emerald-700")}>{isWeak ? "Needs action" : "Healthy"}</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </section>
+      ) : null}
+
+      {activePanel === "assets" ? (
+        <section className="space-y-3 rounded-xl border border-border/70 bg-card p-3">
+          <p className="text-xs text-muted-foreground">Instantly highlights weak headline, description, image, and video assets</p>
+          {isAssetsLoading ? (
+            <div className="space-y-2">{Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-28 w-full rounded-xl" />)}</div>
+          ) : scopedAssets.length === 0 ? (
+            <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">No asset data found for this filter.</div>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                <span className="rounded-full border border-border/70 bg-rose-50/40 px-2 py-0.5 text-rose-700">Underperforming {underperformingAssets.length}</span>
+                <span className="rounded-full border border-border/70 bg-emerald-50/40 px-2 py-0.5 text-emerald-700">Top assets {topAssets.length}</span>
+                <span className="rounded-full border border-border/70 px-2 py-0.5 text-muted-foreground">Total assets {scopedAssets.length}</span>
+              </div>
+              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                {["Headline", "Description", "Image", "Video"].map((type) => {
+                  const list = weakAssetsByType.get(type) ?? [];
+                  return (
+                    <div key={type} className="rounded-lg border border-border/70 bg-card p-3">
+                      <div className="mb-2 flex items-center justify-between">
+                        <p className="text-xs font-semibold">{type}</p>
+                        <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-semibold", list.length === 0 ? "bg-emerald-50/50 text-emerald-700" : "bg-rose-50/50 text-rose-700")}>{list.length === 0 ? "Healthy" : `${list.length} issue`}</span>
+                      </div>
+                      {list.length === 0 ? (
+                        <p className="text-[11px] text-muted-foreground">No critical issue detected for this asset type.</p>
+                      ) : (
+                        <div className="space-y-1.5">
+                          {list.map((asset) => (
+                            <div key={asset.id} className="rounded-md border border-border/70 bg-muted/20 p-2">
+                              <p className="line-clamp-1 text-[11px] font-medium">{asset.preview ?? asset.assetText ?? "Unnamed asset"}</p>
+                              <p className="mt-0.5 text-[10px] text-muted-foreground">Spend {fmtCurrency(asset.spend)} · ROAS {fmtRoas(asset.roas)} · Conv {asset.conversions.toFixed(0)}</p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </section>
+      ) : null}
     </div>
   );
 }
