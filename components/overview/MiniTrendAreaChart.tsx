@@ -12,6 +12,7 @@ const PLOT_TOP = 4;
 const PLOT_BOTTOM = 4;
 
 type ChartUnit = OverviewMetricCardData["unit"] | "unknown";
+type DateLabelMode = "auto" | "day" | "month";
 
 export function MiniTrendAreaChart({
   data,
@@ -20,6 +21,7 @@ export function MiniTrendAreaChart({
   loading = false,
   className = "h-12 w-full",
   valueFormatter,
+  dateLabelMode = "auto",
 }: {
   data: Array<{ date: string; value: number }>;
   tone: OverviewMetricCardData["trendDirection"];
@@ -27,6 +29,7 @@ export function MiniTrendAreaChart({
   loading?: boolean;
   className?: string;
   valueFormatter?: (value: number) => string;
+  dateLabelMode?: DateLabelMode;
 }) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
 
@@ -85,7 +88,7 @@ export function MiniTrendAreaChart({
   const activePoint = points[activeIndex];
   const linePath = createPath(points);
   const areaPath = `${linePath} L ${points[points.length - 1].x} ${CHART_HEIGHT - PLOT_BOTTOM} L ${points[0].x} ${CHART_HEIGHT - PLOT_BOTTOM} Z`;
-  const activeLabel = formatPointLabel(activePoint.date);
+  const activeLabel = formatPointLabel(activePoint.date, dateLabelMode);
   const formattedValue = valueFormatter
     ? valueFormatter(activePoint.value)
     : formatCompactValue(activePoint.value);
@@ -261,10 +264,22 @@ function formatCompactValue(value: number) {
   return value.toFixed(2);
 }
 
-function formatPointLabel(value: string) {
+function formatPointLabel(value: string, mode: DateLabelMode = "auto") {
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     const date = new Date(`${value}T00:00:00Z`);
     if (!Number.isNaN(date.getTime())) {
+      if (mode === "month") {
+        return new Intl.DateTimeFormat("en-US", {
+          month: "short",
+          year: "numeric",
+        }).format(date);
+      }
+      if (mode === "day") {
+        return new Intl.DateTimeFormat("en-US", {
+          month: "short",
+          day: "numeric",
+        }).format(date);
+      }
       return new Intl.DateTimeFormat("en-US", {
         month: "short",
         day: "numeric",

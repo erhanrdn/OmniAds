@@ -713,6 +713,40 @@ export function buildProductPerformanceQuery(
   return {
     name: "product_performance",
     family: "product_core",
+    resource: "shopping_performance_view",
+    mergeKey: "segments.product_item_id",
+    metrics: [
+      "impressions",
+      "clicks",
+      "cost_micros",
+      "conversions",
+      "conversions_value",
+    ],
+    query: buildGoogleAdsQuery({
+      select: [
+        "segments.product_item_id",
+        "segments.product_title",
+        "metrics.impressions",
+        "metrics.clicks",
+        "metrics.cost_micros",
+        "metrics.conversions",
+        "metrics.conversions_value",
+      ],
+      from: "shopping_performance_view",
+      where: [buildDateWhereClause(startDate, endDate)],
+      orderBy: ["metrics.cost_micros DESC"],
+      limit: 1000,
+    }),
+  };
+}
+
+export function buildProductPerformanceLegacyQuery(
+  startDate: string,
+  endDate: string
+): GoogleAdsNamedQuery {
+  return {
+    name: "product_performance_legacy",
+    family: "product_core",
     resource: "shopping_product_view",
     mergeKey: "segments.product_item_id",
     metrics: [

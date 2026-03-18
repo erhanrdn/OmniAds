@@ -37,6 +37,7 @@ import {
   buildKeywordCoreQuery,
   buildKeywordLookupQuery,
   buildKeywordQualityQuery,
+  buildProductPerformanceLegacyQuery,
   buildProductPerformanceQuery,
   buildSearchTermCoreQuery,
   type GoogleAdsNamedQuery,
@@ -3099,8 +3100,25 @@ export async function getGoogleAdsProductsReport(
 
   const { context, startDate, endDate } = resolved;
   const meta = createEmptyMeta(context.debug);
-  const products = await runNamedQuery(context, buildProductPerformanceQuery(startDate, endDate));
-  mergeFailures(meta, products);
+  const [productsPrimary, productsLegacy] = await Promise.all([
+    runNamedQuery(context, buildProductPerformanceQuery(startDate, endDate)),
+    runNamedQuery(context, buildProductPerformanceLegacyQuery(startDate, endDate)),
+  ]);
+  mergeFailures(meta, productsPrimary);
+  mergeFailures(meta, productsLegacy);
+
+  const products =
+    productsPrimary.rows.length > 0
+      ? productsPrimary
+      : productsLegacy.rows.length > 0
+      ? productsLegacy
+      : productsPrimary;
+
+  if (productsPrimary.rows.length === 0 && productsLegacy.rows.length > 0) {
+    meta.warnings.push(
+      "Product feed is served via shopping_product_view fallback for this account."
+    );
+  }
 
   const productMap = new Map<
     string,
@@ -3118,10 +3136,16 @@ export async function getGoogleAdsProductsReport(
   for (const row of products.rows) {
     const segments = getCompatObject(row, "segments");
     const metrics = getCompatObject(row, "metrics");
-    const productId = asString(getCompatValue(segments, "product_item_id")) ?? "unknown";
+    const productItemId = asString(getCompatValue(segments, "product_item_id"));
+    const productTitle = asString(getCompatValue(segments, "product_title"));
+    const productId =
+      productItemId ??
+      (productTitle && productTitle.trim().length > 0
+        ? `title:${productTitle.trim().toLowerCase()}`
+        : "unknown");
     const current = productMap.get(productId) ?? {
       productId,
-      productTitle: asString(getCompatValue(segments, "product_title")) ?? "Unknown product",
+      productTitle: productTitle ?? "Unknown product",
       impressions: 0,
       clicks: 0,
       spend: 0,
@@ -3140,7 +3164,7 @@ export async function getGoogleAdsProductsReport(
   }
 
   const rows = Array.from(productMap.values())
-    .filter((row) => row.productId !== "unknown")
+    .filter((row) => row.productId !== "unknown" || Number(row.spend ?? 0) > 0)
     .map((row) => {
       const roas = row.spend > 0 ? Number((row.revenue / row.spend).toFixed(2)) : 0;
       const cpa = row.orders > 0 ? Number((row.spend / row.orders).toFixed(2)) : 0;

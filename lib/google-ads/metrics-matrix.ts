@@ -275,7 +275,7 @@ export const GOOGLE_ADS_METRICS_MATRIX: Record<
   },
   products: {
     tab: "products",
-    primaryResource: "shopping_product_view",
+    primaryResource: "shopping_performance_view",
     mergeKey: "shopping_product.item_id",
     queryFamilies: ["product_performance"],
     primaryDimensions: [

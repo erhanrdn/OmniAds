@@ -8,18 +8,8 @@ import {
   IntegrationProvider,
   IntegrationState,
 } from "@/store/integrations-store";
-import {
-  BarChart3,
-  Facebook,
-  Loader2,
-  PinIcon,
-  Search,
-  ShoppingBag,
-  Sparkles,
-  Target,
-  WifiOff,
-  Mail,
-} from "lucide-react";
+import { Loader2 } from "lucide-react";
+import Image from "next/image";
 
 interface IntegrationsCardProps {
   provider: IntegrationProvider;
@@ -100,7 +90,7 @@ export function IntegrationsCard({
     .slice(0, 2)
     .map((account) => account.name);
 
-  const Icon = getProviderIcon(provider);
+  const logoSrc = getProviderLogo(provider);
 
   return (
     <div
@@ -116,17 +106,10 @@ export function IntegrationsCard({
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-2.5">
-          <div
-            className={cn(
-              "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border",
-              isConnected
-                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                : isError || isTimeout
-                  ? "border-amber-200 bg-amber-50 text-amber-700"
-                  : "border-border bg-muted/70 text-muted-foreground",
-            )}
-          >
-            <Icon className="h-4 w-4" />
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border/70 bg-white dark:bg-muted/50">
+            {logoSrc ? (
+              <Image src={logoSrc} alt={providerLabel} width={20} height={20} className="object-contain" />
+            ) : null}
           </div>
           <div className="min-w-0 space-y-0.5">
             <h2 className="truncate text-sm font-semibold tracking-tight text-foreground">
@@ -324,27 +307,17 @@ function formatShortDateTime(value: string) {
   return new Date(value).toLocaleDateString();
 }
 
-function getProviderIcon(provider: IntegrationProvider) {
+function getProviderLogo(provider: IntegrationProvider): string | null {
   switch (provider) {
-    case "meta":
-      return Facebook;
-    case "google":
-      return Target;
-    case "ga4":
-      return BarChart3;
-    case "search_console":
-      return Search;
-    case "shopify":
-      return ShoppingBag;
-    case "tiktok":
-      return Sparkles;
-    case "pinterest":
-      return PinIcon;
-    case "snapchat":
-      return WifiOff;
-    case "klaviyo":
-      return Mail;
-    default:
-      return Target;
+    case "meta": return "/platform-logos/Meta.png";
+    case "google": return "/platform-logos/googleAds.svg";
+    case "ga4": return "/platform-logos/GA4.svg";
+    case "search_console": return "/platform-logos/searchconsole.svg";
+    case "shopify": return "/platform-logos/shopify.svg";
+    case "tiktok": return "/platform-logos/tiktok.svg";
+    case "pinterest": return "/platform-logos/Pinterest.svg";
+    case "snapchat": return "/platform-logos/snapchat.svg";
+    case "klaviyo": return "/platform-logos/Klaviyo.svg";
+    default: return null;
   }
 }

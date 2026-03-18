@@ -434,6 +434,7 @@ export interface DateRangePickerProps {
   onChange: (value: DateRangeValue) => void;
   className?: string;
   showComparisonTrigger?: boolean;
+  comparisonPlaceholderLabel?: string;
 }
 
 export function DateRangePicker({
@@ -441,6 +442,7 @@ export function DateRangePicker({
   onChange,
   className,
   showComparisonTrigger = true,
+  comparisonPlaceholderLabel = "None",
 }: DateRangePickerProps) {
   const [openMode, setOpenMode] = useState<"range" | "comparison" | null>(null);
   const [draft, setDraft] = useState<DateRangeValue>(value);
@@ -461,7 +463,10 @@ export function DateRangePicker({
   }
 
   const rangeLabel = getTriggerLabel(value);
-  const compLabel = getComparisonLabel(value);
+  const compLabel =
+    value.comparisonPreset === "none"
+      ? comparisonPlaceholderLabel
+      : getComparisonLabel(value);
   const hasComparison = value.comparisonPreset !== "none";
 
   return (
