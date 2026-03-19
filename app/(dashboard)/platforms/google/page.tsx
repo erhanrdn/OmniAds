@@ -1,25 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { useAppStore } from "@/store/app-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
 import { IntegrationEmptyState } from "@/components/states/IntegrationEmptyState";
-import { getPlatformTable } from "@/src/services";
 import {
-  getGoogleAssets,
-  getGoogleProducts,
-  getGoogleRecommendations,
-  getGoogleSearchTerms,
-  getGoogleShopifyProducts,
   GoogleAssetRow,
   GoogleProductRow,
-  GoogleRecommendation,
   GoogleSearchTermRow,
   ShopifyProductPerformance,
 } from "@/src/services/google";
-import { MetricsRow, Platform, PlatformLevel, PlatformTableRow } from "@/src/types";
+import { MetricsRow, PlatformTableRow } from "@/src/types";
 import { LoadingSkeleton } from "@/components/states/loading-skeleton";
 import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
@@ -32,11 +24,8 @@ import {
   DEFAULT_COLUMNS,
   formatMetricCell,
   RecommendationCard,
-  calculateGrowthScore,
   GoogleInsightsDrawer,
-  reweightRecommendationForScope,
   type DrawerPayload,
-  EXTRA_GROWTH_RECOMMENDATIONS,
   type GrowthRecommendation,
   type InsightsTab,
   type MainTab,
@@ -49,6 +38,7 @@ import {
   TAB_TO_LEVEL,
   type DateRange,
 } from "@/app/(dashboard)/platforms/google/google-page-support";
+import { useGooglePageData } from "@/app/(dashboard)/platforms/google/google-page-hooks";
 
 export default function GooglePage() {
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
@@ -85,96 +75,39 @@ export default function GooglePage() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [drawerPayload, setDrawerPayload] = useState<DrawerPayload>(null);
 
-  const accountQuery = useQuery({
-    queryKey: ["google-platform-accounts", businessId],
-    enabled: googleConnected,
-    queryFn: () =>
-      getPlatformTable(
-        Platform.GOOGLE,
-        PlatformLevel.ACCOUNT,
-        businessId,
-        null,
-        DATE_RANGE,
-        DEFAULT_COLUMNS
-      ),
+  const {
+    accountQuery,
+    tableQuery,
+    recommendationsQuery,
+    searchTermsQuery,
+    productsQuery,
+    assetsQuery,
+    shopifyProductsQuery,
+    enabledAccounts,
+    filteredRows,
+    growthEngineRecommendations,
+    growthScore,
+    activeInsightsLoading,
+    activeInsightsError,
+  } = useGooglePageData({
+    businessId,
+    googleConnected,
+    mainTab,
+    insightsTab,
+    insightsDateRange,
+    optimizationScope,
+    selectedCampaign,
+    selectedAssetGroup,
+    selectedCountry,
+    selectedProductCategory,
+    selectedProductSku,
+    statusFilter,
+    sortColumn,
+    sortDirection,
+    selectedAccountId,
+    searchTermQuery,
+    setSelectedAccountId,
   });
-
-  const platformLevel = mainTab === "insights" ? PlatformLevel.CAMPAIGN : TAB_TO_LEVEL[mainTab];
-  const tableQuery = useQuery({
-    queryKey: [
-      "google-platform-table",
-      businessId,
-      platformLevel,
-      selectedAccountId,
-      statusFilter,
-      sortColumn,
-      sortDirection,
-    ],
-    enabled: googleConnected && mainTab !== "insights",
-    queryFn: () =>
-      getPlatformTable(
-        Platform.GOOGLE,
-        platformLevel,
-        businessId,
-        selectedAccountId === "all" ? null : selectedAccountId,
-        DATE_RANGE,
-        DEFAULT_COLUMNS
-      ),
-  });
-
-  const recommendationsQuery = useQuery({
-    queryKey: ["google-recommendations", businessId, insightsDateRange, selectedAccountId],
-    enabled: googleConnected && mainTab === "insights" && insightsTab === "recommendations",
-    queryFn: () => getGoogleRecommendations({
-      businessId,
-      dateRange: insightsDateRange,
-      accountId: selectedAccountId === "all" ? undefined : selectedAccountId,
-    }),
-  });
-
-  const searchTermsQuery = useQuery({
-    queryKey: ["google-search-terms", businessId, insightsDateRange, searchTermQuery, selectedAccountId],
-    enabled: googleConnected && mainTab === "insights" && insightsTab === "searchTerms",
-    queryFn: () =>
-      getGoogleSearchTerms({
-        businessId,
-        dateRange: insightsDateRange,
-        search: searchTermQuery,
-        accountId: selectedAccountId === "all" ? undefined : selectedAccountId,
-      }),
-  });
-
-  const productsQuery = useQuery({
-    queryKey: ["google-products", businessId, insightsDateRange, selectedAccountId],
-    enabled: googleConnected && mainTab === "insights" && insightsTab === "products",
-    queryFn: () => getGoogleProducts({
-      businessId,
-      dateRange: insightsDateRange,
-      accountId: selectedAccountId === "all" ? undefined : selectedAccountId,
-    }),
-  });
-
-  const assetsQuery = useQuery({
-    queryKey: ["google-assets", businessId, insightsDateRange, selectedAccountId],
-    enabled: googleConnected && mainTab === "insights" && insightsTab === "assets",
-    queryFn: () => getGoogleAssets({
-      businessId,
-      dateRange: insightsDateRange,
-      accountId: selectedAccountId === "all" ? undefined : selectedAccountId,
-    }),
-  });
-
-  const shopifyProductsQuery = useQuery({
-    queryKey: ["google-shopify-products", businessId, insightsDateRange],
-    enabled: googleConnected && mainTab === "insights",
-    queryFn: () => getGoogleShopifyProducts({ businessId, dateRange: insightsDateRange }),
-  });
-
-  const enabledAccounts = useMemo(() => {
-    const rows = accountQuery.data ?? [];
-    const activeRows = rows.filter((row) => row.status === "active");
-    return activeRows.length > 0 ? activeRows : rows;
-  }, [accountQuery.data]);
 
   useEffect(() => {
     if (!toastMessage) return;
@@ -182,95 +115,7 @@ export default function GooglePage() {
     return () => clearTimeout(timeout);
   }, [toastMessage]);
 
-  useEffect(() => {
-    if (enabledAccounts.length === 0) return;
-    if (
-      selectedAccountId !== "all" &&
-      !enabledAccounts.some((account) => account.accountId === selectedAccountId)
-    ) {
-      setSelectedAccountId(enabledAccounts[0].accountId);
-    }
-  }, [enabledAccounts, selectedAccountId]);
-
-  const filteredRows = useMemo(() => {
-    const rows = tableQuery.data ?? [];
-    const byStatus =
-      statusFilter === "all" ? rows : rows.filter((row) => row.status === statusFilter);
-    return [...byStatus].sort((a, b) => {
-      const multiplier = sortDirection === "asc" ? 1 : -1;
-      if (sortColumn === "name" || sortColumn === "status") {
-        return a[sortColumn].localeCompare(b[sortColumn]) * multiplier;
-      }
-      return ((a.metrics[sortColumn] ?? 0) - (b.metrics[sortColumn] ?? 0)) * multiplier;
-    });
-  }, [tableQuery.data, statusFilter, sortColumn, sortDirection]);
-
-  const scopedRecommendations = useMemo(() => {
-    const scopeContext =
-      optimizationScope === "campaign"
-        ? selectedCampaign
-        : optimizationScope === "assetGroup"
-          ? `${selectedCampaign} / ${selectedAssetGroup}`
-          : optimizationScope === "country"
-            ? selectedCountry
-            : optimizationScope === "productCategory"
-              ? selectedProductCategory
-              : optimizationScope === "productLevel"
-                ? selectedProductSku
-              : "Account";
-
-    const base = (recommendationsQuery.data ?? []).map((rec) =>
-      reweightRecommendationForScope(rec, optimizationScope, scopeContext)
-    );
-    const growthExtras = EXTRA_GROWTH_RECOMMENDATIONS.map((rec) =>
-      reweightRecommendationForScope(rec, optimizationScope, scopeContext)
-    );
-    return [...base, ...growthExtras];
-  }, [
-    recommendationsQuery.data,
-    optimizationScope,
-    selectedCampaign,
-    selectedAssetGroup,
-    selectedCountry,
-    selectedProductCategory,
-    selectedProductSku,
-  ]);
-
-  const growthEngineRecommendations = useMemo(() => {
-    const optimizationIds = new Set(["rec-1", "rec-4", "rec-5"]);
-    const growthIds = new Set(["rec-2", "rec-g-product-scale", "rec-g-geo-expand", "rec-g-creative-op"]);
-    return scopedRecommendations
-      .filter((rec) => optimizationIds.has(rec.id) || growthIds.has(rec.id))
-      .map<GrowthRecommendation>((rec) => ({
-        ...rec,
-        title:
-          rec.id === "rec-1"
-            ? "Negative keyword waste"
-            : rec.id === "rec-2"
-              ? "Keyword expansion"
-              : rec.title,
-        category: optimizationIds.has(rec.id) ? "optimization" : "growth",
-      }));
-  }, [scopedRecommendations]);
-
-  const growthScore = useMemo(
-    () => calculateGrowthScore(growthEngineRecommendations),
-    [growthEngineRecommendations]
-  );
-
   const showComingSoon = () => setToastMessage("Coming soon");
-  const activeInsightsLoading =
-    recommendationsQuery.isLoading ||
-    searchTermsQuery.isLoading ||
-    productsQuery.isLoading ||
-    assetsQuery.isLoading ||
-    shopifyProductsQuery.isLoading;
-  const activeInsightsError =
-    recommendationsQuery.isError ||
-    searchTermsQuery.isError ||
-    productsQuery.isError ||
-    assetsQuery.isError ||
-    shopifyProductsQuery.isError;
 
   return (
     <div className="space-y-5">

@@ -1,0 +1,234 @@
+"use client";
+
+import { useMemo } from "react";
+import { BarChart3, Layers, Minus, TrendingDown, TrendingUp, X } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
+import { formatMoney } from "@/components/creatives/money";
+import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
+import {
+  CHART_METRICS,
+  fmtChartMetricValue,
+  getChartMetricValue,
+  type BreakdownRow,
+  type ChartMetric,
+} from "@/components/creatives/creative-ad-breakdown-support";
+
+export function CreativeDrawerHeader({
+  creative,
+  associatedAdsCount,
+  assetFallbacks,
+  onClose,
+}: {
+  creative: MetaCreativeRow | null;
+  associatedAdsCount: number;
+  assetFallbacks: (string | null)[];
+  onClose: () => void;
+}) {
+  const formatLabel =
+    creative?.isCatalog ? "Catalog" :
+    creative?.format === "video" ? "Video" : "Image";
+
+  return (
+    <header className="shrink-0 border-b bg-muted/30">
+      <div className="flex items-center justify-between px-5 pb-2 pt-4">
+        <div className="flex items-center gap-2">
+          <div className="flex h-6 items-center rounded-md bg-primary/10 px-2">
+            <Layers className="mr-1.5 h-3 w-3 text-primary" />
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-primary">
+              Ad breakdown
+            </span>
+          </div>
+        </div>
+        <button
+          type="button"
+          className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          onClick={onClose}
+          aria-label="Close"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="flex gap-4 px-5 pb-4">
+        <div className="shrink-0 overflow-hidden rounded-xl border bg-background shadow-sm" style={{ width: 96, height: 96 }}>
+          {creative ? (
+            <CreativeRenderSurface
+              id={creative.id}
+              name={creative.name}
+              preview={creative.preview}
+              size="card"
+              mode="asset"
+              assetFallbacks={assetFallbacks}
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center bg-muted text-muted-foreground">
+              <BarChart3 className="h-6 w-6" />
+            </div>
+          )}
+        </div>
+
+        <div className="flex min-w-0 flex-1 flex-col justify-center">
+          <h3 className="truncate text-base font-semibold leading-tight tracking-tight">
+            {creative?.name ?? "Creative"}
+          </h3>
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            <span className="inline-flex items-center rounded-md bg-blue-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400">
+              Meta
+            </span>
+            <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+              {formatLabel}
+            </span>
+            <span className="text-[11px] text-muted-foreground">
+              {associatedAdsCount} {associatedAdsCount === 1 ? "ad" : "ads"} using this creative
+            </span>
+          </div>
+          {creative?.launchDate && (
+            <p className="mt-1 text-[11px] text-muted-foreground/70">
+              Launched {creative.launchDate}
+            </p>
+          )}
+        </div>
+      </div>
+    </header>
+  );
+}
+
+export function CreativeSummaryCards({
+  totalSpend,
+  avgRoas,
+  totalPurchases,
+  avgCpa,
+  adsCount,
+  currency,
+  defaultCurrency,
+}: {
+  totalSpend: number;
+  avgRoas: number;
+  totalPurchases: number;
+  avgCpa: number;
+  adsCount: number;
+  currency: string | null;
+  defaultCurrency: string | null;
+}) {
+  return (
+    <div className="grid grid-cols-5 gap-3">
+      <SummaryCard
+        label="Total Spend"
+        value={formatMoney(totalSpend, currency, defaultCurrency)}
+        icon={<span className="text-amber-500">$</span>}
+      />
+      <SummaryCard
+        label="Avg ROAS"
+        value={`${avgRoas.toFixed(2)}x`}
+        icon={avgRoas >= 1 ? <TrendingUp className="h-3.5 w-3.5 text-emerald-500" /> : <TrendingDown className="h-3.5 w-3.5 text-red-400" />}
+      />
+      <SummaryCard
+        label="Total Purchases"
+        value={Math.round(totalPurchases).toLocaleString()}
+        icon={<span className="text-xs font-bold text-violet-500">#</span>}
+      />
+      <SummaryCard
+        label="Avg CPA"
+        value={formatMoney(avgCpa, currency, defaultCurrency)}
+        icon={<Minus className="h-3.5 w-3.5 text-orange-400" />}
+      />
+      <SummaryCard
+        label="Active Ads"
+        value={adsCount.toString()}
+        icon={<Layers className="h-3.5 w-3.5 text-blue-400" />}
+      />
+    </div>
+  );
+}
+
+function SummaryCard({ label, value, icon }: { label: string; value: string; icon: React.ReactNode }) {
+  return (
+    <div className="rounded-xl border bg-card p-3 shadow-sm transition-shadow hover:shadow-md">
+      <div className="flex items-center gap-1.5">
+        <div className="flex h-5 w-5 items-center justify-center rounded-md bg-muted/60">{icon}</div>
+        <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{label}</p>
+      </div>
+      <p className="mt-1.5 text-lg font-bold tabular-nums tracking-tight">{value}</p>
+    </div>
+  );
+}
+
+export function CreativePerformanceChart({
+  rows,
+  metric,
+  onMetricChange,
+  currency,
+  defaultCurrency,
+}: {
+  rows: BreakdownRow[];
+  metric: ChartMetric;
+  onMetricChange: (metric: ChartMetric) => void;
+  currency: string | null;
+  defaultCurrency: string | null;
+}) {
+  const maxValue = useMemo(() => {
+    const values = rows.map((row) => getChartMetricValue(row, metric));
+    return Math.max(...values, 0.01);
+  }, [rows, metric]);
+
+  return (
+    <div className="rounded-xl border bg-card shadow-sm">
+      <div className="flex items-center justify-between border-b px-4 py-3">
+        <div className="flex items-center gap-2">
+          <BarChart3 className="h-4 w-4 text-muted-foreground" />
+          <h4 className="text-[13px] font-semibold">Performance by Ad</h4>
+        </div>
+        <div className="flex gap-1">
+          {CHART_METRICS.map((metricOption) => (
+            <button
+              key={metricOption.key}
+              type="button"
+              onClick={() => onMetricChange(metricOption.key)}
+              className={cn(
+                "rounded-lg px-2.5 py-1 text-[11px] font-medium transition-colors",
+                metric === metricOption.key
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              )}
+            >
+              {metricOption.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="px-4 py-3">
+        {rows.length === 0 ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">No data to chart</p>
+        ) : (
+          <div className="space-y-2">
+            {rows.slice(0, 8).map((row) => {
+              const value = getChartMetricValue(row, metric);
+              const pct = maxValue > 0 ? (value / maxValue) * 100 : 0;
+              const displayValue = fmtChartMetricValue(value, metric, currency, defaultCurrency);
+              return (
+                <div key={row.id} className="group">
+                  <div className="mb-0.5 flex items-center justify-between">
+                    <p className="max-w-[60%] truncate text-[11px] font-medium text-foreground">{row.name}</p>
+                    <span className="text-[11px] font-semibold tabular-nums text-foreground">{displayValue}</span>
+                  </div>
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-muted/60">
+                    <div
+                      className="h-full rounded-full bg-primary/80 transition-all duration-300 group-hover:bg-primary"
+                      style={{ width: `${Math.max(pct, 1.5)}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+            {rows.length > 8 && (
+              <p className="pt-1 text-center text-[10px] text-muted-foreground">+{rows.length - 8} more ads</p>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

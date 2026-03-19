@@ -77,6 +77,8 @@ import {
   applyRecoveredCreativeMedia,
   buildMetaCreativeApiRow,
   buildCreativesPerformanceDebug,
+  collectUnresolvedCreativeIds,
+  getStoryLookupCandidates,
   resolveCardThumbnailCreativeIds,
 } from "@/lib/meta/creatives-service-support";
 
@@ -823,29 +825,16 @@ export async function buildCreativesResponse(
   if (enableFullMediaHydration && unresolvedCopyRows.length > 0) {
     const storyLookupIds = Array.from(
       new Set(
-        unresolvedCopyRows.flatMap((row) => {
-          const candidates = [
-            row.object_story_id,
-            row.effective_object_story_id,
-            row.post_id,
-            extractPostIdFromStoryIdentifier(row.object_story_id ?? null),
-            extractPostIdFromStoryIdentifier(row.effective_object_story_id ?? null),
-          ];
-          return candidates.filter((value): value is string => typeof value === "string" && value.trim().length > 0);
-        })
+        unresolvedCopyRows.flatMap((row) =>
+          getStoryLookupCandidates(row, extractPostIdFromStoryIdentifier)
+        )
       )
     );
     const storyCopyMap = await fetchStoryCopyMap(storyLookupIds, accessToken);
     if (storyCopyMap.size > 0) {
       rows = rows.map((row) => {
         if (normalizeCopyText(row.copy_text)) return row;
-        const lookupCandidates = [
-          row.object_story_id,
-          row.effective_object_story_id,
-          row.post_id,
-          extractPostIdFromStoryIdentifier(row.object_story_id ?? null),
-          extractPostIdFromStoryIdentifier(row.effective_object_story_id ?? null),
-        ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+        const lookupCandidates = getStoryLookupCandidates(row, extractPostIdFromStoryIdentifier);
         const storyHit = lookupCandidates.map((id) => storyCopyMap.get(id)).find((item) => Boolean(item)) ?? null;
         if (!storyHit) {
           return {
@@ -870,13 +859,7 @@ export async function buildCreativesResponse(
     }
 
     const htmlFallbackCandidateRows = rows.filter((row) => !normalizeCopyText(row.copy_text));
-    const unresolvedCreativeIds = Array.from(
-      new Set(
-        htmlFallbackCandidateRows
-          .map((row) => row.creative_id)
-          .filter((creativeId): creativeId is string => typeof creativeId === "string" && creativeId.trim().length > 0)
-      )
-    ).slice(0, 50);
+    const unresolvedCreativeIds = collectUnresolvedCreativeIds(htmlFallbackCandidateRows);
     if (unresolvedCreativeIds.length > 0) {
       const previewByCreativeId = new Map<string, ReturnType<typeof extractVariantsFromPreviewHtml>>();
       for (const creativeId of unresolvedCreativeIds) {

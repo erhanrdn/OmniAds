@@ -54,6 +54,29 @@ export function resolveCardThumbnailCreativeIds(params: {
     .slice(0, 80);
 }
 
+export function getStoryLookupCandidates(
+  row: Pick<RawCreativeRow, "object_story_id" | "effective_object_story_id" | "post_id">,
+  extractPostId: (value: string | null) => string | null
+) {
+  return [
+    row.object_story_id,
+    row.effective_object_story_id,
+    row.post_id,
+    extractPostId(row.object_story_id ?? null),
+    extractPostId(row.effective_object_story_id ?? null),
+  ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+}
+
+export function collectUnresolvedCreativeIds(rows: RawCreativeRow[]) {
+  return Array.from(
+    new Set(
+      rows
+        .map((row) => row.creative_id)
+        .filter((creativeId): creativeId is string => typeof creativeId === "string" && creativeId.trim().length > 0)
+    )
+  ).slice(0, 50);
+}
+
 export function applyRecoveredCreativeMedia(
   row: RawCreativeRow,
   creative: NonNullable<MetaAdRecord["creative"]>
