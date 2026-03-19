@@ -14,6 +14,12 @@ import {
   Copy,
   MetricsRow,
 } from "@/src/types";
+import {
+  buildApiUrl,
+  getApiErrorMessage,
+  getApiOrigin,
+  readJsonResponse,
+} from "@/src/services/data-service-support";
 
 const MOCK_DELAY_MS = 250;
 
@@ -965,10 +971,7 @@ export async function getOverview(
   businessId: string,
   dateRange: DateRange
 ): Promise<OverviewData> {
-  const url = new URL(
-    process.env.NEXT_PUBLIC_OVERVIEW_API_URL || "/api/overview",
-    typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"
-  );
+  const url = buildApiUrl(process.env.NEXT_PUBLIC_OVERVIEW_API_URL || "/api/overview");
   url.searchParams.set("businessId", businessId);
   url.searchParams.set("startDate", dateRange.startDate);
   url.searchParams.set("endDate", dateRange.endDate);
@@ -980,14 +983,12 @@ export async function getOverview(
     },
   });
 
-  const payload = await response.json().catch(() => null);
+  const payload = await readJsonResponse(response);
 
   if (!response.ok) {
-    const message =
-      payload && typeof payload === "object" && "message" in payload
-        ? String(payload.message)
-        : `Overview API request failed with status ${response.status}`;
-    throw new Error(message);
+    throw new Error(
+      getApiErrorMessage(payload, `Overview API request failed with status ${response.status}`)
+    );
   }
 
   const data = payload?.overview ?? payload;
@@ -1021,10 +1022,7 @@ export async function getOverviewSparklines(
   businessId: string,
   params: { startDate: string; endDate: string }
 ): Promise<SparklineBundle> {
-  const url = new URL(
-    "/api/overview-sparklines",
-    typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"
-  );
+  const url = buildApiUrl("/api/overview-sparklines");
   url.searchParams.set("businessId", businessId);
   url.searchParams.set("startDate", params.startDate);
   url.searchParams.set("endDate", params.endDate);
@@ -1034,14 +1032,15 @@ export async function getOverviewSparklines(
     headers: { Accept: "application/json" },
   });
 
-  const payload = await response.json().catch(() => null);
+  const payload = await readJsonResponse(response);
 
   if (!response.ok) {
-    const message =
-      payload && typeof payload === "object" && "message" in payload
-        ? String(payload.message)
-        : `Overview sparklines request failed with status ${response.status}`;
-    throw new Error(message);
+    throw new Error(
+      getApiErrorMessage(
+        payload,
+        `Overview sparklines request failed with status ${response.status}`
+      )
+    );
   }
 
   return (payload?.sparklines ?? payload) as SparklineBundle;
@@ -1051,10 +1050,7 @@ export async function getOverviewSummary(
   businessId: string,
   params: DateRange & { compareMode?: "none" | "previous_period" }
 ): Promise<OverviewSummaryData> {
-  const url = new URL(
-    "/api/overview-summary",
-    typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"
-  );
+  const url = buildApiUrl("/api/overview-summary");
   url.searchParams.set("businessId", businessId);
   url.searchParams.set("startDate", params.startDate);
   url.searchParams.set("endDate", params.endDate);
@@ -1069,14 +1065,15 @@ export async function getOverviewSummary(
     },
   });
 
-  const payload = await response.json().catch(() => null);
+  const payload = await readJsonResponse(response);
 
   if (!response.ok) {
-    const message =
-      payload && typeof payload === "object" && "message" in payload
-        ? String(payload.message)
-        : `Overview Summary API request failed with status ${response.status}`;
-    throw new Error(message);
+    throw new Error(
+      getApiErrorMessage(
+        payload,
+        `Overview Summary API request failed with status ${response.status}`
+      )
+    );
   }
 
   const data = payload?.summary ?? payload;
@@ -1091,10 +1088,7 @@ export async function getOverviewSummary(
 export async function getLatestAiInsight(
   businessId: string
 ): Promise<AiDailyInsightSnapshot | null> {
-  const url = new URL(
-    "/api/ai/insights/latest",
-    typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"
-  );
+  const url = buildApiUrl("/api/ai/insights/latest");
   url.searchParams.set("businessId", businessId);
 
   const response = await fetch(url.toString(), {
@@ -1102,14 +1096,12 @@ export async function getLatestAiInsight(
     headers: { Accept: "application/json" },
   });
 
-  const payload = await response.json().catch(() => null);
+  const payload = await readJsonResponse(response);
 
   if (!response.ok) {
-    const message =
-      payload && typeof payload === "object" && "message" in payload
-        ? String(payload.message)
-        : `AI insight request failed with status ${response.status}`;
-    throw new Error(message);
+    throw new Error(
+      getApiErrorMessage(payload, `AI insight request failed with status ${response.status}`)
+    );
   }
 
   if (!payload || typeof payload !== "object") {
@@ -1123,10 +1115,7 @@ export async function getLatestAiInsight(
 }
 
 export async function generateAiInsight(businessId: string): Promise<void> {
-  const url = new URL(
-    "/api/ai/insights/generate",
-    typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"
-  );
+  const url = buildApiUrl("/api/ai/insights/generate");
 
   const response = await fetch(url.toString(), {
     method: "POST",
@@ -1137,14 +1126,15 @@ export async function generateAiInsight(businessId: string): Promise<void> {
     body: JSON.stringify({ businessId }),
   });
 
-  const payload = await response.json().catch(() => null);
+  const payload = await readJsonResponse(response);
 
   if (!response.ok) {
-    const message =
-      payload && typeof payload === "object" && "message" in payload
-        ? String((payload as { message?: string }).message ?? "Could not generate AI insight.")
-        : `AI insight generation failed with status ${response.status}`;
-    throw new Error(message);
+    throw new Error(
+      getApiErrorMessage(
+        payload,
+        `AI insight generation failed with status ${response.status}`
+      )
+    );
   }
 }
 
@@ -1331,10 +1321,7 @@ export async function getMetricTrend(
   businessId: string,
   params: DateRange & { metric: string }
 ): Promise<{ metric: string; data: Array<{ date: string; value: number }> }> {
-  const url = new URL(
-    "/api/metrics/trend",
-    typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"
-  );
+  const url = buildApiUrl("/api/metrics/trend");
   url.searchParams.set("businessId", businessId);
   url.searchParams.set("metric", params.metric);
   url.searchParams.set("startDate", params.startDate);
@@ -1347,14 +1334,12 @@ export async function getMetricTrend(
     },
   });
 
-  const payload = await response.json().catch(() => null);
+  const payload = await readJsonResponse(response);
 
   if (!response.ok) {
-    const message =
-      payload && typeof payload === "object" && "message" in payload
-        ? String(payload.message)
-        : `Metric Trend API request failed with status ${response.status}`;
-    throw new Error(message);
+    throw new Error(
+      getApiErrorMessage(payload, `Metric Trend API request failed with status ${response.status}`)
+    );
   }
 
   if (!payload || typeof payload !== "object" || !Array.isArray(payload.data)) {
@@ -1367,24 +1352,19 @@ export async function getMetricTrend(
 export async function getBusinessCostModel(
   businessId: string
 ): Promise<BusinessCostModelData | null> {
-  const url = new URL(
-    "/api/business-cost-model",
-    typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"
-  );
+  const url = buildApiUrl("/api/business-cost-model");
   url.searchParams.set("businessId", businessId);
 
   const response = await fetch(url.toString(), {
     method: "GET",
     headers: { Accept: "application/json" },
   });
-  const payload = await response.json().catch(() => null);
+  const payload = await readJsonResponse(response);
 
   if (!response.ok) {
-    const message =
-      payload && typeof payload === "object" && "message" in payload
-        ? String(payload.message)
-        : `Business Cost Model request failed with status ${response.status}`;
-    throw new Error(message);
+    throw new Error(
+      getApiErrorMessage(payload, `Business Cost Model request failed with status ${response.status}`)
+    );
   }
 
   return (payload?.costModel ?? null) as BusinessCostModelData | null;
@@ -1405,13 +1385,11 @@ export async function upsertBusinessCostModel(input: {
     },
     body: JSON.stringify(input),
   });
-  const payload = await response.json().catch(() => null);
+  const payload = await readJsonResponse(response);
   if (!response.ok) {
-    const message =
-      payload && typeof payload === "object" && "message" in payload
-        ? String(payload.message)
-        : `Business Cost Model update failed with status ${response.status}`;
-    throw new Error(message);
+    throw new Error(
+      getApiErrorMessage(payload, `Business Cost Model update failed with status ${response.status}`)
+    );
   }
   return payload.costModel as BusinessCostModelData;
 }
@@ -1472,9 +1450,7 @@ async function getGooglePlatformTable(
   dateRange: DateRange,
   metrics: Array<keyof MetricsRow>
 ): Promise<PlatformTableRow[]> {
-  const apiUrl = typeof window !== "undefined" 
-    ? `${window.location.origin}/api/google`
-    : "http://localhost:3000/api/google";
+  const apiUrl = `${getApiOrigin()}/api/google`;
 
   try {
     let endpoint = "";
@@ -1577,7 +1553,7 @@ async function getGooglePlatformTable(
       return [];
     }
 
-    const url = new URL(apiUrl + endpoint);
+    const url = buildApiUrl(apiUrl + endpoint, apiUrl + endpoint);
     url.searchParams.set("businessId", businessId);
     
     // Determine date range parameter

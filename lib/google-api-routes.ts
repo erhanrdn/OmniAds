@@ -12,6 +12,12 @@ import {
   normalizeCostMicros,
   normalizeStatus,
 } from "@/lib/google-ads-gaql";
+import {
+  executeGoogleQueries,
+  requireBusinessIdJson,
+  resolveGoogleAccountsToQuery,
+  uniqueByKey,
+} from "@/lib/google-api-routes-support";
 
 type GoogleDateRange = "7" | "14" | "30" | "custom";
 
@@ -49,10 +55,10 @@ async function requireGoogleRouteAccess(request: NextRequest, businessId: string
 }
 
 export async function getGoogleAccountsRoute(request: NextRequest) {
-  const { businessId, dateRange } = getGoogleRouteParams(request);
-  if (!businessId) {
-    return NextResponse.json({ error: "businessId is required" }, { status: 400 });
-  }
+  const { businessId: rawBusinessId, dateRange } = getGoogleRouteParams(request);
+  const missingBusinessIdResponse = requireBusinessIdJson(rawBusinessId);
+  if (missingBusinessIdResponse) return missingBusinessIdResponse;
+  const businessId = rawBusinessId as string;
 
   const authError = await requireGoogleRouteAccess(request, businessId);
   if (authError) return authError;
@@ -66,12 +72,11 @@ export async function getGoogleAccountsRoute(request: NextRequest) {
       return NextResponse.json({ data: [], count: 0 });
     }
 
-    const allResults = await Promise.all(
-      assignedAccounts.map((customerId) =>
-        executeGaqlQuery({
-          businessId,
-          customerId,
-          query: `
+    const allResults = await executeGoogleQueries({
+      businessId,
+      customerIds: assignedAccounts,
+      errorLabel: "accounts",
+      buildQuery: () => `
             SELECT
               customer.id,
               customer.descriptive_name,
@@ -84,12 +89,7 @@ export async function getGoogleAccountsRoute(request: NextRequest) {
             WHERE segments.date >= '${dateRangeParams.startDate}'
               AND segments.date <= '${dateRangeParams.endDate}'
           `,
-        }).catch((error) => {
-          console.error(`[accounts] Query failed for account ${customerId}:`, error);
-          return { results: [] };
-        })
-      )
-    );
+    });
 
     const accounts = allResults
       .map((result, index) => {
@@ -135,10 +135,10 @@ export async function getGoogleAccountsRoute(request: NextRequest) {
 }
 
 export async function getGoogleAdGroupsRoute(request: NextRequest) {
-  const { businessId, accountId, dateRange } = getGoogleRouteParams(request);
-  if (!businessId) {
-    return NextResponse.json({ error: "businessId is required" }, { status: 400 });
-  }
+  const { businessId: rawBusinessId, accountId, dateRange } = getGoogleRouteParams(request);
+  const missingBusinessIdResponse = requireBusinessIdJson(rawBusinessId);
+  if (missingBusinessIdResponse) return missingBusinessIdResponse;
+  const businessId = rawBusinessId as string;
 
   const authError = await requireGoogleRouteAccess(request, businessId);
   if (authError) return authError;
@@ -154,13 +154,12 @@ export async function getGoogleAdGroupsRoute(request: NextRequest) {
       );
     }
 
-    const accountsToQuery = accountId && accountId !== "all" ? [accountId] : assignedAccounts;
-    const allResults = await Promise.all(
-      accountsToQuery.map((customerId) =>
-        executeGaqlQuery({
-          businessId,
-          customerId,
-          query: `
+    const accountsToQuery = resolveGoogleAccountsToQuery(assignedAccounts, accountId);
+    const allResults = await executeGoogleQueries({
+      businessId,
+      customerIds: accountsToQuery,
+      errorLabel: "ad-groups",
+      buildQuery: () => `
             SELECT
               ad_group.id,
               ad_group.name,
@@ -179,12 +178,7 @@ export async function getGoogleAdGroupsRoute(request: NextRequest) {
               AND segments.date <= '${dateRangeParams.endDate}'
             ORDER BY metrics.cost_micros DESC
           `,
-        }).catch((error) => {
-          console.error(`[ad-groups] Query failed for account ${customerId}:`, error);
-          return { results: [] };
-        })
-      )
-    );
+    });
 
     const adGroups = allResults
       .flatMap((result) => result.results || [])
@@ -217,7 +211,7 @@ export async function getGoogleAdGroupsRoute(request: NextRequest) {
       })
       .filter((adGroup) => adGroup.id !== "unknown");
 
-    const uniqueAdGroups = Array.from(new Map(adGroups.map((adGroup) => [adGroup.id, adGroup])).values());
+    const uniqueAdGroups = uniqueByKey(adGroups, (adGroup) => adGroup.id);
     return NextResponse.json({ data: uniqueAdGroups, count: uniqueAdGroups.length });
   } catch (error) {
     console.error("[ad-groups] API error:", error);
@@ -229,10 +223,10 @@ export async function getGoogleAdGroupsRoute(request: NextRequest) {
 }
 
 export async function getGoogleAdsRoute(request: NextRequest) {
-  const { businessId, accountId, dateRange } = getGoogleRouteParams(request);
-  if (!businessId) {
-    return NextResponse.json({ error: "businessId is required" }, { status: 400 });
-  }
+  const { businessId: rawBusinessId, accountId, dateRange } = getGoogleRouteParams(request);
+  const missingBusinessIdResponse = requireBusinessIdJson(rawBusinessId);
+  if (missingBusinessIdResponse) return missingBusinessIdResponse;
+  const businessId = rawBusinessId as string;
 
   const authError = await requireGoogleRouteAccess(request, businessId);
   if (authError) return authError;
@@ -248,13 +242,12 @@ export async function getGoogleAdsRoute(request: NextRequest) {
       );
     }
 
-    const accountsToQuery = accountId && accountId !== "all" ? [accountId] : assignedAccounts;
-    const allResults = await Promise.all(
-      accountsToQuery.map((customerId) =>
-        executeGaqlQuery({
-          businessId,
-          customerId,
-          query: `
+    const accountsToQuery = resolveGoogleAccountsToQuery(assignedAccounts, accountId);
+    const allResults = await executeGoogleQueries({
+      businessId,
+      customerIds: accountsToQuery,
+      errorLabel: "ads",
+      buildQuery: () => `
             SELECT
               ad_group_ad.ad.id,
               ad_group_ad.ad.name,
@@ -274,12 +267,7 @@ export async function getGoogleAdsRoute(request: NextRequest) {
               AND segments.date <= '${dateRangeParams.endDate}'
             ORDER BY metrics.cost_micros DESC
           `,
-        }).catch((error) => {
-          console.error(`[ads] Query failed for account ${customerId}:`, error);
-          return { results: [] };
-        })
-      )
-    );
+    });
 
     const ads = allResults
       .flatMap((result) => result.results || [])
@@ -315,7 +303,7 @@ export async function getGoogleAdsRoute(request: NextRequest) {
       })
       .filter((ad) => ad.id !== "unknown");
 
-    const uniqueAds = Array.from(new Map(ads.map((ad) => [ad.id, ad])).values());
+    const uniqueAds = uniqueByKey(ads, (ad) => ad.id);
     return NextResponse.json({ data: uniqueAds, count: uniqueAds.length });
   } catch (error) {
     console.error("[ads] API error:", error);
@@ -327,10 +315,10 @@ export async function getGoogleAdsRoute(request: NextRequest) {
 }
 
 export async function getGoogleAssetsRoute(request: NextRequest) {
-  const { businessId, accountId, dateRange } = getGoogleRouteParams(request);
-  if (!businessId) {
-    return NextResponse.json({ error: "businessId is required" }, { status: 400 });
-  }
+  const { businessId: rawBusinessId, accountId, dateRange } = getGoogleRouteParams(request);
+  const missingBusinessIdResponse = requireBusinessIdJson(rawBusinessId);
+  if (missingBusinessIdResponse) return missingBusinessIdResponse;
+  const businessId = rawBusinessId as string;
 
   const authError = await requireGoogleRouteAccess(request, businessId);
   if (authError) return authError;
@@ -347,13 +335,12 @@ export async function getGoogleAssetsRoute(request: NextRequest) {
       });
     }
 
-    const accountsToQuery = accountId && accountId !== "all" ? [accountId] : assignedAccounts;
-    const allResults = await Promise.all(
-      accountsToQuery.map((customerId) =>
-        executeGaqlQuery({
-          businessId,
-          customerId,
-          query: `
+    const accountsToQuery = resolveGoogleAccountsToQuery(assignedAccounts, accountId);
+    const allResults = await executeGoogleQueries({
+      businessId,
+      customerIds: accountsToQuery,
+      errorLabel: "assets",
+      buildQuery: () => `
             SELECT
               asset_group_asset.asset_group.name,
               asset_group_asset.asset.type,
@@ -366,12 +353,7 @@ export async function getGoogleAssetsRoute(request: NextRequest) {
               AND segments.date <= '${dateRangeParams.endDate}'
             ORDER BY metrics.cost_micros DESC
           `,
-        }).catch((error) => {
-          console.error(`[assets] Query failed for account ${customerId}:`, error);
-          return { results: [] };
-        })
-      )
-    );
+    });
 
     const assets = allResults.flatMap((result) => result.results || []).map((row, index) => {
       const assetGroupAsset = row.asset_group_asset as any;
@@ -402,10 +384,10 @@ export async function getGoogleAssetsRoute(request: NextRequest) {
 }
 
 export async function getGoogleCampaignsRoute(request: NextRequest) {
-  const { businessId, accountId, dateRange } = getGoogleRouteParams(request);
-  if (!businessId) {
-    return NextResponse.json({ error: "businessId is required" }, { status: 400 });
-  }
+  const { businessId: rawBusinessId, accountId, dateRange } = getGoogleRouteParams(request);
+  const missingBusinessIdResponse = requireBusinessIdJson(rawBusinessId);
+  if (missingBusinessIdResponse) return missingBusinessIdResponse;
+  const businessId = rawBusinessId as string;
 
   const authError = await requireGoogleRouteAccess(request, businessId);
   if (authError) return authError;
@@ -421,13 +403,12 @@ export async function getGoogleCampaignsRoute(request: NextRequest) {
       );
     }
 
-    const accountsToQuery = accountId && accountId !== "all" ? [accountId] : assignedAccounts;
-    const allResults = await Promise.all(
-      accountsToQuery.map((customerId) =>
-        executeGaqlQuery({
-          businessId,
-          customerId,
-          query: `
+    const accountsToQuery = resolveGoogleAccountsToQuery(assignedAccounts, accountId);
+    const allResults = await executeGoogleQueries({
+      businessId,
+      customerIds: accountsToQuery,
+      errorLabel: "campaigns",
+      buildQuery: () => `
             SELECT
               campaign.id,
               campaign.name,
@@ -446,12 +427,7 @@ export async function getGoogleCampaignsRoute(request: NextRequest) {
               AND segments.date <= '${dateRangeParams.endDate}'
             ORDER BY metrics.cost_micros DESC
           `,
-        }).catch((error) => {
-          console.error(`[campaigns] Query failed for account ${customerId}:`, error);
-          return { results: [] };
-        })
-      )
-    );
+    });
 
     const campaigns = allResults
       .flatMap((result) => result.results || [])
@@ -482,7 +458,7 @@ export async function getGoogleCampaignsRoute(request: NextRequest) {
       })
       .filter((campaign) => campaign.id !== "unknown");
 
-    const uniqueCampaigns = Array.from(new Map(campaigns.map((campaign) => [campaign.id, campaign])).values());
+    const uniqueCampaigns = uniqueByKey(campaigns, (campaign) => campaign.id);
     return NextResponse.json({ data: uniqueCampaigns, count: uniqueCampaigns.length });
   } catch (error) {
     console.error("[campaigns] API error:", error);
@@ -494,10 +470,10 @@ export async function getGoogleCampaignsRoute(request: NextRequest) {
 }
 
 export async function getGoogleProductsRoute(request: NextRequest) {
-  const { businessId, accountId, dateRange } = getGoogleRouteParams(request);
-  if (!businessId) {
-    return NextResponse.json({ error: "businessId is required" }, { status: 400 });
-  }
+  const { businessId: rawBusinessId, accountId, dateRange } = getGoogleRouteParams(request);
+  const missingBusinessIdResponse = requireBusinessIdJson(rawBusinessId);
+  if (missingBusinessIdResponse) return missingBusinessIdResponse;
+  const businessId = rawBusinessId as string;
 
   const authError = await requireGoogleRouteAccess(request, businessId);
   if (authError) return authError;
@@ -514,13 +490,12 @@ export async function getGoogleProductsRoute(request: NextRequest) {
       });
     }
 
-    const accountsToQuery = accountId && accountId !== "all" ? [accountId] : assignedAccounts;
-    const allResults = await Promise.all(
-      accountsToQuery.map((customerId) =>
-        executeGaqlQuery({
-          businessId,
-          customerId,
-          query: `
+    const accountsToQuery = resolveGoogleAccountsToQuery(assignedAccounts, accountId);
+    const allResults = await executeGoogleQueries({
+      businessId,
+      customerIds: accountsToQuery,
+      errorLabel: "products",
+      buildQuery: () => `
             SELECT
               shopping_product.item_id,
               shopping_product.title,
@@ -536,12 +511,7 @@ export async function getGoogleProductsRoute(request: NextRequest) {
               AND segments.date <= '${dateRangeParams.endDate}'
             ORDER BY metrics.cost_micros DESC
           `,
-        }).catch((error) => {
-          console.error(`[products] Query failed for account ${customerId}:`, error);
-          return { results: [] };
-        })
-      )
-    );
+    });
 
     const products = allResults
       .flatMap((result) => result.results || [])
@@ -567,7 +537,7 @@ export async function getGoogleProductsRoute(request: NextRequest) {
       })
       .filter((product) => product.item_id !== "unknown");
 
-    const uniqueProducts = Array.from(new Map(products.map((product) => [product.item_id, product])).values());
+    const uniqueProducts = uniqueByKey(products, (product) => product.item_id);
     return NextResponse.json({ data: uniqueProducts, count: uniqueProducts.length });
   } catch (error) {
     console.error("[products] API error:", error);
@@ -579,10 +549,10 @@ export async function getGoogleProductsRoute(request: NextRequest) {
 }
 
 export async function getGoogleRecommendationsRoute(request: NextRequest) {
-  const { businessId, accountId, dateRange } = getGoogleRouteParams(request);
-  if (!businessId) {
-    return NextResponse.json({ error: "businessId is required" }, { status: 400 });
-  }
+  const { businessId: rawBusinessId, accountId, dateRange } = getGoogleRouteParams(request);
+  const missingBusinessIdResponse = requireBusinessIdJson(rawBusinessId);
+  if (missingBusinessIdResponse) return missingBusinessIdResponse;
+  const businessId = rawBusinessId as string;
 
   const authError = await requireGoogleRouteAccess(request, businessId);
   if (authError) return authError;
@@ -595,7 +565,7 @@ export async function getGoogleRecommendationsRoute(request: NextRequest) {
       return NextResponse.json({ data: [], count: 0 });
     }
 
-    const accountsToQuery = accountId && accountId !== "all" ? [accountId] : assignedAccounts;
+    const accountsToQuery = resolveGoogleAccountsToQuery(assignedAccounts, accountId);
     const recommendations: Recommendation[] = [];
 
     const searchTermResults = await Promise.all(
@@ -621,7 +591,7 @@ export async function getGoogleRecommendationsRoute(request: NextRequest) {
       )
     );
 
-    const allSearchTerms = searchTermResults.flatMap((result) => result.results || []);
+    const allSearchTerms = searchTermResults.flatMap((result: any) => result.results || []);
     const searchTermWasteRec = computeSearchTermWaste(allSearchTerms);
     if (searchTermWasteRec) recommendations.push(searchTermWasteRec);
 
@@ -646,7 +616,7 @@ export async function getGoogleRecommendationsRoute(request: NextRequest) {
       )
     );
 
-    const allCampaigns = campaignResults.flatMap((result) => result.results || []);
+    const allCampaigns = campaignResults.flatMap((result: any) => result.results || []);
     const concentrationRec = computeSpendConcentration(allCampaigns);
     if (concentrationRec) recommendations.push(concentrationRec);
 
@@ -673,7 +643,7 @@ export async function getGoogleRecommendationsRoute(request: NextRequest) {
       )
     );
 
-    const allAssets = assetResults.flatMap((result) => result.results || []);
+    const allAssets = assetResults.flatMap((result: any) => result.results || []);
     const assetRec = computeAssetGaps(allAssets);
     if (assetRec) recommendations.push(assetRec);
 
@@ -688,11 +658,11 @@ export async function getGoogleRecommendationsRoute(request: NextRequest) {
 }
 
 export async function getGoogleSearchTermsRoute(request: NextRequest) {
-  const { businessId, accountId, dateRange } = getGoogleRouteParams(request);
+  const { businessId: rawBusinessId, accountId, dateRange } = getGoogleRouteParams(request);
   const searchFilter = request.nextUrl.searchParams.get("search")?.toLowerCase().trim() || "";
-  if (!businessId) {
-    return NextResponse.json({ error: "businessId is required" }, { status: 400 });
-  }
+  const missingBusinessIdResponse = requireBusinessIdJson(rawBusinessId);
+  if (missingBusinessIdResponse) return missingBusinessIdResponse;
+  const businessId = rawBusinessId as string;
 
   const authError = await requireGoogleRouteAccess(request, businessId);
   if (authError) return authError;
@@ -709,13 +679,12 @@ export async function getGoogleSearchTermsRoute(request: NextRequest) {
       });
     }
 
-    const accountsToQuery = accountId && accountId !== "all" ? [accountId] : assignedAccounts;
-    const allResults = await Promise.all(
-      accountsToQuery.map((customerId) =>
-        executeGaqlQuery({
-          businessId,
-          customerId,
-          query: `
+    const accountsToQuery = resolveGoogleAccountsToQuery(assignedAccounts, accountId);
+    const allResults = await executeGoogleQueries({
+      businessId,
+      customerIds: accountsToQuery,
+      errorLabel: "search-terms",
+      buildQuery: () => `
             SELECT
               search_term_view.search_term,
               search_term_view.status,
@@ -731,12 +700,7 @@ export async function getGoogleSearchTermsRoute(request: NextRequest) {
               AND segments.date <= '${dateRangeParams.endDate}'
             ORDER BY metrics.cost_micros DESC
           `,
-        }).catch((error) => {
-          console.error(`[search-terms] Query failed for account ${customerId}:`, error);
-          return { results: [] };
-        })
-      )
-    );
+    });
 
     const searchTerms = allResults
       .flatMap((result) => result.results || [])

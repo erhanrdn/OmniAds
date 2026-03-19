@@ -72,6 +72,13 @@ import {
   buildLiveApiResponse,
   triggerSnapshotRefresh,
 } from "@/lib/meta/creatives-snapshot-helpers";
+import {
+  addPerfStageMs,
+  applyRecoveredCreativeMedia,
+  buildMetaCreativeApiRow,
+  buildCreativesPerformanceDebug,
+  resolveCardThumbnailCreativeIds,
+} from "@/lib/meta/creatives-service-support";
 
 export interface CreativesQueryParams {
   businessId: string;
@@ -221,10 +228,6 @@ export async function buildCreativesResponse(
   let mediaFallbackRowsRequested = 0;
   let mediaDirectFallbackRowsRequested = 0;
 
-  const addStageMs = (name: string, ms: number) => {
-    perf.stages[name] = (perf.stages[name] ?? 0) + ms;
-  };
-
   for (const accountId of assignedAccountIds) {
     try {
       const accountPerf = {
@@ -258,7 +261,7 @@ export async function buildCreativesResponse(
           return result;
         })(),
       ]);
-      addStageMs("parallel_fetch_ms", Date.now() - tParallelStart);
+      addPerfStageMs(perf, "parallel_fetch_ms", Date.now() - tParallelStart);
       accountPerf.insights_rows = insights.length;
 
       const adMap = new Map<string, MetaAdRecord>();
@@ -383,24 +386,11 @@ export async function buildCreativesResponse(
             )
           : new Map<string, string>();
       accountPerf.creative_thumb_small_ms += Date.now() - tSmallThumbs;
-      const spendByCreativeId = insights.reduce<Map<string, number>>((acc, insight) => {
-        const adId = insight.ad_id;
-        if (!adId) return acc;
-        const creativeId = adMap.get(adId)?.creative?.id;
-        if (!creativeId) return acc;
-        const spend = parseFloat(insight.spend ?? "0") || 0;
-        acc.set(creativeId, (acc.get(creativeId) ?? 0) + spend);
-        return acc;
-      }, new Map<string, number>());
-      const cardThumbnailCreativeIds = Array.from(mergedCreativeById.entries())
-      .filter(([, creative]) => {
-        const imageUrl = normalizeMediaUrl(creative?.image_url ?? null);
-        if (!imageUrl) return true;
-        return isLikelyLowResCreativeUrl(imageUrl);
-      })
-      .map(([creativeId]) => creativeId)
-      .sort((a, b) => (spendByCreativeId.get(b) ?? 0) - (spendByCreativeId.get(a) ?? 0))
-      .slice(0, 80);
+      const cardThumbnailCreativeIds = resolveCardThumbnailCreativeIds({
+        mergedCreativeById,
+        insights,
+        adMap,
+      });
       const tCardThumbs = Date.now();
       const cardThumbnailMap =
         enableCardThumbnailBackfill && cardThumbnailCreativeIds.length > 0
@@ -704,29 +694,7 @@ export async function buildCreativesResponse(
       const fallbackCreative = fallbackAd?.creative ?? null;
       if (!fallbackCreative) continue;
 
-      const collected = collectPreviewCandidates(fallbackCreative, new Map<string, string>());
-      const candidate1 = collected.candidates[0]?.url ?? null;
-      const candidate2 = collected.candidates[1]?.url ?? candidate1;
-      const creativeThumb = normalizeMediaUrl(fallbackCreative.thumbnail_url);
-      const creativeImage = normalizeMediaUrl(fallbackCreative.image_url);
-      const chosenThumb = creativeThumb ?? candidate1;
-      const chosenImage = creativeImage ?? candidate2;
-      const chosenPreview = chosenThumb ?? chosenImage;
-      if (!chosenPreview) continue;
-
-      row.thumbnail_url = chosenThumb;
-      row.image_url = chosenImage;
-      row.preview_url = chosenPreview;
-      row.preview_state = "preview";
-      if (!row.preview.image_url && !row.preview.poster_url) {
-        row.preview = {
-          ...row.preview,
-          render_mode: "image",
-          image_url: chosenImage ?? chosenPreview,
-          poster_url: chosenThumb ?? chosenPreview,
-          source: row.preview.source ?? "image_url",
-        };
-      }
+      applyRecoveredCreativeMedia(row, fallbackCreative);
     }
     if (process.env.NODE_ENV !== "production") {
       const unresolvedAfterFallback = rawRows.filter(
@@ -737,7 +705,7 @@ export async function buildCreativesResponse(
         unresolved_after_fallback: unresolvedAfterFallback,
       });
     }
-    addStageMs("media_fallback_ms", Date.now() - tMediaFallback);
+    addPerfStageMs(perf, "media_fallback_ms", Date.now() - tMediaFallback);
 
     const unresolvedAdIds = rawRows
       .filter(
@@ -764,29 +732,7 @@ export async function buildCreativesResponse(
         const directCreative = directAd?.creative ?? null;
         if (!directCreative) continue;
 
-        const collected = collectPreviewCandidates(directCreative, new Map<string, string>());
-        const candidate1 = collected.candidates[0]?.url ?? null;
-        const candidate2 = collected.candidates[1]?.url ?? candidate1;
-        const creativeThumb = normalizeMediaUrl(directCreative.thumbnail_url);
-        const creativeImage = normalizeMediaUrl(directCreative.image_url);
-        const chosenThumb = creativeThumb ?? candidate1;
-        const chosenImage = creativeImage ?? candidate2;
-        const chosenPreview = chosenThumb ?? chosenImage;
-        if (!chosenPreview) continue;
-
-        row.thumbnail_url = chosenThumb;
-        row.image_url = chosenImage;
-        row.preview_url = chosenPreview;
-        row.preview_state = "preview";
-        if (!row.preview.image_url && !row.preview.poster_url) {
-          row.preview = {
-            ...row.preview,
-            render_mode: "image",
-            image_url: chosenImage ?? chosenPreview,
-            poster_url: chosenThumb ?? chosenPreview,
-            source: row.preview.source ?? "image_url",
-          };
-        }
+        applyRecoveredCreativeMedia(row, directCreative);
       }
 
       if (process.env.NODE_ENV !== "production") {
@@ -798,7 +744,7 @@ export async function buildCreativesResponse(
           unresolved_after_direct_fallback: unresolvedAfterDirectFallback,
         });
       }
-      addStageMs("media_direct_fallback_ms", Date.now() - tDirectFallback);
+      addPerfStageMs(perf, "media_direct_fallback_ms", Date.now() - tDirectFallback);
     }
   }
 
@@ -846,7 +792,7 @@ export async function buildCreativesResponse(
       );
       Object.assign(row, applied);
     }
-    addStageMs("copy_deep_recovery_ms", Date.now() - tCopyRecovery);
+    addPerfStageMs(perf, "copy_deep_recovery_ms", Date.now() - tCopyRecovery);
   }
 
   const scopedRows = format === "all" ? rawRows : rawRows.filter((row) => row.format === format);
@@ -1015,214 +961,19 @@ export async function buildCreativesResponse(
   }));
   const tMediaCache = Date.now();
   const cacheMap = enableMediaCache ? await MediaCacheService.resolveUrls(cacheItems, businessId) : new Map<string, { url: string; source: "cache" | "external" }>();
-  addStageMs("media_cache_ms", Date.now() - tMediaCache);
+  addPerfStageMs(perf, "media_cache_ms", Date.now() - tMediaCache);
 
   const includeDebugFields = debugPreview || debugThumbnail || debugPerf;
   const responseRows: MetaCreativeApiRow[] = rows.map((row) => {
     const cached = cacheMap.get(row.creative_id);
     const cachedThumbnailUrl = cached?.source === "cache" ? cached.url : null;
-    const tableThumbnailFromRow = normalizeMediaUrl(row.table_thumbnail_url ?? null);
-    const cardPreviewFromRow = normalizeMediaUrl(row.card_preview_url ?? null);
-    const rowPreviewImage = normalizeMediaUrl(row.preview.image_url ?? null);
-    const rowPreviewPoster = normalizeMediaUrl(row.preview.poster_url ?? null);
-    const finalThumbnailUrl =
-      tableThumbnailFromRow ??
-      normalizeMediaUrl(row.thumbnail_url) ??
-      normalizeMediaUrl(cachedThumbnailUrl) ??
-      normalizeMediaUrl(row.preview_url) ??
-      normalizeMediaUrl(row.image_url) ??
-      rowPreviewPoster ??
-      rowPreviewImage;
-    const rowImageUrl = normalizeMediaUrl(row.image_url);
-    const rowPreviewUrl = normalizeMediaUrl(row.preview_url);
-    const rowThumbnailUrl = normalizeMediaUrl(row.thumbnail_url);
     const cardFallbackThumbnail = normalizeMediaUrl(cardPreviewByCreativeId.get(row.creative_id) ?? null);
-    const preferredCardImageUrl =
-      (cardPreviewFromRow && !isThumbnailLikeUrl(cardPreviewFromRow) ? cardPreviewFromRow : null) ??
-      (rowImageUrl && !isThumbnailLikeUrl(rowImageUrl) ? rowImageUrl : null) ??
-      (rowPreviewUrl && !isThumbnailLikeUrl(rowPreviewUrl) ? rowPreviewUrl : null) ??
-      (rowPreviewImage && !isThumbnailLikeUrl(rowPreviewImage) ? rowPreviewImage : null) ??
-      (rowPreviewPoster && !isThumbnailLikeUrl(rowPreviewPoster) ? rowPreviewPoster : null) ??
-      (cardFallbackThumbnail && !isThumbnailLikeUrl(cardFallbackThumbnail) ? cardFallbackThumbnail : null) ??
-      rowImageUrl ??
-      rowPreviewUrl ??
-      rowPreviewImage ??
-      rowPreviewPoster ??
-      cardPreviewFromRow ??
-      cardFallbackThumbnail ??
-      rowThumbnailUrl ??
-      finalThumbnailUrl;
-    const finalImageUrl = rowImageUrl ?? preferredCardImageUrl ?? finalThumbnailUrl;
-    const finalPreviewUrl =
-      rowPreviewUrl ??
-      preferredCardImageUrl ??
-      finalThumbnailUrl;
-    const previewState: LegacyPreviewState = finalPreviewUrl ? "preview" : "unavailable";
-    const finalNullReason = finalThumbnailUrl
-      ? null
-      : row.debug?.stage_null_reason ?? "final_map_no_thumbnail";
-    const finalPreviewPayload: NormalizedRenderPreviewPayload =
-      finalPreviewUrl && row.preview.render_mode === "unavailable"
-        ? {
-            ...row.preview,
-            render_mode: row.preview.video_url ? "video" : "image",
-            image_url:
-              normalizeMediaUrl(row.preview.image_url) ??
-              preferredCardImageUrl ??
-              finalImageUrl ??
-              finalThumbnailUrl,
-            poster_url:
-              normalizeMediaUrl(row.preview.poster_url) ??
-              preferredCardImageUrl ??
-              finalThumbnailUrl ??
-              finalImageUrl,
-            source: row.preview.source ?? "thumbnail_url",
-          }
-        : row.preview.render_mode === "image"
-        ? {
-            ...row.preview,
-            image_url:
-              normalizeMediaUrl(row.preview.image_url) && !isLikelyLowResCreativeUrl(row.preview.image_url)
-                ? row.preview.image_url
-                : finalImageUrl ?? row.preview.image_url,
-            poster_url:
-              normalizeMediaUrl(row.preview.poster_url) && !isLikelyLowResCreativeUrl(row.preview.poster_url)
-                ? row.preview.poster_url
-                : preferredCardImageUrl ?? finalThumbnailUrl ?? row.preview.poster_url,
-          }
-        : row.preview;
-    const tableThumbnailCandidates = [
-      tableThumbnailFromRow,
-      rowThumbnailUrl,
-      normalizeMediaUrl(cachedThumbnailUrl),
-      rowPreviewPoster,
-      rowPreviewUrl,
-      rowImageUrl,
-      rowPreviewImage,
-    ].filter((value): value is string => Boolean(value));
-    const tableThumbnailUrl = tableThumbnailCandidates[0] ?? null;
-
-    const cardCandidates = [
-      preferredCardImageUrl,
-      cardPreviewFromRow,
-      rowImageUrl,
-      rowPreviewImage,
-      rowPreviewUrl,
-      rowPreviewPoster,
-      cardFallbackThumbnail,
-      rowThumbnailUrl,
-      tableThumbnailUrl,
-    ].filter((value): value is string => Boolean(value));
-
-    const cardPrimary =
-      cardCandidates.find((candidate) => !isThumbnailLikeUrl(candidate)) ??
-      cardCandidates[0] ??
-      null;
-    const cardPreviewUrl =
-      cardPrimary === tableThumbnailUrl
-        ? cardCandidates.find((candidate) => candidate !== tableThumbnailUrl) ?? cardPrimary
-        : cardPrimary;
-    const previewStatus: "ready" | "missing" =
-      finalPreviewUrl || finalThumbnailUrl || finalImageUrl || normalizeMediaUrl(cachedThumbnailUrl)
-        ? "ready"
-        : "missing";
-    const previewOrigin = resolvePreviewOrigin({
-      cachedThumbnailUrl: normalizeMediaUrl(cachedThumbnailUrl),
-      finalPreviewUrl,
-      rowPreviewUrl,
-      finalThumbnailUrl,
-      finalImageUrl,
+    return buildMetaCreativeApiRow({
+      row,
+      cachedThumbnailUrl,
+      cardFallbackThumbnailUrl: cardFallbackThumbnail,
+      includeDebugFields,
     });
-    const safeSpend = Number.isFinite(row.spend) ? Math.max(0, row.spend) : 0;
-    const safePurchases = Number.isFinite(row.purchases) ? Math.max(0, row.purchases) : 0;
-    const safeImpressions = Number.isFinite(row.impressions) ? Math.max(0, row.impressions) : 0;
-    const safeLinkClicks = Number.isFinite(row.link_clicks) ? Math.max(0, row.link_clicks) : 0;
-    const safeAddToCart = Number.isFinite(row.add_to_cart) ? Math.max(0, row.add_to_cart) : 0;
-    const basePurchaseValue = Number.isFinite(row.purchase_value) ? Math.max(0, row.purchase_value) : 0;
-    const roasFallbackValue = Number.isFinite(row.roas) && row.roas > 0 && safeSpend > 0 ? row.roas * safeSpend : 0;
-    const normalizedPurchaseValue = basePurchaseValue > 0 ? basePurchaseValue : roasFallbackValue;
-    const normalizedRoas = safeSpend > 0 ? normalizedPurchaseValue / safeSpend : 0;
-    const normalizedCpa = safePurchases > 0 ? safeSpend / safePurchases : 0;
-    const normalizedCpcLink = safeLinkClicks > 0 ? safeSpend / safeLinkClicks : 0;
-    const normalizedCpm = safeImpressions > 0 ? (safeSpend / safeImpressions) * 1000 : 0;
-    const normalizedCtrAll = safeImpressions > 0 ? (safeLinkClicks / safeImpressions) * 100 : 0;
-    const normalizedClickToAtc = safeLinkClicks > 0 ? (safeAddToCart / safeLinkClicks) * 100 : 0;
-    const normalizedAtcToPurchase = safeAddToCart > 0 ? (safePurchases / safeAddToCart) * 100 : 0;
-    const baseRow: MetaCreativeApiRow = {
-      id: row.id,
-      creative_id: row.creative_id,
-      object_story_id: row.object_story_id ?? null,
-      effective_object_story_id: row.effective_object_story_id ?? null,
-      post_id: row.post_id ?? null,
-      associated_ads_count: row.associated_ads_count,
-      account_id: row.account_id,
-      account_name: row.account_name,
-      campaign_id: row.campaign_id,
-      campaign_name: row.campaign_name,
-      adset_id: row.adset_id,
-      adset_name: row.adset_name,
-      currency: row.currency,
-      name: row.name,
-      copy_text: row.copy_text ?? null,
-      copy_variants: row.copy_variants ?? [],
-      headline_variants: row.headline_variants ?? [],
-      description_variants: row.description_variants ?? [],
-      copy_source: row.copy_source ?? null,
-      copy_debug_sources: row.copy_debug_sources ?? [],
-      unresolved_reason: row.unresolved_reason ?? null,
-      preview_url: finalPreviewUrl,
-      preview_source: row.preview_source,
-      thumbnail_url: finalThumbnailUrl,
-      image_url: finalImageUrl,
-      table_thumbnail_url: tableThumbnailUrl,
-      card_preview_url: cardPreviewUrl,
-      is_catalog: row.is_catalog,
-      preview_state: previewState,
-      preview: finalPreviewPayload,
-      launch_date: row.launch_date,
-      tags: row.tags,
-      ai_tags: Object.keys(row.ai_tags).length > 0 ? row.ai_tags : normalizeAiTags(row.tags),
-      format: row.format,
-      creative_type: row.creative_type,
-      creative_type_label: row.creative_type_label,
-      spend: r2(safeSpend),
-      purchase_value: r2(normalizedPurchaseValue),
-      roas: r2(normalizedRoas),
-      cpa: r2(normalizedCpa),
-      cpc_link: r2(normalizedCpcLink),
-      cpm: r2(normalizedCpm),
-      ctr_all: r2(normalizedCtrAll),
-      purchases: Math.round(safePurchases),
-      impressions: Math.round(safeImpressions),
-      link_clicks: Math.round(safeLinkClicks),
-      landing_page_views: row.landing_page_views,
-      add_to_cart: row.add_to_cart,
-      initiate_checkout: row.initiate_checkout,
-      leads: row.leads,
-      messages: row.messages,
-      thumbstop: row.thumbstop,
-      click_to_atc: r2(normalizedClickToAtc),
-      atc_to_purchase: r2(normalizedAtcToPurchase),
-      video25: row.video25,
-      video50: row.video50,
-      video75: row.video75,
-      video100: row.video100,
-      cached_thumbnail_url: cachedThumbnailUrl,
-      preview_status: previewStatus,
-      preview_origin: previewOrigin,
-    };
-    if (!includeDebugFields) return baseRow;
-    const baseDebug: CreativeDebugInfo = row.debug ?? {};
-    const debug: CreativeDebugInfo = {
-      ...baseDebug,
-      stage_final_thumbnail_url: finalThumbnailUrl,
-      stage_null_reason: finalNullReason,
-      resolution_stage: "response-map",
-    };
-    return {
-      ...baseRow,
-      debug,
-    };
   });
 
   if (process.env.NODE_ENV !== "production") {
@@ -1348,29 +1099,26 @@ export async function buildCreativesResponse(
         ranking: summarizePreviewAudit(previewAuditSamples),
       },
       performance_debug: debugPerf
-        ? {
-            ...perf,
-            total_ms: Date.now() - requestStartedAt,
-            counters: {
-              ...perf.counters,
-              assigned_accounts: assignedAccountIds.length,
-              raw_rows: rawRows.length,
-              response_rows: responseRows.length,
-              preview_audit_samples: previewAuditSamples.length,
-              preview_audit_validation_requests: previewAuditValidationRequests,
-              media_recovery_enabled: enableMediaRecovery ? 1 : 0,
-              creative_basics_fallback_enabled: enableCreativeBasicsFallback ? 1 : 0,
-              creative_details_enabled: enableCreativeDetails ? 1 : 0,
-              thumbnail_backfill_enabled: enableThumbnailBackfill ? 1 : 0,
-              card_thumbnail_backfill_enabled: enableCardThumbnailBackfill ? 1 : 0,
-              image_hash_lookup_enabled: enableImageHashLookup ? 1 : 0,
-              media_cache_enabled: enableMediaCache ? 1 : 0,
-              insight_ad_ids: totalInsightAdIds,
-              ads_loaded_for_insights: totalAdMapHits,
-              media_fallback_rows_requested: mediaFallbackRowsRequested,
-              media_direct_fallback_rows_requested: mediaDirectFallbackRowsRequested,
-            },
-          }
+        ? buildCreativesPerformanceDebug({
+            perf,
+            requestStartedAt,
+            assignedAccountsCount: assignedAccountIds.length,
+            rawRowsCount: rawRows.length,
+            responseRowsCount: responseRows.length,
+            previewAuditSamplesCount: previewAuditSamples.length,
+            previewAuditValidationRequests,
+            enableMediaRecovery,
+            enableCreativeBasicsFallback,
+            enableCreativeDetails,
+            enableThumbnailBackfill,
+            enableCardThumbnailBackfill,
+            enableImageHashLookup,
+            enableMediaCache,
+            totalInsightAdIds,
+            totalAdMapHits,
+            mediaFallbackRowsRequested,
+            mediaDirectFallbackRowsRequested,
+          })
         : undefined,
     };
   }
@@ -1378,29 +1126,26 @@ export async function buildCreativesResponse(
   if (debugPerf) {
     return {
       ...liveApiPayload,
-      performance_debug: {
-        ...perf,
-        total_ms: Date.now() - requestStartedAt,
-        counters: {
-          ...perf.counters,
-          assigned_accounts: assignedAccountIds.length,
-          raw_rows: rawRows.length,
-          response_rows: responseRows.length,
-          preview_audit_samples: previewAuditSamples.length,
-          preview_audit_validation_requests: previewAuditValidationRequests,
-          media_recovery_enabled: enableMediaRecovery ? 1 : 0,
-          creative_basics_fallback_enabled: enableCreativeBasicsFallback ? 1 : 0,
-          creative_details_enabled: enableCreativeDetails ? 1 : 0,
-          thumbnail_backfill_enabled: enableThumbnailBackfill ? 1 : 0,
-          card_thumbnail_backfill_enabled: enableCardThumbnailBackfill ? 1 : 0,
-          image_hash_lookup_enabled: enableImageHashLookup ? 1 : 0,
-          media_cache_enabled: enableMediaCache ? 1 : 0,
-          insight_ad_ids: totalInsightAdIds,
-          ads_loaded_for_insights: totalAdMapHits,
-          media_fallback_rows_requested: mediaFallbackRowsRequested,
-          media_direct_fallback_rows_requested: mediaDirectFallbackRowsRequested,
-        },
-      },
+      performance_debug: buildCreativesPerformanceDebug({
+        perf,
+        requestStartedAt,
+        assignedAccountsCount: assignedAccountIds.length,
+        rawRowsCount: rawRows.length,
+        responseRowsCount: responseRows.length,
+        previewAuditSamplesCount: previewAuditSamples.length,
+        previewAuditValidationRequests,
+        enableMediaRecovery,
+        enableCreativeBasicsFallback,
+        enableCreativeDetails,
+        enableThumbnailBackfill,
+        enableCardThumbnailBackfill,
+        enableImageHashLookup,
+        enableMediaCache,
+        totalInsightAdIds,
+        totalAdMapHits,
+        mediaFallbackRowsRequested,
+        mediaDirectFallbackRowsRequested,
+      }),
     };
   }
 

@@ -1,79 +1,17 @@
 import { neon } from "@neondatabase/serverless";
-import fs from "fs";
-import path from "path";
-
-const DEMO_BUSINESS_ID = "11111111-1111-4111-8111-111111111111";
-const DEMO_OWNER_ID = "22222222-2222-4222-8222-222222222222";
-const ALLOWED_DEMO_USERS = [
-  "demo-owner@adsecute.local",
-  "shopify-review@adsecute.com",
-  "emrahbilaloglu@gmail.com",
-];
-
-function getEnv(name) {
-  const value = process.env[name];
-  if (value) {
-    return value.replace(/^"|"$/g, "");
-  }
-
-  const envPath = path.join(process.cwd(), ".env.local");
-  if (fs.existsSync(envPath)) {
-    const content = fs.readFileSync(envPath, "utf8");
-    const match = content.match(new RegExp(`^${name}=(.*)$`, "m"));
-    if (match?.[1]) {
-      return match[1].trim().replace(/^"|"$/g, "");
-    }
-  }
-  throw new Error(`${name} is required`);
-}
+import {
+  ALLOWED_DEMO_USERS,
+  DEMO_BUSINESS_ID,
+  DEMO_OWNER_ID,
+  ensureCoreTables,
+  getEnv,
+} from "./seed-shared.mjs";
 
 async function main() {
   const databaseUrl = getEnv("DATABASE_URL");
   const sql = neon(databaseUrl);
 
-  await sql`
-    CREATE TABLE IF NOT EXISTS users (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      name TEXT NOT NULL,
-      email TEXT NOT NULL UNIQUE,
-      password_hash TEXT NOT NULL,
-      avatar TEXT,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `;
-
-  await sql`
-    CREATE TABLE IF NOT EXISTS businesses (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      name TEXT NOT NULL,
-      owner_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      timezone TEXT NOT NULL DEFAULT 'UTC',
-      currency TEXT NOT NULL DEFAULT 'USD',
-      is_demo_business BOOLEAN NOT NULL DEFAULT FALSE,
-      industry TEXT,
-      platform TEXT,
-      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `;
-
-  await sql`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS is_demo_business BOOLEAN NOT NULL DEFAULT FALSE`;
-  await sql`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS industry TEXT`;
-  await sql`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS platform TEXT`;
-  await sql`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb`;
-
-  await sql`
-    CREATE TABLE IF NOT EXISTS memberships (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
-      role TEXT NOT NULL CHECK (role IN ('admin', 'collaborator', 'guest')),
-      status TEXT NOT NULL CHECK (status IN ('active', 'invited', 'pending')),
-      joined_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      UNIQUE (user_id, business_id)
-    )
-  `;
+  await ensureCoreTables(sql);
 
   await sql`
     INSERT INTO users (id, name, email, password_hash)

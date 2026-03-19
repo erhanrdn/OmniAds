@@ -2,6 +2,13 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import type { DateRangeValue } from "@/components/date-range/DateRangePicker";
 import type { CreativeDateRangeValue } from "@/components/creatives/CreativesTopSection";
+import {
+  appendUniqueMetric,
+  dedupeMetricKeys,
+  moveMetric,
+  removeMetric,
+  replaceMetric,
+} from "@/store/preferences-support";
 
 export type ReportDateRangePreference = "7d" | "14d" | "30d" | "90d";
 export type MetricDisplayPreference = "compact" | "detailed";
@@ -49,7 +56,7 @@ export const usePreferencesStore = create<PreferencesState>()(
         set((state) => ({
           overviewPinsByContext: {
             ...state.overviewPinsByContext,
-            [contextKey]: Array.from(new Set(metrics)),
+            [contextKey]: dedupeMetricKeys(metrics),
           },
         })),
       pinOverviewMetric: (contextKey, metricKey) =>
@@ -59,7 +66,7 @@ export const usePreferencesStore = create<PreferencesState>()(
           return {
             overviewPinsByContext: {
               ...state.overviewPinsByContext,
-              [contextKey]: [...current, metricKey],
+              [contextKey]: appendUniqueMetric(current, metricKey),
             },
           };
         }),
@@ -67,37 +74,31 @@ export const usePreferencesStore = create<PreferencesState>()(
         set((state) => ({
           overviewPinsByContext: {
             ...state.overviewPinsByContext,
-            [contextKey]: (state.overviewPinsByContext[contextKey] ?? []).filter(
-              (entry) => entry !== metricKey
+            [contextKey]: removeMetric(
+              state.overviewPinsByContext[contextKey] ?? [],
+              metricKey
             ),
           },
         })),
       replaceOverviewMetric: (contextKey, currentMetricKey, nextMetricKey) =>
         set((state) => {
           const current = state.overviewPinsByContext[contextKey] ?? [];
-          const next = current.map((entry) =>
-            entry === currentMetricKey ? nextMetricKey : entry
-          );
           return {
             overviewPinsByContext: {
               ...state.overviewPinsByContext,
-              [contextKey]: Array.from(new Set(next)),
+              [contextKey]: replaceMetric(current, currentMetricKey, nextMetricKey),
             },
           };
         }),
       moveOverviewMetric: (contextKey, metricKey, direction) =>
         set((state) => {
-          const current = [...(state.overviewPinsByContext[contextKey] ?? [])];
-          const index = current.indexOf(metricKey);
-          if (index === -1) return state;
-          const targetIndex = direction === "left" ? index - 1 : index + 1;
-          if (targetIndex < 0 || targetIndex >= current.length) return state;
-          const [removed] = current.splice(index, 1);
-          current.splice(targetIndex, 0, removed);
+          const current = state.overviewPinsByContext[contextKey] ?? [];
+          const next = moveMetric(current, metricKey, direction);
+          if (next === current) return state;
           return {
             overviewPinsByContext: {
               ...state.overviewPinsByContext,
-              [contextKey]: current,
+              [contextKey]: next,
             },
           };
         }),
