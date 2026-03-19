@@ -346,16 +346,13 @@ export default function IntegrationsPage() {
   }, [businessId, fetchStatuses]);
 
   useEffect(() => {
-    if (!businessId || !integrations) return;
+    if (!businessId) return;
 
     let cancelled = false;
-    const providersToSync = (["meta", "google"] as const).filter(
-      (provider) => integrations[provider]?.status === "connected",
-    );
 
     (async () => {
       await Promise.all(
-        providersToSync.map(async (provider) => {
+        (["meta", "google"] as const).map(async (provider) => {
           if (cancelled) return;
           await syncProviderAssignments(provider);
         }),
@@ -365,12 +362,7 @@ export default function IntegrationsPage() {
     return () => {
       cancelled = true;
     };
-  }, [
-    businessId,
-    integrations?.meta?.status,
-    integrations?.google?.status,
-    syncProviderAssignments,
-  ]);
+  }, [businessId, syncProviderAssignments]);
 
   useEffect(() => {
     if (!businessId) return;

@@ -73,9 +73,10 @@ function LoginPageClient() {
         return;
       }
       if (!response?.ok) return;
-      const payload = (await response
-        .json()
-        .catch(() => null)) as LoginResponse | null;
+      const payload = (await response.json().catch((err: unknown) => {
+        if (err instanceof DOMException && err.name === "AbortError") return null;
+        return null;
+      })) as LoginResponse | null;
       if (!payload?.authenticated || !payload.user?.id) return;
 
       replaceAuthenticatedWorkspace({

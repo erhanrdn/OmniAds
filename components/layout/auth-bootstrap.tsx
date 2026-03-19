@@ -41,7 +41,11 @@ export function AuthBootstrap() {
           signal: controller.signal,
           headers: { "Cache-Control": "no-store" },
         });
-        const payload = (await res.json().catch(() => null)) as MeResponse | null;
+        const payload = (await res.json().catch((err: unknown) => {
+          if (controller.signal.aborted) return null;
+          if (err instanceof DOMException && err.name === "AbortError") return null;
+          return null;
+        })) as MeResponse | null;
         if (!mounted) return;
         if (!res.ok || !payload?.authenticated || !payload.user?.id) {
           logClientAuthEvent("bootstrap_cleared_client_state", {
