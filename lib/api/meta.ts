@@ -122,6 +122,7 @@ interface RawBreakdownInsight {
 export interface MetaCredentials {
   accessToken: string;
   accountIds: string[];
+  currency: string; // ISO 4217 code from the primary ad account (e.g. "USD", "EUR", "TRY")
 }
 
 /**
@@ -142,7 +143,26 @@ export async function resolveMetaCredentials(
 
   if (!accessToken || accountIds.length === 0) return null;
 
-  return { accessToken, accountIds };
+  const currency = await fetchAccountCurrency(accountIds[0], accessToken);
+
+  return { accessToken, accountIds, currency };
+}
+
+async function fetchAccountCurrency(
+  accountId: string,
+  accessToken: string
+): Promise<string> {
+  try {
+    const url = new URL(`https://graph.facebook.com/v25.0/${accountId}`);
+    url.searchParams.set("fields", "currency");
+    url.searchParams.set("access_token", accessToken);
+    const res = await fetch(url.toString(), { cache: "no-store" });
+    if (!res.ok) return "USD";
+    const json = (await res.json()) as { currency?: string };
+    return json.currency ?? "USD";
+  } catch {
+    return "USD";
+  }
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────

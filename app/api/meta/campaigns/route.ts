@@ -52,6 +52,7 @@ export interface MetaCampaignRow {
   cpm: number;
   impressions: number;
   clicks: number;
+  currency: string;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -92,6 +93,23 @@ async function fetchAssignedAccountIds(businessId: string): Promise<string[]> {
       }
     }
     return [];
+  }
+}
+
+async function fetchAccountCurrency(
+  accountId: string,
+  accessToken: string
+): Promise<string> {
+  try {
+    const url = new URL(`https://graph.facebook.com/v25.0/${accountId}`);
+    url.searchParams.set("fields", "currency");
+    url.searchParams.set("access_token", accessToken);
+    const res = await fetch(url.toString(), { cache: "no-store" });
+    if (!res.ok) return "USD";
+    const json = (await res.json()) as { currency?: string };
+    return json.currency ?? "USD";
+  } catch {
+    return "USD";
   }
 }
 
@@ -217,9 +235,10 @@ export async function GET(request: NextRequest) {
 
   for (const accountId of assignedAccountIds) {
     try {
-      const [statusMap, insights] = await Promise.all([
+      const [statusMap, insights, currency] = await Promise.all([
         fetchCampaignStatuses(accountId, accessToken),
         fetchCampaignInsights(accountId, resolvedStart, resolvedEnd, accessToken),
+        fetchAccountCurrency(accountId, accessToken),
       ]);
 
       for (const insight of insights) {
@@ -249,6 +268,7 @@ export async function GET(request: NextRequest) {
           cpm: r2(cpm),
           impressions,
           clicks,
+          currency,
         });
       }
     } catch (e: unknown) {
