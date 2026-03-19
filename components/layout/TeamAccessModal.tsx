@@ -9,60 +9,28 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  createTeamInvites,
+  fetchTeamAccessRequests,
+  fetchTeamMembers,
+  parseInviteEmails,
+  removeTeamMember,
+  resolveTeamAccessRequest,
+  TEAM_ROLE_META,
+  type ApiAccessRequest,
+  type ApiMember,
+  type CreatedInvite,
+  type TeamRole,
+  updateTeamMemberRole,
+} from "@/components/layout/team-access-modal-support";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store/app-store";
 
-type TeamRole = "guest" | "collaborator" | "admin";
 type TeamTab = "invite" | "requests" | "members";
 
 interface TeamAccessModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-}
-
-interface ApiMember {
-  id: string;
-  name: string | null;
-  email: string;
-  role: TeamRole;
-  status: string;
-}
-
-interface ApiAccessRequest {
-  id: string;
-  name: string | null;
-  email: string;
-  role: TeamRole;
-}
-
-interface CreatedInvite {
-  id: string;
-  email: string;
-  role: TeamRole;
-  inviteUrl: string;
-}
-
-const ROLE_META: Record<TeamRole, { title: string; description: string }> = {
-  guest: {
-    title: "Guest",
-    description: "Access to selected workspaces/businesses. Cannot edit or invite.",
-  },
-  collaborator: {
-    title: "Collaborator",
-    description:
-      "Can work in assigned workspaces/businesses. Can edit, but cannot invite others.",
-  },
-  admin: {
-    title: "Admin",
-    description: "Can manage all workspaces/businesses, settings, and invite others.",
-  },
-};
-
-function parseEmails(raw: string): string[] {
-  return raw
-    .split(/[,\n;\s]+/)
-    .map((item) => item.trim().toLowerCase())
-    .filter(Boolean);
 }
 
 export function TeamAccessModal({ open, onOpenChange }: TeamAccessModalProps) {
@@ -90,7 +58,7 @@ export function TeamAccessModal({ open, onOpenChange }: TeamAccessModalProps) {
   const [requestsError, setRequestsError] = useState<string | null>(null);
   const [requestMessage, setRequestMessage] = useState<string | null>(null);
 
-  const inviteEmails = parseEmails(inviteInput);
+  const inviteEmails = parseInviteEmails(inviteInput);
 
   const fetchMembers = useCallback(async () => {
     if (!businessId) {
@@ -100,27 +68,10 @@ export function TeamAccessModal({ open, onOpenChange }: TeamAccessModalProps) {
     }
     setMembersLoading(true);
     setMembersError(null);
-    try {
-      const res = await fetch(`/api/team/members?businessId=${businessId}`);
-      const data: unknown = await res.json().catch(() => null);
-      if (!res.ok) {
-        setMembersError(
-          (data && typeof data === "object" && "message" in data && typeof (data as { message: unknown }).message === "string"
-            ? (data as { message: string }).message
-            : null) ?? "Could not load members."
-        );
-        return;
-      }
-      setMembers(
-        Array.isArray((data as { members?: unknown }).members)
-          ? ((data as { members: ApiMember[] }).members)
-          : []
-      );
-    } catch {
-      setMembersError("Network error loading members.");
-    } finally {
-      setMembersLoading(false);
-    }
+    const result = await fetchTeamMembers(businessId);
+    setMembers(result.members);
+    setMembersError(result.error);
+    setMembersLoading(false);
   }, [businessId]);
 
   const fetchRequests = useCallback(async () => {
@@ -131,31 +82,10 @@ export function TeamAccessModal({ open, onOpenChange }: TeamAccessModalProps) {
     }
     setRequestsLoading(true);
     setRequestsError(null);
-    try {
-      const res = await fetch(`/api/team/access-requests?businessId=${businessId}`);
-      const data: unknown = await res.json().catch(() => null);
-      if (!res.ok) {
-        if (res.status === 403) {
-          setRequests([]);
-          return;
-        }
-        setRequestsError(
-          (data && typeof data === "object" && "message" in data && typeof (data as { message: unknown }).message === "string"
-            ? (data as { message: string }).message
-            : null) ?? "Could not load access requests."
-        );
-        return;
-      }
-      setRequests(
-        Array.isArray((data as { requests?: unknown }).requests)
-          ? ((data as { requests: ApiAccessRequest[] }).requests)
-          : []
-      );
-    } catch {
-      setRequestsError("Network error loading access requests.");
-    } finally {
-      setRequestsLoading(false);
-    }
+    const result = await fetchTeamAccessRequests(businessId);
+    setRequests(result.requests);
+    setRequestsError(result.error);
+    setRequestsLoading(false);
   }, [businessId]);
 
   useEffect(() => {
@@ -205,32 +135,14 @@ export function TeamAccessModal({ open, onOpenChange }: TeamAccessModalProps) {
     }
     setInviteLoading(true);
     setInviteError(null);
-    try {
-      const res = await fetch("/api/team/invites", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ businessId, emails: inviteEmails, role }),
-      });
-      const data: unknown = await res.json().catch(() => null);
-      if (!res.ok) {
-        setInviteError(
-          (data && typeof data === "object" && "message" in data && typeof (data as { message: unknown }).message === "string"
-            ? (data as { message: string }).message
-            : null) ?? "Could not create invite links."
-        );
-        return;
-      }
-      setCreatedInvites(
-        Array.isArray((data as { invites?: unknown }).invites)
-          ? ((data as { invites: CreatedInvite[] }).invites)
-          : []
-      );
+    const result = await createTeamInvites({ businessId, emails: inviteEmails, role });
+    if (result.error) {
+      setInviteError(result.error);
+    } else {
+      setCreatedInvites(result.invites);
       setInviteInput("");
-    } catch {
-      setInviteError("Network error. Please try again.");
-    } finally {
-      setInviteLoading(false);
     }
+    setInviteLoading(false);
   }
 
   async function copyToClipboard(text: string, id: string) {
@@ -245,74 +157,51 @@ export function TeamAccessModal({ open, onOpenChange }: TeamAccessModalProps) {
 
   async function handleRoleChange(membershipId: string, nextRole: TeamRole) {
     setMemberMessage(null);
-    try {
-      const res = await fetch("/api/team/members", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ businessId, membershipId, role: nextRole }),
-      });
-      const data: unknown = await res.json().catch(() => null);
-      if (!res.ok) {
-        setMemberMessage(
-          (data && typeof data === "object" && "message" in data && typeof (data as { message: unknown }).message === "string"
-            ? (data as { message: string }).message
-            : null) ?? "Could not update role."
-        );
-        return;
-      }
-      setMemberMessage("Member role updated.");
-      await fetchMembers();
-    } catch {
-      setMemberMessage("Network error.");
+    if (!businessId) {
+      setMemberMessage("No business selected.");
+      return;
     }
+    const result = await updateTeamMemberRole({
+      businessId,
+      membershipId,
+      role: nextRole,
+    });
+    if (result.error) {
+      setMemberMessage(result.error);
+      return;
+    }
+    setMemberMessage("Member role updated.");
+    await fetchMembers();
   }
 
   async function handleRemoveMember(membershipId: string) {
     setMemberMessage(null);
-    try {
-      const res = await fetch("/api/team/members", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ businessId, membershipId }),
-      });
-      const data: unknown = await res.json().catch(() => null);
-      if (!res.ok) {
-        setMemberMessage(
-          (data && typeof data === "object" && "message" in data && typeof (data as { message: unknown }).message === "string"
-            ? (data as { message: string }).message
-            : null) ?? "Could not remove member."
-        );
-        return;
-      }
-      setMemberMessage("Member removed.");
-      await fetchMembers();
-    } catch {
-      setMemberMessage("Network error.");
+    if (!businessId) {
+      setMemberMessage("No business selected.");
+      return;
     }
+    const result = await removeTeamMember({ businessId, membershipId });
+    if (result.error) {
+      setMemberMessage(result.error);
+      return;
+    }
+    setMemberMessage("Member removed.");
+    await fetchMembers();
   }
 
   async function handleRequestAction(membershipId: string, action: "approve" | "reject") {
     setRequestMessage(null);
-    try {
-      const res = await fetch("/api/team/access-requests", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ businessId, membershipId, action }),
-      });
-      const data: unknown = await res.json().catch(() => null);
-      if (!res.ok) {
-        setRequestMessage(
-          (data && typeof data === "object" && "message" in data && typeof (data as { message: unknown }).message === "string"
-            ? (data as { message: string }).message
-            : null) ?? "Could not process request."
-        );
-        return;
-      }
-      setRequestMessage(action === "approve" ? "Access request approved." : "Access request rejected.");
-      await fetchRequests();
-    } catch {
-      setRequestMessage("Network error.");
+    if (!businessId) {
+      setRequestMessage("No business selected.");
+      return;
     }
+    const result = await resolveTeamAccessRequest({ businessId, membershipId, action });
+    if (result.error) {
+      setRequestMessage(result.error);
+      return;
+    }
+    setRequestMessage(action === "approve" ? "Access request approved." : "Access request rejected.");
+    await fetchRequests();
   }
 
   return (
@@ -387,7 +276,7 @@ export function TeamAccessModal({ open, onOpenChange }: TeamAccessModalProps) {
                         <div className="min-w-0 space-y-0.5">
                           <p className="truncate text-sm font-medium">{invite.email}</p>
                           <p className="text-xs text-muted-foreground">
-                            {ROLE_META[invite.role]?.title ?? invite.role}
+                            {TEAM_ROLE_META[invite.role]?.title ?? invite.role}
                           </p>
                           <p className="truncate font-mono text-[11px] text-muted-foreground">
                             {invite.inviteUrl}
@@ -446,9 +335,9 @@ export function TeamAccessModal({ open, onOpenChange }: TeamAccessModalProps) {
                               : "hover:border-muted-foreground/30"
                           )}
                         >
-                          <p className="text-sm font-medium">{ROLE_META[item].title}</p>
+                          <p className="text-sm font-medium">{TEAM_ROLE_META[item].title}</p>
                           <p className="text-xs text-muted-foreground">
-                            {ROLE_META[item].description}
+                            {TEAM_ROLE_META[item].description}
                           </p>
                         </button>
                       ))}
@@ -489,7 +378,7 @@ export function TeamAccessModal({ open, onOpenChange }: TeamAccessModalProps) {
                       <p className="text-xs text-muted-foreground">
                         Requested role:{" "}
                         <span className="font-medium text-foreground">
-                          {ROLE_META[request.role]?.title ?? request.role}
+                          {TEAM_ROLE_META[request.role]?.title ?? request.role}
                         </span>
                       </p>
                     </div>
@@ -541,7 +430,7 @@ export function TeamAccessModal({ open, onOpenChange }: TeamAccessModalProps) {
                       <p className="truncate text-sm font-medium">{member.name ?? member.email}</p>
                       <p className="truncate text-xs text-muted-foreground">{member.email}</p>
                       <p className="text-xs text-muted-foreground">
-                        {ROLE_META[member.role]?.title ?? member.role}
+                        {TEAM_ROLE_META[member.role]?.title ?? member.role}
                         {member.status === "pending" ? " • Pending" : ""}
                       </p>
                     </div>

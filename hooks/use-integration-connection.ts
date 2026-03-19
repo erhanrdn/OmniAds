@@ -5,6 +5,12 @@ import {
   IntegrationProvider,
   useIntegrationsStore,
 } from "@/store/integrations-store";
+import {
+  clearAllIntegrationTimers,
+  clearIntegrationTimer,
+  type IntegrationStatusRow,
+  syncIntegrationStatuses,
+} from "@/hooks/integration-connection-support";
 
 const TIMEOUT_MS = 15_000;
 
@@ -23,11 +29,7 @@ export function useIntegrationConnection(businessId: string) {
   const ensureBusiness = useIntegrationsStore((s) => s.ensureBusiness);
 
   const clearTimer = useCallback((provider: IntegrationProvider) => {
-    const t = timers.current[provider];
-    if (t !== undefined) {
-      clearTimeout(t);
-      delete timers.current[provider];
-    }
+    clearIntegrationTimer(timers.current, provider);
   }, []);
 
   const startTimer = useCallback(
@@ -90,32 +92,16 @@ export function useIntegrationConnection(businessId: string) {
       );
       if (!res.ok) return;
       const data = await res.json();
-      const rows: Array<{
-        provider: IntegrationProvider;
-        status: string;
-        id: string;
-        connected_at?: string | null;
-        updated_at?: string | null;
-        provider_account_id?: string | null;
-        provider_account_name?: string | null;
-      }> = data.integrations ?? [];
+      const rows: IntegrationStatusRow[] = data.integrations ?? [];
 
-      ensureBusiness(businessId);
-
-      for (const row of rows) {
-        if (row.status === "connected") {
-          clearTimer(row.provider);
-          setConnected(businessId, row.provider, row.id, {
-            connectedAt: row.connected_at ?? undefined,
-            lastSyncAt: row.updated_at ?? undefined,
-            providerAccountId: row.provider_account_id,
-            providerAccountName: row.provider_account_name,
-          });
-        } else if (row.status === "error") {
-          clearTimer(row.provider);
-          setError(businessId, row.provider, "Connection failed on the server.");
-        }
-      }
+      syncIntegrationStatuses({
+        businessId,
+        rows,
+        clearTimer,
+        ensureBusiness,
+        setConnected,
+        setError,
+      });
     } catch {
       // silently ignore — store already has persisted state
     }
@@ -124,8 +110,7 @@ export function useIntegrationConnection(businessId: string) {
   // Clear all timers on unmount to avoid state updates after navigation.
   useEffect(() => {
     return () => {
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-      Object.values(timers.current).forEach((t) => clearTimeout(t));
+      clearAllIntegrationTimers(timers.current);
       timers.current = {};
     };
   }, []);

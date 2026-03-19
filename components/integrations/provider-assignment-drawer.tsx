@@ -17,26 +17,13 @@ import {
   ProviderAccountSnapshotMissingError,
   warmProviderAccountSnapshot,
 } from "@/lib/provider-account-client";
+import {
+  getProviderAssignmentTitle,
+  getProviderFetchPath,
+  type ProviderAccountRow,
+  saveProviderAssignments,
+} from "@/components/integrations/provider-assignment-drawer-support";
 import { Loader2, RefreshCw } from "lucide-react";
-
-interface ProviderAccountRow {
-  id: string;
-  name: string;
-  currency?: string;
-  timezone?: string;
-  isManager?: boolean;
-  assigned?: boolean;
-}
-
-interface ProviderErrorBody {
-  error?: string;
-  message?: string;
-}
-
-interface SaveSuccessBody {
-  success?: boolean;
-  assigned_accounts?: string[];
-}
 
 interface ProviderAssignmentDrawerProps {
   open: boolean;
@@ -52,53 +39,6 @@ interface ProviderAssignmentDrawerProps {
 }
 
 type FetchState = "idle" | "loading" | "success" | "empty" | "error";
-
-function getTitle(provider: IntegrationProvider | null) {
-  if (!provider) return "Assign accounts";
-  if (provider === "meta") {
-    return "Assign Meta ad accounts to this business";
-  }
-  if (provider === "google")
-    return "Assign Google Ads customer accounts to this business";
-  if (provider === "ga4") return "Assign GA4 properties to this business";
-  if (provider === "shopify") return "Assign Shopify stores to this business";
-  return `Assign ${provider} accounts to this business`;
-}
-
-function getMetaFetchPath(businessId: string) {
-  return `/integrations/meta/ad-accounts?businessId=${encodeURIComponent(businessId)}`;
-}
-
-function getGoogleFetchPath(businessId: string) {
-  return `/api/google/accessible-accounts?businessId=${encodeURIComponent(businessId)}`;
-}
-
-function getFetchPath(provider: IntegrationProvider, businessId: string) {
-  if (provider === "meta") return getMetaFetchPath(businessId);
-  if (provider === "google") return getGoogleFetchPath(businessId);
-  return null;
-}
-
-function getSavePath(provider: IntegrationProvider, businessId: string) {
-  if (provider === "meta") {
-    return `/businesses/${encodeURIComponent(businessId)}/meta/assign-accounts`;
-  }
-  return `/businesses/${encodeURIComponent(businessId)}/${provider}/assign-accounts`;
-}
-
-function hasErrorMessage(payload: unknown): payload is ProviderErrorBody {
-  if (!payload || typeof payload !== "object") return false;
-  return "message" in payload && typeof payload.message === "string";
-}
-
-function hasAssignedAccounts(payload: unknown): payload is SaveSuccessBody {
-  if (!payload || typeof payload !== "object") return false;
-  if (!("assigned_accounts" in payload)) return false;
-  const maybeIds = payload.assigned_accounts;
-  return (
-    Array.isArray(maybeIds) && maybeIds.every((id) => typeof id === "string")
-  );
-}
 
 export function ProviderAssignmentDrawer({
   open,
@@ -167,7 +107,7 @@ export function ProviderAssignmentDrawer({
         return;
       }
 
-      if (!getFetchPath(provider, businessId)) {
+      if (!getProviderFetchPath(provider, businessId)) {
         setAccounts([]);
         setFetchState("empty");
         setErrorMessage(null);
@@ -293,35 +233,19 @@ export function ProviderAssignmentDrawer({
 
     setIsSaving(true);
     setSaveErrorMessage(null);
-    try {
-      const response = await fetch(getSavePath(provider, businessId), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify({ account_ids: draftIds }),
-      });
-      const payload: unknown = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        setSaveErrorMessage(
-          (hasErrorMessage(payload) ? payload.message : null) ??
-            "Could not save account assignments.",
-        );
-        return;
-      }
-
-      const savedIds = hasAssignedAccounts(payload)
-        ? (payload.assigned_accounts ?? draftIds)
-        : draftIds;
+    const result = await saveProviderAssignments({
+      provider,
+      businessId,
+      draftIds,
+    });
+    if (result.error) {
+      setSaveErrorMessage(result.error);
+    } else {
+      const savedIds = result.assignedIds;
       onSave(provider, savedIds, accounts);
       onClose();
-    } catch {
-      setSaveErrorMessage("Could not save account assignments.");
-    } finally {
-      setIsSaving(false);
     }
+    setIsSaving(false);
   }
 
   return (
@@ -335,7 +259,7 @@ export function ProviderAssignmentDrawer({
       >
         <div className="shrink-0 border-b px-6 py-6">
           <SheetHeader className="space-y-2">
-            <SheetTitle>{getTitle(provider)}</SheetTitle>
+            <SheetTitle>{getProviderAssignmentTitle(provider)}</SheetTitle>
             <SheetDescription>
               Select the accounts Adsecute should use when syncing data for this
               business.

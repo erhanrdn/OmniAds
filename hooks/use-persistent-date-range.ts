@@ -1,6 +1,5 @@
 "use client";
 
-import { useCallback } from "react";
 import { usePreferencesStore } from "@/store/preferences-store";
 import {
   DEFAULT_DATE_RANGE,
@@ -10,6 +9,7 @@ import {
   DEFAULT_CREATIVE_DATE_RANGE,
   type CreativeDateRangeValue,
 } from "@/components/creatives/CreativesTopSection";
+import { usePersistentPreferenceValue } from "@/hooks/persistent-date-range-support";
 
 /**
  * Persists the standard DateRangePicker value across page navigations.
@@ -21,12 +21,7 @@ export function usePersistentDateRange(): [
 ] {
   const stored = usePreferencesStore((s) => s.dashboardDateRange);
   const set = usePreferencesStore((s) => s.setDashboardDateRange);
-  const value = stored ?? DEFAULT_DATE_RANGE;
-  const setValue = useCallback(
-    (next: DateRangeValue) => set(next),
-    [set]
-  );
-  return [value, setValue];
+  return usePersistentPreferenceValue(stored, set, DEFAULT_DATE_RANGE);
 }
 
 /**
@@ -38,10 +33,5 @@ export function usePersistentCreativeDateRange(): [
 ] {
   const stored = usePreferencesStore((s) => s.creativeDateRange);
   const set = usePreferencesStore((s) => s.setCreativeDateRange);
-  const value = stored ?? DEFAULT_CREATIVE_DATE_RANGE;
-  const setValue = useCallback(
-    (next: CreativeDateRangeValue) => set(next),
-    [set]
-  );
-  return [value, setValue];
+  return usePersistentPreferenceValue(stored, set, DEFAULT_CREATIVE_DATE_RANGE);
 }

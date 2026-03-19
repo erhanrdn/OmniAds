@@ -10,14 +10,12 @@ import {
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { DataEmptyState } from "@/components/states/DataEmptyState";
+import {
+  fetchGa4Properties,
+  saveGa4PropertySelection,
+  type GA4Property,
+} from "@/components/integrations/ga4-property-picker-support";
 import { Loader2, Search } from "lucide-react";
-
-interface GA4Property {
-  propertyId: string;
-  propertyName: string;
-  accountId: string;
-  accountName: string;
-}
 
 type FetchState = "idle" | "loading" | "success" | "empty" | "error";
 
@@ -53,39 +51,16 @@ export function GA4PropertyPicker({
       setErrorMessage(null);
       setSaveError(null);
 
-      try {
-        const response = await fetch(
-          `/api/google-analytics/properties?businessId=${encodeURIComponent(businessId)}`,
-          { method: "GET", headers: { Accept: "application/json" } },
-        );
-
-        const payload = await response.json().catch(() => null);
-
-        if (!response.ok) {
-          const msg =
-            payload && typeof payload === "object" && "message" in payload
-              ? (payload as { message: string }).message
-              : "Could not load GA4 properties.";
-          setErrorMessage(msg);
-          setFetchState("error");
-          return;
-        }
-
-        const list: GA4Property[] = Array.isArray(payload?.data)
-          ? payload.data
-          : [];
-
-        setProperties(list);
-        setSelectedId(
-          (payload?.selectedPropertyId as string) ?? currentPropertyId ?? null,
-        );
-        setFetchState(list.length > 0 ? "success" : "empty");
-      } catch (err) {
-        setErrorMessage(
-          err instanceof Error ? err.message : "Could not load GA4 properties.",
-        );
+      const result = await fetchGa4Properties(businessId);
+      if (result.error) {
+        setErrorMessage(result.error);
         setFetchState("error");
+        return;
       }
+
+      setProperties(result.properties);
+      setSelectedId(result.selectedPropertyId ?? currentPropertyId ?? null);
+      setFetchState(result.properties.length > 0 ? "success" : "empty");
     },
     [open, businessId, currentPropertyId],
   );
@@ -125,37 +100,14 @@ export function GA4PropertyPicker({
     setIsSaving(true);
     setSaveError(null);
 
-    try {
-      const res = await fetch("/api/google-analytics/select-property", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          businessId,
-          propertyId: selected.propertyId,
-          propertyName: selected.propertyName,
-          accountId: selected.accountId,
-          accountName: selected.accountName,
-        }),
-      });
-
-      const payload = await res.json().catch(() => null);
-
-      if (!res.ok) {
-        const msg =
-          payload && typeof payload === "object" && "message" in payload
-            ? (payload as { message: string }).message
-            : "Could not save property selection.";
-        setSaveError(msg);
-        return;
-      }
-
+    const result = await saveGa4PropertySelection({ businessId, property: selected });
+    if (result.error) {
+      setSaveError(result.error);
+    } else {
       onSave(selected);
       onClose();
-    } catch {
-      setSaveError("Could not save property selection.");
-    } finally {
-      setIsSaving(false);
     }
+    setIsSaving(false);
   }
 
   return (

@@ -23,6 +23,13 @@ import type {
   KlaviyoFlowSummary,
   KlaviyoRecommendation,
 } from "@/lib/klaviyo/types";
+import {
+  benchmarkLabel,
+  currency,
+  KLAVIYO_PRESETS,
+  KLAVIYO_TABS,
+  percent,
+} from "@/components/klaviyo/klaviyo-dashboard-support";
 import { cn } from "@/lib/utils";
 import {
   Activity,
@@ -38,20 +45,10 @@ import {
   TriangleAlert,
 } from "lucide-react";
 
-const TABS = [
-  { id: "overview", label: "Overview" },
-  { id: "flows", label: "Flows" },
-  { id: "campaigns", label: "Campaigns" },
-  { id: "recommendations", label: "Recommendations" },
-  { id: "diagnostics", label: "Diagnostics" },
-] as const;
-
-const PRESETS: KlaviyoDateRangePreset[] = ["7d", "14d", "30d", "90d", "custom"];
-
 export function KlaviyoDashboard({ businessId }: { businessId: string }) {
   const [preset, setPreset] = useState<KlaviyoDateRangePreset>("30d");
   const [activeTab, setActiveTab] =
-    useState<(typeof TABS)[number]["id"]>("overview");
+    useState<(typeof KLAVIYO_TABS)[number]["id"]>("overview");
   const [data, setData] = useState<KlaviyoDashboardData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedFlowId, setSelectedFlowId] = useState<string | null>(null);
@@ -167,7 +164,7 @@ export function KlaviyoDashboard({ businessId }: { businessId: string }) {
         </div>
 
         <div className="mt-5 flex flex-wrap items-center gap-2">
-          {PRESETS.map((item) => (
+          {KLAVIYO_PRESETS.map((item) => (
             <Button
               key={item}
               variant={item === preset ? "default" : "outline"}
@@ -185,7 +182,7 @@ export function KlaviyoDashboard({ businessId }: { businessId: string }) {
       </section>
 
       <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-border/70 bg-card p-2 shadow-sm">
-        {TABS.map((tab) => (
+        {KLAVIYO_TABS.map((tab) => (
           <button
             key={tab.id}
             type="button"
@@ -826,29 +823,4 @@ function SourceBadge({ type }: { type: KlaviyoRecommendation["sourceType"] | "ex
             : "Exact"}
     </Badge>
   );
-}
-
-function benchmarkLabel(status: KlaviyoBenchmarkStatus) {
-  switch (status) {
-    case "above":
-      return "Above benchmark";
-    case "near":
-      return "Near benchmark";
-    case "below":
-      return "Below benchmark";
-    case "significantly_below":
-      return "Significantly below";
-  }
-}
-
-function percent(value: number) {
-  return `${(value * 100).toFixed(1)}%`;
-}
-
-function currency(value: number) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }).format(value);
 }
