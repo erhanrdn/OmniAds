@@ -304,6 +304,8 @@ function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
     landingPageViews: safeNumber(row.landing_page_views),
     addToCart: safeNumber(row.add_to_cart),
     initiateCheckout: safeNumber(row.initiate_checkout),
+    leads: safeNumber(row.leads),
+    messages: safeNumber(row.messages),
     thumbstop: safeNumber(row.thumbstop),
     clickToPurchase: safeNumber(row.click_to_atc),
     seeMoreRate: 0,

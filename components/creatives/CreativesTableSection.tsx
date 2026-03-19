@@ -122,7 +122,11 @@ type TableColumnKey =
   | "purchasesPer1000Imp"
   | "revenuePer1000Imp"
   | "clicksAll"
-  | "linkClicks";
+  | "linkClicks"
+  | "leads"
+  | "cpl"
+  | "messages"
+  | "cpMessage";
 
 type TagKey = MetaAiTagKey;
 const AI_TAG_COLUMN_KEYS: TagKey[] = [
@@ -396,7 +400,7 @@ const PRESETS: TablePreset[] = [
   },
   {
     presetName: "Facebook SaaS",
-    selectedColumns: ["spend", "cpcLink", "ctrAll", "clicksAll", "linkClicks", "roas"],
+    selectedColumns: ["spend", "impressions", "ctrAll", "cpcLink", "linkClicks", "leads", "cpl", "messages", "cpMessage"],
     selectedAiTagColumns: [],
     resultsPerPage: 20,
     colorFormatting: "heatmap",
@@ -457,6 +461,10 @@ const TABLE_COLUMNS: TableColumnDefinition[] = [
   { key: "revenuePer1000Imp", label: "Revenue per 1,000 impressions", description: "Revenue normalized by 1,000 impressions.", direction: "high", minWidth: 190, preferredWidth: 220, align: "right", format: fmtCurrency, getValue: (r) => r.impressions > 0 ? (r.purchaseValue / r.impressions) * 1000 : 0 },
   { key: "clicksAll", label: "Clicks (all)", description: "All clicks.", direction: "high", minWidth: 110, preferredWidth: 130, align: "right", format: fmtInteger, getValue: (r) => r.linkClicks },
   { key: "linkClicks", label: "Link clicks", description: "Link click count.", direction: "high", minWidth: 110, preferredWidth: 130, align: "right", format: fmtInteger, getValue: (r) => r.linkClicks },
+  { key: "leads", label: "Leads", description: "Lead count.", direction: "high", minWidth: 76, preferredWidth: 84, align: "right", format: fmtInteger, getValue: (r) => r.leads },
+  { key: "cpl", label: "Cost per lead", description: "Spend per lead.", direction: "low", minWidth: 106, preferredWidth: 112, align: "right", format: fmtCurrency, getValue: (r) => r.leads > 0 ? r.spend / r.leads : 0 },
+  { key: "messages", label: "Messages", description: "Messaging conversations started.", direction: "high", minWidth: 96, preferredWidth: 110, align: "right", format: fmtInteger, getValue: (r) => r.messages },
+  { key: "cpMessage", label: "Cost per message", description: "Spend per messaging conversation started.", direction: "low", minWidth: 130, preferredWidth: 145, align: "right", format: fmtCurrency, getValue: (r) => r.messages > 0 ? r.spend / r.messages : 0 },
 ];
 
 const TABLE_COLUMN_MAP: Record<TableColumnKey, TableColumnDefinition> = TABLE_COLUMNS.reduce(
@@ -516,6 +524,10 @@ const TABLE_TO_TOP_METRIC_ID: Partial<Record<TableColumnKey, string>> = {
   revenuePer1000Imp: "revenuePer1000Imp",
   clicksAll: "clicksAll",
   linkClicks: "linkClicks",
+  leads: "leads",
+  cpl: "cpl",
+  messages: "messages",
+  cpMessage: "cpMessage",
 };
 
 const DEFAULT_TABLE_METRIC_CONFIG: TableMetricConfig = {
@@ -566,6 +578,10 @@ const TABLE_METRIC_CONFIG: Partial<Record<TableColumnKey, TableMetricConfig>> = 
   revenuePer1000Imp: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft", applicableFormats: ["image", "video"] },
   clicksAll: { direction: "neutral", colorMode: "none", spendSensitive: false, footerAggregation: "sum", heatStrength: "soft", applicableFormats: ["image", "video"] },
   linkClicks: { direction: "neutral", colorMode: "none", spendSensitive: false, footerAggregation: "sum", heatStrength: "soft", applicableFormats: ["image", "video"] },
+  leads: { direction: "higher_better", colorMode: "quantile", spendSensitive: true, footerAggregation: "sum", heatStrength: "soft", applicableFormats: ["image", "video"] },
+  cpl: { direction: "lower_better", colorMode: "semantic", spendSensitive: true, footerAggregation: "weighted", heatStrength: "medium", applicableFormats: ["image", "video"] },
+  messages: { direction: "higher_better", colorMode: "quantile", spendSensitive: true, footerAggregation: "sum", heatStrength: "soft", applicableFormats: ["image", "video"] },
+  cpMessage: { direction: "lower_better", colorMode: "semantic", spendSensitive: true, footerAggregation: "weighted", heatStrength: "medium", applicableFormats: ["image", "video"] },
 };
 
 export function CreativesTableSection({

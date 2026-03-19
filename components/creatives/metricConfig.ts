@@ -92,6 +92,8 @@ export interface MetaCreativeRow {
   landingPageViews: number;
   addToCart: number;
   initiateCheckout: number;
+  leads: number;
+  messages: number;
   thumbstop: number;
   clickToPurchase: number;
   seeMoreRate: number;

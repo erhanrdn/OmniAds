@@ -237,7 +237,88 @@ interface MetaCreativePreviewHtmlResponse {
   data?: Array<{ body?: string | null }>;
 }
 
-interface RawCreativeRow {
+type PreviewResolutionStage =
+  | "video_source"
+  | "image_hash_lookup"
+  | "object_story_spec"
+  | "asset_feed"
+  | "creative_image"
+  | "creative_thumbnail"
+  | "creative_image_fallback"
+  | "creative_thumbnail_fallback"
+  | "fallback"
+  | "unavailable";
+
+type PreviewNullReason =
+  | "catalog_without_assets"
+  | "video_without_poster"
+  | "no_candidates"
+  | "no_renderable_image"
+  | "unavailable";
+
+type PreviewResolutionReason =
+  | "video_selected"
+  | "best_image_candidate"
+  | "thumbnail_candidate"
+  | "resolved_thumbnail_fallback"
+  | "generic_fallback"
+  | "no_resolved_preview";
+
+type PreviewObservabilityStats = {
+  total_rows: number;
+  preview_ready_count: number;
+  preview_missing_count: number;
+  render_mode_counts: { video: number; image: number; unavailable: number };
+  resolution_stage_counts: Partial<Record<PreviewResolutionStage, number>>;
+  null_reason_counts: Partial<Record<PreviewNullReason, number>>;
+  resolution_reason_counts: Partial<Record<PreviewResolutionReason, number>>;
+  selected_source_counts: Record<string, number>;
+};
+
+type CreativeDebugInfo = {
+  stage_fetch_source?: string | null;
+  stage_has_raw_ad?: boolean;
+  stage_raw_ad_id?: string | null;
+  stage_raw_ad_creative?: boolean;
+  stage_raw_ad_creative_thumbnail_url?: string | null;
+  stage_enriched_ad_creative?: boolean;
+  stage_enriched_ad_creative_thumbnail_url?: string | null;
+  stage_row_input_thumbnail_url?: string | null;
+  stage_final_thumbnail_url?: string | null;
+  stage_null_reason?: PreviewNullReason | string | null;
+  raw_creative_thumbnail_url?: string | null;
+  enriched_creative_thumbnail_url?: string | null;
+  resolved_thumbnail_source?: string | null;
+  resolution_stage?: PreviewResolutionStage | string | null;
+  creative_object_type?: string | null;
+  creative_video_ids?: string[] | null;
+  creative_effective_object_story_id?: string | null;
+  creative_object_story_id?: string | null;
+  creative_object_story_video_id?: string | null;
+  creative_asset_video_ids?: string[] | null;
+  // Preview-decision fields
+  preview_selected_source?: string | null;
+  preview_selected_url?: string | null;
+  preview_render_mode?: PreviewRenderMode | null;
+  preview_candidates_count?: number;
+  preview_resolution_reason?: PreviewResolutionReason | string | null;
+};
+
+type PreviewDebugPatch = {
+  stage_final_thumbnail_url?: string | null;
+  stage_null_reason?: PreviewNullReason | string | null;
+  resolved_thumbnail_source?: string | null;
+  resolution_stage?: PreviewResolutionStage | string | null;
+  preview_selected_source?: string | null;
+  preview_selected_url?: string | null;
+  preview_render_mode?: PreviewRenderMode | null;
+  preview_candidates_count?: number;
+  preview_resolution_reason?: PreviewResolutionReason | string | null;
+};
+
+// ── Shared field group interfaces ─────────────────────────────────────────────
+
+interface CreativeIdentityFields {
   id: string;
   creative_id: string;
   object_story_id?: string | null;
@@ -248,10 +329,14 @@ interface RawCreativeRow {
   account_name: string | null;
   campaign_id: string | null;
   campaign_name: string | null;
-  currency: string | null;
   adset_id: string | null;
   adset_name: string | null;
+  currency: string | null;
   name: string;
+  launch_date: string;
+}
+
+interface CreativeCopyFields {
   copy_text: string | null;
   copy_variants: string[];
   headline_variants: string[];
@@ -259,6 +344,10 @@ interface RawCreativeRow {
   copy_source: CopySourceLabel | null;
   copy_debug_sources?: string[];
   unresolved_reason?: string | null;
+}
+
+/** preview_state: "catalog" | "preview" | "unavailable" — use this to drive UI rendering */
+interface CreativePreviewFields {
   preview_url: string | null;
   preview_source: string | null;
   thumbnail_url: string | null;
@@ -268,12 +357,17 @@ interface RawCreativeRow {
   is_catalog: boolean;
   preview_state: LegacyPreviewState;
   preview: NormalizedRenderPreviewPayload;
-  launch_date: string;
+}
+
+interface CreativeClassificationFields {
   tags: string[];
   ai_tags: MetaAiTags;
   format: CreativeFormat;
   creative_type: CreativeType;
   creative_type_label: string;
+}
+
+interface CreativeMetricFields {
   spend: number;
   purchase_value: number;
   roas: number;
@@ -290,47 +384,36 @@ interface RawCreativeRow {
   thumbstop: number;
   click_to_atc: number;
   atc_to_purchase: number;
+  leads: number;
+  messages: number;
   video25: number;
   video50: number;
   video75: number;
   video100: number;
-  debug_stage_fetch_source?: string | null;
-  debug_stage_has_raw_ad?: boolean;
-  debug_stage_raw_ad_id?: string | null;
-  debug_stage_raw_ad_creative?: boolean;
-  debug_stage_raw_ad_creative_thumbnail_url?: string | null;
-  debug_stage_enriched_ad_creative?: boolean;
-  debug_stage_enriched_ad_creative_thumbnail_url?: string | null;
-  debug_stage_row_input_thumbnail_url?: string | null;
-  debug_stage_final_thumbnail_url?: string | null;
-  debug_stage_null_reason?: string | null;
-  debug_raw_creative_thumbnail_url?: string | null;
-  debug_enriched_creative_thumbnail_url?: string | null;
-  debug_resolved_thumbnail_source?: string | null;
-  debug_resolution_stage?: string | null;
-  debug_creative_object_type?: string | null;
-  debug_creative_video_ids?: string[] | null;
-  debug_creative_effective_object_story_id?: string | null;
-  debug_creative_object_story_id?: string | null;
-  debug_creative_object_story_video_id?: string | null;
-  debug_creative_asset_video_ids?: string[] | null;
 }
 
-export interface MetaCreativeApiRow {
-  id: string;
-  creative_id: string;
-  object_story_id?: string | null;
-  effective_object_story_id?: string | null;
-  post_id?: string | null;
-  associated_ads_count: number;
-  account_id: string;
-  account_name: string | null;
-  campaign_id: string | null;
-  campaign_name: string | null;
-  adset_id: string | null;
-  adset_name: string | null;
-  currency: string | null;
-  name: string;
+
+// ── Row types ─────────────────────────────────────────────────────────────────
+
+interface RawCreativeRow
+  extends CreativeIdentityFields,
+    CreativeCopyFields,
+    CreativePreviewFields,
+    CreativeClassificationFields,
+    CreativeMetricFields {
+  debug?: CreativeDebugInfo;
+}
+
+/**
+ * Public API row uses the nested `debug` object.
+ * Legacy flat debug fields remain internal-only for backward compatibility.
+ */
+export interface MetaCreativeApiRow
+  extends CreativeIdentityFields,
+    CreativePreviewFields,
+    CreativeClassificationFields,
+    CreativeMetricFields {
+  // Copy fields are optional on the API row (required on RawCreativeRow via CreativeCopyFields)
   copy_text?: string | null;
   copy_variants?: string[];
   headline_variants?: string[];
@@ -338,66 +421,11 @@ export interface MetaCreativeApiRow {
   copy_source?: CopySourceLabel | null;
   copy_debug_sources?: string[];
   unresolved_reason?: string | null;
-  preview_url: string | null;
-  preview_source: string | null;
-  thumbnail_url: string | null;
-  image_url: string | null;
-  table_thumbnail_url?: string | null;
-  card_preview_url?: string | null;
-  is_catalog: boolean;
-  /** "catalog" | "preview" | "unavailable" — use this to drive UI rendering */
-  preview_state: LegacyPreviewState;
-  preview: NormalizedRenderPreviewPayload;
-  launch_date: string;
-  tags: string[];
-  ai_tags: MetaAiTags;
-  format: CreativeFormat;
-  creative_type: CreativeType;
-  creative_type_label: string;
-  spend: number;
-  purchase_value: number;
-  roas: number;
-  cpa: number;
-  cpc_link: number;
-  cpm: number;
-  ctr_all: number;
-  purchases: number;
-  impressions: number;
-  link_clicks: number;
-  landing_page_views: number;
-  add_to_cart: number;
-  initiate_checkout: number;
-  thumbstop: number;
-  click_to_atc: number;
-  atc_to_purchase: number;
-  video25: number;
-  video50: number;
-  video75: number;
-  video100: number;
   /** Internal cached URL. Prefer over thumbnail_url/image_url when available. */
   cached_thumbnail_url?: string | null;
   preview_status?: "ready" | "missing";
   preview_origin?: "snapshot" | "cache" | "live" | "fallback";
-  debug_stage_fetch_source?: string | null;
-  debug_stage_has_raw_ad?: boolean;
-  debug_stage_raw_ad_id?: string | null;
-  debug_stage_raw_ad_creative?: boolean;
-  debug_stage_raw_ad_creative_thumbnail_url?: string | null;
-  debug_stage_enriched_ad_creative?: boolean;
-  debug_stage_enriched_ad_creative_thumbnail_url?: string | null;
-  debug_stage_row_input_thumbnail_url?: string | null;
-  debug_stage_final_thumbnail_url?: string | null;
-  debug_stage_null_reason?: string | null;
-  debug_raw_creative_thumbnail_url?: string | null;
-  debug_enriched_creative_thumbnail_url?: string | null;
-  debug_resolved_thumbnail_source?: string | null;
-  debug_resolution_stage?: string | null;
-  debug_creative_object_type?: string | null;
-  debug_creative_video_ids?: string[] | null;
-  debug_creative_effective_object_story_id?: string | null;
-  debug_creative_object_story_id?: string | null;
-  debug_creative_object_story_video_id?: string | null;
-  debug_creative_asset_video_ids?: string[] | null;
+  debug?: CreativeDebugInfo;
 }
 
 function toISODate(date: Date) {
@@ -422,6 +450,68 @@ function metaCacheKey(parts: Array<string | number | boolean | null | undefined>
   return parts
     .map((part) => (part === null || part === undefined ? "null" : String(part)))
     .join(":");
+}
+
+function incrementCount<K extends string>(
+  map: Partial<Record<K, number>>,
+  key: K | null | undefined
+): void {
+  if (!key) return;
+  map[key] = ((map[key] as number | undefined) ?? 0) + 1;
+}
+
+function incrementStringCount(
+  map: Record<string, number>,
+  key: string | null | undefined
+): void {
+  if (!key) return;
+  map[key] = (map[key] ?? 0) + 1;
+}
+
+function buildPreviewObservabilityStats(
+  rows: MetaCreativeApiRow[]
+): PreviewObservabilityStats {
+  const stats: PreviewObservabilityStats = {
+    total_rows: rows.length,
+    preview_ready_count: 0,
+    preview_missing_count: 0,
+    render_mode_counts: { video: 0, image: 0, unavailable: 0 },
+    resolution_stage_counts: {},
+    null_reason_counts: {},
+    resolution_reason_counts: {},
+    selected_source_counts: {},
+  };
+
+  for (const row of rows) {
+    const hasPreview = Boolean(
+      row.cached_thumbnail_url ??
+        row.table_thumbnail_url ??
+        row.card_preview_url ??
+        row.thumbnail_url ??
+        row.image_url ??
+        row.preview_url ??
+        row.preview?.image_url ??
+        row.preview?.poster_url ??
+        row.preview?.video_url
+    );
+    if (hasPreview) {
+      stats.preview_ready_count++;
+    } else {
+      stats.preview_missing_count++;
+    }
+
+    const renderMode = row.preview?.render_mode ?? row.debug?.preview_render_mode ?? "unavailable";
+    if (renderMode === "video") stats.render_mode_counts.video++;
+    else if (renderMode === "image") stats.render_mode_counts.image++;
+    else stats.render_mode_counts.unavailable++;
+
+    incrementCount(stats.resolution_stage_counts, (row.debug?.resolution_stage ?? null) as PreviewResolutionStage | null);
+    incrementCount(stats.null_reason_counts, (row.debug?.stage_null_reason ?? null) as PreviewNullReason | null);
+    incrementCount(stats.resolution_reason_counts, (row.debug?.preview_resolution_reason ?? null) as PreviewResolutionReason | null);
+    incrementStringCount(stats.selected_source_counts, row.debug?.preview_selected_source ?? null);
+  }
+
+  return stats;
 }
 
 function getPreviewReadyCount(rows: MetaCreativeApiRow[]): number {
@@ -514,6 +604,7 @@ async function buildSnapshotApiResponse(input: {
   const hydratedRows = await hydrateRowsWithSnapshotCache(rows, input.businessId, input.enableMediaCache);
   const previewReadyCount = getPreviewReadyCount(hydratedRows);
   const freshness = getMetaCreativesSnapshotFreshness(snapshot.lastSyncedAt);
+  const preview_observability = buildPreviewObservabilityStats(hydratedRows);
   return {
     status: payload.status ?? "ok",
     rows: hydratedRows,
@@ -526,6 +617,7 @@ async function buildSnapshotApiResponse(input: {
     freshness_state: freshness.freshnessState,
     is_refreshing: Boolean(snapshot.refreshStartedAt),
     preview_coverage: getSnapshotCoverage(hydratedRows.length, previewReadyCount),
+    preview_observability,
   };
 }
 
@@ -537,6 +629,7 @@ function buildLiveApiResponse(input: {
   snapshotSource?: "live" | "refresh";
 }) {
   const previewReadyCount = getPreviewReadyCount(input.rows);
+  const preview_observability = buildPreviewObservabilityStats(input.rows);
   return {
     status: "ok",
     rows: input.rows,
@@ -549,6 +642,7 @@ function buildLiveApiResponse(input: {
     freshness_state: "fresh" as const,
     is_refreshing: false,
     preview_coverage: getSnapshotCoverage(input.rows.length, previewReadyCount),
+    preview_observability,
   };
 }
 
@@ -624,6 +718,23 @@ function parsePurchaseValue(values: MetaActionValue[] | undefined): number {
 
 function parsePurchaseRoas(roas: MetaActionValue[] | undefined): number {
   return parseActionAny(roas, ["purchase", "omni_purchase"]);
+}
+
+function parseLeadCount(actions: MetaActionValue[] | undefined): number {
+  return parseActionAny(actions, [
+    "lead",
+    "onsite_conversion.lead",
+    "offsite_conversion.fb_pixel_lead",
+    "offsite_conversion_fb_pixel_lead",
+  ]);
+}
+
+function parseMessagingConversationCount(actions: MetaActionValue[] | undefined): number {
+  return parseActionAny(actions, [
+    "onsite_conversion.messaging_conversation_started_7d",
+    "onsite_conversion.total_messaging_connection",
+    "messaging_conversation_started_7d",
+  ]);
 }
 
 
@@ -936,7 +1047,7 @@ async function validateMediaUrl(url: string, cache: Map<string, UrlValidationRes
       null,
       error instanceof Error ? error.message : String(error)
     );
-    cache.set(`${url}::head_error`, result);
+    cache.set(url, result);
   }
 
   try {
@@ -965,7 +1076,7 @@ async function validateMediaUrl(url: string, cache: Map<string, UrlValidationRes
 }
 
 function pushCandidate(
-  list: Array<{ source: string; url: string }>,
+  list: PreviewCandidate[],
   source: string,
   value: unknown
 ) {
@@ -978,10 +1089,23 @@ function detectIsCatalog(
   creative: MetaAdRecord["creative"],
   promotedObject: MetaPromotedObjectLike
 ): boolean {
-  // Sadece DYNAMIC object_type'ı catalog olarak işaretle
-  // Diğer tüm creative'ler normal görsel/video olarak işlensin
   const objectType = creative?.object_type?.toUpperCase() ?? "";
-  return objectType === "DYNAMIC";
+  if (objectType === "DYNAMIC") return true;
+
+  // Check promoted object signals
+  if (promotedObject?.product_set_id || promotedObject?.catalog_id) {
+    return true;
+  }
+
+  // Check asset feed spec signals
+  if (
+    creative?.asset_feed_spec?.catalog_id ||
+    creative?.asset_feed_spec?.product_set_id
+  ) {
+    return true;
+  }
+
+  return false;
 }
 
 function extractImageHashesFromCreative(creative: MetaAdRecord["creative"]): string[] {
@@ -1007,14 +1131,82 @@ function extractImageHashesFromCreative(creative: MetaAdRecord["creative"]): str
   return Array.from(hashes);
 }
 
+// ── Preview scoring model ──────────────────────────────────────────────────────
+
+type PreviewCandidate = {
+  source: string;
+  url: string;
+};
+
+function scorePreviewCandidate(candidate: PreviewCandidate): number {
+  const source = candidate.source;
+  const url = candidate.url;
+
+  let score = 0;
+
+  if (!isLikelyLowResCreativeUrl(url)) score += 40;
+  if (!isThumbnailLikeUrl(url)) score += 20;
+
+  if (source === "image_hash_lookup") score += 35;
+  if (source === "image_url") score += 30;
+  if (source === "thumbnail_url") score += 10;
+
+  if (source.includes("object_story_spec.video_data.image_url")) score += 32;
+  if (source.includes("object_story_spec.video_data.thumbnail_url")) score += 18;
+  if (source.includes("object_story_spec.photo_data.image_url")) score += 30;
+  if (source.includes("object_story_spec.link_data.picture")) score += 26;
+  if (source.includes("child_attachments[].image_url")) score += 24;
+  if (source.includes("child_attachments[].picture")) score += 18;
+  if (source.includes("asset_feed_spec.images[].image_url")) score += 34;
+  if (source.includes("asset_feed_spec.images[].original_url")) score += 36;
+  if (source.includes("asset_feed_spec.images[].url")) score += 22;
+  if (source.includes("asset_feed_spec.videos[].image_url")) score += 24;
+  if (source.includes("asset_feed_spec.videos[].thumbnail_url")) score += 16;
+
+  return score;
+}
+
+function pickBestCandidate(
+  candidates: PreviewCandidate[],
+  predicate?: (candidate: PreviewCandidate) => boolean
+): PreviewCandidate | null {
+  const filtered = predicate ? candidates.filter(predicate) : candidates.slice();
+  if (filtered.length === 0) return null;
+
+  let best = filtered[0];
+  let bestScore = scorePreviewCandidate(best);
+
+  for (let i = 1; i < filtered.length; i++) {
+    const candidate = filtered[i];
+    const score = scorePreviewCandidate(candidate);
+    if (score > bestScore) {
+      best = candidate;
+      bestScore = score;
+    }
+  }
+
+  return best;
+}
+
+function pickNextBestDistinctCandidate(
+  candidates: PreviewCandidate[],
+  usedUrl: string | null,
+  predicate?: (candidate: PreviewCandidate) => boolean
+): PreviewCandidate | null {
+  return pickBestCandidate(
+    candidates,
+    (candidate) => candidate.url !== usedUrl && (!predicate || predicate(candidate))
+  );
+}
+
 function collectPreviewCandidates(
   creative: MetaAdRecord["creative"],
   imageHashLookup: Map<string, string>
 ): {
-  candidates: Array<{ source: string; url: string }>;
+  candidates: PreviewCandidate[];
   imageHashResolutions: Array<{ hash: string; resolved: boolean; resolved_url: string | null }>;
 } {
-  const candidates: Array<{ source: string; url: string }> = [];
+  const candidates: PreviewCandidate[] = [];
 
   // Priority order
   pushCandidate(candidates, "thumbnail_url", creative?.thumbnail_url);
@@ -1060,7 +1252,7 @@ function collectPreviewCandidates(
     };
   });
 
-  const deduped: Array<{ source: string; url: string }> = [];
+  const deduped: PreviewCandidate[] = [];
   const seen = new Set<string>();
   for (const candidate of candidates) {
     if (seen.has(candidate.url)) continue;
@@ -1097,6 +1289,7 @@ function buildNormalizedPreview(input: {
   };
   candidateAudit: PreviewAuditCandidate[];
   imageHashResolutions: Array<{ hash: string; resolved: boolean; resolved_url: string | null }>;
+  debug: PreviewDebugPatch;
 } {
   const { creative, promotedObject, imageHashLookup, videoSourceLookup } = input;
   const isCatalog = detectIsCatalog(creative, promotedObject);
@@ -1109,45 +1302,60 @@ function buildNormalizedPreview(input: {
     return "image_url";
   };
 
-  const isThumbnailNamedSource = (source: string) => source.includes("thumbnail_url");
-  const firstAny = candidates[0] ?? null;
-  const firstHighQuality = candidates.find((candidate) => !isLikelyLowResCreativeUrl(candidate.url)) ?? null;
-  const firstNonThumbnailNamed = candidates.find((candidate) => !isThumbnailNamedSource(candidate.source)) ?? null;
-  const firstHighQualityNonThumbnailNamed =
-    candidates.find((candidate) => !isThumbnailNamedSource(candidate.source) && !isLikelyLowResCreativeUrl(candidate.url)) ?? null;
-  const firstThumbnailNamed = candidates.find((candidate) => isThumbnailNamedSource(candidate.source)) ?? null;
-  const secondHighQuality =
-    candidates.find((candidate) => candidate !== firstHighQuality && !isLikelyLowResCreativeUrl(candidate.url)) ?? null;
-  const isVideo = creative?.object_type?.toUpperCase() === "VIDEO";
   const resolvedThumbnail = resolveThumbnailUrl({ creative });
 
-  const tableTier = firstThumbnailNamed?.url ?? resolvedThumbnail.url ?? firstAny?.url ?? null;
+  const bestOverall = pickBestCandidate(candidates);
+  const bestImageCandidate = pickBestCandidate(
+    candidates,
+    (candidate) => !isThumbnailLikeUrl(candidate.url)
+  );
+  const bestThumbnailCandidate = pickBestCandidate(
+    candidates,
+    (candidate) => isThumbnailLikeUrl(candidate.url) || candidate.source.includes("thumbnail_url")
+  );
+  const bestNonThumbnailSourceCandidate = pickBestCandidate(
+    candidates,
+    (candidate) => !candidate.source.includes("thumbnail_url")
+  );
+
+  const tableTier =
+    bestThumbnailCandidate?.url ??
+    resolvedThumbnail.url ??
+    bestOverall?.url ??
+    null;
+
   const cardTier =
-    firstHighQualityNonThumbnailNamed?.url ??
-    firstHighQuality?.url ??
-    firstNonThumbnailNamed?.url ??
-    firstAny?.url ??
+    bestNonThumbnailSourceCandidate?.url ??
+    bestImageCandidate?.url ??
+    bestOverall?.url ??
     resolvedThumbnail.url ??
     null;
+
   const imageTier =
-    firstHighQualityNonThumbnailNamed?.url ??
-    firstHighQuality?.url ??
+    bestImageCandidate?.url ??
     normalizeMediaUrl(creative?.image_url ?? null) ??
-    firstNonThumbnailNamed?.url ??
     cardTier ??
     tableTier;
+
   const previewImageTier =
-    firstHighQuality?.url ??
     imageTier ??
     cardTier ??
     tableTier;
+
+  const secondBestVisualCandidate = pickNextBestDistinctCandidate(
+    candidates,
+    bestImageCandidate?.url ?? bestOverall?.url ?? null,
+    (candidate) => !isLikelyLowResCreativeUrl(candidate.url)
+  );
+
   const previewPosterTier =
-    secondHighQuality?.url ??
+    secondBestVisualCandidate?.url ??
     previewImageTier ??
     cardTier ??
     tableTier;
+
   const previewTier = previewImageTier ?? previewPosterTier ?? cardTier ?? tableTier;
-  const previewSource = firstHighQuality?.source ?? firstAny?.source ?? null;
+  const previewSource = bestImageCandidate?.source ?? bestOverall?.source ?? null;
   const videoIds = extractVideoIdsFromCreative(creative);
   const resolvedVideoSource = videoIds
     .map((videoId) => videoSourceLookup.get(videoId)?.source ?? null)
@@ -1157,10 +1365,14 @@ function buildNormalizedPreview(input: {
     .map((videoId) => videoSourceLookup.get(videoId)?.picture ?? null)
     .find((poster): poster is string => Boolean(poster))
     ?? null;
-  const renderMode: PreviewRenderMode = resolvedVideoSource
-    ? "video"
-    : previewTier
-      ? (isVideo ? "image" : "image")
+  const hasRenderableImage =
+    Boolean(previewImageTier || previewPosterTier || cardTier || tableTier);
+
+  const renderMode: PreviewRenderMode =
+    resolvedVideoSource
+      ? "video"
+      : hasRenderableImage
+      ? "image"
       : "unavailable";
 
   const preview: NormalizedRenderPreviewPayload = {
@@ -1175,17 +1387,66 @@ function buildNormalizedPreview(input: {
   const thumbnailCandidate = tableTier;
   const imageCandidate = imageTier ?? previewImageTier ?? cardTier ?? tableTier;
 
+  // ── Preview debug patch ────────────────────────────────────────────────────
+
+  const previewDebugSelectedSource =
+    previewSource ??
+    (resolvedThumbnail.source !== "none" ? resolvedThumbnail.source : null);
+
+  const previewDebugSelectedUrl =
+    renderMode === "video"
+      ? (resolvedVideoPoster ?? previewPosterTier ?? previewImageTier ?? null)
+      : renderMode === "image"
+      ? (previewImageTier ?? previewPosterTier ?? previewTier ?? null)
+      : null;
+
+  const previewDebugResolutionStage =
+    resolvedVideoSource ? "video_source" :
+    previewSource === "image_hash_lookup" ? "image_hash_lookup" :
+    previewSource?.includes("object_story_spec") ? "object_story_spec" :
+    previewSource?.includes("asset_feed_spec") ? "asset_feed" :
+    previewSource === "image_url" ? "creative_image" :
+    previewSource === "thumbnail_url" ? "creative_thumbnail" :
+    resolvedThumbnail.source === "creative.image_url" ? "creative_image_fallback" :
+    resolvedThumbnail.source === "creative.thumbnail_url" ? "creative_thumbnail_fallback" :
+    previewTier ? "fallback" :
+    "unavailable";
+
+  const previewDebugResolutionReason =
+    renderMode === "video" ? "video_selected" :
+    bestImageCandidate?.url ? "best_image_candidate" :
+    bestThumbnailCandidate?.url ? "thumbnail_candidate" :
+    resolvedThumbnail.url ? "resolved_thumbnail_fallback" :
+    previewTier ? "generic_fallback" :
+    "no_resolved_preview";
+
+  const previewDebugNullReason: string | null =
+    renderMode !== "unavailable" ? null :
+    candidates.length === 0 && isCatalog ? "catalog_without_assets" :
+    candidates.length === 0 && videoIds.length > 0 ? "video_without_poster" :
+    candidates.length === 0 ? "no_candidates" :
+    !hasRenderableImage && videoIds.length > 0 ? "video_without_poster" :
+    !hasRenderableImage ? "no_renderable_image" :
+    "unavailable";
+
+  const previewDebug: PreviewDebugPatch = {
+    stage_final_thumbnail_url: tableTier ?? null,
+    stage_null_reason: previewDebugNullReason,
+    resolved_thumbnail_source: previewDebugSelectedSource,
+    resolution_stage: previewDebugResolutionStage,
+    preview_selected_source: previewDebugSelectedSource,
+    preview_selected_url: previewDebugSelectedUrl,
+    preview_render_mode: renderMode,
+    preview_candidates_count: candidates.length,
+    preview_resolution_reason: previewDebugResolutionReason,
+  };
+
   if (process.env.NODE_ENV !== "production") {
-    const resolvedSource = previewSource ?? "none";
-    const label =
-      resolvedSource === "thumbnail_url" ? "creative_thumbnail" :
-      resolvedSource === "image_url" ? "creative_image" :
-      resolvedSource === "image_hash_lookup" ? "image_hash" :
-      resolvedSource === "none" ? "none" : resolvedSource;
     console.log("[preview-resolve]", {
       creative_id: creative?.id ?? null,
-      resolved_source: label,
-      url: previewTier?.slice(0, 80) ?? null,
+      render_mode: renderMode,
+      resolution_stage: previewDebugResolutionStage,
+      preview_resolution_reason: previewDebugResolutionReason,
       candidates_count: candidates.length,
     });
   }
@@ -1209,8 +1470,21 @@ function buildNormalizedPreview(input: {
       preview_poster_url: previewPosterTier,
       source: previewSource,
     },
-    candidateAudit: [],
+    candidateAudit: candidates.map((candidate) => ({
+      source: candidate.source,
+      url: candidate.url,
+      validation: {
+        isValid: true,
+        method: "none",
+        status: null,
+        finalUrl: candidate.url,
+        contentType: null,
+        contentLength: null,
+        error: null,
+      },
+    })),
     imageHashResolutions,
+    debug: previewDebug,
   };
 }
 
@@ -2266,6 +2540,53 @@ function extractVariantsFromPreviewHtml(html: string): {
   };
 }
 
+function buildCreativeDebugInfo(input: {
+  debug_stage_fetch_source?: string | null;
+  debug_stage_has_raw_ad?: boolean;
+  debug_stage_raw_ad_id?: string | null;
+  debug_stage_raw_ad_creative?: boolean;
+  debug_stage_raw_ad_creative_thumbnail_url?: string | null;
+  debug_stage_enriched_ad_creative?: boolean;
+  debug_stage_enriched_ad_creative_thumbnail_url?: string | null;
+  debug_stage_row_input_thumbnail_url?: string | null;
+  debug_stage_final_thumbnail_url?: string | null;
+  debug_stage_null_reason?: string | null;
+  debug_raw_creative_thumbnail_url?: string | null;
+  debug_enriched_creative_thumbnail_url?: string | null;
+  debug_resolved_thumbnail_source?: string | null;
+  debug_resolution_stage?: string | null;
+  debug_creative_object_type?: string | null;
+  debug_creative_video_ids?: string[] | null;
+  debug_creative_effective_object_story_id?: string | null;
+  debug_creative_object_story_id?: string | null;
+  debug_creative_object_story_video_id?: string | null;
+  debug_creative_asset_video_ids?: string[] | null;
+}): CreativeDebugInfo {
+  return {
+    stage_fetch_source: input.debug_stage_fetch_source ?? null,
+    stage_has_raw_ad: input.debug_stage_has_raw_ad ?? false,
+    stage_raw_ad_id: input.debug_stage_raw_ad_id ?? null,
+    stage_raw_ad_creative: input.debug_stage_raw_ad_creative ?? false,
+    stage_raw_ad_creative_thumbnail_url: input.debug_stage_raw_ad_creative_thumbnail_url ?? null,
+    stage_enriched_ad_creative: input.debug_stage_enriched_ad_creative ?? false,
+    stage_enriched_ad_creative_thumbnail_url: input.debug_stage_enriched_ad_creative_thumbnail_url ?? null,
+    stage_row_input_thumbnail_url: input.debug_stage_row_input_thumbnail_url ?? null,
+    stage_final_thumbnail_url: input.debug_stage_final_thumbnail_url ?? null,
+    stage_null_reason: input.debug_stage_null_reason ?? null,
+    raw_creative_thumbnail_url: input.debug_raw_creative_thumbnail_url ?? null,
+    enriched_creative_thumbnail_url: input.debug_enriched_creative_thumbnail_url ?? null,
+    resolved_thumbnail_source: input.debug_resolved_thumbnail_source ?? null,
+    resolution_stage: input.debug_resolution_stage ?? null,
+    creative_object_type: input.debug_creative_object_type ?? null,
+    creative_video_ids: input.debug_creative_video_ids ?? null,
+    creative_effective_object_story_id: input.debug_creative_effective_object_story_id ?? null,
+    creative_object_story_id: input.debug_creative_object_story_id ?? null,
+    creative_object_story_video_id: input.debug_creative_object_story_video_id ?? null,
+    creative_asset_video_ids: input.debug_creative_asset_video_ids ?? null,
+  };
+}
+
+
 function toRawRow(
   insight: MetaInsightRecord,
   ad: MetaAdRecord | undefined,
@@ -2439,6 +2760,42 @@ function toRawRow(
     extractPostIdFromStoryIdentifier(effectiveObjectStoryId) ??
     null;
 
+  const rowDebugBase = buildCreativeDebugInfo({
+    debug_stage_fetch_source: debugContext?.fetchSource ?? null,
+    debug_stage_has_raw_ad: Boolean(debugContext?.hasRawAd),
+    debug_stage_raw_ad_id: debugContext?.rawAdId ?? null,
+    debug_stage_raw_ad_creative: Boolean(debugContext?.rawAdCreative),
+    debug_stage_raw_ad_creative_thumbnail_url: debugContext?.rawAdCreativeThumbnailUrl ?? null,
+    debug_stage_enriched_ad_creative: Boolean(debugContext?.enrichedAdCreative),
+    debug_stage_enriched_ad_creative_thumbnail_url: debugContext?.enrichedAdCreativeThumbnailUrl ?? null,
+    debug_stage_row_input_thumbnail_url: normalizeMediaUrl(creative?.thumbnail_url ?? null),
+    debug_stage_final_thumbnail_url: finalThumbnail,
+    debug_stage_null_reason: stageNullReason,
+    debug_raw_creative_thumbnail_url: debugContext?.rawCreativeThumbnailUrl ?? null,
+    debug_enriched_creative_thumbnail_url: debugContext?.enrichedCreativeThumbnailUrl ?? null,
+    debug_resolved_thumbnail_source: resolvedThumbnail.source,
+    debug_resolution_stage: null,
+    debug_creative_object_type: creative?.object_type ?? null,
+    debug_creative_video_ids: extractVideoIdsFromCreative(creative),
+    debug_creative_effective_object_story_id:
+      typeof creative?.effective_object_story_id === "string" ? creative.effective_object_story_id : null,
+    debug_creative_object_story_id:
+      typeof creative?.object_story_id === "string" ? creative.object_story_id : null,
+    debug_creative_object_story_video_id:
+      typeof creative?.object_story_spec?.video_data?.video_id === "string"
+        ? creative.object_story_spec.video_data.video_id
+        : null,
+    debug_creative_asset_video_ids: (creative?.asset_feed_spec?.videos ?? [])
+      .map((video) => (typeof video?.video_id === "string" ? video.video_id : null))
+      .filter((videoId): videoId is string => Boolean(videoId)),
+  });
+
+  // Merge preview debug patch — preview fields take precedence over base defaults
+  const debug: CreativeDebugInfo = {
+    ...rowDebugBase,
+    ...normalizedPreview.debug,
+  };
+
   return {
     id: adId,
     creative_id: creativeId,
@@ -2496,6 +2853,24 @@ function toRawRow(
     landing_page_views: landingPageViews,
     add_to_cart: addToCart,
     initiate_checkout: initiateCheckout,
+    messages: Math.round(parseMessagingConversationCount(insight.actions)),
+    leads: (() => {
+      const hasLeadAction = (insight.actions ?? []).some((a) =>
+        a.action_type.toLowerCase().includes("lead")
+      );
+      const leads = Math.round(parseLeadCount(insight.actions));
+      if (hasLeadAction || leads === 0) {
+        console.log("[lead-debug]", {
+          ad_id: insight.ad_id ?? null,
+          ad_name: insight.ad_name ?? null,
+          actions: (insight.actions ?? []).map((a) => ({
+            action_type: a.action_type,
+            value: a.value,
+          })),
+        });
+      }
+      return leads;
+    })(),
     thumbstop,
     click_to_atc: clickToAtc,
     atc_to_purchase: atcToPurchase,
@@ -2503,33 +2878,7 @@ function toRawRow(
     video50: video50Rate,
     video75: video75Rate,
     video100: video100Rate,
-    debug_stage_fetch_source: debugContext?.fetchSource ?? null,
-    debug_stage_has_raw_ad: Boolean(debugContext?.hasRawAd),
-    debug_stage_raw_ad_id: debugContext?.rawAdId ?? null,
-    debug_stage_raw_ad_creative: Boolean(debugContext?.rawAdCreative),
-    debug_stage_raw_ad_creative_thumbnail_url: debugContext?.rawAdCreativeThumbnailUrl ?? null,
-    debug_stage_enriched_ad_creative: Boolean(debugContext?.enrichedAdCreative),
-    debug_stage_enriched_ad_creative_thumbnail_url: debugContext?.enrichedAdCreativeThumbnailUrl ?? null,
-    debug_stage_row_input_thumbnail_url: normalizeMediaUrl(creative?.thumbnail_url ?? null),
-    debug_stage_final_thumbnail_url: finalThumbnail,
-    debug_stage_null_reason: stageNullReason,
-    debug_raw_creative_thumbnail_url: debugContext?.rawCreativeThumbnailUrl ?? null,
-    debug_enriched_creative_thumbnail_url: debugContext?.enrichedCreativeThumbnailUrl ?? null,
-    debug_resolved_thumbnail_source: resolvedThumbnail.source,
-    debug_resolution_stage: "toRawRow",
-    debug_creative_object_type: creative?.object_type ?? null,
-    debug_creative_video_ids: extractVideoIdsFromCreative(creative),
-    debug_creative_effective_object_story_id:
-      typeof creative?.effective_object_story_id === "string" ? creative.effective_object_story_id : null,
-    debug_creative_object_story_id:
-      typeof creative?.object_story_id === "string" ? creative.object_story_id : null,
-    debug_creative_object_story_video_id:
-      typeof creative?.object_story_spec?.video_data?.video_id === "string"
-        ? creative.object_story_spec.video_data.video_id
-        : null,
-    debug_creative_asset_video_ids: (creative?.asset_feed_spec?.videos ?? [])
-      .map((video) => (typeof video?.video_id === "string" ? video.video_id : null))
-      .filter((videoId): videoId is string => Boolean(videoId)),
+    debug,
   };
 }
 
@@ -2585,6 +2934,8 @@ function groupRows(
     const landingPageViews = list.reduce((acc, item) => acc + item.landing_page_views, 0);
     const addToCart = list.reduce((acc, item) => acc + item.add_to_cart, 0);
     const initiateCheckout = list.reduce((acc, item) => acc + item.initiate_checkout, 0);
+    const leads = list.reduce((acc, item) => acc + item.leads, 0);
+    const messages = list.reduce((acc, item) => acc + item.messages, 0);
     const video3sViews = list.reduce((acc, item) => acc + (impressions > 0 ? (item.thumbstop / 100) * item.impressions : 0), 0);
     const video25Views = list.reduce((acc, item) => acc + (item.impressions > 0 ? (item.video25 / 100) * item.impressions : 0), 0);
     const video50Views = list.reduce((acc, item) => acc + (item.impressions > 0 ? (item.video50 / 100) * item.impressions : 0), 0);
@@ -2719,6 +3070,8 @@ function groupRows(
       landing_page_views: landingPageViews,
       add_to_cart: addToCart,
       initiate_checkout: initiateCheckout,
+      leads,
+      messages,
       thumbstop: impressions > 0 ? r2((video3sViews / impressions) * 100) : 0,
       click_to_atc: linkClicks > 0 ? r2((addToCart / linkClicks) * 100) : 0,
       atc_to_purchase: addToCart > 0 ? r2((purchases / addToCart) * 100) : 0,
@@ -3809,7 +4162,7 @@ export async function GET(request: NextRequest) {
     const previewState: LegacyPreviewState = finalPreviewUrl ? "preview" : "unavailable";
     const finalNullReason = finalThumbnailUrl
       ? null
-      : row.debug_stage_null_reason ?? "final_map_no_thumbnail";
+      : row.debug?.stage_null_reason ?? "final_map_no_thumbnail";
     const finalPreviewPayload: NormalizedRenderPreviewPayload =
       finalPreviewUrl && row.preview.render_mode === "unavailable"
         ? {
@@ -3947,6 +4300,8 @@ export async function GET(request: NextRequest) {
       landing_page_views: row.landing_page_views,
       add_to_cart: row.add_to_cart,
       initiate_checkout: row.initiate_checkout,
+      leads: row.leads,
+      messages: row.messages,
       thumbstop: row.thumbstop,
       click_to_atc: r2(normalizedClickToAtc),
       atc_to_purchase: r2(normalizedAtcToPurchase),
@@ -3959,28 +4314,16 @@ export async function GET(request: NextRequest) {
       preview_origin: previewOrigin,
     };
     if (!includeDebugFields) return baseRow;
+    const baseDebug: CreativeDebugInfo = row.debug ?? {};
+    const debug: CreativeDebugInfo = {
+      ...baseDebug,
+      stage_final_thumbnail_url: finalThumbnailUrl,
+      stage_null_reason: finalNullReason,
+      resolution_stage: "response-map",
+    };
     return {
       ...baseRow,
-      debug_stage_fetch_source: row.debug_stage_fetch_source ?? null,
-      debug_stage_has_raw_ad: row.debug_stage_has_raw_ad ?? false,
-      debug_stage_raw_ad_id: row.debug_stage_raw_ad_id ?? null,
-      debug_stage_raw_ad_creative: row.debug_stage_raw_ad_creative ?? false,
-      debug_stage_raw_ad_creative_thumbnail_url: row.debug_stage_raw_ad_creative_thumbnail_url ?? null,
-      debug_stage_enriched_ad_creative: row.debug_stage_enriched_ad_creative ?? false,
-      debug_stage_enriched_ad_creative_thumbnail_url: row.debug_stage_enriched_ad_creative_thumbnail_url ?? null,
-      debug_stage_row_input_thumbnail_url: row.debug_stage_row_input_thumbnail_url ?? null,
-      debug_stage_final_thumbnail_url: finalThumbnailUrl,
-      debug_stage_null_reason: finalNullReason,
-      debug_raw_creative_thumbnail_url: row.debug_raw_creative_thumbnail_url ?? null,
-      debug_enriched_creative_thumbnail_url: row.debug_enriched_creative_thumbnail_url ?? null,
-      debug_resolved_thumbnail_source: row.debug_resolved_thumbnail_source ?? null,
-      debug_resolution_stage: "response-map",
-      debug_creative_object_type: row.debug_creative_object_type ?? null,
-      debug_creative_video_ids: row.debug_creative_video_ids ?? null,
-      debug_creative_effective_object_story_id: row.debug_creative_effective_object_story_id ?? null,
-      debug_creative_object_story_id: row.debug_creative_object_story_id ?? null,
-      debug_creative_object_story_video_id: row.debug_creative_object_story_video_id ?? null,
-      debug_creative_asset_video_ids: row.debug_creative_asset_video_ids ?? null,
+      debug,
     };
   });
 
@@ -4027,26 +4370,26 @@ export async function GET(request: NextRequest) {
       preview_state: r.preview_state,
       is_catalog: r.is_catalog,
       format: r.format,
-      debug_stage_fetch_source: r.debug_stage_fetch_source ?? null,
-      debug_stage_has_raw_ad: r.debug_stage_has_raw_ad ?? false,
-      debug_stage_raw_ad_id: r.debug_stage_raw_ad_id ?? null,
-      debug_stage_raw_ad_creative: r.debug_stage_raw_ad_creative ?? false,
-      debug_stage_raw_ad_creative_thumbnail_url: r.debug_stage_raw_ad_creative_thumbnail_url ?? null,
-      debug_stage_enriched_ad_creative: r.debug_stage_enriched_ad_creative ?? false,
-      debug_stage_enriched_ad_creative_thumbnail_url: r.debug_stage_enriched_ad_creative_thumbnail_url ?? null,
-      debug_stage_row_input_thumbnail_url: r.debug_stage_row_input_thumbnail_url ?? null,
-      debug_stage_final_thumbnail_url: r.debug_stage_final_thumbnail_url ?? null,
-      debug_stage_null_reason: r.debug_stage_null_reason ?? null,
-      debug_raw_creative_thumbnail_url: r.debug_raw_creative_thumbnail_url ?? null,
-      debug_enriched_creative_thumbnail_url: r.debug_enriched_creative_thumbnail_url ?? null,
-      debug_resolved_thumbnail_source: r.debug_resolved_thumbnail_source ?? null,
-      debug_resolution_stage: r.debug_resolution_stage ?? null,
-      debug_creative_object_type: r.debug_creative_object_type ?? null,
-      debug_creative_video_ids: r.debug_creative_video_ids ?? null,
-      debug_creative_effective_object_story_id: r.debug_creative_effective_object_story_id ?? null,
-      debug_creative_object_story_id: r.debug_creative_object_story_id ?? null,
-      debug_creative_object_story_video_id: r.debug_creative_object_story_video_id ?? null,
-      debug_creative_asset_video_ids: r.debug_creative_asset_video_ids ?? null,
+      debug_stage_fetch_source: r.debug?.stage_fetch_source ?? null,
+      debug_stage_has_raw_ad: r.debug?.stage_has_raw_ad ?? false,
+      debug_stage_raw_ad_id: r.debug?.stage_raw_ad_id ?? null,
+      debug_stage_raw_ad_creative: r.debug?.stage_raw_ad_creative ?? false,
+      debug_stage_raw_ad_creative_thumbnail_url: r.debug?.stage_raw_ad_creative_thumbnail_url ?? null,
+      debug_stage_enriched_ad_creative: r.debug?.stage_enriched_ad_creative ?? false,
+      debug_stage_enriched_ad_creative_thumbnail_url: r.debug?.stage_enriched_ad_creative_thumbnail_url ?? null,
+      debug_stage_row_input_thumbnail_url: r.debug?.stage_row_input_thumbnail_url ?? null,
+      debug_stage_final_thumbnail_url: r.debug?.stage_final_thumbnail_url ?? null,
+      debug_stage_null_reason: r.debug?.stage_null_reason ?? null,
+      debug_raw_creative_thumbnail_url: r.debug?.raw_creative_thumbnail_url ?? null,
+      debug_enriched_creative_thumbnail_url: r.debug?.enriched_creative_thumbnail_url ?? null,
+      debug_resolved_thumbnail_source: r.debug?.resolved_thumbnail_source ?? null,
+      debug_resolution_stage: r.debug?.resolution_stage ?? null,
+      debug_creative_object_type: r.debug?.creative_object_type ?? null,
+      debug_creative_video_ids: r.debug?.creative_video_ids ?? null,
+      debug_creative_effective_object_story_id: r.debug?.creative_effective_object_story_id ?? null,
+      debug_creative_object_story_id: r.debug?.creative_object_story_id ?? null,
+      debug_creative_object_story_video_id: r.debug?.creative_object_story_video_id ?? null,
+      debug_creative_asset_video_ids: r.debug?.creative_asset_video_ids ?? null,
     })));
   }
 
