@@ -1,5 +1,14 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import {
+  buildDefaultIntegrations,
+  DEFAULT_INTEGRATION_ACCOUNTS,
+  INTEGRATION_PROVIDERS,
+  normalizeAssignedAccounts,
+  normalizeBusinessIntegrations,
+  updateEnabledAccounts,
+  withAssignedAccountFlags,
+} from "@/store/integrations-support";
 
 export const INTEGRATIONS_STORE_PERSIST_KEY = "omniads-integrations-store-v1";
 
@@ -48,94 +57,6 @@ export interface IntegrationToast {
   type: "success" | "error";
   message: string;
 }
-
-const PROVIDERS: IntegrationProvider[] = [
-  "shopify",
-  "meta",
-  "google",
-  "search_console",
-  "tiktok",
-  "pinterest",
-  "snapchat",
-  "ga4",
-  "klaviyo",
-];
-
-const DEFAULT_ACCOUNTS: Record<IntegrationProvider, IntegrationAdAccount[]> = {
-  shopify: [],
-  meta: [],
-  google: [],
-  search_console: [],
-  tiktok: [],
-  pinterest: [],
-  snapchat: [],
-  ga4: [],
-  klaviyo: [],
-};
-
-const buildDefaultIntegrations = (): Record<IntegrationProvider, IntegrationState> =>
-  PROVIDERS.reduce<Record<IntegrationProvider, IntegrationState>>((acc, provider) => {
-    acc[provider] = {
-      provider,
-      status: "disconnected",
-      accounts: [],
-    };
-    return acc;
-  }, {} as Record<IntegrationProvider, IntegrationState>);
-
-function isLegacyMockAccount(account: IntegrationAdAccount) {
-  return (
-    account.id.startsWith("meta-acct-") ||
-    account.id.startsWith("google-acct-") ||
-    account.id.startsWith("shopify-acct-") ||
-    account.id === "ga4-property-1" ||
-    account.id.startsWith("klaviyo-list-")
-  );
-}
-
-const normalizeBusinessIntegrations = (
-  current?: Partial<Record<IntegrationProvider, IntegrationState>>
-): Record<IntegrationProvider, IntegrationState> => {
-  const defaults = buildDefaultIntegrations();
-  if (!current) return defaults;
-
-  return PROVIDERS.reduce<Record<IntegrationProvider, IntegrationState>>((acc, provider) => {
-    const existing = current[provider];
-    acc[provider] = existing
-      ? {
-          provider,
-          status: existing.status,
-          errorMessage: existing.errorMessage,
-                connectedAt: existing.connectedAt,
-                lastSyncAt: existing.lastSyncAt,
-                integrationId: existing.integrationId,
-                providerAccountId: existing.providerAccountId,
-                providerAccountName: existing.providerAccountName,
-                accounts: (existing.accounts ?? []).filter((account) => !isLegacyMockAccount(account)),
-              }
-      : defaults[provider];
-    return acc;
-  }, {} as Record<IntegrationProvider, IntegrationState>);
-};
-
-const normalizeAssignedAccounts = (
-  businessId: string,
-  assignedAccountsByBusiness: AssignedAccountsByBusiness,
-  byBusinessId: Record<string, Record<IntegrationProvider, IntegrationState>>
-): Partial<Record<IntegrationProvider, string[]>> => {
-  const existing = assignedAccountsByBusiness[businessId];
-  if (existing) return existing;
-
-  const integrations = byBusinessId[businessId];
-  if (!integrations) return {};
-
-  return PROVIDERS.reduce<Partial<Record<IntegrationProvider, string[]>>>((acc, provider) => {
-    acc[provider] = (integrations[provider]?.accounts ?? [])
-      .filter((account) => account.enabled)
-      .map((account) => account.id);
-    return acc;
-  }, {});
-};
 
 interface IntegrationsStore {
   byBusinessId: Record<string, Record<IntegrationProvider, IntegrationState>>;
@@ -254,7 +175,7 @@ export const useIntegrationsStore = create<IntegrationsStore>()(
                   accounts:
                     existing.accounts.length > 0
                       ? existing.accounts
-                      : DEFAULT_ACCOUNTS[provider].map((item) => ({ ...item })),
+                      : DEFAULT_INTEGRATION_ACCOUNTS[provider].map((item) => ({ ...item })),
                 },
               },
             },
@@ -325,16 +246,15 @@ export const useIntegrationsStore = create<IntegrationsStore>()(
             ...state.byBusinessId,
             [businessId]: {
               ...state.byBusinessId[businessId],
-              [provider]: {
-                ...state.byBusinessId[businessId][provider],
-                accounts: state.byBusinessId[businessId][provider].accounts.map((account) =>
-                  accountIds.includes(account.id)
-                    ? { ...account, enabled: true }
-                    : { ...account, enabled: false }
-                ),
+                [provider]: {
+                  ...state.byBusinessId[businessId][provider],
+                  accounts: updateEnabledAccounts(
+                    state.byBusinessId[businessId][provider].accounts,
+                    accountIds
+                  ),
+                },
               },
             },
-          },
           assignedAccountsByBusiness: {
             ...state.assignedAccountsByBusiness,
             [businessId]: {
@@ -355,11 +275,7 @@ export const useIntegrationsStore = create<IntegrationsStore>()(
                 ...state.byBusinessId[businessId],
                 [provider]: {
                   ...state.byBusinessId[businessId][provider],
-                  accounts: accounts.map((account) => ({
-                    id: account.id,
-                    name: account.name,
-                    enabled: assignedIds.includes(account.id),
-                  })),
+                  accounts: withAssignedAccountFlags(accounts, assignedIds),
                 },
               },
             },
@@ -396,7 +312,7 @@ export const useIntegrationsStore = create<IntegrationsStore>()(
         set((state) => ({
           byBusinessId: {
             ...state.byBusinessId,
-            [businessId]: PROVIDERS.reduce<Record<IntegrationProvider, IntegrationState>>(
+            [businessId]: INTEGRATION_PROVIDERS.reduce<Record<IntegrationProvider, IntegrationState>>(
               (acc, provider) => {
                 acc[provider] = {
                   ...state.byBusinessId[businessId][provider],
@@ -430,4 +346,4 @@ export const useIntegrationsStore = create<IntegrationsStore>()(
   )
 );
 
-export const INTEGRATION_PROVIDERS = PROVIDERS;
+export { INTEGRATION_PROVIDERS };

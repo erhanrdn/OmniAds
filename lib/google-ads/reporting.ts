@@ -79,11 +79,22 @@ import {
   analyzeSearchIntelligence,
 } from "@/lib/google-ads/tab-analysis";
 import { normalizeChannelType, normalizeStatus } from "@/lib/google-ads-gaql";
+import {
+  aggregateOverviewKpisFromCampaigns,
+  buildTrendMetrics,
+  COUNTRY_MAP,
+  dedupeStrings,
+  getComparisonWindow,
+  normalizeAssetPerformanceLabel,
+  pctDelta,
+  roundOrNull,
+  slugifyQueryCluster,
+  type RawRow,
+  type TrendMetrics,
+} from "@/lib/google-ads/reporting-support";
 
 type DateRange = "7" | "14" | "30" | "90" | "mtd" | "qtd" | "custom";
 type CompareMode = "none" | "previous_period" | "previous_year" | "custom";
-
-type RawRow = Record<string, unknown>;
 
 interface BaseReportParams {
   businessId: string;
@@ -143,13 +154,6 @@ interface OverviewReportResult {
 
 type AssetTypeSummary = Record<string, number>;
 
-interface TrendMetrics {
-  spendChange: number | null | undefined;
-  revenueChange: number | null | undefined;
-  conversionsChange: number | null | undefined;
-  roasChange: number | null | undefined;
-  ctrChange: number | null | undefined;
-}
 
 interface SearchThemeSignal {
   text: string;
@@ -208,189 +212,9 @@ function classifyFailureCategory(input: {
   return "unknown";
 }
 
-const COUNTRY_MAP: Record<number, string> = {
-  2840: "United States",
-  2826: "United Kingdom",
-  2276: "Germany",
-  2250: "France",
-  2380: "Italy",
-  2724: "Spain",
-  2036: "Australia",
-  2124: "Canada",
-  2392: "Japan",
-  2076: "Brazil",
-  2484: "Mexico",
-  2528: "Netherlands",
-  2756: "Switzerland",
-  2752: "Sweden",
-  2578: "Norway",
-  2208: "Denmark",
-  2246: "Finland",
-  2040: "Austria",
-  2056: "Belgium",
-  2620: "Portugal",
-  2616: "Poland",
-  2203: "Czech Republic",
-  2348: "Hungary",
-  2642: "Romania",
-  2792: "Turkey",
-  2356: "India",
-  2156: "China",
-  2410: "South Korea",
-  2702: "Singapore",
-  2764: "Thailand",
-};
-
-const STOP_WORDS = new Set([
-  "a",
-  "an",
-  "and",
-  "best",
-  "buy",
-  "for",
-  "from",
-  "in",
-  "near",
-  "of",
-  "on",
-  "review",
-  "reviews",
-  "sale",
-  "shop",
-  "the",
-  "to",
-  "vs",
-  "with",
-]);
-
-function parseIsoDate(date: string) {
-  return new Date(`${date}T00:00:00.000Z`);
-}
-
-function formatIsoDate(date: Date) {
-  return date.toISOString().split("T")[0];
-}
-
-function getPreviousDateWindow(startDate: string, endDate: string) {
-  const start = parseIsoDate(startDate);
-  const end = parseIsoDate(endDate);
-  const daySpan =
-    Math.max(1, Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1);
-
-  const previousEnd = new Date(start);
-  previousEnd.setUTCDate(previousEnd.getUTCDate() - 1);
-
-  const previousStart = new Date(previousEnd);
-  previousStart.setUTCDate(previousStart.getUTCDate() - (daySpan - 1));
-
-  return {
-    startDate: formatIsoDate(previousStart),
-    endDate: formatIsoDate(previousEnd),
-  };
-}
-
-function getPreviousYearWindow(startDate: string, endDate: string) {
-  const previousStart = parseIsoDate(startDate);
-  previousStart.setUTCFullYear(previousStart.getUTCFullYear() - 1);
-
-  const previousEnd = parseIsoDate(endDate);
-  previousEnd.setUTCFullYear(previousEnd.getUTCFullYear() - 1);
-
-  return {
-    startDate: formatIsoDate(previousStart),
-    endDate: formatIsoDate(previousEnd),
-  };
-}
-
-function getComparisonWindow(params: {
-  compareMode?: CompareMode | null;
-  startDate: string;
-  endDate: string;
-  compareStart?: string | null;
-  compareEnd?: string | null;
-}) {
-  const mode = params.compareMode ?? "previous_period";
-  if (mode === "none") return null;
-  if (mode === "custom") {
-    if (!params.compareStart || !params.compareEnd) return null;
-    return {
-      mode,
-      startDate: params.compareStart,
-      endDate: params.compareEnd,
-    };
-  }
-
-  return {
-    mode,
-    ...(mode === "previous_year"
-      ? getPreviousYearWindow(params.startDate, params.endDate)
-      : getPreviousDateWindow(params.startDate, params.endDate)),
-  };
-}
-
-function pctDelta(current: number, previous: number) {
-  if (previous === 0) {
-    if (current === 0) return 0;
-    return null;
-  }
-  return Number((((current - previous) / previous) * 100).toFixed(1));
-}
-
-function roundOrNull(value: number | null, digits = 2) {
-  if (value === null) return null;
-  return Number(value.toFixed(digits));
-}
-
-function buildTrendMetrics(
-  current: {
-    spend: number;
-    revenue: number;
-    conversions: number;
-    roas: number;
-    ctr: number;
-  },
-  previous?: Partial<typeof current>
-): TrendMetrics {
-  if (!previous) {
-    return {
-      spendChange: undefined,
-      revenueChange: undefined,
-      conversionsChange: undefined,
-      roasChange: undefined,
-      ctrChange: undefined,
-    };
-  }
-
-  return {
-    spendChange: pctDelta(current.spend, Number(previous?.spend ?? 0)),
-    revenueChange: pctDelta(current.revenue, Number(previous?.revenue ?? 0)),
-    conversionsChange: pctDelta(current.conversions, Number(previous?.conversions ?? 0)),
-    roasChange: pctDelta(current.roas, Number(previous?.roas ?? 0)),
-    ctrChange: pctDelta(current.ctr, Number(previous?.ctr ?? 0)),
-  };
-}
-
-function normalizeAssetPerformanceLabel(value: string | null): "top" | "average" | "underperforming" {
-  if (!value) return "average";
-  const lower = value.toLowerCase();
-  if (lower.includes("best")) return "top";
-  if (lower.includes("low")) return "underperforming";
-  return "average";
-}
-
 function getNumericShare(value: unknown) {
   const parsed = asNumber(value);
   return parsed === null ? 0 : parsed;
-}
-
-function slugifyQueryCluster(input: string) {
-  return input
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
-    .split(/\s+/)
-    .filter((token) => token.length >= 3 && !STOP_WORDS.has(token))
-    .slice(0, 3)
-    .join(" ");
 }
 
 function mergeFailures(meta: GoogleAdsReportMeta, execution: QueryExecution) {
@@ -717,10 +541,6 @@ function addDebugMeta(
   };
 }
 
-function dedupeStrings(values: string[]): string[] {
-  return Array.from(new Set(values.filter(Boolean)));
-}
-
 function mergeChildMeta(target: GoogleAdsReportMeta, child: GoogleAdsReportMeta) {
   target.partial = target.partial || child.partial;
   target.warnings.push(...child.warnings);
@@ -937,26 +757,6 @@ function aggregateOverviewKpis(customerRows: RawRow[]) {
         ? Number(((totals.engagements / totals.impressions) * 100).toFixed(2))
         : null,
   };
-}
-
-function aggregateOverviewKpisFromCampaigns(rows: Array<Record<string, unknown>>) {
-  return rows.reduce<{
-    spend: number;
-    revenue: number;
-    conversions: number;
-    clicks: number;
-    impressions: number;
-  }>(
-    (acc, row) => {
-      acc.spend += Number(row.spend ?? 0);
-      acc.revenue += Number(row.revenue ?? 0);
-      acc.conversions += Number(row.conversions ?? 0);
-      acc.clicks += Number(row.clicks ?? 0);
-      acc.impressions += Number(row.impressions ?? 0);
-      return acc;
-    },
-    { spend: 0, revenue: 0, conversions: 0, clicks: 0, impressions: 0 }
-  );
 }
 
 export async function getGoogleAdsOverviewReport(
