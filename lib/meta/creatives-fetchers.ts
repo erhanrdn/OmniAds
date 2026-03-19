@@ -13,6 +13,45 @@ import type {
   MetaInsightRecord,
 } from "@/lib/meta/creatives-types";
 
+/**
+ * Thin fetch wrapper for Meta Graph API calls.
+ * Returns parsed JSON as T on success, or null on network/non-ok responses.
+ * When `warnLabel` is provided, logs a console.warn on non-ok responses.
+ */
+async function metaGet<T>(
+  url: URL,
+  warnLabel?: string,
+  warnCtx?: Record<string, unknown>
+): Promise<T | null> {
+  try {
+    const res = await fetch(url.toString(), {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      if (warnLabel) {
+        const raw = await res.text().catch(() => "");
+        console.warn(`[meta-creatives] ${warnLabel} non-ok`, {
+          status: res.status,
+          raw: raw.slice(0, 300),
+          ...warnCtx,
+        });
+      }
+      return null;
+    }
+    return (await res.json().catch(() => null)) as T | null;
+  } catch (e: unknown) {
+    if (warnLabel) {
+      console.warn(`[meta-creatives] ${warnLabel} threw`, {
+        message: e instanceof Error ? e.message : String(e),
+        ...warnCtx,
+      });
+    }
+    return null;
+  }
+}
+
 export function hashForCache(value: string): string {
   return createHash("sha1").update(value).digest("hex").slice(0, 12);
 }
@@ -144,23 +183,7 @@ export async function fetchAccountInsights(
       url.searchParams.set("limit", "500");
       url.searchParams.set("access_token", accessToken);
 
-      const res = await fetch(url.toString(), {
-        method: "GET",
-        headers: { Accept: "application/json" },
-        cache: "no-store",
-      });
-
-      if (!res.ok) {
-        const raw = await res.text().catch(() => "");
-        console.warn("[meta-creatives] insights non-ok", {
-          accountId,
-          status: res.status,
-          raw: raw.slice(0, 300),
-        });
-        return [];
-      }
-
-      const payload = (await res.json().catch(() => null)) as { data?: MetaInsightRecord[] } | null;
+      const payload = await metaGet<{ data?: MetaInsightRecord[] }>(url, "insights", { accountId });
       if (process.env.NODE_ENV !== "production") {
         console.log("[meta-creatives] insights response", {
           account_id: accountId,
@@ -184,17 +207,7 @@ export async function fetchAccountMeta(
       url.searchParams.set("fields", "id,name,currency");
       url.searchParams.set("access_token", accessToken);
 
-      const res = await fetch(url.toString(), {
-        method: "GET",
-        headers: { Accept: "application/json" },
-        cache: "no-store",
-      });
-
-      if (!res.ok) {
-        return { id: accountId, name: null, currency: null };
-      }
-
-      const payload = (await res.json().catch(() => null)) as MetaAccountRecord | null;
+      const payload = await metaGet<MetaAccountRecord>(url);
       return {
         id: payload?.id ?? accountId,
         name: payload?.name ?? null,
@@ -221,56 +234,32 @@ export async function fetchAdImageUrlMap(
     url.searchParams.set("hashes", JSON.stringify(chunk));
     url.searchParams.set("access_token", accessToken);
 
-    try {
-      const res = await fetch(url.toString(), {
-        method: "GET",
-        headers: { Accept: "application/json" },
-        cache: "no-store",
-      });
+    const payload = await metaGet<{ data?: MetaAdImageRecord[]; images?: Record<string, MetaAdImageRecord> }>(
+      url,
+      "adimages",
+      { accountId, chunk: i, count: chunk.length }
+    );
+    if (!payload) continue;
 
-      if (!res.ok) {
-        const raw = await res.text().catch(() => "");
-        console.warn("[meta-creatives] adimages non-ok", {
-          accountId,
-          status: res.status,
-          chunk: i,
-          count: chunk.length,
-          raw: raw.slice(0, 300),
-        });
-        continue;
+    for (const record of payload.data ?? []) {
+      const hash = record?.hash?.trim();
+      const imageUrl = pickAdImageUrl(record);
+      if (hash && imageUrl) {
+        urlMap.set(hash, imageUrl);
+        urlMap.set(hash.toLowerCase(), imageUrl);
       }
+    }
 
-      const payload = (await res.json().catch(() => null)) as
-        | { data?: MetaAdImageRecord[]; images?: Record<string, MetaAdImageRecord> }
-        | null;
-
-      for (const record of payload?.data ?? []) {
-        const hash = record?.hash?.trim();
+    const imagesMap = payload.images;
+    if (imagesMap && typeof imagesMap === "object") {
+      for (const [hashKey, record] of Object.entries(imagesMap)) {
+        const hash = hashKey?.trim() || record?.hash?.trim();
         const imageUrl = pickAdImageUrl(record);
         if (hash && imageUrl) {
           urlMap.set(hash, imageUrl);
           urlMap.set(hash.toLowerCase(), imageUrl);
         }
       }
-
-      const imagesMap = payload?.images;
-      if (imagesMap && typeof imagesMap === "object") {
-        for (const [hashKey, record] of Object.entries(imagesMap)) {
-          const hash = hashKey?.trim() || record?.hash?.trim();
-          const imageUrl = pickAdImageUrl(record);
-          if (hash && imageUrl) {
-            urlMap.set(hash, imageUrl);
-            urlMap.set(hash.toLowerCase(), imageUrl);
-          }
-        }
-      }
-    } catch (error: unknown) {
-      console.warn("[meta-creatives] adimages threw", {
-        accountId,
-        chunk: i,
-        count: chunk.length,
-        message: error instanceof Error ? error.message : String(error),
-      });
     }
   }
 
@@ -285,7 +274,7 @@ export async function fetchAccountAdsMap(
   let nextUrl: string | null = null;
 
   do {
-    const url = nextUrl ? new URL(nextUrl) : new URL(`https://graph.facebook.com/v25.0/${accountId}/ads`);
+    const url: URL = nextUrl ? new URL(nextUrl) : new URL(`https://graph.facebook.com/v25.0/${accountId}/ads`);
     if (!nextUrl) {
       url.searchParams.set(
         "fields",
@@ -310,33 +299,20 @@ export async function fetchAccountAdsMap(
       url.searchParams.set("access_token", accessToken);
     }
 
-    const res = await fetch(url.toString(), {
-      method: "GET",
-      headers: { Accept: "application/json" },
-      cache: "no-store",
-    });
+    const payload: { data?: MetaAdRecord[]; paging?: { next?: string } } | null = await metaGet(
+      url,
+      "ads",
+      { accountId }
+    );
+    if (!payload) return map;
 
-    if (!res.ok) {
-      const raw = await res.text().catch(() => "");
-      console.warn("[meta-creatives] ads non-ok", {
-        accountId,
-        status: res.status,
-        raw: raw.slice(0, 300),
-      });
-      return map;
-    }
-
-    const payload = (await res.json().catch(() => null)) as
-      | { data?: MetaAdRecord[]; paging?: { next?: string } }
-      | null;
-
-    for (const ad of payload?.data ?? []) {
+    for (const ad of payload.data ?? []) {
       if (typeof ad.id === "string") {
         map.set(ad.id, ad);
       }
     }
 
-    nextUrl = payload?.paging?.next ?? null;
+    nextUrl = payload.paging?.next ?? null;
   } while (nextUrl);
 
   return map;
@@ -361,37 +337,18 @@ export async function fetchVideoSourceMap(
         url.searchParams.set("fields", "source,picture");
         url.searchParams.set("access_token", accessToken);
 
-        try {
-          const res = await fetch(url.toString(), {
-            method: "GET",
-            headers: { Accept: "application/json" },
-            cache: "no-store",
-          });
-          if (!res.ok) {
-            const raw = await res.text().catch(() => "");
-            console.warn("[meta-creatives] video details non-ok", {
-              status: res.status,
-              chunk: i,
-              count: idsChunk.length,
-              raw: raw.slice(0, 240),
-            });
-            continue;
-          }
+        const payload = await metaGet<Record<string, { source?: string | null; picture?: string | null }>>(
+          url,
+          "video details",
+          { chunk: i, count: idsChunk.length }
+        );
+        if (!payload || typeof payload !== "object") continue;
 
-          const payload = (await res.json().catch(() => null)) as Record<string, { source?: string | null; picture?: string | null }> | null;
-          if (!payload || typeof payload !== "object") continue;
-
-          for (const [videoId, video] of Object.entries(payload)) {
-            if (!video || typeof video !== "object") continue;
-            map.set(videoId, {
-              source: normalizeMediaUrl(video.source ?? null),
-              picture: normalizeMediaUrl(video.picture ?? null),
-            });
-          }
-        } catch (e: unknown) {
-          console.warn("[meta-creatives] video details threw", {
-            chunk: i,
-            message: e instanceof Error ? e.message : String(e),
+        for (const [videoId, video] of Object.entries(payload)) {
+          if (!video || typeof video !== "object") continue;
+          map.set(videoId, {
+            source: normalizeMediaUrl(video.source ?? null),
+            picture: normalizeMediaUrl(video.picture ?? null),
           });
         }
       }
@@ -467,20 +424,10 @@ export async function batchFetchAdsByIds(
             });
             if (isDeletedObjectsError && idsChunk.length > 1) {
               for (const adId of idsChunk) {
-                try {
-                  const oneRes = await fetch(buildUrl([adId]).toString(), {
-                    method: "GET",
-                    headers: { Accept: "application/json" },
-                    cache: "no-store",
-                  });
-                  if (!oneRes.ok) continue;
-                  const onePayload = (await oneRes.json().catch(() => null)) as Record<string, MetaAdRecord> | null;
-                  const oneAd = onePayload?.[adId];
-                  if (oneAd && typeof oneAd === "object") {
-                    map.set(adId, { ...oneAd, id: oneAd.id ?? adId });
-                  }
-                } catch {
-                  // ignore per-id retry failures
+                const onePayload = await metaGet<Record<string, MetaAdRecord>>(buildUrl([adId]));
+                const oneAd = onePayload?.[adId];
+                if (oneAd && typeof oneAd === "object") {
+                  map.set(adId, { ...oneAd, id: oneAd.id ?? adId });
                 }
               }
             }
@@ -529,35 +476,16 @@ export async function fetchCreativeDetailsMap(
         url.searchParams.set("thumbnail_height", "150");
         url.searchParams.set("access_token", accessToken);
 
-        try {
-          const res = await fetch(url.toString(), {
-            method: "GET",
-            headers: { Accept: "application/json" },
-            cache: "no-store",
-          });
-          if (!res.ok) {
-            const raw = await res.text().catch(() => "");
-            console.warn("[meta-creatives] creative details non-ok", {
-              status: res.status,
-              chunk: i,
-              count: idsChunk.length,
-              raw: raw.slice(0, 300),
-            });
-            continue;
-          }
+        const payload = await metaGet<Record<string, MetaAdRecord["creative"]>>(
+          url,
+          "creative details",
+          { chunk: i, count: idsChunk.length }
+        );
+        if (!payload || typeof payload !== "object") continue;
 
-          const payload = (await res.json().catch(() => null)) as Record<string, MetaAdRecord["creative"]> | null;
-          if (!payload || typeof payload !== "object") continue;
-
-          for (const [creativeId, creative] of Object.entries(payload)) {
-            if (!creative || typeof creative !== "object") continue;
-            map.set(creativeId, creative as NonNullable<MetaAdRecord["creative"]>);
-          }
-        } catch (e: unknown) {
-          console.warn("[meta-creatives] creative details threw", {
-            chunk: i,
-            message: e instanceof Error ? e.message : String(e),
-          });
+        for (const [creativeId, creative] of Object.entries(payload)) {
+          if (!creative || typeof creative !== "object") continue;
+          map.set(creativeId, creative as NonNullable<MetaAdRecord["creative"]>);
         }
       }
       return Array.from(map.entries());
@@ -712,20 +640,10 @@ export async function fetchAdCreativeMediaByAdIds(
         if (isDeletedObjectsError && idsChunk.length > 1) {
           // Retry per-id; skip deleted ads but keep valid ones.
           for (const adId of idsChunk) {
-            try {
-              const oneRes = await fetch(buildUrl([adId]).toString(), {
-                method: "GET",
-                headers: { Accept: "application/json" },
-                cache: "no-store",
-              });
-              if (!oneRes.ok) continue;
-              const onePayload = (await oneRes.json().catch(() => null)) as Record<string, MetaAdCreativeMediaOnlyRecord> | null;
-              const oneAd = onePayload?.[adId];
-              if (oneAd && typeof oneAd === "object") {
-                map.set(adId, { ...oneAd, id: oneAd.id ?? adId });
-              }
-            } catch {
-              // ignore per-id retry failures
+            const onePayload = await metaGet<Record<string, MetaAdCreativeMediaOnlyRecord>>(buildUrl([adId]));
+            const oneAd = onePayload?.[adId];
+            if (oneAd && typeof oneAd === "object") {
+              map.set(adId, { ...oneAd, id: oneAd.id ?? adId });
             }
           }
         }
@@ -769,19 +687,9 @@ export async function fetchAdCreativeBasicsByAdIds(
         url.searchParams.set("thumbnail_width", "150");
         url.searchParams.set("thumbnail_height", "150");
         url.searchParams.set("access_token", accessToken);
-        try {
-          const res = await fetch(url.toString(), {
-            method: "GET",
-            headers: { Accept: "application/json" },
-            cache: "no-store",
-          });
-          if (!res.ok) return null;
-          const payload = (await res.json().catch(() => null)) as MetaAdCreativeMediaOnlyRecord | null;
-          if (!payload || typeof payload !== "object") return null;
-          return { adId, payload: { ...payload, id: payload.id ?? adId } };
-        } catch {
-          return null;
-        }
+        const payload = await metaGet<MetaAdCreativeMediaOnlyRecord>(url);
+        if (!payload || typeof payload !== "object") return null;
+        return { adId, payload: { ...payload, id: payload.id ?? adId } };
       })
     );
     for (const item of results) {
@@ -816,19 +724,9 @@ export async function fetchAdCreativeMediaDirectByAdIds(
         url.searchParams.set("thumbnail_width", "150");
         url.searchParams.set("thumbnail_height", "150");
         url.searchParams.set("access_token", accessToken);
-        try {
-          const res = await fetch(url.toString(), {
-            method: "GET",
-            headers: { Accept: "application/json" },
-            cache: "no-store",
-          });
-          if (!res.ok) return null;
-          const payload = (await res.json().catch(() => null)) as MetaAdCreativeMediaOnlyRecord | null;
-          if (!payload || typeof payload !== "object") return null;
-          return { adId, payload: { ...payload, id: payload.id ?? adId } };
-        } catch {
-          return null;
-        }
+        const payload = await metaGet<MetaAdCreativeMediaOnlyRecord>(url);
+        if (!payload || typeof payload !== "object") return null;
+        return { adId, payload: { ...payload, id: payload.id ?? adId } };
       })
     );
     for (const item of results) {
@@ -855,25 +753,14 @@ export async function fetchCreativeDetailPreviewHtml(
     url.searchParams.set("ad_format", adFormat);
     url.searchParams.set("access_token", accessToken);
 
-    try {
-      const res = await fetch(url.toString(), {
-        method: "GET",
-        headers: { Accept: "application/json" },
-        cache: "no-store",
-      });
-      if (!res.ok) continue;
-
-      const payload = (await res.json().catch(() => null)) as MetaCreativePreviewHtmlResponse | null;
-      const body = payload?.data?.find((item) => typeof item?.body === "string" && item.body.trim().length > 0)?.body?.trim();
-      if (!body) continue;
-      return {
-        html: body,
-        adFormat,
-        source: "meta_creative_previews",
-      };
-    } catch {
-      // Keep trying alternate ad formats.
-    }
+    const payload = await metaGet<MetaCreativePreviewHtmlResponse>(url);
+    const body = payload?.data?.find((item) => typeof item?.body === "string" && item.body.trim().length > 0)?.body?.trim();
+    if (!body) continue;
+    return {
+      html: body,
+      adFormat,
+      source: "meta_creative_previews",
+    };
   }
 
   return null;
