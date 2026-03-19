@@ -25,8 +25,6 @@ import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
-import { useCurrencySymbol, getCurrencySymbol } from "@/hooks/use-currency";
 import {
   Sheet,
   SheetContent,
@@ -34,117 +32,25 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-
-type MainTab = "campaigns" | "adGroups" | "ads" | "insights";
-type InsightsTab = "recommendations" | "searchTerms" | "products" | "assets";
-type SortDirection = "asc" | "desc";
-type StatusFilter = "all" | "active" | "paused";
-type MetricColumn = keyof Pick<
-  MetricsRow,
-  "spend" | "purchases" | "revenue" | "roas" | "cpa" | "ctr" | "cpm"
->;
-type SortColumn = "name" | "status" | MetricColumn;
-type DateRange = "7" | "14" | "30" | "custom";
-type OptimizationScope =
-  | "account"
-  | "campaign"
-  | "assetGroup"
-  | "country"
-  | "productCategory"
-  | "productLevel";
-type RecommendationCategory = "optimization" | "growth";
-
-interface GrowthRecommendation extends GoogleRecommendation {
-  category: RecommendationCategory;
-}
-
-type DrawerPayload =
-  | { type: "recommendation"; data: GrowthRecommendation }
-  | { type: "searchTerm"; data: GoogleSearchTermRow }
-  | { type: "product"; data: GoogleProductRow }
-  | { type: "asset"; data: GoogleAssetRow }
-  | null;
-
-const DATE_RANGE = {
-  startDate: "2026-02-01",
-  endDate: "2026-03-01",
-};
-
-const TAB_TO_LEVEL: Record<Exclude<MainTab, "insights">, PlatformLevel> = {
-  campaigns: PlatformLevel.CAMPAIGN,
-  adGroups: PlatformLevel.AD_SET,
-  ads: PlatformLevel.AD,
-};
-
-const DEFAULT_COLUMNS: MetricColumn[] = [
-  "spend",
-  "purchases",
-  "revenue",
-  "roas",
-  "cpa",
-  "ctr",
-  "cpm",
-];
-
-const SCOPE_LABELS: Record<OptimizationScope, string> = {
-  account: "Account",
-  campaign: "Campaign",
-  assetGroup: "Asset group",
-  country: "Country",
-  productCategory: "Product category",
-  productLevel: "Product level",
-};
-
-const EXTRA_GROWTH_RECOMMENDATIONS: GoogleRecommendation[] = [
-  {
-    id: "rec-g-product-scale",
-    title: "Product scaling opportunity",
-    description: "Identify high-margin SKUs that can absorb incremental budget safely.",
-    impact: "High",
-    summary: [
-      "Three SKUs have strong margin and stable conversion velocity.",
-      "Current spend share on these winners is below optimal allocation.",
-      "Scaling these SKUs can increase profit with limited efficiency risk.",
-    ],
-    evidence: [
-      { label: "Scale-ready SKUs", value: "3" },
-      { label: "Margin benchmark", value: "42%" },
-      { label: "Projected profit lift", value: "$1,480" },
-    ],
-  },
-  {
-    id: "rec-g-geo-expand",
-    title: "Geo expansion opportunity",
-    description: "Expand budget into high-ROAS regions with under-served impression share.",
-    impact: "Med",
-    summary: [
-      "Two regions show strong conversion value with constrained spend.",
-      "Search demand is growing while CPC remains below account average.",
-      "Geo expansion can improve incremental scale without harming efficiency.",
-    ],
-    evidence: [
-      { label: "Candidate regions", value: "2" },
-      { label: "Avg regional ROAS", value: "4.06" },
-      { label: "Headroom estimate", value: "$3,200" },
-    ],
-  },
-  {
-    id: "rec-g-creative-op",
-    title: "Creative opportunity",
-    description: "Deploy new headline/visual angles in underperforming asset groups.",
-    impact: "Med",
-    summary: [
-      "Current creative set repeats generic claims with weak differentiation.",
-      "Top-converting search language is not reflected in ad messaging.",
-      "New angle testing can lift CTR and improve downstream conversion rate.",
-    ],
-    evidence: [
-      { label: "Low-performing assets", value: "8" },
-      { label: "CTR improvement potential", value: "+0.38%" },
-      { label: "Expected ROAS lift", value: "+0.22" },
-    ],
-  },
-];
+import { cn } from "@/lib/utils";
+import { getCurrencySymbol, useCurrencySymbol } from "@/hooks/use-currency";
+import {
+  DATE_RANGE,
+  DEFAULT_COLUMNS,
+  type DrawerPayload,
+  EXTRA_GROWTH_RECOMMENDATIONS,
+  type GrowthRecommendation,
+  type InsightsTab,
+  type MainTab,
+  type MetricColumn,
+  type OptimizationScope,
+  SCOPE_LABELS,
+  type SortColumn,
+  type SortDirection,
+  type StatusFilter,
+  TAB_TO_LEVEL,
+  type DateRange,
+} from "@/app/(dashboard)/platforms/google/google-page-support";
 
 export default function GooglePage() {
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);

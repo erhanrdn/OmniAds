@@ -1,13 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isDemoBusiness } from "@/lib/business-mode.server";
-import { getIntegration } from "@/lib/integrations";
 import { requireBusinessAccess } from "@/lib/access";
 import { getDemoMetaCreatives } from "@/lib/demo-business";
 import type { FormatFilter, GroupBy, SortKey } from "@/lib/meta/creatives-types";
 export type { MetaCreativeApiRow } from "@/lib/meta/creatives-types";
 import { toISODate, nDaysAgo } from "@/lib/meta/creatives-row-mappers";
-import { fetchAssignedAccountIds, fetchCreativeDetailPreviewHtml } from "@/lib/meta/creatives-fetchers";
-import { buildCreativesResponse } from "@/lib/meta/creatives-service";
+import { getMetaCreativesApiPayload } from "@/lib/meta/creatives-api";
 
 export async function GET(request: NextRequest) {
   const requestStartedAt = Date.now();
@@ -55,71 +53,31 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(getDemoMetaCreatives());
   }
 
-  const integration = await getIntegration(businessId, "meta").catch(() => null);
-  if (!integration || integration.status !== "connected") {
-    return NextResponse.json({ status: "no_connection", rows: [] });
-  }
-  if (!integration.access_token) {
-    return NextResponse.json({ status: "no_access_token", rows: [] });
-  }
-  const accessToken = integration.access_token;
-
-  if (detailPreviewCreativeId) {
-    const preview = await fetchCreativeDetailPreviewHtml(detailPreviewCreativeId, accessToken);
-    return NextResponse.json({
-      status: "ok",
-      detail_preview: preview
-        ? {
-            creative_id: detailPreviewCreativeId,
-            mode: "html",
-            source: preview.source,
-            ad_format: preview.adFormat,
-            html: preview.html,
-          }
-        : {
-            creative_id: detailPreviewCreativeId,
-            mode: "unavailable",
-            source: null,
-            ad_format: null,
-            html: null,
-          },
-    });
-  }
-
-  const assignedAccountIds = await fetchAssignedAccountIds(businessId);
-  if (assignedAccountIds.length === 0) {
-    return NextResponse.json({ status: "no_accounts_assigned", rows: [] });
-  }
-
-  const result = await buildCreativesResponse(
-    {
-      businessId,
-      assignedAccountIds,
-      accessToken,
-      mediaMode,
-      enableFullMediaHydration,
-      groupBy,
-      format,
-      sort,
-      start,
-      end,
-      debugPreview,
-      debugThumbnail,
-      debugPerf,
-      snapshotBypass,
-      snapshotWarm,
-      enableCreativeBasicsFallback,
-      enableCreativeDetails,
-      enableThumbnailBackfill,
-      enableCardThumbnailBackfill,
-      enableImageHashLookup,
-      enableMediaRecovery,
-      enableMediaCache,
-      enableDeepAudit,
-      perAccountSampleLimit,
-      requestStartedAt,
-    },
-    request
-  );
+  const result = await getMetaCreativesApiPayload({
+    request,
+    requestStartedAt,
+    businessId,
+    detailPreviewCreativeId,
+    mediaMode,
+    groupBy,
+    format,
+    sort,
+    start,
+    end,
+    debugPreview,
+    debugThumbnail,
+    debugPerf,
+    snapshotBypass,
+    snapshotWarm,
+    enableCreativeBasicsFallback,
+    enableCreativeDetails,
+    enableThumbnailBackfill,
+    enableCardThumbnailBackfill,
+    enableImageHashLookup,
+    enableMediaRecovery,
+    enableMediaCache,
+    enableDeepAudit,
+    perAccountSampleLimit,
+  });
   return NextResponse.json(result);
 }

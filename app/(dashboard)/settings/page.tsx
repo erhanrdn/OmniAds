@@ -22,39 +22,16 @@ import {
   fetchProviderAccountSnapshot,
   warmProviderAccountSnapshot,
 } from "@/lib/provider-account-client";
-
-type WorkspaceRole = "admin" | "collaborator" | "guest";
-
-type MemberRow = {
-  membership_id: string;
-  user_id: string;
-  role: WorkspaceRole;
-  status: string;
-  joined_at: string;
-  name: string;
-  email: string;
-};
-
-type InviteRow = {
-  id: string;
-  email: string;
-  role: WorkspaceRole;
-  status: string;
-  created_at: string;
-  expires_at: string;
-  inviteUrl?: string;
-};
-
-const TIMEZONE_OPTIONS = [
-  "UTC",
-  "America/New_York",
-  "America/Los_Angeles",
-  "Europe/London",
-  "Europe/Istanbul",
-  "Asia/Dubai",
-];
-
-const CURRENCY_OPTIONS = ["USD", "EUR", "GBP", "TRY"];
+import {
+  CURRENCY_OPTIONS,
+  fetchSettingsAccount,
+  fetchWorkspaceRoleByBusiness,
+  fetchWorkspaceTeam,
+  type InviteRow,
+  type MemberRow,
+  TIMEZONE_OPTIONS,
+  type WorkspaceRole,
+} from "@/app/(dashboard)/settings/settings-support";
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -131,35 +108,19 @@ export default function SettingsPage() {
   }, [toast]);
 
   const loadAccount = useCallback(async () => {
-    const response = await fetch("/api/settings/account", { cache: "no-store" });
-    const payload = (await response.json().catch(() => null)) as
-      | {
-          user?: {
-            name?: string;
-            email?: string;
-            createdAt?: string;
-          };
-          message?: string;
-        }
-      | null;
-    if (!response.ok || !payload?.user) {
-      setAccountError(payload?.message ?? "Could not load account settings.");
-      return;
+    try {
+      const user = await fetchSettingsAccount();
+      setAccountError(null);
+      setAccountName(user.name ?? "");
+      setAccountEmail(user.email ?? "");
+      setAccountCreatedAt(user.createdAt ?? null);
+    } catch (error: unknown) {
+      setAccountError(error instanceof Error ? error.message : "Could not load account settings.");
     }
-    setAccountName(payload.user.name ?? "");
-    setAccountEmail(payload.user.email ?? "");
-    setAccountCreatedAt(payload.user.createdAt ?? null);
   }, []);
 
   const loadWorkspaceRole = useCallback(async () => {
-    const response = await fetch("/api/businesses", { cache: "no-store" });
-    const payload = (await response.json().catch(() => null)) as
-      | {
-          businesses?: Array<{ id: string; role?: WorkspaceRole }>;
-        }
-      | null;
-    const currentRole =
-      payload?.businesses?.find((business) => business.id === selectedBusinessId)?.role ?? "guest";
+    const currentRole = await fetchWorkspaceRoleByBusiness(selectedBusinessId);
     setWorkspaceRole(currentRole);
   }, [selectedBusinessId]);
 
@@ -168,26 +129,9 @@ export default function SettingsPage() {
     setLoadingTeam(true);
     setTeamError(null);
     try {
-      const [membersResponse, invitesResponse] = await Promise.all([
-        fetch(`/api/team/members?businessId=${encodeURIComponent(selectedBusinessId)}`, { cache: "no-store" }),
-        fetch(`/api/team/invites?businessId=${encodeURIComponent(selectedBusinessId)}`, { cache: "no-store" }),
-      ]);
-      const membersPayload = (await membersResponse.json().catch(() => null)) as
-        | { members?: MemberRow[]; message?: string }
-        | null;
-      const invitesPayload = (await invitesResponse.json().catch(() => null)) as
-        | { invites?: InviteRow[]; message?: string }
-        | null;
-
-      if (!membersResponse.ok) {
-        throw new Error(membersPayload?.message ?? "Could not load workspace members.");
-      }
-      if (!invitesResponse.ok) {
-        throw new Error(invitesPayload?.message ?? "Could not load workspace invites.");
-      }
-
-      setMembers(membersPayload?.members ?? []);
-      setInvites(invitesPayload?.invites ?? []);
+      const team = await fetchWorkspaceTeam(selectedBusinessId);
+      setMembers(team.members);
+      setInvites(team.invites);
     } catch (error: unknown) {
       setTeamError(error instanceof Error ? error.message : "Could not load workspace team.");
     } finally {

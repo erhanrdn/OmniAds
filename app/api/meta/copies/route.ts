@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isDemoBusiness } from "@/lib/business-mode.server";
+import { requireBusinessAccess } from "@/lib/access";
 import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
 import { getDemoMetaCopies } from "@/lib/demo-business";
+import { getMetaCreativesApiPayload } from "@/lib/meta/creatives-api";
 
 type CopyGroupBy = "copy" | "adName" | "campaign" | "adSet";
 type CopySortKey = "roas" | "spend" | "ctrAll" | "purchaseValue";
@@ -334,39 +336,37 @@ export async function GET(request: NextRequest) {
       { status: 400 }
     );
   }
+  const access = await requireBusinessAccess({ request, businessId, minRole: "guest" });
+  if ("error" in access) return access.error;
   if (await isDemoBusiness(businessId)) {
     return NextResponse.json(getDemoMetaCopies());
   }
 
-  const creativeUrl = new URL("/api/meta/creatives", request.nextUrl.origin);
-  creativeUrl.searchParams.set("businessId", businessId);
-  if (start) creativeUrl.searchParams.set("start", start);
-  if (end) creativeUrl.searchParams.set("end", end);
-  creativeUrl.searchParams.set("groupBy", "adName");
-  creativeUrl.searchParams.set("format", format || "all");
-  creativeUrl.searchParams.set("sort", "spend");
-
-  const creativeResponse = await fetch(creativeUrl.toString(), {
-    headers: {
-      Accept: "application/json",
-      cookie: request.headers.get("cookie") ?? "",
-    },
-    cache: "no-store",
-  });
-
-  const creativePayload = (await creativeResponse.json().catch(() => null)) as
-    | { status?: string; rows?: MetaCreativeApiRow[]; message?: string }
-    | null;
-
-  if (!creativeResponse.ok) {
-    return NextResponse.json(
-      {
-        error: "copies_projection_failed",
-        message: creativePayload?.message ?? "Could not build copy rows.",
-      },
-      { status: creativeResponse.status }
-    );
-  }
+  const creativePayload = (await getMetaCreativesApiPayload({
+    request,
+    requestStartedAt: Date.now(),
+    businessId,
+    mediaMode: "full",
+    groupBy: "adName",
+    format: (format as "all" | "image" | "video") || "all",
+    sort: "spend",
+    start,
+    end,
+    debugPreview: false,
+    debugThumbnail: false,
+    debugPerf: false,
+    snapshotBypass: false,
+    snapshotWarm: false,
+    enableCreativeBasicsFallback: true,
+    enableCreativeDetails: true,
+    enableThumbnailBackfill: true,
+    enableCardThumbnailBackfill: true,
+    enableImageHashLookup: false,
+    enableMediaRecovery: false,
+    enableMediaCache: true,
+    enableDeepAudit: false,
+    perAccountSampleLimit: 5,
+  })) as { status?: string; rows?: MetaCreativeApiRow[]; message?: string } | null;
 
   const sourceRows = Array.isArray(creativePayload?.rows) ? creativePayload.rows : [];
   const mapped = sourceRows.map(mapCreativeRowToCopyRow);

@@ -188,6 +188,8 @@ function mapApiRowToCopyRow(row: MetaCopyApiRow): CopyMotionRow {
     landingPageViews: 0,
     addToCart,
     initiateCheckout: 0,
+    leads: 0,
+    messages: 0,
     thumbstop: row.thumbstop ?? 0,
     clickToPurchase: row.click_to_purchase ?? (linkClicks > 0 ? (purchases / linkClicks) * 100 : 0),
     seeMoreRate: row.see_more_rate ?? clamp(row.ctr_all * 1.5, 0, 100),

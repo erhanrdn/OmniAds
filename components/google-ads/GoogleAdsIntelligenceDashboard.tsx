@@ -885,8 +885,11 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                     <p className="mt-2 text-[11px] text-muted-foreground">No high-risk search term in this filter.</p>
                   ) : (
                     <div className="mt-2 space-y-1.5">
-                      {searchTermNegativeRows.map((row) => (
-                        <div key={row.key ?? `${row.searchTerm}-${row.campaign ?? ""}`} className="rounded-md border border-border/70 bg-muted/20 p-2">
+                      {searchTermNegativeRows.map((row, index) => (
+                        <div
+                          key={`${row.key ?? `${row.searchTerm}-${row.campaign ?? ""}`}-${index}`}
+                          className="rounded-md border border-border/70 bg-muted/20 p-2"
+                        >
                           <div className="flex items-start justify-between gap-2">
                             <p className="line-clamp-1 text-[11px] font-medium">{row.searchTerm}</p>
                             <div className="flex items-center gap-1">
@@ -911,8 +914,11 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                     <p className="mt-2 text-[11px] text-muted-foreground">No strong search term opportunity in this filter.</p>
                   ) : (
                     <div className="mt-2 space-y-1.5">
-                      {searchTermPositiveRows.map((row) => (
-                        <div key={row.key ?? `${row.searchTerm}-${row.campaign ?? ""}`} className="rounded-md border border-border/70 bg-muted/20 p-2">
+                      {searchTermPositiveRows.map((row, index) => (
+                        <div
+                          key={`${row.key ?? `${row.searchTerm}-${row.campaign ?? ""}`}-${index}`}
+                          className="rounded-md border border-border/70 bg-muted/20 p-2"
+                        >
                           <div className="flex items-start justify-between gap-2">
                             <p className="line-clamp-1 text-[11px] font-medium">{row.searchTerm}</p>
                             <div className="flex items-center gap-1">

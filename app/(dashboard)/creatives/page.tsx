@@ -20,7 +20,6 @@ import {
   type MetaCreativeRow,
 } from "@/components/creatives/metricConfig";
 import { CreativesTableSection } from "@/components/creatives/CreativesTableSection";
-import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
 import {
   applyCreativeFilters,
   formatCreativeDateLabel,
@@ -32,7 +31,20 @@ import {
   resolveCreativeDateRange,
 } from "@/components/creatives/CreativesTopSection";
 import { usePersistentCreativeDateRange } from "@/hooks/use-persistent-date-range";
-import type { ShareMetricKey, SharePayload, SharedCreative } from "@/components/creatives/shareCreativeTypes";
+import type { ShareMetricKey, SharePayload } from "@/components/creatives/shareCreativeTypes";
+import {
+  CreativesTableShell,
+  fetchMetaCreatives,
+  hasRenderablePreview,
+  mapApiRowToUiRow,
+  MetaCreativesResponse,
+  PLATFORM_LABELS,
+  PreviewStripState,
+  SHARE_METRIC_IDS,
+  shouldPollForPreviewReadiness,
+  toCsv,
+  toSharedCreative,
+} from "@/app/(dashboard)/creatives/page-support";
 
 const CreativeDetailExperience = dynamic(
   () => import("@/components/creatives/CreativeDetailExperience").then((mod) => mod.CreativeDetailExperience),
@@ -42,310 +54,6 @@ const CreativeAdBreakdownDrawer = dynamic(
   () => import("@/components/creatives/CreativeAdBreakdownDrawer").then((mod) => mod.CreativeAdBreakdownDrawer),
   { ssr: false, loading: () => null }
 );
-
-interface MetaCreativesResponse {
-  status?: string;
-  message?: string;
-  rows: MetaCreativeApiRow[];
-  media_mode?: "metadata" | "full";
-  media_hydrated?: boolean;
-  snapshot_level?: "metadata" | "full";
-  snapshot_source?: "persisted" | "live" | "refresh";
-  freshness_state?: "fresh" | "stale" | "expired";
-  is_refreshing?: boolean;
-  preview_coverage?: {
-    totalCreatives: number;
-    previewReadyCount: number;
-    previewMissingCount: number;
-    previewCoverage: number;
-  };
-}
-
-type PreviewStripState = "data_loading" | "media_hydrating" | "ready" | "missing";
-
-function hasRenderablePreview(row: MetaCreativeRow): boolean {
-  return Boolean(
-    row.cardPreviewUrl ??
-      row.cachedThumbnailUrl ??
-      row.tableThumbnailUrl ??
-      row.previewUrl ??
-      row.imageUrl ??
-      row.thumbnailUrl ??
-      row.preview?.image_url ??
-      row.preview?.poster_url ??
-      row.preview?.video_url
-  );
-}
-
-function shouldPollForPreviewReadiness(payload: MetaCreativesResponse | undefined): boolean {
-  if (!payload || !Array.isArray(payload.rows) || payload.rows.length === 0) return false;
-  const previewCoverage = payload.preview_coverage?.previewCoverage ?? 0;
-  if (previewCoverage > 0) return false;
-  if (payload.media_hydrated) return false;
-  if (payload.is_refreshing) return true;
-  if (payload.snapshot_source === "live") return true;
-  return payload.freshness_state === "stale";
-}
-
-const PLATFORM_LABELS: Record<string, string> = {
-  meta: "Meta",
-  google: "Google",
-  tiktok: "TikTok",
-  pinterest: "Pinterest",
-  snapchat: "Snapchat",
-};
-
-const SHARE_METRIC_IDS = new Set<ShareMetricKey>(["spend", "purchaseValue", "roas", "cpa", "ctrAll", "purchases"]);
-
-function toCsv(rows: MetaCreativeRow[]): string {
-  const headers = [
-    "Creative / Ad Name",
-    "Launch date",
-    "Tags",
-    "Spend",
-    "Purchase value",
-    "ROAS",
-    "Cost per purchase",
-    "Cost per link click",
-    "CPM",
-    "CPC (all)",
-    "Average order value",
-    "Click to add-to-cart ratio",
-    "Add-to-cart to purchase ratio",
-    "Purchases",
-    "First frame retention",
-    "Thumbstop ratio",
-    "Click through rate (outbound)",
-    "Click to purchase ratio",
-    "Click through rate (all)",
-    "25% video plays (rate)",
-    "50% video plays (rate)",
-    "75% video plays (rate)",
-    "100% video plays (rate)",
-    "Hold rate",
-    "Hook score",
-    "Watch score",
-    "Click score",
-    "Convert score",
-    "% purchase value",
-  ];
-
-  const totalPurchaseValue = rows.reduce((sum, row) => sum + row.purchaseValue, 0);
-  const escape = (value: string | number) => `"${String(value).replace(/"/g, '""')}"`;
-  const isVideo = (row: MetaCreativeRow) =>
-    row.format === "video" || row.thumbstop > 0 || row.video25 > 0 || row.video50 > 0 || row.video75 > 0 || row.video100 > 0;
-
-  const body = rows.map((row) => {
-    const videoApplicable = isVideo(row);
-    const aov = row.purchases > 0 ? row.purchaseValue / row.purchases : 0;
-    const purchaseValueShare = totalPurchaseValue > 0 ? (row.purchaseValue / totalPurchaseValue) * 100 : 0;
-    const values = [
-      row.name,
-      row.launchDate,
-      (row.tags ?? []).join(" | "),
-      row.spend.toFixed(2),
-      row.purchaseValue.toFixed(2),
-      row.roas.toFixed(2),
-      row.cpa.toFixed(2),
-      row.cpcLink.toFixed(2),
-      row.cpm.toFixed(2),
-      row.cpcLink.toFixed(2),
-      aov.toFixed(2),
-      row.clickToPurchase.toFixed(2),
-      row.atcToPurchaseRatio.toFixed(2),
-      row.purchases,
-      videoApplicable ? row.thumbstop.toFixed(2) : "",
-      videoApplicable ? row.thumbstop.toFixed(2) : "",
-      row.ctrAll.toFixed(2),
-      row.clickToPurchase.toFixed(2),
-      row.ctrAll.toFixed(2),
-      videoApplicable ? row.video25.toFixed(2) : "",
-      videoApplicable ? row.video50.toFixed(2) : "",
-      videoApplicable ? row.video75.toFixed(2) : "",
-      videoApplicable ? row.video100.toFixed(2) : "",
-      videoApplicable ? row.video100.toFixed(2) : "",
-      row.thumbstop.toFixed(0),
-      videoApplicable ? row.video50.toFixed(0) : "",
-      (row.ctrAll * 10).toFixed(0),
-      (row.roas * 10).toFixed(0),
-      purchaseValueShare.toFixed(2),
-    ];
-    return values.map(escape).join(",");
-  });
-
-  return [headers.map(escape).join(","), ...body].join("\n");
-}
-
-function toSharedCreative(row: MetaCreativeRow): SharedCreative {
-  return {
-    id: row.id,
-    name: row.name,
-    currency: row.currency ?? null,
-    format: row.format,
-    previewState: row.previewState,
-    isCatalog: row.isCatalog,
-    previewUrl: row.previewUrl ?? null,
-    imageUrl: row.imageUrl ?? null,
-    thumbnailUrl: row.thumbnailUrl ?? null,
-    preview: row.preview,
-    launchDate: row.launchDate,
-    tags: row.tags ?? [],
-    spend: row.spend,
-    purchaseValue: row.purchaseValue,
-    roas: row.roas,
-    cpa: row.cpa,
-    cpcLink: row.cpcLink,
-    cpm: row.cpm,
-    ctrAll: row.ctrAll,
-    purchases: row.purchases,
-    impressions: row.impressions,
-    linkClicks: row.linkClicks,
-    addToCart: row.addToCart,
-    thumbstop: row.thumbstop,
-    clickToPurchase: row.clickToPurchase,
-    video25: row.video25,
-    video50: row.video50,
-    video75: row.video75,
-    video100: row.video100,
-    atcToPurchaseRatio: row.atcToPurchaseRatio,
-  };
-}
-
-function hasMessage(payload: unknown): payload is { message: string } {
-  if (!payload || typeof payload !== "object") return false;
-  return "message" in payload && typeof payload.message === "string";
-}
-
-async function fetchMetaCreatives(params: {
-  businessId: string;
-  start: string;
-  end: string;
-  groupBy: "adName" | "creative" | "adSet";
-  format: "all" | "image" | "video";
-  sort: "roas" | "spend" | "ctrAll" | "purchaseValue";
-  mediaMode?: "metadata" | "full";
-}): Promise<MetaCreativesResponse> {
-  const query = new URLSearchParams({
-    businessId: params.businessId,
-    start: params.start,
-    end: params.end,
-    groupBy: params.groupBy,
-    format: params.format,
-    sort: params.sort,
-    mediaMode: params.mediaMode ?? "full",
-    snapshotBypass: "1",
-  });
-
-  const response = await fetch(`/api/meta/creatives?${query.toString()}`, {
-    headers: { Accept: "application/json" },
-    cache: "no-store",
-  });
-
-  const payload: unknown = await response.json().catch(() => null);
-  if (!response.ok) {
-    const message = hasMessage(payload)
-      ? payload.message
-      : `Could not load creatives (${response.status}).`;
-    throw new Error(message);
-  }
-
-  if (!payload || typeof payload !== "object" || !Array.isArray((payload as MetaCreativesResponse).rows)) {
-    throw new Error("Invalid creatives response received from backend.");
-  }
-
-  return payload as MetaCreativesResponse;
-}
-
-function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
-  const fallbackCreativeTypeLabel =
-    row.format === "catalog" ? "Feed (Catalog ads)" : row.format === "video" ? "Video" : "Feed";
-  const fallbackCreativeType = row.format === "catalog" ? "feed_catalog" : row.format === "video" ? "video" : "feed";
-  const safeNumber = (value: number | null | undefined) => (typeof value === "number" && Number.isFinite(value) ? value : 0);
-
-  return {
-    id: row.id,
-    creativeId: row.creative_id,
-    objectStoryId: row.object_story_id ?? null,
-    effectiveObjectStoryId: row.effective_object_story_id ?? null,
-    postId: row.post_id ?? null,
-    name: row.name,
-    associatedAdsCount: row.associated_ads_count,
-    accountId: row.account_id ?? null,
-    accountName: row.account_name ?? null,
-    campaignId: row.campaign_id ?? null,
-    campaignName: row.campaign_name ?? null,
-    adSetId: row.adset_id ?? null,
-    adSetName: row.adset_name ?? null,
-    currency: row.currency ?? null,
-    format: row.format,
-    creativeType: row.creative_type ?? fallbackCreativeType,
-    creativeTypeLabel: row.creative_type_label ?? fallbackCreativeTypeLabel,
-    thumbnailUrl: row.thumbnail_url,
-    previewUrl: row.preview_url,
-    imageUrl: row.image_url,
-    tableThumbnailUrl: row.table_thumbnail_url ?? row.thumbnail_url ?? null,
-    cardPreviewUrl: row.card_preview_url ?? row.image_url ?? row.thumbnail_url ?? row.preview_url ?? null,
-    isCatalog: row.is_catalog,
-    previewState: row.preview_state,
-    preview: row.preview,
-    launchDate: row.launch_date,
-    tags: row.tags ?? [],
-    aiTags: row.ai_tags ?? {},
-    spend: safeNumber(row.spend),
-    purchaseValue: safeNumber(row.purchase_value),
-    roas: safeNumber(row.roas),
-    cpa: safeNumber(row.cpa),
-    cpcLink: safeNumber(row.cpc_link),
-    cpm: safeNumber(row.cpm),
-    ctrAll: safeNumber(row.ctr_all),
-    purchases: safeNumber(row.purchases),
-    impressions: safeNumber(row.impressions),
-    linkClicks: safeNumber(row.link_clicks),
-    landingPageViews: safeNumber(row.landing_page_views),
-    addToCart: safeNumber(row.add_to_cart),
-    initiateCheckout: safeNumber(row.initiate_checkout),
-    leads: safeNumber(row.leads),
-    messages: safeNumber(row.messages),
-    thumbstop: safeNumber(row.thumbstop),
-    clickToPurchase: safeNumber(row.click_to_atc),
-    seeMoreRate: 0,
-    video25: safeNumber(row.video25),
-    video50: safeNumber(row.video50),
-    video75: safeNumber(row.video75),
-    video100: safeNumber(row.video100),
-    atcToPurchaseRatio: safeNumber(row.atc_to_purchase),
-    cachedThumbnailUrl: row.cached_thumbnail_url ?? null,
-    previewStatus: row.preview_status ?? (row.preview_url || row.thumbnail_url || row.image_url ? "ready" : "missing"),
-    previewOrigin: row.preview_origin ?? null,
-  };
-}
-
-function CreativesTableShell() {
-  return (
-    <div className="rounded-xl border bg-white">
-      <div className="border-b px-4 py-3">
-        <div className="h-4 w-48 animate-pulse rounded bg-slate-200" />
-      </div>
-      <div className="divide-y">
-        {Array.from({ length: 8 }).map((_, index) => (
-          <div key={index} className="flex items-center gap-3 px-4 py-3">
-            <div className="h-4 w-4 animate-pulse rounded bg-slate-200" />
-            <div className="h-10 w-10 animate-pulse rounded-md bg-slate-200" />
-            <div className="min-w-0 flex-1 space-y-2">
-              <div className="h-4 w-56 animate-pulse rounded bg-slate-200" />
-              <div className="h-3 w-32 animate-pulse rounded bg-slate-100" />
-            </div>
-            <div className="hidden gap-3 md:flex">
-              <div className="h-4 w-16 animate-pulse rounded bg-slate-100" />
-              <div className="h-4 w-14 animate-pulse rounded bg-slate-100" />
-              <div className="h-4 w-12 animate-pulse rounded bg-slate-100" />
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 export default function CreativesPage() {
   const router = useRouter();
