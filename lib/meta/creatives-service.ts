@@ -43,7 +43,6 @@ import {
   fetchStoryCopyMap,
 } from "@/lib/meta/creatives-copy";
 import {
-  fetchAssignedAccountIds,
   fetchAccountInsights,
   fetchAccountMeta,
   fetchAdImageUrlMap,
@@ -102,10 +101,18 @@ export interface CreativesQueryParams {
   requestStartedAt: number;
 }
 
+export type CreativesApiResponse = {
+  status: string;
+  rows: MetaCreativeApiRow[];
+  media_mode: "metadata" | "full";
+  media_hydrated: boolean;
+  [key: string]: unknown;
+};
+
 export async function buildCreativesResponse(
   query: CreativesQueryParams,
   request: NextRequest
-) {
+): Promise<CreativesApiResponse> {
   const {
     businessId,
     assignedAccountIds,

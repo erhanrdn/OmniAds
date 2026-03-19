@@ -27,8 +27,10 @@ function makeRow(overrides: Partial<RawCreativeRow> = {}): RawCreativeRow {
     adset_id: "adset_1",
     adset_name: "Adset",
     name: "Creative Name",
-    format: "feed",
+    format: "image",
     creative_type: "feed",
+    creative_type_label: "Feed",
+    tags: [],
     launch_date: "2025-01-01",
     spend: 100,
     impressions: 10000,
@@ -47,7 +49,10 @@ function makeRow(overrides: Partial<RawCreativeRow> = {}): RawCreativeRow {
     video100: 5,
     ctr_all: 2,
     cpm: 10,
-    cpc: 0.5,
+    cpc_link: 0.5,
+    cpa: 20,
+    click_to_atc: 0.1,
+    atc_to_purchase: 0.25,
     roas: 5,
     thumbnail_url: null,
     image_url: null,
@@ -58,7 +63,6 @@ function makeRow(overrides: Partial<RawCreativeRow> = {}): RawCreativeRow {
     preview_state: "unavailable",
     preview: {
       render_mode: "unavailable",
-      html: null,
       image_url: null,
       video_url: null,
       poster_url: null,
@@ -74,7 +78,6 @@ function makeRow(overrides: Partial<RawCreativeRow> = {}): RawCreativeRow {
     copy_debug_sources: [],
     unresolved_reason: null,
     ai_tags: {},
-    debug: null,
     ...overrides,
   };
 }
@@ -146,9 +149,9 @@ describe("groupRows", () => {
 
   it("groups rows by creative name+format for groupBy=creative", () => {
     const rows = [
-      makeRow({ id: "a1", creative_id: "cre_1", name: "Creative A", format: "feed", spend: 100 }),
-      makeRow({ id: "a2", creative_id: "cre_1", name: "Creative A", format: "feed", spend: 200 }),
-      makeRow({ id: "b1", creative_id: "cre_2", name: "Creative B", format: "feed", spend: 50 }),
+      makeRow({ id: "a1", creative_id: "cre_1", name: "Creative A", format: "image", spend: 100 }),
+      makeRow({ id: "a2", creative_id: "cre_1", name: "Creative A", format: "image", spend: 200 }),
+      makeRow({ id: "b1", creative_id: "cre_2", name: "Creative B", format: "image", spend: 50 }),
     ];
     const result = groupRows(rows, "creative", new Map());
     expect(result).toHaveLength(2);
@@ -160,8 +163,8 @@ describe("groupRows", () => {
 
   it("sums impressions and purchases across grouped rows", () => {
     const rows = [
-      makeRow({ id: "a1", name: "Ad X", format: "feed", impressions: 5000, purchases: 3, spend: 100 }),
-      makeRow({ id: "a2", name: "Ad X", format: "feed", impressions: 3000, purchases: 2, spend: 80 }),
+      makeRow({ id: "a1", name: "Ad X", format: "image", impressions: 5000, purchases: 3, spend: 100 }),
+      makeRow({ id: "a2", name: "Ad X", format: "image", impressions: 3000, purchases: 2, spend: 80 }),
     ];
     const result = groupRows(rows, "creative", new Map());
     expect(result).toHaveLength(1);
@@ -175,7 +178,7 @@ describe("groupRows", () => {
       makeRow({ id: "a2", adset_id: "adset_A", name: "Ad 2", spend: 150 }),
       makeRow({ id: "b1", adset_id: "adset_B", name: "Ad 3", spend: 200 }),
     ];
-    const result = groupRows(rows, "adset", new Map());
+    const result = groupRows(rows, "adSet", new Map());
     expect(result).toHaveLength(2);
 
     const adsetA = result.find((r) => r.adset_id === "adset_A");
