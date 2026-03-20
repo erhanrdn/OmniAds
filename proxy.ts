@@ -20,6 +20,7 @@ const PUBLIC_API_PREFIXES = [
   "/api/auth/signup",
   "/api/auth/logout",
   "/api/auth/me",
+  "/api/auth/demo-login",
   "/api/invite",
   "/api/creatives/share",
   "/api/webhooks/shopify",
