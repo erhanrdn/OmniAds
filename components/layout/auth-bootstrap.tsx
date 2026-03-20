@@ -111,7 +111,7 @@ export function AuthBootstrap() {
     return () => {
       mounted = false;
       if (!controller.signal.aborted) {
-        controller.abort(new DOMException("Auth bootstrap cleanup", "AbortError"));
+        controller.abort();
       }
     };
   }, [hasHydrated, pathname, setAuthBootstrapStatus]);
