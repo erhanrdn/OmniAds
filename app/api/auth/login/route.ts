@@ -4,6 +4,7 @@ import { getUserByEmail } from "@/lib/account-store";
 import { listUserBusinesses } from "@/lib/access";
 import { logServerAuthEvent } from "@/lib/auth-diagnostics";
 import { isReviewerEmail, scopeBusinessesForUser } from "@/lib/reviewer-access";
+import { getDb } from "@/lib/db";
 
 interface LoginBody {
   email?: string;
@@ -48,6 +49,15 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Check if account is suspended
+  if ((user as any).suspended_at) {
+    logServerAuthEvent("login_rejected_suspended", { email, userId: user.id });
+    return NextResponse.json(
+      { error: "account_suspended", message: "This account has been suspended. Please contact support." },
+      { status: 403 },
+    );
+  }
+
   const ok = await verifyPassword(password, user.password_hash);
   if (!ok) {
     logServerAuthEvent("login_rejected_bad_password", {
@@ -83,6 +93,10 @@ export async function POST(request: NextRequest) {
     userId: user.id,
     activeBusinessId: firstActiveBusiness,
   });
+  // Record last login time (fire-and-forget)
+  { const sql = getDb(); sql`UPDATE users SET last_login_at = now() WHERE id = ${user.id}`.catch(() => {}); }
+
+
   logServerAuthEvent("login_succeeded", {
     userId: user.id,
     email: user.email,

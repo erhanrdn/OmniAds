@@ -4,13 +4,13 @@ import { getIntegration } from "@/lib/integrations";
 import { getCurrentPlan } from "@/lib/shopify/billing/checkSubscription";
 import { createSubscription } from "@/lib/shopify/billing/createSubscription";
 import { PRICING_PLANS, type PlanId } from "@/lib/pricing/plans";
+import { getDb } from "@/lib/db";
 
 /**
  * GET /api/billing?businessId=...
  *
- * Returns the current subscription plan for the Shopify integration linked to
- * the given workspace. If no Shopify integration is connected, returns a
- * starter plan record with no store attached.
+ * Returns the current subscription plan for the authenticated user.
+ * Priority: user.plan_override > shopify subscription (by user_id or shop_id) > starter
  */
 export async function GET(request: NextRequest) {
   const auth = await requireAuthedRequest(request);
@@ -24,8 +24,51 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const integration = await getIntegration(businessId, "shopify");
+  const sql = getDb();
+  const userId = auth.session.user.id;
 
+  // 1. Check user-level plan_override (set by admin)
+  const userRows = (await sql`
+    SELECT plan_override FROM users WHERE id = ${userId} LIMIT 1
+  `) as Array<{ plan_override: string | null }>;
+  const userPlanOverride = userRows[0]?.plan_override as PlanId | null;
+  if (userPlanOverride) {
+    const plan = PRICING_PLANS[userPlanOverride];
+    return NextResponse.json({
+      connected: false,
+      planId: userPlanOverride,
+      planName: plan?.name ?? userPlanOverride,
+      monthlyPrice: plan?.monthlyPrice ?? 0,
+      status: "active",
+      shopId: null,
+      storeName: null,
+      source: "user_override",
+    });
+  }
+
+  // 2. Check subscription linked to this user
+  const subByUser = (await sql`
+    SELECT plan_id, status, shop_id FROM shopify_subscriptions
+    WHERE user_id = ${userId} AND status = 'active'
+    ORDER BY updated_at DESC LIMIT 1
+  `) as Array<{ plan_id: string; status: string; shop_id: string }>;
+  if (subByUser[0]) {
+    const planId = subByUser[0].plan_id as PlanId;
+    const plan = PRICING_PLANS[planId];
+    return NextResponse.json({
+      connected: true,
+      planId,
+      planName: plan?.name ?? planId,
+      monthlyPrice: plan?.monthlyPrice ?? 0,
+      status: subByUser[0].status,
+      shopId: subByUser[0].shop_id,
+      storeName: null,
+      source: "user_subscription",
+    });
+  }
+
+  // 3. Fall back to Shopify integration on the workspace
+  const integration = await getIntegration(businessId, "shopify");
   if (!integration || integration.status !== "connected" || !integration.provider_account_id) {
     return NextResponse.json({
       connected: false,
@@ -35,6 +78,7 @@ export async function GET(request: NextRequest) {
       status: "active",
       shopId: null,
       storeName: null,
+      source: "default",
     });
   }
 
@@ -50,6 +94,7 @@ export async function GET(request: NextRequest) {
     status: "active",
     shopId,
     storeName: integration.provider_account_name ?? shopId,
+    source: "shopify",
   });
 }
 
@@ -57,8 +102,7 @@ export async function GET(request: NextRequest) {
  * POST /api/billing
  * Body: { businessId: string; planId: PlanId }
  *
- * Initiates a plan change. For the Starter (free) plan this is instant.
- * For paid plans, returns a Shopify confirmationUrl to redirect the user to.
+ * Initiates a plan change via Shopify billing.
  */
 export async function POST(request: NextRequest) {
   const auth = await requireAuthedRequest(request);

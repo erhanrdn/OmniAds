@@ -5,7 +5,7 @@ let migrationsPromise: Promise<void> | null = null;
 let migrationsCompleted = false;
 let loggedMigrationSkip = false;
 
-const DEFAULT_MIGRATION_TIMEOUT_MS = 15_000;
+const DEFAULT_MIGRATION_TIMEOUT_MS = 60_000;
 
 function runtimeMigrationsEnabled() {
   if (process.env.NODE_ENV !== "production") return true;
@@ -16,48 +16,29 @@ function getMigrationTimeoutMs() {
   const raw = process.env.MIGRATION_TIMEOUT_MS?.trim();
   if (!raw) return DEFAULT_MIGRATION_TIMEOUT_MS;
   const parsed = Number(raw);
-  return Number.isFinite(parsed) && parsed > 0
-    ? parsed
-    : DEFAULT_MIGRATION_TIMEOUT_MS;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_MIGRATION_TIMEOUT_MS;
 }
 
-function withMigrationTimeout<T>(
-  promise: Promise<T>,
-  timeoutMs: number,
-): Promise<T> {
+function withMigrationTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   return Promise.race([
     promise,
     new Promise<T>((_, reject) => {
       const timer = setTimeout(() => {
-        reject(
-          new Error(`Database migrations timed out after ${timeoutMs}ms.`),
-        );
+        reject(new Error(`Database migrations timed out after ${timeoutMs}ms.`));
       }, timeoutMs);
-      promise
-        .finally(() => clearTimeout(timer))
-        .catch(() => clearTimeout(timer));
+      promise.finally(() => clearTimeout(timer)).catch(() => clearTimeout(timer));
     }),
   ]);
 }
 
-/**
- * Run all migrations in order.
- * Each migration is idempotent (IF NOT EXISTS).
- */
-export async function runMigrations(options?: {
-  force?: boolean;
-  reason?: string;
-}) {
+export async function runMigrations(options?: { force?: boolean; reason?: string }) {
   const force = options?.force ?? false;
   const reason = options?.reason ?? "unspecified";
 
   if (!force && !runtimeMigrationsEnabled()) {
     if (!loggedMigrationSkip) {
       loggedMigrationSkip = true;
-      logStartupEvent("migrations_skipped_runtime_disabled", {
-        reason,
-        nodeEnv: process.env.NODE_ENV,
-      });
+      logStartupEvent("migrations_skipped_runtime_disabled", { reason, nodeEnv: process.env.NODE_ENV });
     }
     return;
   }
@@ -75,477 +56,337 @@ export async function runMigrations(options?: {
     (async () => {
       const sql = getDb();
 
-      // ── auth core tables ───────────────────────────────────────────────
-      await sql`
-    CREATE TABLE IF NOT EXISTS users (
-      id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      name           TEXT NOT NULL,
-      email          TEXT NOT NULL UNIQUE,
-      password_hash  TEXT NOT NULL,
-      avatar         TEXT,
-      created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `;
+      // ── PHASE 1: Tables with no FK dependencies (run in parallel) ──────────
+      await Promise.all([
+        sql`CREATE TABLE IF NOT EXISTS users (
+          id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          name          TEXT NOT NULL,
+          email         TEXT NOT NULL UNIQUE,
+          password_hash TEXT NOT NULL,
+          avatar        TEXT,
+          created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`,
+        sql`CREATE TABLE IF NOT EXISTS integrations (
+          id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id           TEXT NOT NULL,
+          provider              TEXT NOT NULL,
+          status                TEXT NOT NULL DEFAULT 'disconnected',
+          provider_account_id   TEXT,
+          provider_account_name TEXT,
+          access_token          TEXT,
+          refresh_token         TEXT,
+          token_expires_at      TIMESTAMPTZ,
+          scopes                TEXT,
+          error_message         TEXT,
+          connected_at          TIMESTAMPTZ,
+          disconnected_at       TIMESTAMPTZ,
+          created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`,
+        sql`CREATE TABLE IF NOT EXISTS provider_account_assignments (
+          id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id TEXT NOT NULL,
+          provider    TEXT NOT NULL,
+          account_ids TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+          created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`,
+        sql`CREATE TABLE IF NOT EXISTS provider_account_snapshots (
+          id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id      TEXT NOT NULL,
+          provider         TEXT NOT NULL,
+          accounts_payload JSONB NOT NULL DEFAULT '[]'::jsonb,
+          fetched_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+          refresh_failed   BOOLEAN NOT NULL DEFAULT FALSE,
+          last_error       TEXT,
+          created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`,
+        sql`CREATE TABLE IF NOT EXISTS provider_reporting_snapshots (
+          id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id    TEXT NOT NULL,
+          provider       TEXT NOT NULL,
+          report_type    TEXT NOT NULL,
+          date_range_key TEXT NOT NULL,
+          payload        JSONB NOT NULL DEFAULT '{}'::jsonb,
+          created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`,
+        sql`CREATE TABLE IF NOT EXISTS creative_share_snapshots (
+          id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          token      TEXT NOT NULL UNIQUE,
+          payload    JSONB NOT NULL,
+          expires_at TIMESTAMPTZ NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`,
+        sql`CREATE TABLE IF NOT EXISTS custom_reports (
+          id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id TEXT NOT NULL,
+          name        TEXT NOT NULL,
+          description TEXT,
+          template_id TEXT,
+          definition  JSONB NOT NULL DEFAULT '{}'::jsonb,
+          created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`,
+        sql`CREATE TABLE IF NOT EXISTS custom_report_share_snapshots (
+          id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          token      TEXT NOT NULL UNIQUE,
+          report_id  TEXT,
+          payload    JSONB NOT NULL,
+          expires_at TIMESTAMPTZ NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`,
+        sql`CREATE TABLE IF NOT EXISTS creative_media_cache (
+          id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          creative_id     TEXT NOT NULL,
+          business_id     TEXT NOT NULL,
+          provider        TEXT NOT NULL DEFAULT 'meta',
+          source_url      TEXT NOT NULL,
+          storage_key     TEXT UNIQUE,
+          content_type    TEXT,
+          file_size_bytes INTEGER,
+          status          TEXT NOT NULL DEFAULT 'pending'
+                          CHECK (status IN ('pending', 'downloading', 'cached', 'failed')),
+          error_message   TEXT,
+          retry_count     INTEGER NOT NULL DEFAULT 0,
+          cached_at       TIMESTAMPTZ,
+          expires_at      TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '7 days'),
+          created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`,
+        sql`CREATE TABLE IF NOT EXISTS meta_creatives_snapshots (
+          id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          snapshot_key           TEXT NOT NULL UNIQUE,
+          business_id            TEXT NOT NULL,
+          assigned_accounts_hash TEXT NOT NULL,
+          start_date             DATE NOT NULL,
+          end_date               DATE NOT NULL,
+          group_by               TEXT NOT NULL,
+          format                 TEXT NOT NULL,
+          sort                   TEXT NOT NULL,
+          payload                JSONB NOT NULL,
+          snapshot_level         TEXT NOT NULL CHECK (snapshot_level IN ('metadata', 'full')),
+          row_count              INTEGER NOT NULL DEFAULT 0,
+          preview_ready_count    INTEGER NOT NULL DEFAULT 0,
+          last_synced_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+          refresh_started_at     TIMESTAMPTZ,
+          created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at             TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`,
+        sql`CREATE TABLE IF NOT EXISTS shopify_subscriptions (
+          id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          shop_id       TEXT NOT NULL UNIQUE,
+          plan_id       TEXT NOT NULL,
+          status        TEXT NOT NULL,
+          billing_cycle TEXT NOT NULL,
+          created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`,
+        sql`CREATE TABLE IF NOT EXISTS ai_daily_insights (
+          id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id     TEXT NOT NULL,
+          insight_date    DATE NOT NULL,
+          summary         TEXT NOT NULL DEFAULT '',
+          risks           JSONB NOT NULL DEFAULT '[]'::jsonb,
+          opportunities   JSONB NOT NULL DEFAULT '[]'::jsonb,
+          recommendations JSONB NOT NULL DEFAULT '[]'::jsonb,
+          raw_response    JSONB,
+          status          TEXT NOT NULL DEFAULT 'success' CHECK (status IN ('success', 'failed')),
+          error_message   TEXT,
+          created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`,
+        sql`CREATE TABLE IF NOT EXISTS ai_creative_decisions_cache (
+          id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id    TEXT NOT NULL,
+          analysis_key   TEXT NOT NULL,
+          currency       TEXT NOT NULL DEFAULT 'USD',
+          creative_count INTEGER NOT NULL DEFAULT 0,
+          decisions      JSONB NOT NULL DEFAULT '[]'::jsonb,
+          source         TEXT NOT NULL DEFAULT 'ai' CHECK (source IN ('ai', 'fallback')),
+          warning        TEXT,
+          created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`,
+        sql`CREATE TABLE IF NOT EXISTS seo_ai_monthly_analyses (
+          id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id    TEXT NOT NULL,
+          analysis_month DATE NOT NULL,
+          period_start   DATE NOT NULL,
+          period_end     DATE NOT NULL,
+          analysis       JSONB,
+          raw_response   JSONB,
+          status         TEXT NOT NULL DEFAULT 'success' CHECK (status IN ('success', 'failed')),
+          error_message  TEXT,
+          created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`,
+      ]);
 
-      await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id TEXT`;
-      await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS facebook_id TEXT`;
-      await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_provider TEXT NOT NULL DEFAULT 'password'`;
-      await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_id ON users (google_id) WHERE google_id IS NOT NULL`;
-      await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_facebook_id ON users (facebook_id) WHERE facebook_id IS NOT NULL`;
+      // ── PHASE 2: businesses (deps: users) + alter phase-1 tables ──────────
+      await Promise.all([
+        sql`CREATE TABLE IF NOT EXISTS businesses (
+          id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          name             TEXT NOT NULL,
+          owner_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          timezone         TEXT NOT NULL DEFAULT 'UTC',
+          currency         TEXT NOT NULL DEFAULT 'USD',
+          is_demo_business BOOLEAN NOT NULL DEFAULT FALSE,
+          industry         TEXT,
+          platform         TEXT,
+          metadata         JSONB NOT NULL DEFAULT '{}'::jsonb,
+          created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`,
+        sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id TEXT`,
+        sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS facebook_id TEXT`,
+        sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_provider TEXT NOT NULL DEFAULT 'password'`,
+        sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_superadmin BOOLEAN NOT NULL DEFAULT false`,
+        sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS suspended_at TIMESTAMPTZ`,
+        sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ`,
+        sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS plan_override TEXT`,
+        sql`ALTER TABLE integrations ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb`,
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_integrations_biz_provider ON integrations (business_id, provider)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_integrations_business_id ON integrations (business_id)`.catch(() => {}),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_account_assignments_biz_provider ON provider_account_assignments (business_id, provider)`.catch(() => {}),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_account_snapshots_biz_provider ON provider_account_snapshots (business_id, provider)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_provider_account_snapshots_business ON provider_account_snapshots (business_id)`.catch(() => {}),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_reporting_snapshots_lookup ON provider_reporting_snapshots (business_id, provider, report_type, date_range_key)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_provider_reporting_snapshots_business ON provider_reporting_snapshots (business_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_creative_share_snapshots_token ON creative_share_snapshots (token)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_custom_reports_business ON custom_reports (business_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_custom_report_share_snapshots_token ON custom_report_share_snapshots (token)`.catch(() => {}),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_creative_media_cache_creative_biz ON creative_media_cache (creative_id, business_id, provider)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_creative_media_cache_status ON creative_media_cache (status)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_creative_media_cache_storage_key ON creative_media_cache (storage_key)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_creative_media_cache_expires ON creative_media_cache (expires_at)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_creatives_snapshots_business ON meta_creatives_snapshots (business_id, last_synced_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_creatives_snapshots_refresh ON meta_creatives_snapshots (refresh_started_at)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_subscriptions_shop_id ON shopify_subscriptions (shop_id)`.catch(() => {}),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_daily_insights_biz_date ON ai_daily_insights (business_id, insight_date)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_ai_daily_insights_business ON ai_daily_insights (business_id, insight_date DESC)`.catch(() => {}),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_creative_decisions_cache_business_analysis ON ai_creative_decisions_cache (business_id, analysis_key)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_ai_creative_decisions_cache_business_updated ON ai_creative_decisions_cache (business_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_seo_ai_monthly_analyses_business_month ON seo_ai_monthly_analyses (business_id, analysis_month)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_seo_ai_monthly_analyses_business_updated ON seo_ai_monthly_analyses (business_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_id ON users (google_id) WHERE google_id IS NOT NULL`.catch(() => {}),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_facebook_id ON users (facebook_id) WHERE facebook_id IS NOT NULL`.catch(() => {}),
+      ]);
 
-      await sql`
-    CREATE TABLE IF NOT EXISTS businesses (
-      id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      name        TEXT NOT NULL,
-      owner_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      timezone    TEXT NOT NULL DEFAULT 'UTC',
-      currency    TEXT NOT NULL DEFAULT 'USD',
-      is_demo_business BOOLEAN NOT NULL DEFAULT FALSE,
-      industry    TEXT,
-      platform    TEXT,
-      metadata    JSONB NOT NULL DEFAULT '{}'::jsonb,
-      created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `;
-      await sql`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS is_demo_business BOOLEAN NOT NULL DEFAULT FALSE`;
-      await sql`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS industry TEXT`;
-      await sql`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS platform TEXT`;
-      await sql`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb`;
+      // ── PHASE 3: Tables that depend on users+businesses ───────────────────
+      await Promise.all([
+        sql`CREATE TABLE IF NOT EXISTS memberships (
+          id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          role        TEXT NOT NULL CHECK (role IN ('admin', 'collaborator', 'guest')),
+          status      TEXT NOT NULL CHECK (status IN ('active', 'invited', 'pending')),
+          joined_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+          created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (user_id, business_id)
+        )`,
+        sql`CREATE TABLE IF NOT EXISTS invites (
+          id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          email              TEXT NOT NULL,
+          business_id        UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          role               TEXT NOT NULL CHECK (role IN ('admin', 'collaborator', 'guest')),
+          token              TEXT NOT NULL UNIQUE,
+          status             TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'revoked', 'expired')),
+          invited_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+          expires_at         TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '7 days'),
+          accepted_at        TIMESTAMPTZ,
+          created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`,
+        sql`CREATE TABLE IF NOT EXISTS sessions (
+          id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          user_id            UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          token_hash         TEXT NOT NULL UNIQUE,
+          active_business_id UUID REFERENCES businesses(id) ON DELETE SET NULL,
+          expires_at         TIMESTAMPTZ NOT NULL,
+          created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`,
+        sql`CREATE TABLE IF NOT EXISTS business_cost_models (
+          id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id        UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          cogs_percent       DOUBLE PRECISION NOT NULL DEFAULT 0,
+          shipping_percent   DOUBLE PRECISION NOT NULL DEFAULT 0,
+          fee_percent        DOUBLE PRECISION NOT NULL DEFAULT 0,
+          fixed_monthly_cost DOUBLE PRECISION NOT NULL DEFAULT 0,
+          fixed_cost         DOUBLE PRECISION NOT NULL DEFAULT 0,
+          created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id)
+        )`,
+        sql`CREATE TABLE IF NOT EXISTS admin_audit_logs (
+          id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          admin_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          action      TEXT NOT NULL,
+          target_type TEXT NOT NULL,
+          target_id   TEXT,
+          meta        JSONB NOT NULL DEFAULT '{}'::jsonb,
+          created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`,
+        sql`CREATE TABLE IF NOT EXISTS discount_codes (
+          id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          code        TEXT NOT NULL UNIQUE,
+          description TEXT,
+          type        TEXT NOT NULL CHECK (type IN ('percent', 'fixed')),
+          value       NUMERIC(10,2) NOT NULL,
+          max_uses    INTEGER,
+          uses        INTEGER NOT NULL DEFAULT 0,
+          applies_to  TEXT[] NOT NULL DEFAULT '{}',
+          valid_from  TIMESTAMPTZ,
+          valid_until TIMESTAMPTZ,
+          is_active   BOOLEAN NOT NULL DEFAULT true,
+          created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+          created_by  UUID REFERENCES users(id) ON DELETE SET NULL
+        )`,
+        sql`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS is_demo_business BOOLEAN NOT NULL DEFAULT FALSE`,
+        sql`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS industry TEXT`,
+        sql`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS platform TEXT`,
+        sql`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb`,
+        sql`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS plan_override TEXT`,
+        sql`ALTER TABLE shopify_subscriptions ADD COLUMN IF NOT EXISTS business_id UUID REFERENCES businesses(id) ON DELETE SET NULL`,
+        sql`ALTER TABLE shopify_subscriptions ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES users(id) ON DELETE SET NULL`,
+      ]);
 
-      await sql`
-    CREATE TABLE IF NOT EXISTS memberships (
-      id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      business_id  UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
-      role         TEXT NOT NULL CHECK (role IN ('admin', 'collaborator', 'guest')),
-      status       TEXT NOT NULL CHECK (status IN ('active', 'invited', 'pending')),
-      joined_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-      created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-      UNIQUE (user_id, business_id)
-    )
-  `;
+      // ── PHASE 4: Tables with deeper deps + all remaining indexes ──────────
+      await Promise.all([
+        sql`CREATE TABLE IF NOT EXISTS discount_redemptions (
+          id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          code_id     UUID NOT NULL REFERENCES discount_codes(id) ON DELETE CASCADE,
+          user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          business_id UUID REFERENCES businesses(id) ON DELETE SET NULL,
+          plan_id     TEXT NOT NULL,
+          amount_off  NUMERIC(10,2) NOT NULL,
+          redeemed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`,
+        sql`ALTER TABLE invites ADD COLUMN IF NOT EXISTS invited_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL`,
+        sql`ALTER TABLE invites ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '7 days')`,
+        sql`ALTER TABLE invites ADD COLUMN IF NOT EXISTS accepted_at TIMESTAMPTZ`,
+        sql`ALTER TABLE business_cost_models ADD COLUMN IF NOT EXISTS fixed_monthly_cost DOUBLE PRECISION NOT NULL DEFAULT 0`,
+        sql`ALTER TABLE business_cost_models ADD COLUMN IF NOT EXISTS fixed_cost DOUBLE PRECISION NOT NULL DEFAULT 0`,
+        sql`CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions (user_id)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_invites_business_id ON invites (business_id)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_invites_email ON invites (email)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_business_cost_models_business_id ON business_cost_models (business_id)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_admin_audit_logs_admin ON admin_audit_logs (admin_id, created_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_admin_audit_logs_created ON admin_audit_logs (created_at DESC)`.catch(() => {}),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_discount_codes_code ON discount_codes (lower(code))`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_subscriptions_business_id ON shopify_subscriptions (business_id)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_subscriptions_user_id ON shopify_subscriptions (user_id)`.catch(() => {}),
+      ]);
 
-      await sql`
-    CREATE TABLE IF NOT EXISTS invites (
-      id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      email        TEXT NOT NULL,
-      business_id  UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
-      role         TEXT NOT NULL CHECK (role IN ('admin', 'collaborator', 'guest')),
-      token        TEXT NOT NULL UNIQUE,
-      status       TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'revoked', 'expired')),
-      invited_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-      expires_at   TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '7 days'),
-      accepted_at  TIMESTAMPTZ,
-      created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `;
+      // Phase 4b: discount_redemptions indexes (after table created above)
+      await Promise.all([
+        sql`CREATE INDEX IF NOT EXISTS idx_discount_redemptions_code ON discount_redemptions (code_id)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_discount_redemptions_user ON discount_redemptions (user_id)`.catch(() => {}),
+        sql`UPDATE business_cost_models SET fixed_monthly_cost = fixed_cost WHERE fixed_monthly_cost = 0 AND fixed_cost <> 0`,
+        sql`UPDATE business_cost_models SET fixed_cost = fixed_monthly_cost WHERE fixed_cost = 0 AND fixed_monthly_cost <> 0`,
+      ]);
 
-      // keep old databases compatible
-      await sql`ALTER TABLE invites ADD COLUMN IF NOT EXISTS invited_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL`;
-      await sql`ALTER TABLE invites ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '7 days')`;
-      await sql`ALTER TABLE invites ADD COLUMN IF NOT EXISTS accepted_at TIMESTAMPTZ`;
+      // ── Seed superadmin ───────────────────────────────────────────────────
+      await sql`UPDATE users SET is_superadmin = true WHERE lower(email) = 'emrahbilaloglu@gmail.com'`;
 
-      await sql`
-    CREATE INDEX IF NOT EXISTS idx_invites_business_id
-    ON invites (business_id)
-  `;
-
-      await sql`
-    CREATE INDEX IF NOT EXISTS idx_invites_email
-    ON invites (email)
-  `;
-
-      await sql`
-    CREATE TABLE IF NOT EXISTS sessions (
-      id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      user_id             UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      token_hash          TEXT NOT NULL UNIQUE,
-      active_business_id  UUID REFERENCES businesses(id) ON DELETE SET NULL,
-      expires_at          TIMESTAMPTZ NOT NULL,
-      created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `;
-
-      await sql`
-    CREATE INDEX IF NOT EXISTS idx_sessions_user_id
-    ON sessions (user_id)
-  `;
-
-      // ── integrations table ────────────────────────────────────────────
-      await sql`
-    CREATE TABLE IF NOT EXISTS integrations (
-      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      business_id     TEXT        NOT NULL,
-      provider        TEXT        NOT NULL,
-      status          TEXT        NOT NULL DEFAULT 'disconnected',
-
-      -- provider identity
-      provider_account_id   TEXT,
-      provider_account_name TEXT,
-
-      -- tokens (encrypted at rest by Neon)
-      access_token    TEXT,
-      refresh_token   TEXT,
-      token_expires_at TIMESTAMPTZ,
-      scopes          TEXT,
-
-      -- error tracking
-      error_message   TEXT,
-
-      -- timestamps
-      connected_at    TIMESTAMPTZ,
-      disconnected_at TIMESTAMPTZ,
-      created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `;
-
-      // unique: one integration per provider per business
-      await sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_integrations_biz_provider
-    ON integrations (business_id, provider)
-  `;
-
-      // extensible metadata for provider-specific data (e.g. GA4 property info)
-      await sql`ALTER TABLE integrations ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb`;
-
-      // fast lookup by business
-      await sql`
-    CREATE INDEX IF NOT EXISTS idx_integrations_business_id
-    ON integrations (business_id)
-  `;
-
-      // ── provider account assignments table ───────────────────────────
-      await sql`
-    CREATE TABLE IF NOT EXISTS provider_account_assignments (
-      id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      business_id  TEXT NOT NULL,
-      provider     TEXT NOT NULL,
-      account_ids  TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
-      created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `;
-
-      await sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_account_assignments_biz_provider
-    ON provider_account_assignments (business_id, provider)
-  `;
-
-      // ── provider account snapshots table ────────────────────────────
-      await sql`
-    CREATE TABLE IF NOT EXISTS provider_account_snapshots (
-      id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      business_id      TEXT NOT NULL,
-      provider         TEXT NOT NULL,
-      accounts_payload JSONB NOT NULL DEFAULT '[]'::jsonb,
-      fetched_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-      refresh_failed   BOOLEAN NOT NULL DEFAULT FALSE,
-      last_error       TEXT,
-      created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `;
-
-      await sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_account_snapshots_biz_provider
-    ON provider_account_snapshots (business_id, provider)
-  `;
-
-      await sql`
-    CREATE INDEX IF NOT EXISTS idx_provider_account_snapshots_business
-    ON provider_account_snapshots (business_id)
-  `;
-
-      // ── provider reporting snapshots table ─────────────────────────
-      await sql`
-    CREATE TABLE IF NOT EXISTS provider_reporting_snapshots (
-      id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      business_id    TEXT NOT NULL,
-      provider       TEXT NOT NULL,
-      report_type    TEXT NOT NULL,
-      date_range_key TEXT NOT NULL,
-      payload        JSONB NOT NULL DEFAULT '{}'::jsonb,
-      created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `;
-
-      await sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_reporting_snapshots_lookup
-    ON provider_reporting_snapshots (business_id, provider, report_type, date_range_key)
-  `;
-
-      await sql`
-    CREATE INDEX IF NOT EXISTS idx_provider_reporting_snapshots_business
-    ON provider_reporting_snapshots (business_id, updated_at DESC)
-  `;
-
-      // ── creative share snapshots table ──────────────────────────────
-      await sql`
-    CREATE TABLE IF NOT EXISTS creative_share_snapshots (
-      id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      token       TEXT NOT NULL UNIQUE,
-      payload     JSONB NOT NULL,
-      expires_at  TIMESTAMPTZ NOT NULL,
-      created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `;
-
-      await sql`
-    CREATE INDEX IF NOT EXISTS idx_creative_share_snapshots_token
-    ON creative_share_snapshots (token)
-  `;
-
-      // ── custom reports table ────────────────────────────────────────
-      await sql`
-    CREATE TABLE IF NOT EXISTS custom_reports (
-      id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      business_id  TEXT NOT NULL,
-      name         TEXT NOT NULL,
-      description  TEXT,
-      template_id  TEXT,
-      definition   JSONB NOT NULL DEFAULT '{}'::jsonb,
-      created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `;
-
-      await sql`
-    CREATE INDEX IF NOT EXISTS idx_custom_reports_business
-    ON custom_reports (business_id, updated_at DESC)
-  `;
-
-      // ── custom report share snapshots table ────────────────────────
-      await sql`
-    CREATE TABLE IF NOT EXISTS custom_report_share_snapshots (
-      id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      token       TEXT NOT NULL UNIQUE,
-      report_id   TEXT,
-      payload     JSONB NOT NULL,
-      expires_at  TIMESTAMPTZ NOT NULL,
-      created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `;
-
-      await sql`
-    CREATE INDEX IF NOT EXISTS idx_custom_report_share_snapshots_token
-    ON custom_report_share_snapshots (token)
-  `;
-
-      // ── creative media cache table ──────────────────────────────────
-      await sql`
-    CREATE TABLE IF NOT EXISTS creative_media_cache (
-      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      creative_id     TEXT NOT NULL,
-      business_id     TEXT NOT NULL,
-      provider        TEXT NOT NULL DEFAULT 'meta',
-      source_url      TEXT NOT NULL,
-      storage_key     TEXT UNIQUE,
-      content_type    TEXT,
-      file_size_bytes INTEGER,
-      status          TEXT NOT NULL DEFAULT 'pending'
-                      CHECK (status IN ('pending', 'downloading', 'cached', 'failed')),
-      error_message   TEXT,
-      retry_count     INTEGER NOT NULL DEFAULT 0,
-      cached_at       TIMESTAMPTZ,
-      expires_at      TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '7 days'),
-      created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `;
-
-      await sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_creative_media_cache_creative_biz
-    ON creative_media_cache (creative_id, business_id, provider)
-  `;
-
-      await sql`
-    CREATE INDEX IF NOT EXISTS idx_creative_media_cache_status
-    ON creative_media_cache (status)
-  `;
-
-      await sql`
-    CREATE INDEX IF NOT EXISTS idx_creative_media_cache_storage_key
-    ON creative_media_cache (storage_key)
-  `;
-
-      await sql`
-    CREATE INDEX IF NOT EXISTS idx_creative_media_cache_expires
-    ON creative_media_cache (expires_at)
-  `;
-
-      // ── meta creatives snapshots table ───────────────────────────────
-      await sql`
-    CREATE TABLE IF NOT EXISTS meta_creatives_snapshots (
-      id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      snapshot_key           TEXT NOT NULL UNIQUE,
-      business_id            TEXT NOT NULL,
-      assigned_accounts_hash TEXT NOT NULL,
-      start_date             DATE NOT NULL,
-      end_date               DATE NOT NULL,
-      group_by               TEXT NOT NULL,
-      format                 TEXT NOT NULL,
-      sort                   TEXT NOT NULL,
-      payload                JSONB NOT NULL,
-      snapshot_level         TEXT NOT NULL CHECK (snapshot_level IN ('metadata', 'full')),
-      row_count              INTEGER NOT NULL DEFAULT 0,
-      preview_ready_count    INTEGER NOT NULL DEFAULT 0,
-      last_synced_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
-      refresh_started_at     TIMESTAMPTZ,
-      created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at             TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `;
-
-      await sql`
-    CREATE INDEX IF NOT EXISTS idx_meta_creatives_snapshots_business
-    ON meta_creatives_snapshots (business_id, last_synced_at DESC)
-  `;
-
-      await sql`
-    CREATE INDEX IF NOT EXISTS idx_meta_creatives_snapshots_refresh
-    ON meta_creatives_snapshots (refresh_started_at)
-  `;
-
-      // ── shopify billing subscriptions table ─────────────────────────
-      await sql`
-    CREATE TABLE IF NOT EXISTS shopify_subscriptions (
-      id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      shop_id        TEXT NOT NULL UNIQUE,
-      plan_id        TEXT NOT NULL,
-      status         TEXT NOT NULL,
-      billing_cycle  TEXT NOT NULL,
-      created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `;
-
-      await sql`
-    CREATE INDEX IF NOT EXISTS idx_shopify_subscriptions_shop_id
-    ON shopify_subscriptions (shop_id)
-  `;
-
-      // ── business cost models table ──────────────────────────────────
-      await sql`
-    CREATE TABLE IF NOT EXISTS business_cost_models (
-      id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      business_id       UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
-      cogs_percent      DOUBLE PRECISION NOT NULL DEFAULT 0,
-      shipping_percent  DOUBLE PRECISION NOT NULL DEFAULT 0,
-      fee_percent       DOUBLE PRECISION NOT NULL DEFAULT 0,
-      fixed_monthly_cost DOUBLE PRECISION NOT NULL DEFAULT 0,
-      fixed_cost        DOUBLE PRECISION NOT NULL DEFAULT 0,
-      created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-      UNIQUE (business_id)
-    )
-  `;
-
-      await sql`
-    ALTER TABLE business_cost_models
-    ADD COLUMN IF NOT EXISTS fixed_monthly_cost DOUBLE PRECISION NOT NULL DEFAULT 0
-  `;
-
-      await sql`
-    ALTER TABLE business_cost_models
-    ADD COLUMN IF NOT EXISTS fixed_cost DOUBLE PRECISION NOT NULL DEFAULT 0
-  `;
-
-      await sql`
-    UPDATE business_cost_models
-    SET fixed_monthly_cost = fixed_cost
-    WHERE fixed_monthly_cost = 0 AND fixed_cost <> 0
-  `;
-
-      await sql`
-    UPDATE business_cost_models
-    SET fixed_cost = fixed_monthly_cost
-    WHERE fixed_cost = 0 AND fixed_monthly_cost <> 0
-  `;
-
-      await sql`
-    CREATE INDEX IF NOT EXISTS idx_business_cost_models_business_id
-    ON business_cost_models (business_id)
-  `;
-
-      // ── AI daily insights table ─────────────────────────────────────
-      await sql`
-    CREATE TABLE IF NOT EXISTS ai_daily_insights (
-      id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      business_id       TEXT NOT NULL,
-      insight_date      DATE NOT NULL,
-      summary           TEXT NOT NULL DEFAULT '',
-      risks             JSONB NOT NULL DEFAULT '[]'::jsonb,
-      opportunities     JSONB NOT NULL DEFAULT '[]'::jsonb,
-      recommendations   JSONB NOT NULL DEFAULT '[]'::jsonb,
-      raw_response      JSONB,
-      status            TEXT NOT NULL DEFAULT 'success' CHECK (status IN ('success', 'failed')),
-      error_message     TEXT,
-      created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `;
-
-      await sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_daily_insights_biz_date
-    ON ai_daily_insights (business_id, insight_date)
-  `;
-
-      await sql`
-    CREATE INDEX IF NOT EXISTS idx_ai_daily_insights_business
-    ON ai_daily_insights (business_id, insight_date DESC)
-  `;
-
-      await sql`
-    CREATE TABLE IF NOT EXISTS ai_creative_decisions_cache (
-      id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      business_id       TEXT NOT NULL,
-      analysis_key      TEXT NOT NULL,
-      currency          TEXT NOT NULL DEFAULT 'USD',
-      creative_count    INTEGER NOT NULL DEFAULT 0,
-      decisions         JSONB NOT NULL DEFAULT '[]'::jsonb,
-      source            TEXT NOT NULL DEFAULT 'ai' CHECK (source IN ('ai', 'fallback')),
-      warning           TEXT,
-      created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `;
-
-      await sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_creative_decisions_cache_business_analysis
-    ON ai_creative_decisions_cache (business_id, analysis_key)
-  `;
-
-      await sql`
-    CREATE INDEX IF NOT EXISTS idx_ai_creative_decisions_cache_business_updated
-    ON ai_creative_decisions_cache (business_id, updated_at DESC)
-  `;
-
-      await sql`
-    CREATE TABLE IF NOT EXISTS seo_ai_monthly_analyses (
-      id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      business_id       TEXT NOT NULL,
-      analysis_month    DATE NOT NULL,
-      period_start      DATE NOT NULL,
-      period_end        DATE NOT NULL,
-      analysis          JSONB,
-      raw_response      JSONB,
-      status            TEXT NOT NULL DEFAULT 'success' CHECK (status IN ('success', 'failed')),
-      error_message     TEXT,
-      created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `;
-
-      await sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_seo_ai_monthly_analyses_business_month
-    ON seo_ai_monthly_analyses (business_id, analysis_month)
-  `;
-
-      await sql`
-    CREATE INDEX IF NOT EXISTS idx_seo_ai_monthly_analyses_business_updated
-    ON seo_ai_monthly_analyses (business_id, updated_at DESC)
-  `;
       migrationsCompleted = true;
       logStartupEvent("migrations_completed", { reason });
     })(),
@@ -557,9 +398,6 @@ export async function runMigrations(options?: {
   } catch (error) {
     migrationsPromise = null;
 
-    // Concurrent serverless instances can race on CREATE TABLE/INDEX IF NOT EXISTS,
-    // causing 23505 on pg_type or pg_class system catalogs. This means the object
-    // was already created by another instance — safe to treat as success.
     const isSystemCatalogRace =
       error instanceof Error &&
       "code" in error &&

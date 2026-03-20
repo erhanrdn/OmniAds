@@ -10,13 +10,16 @@ export interface UserRow {
   password_hash: string;
   avatar: string | null;
   created_at: string;
+  suspended_at?: string | null;
+  last_login_at?: string | null;
+  is_superadmin?: boolean;
 }
 
 export async function getUserByEmail(email: string): Promise<UserRow | null> {
   await runMigrations();
   const sql = getDb();
   const rows = (await sql`
-    SELECT id, name, email, password_hash, avatar, created_at
+    SELECT id, name, email, password_hash, avatar, created_at, suspended_at, last_login_at, is_superadmin
     FROM users
     WHERE lower(email) = lower(${email})
     LIMIT 1
