@@ -332,9 +332,21 @@ export async function executeGaqlQuery(params: {
     ])
   ).filter((candidate): candidate is string => Boolean(candidate));
   const attemptSequence: Array<string | undefined> = [];
+  const shouldPreferDirectAccess =
+    !targetAccount?.isManager &&
+    (knownGoodLoginContext === "__none__" ||
+      !knownGoodLoginContext ||
+      orderedLoginCustomerIdCandidates.length > 0);
+
+  if (shouldPreferDirectAccess) {
+    attemptSequence.push(undefined);
+  }
+
   if (
-    knownGoodLoginContext === "__none__" ||
-    (managerLoginCustomerIdCandidates.length === 0 && orderedLoginCustomerIdCandidates.length === 0)
+    !shouldPreferDirectAccess &&
+    (knownGoodLoginContext === "__none__" ||
+      (managerLoginCustomerIdCandidates.length === 0 &&
+        orderedLoginCustomerIdCandidates.length === 0))
   ) {
     attemptSequence.push(undefined);
   }
