@@ -22,7 +22,7 @@ const PLANS = [
     },
     features: [
       { label: "Overview dashboard", included: true },
-      { label: "AI daily insights", included: true },
+      { label: "AI daily insights", included: false },
       { label: "Creatives & copies", included: false },
       { label: "Meta & Google Ads", included: false },
       { label: "Analytics (GA4)", included: false },
@@ -32,14 +32,13 @@ const PLANS = [
       { label: "Klaviyo", included: false },
       { label: "Custom reporting", included: false },
       { label: "Team roles", included: false },
-      { label: "White-label reports", included: false },
     ],
   },
   {
     id: "growth",
     name: "Growth",
     price: 49,
-    description: "For brands scaling ad performance.",
+    description: "AI insights + core ad channels.",
     cta: "Start with Growth",
     featured: false,
     limits: {
@@ -58,7 +57,6 @@ const PLANS = [
       { label: "Klaviyo", included: false },
       { label: "Custom reporting", included: false },
       { label: "Team roles", included: false },
-      { label: "White-label reports", included: false },
     ],
   },
   {
@@ -82,9 +80,8 @@ const PLANS = [
       { label: "GEO & SEO intelligence", included: true },
       { label: "TikTok, Pinterest, Snapchat", included: true },
       { label: "Klaviyo", included: true },
-      { label: "Custom reporting", included: true },
+      { label: "Custom reporting", included: false },
       { label: "Team roles", included: false },
-      { label: "White-label reports", included: false },
     ],
   },
   {
@@ -110,7 +107,6 @@ const PLANS = [
       { label: "Klaviyo", included: true },
       { label: "Custom reporting", included: true },
       { label: "Team roles", included: true },
-      { label: "White-label reports", included: true },
     ],
   },
 ];

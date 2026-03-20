@@ -91,7 +91,6 @@ export const PRICING_PLANS: Record<PlanId, PricingPlan> = {
       "pinterest",
       "snapchat",
       "klaviyo",
-      "custom_reporting",
     ],
   },
   scale: {
@@ -119,9 +118,9 @@ export const PRICING_PLANS: Record<PlanId, PricingPlan> = {
       "snapchat",
       "klaviyo",
       "custom_reporting",
+      "custom_reporting",
       "team_roles",
       "agency_mode",
-      "white_label_reports",
     ],
   },
 };
