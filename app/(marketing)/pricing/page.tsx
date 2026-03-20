@@ -17,7 +17,6 @@ const PLANS = [
     cta: "Get started free",
     featured: false,
     limits: {
-      adAccounts: "1 ad account",
       history: "365-day history",
       workspaces: "1 workspace",
     },
@@ -44,7 +43,6 @@ const PLANS = [
     cta: "Start with Growth",
     featured: false,
     limits: {
-      adAccounts: "Unlimited ad accounts",
       history: "365-day history",
       workspaces: "3 workspaces",
     },
@@ -71,7 +69,6 @@ const PLANS = [
     cta: "Start with Pro",
     featured: true,
     limits: {
-      adAccounts: "Unlimited ad accounts",
       history: "Full history",
       workspaces: "5 workspaces",
     },
@@ -98,7 +95,6 @@ const PLANS = [
     cta: "Start with Scale",
     featured: false,
     limits: {
-      adAccounts: "Unlimited ad accounts",
       history: "Full history",
       workspaces: "Unlimited workspaces",
     },
