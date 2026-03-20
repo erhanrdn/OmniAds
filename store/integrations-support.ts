@@ -3,6 +3,11 @@ import type {
   IntegrationAdAccount,
   IntegrationProvider,
   IntegrationState,
+  ProviderConnectionState,
+  ProviderDiscoveryEntity,
+  ProviderDiscoveryState,
+  ProviderDomainState,
+  ProviderViewState,
 } from "@/store/integrations-store";
 
 export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
@@ -50,6 +55,43 @@ export function buildDefaultIntegrations(): Record<IntegrationProvider, Integrat
       return acc;
     },
     {} as Record<IntegrationProvider, IntegrationState>
+  );
+}
+
+function buildDefaultConnectionState(): ProviderConnectionState {
+  return {
+    status: "disconnected",
+  };
+}
+
+function buildDefaultDiscoveryState(): ProviderDiscoveryState {
+  return {
+    status: "idle",
+    entities: [],
+    source: null,
+    fetchedAt: null,
+    notice: null,
+    stale: false,
+    refreshFailed: false,
+  };
+}
+
+export function buildDefaultProviderDomains(): Record<IntegrationProvider, ProviderDomainState> {
+  return INTEGRATION_PROVIDERS.reduce<Record<IntegrationProvider, ProviderDomainState>>(
+    (acc, provider) => {
+      acc[provider] = {
+        provider,
+        connection: buildDefaultConnectionState(),
+        discovery: buildDefaultDiscoveryState(),
+        assignment: {
+          status: "idle",
+          selectedIds: [],
+          updatedAt: null,
+        },
+      };
+      return acc;
+    },
+    {} as Record<IntegrationProvider, ProviderDomainState>
   );
 }
 
@@ -124,5 +166,264 @@ export function updateEnabledAccounts(
     accountIds.includes(account.id)
       ? { ...account, enabled: true }
       : { ...account, enabled: false }
+  );
+}
+
+function legacyStatusFromConnection(
+  connection: ProviderConnectionState,
+  discovery: ProviderDiscoveryState
+): IntegrationState["status"] {
+  if (connection.status === "error" || connection.status === "expired") {
+    return "error";
+  }
+  if (connection.status === "connected") {
+    return "connected";
+  }
+  if (discovery.status === "loading") {
+    return "connecting";
+  }
+  return "disconnected";
+}
+
+export function normalizeBusinessProviderDomains(
+  current: Partial<Record<IntegrationProvider, ProviderDomainState>> | undefined,
+  legacyIntegrations?: Record<IntegrationProvider, IntegrationState>,
+  assignedByProvider?: Partial<Record<IntegrationProvider, string[]>>
+): Record<IntegrationProvider, ProviderDomainState> {
+  const defaults = buildDefaultProviderDomains();
+
+  return INTEGRATION_PROVIDERS.reduce<Record<IntegrationProvider, ProviderDomainState>>(
+    (acc, provider) => {
+      const existing = current?.[provider];
+      const legacy = legacyIntegrations?.[provider];
+      const assignedIds = assignedByProvider?.[provider] ?? [];
+      const entities: ProviderDiscoveryEntity[] = (legacy?.accounts ?? []).map((account) => ({
+        id: account.id,
+        name: account.name,
+      }));
+
+      acc[provider] = {
+        provider,
+        connection: existing?.connection ?? {
+          status:
+            legacy?.status === "connected"
+              ? "connected"
+              : legacy?.status === "error" || legacy?.status === "timeout"
+                ? "error"
+                : "disconnected",
+          integrationId: legacy?.integrationId,
+          connectedAt: legacy?.connectedAt,
+          lastSyncAt: legacy?.lastSyncAt,
+          providerAccountId: legacy?.providerAccountId,
+          providerAccountName: legacy?.providerAccountName,
+          errorMessage: legacy?.errorMessage,
+        },
+        discovery: existing?.discovery ?? {
+          status: entities.length > 0 ? "ready" : "idle",
+          entities,
+          source: entities.length > 0 ? "snapshot" : null,
+          fetchedAt: legacy?.lastSyncAt ?? null,
+          notice: null,
+          stale: false,
+          refreshFailed: false,
+          errorMessage: undefined,
+        },
+        assignment: existing?.assignment ?? {
+          status:
+            assignedIds.length > 0
+              ? "ready"
+              : entities.length > 0
+                ? "empty"
+                : "idle",
+          selectedIds: assignedIds,
+          updatedAt: null,
+          errorMessage: undefined,
+        },
+      };
+      if (!existing && !legacy) {
+        acc[provider] = defaults[provider];
+      }
+      return acc;
+    },
+    {} as Record<IntegrationProvider, ProviderDomainState>
+  );
+}
+
+export function syncLegacyIntegrationsFromDomains(
+  current: Record<IntegrationProvider, IntegrationState> | undefined,
+  domains: Record<IntegrationProvider, ProviderDomainState>
+): Record<IntegrationProvider, IntegrationState> {
+  const normalized = normalizeBusinessIntegrations(current);
+
+  return INTEGRATION_PROVIDERS.reduce<Record<IntegrationProvider, IntegrationState>>(
+    (acc, provider) => {
+      const domain = domains[provider];
+      const existing = normalized[provider];
+      acc[provider] = {
+        provider,
+        status: legacyStatusFromConnection(domain.connection, domain.discovery),
+        errorMessage: domain.connection.errorMessage,
+        connectedAt: domain.connection.connectedAt,
+        lastSyncAt:
+          domain.connection.lastSyncAt ??
+          domain.discovery.fetchedAt ??
+          existing.lastSyncAt,
+        integrationId: domain.connection.integrationId,
+        providerAccountId: domain.connection.providerAccountId,
+        providerAccountName: domain.connection.providerAccountName,
+        accounts: withAssignedAccountFlags(
+          domain.discovery.entities.map((entity) => ({
+            id: entity.id,
+            name: entity.name,
+          })),
+          domain.assignment.selectedIds
+        ),
+      };
+      return acc;
+    },
+    {} as Record<IntegrationProvider, IntegrationState>
+  );
+}
+
+function providerDetailLabel(provider: IntegrationProvider) {
+  if (provider === "ga4") return "Property";
+  if (provider === "search_console") return "Site";
+  if (provider === "klaviyo") return "Workspace";
+  return "Assigned";
+}
+
+function providerActionLabel(provider: IntegrationProvider, assignedCount: number) {
+  if (provider === "ga4") return assignedCount > 0 ? "Change Property" : "Select Property";
+  if (provider === "search_console") return assignedCount > 0 ? "Change Site" : "Select Site";
+  if (provider === "klaviyo") return "Open intelligence";
+  return assignedCount > 0 ? "Manage assignments" : "Finish setup";
+}
+
+function providerMetaValue(
+  provider: IntegrationProvider,
+  domain: ProviderDomainState,
+  assignedCount: number
+) {
+  const providerAccountName =
+    domain.connection.providerAccountName ??
+    domain.connection.providerAccountId;
+  if (provider === "ga4" || provider === "search_console" || provider === "klaviyo") {
+    return providerAccountName ?? "Not configured yet";
+  }
+  return assignedCount > 0
+    ? `${assignedCount} ${assignedCount === 1 ? "account" : "accounts"}`
+    : "Not configured yet";
+}
+
+export function deriveProviderViewState(
+  provider: IntegrationProvider,
+  domain: ProviderDomainState
+): ProviderViewState {
+  const assignedCount = domain.assignment.selectedIds.length;
+  const providerSupportsAssignments = provider === "meta" || provider === "google";
+  const providerRequiresSelection =
+    provider === "ga4" || provider === "search_console";
+  const hasDiscoveryEntities = domain.discovery.entities.length > 0;
+  const providerAccountValue =
+    domain.connection.providerAccountName ??
+    domain.connection.providerAccountId ??
+    (domain.connection.status === "connected" ? "Linked workspace" : "—");
+  const hasSelectedProviderEntity = Boolean(
+    domain.connection.providerAccountName || domain.connection.providerAccountId
+  );
+
+  let status: ProviderViewState["status"];
+  if (domain.connection.status === "expired" || domain.connection.status === "error") {
+    status = "action_required";
+  } else if (domain.connection.status !== "connected") {
+    status = "disconnected";
+  } else if (
+    providerSupportsAssignments &&
+    domain.discovery.status === "loading" &&
+    !hasDiscoveryEntities
+  ) {
+    status = "loading_data";
+  } else if (domain.discovery.refreshFailed || (domain.discovery.stale && hasDiscoveryEntities)) {
+    status = assignedCount > 0 || !providerSupportsAssignments ? "degraded" : "needs_assignment";
+  } else if (providerSupportsAssignments && domain.discovery.status === "failed") {
+    status = "action_required";
+  } else if (providerRequiresSelection && !hasSelectedProviderEntity) {
+    status = "needs_assignment";
+  } else if (
+    providerSupportsAssignments &&
+    (domain.discovery.status === "ready" || domain.discovery.status === "stale") &&
+    assignedCount === 0
+  ) {
+    status = "needs_assignment";
+  } else if (
+    providerSupportsAssignments &&
+    domain.discovery.status !== "ready" &&
+    !hasDiscoveryEntities
+  ) {
+    status = "loading_data";
+  } else {
+    status = "ready";
+  }
+
+  return {
+    provider,
+    status,
+    connectionLabel:
+      domain.connection.status === "connected"
+        ? "Live"
+        : domain.connection.status === "expired"
+          ? "Expired"
+          : domain.connection.status === "error"
+            ? "Needs attention"
+            : "Not connected",
+    primaryActionLabel:
+      status === "disconnected" ? "Connect" : providerActionLabel(provider, assignedCount),
+    statusLabel:
+      status === "ready"
+        ? "Connected"
+        : status === "needs_assignment"
+          ? "Needs setup"
+          : status === "loading_data"
+            ? "Loading"
+            : status === "degraded"
+              ? "Degraded"
+              : status === "action_required"
+                ? "Action required"
+                : "Not connected",
+    detailLabel: providerDetailLabel(provider),
+    detailValue: providerMetaValue(provider, domain, assignedCount),
+    accountLabel: "Account",
+    accountValue: providerAccountValue,
+    lastSyncLabel: "Last sync",
+    lastSyncValue:
+      domain.connection.lastSyncAt ??
+      domain.discovery.fetchedAt ??
+      (domain.connection.status === "connected" ? "Ready" : "—"),
+    assignedCount,
+    assignedSummary:
+      assignedCount > 0
+        ? `${assignedCount} ${assignedCount === 1 ? "account" : "accounts"} assigned`
+        : providerSupportsAssignments
+          ? "No accounts assigned"
+          : "Configuration not selected yet",
+    connectedAt: domain.connection.connectedAt,
+    errorMessage: domain.connection.errorMessage ?? domain.discovery.errorMessage,
+    notice: domain.discovery.notice,
+    canManageAssignments:
+      provider === "meta" ||
+      provider === "google" ||
+      provider === "ga4" ||
+      provider === "search_console" ||
+      provider === "klaviyo",
+    isConnected: domain.connection.status === "connected",
+  };
+}
+
+export function deriveProviderViewStates(
+  domains: Record<IntegrationProvider, ProviderDomainState> | undefined
+) {
+  const normalized = domains ?? buildDefaultProviderDomains();
+  return INTEGRATION_PROVIDERS.map((provider) =>
+    deriveProviderViewState(provider, normalized[provider])
   );
 }

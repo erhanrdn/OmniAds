@@ -5,24 +5,22 @@ import { useRouter } from "next/navigation";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store/app-store";
 import {
   IntegrationProvider,
-  IntegrationState,
   useIntegrationsStore,
 } from "@/store/integrations-store";
+import { deriveProviderViewStates } from "@/store/integrations-support";
 import { IntegrationsCard } from "@/components/integrations/integrations-card";
 import { ConnectModal } from "@/components/integrations/connect-modal";
 import { useIntegrationConnection } from "@/hooks/use-integration-connection";
+import { useBusinessIntegrationsBootstrap } from "@/hooks/use-business-integrations-bootstrap";
 import { ProviderAssignmentDrawer } from "@/components/integrations/provider-assignment-drawer";
 import { GA4PropertyPicker } from "@/components/integrations/ga4-property-picker";
-import {
-  fetchProviderAccountSnapshot,
-  supportsProviderAssignments,
-  warmProviderAccountSnapshot,
-} from "@/lib/provider-account-client";
 import { getProviderLabel } from "@/components/integrations/oauth";
+import { logClientAuthEvent } from "@/lib/auth-diagnostics";
 import { ArrowRight, CheckCircle2, Layers3, Link2, Sparkles } from "lucide-react";
 
 /** Providers that have real backend OAuth (not mock) */
@@ -95,14 +93,12 @@ interface SearchConsoleProperty {
   siteType?: "domain" | "url-prefix";
 }
 
-function getFallbackIntegrationState(
-  provider: IntegrationProvider,
-): IntegrationState {
-  return {
-    provider,
-    status: "disconnected" as const,
-    accounts: [],
-  };
+function hasRenderableProviderViews(
+  cards: Array<{ status: string; isConnected: boolean; assignedCount: number }>,
+) {
+  return cards.some(
+    (card) => card.isConnected || card.assignedCount > 0 || card.status !== "disconnected",
+  );
 }
 
 export default function IntegrationsPage() {
@@ -113,8 +109,8 @@ export default function IntegrationsPage() {
   const activeBusiness =
     businesses.find((item) => item.id === businessId) ?? null;
 
-  const ensureBusiness = useIntegrationsStore((state) => state.ensureBusiness);
   const byBusinessId = useIntegrationsStore((state) => state.byBusinessId);
+  const domainsByBusinessId = useIntegrationsStore((state) => state.domainsByBusinessId);
   const assignedAccountsByBusiness = useIntegrationsStore(
     (state) => state.assignedAccountsByBusiness,
   );
@@ -130,9 +126,10 @@ export default function IntegrationsPage() {
   const setToast = useIntegrationsStore((state) => state.setToast);
   const clearToast = useIntegrationsStore((state) => state.clearToast);
 
-  const { connect, cancel, retry, fetchStatuses } = useIntegrationConnection(
+  const { connect, cancel, retry } = useIntegrationConnection(
     businessId ?? "",
   );
+  const { isBootstrapping } = useBusinessIntegrationsBootstrap(businessId ?? null);
 
   const [activeProvider, setActiveProvider] =
     useState<IntegrationProvider | null>(null);
@@ -150,48 +147,22 @@ export default function IntegrationsPage() {
   const [propertyError, setPropertyError] = useState<string | null>(null);
   const [properties, setProperties] = useState<SearchConsoleProperty[]>([]);
   const [selectedPropertyUrl, setSelectedPropertyUrl] = useState("");
+  const [viewStateLogCache] = useState(() => new Map<string, string>());
 
   const integrations = useMemo(() => {
     if (!businessId) return null;
     return byBusinessId[businessId];
   }, [byBusinessId, businessId]);
-
-  const syncProviderAssignments = useCallback(
-    async (
-      provider: IntegrationProvider,
-      fallbackAccounts?: Array<{ id: string; name: string }>,
-      fallbackAssignedIds?: string[],
-    ) => {
-      if (!businessId || !supportsProviderAssignments(provider)) return;
-
-      try {
-        const snapshot = await fetchProviderAccountSnapshot(provider, businessId);
-        setProviderAccounts(businessId, provider, snapshot.accounts);
-        setAssignedAccounts(businessId, provider, snapshot.assignedAccountIds);
-        if (snapshot.meta?.stale) {
-          void warmProviderAccountSnapshot(provider, businessId).catch(() => undefined);
-        }
-      } catch {
-        try {
-          const snapshot = await warmProviderAccountSnapshot(provider, businessId);
-          setProviderAccounts(businessId, provider, snapshot.accounts);
-          setAssignedAccounts(businessId, provider, snapshot.assignedAccountIds);
-        } catch {
-          if (fallbackAccounts) {
-            setProviderAccounts(businessId, provider, fallbackAccounts);
-          }
-          if (fallbackAssignedIds) {
-            setAssignedAccounts(businessId, provider, fallbackAssignedIds);
-          }
-        }
-      }
-    },
-    [businessId, setAssignedAccounts, setProviderAccounts],
+  const domains = useMemo(() => {
+    if (!businessId) return undefined;
+    return domainsByBusinessId[businessId];
+  }, [businessId, domainsByBusinessId]);
+  const providerViews = useMemo(() => deriveProviderViewStates(domains), [domains]);
+  const hasRenderableData = useMemo(
+    () => hasRenderableProviderViews(providerViews),
+    [providerViews],
   );
-
-  const ga4State = integrations?.ga4 ?? getFallbackIntegrationState("ga4");
-  const searchConsoleState =
-    integrations?.search_console ?? getFallbackIntegrationState("search_console");
+  const searchConsoleState = integrations?.search_console;
 
   const closeSearchConsoleSelector = useCallback(() => {
     setIsPropertySelectorOpen(false);
@@ -225,8 +196,8 @@ export default function IntegrationsPage() {
         : [];
       setProperties(rows);
       const existingProperty =
-        searchConsoleState.providerAccountName ??
-        searchConsoleState.providerAccountId ??
+        searchConsoleState?.providerAccountName ??
+        searchConsoleState?.providerAccountId ??
         "";
       setSelectedPropertyUrl(existingProperty || rows[0]?.siteUrl || "");
     } catch {
@@ -236,6 +207,33 @@ export default function IntegrationsPage() {
       setIsLoadingProperties(false);
     }
   }, [businessId, searchConsoleState]);
+
+  const loadGa4PropertyInfo = useCallback(async () => {
+    if (!businessId) return;
+    try {
+      const res = await fetch(
+        `/api/integrations?businessId=${encodeURIComponent(businessId)}&provider=ga4`,
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      const integration = data.integration;
+      if (!integration) {
+        setGa4PropertyInfo(null);
+        return;
+      }
+      const metadata = integration.metadata;
+      if (metadata?.ga4PropertyId && metadata?.ga4PropertyName) {
+        setGa4PropertyInfo({
+          propertyId: metadata.ga4PropertyId,
+          propertyName: metadata.ga4PropertyName,
+        });
+        return;
+      }
+      setGa4PropertyInfo(null);
+    } catch {
+      // silent
+    }
+  }, [businessId]);
 
   const saveSearchConsoleProperty = useCallback(async () => {
     if (!businessId || !integrations || !selectedPropertyUrl) return;
@@ -277,10 +275,10 @@ export default function IntegrationsPage() {
       setConnected(
         businessId,
         "search_console",
-        integration?.id ?? searchConsoleState.integrationId,
+        integration?.id ?? searchConsoleState?.integrationId,
         {
           connectedAt:
-            integration?.connected_at ?? searchConsoleState.connectedAt,
+            integration?.connected_at ?? searchConsoleState?.connectedAt,
           lastSyncAt: integration?.updated_at ?? new Date().toISOString(),
           providerAccountId:
             integration?.provider_account_id ?? selectedPropertyUrl,
@@ -337,62 +335,8 @@ export default function IntegrationsPage() {
 
   useEffect(() => {
     if (!businessId) return;
-    ensureBusiness(businessId);
-  }, [businessId, ensureBusiness]);
-
-  useEffect(() => {
-    if (!businessId) return;
-    fetchStatuses();
-  }, [businessId, fetchStatuses]);
-
-  useEffect(() => {
-    if (!businessId) return;
-
-    let cancelled = false;
-
-    (async () => {
-      await Promise.all(
-        (["meta", "google"] as const).map(async (provider) => {
-          if (cancelled) return;
-          await syncProviderAssignments(provider);
-        }),
-      );
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [businessId, syncProviderAssignments]);
-
-  useEffect(() => {
-    if (!businessId) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch(
-          `/api/integrations?businessId=${encodeURIComponent(businessId)}&provider=ga4`,
-        );
-        if (!res.ok || cancelled) return;
-        const data = await res.json();
-        const integration = data.integration;
-        if (!integration || cancelled) return;
-        const metadata = integration.metadata;
-        if (metadata?.ga4PropertyId && metadata?.ga4PropertyName) {
-          setGa4PropertyInfo({
-            propertyId: metadata.ga4PropertyId,
-            propertyName: metadata.ga4PropertyName,
-          });
-        } else {
-          setGa4PropertyInfo(null);
-        }
-      } catch {
-        // silent
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [businessId]);
+    void loadGa4PropertyInfo();
+  }, [businessId, loadGa4PropertyInfo]);
 
   useEffect(() => {
     if (!toast) return;
@@ -400,8 +344,28 @@ export default function IntegrationsPage() {
     return () => clearTimeout(timeout);
   }, [toast, clearToast]);
 
+  useEffect(() => {
+    if (!businessId) return;
+    for (const view of providerViews) {
+      const previous = viewStateLogCache.get(view.provider);
+      if (previous === view.status) continue;
+      viewStateLogCache.set(view.provider, view.status);
+      logClientAuthEvent("provider_view_state_changed", {
+        businessId,
+        provider: view.provider,
+        status: view.status,
+        assignedCount: view.assignedCount,
+      });
+    }
+  }, [businessId, providerViews, viewStateLogCache]);
+
   if (!businessId) return <BusinessEmptyState />;
-  if (!integrations) return null;
+  if ((!integrations || !domains) && isBootstrapping) {
+    return <IntegrationsPageSkeleton />;
+  }
+  if (isBootstrapping && !hasRenderableData) {
+    return <IntegrationsPageSkeleton />;
+  }
 
   const handleConnect = (provider: IntegrationProvider) => {
     setActiveProvider(provider);
@@ -416,55 +380,26 @@ export default function IntegrationsPage() {
     ? (assignedAccountsByBusiness[businessId]?.[assignmentProvider] ?? [])
     : [];
   const providerCards = DISPLAY_PROVIDERS.map((provider) => {
-    const assignedIds =
-      assignedAccountsByBusiness[businessId]?.[provider] ?? [];
-    const state = integrations[provider] ?? getFallbackIntegrationState(provider);
-
-    const isGa4 = provider === "ga4";
-    const ga4Connected = isGa4 && ga4State.status === "connected";
-    const isSearchConsole = provider === "search_console";
-    const searchConsoleConnected =
-      isSearchConsole && state.status === "connected";
-
+    const view = providerViews.find((item) => item.provider === provider);
+    const assignedIds = assignedAccountsByBusiness[businessId]?.[provider] ?? [];
     return {
       provider,
       assignedIds,
-      state,
-      connectedDetailText: provider === "klaviyo"
-        ? state.providerAccountName
-          ? `Workspace: ${state.providerAccountName}`
-          : "Lifecycle workspace linked"
-        : ga4Connected
-        ? ga4PropertyInfo
-          ? `Property: ${ga4PropertyInfo.propertyName}`
-          : "Connected - no property selected yet"
-        : searchConsoleConnected
-          ? `Site: ${
-              state.providerAccountName ??
-              state.providerAccountId ??
-              "Not selected"
-            }`
-          : undefined,
-      connectedActionLabel: provider === "klaviyo"
-        ? "Open intelligence"
-        : ga4Connected
-        ? ga4PropertyInfo
-          ? "Change Property"
-          : "Select Property"
-        : searchConsoleConnected
-          ? "Change Site"
-          : undefined,
+      view,
     };
-  });
+  }).filter(
+    (item): item is typeof item & { view: NonNullable<typeof item.view> } => Boolean(item.view)
+  );
 
-  const connectedCount = providerCards.filter(
-    (item) => item.state.status === "connected",
-  ).length;
-  const needsSetupCount = providerCards.filter(
-    (item) => item.state.status !== "connected",
+  const connectedCount = providerCards.filter((item) => item.view.isConnected).length;
+  const needsSetupCount = providerCards.filter((item) =>
+    item.view.status === "disconnected" ||
+    item.view.status === "needs_assignment" ||
+    item.view.status === "action_required" ||
+    item.view.status === "loading_data"
   ).length;
   const assignedAccountsTotal = providerCards.reduce(
-    (sum, item) => sum + item.assignedIds.length,
+    (sum, item) => sum + item.view.assignedCount,
     0,
   );
 
@@ -545,7 +480,7 @@ export default function IntegrationsPage() {
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {cards
-                    .filter((item) => item.state.status === "connected")
+                    .filter((item) => item.view.isConnected)
                     .slice(0, 3)
                     .map((item) => (
                       <Badge
@@ -565,10 +500,7 @@ export default function IntegrationsPage() {
                     key={item.provider}
                     provider={item.provider}
                     description={DESCRIPTIONS[item.provider]}
-                    state={item.state}
-                    assignedAccountIds={item.assignedIds}
-                    connectedDetailText={item.connectedDetailText}
-                    connectedActionLabel={item.connectedActionLabel}
+                    view={item.view}
                     onConnect={handleConnect}
                     onReconnect={(p) => setActiveProvider(p)}
                     onRetry={handleRetry}
@@ -617,10 +549,12 @@ export default function IntegrationsPage() {
           const normalizedAccounts = accounts.map((account) => ({
             id: account.id,
             name: account.name,
+            currency: account.currency,
+            timezone: account.timezone,
+            isManager: account.isManager,
           }));
           setProviderAccounts(businessId, provider, normalizedAccounts);
           setAssignedAccounts(businessId, provider, accountIds);
-          void syncProviderAssignments(provider, normalizedAccounts, accountIds);
           setToast({
             type: "success",
             message:
@@ -713,6 +647,73 @@ export default function IntegrationsPage() {
           </div>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function IntegrationsPageSkeleton() {
+  return (
+    <div className="space-y-5">
+      <div className="rounded-2xl border border-border/70 bg-gradient-to-br from-card via-card to-muted/30 p-4 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="max-w-2xl space-y-2">
+            <Skeleton className="h-7 w-40 rounded-full" />
+            <div className="space-y-2">
+              <Skeleton className="h-8 w-44" />
+              <Skeleton className="h-4 w-full max-w-xl" />
+              <Skeleton className="h-4 w-4/5 max-w-lg" />
+            </div>
+          </div>
+
+          <div className="grid gap-2 sm:grid-cols-3 lg:min-w-[360px]">
+            {Array.from({ length: 3 }).map((_, index) => (
+              <div
+                key={index}
+                className="rounded-3xl border border-border/60 bg-background/80 p-4"
+              >
+                <Skeleton className="h-3 w-16" />
+                <Skeleton className="mt-4 h-8 w-12" />
+                <Skeleton className="mt-3 h-4 w-24" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {Array.from({ length: 3 }).map((_, sectionIndex) => (
+        <section key={sectionIndex} className="space-y-3">
+          <div className="space-y-2">
+            <Skeleton className="h-5 w-44" />
+            <Skeleton className="h-4 w-80 max-w-full" />
+          </div>
+          <div className="grid gap-3 xl:grid-cols-2">
+            {Array.from({ length: sectionIndex === 2 ? 1 : 2 }).map((__, cardIndex) => (
+              <div
+                key={`${sectionIndex}-${cardIndex}`}
+                className="rounded-3xl border border-border/70 bg-card p-4 shadow-sm"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-2">
+                    <Skeleton className="h-5 w-28" />
+                    <Skeleton className="h-4 w-72 max-w-full" />
+                  </div>
+                  <Skeleton className="h-6 w-20 rounded-full" />
+                </div>
+                <div className="mt-6 grid gap-3 md:grid-cols-2">
+                  <Skeleton className="h-4 w-28" />
+                  <Skeleton className="h-4 w-20" />
+                  <Skeleton className="h-4 w-24" />
+                  <Skeleton className="h-4 w-28" />
+                </div>
+                <div className="mt-4 flex gap-2">
+                  <Skeleton className="h-10 w-28 rounded-xl" />
+                  <Skeleton className="h-10 w-24 rounded-xl" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      ))}
     </div>
   );
 }

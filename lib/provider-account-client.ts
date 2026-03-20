@@ -1,5 +1,6 @@
 import type { IntegrationProvider } from "@/store/integrations-store";
 import type { ProviderAccountSnapshotMeta } from "@/lib/provider-account-snapshots";
+import { logClientAuthEvent } from "@/lib/auth-diagnostics";
 
 interface ProviderAccountPayloadRow {
   id: string;
@@ -32,6 +33,7 @@ export interface ProviderAccountSnapshot {
 }
 
 const CLIENT_REFRESH_COOLDOWN_MS = 30_000;
+const CLIENT_PREWARM_COOLDOWN_MS = 2 * 60_000;
 
 function getClientRequestStore() {
   const globalStore = globalThis as typeof globalThis & {
@@ -40,6 +42,7 @@ function getClientRequestStore() {
       string,
       { failedAt: number; message: string }
     >;
+    __omniadsProviderAccountClientPrewarms?: Map<string, number>;
   };
   if (!globalStore.__omniadsProviderAccountClientRequests) {
     globalStore.__omniadsProviderAccountClientRequests = new Map();
@@ -47,9 +50,13 @@ function getClientRequestStore() {
   if (!globalStore.__omniadsProviderAccountClientFailures) {
     globalStore.__omniadsProviderAccountClientFailures = new Map();
   }
+  if (!globalStore.__omniadsProviderAccountClientPrewarms) {
+    globalStore.__omniadsProviderAccountClientPrewarms = new Map();
+  }
   return {
     requests: globalStore.__omniadsProviderAccountClientRequests,
     failures: globalStore.__omniadsProviderAccountClientFailures,
+    prewarms: globalStore.__omniadsProviderAccountClientPrewarms,
   };
 }
 
@@ -158,4 +165,51 @@ export async function warmProviderAccountSnapshot(
   businessId: string,
 ) {
   return fetchProviderAccountSnapshot(provider, businessId, { refresh: true });
+}
+
+export function prewarmProviderAccountSnapshots(
+  businessId: string,
+  providers: IntegrationProvider[] = ["meta", "google"],
+) {
+  const { prewarms } = getClientRequestStore();
+  const now = Date.now();
+
+  for (const provider of providers) {
+    if (!supportsProviderAssignments(provider)) continue;
+
+    const key = `${provider}:${businessId}`;
+    const lastStartedAt = prewarms.get(key) ?? 0;
+    if (now - lastStartedAt < CLIENT_PREWARM_COOLDOWN_MS) {
+      logClientAuthEvent("provider_snapshot_prewarm_skipped", {
+        businessId,
+        provider,
+        reason: "cooldown",
+        retryAfterMs: CLIENT_PREWARM_COOLDOWN_MS - (now - lastStartedAt),
+      });
+      continue;
+    }
+
+    prewarms.set(key, now);
+    logClientAuthEvent("provider_snapshot_prewarm_requested", {
+      businessId,
+      provider,
+    });
+    void warmProviderAccountSnapshot(provider, businessId)
+      .then((snapshot) => {
+        logClientAuthEvent("provider_snapshot_prewarm_succeeded", {
+          businessId,
+          provider,
+          accountCount: snapshot.accounts.length,
+          source: snapshot.meta?.source ?? null,
+          stale: snapshot.meta?.stale ?? null,
+        });
+      })
+      .catch((error: unknown) => {
+        logClientAuthEvent("provider_snapshot_prewarm_failed", {
+          businessId,
+          provider,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      });
+  }
 }

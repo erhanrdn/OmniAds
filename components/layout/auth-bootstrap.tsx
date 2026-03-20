@@ -5,6 +5,8 @@ import { usePathname } from "next/navigation";
 import { useAppStore } from "@/store/app-store";
 import { logClientAuthEvent } from "@/lib/auth-diagnostics";
 import { applyAuthenticatedWorkspace, clearAuthScopedClientState } from "@/lib/client-auth-state";
+import { prewarmProviderAccountSnapshots } from "@/lib/provider-account-client";
+import { useIntegrationsStore } from "@/store/integrations-store";
 
 interface MeResponse {
   authenticated: boolean;
@@ -25,7 +27,24 @@ interface MeResponse {
 
 export function AuthBootstrap() {
   const hasHydrated = useAppStore((state) => state.hasHydrated);
+  const authBootstrapStatus = useAppStore((state) => state.authBootstrapStatus);
   const setAuthBootstrapStatus = useAppStore((state) => state.setAuthBootstrapStatus);
+  const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
+  const integrationBootstrapStatus = useIntegrationsStore((state) =>
+    selectedBusinessId
+      ? state.bootstrapStatusByBusiness[selectedBusinessId] ?? "idle"
+      : "idle"
+  );
+  const hasMetaDiscovery = useIntegrationsStore((state) =>
+    selectedBusinessId
+      ? (state.domainsByBusinessId[selectedBusinessId]?.meta?.discovery.entities.length ?? 0) > 0
+      : false
+  );
+  const hasGoogleDiscovery = useIntegrationsStore((state) =>
+    selectedBusinessId
+      ? (state.domainsByBusinessId[selectedBusinessId]?.google?.discovery.entities.length ?? 0) > 0
+      : false
+  );
   const pathname = usePathname();
 
   useEffect(() => {
@@ -94,6 +113,29 @@ export function AuthBootstrap() {
       controller.abort();
     };
   }, [hasHydrated, pathname, setAuthBootstrapStatus]);
+
+  useEffect(() => {
+    if (!hasHydrated || authBootstrapStatus !== "ready" || !selectedBusinessId) return;
+    if (integrationBootstrapStatus === "ready") return;
+    if (hasMetaDiscovery && hasGoogleDiscovery) {
+      return;
+    }
+
+    prewarmProviderAccountSnapshots(selectedBusinessId);
+    logClientAuthEvent("provider_snapshot_prewarm_started", {
+      pathname,
+      businessId: selectedBusinessId,
+      providers: ["meta", "google"],
+    });
+  }, [
+    authBootstrapStatus,
+    hasHydrated,
+    hasGoogleDiscovery,
+    hasMetaDiscovery,
+    integrationBootstrapStatus,
+    pathname,
+    selectedBusinessId,
+  ]);
 
   return null;
 }

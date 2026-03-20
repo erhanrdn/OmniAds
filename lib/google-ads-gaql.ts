@@ -71,6 +71,7 @@ export interface GoogleAdsAccountQueryFailure {
 const GOOGLE_ADS_GAQL_TIMEOUT_MS = 10_000;
 const GOOGLE_ADS_SEARCH_CACHE_TTL_MS = 30_000;
 const GOOGLE_ADS_OPTIONAL_SEARCH_CACHE_TTL_MS = 15_000;
+const GOOGLE_ADS_LOGIN_CONTEXT_FAILURE_TTL_MS = 5 * 60_000;
 
 interface CachedGaqlResult {
   expiresAt: number;
@@ -95,6 +96,78 @@ function getGaqlCacheStore() {
     globalStore.__omniadsGoogleAdsGaqlCache = new Map();
   }
   return globalStore.__omniadsGoogleAdsGaqlCache;
+}
+
+function getLoginContextStores() {
+  const globalStore = globalThis as typeof globalThis & {
+    __omniadsGoogleAdsLoginContextSuccess?: Map<string, string>;
+    __omniadsGoogleAdsLoginContextFailures?: Map<string, number>;
+  };
+  if (!globalStore.__omniadsGoogleAdsLoginContextSuccess) {
+    globalStore.__omniadsGoogleAdsLoginContextSuccess = new Map();
+  }
+  if (!globalStore.__omniadsGoogleAdsLoginContextFailures) {
+    globalStore.__omniadsGoogleAdsLoginContextFailures = new Map();
+  }
+  return {
+    success: globalStore.__omniadsGoogleAdsLoginContextSuccess,
+    failures: globalStore.__omniadsGoogleAdsLoginContextFailures,
+  };
+}
+
+function buildLoginContextKey(
+  businessId: string,
+  customerId: string,
+  loginCustomerId?: string,
+) {
+  return `${businessId}:${normalizeCustomerIdForRequest(customerId)}:${loginCustomerId ? normalizeCustomerIdForRequest(loginCustomerId) : "__none__"}`;
+}
+
+function getKnownGoodLoginContext(
+  businessId: string,
+  customerId: string,
+) {
+  return getLoginContextStores().success.get(
+    `${businessId}:${normalizeCustomerIdForRequest(customerId)}`
+  );
+}
+
+function setKnownGoodLoginContext(
+  businessId: string,
+  customerId: string,
+  loginCustomerId?: string,
+) {
+  const key = `${businessId}:${normalizeCustomerIdForRequest(customerId)}`;
+  getLoginContextStores().success.set(
+    key,
+    loginCustomerId ? normalizeCustomerIdForRequest(loginCustomerId) : "__none__"
+  );
+}
+
+function markFailedLoginContext(
+  businessId: string,
+  customerId: string,
+  loginCustomerId?: string,
+) {
+  getLoginContextStores().failures.set(
+    buildLoginContextKey(businessId, customerId, loginCustomerId),
+    Date.now() + GOOGLE_ADS_LOGIN_CONTEXT_FAILURE_TTL_MS
+  );
+}
+
+function isFailedLoginContext(
+  businessId: string,
+  customerId: string,
+  loginCustomerId?: string,
+) {
+  const key = buildLoginContextKey(businessId, customerId, loginCustomerId);
+  const expiresAt = getLoginContextStores().failures.get(key);
+  if (!expiresAt) return false;
+  if (expiresAt <= Date.now()) {
+    getLoginContextStores().failures.delete(key);
+    return false;
+  }
+  return true;
 }
 
 function buildGaqlCacheKey(input: {
@@ -123,15 +196,20 @@ async function getLoginCustomerIdCandidates(
     .map((account) => normalizeCustomerIdForRequest(account.id))
     .filter(Boolean)
     .filter((id) => id !== normalizedCustomerId);
-  const accessibleIds = accounts
-    .map((account) => normalizeCustomerIdForRequest(account.id))
-    .filter(Boolean)
-    .filter((id) => id !== normalizedCustomerId);
+  return Array.from(new Set(managerIds)).slice(0, 3);
+}
 
-  return Array.from(new Set([...managerIds, ...accessibleIds, normalizedCustomerId])).slice(
-    0,
-    25
-  );
+function shouldStopRetryingAcrossLoginContexts(error: {
+  status: number;
+  apiStatus?: string;
+  apiErrorCode?: string;
+  message: string;
+}) {
+  const text = `${error.apiStatus ?? ""} ${error.apiErrorCode ?? ""} ${error.message}`.toUpperCase();
+  if (error.status === 429 || text.includes("RESOURCE_EXHAUSTED")) return true;
+  if (error.status === 401 || text.includes("UNAUTHENTICATED")) return true;
+  if (text.includes("DEVELOPER_TOKEN")) return true;
+  return false;
 }
 
 export function getGoogleAdsFailureMessage(
@@ -236,13 +314,34 @@ export async function executeGaqlQuery(params: {
         account.isManager && normalizeCustomerIdForRequest(account.id) === candidate
     )
   );
+  const knownGoodLoginContext = getKnownGoodLoginContext(
+    params.businessId,
+    params.customerId
+  );
   const orderedLoginCustomerIdCandidates = Array.from(
     new Set([
+      knownGoodLoginContext && knownGoodLoginContext !== "__none__"
+        ? knownGoodLoginContext
+        : undefined,
       ...managerLoginCustomerIdCandidates,
-      ...loginCustomerIdCandidates.filter((candidate) => candidate !== normalizedCustomerId),
-      normalizedCustomerId,
+      targetAccount?.isManager ? normalizedCustomerId : undefined,
+      managerLoginCustomerIdCandidates.length === 0 &&
+      knownGoodLoginContext !== "__none__"
+        ? undefined
+        : undefined,
     ])
-  ).filter(Boolean);
+  ).filter((candidate): candidate is string => Boolean(candidate));
+  const attemptSequence: Array<string | undefined> = [];
+  if (
+    knownGoodLoginContext === "__none__" ||
+    (managerLoginCustomerIdCandidates.length === 0 && orderedLoginCustomerIdCandidates.length === 0)
+  ) {
+    attemptSequence.push(undefined);
+  }
+  attemptSequence.push(...orderedLoginCustomerIdCandidates);
+  if (attemptSequence.length === 0) {
+    attemptSequence.push(undefined);
+  }
 
   return runProviderRequestWithGovernance({
     provider: "google",
@@ -268,10 +367,13 @@ export async function executeGaqlQuery(params: {
             }
           : null,
         queryHash: buildGaqlRequestType(params.customerId, params.query),
-        loginCustomerIdCandidates: orderedLoginCustomerIdCandidates,
+        loginCustomerIdCandidates: attemptSequence.map((candidate) => candidate ?? "__none__"),
       });
 
-      for (const loginCustomerId of [undefined, ...orderedLoginCustomerIdCandidates]) {
+      for (const loginCustomerId of attemptSequence) {
+        if (isFailedLoginContext(params.businessId, params.customerId, loginCustomerId)) {
+          continue;
+        }
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), GOOGLE_ADS_GAQL_TIMEOUT_MS);
         const response = await fetch(searchUrl, {
@@ -315,6 +417,11 @@ export async function executeGaqlQuery(params: {
             targetIsManager: Boolean(targetAccount?.isManager),
             rowCount: result.results?.length ?? 0,
           });
+          setKnownGoodLoginContext(
+            params.businessId,
+            params.customerId,
+            loginCustomerId,
+          );
           return result;
         }
 
@@ -356,7 +463,16 @@ export async function executeGaqlQuery(params: {
           message,
         });
 
-        if (response.status === 429 || error.error?.status === "RESOURCE_EXHAUSTED") {
+        markFailedLoginContext(params.businessId, params.customerId, loginCustomerId);
+
+        if (
+          shouldStopRetryingAcrossLoginContexts({
+            status: response.status,
+            apiStatus: error.error?.status,
+            apiErrorCode,
+            message,
+          })
+        ) {
           break;
         }
       }

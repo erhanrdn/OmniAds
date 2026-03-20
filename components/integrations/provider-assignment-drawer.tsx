@@ -9,7 +9,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { IntegrationProvider } from "@/store/integrations-store";
+import { IntegrationProvider, useIntegrationsStore } from "@/store/integrations-store";
 import { DataEmptyState } from "@/components/states/DataEmptyState";
 import {
   fetchProviderAccountSnapshot,
@@ -62,6 +62,22 @@ export function ProviderAssignmentDrawer({
   const isSupportedProvider = isMeta || isGoogle;
   const initializedForOpenRef = useRef<string | null>(null);
   const latestAssignedAccountIdsRef = useRef<string[]>(assignedAccountIds);
+  const domain = useIntegrationsStore((state) =>
+    provider && businessId ? state.domainsByBusinessId[businessId]?.[provider] : undefined
+  );
+  const setProviderDiscovery = useIntegrationsStore((state) => state.setProviderDiscovery);
+  const setProviderAssignmentState = useIntegrationsStore(
+    (state) => state.setProviderAssignmentState
+  );
+
+  const hydratedAccounts = useMemo(
+    () =>
+      (domain?.discovery.entities ?? []).map((account) => ({
+        ...account,
+        assigned: (domain?.assignment.selectedIds ?? []).includes(account.id),
+      })),
+    [domain]
+  );
 
   useEffect(() => {
     latestAssignedAccountIdsRef.current = assignedAccountIds;
@@ -69,6 +85,7 @@ export function ProviderAssignmentDrawer({
 
   const applySnapshotResult = useCallback(
     (snapshot: ProviderAccountSnapshot) => {
+      if (!provider) return;
       const list = snapshot.accounts.map((account) => ({
         ...account,
         assigned: snapshot.assignedAccountIds.includes(account.id),
@@ -92,8 +109,22 @@ export function ProviderAssignmentDrawer({
       );
       initializedForOpenRef.current = `${businessId}:${provider}`;
       setFetchState(list.length > 0 ? "success" : "empty");
+      setProviderDiscovery(businessId, provider, {
+        status: snapshot.meta?.stale ? "stale" : "ready",
+        entities: snapshot.accounts,
+        source: snapshot.meta?.source ?? null,
+        fetchedAt: snapshot.meta?.fetchedAt ?? null,
+        notice: snapshot.notice,
+        stale: snapshot.meta?.stale ?? false,
+        refreshFailed: snapshot.meta?.refreshFailed ?? false,
+      });
+      setProviderAssignmentState(businessId, provider, {
+        status: serverAssignedIds.length > 0 ? "ready" : "empty",
+        selectedIds: serverAssignedIds,
+        updatedAt: snapshot.meta?.fetchedAt ?? null,
+      });
     },
-    [businessId, provider]
+    [businessId, provider, setProviderAssignmentState, setProviderDiscovery]
   );
 
   const loadAccounts = useCallback(
@@ -116,6 +147,15 @@ export function ProviderAssignmentDrawer({
       }
 
       const preserveExisting = options?.preserveExisting === true;
+
+      if (!preserveExisting && hydratedAccounts.length > 0) {
+        setAccounts(hydratedAccounts);
+        setNoticeMessage(domain?.discovery.notice ?? null);
+        setDraftIds(domain?.assignment.selectedIds ?? latestAssignedAccountIdsRef.current);
+        initializedForOpenRef.current = `${businessId}:${provider}`;
+        setFetchState(hydratedAccounts.length > 0 ? "success" : "empty");
+        return;
+      }
       if (!preserveExisting) {
         setAccounts([]);
         setFetchState("loading");
@@ -159,6 +199,20 @@ export function ProviderAssignmentDrawer({
                 : "Unable to retrieve Meta ad accounts. Retry."
             );
             setFetchState("error");
+            setProviderDiscovery(businessId, provider, {
+              status: "failed",
+              entities: [],
+              errorMessage:
+                warmError instanceof Error ? warmError.message : String(warmError),
+              notice: null,
+              refreshFailed: true,
+            });
+            setProviderAssignmentState(businessId, provider, {
+              status: "failed",
+              selectedIds: latestAssignedAccountIdsRef.current,
+              errorMessage:
+                warmError instanceof Error ? warmError.message : String(warmError),
+            });
             return;
           }
         }
@@ -171,11 +225,33 @@ export function ProviderAssignmentDrawer({
           `We couldn't fetch accessible ${provider === "google" ? "Google Ads" : "Meta"} ad accounts for this connection.`,
         );
         setFetchState("error");
+        setProviderDiscovery(businessId, provider, {
+          status: "failed",
+          entities: [],
+          errorMessage: err instanceof Error ? err.message : String(err),
+          notice: null,
+          refreshFailed: true,
+        });
+        setProviderAssignmentState(businessId, provider, {
+          status: "failed",
+          selectedIds: latestAssignedAccountIdsRef.current,
+          errorMessage: err instanceof Error ? err.message : String(err),
+        });
       } finally {
         setIsRefreshing(false);
       }
     },
-    [applySnapshotResult, businessId, isSupportedProvider, open, provider],
+    [
+      applySnapshotResult,
+      businessId,
+      domain,
+      hydratedAccounts,
+      isSupportedProvider,
+      open,
+      provider,
+      setProviderAssignmentState,
+      setProviderDiscovery,
+    ],
   );
 
   useEffect(() => {
