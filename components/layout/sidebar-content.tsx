@@ -10,6 +10,8 @@ import { BrandLogo } from "@/components/brand/BrandLogo";
 import { usePlan } from "@/lib/pricing/usePlan";
 import { planRank } from "@/lib/pricing/usePlanLimits";
 import { PRICING_PLANS, type PlanId } from "@/lib/pricing/plans";
+import { useAppStore } from "@/store/app-store";
+import { isDemoBusinessSelected } from "@/lib/business-mode";
 
 const groups = ["Main", "Platforms", "Assets", "Manage"] as const;
 
@@ -33,6 +35,9 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const router = useRouter();
   const currentPlan = usePlan();
+  const selectedBusinessId = useAppStore((s) => s.selectedBusinessId);
+  const businesses = useAppStore((s) => s.businesses);
+  const isDemo = isDemoBusinessSelected(selectedBusinessId, businesses);
 
   return (
     <div className="flex flex-col h-full">
@@ -60,6 +65,7 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
                       ? PLATFORM_LOGOS_BY_HREF[item.href]
                       : undefined;
                   const locked =
+                    !isDemo &&
                     item.requiredPlan !== undefined &&
                     planRank(currentPlan) < planRank(item.requiredPlan);
 
