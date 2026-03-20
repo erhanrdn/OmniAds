@@ -4,7 +4,7 @@ import { PlanGate } from "@/components/pricing/PlanGate";
 
 export default function SnapchatPage() {
   return (
-    <PlanGate requiredPlan="pro">
+    <PlanGate requiredPlan="scale">
       <PlatformTablePage
         platform={Platform.SNAPCHAT}
         title="Snapchat Ads"

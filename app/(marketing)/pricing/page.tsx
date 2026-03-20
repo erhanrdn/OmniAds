@@ -78,7 +78,7 @@ const PLANS = [
       { label: "Analytics (GA4)", included: true },
       { label: "Landing pages", included: true },
       { label: "GEO & SEO intelligence", included: true },
-      { label: "TikTok, Pinterest, Snapchat", included: true },
+      { label: "TikTok, Pinterest, Snapchat", included: false },
       { label: "Klaviyo", included: true },
       { label: "Custom reporting", included: false },
       { label: "Team roles", included: false },

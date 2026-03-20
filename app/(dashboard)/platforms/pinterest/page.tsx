@@ -4,7 +4,7 @@ import { PlanGate } from "@/components/pricing/PlanGate";
 
 export default function PinterestPage() {
   return (
-    <PlanGate requiredPlan="pro">
+    <PlanGate requiredPlan="scale">
       <PlatformTablePage
         platform={Platform.PINTEREST}
         title="Pinterest Ads"
