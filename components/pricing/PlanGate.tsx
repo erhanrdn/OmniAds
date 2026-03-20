@@ -5,6 +5,8 @@ import { Lock } from "lucide-react";
 import { usePlan } from "@/lib/pricing/usePlan";
 import { planRank } from "@/lib/pricing/usePlanLimits";
 import { PRICING_PLANS, type PlanId } from "@/lib/pricing/plans";
+import { useAppStore } from "@/store/app-store";
+import { isDemoBusinessSelected } from "@/lib/business-mode";
 
 const PLAN_LABELS: Record<PlanId, string> = {
   starter: "Starter",
@@ -20,8 +22,11 @@ interface Props {
 
 export function PlanGate({ requiredPlan, children }: Props) {
   const currentPlan = usePlan();
+  const selectedBusinessId = useAppStore((s) => s.selectedBusinessId);
+  const businesses = useAppStore((s) => s.businesses);
+  const isDemo = isDemoBusinessSelected(selectedBusinessId, businesses);
 
-  if (planRank(currentPlan) >= planRank(requiredPlan)) {
+  if (isDemo || planRank(currentPlan) >= planRank(requiredPlan)) {
     return <>{children}</>;
   }
 
