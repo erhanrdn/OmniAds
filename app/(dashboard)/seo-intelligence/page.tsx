@@ -13,7 +13,9 @@ import { LoadingSkeleton } from "@/components/states/loading-skeleton";
 import { usePersistentDateRange } from "@/hooks/use-persistent-date-range";
 import { useAppStore } from "@/store/app-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
+import { buildDefaultProviderDomains, deriveProviderViewState } from "@/store/integrations-support";
 import { cn } from "@/lib/utils";
+import { useBusinessIntegrationsBootstrap } from "@/hooks/use-business-integrations-bootstrap";
 import {
   ConfirmedExcludedPagesList,
   EntityTable,
@@ -117,14 +119,12 @@ export default function SeoIntelligencePage() {
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const businessId = selectedBusinessId ?? "";
   const queryClient = useQueryClient();
-
-  const ensureBusiness = useIntegrationsStore((state) => state.ensureBusiness);
-  const byBusinessId = useIntegrationsStore((state) => state.byBusinessId);
-
-  useEffect(() => {
-    if (!selectedBusinessId) return;
-    ensureBusiness(businessId);
-  }, [businessId, ensureBusiness, selectedBusinessId]);
+  const domains = useIntegrationsStore((state) =>
+    selectedBusinessId ? state.domainsByBusinessId[selectedBusinessId] : undefined
+  );
+  const { isBootstrapping, bootstrapStatus } = useBusinessIntegrationsBootstrap(
+    selectedBusinessId ?? null
+  );
 
   const [activeTab, setActiveTab] = useState<SeoTab>("overview");
   const [dateRange, setDateRange] = usePersistentDateRange();
@@ -135,8 +135,15 @@ export default function SeoIntelligencePage() {
     dateRange.customEnd,
   );
 
-  const searchConsoleStatus = byBusinessId[businessId]?.search_console?.status;
-  const searchConsoleConnected = searchConsoleStatus === "connected";
+  const searchConsoleView = deriveProviderViewState(
+    "search_console",
+    domains?.search_console ?? buildDefaultProviderDomains().search_console
+  );
+  const searchConsoleConnected = searchConsoleView.isConnected;
+  const showBootstrapGuard =
+    isBootstrapping ||
+    searchConsoleView.status === "loading_data" ||
+    (bootstrapStatus !== "ready" && !searchConsoleView.isConnected);
 
   const overviewQuery = useQuery({
     queryKey: ["seo-overview", businessId, startDate, endDate],
@@ -176,6 +183,23 @@ export default function SeoIntelligencePage() {
 
   if (!selectedBusinessId) return <BusinessEmptyState />;
 
+  if (showBootstrapGuard) {
+    return (
+      <div className="space-y-5">
+        <header className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-1">
+            <h1 className="text-3xl font-semibold tracking-tight">SEO Intelligence</h1>
+            <p className="max-w-2xl text-sm text-muted-foreground">
+              Monitor organic search volatility, isolate likely causes, and prioritize technical or
+              content fixes using Search Console-backed intelligence.
+            </p>
+          </div>
+        </header>
+        <LoadingSkeleton rows={4} />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-5">
       <header className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -191,7 +215,7 @@ export default function SeoIntelligencePage() {
       {!searchConsoleConnected && (
         <IntegrationEmptyState
           providerLabel="Search Console"
-          status={searchConsoleStatus}
+          status={searchConsoleView.status === "action_required" ? "error" : "disconnected"}
           title="Connect Search Console to unlock SEO Intelligence"
           description="Track organic trend shifts, query volatility, page-level losses, and action recommendations once Search Console is connected and a site is selected."
         />

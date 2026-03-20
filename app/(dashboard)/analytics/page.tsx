@@ -4,10 +4,12 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAppStore } from "@/store/app-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
+import { buildDefaultProviderDomains, deriveProviderViewState } from "@/store/integrations-support";
 import { isDemoBusinessSelected } from "@/lib/business-mode";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { IntegrationEmptyState } from "@/components/states/IntegrationEmptyState";
 import { ErrorState } from "@/components/states/error-state";
+import { LoadingSkeleton } from "@/components/states/loading-skeleton";
 import {
   DateRangePicker,
   DateRangeValue,
@@ -23,6 +25,7 @@ import { DemographicSection } from "@/components/analytics/DemographicSection";
 import { CohortSection } from "@/components/analytics/CohortSection";
 import { OpportunityFlags } from "@/components/analytics/OpportunityFlags";
 import { cn } from "@/lib/utils";
+import { useBusinessIntegrationsBootstrap } from "@/hooks/use-business-integrations-bootstrap";
 
 type Tab =
   | "overview"
@@ -197,19 +200,23 @@ export default function AnalyticsPage() {
   const businesses = useAppStore((s) => s.businesses);
   const selectedBusinessId = useAppStore((s) => s.selectedBusinessId);
   const businessId = selectedBusinessId ?? "";
-
-  const ensureBusiness = useIntegrationsStore((s) => s.ensureBusiness);
-  const byBusinessId = useIntegrationsStore((s) => s.byBusinessId);
-
-  useEffect(() => {
-    if (selectedBusinessId) ensureBusiness(businessId);
-  }, [businessId, ensureBusiness, selectedBusinessId]);
-
-  const integrations = byBusinessId[businessId];
-  const ga4State = integrations?.ga4;
+  const domains = useIntegrationsStore((s) =>
+    selectedBusinessId ? s.domainsByBusinessId[selectedBusinessId] : undefined
+  );
+  const { isBootstrapping, bootstrapStatus } = useBusinessIntegrationsBootstrap(
+    selectedBusinessId ?? null
+  );
   const isDemoBusiness = isDemoBusinessSelected(selectedBusinessId, businesses);
-  const ga4Connected = ga4State?.status === "connected" || isDemoBusiness;
-  const ga4Status = ga4State?.status;
+  const ga4View = deriveProviderViewState(
+    "ga4",
+    domains?.ga4 ?? buildDefaultProviderDomains().ga4
+  );
+  const ga4Connected = ga4View.isConnected || isDemoBusiness;
+  const showBootstrapGuard =
+    !isDemoBusiness &&
+    (isBootstrapping ||
+      ga4View.status === "loading_data" ||
+      (bootstrapStatus !== "ready" && !ga4View.isConnected));
 
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [dateRange, setDateRange] = usePersistentDateRange();
@@ -266,13 +273,22 @@ export default function AnalyticsPage() {
 
   if (!selectedBusinessId) return <BusinessEmptyState />;
 
+  if (showBootstrapGuard) {
+    return (
+      <div className="space-y-6">
+        <AnalyticsHeader ga4Connected={false} />
+        <LoadingSkeleton rows={4} />
+      </div>
+    );
+  }
+
   if (!ga4Connected) {
     return (
       <div className="space-y-6">
         <AnalyticsHeader ga4Connected={false} />
         <IntegrationEmptyState
           providerLabel="GA4"
-          status={ga4Status}
+          status={ga4View.status === "action_required" ? "error" : "disconnected"}
           title="Connect GA4 to unlock Analytics"
           description="Analytics insights are powered by your Google Analytics 4 property. Connect GA4 and select a property to get started."
         />

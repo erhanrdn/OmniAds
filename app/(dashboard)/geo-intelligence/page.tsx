@@ -4,9 +4,11 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAppStore } from "@/store/app-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
+import { buildDefaultProviderDomains, deriveProviderViewState } from "@/store/integrations-support";
 import { isDemoBusinessSelected } from "@/lib/business-mode";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { ErrorState } from "@/components/states/error-state";
+import { LoadingSkeleton } from "@/components/states/loading-skeleton";
 import {
   DateRangePicker,
   DateRangeValue,
@@ -21,6 +23,7 @@ import { GeoPagesSection } from "@/components/geo/GeoPagesSection";
 import { GeoQueriesSection } from "@/components/geo/GeoQueriesSection";
 import { GeoTopicsSection } from "@/components/geo/GeoTopicsSection";
 import { GeoOpportunitiesSection } from "@/components/geo/GeoOpportunitiesSection";
+import { useBusinessIntegrationsBootstrap } from "@/hooks/use-business-integrations-bootstrap";
 
 // ── Tabs ────────────────────────────────────────────────────────────
 
@@ -64,19 +67,29 @@ export default function GeoIntelligencePage() {
   const businesses = useAppStore((s) => s.businesses);
   const selectedBusinessId = useAppStore((s) => s.selectedBusinessId);
   const businessId = selectedBusinessId ?? "";
-
-  const ensureBusiness = useIntegrationsStore((s) => s.ensureBusiness);
-  const byBusinessId = useIntegrationsStore((s) => s.byBusinessId);
-
-  useEffect(() => {
-    if (selectedBusinessId) ensureBusiness(businessId);
-  }, [businessId, ensureBusiness, selectedBusinessId]);
-
-  const integrations = byBusinessId[businessId];
+  const domains = useIntegrationsStore((s) =>
+    selectedBusinessId ? s.domainsByBusinessId[selectedBusinessId] : undefined
+  );
+  const { isBootstrapping, bootstrapStatus } = useBusinessIntegrationsBootstrap(
+    selectedBusinessId ?? null
+  );
   const isDemoBusiness = isDemoBusinessSelected(selectedBusinessId, businesses);
-  const ga4Connected = integrations?.ga4?.status === "connected" || isDemoBusiness;
-  const scConnected = integrations?.search_console?.status === "connected" || isDemoBusiness;
+  const ga4View = deriveProviderViewState(
+    "ga4",
+    domains?.ga4 ?? buildDefaultProviderDomains().ga4
+  );
+  const scView = deriveProviderViewState(
+    "search_console",
+    domains?.search_console ?? buildDefaultProviderDomains().search_console
+  );
+  const ga4Connected = ga4View.isConnected || isDemoBusiness;
+  const scConnected = scView.isConnected || isDemoBusiness;
   const anyConnected = ga4Connected || scConnected;
+  const showBootstrapGuard =
+    !isDemoBusiness &&
+    (isBootstrapping ||
+      ((ga4View.status === "loading_data" || scView.status === "loading_data") && !anyConnected) ||
+      (bootstrapStatus !== "ready" && !anyConnected));
 
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [dateRange, setDateRange] = usePersistentDateRange();
@@ -132,6 +145,23 @@ export default function GeoIntelligencePage() {
   });
 
   if (!selectedBusinessId) return <BusinessEmptyState />;
+
+  if (showBootstrapGuard) {
+    return (
+      <div className="space-y-5">
+        <header className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-1">
+            <h1 className="text-3xl font-semibold tracking-tight">GEO Intelligence</h1>
+            <p className="text-sm text-muted-foreground max-w-xl">
+              Understand how generative engines and AI-assisted discovery surface your content,
+              which pages win attention, and where your next content opportunities are.
+            </p>
+          </div>
+        </header>
+        <LoadingSkeleton rows={4} />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">

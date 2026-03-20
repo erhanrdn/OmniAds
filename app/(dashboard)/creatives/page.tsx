@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { useAppStore } from "@/store/app-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
+import { buildDefaultProviderDomains, deriveProviderViewState } from "@/store/integrations-support";
 import { isDemoBusinessSelected } from "@/lib/business-mode";
 import { EmptyState } from "@/components/states/empty-state";
 import { IntegrationEmptyState } from "@/components/states/IntegrationEmptyState";
@@ -45,6 +46,7 @@ import {
   toCsv,
   toSharedCreative,
 } from "@/app/(dashboard)/creatives/page-support";
+import { useBusinessIntegrationsBootstrap } from "@/hooks/use-business-integrations-bootstrap";
 
 const CreativeDetailExperience = dynamic(
   () => import("@/components/creatives/CreativeDetailExperience").then((mod) => mod.CreativeDetailExperience),
@@ -63,20 +65,18 @@ export default function CreativesPage() {
   const selectedBusinessCurrency =
     businesses.find((business) => business.id === selectedBusinessId)?.currency ?? null;
 
-  const ensureBusiness = useIntegrationsStore((state) => state.ensureBusiness);
-  const byBusinessId = useIntegrationsStore((state) => state.byBusinessId);
+  const domains = useIntegrationsStore((state) =>
+    selectedBusinessId ? state.domainsByBusinessId[selectedBusinessId] : undefined
+  );
   const assignedAccountsByBusiness = useIntegrationsStore(
     (state) => state.assignedAccountsByBusiness
   );
   const setProviderAccounts = useIntegrationsStore((state) => state.setProviderAccounts);
   const setAssignedAccounts = useIntegrationsStore((state) => state.setAssignedAccounts);
 
-  useEffect(() => {
-    if (!selectedBusinessId) return;
-    ensureBusiness(businessId);
-  }, [businessId, ensureBusiness, selectedBusinessId]);
-
-  const integrations = byBusinessId[businessId];
+  const { isBootstrapping, bootstrapStatus } = useBusinessIntegrationsBootstrap(
+    selectedBusinessId ?? null
+  );
 
   const [dateRangeValue, setDateRangeValue] = usePersistentCreativeDateRange();
   const [groupBy, setGroupBy] = useState<CreativeGroupBy>("creative");
@@ -103,9 +103,17 @@ export default function CreativesPage() {
   const [csvError, setCsvError] = useState<string | null>(null);
 
   const platform: "meta" = "meta";
-  const platformStatus = integrations?.meta?.status;
+  const metaView = deriveProviderViewState(
+    "meta",
+    domains?.meta ?? buildDefaultProviderDomains().meta
+  );
   const isDemoBusiness = isDemoBusinessSelected(selectedBusinessId, businesses);
-  const platformConnected = platformStatus === "connected" || isDemoBusiness;
+  const platformConnected = metaView.isConnected || isDemoBusiness;
+  const showBootstrapGuard =
+    !isDemoBusiness &&
+    (isBootstrapping ||
+      metaView.status === "loading_data" ||
+      (bootstrapStatus !== "ready" && !metaView.isConnected));
   const [metaAssignmentsState, setMetaAssignmentsState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const assignedMetaAccounts = assignedAccountsByBusiness[businessId]?.meta ?? [];
   const metaHasAssignments = isDemoBusiness || assignedMetaAccounts.length > 0;
@@ -602,11 +610,15 @@ export default function CreativesPage() {
           );
         }
 
+        if (showBootstrapGuard) {
+          return <LoadingSkeleton rows={5} />;
+        }
+
         if (!platformConnected) {
           return (
             <IntegrationEmptyState
               providerLabel="Meta"
-              status={platformStatus}
+              status={metaView.status === "action_required" ? "error" : "disconnected"}
               description="Connect Meta to view creative performance"
             />
           );

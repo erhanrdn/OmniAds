@@ -103,6 +103,8 @@ function hasRenderableProviderViews(
 
 export default function IntegrationsPage() {
   const router = useRouter();
+  const hasHydrated = useAppStore((state) => state.hasHydrated);
+  const authBootstrapStatus = useAppStore((state) => state.authBootstrapStatus);
   const businesses = useAppStore((state) => state.businesses);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const businessId = selectedBusinessId;
@@ -359,6 +361,12 @@ export default function IntegrationsPage() {
     }
   }, [businessId, providerViews, viewStateLogCache]);
 
+  const isWorkspaceLoading =
+    !hasHydrated || authBootstrapStatus === "loading" || authBootstrapStatus === "idle";
+
+  if (!businessId && isWorkspaceLoading) {
+    return <IntegrationsPageSkeleton />;
+  }
   if (!businessId) return <BusinessEmptyState />;
   if ((!integrations || !domains) && isBootstrapping) {
     return <IntegrationsPageSkeleton />;

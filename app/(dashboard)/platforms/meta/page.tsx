@@ -28,6 +28,7 @@ import {
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { useAppStore } from "@/store/app-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
+import { deriveProviderViewState } from "@/store/integrations-support";
 import { isDemoBusinessSelected } from "@/lib/business-mode";
 import { IntegrationEmptyState } from "@/components/states/IntegrationEmptyState";
 import { LoadingSkeleton } from "@/components/states/loading-skeleton";
@@ -46,6 +47,7 @@ import { usePersistentDateRange } from "@/hooks/use-persistent-date-range";
 import { useCurrencySymbol } from "@/hooks/use-currency";
 import { MetaCampaignTable, type MetaCampaignTableRow } from "@/components/meta/meta-campaign-table";
 import { PlacementBreakdownChart } from "@/components/meta/placement-breakdown-chart";
+import { useBusinessIntegrationsBootstrap } from "@/hooks/use-business-integrations-bootstrap";
 
 // ── Data fetchers ─────────────────────────────────────────────────────────────
 
@@ -471,21 +473,42 @@ export default function MetaPage() {
   const businessId = selectedBusinessId ?? "";
   const sym = useCurrencySymbol();
 
-  const ensureBusiness = useIntegrationsStore((s) => s.ensureBusiness);
-  const byBusinessId = useIntegrationsStore((s) => s.byBusinessId);
-
-  useEffect(() => {
-    if (!selectedBusinessId) return;
-    ensureBusiness(businessId);
-  }, [businessId, ensureBusiness, selectedBusinessId]);
+  const domains = useIntegrationsStore((s) =>
+    selectedBusinessId ? s.domainsByBusinessId[selectedBusinessId] : undefined
+  );
+  const { isBootstrapping, bootstrapStatus } = useBusinessIntegrationsBootstrap(
+    selectedBusinessId ?? null
+  );
 
   const [dateRange, setDateRange] = usePersistentDateRange();
 
   if (!selectedBusinessId) return <BusinessEmptyState />;
 
-  const metaStatus = byBusinessId[businessId]?.meta?.status;
   const isDemoBusiness = isDemoBusinessSelected(selectedBusinessId, businesses);
-  const metaConnected = metaStatus === "connected" || isDemoBusiness;
+  const metaView = deriveProviderViewState("meta", domains?.meta ?? {
+    provider: "meta",
+    connection: { status: "disconnected" },
+    discovery: {
+      status: "idle",
+      entities: [],
+      source: null,
+      fetchedAt: null,
+      notice: null,
+      stale: false,
+      refreshFailed: false,
+    },
+    assignment: {
+      status: "idle",
+      selectedIds: [],
+      updatedAt: null,
+    },
+  });
+  const showBootstrapGuard =
+    !isDemoBusiness &&
+    (isBootstrapping ||
+      metaView.status === "loading_data" ||
+      (bootstrapStatus !== "ready" && !metaView.isConnected));
+  const metaConnected = metaView.isConnected || isDemoBusiness;
 
   const { start: startDate, end: endDate } = getPresetDates(
     dateRange.rangePreset,
@@ -576,12 +599,14 @@ export default function MetaPage() {
       </div>
 
       {/* ── Integration gate ─────────────────────────────────────────────── */}
-      {metaStatus === "connecting" && <LoadingSkeleton rows={4} />}
+      {showBootstrapGuard && <LoadingSkeleton rows={4} />}
 
-      {!metaConnected && metaStatus !== "connecting" && (
+      {!showBootstrapGuard && !metaConnected && (
         <IntegrationEmptyState
           providerLabel="Meta"
-          status={metaStatus}
+          status={
+            metaView.status === "action_required" ? "error" : "disconnected"
+          }
           description="View campaigns, ad sets, and creative insights once your Meta account is connected."
         />
       )}

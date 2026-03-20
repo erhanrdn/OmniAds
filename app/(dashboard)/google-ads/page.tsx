@@ -1,36 +1,55 @@
 "use client";
 
-import { useEffect } from "react";
 import { useAppStore } from "@/store/app-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
+import { buildDefaultProviderDomains, deriveProviderViewState } from "@/store/integrations-support";
 import { isDemoBusinessSelected } from "@/lib/business-mode";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { IntegrationEmptyState } from "@/components/states/IntegrationEmptyState";
+import { LoadingSkeleton } from "@/components/states/loading-skeleton";
 import { GoogleAdsIntelligenceDashboard } from "@/components/google-ads/GoogleAdsIntelligenceDashboard";
+import { useBusinessIntegrationsBootstrap } from "@/hooks/use-business-integrations-bootstrap";
 
 export default function GoogleAdsPage() {
   const businesses = useAppStore((state) => state.businesses);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
-  const ensureBusiness = useIntegrationsStore((state) => state.ensureBusiness);
-  const byBusinessId = useIntegrationsStore((state) => state.byBusinessId);
+  const domains = useIntegrationsStore((state) =>
+    selectedBusinessId ? state.domainsByBusinessId[selectedBusinessId] : undefined
+  );
 
   const businessId = selectedBusinessId ?? "";
-
-  useEffect(() => {
-    if (businessId) ensureBusiness(businessId);
-  }, [businessId, ensureBusiness]);
+  const { isBootstrapping, bootstrapStatus } = useBusinessIntegrationsBootstrap(
+    selectedBusinessId ?? null
+  );
 
   if (!selectedBusinessId) return <BusinessEmptyState />;
 
-  const googleStatus = byBusinessId[businessId]?.google?.status;
   const isDemoBusiness = isDemoBusinessSelected(selectedBusinessId, businesses);
-  const isConnected = googleStatus === "connected" || isDemoBusiness;
+  const googleView = deriveProviderViewState(
+    "google",
+    domains?.google ?? buildDefaultProviderDomains().google
+  );
+  const isConnected = googleView.isConnected || isDemoBusiness;
+  const showBootstrapGuard =
+    !isDemoBusiness &&
+    (isBootstrapping ||
+      googleView.status === "loading_data" ||
+      (bootstrapStatus !== "ready" && !googleView.isConnected));
+
+  if (showBootstrapGuard) {
+    return (
+      <div className="p-6">
+        <LoadingSkeleton rows={4} />
+      </div>
+    );
+  }
 
   if (!isConnected) {
     return (
       <div className="p-6">
         <IntegrationEmptyState
           providerLabel="Google Ads"
+          status={googleView.status === "action_required" ? "error" : "disconnected"}
           title="Connect Google Ads to unlock intelligence"
           description="Link your Google Ads account to see campaign performance, search intelligence, product return, Performance Max asset coverage, budget recommendations, and diagnostics."
         />

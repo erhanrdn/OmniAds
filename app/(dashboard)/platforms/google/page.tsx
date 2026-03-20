@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { useAppStore } from "@/store/app-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
+import { buildDefaultProviderDomains, deriveProviderViewState } from "@/store/integrations-support";
 import { IntegrationEmptyState } from "@/components/states/IntegrationEmptyState";
 import {
   GoogleAssetRow,
@@ -39,24 +40,31 @@ import {
   type DateRange,
 } from "@/app/(dashboard)/platforms/google/google-page-support";
 import { useGooglePageData } from "@/app/(dashboard)/platforms/google/google-page-hooks";
+import { useBusinessIntegrationsBootstrap } from "@/hooks/use-business-integrations-bootstrap";
 
 export default function GooglePage() {
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const businessId = selectedBusinessId ?? "";
   const sym = useCurrencySymbol();
 
-  const ensureBusiness = useIntegrationsStore((state) => state.ensureBusiness);
-  const byBusinessId = useIntegrationsStore((state) => state.byBusinessId);
-
-  useEffect(() => {
-    if (!selectedBusinessId) return;
-    ensureBusiness(businessId);
-  }, [businessId, ensureBusiness, selectedBusinessId]);
+  const domains = useIntegrationsStore((state) =>
+    selectedBusinessId ? state.domainsByBusinessId[selectedBusinessId] : undefined
+  );
+  const { isBootstrapping, bootstrapStatus } = useBusinessIntegrationsBootstrap(
+    selectedBusinessId ?? null
+  );
 
   if (!selectedBusinessId) return <BusinessEmptyState />;
 
-  const googleStatus = byBusinessId[businessId]?.google?.status;
-  const googleConnected = googleStatus === "connected";
+  const googleView = deriveProviderViewState(
+    "google",
+    domains?.google ?? buildDefaultProviderDomains().google
+  );
+  const googleConnected = googleView.isConnected;
+  const showBootstrapGuard =
+    isBootstrapping ||
+    googleView.status === "loading_data" ||
+    (bootstrapStatus !== "ready" && !googleView.isConnected);
 
   const [mainTab, setMainTab] = useState<MainTab>("campaigns");
   const [insightsTab, setInsightsTab] = useState<InsightsTab>("recommendations");
@@ -132,12 +140,12 @@ export default function GooglePage() {
         </div>
       )}
 
-      {googleStatus === "connecting" && <LoadingSkeleton rows={4} />}
+      {showBootstrapGuard && <LoadingSkeleton rows={4} />}
 
-      {!googleConnected && googleStatus !== "connecting" && (
+      {!showBootstrapGuard && !googleConnected && (
         <IntegrationEmptyState
           providerLabel="Google"
-          status={googleStatus}
+          status={googleView.status === "action_required" ? "error" : "disconnected"}
           description="View Search, Display, and Performance Max campaign data once your Google Ads account is connected."
         />
       )}
