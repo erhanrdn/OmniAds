@@ -8,6 +8,7 @@ import { useAppStore } from "@/store/app-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
 import { buildDefaultProviderDomains, deriveProviderViewState } from "@/store/integrations-support";
 import { useBusinessIntegrationsBootstrap } from "@/hooks/use-business-integrations-bootstrap";
+import { PlanGate } from "@/components/pricing/PlanGate";
 
 export default function KlaviyoPage() {
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
@@ -56,8 +57,10 @@ export default function KlaviyoPage() {
   }
 
   return (
-    <div className="h-full overflow-auto p-6">
-      <KlaviyoDashboard businessId={businessId} />
-    </div>
+    <PlanGate requiredPlan="pro">
+      <div className="h-full overflow-auto p-6">
+        <KlaviyoDashboard businessId={businessId} />
+      </div>
+    </PlanGate>
   );
 }

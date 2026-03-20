@@ -11,6 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { PlanGate } from "@/components/pricing/PlanGate";
 
 type TeamRole = "guest" | "collaborator" | "admin";
 type TeamTab = "members" | "invites";
@@ -209,6 +210,7 @@ export default function TeamPage() {
   };
 
   return (
+    <PlanGate requiredPlan="scale">
     <div className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
@@ -486,5 +488,6 @@ export default function TeamPage() {
         </div>
       ) : null}
     </div>
+    </PlanGate>
   );
 }

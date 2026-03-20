@@ -17,6 +17,7 @@ import {
 import { usePersistentDateRange } from "@/hooks/use-persistent-date-range";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { PlanGate } from "@/components/pricing/PlanGate";
 import { GeoOverviewSection } from "@/components/geo/GeoOverviewSection";
 import { AiTrafficSourcesSection } from "@/components/geo/AiTrafficSourcesSection";
 import { GeoPagesSection } from "@/components/geo/GeoPagesSection";
@@ -164,6 +165,7 @@ export default function GeoIntelligencePage() {
   }
 
   return (
+    <PlanGate requiredPlan="pro">
     <div className="space-y-5">
       {/* Page header */}
       <header className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -438,6 +440,7 @@ export default function GeoIntelligencePage() {
         </details>
       )}
     </div>
+    </PlanGate>
   );
 }
 

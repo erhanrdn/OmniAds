@@ -1,28 +1,22 @@
 export type PlanId = "starter" | "growth" | "pro" | "scale";
 
-export type PricingFeature =
-  | "basic_ad_dashboard"
-  | "creative_performance_insights"
-  | "copy_performance_insights"
-  | "limited_ai_recommendations"
-  | "limited_geo_intelligence"
-  | "basic_google_ads_insights"
-  | "full_ai_recommendations"
-  | "search_term_intelligence"
-  | "advanced_google_ads_insights"
-  | "geo_intelligence_insights"
-  | "export_reports"
-  | "creative_testing_insights"
-  | "advanced_ai_insights"
-  | "campaign_optimization_suggestions"
-  | "cross_platform_comparison"
-  | "advanced_geo_intelligence"
-  | "advanced_search_term_analysis"
+export type ModuleId =
+  | "overview"
+  | "creatives"
+  | "copies"
+  | "meta"
+  | "google_ads"
+  | "analytics"
+  | "landing_pages"
+  | "geo_intelligence"
+  | "seo_intelligence"
+  | "tiktok"
+  | "pinterest"
+  | "snapchat"
+  | "klaviyo"
   | "custom_reporting"
+  | "team_roles"
   | "agency_mode"
-  | "team_member_roles"
-  | "priority_support"
-  | "advanced_data_export"
   | "white_label_reports";
 
 export interface PlanLimits {
@@ -37,7 +31,7 @@ export interface PricingPlan {
   name: string;
   monthlyPrice: number;
   limits: PlanLimits;
-  enabledFeatures: PricingFeature[];
+  modules: ModuleId[];
 }
 
 export const PRICING_PLANS: Record<PlanId, PricingPlan> = {
@@ -47,39 +41,30 @@ export const PRICING_PLANS: Record<PlanId, PricingPlan> = {
     monthlyPrice: 0,
     limits: {
       adAccounts: 1,
-      analyticsHistoryDays: 14,
+      analyticsHistoryDays: 365,
       workspaces: 1,
       storeConnections: 1,
     },
-    enabledFeatures: [
-      "basic_ad_dashboard",
-      "creative_performance_insights",
-      "copy_performance_insights",
-      "limited_ai_recommendations",
-      "limited_geo_intelligence",
-      "basic_google_ads_insights",
-    ],
+    modules: ["overview"],
   },
   growth: {
     id: "growth",
     name: "Growth",
-    monthlyPrice: 39,
+    monthlyPrice: 49,
     limits: {
-      adAccounts: 3,
-      analyticsHistoryDays: 90,
+      adAccounts: null,
+      analyticsHistoryDays: 365,
       workspaces: 1,
-      storeConnections: 1,
+      storeConnections: 3,
     },
-    enabledFeatures: [
-      "basic_ad_dashboard",
-      "creative_performance_insights",
-      "copy_performance_insights",
-      "full_ai_recommendations",
-      "search_term_intelligence",
-      "advanced_google_ads_insights",
-      "geo_intelligence_insights",
-      "export_reports",
-      "creative_testing_insights",
+    modules: [
+      "overview",
+      "creatives",
+      "copies",
+      "meta",
+      "google_ads",
+      "analytics",
+      "landing_pages",
     ],
   },
   pro: {
@@ -90,21 +75,23 @@ export const PRICING_PLANS: Record<PlanId, PricingPlan> = {
       adAccounts: null,
       analyticsHistoryDays: null,
       workspaces: 3,
-      storeConnections: 3,
+      storeConnections: null,
     },
-    enabledFeatures: [
-      "basic_ad_dashboard",
-      "creative_performance_insights",
-      "copy_performance_insights",
-      "advanced_ai_insights",
-      "campaign_optimization_suggestions",
-      "cross_platform_comparison",
-      "advanced_geo_intelligence",
-      "advanced_search_term_analysis",
+    modules: [
+      "overview",
+      "creatives",
+      "copies",
+      "meta",
+      "google_ads",
+      "analytics",
+      "landing_pages",
+      "geo_intelligence",
+      "seo_intelligence",
+      "tiktok",
+      "pinterest",
+      "snapchat",
+      "klaviyo",
       "custom_reporting",
-      "export_reports",
-      "creative_testing_insights",
-      "advanced_google_ads_insights",
     ],
   },
   scale: {
@@ -117,23 +104,23 @@ export const PRICING_PLANS: Record<PlanId, PricingPlan> = {
       workspaces: null,
       storeConnections: null,
     },
-    enabledFeatures: [
-      "basic_ad_dashboard",
-      "creative_performance_insights",
-      "copy_performance_insights",
-      "advanced_ai_insights",
-      "campaign_optimization_suggestions",
-      "cross_platform_comparison",
-      "advanced_geo_intelligence",
-      "advanced_search_term_analysis",
+    modules: [
+      "overview",
+      "creatives",
+      "copies",
+      "meta",
+      "google_ads",
+      "analytics",
+      "landing_pages",
+      "geo_intelligence",
+      "seo_intelligence",
+      "tiktok",
+      "pinterest",
+      "snapchat",
+      "klaviyo",
       "custom_reporting",
-      "export_reports",
-      "creative_testing_insights",
-      "advanced_google_ads_insights",
+      "team_roles",
       "agency_mode",
-      "team_member_roles",
-      "priority_support",
-      "advanced_data_export",
       "white_label_reports",
     ],
   },
@@ -145,22 +132,13 @@ export function getPlan(plan: PlanId | PricingPlan): PricingPlan {
   return typeof plan === "string" ? PRICING_PLANS[plan] : plan;
 }
 
-export interface PricingPlanUiMeta {
-  id: PlanId;
-  name: string;
-  monthlyPrice: number;
-  limits: PlanLimits;
-  enabledFeatures: PricingFeature[];
+export function planHasModule(plan: PlanId, module: ModuleId): boolean {
+  return PRICING_PLANS[plan].modules.includes(module);
 }
 
-export const PRICING_PLAN_METADATA: PricingPlanUiMeta[] = PLAN_ORDER.map((id) => {
-  const plan = PRICING_PLANS[id];
-  return {
-    id: plan.id,
-    name: plan.name,
-    monthlyPrice: plan.monthlyPrice,
-    limits: plan.limits,
-    enabledFeatures: plan.enabledFeatures,
-  };
-});
-
+export function minPlanForModule(module: ModuleId): PlanId {
+  for (const id of PLAN_ORDER) {
+    if (PRICING_PLANS[id].modules.includes(module)) return id;
+  }
+  return "scale";
+}

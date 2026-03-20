@@ -12,6 +12,7 @@ import { ErrorState } from "@/components/states/error-state";
 import { EmptyState } from "@/components/states/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { X } from "lucide-react";
+import { PlanGate } from "@/components/pricing/PlanGate";
 
 type DateRangeFilter = "7d" | "30d";
 
@@ -48,6 +49,7 @@ export default function LandingPagesPage() {
   if (!selectedBusinessId) return <BusinessEmptyState />;
 
   return (
+    <PlanGate requiredPlan="growth">
     <div className="space-y-5">
       <div className="space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight">Landing Pages</h1>
@@ -215,5 +217,6 @@ export default function LandingPagesPage() {
         </div>
       )}
     </div>
+    </PlanGate>
   );
 }

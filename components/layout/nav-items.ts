@@ -18,30 +18,32 @@ import {
   Settings,
   type LucideIcon,
 } from "lucide-react";
+import type { PlanId } from "@/lib/pricing/plans";
 
 export interface NavItem {
   label: string;
   href: string;
   icon: LucideIcon;
   group?: string;
+  requiredPlan?: PlanId;
 }
 
 export const navItems: NavItem[] = [
   { label: "Overview", href: "/overview", icon: LayoutDashboard, group: "Main" },
-  { label: "Meta", href: "/platforms/meta", icon: Facebook, group: "Platforms" },
-  { label: "Google Ads", href: "/google-ads", icon: Search, group: "Platforms" },
-  { label: "TikTok", href: "/platforms/tiktok", icon: Music2, group: "Platforms" },
-  { label: "Pinterest", href: "/platforms/pinterest", icon: Image, group: "Platforms" },
-  { label: "Snapchat", href: "/platforms/snapchat", icon: Ghost, group: "Platforms" },
-  { label: "Klaviyo", href: "/platforms/klaviyo", icon: Mail, group: "Platforms" },
-  { label: "Analytics", href: "/analytics", icon: LineChart, group: "Platforms" },
-  { label: "GEO Intelligence", href: "/geo-intelligence", icon: BrainCircuit, group: "Platforms" },
-  { label: "SEO Intelligence", href: "/seo-intelligence", icon: SearchCheck, group: "Platforms" },
-  { label: "Creatives", href: "/creatives", icon: Palette, group: "Assets" },
-  { label: "Landing Pages", href: "/landing-pages", icon: Globe, group: "Assets" },
-  { label: "Copies", href: "/copies", icon: FileText, group: "Assets" },
-  { label: "Reports", href: "/reports", icon: BarChart3, group: "Manage" },
+  { label: "Meta", href: "/platforms/meta", icon: Facebook, group: "Platforms", requiredPlan: "growth" },
+  { label: "Google Ads", href: "/google-ads", icon: Search, group: "Platforms", requiredPlan: "growth" },
+  { label: "TikTok", href: "/platforms/tiktok", icon: Music2, group: "Platforms", requiredPlan: "pro" },
+  { label: "Pinterest", href: "/platforms/pinterest", icon: Image, group: "Platforms", requiredPlan: "pro" },
+  { label: "Snapchat", href: "/platforms/snapchat", icon: Ghost, group: "Platforms", requiredPlan: "pro" },
+  { label: "Klaviyo", href: "/platforms/klaviyo", icon: Mail, group: "Platforms", requiredPlan: "pro" },
+  { label: "Analytics", href: "/analytics", icon: LineChart, group: "Platforms", requiredPlan: "growth" },
+  { label: "GEO Intelligence", href: "/geo-intelligence", icon: BrainCircuit, group: "Platforms", requiredPlan: "pro" },
+  { label: "SEO Intelligence", href: "/seo-intelligence", icon: SearchCheck, group: "Platforms", requiredPlan: "pro" },
+  { label: "Creatives", href: "/creatives", icon: Palette, group: "Assets", requiredPlan: "growth" },
+  { label: "Landing Pages", href: "/landing-pages", icon: Globe, group: "Assets", requiredPlan: "growth" },
+  { label: "Copies", href: "/copies", icon: FileText, group: "Assets", requiredPlan: "growth" },
+  { label: "Reports", href: "/reports", icon: BarChart3, group: "Manage", requiredPlan: "pro" },
   { label: "Integrations", href: "/integrations", icon: Plug, group: "Manage" },
-  { label: "Team", href: "/team", icon: Users, group: "Manage" },
+  { label: "Team", href: "/team", icon: Users, group: "Manage", requiredPlan: "scale" },
   { label: "Settings", href: "/settings", icon: Settings, group: "Manage" },
 ];

@@ -48,6 +48,7 @@ import { useCurrencySymbol } from "@/hooks/use-currency";
 import { MetaCampaignTable, type MetaCampaignTableRow } from "@/components/meta/meta-campaign-table";
 import { PlacementBreakdownChart } from "@/components/meta/placement-breakdown-chart";
 import { useBusinessIntegrationsBootstrap } from "@/hooks/use-business-integrations-bootstrap";
+import { PlanGate } from "@/components/pricing/PlanGate";
 
 // ── Data fetchers ─────────────────────────────────────────────────────────────
 
@@ -584,6 +585,7 @@ export default function MetaPage() {
   }, [campaignsQuery.data?.rows, comparisonCampaignsQuery.data?.rows, comparisonWindow]);
 
   return (
+    <PlanGate requiredPlan="growth">
     <div className="space-y-5">
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between gap-4">
@@ -858,5 +860,6 @@ export default function MetaPage() {
         </>
       )}
     </div>
+    </PlanGate>
   );
 }

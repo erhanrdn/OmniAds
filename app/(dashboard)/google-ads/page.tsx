@@ -9,6 +9,7 @@ import { IntegrationEmptyState } from "@/components/states/IntegrationEmptyState
 import { LoadingSkeleton } from "@/components/states/loading-skeleton";
 import { GoogleAdsIntelligenceDashboard } from "@/components/google-ads/GoogleAdsIntelligenceDashboard";
 import { useBusinessIntegrationsBootstrap } from "@/hooks/use-business-integrations-bootstrap";
+import { PlanGate } from "@/components/pricing/PlanGate";
 
 export default function GoogleAdsPage() {
   const businesses = useAppStore((state) => state.businesses);
@@ -58,8 +59,10 @@ export default function GoogleAdsPage() {
   }
 
   return (
-    <div className="h-full overflow-auto p-6">
-      <GoogleAdsIntelligenceDashboard businessId={businessId} />
-    </div>
+    <PlanGate requiredPlan="growth">
+      <div className="h-full overflow-auto p-6">
+        <GoogleAdsIntelligenceDashboard businessId={businessId} />
+      </div>
+    </PlanGate>
   );
 }

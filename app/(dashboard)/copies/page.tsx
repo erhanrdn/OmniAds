@@ -19,6 +19,7 @@ import {
   resolveCreativeDateRange,
 } from "@/components/creatives/CreativesTopSection";
 import { usePersistentCreativeDateRange } from "@/hooks/use-persistent-date-range";
+import { PlanGate } from "@/components/pricing/PlanGate";
 import type { MetaCreativeRow, MetaCreativePreview } from "@/components/creatives/metricConfig";
 import { useAppStore } from "@/store/app-store";
 import type { MetaCopyApiRow } from "@/app/api/meta/copies/route";
@@ -318,6 +319,7 @@ export default function CopiesPage() {
   if (!selectedBusinessId) return <BusinessEmptyState />;
 
   return (
+    <PlanGate requiredPlan="growth">
     <div className="space-y-5">
       <div className="space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight">Copies</h1>
@@ -437,5 +439,6 @@ export default function CopiesPage() {
         </div>
       ) : null}
     </div>
+    </PlanGate>
   );
 }

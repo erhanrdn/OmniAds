@@ -26,6 +26,7 @@ import { CohortSection } from "@/components/analytics/CohortSection";
 import { OpportunityFlags } from "@/components/analytics/OpportunityFlags";
 import { cn } from "@/lib/utils";
 import { useBusinessIntegrationsBootstrap } from "@/hooks/use-business-integrations-bootstrap";
+import { PlanGate } from "@/components/pricing/PlanGate";
 
 type Tab =
   | "overview"
@@ -299,6 +300,7 @@ export default function AnalyticsPage() {
   const overviewError = overviewQuery.error;
 
   return (
+    <PlanGate requiredPlan="growth">
     <div className="space-y-5">
       <AnalyticsHeader
         ga4Connected={ga4Connected}
@@ -499,6 +501,7 @@ export default function AnalyticsPage() {
         )}
       </section>
     </div>
+    </PlanGate>
   );
 }
 

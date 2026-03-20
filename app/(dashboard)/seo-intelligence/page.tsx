@@ -16,6 +16,7 @@ import { useIntegrationsStore } from "@/store/integrations-store";
 import { buildDefaultProviderDomains, deriveProviderViewState } from "@/store/integrations-support";
 import { cn } from "@/lib/utils";
 import { useBusinessIntegrationsBootstrap } from "@/hooks/use-business-integrations-bootstrap";
+import { PlanGate } from "@/components/pricing/PlanGate";
 import {
   ConfirmedExcludedPagesList,
   EntityTable,
@@ -201,6 +202,7 @@ export default function SeoIntelligencePage() {
   }
 
   return (
+    <PlanGate requiredPlan="pro">
     <div className="space-y-5">
       <header className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1">
@@ -469,5 +471,6 @@ export default function SeoIntelligencePage() {
         </>
       )}
     </div>
+    </PlanGate>
   );
 }

@@ -8,6 +8,7 @@ import { TemplateMiniPreview, TemplateProviders } from "@/components/reports/tem
 import { Button } from "@/components/ui/button";
 import { useAppStore } from "@/store/app-store";
 import { CUSTOM_REPORT_TEMPLATES, type CustomReportRecord } from "@/lib/custom-reports";
+import { PlanGate } from "@/components/pricing/PlanGate";
 
 async function fetchReports(businessId: string) {
   const response = await fetch(`/api/reports?businessId=${encodeURIComponent(businessId)}`, {
@@ -100,6 +101,7 @@ export default function ReportsPage() {
   };
 
   return (
+    <PlanGate requiredPlan="pro">
     <div className="space-y-8">
       <section className="rounded-[32px] border bg-[radial-gradient(circle_at_top_left,_rgba(125,211,252,0.35),_transparent_35%),linear-gradient(135deg,#ffffff,#f7fafc)] p-8 shadow-sm">
         <div className="flex flex-wrap items-end justify-between gap-4">
@@ -249,5 +251,6 @@ export default function ReportsPage() {
         </div>
       </section>
     </div>
+    </PlanGate>
   );
 }

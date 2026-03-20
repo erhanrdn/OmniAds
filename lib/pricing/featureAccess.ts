@@ -1,10 +1,10 @@
-import { getPlan, PlanId, PricingFeature, PricingPlan } from "@/lib/pricing/plans";
+import { getPlan, PlanId, ModuleId, PricingPlan, planHasModule } from "@/lib/pricing/plans";
 
 type PlanInput = PlanId | PricingPlan;
 
-export function canAccessFeature(plan: PlanInput, feature: PricingFeature): boolean {
+export function canAccessModule(plan: PlanInput, module: ModuleId): boolean {
   const resolvedPlan = getPlan(plan);
-  return resolvedPlan.enabledFeatures.includes(feature);
+  return resolvedPlan.modules.includes(module);
 }
 
 export function canUseAccount(plan: PlanInput, accountCount: number): boolean {
@@ -13,4 +13,3 @@ export function canUseAccount(plan: PlanInput, accountCount: number): boolean {
   if (maxAccounts === null) return true;
   return accountCount <= maxAccounts;
 }
-

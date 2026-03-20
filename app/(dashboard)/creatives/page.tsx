@@ -47,6 +47,7 @@ import {
   toSharedCreative,
 } from "@/app/(dashboard)/creatives/page-support";
 import { useBusinessIntegrationsBootstrap } from "@/hooks/use-business-integrations-bootstrap";
+import { PlanGate } from "@/components/pricing/PlanGate";
 
 const CreativeDetailExperience = dynamic(
   () => import("@/components/creatives/CreativeDetailExperience").then((mod) => mod.CreativeDetailExperience),
@@ -582,6 +583,7 @@ export default function CreativesPage() {
   if (!selectedBusinessId) return <BusinessEmptyState />;
 
   return (
+    <PlanGate requiredPlan="growth">
     <div className="space-y-5">
       <div className="space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight">Top Creatives</h1>
@@ -751,5 +753,6 @@ export default function CreativesPage() {
         }
       />
     </div>
+    </PlanGate>
   );
 }
