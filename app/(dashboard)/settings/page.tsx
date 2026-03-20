@@ -8,6 +8,7 @@ import { useAppStore } from "@/store/app-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
 import { usePreferencesStore } from "@/store/preferences-store";
 import { clearAuthScopedClientState } from "@/lib/client-auth-state";
+import { PRICING_PLANS, PLAN_ORDER, type PlanId } from "@/lib/pricing/plans";
 import {
   ConfirmOverlay,
   SettingsActionRow,
@@ -79,6 +80,17 @@ export default function SettingsPage() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<WorkspaceRole>("collaborator");
 
+  const [billing, setBilling] = useState<{
+    connected: boolean;
+    planId: PlanId;
+    planName: string;
+    monthlyPrice: number;
+    status: string;
+    storeName: string | null;
+  } | null>(null);
+  const [billingLoading, setBillingLoading] = useState(false);
+  const [billingChanging, setBillingChanging] = useState(false);
+
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [savingWorkspace, setSavingWorkspace] = useState(false);
   const [savingAccount, setSavingAccount] = useState(false);
@@ -139,6 +151,22 @@ export default function SettingsPage() {
     }
   }, [selectedBusinessId]);
 
+  const loadBilling = useCallback(async () => {
+    if (!selectedBusinessId) return;
+    setBillingLoading(true);
+    try {
+      const response = await fetch(`/api/billing?businessId=${encodeURIComponent(selectedBusinessId)}`);
+      const data = await response.json().catch(() => null) as typeof billing | null;
+      if (response.ok && data) {
+        setBilling(data);
+      }
+    } catch {
+      // non-fatal, billing section will show fallback
+    } finally {
+      setBillingLoading(false);
+    }
+  }, [selectedBusinessId]);
+
   const loadProviderHealth = useCallback(async () => {
     if (!selectedBusinessId) return;
     const nextHealth: Record<string, { label: string; value: string }> = {};
@@ -172,7 +200,8 @@ export default function SettingsPage() {
     void loadWorkspaceRole();
     void loadTeam();
     void loadProviderHealth();
-  }, [loadProviderHealth, loadTeam, loadWorkspaceRole, selectedBusinessId]);
+    void loadBilling();
+  }, [loadBilling, loadProviderHealth, loadTeam, loadWorkspaceRole, selectedBusinessId]);
 
   const isWorkspaceAdmin = workspaceRole === "admin";
 
@@ -429,6 +458,32 @@ export default function SettingsPage() {
     }
   }
 
+  async function handlePlanChange(planId: PlanId) {
+    if (!selectedBusinessId) return;
+    setBillingChanging(true);
+    try {
+      const response = await fetch("/api/billing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ businessId: selectedBusinessId, planId }),
+      });
+      const data = await response.json().catch(() => null) as { confirmationUrl?: string; error?: string } | null;
+      if (!response.ok) {
+        throw new Error(data?.error ?? "Could not change plan.");
+      }
+      if (data?.confirmationUrl) {
+        window.location.href = data.confirmationUrl;
+      } else {
+        await loadBilling();
+        setToast({ type: "success", message: "Plan updated successfully." });
+      }
+    } catch (err: unknown) {
+      setToast({ type: "error", message: err instanceof Error ? err.message : "Could not change plan." });
+    } finally {
+      setBillingChanging(false);
+    }
+  }
+
   const inviteRows = useMemo(
     () => invites.filter((invite) => invite.status === "pending"),
     [invites]
@@ -472,6 +527,88 @@ export default function SettingsPage() {
           {toast.message}
         </div>
       ) : null}
+
+      <SettingsSection
+        title="Plan & Billing"
+        description="Manage your Adsecute subscription. Billing is handled through the Shopify App Store."
+      >
+        {billingLoading ? (
+          <p className="text-sm text-muted-foreground">Loading subscription details...</p>
+        ) : (
+          <div className="space-y-5">
+            {/* Current plan summary */}
+            <div className="rounded-xl border bg-background p-4">
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-semibold">
+                    {billing ? billing.planName : "Starter"} plan
+                    {billing?.monthlyPrice === 0 ? " — Free" : billing ? ` — $${billing.monthlyPrice}/month` : ""}
+                  </p>
+                  {billing?.connected && billing.storeName ? (
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Billed via Shopify store: {billing.storeName}
+                    </p>
+                  ) : (
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Connect your Shopify store to manage billing.
+                    </p>
+                  )}
+                </div>
+                <Badge variant="secondary" className="self-start sm:self-auto">
+                  {billing?.status === "active" ? "Active" : billing?.status ?? "Active"}
+                </Badge>
+              </div>
+            </div>
+
+            {/* Plan comparison */}
+            {billing?.connected ? (
+              <div>
+                <p className="mb-3 text-sm font-medium">Available plans</p>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  {PLAN_ORDER.map((planId) => {
+                    const plan = PRICING_PLANS[planId];
+                    const isCurrent = billing.planId === planId;
+                    return (
+                      <div
+                        key={planId}
+                        className={`rounded-xl border p-3 ${isCurrent ? "border-indigo-400 bg-indigo-50" : "border-border bg-background"}`}
+                      >
+                        <p className="text-sm font-semibold">{plan.name}</p>
+                        <p className="mt-0.5 text-sm text-muted-foreground">
+                          {plan.monthlyPrice === 0 ? "Free" : `$${plan.monthlyPrice}/mo`}
+                        </p>
+                        <div className="mt-3">
+                          {isCurrent ? (
+                            <span className="text-xs text-indigo-600 font-medium">Current plan</span>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="w-full text-xs"
+                              disabled={billingChanging}
+                              onClick={() => void handlePlanChange(planId)}
+                            >
+                              {billingChanging ? "Updating..." : plan.monthlyPrice > (billing.monthlyPrice ?? 0) ? "Upgrade" : "Downgrade"}
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Connect a Shopify store from the{" "}
+                <a href="/integrations" className="text-indigo-600 hover:underline">
+                  Integrations
+                </a>{" "}
+                page to manage your subscription.
+              </p>
+            )}
+          </div>
+        )}
+      </SettingsSection>
 
       <SettingsSection
         title="Workspace Settings"
