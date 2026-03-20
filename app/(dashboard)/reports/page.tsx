@@ -1,498 +1,253 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import Link from "next/link";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
-import { useAppStore } from "@/store/app-store";
-import {
-  getCreatives,
-  getLandingPages,
-  getOverview,
-  getPlatformTable,
-} from "@/src/services";
-import { Platform, PlatformLevel } from "@/src/types";
-import { LoadingSkeleton } from "@/components/states/loading-skeleton";
-import { ErrorState } from "@/components/states/error-state";
-import { Badge } from "@/components/ui/badge";
+import { TemplateMiniPreview, TemplateProviders } from "@/components/reports/template-mini-preview";
 import { Button } from "@/components/ui/button";
-import { X } from "lucide-react";
+import { useAppStore } from "@/store/app-store";
+import { CUSTOM_REPORT_TEMPLATES, type CustomReportRecord } from "@/lib/custom-reports";
 
-type SectionKey =
-  | "kpis"
-  | "platformTable"
-  | "trend"
-  | "topCreatives"
-  | "topLandingPages";
-type DateRangePreset = "7d" | "30d";
-type PlatformFilter = "all" | Platform;
-
-interface ReportTemplate {
-  id: string;
-  name: string;
-  sections: SectionKey[];
-  dateRange: DateRangePreset;
-  platform: PlatformFilter;
-  logoFileName: string;
+async function fetchReports(businessId: string) {
+  const response = await fetch(`/api/reports?businessId=${encodeURIComponent(businessId)}`, {
+    cache: "no-store",
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error((payload as { message?: string } | null)?.message ?? "Failed to load reports.");
+  }
+  return (payload as { reports: CustomReportRecord[] }).reports;
 }
 
-const TEMPLATE_STORAGE_KEY = "omniads.report.templates.v1";
-
-const SECTION_OPTIONS: Array<{ key: SectionKey; label: string }> = [
-  { key: "kpis", label: "KPIs" },
-  { key: "platformTable", label: "Platform table" },
-  { key: "trend", label: "Trend" },
-  { key: "topCreatives", label: "Top creatives" },
-  { key: "topLandingPages", label: "Top landing pages" },
-];
-
-const DEFAULT_SECTIONS: SectionKey[] = [
-  "kpis",
-  "platformTable",
-  "trend",
-  "topCreatives",
-  "topLandingPages",
-];
-
-const PLATFORM_OPTIONS: Array<{ value: PlatformFilter; label: string }> = [
-  { value: "all", label: "All platforms" },
-  { value: Platform.META, label: "Meta" },
-  { value: Platform.GOOGLE, label: "Google" },
-  { value: Platform.TIKTOK, label: "TikTok" },
-  { value: Platform.PINTEREST, label: "Pinterest" },
-  { value: Platform.SNAPCHAT, label: "Snapchat" },
-];
-
 export default function ReportsPage() {
+  const businesses = useAppStore((state) => state.businesses);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const businessId = selectedBusinessId ?? "";
+  const queryClient = useQueryClient();
+  const business = businesses.find((item) => item.id === selectedBusinessId) ?? null;
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [busyReportId, setBusyReportId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortMode, setSortMode] = useState<"recent" | "name">("recent");
 
-  const [selectedSections, setSelectedSections] =
-    useState<SectionKey[]>(DEFAULT_SECTIONS);
-  const [dateRange, setDateRange] = useState<DateRangePreset>("30d");
-  const [platform, setPlatform] = useState<PlatformFilter>("all");
-  const [logoFileName, setLogoFileName] = useState("");
-  const [templates, setTemplates] = useState<ReportTemplate[]>([]);
-  const [templateName, setTemplateName] = useState("");
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
-  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-
-  const range = useMemo(() => {
-    if (dateRange === "7d") {
-      return { startDate: "2026-02-27", endDate: "2026-03-05" };
-    }
-    return { startDate: "2026-02-04", endDate: "2026-03-05" };
-  }, [dateRange]);
-
-  const overviewQuery = useQuery({
-    queryKey: ["report-overview", businessId, range],
+  const reportsQuery = useQuery({
+    queryKey: ["custom-reports", businessId],
     enabled: Boolean(selectedBusinessId),
-    queryFn: () => getOverview(businessId, range),
+    queryFn: () => fetchReports(businessId),
   });
-
-  const creativesQuery = useQuery({
-    queryKey: ["report-creatives", businessId, platform, dateRange],
-    enabled: Boolean(selectedBusinessId),
-    queryFn: () =>
-      getCreatives(businessId, {
-        dateRange,
-        platforms: platform === "all" ? [] : [platform],
-        sortBy: "roas",
-      }),
-  });
-
-  const landingPagesQuery = useQuery({
-    queryKey: ["report-landing-pages", businessId, platform, dateRange],
-    enabled: Boolean(selectedBusinessId),
-    queryFn: () =>
-      getLandingPages(businessId, {
-        dateRange,
-        platform: platform === "all" ? undefined : platform,
-      }),
-  });
-
-  const platformTableQuery = useQuery({
-    queryKey: ["report-platform-table", businessId, platform, range],
-    enabled: Boolean(selectedBusinessId) && platform !== "all",
-    queryFn: () =>
-      getPlatformTable(
-        platform as Platform,
-        PlatformLevel.CAMPAIGN,
-        businessId,
-        null,
-        range,
-        ["spend", "purchases", "revenue", "roas", "cpa"]
-      ),
+  const reports = reportsQuery.data ?? [];
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const filteredReports = (normalizedQuery
+    ? reports.filter((report) => {
+        const category =
+          CUSTOM_REPORT_TEMPLATES.find((template) => template.id === report.templateId)?.category ?? "";
+        return [report.name, report.description ?? "", category]
+          .join(" ")
+          .toLowerCase()
+          .includes(normalizedQuery);
+      })
+    : reports
+  ).slice().sort((left, right) => {
+    if (sortMode === "name") return left.name.localeCompare(right.name);
+    return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
   });
 
   if (!selectedBusinessId) return <BusinessEmptyState />;
 
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(TEMPLATE_STORAGE_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as ReportTemplate[];
-      if (Array.isArray(parsed)) setTemplates(parsed);
-    } catch {
-      setTemplates([]);
+  const invalidateReports = async () => {
+    await queryClient.invalidateQueries({ queryKey: ["custom-reports", businessId] });
+  };
+
+  const handleDuplicate = async (report: CustomReportRecord) => {
+    setBusyReportId(report.id);
+    setActionMessage(null);
+    const response = await fetch("/api/reports", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        businessId,
+        name: `${report.name} Copy`,
+        description: report.description,
+        templateId: report.templateId,
+        definition: report.definition,
+      }),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      setActionMessage((payload as { message?: string } | null)?.message ?? "Failed to duplicate report.");
+      setBusyReportId(null);
+      return;
     }
-  }, []);
-
-  const saveTemplates = (next: ReportTemplate[]) => {
-    setTemplates(next);
-    localStorage.setItem(TEMPLATE_STORAGE_KEY, JSON.stringify(next));
+    await invalidateReports();
+    setBusyReportId(null);
+    setActionMessage("Report duplicated.");
   };
 
-  const toggleSection = (section: SectionKey) => {
-    setSelectedSections((prev) =>
-      prev.includes(section) ? prev.filter((item) => item !== section) : [...prev, section]
-    );
+  const handleDelete = async (reportId: string) => {
+    setBusyReportId(reportId);
+    setActionMessage(null);
+    const response = await fetch(`/api/reports/${reportId}`, { method: "DELETE" });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      setActionMessage((payload as { message?: string } | null)?.message ?? "Failed to delete report.");
+      setBusyReportId(null);
+      return;
+    }
+    await invalidateReports();
+    setBusyReportId(null);
+    setActionMessage("Report deleted.");
   };
-
-  const handleSaveTemplate = () => {
-    const name = templateName.trim() || `Template ${templates.length + 1}`;
-    const nextTemplate: ReportTemplate = {
-      id: crypto.randomUUID(),
-      name,
-      sections: selectedSections,
-      dateRange,
-      platform,
-      logoFileName,
-    };
-    const next = [nextTemplate, ...templates];
-    saveTemplates(next);
-    setTemplateName("");
-    setSelectedTemplateId(nextTemplate.id);
-  };
-
-  const handleLoadTemplate = (id: string) => {
-    setSelectedTemplateId(id);
-    const template = templates.find((item) => item.id === id);
-    if (!template) return;
-    setSelectedSections(template.sections);
-    setDateRange(template.dateRange);
-    setPlatform(template.platform);
-    setLogoFileName(template.logoFileName);
-  };
-
-  const isLoading =
-    overviewQuery.isLoading ||
-    creativesQuery.isLoading ||
-    landingPagesQuery.isLoading ||
-    (platform !== "all" && platformTableQuery.isLoading);
-  const isError =
-    overviewQuery.isError ||
-    creativesQuery.isError ||
-    landingPagesQuery.isError ||
-    (platform !== "all" && platformTableQuery.isError);
-
-  if (isLoading) {
-    return <LoadingSkeleton rows={5} />;
-  }
-
-  if (isError) {
-    return (
-      <ErrorState
-        onRetry={() => {
-          overviewQuery.refetch();
-          creativesQuery.refetch();
-          landingPagesQuery.refetch();
-          platformTableQuery.refetch();
-        }}
-      />
-    );
-  }
-
-  const overview = overviewQuery.data;
-  if (!overview) return null;
-
-  const topCreatives = (creativesQuery.data ?? []).slice(0, 4);
-  const topLandingPages = [...(landingPagesQuery.data ?? [])]
-    .sort((a, b) => b.revenue - a.revenue)
-    .slice(0, 4);
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[260px_minmax(0,1fr)_320px]">
-      <aside className="rounded-2xl border bg-card p-4">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          Sections
-        </h2>
-        <div className="mt-3 space-y-2">
-          {SECTION_OPTIONS.map((section) => (
-            <button
-              key={section.key}
-              type="button"
-              onClick={() => toggleSection(section.key)}
-              className="flex w-full items-center justify-between rounded-lg border px-3 py-2 text-sm"
-            >
-              <span>{section.label}</span>
-              <input type="checkbox" readOnly checked={selectedSections.includes(section.key)} />
-            </button>
-          ))}
-        </div>
-      </aside>
-
-      <section className="rounded-2xl border bg-muted/20 p-4">
-        <div className="mx-auto w-full max-w-[780px]">
-          <div className="mb-3 text-xs text-muted-foreground">Report Preview (A4)</div>
-          <article className="mx-auto aspect-[210/297] w-full overflow-y-auto rounded-md border bg-white p-7 text-black shadow-sm">
-            <div className="mb-6 flex items-start justify-between">
-              <div>
-                <h1 className="text-2xl font-semibold tracking-tight">Performance Report</h1>
-                <p className="text-sm text-neutral-600">
-                  {range.startDate} to {range.endDate}
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="text-xs text-neutral-500">Platform</p>
-                <p className="text-sm font-medium capitalize">
-                  {platform === "all" ? "All" : platform}
-                </p>
-                <p className="mt-1 text-xs text-neutral-500">
-                  Logo: {logoFileName || "placeholder"}
-                </p>
-              </div>
-            </div>
-
-            {selectedSections.includes("kpis") && (
-              <section className="mb-6">
-                <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-600">
-                  KPIs
-                </h3>
-                <div className="grid grid-cols-3 gap-3">
-                  <PreviewMetric label="Spend" value={`$${overview.kpis.spend.toLocaleString()}`} />
-                  <PreviewMetric
-                    label="Revenue"
-                    value={`$${overview.kpis.revenue.toLocaleString()}`}
-                  />
-                  <PreviewMetric label="ROAS" value={overview.kpis.roas.toFixed(2)} />
-                </div>
-              </section>
-            )}
-
-            {selectedSections.includes("platformTable") && (
-              <section className="mb-6">
-                <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-600">
-                  Platform Table
-                </h3>
-                <table className="min-w-full text-xs">
-                  <thead>
-                    <tr className="border-b text-left text-neutral-500">
-                      <th className="py-1.5">Name</th>
-                      <th className="py-1.5">Spend</th>
-                      <th className="py-1.5">Revenue</th>
-                      <th className="py-1.5">ROAS</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(platform === "all"
-                      ? overview.platformEfficiency.map((item) => ({
-                          id: item.platform,
-                          name: item.platform,
-                          spend: item.spend,
-                          revenue: item.revenue,
-                          roas: item.roas,
-                        }))
-                      : (platformTableQuery.data ?? []).map((item) => ({
-                          id: item.id,
-                          name: item.name,
-                          spend: item.metrics.spend ?? 0,
-                          revenue: item.metrics.revenue ?? 0,
-                          roas: item.metrics.roas ?? 0,
-                        }))
-                    )
-                      .slice(0, 5)
-                      .map((row) => (
-                        <tr key={row.id} className="border-b last:border-0">
-                          <td className="py-1.5 capitalize">{row.name}</td>
-                          <td className="py-1.5">${row.spend.toLocaleString()}</td>
-                          <td className="py-1.5">${row.revenue.toLocaleString()}</td>
-                          <td className="py-1.5">{row.roas.toFixed(2)}</td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
-              </section>
-            )}
-
-            {selectedSections.includes("trend") && (
-              <section className="mb-6">
-                <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-600">
-                  Trend
-                </h3>
-                <div className="grid grid-cols-4 gap-2">
-                  {(dateRange === "7d" ? overview.trends["7d"] : overview.trends["30d"])
-                    .slice(0, 4)
-                    .map((point) => (
-                      <div key={point.label} className="rounded border p-2">
-                        <p className="text-[10px] text-neutral-500">{point.label}</p>
-                        <p className="mt-1 text-xs font-medium">
-                          ${point.revenue.toLocaleString()}
-                        </p>
-                      </div>
-                    ))}
-                </div>
-              </section>
-            )}
-
-            {selectedSections.includes("topCreatives") && (
-              <section className="mb-6">
-                <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-600">
-                  Top Creatives
-                </h3>
-                <div className="space-y-1.5 text-xs">
-                  {topCreatives.map((item) => (
-                    <div key={item.id} className="flex items-center justify-between">
-                      <span>{item.headline}</span>
-                      <span className="text-neutral-500">ROAS {item.metrics.roas.toFixed(2)}</span>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {selectedSections.includes("topLandingPages") && (
-              <section>
-                <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-600">
-                  Top Landing Pages
-                </h3>
-                <div className="space-y-1.5 text-xs">
-                  {topLandingPages.map((item) => (
-                    <div key={item.id} className="flex items-center justify-between">
-                      <span className="truncate pr-3">{item.url}</span>
-                      <span className="text-neutral-500">{item.roas.toFixed(2)} ROAS</span>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
-          </article>
+    <div className="space-y-8">
+      <section className="rounded-[32px] border bg-[radial-gradient(circle_at_top_left,_rgba(125,211,252,0.35),_transparent_35%),linear-gradient(135deg,#ffffff,#f7fafc)] p-8 shadow-sm">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div className="max-w-2xl space-y-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
+              Custom Reporting
+            </p>
+            <h1 className="text-4xl font-semibold tracking-tight text-slate-950">
+              Build one-click reports for {business?.name ?? "this business"}
+            </h1>
+            <p className="text-sm leading-6 text-slate-600">
+              Save reusable report formats under each business, start from a template, then share
+              the final output as a public link or export table widgets as CSV.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <Button asChild size="lg">
+              <Link href="/reports/new">Create Blank Report</Link>
+            </Button>
+          </div>
         </div>
       </section>
 
-      <aside className="space-y-4 rounded-2xl border bg-card p-4">
-        <div>
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            Filters
-          </h2>
-          <div className="mt-3 space-y-3">
-            <div className="inline-flex rounded-md border bg-muted/40 p-1">
-              {(["7d", "30d"] as const).map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  onClick={() => setDateRange(item)}
-                  className={`rounded px-2.5 py-1 text-xs font-medium uppercase ${
-                    dateRange === item
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground"
-                  }`}
-                >
-                  {item}
-                </button>
-              ))}
+      <section className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1.4fr)]">
+        <div className="rounded-[28px] border bg-white p-6 shadow-sm">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-semibold">Saved Reports</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Every saved report belongs to the active business.
+              </p>
             </div>
-
-            <select
-              value={platform}
-              onChange={(event) => setPlatform(event.target.value as PlatformFilter)}
-              className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-            >
-              {PLATFORM_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-
-            <div className="rounded-lg border border-dashed p-3">
-              <p className="text-xs text-muted-foreground">Logo upload placeholder</p>
-              <input
-                type="file"
-                accept="image/*"
-                className="mt-2 block w-full text-xs"
-                onChange={(event) =>
-                  setLogoFileName(event.target.files?.[0]?.name ?? "")
-                }
-              />
-              {logoFileName && (
-                <Badge className="mt-2" variant="secondary">
-                  {logoFileName}
-                </Badge>
-              )}
-            </div>
+            {actionMessage ? <p className="text-sm text-slate-500">{actionMessage}</p> : null}
           </div>
-        </div>
-
-        <div>
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            Templates
-          </h2>
-          <div className="mt-3 space-y-2">
+          <div className="mt-4 flex flex-wrap gap-3">
             <input
-              value={templateName}
-              onChange={(event) => setTemplateName(event.target.value)}
-              placeholder="Template name"
-              className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search reports..."
+              className="min-w-[220px] rounded-xl border px-3 py-2 text-sm"
             />
-            <Button className="w-full" onClick={handleSaveTemplate}>
-              Save Template
-            </Button>
-
             <select
-              value={selectedTemplateId}
-              onChange={(event) => handleLoadTemplate(event.target.value)}
-              className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+              value={sortMode}
+              onChange={(event) => setSortMode(event.target.value as "recent" | "name")}
+              className="rounded-xl border px-3 py-2 text-sm"
             >
-              <option value="">Load template</option>
-              {templates.map((template) => (
-                <option key={template.id} value={template.id}>
-                  {template.name}
-                </option>
-              ))}
+              <option value="recent">Sort: Recently updated</option>
+              <option value="name">Sort: Name</option>
             </select>
           </div>
+
+          {reportsQuery.isLoading ? (
+            <div className="mt-6 rounded-2xl border border-dashed p-10 text-sm text-muted-foreground">
+              Loading saved reports...
+            </div>
+          ) : reportsQuery.error ? (
+            <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">
+              {reportsQuery.error instanceof Error ? reportsQuery.error.message : "Failed to load reports."}
+            </div>
+          ) : reports.length === 0 ? (
+            <div className="mt-6 rounded-2xl border border-dashed p-10 text-sm text-muted-foreground">
+              No saved reports yet. Start from a template or create a blank report.
+            </div>
+          ) : filteredReports.length === 0 ? (
+            <div className="mt-6 rounded-2xl border border-dashed p-10 text-sm text-muted-foreground">
+              No reports match this search yet.
+            </div>
+          ) : (
+            <div className="mt-6 space-y-3">
+              {filteredReports.map((report) => (
+                <div
+                  key={report.id}
+                  className="rounded-[28px] border px-4 py-4 transition hover:border-slate-400 hover:bg-slate-50"
+                >
+                  <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_180px]">
+                    <Link href={`/reports/${report.id}`} className="block">
+                      <h3 className="text-base font-semibold text-slate-950">{report.name}</h3>
+                      <p className="mt-1 text-sm text-slate-500">
+                        {report.description || "No description yet."}
+                      </p>
+                      <p className="mt-3 text-xs text-slate-400">
+                        Updated {new Date(report.updatedAt).toLocaleString()}
+                      </p>
+                    </Link>
+                    <Link href={`/reports/${report.id}`} className="block">
+                      <TemplateMiniPreview definition={report.definition} />
+                    </Link>
+                  </div>
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
+                      {report.definition?.widgets?.length ?? 0} widgets
+                    </span>
+                    <div className="flex flex-wrap gap-2">
+                      <Button asChild variant="outline" size="sm">
+                        <Link href={`/reports/${report.id}`}>Edit</Link>
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleDuplicate(report)}
+                        disabled={busyReportId === report.id}
+                      >
+                        Duplicate
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleDelete(report.id)}
+                        disabled={busyReportId === report.id}
+                      >
+                        Delete
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
-        <Button className="w-full" onClick={() => setIsExportModalOpen(true)}>
-          Export
-        </Button>
-      </aside>
-
-      {isExportModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-xl border bg-background p-5 shadow-xl">
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-base font-semibold">Print / Save PDF</h3>
-              <button
-                type="button"
-                className="rounded-md p-1 text-muted-foreground hover:bg-muted"
-                onClick={() => setIsExportModalOpen(false)}
-                aria-label="Close export modal"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              Export action is a placeholder. Use browser print dialog to save as PDF.
+        <div className="rounded-[28px] border bg-white p-6 shadow-sm">
+          <div>
+            <h2 className="text-xl font-semibold">Template Gallery</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Start with a one-click structure, then customize every widget and slot.
             </p>
-            <div className="mt-4 flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setIsExportModalOpen(false)}>
-                Cancel
-              </Button>
-              <Button onClick={() => window.print()}>Print</Button>
-            </div>
+          </div>
+          <div className="mt-6 grid gap-4 md:grid-cols-2">
+            {CUSTOM_REPORT_TEMPLATES.map((template) => (
+              <Link
+                key={template.id}
+                href={`/reports/new?template=${template.id}`}
+                className={`rounded-[28px] border bg-gradient-to-br ${template.accent} p-5 transition hover:-translate-y-0.5 hover:shadow-md`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <span className="rounded-full bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-600">
+                    {template.category}
+                  </span>
+                  <TemplateProviders template={template} />
+                </div>
+                <TemplateMiniPreview definition={template.definition} className="mt-8" />
+                <h3 className="mt-5 text-lg font-semibold text-slate-950">{template.name}</h3>
+                <p className="mt-2 text-sm leading-6 text-slate-600">{template.description}</p>
+              </Link>
+            ))}
           </div>
         </div>
-      )}
-    </div>
-  );
-}
-
-function PreviewMetric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded border px-2 py-2">
-      <p className="text-[10px] uppercase tracking-wide text-neutral-500">{label}</p>
-      <p className="mt-0.5 text-sm font-semibold">{value}</p>
+      </section>
     </div>
   );
 }

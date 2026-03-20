@@ -297,6 +297,42 @@ export async function runMigrations(options?: {
     ON creative_share_snapshots (token)
   `;
 
+      // ── custom reports table ────────────────────────────────────────
+      await sql`
+    CREATE TABLE IF NOT EXISTS custom_reports (
+      id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      business_id  TEXT NOT NULL,
+      name         TEXT NOT NULL,
+      description  TEXT,
+      template_id  TEXT,
+      definition   JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+
+      await sql`
+    CREATE INDEX IF NOT EXISTS idx_custom_reports_business
+    ON custom_reports (business_id, updated_at DESC)
+  `;
+
+      // ── custom report share snapshots table ────────────────────────
+      await sql`
+    CREATE TABLE IF NOT EXISTS custom_report_share_snapshots (
+      id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      token       TEXT NOT NULL UNIQUE,
+      report_id   TEXT,
+      payload     JSONB NOT NULL,
+      expires_at  TIMESTAMPTZ NOT NULL,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+
+      await sql`
+    CREATE INDEX IF NOT EXISTS idx_custom_report_share_snapshots_token
+    ON custom_report_share_snapshots (token)
+  `;
+
       // ── creative media cache table ──────────────────────────────────
       await sql`
     CREATE TABLE IF NOT EXISTS creative_media_cache (
