@@ -20,7 +20,6 @@ const PLANS = [
       adAccounts: "1 ad account",
       history: "365-day history",
       workspaces: "1 workspace",
-      storeConnections: "1 Shopify store",
     },
     features: [
       { label: "Overview dashboard", included: true },
@@ -47,8 +46,7 @@ const PLANS = [
     limits: {
       adAccounts: "Unlimited ad accounts",
       history: "365-day history",
-      workspaces: "1 workspace",
-      storeConnections: "3 Shopify stores",
+      workspaces: "3 workspaces",
     },
     features: [
       { label: "Overview dashboard", included: true },
@@ -75,8 +73,7 @@ const PLANS = [
     limits: {
       adAccounts: "Unlimited ad accounts",
       history: "Full history",
-      workspaces: "3 workspaces",
-      storeConnections: "Unlimited stores",
+      workspaces: "5 workspaces",
     },
     features: [
       { label: "Overview dashboard", included: true },
@@ -104,7 +101,6 @@ const PLANS = [
       adAccounts: "Unlimited ad accounts",
       history: "Full history",
       workspaces: "Unlimited workspaces",
-      storeConnections: "Unlimited stores",
     },
     features: [
       { label: "Overview dashboard", included: true },

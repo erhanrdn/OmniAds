@@ -43,7 +43,7 @@ export const PRICING_PLANS: Record<PlanId, PricingPlan> = {
       adAccounts: 1,
       analyticsHistoryDays: 365,
       workspaces: 1,
-      storeConnections: 1,
+      storeConnections: null,
     },
     modules: ["overview"],
   },
@@ -54,8 +54,8 @@ export const PRICING_PLANS: Record<PlanId, PricingPlan> = {
     limits: {
       adAccounts: null,
       analyticsHistoryDays: 365,
-      workspaces: 1,
-      storeConnections: 3,
+      workspaces: 3,
+      storeConnections: null,
     },
     modules: [
       "overview",
@@ -74,7 +74,7 @@ export const PRICING_PLANS: Record<PlanId, PricingPlan> = {
     limits: {
       adAccounts: null,
       analyticsHistoryDays: null,
-      workspaces: 3,
+      workspaces: 5,
       storeConnections: null,
     },
     modules: [
