@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { attachSessionCookie, createSession } from "@/lib/auth";
-import { DEMO_BUSINESS_ID } from "@/lib/demo-business";
+import { getUserByEmail } from "@/lib/account-store";
+import { DEMO_BUSINESS_ID } from "@/lib/demo-business-support";
 import { getDb } from "@/lib/db";
 import { runMigrations } from "@/lib/migrations";
 
@@ -12,50 +13,39 @@ function errorRedirect(message: string) {
   return NextResponse.redirect(url.toString());
 }
 
-async function getDemoUserId(): Promise<string | null> {
-  await runMigrations();
-  const sql = getDb();
-
-  // If DEMO_USER_EMAIL is set, look up by email first
-  const overrideEmail = process.env.DEMO_USER_EMAIL?.trim().toLowerCase();
-  if (overrideEmail) {
-    const rows = (await sql`
-      SELECT id FROM users WHERE email = ${overrideEmail} LIMIT 1
-    `) as Array<{ id: string }>;
-    return rows[0]?.id ?? null;
-  }
-
-  // Otherwise find the admin/owner of the demo business
-  const rows = (await sql`
-    SELECT m.user_id
-    FROM memberships m
-    WHERE m.business_id = ${DEMO_BUSINESS_ID}
-      AND m.status = 'active'
-      AND m.role = 'admin'
-    ORDER BY m.joined_at ASC
-    LIMIT 1
-  `) as Array<{ user_id: string }>;
-  return rows[0]?.user_id ?? null;
-}
-
 /**
  * GET /api/auth/demo-login
  *
- * Opens a session as the demo workspace owner without requiring a password.
- * Redirects straight to the dashboard with the demo workspace active.
+ * Opens a session as the demo user without requiring a password.
+ * Requires DEMO_USER_EMAIL env var to be set.
  */
 export async function GET(_request: NextRequest) {
-  const userId = await getDemoUserId();
-  if (!userId) {
-    return errorRedirect("Demo account not found. Please contact support.");
+  const email = process.env.DEMO_USER_EMAIL?.trim().toLowerCase();
+  if (!email) {
+    return errorRedirect("Demo is not configured.");
   }
 
-  const { token, expiresAt } = await createSession({
-    userId,
-    activeBusinessId: DEMO_BUSINESS_ID,
-  });
+  try {
+    const user = await getUserByEmail(email);
+    if (!user) {
+      return errorRedirect("Demo account not found.");
+    }
 
-  const response = NextResponse.redirect(new URL("/", baseUrl).toString());
-  attachSessionCookie(response, token, expiresAt);
-  return response;
+    // Clear existing sessions for the demo user to prevent token_hash collisions
+    // caused by concurrent requests or stale sessions accumulating over time.
+    await runMigrations({ reason: "demo_login" });
+    const sql = getDb();
+    await sql`DELETE FROM sessions WHERE user_id = ${user.id}`;
+
+    const { token, expiresAt } = await createSession({
+      userId: user.id,
+      activeBusinessId: DEMO_BUSINESS_ID,
+    });
+
+    const response = NextResponse.redirect(new URL("/", baseUrl).toString());
+    attachSessionCookie(response, token, expiresAt);
+    return response;
+  } catch {
+    return errorRedirect("Demo login failed. Please try again.");
+  }
 }
