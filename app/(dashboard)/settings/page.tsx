@@ -9,6 +9,7 @@ import { useIntegrationsStore } from "@/store/integrations-store";
 import { usePreferencesStore } from "@/store/preferences-store";
 import { clearAuthScopedClientState } from "@/lib/client-auth-state";
 import { PRICING_PLANS, PLAN_ORDER, type PlanId } from "@/lib/pricing/plans";
+import { DEMO_BUSINESS_ID } from "@/lib/demo-business-support";
 import {
   ConfirmOverlay,
   SettingsActionRow,
@@ -204,6 +205,7 @@ export default function SettingsPage() {
   }, [loadBilling, loadProviderHealth, loadTeam, loadWorkspaceRole, selectedBusinessId]);
 
   const isWorkspaceAdmin = workspaceRole === "admin";
+  const isDemoWorkspace = selectedBusinessId === DEMO_BUSINESS_ID;
 
   const totalMembers = members.length;
   const totalInvites = invites.filter((invite) => invite.status === "pending").length;
@@ -719,7 +721,7 @@ export default function SettingsPage() {
         </div>
       </SettingsSection>
 
-      <SettingsSection
+      {!isDemoWorkspace && <SettingsSection
         title="Team Management"
         description="Invite teammates, review current workspace access, and manage roles."
         actions={
@@ -838,7 +840,7 @@ export default function SettingsPage() {
             </div>
           </div>
         </div>
-      </SettingsSection>
+      </SettingsSection>}
 
       <SettingsSection
         title="Data & Integrations Management"

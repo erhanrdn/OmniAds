@@ -13,32 +13,50 @@ function errorRedirect(message: string) {
   return NextResponse.redirect(url.toString());
 }
 
+async function getDemoUserId(): Promise<string | null> {
+  await runMigrations({ reason: "demo_login" });
+  const sql = getDb();
+
+  // If DEMO_USER_EMAIL is explicitly set, use it.
+  const overrideEmail = process.env.DEMO_USER_EMAIL?.trim().toLowerCase();
+  if (overrideEmail) {
+    const user = await getUserByEmail(overrideEmail);
+    return user?.id ?? null;
+  }
+
+  // Fallback: find the first admin of the demo business.
+  const rows = (await sql`
+    SELECT m.user_id
+    FROM memberships m
+    WHERE m.business_id = ${DEMO_BUSINESS_ID}
+      AND m.status = 'active'
+      AND m.role = 'admin'
+    ORDER BY m.joined_at ASC
+    LIMIT 1
+  `) as Array<{ user_id: string }>;
+
+  return rows[0]?.user_id ?? null;
+}
+
 /**
  * GET /api/auth/demo-login
  *
- * Opens a session as the demo user without requiring a password.
- * Requires DEMO_USER_EMAIL env var to be set.
+ * Opens a passwordless session as the demo workspace owner.
+ * Clears existing sessions for the demo user first to avoid token collisions.
  */
 export async function GET(_request: NextRequest) {
-  const email = process.env.DEMO_USER_EMAIL?.trim().toLowerCase();
-  if (!email) {
-    return errorRedirect("Demo is not configured.");
-  }
-
   try {
-    const user = await getUserByEmail(email);
-    if (!user) {
+    const userId = await getDemoUserId();
+    if (!userId) {
       return errorRedirect("Demo account not found.");
     }
 
-    // Clear existing sessions for the demo user to prevent token_hash collisions
-    // caused by concurrent requests or stale sessions accumulating over time.
-    await runMigrations({ reason: "demo_login" });
     const sql = getDb();
-    await sql`DELETE FROM sessions WHERE user_id = ${user.id}`;
+    // Clear stale sessions to prevent token_hash unique constraint collisions.
+    await sql`DELETE FROM sessions WHERE user_id = ${userId}`;
 
     const { token, expiresAt } = await createSession({
-      userId: user.id,
+      userId,
       activeBusinessId: DEMO_BUSINESS_ID,
     });
 

@@ -41,6 +41,17 @@ async function maybeRedirectAuthenticatedUser() {
       })
     );
   } catch (error) {
+    // next/navigation `redirect()` throws a special NEXT_REDIRECT error — re-throw it so
+    // the framework can handle the redirect instead of swallowing it here.
+    if (
+      error &&
+      typeof error === "object" &&
+      "digest" in error &&
+      typeof (error as { digest: string }).digest === "string" &&
+      (error as { digest: string }).digest.startsWith("NEXT_REDIRECT")
+    ) {
+      throw error;
+    }
     // Public landing page should still render even if auth/session lookup cannot reach the DB.
     logStartupError("home_session_redirect_failed", error);
   }
@@ -305,12 +316,12 @@ export default async function HomePage() {
                     Get started free
                     <ArrowRight className="ml-2 h-4 w-4" />
                   </Link>
-                  <a
-                    href="/api/auth/demo-login"
+                  <Link
+                    href="/demo"
                     className="inline-flex items-center justify-center rounded-lg border border-border px-6 py-3 text-sm font-medium text-foreground hover:bg-muted transition-colors"
                   >
                     See the demo
-                  </a>
+                  </Link>
                 </div>
                 <p className="mt-4 text-xs text-muted-foreground">
                   Free plan available. No credit card required to start.
