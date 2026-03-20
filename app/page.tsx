@@ -305,12 +305,12 @@ export default async function HomePage() {
                     Get started free
                     <ArrowRight className="ml-2 h-4 w-4" />
                   </Link>
-                  <Link
-                    href="/demo"
+                  <a
+                    href="/api/auth/demo-login"
                     className="inline-flex items-center justify-center rounded-lg border border-border px-6 py-3 text-sm font-medium text-foreground hover:bg-muted transition-colors"
                   >
                     See the demo
-                  </Link>
+                  </a>
                 </div>
                 <p className="mt-4 text-xs text-muted-foreground">
                   Free plan available. No credit card required to start.
@@ -677,12 +677,12 @@ export default async function HomePage() {
                 Get started free
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Link>
-              <Link
-                href="/demo"
+              <a
+                href="/api/auth/demo-login"
                 className="inline-flex items-center justify-center rounded-lg border border-background/30 px-6 py-3 text-sm font-medium text-background hover:bg-background/10 transition-colors"
               >
                 Explore the demo
-              </Link>
+              </a>
             </div>
           </div>
         </section>
