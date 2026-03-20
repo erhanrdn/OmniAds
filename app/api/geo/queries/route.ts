@@ -98,7 +98,7 @@ export async function GET(request: NextRequest) {
     const position = Math.round((row.position ?? 0) * 10) / 10;
 
     // v3 semantic classification (replaces simple heuristic)
-    const cls = classifyQuery(query);
+    const cls = classifyQuery(query, { siteUrl });
     const opportunityLabel = deriveOpportunityLabel(cls);
 
     // GEO scoring with breakdown

@@ -484,6 +484,32 @@ export async function runMigrations(options?: {
     CREATE INDEX IF NOT EXISTS idx_ai_creative_decisions_cache_business_updated
     ON ai_creative_decisions_cache (business_id, updated_at DESC)
   `;
+
+      await sql`
+    CREATE TABLE IF NOT EXISTS seo_ai_monthly_analyses (
+      id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      business_id       TEXT NOT NULL,
+      analysis_month    DATE NOT NULL,
+      period_start      DATE NOT NULL,
+      period_end        DATE NOT NULL,
+      analysis          JSONB,
+      raw_response      JSONB,
+      status            TEXT NOT NULL DEFAULT 'success' CHECK (status IN ('success', 'failed')),
+      error_message     TEXT,
+      created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+
+      await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_seo_ai_monthly_analyses_business_month
+    ON seo_ai_monthly_analyses (business_id, analysis_month)
+  `;
+
+      await sql`
+    CREATE INDEX IF NOT EXISTS idx_seo_ai_monthly_analyses_business_updated
+    ON seo_ai_monthly_analyses (business_id, updated_at DESC)
+  `;
       migrationsCompleted = true;
       logStartupEvent("migrations_completed", { reason });
     })(),

@@ -40,6 +40,10 @@ export interface QueryClassification {
   signals: string[];
 }
 
+interface QueryClassificationOptions {
+  siteUrl?: string;
+}
+
 // ── Rule Definitions ─────────────────────────────────────────────────
 
 interface Rule {
@@ -105,7 +109,7 @@ const RULES: Rule[] = [
 
 // ── Classifier ───────────────────────────────────────────────────────
 
-export function classifyQuery(query: string): QueryClassification {
+export function classifyQuery(query: string, options?: QueryClassificationOptions): QueryClassification {
   const q = query.toLowerCase().trim().replace(/\s+/g, " ");
   const wordCount = q.split(" ").length;
 
@@ -129,19 +133,33 @@ export function classifyQuery(query: string): QueryClassification {
     matched.push("long-tail query");
   }
 
+  let forcedIntent: QueryIntent | null = null;
+  const brandIntent = inferBrandNavigationalIntent(q, options?.siteUrl);
+  if (brandIntent) {
+    forcedIntent = brandIntent;
+    matched.push("brand query");
+  } else if (isLikelyCommercialDiscoveryQuery(q)) {
+    forcedIntent = "commercial";
+    matched.push("commercial discovery query");
+  }
+
   // Default fallback: no patterns matched
   if (matched.length === 0) {
     return {
-      intent: "informational",
+      intent: forcedIntent ?? "informational",
       format: "general",
       confidence: "low",
-      isAiStyle: wordCount >= 3,
-      signals: ["no strong signals — defaulted to informational"],
+      isAiStyle: forcedIntent ? false : wordCount >= 3,
+      signals: [
+        forcedIntent
+          ? `no strong semantic signals — defaulted to ${forcedIntent}`
+          : "no strong signals — defaulted to informational",
+      ],
     };
   }
 
   // Pick top intent + format
-  const intent = topKey(intentScores) as QueryIntent ?? "informational";
+  const intent = forcedIntent ?? (topKey(intentScores) as QueryIntent ?? "informational");
   const format = topKey(formatScores) as QueryFormat ?? "general";
 
   // Confidence: how dominant is the top intent?
@@ -168,6 +186,103 @@ export function classifyQuery(query: string): QueryClassification {
     isAiStyle,
     signals: [...new Set(matched)].slice(0, 4),
   };
+}
+
+function inferBrandNavigationalIntent(query: string, siteUrl?: string): QueryIntent | null {
+  const brandTokens = extractBrandTokens(siteUrl);
+  if (!brandTokens.length) return null;
+  return brandTokens.some((token) => token.length >= 3 && query.includes(token))
+    ? "navigational"
+    : null;
+}
+
+function extractBrandTokens(siteUrl?: string): string[] {
+  if (!siteUrl) return [];
+
+  const rawHost = siteUrl.startsWith("sc-domain:")
+    ? siteUrl.replace("sc-domain:", "")
+    : safeHostname(siteUrl);
+
+  if (!rawHost) return [];
+
+  const hostWithoutWww = rawHost.replace(/^www\./, "");
+  const hostParts = hostWithoutWww.split(".").filter(Boolean);
+  const base = (hostParts[0] ?? "").toLowerCase();
+  const tokenParts = base
+    .split(/[-_]/)
+    .map((part) => part.trim())
+    .filter((part) => part.length >= 3);
+
+  const collapsed = tokenParts.join("");
+  return Array.from(new Set([base, collapsed, ...tokenParts].filter((part) => part.length >= 3)));
+}
+
+function safeHostname(value: string): string | null {
+  try {
+    return new URL(value).hostname;
+  } catch {
+    return null;
+  }
+}
+
+const COMMERCIAL_DISCOVERY_TERMS = [
+  "backpack",
+  "bag",
+  "bags",
+  "decor",
+  "wall decor",
+  "wall art",
+  "art",
+  "furniture",
+  "chair",
+  "desk",
+  "lamp",
+  "sofa",
+  "dress",
+  "shoes",
+  "sneakers",
+  "jacket",
+  "coat",
+  "supplement",
+  "vitamins",
+  "protein",
+  "crm",
+  "software",
+  "tool",
+  "tools",
+  "app",
+  "platform",
+  "agency",
+  "service",
+  "services",
+  "hosting",
+  "template",
+  "course",
+  "plugin",
+  "theme",
+];
+
+const INFORMATIONAL_PREFIXES = [
+  "how",
+  "what",
+  "why",
+  "when",
+  "where",
+  "who",
+  "can",
+  "should",
+  "does",
+  "is",
+  "are",
+];
+
+function isLikelyCommercialDiscoveryQuery(query: string): boolean {
+  const words = query.split(" ").filter(Boolean);
+  if (words.length === 0 || words.length > 4) return false;
+  if (INFORMATIONAL_PREFIXES.includes(words[0])) return false;
+  if (/\b(vs|versus|compare|review|reviews|ideas|inspiration)\b/.test(query)) return false;
+
+  return COMMERCIAL_DISCOVERY_TERMS.some((term) => query.includes(term));
 }
 
 /** Pick the key with the highest numeric value. */

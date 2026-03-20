@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import {
   DateRangePicker,
@@ -15,12 +15,16 @@ import { useAppStore } from "@/store/app-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
 import { cn } from "@/lib/utils";
 import {
-  AiBriefCard,
-  CauseCards,
+  ConfirmedExcludedPagesList,
   EntityTable,
-  RecommendationsList,
+  FindingsSummaryCards,
   SectionIntro,
+  SeoMonthlyAiActionsPanel,
+  SeoMonthlyAiPanel,
   SeoKpiCard,
+  TechnicalFindingsList,
+  type SeoFindingsResponse,
+  type SeoMonthlyAiAnalysisResponse,
   type SeoOverviewResponse,
   SEO_TABS,
   type SeoTab,
@@ -44,9 +48,75 @@ async function fetchSeoOverview(params: {
   return payload as SeoOverviewResponse;
 }
 
+async function fetchSeoFindings(params: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+}): Promise<SeoFindingsResponse> {
+  const qs = new URLSearchParams(params).toString();
+  const response = await fetch(`/api/seo/findings?${qs}`);
+  const payload = (await response.json().catch(() => null)) as
+    | { message?: string }
+    | null;
+
+  if (!response.ok) {
+    throw new Error(payload?.message ?? "Failed to load SEO technical findings.");
+  }
+
+  return payload as SeoFindingsResponse;
+}
+
+async function fetchSeoMonthlyAiAnalysis(params: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+}): Promise<SeoMonthlyAiAnalysisResponse> {
+  const qs = new URLSearchParams(params).toString();
+  const response = await fetch(`/api/seo/ai-analysis?${qs}`);
+  const payload = (await response.json().catch(() => null)) as
+    | { message?: string; unavailableReason?: string }
+    | null;
+
+  if (!response.ok) {
+    throw new Error(
+      payload?.message ??
+        payload?.unavailableReason ??
+        "Failed to load monthly SEO AI analysis.",
+    );
+  }
+
+  return payload as SeoMonthlyAiAnalysisResponse;
+}
+
+async function generateSeoMonthlyAiAnalysis(params: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+}): Promise<SeoMonthlyAiAnalysisResponse> {
+  const response = await fetch("/api/seo/ai-analysis", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
+  const payload = (await response.json().catch(() => null)) as
+    | { message?: string; unavailableReason?: string }
+    | null;
+
+  if (!response.ok) {
+    throw new Error(
+      payload?.message ??
+        payload?.unavailableReason ??
+        "Failed to generate monthly SEO AI analysis.",
+    );
+  }
+
+  return payload as SeoMonthlyAiAnalysisResponse;
+}
+
 export default function SeoIntelligencePage() {
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const businessId = selectedBusinessId ?? "";
+  const queryClient = useQueryClient();
 
   const ensureBusiness = useIntegrationsStore((state) => state.ensureBusiness);
   const byBusinessId = useIntegrationsStore((state) => state.byBusinessId);
@@ -74,6 +144,34 @@ export default function SeoIntelligencePage() {
     queryFn: () => fetchSeoOverview({ businessId, startDate, endDate }),
     retry: false,
     refetchOnWindowFocus: false,
+  });
+
+  const findingsQuery = useQuery({
+    queryKey: ["seo-findings", businessId, startDate, endDate],
+    enabled: searchConsoleConnected && Boolean(businessId) && activeTab === "technical",
+    queryFn: () => fetchSeoFindings({ businessId, startDate, endDate }),
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
+
+  const monthlyAiQuery = useQuery({
+    queryKey: ["seo-monthly-ai-analysis", businessId, startDate, endDate],
+    enabled:
+      searchConsoleConnected &&
+      Boolean(businessId) &&
+      (activeTab === "overview" || activeTab === "actions"),
+    queryFn: () => fetchSeoMonthlyAiAnalysis({ businessId, startDate, endDate }),
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
+
+  const monthlyAiMutation = useMutation({
+    mutationFn: () => generateSeoMonthlyAiAnalysis({ businessId, startDate, endDate }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ["seo-monthly-ai-analysis", businessId, startDate, endDate],
+      });
+    },
   });
 
   if (!selectedBusinessId) return <BusinessEmptyState />;
@@ -154,8 +252,6 @@ export default function SeoIntelligencePage() {
                 />
               </div>
 
-              <AiBriefCard brief={overviewQuery.data.aiBrief} />
-
               <div className="flex gap-1 overflow-x-auto rounded-xl border bg-card p-1 shadow-sm">
                 {SEO_TABS.map((tab) => (
                   <button
@@ -178,10 +274,37 @@ export default function SeoIntelligencePage() {
                 {activeTab === "overview" && (
                   <>
                     <SectionIntro
-                      title="Root cause candidates"
-                      description="These are the strongest patterns behind recent organic search movement based on clicks, impressions, CTR, and average position."
+                      title="Monthly AI overview"
+                      description="Generate one strategic ecommerce SEO analysis per month, then use the saved output as the team's planning artifact."
                     />
-                    <CauseCards causes={overviewQuery.data.causes} />
+                    {monthlyAiQuery.isLoading && <LoadingSkeleton rows={4} />}
+                    {monthlyAiQuery.error && (
+                      <ErrorState
+                        description={
+                          monthlyAiQuery.error instanceof Error
+                            ? monthlyAiQuery.error.message
+                            : "Failed to load monthly SEO AI analysis."
+                        }
+                        onRetry={() => monthlyAiQuery.refetch()}
+                      />
+                    )}
+                    {monthlyAiQuery.data && (
+                      <SeoMonthlyAiPanel
+                        monthly={monthlyAiQuery.data}
+                        isGenerating={monthlyAiMutation.isPending}
+                        onGenerate={() => monthlyAiMutation.mutate()}
+                      />
+                    )}
+                    {monthlyAiMutation.error && (
+                      <ErrorState
+                        description={
+                          monthlyAiMutation.error instanceof Error
+                            ? monthlyAiMutation.error.message
+                            : "Failed to generate monthly SEO AI analysis."
+                        }
+                        onRetry={() => monthlyAiMutation.mutate()}
+                      />
+                    )}
                   </>
                 )}
 
@@ -196,21 +319,25 @@ export default function SeoIntelligencePage() {
                         title="Biggest declining queries"
                         rows={overviewQuery.data.movers.decliningQueries}
                         emptyLabel="No declining queries in this period."
+                        scrollHeightClass="max-h-64"
                       />
                       <EntityTable
                         title="Biggest declining pages"
                         rows={overviewQuery.data.movers.decliningPages}
                         emptyLabel="No declining pages in this period."
+                        scrollHeightClass="max-h-64"
                       />
                       <EntityTable
                         title="Improving queries"
                         rows={overviewQuery.data.movers.improvingQueries}
                         emptyLabel="No improving queries in this period."
+                        scrollHeightClass="max-h-64"
                       />
                       <EntityTable
                         title="Improving pages"
                         rows={overviewQuery.data.movers.improvingPages}
                         emptyLabel="No improving pages in this period."
+                        scrollHeightClass="max-h-64"
                       />
                     </div>
                   </>
@@ -247,10 +374,69 @@ export default function SeoIntelligencePage() {
                 {activeTab === "actions" && (
                   <>
                     <SectionIntro
-                      title="Recommended actions"
-                      description="Start with the lowest-effort, highest-impact fixes tied to the strongest decline patterns."
+                      title="AI priorities"
+                      description="Turn the monthly model output into a practical execution queue for what to fix first, what to sequence, and what to defer."
                     />
-                    <RecommendationsList recommendations={overviewQuery.data.recommendations} />
+                    {monthlyAiQuery.isLoading && <LoadingSkeleton rows={4} />}
+                    {monthlyAiQuery.error && (
+                      <ErrorState
+                        description={
+                          monthlyAiQuery.error instanceof Error
+                            ? monthlyAiQuery.error.message
+                            : "Failed to load monthly SEO AI analysis."
+                        }
+                        onRetry={() => monthlyAiQuery.refetch()}
+                      />
+                    )}
+                    {monthlyAiQuery.data && (
+                      <SeoMonthlyAiActionsPanel
+                        monthly={monthlyAiQuery.data}
+                        isGenerating={monthlyAiMutation.isPending}
+                        onGenerate={() => monthlyAiMutation.mutate()}
+                      />
+                    )}
+                    {monthlyAiMutation.error && (
+                      <ErrorState
+                        description={
+                          monthlyAiMutation.error instanceof Error
+                            ? monthlyAiMutation.error.message
+                            : "Failed to generate monthly SEO AI analysis."
+                        }
+                        onRetry={() => monthlyAiMutation.mutate()}
+                      />
+                    )}
+                  </>
+                )}
+
+                {activeTab === "technical" && (
+                  <>
+                    <SectionIntro
+                      title="Technical findings"
+                      description="Targeted audits on Search Console-backed or inspection-confirmed pages to surface crawl, indexation, metadata, canonical, and structured-data risks."
+                    />
+                    <div className="rounded-xl border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
+                      Pages can still appear here even when current impressions are `0`.
+                      That usually means the URL was previously visible in Search Console, is now losing discovery,
+                      or was directly confirmed as excluded/not indexed via URL Inspection. Querystring URLs and feed/service paths are excluded from this view.
+                    </div>
+                    {findingsQuery.isLoading && <LoadingSkeleton rows={3} />}
+                    {findingsQuery.error && (
+                      <ErrorState
+                        description={
+                          findingsQuery.error instanceof Error
+                            ? findingsQuery.error.message
+                            : "Failed to load technical findings."
+                        }
+                        onRetry={() => findingsQuery.refetch()}
+                      />
+                    )}
+                    {findingsQuery.data && (
+                      <>
+                        <ConfirmedExcludedPagesList pages={findingsQuery.data.confirmedExcludedPages} />
+                        <FindingsSummaryCards {...findingsQuery.data.summary} />
+                        <TechnicalFindingsList findings={findingsQuery.data.findings} />
+                      </>
+                    )}
                   </>
                 )}
               </section>

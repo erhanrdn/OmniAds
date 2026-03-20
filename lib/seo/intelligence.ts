@@ -1,5 +1,15 @@
 import { computePreviousPeriod } from "@/lib/geo-momentum";
+import {
+  classifyQuery,
+  INTENT_LABELS,
+} from "@/lib/geo-query-classification";
 import { getOpenAI } from "@/lib/openai";
+import {
+  buildUserPrompt,
+  systemPrompt,
+  type SeoPromptSiteContext,
+  type SeoStructuredAnalysis,
+} from "@/lib/seo/seo-prompts";
 
 const SEO_AI_MODEL = "gpt-5-nano";
 
@@ -29,6 +39,8 @@ export interface SeoMetricSummary {
 export interface SeoEntityChange {
   key: string;
   label: string;
+  classificationLabel: string | null;
+  classificationTone: "informational" | "commercial" | "transactional" | "navigational" | "comparative" | "inspirational" | "product" | "category" | "editorial" | "utility" | "home" | "general";
   clicks: number;
   previousClicks: number;
   clicksDelta: number;
@@ -67,6 +79,108 @@ export interface SeoAiBrief {
   nextStep: string;
 }
 
+export interface SeoAiDataLayer {
+  id: string;
+  title: string;
+  subtitle: string;
+  group: "technical" | "keyword" | "authority" | "context";
+  status: "available" | "partial" | "missing";
+}
+
+export interface SeoAiContextBlock {
+  title: string;
+  detail: string;
+}
+
+export interface SeoAiOutputCard {
+  title: string;
+  detail: string;
+}
+
+export interface SeoAiRootCause {
+  title: string;
+  detail: string;
+  confidence: "high" | "medium" | "low";
+  affectedArea: "category" | "product" | "editorial" | "mixed";
+}
+
+export interface SeoAiPriorityItem {
+  title: string;
+  detail: string;
+  impact: "high" | "medium" | "low";
+  effort: "low" | "medium" | "high";
+  owner: string;
+}
+
+export interface SeoAiActionStep {
+  window: string;
+  focus: string;
+  tasks: string[];
+  successMetric: string;
+}
+
+export interface SeoAiAnalysis {
+  source: "ai" | "unavailable";
+  summary: string;
+  ecommerceContext: string;
+  rootCauses: SeoAiRootCause[];
+  priorities: SeoAiPriorityItem[];
+  actionPlan: SeoAiActionStep[];
+  structured?: SeoStructuredAnalysis;
+  unavailableReason?: string;
+}
+
+function coerceAiString(value: unknown): string {
+  if (typeof value === "string") return value.trim();
+  if (!value || typeof value !== "object") return "";
+  if ("text" in value && typeof value.text === "string") return value.text.trim();
+  if ("summary" in value && typeof value.summary === "string") return value.summary.trim();
+  if ("detail" in value && typeof value.detail === "string") return value.detail.trim();
+  return JSON.stringify(value).slice(0, 400);
+}
+
+function extractJsonObject(value: string): string | null {
+  const start = value.indexOf("{");
+  const end = value.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) return null;
+  return value.slice(start, end + 1);
+}
+
+function parseStructuredAnalysis(value: string): Partial<SeoStructuredAnalysis> {
+  try {
+    return JSON.parse(value) as Partial<SeoStructuredAnalysis>;
+  } catch {
+    const extracted = extractJsonObject(value);
+    if (!extracted) {
+      throw new Error("The model returned invalid JSON.");
+    }
+    return JSON.parse(extracted) as Partial<SeoStructuredAnalysis>;
+  }
+}
+
+function normalizeAffectedArea(value: unknown): SeoAiRootCause["affectedArea"] {
+  if (value === "category" || value === "product" || value === "editorial" || value === "mixed") {
+    return value;
+  }
+  if (typeof value !== "string") return "mixed";
+  const lower = value.toLowerCase();
+  if (lower.includes("category")) return "category";
+  if (lower.includes("product")) return "product";
+  if (lower.includes("editorial") || lower.includes("blog") || lower.includes("content")) {
+    return "editorial";
+  }
+  return "mixed";
+}
+
+function normalizeOwner(value: unknown): SeoAiPriorityItem["owner"] {
+  if (typeof value !== "string") return "SEO";
+  const lower = value.toLowerCase();
+  if (lower === "developer") return "Developer";
+  if (lower === "content") return "Content";
+  if (lower === "management") return "Management";
+  return "SEO";
+}
+
 export interface SeoOverviewPayload {
   meta: {
     siteUrl: string;
@@ -95,6 +209,11 @@ export interface SeoOverviewPayload {
   causes: SeoCauseCandidate[];
   recommendations: SeoRecommendation[];
   aiBrief: SeoAiBrief;
+  aiWorkspace: {
+    dataLayers: SeoAiDataLayer[];
+    contextBlocks: SeoAiContextBlock[];
+    requestedOutputs: SeoAiOutputCard[];
+  };
 }
 
 export async function fetchSearchConsoleAnalyticsRows(params: {
@@ -201,6 +320,7 @@ function buildEntityChanges(
   currentRows: SearchConsoleAnalyticsRow[],
   previousRows: SearchConsoleAnalyticsRow[],
   dimension: "query" | "page",
+  siteUrl?: string,
 ): SeoEntityChange[] {
   const currentBuckets = aggregateRowsBy(currentRows, (row) => row[dimension]);
   const previousBuckets = aggregateRowsBy(previousRows, (row) => row[dimension]);
@@ -225,6 +345,14 @@ function buildEntityChanges(
       return {
         key,
         label: key,
+        classificationLabel:
+          dimension === "query"
+            ? getQueryIntentLabel(key, siteUrl)
+            : getPageTypeLabel(key),
+        classificationTone:
+          dimension === "query"
+            ? getQueryIntentTone(key, siteUrl)
+            : getPageTypeTone(key),
         clicks,
         previousClicks,
         clicksDelta: clicks - previousClicks,
@@ -241,6 +369,39 @@ function buildEntityChanges(
         positionDelta: position - previousPosition,
       };
     });
+}
+
+function getQueryIntentLabel(query: string, siteUrl?: string): string {
+  return INTENT_LABELS[classifyQuery(query, { siteUrl }).intent];
+}
+
+function getQueryIntentTone(
+  query: string,
+  siteUrl?: string,
+): SeoEntityChange["classificationTone"] {
+  return classifyQuery(query, { siteUrl }).intent;
+}
+
+function getPageTypeLabel(path: string): string {
+  if (path === "/" || path === "") return "Homepage";
+  if (path.startsWith("/products/")) return "Product";
+  if (path.startsWith("/collections/") || path.startsWith("/category/")) return "Category";
+  if (path.startsWith("/blog/") || path.startsWith("/guides/")) return "Editorial";
+  if (path.startsWith("/pages/")) return "Utility";
+  return "General";
+}
+
+function getPageTypeTone(path: string): SeoEntityChange["classificationTone"] {
+  if (path === "/" || path === "") return "home";
+  if (path.startsWith("/products/")) return "product";
+  if (path.startsWith("/collections/") || path.startsWith("/category/")) return "category";
+  if (path.startsWith("/blog/") || path.startsWith("/guides/")) return "editorial";
+  if (path.startsWith("/pages/")) return "utility";
+  return "general";
+}
+
+export function classifySeoQueryIntent(query: string, siteUrl?: string) {
+  return classifyQuery(query, { siteUrl }).intent;
 }
 
 function computeTotals(rows: SearchConsoleAnalyticsRow[]) {
@@ -436,6 +597,188 @@ function buildFallbackAiBrief(input: {
   };
 }
 
+function summarizePageTypeCoverage(allPages: SeoEntityChange[]) {
+  const counts = {
+    category: 0,
+    product: 0,
+    editorial: 0,
+    utility: 0,
+    home: 0,
+    general: 0,
+  };
+
+  for (const row of allPages) {
+    if (row.classificationTone === "category") counts.category += 1;
+    else if (row.classificationTone === "product") counts.product += 1;
+    else if (row.classificationTone === "editorial") counts.editorial += 1;
+    else if (row.classificationTone === "utility") counts.utility += 1;
+    else if (row.classificationTone === "home") counts.home += 1;
+    else counts.general += 1;
+  }
+
+  return counts;
+}
+
+function getDominantAffectedArea(pages: SeoEntityChange[]): SeoAiRootCause["affectedArea"] {
+  const counts = {
+    category: 0,
+    product: 0,
+    editorial: 0,
+    mixed: 0,
+  };
+
+  for (const page of pages.slice(0, 8)) {
+    if (page.classificationTone === "category") counts.category += 1;
+    else if (page.classificationTone === "product") counts.product += 1;
+    else if (page.classificationTone === "editorial") counts.editorial += 1;
+    else counts.mixed += 1;
+  }
+
+  const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+  if (!top || top[1] === 0) return "mixed";
+  return top[0] as SeoAiRootCause["affectedArea"];
+}
+
+export function buildAiDataLayers(): SeoAiDataLayer[] {
+  return [
+    {
+      id: "technical-audit",
+      title: "Technical SEO data",
+      subtitle: "Targeted audits, canonical, metadata, indexation",
+      group: "technical",
+      status: "partial",
+    },
+    {
+      id: "crawl-report",
+      title: "Crawl report",
+      subtitle: "HTTP status, redirects, page fetch, inspection",
+      group: "technical",
+      status: "partial",
+    },
+    {
+      id: "site-structure",
+      title: "Site structure",
+      subtitle: "URL patterns, category vs product vs editorial mapping",
+      group: "technical",
+      status: "partial",
+    },
+    {
+      id: "query-data",
+      title: "Keyword data",
+      subtitle: "Intent, query clusters, CTR, ranking changes",
+      group: "keyword",
+      status: "available",
+    },
+    {
+      id: "gsc-data",
+      title: "GSC data",
+      subtitle: "Clicks, impressions, CTR, position",
+      group: "keyword",
+      status: "available",
+    },
+    {
+      id: "content-performance",
+      title: "Content performance",
+      subtitle: "Page-level organic winners and losers",
+      group: "keyword",
+      status: "available",
+    },
+    {
+      id: "authority-data",
+      title: "Authority data",
+      subtitle: "Backlinks, referring domains, link gaps",
+      group: "authority",
+      status: "missing",
+    },
+    {
+      id: "competitor-gap",
+      title: "Competitor keyword gap",
+      subtitle: "Missing competitor visibility inputs",
+      group: "authority",
+      status: "missing",
+    },
+  ];
+}
+
+export function buildAiContextBlocks(input: {
+  siteUrl: string;
+  summary: SeoOverviewPayload["summary"];
+  allPages: SeoEntityChange[];
+  decliningPages: SeoEntityChange[];
+}): SeoAiContextBlock[] {
+  const coverage = summarizePageTypeCoverage(input.allPages);
+  const affectedArea = getDominantAffectedArea(input.decliningPages);
+
+  return [
+    {
+      title: "Site context",
+      detail: `E-commerce perspective. Visible search footprint in the selected period includes ${coverage.product} product pages, ${coverage.category} category pages, and ${coverage.editorial} editorial pages.`,
+    },
+    {
+      title: "Intent mapping rule",
+      detail:
+        "Category pages should win broader commercial demand, while product pages should absorb narrower high-conversion long-tail demand.",
+    },
+    {
+      title: "Current pressure",
+      detail: `Primary traffic pressure is strongest on ${affectedArea} pages. Clicks moved ${formatSignedPercent(input.summary.clicks.deltaPercent ?? 0)} and impressions moved ${formatSignedPercent(input.summary.impressions.deltaPercent ?? 0)} versus the previous period.`,
+    },
+    {
+      title: "Missing inputs",
+      detail:
+        "Authority, backlink, and competitor datasets are not connected yet, so analysis should prioritize search-console-backed root causes and on-site fixes.",
+    },
+  ];
+}
+
+export function buildAiRequestedOutputs(): SeoAiOutputCard[] {
+  return [
+    {
+      title: "Root causes",
+      detail: "List the most likely traffic-loss drivers from an e-commerce SEO perspective.",
+    },
+    {
+      title: "Priority matrix",
+      detail: "Rank high-impact / low-effort quick wins before slower structural projects.",
+    },
+    {
+      title: "30-day plan",
+      detail: "Translate recommendations into weekly execution steps and success metrics.",
+    },
+    {
+      title: "Category vs product lens",
+      detail: "Judge whether the right page type is matching the search intent and revenue opportunity.",
+    },
+  ];
+}
+
+function buildUnavailableAiAnalysis(input: {
+  siteUrl: string;
+  summary: SeoOverviewPayload["summary"];
+  allPages: SeoEntityChange[];
+  causes: SeoCauseCandidate[];
+  recommendations: SeoRecommendation[];
+  decliningQueries: SeoEntityChange[];
+  decliningPages: SeoEntityChange[];
+}, reason?: string): SeoAiAnalysis {
+  const coverage = summarizePageTypeCoverage(input.allPages);
+  const unavailableReason =
+    reason ??
+    "Set OPENAI_API_KEY on the server to enable the ecommerce SEO analysis, root-cause ranking, priority matrix, and 30-day plan.";
+  const summary = reason
+    ? "Integrated AI analysis could not be generated for this monthly run."
+    : "AI analysis is currently unavailable because the OpenAI integration is not configured on this environment.";
+  return {
+    source: "unavailable",
+    summary,
+    ecommerceContext: `${coverage.product} product pages, ${coverage.category} category pages, and ${coverage.editorial} editorial pages are visible in the current search footprint. Category pages should capture broad commercial demand; product pages should absorb long-tail transactional demand.`,
+    rootCauses: [],
+    priorities: [],
+    actionPlan: [],
+    unavailableReason,
+  };
+}
+
 async function buildAiBrief(input: {
   siteUrl: string;
   summary: SeoOverviewPayload["summary"];
@@ -452,8 +795,7 @@ async function buildAiBrief(input: {
     const openai = getOpenAI();
     const response = await openai.chat.completions.create({
       model: SEO_AI_MODEL,
-      temperature: 0.2,
-      max_tokens: 300,
+      max_completion_tokens: 1200,
       response_format: { type: "json_object" },
       messages: [
         {
@@ -515,6 +857,213 @@ async function buildAiBrief(input: {
   }
 }
 
+export async function buildAiAnalysis(input: {
+  siteUrl: string;
+  siteContext: SeoPromptSiteContext;
+  gscData: string | null;
+  crawlData: string | null;
+  ga4Data: string | null;
+  summary: SeoOverviewPayload["summary"];
+  allPages: SeoEntityChange[];
+  causes: SeoCauseCandidate[];
+  recommendations: SeoRecommendation[];
+  decliningQueries: SeoEntityChange[];
+  decliningPages: SeoEntityChange[];
+}): Promise<SeoAiAnalysis> {
+  if (!process.env.OPENAI_API_KEY) {
+    return buildUnavailableAiAnalysis(
+      input,
+      "OPENAI_API_KEY is missing on this environment.",
+    );
+  }
+
+  try {
+    const openai = getOpenAI();
+    const userPrompt = buildUserPrompt({
+      siteContext: input.siteContext,
+      gscData: input.gscData,
+      crawlData: input.crawlData,
+      ga4Data: input.ga4Data,
+    });
+    let parsed: Partial<SeoStructuredAnalysis> | null = null;
+    let lastError: string | null = null;
+
+    const attempts = [
+      {
+        max_output_tokens: 5000,
+        systemContent: `${systemPrompt}\nKeep every string concise. Keep arrays short. Follow all stated limits strictly.`,
+      },
+      {
+        max_output_tokens: 5000,
+        systemContent: `${systemPrompt}\nYour previous response was incomplete or invalid. Return a shorter, compact JSON object that still satisfies the schema. Do not include any extra keys or commentary.`,
+      },
+    ] as const;
+
+    for (const attempt of attempts) {
+      const response = await openai.responses.create({
+        model: SEO_AI_MODEL,
+        max_output_tokens: attempt.max_output_tokens,
+        reasoning: { effort: "minimal" },
+        text: { format: { type: "json_object" } },
+        input: [
+          {
+            role: "system",
+            content: attempt.systemContent,
+          },
+          {
+            role: "user",
+            content: userPrompt,
+          },
+        ],
+      });
+
+      const content = response.output_text;
+      if (!content) {
+        lastError = "The model returned an empty response. Please retry the monthly analysis.";
+        continue;
+      }
+
+      try {
+        parsed = parseStructuredAnalysis(content);
+        break;
+      } catch (error) {
+        lastError =
+          error instanceof Error
+            ? error.message
+            : "The model returned invalid JSON. Please retry the monthly analysis.";
+      }
+    }
+
+    if (!parsed) {
+      return buildUnavailableAiAnalysis(
+        input,
+        lastError ?? "The model response could not be parsed into valid JSON. Please retry the monthly analysis.",
+      );
+    }
+
+    if (
+      !parsed.executiveSummary ||
+      !parsed.trafficAnalysis ||
+      !Array.isArray(parsed.rootCauseAnalysis) ||
+      !Array.isArray(parsed.priorityMatrix) ||
+      !parsed.actionPlan
+    ) {
+      return buildUnavailableAiAnalysis(
+        input,
+        "The model response did not match the expected SEO analysis format. Please retry the monthly analysis.",
+      );
+    }
+
+    const executiveSummary = parsed.executiveSummary;
+    const trafficAnalysis = parsed.trafficAnalysis;
+    const rootCauseAnalysis = parsed.rootCauseAnalysis;
+    const priorityMatrix = parsed.priorityMatrix;
+    const structuredActionPlan = parsed.actionPlan;
+    const ecommerceContext = [
+      parsed.meta?.siteContext?.domain ? `Domain: ${parsed.meta.siteContext.domain}.` : null,
+      parsed.meta?.siteContext?.sector ? `Sector: ${parsed.meta.siteContext.sector}.` : null,
+      executiveSummary.immediateAction ? `Immediate action: ${executiveSummary.immediateAction}` : null,
+      Array.isArray(parsed.dataGaps) && parsed.dataGaps.length
+        ? `Data gaps: ${parsed.dataGaps.join("; ")}`
+        : null,
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    const summary = [
+      Array.isArray(executiveSummary.topFindings) ? executiveSummary.topFindings.slice(0, 3).join(" ") : "",
+      executiveSummary.immediateAction ?? "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    const actionPlan: SeoAiActionStep[] = [
+      {
+        window: "Days 1-7",
+        focus: "Quick wins",
+        tasks: (structuredActionPlan.quickWins ?? []).slice(0, 3).map((item) => item.action).filter(Boolean),
+        successMetric: (structuredActionPlan.quickWins ?? []).slice(0, 2).map((item) => item.expectedImpact).filter(Boolean).join(" | ") || "Quick wins completed",
+      },
+      {
+        window: "Days 8-15",
+        focus: "Quick win rollout",
+        tasks: (structuredActionPlan.quickWins ?? []).slice(3, 6).map((item) => item.action).filter(Boolean),
+        successMetric: "Top quick wins deployed and validated",
+      },
+      {
+        window: "Days 16-23",
+        focus: "Mid-term implementation",
+        tasks: (structuredActionPlan.midTerm ?? []).slice(0, 3).map((item) => item.action).filter(Boolean),
+        successMetric: (structuredActionPlan.midTerm ?? []).slice(0, 2).map((item) => item.expectedImpact).filter(Boolean).join(" | ") || "Mid-term work started",
+      },
+      {
+        window: "Days 24-30",
+        focus: "Scale and validate",
+        tasks: (structuredActionPlan.midTerm ?? []).slice(3, 6).map((item) => item.action).filter(Boolean),
+        successMetric: "Implementation progress reviewed and next sprint queued",
+      },
+    ].filter((item) => item.tasks.length > 0);
+
+    const analysis: SeoAiAnalysis = {
+      source: "ai",
+      summary: summary || "The model completed the monthly SEO review.",
+      ecommerceContext:
+        ecommerceContext ||
+        "The model reviewed the site through an ecommerce SEO lens with GSC, technical crawl, and available conversion context.",
+      rootCauses: rootCauseAnalysis
+        .filter((item) => Boolean(item) && typeof item === "object")
+        .map((item): SeoAiRootCause => ({
+          title: coerceAiString(item.title),
+          detail: coerceAiString(item.detail),
+          confidence:
+            item.confidence === "high" || item.confidence === "medium" || item.confidence === "low"
+              ? item.confidence
+              : "medium",
+          affectedArea: normalizeAffectedArea(item.affectedArea),
+        }))
+        .filter((item) => item.title && item.detail)
+        .slice(0, 4),
+      priorities: priorityMatrix
+        .filter((item) => Boolean(item) && typeof item === "object")
+        .map((item): SeoAiPriorityItem => ({
+          title: coerceAiString(item.title),
+          detail: coerceAiString(item.detail),
+          impact:
+            item.impact === "high" || item.impact === "medium" || item.impact === "low"
+              ? item.impact
+              : "medium",
+          effort:
+            item.effort === "high" || item.effort === "medium" || item.effort === "low"
+              ? item.effort
+              : "medium",
+          owner: normalizeOwner(item.owner),
+        }))
+        .filter((item) => item.title && item.detail)
+        .slice(0, 8),
+      actionPlan,
+      structured: parsed as SeoStructuredAnalysis,
+    };
+
+    if (
+      !analysis.rootCauses.length ||
+      !analysis.priorities.length ||
+      !analysis.actionPlan.length
+    ) {
+      return buildUnavailableAiAnalysis(
+        input,
+        "The model response was incomplete, so the monthly analysis was not saved. Please retry.",
+      );
+    }
+
+    return analysis;
+  } catch (error) {
+    return buildUnavailableAiAnalysis(
+      input,
+      error instanceof Error ? error.message : "The monthly AI analysis failed unexpectedly.",
+    );
+  }
+}
+
 export async function buildSeoOverviewPayload(params: {
   siteUrl: string;
   startDate: string;
@@ -526,8 +1075,18 @@ export async function buildSeoOverviewPayload(params: {
   const currentTotals = computeTotals(params.currentRows);
   const previousTotals = computeTotals(params.previousRows);
 
-  const allQueries = buildEntityChanges(params.currentRows, params.previousRows, "query");
-  const allPages = buildEntityChanges(params.currentRows, params.previousRows, "page");
+  const allQueries = buildEntityChanges(
+    params.currentRows,
+    params.previousRows,
+    "query",
+    params.siteUrl,
+  );
+  const allPages = buildEntityChanges(
+    params.currentRows,
+    params.previousRows,
+    "page",
+    params.siteUrl,
+  );
 
   const leaders = {
     queries: [...allQueries].sort((a, b) => b.clicks - a.clicks).slice(0, 12),
@@ -596,6 +1155,16 @@ export async function buildSeoOverviewPayload(params: {
     causes,
     recommendations,
     aiBrief,
+    aiWorkspace: {
+      dataLayers: buildAiDataLayers(),
+      contextBlocks: buildAiContextBlocks({
+        siteUrl: params.siteUrl,
+        summary,
+        allPages,
+        decliningPages: movers.decliningPages,
+      }),
+      requestedOutputs: buildAiRequestedOutputs(),
+    },
   };
 }
 

@@ -92,7 +92,7 @@ export async function GET(request: NextRequest) {
   const queryClassMap = new Map<string, { isAiStyle: boolean }>();
   for (const row of rawRows) {
     const q = row.keys?.[0] ?? "";
-    const cls = classifyQuery(q);
+    const cls = classifyQuery(q, { siteUrl });
     queryClassMap.set(q, { isAiStyle: cls.isAiStyle });
   }
 
