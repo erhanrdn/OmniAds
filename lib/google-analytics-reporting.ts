@@ -1,9 +1,47 @@
 import { getIntegration, upsertIntegration } from "@/lib/integrations";
 import { refreshGA4AccessToken } from "@/lib/google-analytics-accounts";
+import { getDb } from "@/lib/db";
+import { runMigrations } from "@/lib/migrations";
 
 const REPORTING_API_BASE = "https://analyticsdata.googleapis.com/v1beta";
-const QUOTA_COOLDOWN_MS = 60_000;
+// 60 sn → 5 dk: quota hatasında daha uzun bekleme
+const QUOTA_COOLDOWN_MS = 5 * 60_000;
 let quotaCooldownUntil = 0;
+
+// GA4 token quota: property başına günlük 200k token limit.
+// quotaTokensRemaining header'ı gönderildiğinde takip edilir.
+function getQuotaUsageStore() {
+  const g = globalThis as typeof globalThis & {
+    __omniadsGa4QuotaUsage?: Map<string, { remaining: number; checkedAt: number }>;
+  };
+  if (!g.__omniadsGa4QuotaUsage) g.__omniadsGa4QuotaUsage = new Map();
+  return g.__omniadsGa4QuotaUsage;
+}
+
+function updateQuotaFromHeaders(propertyId: string, headers: Headers): void {
+  const remaining = headers.get("X-RateLimit-Remaining") ?? headers.get("x-ratelimit-remaining");
+  if (remaining === null) return;
+  const value = parseInt(remaining, 10);
+  if (!Number.isFinite(value)) return;
+  getQuotaUsageStore().set(propertyId, { remaining: value, checkedAt: Date.now() });
+  if (value < 2000) {
+    console.warn("[ga4-quota] low_quota", { propertyId, remaining: value });
+  }
+}
+
+function logGa4QuotaUsage(businessId: string, isError: boolean): void {
+  runMigrations().then(() => {
+    const sql = getDb();
+    return sql`
+      INSERT INTO provider_quota_usage (business_id, provider, quota_date, call_count, error_count, last_called_at)
+      VALUES (${businessId}, 'ga4', CURRENT_DATE, 1, ${isError ? 1 : 0}, now())
+      ON CONFLICT (business_id, provider, quota_date) DO UPDATE SET
+        call_count     = provider_quota_usage.call_count + 1,
+        error_count    = provider_quota_usage.error_count + ${isError ? 1 : 0},
+        last_called_at = now()
+    `;
+  }).catch(() => {});
+}
 
 export function isGa4InvalidArgumentError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
@@ -23,6 +61,7 @@ export interface GA4DateRange {
 interface RunReportParams {
   propertyId: string;
   accessToken: string;
+  businessId?: string;
   dateRanges: GA4DateRange[];
   dimensions?: Array<{ name: string }>;
   metrics: Array<{ name: string }>;
@@ -97,7 +136,11 @@ export async function runGA4Report(
     body: JSON.stringify(body),
   });
 
+  // Quota bilgisini response header'larından oku
+  updateQuotaFromHeaders(params.propertyId, res.headers);
+
   if (!res.ok) {
+    if (params.businessId) logGa4QuotaUsage(params.businessId, true);
     const errorText = await res.text();
     const normalizedError = errorText.toUpperCase();
 
@@ -143,6 +186,7 @@ export async function runGA4Report(
     throw new Error(`GA4 Reporting API error ${res.status}: ${errorText}`);
   }
 
+  if (params.businessId) logGa4QuotaUsage(params.businessId, false);
   const data = await res.json();
 
   const dimensionHeaders: string[] =

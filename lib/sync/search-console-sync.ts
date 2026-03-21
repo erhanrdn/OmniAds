@@ -1,0 +1,142 @@
+/**
+ * Proactive Search Console sync service.
+ *
+ * Warms up the SEO overview cache so users never wait on API calls.
+ * Uses the exact same functions as the SEO route handlers and stores
+ * results via the existing seo_results_cache layer.
+ */
+import {
+  resolveSearchConsoleContext,
+  SearchConsoleAuthError,
+} from "@/lib/search-console";
+import {
+  fetchSearchConsoleAnalyticsRows,
+  buildSeoOverviewPayload,
+} from "@/lib/seo/intelligence";
+import { setSeoResultsCache } from "@/lib/seo/results-cache";
+import { computePreviousPeriod } from "@/lib/geo-momentum";
+import { getDb } from "@/lib/db";
+import { runMigrations } from "@/lib/migrations";
+
+const DATE_WINDOWS = [
+  { days: 30 },
+  { days: 7 },
+];
+
+function buildDateRange(days: number): { startDate: string; endDate: string } {
+  const end = new Date();
+  const start = new Date(end);
+  start.setDate(end.getDate() - days);
+  return {
+    startDate: start.toISOString().slice(0, 10),
+    endDate: end.toISOString().slice(0, 10),
+  };
+}
+
+async function upsertSyncJob(
+  businessId: string,
+  reportType: string,
+  dateRangeKey: string,
+  status: "running" | "done" | "failed",
+  errorMessage?: string,
+): Promise<void> {
+  try {
+    await runMigrations();
+    const sql = getDb();
+    if (status === "running") {
+      await sql`
+        INSERT INTO provider_sync_jobs (business_id, provider, report_type, date_range_key, status, triggered_at, started_at)
+        VALUES (${businessId}, 'search_console', ${reportType}, ${dateRangeKey}, 'running', now(), now())
+        ON CONFLICT (business_id, provider, report_type, date_range_key) DO UPDATE SET
+          status       = 'running',
+          started_at   = now(),
+          triggered_at = now(),
+          error_message = NULL
+      `;
+    } else {
+      await sql`
+        UPDATE provider_sync_jobs SET
+          status       = ${status},
+          completed_at = now(),
+          error_message = ${errorMessage ?? null}
+        WHERE business_id    = ${businessId}
+          AND provider       = 'search_console'
+          AND report_type    = ${reportType}
+          AND date_range_key = ${dateRangeKey}
+      `;
+    }
+  } catch {
+    // tracking hatası sync'i durdurmamalı
+  }
+}
+
+export interface SearchConsoleSyncResult {
+  businessId: string;
+  attempted: number;
+  succeeded: number;
+  failed: number;
+  skipped: boolean;
+}
+
+export async function syncSearchConsoleReports(businessId: string): Promise<SearchConsoleSyncResult> {
+  let context: Awaited<ReturnType<typeof resolveSearchConsoleContext>>;
+  try {
+    context = await resolveSearchConsoleContext({ businessId, requireSite: true });
+  } catch (err) {
+    if (err instanceof SearchConsoleAuthError) {
+      return { businessId, attempted: 0, succeeded: 0, failed: 0, skipped: true };
+    }
+    throw err;
+  }
+
+  const siteUrl = context.siteUrl ?? "";
+  let succeeded = 0;
+  let failed = 0;
+
+  for (const window of DATE_WINDOWS) {
+    const { startDate, endDate } = buildDateRange(window.days);
+    const { prevStart, prevEnd } = computePreviousPeriod(startDate, endDate);
+    const dateRangeKey = `${startDate}:${endDate}`;
+
+    await upsertSyncJob(businessId, "seo_overview", dateRangeKey, "running");
+    try {
+      const [currentRows, previousRows] = await Promise.all([
+        fetchSearchConsoleAnalyticsRows({
+          accessToken: context.accessToken,
+          siteUrl,
+          startDate,
+          endDate,
+          rowLimit: 300,
+        }),
+        fetchSearchConsoleAnalyticsRows({
+          accessToken: context.accessToken,
+          siteUrl,
+          startDate: prevStart,
+          endDate: prevEnd,
+          rowLimit: 300,
+        }),
+      ]);
+
+      const payload = await buildSeoOverviewPayload({
+        siteUrl,
+        startDate,
+        endDate,
+        currentRows,
+        previousRows,
+        businessId,
+      });
+
+      await setSeoResultsCache({ businessId, cacheType: "overview", startDate, endDate, payload });
+      await upsertSyncJob(businessId, "seo_overview", dateRangeKey, "done");
+      succeeded++;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      await upsertSyncJob(businessId, "seo_overview", dateRangeKey, "failed", msg);
+      failed++;
+      console.warn("[search-console-sync] task_failed", { businessId, startDate, endDate, message: msg });
+    }
+  }
+
+  console.log("[search-console-sync] completed", { businessId, attempted: DATE_WINDOWS.length, succeeded, failed });
+  return { businessId, attempted: DATE_WINDOWS.length, succeeded, failed, skipped: false };
+}

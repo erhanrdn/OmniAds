@@ -1,9 +1,26 @@
 import {
   getCachedReport,
   setCachedReport,
+  getSnapshotAge,
 } from "@/lib/reporting-cache";
 
 const DEFAULT_ROUTE_CACHE_TTL_MINUTES = 15;
+// Stale cache bu süreden daha yeni ise servis edilebilir (arka planda refresh tetiklenir)
+const STALE_SERVE_MAX_MINUTES = 120;
+
+/**
+ * Arka planda bir provider'ın cache'ini yenileme isteği gönderir (fire-and-forget).
+ * Sunucu tarafında çalışır, /api/sync/refresh endpoint'ini çağırır.
+ */
+function triggerBackgroundRefresh(businessId: string, provider: string): void {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  if (!appUrl) return;
+  fetch(`${appUrl}/api/sync/refresh`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ businessId, provider }),
+  }).catch(() => {});
+}
 
 function hasPermissionDeniedMarker(value: unknown): boolean {
   if (!value || typeof value !== "object") return false;
@@ -55,18 +72,54 @@ export async function getCachedRouteReport<TPayload>(input: {
   searchParams: URLSearchParams;
   maxAgeMinutes?: number;
 }): Promise<TPayload | null> {
+  const dateRangeKey = getNormalizedSearchParamsKey(input.searchParams);
+  const freshMaxAge = input.maxAgeMinutes ?? DEFAULT_ROUTE_CACHE_TTL_MINUTES;
+
   try {
-    const payload = await getCachedReport<TPayload>({
+    // Önce taze cache'i dene
+    const freshPayload = await getCachedReport<TPayload>({
       businessId: input.businessId,
       provider: input.provider,
       reportType: input.reportType,
-      dateRangeKey: getNormalizedSearchParamsKey(input.searchParams),
-      maxAgeMinutes: input.maxAgeMinutes ?? DEFAULT_ROUTE_CACHE_TTL_MINUTES,
+      dateRangeKey,
+      maxAgeMinutes: freshMaxAge,
     });
-    if (shouldBypassRouteCache(input.provider, payload)) {
-      return null;
+
+    if (freshPayload !== null && !shouldBypassRouteCache(input.provider, freshPayload)) {
+      return freshPayload;
     }
-    return payload;
+
+    // Taze değil ama stale penceresi içinde mi?
+    const ageMinutes = await getSnapshotAge({
+      businessId: input.businessId,
+      provider: input.provider,
+      reportType: input.reportType,
+      dateRangeKey,
+    });
+
+    if (ageMinutes < STALE_SERVE_MAX_MINUTES) {
+      // Stale data var: arka planda refresh tetikle ve stale'i döndür
+      const stalePayload = await getCachedReport<TPayload>({
+        businessId: input.businessId,
+        provider: input.provider,
+        reportType: input.reportType,
+        dateRangeKey,
+        maxAgeMinutes: STALE_SERVE_MAX_MINUTES,
+      });
+
+      if (stalePayload !== null && !shouldBypassRouteCache(input.provider, stalePayload)) {
+        console.log("[route-report-cache] stale_hit", {
+          businessId: input.businessId,
+          provider: input.provider,
+          reportType: input.reportType,
+          ageMinutes: Math.round(ageMinutes),
+        });
+        triggerBackgroundRefresh(input.businessId, input.provider);
+        return stalePayload;
+      }
+    }
+
+    return null;
   } catch (error) {
     console.warn("[route-report-cache] read_failed", {
       businessId: input.businessId,

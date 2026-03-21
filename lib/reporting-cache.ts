@@ -70,6 +70,23 @@ async function getSnapshotRow<TPayload>(input: {
   return rows[0] ?? null;
 }
 
+/**
+ * Cache kaydının kaç dakika önce güncellendiğini döndürür.
+ * Kayıt yoksa Infinity döner.
+ */
+export async function getSnapshotAge(input: {
+  businessId: string;
+  provider: string;
+  reportType: string;
+  dateRangeKey: string;
+}): Promise<number> {
+  const row = await getSnapshotRow(input);
+  if (!row) return Infinity;
+  const updatedAtMs = new Date(row.updated_at).getTime();
+  if (!Number.isFinite(updatedAtMs)) return Infinity;
+  return (Date.now() - updatedAtMs) / 60_000;
+}
+
 export async function getCachedReport<TPayload>(input: {
   businessId: string;
   provider: string;

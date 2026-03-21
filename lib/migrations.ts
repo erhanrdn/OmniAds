@@ -394,6 +394,45 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
         )`.catch(() => {}),
         sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_seo_results_cache_lookup ON seo_results_cache (business_id, cache_type, start_date, end_date)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_seo_results_cache_business ON seo_results_cache (business_id, generated_at DESC)`.catch(() => {}),
+        // ── Google integration: quota & sync tables ──────────────────────────
+        sql`CREATE TABLE IF NOT EXISTS provider_cooldown_state (
+          id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id   TEXT NOT NULL,
+          provider      TEXT NOT NULL,
+          request_type  TEXT NOT NULL,
+          failed_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+          failure_count INT NOT NULL DEFAULT 1,
+          error_message TEXT,
+          http_status   INT,
+          cooldown_until TIMESTAMPTZ NOT NULL,
+          updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`.catch(() => {}),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_cooldown_state_key ON provider_cooldown_state (business_id, provider, request_type)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_provider_cooldown_state_until ON provider_cooldown_state (cooldown_until)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS provider_sync_jobs (
+          id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id    TEXT NOT NULL,
+          provider       TEXT NOT NULL,
+          report_type    TEXT NOT NULL,
+          date_range_key TEXT NOT NULL,
+          status         TEXT NOT NULL DEFAULT 'pending',
+          triggered_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+          started_at     TIMESTAMPTZ,
+          completed_at   TIMESTAMPTZ,
+          error_message  TEXT
+        )`.catch(() => {}),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_sync_jobs_key ON provider_sync_jobs (business_id, provider, report_type, date_range_key)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_provider_sync_jobs_status ON provider_sync_jobs (status, triggered_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS provider_quota_usage (
+          id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id    TEXT NOT NULL,
+          provider       TEXT NOT NULL,
+          quota_date     DATE NOT NULL DEFAULT CURRENT_DATE,
+          call_count     INT NOT NULL DEFAULT 0,
+          error_count    INT NOT NULL DEFAULT 0,
+          last_called_at TIMESTAMPTZ
+        )`.catch(() => {}),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_quota_usage_key ON provider_quota_usage (business_id, provider, quota_date)`.catch(() => {}),
       ]);
 
       // ── Seed superadmin ───────────────────────────────────────────────────
