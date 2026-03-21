@@ -14,8 +14,8 @@ import {
   requestProviderAccountSnapshotRefresh,
 } from "@/lib/provider-account-snapshots";
 
-const GOOGLE_ACCOUNT_SNAPSHOT_FRESHNESS_MS = 60 * 60_000;
-const GOOGLE_ACCOUNT_REFRESH_COOLDOWN_MS = 10 * 60_000;
+const GOOGLE_ACCOUNT_SNAPSHOT_FRESHNESS_MS = 6 * 60 * 60_000;  // 6 hours
+const GOOGLE_ACCOUNT_REFRESH_COOLDOWN_MS = 6 * 60 * 60_000;    // 6 hours (matches freshness)
 
 function getGoogleDiscoveryFailureMessage(hasSnapshot: boolean) {
   if (hasSnapshot) {
@@ -223,15 +223,18 @@ export async function GET(request: NextRequest) {
       console.log("[accessible-accounts] Response from fetchGoogleAdsAccounts", {
         ok: result.ok,
         error: result.error || null,
+        quotaExhausted: result.quotaExhausted || false,
         customerCount: result.customers?.length || 0,
         hasDeveloperToken,
         hasAdsScope,
       });
 
       if (!result.ok) {
-        throw new Error(
+        const err = new Error(
           result.error ?? "Could not discover accessible Google Ads accounts."
         );
+        (err as Error & { quotaExhausted?: boolean }).quotaExhausted = result.quotaExhausted;
+        throw err;
       }
 
       return result.customers.map((customer) => ({

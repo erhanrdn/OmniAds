@@ -12,6 +12,7 @@ export interface GoogleAdsCustomerNormalized {
 export interface GoogleAdsAccountsFetchResult {
   ok: boolean;
   error?: string;
+  quotaExhausted?: boolean;
   customers: GoogleAdsCustomerNormalized[];
 }
 
@@ -67,6 +68,9 @@ function classifyGoogleAdsError(payload: unknown, status: number) {
   }
   if (upper.includes("CUSTOMER_NOT_FOUND")) {
     return "Google Ads could not find an accessible customer for this login.";
+  }
+  if (status === 429 || upper.includes("RESOURCE_EXHAUSTED") || upper.includes("QUOTA")) {
+    return "Google Ads API quota exceeded. Account list will refresh automatically later today.";
   }
   if (status === 401) {
     return "Google Ads rejected the current OAuth access token.";
@@ -202,6 +206,7 @@ export async function fetchGoogleAdsAccounts(
     return {
       ok: false,
       error: `${classifiedMessage ?? GOOGLE_ADS_FETCH_FAILED_MESSAGE} (${detail}; attempts=${attemptLogs.map((a) => `${a.base}=>${a.status}/${a.isJson ? "json" : "non-json"}`).join(",")})`,
+      quotaExhausted: listResult.status === 429,
       customers: [],
     };
   }
