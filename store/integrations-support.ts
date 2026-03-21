@@ -345,7 +345,7 @@ export function deriveProviderViewState(
     status = "loading_data";
   } else if (domain.discovery.refreshFailed && !hasDiscoveryEntities && assignedCount === 0) {
     status = "action_required";
-  } else if (domain.discovery.refreshFailed || (domain.discovery.stale && hasDiscoveryEntities)) {
+  } else if (domain.discovery.refreshFailed) {
     status = assignedCount > 0 || !providerSupportsAssignments ? "degraded" : "needs_assignment";
   } else if (providerSupportsAssignments && domain.discovery.status === "failed") {
     status = "action_required";

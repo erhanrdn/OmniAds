@@ -27,7 +27,7 @@ describe("deriveProviderViewState", () => {
     expect(deriveProviderViewState("google", domain).status).toBe("needs_assignment");
   });
 
-  it("returns degraded when a stale snapshot exists alongside assignments", () => {
+  it("keeps connected providers ready when only a stale snapshot exists alongside assignments", () => {
     const domains = buildDefaultProviderDomains();
     const domain = {
       ...domains.meta,
@@ -40,6 +40,30 @@ describe("deriveProviderViewState", () => {
         status: "stale" as const,
         entities: [{ id: "act_1", name: "Account 1" }],
         stale: true,
+      },
+      assignment: {
+        ...domains.meta.assignment,
+        selectedIds: ["act_1"],
+      },
+    };
+
+    expect(deriveProviderViewState("meta", domain).status).toBe("ready");
+  });
+
+  it("returns degraded when refresh fails and stale snapshot is used alongside assignments", () => {
+    const domains = buildDefaultProviderDomains();
+    const domain = {
+      ...domains.meta,
+      connection: {
+        ...domains.meta.connection,
+        status: "connected" as const,
+      },
+      discovery: {
+        ...domains.meta.discovery,
+        status: "stale" as const,
+        entities: [{ id: "act_1", name: "Account 1" }],
+        stale: true,
+        refreshFailed: true,
       },
       assignment: {
         ...domains.meta.assignment,

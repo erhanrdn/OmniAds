@@ -106,10 +106,7 @@ export async function resolveProviderDiscoveryPayload(input: {
     return {
       data: mergeAssignments(snapshot.accounts, assignedIds),
       meta: snapshot.meta,
-      notice:
-        snapshot.meta.refreshFailed || snapshot.meta.stale
-          ? input.degradedNotice
-          : null,
+      notice: snapshot.meta.refreshFailed ? input.degradedNotice : null,
     };
   }
 

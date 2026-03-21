@@ -56,6 +56,47 @@ describe("resolveProviderDiscoveryPayload", () => {
     });
 
     expect(payload.data).toEqual([{ id: "123", name: "Main account", assigned: true }]);
+    expect(payload.notice).toBeNull();
+    expect(snapshots.requestProviderAccountSnapshotRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows degraded notice when a stale snapshot is being served after refresh failure", async () => {
+    vi.mocked(assignments.getProviderAccountAssignments).mockResolvedValue({
+      id: "1",
+      business_id: "biz",
+      provider: "google",
+      account_ids: ["123"],
+      created_at: "",
+      updated_at: "",
+    });
+    vi.mocked(snapshots.readProviderAccountSnapshot).mockResolvedValue({
+      accounts: [{ id: "123", name: "Main account" }],
+      meta: {
+        source: "snapshot",
+        fetchedAt: "2026-03-21T10:00:00.000Z",
+        stale: true,
+        refreshFailed: true,
+        lastError: "quota",
+        lastKnownGoodAvailable: true,
+        refreshRequestedAt: null,
+        lastRefreshAttemptAt: null,
+        nextRefreshAfter: null,
+        refreshInProgress: false,
+        sourceReason: "stale_snapshot_refresh",
+      },
+    });
+    vi.mocked(snapshots.requestProviderAccountSnapshotRefresh).mockResolvedValue(null);
+
+    const payload = await resolveProviderDiscoveryPayload({
+      businessId: "biz",
+      provider: "google",
+      refreshRequested: false,
+      liveLoader: vi.fn(),
+      missingSnapshotNotice: "missing",
+      degradedNotice: "degraded",
+      unavailableNotice: "unavailable",
+    });
+
     expect(payload.notice).toBe("degraded");
     expect(snapshots.requestProviderAccountSnapshotRefresh).toHaveBeenCalledTimes(1);
   });

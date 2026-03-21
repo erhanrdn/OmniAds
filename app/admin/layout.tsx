@@ -9,6 +9,7 @@ import {
   CreditCard,
   Tag,
   Activity,
+  AlertTriangle,
   ArrowLeft,
   ShieldCheck,
 } from "lucide-react";
@@ -19,6 +20,7 @@ const navGroups = [
     items: [
       { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true },
       { href: "/admin/activity", label: "Aktivite Logu", icon: Activity },
+      { href: "/admin/integrations", label: "Entegrasyon Sağlığı", icon: AlertTriangle },
     ],
   },
   {

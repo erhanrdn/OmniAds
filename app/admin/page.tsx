@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Users, Building2, CreditCard, ShieldAlert,
-  UserPlus, TrendingUp, Clock, Activity,
+  UserPlus, Activity, AlertTriangle,
 } from "lucide-react";
 
 interface Stats {
@@ -13,6 +13,20 @@ interface Stats {
   planBreakdown: Array<{ planId: string; count: number }>;
   recentUsers: Array<{ id: string; name: string; email: string; created_at: string; is_superadmin: boolean; suspended_at: string | null; auth_provider: string }>;
   recentActivity: Array<{ action: string; target_type: string; meta: any; created_at: string; admin_name: string }>;
+  integrationHealth: Array<{
+    provider: "meta" | "google";
+    connectedBusinesses: number;
+    affectedBusinesses: number;
+    staleSnapshots: number;
+    failedSnapshots: number;
+    missingSnapshots: number;
+    refreshInProgress: number;
+    topIssue: string | null;
+  }>;
+  integrationHealthSummary?: {
+    totalAffectedWorkspaces: number;
+    topIssue: string | null;
+  };
 }
 
 const PLAN_LABELS: Record<string, string> = {
@@ -48,12 +62,43 @@ function actionLabel(action: string): string {
 export default function AdminDashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+
     fetch("/api/admin/stats")
-      .then((r) => r.json())
-      .then(setStats)
-      .finally(() => setLoading(false));
+      .then(async (r) => {
+        const payload = await r.json().catch(() => null);
+        if (!r.ok) {
+          throw new Error(
+            (payload as { message?: string } | null)?.message ??
+              "Admin statistics could not be loaded."
+          );
+        }
+        return payload as Stats;
+      })
+      .then((payload) => {
+        if (cancelled) return;
+        setStats(payload);
+        setLoadError(null);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setStats(null);
+        setLoadError(
+          error instanceof Error ? error.message : "Admin statistics could not be loaded."
+        );
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   if (loading) {
@@ -71,7 +116,43 @@ export default function AdminDashboard() {
     );
   }
 
-  const totalActive = stats?.planBreakdown.reduce((s, p) => s + p.count, 0) ?? 0;
+  if (loadError) {
+    return (
+      <div className="space-y-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
+          <p className="text-sm text-gray-500 mt-1">Platforma genel bakış</p>
+        </div>
+        <div className="rounded-xl border border-red-200 bg-red-50 px-5 py-4">
+          <p className="text-sm font-medium text-red-800">Admin istatistikleri yuklenemedi.</p>
+          <p className="text-sm text-red-700 mt-1">{loadError}</p>
+        </div>
+      </div>
+    );
+  }
+
+  const userStats = stats?.users ?? {
+    total: 0,
+    last7d: 0,
+    last30d: 0,
+    suspended: 0,
+    admins: 0,
+  };
+  const businessStats = stats?.businesses ?? {
+    total: 0,
+    last7d: 0,
+    demo: 0,
+  };
+  const planBreakdown = stats?.planBreakdown ?? [];
+  const recentUsers = stats?.recentUsers ?? [];
+  const recentActivity = stats?.recentActivity ?? [];
+  const integrationHealth = stats?.integrationHealth ?? [];
+
+  const totalActive = planBreakdown.reduce((s, p) => s + p.count, 0);
+  const totalAffectedIntegrations =
+    stats?.integrationHealthSummary?.totalAffectedWorkspaces ??
+    integrationHealth.reduce((sum, row) => sum + row.affectedBusinesses, 0);
+  const topIntegrationIssue = stats?.integrationHealthSummary?.topIssue ?? null;
 
   return (
     <div className="space-y-8">
@@ -87,11 +168,11 @@ export default function AdminDashboard() {
             <div className="p-2 bg-indigo-50 rounded-lg"><Users className="w-4 h-4 text-indigo-600" /></div>
             <p className="text-sm font-medium text-gray-500">Kullanıcılar</p>
           </div>
-          <p className="text-3xl font-bold text-gray-900">{stats?.users.total ?? 0}</p>
+          <p className="text-3xl font-bold text-gray-900">{userStats.total}</p>
           <div className="flex gap-3 mt-2">
-            <p className="text-xs text-emerald-600">+{stats?.users.last7d ?? 0} bu hafta</p>
-            {(stats?.users.suspended ?? 0) > 0 && (
-              <p className="text-xs text-red-500">{stats?.users.suspended} askıda</p>
+            <p className="text-xs text-emerald-600">+{userStats.last7d} bu hafta</p>
+            {userStats.suspended > 0 && (
+              <p className="text-xs text-red-500">{userStats.suspended} askıda</p>
             )}
           </div>
         </Link>
@@ -101,8 +182,8 @@ export default function AdminDashboard() {
             <div className="p-2 bg-emerald-50 rounded-lg"><Building2 className="w-4 h-4 text-emerald-600" /></div>
             <p className="text-sm font-medium text-gray-500">Workspace'ler</p>
           </div>
-          <p className="text-3xl font-bold text-gray-900">{stats?.businesses.total ?? 0}</p>
-          <p className="text-xs text-emerald-600 mt-2">+{stats?.businesses.last7d ?? 0} bu hafta</p>
+          <p className="text-3xl font-bold text-gray-900">{businessStats.total}</p>
+          <p className="text-xs text-emerald-600 mt-2">+{businessStats.last7d} bu hafta</p>
         </Link>
 
         <Link href="/admin/subscriptions" className="bg-white border border-gray-200 rounded-xl p-5 hover:border-indigo-200 hover:shadow-sm transition-all">
@@ -112,7 +193,7 @@ export default function AdminDashboard() {
           </div>
           <p className="text-3xl font-bold text-gray-900">{totalActive}</p>
           <div className="flex flex-wrap gap-1 mt-2">
-            {(stats?.planBreakdown ?? []).map((p) => (
+            {planBreakdown.map((p) => (
               <span key={p.planId} className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${PLAN_COLORS[p.planId] ?? "bg-gray-100 text-gray-600"}`}>
                 {PLAN_LABELS[p.planId] ?? p.planId}: {p.count}
               </span>
@@ -125,9 +206,104 @@ export default function AdminDashboard() {
             <div className="p-2 bg-rose-50 rounded-lg"><ShieldAlert className="w-4 h-4 text-rose-600" /></div>
             <p className="text-sm font-medium text-gray-500">Adminler</p>
           </div>
-          <p className="text-3xl font-bold text-gray-900">{stats?.users.admins ?? 0}</p>
+          <p className="text-3xl font-bold text-gray-900">{userStats.admins}</p>
           <p className="text-xs text-gray-400 mt-2">Superadmin yetkili</p>
         </div>
+      </div>
+
+      <div className="bg-white border border-gray-200 rounded-xl">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-500" />
+            <div>
+              <h2 className="text-sm font-semibold text-gray-900">Entegrasyon Sağlığı</h2>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Sistem genelindeki Meta ve Google senkron sorunları
+              </p>
+            </div>
+          </div>
+          <span className={`text-xs font-medium px-2 py-1 rounded-full ${
+            totalAffectedIntegrations > 0
+              ? "bg-amber-100 text-amber-700"
+              : "bg-emerald-100 text-emerald-700"
+          }`}>
+            {totalAffectedIntegrations > 0
+              ? `${totalAffectedIntegrations} etkilenen workspace`
+              : "Sorun yok"}
+          </span>
+        </div>
+
+        {integrationHealth.length === 0 ? (
+          <div className="px-5 py-8 text-center text-sm text-gray-400">
+            Entegrasyon sağlık verisi henüz yok.
+          </div>
+        ) : (
+          <div className="p-5 space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {integrationHealth.map((provider) => (
+                <div key={provider.provider} className="rounded-xl border border-gray-200 px-4 py-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-gray-900">
+                        {provider.provider === "meta" ? "Meta Ads" : "Google Ads"}
+                      </h3>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {provider.connectedBusinesses} bağlı workspace
+                      </p>
+                    </div>
+                    <span className={`text-[11px] font-medium px-2 py-1 rounded-full ${
+                      provider.affectedBusinesses > 0
+                        ? "bg-amber-100 text-amber-700"
+                        : "bg-emerald-100 text-emerald-700"
+                    }`}>
+                      {provider.affectedBusinesses > 0
+                        ? `${provider.affectedBusinesses} etkilenmiş`
+                        : "Healthy"}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-2 mt-4 text-center">
+                    <div>
+                      <p className="text-lg font-semibold text-gray-900">{provider.failedSnapshots}</p>
+                      <p className="text-[11px] text-gray-500 mt-1">Failed</p>
+                    </div>
+                    <div>
+                      <p className="text-lg font-semibold text-gray-900">{provider.staleSnapshots}</p>
+                      <p className="text-[11px] text-gray-500 mt-1">Stale</p>
+                    </div>
+                    <div>
+                      <p className="text-lg font-semibold text-gray-900">{provider.missingSnapshots}</p>
+                      <p className="text-[11px] text-gray-500 mt-1">Missing</p>
+                    </div>
+                    <div>
+                      <p className="text-lg font-semibold text-gray-900">{provider.refreshInProgress}</p>
+                      <p className="text-[11px] text-gray-500 mt-1">Refreshing</p>
+                    </div>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-4">
+                    Ana problem: <span className="font-medium text-gray-700">{provider.topIssue ?? "None"}</span>
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            <div className="rounded-xl border border-dashed border-gray-200 px-4 py-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-900">
+                  Genel ana problem: {topIntegrationIssue ?? "Sorun yok"}
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  Workspace detayları issue hiyerarşisi ile ayrı ekranda yönetilir.
+                </p>
+              </div>
+              <Link
+                href="/admin/integrations"
+                className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+              >
+                Detaylari gor
+              </Link>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Bottom row */}
@@ -142,7 +318,7 @@ export default function AdminDashboard() {
             <Link href="/admin/users" className="text-xs text-indigo-600 hover:underline">Tümü →</Link>
           </div>
           <div className="divide-y divide-gray-50">
-            {(stats?.recentUsers ?? []).map((u) => (
+            {recentUsers.map((u) => (
               <Link key={u.id} href={`/admin/users/${u.id}`} className="flex items-center justify-between px-5 py-3 hover:bg-gray-50 transition-colors">
                 <div>
                   <p className="text-sm font-medium text-gray-900 flex items-center gap-1.5">
@@ -167,11 +343,11 @@ export default function AdminDashboard() {
             </div>
             <Link href="/admin/activity" className="text-xs text-indigo-600 hover:underline">Tümü →</Link>
           </div>
-          {(stats?.recentActivity ?? []).length === 0 ? (
+          {recentActivity.length === 0 ? (
             <div className="px-5 py-8 text-center text-sm text-gray-400">Henüz aksiyon kaydı yok.</div>
           ) : (
             <div className="divide-y divide-gray-50">
-              {(stats?.recentActivity ?? []).map((a, i) => (
+              {recentActivity.map((a, i) => (
                 <div key={i} className="flex items-start justify-between px-5 py-3">
                   <div>
                     <p className="text-sm text-gray-900">{actionLabel(a.action)}</p>
