@@ -261,15 +261,49 @@ export interface MetaAdRecord {
     image_hash?: string | null;
     object_story_spec?: {
       link_data?: {
+        link?: string | null;
         message?: string | null;
         name?: string | null;
         description?: string | null;
         picture?: string | null;
         image_hash?: string | null;
-        child_attachments?: Array<{ picture?: string | null; image_url?: string | null; image_hash?: string | null }> | null;
+        call_to_action?: {
+          type?: string | null;
+          value?: {
+            link?: string | null;
+          } | null;
+        } | null;
+        child_attachments?: Array<{
+          link?: string | null;
+          picture?: string | null;
+          image_url?: string | null;
+          image_hash?: string | null;
+        }> | null;
       } | null;
-      video_data?: { video_id?: string | null; image_url?: string | null; thumbnail_url?: string | null; message?: string | null; title?: string | null } | null;
-      photo_data?: { image_url?: string | null; message?: string | null; caption?: string | null } | null;
+      video_data?: {
+        video_id?: string | null;
+        image_url?: string | null;
+        thumbnail_url?: string | null;
+        message?: string | null;
+        title?: string | null;
+        call_to_action?: {
+          type?: string | null;
+          value?: {
+            link?: string | null;
+          } | null;
+        } | null;
+      } | null;
+      photo_data?: {
+        image_url?: string | null;
+        message?: string | null;
+        caption?: string | null;
+        call_to_action?: {
+          type?: string | null;
+          value?: {
+            link?: string | null;
+          } | null;
+        } | null;
+      } | null;
       template_data?: Record<string, unknown> | null;
     } | null;
     asset_feed_spec?: {

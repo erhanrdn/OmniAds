@@ -31,5 +31,9 @@ export const META_CONFIG = {
     "ads_management",
     "business_management",
     "read_insights",
+    "pages_show_list",
+    "pages_read_engagement",
+    "pages_read_user_content",
+    "instagram_basic",
   ],
 } as const;

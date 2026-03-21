@@ -92,7 +92,7 @@ export function getCreativeMediaFields(): string {
     "thumbnail_url",
     "image_url",
     "image_hash",
-    "object_story_spec{link_data{message,name,description,picture,image_hash,child_attachments{picture,image_url,image_hash}},video_data{video_id,image_url,thumbnail_url,message,title},photo_data{image_url,message,caption},template_data}",
+    "object_story_spec{link_data{link,message,name,description,picture,image_hash,call_to_action{type,value{link}},child_attachments{link,picture,image_url,image_hash}},video_data{video_id,image_url,thumbnail_url,message,title,call_to_action{type,value{link}}},photo_data{image_url,message,caption,call_to_action{type,value{link}}},template_data}",
     "asset_feed_spec{bodies{text},titles{text},descriptions{text},images{url,image_url,original_url,hash,image_hash},videos{video_id,thumbnail_url,image_url}}",
   ].join(",");
 }
@@ -127,7 +127,7 @@ export function getCreativeDetailFields(): string {
     "image_url",
     "image_hash",
     // Keep this set conservative for adcreative IDs endpoint stability.
-    "object_story_spec{link_data{message,name,description,picture,image_hash,child_attachments{picture,image_url,image_hash}},video_data{video_id,image_url,thumbnail_url,message,title},photo_data{image_url,message,caption}}",
+    "object_story_spec{link_data{link,message,name,description,picture,image_hash,call_to_action{type,value{link}},child_attachments{link,picture,image_url,image_hash}},video_data{video_id,image_url,thumbnail_url,message,title,call_to_action{type,value{link}}},photo_data{image_url,message,caption,call_to_action{type,value{link}}}}",
     "asset_feed_spec{bodies{text},titles{text},descriptions{text},images{url,image_url,original_url,hash,image_hash},videos{video_id,thumbnail_url,image_url}}",
   ].join(",");
 }
