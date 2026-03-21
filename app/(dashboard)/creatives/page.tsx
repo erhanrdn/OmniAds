@@ -15,8 +15,6 @@ import { LockedFeatureCard } from "@/components/states/LockedFeatureCard";
 import { ErrorState } from "@/components/states/error-state";
 import { LoadingSkeleton } from "@/components/states/loading-skeleton";
 import { Button } from "@/components/ui/button";
-import { fetchProviderAccountSnapshot } from "@/lib/provider-account-client";
-import { warmProviderAccountSnapshot } from "@/lib/provider-account-client";
 import {
   type MetaCreativeRow,
 } from "@/components/creatives/metricConfig";
@@ -72,9 +70,6 @@ export default function CreativesPage() {
   const assignedAccountsByBusiness = useIntegrationsStore(
     (state) => state.assignedAccountsByBusiness
   );
-  const setProviderAccounts = useIntegrationsStore((state) => state.setProviderAccounts);
-  const setAssignedAccounts = useIntegrationsStore((state) => state.setAssignedAccounts);
-
   const { isBootstrapping, bootstrapStatus } = useBusinessIntegrationsBootstrap(
     selectedBusinessId ?? null
   );
@@ -115,54 +110,8 @@ export default function CreativesPage() {
     (isBootstrapping ||
       metaView.status === "loading_data" ||
       (bootstrapStatus !== "ready" && !metaView.isConnected));
-  const [metaAssignmentsState, setMetaAssignmentsState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const assignedMetaAccounts = assignedAccountsByBusiness[businessId]?.meta ?? [];
   const metaHasAssignments = isDemoBusiness || assignedMetaAccounts.length > 0;
-
-  useEffect(() => {
-    if (!selectedBusinessId || isDemoBusiness || !platformConnected) {
-      setMetaAssignmentsState("idle");
-      return;
-    }
-
-    let cancelled = false;
-    setMetaAssignmentsState("loading");
-
-    (async () => {
-      try {
-        const snapshot = await fetchProviderAccountSnapshot("meta", businessId);
-        if (cancelled) return;
-        setProviderAccounts(businessId, "meta", snapshot.accounts);
-        setAssignedAccounts(businessId, "meta", snapshot.assignedAccountIds);
-        setMetaAssignmentsState("ready");
-        if (snapshot.meta?.stale) {
-          void warmProviderAccountSnapshot("meta", businessId).catch(() => undefined);
-        }
-      } catch {
-        try {
-          const snapshot = await warmProviderAccountSnapshot("meta", businessId);
-          if (cancelled) return;
-          setProviderAccounts(businessId, "meta", snapshot.accounts);
-          setAssignedAccounts(businessId, "meta", snapshot.assignedAccountIds);
-          setMetaAssignmentsState("ready");
-        } catch {
-          if (cancelled) return;
-          setMetaAssignmentsState("error");
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    businessId,
-    isDemoBusiness,
-    platformConnected,
-    selectedBusinessId,
-    setAssignedAccounts,
-    setProviderAccounts,
-  ]);
 
   const { start: drStart, end: drEnd } = resolveCreativeDateRange(dateRangeValue);
   const mainTableApiGroupBy = mapCreativeGroupByToApi(groupBy);
@@ -624,10 +573,6 @@ export default function CreativesPage() {
               description="Connect Meta to view creative performance"
             />
           );
-        }
-
-        if (!isDemoBusiness && platformConnected && metaAssignmentsState === "loading" && assignedMetaAccounts.length === 0) {
-          return <LoadingSkeleton rows={5} />;
         }
 
         if (!metaHasAssignments || dataStatus === "no_accounts_assigned") {

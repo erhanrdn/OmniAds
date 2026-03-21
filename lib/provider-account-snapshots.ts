@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import { getDb } from "@/lib/db";
 import { runMigrations } from "@/lib/migrations";
 
@@ -16,6 +17,12 @@ interface ProviderAccountSnapshotRow {
   fetched_at: string;
   refresh_failed: boolean;
   last_error: string | null;
+  refresh_requested_at: string | null;
+  last_refresh_attempt_at: string | null;
+  next_refresh_after: string | null;
+  refresh_in_progress: boolean;
+  accounts_hash: string | null;
+  source_reason: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -27,6 +34,11 @@ export interface ProviderAccountSnapshotMeta {
   refreshFailed: boolean;
   lastError: string | null;
   lastKnownGoodAvailable: boolean;
+  refreshRequestedAt: string | null;
+  lastRefreshAttemptAt: string | null;
+  nextRefreshAfter: string | null;
+  refreshInProgress: boolean;
+  sourceReason: string | null;
 }
 
 export interface ProviderAccountSnapshotResult {
@@ -39,11 +51,13 @@ interface ResolveProviderAccountSnapshotInput {
   provider: string;
   liveLoader: () => Promise<ProviderAccountSnapshotItem[]>;
   freshnessMs?: number;
-  failureCooldownMs?: number;
+  reason?: string;
 }
 
-const DEFAULT_FRESHNESS_MS = 15 * 60_000;
-const DEFAULT_FAILURE_COOLDOWN_MS = 5 * 60_000;
+const DEFAULT_FRESHNESS_MS = 6 * 60 * 60_000;
+const FIRST_FAILURE_COOLDOWN_MS = 30 * 60_000;
+const SECOND_FAILURE_COOLDOWN_MS = 2 * 60 * 60_000;
+const MAX_FAILURE_COOLDOWN_MS = 6 * 60 * 60_000;
 
 export class ProviderAccountSnapshotRefreshError extends Error {
   readonly provider: string;
@@ -77,50 +91,46 @@ function getRefreshLocks() {
   return globalStore.__omniadsProviderAccountRefreshes;
 }
 
-function getFailureStateStore() {
-  const globalStore = globalThis as typeof globalThis & {
-    __omniadsProviderAccountFailureState?: Map<
-      string,
-      { failedAt: number; message: string }
-    >;
-  };
-  if (!globalStore.__omniadsProviderAccountFailureState) {
-    globalStore.__omniadsProviderAccountFailureState = new Map();
-  }
-  return globalStore.__omniadsProviderAccountFailureState;
-}
-
 function getSnapshotKey(businessId: string, provider: string) {
   return `${businessId}:${provider}`;
 }
 
-function getRecentFailure(
-  businessId: string,
-  provider: string,
-  failureCooldownMs: number
-) {
-  const state = getFailureStateStore().get(getSnapshotKey(businessId, provider));
-  if (!state) return null;
-  const retryAfterMs = state.failedAt + failureCooldownMs - Date.now();
-  if (retryAfterMs <= 0) {
-    getFailureStateStore().delete(getSnapshotKey(businessId, provider));
-    return null;
+function toIso(value: Date | null) {
+  return value ? value.toISOString() : null;
+}
+
+function isFresh(row: ProviderAccountSnapshotRow, freshnessMs: number) {
+  const fetchedAtMs = new Date(row.fetched_at).getTime();
+  return Number.isFinite(fetchedAtMs) && Date.now() - fetchedAtMs <= freshnessMs;
+}
+
+function computeAccountsHash(accounts: ProviderAccountSnapshotItem[]) {
+  return createHash("sha1").update(JSON.stringify(accounts)).digest("hex");
+}
+
+function getRetryAfterMs(row: ProviderAccountSnapshotRow | null) {
+  if (!row?.next_refresh_after) return 0;
+  const retryAfterMs = new Date(row.next_refresh_after).getTime() - Date.now();
+  return Number.isFinite(retryAfterMs) && retryAfterMs > 0 ? retryAfterMs : 0;
+}
+
+function computeFailureCooldownMs(row: ProviderAccountSnapshotRow | null) {
+  if (!row?.refresh_failed) return FIRST_FAILURE_COOLDOWN_MS;
+  if (!row.last_refresh_attempt_at || !row.next_refresh_after) {
+    return SECOND_FAILURE_COOLDOWN_MS;
   }
-  return {
-    ...state,
-    retryAfterMs,
-  };
-}
 
-function setRecentFailure(businessId: string, provider: string, message: string) {
-  getFailureStateStore().set(getSnapshotKey(businessId, provider), {
-    failedAt: Date.now(),
-    message,
-  });
-}
+  const previousCooldownMs =
+    new Date(row.next_refresh_after).getTime() -
+    new Date(row.last_refresh_attempt_at).getTime();
 
-function clearRecentFailure(businessId: string, provider: string) {
-  getFailureStateStore().delete(getSnapshotKey(businessId, provider));
+  if (!Number.isFinite(previousCooldownMs) || previousCooldownMs <= FIRST_FAILURE_COOLDOWN_MS) {
+    return SECOND_FAILURE_COOLDOWN_MS;
+  }
+  if (previousCooldownMs < SECOND_FAILURE_COOLDOWN_MS) {
+    return SECOND_FAILURE_COOLDOWN_MS;
+  }
+  return MAX_FAILURE_COOLDOWN_MS;
 }
 
 async function getSnapshotRow(
@@ -137,26 +147,21 @@ async function getSnapshotRow(
       fetched_at,
       refresh_failed,
       last_error,
+      refresh_requested_at,
+      last_refresh_attempt_at,
+      next_refresh_after,
+      refresh_in_progress,
+      accounts_hash,
+      source_reason,
       created_at,
       updated_at
     FROM provider_account_snapshots
     WHERE business_id = ${businessId}
       AND provider = ${provider}
     LIMIT 1
-  `) as unknown as Array<{
-    business_id: string;
-    provider: string;
-    accounts_payload: ProviderAccountSnapshotItem[];
-    fetched_at: string;
-    refresh_failed: boolean;
-    last_error: string | null;
-    created_at: string;
-    updated_at: string;
-  }>;
+  `) as unknown as ProviderAccountSnapshotRow[];
 
-  const row = rows[0];
-  if (!row) return null;
-  return row;
+  return rows[0] ?? null;
 }
 
 async function upsertSnapshotRow(input: {
@@ -165,6 +170,71 @@ async function upsertSnapshotRow(input: {
   accounts: ProviderAccountSnapshotItem[];
   refreshFailed: boolean;
   lastError: string | null;
+  refreshRequestedAt?: Date | null;
+  lastRefreshAttemptAt?: Date | null;
+  nextRefreshAfter?: Date | null;
+  refreshInProgress?: boolean;
+  sourceReason?: string | null;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const accountsHash = computeAccountsHash(input.accounts);
+  await sql`
+    INSERT INTO provider_account_snapshots (
+      business_id,
+      provider,
+      accounts_payload,
+      fetched_at,
+      refresh_failed,
+      last_error,
+      refresh_requested_at,
+      last_refresh_attempt_at,
+      next_refresh_after,
+      refresh_in_progress,
+      accounts_hash,
+      source_reason,
+      updated_at
+    )
+    VALUES (
+      ${input.businessId},
+      ${input.provider},
+      ${JSON.stringify(input.accounts)}::jsonb,
+      now(),
+      ${input.refreshFailed},
+      ${input.lastError},
+      ${toIso(input.refreshRequestedAt ?? null)},
+      ${toIso(input.lastRefreshAttemptAt ?? null)},
+      ${toIso(input.nextRefreshAfter ?? null)},
+      ${input.refreshInProgress ?? false},
+      ${accountsHash},
+      ${input.sourceReason ?? null},
+      now()
+    )
+    ON CONFLICT (business_id, provider) DO UPDATE SET
+      accounts_payload = EXCLUDED.accounts_payload,
+      fetched_at = now(),
+      refresh_failed = EXCLUDED.refresh_failed,
+      last_error = EXCLUDED.last_error,
+      refresh_requested_at = COALESCE(EXCLUDED.refresh_requested_at, provider_account_snapshots.refresh_requested_at),
+      last_refresh_attempt_at = COALESCE(EXCLUDED.last_refresh_attempt_at, provider_account_snapshots.last_refresh_attempt_at),
+      next_refresh_after = EXCLUDED.next_refresh_after,
+      refresh_in_progress = EXCLUDED.refresh_in_progress,
+      accounts_hash = EXCLUDED.accounts_hash,
+      source_reason = EXCLUDED.source_reason,
+      updated_at = now()
+  `;
+}
+
+async function updateSnapshotLifecycle(input: {
+  businessId: string;
+  provider: string;
+  refreshRequestedAt?: Date | null;
+  lastRefreshAttemptAt?: Date | null;
+  nextRefreshAfter?: Date | null;
+  refreshInProgress?: boolean;
+  refreshFailed?: boolean;
+  lastError?: string | null;
+  sourceReason?: string | null;
 }) {
   await runMigrations();
   const sql = getDb();
@@ -176,94 +246,55 @@ async function upsertSnapshotRow(input: {
       fetched_at,
       refresh_failed,
       last_error,
+      refresh_requested_at,
+      last_refresh_attempt_at,
+      next_refresh_after,
+      refresh_in_progress,
+      source_reason,
       updated_at
     )
     VALUES (
       ${input.businessId},
       ${input.provider},
-      ${JSON.stringify(input.accounts)}::jsonb,
+      '[]'::jsonb,
       now(),
-      ${input.refreshFailed},
-      ${input.lastError},
+      ${input.refreshFailed ?? false},
+      ${input.lastError ?? null},
+      ${toIso(input.refreshRequestedAt ?? null)},
+      ${toIso(input.lastRefreshAttemptAt ?? null)},
+      ${toIso(input.nextRefreshAfter ?? null)},
+      ${input.refreshInProgress ?? false},
+      ${input.sourceReason ?? null},
       now()
     )
     ON CONFLICT (business_id, provider) DO UPDATE SET
-      accounts_payload = EXCLUDED.accounts_payload,
-      fetched_at = now(),
-      refresh_failed = EXCLUDED.refresh_failed,
-      last_error = EXCLUDED.last_error,
+      refresh_failed = COALESCE(${input.refreshFailed}, provider_account_snapshots.refresh_failed),
+      last_error = COALESCE(${input.lastError}, provider_account_snapshots.last_error),
+      refresh_requested_at = COALESCE(${toIso(input.refreshRequestedAt ?? null)}, provider_account_snapshots.refresh_requested_at),
+      last_refresh_attempt_at = COALESCE(${toIso(input.lastRefreshAttemptAt ?? null)}, provider_account_snapshots.last_refresh_attempt_at),
+      next_refresh_after = COALESCE(${toIso(input.nextRefreshAfter ?? null)}, provider_account_snapshots.next_refresh_after),
+      refresh_in_progress = COALESCE(${input.refreshInProgress}, provider_account_snapshots.refresh_in_progress),
+      source_reason = COALESCE(${input.sourceReason ?? null}, provider_account_snapshots.source_reason),
       updated_at = now()
   `;
-}
-
-function isFresh(row: ProviderAccountSnapshotRow, freshnessMs: number) {
-  const fetchedAtMs = new Date(row.fetched_at).getTime();
-  return Number.isFinite(fetchedAtMs) && Date.now() - fetchedAtMs <= freshnessMs;
-}
-
-async function refreshSnapshotInBackground(input: ResolveProviderAccountSnapshotInput) {
-  const key = getSnapshotKey(input.businessId, input.provider);
-  const locks = getRefreshLocks();
-  if (locks.has(key)) return;
-
-  const refreshPromise = (async () => {
-    console.log("[provider-snapshot] background_refresh_start", {
-      provider: input.provider,
-      businessId: input.businessId,
-    });
-    try {
-      const accounts = await input.liveLoader();
-      clearRecentFailure(input.businessId, input.provider);
-      await upsertSnapshotRow({
-        businessId: input.businessId,
-        provider: input.provider,
-        accounts,
-        refreshFailed: false,
-        lastError: null,
-      });
-      console.log("[provider-snapshot] background_refresh_success", {
-        provider: input.provider,
-        businessId: input.businessId,
-        accountCount: accounts.length,
-      });
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      setRecentFailure(input.businessId, input.provider, message);
-      console.warn("[provider-snapshot] background_refresh_failed", {
-        provider: input.provider,
-        businessId: input.businessId,
-        message,
-      });
-      const existing = await getSnapshotRow(input.businessId, input.provider);
-      if (existing) {
-        await upsertSnapshotRow({
-          businessId: input.businessId,
-          provider: input.provider,
-          accounts: existing.accounts_payload ?? [],
-          refreshFailed: true,
-          lastError: message,
-        });
-      }
-    } finally {
-      locks.delete(key);
-    }
-  })();
-
-  locks.set(key, refreshPromise);
 }
 
 function toSnapshotMeta(input: {
   snapshot: ProviderAccountSnapshotRow;
   freshnessMs: number;
-  recentFailure: ReturnType<typeof getRecentFailure> | null;
 }): ProviderAccountSnapshotMeta {
   return {
     source: "snapshot",
     fetchedAt: input.snapshot.fetched_at,
     stale: !isFresh(input.snapshot, input.freshnessMs),
-    refreshFailed: input.snapshot.refresh_failed || Boolean(input.recentFailure),
-    lastError: input.recentFailure?.message ?? input.snapshot.last_error,
-    lastKnownGoodAvailable: true,
+    refreshFailed: input.snapshot.refresh_failed,
+    lastError: input.snapshot.last_error,
+    lastKnownGoodAvailable: (input.snapshot.accounts_payload ?? []).length > 0,
+    refreshRequestedAt: input.snapshot.refresh_requested_at,
+    lastRefreshAttemptAt: input.snapshot.last_refresh_attempt_at,
+    nextRefreshAfter: input.snapshot.next_refresh_after,
+    refreshInProgress: input.snapshot.refresh_in_progress,
+    sourceReason: input.snapshot.source_reason,
   };
 }
 
@@ -271,267 +302,254 @@ export async function readProviderAccountSnapshot(input: {
   businessId: string;
   provider: string;
   freshnessMs?: number;
-  failureCooldownMs?: number;
 }): Promise<ProviderAccountSnapshotResult | null> {
   const freshnessMs = input.freshnessMs ?? DEFAULT_FRESHNESS_MS;
-  const failureCooldownMs = input.failureCooldownMs ?? DEFAULT_FAILURE_COOLDOWN_MS;
   const snapshot = await getSnapshotRow(input.businessId, input.provider);
   if (!snapshot) return null;
-  const recentFailure = getRecentFailure(
-    input.businessId,
-    input.provider,
-    failureCooldownMs
-  );
 
   return {
     accounts: snapshot.accounts_payload ?? [],
     meta: toSnapshotMeta({
       snapshot,
       freshnessMs,
-      recentFailure,
     }),
   };
+}
+
+async function runSnapshotRefresh(input: ResolveProviderAccountSnapshotInput) {
+  const key = getSnapshotKey(input.businessId, input.provider);
+  const locks = getRefreshLocks();
+  const existingRequest = locks.get(key);
+  if (existingRequest) {
+    await existingRequest;
+    return;
+  }
+
+  const refreshPromise = (async () => {
+    const existingSnapshot = await getSnapshotRow(input.businessId, input.provider);
+    const retryAfterMs = getRetryAfterMs(existingSnapshot);
+    if (retryAfterMs > 0) {
+      throw new ProviderAccountSnapshotRefreshError({
+        provider: input.provider,
+        businessId: input.businessId,
+        message:
+          existingSnapshot?.last_error ??
+          "Provider account refresh is temporarily cooling down.",
+        retryAfterMs,
+        dueToRecentFailure: true,
+      });
+    }
+
+    const now = new Date();
+    await updateSnapshotLifecycle({
+      businessId: input.businessId,
+      provider: input.provider,
+      refreshRequestedAt: now,
+      lastRefreshAttemptAt: now,
+      nextRefreshAfter: null,
+      refreshInProgress: true,
+      sourceReason: input.reason ?? "manual_refresh",
+    });
+
+    try {
+      const accounts = await input.liveLoader();
+      await upsertSnapshotRow({
+        businessId: input.businessId,
+        provider: input.provider,
+        accounts,
+        refreshFailed: false,
+        lastError: null,
+        refreshRequestedAt: now,
+        lastRefreshAttemptAt: now,
+        nextRefreshAfter: null,
+        refreshInProgress: false,
+        sourceReason: input.reason ?? "manual_refresh",
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      const currentSnapshot = await getSnapshotRow(input.businessId, input.provider);
+      const cooldownMs = computeFailureCooldownMs(currentSnapshot);
+      const nextRefreshAfter = new Date(Date.now() + cooldownMs);
+
+      if (currentSnapshot) {
+        await upsertSnapshotRow({
+          businessId: input.businessId,
+          provider: input.provider,
+          accounts: currentSnapshot.accounts_payload ?? [],
+          refreshFailed: true,
+          lastError: message,
+          refreshRequestedAt: currentSnapshot.refresh_requested_at
+            ? new Date(currentSnapshot.refresh_requested_at)
+            : now,
+          lastRefreshAttemptAt: now,
+          nextRefreshAfter,
+          refreshInProgress: false,
+          sourceReason: input.reason ?? "manual_refresh",
+        });
+      } else {
+        await updateSnapshotLifecycle({
+          businessId: input.businessId,
+          provider: input.provider,
+          refreshRequestedAt: now,
+          lastRefreshAttemptAt: now,
+          nextRefreshAfter,
+          refreshInProgress: false,
+          refreshFailed: true,
+          lastError: message,
+          sourceReason: input.reason ?? "manual_refresh",
+        });
+      }
+
+      throw new ProviderAccountSnapshotRefreshError({
+        provider: input.provider,
+        businessId: input.businessId,
+        message,
+        retryAfterMs: cooldownMs,
+        dueToRecentFailure: false,
+      });
+    } finally {
+      locks.delete(key);
+    }
+  })();
+
+  locks.set(key, refreshPromise);
+  await refreshPromise;
+}
+
+export async function scheduleProviderAccountSnapshotRefresh(
+  input: ResolveProviderAccountSnapshotInput & {
+    skipIfFresh?: boolean;
+  }
+): Promise<ProviderAccountSnapshotResult | null> {
+  const snapshot = await readProviderAccountSnapshot({
+    businessId: input.businessId,
+    provider: input.provider,
+    freshnessMs: input.freshnessMs,
+  });
+
+  if (input.skipIfFresh !== false && snapshot && !snapshot.meta.stale) {
+    return snapshot;
+  }
+
+  const existingRow = await getSnapshotRow(input.businessId, input.provider);
+  const retryAfterMs = getRetryAfterMs(existingRow);
+  if (retryAfterMs > 0 || existingRow?.refresh_in_progress) {
+    return snapshot;
+  }
+
+  void runSnapshotRefresh({
+    ...input,
+    reason: input.reason ?? "background_refresh",
+  }).catch(() => undefined);
+
+  return snapshot;
 }
 
 export async function requestProviderAccountSnapshotRefresh(
   input: ResolveProviderAccountSnapshotInput
 ): Promise<ProviderAccountSnapshotResult | null> {
-  console.log("[provider-snapshot] request_refresh", {
-    provider: input.provider,
-    businessId: input.businessId,
+  return scheduleProviderAccountSnapshotRefresh({
+    ...input,
+    skipIfFresh: true,
+    reason: input.reason ?? "background_refresh",
   });
-  const snapshot = await readProviderAccountSnapshot({
-    businessId: input.businessId,
-    provider: input.provider,
-    freshnessMs: input.freshnessMs,
-    failureCooldownMs: input.failureCooldownMs,
-  });
-
-  if (snapshot && !snapshot.meta.stale) {
-    return snapshot;
-  }
-
-  if (snapshot) {
-    const failureCooldownMs = input.failureCooldownMs ?? DEFAULT_FAILURE_COOLDOWN_MS;
-    const recentFailure = getRecentFailure(
-      input.businessId,
-      input.provider,
-      failureCooldownMs
-    );
-    if (!recentFailure) {
-      void refreshSnapshotInBackground(input);
-    } else {
-      console.warn("[provider-snapshot] request_refresh_cooldown", {
-        provider: input.provider,
-        businessId: input.businessId,
-        retryAfterMs: recentFailure.retryAfterMs,
-      });
-    }
-    return snapshot;
-  }
-
-  return resolveProviderAccountSnapshot(input);
 }
 
 export async function forceProviderAccountSnapshotRefresh(
   input: ResolveProviderAccountSnapshotInput
 ): Promise<ProviderAccountSnapshotResult> {
-  const failureCooldownMs = input.failureCooldownMs ?? DEFAULT_FAILURE_COOLDOWN_MS;
-  const recentFailure = getRecentFailure(
-    input.businessId,
-    input.provider,
-    failureCooldownMs
-  );
+  await runSnapshotRefresh({
+    ...input,
+    reason: input.reason ?? "manual_refresh",
+  });
 
-  if (recentFailure) {
-    const existing = await getSnapshotRow(input.businessId, input.provider);
-    console.warn("[provider-snapshot] force_refresh_cooldown", {
-      provider: input.provider,
-      businessId: input.businessId,
-      retryAfterMs: recentFailure.retryAfterMs,
-      hasSnapshot: Boolean(existing),
-    });
-    if (existing) {
-      return {
-        accounts: existing.accounts_payload ?? [],
-        meta: {
-          source: "snapshot",
-          fetchedAt: existing.fetched_at,
-          stale: true,
-          refreshFailed: true,
-          lastError: recentFailure.message,
-          lastKnownGoodAvailable: true,
-        },
-      };
-    }
+  const snapshot = await readProviderAccountSnapshot({
+    businessId: input.businessId,
+    provider: input.provider,
+    freshnessMs: input.freshnessMs,
+  });
+
+  if (!snapshot) {
     throw new ProviderAccountSnapshotRefreshError({
       provider: input.provider,
       businessId: input.businessId,
-      message: recentFailure.message,
-      retryAfterMs: recentFailure.retryAfterMs,
-      dueToRecentFailure: true,
+      message: "Provider account snapshot could not be loaded after refresh.",
     });
   }
 
-  try {
-    console.log("[provider-snapshot] force_refresh_start", {
-      provider: input.provider,
-      businessId: input.businessId,
-    });
-    const accounts = await input.liveLoader();
-    clearRecentFailure(input.businessId, input.provider);
-    await upsertSnapshotRow({
-      businessId: input.businessId,
-      provider: input.provider,
-      accounts,
+  return {
+    accounts: snapshot.accounts,
+    meta: {
+      ...snapshot.meta,
+      source: "live",
+      stale: false,
       refreshFailed: false,
       lastError: null,
-    });
-
-    return {
-      accounts,
-      meta: {
-        source: "live",
-        fetchedAt: new Date().toISOString(),
-        stale: false,
-        refreshFailed: false,
-        lastError: null,
-        lastKnownGoodAvailable: false,
-      },
-    };
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.warn("[provider-snapshot] force_refresh_failed", {
-      provider: input.provider,
-      businessId: input.businessId,
-      message,
-    });
-    setRecentFailure(input.businessId, input.provider, message);
-    const existing = await getSnapshotRow(input.businessId, input.provider);
-    if (existing) {
-      await upsertSnapshotRow({
-        businessId: input.businessId,
-        provider: input.provider,
-        accounts: existing.accounts_payload ?? [],
-        refreshFailed: true,
-        lastError: message,
-      });
-      return {
-        accounts: existing.accounts_payload ?? [],
-        meta: {
-          source: "snapshot",
-          fetchedAt: existing.fetched_at,
-          stale: true,
-          refreshFailed: true,
-          lastError: message,
-          lastKnownGoodAvailable: true,
-        },
-      };
-    }
-
-    throw new ProviderAccountSnapshotRefreshError({
-      provider: input.provider,
-      businessId: input.businessId,
-      message,
-      retryAfterMs: failureCooldownMs,
-      dueToRecentFailure: false,
-    });
-  }
+      refreshInProgress: false,
+    },
+  };
 }
 
 export async function resolveProviderAccountSnapshot(
   input: ResolveProviderAccountSnapshotInput
 ): Promise<ProviderAccountSnapshotResult> {
-  const freshnessMs = input.freshnessMs ?? DEFAULT_FRESHNESS_MS;
-  const failureCooldownMs = input.failureCooldownMs ?? DEFAULT_FAILURE_COOLDOWN_MS;
-  const snapshot = await getSnapshotRow(input.businessId, input.provider);
-  const recentFailure = getRecentFailure(
-    input.businessId,
-    input.provider,
-    failureCooldownMs
-  );
-
-  if (snapshot && isFresh(snapshot, freshnessMs)) {
-    return {
-      accounts: snapshot.accounts_payload ?? [],
-      meta: toSnapshotMeta({
-        snapshot,
-        freshnessMs,
-        recentFailure,
-      }),
-    };
-  }
+  const snapshot = await readProviderAccountSnapshot({
+    businessId: input.businessId,
+    provider: input.provider,
+    freshnessMs: input.freshnessMs,
+  });
 
   if (snapshot) {
-    if (!recentFailure) {
-      void refreshSnapshotInBackground(input);
-    } else {
-      console.warn("[provider-snapshot] resolve_snapshot_cooldown", {
-        provider: input.provider,
-        businessId: input.businessId,
-        retryAfterMs: recentFailure.retryAfterMs,
-      });
+    if (snapshot.meta.stale && !snapshot.meta.refreshInProgress) {
+      void scheduleProviderAccountSnapshotRefresh({
+        ...input,
+        skipIfFresh: true,
+        reason: input.reason ?? "stale_snapshot_refresh",
+      }).catch(() => undefined);
     }
-    return {
-      accounts: snapshot.accounts_payload ?? [],
-      meta: toSnapshotMeta({
-        snapshot,
-        freshnessMs,
-        recentFailure,
-      }),
-    };
+    return snapshot;
   }
 
-  if (recentFailure) {
+  const existingRow = await getSnapshotRow(input.businessId, input.provider);
+  const retryAfterMs = getRetryAfterMs(existingRow);
+  if (retryAfterMs > 0) {
     throw new ProviderAccountSnapshotRefreshError({
       provider: input.provider,
       businessId: input.businessId,
-      message: recentFailure.message,
-      retryAfterMs: recentFailure.retryAfterMs,
+      message:
+        existingRow?.last_error ??
+        "Provider account refresh is temporarily cooling down.",
+      retryAfterMs,
       dueToRecentFailure: true,
     });
   }
 
-  try {
-    console.log("[provider-snapshot] resolve_live_start", {
-      provider: input.provider,
-      businessId: input.businessId,
-    });
-    const accounts = await input.liveLoader();
-    clearRecentFailure(input.businessId, input.provider);
-    await upsertSnapshotRow({
-      businessId: input.businessId,
-      provider: input.provider,
-      accounts,
-      refreshFailed: false,
-      lastError: null,
-    });
+  await runSnapshotRefresh({
+    ...input,
+    reason: input.reason ?? "initial_snapshot_refresh",
+  });
 
-    return {
-      accounts,
-      meta: {
-        source: "live",
-        fetchedAt: new Date().toISOString(),
-        stale: false,
-        refreshFailed: false,
-        lastError: null,
-        lastKnownGoodAvailable: false,
-      },
-    };
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.warn("[provider-snapshot] resolve_live_failed", {
-      provider: input.provider,
-      businessId: input.businessId,
-      message,
-    });
-    setRecentFailure(input.businessId, input.provider, message);
+  const refreshedSnapshot = await readProviderAccountSnapshot({
+    businessId: input.businessId,
+    provider: input.provider,
+    freshnessMs: input.freshnessMs,
+  });
+  if (!refreshedSnapshot) {
     throw new ProviderAccountSnapshotRefreshError({
       provider: input.provider,
       businessId: input.businessId,
-      message,
-      retryAfterMs: failureCooldownMs,
-      dueToRecentFailure: false,
+      message: "Provider account snapshot is unavailable.",
     });
   }
+  return {
+    accounts: refreshedSnapshot.accounts,
+    meta: {
+      ...refreshedSnapshot.meta,
+      source: "live",
+      stale: false,
+      refreshFailed: false,
+      lastError: null,
+      refreshInProgress: false,
+    },
+  };
 }

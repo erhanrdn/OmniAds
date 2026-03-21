@@ -1,0 +1,156 @@
+import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
+import {
+  forceProviderAccountSnapshotRefresh,
+  readProviderAccountSnapshot,
+  requestProviderAccountSnapshotRefresh,
+  type ProviderAccountSnapshotItem,
+  type ProviderAccountSnapshotMeta,
+  type ProviderAccountSnapshotResult,
+} from "@/lib/provider-account-snapshots";
+
+export interface ProviderDiscoveryRow extends ProviderAccountSnapshotItem {
+  assigned: boolean;
+}
+
+export interface ProviderDiscoveryPayload {
+  data: ProviderDiscoveryRow[];
+  meta: ProviderAccountSnapshotMeta;
+  notice: string | null;
+}
+
+const DEFAULT_FRESHNESS_MS = 6 * 60 * 60_000;
+
+function buildMeta(input: Partial<ProviderAccountSnapshotMeta>): ProviderAccountSnapshotMeta {
+  return {
+    source: input.source ?? "snapshot",
+    fetchedAt: input.fetchedAt ?? null,
+    stale: input.stale ?? true,
+    refreshFailed: input.refreshFailed ?? false,
+    lastError: input.lastError ?? null,
+    lastKnownGoodAvailable: input.lastKnownGoodAvailable ?? false,
+    refreshRequestedAt: input.refreshRequestedAt ?? null,
+    lastRefreshAttemptAt: input.lastRefreshAttemptAt ?? null,
+    nextRefreshAfter: input.nextRefreshAfter ?? null,
+    refreshInProgress: input.refreshInProgress ?? false,
+    sourceReason: input.sourceReason ?? null,
+  };
+}
+
+function mergeAssignments(
+  accounts: ProviderAccountSnapshotItem[],
+  assignedIds: string[]
+): ProviderDiscoveryRow[] {
+  const assignedSet = new Set(assignedIds);
+  return accounts.map((account) => ({
+    ...account,
+    assigned: assignedSet.has(account.id),
+  }));
+}
+
+function buildAssignedFallbackRows(accountIds: string[]): ProviderDiscoveryRow[] {
+  return accountIds.map((accountId) => ({
+    id: accountId,
+    name: accountId,
+    assigned: true,
+  }));
+}
+
+export async function resolveProviderDiscoveryPayload(input: {
+  businessId: string;
+  provider: "meta" | "google";
+  refreshRequested: boolean;
+  liveLoader: () => Promise<ProviderAccountSnapshotItem[]>;
+  missingSnapshotNotice: string;
+  degradedNotice: string;
+  unavailableNotice: string;
+  freshnessMs?: number;
+}): Promise<ProviderDiscoveryPayload> {
+  const freshnessMs = input.freshnessMs ?? DEFAULT_FRESHNESS_MS;
+  const assignmentRow = await getProviderAccountAssignments(input.businessId, input.provider).catch(
+    () => null
+  );
+  const assignedIds = assignmentRow?.account_ids ?? [];
+
+  if (input.refreshRequested) {
+    const snapshot = await forceProviderAccountSnapshotRefresh({
+      businessId: input.businessId,
+      provider: input.provider,
+      freshnessMs,
+      liveLoader: input.liveLoader,
+      reason: "manual_refresh",
+    });
+    return {
+      data: mergeAssignments(snapshot.accounts, assignedIds),
+      meta: snapshot.meta,
+      notice: null,
+    };
+  }
+
+  const snapshot = await readProviderAccountSnapshot({
+    businessId: input.businessId,
+    provider: input.provider,
+    freshnessMs,
+  });
+
+  if (snapshot) {
+    if (snapshot.meta.stale && !snapshot.meta.refreshInProgress) {
+      void requestProviderAccountSnapshotRefresh({
+        businessId: input.businessId,
+        provider: input.provider,
+        freshnessMs,
+        liveLoader: input.liveLoader,
+        reason: "stale_snapshot_refresh",
+      }).catch(() => undefined);
+    }
+
+    return {
+      data: mergeAssignments(snapshot.accounts, assignedIds),
+      meta: snapshot.meta,
+      notice:
+        snapshot.meta.refreshFailed || snapshot.meta.stale
+          ? input.degradedNotice
+          : null,
+    };
+  }
+
+  void requestProviderAccountSnapshotRefresh({
+    businessId: input.businessId,
+    provider: input.provider,
+    freshnessMs,
+    liveLoader: input.liveLoader,
+    reason: "initial_snapshot_refresh",
+  }).catch(() => undefined);
+
+  if (assignedIds.length > 0) {
+    return {
+      data: buildAssignedFallbackRows(assignedIds),
+      meta: buildMeta({
+        stale: true,
+        lastKnownGoodAvailable: true,
+        refreshInProgress: false,
+        sourceReason: "initial_snapshot_refresh",
+      }),
+      notice: input.missingSnapshotNotice,
+    };
+  }
+
+  return {
+    data: [],
+    meta: buildMeta({
+      stale: true,
+      lastKnownGoodAvailable: false,
+      refreshInProgress: false,
+      sourceReason: "initial_snapshot_refresh",
+    }),
+    notice: input.unavailableNotice,
+  };
+}
+
+export function toSnapshotResultFromPayload(
+  payload: ProviderDiscoveryPayload
+): ProviderAccountSnapshotResult {
+  return {
+    accounts: payload.data.map(({ assigned: _assigned, ...account }) => account),
+    meta: payload.meta,
+  };
+}

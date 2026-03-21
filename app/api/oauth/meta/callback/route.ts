@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { META_CONFIG } from "@/lib/oauth/meta-config";
 import { upsertIntegration } from "@/lib/integrations";
 import { requireBusinessAccess } from "@/lib/access";
+import { fetchMetaAdAccounts, getMetaApiErrorMessage } from "@/lib/meta-ad-accounts";
+import { scheduleProviderAccountSnapshotRefresh } from "@/lib/provider-account-snapshots";
 
 /**
  * GET /api/oauth/meta/callback?code=...&state=...
@@ -128,6 +130,27 @@ export async function GET(request: NextRequest) {
       tokenExpiresAt,
       scopes: META_CONFIG.scopes.join(","),
     });
+
+    await scheduleProviderAccountSnapshotRefresh({
+      businessId,
+      provider: "meta",
+      freshnessMs: 6 * 60 * 60_000,
+      reason: "oauth_callback_refresh",
+      skipIfFresh: false,
+      liveLoader: async () => {
+        const metaResult = await fetchMetaAdAccounts(accessToken);
+        if (!metaResult.ok || metaResult.body?.error) {
+          throw new Error(getMetaApiErrorMessage(metaResult));
+        }
+        return metaResult.normalized.map((account) => ({
+          id: account.id,
+          name: account.name,
+          currency: account.currency ?? undefined,
+          timezone: account.timezone ?? undefined,
+          isManager: false,
+        }));
+      },
+    }).catch(() => null);
 
     // ── Redirect to frontend callback with success ──────────────
     const redirectUrl = new URL(`/integrations/callback/meta`, baseUrl);

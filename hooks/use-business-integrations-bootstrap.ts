@@ -4,9 +4,7 @@ import { useEffect } from "react";
 import { logClientAuthEvent } from "@/lib/auth-diagnostics";
 import {
   fetchProviderAccountSnapshot,
-  ProviderAccountSnapshotMissingError,
   supportsProviderAssignments,
-  warmProviderAccountSnapshot,
 } from "@/lib/provider-account-client";
 import {
   IntegrationProvider,
@@ -148,32 +146,13 @@ export function useBusinessIntegrationsBootstrap(businessId: string | null) {
               return;
             }
 
-            setProviderDiscovery(businessId, provider, {
-              status: "loading",
-              entities: [],
-              errorMessage: undefined,
-              notice: null,
-              stale: false,
-              refreshFailed: false,
-            });
-            setProviderAssignmentState(businessId, provider, {
-              status: "loading",
-              selectedIds: [],
-            });
             logClientAuthEvent("provider_discovery_started", {
               businessId,
               provider,
             });
 
             try {
-              let snapshot = await fetchProviderAccountSnapshot(provider, businessId).catch(
-                async (error) => {
-                  if (error instanceof ProviderAccountSnapshotMissingError) {
-                    return warmProviderAccountSnapshot(provider, businessId);
-                  }
-                  throw error;
-                }
-              );
+              const snapshot = await fetchProviderAccountSnapshot(provider, businessId);
               setProviderDiscovery(businessId, provider, {
                 status: snapshot.meta?.stale ? "stale" : "ready",
                 entities: snapshot.accounts,
@@ -207,9 +186,6 @@ export function useBusinessIntegrationsBootstrap(businessId: string | null) {
                 provider,
                 assignedCount: snapshot.assignedAccountIds.length,
               });
-              if (snapshot.meta?.stale) {
-                void warmProviderAccountSnapshot(provider, businessId).catch(() => undefined);
-              }
             } catch (error) {
               setProviderDiscovery(businessId, provider, {
                 status: "failed",

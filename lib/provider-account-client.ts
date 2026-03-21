@@ -125,11 +125,6 @@ export async function fetchProviderAccountSnapshot(
     const payload = (await response.json().catch(() => null)) as ProviderAccountsPayload | null;
 
     if (!response.ok) {
-      if (payload?.error === "provider_snapshot_missing") {
-        throw new ProviderAccountSnapshotMissingError(
-          payload?.message ?? "Loading accounts..."
-        );
-      }
       const message =
         payload?.message ?? `Could not load ${provider} account assignments.`;
       if (options?.refresh && (response.status >= 500 || response.status === 401 || response.status === 403 || response.status === 429)) {

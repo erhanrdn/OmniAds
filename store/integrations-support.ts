@@ -340,9 +340,11 @@ export function deriveProviderViewState(
   } else if (
     providerSupportsAssignments &&
     domain.discovery.status === "loading" &&
-    !hasDiscoveryEntities
+    domain.discovery.entities.length > 0
   ) {
     status = "loading_data";
+  } else if (domain.discovery.refreshFailed && !hasDiscoveryEntities && assignedCount === 0) {
+    status = "action_required";
   } else if (domain.discovery.refreshFailed || (domain.discovery.stale && hasDiscoveryEntities)) {
     status = assignedCount > 0 || !providerSupportsAssignments ? "degraded" : "needs_assignment";
   } else if (providerSupportsAssignments && domain.discovery.status === "failed") {
@@ -357,10 +359,10 @@ export function deriveProviderViewState(
     status = "needs_assignment";
   } else if (
     providerSupportsAssignments &&
-    domain.discovery.status !== "ready" &&
+    domain.discovery.status === "loading" &&
     !hasDiscoveryEntities
   ) {
-    status = "loading_data";
+    status = domain.discovery.refreshFailed ? "action_required" : "needs_assignment";
   } else {
     status = "ready";
   }

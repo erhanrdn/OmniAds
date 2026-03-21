@@ -811,9 +811,10 @@ export function CreativesTableSection({
     [aiDecisionInputRows]
   );
 
+  // AI query is never auto-fired — only triggered manually via the Analyze button
   const aiDecisionQuery = useQuery({
     queryKey: ["ai-creative-decisions", AI_DECISION_ENGINE_VERSION, businessId, aiDecisionSignature],
-    enabled: Boolean(businessId) && aiDecisionInputRows.length > 0,
+    enabled: false,
     staleTime: Number.POSITIVE_INFINITY,
     refetchOnWindowFocus: false,
     retry: 1,
@@ -826,13 +827,15 @@ export function CreativesTableSection({
       ),
   });
 
+  // forceRefresh=false → DB cache-first (no AI call if same data exists)
+  // forceRefresh=true  → always call AI (used for Re-analyze)
   const analyzeMutation = useMutation({
-    mutationFn: () =>
+    mutationFn: (forceRefresh: boolean) =>
       getAiCreativeDecisions(
         businessId as string,
         defaultCurrency ?? "USD",
         aiDecisionInputRows,
-        true
+        forceRefresh
       ),
     onSuccess: (data) => {
       queryClient.setQueryData(["ai-creative-decisions", AI_DECISION_ENGINE_VERSION, businessId, aiDecisionSignature], data);
@@ -937,12 +940,16 @@ export function CreativesTableSection({
       )}
       <button
         type="button"
-        onClick={() => analyzeMutation.mutate()}
+        onClick={() => analyzeMutation.mutate(Boolean(aiDecisionQuery.data))}
         disabled={analyzeMutation.isPending || !businessId || aiDecisionInputRows.length === 0}
         className="inline-flex items-center rounded-full border bg-background px-2.5 py-0.5 text-[11px] font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
         title={analyzeScopeCount > 0 ? `Analyze ${analyzeScopeCount} filtered creatives` : "No creatives to analyze"}
       >
-        {analyzeMutation.isPending ? `Analyzing ${analyzeScopeCount}...` : `Analyze (${analyzeScopeCount})`}
+        {analyzeMutation.isPending
+          ? `Analyzing ${analyzeScopeCount}...`
+          : aiDecisionQuery.data
+            ? `Re-analyze (${analyzeScopeCount})`
+            : `Analyze (${analyzeScopeCount})`}
       </button>
       {aiDecisionFilter && (
         <button

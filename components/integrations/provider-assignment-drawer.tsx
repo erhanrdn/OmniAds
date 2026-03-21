@@ -14,7 +14,6 @@ import { DataEmptyState } from "@/components/states/DataEmptyState";
 import {
   fetchProviderAccountSnapshot,
   type ProviderAccountSnapshot,
-  ProviderAccountSnapshotMissingError,
   warmProviderAccountSnapshot,
 } from "@/lib/provider-account-client";
 import {
@@ -128,7 +127,7 @@ export function ProviderAssignmentDrawer({
   );
 
   const loadAccounts = useCallback(
-    async (options?: { preserveExisting?: boolean }) => {
+    async (options?: { preserveExisting?: boolean; forceRefresh?: boolean }) => {
       if (!open || !provider) return;
       if (!isSupportedProvider) {
         setAccounts([]);
@@ -173,50 +172,11 @@ export function ProviderAssignmentDrawer({
       });
 
       try {
-        const snapshot = await fetchProviderAccountSnapshot(provider, businessId);
+        const snapshot = options?.forceRefresh
+          ? await warmProviderAccountSnapshot(provider, businessId)
+          : await fetchProviderAccountSnapshot(provider, businessId);
         applySnapshotResult(snapshot);
       } catch (err) {
-        if (err instanceof ProviderAccountSnapshotMissingError) {
-          setFetchState("loading");
-          setErrorMessage(null);
-          setNoticeMessage(
-            provider === "google"
-              ? "Loading Google Ads accounts..."
-              : "Loading ad accounts..."
-          );
-          try {
-            const warmedSnapshot = await warmProviderAccountSnapshot(provider, businessId);
-            applySnapshotResult(warmedSnapshot);
-            return;
-          } catch (warmError) {
-            console.error("[assignment-modal] ❌ WARM FETCH EXCEPTION", {
-              error: warmError instanceof Error ? warmError.message : String(warmError),
-              stack: warmError instanceof Error ? warmError.stack : undefined,
-            });
-            setErrorMessage(
-              provider === "google"
-                ? "Unable to retrieve Google Ads accounts. Retry."
-                : "Unable to retrieve Meta ad accounts. Retry."
-            );
-            setFetchState("error");
-            setProviderDiscovery(businessId, provider, {
-              status: "failed",
-              entities: [],
-              errorMessage:
-                warmError instanceof Error ? warmError.message : String(warmError),
-              notice: null,
-              refreshFailed: true,
-            });
-            setProviderAssignmentState(businessId, provider, {
-              status: "failed",
-              selectedIds: latestAssignedAccountIdsRef.current,
-              errorMessage:
-                warmError instanceof Error ? warmError.message : String(warmError),
-            });
-            return;
-          }
-        }
-
         console.error("[assignment-modal] ❌ FETCH EXCEPTION", {
           error: err instanceof Error ? err.message : String(err),
           stack: err instanceof Error ? err.stack : undefined,
@@ -354,7 +314,10 @@ export function ProviderAssignmentDrawer({
                   variant="outline"
                   className="h-8 shrink-0"
                   onClick={() =>
-                    void loadAccounts({ preserveExisting: accounts.length > 0 })
+                    void loadAccounts({
+                      preserveExisting: accounts.length > 0,
+                      forceRefresh: true,
+                    })
                   }
                   disabled={isRefreshing}
                 >
@@ -384,7 +347,9 @@ export function ProviderAssignmentDrawer({
                   type="button"
                   size="sm"
                   variant="outline"
-                  onClick={() => void loadAccounts({ preserveExisting: true })}
+                  onClick={() =>
+                    void loadAccounts({ preserveExisting: true, forceRefresh: true })
+                  }
                   disabled={isRefreshing}
                 >
                   {isRefreshing ? (
@@ -423,7 +388,10 @@ export function ProviderAssignmentDrawer({
 
             {fetchState === "error" ? (
               <div className="flex justify-end">
-                <Button variant="outline" onClick={() => void loadAccounts()}>
+                <Button
+                  variant="outline"
+                  onClick={() => void loadAccounts({ forceRefresh: true })}
+                >
                   <RefreshCw className="h-4 w-4" />
                   Retry
                 </Button>

@@ -5,7 +5,6 @@ import { runMigrations } from "@/lib/migrations";
 import { readProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
 
 const GOOGLE_ACCOUNT_SNAPSHOT_FRESHNESS_MS = 60 * 60_000;
-const GOOGLE_ACCOUNT_REFRESH_COOLDOWN_MS = 10 * 60_000;
 
 /**
  * POST /businesses/:businessId/google/assign-accounts
@@ -74,7 +73,6 @@ export async function POST(
     businessId,
     provider: "google",
     freshnessMs: GOOGLE_ACCOUNT_SNAPSHOT_FRESHNESS_MS,
-    failureCooldownMs: GOOGLE_ACCOUNT_REFRESH_COOLDOWN_MS,
   });
 
   if (!snapshot) {

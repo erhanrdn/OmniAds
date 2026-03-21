@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GOOGLE_CONFIG } from "@/lib/oauth/google-config";
+import { fetchGoogleAdsAccounts } from "@/lib/google-ads-accounts";
 import { upsertIntegration } from "@/lib/integrations";
 import { requireBusinessAccess } from "@/lib/access";
 import { sanitizeNextPath } from "@/lib/auth-routing";
+import { scheduleProviderAccountSnapshotRefresh } from "@/lib/provider-account-snapshots";
 
 /**
  * GET /api/oauth/google/callback?code=...&state=...
@@ -190,6 +192,33 @@ export async function GET(request: NextRequest) {
       tokenExpiresAt,
       scopes: GOOGLE_CONFIG.scopes.join(" "),
     });
+
+    if (GOOGLE_CONFIG.scopes.includes("https://www.googleapis.com/auth/adwords")) {
+      await scheduleProviderAccountSnapshotRefresh({
+        businessId,
+        provider: "google",
+        freshnessMs: 6 * 60 * 60_000,
+        reason: "oauth_callback_refresh",
+        skipIfFresh: false,
+        liveLoader: async () => {
+          const result = await fetchGoogleAdsAccounts(accessToken, {
+            scopePresent: true,
+          });
+          if (!result.ok) {
+            throw new Error(
+              result.error ?? "Could not discover accessible Google Ads accounts."
+            );
+          }
+          return result.customers.map((customer) => ({
+            id: customer.id,
+            name: customer.name,
+            currency: customer.currency ?? undefined,
+            timezone: customer.timezone ?? undefined,
+            isManager: customer.isManager,
+          }));
+        },
+      }).catch(() => null);
+    }
 
     let searchConsoleIntegrationId: string | null = null;
     if (oauthProvider === "search_console") {
