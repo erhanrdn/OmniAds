@@ -10,6 +10,9 @@ import {
   Tag,
   Activity,
   AlertTriangle,
+  KeyRound,
+  RefreshCw,
+  TrendingDown,
   ArrowLeft,
   ShieldCheck,
 } from "lucide-react";
@@ -21,6 +24,9 @@ const navGroups = [
       { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true },
       { href: "/admin/activity", label: "Aktivite Logu", icon: Activity },
       { href: "/admin/integrations", label: "Entegrasyon Sağlığı", icon: AlertTriangle },
+      { href: "/admin/auth-health", label: "Auth & OAuth", icon: KeyRound },
+      { href: "/admin/sync-health", label: "Sync Health", icon: RefreshCw },
+      { href: "/admin/revenue-risk", label: "Revenue Risk", icon: TrendingDown },
     ],
   },
   {

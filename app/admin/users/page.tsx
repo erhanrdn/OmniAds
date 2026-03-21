@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { Search, ChevronLeft, ChevronRight, ShieldCheck, Ban, Filter } from "lucide-react";
+import { InlineHelp } from "@/components/admin/inline-help";
 
 interface UserRow {
   id: string;
@@ -24,6 +25,15 @@ const PROVIDER_COLORS: Record<string, string> = {
   password: "bg-gray-100 text-gray-600",
   google: "bg-red-50 text-red-600",
   facebook: "bg-blue-50 text-blue-700",
+};
+
+const USER_HELP: Record<string, string> = {
+  Kullanıcı: "User profile and admin marker, if present.",
+  Giriş: "Authentication method used by the user account.",
+  Workspace: "Number of workspaces the user is associated with.",
+  "Son Giriş": "Most recent recorded login date.",
+  Kayıt: "User account creation date.",
+  Durum: "Whether the user is currently active or suspended.",
 };
 
 export default function AdminUsersPage() {
@@ -121,12 +131,12 @@ export default function AdminUsersPage() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-100 bg-gray-50 text-xs uppercase tracking-wide text-gray-400">
-              <th className="text-left px-5 py-3 font-semibold">Kullanıcı</th>
-              <th className="text-left px-5 py-3 font-semibold">Giriş</th>
-              <th className="text-left px-5 py-3 font-semibold">Workspace</th>
-              <th className="text-left px-5 py-3 font-semibold">Son Giriş</th>
-              <th className="text-left px-5 py-3 font-semibold">Kayıt</th>
-              <th className="text-left px-5 py-3 font-semibold">Durum</th>
+              <th className="text-left px-5 py-3 font-semibold"><HeaderWithHelp label="Kullanıcı" help={USER_HELP.Kullanıcı} /></th>
+              <th className="text-left px-5 py-3 font-semibold"><HeaderWithHelp label="Giriş" help={USER_HELP.Giriş} /></th>
+              <th className="text-left px-5 py-3 font-semibold"><HeaderWithHelp label="Workspace" help={USER_HELP.Workspace} /></th>
+              <th className="text-left px-5 py-3 font-semibold"><HeaderWithHelp label="Son Giriş" help={USER_HELP["Son Giriş"]} /></th>
+              <th className="text-left px-5 py-3 font-semibold"><HeaderWithHelp label="Kayıt" help={USER_HELP.Kayıt} /></th>
+              <th className="text-left px-5 py-3 font-semibold"><HeaderWithHelp label="Durum" help={USER_HELP.Durum} /></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
@@ -193,5 +203,14 @@ export default function AdminUsersPage() {
         </div>
       )}
     </div>
+  );
+}
+
+function HeaderWithHelp({ label, help }: { label: string; help: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span>{label}</span>
+      <InlineHelp text={help} />
+    </span>
   );
 }

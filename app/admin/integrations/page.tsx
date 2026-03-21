@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, ChevronDown, Search, SlidersHorizontal } from "lucide-react";
+import { InlineHelp } from "@/components/admin/inline-help";
 
 interface IntegrationProviderDetail {
   provider: "meta" | "google";
@@ -78,6 +79,13 @@ function criticalityStyles(level: "healthy" | "warning" | "critical") {
   if (level === "warning") return "bg-amber-100 text-amber-700 border-amber-200";
   return "bg-emerald-100 text-emerald-700 border-emerald-200";
 }
+
+const INTEGRATION_HELP: Record<string, string> = {
+  Failed: "Confirmed refresh failures where the last refresh attempt did not complete successfully.",
+  Stale: "Saved snapshots still being served after a failed refresh attempt.",
+  Missing: "Connected integrations with no saved account snapshot yet.",
+  Refreshing: "Background snapshot refreshes currently in progress.",
+};
 
 export default function AdminIntegrationsPage() {
   const [payload, setPayload] = useState<IntegrationHealthPayload | null>(null);
@@ -280,7 +288,10 @@ export default function AdminIntegrationsPage() {
                   <div>
                     <div className="flex items-center gap-2">
                       <ChevronDown className="w-4 h-4 text-gray-400" />
-                      <h2 className="text-base font-semibold text-gray-900">{group.issueType}</h2>
+                      <div className="flex items-center gap-1.5">
+                        <h2 className="text-base font-semibold text-gray-900">{group.issueType}</h2>
+                        <InlineHelp text={`Grouped by confirmed issue type: ${group.issueType}.`} />
+                      </div>
                       <span className={`border text-xs font-medium px-2 py-1 rounded-full ${criticalityStyles(group.criticality)}`}>
                         {group.criticality === "critical"
                           ? "Critical"
@@ -311,9 +322,12 @@ export default function AdminIntegrationsPage() {
                         <div>
                           <div className="flex items-center gap-2">
                             <ChevronDown className="w-4 h-4 text-gray-400" />
-                            <h3 className="text-sm font-semibold text-gray-900">
-                              {providerLabel(provider.provider)}
-                            </h3>
+                            <div className="flex items-center gap-1.5">
+                              <h3 className="text-sm font-semibold text-gray-900">
+                                {providerLabel(provider.provider)}
+                              </h3>
+                              <InlineHelp text="Provider-level aggregation of confirmed snapshot issues." />
+                            </div>
                           </div>
                           <p className="text-xs text-gray-500 mt-2">
                             {provider.affectedWorkspaces} affected / {provider.connectedBusinesses} connected
@@ -406,7 +420,10 @@ function Metric({ value, label }: { value: number; label: string }) {
   return (
     <div className="min-w-[52px]">
       <p className="text-sm font-semibold text-gray-900">{value}</p>
-      <p className="text-[11px] text-gray-500 mt-1">{label}</p>
+      <div className="mt-1 flex items-center justify-center gap-1">
+        <p className="text-[11px] text-gray-500">{label}</p>
+        {INTEGRATION_HELP[label] ? <InlineHelp text={INTEGRATION_HELP[label]} /> : null}
+      </div>
     </div>
   );
 }

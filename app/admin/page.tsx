@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Users, Building2, CreditCard, ShieldAlert,
-  UserPlus, Activity, AlertTriangle,
+  UserPlus, Activity, AlertTriangle, KeyRound, RefreshCw, TrendingDown,
 } from "lucide-react";
+import { InlineHelp } from "@/components/admin/inline-help";
 
 interface Stats {
   users: { total: number; last7d: number; last30d: number; suspended: number; admins: number };
@@ -27,6 +28,32 @@ interface Stats {
     totalAffectedWorkspaces: number;
     topIssue: string | null;
   };
+  authHealthSummary?: {
+    affectedBusinesses: number;
+    connectedIntegrations: number;
+    expiredTokens: number;
+    expiringSoon: number;
+    missingRefreshTokens: number;
+    missingScopes: number;
+    integrationErrors: number;
+    topIssue: string | null;
+  };
+  syncHealthSummary?: {
+    impactedBusinesses: number;
+    runningJobs: number;
+    stuckJobs: number;
+    failedJobs24h: number;
+    activeCooldowns: number;
+    successJobs24h: number;
+    topIssue: string | null;
+  };
+  revenueRiskSummary?: {
+    atRiskBusinesses: number;
+    activeSubscriptions: number;
+    nonActiveSubscriptions: number;
+    unsubscribedBusinesses: number;
+    topIssue: string | null;
+  };
 }
 
 const PLAN_LABELS: Record<string, string> = {
@@ -38,6 +65,19 @@ const PLAN_COLORS: Record<string, string> = {
   growth: "bg-blue-100 text-blue-700",
   pro: "bg-indigo-100 text-indigo-700",
   scale: "bg-purple-100 text-purple-700",
+};
+
+const DASHBOARD_HELP: Record<string, string> = {
+  Users: "Total registered users in the platform.",
+  Workspaces: "Total created workspaces across the platform.",
+  "Active subscriptions": "Subscriptions currently in active billing state.",
+  Admins: "Users with superadmin permissions.",
+  Failed: "Confirmed integration refresh failures with no successful recovery yet.",
+  Stale: "Older saved snapshots that are still being served after a failed refresh attempt.",
+  Missing: "Connected integrations that still do not have a stored account snapshot.",
+  Refreshing: "Background snapshot refreshes currently in progress.",
+  "Failed 24h": "Background sync jobs that failed during the last 24 hours.",
+  "Non-active": "Subscription records whose billing state is not active.",
 };
 
 function actionLabel(action: string): string {
@@ -153,6 +193,32 @@ export default function AdminDashboard() {
     stats?.integrationHealthSummary?.totalAffectedWorkspaces ??
     integrationHealth.reduce((sum, row) => sum + row.affectedBusinesses, 0);
   const topIntegrationIssue = stats?.integrationHealthSummary?.topIssue ?? null;
+  const authHealthSummary = stats?.authHealthSummary ?? {
+    affectedBusinesses: 0,
+    connectedIntegrations: 0,
+    expiredTokens: 0,
+    expiringSoon: 0,
+    missingRefreshTokens: 0,
+    missingScopes: 0,
+    integrationErrors: 0,
+    topIssue: null,
+  };
+  const syncHealthSummary = stats?.syncHealthSummary ?? {
+    impactedBusinesses: 0,
+    runningJobs: 0,
+    stuckJobs: 0,
+    failedJobs24h: 0,
+    activeCooldowns: 0,
+    successJobs24h: 0,
+    topIssue: null,
+  };
+  const revenueRiskSummary = stats?.revenueRiskSummary ?? {
+    atRiskBusinesses: 0,
+    activeSubscriptions: 0,
+    nonActiveSubscriptions: 0,
+    unsubscribedBusinesses: 0,
+    topIssue: null,
+  };
 
   return (
     <div className="space-y-8">
@@ -166,7 +232,10 @@ export default function AdminDashboard() {
         <Link href="/admin/users" className="bg-white border border-gray-200 rounded-xl p-5 hover:border-indigo-200 hover:shadow-sm transition-all">
           <div className="flex items-center gap-3 mb-3">
             <div className="p-2 bg-indigo-50 rounded-lg"><Users className="w-4 h-4 text-indigo-600" /></div>
-            <p className="text-sm font-medium text-gray-500">Kullanıcılar</p>
+            <div className="flex items-center gap-1.5">
+              <p className="text-sm font-medium text-gray-500">Kullanıcılar</p>
+              <InlineHelp text={DASHBOARD_HELP.Users} />
+            </div>
           </div>
           <p className="text-3xl font-bold text-gray-900">{userStats.total}</p>
           <div className="flex gap-3 mt-2">
@@ -180,7 +249,10 @@ export default function AdminDashboard() {
         <Link href="/admin/businesses" className="bg-white border border-gray-200 rounded-xl p-5 hover:border-indigo-200 hover:shadow-sm transition-all">
           <div className="flex items-center gap-3 mb-3">
             <div className="p-2 bg-emerald-50 rounded-lg"><Building2 className="w-4 h-4 text-emerald-600" /></div>
-            <p className="text-sm font-medium text-gray-500">Workspace'ler</p>
+            <div className="flex items-center gap-1.5">
+              <p className="text-sm font-medium text-gray-500">Workspace&apos;ler</p>
+              <InlineHelp text={DASHBOARD_HELP.Workspaces} />
+            </div>
           </div>
           <p className="text-3xl font-bold text-gray-900">{businessStats.total}</p>
           <p className="text-xs text-emerald-600 mt-2">+{businessStats.last7d} bu hafta</p>
@@ -189,7 +261,10 @@ export default function AdminDashboard() {
         <Link href="/admin/subscriptions" className="bg-white border border-gray-200 rounded-xl p-5 hover:border-indigo-200 hover:shadow-sm transition-all">
           <div className="flex items-center gap-3 mb-3">
             <div className="p-2 bg-amber-50 rounded-lg"><CreditCard className="w-4 h-4 text-amber-600" /></div>
-            <p className="text-sm font-medium text-gray-500">Aktif Abonelik</p>
+            <div className="flex items-center gap-1.5">
+              <p className="text-sm font-medium text-gray-500">Aktif Abonelik</p>
+              <InlineHelp text={DASHBOARD_HELP["Active subscriptions"]} />
+            </div>
           </div>
           <p className="text-3xl font-bold text-gray-900">{totalActive}</p>
           <div className="flex flex-wrap gap-1 mt-2">
@@ -204,7 +279,10 @@ export default function AdminDashboard() {
         <div className="bg-white border border-gray-200 rounded-xl p-5">
           <div className="flex items-center gap-3 mb-3">
             <div className="p-2 bg-rose-50 rounded-lg"><ShieldAlert className="w-4 h-4 text-rose-600" /></div>
-            <p className="text-sm font-medium text-gray-500">Adminler</p>
+            <div className="flex items-center gap-1.5">
+              <p className="text-sm font-medium text-gray-500">Adminler</p>
+              <InlineHelp text={DASHBOARD_HELP.Admins} />
+            </div>
           </div>
           <p className="text-3xl font-bold text-gray-900">{userStats.admins}</p>
           <p className="text-xs text-gray-400 mt-2">Superadmin yetkili</p>
@@ -264,19 +342,31 @@ export default function AdminDashboard() {
                   <div className="grid grid-cols-4 gap-2 mt-4 text-center">
                     <div>
                       <p className="text-lg font-semibold text-gray-900">{provider.failedSnapshots}</p>
-                      <p className="text-[11px] text-gray-500 mt-1">Failed</p>
+                      <div className="mt-1 flex items-center justify-center gap-1">
+                        <p className="text-[11px] text-gray-500">Failed</p>
+                        <InlineHelp text={DASHBOARD_HELP.Failed} />
+                      </div>
                     </div>
                     <div>
                       <p className="text-lg font-semibold text-gray-900">{provider.staleSnapshots}</p>
-                      <p className="text-[11px] text-gray-500 mt-1">Stale</p>
+                      <div className="mt-1 flex items-center justify-center gap-1">
+                        <p className="text-[11px] text-gray-500">Stale</p>
+                        <InlineHelp text={DASHBOARD_HELP.Stale} />
+                      </div>
                     </div>
                     <div>
                       <p className="text-lg font-semibold text-gray-900">{provider.missingSnapshots}</p>
-                      <p className="text-[11px] text-gray-500 mt-1">Missing</p>
+                      <div className="mt-1 flex items-center justify-center gap-1">
+                        <p className="text-[11px] text-gray-500">Missing</p>
+                        <InlineHelp text={DASHBOARD_HELP.Missing} />
+                      </div>
                     </div>
                     <div>
                       <p className="text-lg font-semibold text-gray-900">{provider.refreshInProgress}</p>
-                      <p className="text-[11px] text-gray-500 mt-1">Refreshing</p>
+                      <div className="mt-1 flex items-center justify-center gap-1">
+                        <p className="text-[11px] text-gray-500">Refreshing</p>
+                        <InlineHelp text={DASHBOARD_HELP.Refreshing} />
+                      </div>
                     </div>
                   </div>
                   <p className="text-xs text-gray-500 mt-4">
@@ -304,6 +394,65 @@ export default function AdminDashboard() {
             </div>
           </div>
         )}
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+        <SummaryPanel
+          href="/admin/auth-health"
+          icon={<KeyRound className="w-4 h-4 text-indigo-600" />}
+          title="Auth & OAuth"
+          subtitle={`${authHealthSummary.connectedIntegrations} aktif bağlantı izleniyor`}
+          badge={
+            authHealthSummary.affectedBusinesses > 0
+              ? `${authHealthSummary.affectedBusinesses} etkilenen workspace`
+              : "Sorun yok"
+          }
+          badgeTone={authHealthSummary.affectedBusinesses > 0 ? "warning" : "healthy"}
+          metrics={[
+            { label: "Expired", value: authHealthSummary.expiredTokens },
+            { label: "Expiring", value: authHealthSummary.expiringSoon },
+            { label: "Scopes", value: authHealthSummary.missingScopes },
+          ]}
+          footnote={authHealthSummary.topIssue ?? "OAuth tarafında aktif problem yok"}
+        />
+
+        <SummaryPanel
+          href="/admin/sync-health"
+          icon={<RefreshCw className="w-4 h-4 text-sky-600" />}
+          title="Sync Health"
+          subtitle="Arka plan job ve cooldown takibi"
+          badge={
+            syncHealthSummary.impactedBusinesses > 0
+              ? `${syncHealthSummary.impactedBusinesses} etkilenen workspace`
+              : "Sorun yok"
+          }
+          badgeTone={syncHealthSummary.impactedBusinesses > 0 ? "warning" : "healthy"}
+          metrics={[
+            { label: "Failed 24h", value: syncHealthSummary.failedJobs24h },
+            { label: "Stuck", value: syncHealthSummary.stuckJobs },
+            { label: "Cooldown", value: syncHealthSummary.activeCooldowns },
+          ]}
+          footnote={syncHealthSummary.topIssue ?? "Sync tarafında aktif problem yok"}
+        />
+
+        <SummaryPanel
+          href="/admin/revenue-risk"
+          icon={<TrendingDown className="w-4 h-4 text-rose-600" />}
+          title="Revenue Risk"
+          subtitle={`${revenueRiskSummary.activeSubscriptions} aktif abonelik`}
+          badge={
+            revenueRiskSummary.atRiskBusinesses > 0
+              ? `${revenueRiskSummary.atRiskBusinesses} riskli workspace`
+              : "Sorun yok"
+          }
+          badgeTone="neutral"
+          metrics={[
+            { label: "Non-active", value: revenueRiskSummary.nonActiveSubscriptions },
+            { label: "No sub", value: revenueRiskSummary.unsubscribedBusinesses },
+            { label: "At risk", value: revenueRiskSummary.atRiskBusinesses },
+          ]}
+          footnote={revenueRiskSummary.topIssue ?? "Gelir tarafında aktif risk yok"}
+        />
       </div>
 
       {/* Bottom row */}
@@ -359,6 +508,73 @@ export default function AdminDashboard() {
             </div>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function SummaryPanel({
+  href,
+  icon,
+  title,
+  subtitle,
+  badge,
+  badgeTone,
+  metrics,
+  footnote,
+}: {
+  href: string;
+  icon: ReactNode;
+  title: string;
+  subtitle: string;
+  badge: string;
+  badgeTone: "healthy" | "warning" | "neutral";
+  metrics: Array<{ label: string; value: number }>;
+  footnote: string;
+}) {
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <div className="p-2 rounded-lg bg-gray-50">{icon}</div>
+          <div>
+            <h2 className="text-sm font-semibold text-gray-900">{title}</h2>
+            <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>
+          </div>
+        </div>
+        <span
+          className={`text-[11px] font-medium px-2 py-1 rounded-full ${
+            badgeTone === "warning"
+              ? "bg-amber-100 text-amber-700"
+              : badgeTone === "healthy"
+                ? "bg-emerald-100 text-emerald-700"
+                : "bg-gray-100 text-gray-700"
+          }`}
+        >
+          {badge}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3 mt-4 text-center">
+        {metrics.map((metric) => (
+          <div key={metric.label}>
+            <p className="text-lg font-semibold text-gray-900">{metric.value}</p>
+            <div className="mt-1 flex items-center justify-center gap-1">
+              <p className="text-[11px] text-gray-500">{metric.label}</p>
+              {DASHBOARD_HELP[metric.label] ? <InlineHelp text={DASHBOARD_HELP[metric.label]} /> : null}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-4 flex items-center justify-between gap-3">
+        <p className="text-xs text-gray-500">{footnote}</p>
+        <Link
+          href={href}
+          className="shrink-0 inline-flex items-center rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+        >
+          Detayi gor
+        </Link>
       </div>
     </div>
   );

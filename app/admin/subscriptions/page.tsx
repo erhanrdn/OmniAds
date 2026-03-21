@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, Filter, CreditCard } from "lucide-react";
+import { InlineHelp } from "@/components/admin/inline-help";
 
 interface SubscriptionRow {
   id: string;
@@ -40,6 +41,16 @@ const STATUS_COLORS: Record<string, string> = {
   pending: "bg-amber-50 text-amber-600",
   declined: "bg-red-50 text-red-500",
   expired: "bg-gray-100 text-gray-400",
+};
+
+const SUBSCRIPTION_HELP: Record<string, string> = {
+  "Toplam Aktif": "Subscriptions currently in active billing state.",
+  Workspace: "Workspace linked to the subscription record.",
+  Owner: "Workspace owner linked to the subscription.",
+  Plan: "Current subscription plan.",
+  Durum: "Billing status coming from the subscription record.",
+  "Döngü": "Billing cycle such as monthly or annual.",
+  Başlangıç: "Subscription creation date.",
 };
 
 export default function AdminSubscriptionsPage() {
@@ -86,7 +97,10 @@ export default function AdminSubscriptionsPage() {
       {/* Summary Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         <div className="bg-white border border-gray-200 rounded-xl p-4 col-span-2 lg:col-span-1">
-          <p className="text-xs text-gray-400 mb-1">Toplam Aktif</p>
+          <div className="mb-1 flex items-center gap-1.5">
+            <p className="text-xs text-gray-400">Toplam Aktif</p>
+            <InlineHelp text={SUBSCRIPTION_HELP["Toplam Aktif"]} />
+          </div>
           <p className="text-2xl font-bold text-gray-900">{totalActive}</p>
         </div>
         {["starter", "growth", "pro", "scale"].map((p) => {
@@ -130,12 +144,12 @@ export default function AdminSubscriptionsPage() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-100 bg-gray-50 text-xs uppercase tracking-wide text-gray-400">
-              <th className="text-left px-5 py-3 font-semibold">Workspace</th>
-              <th className="text-left px-5 py-3 font-semibold">Owner</th>
-              <th className="text-left px-5 py-3 font-semibold">Plan</th>
-              <th className="text-left px-5 py-3 font-semibold">Durum</th>
-              <th className="text-left px-5 py-3 font-semibold">Döngü</th>
-              <th className="text-left px-5 py-3 font-semibold">Başlangıç</th>
+              <th className="text-left px-5 py-3 font-semibold"><HeaderWithHelp label="Workspace" help={SUBSCRIPTION_HELP.Workspace} /></th>
+              <th className="text-left px-5 py-3 font-semibold"><HeaderWithHelp label="Owner" help={SUBSCRIPTION_HELP.Owner} /></th>
+              <th className="text-left px-5 py-3 font-semibold"><HeaderWithHelp label="Plan" help={SUBSCRIPTION_HELP.Plan} /></th>
+              <th className="text-left px-5 py-3 font-semibold"><HeaderWithHelp label="Durum" help={SUBSCRIPTION_HELP.Durum} /></th>
+              <th className="text-left px-5 py-3 font-semibold"><HeaderWithHelp label="Döngü" help={SUBSCRIPTION_HELP["Döngü"]} /></th>
+              <th className="text-left px-5 py-3 font-semibold"><HeaderWithHelp label="Başlangıç" help={SUBSCRIPTION_HELP.Başlangıç} /></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
@@ -200,5 +214,14 @@ export default function AdminSubscriptionsPage() {
         </div>
       )}
     </div>
+  );
+}
+
+function HeaderWithHelp({ label, help }: { label: string; help: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span>{label}</span>
+      <InlineHelp text={help} />
+    </span>
   );
 }

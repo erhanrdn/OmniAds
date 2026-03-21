@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { Search, ChevronLeft, ChevronRight, Filter, Trash2 } from "lucide-react";
+import { InlineHelp } from "@/components/admin/inline-help";
 
 interface BusinessRow {
   id: string;
@@ -27,6 +28,15 @@ const PLAN_COLORS: Record<string, string> = {
   growth: "bg-blue-100 text-blue-700",
   pro: "bg-indigo-100 text-indigo-700",
   scale: "bg-purple-100 text-purple-700",
+};
+
+const BUSINESS_HELP: Record<string, string> = {
+  Workspace: "Workspace name and demo flag, if present.",
+  Owner: "Primary owner of the workspace.",
+  Plan: "Effective plan, including any override applied by admin.",
+  "Üye": "Active member count in the workspace.",
+  "Entegrasyon": "Number of connected integrations for the workspace.",
+  Oluşturulma: "Workspace creation date.",
 };
 
 export default function AdminBusinessesPage() {
@@ -167,12 +177,12 @@ export default function AdminBusinessesPage() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-100 bg-gray-50 text-xs uppercase tracking-wide text-gray-400">
-              <th className="text-left px-5 py-3 font-semibold">Workspace</th>
-              <th className="text-left px-5 py-3 font-semibold">Owner</th>
-              <th className="text-left px-5 py-3 font-semibold">Plan</th>
-              <th className="text-left px-5 py-3 font-semibold">Üye</th>
-              <th className="text-left px-5 py-3 font-semibold">Entegrasyon</th>
-              <th className="text-left px-5 py-3 font-semibold">Oluşturulma</th>
+              <th className="text-left px-5 py-3 font-semibold"><HeaderWithHelp label="Workspace" help={BUSINESS_HELP.Workspace} /></th>
+              <th className="text-left px-5 py-3 font-semibold"><HeaderWithHelp label="Owner" help={BUSINESS_HELP.Owner} /></th>
+              <th className="text-left px-5 py-3 font-semibold"><HeaderWithHelp label="Plan" help={BUSINESS_HELP.Plan} /></th>
+              <th className="text-left px-5 py-3 font-semibold"><HeaderWithHelp label="Üye" help={BUSINESS_HELP["Üye"]} /></th>
+              <th className="text-left px-5 py-3 font-semibold"><HeaderWithHelp label="Entegrasyon" help={BUSINESS_HELP["Entegrasyon"]} /></th>
+              <th className="text-left px-5 py-3 font-semibold"><HeaderWithHelp label="Oluşturulma" help={BUSINESS_HELP.Oluşturulma} /></th>
               <th className="px-5 py-3 font-semibold" />
             </tr>
           </thead>
@@ -251,5 +261,14 @@ export default function AdminBusinessesPage() {
         </div>
       )}
     </div>
+  );
+}
+
+function HeaderWithHelp({ label, help }: { label: string; help: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span>{label}</span>
+      <InlineHelp text={help} />
+    </span>
   );
 }

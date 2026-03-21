@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
 import { getAdminIntegrationHealth } from "@/lib/admin-integration-health";
+import { getAdminOperationsHealth } from "@/lib/admin-operations-health";
 import { getDb } from "@/lib/db";
 
 export async function GET(request: NextRequest) {
@@ -52,7 +53,10 @@ export async function GET(request: NextRequest) {
 
     const u = (userStats as any[])[0] ?? {};
     const b = (businessStats as any[])[0] ?? {};
-    const integrationHealth = await getAdminIntegrationHealth();
+    const [integrationHealth, operationsHealth] = await Promise.all([
+      getAdminIntegrationHealth(),
+      getAdminOperationsHealth(),
+    ]);
 
     return NextResponse.json({
       users: {
@@ -78,6 +82,9 @@ export async function GET(request: NextRequest) {
         totalAffectedWorkspaces: integrationHealth.summary.totalAffectedWorkspaces,
         topIssue: integrationHealth.summary.topIssue,
       },
+      authHealthSummary: operationsHealth.authHealth.summary,
+      syncHealthSummary: operationsHealth.syncHealth.summary,
+      revenueRiskSummary: operationsHealth.revenueRisk.summary,
     });
   } catch (err) {
     console.error("[admin/stats GET]", err);
