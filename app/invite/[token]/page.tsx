@@ -11,6 +11,7 @@ interface InvitePayload {
     role: "admin" | "collaborator" | "guest";
     status: "pending" | "accepted" | "revoked" | "expired";
     expiresAt?: string;
+    workspaces?: Array<{ id: string; name: string }>;
   };
 }
 
@@ -94,16 +95,22 @@ export default function InviteAcceptPage() {
         <div>
           <h1 className="text-lg font-semibold">Accept team invite</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            You are invited as <span className="font-medium text-foreground">{invite.role}</span> for{" "}
-            <span className="font-medium text-foreground">{invite.email}</span>.
+            You are invited as <span className="font-medium text-foreground capitalize">{invite.role}</span> to the following workspace{invite.workspaces && invite.workspaces.length > 1 ? "s" : ""}:
           </p>
         </div>
 
-        {invite.expiresAt ? (
-          <p className="text-xs text-muted-foreground">
-            Expires: {new Date(invite.expiresAt).toLocaleString()}
-          </p>
+        {invite.workspaces && invite.workspaces.length > 0 ? (
+          <ul className="rounded-lg border bg-muted/30 px-4 py-2 space-y-1">
+            {invite.workspaces.map((ws) => (
+              <li key={ws.id} className="text-sm font-medium">{ws.name}</li>
+            ))}
+          </ul>
         ) : null}
+
+        <p className="text-xs text-muted-foreground">
+          Invite for: <span className="font-medium text-foreground">{invite.email}</span>
+          {invite.expiresAt ? ` · Expires ${new Date(invite.expiresAt).toLocaleDateString()}` : ""}
+        </p>
 
         {error ? <p className="text-xs text-destructive">{error}</p> : null}
 

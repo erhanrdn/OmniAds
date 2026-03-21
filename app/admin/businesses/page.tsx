@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { Search, ChevronLeft, ChevronRight, Filter } from "lucide-react";
+import { Search, ChevronLeft, ChevronRight, Filter, Trash2 } from "lucide-react";
 
 interface BusinessRow {
   id: string;
@@ -37,6 +37,9 @@ export default function AdminBusinessesPage() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [plan, setPlan] = useState("");
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300);
@@ -47,12 +50,28 @@ export default function AdminBusinessesPage() {
 
   const load = useCallback(() => {
     setLoading(true);
+    setError(null);
     const params = new URLSearchParams({ page: String(page) });
     if (debouncedSearch) params.set("search", debouncedSearch);
     if (plan) params.set("plan", plan);
     fetch(`/api/admin/businesses?${params}`)
-      .then((r) => r.json())
-      .then((d) => { setBusinesses(d.businesses ?? []); setTotal(d.total ?? 0); })
+      .then(async (r) => {
+        const data = await r.json().catch(() => null);
+        if (!r.ok) {
+          throw new Error(data?.message ?? "Workspace listesi yuklenemedi.");
+        }
+        return data;
+      })
+      .then((d) => {
+        setBusinesses(d.businesses ?? []);
+        setTotal(d.total ?? 0);
+      })
+      .catch((err) => {
+        console.error("[admin/businesses page]", err);
+        setBusinesses([]);
+        setTotal(0);
+        setError(err instanceof Error ? err.message : "Workspace listesi yuklenemedi.");
+      })
       .finally(() => setLoading(false));
   }, [page, debouncedSearch, plan]);
 
@@ -60,12 +79,56 @@ export default function AdminBusinessesPage() {
 
   const totalPages = Math.ceil(total / 30);
 
+  const showMessage = useCallback((type: "success" | "error", text: string) => {
+    setMessage({ type, text });
+    window.setTimeout(() => setMessage(null), 4000);
+  }, []);
+
+  const deleteBusiness = useCallback(async (business: BusinessRow) => {
+    const confirmed = window.confirm(
+      `"${business.name}" workspace'ini kalici olarak silmek istiyor musunuz? Bu islem geri alinamaz.`
+    );
+    if (!confirmed) return;
+
+    setDeletingId(business.id);
+    try {
+      const response = await fetch(`/api/admin/businesses/${business.id}`, {
+        method: "DELETE",
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.message ?? "Workspace silinemedi.");
+      }
+
+      setBusinesses((current) => current.filter((item) => item.id !== business.id));
+      setTotal((current) => Math.max(0, current - 1));
+      showMessage("success", `${business.name} silindi.`);
+    } catch (err) {
+      console.error("[admin/businesses delete]", err);
+      showMessage("error", err instanceof Error ? err.message : "Workspace silinemedi.");
+    } finally {
+      setDeletingId(null);
+    }
+  }, [showMessage]);
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Workspace'ler</h1>
         <p className="text-sm text-gray-500 mt-1">Toplam <span className="font-semibold text-gray-700">{total}</span> workspace</p>
       </div>
+
+      {message ? (
+        <div
+          className={`rounded-xl border px-4 py-3 text-sm font-medium ${
+            message.type === "success"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+              : "border-red-200 bg-red-50 text-red-700"
+          }`}
+        >
+          {message.text}
+        </div>
+      ) : null}
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
@@ -110,16 +173,20 @@ export default function AdminBusinessesPage() {
               <th className="text-left px-5 py-3 font-semibold">Üye</th>
               <th className="text-left px-5 py-3 font-semibold">Entegrasyon</th>
               <th className="text-left px-5 py-3 font-semibold">Oluşturulma</th>
+              <th className="px-5 py-3 font-semibold" />
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
             {loading && (
-              <tr><td colSpan={6} className="px-5 py-10 text-center text-gray-400">Yükleniyor...</td></tr>
+              <tr><td colSpan={7} className="px-5 py-10 text-center text-gray-400">Yükleniyor...</td></tr>
             )}
-            {!loading && businesses.length === 0 && (
-              <tr><td colSpan={6} className="px-5 py-10 text-center text-gray-400">Sonuç bulunamadı.</td></tr>
+            {!loading && error && (
+              <tr><td colSpan={7} className="px-5 py-10 text-center text-red-500">{error}</td></tr>
             )}
-            {!loading && businesses.map((b) => {
+            {!loading && !error && businesses.length === 0 && (
+              <tr><td colSpan={7} className="px-5 py-10 text-center text-gray-400">Sonuç bulunamadı.</td></tr>
+            )}
+            {!loading && !error && businesses.map((b) => {
               const effectivePlan = b.plan_override || b.plan_id || "starter";
               return (
                 <tr key={b.id} className="hover:bg-gray-50 transition-colors">
@@ -149,6 +216,17 @@ export default function AdminBusinessesPage() {
                   <td className="px-5 py-3.5 text-gray-500">{b.integration_count}</td>
                   <td className="px-5 py-3.5 text-gray-400 text-xs">
                     {new Date(b.created_at).toLocaleDateString("tr-TR")}
+                  </td>
+                  <td className="px-5 py-3.5 text-right">
+                    <button
+                      type="button"
+                      onClick={() => deleteBusiness(b)}
+                      disabled={deletingId === b.id}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      {deletingId === b.id ? "Siliniyor..." : "Sil"}
+                    </button>
                   </td>
                 </tr>
               );

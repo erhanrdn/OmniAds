@@ -7,6 +7,7 @@ interface InviteBody {
   businessId?: string;
   emails?: string[];
   role?: MembershipRole;
+  workspaceIds?: string[];
 }
 
 interface InviteActionBody {
@@ -32,6 +33,7 @@ export async function POST(request: NextRequest) {
         .map((value) => value.trim().toLowerCase())
         .filter(Boolean)
     : [];
+  const workspaceIds = Array.isArray(body?.workspaceIds) ? body!.workspaceIds.filter(Boolean) : [];
   if (emails.length === 0) {
     return NextResponse.json({ error: "invalid_payload", message: "At least one email is required." }, { status: 400 });
   }
@@ -45,6 +47,7 @@ export async function POST(request: NextRequest) {
       businessId: businessId!,
       role,
       invitedByUserId: access.session.user.id,
+      workspaceIds: workspaceIds.length > 0 ? workspaceIds : undefined,
     });
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? request.nextUrl.origin;
     created.push({

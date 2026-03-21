@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
         JOIN users u ON u.id = b.owner_id
         LEFT JOIN shopify_subscriptions ss ON ss.business_id = b.id AND ss.status = 'active'
         LEFT JOIN memberships m ON m.business_id = b.id AND m.status = 'active'
-        LEFT JOIN integrations i ON i.business_id = b.id AND i.status = 'connected'
+        LEFT JOIN integrations i ON i.business_id = b.id::text AND i.status = 'connected'
         ${where}
         GROUP BY b.id, u.id, ss.plan_id, ss.status
         ORDER BY b.created_at DESC

@@ -244,11 +244,77 @@ export async function revokeAllUserSessions(userId: string): Promise<void> {
   await sql`DELETE FROM sessions WHERE user_id = ${userId}`;
 }
 
+export async function listOwnedWorkspaces(userId: string): Promise<Array<{ id: string; name: string }>> {
+  await runMigrations();
+  const sql = getDb();
+  return (await sql`
+    SELECT b.id, b.name
+    FROM businesses b
+    JOIN memberships m ON m.business_id = b.id
+    WHERE m.user_id = ${userId} AND m.role = 'admin' AND m.status = 'active'
+    ORDER BY b.name ASC
+  `) as Array<{ id: string; name: string }>;
+}
+
+export async function getMemberWorkspaces(
+  memberUserId: string,
+  adminUserId: string,
+): Promise<Array<{ business_id: string; business_name: string; role: MembershipRole }>> {
+  await runMigrations();
+  const sql = getDb();
+  return (await sql`
+    SELECT m.business_id, b.name AS business_name, m.role
+    FROM memberships m
+    JOIN businesses b ON b.id = m.business_id
+    WHERE m.user_id = ${memberUserId}
+      AND m.status = 'active'
+      AND EXISTS (
+        SELECT 1 FROM memberships am
+        WHERE am.user_id = ${adminUserId}
+          AND am.business_id = m.business_id
+          AND am.role = 'admin'
+          AND am.status = 'active'
+      )
+    ORDER BY b.name ASC
+  `) as Array<{ business_id: string; business_name: string; role: MembershipRole }>;
+}
+
+export async function updateMemberWorkspaces(input: {
+  memberUserId: string;
+  adminUserId: string;
+  workspaceIds: string[];
+  role: MembershipRole;
+}): Promise<void> {
+  await runMigrations();
+  const sql = getDb();
+  // Remove memberships from workspaces the admin controls but aren't in the new list
+  const adminWorkspaces = await listOwnedWorkspaces(input.adminUserId);
+  const adminWorkspaceIds = adminWorkspaces.map((w) => w.id);
+  const toRemove = adminWorkspaceIds.filter((id) => !input.workspaceIds.includes(id));
+  for (const wsId of toRemove) {
+    await sql`
+      DELETE FROM memberships
+      WHERE user_id = ${input.memberUserId} AND business_id = ${wsId}
+    `;
+  }
+  // Add/update memberships for selected workspaces
+  for (const wsId of input.workspaceIds) {
+    if (!adminWorkspaceIds.includes(wsId)) continue; // safety: only admin's workspaces
+    await sql`
+      INSERT INTO memberships (user_id, business_id, role, status)
+      VALUES (${input.memberUserId}, ${wsId}, ${input.role}, 'active')
+      ON CONFLICT (user_id, business_id)
+      DO UPDATE SET role = EXCLUDED.role, status = 'active'
+    `;
+  }
+}
+
 export async function createInvite(input: {
   email: string;
   businessId: string;
   role: MembershipRole;
   invitedByUserId: string;
+  workspaceIds?: string[];
 }): Promise<{
   id: string;
   token: string;
@@ -258,8 +324,9 @@ export async function createInvite(input: {
   await runMigrations();
   const sql = getDb();
   const token = randomBytes(32).toString("hex");
+  const wsIds = input.workspaceIds && input.workspaceIds.length > 0 ? input.workspaceIds : null;
   const rows = (await sql`
-    INSERT INTO invites (email, business_id, role, token, status, invited_by_user_id, expires_at)
+    INSERT INTO invites (email, business_id, role, token, status, invited_by_user_id, expires_at, workspace_ids)
     VALUES (
       ${input.email.trim().toLowerCase()},
       ${input.businessId},
@@ -267,7 +334,8 @@ export async function createInvite(input: {
       ${token},
       'pending',
       ${input.invitedByUserId},
-      ${new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()}
+      ${new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()},
+      ${wsIds}
     )
     RETURNING id, token, created_at, expires_at
   `) as Array<{
@@ -329,7 +397,8 @@ export async function getInviteByToken(token: string) {
       created_at,
       expires_at,
       accepted_at,
-      invited_by_user_id
+      invited_by_user_id,
+      workspace_ids
     FROM invites
     WHERE token = ${token}
     LIMIT 1
@@ -344,6 +413,7 @@ export async function getInviteByToken(token: string) {
     expires_at: string;
     accepted_at: string | null;
     invited_by_user_id: string | null;
+    workspace_ids: string[] | null;
   }>;
   return rows[0] ?? null;
 }
@@ -362,12 +432,17 @@ export async function acceptInvite(
     return null;
   }
 
-  await sql`
-    INSERT INTO memberships (user_id, business_id, role, status)
-    VALUES (${userId}, ${invite.business_id}, ${invite.role}, 'active')
-    ON CONFLICT (user_id, business_id)
-    DO UPDATE SET role = EXCLUDED.role, status = 'active'
-  `;
+  const targets = invite.workspace_ids && invite.workspace_ids.length > 0
+    ? invite.workspace_ids
+    : [invite.business_id];
+  for (const wsId of targets) {
+    await sql`
+      INSERT INTO memberships (user_id, business_id, role, status)
+      VALUES (${userId}, ${wsId}, ${invite.role}, 'active')
+      ON CONFLICT (user_id, business_id)
+      DO UPDATE SET role = EXCLUDED.role, status = 'active'
+    `;
+  }
   await sql`
     UPDATE invites
     SET status = 'accepted', accepted_at = now()

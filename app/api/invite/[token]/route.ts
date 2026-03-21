@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { acceptInvite, createUser, getInviteByToken, getUserByEmail } from "@/lib/account-store";
 import { attachSessionCookie, createSession, getSessionFromRequest, hashPassword } from "@/lib/auth";
+import { getDb } from "@/lib/db";
 
 interface AcceptInviteBody {
   name?: string;
@@ -19,6 +20,15 @@ export async function GET(
       { status: 404 }
     );
   }
+  // Resolve workspace names
+  const wsIds = invite.workspace_ids && invite.workspace_ids.length > 0
+    ? invite.workspace_ids
+    : [invite.business_id];
+  const sql = getDb();
+  const wsRows = (await sql`
+    SELECT id, name FROM businesses WHERE id = ANY(${wsIds})
+  `) as Array<{ id: string; name: string }>;
+
   return NextResponse.json({
     invite: {
       email: invite.email,
@@ -27,6 +37,7 @@ export async function GET(
       status: invite.status,
       createdAt: invite.created_at,
       expiresAt: invite.expires_at,
+      workspaces: wsRows,
     },
   });
 }
