@@ -5,6 +5,38 @@ import { requireBusinessAccess } from "@/lib/access";
 import { fetchMetaAdAccounts, getMetaApiErrorMessage } from "@/lib/meta-ad-accounts";
 import { scheduleProviderAccountSnapshotRefresh } from "@/lib/provider-account-snapshots";
 
+async function exchangeMetaLongLivedToken(shortLivedToken: string) {
+  const params = new URLSearchParams({
+    grant_type: "fb_exchange_token",
+    client_id: META_CONFIG.appId,
+    client_secret: META_CONFIG.appSecret,
+    fb_exchange_token: shortLivedToken,
+  });
+
+  const response = await fetch(`${META_CONFIG.tokenUrl}?${params.toString()}`, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+    },
+    cache: "no-store",
+  });
+
+  const data = await response.json().catch(() => null);
+  if (!response.ok || data?.error) {
+    throw new Error(
+      data?.error?.message ||
+        `Meta long-lived token exchange failed with status ${response.status}.`
+    );
+  }
+
+  return {
+    accessToken:
+      typeof data?.access_token === "string" ? data.access_token : shortLivedToken,
+    expiresIn:
+      typeof data?.expires_in === "number" ? data.expires_in : undefined,
+  };
+}
+
 /**
  * GET /api/oauth/meta/callback?code=...&state=...
  *
@@ -97,8 +129,19 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const accessToken: string = tokenData.access_token;
-    const expiresIn: number | undefined = tokenData.expires_in;
+    let accessToken: string = tokenData.access_token;
+    let expiresIn: number | undefined = tokenData.expires_in;
+
+    try {
+      const longLived = await exchangeMetaLongLivedToken(accessToken);
+      accessToken = longLived.accessToken;
+      expiresIn = longLived.expiresIn ?? expiresIn;
+    } catch (exchangeError) {
+      console.warn("[meta-oauth-callback] long-lived token exchange failed", {
+        message:
+          exchangeError instanceof Error ? exchangeError.message : String(exchangeError),
+      });
+    }
 
     // ── Fetch Meta user identity ────────────────────────────────
     const meRes = await fetch(
@@ -128,7 +171,7 @@ export async function GET(request: NextRequest) {
       providerAccountName,
       accessToken,
       tokenExpiresAt,
-      scopes: META_CONFIG.scopes.join(","),
+      scopes: META_CONFIG.scopes.join(" "),
     });
 
     await scheduleProviderAccountSnapshotRefresh({

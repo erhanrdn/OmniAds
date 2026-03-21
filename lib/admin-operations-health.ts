@@ -161,6 +161,10 @@ function providerRequiresRefreshToken(provider: AuthProvider) {
   return provider === "google" || provider === "search_console" || provider === "ga4";
 }
 
+function providerCanAutoRefresh(provider: AuthProvider, refreshToken: string | null) {
+  return providerRequiresRefreshToken(provider) && Boolean(refreshToken);
+}
+
 function hasRequiredScope(provider: AuthProvider, scopes: Set<string>) {
   if (provider === "google") {
     return scopes.has("https://www.googleapis.com/auth/adwords");
@@ -215,18 +219,20 @@ export function buildAdminAuthHealth(rows: RawAuthIntegrationRow[]): AdminAuthHe
 
     if (isConnected && Number.isFinite(expiresAtMs)) {
       if (expiresAtMs <= Date.now()) {
-        expiredTokens++;
-        issueTypes.push("Token expired");
-        affectedBusinesses.add(row.business_id);
-        issues.push({
-          businessId: row.business_id,
-          businessName: row.business_name,
-          provider: row.provider,
-          issueType: "Token expired",
-          detail: "The stored access token has already expired.",
-          tokenExpiresAt: row.token_expires_at,
-          updatedAt: row.updated_at,
-        });
+        if (!providerCanAutoRefresh(row.provider, row.refresh_token)) {
+          expiredTokens++;
+          issueTypes.push("Token expired");
+          affectedBusinesses.add(row.business_id);
+          issues.push({
+            businessId: row.business_id,
+            businessName: row.business_name,
+            provider: row.provider,
+            issueType: "Token expired",
+            detail: "The stored access token has already expired and this connection cannot auto-refresh itself.",
+            tokenExpiresAt: row.token_expires_at,
+            updatedAt: row.updated_at,
+          });
+        }
       } else if (expiresAtMs - Date.now() <= 72 * 60 * 60_000) {
         expiringSoon++;
       }

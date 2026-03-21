@@ -29,6 +29,26 @@ describe("buildAdminAuthHealth", () => {
     expect(payload.summary.expiringSoon).toBe(0);
     expect(payload.issues).toHaveLength(2);
   });
+
+  it("does not flag Google-family expired access tokens when refresh is available", () => {
+    const payload = buildAdminAuthHealth([
+      {
+        business_id: "biz-2",
+        business_name: "Beta",
+        provider: "google",
+        status: "connected",
+        refresh_token: "refresh-token",
+        token_expires_at: "2026-03-20T10:00:00.000Z",
+        scopes: "https://www.googleapis.com/auth/adwords",
+        error_message: null,
+        updated_at: "2026-03-21T10:00:00.000Z",
+      },
+    ]);
+
+    expect(payload.summary.expiredTokens).toBe(0);
+    expect(payload.summary.affectedBusinesses).toBe(0);
+    expect(payload.issues).toHaveLength(0);
+  });
 });
 
 describe("buildAdminSyncHealth", () => {
