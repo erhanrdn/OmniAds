@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
     const sql = getDb();
 
     const condParams: unknown[] = [];
-    const conditions: string[] = ["b.is_demo_business = false"];
+    const conditions: string[] = [];
     if (search) {
       condParams.push(`%${search}%`);
       const n = condParams.length;
@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
       conditions.push(`COALESCE(b.plan_override, ss.plan_id, 'starter') = $${condParams.length}`);
     }
 
-    const where = `WHERE ${conditions.join(" AND ")}`;
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
     const limitIdx  = condParams.length + 1;
     const offsetIdx = condParams.length + 2;
     const listParams = [...condParams, limit, offset];
@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
     const [bizResult, countResult] = await Promise.all([
       sql.query(`
         SELECT
-          b.id, b.name, b.created_at, b.plan_override,
+          b.id, b.name, b.created_at, b.plan_override, b.is_demo_business,
           u.id AS owner_id, u.name AS owner_name, u.email AS owner_email,
           ss.plan_id, ss.status AS subscription_status,
           COUNT(DISTINCT m.user_id) AS member_count,

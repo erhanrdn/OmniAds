@@ -9,6 +9,7 @@ interface BusinessRow {
   name: string;
   created_at: string;
   plan_override: string | null;
+  is_demo_business: boolean;
   owner_id: string;
   owner_name: string;
   owner_email: string;
@@ -126,6 +127,9 @@ export default function AdminBusinessesPage() {
                     <Link href={`/admin/businesses/${b.id}`} className="font-medium text-gray-900 hover:text-indigo-600">
                       {b.name}
                     </Link>
+                    {b.is_demo_business && (
+                      <span className="ml-1.5 text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full font-semibold">Demo</span>
+                    )}
                   </td>
                   <td className="px-5 py-3.5">
                     <Link href={`/admin/users/${b.owner_id}`} className="hover:text-indigo-600">
