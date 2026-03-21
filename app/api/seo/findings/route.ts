@@ -15,6 +15,7 @@ import {
   SearchConsoleAuthError,
 } from "@/lib/search-console";
 import { computePreviousPeriod } from "@/lib/geo-momentum";
+import { getSeoResultsCache, setSeoResultsCache } from "@/lib/seo/results-cache";
 
 export async function GET(request: NextRequest) {
   const businessId = request.nextUrl.searchParams.get("businessId");
@@ -55,6 +56,15 @@ export async function GET(request: NextRequest) {
 
     const siteUrl = context.siteUrl ?? "";
     const { prevStart, prevEnd } = computePreviousPeriod(startDate, endDate);
+
+    const cached = await getSeoResultsCache({
+      businessId,
+      cacheType: "findings",
+      startDate,
+      endDate,
+    });
+    if (cached) return NextResponse.json(cached);
+
     const [currentRows, previousRows] = await Promise.all([
       fetchSearchConsoleAnalyticsRows({
         accessToken: context.accessToken,
@@ -78,6 +88,8 @@ export async function GET(request: NextRequest) {
       currentRows,
       previousRows,
     });
+
+    await setSeoResultsCache({ businessId, cacheType: "findings", startDate, endDate, payload });
 
     return NextResponse.json(payload);
   } catch (error) {

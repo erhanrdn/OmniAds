@@ -383,6 +383,17 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
         sql`CREATE INDEX IF NOT EXISTS idx_discount_redemptions_user ON discount_redemptions (user_id)`.catch(() => {}),
         sql`UPDATE business_cost_models SET fixed_monthly_cost = fixed_cost WHERE fixed_monthly_cost = 0 AND fixed_cost <> 0`,
         sql`UPDATE business_cost_models SET fixed_cost = fixed_monthly_cost WHERE fixed_cost = 0 AND fixed_monthly_cost <> 0`,
+        sql`CREATE TABLE IF NOT EXISTS seo_results_cache (
+          id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id  TEXT NOT NULL,
+          cache_type   TEXT NOT NULL CHECK (cache_type IN ('overview', 'findings')),
+          start_date   DATE NOT NULL,
+          end_date     DATE NOT NULL,
+          payload      JSONB NOT NULL,
+          generated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`.catch(() => {}),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_seo_results_cache_lookup ON seo_results_cache (business_id, cache_type, start_date, end_date)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_seo_results_cache_business ON seo_results_cache (business_id, generated_at DESC)`.catch(() => {}),
       ]);
 
       // ── Seed superadmin ───────────────────────────────────────────────────

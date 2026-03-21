@@ -10,6 +10,7 @@ import {
   type SeoPromptSiteContext,
   type SeoStructuredAnalysis,
 } from "@/lib/seo/seo-prompts";
+import { getSeoMonthlyAiAnalysis } from "@/lib/seo/monthly-ai-analysis-store";
 
 const SEO_AI_MODEL = "gpt-5-nano";
 
@@ -1070,6 +1071,7 @@ export async function buildSeoOverviewPayload(params: {
   endDate: string;
   currentRows: SearchConsoleAnalyticsRow[];
   previousRows: SearchConsoleAnalyticsRow[];
+  businessId?: string;
 }): Promise<SeoOverviewPayload> {
   const { prevStart, prevEnd } = computePreviousPeriod(params.startDate, params.endDate);
   const currentTotals = computeTotals(params.currentRows);
@@ -1131,14 +1133,41 @@ export async function buildSeoOverviewPayload(params: {
     decliningPages: movers.decliningPages,
   });
 
-  const aiBrief = await buildAiBrief({
-    siteUrl: params.siteUrl,
-    summary,
-    causes,
-    recommendations,
-    decliningQueries: movers.decliningQueries,
-    decliningPages: movers.decliningPages,
-  });
+  let aiBrief: SeoAiBrief;
+  if (params.businessId) {
+    const analysisMonth = new Date().toISOString().slice(0, 7) + "-01";
+    const monthlyAnalysis = await getSeoMonthlyAiAnalysis({
+      businessId: params.businessId,
+      analysisMonth,
+    });
+    if (monthlyAnalysis?.status === "success" && monthlyAnalysis.analysis) {
+      const a = monthlyAnalysis.analysis;
+      aiBrief = {
+        source: "ai",
+        summary: a.summary,
+        likelyCause: a.rootCauses[0]?.title ?? a.ecommerceContext,
+        nextStep: a.priorities[0]?.title ?? "",
+      };
+    } else {
+      aiBrief = await buildAiBrief({
+        siteUrl: params.siteUrl,
+        summary,
+        causes,
+        recommendations,
+        decliningQueries: movers.decliningQueries,
+        decliningPages: movers.decliningPages,
+      });
+    }
+  } else {
+    aiBrief = await buildAiBrief({
+      siteUrl: params.siteUrl,
+      summary,
+      causes,
+      recommendations,
+      decliningQueries: movers.decliningQueries,
+      decliningPages: movers.decliningPages,
+    });
+  }
 
   return {
     meta: {
