@@ -2,6 +2,7 @@ import type {
   LandingPageAiCommentaryResponse,
   LandingPageAiReport,
   LandingPagePerformanceResponse,
+  LandingPageRuleReport,
 } from "@/src/types/landing-pages";
 import {
   buildApiUrl,
@@ -42,7 +43,8 @@ export async function getLandingPagePerformance(
 
 export async function getLandingPageAiCommentary(
   businessId: string,
-  report: LandingPageAiReport
+  report: LandingPageAiReport,
+  ruleReport: LandingPageRuleReport
 ): Promise<LandingPageAiCommentaryResponse> {
   const url = buildApiUrl("/api/ai/landing-pages/commentary");
 
@@ -52,7 +54,7 @@ export async function getLandingPageAiCommentary(
       "Content-Type": "application/json",
       Accept: "application/json",
     },
-    body: JSON.stringify({ businessId, report }),
+    body: JSON.stringify({ businessId, report, ruleReport }),
   });
 
   const payload = await readJsonResponse(response);

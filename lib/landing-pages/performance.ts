@@ -5,6 +5,7 @@ import type {
   LandingPagePerformanceResponse,
   LandingPagePerformanceRow,
   LandingPagePerformanceSummary,
+  LandingPageRuleReport,
 } from "@/src/types/landing-pages";
 
 export const LANDING_PAGE_EVENT_NAMES = [
@@ -13,7 +14,6 @@ export const LANDING_PAGE_EVENT_NAMES = [
   "add_to_cart",
   "begin_checkout",
   "add_shipping_info",
-  "add_payment_info",
   "purchase",
 ] as const;
 
@@ -38,8 +38,7 @@ const FUNNEL_TRANSITIONS: Array<{
   { from: "view_item", to: "add_to_cart", getFromValue: (row) => row.viewItem, getToValue: (row) => row.addToCarts },
   { from: "add_to_cart", to: "begin_checkout", getFromValue: (row) => row.addToCarts, getToValue: (row) => row.checkouts },
   { from: "begin_checkout", to: "add_shipping_info", getFromValue: (row) => row.checkouts, getToValue: (row) => row.addShippingInfo },
-  { from: "add_shipping_info", to: "add_payment_info", getFromValue: (row) => row.addShippingInfo, getToValue: (row) => row.addPaymentInfo },
-  { from: "add_payment_info", to: "purchase", getFromValue: (row) => row.addPaymentInfo, getToValue: (row) => row.purchases },
+  { from: "add_shipping_info", to: "purchase", getFromValue: (row) => row.addShippingInfo, getToValue: (row) => row.purchases },
 ];
 
 function safeDivide(numerator: number, denominator: number): number {
@@ -109,14 +108,7 @@ export function buildLandingPageRow(input: {
       step: "begin_checkout" as const,
       dropRate: 1 - clampRate(safeDivide(addShippingInfo, checkouts)),
     },
-    {
-      step: "add_shipping_info" as const,
-      dropRate: 1 - clampRate(safeDivide(addPaymentInfo, addShippingInfo)),
-    },
-    {
-      step: "add_payment_info" as const,
-      dropRate: 1 - clampRate(safeDivide(purchases, addPaymentInfo)),
-    },
+    { step: "add_shipping_info" as const, dropRate: 1 - clampRate(safeDivide(purchases, addShippingInfo)) },
   ];
   const largestDrop = transitions.reduce((best, current) => {
     if (current.dropRate > best.dropRate) return current;
@@ -233,14 +225,15 @@ export function buildLandingPageAiReport(row: LandingPagePerformanceRow): Landin
 
   if (row.engagementRate >= 0.6) strengths.push("Engagement is healthy for a landing page with meaningful traffic.");
   if (row.scrollRate >= 0.45) strengths.push("Visitors are scrolling, which suggests the page is holding attention below the fold.");
-  if (row.paymentToPurchaseRate >= 0.6) strengths.push("Payment completion is strong once users reach the final step.");
+  if (row.checkoutToShippingRate >= 0.65) strengths.push("Checkout progression remains healthy once users start the formal checkout flow.");
 
   if (row.engagementRate < 0.35) concerns.push("Traffic is arriving but not engaging with the page content.");
   if (row.sessionToViewItemRate < 0.2) concerns.push("Visitors are not progressing from landing to product exploration.");
   if (row.viewItem > 0 && row.viewItemToCartRate < 0.08) concerns.push("Product interest is not converting into add-to-cart intent.");
-  if (row.addPaymentInfo > 0 && row.paymentToPurchaseRate < 0.35) concerns.push("Users are stalling late in checkout after entering payment details.");
+  if (row.checkouts > 0 && row.checkoutToShippingRate < 0.4) concerns.push("Users are stalling inside checkout before they reach shipping details.");
 
   return {
+    url: row.path,
     path: row.path,
     title: row.title,
     sessions: row.sessions,
@@ -256,39 +249,80 @@ export function buildLandingPageAiReport(row: LandingPagePerformanceRow): Landin
   };
 }
 
-export function buildLandingPageAiFallback(report: LandingPageAiReport): LandingPageAiCommentary {
+export function buildLandingPageAiFallback(
+  report: LandingPageAiReport,
+  ruleReport?: LandingPageRuleReport | null,
+  pageSnapshot?: {
+    fetched?: boolean;
+    title?: string | null;
+    metaDescription?: string | null;
+    headings?: string[];
+    bodyExcerpt?: string | null;
+  } | null,
+): LandingPageAiCommentary {
   const biggestLeakLabel = report.biggestLeak
     ? `${LANDING_PAGE_FUNNEL_LABELS[report.biggestLeak.from]} -> ${LANDING_PAGE_FUNNEL_LABELS[report.biggestLeak.to]}`
     : "No major leak detected";
+  const visibleTitle = pageSnapshot?.title?.trim() || report.title;
+  const visibleHeading = pageSnapshot?.headings?.find(Boolean)?.trim() || null;
+  const visibleMeta = pageSnapshot?.metaDescription?.trim() || null;
+  const fetchedContext = pageSnapshot?.fetched === true;
+  const handoffSummary =
+    ruleReport?.archetype &&
+    (ruleReport.archetype === "listing" ||
+      ruleReport.archetype === "homepage" ||
+      ruleReport.archetype === "content" ||
+      ruleReport.archetype === "campaign") &&
+    ruleReport.primaryLeak === null;
   const summary =
-    report.biggestLeak
-      ? `${report.title} loses the most users between ${biggestLeakLabel}.`
-      : `${report.title} has a relatively even funnel with no single catastrophic drop-off step.`;
+    handoffSummary
+      ? `${visibleTitle} is doing its main entry-page job, and the weaker conversion signal appears after visitors leave this page for downstream product or cart flows.`
+      : report.biggestLeak
+      ? `${visibleTitle} loses the most users between ${biggestLeakLabel}.`
+      : `${visibleTitle} has a relatively even funnel with no single catastrophic drop-off step.`;
 
   const insights = [
-    report.strengths[0] ?? "Traffic quality and downstream conversion need closer validation.",
-    report.concerns[0] ?? "No single concern dominates, but optimization headroom remains in the funnel.",
-    report.strongestStep
-      ? `Strongest progression is ${LANDING_PAGE_FUNNEL_LABELS[report.strongestStep.from]} -> ${LANDING_PAGE_FUNNEL_LABELS[report.strongestStep.to]}.`
-      : "No downstream step has enough volume to call out as a clear strength.",
+    fetchedContext
+      ? visibleHeading && visibleHeading !== visibleTitle
+        ? `The fetched page is framed around "${visibleHeading}", so the visible page promise is clearer than the downstream conversion signal suggests.`
+        : `The fetched page presents a clear ${ruleReport?.archetype ?? "landing"} context, which helps explain why engagement stays relatively healthy.`
+      : report.strengths[0] ?? "Traffic quality and downstream conversion need closer validation.",
+    visibleMeta
+      ? `Its visible description leans on "${visibleMeta.slice(0, 110)}${visibleMeta.length > 110 ? "..." : ""}", which is worth checking against the actual CTA path and product journey.`
+      : report.concerns[0] ?? "No single concern dominates, but optimization headroom remains in the funnel.",
+    handoffSummary
+      ? "The main question here is whether this page is sending users into the right product set and next step, not whether it should behave like a PDP or cart."
+      : report.strongestStep
+        ? `The clearest forward motion still happens at ${LANDING_PAGE_FUNNEL_LABELS[report.strongestStep.from]} -> ${LANDING_PAGE_FUNNEL_LABELS[report.strongestStep.to]}.`
+        : "No downstream step has enough volume to call out as a clear strength.",
   ];
 
   const recommendations = [
-    report.biggestLeak
+    handoffSummary
+      ? "Review which product tiles, collection rows, or next-click destinations this page pushes visitors into before redesigning the page itself."
+      : report.biggestLeak
       ? `Prioritize fixes around ${LANDING_PAGE_FUNNEL_LABELS[report.biggestLeak.from]} -> ${LANDING_PAGE_FUNNEL_LABELS[report.biggestLeak.to]} before scaling more traffic.`
       : "Test higher-intent variants of the hero and first CTA to improve initial progression.",
-    report.conversionRate >= 0.02
-      ? "Protect what is already converting by testing copy and layout changes incrementally."
-      : "Audit message match between ads, headline, offer framing, and first CTA.",
-    "Review analytics tagging on shipping and payment steps so late-funnel decisions are based on complete data.",
+    fetchedContext
+      ? "Audit whether the visible headline, category framing, and first commerce cue make the next click obvious without forcing users to hunt."
+      : report.conversionRate >= 0.02
+        ? "Protect what is already converting by testing copy and layout changes incrementally."
+        : "Audit message match between ads, headline, offer framing, and first CTA.",
+    handoffSummary
+      ? "Check the destination product pages and cart path for weaker merchandising, trust, or checkout momentum than this page suggests."
+      : "Review analytics tagging on checkout and shipping steps so late-funnel decisions are based on complete data.",
   ];
 
   const risks = [
-    report.concerns[1] ?? "Low-conviction changes may hide the real leak if step tracking is incomplete.",
+    fetchedContext
+      ? "Changing the visible page structure too aggressively can hide whether the real issue lives in the next-click destination."
+      : report.concerns[1] ?? "Low-conviction changes may hide the real leak if step tracking is incomplete.",
     report.biggestLeak && report.biggestLeak.from === "sessions"
       ? "Scaling traffic before improving product discovery can magnify wasted sessions."
-      : "Late-funnel friction can suppress revenue even when top-of-funnel traffic looks healthy.",
-    "If event instrumentation is partial, some funnel losses may reflect missing tracking instead of user behavior.",
+      : handoffSummary
+        ? "If the handoff from this page into PDPs is uneven, the landing page can look weaker than it really is."
+        : "Late-funnel friction can suppress revenue even when top-of-funnel traffic looks healthy.",
+    "If event instrumentation is partial, some funnel losses may reflect missing tracking or destination-page issues instead of this page alone.",
   ];
 
   return { summary, insights, recommendations, risks };

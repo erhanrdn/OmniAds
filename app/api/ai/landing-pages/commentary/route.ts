@@ -8,6 +8,7 @@ import {
 import type {
   LandingPageAiCommentary,
   LandingPageAiReport,
+  LandingPageRuleReport,
 } from "@/src/types/landing-pages";
 
 const MODEL = "gpt-5-nano";
@@ -15,6 +16,7 @@ const MODEL = "gpt-5-nano";
 interface RequestPayload {
   businessId?: string;
   report?: LandingPageAiReport;
+  ruleReport?: LandingPageRuleReport;
 }
 
 interface OpenAiLikeError {
@@ -29,21 +31,49 @@ interface OpenAiLikeError {
   };
 }
 
-const SYSTEM_PROMPT = `You are a senior CRO and ecommerce funnel strategist.
+interface FetchedPageSnapshot {
+  fetched: boolean;
+  finalUrl: string | null;
+  title: string | null;
+  metaDescription: string | null;
+  headings: string[];
+  bodyExcerpt: string | null;
+  warning: string | null;
+}
 
-You will receive a deterministic landing page funnel diagnosis report.
-Your job is to interpret the report for an operator.
+const SYSTEM_PROMPT = `Act as a Senior UX Auditor with strong expertise in Baymard Institute ecommerce guidance, Jakob Nielsen's usability heuristics, Laws of UX, and WCAG 2.1 basics.
+
+You will receive:
+1. a compact funnel report
+2. a deterministic rule-engine diagnosis
+3. a fetched landing page snapshot when available
+
+Your job is to produce a concise operator-facing UX audit for this landing page.
 
 Rules:
-- Stay grounded in the provided report only.
-- Do not invent missing tracking, hidden causes, or performance thresholds.
-- Keep the tone concise and practical.
+- Stay grounded in the provided payload only.
+- Treat the rule engine as supporting diagnostic context, not as the main copy source.
+- Use funnel metrics to explain likely UX or handoff issues, not to restate the performance diagnosis.
+- Use the fetched page snapshot when it is available to ground comments about messaging, structure, category intent, CTA placement, navigation clarity, or conversion friction.
+- Pay attention to page archetype before giving advice.
+- For homepage, listing, content, or campaign pages, do not blame downstream add-to-cart or checkout loss on the current page when the rule engine frames it as a downstream handoff issue.
+- Apply Baymard-style reasoning for ecommerce navigation, category browsing, search-to-product discovery, and checkout friction when relevant.
+- Apply NN/g heuristics such as visibility of system status, match with real-world language, recognition over recall, consistency, and error prevention when relevant.
+- Apply Laws of UX when useful, especially Hick's Law, Fitts's Law, and cognitive load.
+- Mention WCAG or accessibility only when there is enough evidence from the snapshot; otherwise frame accessibility points carefully as likely or worth validating.
+- Do not restate the rule engine summary, issues, actions, or risks verbatim. Add complementary interpretation instead.
+- If a fetched page snapshot is available, at least two findings or recommendations should clearly reflect visible page content, headings, framing, category cues, CTA structure, or IA signals.
+- If confidence is low or the rule engine flags tracking issues, say so clearly.
+- Do not invent hidden causes, benchmarks, tracking completeness, or performance thresholds.
+- Avoid generic CRO filler. Recommendations should map to the reported weak point.
+- Keep the tone concise, professional, and useful for ecommerce operators and stakeholders.
 - Return ONLY valid JSON matching the requested schema.`;
 
 function isValidReport(report: unknown): report is LandingPageAiReport {
   if (!report || typeof report !== "object") return false;
   const source = report as Partial<LandingPageAiReport>;
   return (
+    typeof source.url === "string" &&
     typeof source.path === "string" &&
     typeof source.title === "string" &&
     typeof source.sessions === "number" &&
@@ -54,6 +84,27 @@ function isValidReport(report: unknown): report is LandingPageAiReport {
     typeof source.conversionRate === "number" &&
     Array.isArray(source.strengths) &&
     Array.isArray(source.concerns)
+  );
+}
+
+function isValidRuleReport(report: unknown): report is LandingPageRuleReport {
+  if (!report || typeof report !== "object") return false;
+  const source = report as Partial<LandingPageRuleReport>;
+  return (
+    typeof source.path === "string" &&
+    typeof source.title === "string" &&
+    typeof source.archetype === "string" &&
+    typeof source.action === "string" &&
+    typeof source.score === "number" &&
+    typeof source.confidence === "number" &&
+    Array.isArray(source.causeTags) &&
+    Array.isArray(source.strengths) &&
+    Array.isArray(source.issues) &&
+    Array.isArray(source.actions) &&
+    Array.isArray(source.risks) &&
+    typeof source.summary === "string" &&
+    !!source.scoreBreakdown &&
+    typeof source.scoreBreakdown === "object"
   );
 }
 
@@ -104,14 +155,114 @@ function sanitizeErrorMessage(input: string): string {
   return "AI commentary generation failed. Showing rule-based analysis.";
 }
 
-function buildUserPrompt(report: LandingPageAiReport): string {
+function stripHtml(input: string): string {
+  return input
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractTagContent(html: string, tag: string): string | null {
+  const match = html.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, "i"));
+  return match ? stripHtml(match[1]).slice(0, 240) : null;
+}
+
+function extractMetaDescription(html: string): string | null {
+  const match = html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i);
+  return match ? stripHtml(match[1]).slice(0, 280) : null;
+}
+
+function extractHeadings(html: string): string[] {
+  const matches = Array.from(html.matchAll(/<(h1|h2)[^>]*>([\s\S]*?)<\/\1>/gi));
+  return matches
+    .map((match) => stripHtml(match[2]))
+    .filter(Boolean)
+    .slice(0, 6);
+}
+
+async function fetchLandingPageSnapshot(url: string): Promise<FetchedPageSnapshot> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        Accept: "text/html,application/xhtml+xml",
+        "User-Agent": "AdsecuteLandingPageAnalyzer/1.0",
+      },
+      redirect: "follow",
+      signal: controller.signal,
+      cache: "no-store",
+    });
+    clearTimeout(timeout);
+
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!response.ok || !contentType.toLowerCase().includes("text/html")) {
+      return {
+        fetched: false,
+        finalUrl: response.url || url,
+        title: null,
+        metaDescription: null,
+        headings: [],
+        bodyExcerpt: null,
+        warning: "Page fetch was unavailable or returned non-HTML content.",
+      };
+    }
+
+    const html = await response.text();
+    const plainText = stripHtml(html).slice(0, 2400);
+
+    return {
+      fetched: true,
+      finalUrl: response.url || url,
+      title: extractTagContent(html, "title"),
+      metaDescription: extractMetaDescription(html),
+      headings: extractHeadings(html),
+      bodyExcerpt: plainText || null,
+      warning: null,
+    };
+  } catch (error) {
+    return {
+      fetched: false,
+      finalUrl: url,
+      title: null,
+      metaDescription: null,
+      headings: [],
+      bodyExcerpt: null,
+      warning: error instanceof Error ? error.message : "Unknown fetch error",
+    };
+  }
+}
+
+function buildUserPrompt(
+  report: LandingPageAiReport,
+  ruleReport: LandingPageRuleReport,
+  pageSnapshot: FetchedPageSnapshot,
+): string {
   return JSON.stringify({
-    task: "Interpret this landing page funnel diagnosis for a growth operator.",
+    task: "Generate a compact UX audit for this landing page. The output should complement the deterministic performance diagnosis rather than repeat it.",
+    focusAreas: [
+      "Use the landing page URL and fetched page snapshot to infer page purpose, IA, messaging, and CTA structure.",
+      "Translate performance weakness into likely UX, IA, messaging, or handoff causes.",
+      "Use Baymard, Nielsen heuristics, Laws of UX, and basic WCAG thinking where relevant.",
+      "For listing, homepage, content, and campaign pages, treat product-page and cart leakage as downstream handoff issues unless the rule report explicitly says the current page is the bottleneck.",
+      "If page snapshot content is present, anchor observations in visible messaging, headings, structure, commerce cues, and category framing from that snapshot.",
+      "Do not simply paraphrase the deterministic rule report; add net-new UX interpretation and practical audit findings.",
+      "Recommendations should be framed as UX fixes, IA fixes, clarity improvements, or handoff improvements.",
+      "Call out when tracking confidence is weak or when analytics may be misleading.",
+    ],
     outputSchema: {
-      summary: "string, 1-2 sentences",
-      insights: "string[3]",
-      recommendations: "string[3]",
-      risks: "string[3]",
+      summary: "string, 2-4 sentences written like an executive summary",
+      insights: "string[3] containing critical UX findings or violations",
+      recommendations: "string[3] containing actionable UX recommendations or quick wins",
+      risks: "string[3] containing cognitive load, accessibility, or conversion-risk observations",
     },
     report: {
       ...report,
@@ -119,6 +270,8 @@ function buildUserPrompt(report: LandingPageAiReport): string {
         ? `${LANDING_PAGE_FUNNEL_LABELS[report.biggestLeak.from]} -> ${LANDING_PAGE_FUNNEL_LABELS[report.biggestLeak.to]}`
         : null,
     },
+    ruleReport,
+    pageSnapshot,
   });
 }
 
@@ -154,21 +307,23 @@ export async function POST(request: NextRequest) {
   if ("error" in access) return access.error;
 
   const report = payload?.report;
-  if (!isValidReport(report)) {
+  const ruleReport = payload?.ruleReport;
+  if (!isValidReport(report) || !isValidRuleReport(ruleReport)) {
     return NextResponse.json(
       {
         ok: false,
         error: "invalid_report",
-        message: "A valid landing page report payload is required.",
+        message: "A valid landing page AI and rule report payload is required.",
       },
       { status: 400 }
     );
   }
 
-  const fallback = buildLandingPageAiFallback(report);
+  const pageSnapshot = await fetchLandingPageSnapshot(report.url);
+  const fallback = buildLandingPageAiFallback(report, ruleReport, pageSnapshot);
   const messages = [
     { role: "system" as const, content: SYSTEM_PROMPT },
-    { role: "user" as const, content: buildUserPrompt(report) },
+    { role: "user" as const, content: buildUserPrompt(report, ruleReport, pageSnapshot) },
   ];
 
   try {

@@ -33,7 +33,6 @@ const COLUMNS: Array<{
   { key: "addToCarts", label: "Add to Cart", render: (row) => formatInteger(row.addToCarts) },
   { key: "checkouts", label: "Checkout", render: (row) => formatInteger(row.checkouts) },
   { key: "addShippingInfo", label: "Shipping", render: (row) => formatInteger(row.addShippingInfo) },
-  { key: "addPaymentInfo", label: "Payment", render: (row) => formatInteger(row.addPaymentInfo) },
   { key: "purchases", label: "Purchases", render: (row) => formatInteger(row.purchases) },
   { key: "totalRevenue", label: "Revenue", render: (row, currency) => formatCurrency(row.totalRevenue, currency) },
   { key: "averagePurchaseRevenue", label: "AOV", render: (row, currency) => formatCurrency(row.averagePurchaseRevenue, currency) },

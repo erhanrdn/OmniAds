@@ -69,6 +69,7 @@ export interface LandingPagePerformanceResponse {
 }
 
 export interface LandingPageAiReport {
+  url: string;
   path: string;
   title: string;
   sessions: number;
@@ -102,4 +103,58 @@ export interface LandingPageAiCommentaryResponse {
   source: "ai" | "fallback";
   warning?: string | null;
   commentary: LandingPageAiCommentary;
+}
+
+export type LandingPageArchetype =
+  | "homepage"
+  | "listing"
+  | "product"
+  | "campaign"
+  | "content"
+  | "other";
+
+export type LandingPageRuleAction =
+  | "scale"
+  | "watch"
+  | "fix_above_fold"
+  | "fix_product_discovery"
+  | "fix_product_story"
+  | "fix_checkout_intent"
+  | "fix_late_checkout"
+  | "tracking_audit";
+
+export type LandingPageCauseTag =
+  | "weak_above_fold"
+  | "poor_product_discovery"
+  | "weak_product_story"
+  | "low_checkout_intent"
+  | "late_checkout_friction"
+  | "tracking_gap"
+  | "healthy_engagement"
+  | "healthy_purchase_intent"
+  | "strong_late_checkout";
+
+export interface LandingPageRuleScoreBreakdown {
+  trafficQuality: number;
+  discovery: number;
+  intent: number;
+  checkout: number;
+  revenueEfficiency: number;
+}
+
+export interface LandingPageRuleReport {
+  path: string;
+  title: string;
+  archetype: LandingPageArchetype;
+  action: LandingPageRuleAction;
+  score: number;
+  confidence: number;
+  primaryLeak: LandingPageFunnelStepKey | null;
+  causeTags: LandingPageCauseTag[];
+  strengths: string[];
+  issues: string[];
+  actions: string[];
+  risks: string[];
+  summary: string;
+  scoreBreakdown: LandingPageRuleScoreBreakdown;
 }

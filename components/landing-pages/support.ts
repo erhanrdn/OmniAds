@@ -107,9 +107,40 @@ export function buildSummaryCards(
 
 export function getDropOffLabel(step: LandingPageFunnelStepKey | null): string {
   if (!step) return "No clear drop-off";
+  if (step === "sessions") return `${LANDING_PAGE_FUNNEL_LABELS.sessions} -> ${LANDING_PAGE_FUNNEL_LABELS.view_item}`;
+  if (step === "view_item") return `${LANDING_PAGE_FUNNEL_LABELS.view_item} -> ${LANDING_PAGE_FUNNEL_LABELS.add_to_cart}`;
+  if (step === "add_to_cart") return `${LANDING_PAGE_FUNNEL_LABELS.add_to_cart} -> ${LANDING_PAGE_FUNNEL_LABELS.begin_checkout}`;
+  if (step === "begin_checkout") return `${LANDING_PAGE_FUNNEL_LABELS.begin_checkout} -> ${LANDING_PAGE_FUNNEL_LABELS.add_shipping_info}`;
+  if (step === "add_shipping_info") return `${LANDING_PAGE_FUNNEL_LABELS.add_shipping_info} -> ${LANDING_PAGE_FUNNEL_LABELS.purchase}`;
+  if (step === "add_payment_info") return "Add payment info -> Purchase";
   return LANDING_PAGE_FUNNEL_LABELS[step];
 }
 
 export function toAiReport(row: LandingPagePerformanceRow): LandingPageAiReport {
   return buildLandingPageAiReport(row);
+}
+
+export function resolveLandingPageSiteBaseUrl(siteUrl: string | null | undefined): string | null {
+  const raw = typeof siteUrl === "string" ? siteUrl.trim() : "";
+  if (!raw) return null;
+  if (raw.startsWith("sc-domain:")) {
+    return `https://${raw.replace("sc-domain:", "").replace(/\/+$/, "")}`;
+  }
+  if (/^https?:\/\//i.test(raw)) {
+    return raw.replace(/\/+$/, "");
+  }
+  return null;
+}
+
+export function resolveLandingPageAbsoluteUrl(
+  path: string,
+  siteUrl: string | null | undefined
+): string {
+  const base = resolveLandingPageSiteBaseUrl(siteUrl);
+  if (!base) return path;
+  try {
+    return new URL(path, `${base}/`).toString();
+  } catch {
+    return path;
+  }
 }

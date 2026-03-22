@@ -24,6 +24,7 @@ import { LandingPageDetailDrawer } from "@/components/landing-pages/LandingPageD
 import {
   buildSummaryCards,
   filterLandingPageRows,
+  resolveLandingPageSiteBaseUrl,
   sortLandingPageRows,
   type LandingPageSortState,
 } from "@/components/landing-pages/support";
@@ -87,6 +88,11 @@ export default function LandingPagesPage() {
     domains?.ga4 ?? buildDefaultProviderDomains().ga4
   );
   const ga4Connected = ga4View.isConnected || isDemoBusiness;
+  const landingPageSiteBaseUrl = resolveLandingPageSiteBaseUrl(
+    domains?.search_console?.connection.providerAccountId ??
+      domains?.search_console?.connection.providerAccountName ??
+      null
+  );
   const showBootstrapGuard =
     !isDemoBusiness &&
     (isBootstrapping ||
@@ -241,6 +247,7 @@ export default function LandingPagesPage() {
           row={selectedRow}
           open={Boolean(selectedRow)}
           currency={selectedBusinessCurrency}
+          siteBaseUrl={landingPageSiteBaseUrl}
           onOpenChange={(open) => {
             if (!open) setSelectedRow(null);
           }}
