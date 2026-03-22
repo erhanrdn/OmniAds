@@ -1,222 +1,263 @@
 "use client";
 
-import { useState } from "react";
-import { useCurrencySymbol } from "@/hooks/use-currency";
+import { useDeferredValue, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
+import { Search } from "lucide-react";
 import { useAppStore } from "@/store/app-store";
-import { getLandingPages } from "@/src/services";
-import { LandingPage, Platform } from "@/src/types";
-import { LoadingSkeleton } from "@/components/states/loading-skeleton";
+import { useIntegrationsStore } from "@/store/integrations-store";
+import { buildDefaultProviderDomains, deriveProviderViewState } from "@/store/integrations-support";
+import { isDemoBusinessSelected } from "@/lib/business-mode";
+import { useBusinessIntegrationsBootstrap } from "@/hooks/use-business-integrations-bootstrap";
+import { usePersistentDateRange } from "@/hooks/use-persistent-date-range";
+import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
+import { DateRangePicker, getPresetDates } from "@/components/date-range/DateRangePicker";
+import { AnalyticsKpiCard } from "@/components/analytics/AnalyticsKpiCard";
+import { IntegrationEmptyState } from "@/components/states/IntegrationEmptyState";
 import { ErrorState } from "@/components/states/error-state";
+import { LoadingSkeleton } from "@/components/states/loading-skeleton";
 import { EmptyState } from "@/components/states/empty-state";
-import { Badge } from "@/components/ui/badge";
-import { X } from "lucide-react";
 import { PlanGate } from "@/components/pricing/PlanGate";
+import { getLandingPagePerformance } from "@/src/services";
+import type { LandingPagePerformanceRow } from "@/src/types/landing-pages";
+import { LandingPagesTableSection } from "@/components/landing-pages/LandingPagesTableSection";
+import { LandingPageDetailDrawer } from "@/components/landing-pages/LandingPageDetailDrawer";
+import {
+  buildSummaryCards,
+  filterLandingPageRows,
+  sortLandingPageRows,
+  type LandingPageSortState,
+} from "@/components/landing-pages/support";
 
-type DateRangeFilter = "7d" | "30d";
+interface AnalyticsApiErrorPayload {
+  error?: string;
+  message?: string;
+  action?: "connect_ga4" | "select_property" | "reconnect_ga4" | "retry_later";
+  reconnectRequired?: boolean;
+}
 
-const PLATFORM_OPTIONS: Array<{ value: "all" | Platform; label: string }> = [
-  { value: "all", label: "All platforms" },
-  { value: Platform.META, label: "Meta" },
-  { value: Platform.GOOGLE, label: "Google" },
-  { value: Platform.TIKTOK, label: "TikTok" },
-  { value: Platform.PINTEREST, label: "Pinterest" },
-  { value: Platform.SNAPCHAT, label: "Snapchat" },
-];
+function buildAnalyticsRequestError(
+  payload: AnalyticsApiErrorPayload,
+  fallbackMessage: string
+) {
+  const message = payload.message ?? fallbackMessage;
+  const error = new Error(message) as Error & {
+    code?: string;
+    action?: AnalyticsApiErrorPayload["action"];
+    reconnectRequired?: boolean;
+  };
+  error.code = payload.error;
+  error.action = payload.action;
+  error.reconnectRequired = payload.reconnectRequired;
+  return error;
+}
+
+function formatAnalyticsErrorMessage(error: unknown, fallback: string): string {
+  if (!(error instanceof Error)) return fallback;
+  const typed = error as Error & { action?: AnalyticsApiErrorPayload["action"] };
+  if (typed.action === "connect_ga4") {
+    return `${typed.message} Connect GA4 in Integrations to continue.`;
+  }
+  if (typed.action === "select_property") {
+    return `${typed.message} Select a GA4 property in Integrations to continue.`;
+  }
+  if (typed.action === "reconnect_ga4") {
+    return `${typed.message} Reconnect GA4 in Integrations.`;
+  }
+  if (typed.action === "retry_later") {
+    return `${typed.message} The page stopped retrying automatically to avoid consuming more GA4 quota.`;
+  }
+  return typed.message || fallback;
+}
 
 export default function LandingPagesPage() {
+  const businesses = useAppStore((state) => state.businesses);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const businessId = selectedBusinessId ?? "";
-  const sym = useCurrencySymbol();
+  const selectedBusinessCurrency =
+    businesses.find((business) => business.id === selectedBusinessId)?.currency ?? null;
+  const domains = useIntegrationsStore((state) =>
+    selectedBusinessId ? state.domainsByBusinessId[selectedBusinessId] : undefined
+  );
+  const { isBootstrapping, bootstrapStatus } = useBusinessIntegrationsBootstrap(
+    selectedBusinessId ?? null
+  );
+  const isDemoBusiness = isDemoBusinessSelected(selectedBusinessId, businesses);
+  const ga4View = deriveProviderViewState(
+    "ga4",
+    domains?.ga4 ?? buildDefaultProviderDomains().ga4
+  );
+  const ga4Connected = ga4View.isConnected || isDemoBusiness;
+  const showBootstrapGuard =
+    !isDemoBusiness &&
+    (isBootstrapping ||
+      ga4View.status === "loading_data" ||
+      (bootstrapStatus !== "ready" && !ga4View.isConnected));
 
-  const [platform, setPlatform] = useState<"all" | Platform>("all");
-  const [dateRange, setDateRange] = useState<DateRangeFilter>("30d");
-  const [search, setSearch] = useState("");
-  const [selectedRow, setSelectedRow] = useState<LandingPage | null>(null);
+  const [dateRange, setDateRange] = usePersistentDateRange();
+  const [searchTerm, setSearchTerm] = useState("");
+  const deferredSearchTerm = useDeferredValue(searchTerm);
+  const [sort, setSort] = useState<LandingPageSortState>({
+    key: "sessions",
+    direction: "desc",
+  });
+  const [selectedRow, setSelectedRow] = useState<LandingPagePerformanceRow | null>(null);
+
+  const { start: startDate, end: endDate } = getPresetDates(
+    dateRange.rangePreset,
+    dateRange.customStart,
+    dateRange.customEnd
+  );
 
   const query = useQuery({
-    queryKey: ["landing-pages", businessId, platform, dateRange, search],
-    enabled: Boolean(selectedBusinessId),
-    queryFn: () =>
-      getLandingPages(businessId, {
-        platform: platform === "all" ? undefined : platform,
-        dateRange,
-        search: search.trim() || undefined,
-      }),
+    queryKey: ["landing-page-performance", businessId, startDate, endDate],
+    enabled: ga4Connected && Boolean(businessId),
+    retry: false,
+    refetchOnWindowFocus: false,
+    queryFn: async () => {
+      try {
+        return await getLandingPagePerformance(businessId, startDate, endDate);
+      } catch (error) {
+        const responseError = error as Error & { payload?: AnalyticsApiErrorPayload };
+        throw buildAnalyticsRequestError(
+          responseError.payload ?? {},
+          responseError.message || "Failed to load landing page performance."
+        );
+      }
+    },
   });
+
+  const visibleRows = useMemo(() => {
+    const filtered = filterLandingPageRows(query.data?.rows ?? [], deferredSearchTerm);
+    return sortLandingPageRows(filtered, sort);
+  }, [deferredSearchTerm, query.data?.rows, sort]);
+
+  const summaryCards = useMemo(
+    () => (query.data ? buildSummaryCards(query.data.summary, selectedBusinessCurrency) : []),
+    [query.data, selectedBusinessCurrency]
+  );
 
   if (!selectedBusinessId) return <BusinessEmptyState />;
 
+  if (showBootstrapGuard) {
+    return (
+      <div className="space-y-6">
+        <LandingPageHeader propertyName={undefined} />
+        <LoadingSkeleton rows={5} />
+      </div>
+    );
+  }
+
+  if (!ga4Connected) {
+    return (
+      <div className="space-y-6">
+        <LandingPageHeader propertyName={undefined} />
+        <IntegrationEmptyState
+          providerLabel="GA4"
+          status={ga4View.status === "action_required" ? "error" : "disconnected"}
+          title="Connect GA4 to unlock landing page funnel analysis"
+          description="Landing page performance is powered by your GA4 property. Connect GA4 and select a property to inspect your purchase funnel by page."
+        />
+      </div>
+    );
+  }
+
   return (
     <PlanGate requiredPlan="growth">
-    <div className="space-y-5">
-      <div className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Landing Pages</h1>
-        <p className="text-sm text-muted-foreground">
-          Track page efficiency and inspect traffic sources from creatives and copies.
-        </p>
-      </div>
+      <div className="space-y-5">
+        <LandingPageHeader propertyName={query.data?.meta.propertyName} />
 
-      <section className="rounded-2xl border bg-card p-4">
-        <div className="flex flex-wrap items-center gap-3">
-          <select
-            value={platform}
-            onChange={(event) => setPlatform(event.target.value as "all" | Platform)}
-            className="h-9 rounded-md border bg-background px-3 text-sm"
-          >
-            {PLATFORM_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+        <section className="rounded-[28px] border border-slate-200 bg-[radial-gradient(circle_at_top_left,_#ffffff_0%,_#f6fbff_48%,_#edf5ff_100%)] p-5 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="max-w-2xl">
+              <p className="text-xs font-semibold uppercase tracking-[0.26em] text-sky-700">
+                Landing Page Performance
+              </p>
+              <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                GA4 funnel diagnostics from session entry to completed purchase
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                Rebuilt on top of the creatives page structure: summary cards, sortable funnel table, and a detailed drawer with AI analysis for each landing page.
+              </p>
+            </div>
 
-          <div className="inline-flex rounded-md border bg-muted/40 p-1">
-            {(["7d", "30d"] as const).map((item) => (
-              <button
-                key={item}
-                type="button"
-                onClick={() => setDateRange(item)}
-                className={`rounded px-2.5 py-1 text-xs font-medium uppercase ${
-                  dateRange === item
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground"
-                }`}
-              >
-                {item}
-              </button>
-            ))}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <DateRangePicker value={dateRange} onChange={setDateRange} />
+              <label className="relative block min-w-[260px]">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={searchTerm}
+                  onChange={(event) => setSearchTerm(event.target.value)}
+                  placeholder="Search page path"
+                  className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-sky-300"
+                />
+              </label>
+            </div>
           </div>
-
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search by URL or name"
-            className="h-9 min-w-64 flex-1 rounded-md border bg-background px-3 text-sm"
-          />
-        </div>
-      </section>
-
-      {query.isLoading && <LoadingSkeleton rows={4} />}
-      {query.isError && <ErrorState onRetry={() => query.refetch()} />}
-      {!query.isLoading && !query.isError && (query.data?.length ?? 0) === 0 && (
-        <EmptyState
-          title="No landing pages found"
-          description="Try changing date range or clearing filters."
-        />
-      )}
-
-      {!query.isLoading && !query.isError && (query.data?.length ?? 0) > 0 && (
-        <section className="overflow-x-auto rounded-xl border">
-          <table className="min-w-full text-sm">
-            <thead className="bg-muted/45 text-left">
-              <tr>
-                <th className="px-4 py-3 font-medium">URL</th>
-                <th className="px-4 py-3 font-medium">Clicks</th>
-                <th className="px-4 py-3 font-medium">Sessions</th>
-                <th className="px-4 py-3 font-medium">Purchases</th>
-                <th className="px-4 py-3 font-medium">Revenue</th>
-                <th className="px-4 py-3 font-medium">ROAS</th>
-                <th className="px-4 py-3 font-medium">Conversion Rate</th>
-              </tr>
-            </thead>
-            <tbody>
-              {query.data?.map((row) => (
-                <tr
-                  key={row.id}
-                  className="cursor-pointer border-t transition-colors hover:bg-muted/25"
-                  onClick={() => setSelectedRow(row)}
-                >
-                  <td className="px-4 py-3">
-                    <div className="space-y-1">
-                      <p className="font-medium">{row.name}</p>
-                      <p className="text-xs text-muted-foreground">{row.url}</p>
-                      <Badge variant="secondary" className="capitalize">
-                        {row.platform}
-                      </Badge>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">{row.clicks.toLocaleString()}</td>
-                  <td className="px-4 py-3">{row.sessions.toLocaleString()}</td>
-                  <td className="px-4 py-3">{row.purchases.toLocaleString()}</td>
-                  <td className="px-4 py-3">{sym}{row.revenue.toLocaleString()}</td>
-                  <td className="px-4 py-3">{row.roas.toFixed(2)}</td>
-                  <td className="px-4 py-3">{row.conversionRate.toFixed(2)}%</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
         </section>
-      )}
 
-      {selectedRow && (
-        <div className="fixed inset-0 z-50 bg-black/35">
-          <button
-            type="button"
-            className="absolute inset-0"
-            onClick={() => setSelectedRow(null)}
-            aria-label="Close drawer overlay"
+        {query.isLoading ? (
+          <LoadingSkeleton rows={6} />
+        ) : query.isError ? (
+          <ErrorState
+            description={formatAnalyticsErrorMessage(
+              query.error,
+              "Failed to load landing page performance."
+            )}
+            onRetry={() => query.refetch()}
           />
-          <aside className="absolute right-0 top-0 h-full w-full max-w-xl overflow-y-auto border-l bg-background p-5 shadow-xl">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Landing Page Detail</h2>
-              <button
-                type="button"
-                onClick={() => setSelectedRow(null)}
-                className="rounded-md p-1 text-muted-foreground hover:bg-muted"
-                aria-label="Close drawer"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
+        ) : query.data ? (
+          <>
+            <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {summaryCards.map((card) => (
+                <AnalyticsKpiCard
+                  key={card.label}
+                  label={card.label}
+                  value={card.value}
+                  sub={card.sub}
+                />
+              ))}
+            </section>
 
-            <div className="space-y-3 rounded-xl border p-4">
-              <div>
-                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  URL
-                </p>
-                <p className="mt-1 break-all text-sm font-medium">{selectedRow.url}</p>
-              </div>
-              <div>
-                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  UTM Placeholder
-                </p>
-                <p className="mt-1 break-all font-mono text-xs text-muted-foreground">
-                  {selectedRow.utmPlaceholder}
-                </p>
-              </div>
-            </div>
+            {visibleRows.length === 0 ? (
+              <EmptyState
+                title="No landing pages found"
+                description="Try adjusting the date range or clearing the page search."
+              />
+            ) : (
+              <LandingPagesTableSection
+                rows={visibleRows}
+                currency={selectedBusinessCurrency}
+                sort={sort}
+                onSortChange={setSort}
+                onRowClick={(row) => setSelectedRow(row)}
+                selectedPath={selectedRow?.path ?? null}
+              />
+            )}
+          </>
+        ) : null}
 
-            <div className="mt-5 rounded-xl border p-4">
-              <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                Top Creatives Sending Traffic
-              </h3>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {selectedRow.topCreatives.map((item) => (
-                  <Badge key={item} variant="outline">
-                    {item}
-                  </Badge>
-                ))}
-              </div>
-            </div>
-
-            <div className="mt-5 rounded-xl border p-4">
-              <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                Top Copies
-              </h3>
-              <div className="mt-2 space-y-2">
-                {selectedRow.topCopies.map((copy) => (
-                  <p key={copy} className="rounded-md border bg-muted/20 px-3 py-2 text-sm">
-                    {copy}
-                  </p>
-                ))}
-              </div>
-            </div>
-          </aside>
-        </div>
-      )}
-    </div>
+        <LandingPageDetailDrawer
+          businessId={businessId}
+          row={selectedRow}
+          open={Boolean(selectedRow)}
+          currency={selectedBusinessCurrency}
+          onOpenChange={(open) => {
+            if (!open) setSelectedRow(null);
+          }}
+        />
+      </div>
     </PlanGate>
+  );
+}
+
+function LandingPageHeader({ propertyName }: { propertyName?: string }) {
+  return (
+    <div className="space-y-1">
+      <h1 className="text-2xl font-semibold tracking-tight">Landing Pages</h1>
+      <p className="text-sm text-muted-foreground">
+        Page-level funnel analysis powered by GA4.
+        {propertyName ? ` Property: ${propertyName}.` : ""}
+      </p>
+    </div>
   );
 }
