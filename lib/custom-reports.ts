@@ -1,7 +1,7 @@
 export type CustomReportDateRangePreset = "7" | "30" | "90";
 export type CustomReportCompareMode = "none" | "previous_period";
 export type CustomReportWidgetType = "metric" | "trend" | "bar" | "table" | "text" | "section";
-export type CustomReportBreakdown = "day" | "week" | "month";
+export type CustomReportBreakdown = "day" | "week" | "month" | "age" | "gender" | "country" | "region";
 export type CustomReportPlatform =
   | "all"
   | "meta"
@@ -43,6 +43,7 @@ export interface CustomReportDocument {
   version: 1;
   dateRangePreset: CustomReportDateRangePreset;
   compareMode: CustomReportCompareMode;
+  reportPlatforms?: CustomReportPlatform[];
   widgets: CustomReportWidgetDefinition[];
 }
 
@@ -125,7 +126,7 @@ export function createCustomReportId() {
 export function getDefaultWidgetSpan(type: CustomReportWidgetType) {
   if (type === "section") return { colSpan: 4, rowSpan: 1 };
   if (type === "table") return { colSpan: 2, rowSpan: 2 };
-  if (type === "trend" || type === "bar") return { colSpan: 2, rowSpan: 1 };
+  if (type === "trend" || type === "bar") return { colSpan: 2, rowSpan: 2 };
   if (type === "text") return { colSpan: 2, rowSpan: 1 };
   return { colSpan: 1, rowSpan: 1 };
 }
@@ -377,7 +378,12 @@ export function ensureReportDefinition(
             const span = clampWidgetSpan(widget);
             const breakdown =
               widget.type === "trend" || widget.type === "bar"
-                ? widget.breakdown === "week" || widget.breakdown === "month"
+                ? widget.breakdown === "week" ||
+                  widget.breakdown === "month" ||
+                  widget.breakdown === "age" ||
+                  widget.breakdown === "gender" ||
+                  widget.breakdown === "country" ||
+                  widget.breakdown === "region"
                   ? widget.breakdown
                   : "day"
                 : undefined;

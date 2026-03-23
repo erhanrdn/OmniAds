@@ -1,4 +1,5 @@
 import type {
+  CustomReportBreakdown,
   CustomReportDataSource,
   CustomReportPlatform,
   CustomReportWidgetDefinition,
@@ -19,7 +20,7 @@ interface ReportWidgetCatalogEntry {
   dataSource: CustomReportDataSource;
   metrics?: ReportMetricCatalogItem[];
   columns?: ReportColumnCatalogItem[];
-  breakdowns?: Array<{ value: "day" | "week" | "month"; label: string }>;
+  breakdowns?: Array<{ value: CustomReportBreakdown; label: string; group?: string }>;
   defaultMetric?: string;
   defaultColumns?: string[];
 }
@@ -232,11 +233,19 @@ const ATTRIBUTION_COLUMNS: ReportColumnCatalogItem[] = [
   { value: "cpa", label: "CPA" },
 ];
 
-const CHART_BREAKDOWNS = [
-  { value: "day", label: "Day" },
-  { value: "week", label: "Week" },
-  { value: "month", label: "Month" },
-] as const;
+const TIME_BREAKDOWNS = [
+  { value: "day" as const, label: "Day", group: "Time" },
+  { value: "week" as const, label: "Week", group: "Time" },
+  { value: "month" as const, label: "Month", group: "Time" },
+];
+
+const META_BREAKDOWNS = [
+  ...TIME_BREAKDOWNS,
+  { value: "age" as const, label: "Age", group: "Demographic" },
+  { value: "gender" as const, label: "Gender", group: "Demographic" },
+  { value: "country" as const, label: "Country", group: "Geographic" },
+  { value: "region" as const, label: "Region", group: "Geographic" },
+];
 
 function prefixMetricOptions(
   prefix: "combined" | "meta" | "google",
@@ -264,13 +273,13 @@ export const REPORT_PLATFORM_CATALOG: Record<CustomReportPlatform, ReportPlatfor
         dataSource: "overview_trend",
         metrics: prefixMetricOptions("combined", ALL_METRICS),
         defaultMetric: "combined.spend",
-        breakdowns: [...CHART_BREAKDOWNS],
+        breakdowns: [...TIME_BREAKDOWNS],
       },
       bar: {
         dataSource: "overview_trend",
         metrics: ALL_METRICS.map((metric) => ({ value: `combined.${metric.value}`, label: metric.label })),
         defaultMetric: "combined.spend",
-        breakdowns: [...CHART_BREAKDOWNS],
+        breakdowns: [...TIME_BREAKDOWNS],
       },
       table: {
         dataSource: "channel_attribution",
@@ -295,13 +304,13 @@ export const REPORT_PLATFORM_CATALOG: Record<CustomReportPlatform, ReportPlatfor
         dataSource: "overview_trend",
         metrics: prefixMetricOptions("meta", META_METRICS),
         defaultMetric: "meta.spend",
-        breakdowns: [...CHART_BREAKDOWNS],
+        breakdowns: [...META_BREAKDOWNS],
       },
       bar: {
         dataSource: "overview_trend",
         metrics: prefixMetricOptions("meta", META_METRICS),
         defaultMetric: "meta.spend",
-        breakdowns: [...CHART_BREAKDOWNS],
+        breakdowns: [...META_BREAKDOWNS],
       },
       table: {
         dataSource: "meta_campaigns",
@@ -326,13 +335,13 @@ export const REPORT_PLATFORM_CATALOG: Record<CustomReportPlatform, ReportPlatfor
         dataSource: "overview_trend",
         metrics: prefixMetricOptions("google", GOOGLE_METRICS),
         defaultMetric: "google.spend",
-        breakdowns: [...CHART_BREAKDOWNS],
+        breakdowns: [...TIME_BREAKDOWNS],
       },
       bar: {
         dataSource: "overview_trend",
         metrics: prefixMetricOptions("google", GOOGLE_METRICS),
         defaultMetric: "google.spend",
-        breakdowns: [...CHART_BREAKDOWNS],
+        breakdowns: [...TIME_BREAKDOWNS],
       },
       table: {
         dataSource: "google_campaigns",

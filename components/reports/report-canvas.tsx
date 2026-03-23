@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useCallback } from "react";
 import type { RenderedReportPayload, RenderedReportWidget } from "@/lib/custom-reports";
 
 function slotStyle(slot: number, widget: RenderedReportWidget) {
@@ -12,6 +13,73 @@ function slotStyle(slot: number, widget: RenderedReportWidget) {
     gridColumn: `${colStart} / span ${Math.min(colSpan, 5 - colStart)}`,
     gridRow: `${rowStart} / span ${rowSpan}`,
   };
+}
+
+function formatYLabel(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value % 1_000_000 === 0 ? 0 : 1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(value % 1_000 === 0 ? 0 : 1)}k`;
+  if (value === 0) return "0";
+  if (value % 1 !== 0) return value.toFixed(value < 10 ? 2 : 1);
+  return String(value);
+}
+
+function formatTooltipValue(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`;
+  if (value >= 1_000) return value.toLocaleString("en-US", { maximumFractionDigits: 0 });
+  return value.toLocaleString("en-US", { maximumFractionDigits: 2 });
+}
+
+function ChartTooltip({
+  label,
+  entries,
+  pixelX,
+  pixelY,
+}: {
+  label: string;
+  entries: Array<{ color: string; name: string; value: number }>;
+  pixelX: number;
+  pixelY: number;
+}) {
+  // Decide left vs right side
+  const flipX = pixelX > 260;
+  return (
+    <div
+      className="pointer-events-none absolute z-20 rounded-xl border border-slate-200 bg-white/95 px-3 py-2 shadow-lg text-xs backdrop-blur-sm"
+      style={{
+        left: flipX ? undefined : pixelX + 12,
+        right: flipX ? `calc(100% - ${pixelX - 12}px)` : undefined,
+        top: Math.max(0, pixelY - 24),
+        minWidth: 160,
+      }}
+    >
+      <p className="mb-1.5 font-semibold text-slate-500">{label}</p>
+      {entries.map((e, i) => (
+        <div key={i} className="flex items-center justify-between gap-4">
+          <span className="flex items-center gap-1.5 text-slate-600 truncate">
+            <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: e.color }} />
+            {e.name || "Value"}
+          </span>
+          <span className="font-semibold text-slate-900 tabular-nums">{formatTooltipValue(e.value)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function computeNiceTicks(rawMax: number, tickCount = 4): number[] {
+  if (rawMax <= 0) return Array.from({ length: tickCount + 1 }, (_, i) => i);
+  const roughStep = rawMax / tickCount;
+  const magnitude = Math.pow(10, Math.floor(Math.log10(roughStep)));
+  const normalized = roughStep / magnitude;
+  let niceStep: number;
+  if (normalized <= 1) niceStep = magnitude;
+  else if (normalized <= 2) niceStep = 2 * magnitude;
+  else if (normalized <= 2.5) niceStep = 2.5 * magnitude;
+  else if (normalized <= 5) niceStep = 5 * magnitude;
+  else niceStep = 10 * magnitude;
+  const niceMax = Math.ceil(rawMax / niceStep) * niceStep;
+  const count = Math.round(niceMax / niceStep);
+  return Array.from({ length: count + 1 }, (_, i) => i * niceStep);
 }
 
 function MiniChart({
@@ -28,78 +96,318 @@ function MiniChart({
   }>;
   tone: "line" | "bar";
 }) {
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+  const [tooltipPixel, setTooltipPixel] = useState<{ x: number; y: number } | null>(null);
+
   const activeSeries = series?.length ? series : [{ key: "default", label: "", color: "#2563eb", points }];
   if (!activeSeries.some((item) => item.points.length > 0)) {
     return <div className="text-xs text-muted-foreground">No chart data yet.</div>;
   }
   const flattened = activeSeries.flatMap((item) => item.points.map((point) => point.value));
-  const max = Math.max(...flattened, 1);
+  const rawMax = Math.max(...flattened, 1);
+
+  // SVG coordinate space
+  const VB_W = 500;
+  const VB_H = 160;
+  const PAD_LEFT = 42;
+  const PAD_RIGHT = 8;
+  const PAD_TOP = 16;
+  const PAD_BOTTOM = 28;
+  const chartW = VB_W - PAD_LEFT - PAD_RIGHT;
+  const chartH = VB_H - PAD_TOP - PAD_BOTTOM;
+
+  const niceTicks = computeNiceTicks(rawMax);
+  const niceMax = niceTicks[niceTicks.length - 1] ?? rawMax;
+  const yTicks = niceTicks.map((val) => ({
+    val,
+    y: PAD_TOP + chartH - (val / niceMax) * chartH,
+  }));
+
+  const handleMouseLeave = useCallback(() => {
+    setHoveredIdx(null);
+    setTooltipPixel(null);
+  }, []);
 
   if (tone === "bar") {
+    const barPoints = activeSeries[0]?.points ?? [];
+    const barW = chartW / Math.max(barPoints.length, 1);
     return (
-      <div className="flex h-28 items-end gap-2">
-        {(activeSeries[0]?.points ?? []).map((point) => (
-          <div key={point.label} className="flex flex-1 flex-col items-center gap-2">
-            <div
-              className="w-full rounded-t-lg bg-blue-500/75"
-              style={{ height: `${Math.max(6, (point.value / max) * 100)}%` }}
-            />
-            <span className="text-[10px] text-muted-foreground">{point.label}</span>
+      <div className="relative w-full h-full flex flex-col">
+        <svg
+          viewBox={`0 0 ${VB_W} ${VB_H}`}
+          className="w-full flex-1 min-h-0"
+          preserveAspectRatio="none"
+          onMouseMove={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const pxX = e.clientX - rect.left;
+            const vbX = (pxX / rect.width) * VB_W;
+            let closest = 0, minDist = Infinity;
+            barPoints.forEach((_, i) => {
+              const bx = PAD_LEFT + i * barW + barW / 2;
+              const d = Math.abs(bx - vbX);
+              if (d < minDist) { minDist = d; closest = i; }
+            });
+            setHoveredIdx(closest);
+            setTooltipPixel({ x: pxX, y: e.clientY - rect.top });
+          }}
+          onMouseLeave={handleMouseLeave}
+        >
+          {/* Y grid lines */}
+          {yTicks.map(({ val, y }) => (
+            <g key={val}>
+              <line x1={PAD_LEFT} y1={y} x2={VB_W - PAD_RIGHT} y2={y} stroke="#e2e8f0" strokeWidth="1" />
+              <text x={PAD_LEFT - 4} y={y + 3.5} textAnchor="end" fontSize="9" fill="#94a3b8">
+                {formatYLabel(val)}
+              </text>
+            </g>
+          ))}
+          {/* X grid lines */}
+          {barPoints
+            .filter((_, i) => barPoints.length <= 8 || i % Math.ceil(barPoints.length / 8) === 0)
+            .map((point) => {
+              const i = barPoints.indexOf(point);
+              const x = PAD_LEFT + i * barW + barW / 2;
+              return (
+                <line key={`xg-${point.label}`} x1={x} y1={PAD_TOP} x2={x} y2={PAD_TOP + chartH} stroke="#e2e8f0" strokeWidth="1" />
+              );
+            })}
+          {/* Bars */}
+          {barPoints.map((point, i) => {
+            const barH = (point.value / niceMax) * chartH;
+            const x = PAD_LEFT + i * barW + barW * 0.15;
+            const w = barW * 0.7;
+            const y = PAD_TOP + chartH - barH;
+            const isHovered = hoveredIdx === i;
+            return (
+              <rect key={point.label} x={x} y={Math.max(y, PAD_TOP)} width={w} height={Math.max(barH, 2)} rx="3"
+                fill="#3b82f6" fillOpacity={isHovered ? 1 : 0.75} />
+            );
+          })}
+          {/* X labels — evenly spaced, max 8 */}
+          {barPoints
+            .filter((_, i) => barPoints.length <= 8 || i % Math.ceil(barPoints.length / 8) === 0)
+            .map((point) => {
+              const i = barPoints.indexOf(point);
+              const x = PAD_LEFT + i * barW + barW / 2;
+              return (
+                <text key={point.label} x={x} y={VB_H - 4} textAnchor="middle" fontSize="9" fill="#94a3b8">
+                  {point.label}
+                </text>
+              );
+            })}
+        </svg>
+        {/* Hover tooltip */}
+        {hoveredIdx !== null && tooltipPixel !== null && barPoints[hoveredIdx] ? (
+          <ChartTooltip
+            label={barPoints[hoveredIdx]!.label}
+            entries={[{ color: "#3b82f6", name: activeSeries[0]?.label ?? "", value: barPoints[hoveredIdx]!.value }]}
+            pixelX={tooltipPixel.x}
+            pixelY={tooltipPixel.y}
+          />
+        ) : null}
+        {activeSeries.length > 1 && (
+          <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
+            {activeSeries.map((item) => (
+              <span key={item.key} className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1">
+                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: item.color }} />
+                {item.label}
+              </span>
+            ))}
           </div>
-        ))}
+        )}
       </div>
     );
   }
 
-  const width = 100;
-  const height = 48;
+  // Line chart — smart axis grouping
+  const allLinePoints = activeSeries[0]?.points ?? [];
+  const xLabelStep = allLinePoints.length <= 8 ? 1 : Math.ceil(allLinePoints.length / 8);
+
+  // Group series by order of magnitude. Series within 2 orders of each other share an axis.
+  // Left axis = the group with the highest max. Right axis = all other groups (each normalized independently).
+  const seriesMaxes = activeSeries.map((s) => Math.max(...s.points.map((p) => p.value), 0));
+  const overallMax = Math.max(...seriesMaxes, 1);
+
+  // A series belongs to the "left" group if its max is at least 1/20 of the overall max
+  const LEFT_THRESHOLD = overallMax / 20;
+  const leftSeries = activeSeries.filter((_, i) => seriesMaxes[i]! >= LEFT_THRESHOLD);
+  const rightSeries = activeSeries.filter((_, i) => seriesMaxes[i]! < LEFT_THRESHOLD && seriesMaxes[i]! > 0);
+  const dualAxis = rightSeries.length > 0;
+
+  // Per-series independent max for right-axis series (each fills the chart height independently)
+  const rightSeriesMaxMap = new Map(rightSeries.map((s) => [
+    s.key,
+    Math.max(...s.points.map((p) => p.value), 1),
+  ]));
+
+  const leftRawMax = Math.max(...leftSeries.flatMap((s) => s.points.map((p) => p.value)), 1);
+  const leftTicks = computeNiceTicks(leftRawMax);
+  const leftNiceMax = leftTicks[leftTicks.length - 1] ?? leftRawMax;
+
+  // Right axis labels based on the first right series only
+  const firstRightSeries = rightSeries[0];
+  const firstRightMax = firstRightSeries ? (rightSeriesMaxMap.get(firstRightSeries.key) ?? 1) : 1;
+  const rightTicks = dualAxis ? computeNiceTicks(firstRightMax) : [];
+  const rightNiceMax = rightTicks[rightTicks.length - 1] ?? firstRightMax;
+
+  const PAD_RIGHT_AXIS = dualAxis ? 38 : PAD_RIGHT;
+  const chartWAdj = VB_W - PAD_LEFT - PAD_RIGHT_AXIS;
+
+  function ptY(value: number, yMax: number) {
+    return PAD_TOP + chartH - (value / yMax) * chartH;
+  }
+  function ptX(i: number, total: number) {
+    return total === 1 ? PAD_LEFT + chartWAdj / 2 : PAD_LEFT + (i / (total - 1)) * chartWAdj;
+  }
+  function seriesNiceMax(item: typeof activeSeries[number]) {
+    if (!rightSeries.includes(item)) return leftNiceMax;
+    // Each right series uses its own max so it fills the chart
+    const m = rightSeriesMaxMap.get(item.key) ?? 1;
+    return computeNiceTicks(m).at(-1) ?? m;
+  }
+
+  const hoveredVbX = hoveredIdx !== null && allLinePoints.length > 0
+    ? ptX(hoveredIdx, allLinePoints.length)
+    : null;
 
   return (
-    <div className="space-y-3">
-      <svg viewBox={`0 0 ${width} ${height}`} className="h-28 w-full overflow-visible">
-        {activeSeries.map((item) => {
-          const path = item.points
-            .map((point, index) => {
-              const x = item.points.length === 1 ? 0 : (index / (item.points.length - 1)) * width;
-              const y = height - (point.value / max) * height;
-              return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
-            })
-            .join(" ");
+    <div className="relative w-full h-full flex flex-col">
+      <svg
+        viewBox={`0 0 ${VB_W} ${VB_H}`}
+        className="w-full flex-1 min-h-0"
+        preserveAspectRatio="none"
+        onMouseMove={(e) => {
+          const rect = e.currentTarget.getBoundingClientRect();
+          const pxX = e.clientX - rect.left;
+          const vbX = (pxX / rect.width) * VB_W;
+          const pts = activeSeries[0]?.points ?? [];
+          if (!pts.length) return;
+          let closest = 0, minDist = Infinity;
+          pts.forEach((_, i) => {
+            const d = Math.abs(ptX(i, pts.length) - vbX);
+            if (d < minDist) { minDist = d; closest = i; }
+          });
+          setHoveredIdx(closest);
+          setTooltipPixel({ x: pxX, y: e.clientY - rect.top });
+        }}
+        onMouseLeave={handleMouseLeave}
+        style={{ cursor: "crosshair" }}
+      >
+        {/* Left Y grid lines + labels */}
+        {(() => {
+          const leftLabelColor = leftSeries.length === 1 ? leftSeries[0]!.color : "#94a3b8";
+          return leftTicks.map((val) => {
+            const y = ptY(val, leftNiceMax);
+            return (
+              <g key={`ly-${val}`}>
+                <line x1={PAD_LEFT} y1={y} x2={VB_W - PAD_RIGHT_AXIS} y2={y} stroke="#e2e8f0" strokeWidth="1" />
+                <text x={PAD_LEFT - 4} y={y + 3.5} textAnchor="end" fontSize="9" fill={leftLabelColor}>
+                  {formatYLabel(val)}
+                </text>
+              </g>
+            );
+          });
+        })()}
+
+        {/* Right Y labels — based on first right series only */}
+        {dualAxis && firstRightSeries && rightTicks.map((val) => {
+          const y = ptY(val, rightNiceMax);
           return (
-            <path
-              key={item.key}
-              d={path}
-              fill="none"
-              stroke={item.color}
-              strokeWidth="2.5"
-              strokeLinecap="round"
-            />
+            <text key={`ry-${val}`} x={VB_W - PAD_RIGHT_AXIS + 4} y={y + 3.5}
+              textAnchor="start" fontSize="9" fill={firstRightSeries.color}>
+              {formatYLabel(val)}
+            </text>
+          );
+        })}
+
+        {/* X axis base line */}
+        <line x1={PAD_LEFT} y1={PAD_TOP + chartH} x2={VB_W - PAD_RIGHT_AXIS} y2={PAD_TOP + chartH} stroke="#e2e8f0" strokeWidth="1" />
+
+        {/* X grid lines */}
+        {allLinePoints.map((pt, i) => {
+          if (i % xLabelStep !== 0) return null;
+          const x = ptX(i, allLinePoints.length);
+          return <line key={`xg-${pt.label}`} x1={x} y1={PAD_TOP} x2={x} y2={PAD_TOP + chartH} stroke="#e2e8f0" strokeWidth="1" />;
+        })}
+
+        {/* Vertical crosshair */}
+        {hoveredVbX !== null && (
+          <line x1={hoveredVbX} y1={PAD_TOP} x2={hoveredVbX} y2={PAD_TOP + chartH}
+            stroke="#94a3b8" strokeWidth="1" strokeDasharray="3 2" />
+        )}
+
+        {/* Series lines + dots */}
+        {activeSeries.map((item) => {
+          const pts = item.points;
+          if (!pts.length) return null;
+          const yMax = seriesNiceMax(item);
+          const coords = pts.map((pt, i) => ({
+            x: ptX(i, pts.length),
+            y: ptY(pt.value, yMax),
+          }));
+          const d = coords.map((c, i) => `${i === 0 ? "M" : "L"} ${c.x.toFixed(1)} ${c.y.toFixed(1)}`).join(" ");
+          const showDots = pts.length <= 20;
+          return (
+            <g key={item.key}>
+              <path d={d} fill="none" stroke={item.color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              {showDots && coords.map((c, i) => (
+                <circle key={i} cx={c.x} cy={c.y} r="2.5" fill="white" stroke={item.color} strokeWidth="1.5" />
+              ))}
+              {hoveredIdx !== null && coords[hoveredIdx] && (
+                <circle cx={coords[hoveredIdx]!.x} cy={coords[hoveredIdx]!.y} r="4"
+                  fill="white" stroke={item.color} strokeWidth="2" />
+              )}
+            </g>
+          );
+        })}
+
+        {/* X labels */}
+        {allLinePoints.map((pt, i) => {
+          if (i % xLabelStep !== 0) return null;
+          return (
+            <text key={pt.label} x={ptX(i, allLinePoints.length)} y={VB_H - 4}
+              textAnchor="middle" fontSize="9" fill="#94a3b8">
+              {pt.label}
+            </text>
           );
         })}
       </svg>
-      {activeSeries.length > 1 ? (
-        <div className="flex flex-wrap gap-2 text-[10px] text-muted-foreground">
+
+      {/* Hover tooltip */}
+      {hoveredIdx !== null && tooltipPixel !== null && allLinePoints[hoveredIdx] ? (
+        <ChartTooltip
+          label={allLinePoints[hoveredIdx]!.label}
+          entries={activeSeries.map((item) => ({
+            color: item.color,
+            name: item.label,
+            value: item.points[hoveredIdx]?.value ?? 0,
+          }))}
+          pixelX={tooltipPixel.x}
+          pixelY={tooltipPixel.y}
+        />
+      ) : null}
+
+      {activeSeries.length > 1 && (
+        <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-muted-foreground shrink-0">
           {activeSeries.map((item) => (
             <span key={item.key} className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1">
               <span className="h-2 w-2 rounded-full" style={{ backgroundColor: item.color }} />
               {item.label}
+              {dualAxis && rightSeries.includes(item) && (
+                <span className="text-[9px] opacity-50" title="Independent scale">~</span>
+              )}
             </span>
           ))}
         </div>
-      ) : null}
-      <div className="grid grid-cols-6 gap-2 text-[10px] text-muted-foreground">
-        {(activeSeries[0]?.points ?? []).slice(-6).map((point) => (
-          <span key={point.label}>{point.label}</span>
-        ))}
-      </div>
+      )}
     </div>
   );
 }
 
-function ReportWidgetCard({ widget }: { widget: RenderedReportWidget }) {
+export function ReportWidgetCard({ widget, embedded }: { widget: RenderedReportWidget; embedded?: boolean }) {
   if (widget.type === "section") {
     return (
-      <article className="rounded-[28px] border border-slate-200 bg-[linear-gradient(135deg,#ffffff,#f8fafc)] p-6 shadow-sm">
+      <article className={embedded ? "p-4 h-full" : "rounded-[28px] border border-slate-200 bg-[linear-gradient(135deg,#ffffff,#f8fafc)] p-6 shadow-sm"}>
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">
@@ -118,8 +426,8 @@ function ReportWidgetCard({ widget }: { widget: RenderedReportWidget }) {
   }
 
   return (
-    <article className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="flex items-start justify-between gap-3">
+    <article className={embedded ? "p-4 h-full flex flex-col overflow-hidden" : "rounded-3xl border border-slate-200 bg-white p-4 shadow-sm h-full flex flex-col"}>
+      <div className="flex items-start justify-between gap-3 shrink-0">
         <div>
           <h3 className="text-sm font-semibold text-slate-900">{widget.title}</h3>
           {widget.subtitle ? (
@@ -134,7 +442,7 @@ function ReportWidgetCard({ widget }: { widget: RenderedReportWidget }) {
       </div>
 
       {widget.type === "metric" ? (
-        <div className="mt-6">
+        <div className="mt-6 shrink-0">
           <div className="text-3xl font-semibold tracking-tight text-slate-950">
             {widget.value ?? "-"}
           </div>
@@ -145,7 +453,7 @@ function ReportWidgetCard({ widget }: { widget: RenderedReportWidget }) {
       ) : null}
 
       {(widget.type === "trend" || widget.type === "bar") && widget.points ? (
-        <div className="mt-5">
+        <div className="mt-3 -mx-1 flex-1 min-h-0">
           <MiniChart
             points={widget.points}
             series={widget.series}
@@ -207,7 +515,7 @@ export function ReportCanvas({ report }: { report: RenderedReportPayload }) {
       style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gridAutoRows: "minmax(180px, auto)" }}
     >
       {report.widgets.map((widget) => (
-        <div key={widget.id} style={slotStyle(widget.slot, widget)}>
+        <div key={widget.id} style={slotStyle(widget.slot, widget)} className="h-full">
           <ReportWidgetCard widget={widget} />
         </div>
       ))}

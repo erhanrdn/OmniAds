@@ -209,6 +209,45 @@ function aggregateMetricFromRows(
   }, 0);
 }
 
+// Ratio metrics must be derived from their components, never summed across rows.
+// Maps metric key → [numerator, denominator, multiplier]
+const RATIO_METRICS: Record<string, [string, string, number]> = {
+  roas:             ["revenue",     "spend",       1],
+  ctr:              ["clicks",      "impressions", 100],
+  outboundCtr:      ["outboundClicks", "impressions", 100],
+  uniqueCtr:        ["uniqueClicks", "impressions", 100],
+  cpc:              ["spend",       "clicks",      1],
+  cpm:              ["spend",       "impressions", 1000],
+  cpp:              ["spend",       "reach",       1],
+  frequency:        ["impressions", "reach",       1],
+  cpa:              ["spend",       "purchases",   1],
+  costPerLead:      ["spend",       "leads",       1],
+  costPerAddToCart: ["spend",       "addToCart",   1],
+  costPerCheckoutInitiated: ["spend", "initiateCheckout", 1],
+  costPerContentView: ["spend",     "contentViews", 1],
+  costPerLandingPageView: ["spend", "landingPageViews", 1],
+  costPerRegistrationCompleted: ["spend", "registrationsCompleted", 1],
+  conversionRate:   ["conversions", "clicks",      100],
+  valuePerConversion: ["revenue",   "conversions", 1],
+  costPerConversion: ["spend",      "conversions", 1],
+  videoViewRate:    ["videoViews",  "impressions", 100],
+  engagementRate:   ["engagements", "impressions", 100],
+  interactionRate:  ["interactions","impressions", 100],
+};
+
+function computeDerivedMetric(
+  rows: Array<Record<string, unknown>>,
+  metric: string,
+  nestedKey?: string
+): number {
+  const ratio = RATIO_METRICS[metric];
+  if (!ratio) return aggregateMetricFromRows(rows, metric, nestedKey);
+  const [num, den, mult] = ratio;
+  const totalNum = aggregateMetricFromRows(rows, num, nestedKey);
+  const totalDen = aggregateMetricFromRows(rows, den, nestedKey);
+  return totalDen > 0 ? (totalNum / totalDen) * mult : 0;
+}
+
 async function buildProviderSeries(input: {
   request: NextRequest;
   businessId: string;
@@ -236,7 +275,7 @@ async function buildProviderSeries(input: {
         ).catch(() => null);
         return {
           label: date,
-          value: aggregateMetricFromRows(payload?.rows ?? [], metric),
+          value: computeDerivedMetric(payload?.rows ?? [], metric),
         };
       }
 
@@ -254,7 +293,7 @@ async function buildProviderSeries(input: {
       ).catch(() => null);
       return {
         label: date,
-        value: aggregateMetricFromRows(payload?.rows ?? [], metric, "metrics"),
+        value: computeDerivedMetric(payload?.rows ?? [], metric, "metrics"),
       };
     })
   );
@@ -427,13 +466,66 @@ export async function renderCustomReport(params: {
           }
 
           if (widget.dataSource === "overview_trend") {
+            const breakdown = widget.breakdown ?? "day";
+            const isDimensionBreakdown =
+              breakdown === "age" ||
+              breakdown === "gender" ||
+              breakdown === "country" ||
+              breakdown === "region";
+
+            // Dimension breakdown: call the breakdown API, return as bar chart points
+            if (isDimensionBreakdown) {
+              const yMetrics = widget.yMetrics?.length
+                ? widget.yMetrics
+                : widget.metricKey
+                  ? [widget.metricKey]
+                  : ["meta.spend"];
+              const firstMetric = yMetrics[0] ?? "meta.spend";
+              const { provider } = getMetricContainerKey(firstMetric);
+              const platform = provider === "meta" || provider === "google" ? provider : "meta";
+              const breakdownPayload = await fetchInternalJsonWithParams<{
+                status: string;
+                rows: Array<{ key: string; label: string; value: number }>;
+              }>(request, "/api/reports/breakdown", {
+                businessId,
+                platform,
+                breakdown,
+                metricKey: firstMetric,
+                startDate: range.startDate,
+                endDate: range.endDate,
+              }).catch(() => null);
+
+              const dimPoints = (breakdownPayload?.rows ?? []).map((row) => ({
+                label: row.label,
+                value: row.value,
+              }));
+              const series = [{
+                key: firstMetric,
+                label: formatSeriesMetricLabel(firstMetric),
+                color: getMetricSeriesColor(0),
+                points: dimPoints,
+              }];
+              return {
+                id: widget.id,
+                slot: widget.slot,
+                colSpan: widget.colSpan,
+                rowSpan: widget.rowSpan,
+                type: widget.type,
+                title: widget.title,
+                subtitle: widget.subtitle,
+                points: dimPoints,
+                series,
+                emptyMessage: dimPoints.length === 0 ? "No breakdown data yet." : undefined,
+              };
+            }
+
+            // Time-series breakdown
             const data = await getSparklineData();
             const yMetrics = widget.yMetrics?.length
               ? widget.yMetrics
               : widget.metricKey
                 ? [widget.metricKey]
                 : ["combined.spend"];
-            const breakdown = widget.breakdown ?? "day";
             const series = await Promise.all(
               yMetrics.map(async (metricKey, index) => {
                 const { provider, metric } = getMetricContainerKey(metricKey);

@@ -103,7 +103,9 @@ interface RawAdSet {
 
 interface RawBreakdownInsight {
   age?: string;
+  gender?: string;
   country?: string;
+  region?: string;
   publisher_platform?: string;
   platform_position?: string;
   impression_device?: string;
@@ -544,6 +546,62 @@ export async function getLocationBreakdown(
   return aggregateBreakdown(allRows, (row) => ({
     key: row.country ?? "unknown",
     label: row.country ?? "Unknown",
+  }));
+}
+
+// ── getGenderBreakdown ────────────────────────────────────────────────────────
+
+export async function getGenderBreakdown(
+  credentials: MetaCredentials,
+  since: string,
+  until: string
+): Promise<MetaBreakdownRow[]> {
+  const allRows: RawBreakdownInsight[] = [];
+
+  await Promise.all(
+    credentials.accountIds.map(async (id) => {
+      const rows = await fetchBreakdownRaw(
+        id,
+        credentials.accessToken,
+        since,
+        until,
+        "gender"
+      );
+      allRows.push(...rows);
+    })
+  );
+
+  return aggregateBreakdown(allRows, (row) => ({
+    key: row.gender ?? "unknown",
+    label: row.gender === "male" ? "Male" : row.gender === "female" ? "Female" : row.gender ?? "Unknown",
+  }));
+}
+
+// ── getRegionBreakdown ────────────────────────────────────────────────────────
+
+export async function getRegionBreakdown(
+  credentials: MetaCredentials,
+  since: string,
+  until: string
+): Promise<MetaBreakdownRow[]> {
+  const allRows: RawBreakdownInsight[] = [];
+
+  await Promise.all(
+    credentials.accountIds.map(async (id) => {
+      const rows = await fetchBreakdownRaw(
+        id,
+        credentials.accessToken,
+        since,
+        until,
+        "region"
+      );
+      allRows.push(...rows);
+    })
+  );
+
+  return aggregateBreakdown(allRows, (row) => ({
+    key: row.region ?? "unknown",
+    label: row.region ?? "Unknown",
   }));
 }
 
