@@ -222,6 +222,51 @@ const GOOGLE_COLUMNS: ReportColumnCatalogItem[] = [
   { value: "engagementRate", label: "Engagement Rate" },
 ];
 
+const SEARCH_CONSOLE_METRICS: ReportMetricCatalogItem[] = [
+  { value: "clicks", label: "Clicks" },
+  { value: "impressions", label: "Impressions" },
+  { value: "ctr", label: "CTR" },
+  { value: "position", label: "Avg. Position" },
+];
+
+const GA4_METRICS: ReportMetricCatalogItem[] = [
+  { value: "sessions", label: "Sessions" },
+  { value: "users", label: "Users" },
+  { value: "newUsers", label: "New Users" },
+  { value: "pageviews", label: "Page Views" },
+  { value: "bounceRate", label: "Bounce Rate" },
+  { value: "avgSessionDuration", label: "Avg. Session Duration" },
+  { value: "engagementRate", label: "Engagement Rate" },
+  { value: "conversions", label: "Conversions" },
+  { value: "revenue", label: "Revenue" },
+];
+
+const KLAVIYO_METRICS: ReportMetricCatalogItem[] = [
+  { value: "emailsSent", label: "Emails Sent" },
+  { value: "opens", label: "Opens" },
+  { value: "clicks", label: "Clicks" },
+  { value: "openRate", label: "Open Rate" },
+  { value: "clickRate", label: "Click Rate" },
+  { value: "revenue", label: "Revenue" },
+  { value: "conversions", label: "Conversions" },
+  { value: "unsubscribes", label: "Unsubscribes" },
+  { value: "bounces", label: "Bounces" },
+  { value: "spamComplaints", label: "Spam Complaints" },
+];
+
+const SHOPIFY_METRICS: ReportMetricCatalogItem[] = [
+  { value: "orders", label: "Orders" },
+  { value: "revenue", label: "Revenue" },
+  { value: "aov", label: "Avg. Order Value" },
+  { value: "refunds", label: "Refunds" },
+  { value: "refundAmount", label: "Refund Amount" },
+  { value: "customers", label: "Customers" },
+  { value: "newCustomers", label: "New Customers" },
+  { value: "sessions", label: "Sessions" },
+  { value: "conversionRate", label: "Conversion Rate" },
+  { value: "itemsSold", label: "Items Sold" },
+];
+
 const ATTRIBUTION_COLUMNS: ReportColumnCatalogItem[] = [
   { value: "channel", label: "Channel" },
   { value: "spend", label: "Spend" },
@@ -255,6 +300,46 @@ const GOOGLE_TABLE_DIMENSIONS: TableDimensionOption[] = [
   { value: "day",      label: "Day",           group: "Time" },
   { value: "week",     label: "Week",          group: "Time" },
   { value: "month",    label: "Month",         group: "Time" },
+];
+
+const SEARCH_CONSOLE_TABLE_DIMENSIONS: TableDimensionOption[] = [
+  { value: "query",   label: "Search Query",  group: "Content" },
+  { value: "page",    label: "Page URL",      group: "Content" },
+  { value: "country", label: "Country",       group: "Geographic" },
+  { value: "device",  label: "Device",        group: "Device" },
+  { value: "day",     label: "Day",           group: "Time" },
+  { value: "week",    label: "Week",          group: "Time" },
+  { value: "month",   label: "Month",         group: "Time" },
+];
+
+const GA4_TABLE_DIMENSIONS: TableDimensionOption[] = [
+  { value: "page",        label: "Page",          group: "Content" },
+  { value: "source",      label: "Traffic Source", group: "Acquisition" },
+  { value: "medium",      label: "Medium",        group: "Acquisition" },
+  { value: "campaign",    label: "Campaign",      group: "Acquisition" },
+  { value: "country",     label: "Country",       group: "Geographic" },
+  { value: "device",      label: "Device",        group: "Device" },
+  { value: "day",         label: "Day",           group: "Time" },
+  { value: "week",        label: "Week",          group: "Time" },
+  { value: "month",       label: "Month",         group: "Time" },
+];
+
+const KLAVIYO_TABLE_DIMENSIONS: TableDimensionOption[] = [
+  { value: "campaign", label: "Campaign",   group: "Campaign" },
+  { value: "flow",     label: "Flow",       group: "Campaign" },
+  { value: "day",      label: "Day",        group: "Time" },
+  { value: "week",     label: "Week",       group: "Time" },
+  { value: "month",    label: "Month",      group: "Time" },
+];
+
+const SHOPIFY_TABLE_DIMENSIONS: TableDimensionOption[] = [
+  { value: "product",  label: "Product",   group: "Product" },
+  { value: "variant",  label: "Variant",   group: "Product" },
+  { value: "customer", label: "Customer",  group: "Customer" },
+  { value: "country",  label: "Country",   group: "Geographic" },
+  { value: "day",      label: "Day",       group: "Time" },
+  { value: "week",     label: "Week",      group: "Time" },
+  { value: "month",    label: "Month",     group: "Time" },
 ];
 
 const TIME_BREAKDOWNS = [
@@ -402,33 +487,125 @@ export const REPORT_PLATFORM_CATALOG: Record<CustomReportPlatform, ReportPlatfor
     id: "klaviyo",
     label: "Klaviyo",
     logoSrc: "/platform-logos/Klaviyo.svg",
-    supported: false,
+    supported: true,
     accountScoped: false,
-    widgets: {},
+    widgets: {
+      metric: {
+        dataSource: "klaviyo_data",
+        metrics: KLAVIYO_METRICS,
+        defaultMetric: "revenue",
+      },
+      trend: {
+        dataSource: "klaviyo_data",
+        metrics: KLAVIYO_METRICS,
+        defaultMetric: "revenue",
+        breakdowns: [...TIME_BREAKDOWNS],
+      },
+      bar: {
+        dataSource: "klaviyo_data",
+        metrics: KLAVIYO_METRICS,
+        defaultMetric: "revenue",
+        breakdowns: [...TIME_BREAKDOWNS],
+      },
+      table: {
+        dataSource: "klaviyo_data",
+        columns: KLAVIYO_METRICS.map((m) => ({ value: m.value, label: m.label })),
+        defaultColumns: [],
+      },
+    },
   },
   shopify: {
     id: "shopify",
     label: "Shopify",
     logoSrc: "/platform-logos/shopify.svg",
-    supported: false,
+    supported: true,
     accountScoped: false,
-    widgets: {},
+    widgets: {
+      metric: {
+        dataSource: "shopify_data",
+        metrics: SHOPIFY_METRICS,
+        defaultMetric: "revenue",
+      },
+      trend: {
+        dataSource: "shopify_data",
+        metrics: SHOPIFY_METRICS,
+        defaultMetric: "revenue",
+        breakdowns: [...TIME_BREAKDOWNS],
+      },
+      bar: {
+        dataSource: "shopify_data",
+        metrics: SHOPIFY_METRICS,
+        defaultMetric: "revenue",
+        breakdowns: [...TIME_BREAKDOWNS],
+      },
+      table: {
+        dataSource: "shopify_data",
+        columns: SHOPIFY_METRICS.map((m) => ({ value: m.value, label: m.label })),
+        defaultColumns: [],
+      },
+    },
   },
   ga4: {
     id: "ga4",
     label: "GA4",
     logoSrc: "/platform-logos/GA4.svg",
-    supported: false,
+    supported: true,
     accountScoped: false,
-    widgets: {},
+    widgets: {
+      metric: {
+        dataSource: "ga4_data",
+        metrics: GA4_METRICS,
+        defaultMetric: "sessions",
+      },
+      trend: {
+        dataSource: "ga4_data",
+        metrics: GA4_METRICS,
+        defaultMetric: "sessions",
+        breakdowns: [...TIME_BREAKDOWNS],
+      },
+      bar: {
+        dataSource: "ga4_data",
+        metrics: GA4_METRICS,
+        defaultMetric: "sessions",
+        breakdowns: [...TIME_BREAKDOWNS],
+      },
+      table: {
+        dataSource: "ga4_data",
+        columns: GA4_METRICS.map((m) => ({ value: m.value, label: m.label })),
+        defaultColumns: [],
+      },
+    },
   },
   search_console: {
     id: "search_console",
     label: "Search Console",
     logoSrc: "/platform-logos/searchconsole.svg",
-    supported: false,
+    supported: true,
     accountScoped: false,
-    widgets: {},
+    widgets: {
+      metric: {
+        dataSource: "search_console_data",
+        metrics: SEARCH_CONSOLE_METRICS,
+        defaultMetric: "clicks",
+      },
+      trend: {
+        dataSource: "search_console_data",
+        metrics: SEARCH_CONSOLE_METRICS,
+        defaultMetric: "clicks",
+        breakdowns: [...TIME_BREAKDOWNS],
+      },
+      bar: {
+        dataSource: "search_console_data",
+        metrics: SEARCH_CONSOLE_METRICS,
+        defaultMetric: "clicks",
+        breakdowns: [...TIME_BREAKDOWNS],
+      },
+      table: {
+        dataSource: "search_console_data",
+        columns: SEARCH_CONSOLE_METRICS.map((m) => ({ value: m.value, label: m.label })),
+        defaultColumns: [],
+      },
+    },
   },
 };
 
@@ -466,7 +643,7 @@ export function getMetricOptionsForPlatform(
 
 export function getMetricLabelForKey(metricKey: string) {
   const suffix = metricKey.includes(".") ? metricKey.split(".").pop() ?? metricKey : metricKey;
-  const catalogs = [ALL_METRICS, META_METRICS, GOOGLE_METRICS];
+  const catalogs = [ALL_METRICS, META_METRICS, GOOGLE_METRICS, SEARCH_CONSOLE_METRICS, GA4_METRICS, KLAVIYO_METRICS, SHOPIFY_METRICS];
   for (const catalog of catalogs) {
     const match = catalog.find((metric) => metric.value === suffix);
     if (match) return match.label;
@@ -510,16 +687,31 @@ export function platformSupportsAccountSelection(platform: CustomReportPlatform)
 export function getTableDimensionsForPlatform(platform: CustomReportPlatform): TableDimensionOption[] {
   if (platform === "meta") return META_TABLE_DIMENSIONS;
   if (platform === "google") return GOOGLE_TABLE_DIMENSIONS;
+  if (platform === "search_console") return SEARCH_CONSOLE_TABLE_DIMENSIONS;
+  if (platform === "ga4") return GA4_TABLE_DIMENSIONS;
+  if (platform === "klaviyo") return KLAVIYO_TABLE_DIMENSIONS;
+  if (platform === "shopify") return SHOPIFY_TABLE_DIMENSIONS;
   return [];
 }
 
 export function getTableMetricOptionsForPlatform(platform: CustomReportPlatform): ReportMetricCatalogItem[] {
   if (platform === "meta") return META_METRICS;
   if (platform === "google") return GOOGLE_METRICS;
+  if (platform === "search_console") return SEARCH_CONSOLE_METRICS;
+  if (platform === "ga4") return GA4_METRICS;
+  if (platform === "klaviyo") return KLAVIYO_METRICS;
+  if (platform === "shopify") return SHOPIFY_METRICS;
   return ALL_METRICS;
 }
 
 export function getTableDimensionLabel(dimensionValue: string): string {
-  const all = [...META_TABLE_DIMENSIONS, ...GOOGLE_TABLE_DIMENSIONS];
+  const all = [
+    ...META_TABLE_DIMENSIONS,
+    ...GOOGLE_TABLE_DIMENSIONS,
+    ...SEARCH_CONSOLE_TABLE_DIMENSIONS,
+    ...GA4_TABLE_DIMENSIONS,
+    ...KLAVIYO_TABLE_DIMENSIONS,
+    ...SHOPIFY_TABLE_DIMENSIONS,
+  ];
   return all.find((d) => d.value === dimensionValue)?.label ?? dimensionValue;
 }

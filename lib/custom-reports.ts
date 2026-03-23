@@ -18,7 +18,11 @@ export type CustomReportDataSource =
   | "overview_trend"
   | "channel_attribution"
   | "meta_campaigns"
-  | "google_campaigns";
+  | "google_campaigns"
+  | "search_console_data"
+  | "ga4_data"
+  | "klaviyo_data"
+  | "shopify_data";
 
 export interface CustomReportWidgetDefinition {
   id: string;

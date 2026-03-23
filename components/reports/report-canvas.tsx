@@ -14,6 +14,16 @@ const COLUMN_LABEL_MAP: Record<string, string> = {
   gender: "Gender",
   country: "Country",
   region: "Region",
+  query: "Search Query",
+  page: "Page",
+  source: "Traffic Source",
+  medium: "Medium",
+  campaign: "Campaign",
+  device: "Device",
+  flow: "Flow",
+  product: "Product",
+  variant: "Variant",
+  customer: "Customer",
 };
 
 function getColumnLabel(columnKey: string): string {
@@ -146,8 +156,16 @@ function MiniChart({
   }, []);
 
   if (tone === "bar") {
-    const barPoints = activeSeries[0]?.points ?? [];
-    const barW = chartW / Math.max(barPoints.length, 1);
+    const labels = activeSeries[0]?.points.map((p) => p.label) ?? [];
+    const numSeries = activeSeries.length;
+    const groupW = chartW / Math.max(labels.length, 1);
+    const barW = (groupW * 0.75) / Math.max(numSeries, 1);
+    const groupPad = groupW * 0.125;
+    // Each series is scaled independently so small metrics (e.g. ROAS) remain visible
+    const seriesMaxMap = new Map(
+      activeSeries.map((s) => [s.key, Math.max(...s.points.map((p) => p.value), 1)])
+    );
+    // Y-axis ticks are based on the largest series only (for reference)
     return (
       <div className="relative w-full h-full flex flex-col">
         <svg
@@ -159,8 +177,8 @@ function MiniChart({
             const pxX = e.clientX - rect.left;
             const vbX = (pxX / rect.width) * VB_W;
             let closest = 0, minDist = Infinity;
-            barPoints.forEach((_, i) => {
-              const bx = PAD_LEFT + i * barW + barW / 2;
+            labels.forEach((_, i) => {
+              const bx = PAD_LEFT + i * groupW + groupW / 2;
               const d = Math.abs(bx - vbX);
               if (d < minDist) { minDist = d; closest = i; }
             });
@@ -179,59 +197,66 @@ function MiniChart({
             </g>
           ))}
           {/* X grid lines */}
-          {barPoints
-            .filter((_, i) => barPoints.length <= 8 || i % Math.ceil(barPoints.length / 8) === 0)
-            .map((point) => {
-              const i = barPoints.indexOf(point);
-              const x = PAD_LEFT + i * barW + barW / 2;
+          {labels
+            .filter((_, i) => labels.length <= 8 || i % Math.ceil(labels.length / 8) === 0)
+            .map((label, fi) => {
+              const i = labels.indexOf(label);
+              const x = PAD_LEFT + i * groupW + groupW / 2;
               return (
-                <line key={`xg-${point.label}`} x1={x} y1={PAD_TOP} x2={x} y2={PAD_TOP + chartH} stroke="#e2e8f0" strokeWidth="1" />
+                <line key={`xg-${fi}`} x1={x} y1={PAD_TOP} x2={x} y2={PAD_TOP + chartH} stroke="#e2e8f0" strokeWidth="1" />
               );
             })}
-          {/* Bars */}
-          {barPoints.map((point, i) => {
-            const barH = (point.value / niceMax) * chartH;
-            const x = PAD_LEFT + i * barW + barW * 0.15;
-            const w = barW * 0.7;
-            const y = PAD_TOP + chartH - barH;
-            const isHovered = hoveredIdx === i;
-            return (
-              <rect key={point.label} x={x} y={Math.max(y, PAD_TOP)} width={w} height={Math.max(barH, 2)} rx="3"
-                fill="#3b82f6" fillOpacity={isHovered ? 1 : 0.75} />
-            );
-          })}
+          {/* Grouped bars — each series scaled to its own max */}
+          {labels.map((label, gi) => (
+            <g key={label}>
+              {activeSeries.map((s, si) => {
+                const point = s.points[gi];
+                if (!point) return null;
+                const sMax = seriesMaxMap.get(s.key) ?? 1;
+                const barH = (point.value / sMax) * chartH;
+                const x = PAD_LEFT + gi * groupW + groupPad + si * barW;
+                const y = PAD_TOP + chartH - barH;
+                const isHovered = hoveredIdx === gi;
+                return (
+                  <rect key={s.key} x={x} y={Math.max(y, PAD_TOP)} width={barW - 1} height={Math.max(barH, 2)} rx="2"
+                    fill={s.color} fillOpacity={isHovered ? 1 : 0.75} />
+                );
+              })}
+            </g>
+          ))}
           {/* X labels — evenly spaced, max 8 */}
-          {barPoints
-            .filter((_, i) => barPoints.length <= 8 || i % Math.ceil(barPoints.length / 8) === 0)
-            .map((point) => {
-              const i = barPoints.indexOf(point);
-              const x = PAD_LEFT + i * barW + barW / 2;
+          {labels
+            .filter((_, i) => labels.length <= 8 || i % Math.ceil(labels.length / 8) === 0)
+            .map((label, fi) => {
+              const i = labels.indexOf(label);
+              const x = PAD_LEFT + i * groupW + groupW / 2;
               return (
-                <text key={point.label} x={x} y={VB_H - 4} textAnchor="middle" fontSize="9" fill="#94a3b8">
-                  {point.label}
+                <text key={fi} x={x} y={VB_H - 4} textAnchor="middle" fontSize="9" fill="#94a3b8">
+                  {label}
                 </text>
               );
             })}
         </svg>
         {/* Hover tooltip */}
-        {hoveredIdx !== null && tooltipPixel !== null && barPoints[hoveredIdx] ? (
+        {hoveredIdx !== null && tooltipPixel !== null && labels[hoveredIdx] ? (
           <ChartTooltip
-            label={barPoints[hoveredIdx]!.label}
-            entries={[{ color: "#3b82f6", name: activeSeries[0]?.label ?? "", value: barPoints[hoveredIdx]!.value }]}
+            label={labels[hoveredIdx]!}
+            entries={activeSeries.map((s) => ({ color: s.color, name: s.label, value: s.points[hoveredIdx!]?.value ?? 0 }))}
             pixelX={tooltipPixel.x}
             pixelY={tooltipPixel.y}
           />
         ) : null}
-        {activeSeries.length > 1 && (
-          <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
-            {activeSeries.map((item) => (
-              <span key={item.key} className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1">
-                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: item.color }} />
-                {item.label}
-              </span>
-            ))}
-          </div>
-        )}
+        <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
+          {activeSeries.map((item) => (
+            <span key={item.key} className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1">
+              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: item.color }} />
+              {item.label}
+            </span>
+          ))}
+          {numSeries > 1 && (
+            <span className="rounded-full bg-amber-50 px-2 py-1 text-amber-600">independently scaled</span>
+          )}
+        </div>
       </div>
     );
   }

@@ -889,6 +889,8 @@ export async function renderCustomReport(params: {
             };
           }
 
+          const comingSoonSources = ["search_console_data", "ga4_data", "klaviyo_data", "shopify_data"];
+          const isComingSoon = comingSoonSources.includes(widget.dataSource ?? "");
           return {
             id: widget.id,
             slot: widget.slot,
@@ -897,7 +899,7 @@ export async function renderCustomReport(params: {
             type: widget.type,
             title: widget.title,
             subtitle: widget.subtitle,
-            emptyMessage: "Unsupported widget source.",
+            emptyMessage: isComingSoon ? "Data integration coming soon." : "Unsupported widget source.",
           };
         } catch (error) {
           return {
