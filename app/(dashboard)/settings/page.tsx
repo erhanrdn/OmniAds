@@ -460,6 +460,8 @@ export default function SettingsPage() {
     }
   }
 
+  const [billingInterval, setBillingInterval] = useState<"monthly" | "annual">("monthly");
+
   async function handlePlanChange(planId: PlanId) {
     if (!selectedBusinessId) return;
     setBillingChanging(true);
@@ -467,7 +469,7 @@ export default function SettingsPage() {
       const response = await fetch("/api/billing", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ businessId: selectedBusinessId, planId }),
+        body: JSON.stringify({ businessId: selectedBusinessId, planId, interval: billingInterval }),
       });
       const data = await response.json().catch(() => null) as { confirmationUrl?: string; error?: string } | null;
       if (!response.ok) {
@@ -565,20 +567,49 @@ export default function SettingsPage() {
             {/* Plan comparison */}
             {billing?.connected ? (
               <div>
-                <p className="mb-3 text-sm font-medium">Available plans</p>
+                <div className="mb-3 flex items-center justify-between">
+                  <p className="text-sm font-medium">Available plans</p>
+                  <div className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/30 p-0.5">
+                    <button
+                      onClick={() => setBillingInterval("monthly")}
+                      className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                        billingInterval === "monthly" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      Monthly
+                    </button>
+                    <button
+                      onClick={() => setBillingInterval("annual")}
+                      className={`flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                        billingInterval === "annual" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      Annual
+                      <span className="rounded-full bg-indigo-100 px-1 py-0.5 text-[10px] font-semibold text-indigo-700">−20%</span>
+                    </button>
+                  </div>
+                </div>
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                   {PLAN_ORDER.map((planId) => {
                     const plan = PRICING_PLANS[planId];
                     const isCurrent = billing.planId === planId;
+                    const displayPrice = billingInterval === "annual" && plan.yearlyPrice
+                      ? `$${Math.round(plan.yearlyPrice / 12)}/mo`
+                      : plan.monthlyPrice === 0 ? "Free" : `$${plan.monthlyPrice}/mo`;
+                    const subPrice = billingInterval === "annual" && plan.yearlyPrice
+                      ? `$${plan.yearlyPrice}/yr`
+                      : null;
                     return (
                       <div
                         key={planId}
                         className={`rounded-xl border p-3 ${isCurrent ? "border-indigo-400 bg-indigo-50" : "border-border bg-background"}`}
                       >
                         <p className="text-sm font-semibold">{plan.name}</p>
-                        <p className="mt-0.5 text-sm text-muted-foreground">
-                          {plan.monthlyPrice === 0 ? "Free" : `$${plan.monthlyPrice}/mo`}
-                        </p>
+                        <p className="mt-0.5 text-sm text-muted-foreground">{displayPrice}</p>
+                        {subPrice && <p className="text-xs text-indigo-600">{subPrice}</p>}
+                        {plan.trialDays > 0 && (
+                          <p className="text-xs text-emerald-600">{plan.trialDays}-day trial</p>
+                        )}
                         <div className="mt-3">
                           {isCurrent ? (
                             <span className="text-xs text-indigo-600 font-medium">Current plan</span>

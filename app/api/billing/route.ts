@@ -108,20 +108,22 @@ export async function POST(request: NextRequest) {
   const auth = await requireAuthedRequest(request);
   if ("error" in auth) return auth.error;
 
-  let body: { businessId?: string; planId?: string };
+  let body: { businessId?: string; planId?: string; interval?: string };
   try {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const { businessId, planId } = body;
+  const { businessId, planId, interval } = body;
   if (!businessId || !planId) {
     return NextResponse.json(
       { error: "businessId and planId are required." },
       { status: 400 },
     );
   }
+
+  const billingInterval = interval === "annual" ? "annual" : "monthly";
 
   const validPlanIds: PlanId[] = ["starter", "growth", "pro", "scale"];
   if (!validPlanIds.includes(planId as PlanId)) {
@@ -145,6 +147,7 @@ export async function POST(request: NextRequest) {
       accessToken: integration.access_token,
       planId: planId as PlanId,
       returnUrl,
+      interval: billingInterval,
     });
 
     return NextResponse.json({

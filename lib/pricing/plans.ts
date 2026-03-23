@@ -30,6 +30,8 @@ export interface PricingPlan {
   id: PlanId;
   name: string;
   monthlyPrice: number;
+  yearlyPrice: number | null;
+  trialDays: number;
   limits: PlanLimits;
   modules: ModuleId[];
 }
@@ -39,6 +41,8 @@ export const PRICING_PLANS: Record<PlanId, PricingPlan> = {
     id: "starter",
     name: "Starter",
     monthlyPrice: 0,
+    yearlyPrice: null,
+    trialDays: 0,
     limits: {
       adAccounts: 1,
       analyticsHistoryDays: 365,
@@ -51,6 +55,8 @@ export const PRICING_PLANS: Record<PlanId, PricingPlan> = {
     id: "growth",
     name: "Growth",
     monthlyPrice: 49,
+    yearlyPrice: 470,
+    trialDays: 0,
     limits: {
       adAccounts: null,
       analyticsHistoryDays: 365,
@@ -71,6 +77,8 @@ export const PRICING_PLANS: Record<PlanId, PricingPlan> = {
     id: "pro",
     name: "Pro",
     monthlyPrice: 99,
+    yearlyPrice: 950,
+    trialDays: 7,
     limits: {
       adAccounts: null,
       analyticsHistoryDays: null,
@@ -94,6 +102,8 @@ export const PRICING_PLANS: Record<PlanId, PricingPlan> = {
     id: "scale",
     name: "Scale",
     monthlyPrice: 249,
+    yearlyPrice: 2390,
+    trialDays: 0,
     limits: {
       adAccounts: null,
       analyticsHistoryDays: null,

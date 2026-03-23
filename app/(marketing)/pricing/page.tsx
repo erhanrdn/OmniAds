@@ -1,18 +1,15 @@
-import type { Metadata } from "next";
-import Link from "next/link";
-import { CheckCircle2, ArrowRight, Minus } from "lucide-react";
+"use client";
 
-export const metadata: Metadata = {
-  title: "Pricing | Adsecute",
-  description:
-    "Simple, transparent pricing for Adsecute. Start free, upgrade as you grow. Starter, Growth, Pro, and Scale plans.",
-};
+import Link from "next/link";
+import { useState } from "react";
+import { CheckCircle2, ArrowRight, Minus } from "lucide-react";
 
 const PLANS = [
   {
     id: "starter",
     name: "Starter",
     price: 0,
+    yearlyPrice: null,
     description: "Overview dashboard, free forever.",
     cta: "Get started free",
     featured: false,
@@ -38,6 +35,7 @@ const PLANS = [
     id: "growth",
     name: "Growth",
     price: 49,
+    yearlyPrice: 470,
     description: "AI insights + core ad channels.",
     cta: "Start with Growth",
     featured: false,
@@ -63,6 +61,7 @@ const PLANS = [
     id: "pro",
     name: "Pro",
     price: 99,
+    yearlyPrice: 950,
     description: "For serious marketers and growing teams.",
     cta: "Start with Pro",
     featured: true,
@@ -88,6 +87,7 @@ const PLANS = [
     id: "scale",
     name: "Scale",
     price: 249,
+    yearlyPrice: 2390,
     description: "For agencies and multi-brand teams.",
     cta: "Start with Scale",
     featured: false,
@@ -139,6 +139,8 @@ const FAQS = [
 ];
 
 export default function PricingPage() {
+  const [annual, setAnnual] = useState(false);
+
   return (
     <div>
       {/* Header */}
@@ -151,6 +153,28 @@ export default function PricingPage() {
             Start free and upgrade as your needs grow. Every plan includes the core platform —
             higher tiers unlock more accounts, history, and intelligence depth.
           </p>
+          {/* Billing toggle */}
+          <div className="mt-8 inline-flex items-center gap-3 rounded-full border border-border bg-muted/30 p-1">
+            <button
+              onClick={() => setAnnual(false)}
+              className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                !annual ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Monthly
+            </button>
+            <button
+              onClick={() => setAnnual(true)}
+              className={`flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                annual ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Annual
+              <span className="rounded-full bg-indigo-100 px-1.5 py-0.5 text-xs font-semibold text-indigo-700">
+                −20%
+              </span>
+            </button>
+          </div>
         </div>
       </section>
 
@@ -179,9 +203,16 @@ export default function PricingPage() {
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
                     {plan.name}
                   </p>
-                  <div className="flex items-baseline gap-1 mb-2">
+                  <div className="flex items-baseline gap-1 mb-1">
                     {plan.price === 0 ? (
                       <span className="text-3xl font-bold text-foreground">Free</span>
+                    ) : annual && plan.yearlyPrice ? (
+                      <>
+                        <span className="text-3xl font-bold text-foreground">
+                          ${Math.round(plan.yearlyPrice / 12)}
+                        </span>
+                        <span className="text-sm text-muted-foreground">/month</span>
+                      </>
                     ) : (
                       <>
                         <span className="text-3xl font-bold text-foreground">${plan.price}</span>
@@ -189,6 +220,11 @@ export default function PricingPage() {
                       </>
                     )}
                   </div>
+                  {annual && plan.yearlyPrice ? (
+                    <p className="text-xs text-indigo-600 font-medium mb-1">
+                      ${plan.yearlyPrice} billed annually
+                    </p>
+                  ) : null}
                   <p className="text-sm text-muted-foreground">{plan.description}</p>
                 </div>
 
@@ -202,16 +238,21 @@ export default function PricingPage() {
                   ))}
                 </div>
 
-                <Link
-                  href="/login"
-                  className={`inline-flex items-center justify-center rounded-lg px-4 py-2.5 text-sm font-medium transition-colors mb-6 ${
-                    plan.featured
-                      ? "bg-indigo-600 text-white hover:bg-indigo-700"
-                      : "bg-foreground text-background hover:opacity-90"
-                  }`}
-                >
-                  {plan.cta}
-                </Link>
+                <div className="mb-6 flex flex-col gap-1.5">
+                  <Link
+                    href="/login"
+                    className={`inline-flex items-center justify-center rounded-lg px-4 py-2.5 text-sm font-medium transition-colors ${
+                      plan.featured
+                        ? "bg-indigo-600 text-white hover:bg-indigo-700"
+                        : "bg-foreground text-background hover:opacity-90"
+                    }`}
+                  >
+                    {plan.cta}
+                  </Link>
+                  {plan.id === "pro" && (
+                    <p className="text-center text-xs text-muted-foreground">7-day free trial</p>
+                  )}
+                </div>
 
                 <div className="flex-1">
                   <p className="text-xs font-semibold text-foreground uppercase tracking-wider mb-3">

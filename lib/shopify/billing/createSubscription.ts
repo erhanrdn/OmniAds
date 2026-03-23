@@ -1,11 +1,14 @@
 import type { PlanId } from "@/lib/pricing/plans";
 import { upsertSubscriptionRecord } from "@/lib/shopify/billing/checkSubscription";
 
+export type BillingInterval = "monthly" | "annual";
+
 export interface CreateSubscriptionInput {
   shopId: string;
   accessToken: string;
   planId: PlanId;
   returnUrl: string;
+  interval?: BillingInterval;
   test?: boolean;
 }
 
@@ -20,11 +23,11 @@ const BILLING_CURRENCY = process.env.SHOPIFY_BILLING_CURRENCY ?? "USD";
 
 const PLAN_DETAILS: Record<
   Exclude<PlanId, "starter">,
-  { name: string; amount: number }
+  { name: string; monthlyAmount: number; yearlyAmount: number; trialDays: number }
 > = {
-  growth: { name: "Growth", amount: 49 },
-  pro: { name: "Pro", amount: 99 },
-  scale: { name: "Scale", amount: 249 },
+  growth: { name: "Growth", monthlyAmount: 49, yearlyAmount: 470, trialDays: 0 },
+  pro: { name: "Pro", monthlyAmount: 99, yearlyAmount: 950, trialDays: 7 },
+  scale: { name: "Scale", monthlyAmount: 249, yearlyAmount: 2390, trialDays: 0 },
 };
 
 async function shopifyBillingMutation<T>(input: {
@@ -91,24 +94,31 @@ export async function createSubscription(
   }
 
   const plan = PLAN_DETAILS[input.planId];
+  const isAnnual = input.interval === "annual";
+  const amount = isAnnual ? plan.yearlyAmount : plan.monthlyAmount;
+  const interval = isAnnual ? "ANNUAL" : "EVERY_30_DAYS";
+  const trialDays = plan.trialDays;
+
   const mutation = `
     mutation CreateAppSubscription(
       $name: String!,
       $returnUrl: URL!,
       $price: Decimal!,
       $currencyCode: CurrencyCode!,
-      $test: Boolean!
+      $test: Boolean!,
+      $trialDays: Int!
     ) {
       appSubscriptionCreate(
         name: $name
         returnUrl: $returnUrl
         test: $test
+        trialDays: $trialDays
         lineItems: [
           {
             plan: {
               appRecurringPricingDetails: {
                 price: { amount: $price, currencyCode: $currencyCode }
-                interval: EVERY_30_DAYS
+                interval: ${interval}
               }
             }
           }
@@ -133,11 +143,12 @@ export async function createSubscription(
     accessToken: input.accessToken,
     query: mutation,
     variables: {
-      name: `Adsecute ${plan.name}`,
+      name: `Adsecute ${plan.name}${isAnnual ? " (Annual)" : ""}`,
       returnUrl: input.returnUrl,
-      price: plan.amount,
+      price: amount,
       currencyCode: BILLING_CURRENCY,
       test: input.test ?? process.env.NODE_ENV !== "production",
+      trialDays,
     },
   });
 
