@@ -579,6 +579,16 @@ export default function IntegrationsPage() {
         currentPropertyId={ga4PropertyInfo?.propertyId ?? null}
         onClose={() => setGa4PickerOpen(false)}
         onSave={(property) => {
+          setConnected(
+            businessId,
+            "ga4",
+            integrations?.ga4?.integrationId,
+            {
+              lastSyncAt: new Date().toISOString(),
+              providerAccountId: property.propertyId,
+              providerAccountName: property.propertyName,
+            },
+          );
           setGa4PropertyInfo({
             propertyId: property.propertyId,
             propertyName: property.propertyName,

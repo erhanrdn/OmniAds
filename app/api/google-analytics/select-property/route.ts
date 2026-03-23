@@ -133,6 +133,8 @@ export async function POST(request: NextRequest) {
     businessId,
     provider: "ga4",
     status: "connected",
+    providerAccountId: normalizedPropertyId,
+    providerAccountName: propertyName,
     metadata: {
       ...existingMetadata,
       ga4PropertyId: normalizedPropertyId,

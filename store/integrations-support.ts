@@ -292,9 +292,17 @@ function providerDetailLabel(provider: IntegrationProvider) {
   return "Assigned";
 }
 
-function providerActionLabel(provider: IntegrationProvider, assignedCount: number) {
-  if (provider === "ga4") return assignedCount > 0 ? "Change Property" : "Select Property";
-  if (provider === "search_console") return assignedCount > 0 ? "Change Site" : "Select Site";
+function providerActionLabel(
+  provider: IntegrationProvider,
+  assignedCount: number,
+  hasSelectedProviderEntity: boolean
+) {
+  if (provider === "ga4") {
+    return hasSelectedProviderEntity ? "Change Property" : "Select Property";
+  }
+  if (provider === "search_console") {
+    return hasSelectedProviderEntity ? "Change Site" : "Select Site";
+  }
   if (provider === "klaviyo") return "Open intelligence";
   return assignedCount > 0 ? "Manage assignments" : "Finish setup";
 }
@@ -379,7 +387,9 @@ export function deriveProviderViewState(
             ? "Needs attention"
             : "Not connected",
     primaryActionLabel:
-      status === "disconnected" ? "Connect" : providerActionLabel(provider, assignedCount),
+      status === "disconnected"
+        ? "Connect"
+        : providerActionLabel(provider, assignedCount, hasSelectedProviderEntity),
     statusLabel:
       status === "ready"
         ? "Connected"
