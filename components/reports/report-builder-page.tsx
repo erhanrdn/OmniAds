@@ -141,7 +141,7 @@ export function ReportBuilderPage({
           body: JSON.stringify({ expiryDays: 7 }),
         });
         const payload = await response.json().catch(() => null);
-        if (response.ok) setShareUrl((payload as { shareUrl?: string })?.shareUrl ?? null);
+        if (response.ok) setShareUrl((payload as { url?: string })?.url ?? null);
       } finally {
         setShareLoading(false);
       }
