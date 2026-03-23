@@ -37,6 +37,7 @@ export interface CustomReportWidgetDefinition {
   platform?: CustomReportPlatform;
   limit?: number;
   columns?: string[];
+  tableDimension?: string;
 }
 
 export interface CustomReportDocument {
@@ -108,7 +109,7 @@ export interface CustomReportSharePayload extends RenderedReportPayload {
   expiresAt: string;
 }
 
-export const REPORT_GRID_SLOT_COUNT = 24;
+export const REPORT_GRID_SLOT_COUNT = 48;
 export const REPORT_GRID_COLUMNS = 4;
 export const REPORT_SHARE_EXPIRY_OPTIONS = [
   { value: 1, label: "24 hours" },
@@ -139,7 +140,7 @@ export function clampWidgetSpan(input: {
   const defaults = getDefaultWidgetSpan(input.type);
   return {
     colSpan: Math.max(1, Math.min(REPORT_GRID_COLUMNS, input.colSpan ?? defaults.colSpan)),
-    rowSpan: Math.max(1, Math.min(4, input.rowSpan ?? defaults.rowSpan)),
+    rowSpan: Math.max(1, input.rowSpan ?? defaults.rowSpan),
   };
 }
 

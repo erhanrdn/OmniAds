@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
-import { renderCustomReportRecord, renderWidgetCsv } from "@/lib/custom-report-renderer";
+import { renderCustomReport, renderWidgetCsv } from "@/lib/custom-report-renderer";
 import { getCustomReportById } from "@/lib/custom-report-store";
 
 export async function GET(
@@ -23,7 +23,23 @@ export async function GET(
   });
   if ("error" in access) return access.error;
 
-  const rendered = await renderCustomReportRecord(request, report);
+  const startDate = request.nextUrl.searchParams.get("startDate");
+  const endDate = request.nextUrl.searchParams.get("endDate");
+  const dateRangePreset = request.nextUrl.searchParams.get("dateRangePreset");
+  const definition =
+    dateRangePreset === "7" || dateRangePreset === "30" || dateRangePreset === "90"
+      ? { ...report.definition, dateRangePreset: dateRangePreset as "7" | "30" | "90" }
+      : report.definition;
+  const rendered = await renderCustomReport({
+    request,
+    businessId: report.businessId,
+    reportId: report.id,
+    name: report.name,
+    description: report.description,
+    definition,
+    startDateOverride: startDate ?? undefined,
+    endDateOverride: endDate ?? undefined,
+  });
   const widget =
     rendered.widgets.find((item) => item.id === widgetId) ??
     rendered.widgets.find((item) => item.type === "table");

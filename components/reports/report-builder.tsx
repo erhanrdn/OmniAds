@@ -28,15 +28,15 @@ import {
 } from "@/lib/custom-reports";
 import {
   getBreakdownOptionsForPlatform,
-  getColumnOptionsForPlatform,
   getDataSourceForPlatform,
-  getDefaultColumnsForPlatform,
   getDefaultMetricForPlatform,
   getMetricOptionsForPlatform,
   getReportPlatformLogo,
   getSupportedPlatformsForWidget,
   REPORT_PLATFORM_CATALOG,
   resolveWidgetPlatform,
+  getTableDimensionsForPlatform,
+  getTableMetricOptionsForPlatform,
 } from "@/lib/report-metric-catalog";
 import { ReportWidgetCard } from "@/components/reports/report-canvas";
 import { TemplateMiniPreview } from "@/components/reports/template-mini-preview";
@@ -215,7 +215,7 @@ function getWidgetPlacement(widget: Pick<CustomReportWidgetDefinition, "slot" | 
 
 function widgetFitsGrid(widget: Pick<CustomReportWidgetDefinition, "slot" | "colSpan" | "rowSpan">) {
   const placement = getWidgetPlacement(widget);
-  return placement.colEnd < REPORT_GRID_COLUMNS && placement.rowEnd < REPORT_GRID_ROWS;
+  return placement.colEnd < REPORT_GRID_COLUMNS;
 }
 
 function widgetsOverlap(
@@ -345,7 +345,11 @@ function createWidgetForType(type: CustomReportWidgetType, slot: number): Custom
         : undefined,
     columns:
       type === "table"
-        ? getDefaultColumnsForPlatform(defaultPlatform)
+        ? []
+        : undefined,
+    tableDimension:
+      type === "table"
+        ? "campaign"
         : undefined,
     text:
       type === "text"
@@ -416,6 +420,7 @@ export function ReportBuilder({
     startingDefinition.widgets[0]?.id ?? null
   );
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [savedReportId, setSavedReportId] = useState<string | null>(initialRecord?.id ?? null);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [toolbarMessage, setToolbarMessage] = useState<string | null>(null);
   const [draggedWidgetId, setDraggedWidgetId] = useState<string | null>(null);
@@ -528,13 +533,6 @@ export function ReportBuilder({
         metric.value.toLowerCase().includes(query)
     );
   }, [metricSearch, selectedWidget]);
-  const selectedColumnOptions = useMemo(() => {
-    if (!selectedWidget || selectedWidget.type !== "table") return [];
-    return getColumnOptionsForPlatform(selectedWidgetChannel).filter((column) =>
-      column.label.toLowerCase().includes(columnSearch.trim().toLowerCase())
-    );
-  }, [columnSearch, selectedWidget, selectedWidgetChannel]);
-
   const tableWidgets = useMemo(
     () => (previewQuery.data?.widgets ?? []).filter((widget) => widget.type === "table"),
     [previewQuery.data]
@@ -668,7 +666,7 @@ export function ReportBuilder({
           : Math.round((event.clientY - activeResize.startY) / Math.max(rowHeight + rowGap, 1));
 
       const nextColSpan = Math.max(1, Math.min(REPORT_GRID_COLUMNS, activeResize.originColSpan + colDelta));
-      const nextRowSpan = Math.max(1, Math.min(4, activeResize.originRowSpan + rowDelta));
+      const nextRowSpan = Math.max(1, activeResize.originRowSpan + rowDelta);
 
       if (nextColSpan === currentWidget.colSpan && nextRowSpan === currentWidget.rowSpan) return;
       updateWidget(activeResize.widgetId, {
@@ -835,10 +833,11 @@ export function ReportBuilder({
   };
 
   const handleSave = async () => {
+    if (saveState === "saving") return;
     setSaveState("saving");
     setToolbarMessage(null);
-    const response = await fetch(initialRecord ? `/api/reports/${initialRecord.id}` : "/api/reports", {
-      method: initialRecord ? "PATCH" : "POST",
+    const response = await fetch(savedReportId ? `/api/reports/${savedReportId}` : "/api/reports", {
+      method: savedReportId ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         businessId,
@@ -855,10 +854,11 @@ export function ReportBuilder({
       return;
     }
     const report = (payload as { report: CustomReportRecord }).report;
+    setSavedReportId(report.id);
     setSaveState("saved");
     setToolbarMessage("Report saved.");
-    if (!initialRecord) {
-      router.replace(`/reports/${report.id}`);
+    if (!savedReportId) {
+      router.replace(`/reports/${report.id}/edit`);
     }
   };
 
@@ -921,7 +921,7 @@ export function ReportBuilder({
       <div className="border-b bg-white px-6 py-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <Button variant="outline" onClick={() => router.push("/reports")}>
+            <Button variant="outline" onClick={() => router.push(savedReportId ? `/reports/${savedReportId}` : "/reports")}>
               Back
             </Button>
             <input
@@ -1326,38 +1326,28 @@ export function ReportBuilder({
                   );
                 })() : null}
 
-                {/* ── Columns section (table widget) ── */}
+                {/* ── Table widget panel ── */}
                 {selectedWidget.type === "table" ? (() => {
                   const tableSupportedChannels = getSupportedPlatformsForWidget(selectedWidget.type);
-                  const activeColumns = selectedWidget.columns ?? [];
-                  const allColumnOptions = getColumnOptionsForPlatform(selectedWidgetChannel);
-                  const filteredColumns = columnMenuOpen
-                    ? allColumnOptions.filter((c) =>
+                  // metric-only columns (exclude old-style dimension cols)
+                  const activeMetrics = (selectedWidget.columns ?? []).filter(
+                    (c) => c !== "name" && c !== "status" && c !== "channel" && c !== "currency"
+                  );
+                  const tableDimension = selectedWidget.tableDimension ?? "campaign";
+                  const dimensionOptions = getTableDimensionsForPlatform(selectedWidgetChannel);
+                  const tableMetricOptions = getTableMetricOptionsForPlatform(selectedWidgetChannel);
+                  const filteredTableMetrics = columnMenuOpen
+                    ? tableMetricOptions.filter((m) =>
                         !columnSearch ||
-                        c.label.toLowerCase().includes(columnSearch.toLowerCase()) ||
-                        c.value.toLowerCase().includes(columnSearch.toLowerCase())
+                        m.label.toLowerCase().includes(columnSearch.toLowerCase()) ||
+                        m.value.toLowerCase().includes(columnSearch.toLowerCase())
                       )
                     : [];
 
                   return (
-                    <div className="px-4 py-3">
-                      <div className="mb-3 flex items-center justify-between">
-                        <p className="font-semibold text-slate-900">Columns</p>
-                        <select
-                          value={selectedWidget.limit ?? 8}
-                          onChange={(e) => updateWidget(selectedWidget.id, { limit: Number(e.target.value) })}
-                          className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700"
-                        >
-                          <option value="5">5 rows</option>
-                          <option value="8">8 rows</option>
-                          <option value="10">10 rows</option>
-                          <option value="15">15 rows</option>
-                          <option value="20">20 rows</option>
-                        </select>
-                      </div>
-
+                    <div className="px-4 py-3 space-y-3">
                       {/* Channel logo strip */}
-                      <div className="mb-3 flex items-center gap-1">
+                      <div className="flex items-center gap-1">
                         {tableSupportedChannels.map((ch) => {
                           const logo = getReportPlatformLogo(ch.id);
                           const isActive = selectedWidgetChannel === ch.id;
@@ -1371,7 +1361,8 @@ export function ReportBuilder({
                                   platform: ch.id,
                                   accountId: undefined,
                                   dataSource: getDataSourceForPlatform(ch.id, selectedWidget.type),
-                                  columns: getDefaultColumnsForPlatform(ch.id),
+                                  columns: [],
+                                  tableDimension: "campaign",
                                 });
                                 setColumnMenuOpen(false);
                                 setColumnSearch("");
@@ -1409,83 +1400,127 @@ export function ReportBuilder({
                         })}
                       </div>
 
-                      {/* Active columns chips */}
-                      {activeColumns.length > 0 && (
-                        <div className="mb-2 flex flex-wrap gap-1">
-                          {activeColumns.map((col) => {
-                            const label = allColumnOptions.find((c) => c.value === col)?.label ?? col;
-                            return (
-                              <span
-                                key={col}
-                                className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700"
-                              >
-                                {label}
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const next = activeColumns.filter((c) => c !== col);
-                                    updateWidget(selectedWidget.id, { columns: next.length ? next : activeColumns });
-                                  }}
-                                  className="ml-0.5 text-blue-400 hover:text-blue-700"
-                                >
-                                  ×
-                                </button>
-                              </span>
-                            );
-                          })}
+                      {/* Dimension picker */}
+                      {dimensionOptions.length > 0 && (
+                        <div>
+                          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Dimension</p>
+                          <select
+                            value={tableDimension}
+                            onChange={(e) => updateWidget(selectedWidget.id, { tableDimension: e.target.value, columns: [] })}
+                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                          >
+                            {(() => {
+                              const groups = Array.from(new Set(dimensionOptions.map((d) => d.group ?? "")));
+                              return groups.map((group) => {
+                                const opts = dimensionOptions.filter((d) => (d.group ?? "") === group);
+                                return (
+                                  <optgroup key={group} label={group}>
+                                    {opts.map((d) => (
+                                      <option key={d.value} value={d.value}>{d.label}</option>
+                                    ))}
+                                  </optgroup>
+                                );
+                              });
+                            })()}
+                          </select>
                         </div>
                       )}
 
-                      {/* Column picker dropdown */}
-                      <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setColumnMenuOpen((o) => !o);
-                            setColumnSearch("");
-                          }}
-                          className="flex w-full items-center justify-between px-3 py-2.5 text-left text-sm hover:bg-slate-50 transition"
-                        >
-                          <span className="text-slate-500">+ Add column</span>
-                          <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform ${columnMenuOpen ? "rotate-180" : ""}`} />
-                        </button>
-                        {columnMenuOpen && (
-                          <div className="border-t border-slate-100">
-                            <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2">
-                              <svg className="h-3.5 w-3.5 shrink-0 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-                              <input
-                                autoFocus
-                                value={columnSearch}
-                                onChange={(e) => setColumnSearch(e.target.value)}
-                                placeholder="Search columns"
-                                className="w-full bg-transparent text-sm outline-none text-slate-900 placeholder:text-slate-400"
-                              />
-                            </div>
-                            <div className="max-h-52 overflow-y-auto">
-                              {filteredColumns.map((column) => {
-                                const active = activeColumns.includes(column.value);
-                                return (
+                      {/* Metrics section */}
+                      <div>
+                        <div className="mb-2 flex items-center justify-between">
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Metrics</p>
+                          <select
+                            value={selectedWidget.limit ?? 8}
+                            onChange={(e) => updateWidget(selectedWidget.id, { limit: Number(e.target.value) })}
+                            className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700"
+                          >
+                            <option value="5">5 rows</option>
+                            <option value="8">8 rows</option>
+                            <option value="10">10 rows</option>
+                            <option value="15">15 rows</option>
+                            <option value="20">20 rows</option>
+                          </select>
+                        </div>
+
+                        {/* Active metric chips */}
+                        {activeMetrics.length > 0 && (
+                          <div className="mb-2 flex flex-wrap gap-1">
+                            {activeMetrics.map((col) => {
+                              const label = tableMetricOptions.find((m) => m.value === col)?.label ?? col;
+                              return (
+                                <span
+                                  key={col}
+                                  className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700"
+                                >
+                                  {label}
                                   <button
-                                    key={column.value}
                                     type="button"
                                     onClick={() => {
-                                      const next = active
-                                        ? activeColumns.filter((c) => c !== column.value)
-                                        : [...activeColumns, column.value];
-                                      updateWidget(selectedWidget.id, { columns: next.length ? next : [column.value] });
+                                      const next = activeMetrics.filter((c) => c !== col);
+                                      updateWidget(selectedWidget.id, { columns: next });
                                     }}
-                                    className={`flex w-full items-center justify-between px-3 py-2.5 text-left text-sm transition ${
-                                      active ? "bg-blue-50 text-blue-700 font-medium" : "text-slate-800 hover:bg-slate-50"
-                                    }`}
+                                    className="ml-0.5 text-blue-400 hover:text-blue-700"
                                   >
-                                    <span>{column.label}</span>
-                                    {active && <span className="h-4 w-4 rounded-full bg-blue-500 text-white text-[9px] flex items-center justify-center">✓</span>}
+                                    ×
                                   </button>
-                                );
-                              })}
-                            </div>
+                                </span>
+                              );
+                            })}
                           </div>
                         )}
+
+                        {/* Add metric dropdown */}
+                        <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setColumnMenuOpen((o) => !o);
+                              setColumnSearch("");
+                            }}
+                            className="flex w-full items-center justify-between px-3 py-2.5 text-left text-sm hover:bg-slate-50 transition"
+                          >
+                            <span className="text-slate-500">+ Add metric</span>
+                            <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform ${columnMenuOpen ? "rotate-180" : ""}`} />
+                          </button>
+                          {columnMenuOpen && (
+                            <div className="border-t border-slate-100">
+                              <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2">
+                                <svg className="h-3.5 w-3.5 shrink-0 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                                <input
+                                  autoFocus
+                                  value={columnSearch}
+                                  onChange={(e) => setColumnSearch(e.target.value)}
+                                  placeholder="Search metrics"
+                                  className="w-full bg-transparent text-sm outline-none text-slate-900 placeholder:text-slate-400"
+                                />
+                              </div>
+                              <div className="max-h-52 overflow-y-auto">
+                                {filteredTableMetrics.map((metric) => {
+                                  const active = activeMetrics.includes(metric.value);
+                                  return (
+                                    <button
+                                      key={metric.value}
+                                      type="button"
+                                      onClick={() => {
+                                        const next = active
+                                          ? activeMetrics.filter((c) => c !== metric.value)
+                                          : [...activeMetrics, metric.value];
+                                        updateWidget(selectedWidget.id, { columns: next });
+                                      }}
+                                      className={`flex w-full items-center justify-between px-3 py-2.5 text-left text-sm transition ${
+                                        active ? "bg-blue-50 text-blue-700 font-medium" : "text-slate-800 hover:bg-slate-50"
+                                      }`}
+                                    >
+                                      <span>{metric.label}</span>
+                                      {active && <span className="h-4 w-4 rounded-full bg-blue-500 text-white text-[9px] flex items-center justify-center">✓</span>}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   );
@@ -1808,7 +1843,7 @@ export function ReportBuilder({
                           setSelectedSlot(widget.slot);
                         }}
                         style={getCanvasWidgetStyle(widget)}
-                        className={`pointer-events-auto group relative overflow-hidden rounded-[28px] border-2 bg-white text-left shadow-sm transition ${
+                        className={`pointer-events-auto group relative ${widget.type === "table" ? "overflow-auto" : "overflow-hidden"} rounded-[28px] border-2 bg-white text-left shadow-sm transition ${
                           selectedWidgetId === widget.id
                             ? "border-blue-500 shadow-blue-100"
                             : "border-slate-200 hover:border-slate-300"

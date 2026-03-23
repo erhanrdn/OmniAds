@@ -2,6 +2,23 @@
 
 import { useState, useCallback } from "react";
 import type { RenderedReportPayload, RenderedReportWidget } from "@/lib/custom-reports";
+import { getMetricLabelForKey } from "@/lib/report-metric-catalog";
+
+const COLUMN_LABEL_MAP: Record<string, string> = {
+  name: "Name",
+  status: "Status",
+  channel: "Channel",
+  currency: "Currency",
+  date: "Date",
+  age: "Age",
+  gender: "Gender",
+  country: "Country",
+  region: "Region",
+};
+
+function getColumnLabel(columnKey: string): string {
+  return COLUMN_LABEL_MAP[columnKey] ?? getMetricLabelForKey(columnKey);
+}
 
 function slotStyle(slot: number, widget: RenderedReportWidget) {
   const colStart = (slot % 4) + 1;
@@ -463,17 +480,17 @@ export function ReportWidgetCard({ widget, embedded }: { widget: RenderedReportW
       ) : null}
 
       {widget.type === "table" ? (
-        <div className="mt-5 overflow-hidden rounded-2xl border">
-          <div className="overflow-x-auto">
+        <div className="mt-5 overflow-hidden rounded-2xl border flex flex-col min-h-0 flex-1">
+          <div className="overflow-auto flex-1">
             <table className="min-w-full text-sm">
-              <thead className="bg-slate-50">
+              <thead className="bg-slate-50 sticky top-0 z-10">
                 <tr>
                   {(widget.columns ?? []).map((column) => (
                     <th
                       key={column}
                       className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500"
                     >
-                      {column.replace(/_/g, " ")}
+                      {getColumnLabel(column)}
                     </th>
                   ))}
                 </tr>

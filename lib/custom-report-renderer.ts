@@ -327,9 +327,14 @@ export async function renderCustomReport(params: {
   description?: string | null;
   reportId?: string;
   definition: CustomReportDocument;
+  startDateOverride?: string;
+  endDateOverride?: string;
 }): Promise<RenderedReportPayload> {
-  const { request, businessId, name, description, reportId, definition } = params;
-  const range = resolveDateRangePreset(definition.dateRangePreset);
+  const { request, businessId, name, description, reportId, definition, startDateOverride, endDateOverride } = params;
+  const baseRange = resolveDateRangePreset(definition.dateRangePreset);
+  const range = startDateOverride && endDateOverride
+    ? { startDate: startDateOverride, endDate: endDateOverride, label: `${startDateOverride} – ${endDateOverride}` }
+    : baseRange;
 
   let overviewSummary:
     | {
@@ -383,6 +388,92 @@ export async function renderCustomReport(params: {
     >(request, `/api/meta/campaigns?${params.toString()}`);
     metaCampaignCache.set(cacheKey, payload);
     return payload;
+  }
+
+  async function fetchBreakdownTable(input: {
+    platform: "meta" | "google";
+    dimension: string;
+    metricKeys: string[];
+    accountId?: string;
+  }): Promise<{ columns: string[]; rows: Array<Record<string, string>> }> {
+    const { platform, dimension, metricKeys, accountId } = input;
+    if (metricKeys.length === 0) return { columns: [dimension], rows: [] };
+
+    const params: Record<string, string> = {
+      businessId,
+      platform,
+      breakdown: dimension,
+      startDate: range.startDate,
+      endDate: range.endDate,
+    };
+    if (accountId) params.accountId = accountId;
+
+    // Fetch each metric in parallel from the breakdown route
+    const metricData = await Promise.all(
+      metricKeys.map(async (metricKey) => {
+        const data = await fetchInternalJsonWithParams<{
+          status: string;
+          rows: Array<{ key: string; label: string; value: number }>;
+        }>(request, "/api/reports/breakdown", { ...params, metricKey }).catch(() => null);
+        return { metricKey, rows: data?.rows ?? [] };
+      })
+    );
+
+    // Merge by dimension key
+    const merged = new Map<string, Record<string, string>>();
+    for (const { metricKey, rows } of metricData) {
+      for (const row of rows) {
+        const existing = merged.get(row.key) ?? { [dimension]: row.label };
+        existing[metricKey] = formatMetricValue(metricKey, row.value);
+        merged.set(row.key, existing);
+      }
+    }
+
+    const columns = [dimension, ...metricKeys];
+    const rows = Array.from(merged.values());
+    return { columns, rows };
+  }
+
+  async function fetchTimeBreakdownTable(input: {
+    provider: "meta" | "google";
+    dimension: "day" | "week" | "month";
+    metricKeys: string[];
+    accountId?: string;
+  }): Promise<{ columns: string[]; rows: Array<Record<string, string>> }> {
+    const { provider, dimension, metricKeys, accountId } = input;
+    if (metricKeys.length === 0) return { columns: ["date"], rows: [] };
+
+    // Build one time series per metric, then transpose into table rows
+    const seriesData = await Promise.all(
+      metricKeys.map(async (rawKey) => {
+        const prefixedKey = rawKey.includes(".") ? rawKey : `${provider}.${rawKey}`;
+        const points = await buildProviderSeries({
+          request,
+          businessId,
+          provider,
+          metricKey: prefixedKey,
+          accountId,
+          startDate: range.startDate,
+          endDate: range.endDate,
+          breakdown: dimension as CustomReportBreakdown,
+        }).catch(() => [] as Array<{ label: string; value: number }>);
+        return { metricKey: rawKey, points };
+      })
+    );
+
+    // Index by label
+    const merged = new Map<string, Record<string, string>>();
+    for (const { metricKey, points } of seriesData) {
+      for (const point of points) {
+        const existing = merged.get(point.label) ?? { date: point.label };
+        existing[metricKey] = formatMetricValue(metricKey, point.value);
+        merged.set(point.label, existing);
+      }
+    }
+
+    const columns = ["date", ...metricKeys];
+    const rows = Array.from(merged.values());
+    return { columns, rows };
   }
 
   async function getGoogleCampaignData(accountId?: string) {
@@ -643,13 +734,55 @@ export async function renderCustomReport(params: {
                   scopedRows.length === 0 ? "No Meta campaign metrics for this selection." : undefined,
               };
             }
+            // Table with tableDimension support
+            const dim = widget.tableDimension;
+            const metricCols = (widget.columns ?? []).filter(
+              (c) => c !== "name" && c !== "status" && c !== "channel" && c !== "currency"
+            );
+            if (dim && dim !== "campaign") {
+              if (dim === "age" || dim === "gender" || dim === "country" || dim === "region") {
+                const { columns, rows } = await fetchBreakdownTable({
+                  platform: "meta",
+                  dimension: dim,
+                  metricKeys: metricCols,
+                  accountId: widget.accountId,
+                });
+                return {
+                  id: widget.id, slot: widget.slot, colSpan: widget.colSpan, rowSpan: widget.rowSpan,
+                  type: widget.type, title: widget.title, subtitle: widget.subtitle,
+                  columns, rows,
+                  emptyMessage: rows.length === 0 ? "No breakdown data for this selection." : undefined,
+                };
+              }
+              if (dim === "day" || dim === "week" || dim === "month") {
+                const { columns, rows } = await fetchTimeBreakdownTable({
+                  provider: "meta", dimension: dim, metricKeys: metricCols, accountId: widget.accountId,
+                });
+                return {
+                  id: widget.id, slot: widget.slot, colSpan: widget.colSpan, rowSpan: widget.rowSpan,
+                  type: widget.type, title: widget.title, subtitle: widget.subtitle,
+                  columns, rows,
+                  emptyMessage: rows.length === 0 ? "No time breakdown data for this selection." : undefined,
+                };
+              }
+            }
+            // Campaign dimension: new-style (metric columns only) or legacy
+            if (dim === "campaign" && metricCols.length > 0) {
+              const columns = ["name", ...metricCols];
+              const rows = sourceRows.map((row) => ({
+                name: String(row.name ?? "-"),
+                ...Object.fromEntries(metricCols.map((col) => [col, formatCellValue(col, row[col])])),
+              }));
+              return {
+                id: widget.id, slot: widget.slot, colSpan: widget.colSpan, rowSpan: widget.rowSpan,
+                type: widget.type, title: widget.title, subtitle: widget.subtitle,
+                columns, rows,
+                emptyMessage: rows.length === 0 ? "No Meta campaign rows for this selection." : undefined,
+              };
+            }
+            // Legacy fallback
             const columns = getWidgetColumns(widget, [
-              "name",
-              "status",
-              "spend",
-              "revenue",
-              "purchases",
-              "roas",
+              "name", "status", "spend", "revenue", "purchases", "roas",
             ]);
             const rows = sourceRows.map((row) => mapDynamicColumnsToRow(row, columns));
             return {
@@ -692,13 +825,46 @@ export async function renderCustomReport(params: {
                   scopedRows.length === 0 ? "No Google campaign metrics for this selection." : undefined,
               };
             }
+            const googleWarning = hasPermissionWarning(payload?.meta)
+              ? "Google Ads returned a permission warning for this business."
+              : null;
+
+            // Table with tableDimension support
+            const googleDim = widget.tableDimension;
+            const googleMetricCols = (widget.columns ?? []).filter(
+              (c) => c !== "name" && c !== "status" && c !== "channel" && c !== "currency"
+            );
+            if (googleDim && googleDim !== "campaign") {
+              if (googleDim === "day" || googleDim === "week" || googleDim === "month") {
+                const { columns, rows } = await fetchTimeBreakdownTable({
+                  provider: "google", dimension: googleDim, metricKeys: googleMetricCols, accountId: widget.accountId,
+                });
+                return {
+                  id: widget.id, slot: widget.slot, colSpan: widget.colSpan, rowSpan: widget.rowSpan,
+                  type: widget.type, title: widget.title, subtitle: widget.subtitle,
+                  columns, rows, warning: googleWarning,
+                  emptyMessage: rows.length === 0 ? "No time breakdown data for this selection." : undefined,
+                };
+              }
+            }
+            if (googleDim === "campaign" && googleMetricCols.length > 0) {
+              const columns = ["name", ...googleMetricCols];
+              const rows = sourceRows.map((row) => ({
+                name: String(row.name ?? "-"),
+                ...Object.fromEntries(
+                  googleMetricCols.map((col) => [col, formatCellValue(col, ((row.metrics as Record<string, unknown>) ?? row)[col])])
+                ),
+              }));
+              return {
+                id: widget.id, slot: widget.slot, colSpan: widget.colSpan, rowSpan: widget.rowSpan,
+                type: widget.type, title: widget.title, subtitle: widget.subtitle,
+                columns, rows, warning: googleWarning,
+                emptyMessage: rows.length === 0 ? "No Google campaign rows for this selection." : undefined,
+              };
+            }
+            // Legacy fallback
             const columns = getWidgetColumns(widget, [
-              "name",
-              "status",
-              "spend",
-              "revenue",
-              "conversions",
-              "roas",
+              "name", "status", "spend", "revenue", "conversions", "roas",
             ]);
             const rows = sourceRows.map((row) => ({
               ...mapDynamicColumnsToRow(row, columns.filter((column) => column === "name" || column === "status")),
@@ -708,9 +874,6 @@ export async function renderCustomReport(params: {
                 "metrics"
               ),
             }));
-            const warning = hasPermissionWarning(payload?.meta)
-              ? "Google Ads returned a permission warning for this business."
-              : null;
             return {
               id: widget.id,
               slot: widget.slot,
@@ -721,7 +884,7 @@ export async function renderCustomReport(params: {
               subtitle: widget.subtitle,
               columns,
               rows,
-              warning,
+              warning: googleWarning,
               emptyMessage: rows.length === 0 ? "No Google campaign rows for this selection." : undefined,
             };
           }

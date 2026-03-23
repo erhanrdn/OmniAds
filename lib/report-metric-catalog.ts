@@ -233,6 +233,30 @@ const ATTRIBUTION_COLUMNS: ReportColumnCatalogItem[] = [
   { value: "cpa", label: "CPA" },
 ];
 
+export interface TableDimensionOption {
+  value: string;
+  label: string;
+  group?: string;
+}
+
+const META_TABLE_DIMENSIONS: TableDimensionOption[] = [
+  { value: "campaign", label: "Campaign Name", group: "Campaign" },
+  { value: "day",      label: "Day",           group: "Time" },
+  { value: "week",     label: "Week",          group: "Time" },
+  { value: "month",    label: "Month",         group: "Time" },
+  { value: "age",      label: "Age",           group: "Demographic" },
+  { value: "gender",   label: "Gender",        group: "Demographic" },
+  { value: "country",  label: "Country",       group: "Geographic" },
+  { value: "region",   label: "Region",        group: "Geographic" },
+];
+
+const GOOGLE_TABLE_DIMENSIONS: TableDimensionOption[] = [
+  { value: "campaign", label: "Campaign Name", group: "Campaign" },
+  { value: "day",      label: "Day",           group: "Time" },
+  { value: "week",     label: "Week",          group: "Time" },
+  { value: "month",    label: "Month",         group: "Time" },
+];
+
 const TIME_BREAKDOWNS = [
   { value: "day" as const, label: "Day", group: "Time" },
   { value: "week" as const, label: "Week", group: "Time" },
@@ -481,4 +505,21 @@ export function getBreakdownOptionsForPlatform(
 
 export function platformSupportsAccountSelection(platform: CustomReportPlatform) {
   return REPORT_PLATFORM_CATALOG[platform]?.accountScoped ?? false;
+}
+
+export function getTableDimensionsForPlatform(platform: CustomReportPlatform): TableDimensionOption[] {
+  if (platform === "meta") return META_TABLE_DIMENSIONS;
+  if (platform === "google") return GOOGLE_TABLE_DIMENSIONS;
+  return [];
+}
+
+export function getTableMetricOptionsForPlatform(platform: CustomReportPlatform): ReportMetricCatalogItem[] {
+  if (platform === "meta") return META_METRICS;
+  if (platform === "google") return GOOGLE_METRICS;
+  return ALL_METRICS;
+}
+
+export function getTableDimensionLabel(dimensionValue: string): string {
+  const all = [...META_TABLE_DIMENSIONS, ...GOOGLE_TABLE_DIMENSIONS];
+  return all.find((d) => d.value === dimensionValue)?.label ?? dimensionValue;
 }
