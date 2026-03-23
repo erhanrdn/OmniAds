@@ -60,17 +60,6 @@ export function useBusinessIntegrationsBootstrap(businessId: string | null) {
   const bootstrapStatus = useIntegrationsStore((state) =>
     businessId ? state.bootstrapStatusByBusiness[businessId] ?? "idle" : "idle"
   );
-  const hasUsableDomainData = useIntegrationsStore((state) =>
-    businessId
-      ? Object.values(state.domainsByBusinessId[businessId] ?? {}).some((domain) => {
-          if (domain.connection.integrationId) return true;
-          if (domain.connection.status !== "disconnected") return true;
-          if (domain.discovery.entities.length > 0) return true;
-          if (domain.assignment.selectedIds.length > 0) return true;
-          return false;
-        })
-      : false
-  );
 
   useEffect(() => {
     if (!businessId) return;
@@ -79,7 +68,8 @@ export function useBusinessIntegrationsBootstrap(businessId: string | null) {
 
   useEffect(() => {
     if (!businessId) return;
-    if (bootstrapStatus === "ready" && hasUsableDomainData) {
+    // An empty business is still a valid, fully-bootstrapped state.
+    if (bootstrapStatus === "ready") {
       return;
     }
     const locks = getBootstrapLocks();
@@ -226,7 +216,6 @@ export function useBusinessIntegrationsBootstrap(businessId: string | null) {
     setProviderDiscovery,
     startBusinessBootstrap,
     bootstrapStatus,
-    hasUsableDomainData,
   ]);
 
   return {
