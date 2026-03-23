@@ -22,7 +22,7 @@ const PLAN_DETAILS: Record<
   Exclude<PlanId, "starter">,
   { name: string; amount: number }
 > = {
-  growth: { name: "Growth", amount: 39 },
+  growth: { name: "Growth", amount: 49 },
   pro: { name: "Pro", amount: 99 },
   scale: { name: "Scale", amount: 249 },
 };
