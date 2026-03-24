@@ -219,6 +219,94 @@ function buildMetrics(input: {
   };
 }
 
+// ── Time breakdown (for reports) ──────────────────────────────────────────────
+
+export interface MetaTimeBreakdownRow extends MetaMetricsData {
+  date: string; // "YYYY-MM-DD"
+}
+
+export async function getCampaignTimeBreakdown(
+  credentials: MetaCredentials,
+  since: string,
+  until: string,
+  dimension: "day" | "week" | "month"
+): Promise<MetaTimeBreakdownRow[]> {
+  const timeIncrement =
+    dimension === "month" ? "monthly" : dimension === "week" ? "7" : "1";
+
+  const byDate = new Map<string, MetaTimeBreakdownRow>();
+
+  await Promise.all(
+    credentials.accountIds.map(async (accountId) => {
+      const url = new URL(
+        `https://graph.facebook.com/v25.0/${accountId}/insights`
+      );
+      url.searchParams.set("level", "campaign");
+      url.searchParams.set(
+        "fields",
+        "date_start,spend,ctr,cpm,impressions,clicks,actions,action_values,purchase_roas"
+      );
+      url.searchParams.set("time_range", JSON.stringify({ since, until }));
+      url.searchParams.set("time_increment", timeIncrement);
+      url.searchParams.set("limit", "500");
+      url.searchParams.set("access_token", credentials.accessToken);
+
+      try {
+        const res = await fetch(url.toString(), { cache: "no-store" });
+        if (!res.ok) return;
+        const json = (await res.json()) as {
+          data?: Array<
+            RawCampaignInsight & { date_start?: string }
+          >;
+        };
+
+        for (const row of json.data ?? []) {
+          const date = row.date_start;
+          if (!date) continue;
+          const m = buildMetrics({
+            spend_str: row.spend,
+            ctr_str: row.ctr,
+            cpm_str: row.cpm,
+            impressions_str: row.impressions,
+            clicks_str: row.clicks,
+            actions: row.actions,
+            action_values: row.action_values,
+            purchase_roas: row.purchase_roas,
+          });
+          const existing = byDate.get(date);
+          if (!existing) {
+            byDate.set(date, { date, ...m });
+          } else {
+            const spend = r2(existing.spend + m.spend);
+            const revenue = r2(existing.revenue + m.revenue);
+            const purchases = existing.purchases + m.purchases;
+            const clicks = existing.clicks + m.clicks;
+            const impressions = existing.impressions + m.impressions;
+            byDate.set(date, {
+              date,
+              spend,
+              revenue,
+              purchases,
+              roas: spend > 0 ? r2(revenue / spend) : 0,
+              cpa: purchases > 0 ? r2(spend / purchases) : 0,
+              ctr: r2(existing.ctr + m.ctr),
+              cpm: r2(existing.cpm + m.cpm),
+              clicks,
+              impressions,
+            });
+          }
+        }
+      } catch {
+        // per-account failure is silent
+      }
+    })
+  );
+
+  return Array.from(byDate.values()).sort((a, b) =>
+    a.date.localeCompare(b.date)
+  );
+}
+
 // ── getCampaigns ──────────────────────────────────────────────────────────────
 
 async function fetchCampaignStatuses(

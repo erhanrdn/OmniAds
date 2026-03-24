@@ -8,6 +8,7 @@ import {
   type RenderedReportPayload,
   type RenderedReportWidget,
 } from "@/lib/custom-reports";
+import { resolveMetaCredentials, getCampaignTimeBreakdown } from "@/lib/api/meta";
 
 function toCurrency(value: number | null | undefined) {
   if (value == null || !Number.isFinite(value)) return "-";
@@ -443,9 +444,27 @@ export async function renderCustomReport(params: {
     const { provider, dimension, metricKeys, accountId } = input;
     if (metricKeys.length === 0) return { columns: ["date"], rows: [] };
 
-    const dates = enumerateDays(range.startDate, range.endDate);
+    if (provider === "meta") {
+      // Use lib/api/meta.ts directly — same logic as the Meta page, no HTTP hop
+      const credentials = await resolveMetaCredentials(businessId).catch(() => null);
+      const apiRows = credentials
+        ? await getCampaignTimeBreakdown(credentials, range.startDate, range.endDate, dimension).catch(() => [])
+        : [];
 
-    // Expand fetch keys to include ratio components so derived metrics are always correct
+      const rows: Array<Record<string, string>> = apiRows.map((r) => {
+        const label = dimension === "month" ? r.date.slice(0, 7) : r.date.slice(5);
+        const row: Record<string, string> = { date: label };
+        for (const k of metricKeys) {
+          row[k] = formatMetricValue(k, (r as unknown as Record<string, number>)[k] ?? 0);
+        }
+        return row;
+      });
+
+      return { columns: ["date", ...metricKeys], rows };
+    }
+
+    // Google: per-day calls (grouped into periods)
+    const dates = enumerateDays(range.startDate, range.endDate);
     const fetchKeys = Array.from(new Set([
       ...metricKeys,
       ...metricKeys.flatMap((k) => {
@@ -454,28 +473,8 @@ export async function renderCustomReport(params: {
       }),
     ]));
 
-    // Fetch ONE response per day — all metrics computed from the same rows for consistency
     const dailyData = await Promise.all(
       dates.map(async (date) => {
-        if (provider === "meta") {
-          const payload = await fetchInternalJsonWithParams<{ rows?: Array<Record<string, unknown>> }>(
-            request,
-            "/api/meta/campaigns",
-            {
-              businessId,
-              startDate: date,
-              endDate: date,
-              ...(input.accountId ? { accountId: input.accountId } : {}),
-            }
-          ).catch(() => null);
-          const rows = payload?.rows ?? [];
-          return {
-            date,
-            metrics: Object.fromEntries(
-              fetchKeys.map((k) => [k, computeDerivedMetric(rows, k)])
-            ),
-          };
-        }
         const payload = await fetchInternalJsonWithParams<{ data?: Array<Record<string, unknown>> }>(
           request,
           "/api/google-ads/campaigns",
@@ -485,62 +484,35 @@ export async function renderCustomReport(params: {
             customStart: date,
             customEnd: date,
             compareMode: "none",
-            ...(input.accountId ? { accountId: input.accountId } : {}),
+            ...(accountId ? { accountId } : {}),
           }
         ).catch(() => null);
         const rows = (payload?.data ?? []) as Array<Record<string, unknown>>;
         return {
           date,
-          metrics: Object.fromEntries(
-            fetchKeys.map((k) => [k, computeDerivedMetric(rows, k, "metrics")])
-          ),
+          metrics: Object.fromEntries(fetchKeys.map((k) => [k, computeDerivedMetric(rows, k, "metrics")])),
         };
       })
     );
 
-    // Aggregate by breakdown period (day/week/month)
-    type DailyPoint = { label: string; date: string; metrics: Record<string, number> };
-    const rawPoints: DailyPoint[] = dailyData.map((d) => ({
-      label: d.date,
-      date: d.date,
-      metrics: d.metrics,
-    }));
-
-    // Group by period label
-    const periodMap = new Map<string, { dates: string[]; sums: Record<string, number>; counts: Record<string, number> }>();
-    for (const point of rawPoints) {
-      const periodLabel = (() => {
-        if (dimension === "day") return point.date.slice(5); // MM-DD
-        if (dimension === "week") {
-          const d = new Date(point.date);
-          const day = d.getDay();
-          const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-          const monday = new Date(d.setDate(diff));
-          return monday.toISOString().slice(0, 10).slice(5);
-        }
-        return point.date.slice(0, 7); // YYYY-MM
-      })();
-      const existing = periodMap.get(periodLabel) ?? { dates: [], sums: {}, counts: {} };
-      existing.dates.push(point.date);
-      for (const [k, v] of Object.entries(point.metrics)) {
-        existing.sums[k] = (existing.sums[k] ?? 0) + v;
-        existing.counts[k] = (existing.counts[k] ?? 0) + 1;
+    const periodMap = new Map<string, Record<string, number>>();
+    for (const { date, metrics } of dailyData) {
+      const label = dimension === "day" ? date.slice(5) : dimension === "week" ? date.slice(5) : date.slice(0, 7);
+      const existing = periodMap.get(label) ?? {};
+      for (const [k, v] of Object.entries(metrics)) {
+        existing[k] = (existing[k] ?? 0) + v;
       }
-      periodMap.set(periodLabel, existing);
+      periodMap.set(label, existing);
     }
 
-    // Build final rows — ratio metrics are re-derived from summed components
     const rows: Array<Record<string, string>> = [];
-    for (const [label, { sums }] of periodMap) {
+    for (const [label, sums] of periodMap) {
       const row: Record<string, string> = { date: label };
       for (const k of metricKeys) {
         const ratio = (RATIO_METRICS as Record<string, [string, string, number] | undefined>)[k];
         if (ratio) {
           const [num, den, mult] = ratio;
-          const numVal = sums[num] ?? 0;
-          const denVal = sums[den] ?? 0;
-          // Try to use the component sums if they were requested; otherwise fall back to summed value
-          const val = denVal > 0 ? (numVal / denVal) * mult : (sums[k] ?? 0);
+          const val = (sums[den] ?? 0) > 0 ? ((sums[num] ?? 0) / (sums[den] ?? 1)) * mult : (sums[k] ?? 0);
           row[k] = formatMetricValue(k, val);
         } else {
           row[k] = formatMetricValue(k, sums[k] ?? 0);
@@ -549,8 +521,7 @@ export async function renderCustomReport(params: {
       rows.push(row);
     }
 
-    const columns = ["date", ...metricKeys];
-    return { columns, rows };
+    return { columns: ["date", ...metricKeys], rows };
   }
 
   async function getGoogleCampaignData(accountId?: string) {
