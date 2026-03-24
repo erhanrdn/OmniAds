@@ -118,6 +118,17 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
           created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
         )`,
+        sql`CREATE TABLE IF NOT EXISTS meta_config_snapshots (
+          id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id   TEXT NOT NULL,
+          account_id    TEXT NOT NULL,
+          entity_level  TEXT NOT NULL CHECK (entity_level IN ('campaign', 'adset')),
+          entity_id     TEXT NOT NULL,
+          payload       JSONB NOT NULL DEFAULT '{}'::jsonb,
+          snapshot_date DATE NOT NULL DEFAULT CURRENT_DATE,
+          captured_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+          created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`,
         sql`CREATE TABLE IF NOT EXISTS creative_share_snapshots (
           id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           token      TEXT NOT NULL UNIQUE,
@@ -259,6 +270,7 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
         sql`CREATE INDEX IF NOT EXISTS idx_provider_account_snapshots_next_refresh ON provider_account_snapshots (next_refresh_after)`.catch(() => {}),
         sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_reporting_snapshots_lookup ON provider_reporting_snapshots (business_id, provider, report_type, date_range_key)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_provider_reporting_snapshots_business ON provider_reporting_snapshots (business_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_config_snapshots_lookup ON meta_config_snapshots (business_id, entity_level, entity_id, captured_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_creative_share_snapshots_token ON creative_share_snapshots (token)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_custom_reports_business ON custom_reports (business_id, updated_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_custom_report_share_snapshots_token ON custom_report_share_snapshots (token)`.catch(() => {}),

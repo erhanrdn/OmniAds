@@ -14,7 +14,7 @@
  *    Conv, CTR, CPM are still visible in the expanded ad-set sub-table.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useCurrencySymbol } from "@/hooks/use-currency";
 import { ChevronDown, ChevronRight, Loader2, AlertCircle } from "lucide-react";
@@ -27,11 +27,28 @@ import type { MetaAdSetsResponse } from "@/app/api/meta/adsets/route";
 
 type ColumnMode = "full" | "compact";
 
+const ADSET_COLUMN_WIDTHS = [
+  "240px",
+  "120px",
+  "200px",
+  "160px",
+  "130px",
+  "140px",
+  "130px",
+  "110px",
+  "130px",
+  "110px",
+  "110px",
+  "110px",
+  "110px",
+] as const;
+
 interface MetaCampaignTableProps {
   campaigns: MetaCampaignTableRow[];
   businessId: string;
   since: string;
   until: string;
+  isCampaignPrevLoading?: boolean;
   showMicroBars?: boolean;
   columns?: ColumnMode;
 }
@@ -41,6 +58,7 @@ export type MetaCampaignTableRow = MetaCampaignData & {
   previousRevenue?: number;
   previousRoas?: number;
   previousCpa?: number;
+  previousManualBidAmount?: number | null;
 };
 
 // ── Formatters ────────────────────────────────────────────────────────────────
@@ -56,6 +74,58 @@ function fmtBudget(daily: number | null, lifetime: number | null, sym = "$"): st
   if (daily != null) return `${fmt$(daily / 100, sym)}/day`;
   if (lifetime != null) return `${fmt$(lifetime / 100, sym)} lifetime`;
   return "—";
+}
+
+function hasBudgetValue(daily: number | null | undefined, lifetime: number | null | undefined) {
+  return typeof daily === "number" || typeof lifetime === "number";
+}
+
+function fmtBidValue(
+  amount: number | null | undefined,
+  format: "currency" | "roas" | null | undefined,
+  sym = "$"
+): string {
+  if (typeof amount !== "number" || !Number.isFinite(amount)) return "—";
+  if (format === "roas") return `${amount.toFixed(2)}x`;
+  return fmt$(amount / 100, sym);
+}
+
+function renderConfigText(value: string | null | undefined, isMixed?: boolean) {
+  if (isMixed) return "Mixed";
+  if (!value) return "—";
+  return value;
+}
+
+function renderBidValueText(
+  value: number | null | undefined,
+  format: "currency" | "roas" | null | undefined,
+  isMixed: boolean | undefined,
+  sym: string
+) {
+  if (isMixed) return "Mixed";
+  return fmtBidValue(value, format, sym);
+}
+
+function formatRelativeAge(isoValue: string | null | undefined): string | null {
+  if (!isoValue) return null;
+  const timestamp = new Date(isoValue).getTime();
+  if (!Number.isFinite(timestamp)) return null;
+
+  const diffMs = Date.now() - timestamp;
+  if (diffMs < 0) return null;
+
+  const minute = 60_000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  const month = 30 * day;
+  const year = 365 * day;
+
+  if (diffMs >= year) return `${Math.floor(diffMs / year)}y ago`;
+  if (diffMs >= month) return `${Math.floor(diffMs / month)}mo ago`;
+  if (diffMs >= day) return `${Math.floor(diffMs / day)}d ago`;
+  if (diffMs >= hour) return `${Math.floor(diffMs / hour)}h ago`;
+  if (diffMs >= minute) return `${Math.floor(diffMs / minute)}m ago`;
+  return "just now";
 }
 
 function diffPct(current: number, previous?: number): number | null {
@@ -163,7 +233,15 @@ export function RoasCell({ roas }: { roas: number }) {
 
 // ── Ad set sub-table (always shows all columns) ───────────────────────────────
 
-function AdSetSubTable({ rows }: { rows: MetaAdSetData[] }) {
+function AdSetSubTable({
+  rows,
+  showBudgetOnCampaignRow,
+  isPrevLoading,
+}: {
+  rows: MetaAdSetData[];
+  showBudgetOnCampaignRow: boolean;
+  isPrevLoading: boolean;
+}) {
   const sym = useCurrencySymbol();
   if (rows.length === 0) {
     return (
@@ -175,19 +253,27 @@ function AdSetSubTable({ rows }: { rows: MetaAdSetData[] }) {
 
   return (
     <div className="overflow-x-auto border-t bg-indigo-500/[0.03]">
-      <table className="min-w-full text-xs">
+      <table className="min-w-full table-fixed text-xs">
+        <colgroup>
+          {ADSET_COLUMN_WIDTHS.map((width, index) => (
+            <col key={`${index}-${width}`} style={{ width }} />
+          ))}
+        </colgroup>
         <thead className="bg-muted/40 text-left">
           <tr>
             <th className="px-4 py-2 pl-10 font-medium">Ad Set</th>
             <th className="px-3 py-2 font-medium">Status</th>
+            <th className="px-3 py-2 font-medium">Optimization</th>
+            <th className="px-3 py-2 font-medium">Bidding</th>
             <th className="px-3 py-2 font-medium">Budget</th>
-            <th className="px-3 py-2 font-medium">Spend</th>
-            <th className="px-3 py-2 font-medium">Conv.</th>
-            <th className="px-3 py-2 font-medium">Revenue</th>
-            <th className="px-3 py-2 font-medium">ROAS</th>
-            <th className="px-3 py-2 font-medium">CPA</th>
-            <th className="px-3 py-2 font-medium">CTR</th>
-            <th className="px-3 py-2 font-medium">CPM</th>
+            <th className="px-3 py-2 text-right font-medium">Bid Value</th>
+            <th className="px-3 py-2 text-right font-medium">Spend</th>
+            <th className="px-3 py-2 text-right font-medium">Conv.</th>
+            <th className="px-3 py-2 text-right font-medium">Revenue</th>
+            <th className="px-3 py-2 text-right font-medium">ROAS</th>
+            <th className="px-3 py-2 text-right font-medium">CPA</th>
+            <th className="px-3 py-2 text-right font-medium">CTR</th>
+            <th className="px-3 py-2 text-right font-medium">CPM</th>
           </tr>
         </thead>
         <tbody>
@@ -197,27 +283,95 @@ function AdSetSubTable({ rows }: { rows: MetaAdSetData[] }) {
               className="border-t transition-colors hover:bg-indigo-500/[0.07]"
             >
               <td className="border-l-2 border-l-indigo-400/40 px-4 py-2 pl-8 font-medium">
-                {adset.name}
+                <div className="truncate" title={adset.name}>
+                  {adset.name}
+                </div>
               </td>
               <td className="px-3 py-2">
                 <StatusBadge status={adset.status} />
               </td>
               <td className="px-3 py-2 text-muted-foreground">
-                {fmtBudget(adset.dailyBudget, adset.lifetimeBudget, sym)}
+                <div
+                  className="truncate"
+                  title={renderConfigText(adset.optimizationGoal, adset.isOptimizationGoalMixed)}
+                >
+                  {renderConfigText(adset.optimizationGoal, adset.isOptimizationGoalMixed)}
+                </div>
               </td>
-              <td className="px-3 py-2 tabular-nums">{fmt$(adset.spend, sym)}</td>
-              <td className="px-3 py-2 tabular-nums">
+              <td className="px-3 py-2 text-muted-foreground">
+                <div
+                  className="truncate"
+                  title={renderConfigText(adset.bidStrategyLabel, adset.isBidStrategyMixed)}
+                >
+                  {renderConfigText(adset.bidStrategyLabel, adset.isBidStrategyMixed)}
+                </div>
+              </td>
+              <td className="px-3 py-2 text-muted-foreground">
+                {showBudgetOnCampaignRow ? (
+                  <div className="truncate">—</div>
+                ) : (
+                  <>
+                    <div className="truncate" title={fmtBudget(adset.dailyBudget, adset.lifetimeBudget, sym)}>
+                      {fmtBudget(adset.dailyBudget, adset.lifetimeBudget, sym)}
+                    </div>
+                    {(typeof adset.previousDailyBudget === "number" ||
+                      typeof adset.previousLifetimeBudget === "number") && (
+                      <div className="truncate text-[10px] tabular-nums text-muted-foreground">
+                        prev {fmtBudget(adset.previousDailyBudget ?? null, adset.previousLifetimeBudget ?? null, sym)}
+                        {formatRelativeAge(adset.previousBudgetCapturedAt)
+                          ? ` · ${formatRelativeAge(adset.previousBudgetCapturedAt)}`
+                          : ""}
+                      </div>
+                    )}
+                    {!(typeof adset.previousDailyBudget === "number" ||
+                      typeof adset.previousLifetimeBudget === "number") &&
+                      isPrevLoading &&
+                      hasBudgetValue(adset.dailyBudget, adset.lifetimeBudget) && (
+                        <div className="truncate text-[10px] text-muted-foreground">
+                          fetching…
+                        </div>
+                      )}
+                  </>
+                )}
+              </td>
+              <td className="px-3 py-2 text-right text-muted-foreground">
+                <div className="tabular-nums">
+                  {renderBidValueText(adset.bidValue, adset.bidValueFormat, adset.isBidValueMixed, sym)}
+                </div>
+                {typeof adset.previousBidValue === "number" && !adset.isBidValueMixed && (
+                  <div className="text-[10px] tabular-nums text-muted-foreground">
+                    prev {fmtBidValue(
+                      adset.previousBidValue,
+                      adset.previousBidValueFormat ?? adset.bidValueFormat,
+                      sym
+                    )}
+                    {formatRelativeAge(adset.previousBidValueCapturedAt)
+                      ? ` · ${formatRelativeAge(adset.previousBidValueCapturedAt)}`
+                      : ""}
+                  </div>
+                )}
+                {typeof adset.previousBidValue !== "number" &&
+                  !adset.isBidValueMixed &&
+                  isPrevLoading &&
+                  typeof adset.bidValue === "number" && (
+                    <div className="text-[10px] text-muted-foreground">
+                      fetching…
+                    </div>
+                  )}
+              </td>
+              <td className="px-3 py-2 text-right tabular-nums">{fmt$(adset.spend, sym)}</td>
+              <td className="px-3 py-2 text-right tabular-nums">
                 {adset.purchases.toLocaleString()}
               </td>
-              <td className="px-3 py-2 tabular-nums">{fmt$(adset.revenue, sym)}</td>
-              <td className="px-3 py-2">
+              <td className="px-3 py-2 text-right tabular-nums">{fmt$(adset.revenue, sym)}</td>
+              <td className="px-3 py-2 text-right">
                 <RoasCell roas={adset.roas} />
               </td>
-              <td className="px-3 py-2 tabular-nums">{fmt$(adset.cpa, sym)}</td>
-              <td className="px-3 py-2 tabular-nums">
+              <td className="px-3 py-2 text-right tabular-nums">{fmt$(adset.cpa, sym)}</td>
+              <td className="px-3 py-2 text-right tabular-nums">
                 {adset.ctr.toFixed(2)}%
               </td>
-              <td className="px-3 py-2 tabular-nums">{fmt$(adset.cpm, sym)}</td>
+              <td className="px-3 py-2 text-right tabular-nums">{fmt$(adset.cpm, sym)}</td>
             </tr>
           ))}
         </tbody>
@@ -239,6 +393,7 @@ interface CampaignRowProps {
   maxRevenue: number;
   showMicroBars: boolean;
   columns: ColumnMode;
+  isCampaignPrevLoading: boolean;
 }
 
 function CampaignRow({
@@ -252,9 +407,13 @@ function CampaignRow({
   maxRevenue,
   showMicroBars,
   columns,
+  isCampaignPrevLoading,
 }: CampaignRowProps) {
   const sym = useCurrencySymbol();
-  const colSpan = columns === "compact" ? 6 : 9;
+  const colSpan = columns === "compact" ? 7 : 10;
+  const showBudgetOnCampaignRow =
+    campaign.budgetLevel === "campaign" &&
+    hasBudgetValue(campaign.dailyBudget, campaign.lifetimeBudget);
 
   const adSetsQuery = useQuery<MetaAdSetsResponse>({
     queryKey: ["meta-adsets", businessId, campaign.id, since, until],
@@ -276,6 +435,46 @@ function CampaignRow({
     },
   });
 
+  const adSetsPrevQuery = useQuery<MetaAdSetsResponse>({
+    queryKey: ["meta-adsets-prev", businessId, campaign.id, since, until],
+    enabled: isExpanded && adSetsQuery.isSuccess,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        businessId,
+        campaignId: campaign.id,
+        startDate: since,
+        endDate: until,
+        includePrev: "1",
+      });
+      const res = await fetch(`/api/meta/adsets?${params.toString()}`);
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null);
+        throw new Error(payload?.message ?? `Request failed (${res.status})`);
+      }
+      return res.json() as Promise<MetaAdSetsResponse>;
+    },
+  });
+
+  const mergedAdSetRows = (() => {
+    const baseRows = adSetsQuery.data?.rows ?? [];
+    const prevById = new Map((adSetsPrevQuery.data?.rows ?? []).map((row) => [row.id, row]));
+    return baseRows.map((row) => {
+      const prev = prevById.get(row.id);
+      return {
+        ...row,
+        previousManualBidAmount: prev?.previousManualBidAmount ?? row.previousManualBidAmount,
+        previousBidValue: prev?.previousBidValue ?? row.previousBidValue,
+        previousBidValueFormat: prev?.previousBidValueFormat ?? row.previousBidValueFormat,
+        previousBidValueCapturedAt:
+          prev?.previousBidValueCapturedAt ?? row.previousBidValueCapturedAt,
+        previousDailyBudget: prev?.previousDailyBudget ?? row.previousDailyBudget,
+        previousLifetimeBudget: prev?.previousLifetimeBudget ?? row.previousLifetimeBudget,
+        previousBudgetCapturedAt: prev?.previousBudgetCapturedAt ?? row.previousBudgetCapturedAt,
+      };
+    });
+  })();
+
   return (
     <>
       <tr
@@ -292,15 +491,46 @@ function CampaignRow({
                 <ChevronRight className="h-4 w-4" />
               )}
             </span>
-            <span className="truncate font-medium" title={campaign.name}>
-              {campaign.name}
-            </span>
+            <div className="min-w-0">
+              <div className="truncate font-medium" title={campaign.name}>
+                {campaign.name}
+              </div>
+            </div>
           </div>
         </td>
 
         {/* Status */}
         <td className="px-3 py-2.5">
           <StatusBadge status={campaign.status} />
+        </td>
+
+        {/* Budget */}
+        <td className="px-3 py-2.5 text-muted-foreground">
+          {showBudgetOnCampaignRow ? (
+            <>
+              <div className="truncate" title={fmtBudget(campaign.dailyBudget, campaign.lifetimeBudget, sym)}>
+                {fmtBudget(campaign.dailyBudget, campaign.lifetimeBudget, sym)}
+              </div>
+              {(typeof campaign.previousDailyBudget === "number" ||
+                typeof campaign.previousLifetimeBudget === "number") && (
+                <div className="truncate text-[10px] tabular-nums text-muted-foreground">
+                  prev {fmtBudget(campaign.previousDailyBudget ?? null, campaign.previousLifetimeBudget ?? null, sym)}
+                  {formatRelativeAge(campaign.previousBudgetCapturedAt)
+                    ? ` · ${formatRelativeAge(campaign.previousBudgetCapturedAt)}`
+                    : ""}
+                </div>
+              )}
+              {!(typeof campaign.previousDailyBudget === "number" ||
+                typeof campaign.previousLifetimeBudget === "number") &&
+                isCampaignPrevLoading && (
+                  <div className="truncate text-[10px] text-muted-foreground">
+                    fetching…
+                  </div>
+                )}
+            </>
+          ) : (
+            <span>—</span>
+          )}
         </td>
 
         {/* Spend + micro-bar */}
@@ -427,7 +657,11 @@ function CampaignRow({
               </div>
             )}
             {adSetsQuery.isSuccess && (
-              <AdSetSubTable rows={adSetsQuery.data.rows} />
+              <AdSetSubTable
+                rows={mergedAdSetRows}
+                showBudgetOnCampaignRow={showBudgetOnCampaignRow}
+                isPrevLoading={adSetsPrevQuery.isLoading || adSetsPrevQuery.isFetching}
+              />
             )}
           </td>
         </tr>
@@ -443,17 +677,24 @@ export function MetaCampaignTable({
   businessId,
   since,
   until,
+  isCampaignPrevLoading = false,
   showMicroBars = false,
   columns = "full",
 }: MetaCampaignTableProps) {
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(
+    () => new Set(campaigns.map((campaign) => campaign.id))
+  );
+
+  useEffect(() => {
+    setExpandedIds(new Set(campaigns.map((campaign) => campaign.id)));
+  }, [campaigns]);
 
   const maxSpend = campaigns.reduce((m, c) => Math.max(m, c.spend), 0);
   const maxRevenue = campaigns.reduce((m, c) => Math.max(m, c.revenue), 0);
 
   // Minimum table width so columns never squish below readable size.
-  // compact (6 cols): 560 px · full (9 cols): 820 px
-  const minW = columns === "compact" ? "min-w-[560px]" : "min-w-[820px]";
+  // compact (7 cols): 820 px · full (10 cols): 1120 px
+  const minW = columns === "compact" ? "min-w-[820px]" : "min-w-[1120px]";
 
   if (campaigns.length === 0) {
     return (
@@ -472,6 +713,7 @@ export function MetaCampaignTable({
             <tr>
               <th className="px-3 py-2.5">Campaign</th>
               <th className="px-3 py-2.5">Status</th>
+              <th className="px-3 py-2.5">Budget</th>
               <th className="px-3 py-2.5">Spend</th>
               {columns === "full" && (
                 <th className="px-3 py-2.5">Conv.</th>
@@ -492,11 +734,17 @@ export function MetaCampaignTable({
               <CampaignRow
                 key={campaign.id}
                 campaign={campaign}
-                isExpanded={expandedId === campaign.id}
+                isExpanded={expandedIds.has(campaign.id)}
                 onToggle={() =>
-                  setExpandedId((prev) =>
-                    prev === campaign.id ? null : campaign.id
-                  )
+                  setExpandedIds((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(campaign.id)) {
+                      next.delete(campaign.id);
+                    } else {
+                      next.add(campaign.id);
+                    }
+                    return next;
+                  })
                 }
                 businessId={businessId}
                 since={since}
@@ -505,6 +753,7 @@ export function MetaCampaignTable({
                 maxRevenue={maxRevenue}
                 showMicroBars={showMicroBars}
                 columns={columns}
+                isCampaignPrevLoading={isCampaignPrevLoading}
               />
             ))}
           </tbody>

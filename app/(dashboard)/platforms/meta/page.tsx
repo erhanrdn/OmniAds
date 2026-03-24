@@ -55,9 +55,11 @@ import { PlanGate } from "@/components/pricing/PlanGate";
 async function fetchMetaCampaigns(
   businessId: string,
   startDate: string,
-  endDate: string
+  endDate: string,
+  includePrev = false
 ): Promise<{ status?: string; rows: MetaCampaignRow[] }> {
   const params = new URLSearchParams({ businessId, startDate, endDate });
+  if (includePrev) params.set("includePrev", "1");
   const res = await fetch(`/api/meta/campaigns?${params.toString()}`, {
     headers: { Accept: "application/json" },
   });
@@ -527,7 +529,14 @@ export default function MetaPage() {
   const campaignsQuery = useQuery({
     queryKey: ["meta-campaigns", businessId, startDate, endDate],
     enabled: metaConnected,
-    queryFn: () => fetchMetaCampaigns(businessId, startDate, endDate),
+    queryFn: () => fetchMetaCampaigns(businessId, startDate, endDate, false),
+  });
+
+  const campaignPrevQuery = useQuery({
+    queryKey: ["meta-campaigns-prev", businessId, startDate, endDate],
+    enabled: metaConnected && campaignsQuery.isSuccess,
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => fetchMetaCampaigns(businessId, startDate, endDate, true),
   });
 
   const breakdownsQuery = useQuery({
@@ -548,7 +557,8 @@ export default function MetaPage() {
       fetchMetaCampaigns(
         businessId,
         comparisonWindow!.startDate,
-        comparisonWindow!.endDate
+        comparisonWindow!.endDate,
+        false
       ),
   });
 
@@ -564,8 +574,23 @@ export default function MetaPage() {
 
   const campaignRowsForTable = useMemo<MetaCampaignTableRow[]>(() => {
     const rows = campaignsQuery.data?.rows ?? [];
+    const prevConfigById = new Map(
+      (campaignPrevQuery.data?.rows ?? []).map((row) => [row.id, row])
+    );
     if (!comparisonWindow || !comparisonCampaignsQuery.data?.rows?.length) {
-      return rows;
+      return rows.map((row) => ({
+        ...row,
+        previousManualBidAmount: prevConfigById.get(row.id)?.previousManualBidAmount ?? row.previousManualBidAmount,
+        previousBidValue: prevConfigById.get(row.id)?.previousBidValue ?? row.previousBidValue,
+        previousBidValueFormat: prevConfigById.get(row.id)?.previousBidValueFormat ?? row.previousBidValueFormat,
+        previousBidValueCapturedAt:
+          prevConfigById.get(row.id)?.previousBidValueCapturedAt ?? row.previousBidValueCapturedAt,
+        previousDailyBudget: prevConfigById.get(row.id)?.previousDailyBudget ?? row.previousDailyBudget,
+        previousLifetimeBudget:
+          prevConfigById.get(row.id)?.previousLifetimeBudget ?? row.previousLifetimeBudget,
+        previousBudgetCapturedAt:
+          prevConfigById.get(row.id)?.previousBudgetCapturedAt ?? row.previousBudgetCapturedAt,
+      }));
     }
 
     const previousById = new Map(
@@ -576,13 +601,23 @@ export default function MetaPage() {
       const prev = previousById.get(row.id);
       return {
         ...row,
+        previousManualBidAmount: prevConfigById.get(row.id)?.previousManualBidAmount ?? row.previousManualBidAmount,
+        previousBidValue: prevConfigById.get(row.id)?.previousBidValue ?? row.previousBidValue,
+        previousBidValueFormat: prevConfigById.get(row.id)?.previousBidValueFormat ?? row.previousBidValueFormat,
+        previousBidValueCapturedAt:
+          prevConfigById.get(row.id)?.previousBidValueCapturedAt ?? row.previousBidValueCapturedAt,
+        previousDailyBudget: prevConfigById.get(row.id)?.previousDailyBudget ?? row.previousDailyBudget,
+        previousLifetimeBudget:
+          prevConfigById.get(row.id)?.previousLifetimeBudget ?? row.previousLifetimeBudget,
+        previousBudgetCapturedAt:
+          prevConfigById.get(row.id)?.previousBudgetCapturedAt ?? row.previousBudgetCapturedAt,
         previousSpend: prev?.spend,
         previousRevenue: prev?.revenue,
         previousRoas: prev?.roas,
         previousCpa: prev?.cpa,
       };
     });
-  }, [campaignsQuery.data?.rows, comparisonCampaignsQuery.data?.rows, comparisonWindow]);
+  }, [campaignPrevQuery.data?.rows, campaignsQuery.data?.rows, comparisonCampaignsQuery.data?.rows, comparisonWindow]);
 
   return (
     <PlanGate requiredPlan="growth">
@@ -754,6 +789,7 @@ export default function MetaPage() {
                   businessId={businessId}
                   since={startDate}
                   until={endDate}
+                  isCampaignPrevLoading={campaignPrevQuery.isLoading || campaignPrevQuery.isFetching}
                   showMicroBars
                   columns="compact"
                 />

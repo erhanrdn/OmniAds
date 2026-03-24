@@ -19,6 +19,24 @@ function getDemoAdSets(campaignId: string): MetaAdSetData[] {
       status: "ACTIVE",
       dailyBudget: 5000,
       lifetimeBudget: null,
+      optimizationGoal: "Purchase",
+      bidStrategyType: "cost_cap",
+      bidStrategyLabel: "Cost Cap",
+      manualBidAmount: null,
+      previousManualBidAmount: null,
+      bidValue: null,
+      bidValueFormat: null,
+      previousBidValue: null,
+      previousBidValueFormat: null,
+      previousBidValueCapturedAt: null,
+      previousDailyBudget: null,
+      previousLifetimeBudget: null,
+      previousBudgetCapturedAt: null,
+      isBudgetMixed: false,
+      isConfigMixed: false,
+      isOptimizationGoalMixed: false,
+      isBidStrategyMixed: false,
+      isBidValueMixed: false,
       spend: 1240.5,
       purchases: 62,
       revenue: 5580.0,
@@ -36,6 +54,24 @@ function getDemoAdSets(campaignId: string): MetaAdSetData[] {
       status: "ACTIVE",
       dailyBudget: 2500,
       lifetimeBudget: null,
+      optimizationGoal: "Add To Cart",
+      bidStrategyType: "bid_cap",
+      bidStrategyLabel: "Bid Cap",
+      manualBidAmount: 2200,
+      previousManualBidAmount: 1800,
+      bidValue: 2200,
+      bidValueFormat: "currency",
+      previousBidValue: 1800,
+      previousBidValueFormat: "currency",
+      previousBidValueCapturedAt: null,
+      previousDailyBudget: 2000,
+      previousLifetimeBudget: null,
+      previousBudgetCapturedAt: null,
+      isBudgetMixed: false,
+      isConfigMixed: false,
+      isOptimizationGoalMixed: false,
+      isBidStrategyMixed: false,
+      isBidValueMixed: false,
       spend: 620.25,
       purchases: 48,
       revenue: 3840.0,
@@ -56,12 +92,16 @@ export interface MetaAdSetsResponse {
   rows: MetaAdSetData[];
 }
 
+const META_ADSETS_REPORT_VERSION = "v12";
+
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const businessId = searchParams.get("businessId");
   const campaignId = searchParams.get("campaignId");
   const startDate = searchParams.get("startDate");
   const endDate = searchParams.get("endDate");
+  const metaDebug = searchParams.get("metaDebug") === "1";
+  const includePrev = searchParams.get("includePrev") === "1";
 
   const access = await requireBusinessAccess({
     request,
@@ -87,7 +127,7 @@ export async function GET(request: NextRequest) {
   const cached = await getCachedRouteReport<MetaAdSetsResponse>({
     businessId: businessId!,
     provider: "meta",
-    reportType: `meta_adsets_${campaignId}`,
+    reportType: `meta_adsets_${META_ADSETS_REPORT_VERSION}_${campaignId}`,
     searchParams,
   });
   if (cached) return NextResponse.json(cached);
@@ -109,14 +149,36 @@ export async function GET(request: NextRequest) {
     credentials,
     campaignId,
     resolvedStart,
-    resolvedEnd
+    resolvedEnd,
+    businessId!,
+    includePrev
   );
+
+  if (metaDebug) {
+    console.log("[meta-adsets][debug] normalized rows", {
+      businessId,
+      campaignId,
+      rowCount: rows.length,
+      rows: rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        optimizationGoal: row.optimizationGoal,
+        bidStrategyType: row.bidStrategyType,
+        bidStrategyLabel: row.bidStrategyLabel,
+        bidValue: row.bidValue ?? null,
+        bidValueFormat: row.bidValueFormat ?? null,
+        previousBidValue: row.previousBidValue ?? null,
+        dailyBudget: row.dailyBudget ?? null,
+        lifetimeBudget: row.lifetimeBudget ?? null,
+      })),
+    });
+  }
 
   const payload: MetaAdSetsResponse = { status: "ok", rows };
   await setCachedRouteReport({
     businessId: businessId!,
     provider: "meta",
-    reportType: `meta_adsets_${campaignId}`,
+    reportType: `meta_adsets_${META_ADSETS_REPORT_VERSION}_${campaignId}`,
     searchParams,
     payload,
   });
