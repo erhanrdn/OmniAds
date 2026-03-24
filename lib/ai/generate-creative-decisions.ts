@@ -9,6 +9,13 @@ const CREATIVE_DECISION_REPAIR_BATCH_SIZE = 10;
 const CREATIVE_DECISION_REPAIR_ATTEMPTS = 2;
 
 export type CreativeDecisionAction = "scale_hard" | "scale" | "watch" | "test_more" | "pause" | "kill";
+export type CreativeLifecycleState =
+  | "stable_winner"
+  | "emerging_winner"
+  | "volatile"
+  | "fatigued_winner"
+  | "test_only"
+  | "blocked";
 
 export interface CreativeDecisionInputRow {
   creativeId: string;
@@ -34,6 +41,34 @@ export interface CreativeDecisionInputRow {
   video75Rate: number;
   clickToPurchaseRate: number;
   atcToPurchaseRate: number;
+  historicalWindows?: CreativeDecisionHistoricalWindows | null;
+}
+
+export interface CreativeDecisionHistoricalWindow {
+  spend: number;
+  purchaseValue: number;
+  roas: number;
+  cpa: number;
+  ctr: number;
+  purchases: number;
+  impressions: number;
+  linkClicks: number;
+  hookRate: number;
+  holdRate: number;
+  video25Rate: number;
+  watchRate: number;
+  video75Rate: number;
+  clickToPurchaseRate: number;
+  atcToPurchaseRate: number;
+}
+
+export interface CreativeDecisionHistoricalWindows {
+  last3?: CreativeDecisionHistoricalWindow | null;
+  last7?: CreativeDecisionHistoricalWindow | null;
+  last14?: CreativeDecisionHistoricalWindow | null;
+  last30?: CreativeDecisionHistoricalWindow | null;
+  last90?: CreativeDecisionHistoricalWindow | null;
+  allHistory?: CreativeDecisionHistoricalWindow | null;
 }
 
 export interface GenerateCreativeDecisionsInput {
@@ -41,11 +76,12 @@ export interface GenerateCreativeDecisionsInput {
   currency: string;
   creatives: CreativeDecisionInputRow[];
 }
-export const CREATIVE_DECISION_ENGINE_VERSION = "2026-03-17-cq-seg-v1";
+export const CREATIVE_DECISION_ENGINE_VERSION = "2026-03-24-cq-seg-v2";
 
 export interface CreativeDecisionResult {
   creativeId: string;
   action: CreativeDecisionAction;
+  lifecycleState: CreativeLifecycleState;
   score: number;
   confidence: number;
   scoringFactors: string[];
@@ -319,26 +355,42 @@ function computeWeightedCtr(rows: CreativeDecisionInputRow[]): number {
 }
 
 function buildUserPrompt(input: GenerateCreativeDecisionsInput): string {
-  const spendValues = input.creatives
-    .map((row) => (Number.isFinite(row.spend) ? row.spend : 0))
+  const safeCreatives = sanitizeInputRows(input.creatives);
+  const coreRows = safeCreatives.map((row) => ({
+    row,
+    core: buildWeightedCreativeSnapshot(row),
+    history: historicalSupportSummary(row, 0, 0),
+  }));
+
+  const spendValues = coreRows
+    .map(({ core }) => core.spend)
     .filter((value) => value >= 0)
     .sort((a, b) => a - b);
-  const roasValues = input.creatives
-    .map((row) => (Number.isFinite(row.roas) ? row.roas : 0))
+  const roasValues = coreRows
+    .map(({ core }) => core.roas)
     .filter((value) => value >= 0)
     .sort((a, b) => a - b);
-  const cpaValues = input.creatives
-    .map((row) => (Number.isFinite(row.cpa) ? row.cpa : 0))
+  const cpaValues = coreRows
+    .map(({ core }) => core.cpa)
     .filter((value) => value > 0)
     .sort((a, b) => a - b);
-  const totalSpend = input.creatives.reduce((sum, row) => sum + (Number.isFinite(row.spend) ? row.spend : 0), 0);
+  const totalSpend = coreRows.reduce((sum, { core }) => sum + core.spend, 0);
   const spendMedian = percentile(spendValues, 0.5);
   const spendP25 = percentile(spendValues, 0.25);
   const spendP75 = percentile(spendValues, 0.75);
   const roasMedian = percentile(roasValues, 0.5);
-  const weightedRoas = computeWeightedRoas(input.creatives);
-  const weightedCpa = computeWeightedCpa(input.creatives);
-  const weightedCtr = computeWeightedCtr(input.creatives);
+  const weightedRoas = totalSpend > 0
+    ? coreRows.reduce((sum, { core }) => sum + core.purchaseValue, 0) / totalSpend
+    : 0;
+  const weightedCpa = (() => {
+    const purchases = coreRows.reduce((sum, { core }) => sum + core.purchases, 0);
+    return purchases > 0 ? totalSpend / purchases : 0;
+  })();
+  const weightedCtr = (() => {
+    const impressions = coreRows.reduce((sum, { core }) => sum + core.impressions, 0);
+    const clicks = coreRows.reduce((sum, { core }) => sum + core.linkClicks, 0);
+    return impressions > 0 ? (clicks / impressions) * 100 : 0;
+  })();
   const accountAverageRoas =
     weightedRoas > 0
       ? weightedRoas
@@ -351,8 +403,8 @@ function buildUserPrompt(input: GenerateCreativeDecisionsInput): string {
       : cpaValues.length > 0
         ? cpaValues.reduce((sum, value) => sum + value, 0) / cpaValues.length
         : 0;
-  const ctrValues = input.creatives
-    .map((row) => (Number.isFinite(row.ctr) ? row.ctr : 0))
+  const ctrValues = coreRows
+    .map(({ core }) => core.ctr)
     .filter((value) => value >= 0);
   const accountAverageCTR =
     weightedCtr > 0
@@ -360,14 +412,8 @@ function buildUserPrompt(input: GenerateCreativeDecisionsInput): string {
       : ctrValues.length > 0
         ? ctrValues.reduce((sum, value) => sum + value, 0) / ctrValues.length
         : 0;
-  const totalImpressions = input.creatives.reduce(
-    (sum, row) => sum + (Number.isFinite(row.impressions) ? row.impressions : 0),
-    0
-  );
-  const totalPurchases = input.creatives.reduce(
-    (sum, row) => sum + (Number.isFinite(row.purchases) ? row.purchases : 0),
-    0
-  );
+  const totalImpressions = coreRows.reduce((sum, { core }) => sum + core.impressions, 0);
+  const totalPurchases = coreRows.reduce((sum, { core }) => sum + core.purchases, 0);
   const accountAverageConversionRate =
     totalImpressions > 0 ? (totalPurchases / totalImpressions) * 100 : 0;
 
@@ -377,7 +423,7 @@ function buildUserPrompt(input: GenerateCreativeDecisionsInput): string {
     return Number((inverse ? -delta : delta).toFixed(3));
   };
 
-  const rows = input.creatives.map((row) => ({
+  const rows = coreRows.map(({ row, core, history }) => ({
     creativeId: row.creativeId,
     name: row.name,
     creativeFormat: row.creativeFormat ?? "image",
@@ -385,23 +431,28 @@ function buildUserPrompt(input: GenerateCreativeDecisionsInput): string {
     spendVelocity: Number(row.spendVelocity.toFixed(4)),
     frequency: Number(row.frequency.toFixed(4)),
     spend: Number(row.spend.toFixed(2)),
-    spendSharePct: totalSpend > 0 ? Number(((row.spend / totalSpend) * 100).toFixed(3)) : 0,
-    spendVsMedian: spendMedian > 0 ? Number((row.spend / spendMedian).toFixed(3)) : 0,
-    roasDeltaVsAccountPct: safePctDelta(row.roas, accountAverageRoas, false),
-    cpaDeltaVsAccountPct: safePctDelta(row.cpa, accountAverageCpa, true),
-    ctrDeltaVsAccountPct: safePctDelta(row.ctr, accountAverageCTR, false),
-    conversionRatePct: row.impressions > 0 ? Number(((row.purchases / row.impressions) * 100).toFixed(6)) : 0,
-    conversionDeltaVsAccountPct:
-      row.impressions > 0
-        ? safePctDelta((row.purchases / row.impressions) * 100, accountAverageConversionRate, false)
-        : 0,
-    purchaseValue: Number(row.purchaseValue.toFixed(2)),
     roas: Number(row.roas.toFixed(4)),
     cpa: Number(row.cpa.toFixed(4)),
     ctr: Number(row.ctr.toFixed(4)),
+    purchases: row.purchases,
+    purchaseValue: Number(row.purchaseValue.toFixed(2)),
+    coreSpend: Number(core.spend.toFixed(2)),
+    coreRoas: Number(core.roas.toFixed(4)),
+    coreCpa: Number(core.cpa.toFixed(4)),
+    coreCtr: Number(core.ctr.toFixed(4)),
+    corePurchases: Number(core.purchases.toFixed(2)),
+    spendSharePct: totalSpend > 0 ? Number(((core.spend / totalSpend) * 100).toFixed(3)) : 0,
+    spendVsMedian: spendMedian > 0 ? Number((core.spend / spendMedian).toFixed(3)) : 0,
+    roasDeltaVsAccountPct: safePctDelta(core.roas, accountAverageRoas, false),
+    cpaDeltaVsAccountPct: safePctDelta(core.cpa, accountAverageCpa, true),
+    ctrDeltaVsAccountPct: safePctDelta(core.ctr, accountAverageCTR, false),
+    conversionRatePct: core.impressions > 0 ? Number(((core.purchases / core.impressions) * 100).toFixed(6)) : 0,
+    conversionDeltaVsAccountPct:
+      core.impressions > 0
+        ? safePctDelta((core.purchases / core.impressions) * 100, accountAverageConversionRate, false)
+        : 0,
     cpm: Number(row.cpm.toFixed(4)),
     cpc: Number(row.cpc.toFixed(4)),
-    purchases: row.purchases,
     impressions: row.impressions,
     linkClicks: row.linkClicks,
     hookRate: Number(row.hookRate.toFixed(4)),
@@ -411,13 +462,22 @@ function buildUserPrompt(input: GenerateCreativeDecisionsInput): string {
     video75Rate: Number(row.video75Rate.toFixed(4)),
     clickToPurchaseRate: Number(row.clickToPurchaseRate.toFixed(4)),
     atcToPurchaseRate: Number(row.atcToPurchaseRate.toFixed(4)),
+    historicalSupport: {
+      totalWindows: history.total,
+      strongWindows: history.strongCount,
+      weakWindows: history.weakCount,
+      baselineRoas: Number(history.baselineRoas.toFixed(4)),
+      selectedVsBaselineDeltaPct: Number((history.selectedVsBaselineDelta * 100).toFixed(2)),
+      seasonalSpike: history.seasonalSpike,
+      fatigueSignal: history.fatigueSignal,
+    },
   }));
 
   return JSON.stringify({
     businessId: input.businessId,
     currency: input.currency,
     accountContext: {
-      creativeCount: input.creatives.length,
+      creativeCount: safeCreatives.length,
       totalSpend: Number(totalSpend.toFixed(2)),
       spendMedian: Number(spendMedian.toFixed(2)),
       spendP25: Number(spendP25.toFixed(2)),
@@ -430,7 +490,7 @@ function buildUserPrompt(input: GenerateCreativeDecisionsInput): string {
     },
     creatives: rows,
     instructions:
-      "Classify every creativeId exactly once. Base decisions on dataset-relative performance and account averages from this same dataset. Focus on commercial materiality: avoid aggressive pause decisions on tiny-spend rows unless downside evidence is strong and meaningful.",
+      "Classify every creativeId exactly once. Treat coreSpend/coreRoas/coreCpa/coreCtr/corePurchases as the primary weighted verdict built from recent-to-historical windows. Treat spend/roas/cpa/ctr/purchases as selected-range overlay only. Do not let a short selected-range spike fully override weak history, and do not let a short selected-range drop fully erase a historically proven winner. Focus on commercial materiality: avoid aggressive stop decisions on tiny-spend rows unless downside evidence is strong and meaningful.",
   });
 }
 
@@ -445,6 +505,29 @@ function percentile(sorted: number[], p: number): number {
 }
 
 function sanitizeInputRows(rows: CreativeDecisionInputRow[]): CreativeDecisionInputRow[] {
+  const sanitizeHistoricalWindow = (
+    window: CreativeDecisionHistoricalWindow | null | undefined
+  ): CreativeDecisionHistoricalWindow | null => {
+    if (!window) return null;
+    return {
+      spend: Number.isFinite(window.spend) ? window.spend : 0,
+      purchaseValue: Number.isFinite(window.purchaseValue) ? window.purchaseValue : 0,
+      roas: Number.isFinite(window.roas) ? window.roas : 0,
+      cpa: Number.isFinite(window.cpa) ? window.cpa : 0,
+      ctr: Number.isFinite(window.ctr) ? window.ctr : 0,
+      purchases: Number.isFinite(window.purchases) ? window.purchases : 0,
+      impressions: Number.isFinite(window.impressions) ? window.impressions : 0,
+      linkClicks: Number.isFinite(window.linkClicks) ? window.linkClicks : 0,
+      hookRate: Number.isFinite(window.hookRate) ? window.hookRate : 0,
+      holdRate: Number.isFinite(window.holdRate) ? window.holdRate : 0,
+      video25Rate: Number.isFinite(window.video25Rate) ? window.video25Rate : 0,
+      watchRate: Number.isFinite(window.watchRate) ? window.watchRate : 0,
+      video75Rate: Number.isFinite(window.video75Rate) ? window.video75Rate : 0,
+      clickToPurchaseRate: Number.isFinite(window.clickToPurchaseRate) ? window.clickToPurchaseRate : 0,
+      atcToPurchaseRate: Number.isFinite(window.atcToPurchaseRate) ? window.atcToPurchaseRate : 0,
+    };
+  };
+
   return rows.map((row) => ({
     ...row,
     creativeFormat: row.creativeFormat ?? "image",
@@ -468,7 +551,196 @@ function sanitizeInputRows(rows: CreativeDecisionInputRow[]): CreativeDecisionIn
     video75Rate: Number.isFinite(row.video75Rate) ? row.video75Rate : 0,
     clickToPurchaseRate: Number.isFinite(row.clickToPurchaseRate) ? row.clickToPurchaseRate : 0,
     atcToPurchaseRate: Number.isFinite(row.atcToPurchaseRate) ? row.atcToPurchaseRate : 0,
+    historicalWindows: row.historicalWindows
+      ? {
+          last3: sanitizeHistoricalWindow(row.historicalWindows.last3),
+          last7: sanitizeHistoricalWindow(row.historicalWindows.last7),
+          last14: sanitizeHistoricalWindow(row.historicalWindows.last14),
+          last30: sanitizeHistoricalWindow(row.historicalWindows.last30),
+          last90: sanitizeHistoricalWindow(row.historicalWindows.last90),
+          allHistory: sanitizeHistoricalWindow(row.historicalWindows.allHistory),
+        }
+      : null,
   }));
+}
+
+function getHistoricalWindows(row: CreativeDecisionInputRow) {
+  return [
+    row.historicalWindows?.last3,
+    row.historicalWindows?.last7,
+    row.historicalWindows?.last14,
+    row.historicalWindows?.last30,
+    row.historicalWindows?.last90,
+    row.historicalWindows?.allHistory,
+  ].filter((window): window is CreativeDecisionHistoricalWindow => Boolean(window));
+}
+
+function historicalSupportSummary(row: CreativeDecisionInputRow, roasAvg: number, cpaAvg: number) {
+  const windows = getHistoricalWindows(row);
+  if (windows.length === 0) {
+    return {
+      total: 0,
+      strongCount: 0,
+      weakCount: 0,
+      baselineRoas: 0,
+      baselineCtr: 0,
+      selectedVsBaselineDelta: 0,
+      seasonalSpike: false,
+      fatigueSignal: false,
+    };
+  }
+
+  const baselineRoas = windows.reduce((sum, window) => sum + window.roas, 0) / windows.length;
+  const baselineCtr = windows.reduce((sum, window) => sum + window.ctr, 0) / windows.length;
+  const strongCount = windows.filter(
+    (window) =>
+      window.roas >= Math.max(roasAvg * 1.05, 0.1) &&
+      (window.purchases >= 2 || window.spend >= Math.max(row.spend * 0.35, 1))
+  ).length;
+  const weakCount = windows.filter(
+    (window) =>
+      window.roas > 0 &&
+      window.roas <= Math.max(roasAvg * 0.8, 0.1) &&
+      (cpaAvg <= 0 || window.cpa >= cpaAvg * 1.1 || window.purchases <= 1)
+  ).length;
+  const selectedVsBaselineDelta = baselineRoas > 0 ? (row.roas - baselineRoas) / baselineRoas : 0;
+
+  return {
+    total: windows.length,
+    strongCount,
+    weakCount,
+    baselineRoas,
+    baselineCtr,
+    selectedVsBaselineDelta,
+    seasonalSpike: baselineRoas > 0 && row.roas >= baselineRoas * 1.45 && row.purchases <= Math.max(2, windows[0]?.purchases ?? 0),
+    fatigueSignal: baselineRoas > 0 && row.roas <= baselineRoas * 0.72 && strongCount >= 2,
+  };
+}
+
+type WeightedCreativeSnapshot = {
+  spend: number;
+  purchaseValue: number;
+  roas: number;
+  cpa: number;
+  ctr: number;
+  purchases: number;
+  impressions: number;
+  linkClicks: number;
+  hookRate: number;
+  holdRate: number;
+  video25Rate: number;
+  watchRate: number;
+  video75Rate: number;
+  clickToPurchaseRate: number;
+  atcToPurchaseRate: number;
+  selectedInfluence: number;
+};
+
+function buildWeightedCreativeSnapshot(row: CreativeDecisionInputRow): WeightedCreativeSnapshot {
+  const windows: Array<{ weight: number; value: CreativeDecisionHistoricalWindow }> = [];
+  const pushWindow = (weight: number, value: CreativeDecisionHistoricalWindow | null | undefined) => {
+    if (!value) return;
+    windows.push({ weight, value });
+  };
+
+  pushWindow(0.18, {
+    spend: row.spend,
+    purchaseValue: row.purchaseValue,
+    roas: row.roas,
+    cpa: row.cpa,
+    ctr: row.ctr,
+    purchases: row.purchases,
+    impressions: row.impressions,
+    linkClicks: row.linkClicks,
+    hookRate: row.hookRate,
+    holdRate: row.holdRate,
+    video25Rate: row.video25Rate,
+    watchRate: row.watchRate,
+    video75Rate: row.video75Rate,
+    clickToPurchaseRate: row.clickToPurchaseRate,
+    atcToPurchaseRate: row.atcToPurchaseRate,
+  });
+  pushWindow(0.24, row.historicalWindows?.last3);
+  pushWindow(0.22, row.historicalWindows?.last7);
+  pushWindow(0.18, row.historicalWindows?.last14);
+  pushWindow(0.1, row.historicalWindows?.last30);
+  pushWindow(0.05, row.historicalWindows?.last90);
+  pushWindow(0.03, row.historicalWindows?.allHistory);
+
+  if (windows.length === 0) {
+    return {
+      spend: row.spend,
+      purchaseValue: row.purchaseValue,
+      roas: row.roas,
+      cpa: row.cpa,
+      ctr: row.ctr,
+      purchases: row.purchases,
+      impressions: row.impressions,
+      linkClicks: row.linkClicks,
+      hookRate: row.hookRate,
+      holdRate: row.holdRate,
+      video25Rate: row.video25Rate,
+      watchRate: row.watchRate,
+      video75Rate: row.video75Rate,
+      clickToPurchaseRate: row.clickToPurchaseRate,
+      atcToPurchaseRate: row.atcToPurchaseRate,
+      selectedInfluence: 1,
+    };
+  }
+
+  const totalWeight = windows.reduce((sum, item) => sum + item.weight, 0);
+  const weighted = <K extends keyof CreativeDecisionHistoricalWindow>(key: K) =>
+    windows.reduce((sum, item) => sum + item.value[key] * item.weight, 0) / totalWeight;
+
+  return {
+    spend: weighted("spend"),
+    purchaseValue: weighted("purchaseValue"),
+    roas: weighted("roas"),
+    cpa: weighted("cpa"),
+    ctr: weighted("ctr"),
+    purchases: weighted("purchases"),
+    impressions: weighted("impressions"),
+    linkClicks: weighted("linkClicks"),
+    hookRate: weighted("hookRate"),
+    holdRate: weighted("holdRate"),
+    video25Rate: weighted("video25Rate"),
+    watchRate: weighted("watchRate"),
+    video75Rate: weighted("video75Rate"),
+    clickToPurchaseRate: weighted("clickToPurchaseRate"),
+    atcToPurchaseRate: weighted("atcToPurchaseRate"),
+    selectedInfluence: totalWeight > 0 ? 0.18 / totalWeight : 1,
+  };
+}
+
+function deriveLifecycleState(input: {
+  action: CreativeDecisionAction;
+  confidence: number;
+  historicalStrongCount: number;
+  fatigueSignal: boolean;
+  selectedVsCoreDelta: number;
+}): CreativeLifecycleState {
+  if (input.action === "scale_hard") {
+    return input.historicalStrongCount >= 2 ? "stable_winner" : "emerging_winner";
+  }
+  if (input.action === "scale") {
+    return input.historicalStrongCount >= 3 || input.confidence >= 0.74
+      ? "stable_winner"
+      : "emerging_winner";
+  }
+  if (input.action === "test_more") {
+    return "test_only";
+  }
+  if (input.action === "kill") {
+    return "blocked";
+  }
+  if (input.action === "pause") {
+    return input.fatigueSignal || input.historicalStrongCount >= 2
+      ? "fatigued_winner"
+      : "blocked";
+  }
+  return input.fatigueSignal || (input.historicalStrongCount >= 2 && input.selectedVsCoreDelta < -0.15)
+    ? "fatigued_winner"
+    : "volatile";
 }
 
 export function buildHeuristicCreativeDecisions(
@@ -477,10 +749,15 @@ export function buildHeuristicCreativeDecisions(
   if (rows.length === 0) return [];
 
   const safeRows = sanitizeInputRows(rows);
-  const roasValues = safeRows.map((r) => r.roas).filter((v) => Number.isFinite(v) && v >= 0).sort((a, b) => a - b);
-  const spendValues = safeRows.map((r) => r.spend).filter((v) => Number.isFinite(v) && v > 0).sort((a, b) => a - b);
+  const coreRows = safeRows.map((row) => ({ row, core: buildWeightedCreativeSnapshot(row) }));
+  const roasValues = coreRows.map(({ core }) => core.roas).filter((v) => Number.isFinite(v) && v >= 0).sort((a, b) => a - b);
+  const spendValues = coreRows.map(({ core }) => core.spend).filter((v) => Number.isFinite(v) && v > 0).sort((a, b) => a - b);
 
-  const weightedRoas = computeWeightedRoas(safeRows);
+  const weightedRoas = (() => {
+    const totalSpend = coreRows.reduce((sum, { core }) => sum + core.spend, 0);
+    const totalRevenue = coreRows.reduce((sum, { core }) => sum + core.purchaseValue, 0);
+    return totalSpend > 0 ? totalRevenue / totalSpend : 0;
+  })();
   const roasAvg =
     weightedRoas > 0
       ? weightedRoas
@@ -495,29 +772,32 @@ export function buildHeuristicCreativeDecisions(
   const topQuartileSpends = spendValues.filter((v) => v >= spendP75);
   const spendTopAvg = topQuartileSpends.length > 0 ? topQuartileSpends.reduce((a, b) => a + b, 0) / topQuartileSpends.length : (spendValues.length > 0 ? spendValues[spendValues.length - 1] : 1);
 
-  const purchaseValues = safeRows.map((r) => r.purchases).filter((v) => Number.isFinite(v) && v > 0).sort((a, b) => a - b);
+  const purchaseValues = coreRows.map(({ core }) => core.purchases).filter((v) => Number.isFinite(v) && v > 0).sort((a, b) => a - b);
   const purchasesP75 = percentile(purchaseValues, 0.75);
   const topQuartilePurchases = purchaseValues.filter((v) => v >= purchasesP75);
   const purchasesTopAvg = topQuartilePurchases.length > 0 ? topQuartilePurchases.reduce((a, b) => a + b, 0) / topQuartilePurchases.length : (purchaseValues.length > 0 ? purchaseValues[purchaseValues.length - 1] : 1);
-  const totalPurchases = safeRows.reduce((acc, row) => acc + (Number.isFinite(row.purchases) ? row.purchases : 0), 0);
-  const totalLinkClicks = safeRows.reduce((acc, row) => acc + (Number.isFinite(row.linkClicks) ? row.linkClicks : 0), 0);
-  const totalPurchaseValue = safeRows.reduce((acc, row) => acc + (Number.isFinite(row.purchaseValue) ? row.purchaseValue : 0), 0);
+  const totalPurchases = coreRows.reduce((acc, { core }) => acc + core.purchases, 0);
+  const totalLinkClicks = coreRows.reduce((acc, { core }) => acc + core.linkClicks, 0);
+  const totalPurchaseValue = coreRows.reduce((acc, { core }) => acc + core.purchaseValue, 0);
   const cvrAvg = totalLinkClicks > 0 ? (totalPurchases / totalLinkClicks) * 100 : 0;
   const aovAvg = totalPurchases > 0 ? totalPurchaseValue / totalPurchases : 0;
   const avgConversionQuality = cvrAvg * aovAvg;
+  const weightedCpa = totalPurchases > 0 ? coreRows.reduce((sum, { core }) => sum + core.spend, 0) / totalPurchases : 0;
 
-  const base = safeRows.map((row) => {
+  const base = coreRows.map(({ row, core }) => {
     // Reliability score (0-15), same formula as detail page
-    const spendReliability = spendTopAvg > 0 ? Math.min(1.0, row.spend / spendTopAvg) : 0.4;
-    const purchaseRatio = purchasesTopAvg > 0 ? row.purchases / purchasesTopAvg : 0;
+    const spendReliability = spendTopAvg > 0 ? Math.min(1.0, core.spend / spendTopAvg) : 0.4;
+    const purchaseRatio = purchasesTopAvg > 0 ? core.purchases / purchasesTopAvg : 0;
     const purchaseBonus = purchaseRatio >= 1 ? 3 : purchaseRatio >= 0.5 ? 1.5 : 0;
     const reliabilityScore = Math.max(0, Math.min(15, 5 + spendReliability * 7 + purchaseBonus));
-    const cvr = row.linkClicks > 0 ? (row.purchases / row.linkClicks) * 100 : 0;
-    const aov = row.purchases > 0 ? row.purchaseValue / row.purchases : 0;
+    const cvr = core.linkClicks > 0 ? (core.purchases / core.linkClicks) * 100 : 0;
+    const aov = core.purchases > 0 ? core.purchaseValue / core.purchases : 0;
     const conversionQuality = cvr * aov;
     const conversionQualityRatio = avgConversionQuality > 0 ? conversionQuality / avgConversionQuality : 0;
     const strongConversionQuality = conversionQualityRatio >= 1.05;
     const acceptableConversionQuality = conversionQualityRatio >= 0.9;
+    const historical = historicalSupportSummary(row, roasAvg, weightedCpa);
+    const selectedVsCoreDelta = historical.baselineRoas > 0 ? (row.roas - historical.baselineRoas) / historical.baselineRoas : 0;
 
     let action: CreativeDecisionAction = "watch";
 
@@ -525,20 +805,50 @@ export function buildHeuristicCreativeDecisions(
       action = "test_more";
     } else if (reliabilityScore < 10) {
       action = "watch";
-    } else if (roasAvg > 0 && row.roas >= roasAvg * 1.45 && row.spend >= Math.max(1, spendP50) && row.purchases >= 3 && strongConversionQuality) {
+    } else if (roasAvg > 0 && core.roas >= roasAvg * 1.45 && core.spend >= Math.max(1, spendP50) && core.purchases >= 3 && strongConversionQuality) {
       action = "scale_hard";
-    } else if (roasAvg > 0 && row.roas >= roasAvg * 1.2 && acceptableConversionQuality) {
+    } else if (roasAvg > 0 && core.roas >= roasAvg * 1.2 && acceptableConversionQuality) {
       action = "scale";
-    } else if (roasAvg > 0 && row.roas < roasAvg * 0.55 && row.spend >= Math.max(1, spendP80) && row.purchases === 0) {
+    } else if (roasAvg > 0 && core.roas < roasAvg * 0.55 && core.spend >= Math.max(1, spendP80) && core.purchases === 0) {
       action = "kill";
-    } else if (roasAvg > 0 && row.roas < roasAvg * 0.8) {
+    } else if (roasAvg > 0 && core.roas < roasAvg * 0.8) {
       action = "pause";
+    }
+
+    if ((action === "scale_hard" || action === "scale") && historical.total > 0) {
+      if (historical.strongCount === 0 || historical.seasonalSpike) {
+        action = action === "scale_hard" ? "scale" : "watch";
+      } else if (action === "scale" && historical.strongCount >= 3 && selectedVsCoreDelta >= -0.15) {
+        action = "scale_hard";
+      }
+    }
+
+    if ((action === "pause" || action === "kill") && historical.total > 0) {
+      if (historical.fatigueSignal || historical.strongCount >= 2) {
+        action = "pause";
+      } else if (historical.weakCount === 0 && historical.strongCount >= 1) {
+        action = "watch";
+      }
+    }
+
+    if (
+      historical.strongCount >= 2 &&
+      row.spend >= Math.max(1, spendP50 * 0.8) &&
+      historical.baselineRoas > 0 &&
+      row.roas <= historical.baselineRoas * 0.25 &&
+      row.purchases === 0
+    ) {
+      action = "pause";
+    }
+
+    if (action === "test_more" && historical.strongCount >= 2) {
+      action = "watch";
     }
 
     const confidenceBase =
       reliabilityScore < 7
         ? 0.4
-        : row.spend >= spendP50
+        : core.spend >= spendP50
           ? 0.72
           : 0.58;
 
@@ -546,6 +856,14 @@ export function buildHeuristicCreativeDecisions(
       action === "watch" || action === "test_more" ? confidenceBase - 0.06 : confidenceBase,
       0.3,
       0.88
+    );
+    const adjustedConfidence = clamp(
+      confidence +
+        (historical.strongCount >= 3 ? 0.08 : 0) -
+        (historical.seasonalSpike ? 0.08 : 0) -
+        (historical.total === 0 ? 0.02 : 0),
+      0.3,
+      0.92
     );
 
     const actionBaseScore =
@@ -560,38 +878,51 @@ export function buildHeuristicCreativeDecisions(
               : action === "pause"
                 ? 34
                 : 18;
-    const roasLift = roasAvg > 0 ? ((row.roas / roasAvg) - 1) * 18 : 0;
-    const reliabilityAdj = reliabilityScore < 7 ? -8 : row.purchases >= 3 ? 5 : row.purchases >= 1 ? 2 : -2;
-    const spendAdj = row.spend >= spendP50 ? 2 : -2;
+    const roasLift = roasAvg > 0 ? ((core.roas / roasAvg) - 1) * 18 : 0;
+    const reliabilityAdj = reliabilityScore < 7 ? -8 : core.purchases >= 3 ? 5 : core.purchases >= 1 ? 2 : -2;
+    const spendAdj = core.spend >= spendP50 ? 2 : -2;
     const score = Math.round(clamp(actionBaseScore + roasLift + reliabilityAdj + spendAdj, 0, 100));
 
     const scoringFactors = [
-      `ROAS ${row.roas.toFixed(2)} vs avg ${roasAvg.toFixed(2)}.`,
+      `Core ROAS ${core.roas.toFixed(2)} vs avg ${roasAvg.toFixed(2)}.`,
       `Conversion quality ${conversionQuality.toFixed(2)} vs avg ${avgConversionQuality.toFixed(2)}.`,
-      `Spend ${row.spend.toFixed(2)} vs median ${spendP50.toFixed(2)}.`,
-      `Purchases ${row.purchases.toFixed(0)} and confidence ${Math.round(confidence * 100)}%.`,
+      `Core spend ${core.spend.toFixed(2)} vs median ${spendP50.toFixed(2)}.`,
+      historical.total > 0
+        ? `Historical support ${historical.strongCount}/${historical.total} strong windows; baseline ROAS ${historical.baselineRoas.toFixed(2)}.`
+        : "No historical validation windows available.",
+      `Selected-range overlay ${row.roas.toFixed(2)}x on ${row.purchases.toFixed(0)} purchases; confidence ${Math.round(adjustedConfidence * 100)}%.`,
     ];
 
     const reasons =
       action === "scale_hard"
         ? [
-            "ROAS and conversion reliability are top-tier for this account baseline.",
-            "Commercial impact is high enough to accelerate budget confidently.",
+            "Core weighted performance is top-tier for this account baseline.",
+            historical.strongCount >= 2
+              ? "Historical windows also support winner status, so this looks like a stable scale candidate."
+              : "Commercial impact is high enough to accelerate budget confidently.",
           ]
         : action === "scale"
         ? [
-            "ROAS is above account-relative baseline.",
-            "Spend and conversion volume are reliable enough to scale.",
+            "Core weighted ROAS is above account-relative baseline.",
+            historical.seasonalSpike
+              ? "Selected range is strong, but historical support is still limited, so scale should stay controlled."
+              : "Recent and historical windows support controlled scaling.",
           ]
         : action === "kill"
           ? [
               "This creative is consuming meaningful spend with strongly negative economics.",
-              "Downside evidence is strong enough to stop this variant immediately.",
+              historical.weakCount >= 2
+                ? "Historical windows also show persistent weakness."
+                : "Downside evidence is strong enough to stop this variant immediately.",
             ]
         : action === "pause"
           ? [
-              "ROAS is below account-relative baseline.",
-              "Spend indicates meaningful downside risk.",
+              historical.fatigueSignal
+                ? "Core verdict says this looks like decay relative to the creative's own history."
+                : "Core weighted ROAS is below account-relative baseline.",
+              historical.fatigueSignal
+                ? "This looks more like fatigue or decay than a fresh winner."
+                : "Spend indicates meaningful downside risk.",
             ]
           : action === "test_more"
             ? [
@@ -607,20 +938,33 @@ export function buildHeuristicCreativeDecisions(
       action === "scale_hard"
         ? "Scale aggressively in controlled steps and monitor efficiency daily."
         : action === "scale"
-        ? "Increase budget gradually and monitor CPA/ROAS for 3 days."
+        ? historical.seasonalSpike
+          ? "Increase budget gradually and confirm the uplift holds across the next few windows before scaling harder."
+          : "Increase budget gradually and monitor CPA/ROAS for 3 days."
         : action === "kill"
           ? "Stop this creative now and reallocate budget to stronger variants."
         : action === "pause"
-          ? "Pause and replace with a new variant for this angle."
+          ? historical.fatigueSignal
+            ? "Pause this fatigued variant and replace it with a refreshed take on the same winning angle."
+            : "Pause and replace with a new variant for this angle."
           : action === "test_more"
             ? "Keep low budget live and run focused tests to gather stronger data."
           : "Keep active and re-evaluate after additional spend.";
 
+    const lifecycleState = deriveLifecycleState({
+      action,
+      confidence: adjustedConfidence,
+      historicalStrongCount: historical.strongCount,
+      fatigueSignal: historical.fatigueSignal,
+      selectedVsCoreDelta,
+    });
+
     return {
       creativeId: row.creativeId,
       action,
+      lifecycleState,
       score,
-      confidence,
+      confidence: adjustedConfidence,
       scoringFactors,
       reasons,
       nextStep,
@@ -679,6 +1023,7 @@ function applyDecisionGuardrails(
       return {
         ...decision,
         action: "pause",
+        lifecycleState: "blocked",
         score: Math.min(decision.score, veryHighSpend ? 36 : 42),
         confidence: Math.max(decision.confidence, veryHighSpend ? 0.82 : 0.74),
         scoringFactors: [
@@ -703,6 +1048,7 @@ function applyDecisionGuardrails(
       return {
         ...decision,
         action: "watch",
+        lifecycleState: "volatile",
         score: Math.min(decision.score, 58),
         confidence: Math.min(decision.confidence, 0.56),
         scoringFactors: [
@@ -807,6 +1153,18 @@ export async function generateCreativeDecisions(
         decisions.push({
           creativeId,
           action,
+          lifecycleState:
+            action === "scale_hard"
+              ? "stable_winner"
+              : action === "scale"
+                ? "emerging_winner"
+                : action === "test_more"
+                  ? "test_only"
+                  : action === "pause"
+                    ? "fatigued_winner"
+                    : action === "kill"
+                      ? "blocked"
+                      : "volatile",
           score,
           confidence: mappedConfidence,
           scoringFactors,

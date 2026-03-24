@@ -1,6 +1,7 @@
 import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import type { ShareMetricKey, SharedCreative } from "@/components/creatives/shareCreativeTypes";
+import type { AiCreativeHistoricalWindow, AiCreativeHistoricalWindows } from "@/src/services";
 
 export interface MetaCreativesResponse {
   status?: string;
@@ -19,6 +20,8 @@ export interface MetaCreativesResponse {
     previewCoverage: number;
   };
 }
+
+export type CreativeHistoryWindowKey = "last3" | "last7" | "last14" | "last30" | "last90" | "allHistory";
 
 export type PreviewStripState = "data_loading" | "media_hydrating" | "ready" | "missing";
 
@@ -213,6 +216,42 @@ export async function fetchMetaCreatives(params: {
   }
 
   return payload as MetaCreativesResponse;
+}
+
+function toHistoricalWindow(row: MetaCreativeRow): AiCreativeHistoricalWindow {
+  return {
+    spend: row.spend,
+    purchaseValue: row.purchaseValue,
+    roas: row.roas,
+    cpa: row.cpa,
+    ctr: row.ctrAll,
+    purchases: row.purchases,
+    impressions: row.impressions,
+    linkClicks: row.linkClicks,
+    hookRate: row.thumbstop,
+    holdRate: row.video100,
+    video25Rate: row.video25,
+    watchRate: row.video50,
+    video75Rate: row.video75,
+    clickToPurchaseRate: row.clickToPurchase,
+    atcToPurchaseRate: row.atcToPurchaseRatio,
+  };
+}
+
+export function buildCreativeHistoryById(input: Partial<Record<CreativeHistoryWindowKey, MetaCreativeRow[]>>) {
+  const map = new Map<string, AiCreativeHistoricalWindows>();
+  const windowKeys = Object.keys(input) as CreativeHistoryWindowKey[];
+
+  for (const windowKey of windowKeys) {
+    const rows = input[windowKey] ?? [];
+    for (const row of rows) {
+      const existing = map.get(row.id) ?? {};
+      existing[windowKey] = toHistoricalWindow(row);
+      map.set(row.id, existing);
+    }
+  }
+
+  return map;
 }
 
 export function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {

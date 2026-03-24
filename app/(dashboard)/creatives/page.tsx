@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
@@ -33,6 +33,7 @@ import { usePersistentCreativeDateRange } from "@/hooks/use-persistent-date-rang
 import type { ShareMetricKey, SharePayload } from "@/components/creatives/shareCreativeTypes";
 import {
   CreativesTableShell,
+  buildCreativeHistoryById,
   fetchMetaCreatives,
   hasRenderablePreview,
   mapApiRowToUiRow,
@@ -43,6 +44,7 @@ import {
   shouldPollForPreviewReadiness,
   toCsv,
   toSharedCreative,
+  type CreativeHistoryWindowKey,
 } from "@/app/(dashboard)/creatives/page-support";
 import { useBusinessIntegrationsBootstrap } from "@/hooks/use-business-integrations-bootstrap";
 import { PlanGate } from "@/components/pricing/PlanGate";
@@ -115,6 +117,15 @@ export default function CreativesPage() {
 
   const { start: drStart, end: drEnd } = resolveCreativeDateRange(dateRangeValue);
   const mainTableApiGroupBy = mapCreativeGroupByToApi(groupBy);
+  const endDate = new Date(`${drEnd}T00:00:00.000Z`);
+  const offsetIso = useCallback(
+    (days: number) => {
+      const date = new Date(endDate);
+      date.setUTCDate(date.getUTCDate() - days);
+      return date.toISOString().slice(0, 10);
+    },
+    [endDate]
+  );
 
   const creativesMetadataQuery = useQuery({
     queryKey: [
@@ -170,6 +181,43 @@ export default function CreativesPage() {
         ? 3000
         : false,
     refetchIntervalInBackground: true,
+  });
+  const creativeHistoryWindowDefs = useMemo<Array<{ key: CreativeHistoryWindowKey; start: string; end: string }>>(
+    () => [
+      { key: "last3", start: offsetIso(2), end: drEnd },
+      { key: "last7", start: offsetIso(6), end: drEnd },
+      { key: "last14", start: offsetIso(13), end: drEnd },
+      { key: "last30", start: offsetIso(29), end: drEnd },
+      { key: "last90", start: offsetIso(89), end: drEnd },
+      { key: "allHistory", start: offsetIso(364), end: drEnd },
+    ],
+    [drEnd, offsetIso]
+  );
+  const creativeHistoryQueries = useQueries({
+    queries: creativeHistoryWindowDefs.map((windowDef) => ({
+      queryKey: [
+        "meta-creatives-history",
+        businessId,
+        drEnd,
+        groupBy,
+        windowDef.key,
+        windowDef.start,
+        windowDef.end,
+      ],
+      enabled: platform === "meta" && platformConnected && metaHasAssignments,
+      queryFn: () =>
+        fetchMetaCreatives({
+          businessId,
+          start: windowDef.start,
+          end: windowDef.end,
+          groupBy: mainTableApiGroupBy,
+          format: "all",
+          sort: "spend",
+          mediaMode: "metadata",
+        }),
+      staleTime: 1000 * 60 * 5,
+      refetchOnWindowFocus: false,
+    })),
   });
   const adBreakdownQuery = useQuery({
     queryKey: ["meta-creatives-ad-breakdown", businessId, drStart, drEnd],
@@ -258,6 +306,15 @@ export default function CreativesPage() {
     if (platform !== "meta") return [];
     return applyCreativeFilters(allRows, topFilters);
   }, [allRows, platform, topFilters]);
+  const creativeHistoryById = useMemo(() => {
+    const historyRows: Partial<Record<CreativeHistoryWindowKey, MetaCreativeRow[]>> = {};
+    creativeHistoryQueries.forEach((query, index) => {
+      const key = creativeHistoryWindowDefs[index]?.key;
+      if (!key) return;
+      historyRows[key] = (query.data?.rows ?? []).map(mapApiRowToUiRow);
+    });
+    return buildCreativeHistoryById(historyRows);
+  }, [creativeHistoryQueries, creativeHistoryWindowDefs]);
   const deferredFilteredRows = useDeferredValue(filteredRows);
 
   useEffect(() => {
@@ -300,7 +357,7 @@ export default function CreativesPage() {
       if (creativesMetadataQuery.isLoading || creativesMetadataQuery.isFetching) {
         return "data_loading";
       }
-      return "media_hydrating";
+      return "missing";
     }
 
     // For demo businesses, skip media hydration check — rows have local image URLs and are always ready.
@@ -650,6 +707,7 @@ export default function CreativesPage() {
                   <CreativesTableSection
                     rows={deferredFilteredRows}
                     businessId={businessId}
+                    creativeHistoryById={creativeHistoryById}
                     selectedMetricIds={topMetricIds}
                     onSelectedMetricIdsChange={setTopMetricIds}
                     selectedRowIds={selectionState.selectedRowIds}
@@ -674,6 +732,7 @@ export default function CreativesPage() {
         businessId={businessId}
         row={activeCreativeRow}
         allRows={filteredRows}
+        creativeHistoryById={creativeHistoryById}
         open={creativeDrawerState.open}
         notes={activeCreativeRow ? notesByRowId[activeCreativeRow.id] ?? "" : ""}
         dateRange={dateRangeValue}

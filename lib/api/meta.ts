@@ -40,6 +40,7 @@ export interface MetaCampaignData extends MetaMetricsData {
   id: string;
   name: string;
   status: string; // "ACTIVE" | "PAUSED" | "ARCHIVED" | "UNKNOWN"
+  objective?: string | null;
   budgetLevel?: "campaign" | "adset" | null;
   optimizationGoal: string | null;
   bidStrategyType: string | null;

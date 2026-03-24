@@ -53,6 +53,7 @@ interface MetaCampaignInsightRecord {
 interface MetaCampaignRecord {
   id: string;
   name: string;
+  objective?: string;
   status?: string;
   effective_status?: string;
   daily_budget?: string;
@@ -92,6 +93,7 @@ export interface MetaCampaignRow {
   accountId: string;
   name: string;
   status: string;
+  objective?: string | null;
   budgetLevel: "campaign" | "adset" | null;
   spend: number;
   purchases: number;
@@ -181,7 +183,7 @@ export interface MetaCampaignRow {
   isBidValueMixed: boolean;
 }
 
-const META_CAMPAIGNS_REPORT_VERSION = "v13";
+const META_CAMPAIGNS_REPORT_VERSION = "v14";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -310,7 +312,7 @@ async function fetchCampaignConfigs(
   const url = new URL(`https://graph.facebook.com/v25.0/${accountId}/campaigns`);
   url.searchParams.set(
     "fields",
-    "id,name,effective_status,status,daily_budget,lifetime_budget,bid_strategy,bid_amount,bid_constraints{roas_average_floor}"
+    "id,name,objective,effective_status,status,daily_budget,lifetime_budget,bid_strategy,bid_amount,bid_constraints{roas_average_floor}"
   );
   url.searchParams.set("limit", "500");
   url.searchParams.set("access_token", accessToken);
@@ -763,9 +765,10 @@ export async function GET(request: NextRequest) {
                   bid_strategy: campaignConfig.bid_strategy ?? null,
                   bid_amount: campaignConfig.bid_amount ?? null,
                   bid_constraints: campaignConfig.bid_constraints ?? null,
-                  daily_budget: campaignConfig.daily_budget ?? null,
-                  lifetime_budget: campaignConfig.lifetime_budget ?? null,
-                }
+              daily_budget: campaignConfig.daily_budget ?? null,
+              lifetime_budget: campaignConfig.lifetime_budget ?? null,
+              objective: campaignConfig.objective ?? null,
+            }
               : null,
             rawAdsets: (adsetConfigsByCampaign.get(campaignId) ?? []).map((adset) => ({
               id: adset.id,
@@ -797,6 +800,7 @@ export async function GET(request: NextRequest) {
           accountId,
           name: insight.campaign_name ?? "Unknown Campaign",
           status: statusMap.get(campaignId) ?? "UNKNOWN",
+          objective: campaignConfig?.objective ?? null,
           budgetLevel:
             campaignConfig?.daily_budget != null || campaignConfig?.lifetime_budget != null
               ? "campaign"

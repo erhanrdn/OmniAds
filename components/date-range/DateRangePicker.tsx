@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 export type RangePreset =
   | "today"
   | "yesterday"
+  | "3d"
   | "7d"
   | "14d"
   | "30d"
@@ -50,6 +51,7 @@ export const DEFAULT_DATE_RANGE: DateRangeValue = {
 const RANGE_PRESETS: { value: RangePreset; label: string }[] = [
   { value: "today", label: "Today" },
   { value: "yesterday", label: "Yesterday" },
+  { value: "3d", label: "Last 3 Days" },
   { value: "7d", label: "Last 7 Days" },
   { value: "14d", label: "Last 14 Days" },
   { value: "30d", label: "Last 30 Days" },
@@ -95,6 +97,8 @@ export function getPresetDates(
       const y = addDays(today, -1);
       return { start: toISO(y), end: toISO(y) };
     }
+    case "3d":
+      return { start: toISO(addDays(today, -2)), end: toISO(today) };
     case "7d":
       return { start: toISO(addDays(today, -6)), end: toISO(today) };
     case "14d":
@@ -133,11 +137,13 @@ function formatDateRange(start: string, end: string): string {
   return start === end ? s : `${s} – ${e}`;
 }
 
-function getTriggerLabel(value: DateRangeValue): string {
+function getTriggerLabel(value: DateRangeValue, presets = RANGE_PRESETS): string {
   if (value.rangePreset === "custom") {
     return formatDateRange(value.customStart, value.customEnd) || "Custom";
   }
-  return RANGE_PRESETS.find((p) => p.value === value.rangePreset)?.label ?? "Select range";
+  return presets.find((p) => p.value === value.rangePreset)?.label
+    ?? RANGE_PRESETS.find((p) => p.value === value.rangePreset)?.label
+    ?? "Select range";
 }
 
 function getComparisonLabel(value: DateRangeValue): string {
@@ -285,9 +291,10 @@ interface PanelProps {
   onDraftChange: (d: DateRangeValue) => void;
   onApply: () => void;
   onCancel: () => void;
+  rangePresets?: { value: RangePreset; label: string }[];
 }
 
-function Panel({ mode, draft, onDraftChange, onApply, onCancel }: PanelProps) {
+function Panel({ mode, draft, onDraftChange, onApply, onCancel, rangePresets }: PanelProps) {
   const today = new Date();
   const isRange = mode === "range";
 
@@ -324,7 +331,7 @@ function Panel({ mode, draft, onDraftChange, onApply, onCancel }: PanelProps) {
     }
   }
 
-  const presets = isRange ? RANGE_PRESETS : COMPARISON_PRESETS;
+  const presets = isRange ? (rangePresets ?? RANGE_PRESETS) : COMPARISON_PRESETS;
 
   return (
     <div className="flex flex-col">
@@ -435,6 +442,7 @@ export interface DateRangePickerProps {
   className?: string;
   showComparisonTrigger?: boolean;
   comparisonPlaceholderLabel?: string;
+  rangePresets?: RangePreset[];
 }
 
 export function DateRangePicker({
@@ -443,9 +451,14 @@ export function DateRangePicker({
   className,
   showComparisonTrigger = true,
   comparisonPlaceholderLabel = "None",
+  rangePresets,
 }: DateRangePickerProps) {
   const [openMode, setOpenMode] = useState<"range" | "comparison" | null>(null);
   const [draft, setDraft] = useState<DateRangeValue>(value);
+  const availableRangePresets =
+    rangePresets && rangePresets.length > 0
+      ? RANGE_PRESETS.filter((preset) => rangePresets.includes(preset.value))
+      : RANGE_PRESETS;
 
   function openPanel(mode: "range" | "comparison") {
     setDraft({ ...value });
@@ -462,7 +475,7 @@ export function DateRangePicker({
     setOpenMode(null);
   }
 
-  const rangeLabel = getTriggerLabel(value);
+  const rangeLabel = getTriggerLabel(value, availableRangePresets);
   const compLabel =
     value.comparisonPreset === "none"
       ? comparisonPlaceholderLabel
@@ -502,6 +515,7 @@ export function DateRangePicker({
               onDraftChange={setDraft}
               onApply={handleApply}
               onCancel={handleCancel}
+              rangePresets={availableRangePresets}
             />
           </Popover.Content>
         </Popover.Portal>

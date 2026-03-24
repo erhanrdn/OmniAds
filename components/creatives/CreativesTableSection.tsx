@@ -34,9 +34,11 @@ import { cn } from "@/lib/utils";
 import { useDropdownBehavior } from "@/hooks/use-dropdown-behavior";
 import { getAiCreativeDecisions, type AiCreativeDecision, type AiCreativeDecisionInputRow } from "@/src/services";
 import { createPortal } from "react-dom";
+import { buildHeuristicCreativeDecisions } from "@/lib/ai/generate-creative-decisions";
+import type { AiCreativeHistoricalWindows } from "@/src/services";
 
 type AiSignalAction = AiCreativeDecision["action"];
-const AI_DECISION_ENGINE_VERSION = "2026-03-17-cq-seg-v1";
+const AI_DECISION_ENGINE_VERSION = "2026-03-24-cq-seg-v2";
 
 const AI_SIGNAL_SEGMENTS: Array<{
   key: AiSignalAction;
@@ -184,6 +186,7 @@ interface TablePreset {
 interface CreativesTableSectionProps {
   rows: MetaCreativeRow[];
   businessId?: string;
+  creativeHistoryById?: Map<string, AiCreativeHistoricalWindows>;
   defaultCurrency: string | null;
   selectedMetricIds: string[];
   onSelectedMetricIdsChange: (next: string[]) => void;
@@ -596,6 +599,7 @@ const TABLE_METRIC_CONFIG: Partial<Record<TableColumnKey, TableMetricConfig>> = 
 export function CreativesTableSection({
   rows,
   businessId,
+  creativeHistoryById,
   defaultCurrency,
   selectedMetricIds,
   onSelectedMetricIdsChange,
@@ -730,44 +734,6 @@ export function CreativesTableSection({
     return next;
   }, [ctx, rows, sortState.direction, sortState.key]);
 
-  const heuristicAiDecisions = useMemo((): Map<string, AiSignalAction> => {
-    if (rows.length === 0) return new Map();
-    const roasValues = rows.map((r) => r.roas).filter((v) => Number.isFinite(v) && v >= 0);
-    const spendValues = rows.map((r) => r.spend).filter((v) => Number.isFinite(v) && v > 0);
-    const roasDist = buildDistribution(roasValues);
-    const spendDist = buildDistribution(spendValues);
-    const totals = computeAggregateTotals(rows);
-    const roasBaseline = totals.totalSpend > 0 ? totals.totalPurchaseValue / totals.totalSpend : roasDist.avg;
-    const cvrAvg = totals.totalLinkClicks > 0 ? (totals.totalPurchases / totals.totalLinkClicks) * 100 : 0;
-    const aovAvg = totals.totalPurchases > 0 ? totals.totalPurchaseValue / totals.totalPurchases : 0;
-    const avgConversionQuality = cvrAvg * aovAvg;
-    const spendFloor = Math.max(1, spendDist.p20);
-    const result = new Map<string, AiSignalAction>();
-    for (const row of rows) {
-      const lowSignal = row.spend < spendFloor || row.purchases < 2;
-      const cvr = row.linkClicks > 0 ? (row.purchases / row.linkClicks) * 100 : 0;
-      const aov = row.purchases > 0 ? row.purchaseValue / row.purchases : 0;
-      const conversionQuality = cvr * aov;
-      const conversionQualityRatio = avgConversionQuality > 0 ? conversionQuality / avgConversionQuality : 0;
-      const strongConversionQuality = conversionQualityRatio >= 1.05;
-      const acceptableConversionQuality = conversionQualityRatio >= 0.9;
-      if (lowSignal) {
-        result.set(row.id, "test_more");
-      } else if (roasBaseline > 0 && row.roas >= roasBaseline * 1.45 && row.purchases >= 3 && row.spend >= Math.max(1, spendDist.median) && strongConversionQuality) {
-        result.set(row.id, "scale_hard");
-      } else if (roasBaseline > 0 && row.roas >= roasBaseline * 1.2 && acceptableConversionQuality) {
-        result.set(row.id, "scale");
-      } else if (roasBaseline > 0 && row.roas < roasBaseline * 0.55 && row.spend >= Math.max(1, spendDist.p80) && row.purchases === 0) {
-        result.set(row.id, "kill");
-      } else if (roasBaseline > 0 && row.roas < roasBaseline * 0.75) {
-        result.set(row.id, "pause");
-      } else {
-        result.set(row.id, "watch");
-      }
-    }
-    return result;
-  }, [rows]);
-
   const aiDecisionInputRows = useMemo<AiCreativeDecisionInputRow[]>(
     () =>
       rows.map((row) => {
@@ -797,16 +763,25 @@ export function CreativesTableSection({
           video75Rate: row.video75,
           clickToPurchaseRate: row.clickToPurchase,
           atcToPurchaseRate: row.atcToPurchaseRatio,
+          historicalWindows: creativeHistoryById?.get(row.id) ?? null,
         };
       }),
-    [rows]
+    [creativeHistoryById, rows]
   );
+  const heuristicAiDecisions = useMemo((): Map<string, AiSignalAction> => {
+    if (aiDecisionInputRows.length === 0) return new Map();
+    const result = new Map<string, AiSignalAction>();
+    for (const decision of buildHeuristicCreativeDecisions(aiDecisionInputRows)) {
+      result.set(decision.creativeId, decision.action);
+    }
+    return result;
+  }, [aiDecisionInputRows]);
   const analyzeScopeCount = aiDecisionInputRows.length;
 
   const aiDecisionSignature = useMemo(
     () =>
       aiDecisionInputRows
-        .map((row) => `${row.creativeId}:${row.spend.toFixed(2)}:${row.roas.toFixed(3)}:${row.cpa.toFixed(2)}:${row.hookRate.toFixed(2)}:${row.holdRate.toFixed(2)}`)
+        .map((row) => `${row.creativeId}:${row.spend.toFixed(2)}:${row.roas.toFixed(3)}:${row.cpa.toFixed(2)}:${row.hookRate.toFixed(2)}:${row.holdRate.toFixed(2)}:${row.historicalWindows?.last30?.roas?.toFixed?.(3) ?? "na"}:${row.historicalWindows?.allHistory?.roas?.toFixed?.(3) ?? "na"}`)
         .join("|"),
     [aiDecisionInputRows]
   );

@@ -9,8 +9,8 @@
  *  showMicroBars  boolean (default false)
  *    When true, renders a 3 px relative-spend bar under Spend and Revenue.
  *  columns  "full" | "compact" (default "full")
- *    "full"    — 9 cols: Campaign · Status · Spend · Conv · Revenue · ROAS · CPA · CTR · CPM
- *    "compact" — 6 cols: Campaign · Status · Spend · Revenue · ROAS · CPA
+ *    "full"    — 10 cols: Campaign · Status · Objective · Budget · Spend · Conv · Revenue · ROAS · CPA · CTR · CPM
+ *    "compact" — 7 cols: Campaign · Status · Objective · Budget · Spend · Revenue · ROAS · CPA
  *    Conv, CTR, CPM are still visible in the expanded ad-set sub-table.
  */
 
@@ -59,6 +59,10 @@ export type MetaCampaignTableRow = MetaCampaignData & {
   previousRoas?: number;
   previousCpa?: number;
   previousManualBidAmount?: number | null;
+  laneLabel?: "Scaling" | "Validation" | "Test" | null;
+  recommendationCount?: number;
+  topActionHint?: string | null;
+  isFocused?: boolean;
 };
 
 // ── Formatters ────────────────────────────────────────────────────────────────
@@ -205,6 +209,30 @@ export function StatusBadge({ status }: { status: string }) {
   return (
     <Badge variant="outline" className="text-xs">
       {status.toLowerCase()}
+    </Badge>
+  );
+}
+
+function LaneBadge({ lane }: { lane: "Scaling" | "Validation" | "Test" }) {
+  if (lane === "Scaling") {
+    return (
+      <Badge className="border-0 bg-blue-500/10 text-blue-700 hover:bg-blue-500/15">
+        Scaling
+      </Badge>
+    );
+  }
+
+  if (lane === "Validation") {
+    return (
+      <Badge className="border-0 bg-slate-500/10 text-slate-700 hover:bg-slate-500/15">
+        Validation
+      </Badge>
+    );
+  }
+
+  return (
+    <Badge className="border-0 bg-amber-500/10 text-amber-700 hover:bg-amber-500/15">
+      Test
     </Badge>
   );
 }
@@ -444,7 +472,7 @@ function CampaignRow({
   isCampaignPrevLoading,
 }: CampaignRowProps) {
   const sym = useCurrencySymbol();
-  const colSpan = columns === "compact" ? 7 : 10;
+  const colSpan = columns === "compact" ? 8 : 11;
   const showBudgetOnCampaignRow =
     campaign.budgetLevel === "campaign" &&
     hasBudgetValue(campaign.dailyBudget, campaign.lifetimeBudget);
@@ -520,7 +548,8 @@ function CampaignRow({
   return (
     <>
       <tr
-        className="cursor-pointer border-t transition-colors hover:bg-muted/25"
+        id={`meta-campaign-${campaign.id}`}
+        className={`cursor-pointer border-t transition-colors hover:bg-muted/25 ${campaign.isFocused ? "bg-blue-50/60" : ""}`}
         onClick={onToggle}
       >
         {/* Campaign name */}
@@ -537,6 +566,23 @@ function CampaignRow({
               <div className="truncate font-medium" title={campaign.name}>
                 {campaign.name}
               </div>
+              {(campaign.laneLabel || campaign.recommendationCount) ? (
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  {campaign.laneLabel ? (
+                    <LaneBadge lane={campaign.laneLabel} />
+                  ) : null}
+                  {campaign.recommendationCount ? (
+                    <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      {campaign.recommendationCount} insight{campaign.recommendationCount > 1 ? "s" : ""}
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
+              {campaign.topActionHint ? (
+                <div className="mt-1 truncate text-[11px] text-muted-foreground" title={campaign.topActionHint}>
+                  {campaign.topActionHint}
+                </div>
+              ) : null}
             </div>
           </div>
         </td>
@@ -544,6 +590,16 @@ function CampaignRow({
         {/* Status */}
         <td className="px-3 py-2.5">
           <StatusBadge status={campaign.status} />
+        </td>
+
+        {/* Objective */}
+        <td className="px-3 py-2.5 text-muted-foreground">
+          <div
+            className="truncate"
+            title={renderConfigText(campaign.objective)}
+          >
+            {renderConfigText(campaign.objective)}
+          </div>
         </td>
 
         {/* Budget */}
@@ -740,8 +796,8 @@ export function MetaCampaignTable({
   const maxRevenue = campaigns.reduce((m, c) => Math.max(m, c.revenue), 0);
 
   // Minimum table width so columns never squish below readable size.
-  // compact (7 cols): 820 px · full (10 cols): 1120 px
-  const minW = columns === "compact" ? "min-w-[820px]" : "min-w-[1120px]";
+  // compact (8 cols): 980 px · full (11 cols): 1280 px
+  const minW = columns === "compact" ? "min-w-[980px]" : "min-w-[1280px]";
 
   if (campaigns.length === 0) {
     return (
@@ -760,6 +816,7 @@ export function MetaCampaignTable({
             <tr>
               <th className="px-3 py-2.5">Campaign</th>
               <th className="px-3 py-2.5">Status</th>
+              <th className="px-3 py-2.5">Objective</th>
               <th className="px-3 py-2.5">Budget</th>
               <th className="px-3 py-2.5">Spend</th>
               {columns === "full" && (

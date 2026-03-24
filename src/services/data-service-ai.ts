@@ -82,11 +82,46 @@ export interface AiCreativeDecisionInputRow {
   video75Rate: number;
   clickToPurchaseRate: number;
   atcToPurchaseRate: number;
+  historicalWindows?: AiCreativeHistoricalWindows | null;
+}
+
+export interface AiCreativeHistoricalWindow {
+  spend: number;
+  purchaseValue: number;
+  roas: number;
+  cpa: number;
+  ctr: number;
+  purchases: number;
+  impressions: number;
+  linkClicks: number;
+  hookRate: number;
+  holdRate: number;
+  video25Rate: number;
+  watchRate: number;
+  video75Rate: number;
+  clickToPurchaseRate: number;
+  atcToPurchaseRate: number;
+}
+
+export interface AiCreativeHistoricalWindows {
+  last3?: AiCreativeHistoricalWindow | null;
+  last7?: AiCreativeHistoricalWindow | null;
+  last14?: AiCreativeHistoricalWindow | null;
+  last30?: AiCreativeHistoricalWindow | null;
+  last90?: AiCreativeHistoricalWindow | null;
+  allHistory?: AiCreativeHistoricalWindow | null;
 }
 
 export interface AiCreativeDecision {
   creativeId: string;
   action: "scale_hard" | "scale" | "watch" | "test_more" | "pause" | "kill";
+  lifecycleState?:
+    | "stable_winner"
+    | "emerging_winner"
+    | "volatile"
+    | "fatigued_winner"
+    | "test_only"
+    | "blocked";
   score: number;
   confidence: number;
   scoringFactors: string[];
@@ -112,9 +147,11 @@ export interface CreativeRuleReportPayload {
   creativeId: string;
   creativeName: string;
   action: AiCreativeDecision["action"];
+  lifecycleState?: NonNullable<AiCreativeDecision["lifecycleState"]>;
   score: number;
   confidence: number;
   summary: string;
+  coreVerdict?: string;
   accountContext: {
     roasAvg: number;
     cpaAvg: number;
@@ -122,6 +159,12 @@ export interface CreativeRuleReportPayload {
     spendMedian: number;
     spendP20: number;
     spendP80: number;
+  };
+  timeframeContext?: {
+    coreVerdict: string;
+    selectedRangeOverlay: string;
+    historicalSupport: string;
+    note?: string | null;
   };
   factors: CreativeRuleReportFactor[];
 }

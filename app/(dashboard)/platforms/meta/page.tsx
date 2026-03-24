@@ -23,7 +23,6 @@ import {
   TrendingUp,
   Target,
   BarChart2,
-  Zap,
 } from "lucide-react";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { useAppStore } from "@/store/app-store";
@@ -49,6 +48,9 @@ import { MetaCampaignTable, type MetaCampaignTableRow } from "@/components/meta/
 import { PlacementBreakdownChart } from "@/components/meta/placement-breakdown-chart";
 import { useBusinessIntegrationsBootstrap } from "@/hooks/use-business-integrations-bootstrap";
 import { PlanGate } from "@/components/pricing/PlanGate";
+import { MetaInsightPanel } from "@/components/meta/meta-insight-panel";
+import type { MetaRecommendationsResponse } from "@/lib/meta/recommendations";
+import { buildMetaCampaignLaneSignals } from "@/lib/meta/campaign-lanes";
 
 // ── Data fetchers ─────────────────────────────────────────────────────────────
 
@@ -86,6 +88,22 @@ async function fetchMetaBreakdowns(
       payload?.message ?? `Request failed (${res.status})`
     );
   return payload as MetaBreakdownsResponse;
+}
+
+async function fetchMetaRecommendations(
+  businessId: string,
+  startDate: string,
+  endDate: string
+): Promise<MetaRecommendationsResponse> {
+  const params = new URLSearchParams({ businessId, startDate, endDate });
+  const res = await fetch(`/api/meta/recommendations?${params.toString()}`, {
+    headers: { Accept: "application/json" },
+  });
+  const payload = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error(payload?.message ?? `Request failed (${res.status})`);
+  }
+  return payload as MetaRecommendationsResponse;
 }
 
 // ── Formatters ────────────────────────────────────────────────────────────────
@@ -484,6 +502,7 @@ export default function MetaPage() {
   );
 
   const [dateRange, setDateRange] = usePersistentDateRange();
+  const [focusedCampaignId, setFocusedCampaignId] = useState<string | null>(null);
 
   if (!selectedBusinessId) return <BusinessEmptyState />;
 
@@ -545,6 +564,20 @@ export default function MetaPage() {
     queryFn: () => fetchMetaBreakdowns(businessId, startDate, endDate),
   });
 
+  const recommendationsQuery = useQuery({
+    queryKey: ["meta-recommendations-v8", businessId, startDate, endDate],
+    enabled: metaConnected && campaignsQuery.isSuccess,
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => fetchMetaRecommendations(businessId, startDate, endDate),
+  });
+
+  useEffect(() => {
+    if (!focusedCampaignId) return;
+    const row = document.getElementById(`meta-campaign-${focusedCampaignId}`);
+    if (!row) return;
+    row.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [focusedCampaignId]);
+
   const comparisonCampaignsQuery = useQuery({
     queryKey: [
       "meta-campaigns-compare",
@@ -574,12 +607,36 @@ export default function MetaPage() {
 
   const campaignRowsForTable = useMemo<MetaCampaignTableRow[]>(() => {
     const rows = campaignsQuery.data?.rows ?? [];
+    const laneById = buildMetaCampaignLaneSignals(rows);
+    const recommendationMetaById = new Map<
+      string,
+      { count: number; topActionHint: string | null }
+    >();
+    for (const recommendation of recommendationsQuery.data?.recommendations ?? []) {
+      if (!recommendation.campaignId) continue;
+      const existing = recommendationMetaById.get(recommendation.campaignId);
+      if (!existing) {
+        recommendationMetaById.set(recommendation.campaignId, {
+          count: 1,
+          topActionHint: recommendation.title,
+        });
+        continue;
+      }
+      recommendationMetaById.set(recommendation.campaignId, {
+        count: existing.count + 1,
+        topActionHint: existing.topActionHint ?? recommendation.title,
+      });
+    }
     const prevConfigById = new Map(
       (campaignPrevQuery.data?.rows ?? []).map((row) => [row.id, row])
     );
     if (!comparisonWindow || !comparisonCampaignsQuery.data?.rows?.length) {
       return rows.map((row) => ({
         ...row,
+        laneLabel: laneById.get(row.id)?.lane ?? null,
+        recommendationCount: recommendationMetaById.get(row.id)?.count ?? 0,
+        topActionHint: recommendationMetaById.get(row.id)?.topActionHint ?? null,
+        isFocused: focusedCampaignId === row.id,
         previousManualBidAmount: prevConfigById.get(row.id)?.previousManualBidAmount ?? row.previousManualBidAmount,
         previousBidValue: prevConfigById.get(row.id)?.previousBidValue ?? row.previousBidValue,
         previousBidValueFormat: prevConfigById.get(row.id)?.previousBidValueFormat ?? row.previousBidValueFormat,
@@ -601,6 +658,10 @@ export default function MetaPage() {
       const prev = previousById.get(row.id);
       return {
         ...row,
+        laneLabel: laneById.get(row.id)?.lane ?? null,
+        recommendationCount: recommendationMetaById.get(row.id)?.count ?? 0,
+        topActionHint: recommendationMetaById.get(row.id)?.topActionHint ?? null,
+        isFocused: focusedCampaignId === row.id,
         previousManualBidAmount: prevConfigById.get(row.id)?.previousManualBidAmount ?? row.previousManualBidAmount,
         previousBidValue: prevConfigById.get(row.id)?.previousBidValue ?? row.previousBidValue,
         previousBidValueFormat: prevConfigById.get(row.id)?.previousBidValueFormat ?? row.previousBidValueFormat,
@@ -617,7 +678,14 @@ export default function MetaPage() {
         previousCpa: prev?.cpa,
       };
     });
-  }, [campaignPrevQuery.data?.rows, campaignsQuery.data?.rows, comparisonCampaignsQuery.data?.rows, comparisonWindow]);
+  }, [
+    campaignPrevQuery.data?.rows,
+    campaignsQuery.data?.rows,
+    comparisonCampaignsQuery.data?.rows,
+    comparisonWindow,
+    focusedCampaignId,
+    recommendationsQuery.data?.recommendations,
+  ]);
 
   return (
     <PlanGate requiredPlan="growth">
@@ -631,7 +699,11 @@ export default function MetaPage() {
           </p>
         </div>
         <div className="shrink-0 rounded-xl border bg-card p-1 shadow-sm">
-          <DateRangePicker value={dateRange} onChange={setDateRange} />
+          <DateRangePicker
+            value={dateRange}
+            onChange={setDateRange}
+            rangePresets={["3d", "7d", "14d", "30d", "90d", "custom"]}
+          />
         </div>
       </div>
 
@@ -731,18 +803,13 @@ export default function MetaPage() {
           </div>
 
           {/* ── AI Insights ───────────────────────────────────────────────── */}
-          <div className="flex items-center gap-3 rounded-xl border bg-card px-4 py-3 shadow-sm">
-            <div className="shrink-0 rounded-lg bg-violet-500/10 p-2">
-              <Zap className="h-4 w-4 text-violet-600" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold">AI Insights</p>
-              <p className="text-xs text-muted-foreground">
-                Adsecute will surface creative, audience, and budget signals
-                once enough synced Meta performance data is available.
-              </p>
-            </div>
-          </div>
+          <MetaInsightPanel
+            data={recommendationsQuery.data}
+            isLoading={recommendationsQuery.isLoading}
+            isError={recommendationsQuery.isError}
+            onRetry={() => recommendationsQuery.refetch()}
+            onOpenCampaign={setFocusedCampaignId}
+          />
 
           {/* ── Campaign table — full width ──────────────────────────────── */}
           <div className="space-y-2">

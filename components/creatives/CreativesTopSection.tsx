@@ -1217,7 +1217,9 @@ function PreviewStrip({
       <div className="rounded-xl border border-dashed bg-muted/10 px-4 py-5">
         <p className="text-sm font-medium text-foreground">Preview cards unavailable for this selection</p>
         <p className="mt-1 text-xs text-muted-foreground">
-          {previewStripSummary?.missing
+          {previewStripSummary?.total === 0
+            ? "No creatives are available for the selected range yet, so preview cards cannot be prepared."
+            : previewStripSummary?.missing
             ? `${previewStripSummary.missing} selected creatives do not have a usable preview from Meta right now.`
             : "Meta did not return usable preview media for the current top creatives."}
         </p>

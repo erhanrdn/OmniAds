@@ -7,6 +7,7 @@ import {
   CREATIVE_DECISION_ENGINE_VERSION,
   type CreativeDecisionResult,
   type CreativeDecisionInputRow,
+  type CreativeDecisionHistoricalWindows,
 } from "@/lib/ai/generate-creative-decisions";
 
 interface RequestPayload {
@@ -42,6 +43,41 @@ function normalizeRows(rows: unknown): CreativeDecisionInputRow[] {
         source.creativeFormat === "image"
           ? source.creativeFormat
           : "image";
+      const historicalWindowsSource =
+        source.historicalWindows && typeof source.historicalWindows === "object"
+          ? (source.historicalWindows as Record<string, unknown>)
+          : null;
+      const normalizeWindow = (value: unknown) => {
+        if (!value || typeof value !== "object") return null;
+        const window = value as Record<string, unknown>;
+        return {
+          spend: toFinite(window.spend),
+          purchaseValue: toFinite(window.purchaseValue),
+          roas: toFinite(window.roas),
+          cpa: toFinite(window.cpa),
+          ctr: toFinite(window.ctr),
+          purchases: toFinite(window.purchases),
+          impressions: toFinite(window.impressions),
+          linkClicks: toFinite(window.linkClicks),
+          hookRate: toFinite(window.hookRate),
+          holdRate: toFinite(window.holdRate),
+          video25Rate: toFinite(window.video25Rate),
+          watchRate: toFinite(window.watchRate),
+          video75Rate: toFinite(window.video75Rate),
+          clickToPurchaseRate: toFinite(window.clickToPurchaseRate),
+          atcToPurchaseRate: toFinite(window.atcToPurchaseRate),
+        };
+      };
+      const historicalWindows: CreativeDecisionHistoricalWindows | null = historicalWindowsSource
+        ? {
+            last3: normalizeWindow(historicalWindowsSource.last3),
+            last7: normalizeWindow(historicalWindowsSource.last7),
+            last14: normalizeWindow(historicalWindowsSource.last14),
+            last30: normalizeWindow(historicalWindowsSource.last30),
+            last90: normalizeWindow(historicalWindowsSource.last90),
+            allHistory: normalizeWindow(historicalWindowsSource.allHistory),
+          }
+        : null;
       return {
         creativeId,
         name: typeof source.name === "string" ? source.name : "Creative",
@@ -66,6 +102,7 @@ function normalizeRows(rows: unknown): CreativeDecisionInputRow[] {
         video75Rate: toFinite(source.video75Rate),
         clickToPurchaseRate: toFinite(source.clickToPurchaseRate),
         atcToPurchaseRate: toFinite(source.atcToPurchaseRate),
+        historicalWindows,
       };
     });
   return normalized.filter((row): row is CreativeDecisionInputRow => Boolean(row));
@@ -102,6 +139,15 @@ function normalizeDecisionArray(value: unknown): CreativeDecisionResult[] {
       return {
         creativeId: source.creativeId,
         action,
+        lifecycleState:
+          source.lifecycleState === "stable_winner" ||
+          source.lifecycleState === "emerging_winner" ||
+          source.lifecycleState === "volatile" ||
+          source.lifecycleState === "fatigued_winner" ||
+          source.lifecycleState === "test_only" ||
+          source.lifecycleState === "blocked"
+            ? source.lifecycleState
+            : undefined,
         score:
           typeof source.score === "number" && Number.isFinite(source.score)
             ? Math.max(0, Math.min(100, Math.round(source.score)))
