@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Lock } from "lucide-react";
-import { usePlan } from "@/lib/pricing/usePlan";
+import { usePlanState } from "@/lib/pricing/usePlan";
 import { planRank } from "@/lib/pricing/usePlanLimits";
 import { PRICING_PLANS, type PlanId } from "@/lib/pricing/plans";
 import { useAppStore } from "@/store/app-store";
@@ -21,10 +21,18 @@ interface Props {
 }
 
 export function PlanGate({ requiredPlan, children }: Props) {
-  const currentPlan = usePlan();
+  const { plan: currentPlan, isLoading: isPlanLoading, isReady: isPlanReady } = usePlanState();
   const selectedBusinessId = useAppStore((s) => s.selectedBusinessId);
   const businesses = useAppStore((s) => s.businesses);
   const isDemo = isDemoBusinessSelected(selectedBusinessId, businesses);
+
+  if (!selectedBusinessId || isPlanLoading || !isPlanReady) {
+    return (
+      <div className="flex min-h-[60vh] flex-1 items-center justify-center">
+        <div className="text-sm text-muted-foreground">Loading workspace…</div>
+      </div>
+    );
+  }
 
   if (isDemo || planRank(currentPlan) >= planRank(requiredPlan)) {
     return <>{children}</>;

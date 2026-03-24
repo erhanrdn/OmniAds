@@ -92,7 +92,7 @@ export interface MetaAdSetsResponse {
   rows: MetaAdSetData[];
 }
 
-const META_ADSETS_REPORT_VERSION = "v12";
+const META_ADSETS_REPORT_VERSION = "v14";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;

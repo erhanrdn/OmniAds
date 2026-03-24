@@ -237,10 +237,20 @@ function AdSetSubTable({
   rows,
   showBudgetOnCampaignRow,
   isPrevLoading,
+  campaignBidValue,
+  campaignBidValueFormat,
+  campaignPreviousBidValue,
+  campaignPreviousBidValueFormat,
+  campaignPreviousBidValueCapturedAt,
 }: {
   rows: MetaAdSetData[];
   showBudgetOnCampaignRow: boolean;
   isPrevLoading: boolean;
+  campaignBidValue: number | null | undefined;
+  campaignBidValueFormat: "currency" | "roas" | null | undefined;
+  campaignPreviousBidValue: number | null | undefined;
+  campaignPreviousBidValueFormat: "currency" | "roas" | null | undefined;
+  campaignPreviousBidValueCapturedAt: string | null | undefined;
 }) {
   const sym = useCurrencySymbol();
   if (rows.length === 0) {
@@ -278,6 +288,28 @@ function AdSetSubTable({
         </thead>
         <tbody>
           {rows.map((adset) => (
+            (() => {
+              const effectiveBidValue =
+                adset.bidValue ??
+                (adset.bidStrategyType === "target_roas" ? campaignBidValue ?? null : null);
+              const effectiveBidValueFormat =
+                adset.bidValueFormat ??
+                (adset.bidStrategyType === "target_roas" ? campaignBidValueFormat ?? null : null);
+              const effectivePreviousBidValue =
+                adset.previousBidValue ??
+                (adset.bidStrategyType === "target_roas" ? campaignPreviousBidValue ?? null : null);
+              const effectivePreviousBidValueFormat =
+                adset.previousBidValueFormat ??
+                (adset.bidStrategyType === "target_roas"
+                  ? campaignPreviousBidValueFormat ?? campaignBidValueFormat ?? null
+                  : null);
+              const effectivePreviousBidValueCapturedAt =
+                adset.previousBidValueCapturedAt ??
+                (adset.bidStrategyType === "target_roas"
+                  ? campaignPreviousBidValueCapturedAt ?? null
+                  : null);
+
+              return (
             <tr
               key={adset.id}
               className="border-t transition-colors hover:bg-indigo-500/[0.07]"
@@ -336,24 +368,24 @@ function AdSetSubTable({
               </td>
               <td className="px-3 py-2 text-right text-muted-foreground">
                 <div className="tabular-nums">
-                  {renderBidValueText(adset.bidValue, adset.bidValueFormat, adset.isBidValueMixed, sym)}
+                  {renderBidValueText(effectiveBidValue, effectiveBidValueFormat, adset.isBidValueMixed, sym)}
                 </div>
-                {typeof adset.previousBidValue === "number" && !adset.isBidValueMixed && (
+                {typeof effectivePreviousBidValue === "number" && !adset.isBidValueMixed && (
                   <div className="text-[10px] tabular-nums text-muted-foreground">
                     prev {fmtBidValue(
-                      adset.previousBidValue,
-                      adset.previousBidValueFormat ?? adset.bidValueFormat,
+                      effectivePreviousBidValue,
+                      effectivePreviousBidValueFormat ?? effectiveBidValueFormat,
                       sym
                     )}
-                    {formatRelativeAge(adset.previousBidValueCapturedAt)
-                      ? ` · ${formatRelativeAge(adset.previousBidValueCapturedAt)}`
+                    {formatRelativeAge(effectivePreviousBidValueCapturedAt)
+                      ? ` · ${formatRelativeAge(effectivePreviousBidValueCapturedAt)}`
                       : ""}
                   </div>
                 )}
-                {typeof adset.previousBidValue !== "number" &&
+                {typeof effectivePreviousBidValue !== "number" &&
                   !adset.isBidValueMixed &&
                   isPrevLoading &&
-                  typeof adset.bidValue === "number" && (
+                  typeof effectiveBidValue === "number" && (
                     <div className="text-[10px] text-muted-foreground">
                       fetching…
                     </div>
@@ -373,6 +405,8 @@ function AdSetSubTable({
               </td>
               <td className="px-3 py-2 text-right tabular-nums">{fmt$(adset.cpm, sym)}</td>
             </tr>
+              );
+            })()
           ))}
         </tbody>
       </table>
@@ -463,6 +497,14 @@ function CampaignRow({
       const prev = prevById.get(row.id);
       return {
         ...row,
+        optimizationGoal: prev?.optimizationGoal ?? row.optimizationGoal,
+        bidStrategyType: prev?.bidStrategyType ?? row.bidStrategyType,
+        bidStrategyLabel: prev?.bidStrategyLabel ?? row.bidStrategyLabel,
+        manualBidAmount: prev?.manualBidAmount ?? row.manualBidAmount,
+        bidValue: prev?.bidValue ?? row.bidValue,
+        bidValueFormat: prev?.bidValueFormat ?? row.bidValueFormat,
+        dailyBudget: prev?.dailyBudget ?? row.dailyBudget,
+        lifetimeBudget: prev?.lifetimeBudget ?? row.lifetimeBudget,
         previousManualBidAmount: prev?.previousManualBidAmount ?? row.previousManualBidAmount,
         previousBidValue: prev?.previousBidValue ?? row.previousBidValue,
         previousBidValueFormat: prev?.previousBidValueFormat ?? row.previousBidValueFormat,
@@ -661,6 +703,11 @@ function CampaignRow({
                 rows={mergedAdSetRows}
                 showBudgetOnCampaignRow={showBudgetOnCampaignRow}
                 isPrevLoading={adSetsPrevQuery.isLoading || adSetsPrevQuery.isFetching}
+                campaignBidValue={campaign.bidValue}
+                campaignBidValueFormat={campaign.bidValueFormat}
+                campaignPreviousBidValue={campaign.previousBidValue}
+                campaignPreviousBidValueFormat={campaign.previousBidValueFormat}
+                campaignPreviousBidValueCapturedAt={campaign.previousBidValueCapturedAt}
               />
             )}
           </td>

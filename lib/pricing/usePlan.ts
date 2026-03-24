@@ -12,14 +12,30 @@ async function fetchPlan(businessId: string): Promise<PlanId> {
 }
 
 export function usePlan(): PlanId {
-  const businessId = useAppStore((s) => s.selectedBusinessId);
+  return usePlanState().plan;
+}
 
-  const { data } = useQuery({
+export function usePlanState(): {
+  plan: PlanId;
+  isLoading: boolean;
+  isReady: boolean;
+} {
+  const businessId = useAppStore((s) => s.selectedBusinessId);
+  const hasHydrated = useAppStore((s) => s.hasHydrated);
+  const authBootstrapStatus = useAppStore((s) => s.authBootstrapStatus);
+
+  const { data, isLoading, isFetching } = useQuery({
     queryKey: ["plan", businessId],
     queryFn: () => fetchPlan(businessId!),
-    enabled: Boolean(businessId),
+    enabled: Boolean(businessId) && hasHydrated && authBootstrapStatus === "ready",
     staleTime: 5 * 60 * 1000,
   });
 
-  return data ?? "starter";
+  const queryReady = Boolean(businessId) && hasHydrated && authBootstrapStatus === "ready";
+
+  return {
+    plan: data ?? "starter",
+    isLoading: !queryReady || isLoading || isFetching || !data,
+    isReady: queryReady && Boolean(data),
+  };
 }

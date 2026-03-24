@@ -601,7 +601,7 @@ export async function getAdSets(
         const statusMap = new Map<string, RawAdSet>(
           statusRows.map((a) => [a.id, a])
         );
-        const [latestSnapshots, previousDiffs, previousCampaignDiffs] = businessId
+        const [latestSnapshots, latestCampaignSnapshots, previousDiffs, previousCampaignDiffs] = businessId
           ? await Promise.all([
               readLatestMetaConfigSnapshots({
                 businessId,
@@ -612,6 +612,11 @@ export async function getAdSets(
                     ...(insightJson.data ?? []).map((adset) => adset.adset_id ?? "").filter(Boolean),
                   ])
                 ),
+              }),
+              readLatestMetaConfigSnapshots({
+                businessId,
+                entityLevel: "campaign",
+                entityIds: [campaignId],
               }),
               includePrev
                 ? readPreviousDifferentMetaConfigDiffs({
@@ -633,7 +638,7 @@ export async function getAdSets(
                   })
                 : Promise.resolve(new Map()),
             ])
-          : [new Map(), new Map(), new Map()];
+          : [new Map(), new Map(), new Map(), new Map()];
 
         for (const insight of insightJson.data ?? []) {
           if (insight.campaign_id !== campaignId) continue;
@@ -641,6 +646,7 @@ export async function getAdSets(
           const adsetId = insight.adset_id ?? "";
           const meta = statusMap.get(adsetId);
           const latestSnapshot = latestSnapshots.get(adsetId);
+          const latestCampaignSnapshot = latestCampaignSnapshots.get(campaignId);
           const campaignConfig = campaignConfigs.get(campaignId) ?? null;
           const previousDiff = previousDiffs.get(adsetId);
           const previousCampaignDiff = previousCampaignDiffs.get(campaignId);
@@ -658,6 +664,7 @@ export async function getAdSets(
           const effectiveBidStrategy =
             meta?.bid_strategy ??
             latestSnapshot?.bidStrategyType ??
+            latestCampaignSnapshot?.bidStrategyType ??
             campaignConfig?.bid_strategy ??
             null;
           const effectiveManualBid =
@@ -665,14 +672,19 @@ export async function getAdSets(
               ? parseNum(meta.bid_amount)
               : latestSnapshot?.manualBidAmount != null
                 ? latestSnapshot.manualBidAmount
+              : latestCampaignSnapshot?.manualBidAmount != null
+                ? latestCampaignSnapshot.manualBidAmount
               : campaignConfig?.bid_amount != null
                 ? parseNum(campaignConfig.bid_amount)
                 : null;
           const effectiveTargetRoas =
             meta?.bid_constraints?.roas_average_floor != null
               ? parseNum(meta.bid_constraints.roas_average_floor)
-              : latestSnapshot?.bidValueFormat === "roas" && latestSnapshot.bidValue != null
+            : latestSnapshot?.bidValueFormat === "roas" && latestSnapshot.bidValue != null
                 ? latestSnapshot.bidValue
+              : latestCampaignSnapshot?.bidValueFormat === "roas" &&
+                  latestCampaignSnapshot.bidValue != null
+                ? latestCampaignSnapshot.bidValue
               : campaignConfig?.bid_constraints?.roas_average_floor != null
                 ? parseNum(campaignConfig.bid_constraints.roas_average_floor)
                 : null;
@@ -681,6 +693,8 @@ export async function getAdSets(
               ? parseNum(meta.daily_budget)
               : latestSnapshot?.dailyBudget != null
                 ? latestSnapshot.dailyBudget
+              : latestCampaignSnapshot?.dailyBudget != null
+                ? latestCampaignSnapshot.dailyBudget
               : campaignConfig?.daily_budget != null
                 ? parseNum(campaignConfig.daily_budget)
                 : null;
@@ -689,12 +703,18 @@ export async function getAdSets(
               ? parseNum(meta.lifetime_budget)
               : latestSnapshot?.lifetimeBudget != null
                 ? latestSnapshot.lifetimeBudget
+              : latestCampaignSnapshot?.lifetimeBudget != null
+                ? latestCampaignSnapshot.lifetimeBudget
               : campaignConfig?.lifetime_budget != null
                 ? parseNum(campaignConfig.lifetime_budget)
                 : null;
           const config = buildConfigSnapshotPayload({
             campaignId,
-            optimizationGoal: meta?.optimization_goal ?? latestSnapshot?.optimizationGoal ?? null,
+            optimizationGoal:
+              meta?.optimization_goal ??
+              latestSnapshot?.optimizationGoal ??
+              latestCampaignSnapshot?.optimizationGoal ??
+              null,
             bidStrategy: effectiveBidStrategy,
             manualBidAmount: effectiveManualBid,
             targetRoas: effectiveTargetRoas,
