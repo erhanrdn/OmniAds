@@ -38,6 +38,7 @@ export async function fetchSettingsAccount() {
         user?: {
           name?: string;
           email?: string;
+          language?: "en" | "tr";
           createdAt?: string;
         };
         message?: string;

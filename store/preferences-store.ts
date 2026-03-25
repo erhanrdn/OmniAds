@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import type { DateRangeValue } from "@/components/date-range/DateRangePicker";
 import type { CreativeDateRangeValue } from "@/components/creatives/CreativesTopSection";
+import { syncLanguageCookie, type AppLanguage } from "@/lib/i18n";
 import {
   appendUniqueMetric,
   dedupeMetricKeys,
@@ -13,8 +14,10 @@ import {
 export type ReportDateRangePreference = "7d" | "14d" | "30d" | "90d";
 export type MetricDisplayPreference = "compact" | "detailed";
 export type TableDensityPreference = "comfortable" | "compact";
+export type AppLanguagePreference = AppLanguage;
 
 interface PreferencesState {
+  language: AppLanguagePreference;
   defaultDateRange: ReportDateRangePreference;
   metricDisplay: MetricDisplayPreference;
   tableDensity: TableDensityPreference;
@@ -23,6 +26,7 @@ interface PreferencesState {
   // Persistent date range selections per surface
   dashboardDateRange: DateRangeValue | null;
   creativeDateRange: CreativeDateRangeValue | null;
+  setLanguage: (value: AppLanguagePreference) => void;
   setDashboardDateRange: (value: DateRangeValue) => void;
   setCreativeDateRange: (value: CreativeDateRangeValue) => void;
   setDefaultDateRange: (value: ReportDateRangePreference) => void;
@@ -39,6 +43,7 @@ interface PreferencesState {
 export const usePreferencesStore = create<PreferencesState>()(
   persist(
     (set) => ({
+      language: "en",
       defaultDateRange: "30d",
       metricDisplay: "detailed",
       tableDensity: "comfortable",
@@ -46,6 +51,10 @@ export const usePreferencesStore = create<PreferencesState>()(
       overviewPinsByContext: {},
       dashboardDateRange: null,
       creativeDateRange: null,
+      setLanguage: (value) => {
+        syncLanguageCookie(value);
+        set({ language: value });
+      },
       setDashboardDateRange: (value) => set({ dashboardDateRange: value }),
       setCreativeDateRange: (value) => set({ creativeDateRange: value }),
       setDefaultDateRange: (value) => set({ defaultDateRange: value }),

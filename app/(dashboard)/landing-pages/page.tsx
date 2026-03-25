@@ -4,6 +4,7 @@ import { useDeferredValue, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Search } from "lucide-react";
 import { useAppStore } from "@/store/app-store";
+import { usePreferencesStore } from "@/store/preferences-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
 import { buildDefaultProviderDomains, deriveProviderViewState } from "@/store/integrations-support";
 import { isDemoBusinessSelected } from "@/lib/business-mode";
@@ -71,6 +72,7 @@ function formatAnalyticsErrorMessage(error: unknown, fallback: string): string {
 }
 
 export default function LandingPagesPage() {
+  const language = usePreferencesStore((state) => state.language);
   const businesses = useAppStore((state) => state.businesses);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const businessId = selectedBusinessId ?? "";
@@ -138,8 +140,8 @@ export default function LandingPagesPage() {
   }, [deferredSearchTerm, query.data?.rows, sort]);
 
   const summaryCards = useMemo(
-    () => (query.data ? buildSummaryCards(query.data.summary, selectedBusinessCurrency) : []),
-    [query.data, selectedBusinessCurrency]
+    () => (query.data ? buildSummaryCards(query.data.summary, selectedBusinessCurrency, language) : []),
+    [language, query.data, selectedBusinessCurrency]
   );
 
   if (!selectedBusinessId) return <BusinessEmptyState />;
@@ -160,8 +162,8 @@ export default function LandingPagesPage() {
         <IntegrationEmptyState
           providerLabel="GA4"
           status={ga4View.status === "action_required" ? "error" : "disconnected"}
-          title="Connect GA4 to unlock landing page funnel analysis"
-          description="Landing page performance is powered by your GA4 property. Connect GA4 and select a property to inspect your purchase funnel by page."
+          title={language === "tr" ? "Landing page funnel analizini acmak icin GA4 baglayin" : "Connect GA4 to unlock landing page funnel analysis"}
+          description={language === "tr" ? "Landing page performansi GA4 property'nizle calisir. Sayfa bazinda purchase funnel incelemek icin GA4 baglayin ve bir property secin." : "Landing page performance is powered by your GA4 property. Connect GA4 and select a property to inspect your purchase funnel by page."}
         />
       </div>
     );
@@ -176,13 +178,13 @@ export default function LandingPagesPage() {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="max-w-2xl">
               <p className="text-xs font-semibold uppercase tracking-[0.26em] text-sky-700">
-                Landing Page Performance
+                {language === "tr" ? "Landing Page Performance" : "Landing Page Performance"}
               </p>
               <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
-                GA4 funnel diagnostics from session entry to completed purchase
+                {language === "tr" ? "GA4 funnel diagnostigi: oturum girisinden tamamlanan purchase'a" : "GA4 funnel diagnostics from session entry to completed purchase"}
               </h2>
               <p className="mt-2 text-sm leading-6 text-slate-600">
-                Rebuilt on top of the creatives page structure: summary cards, sortable funnel table, and a detailed drawer with AI analysis for each landing page.
+                {language === "tr" ? "Creatives sayfa yapisi uzerine yeniden kuruldu: ozet kartlari, siralanabilir funnel tablo ve her landing page icin AI analizli detay drawer." : "Rebuilt on top of the creatives page structure: summary cards, sortable funnel table, and a detailed drawer with AI analysis for each landing page."}
               </p>
             </div>
 
@@ -193,7 +195,7 @@ export default function LandingPagesPage() {
                 <input
                   value={searchTerm}
                   onChange={(event) => setSearchTerm(event.target.value)}
-                  placeholder="Search page path"
+                  placeholder={language === "tr" ? "Sayfa yolunda ara" : "Search page path"}
                   className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-sky-300"
                 />
               </label>
@@ -207,7 +209,7 @@ export default function LandingPagesPage() {
           <ErrorState
             description={formatAnalyticsErrorMessage(
               query.error,
-              "Failed to load landing page performance."
+              language === "tr" ? "Landing page performansi yuklenemedi." : "Failed to load landing page performance."
             )}
             onRetry={() => query.refetch()}
           />

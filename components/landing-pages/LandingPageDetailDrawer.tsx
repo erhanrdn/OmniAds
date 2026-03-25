@@ -16,6 +16,8 @@ import {
   formatLandingPageActionLabel,
   formatLandingPageArchetypeLabel,
 } from "@/lib/landing-pages/rule-engine";
+import { getTranslations } from "@/lib/i18n";
+import { usePreferencesStore } from "@/store/preferences-store";
 import { getLandingPageAiCommentary } from "@/src/services";
 import type { LandingPagePerformanceRow } from "@/src/types/landing-pages";
 import {
@@ -42,13 +44,15 @@ export function LandingPageDetailDrawer({
   onOpenChange,
 }: LandingPageDetailDrawerProps) {
   const [aiAnalysisRequested, setAiAnalysisRequested] = useState(false);
+  const language = usePreferencesStore((state) => state.language);
+  const t = getTranslations(language).landingPages;
   const aiReport = row
     ? {
         ...toAiReport(row),
         url: resolveLandingPageAbsoluteUrl(row.path, siteBaseUrl),
       }
     : null;
-  const ruleReport = row ? buildLandingPageRuleReport(row) : null;
+  const ruleReport = row ? buildLandingPageRuleReport(row, language) : null;
 
   useEffect(() => {
     if (!open) {
@@ -88,68 +92,68 @@ export function LandingPageDetailDrawer({
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
-                        AI Insight
+                        {t.aiInsight}
                       </p>
                       <h3 className="mt-1 text-[17px] font-semibold text-slate-950">
-                        {ruleHeadline(ruleReport.action)}
+                        {ruleHeadline(ruleReport.action, language)}
                       </h3>
                     </div>
-                    <DecisionBadge action={ruleReport.action} />
+                    <DecisionBadge action={ruleReport.action} language={language} />
                   </div>
 
                   <p className="mt-2.5 text-sm leading-6 text-slate-700">{ruleReport.summary}</p>
 
                   <div className="mt-3 grid grid-cols-2 gap-2 xl:grid-cols-4">
-                    <CompactMetricCell label="Decision score" value={`${ruleReport.score}/100`} />
+                    <CompactMetricCell label={t.decisionScore} value={`${ruleReport.score}/100`} />
                     <CompactMetricCell
-                      label="Confidence"
+                      label={t.confidence}
                       value={`${Math.round(ruleReport.confidence * 100)}%`}
                     />
                     <CompactMetricCell
-                      label="Page type"
-                      value={formatLandingPageArchetypeLabel(ruleReport.archetype)}
+                      label={t.pageType}
+                      value={formatLandingPageArchetypeLabel(ruleReport.archetype, language)}
                     />
                     <CompactMetricCell
-                      label="Primary leak"
-                      value={getDropOffLabel(ruleReport.primaryLeak)}
+                      label={t.primaryLeak}
+                      value={getDropOffLabel(ruleReport.primaryLeak, language)}
                     />
                   </div>
 
                   <div className="mt-3 grid gap-3 xl:grid-cols-2">
-                    <ListBlock title="Strengths" items={ruleReport.strengths} emptyText="No strong advantages stand out yet." />
-                    <ListBlock title="Issues" items={ruleReport.issues} emptyText="No single issue dominates this page right now." />
+                    <ListBlock title={t.strengths} items={ruleReport.strengths} emptyText={t.noStrongAdvantages} />
+                    <ListBlock title={t.issues} items={ruleReport.issues} emptyText={t.noDominantIssue} />
                   </div>
 
                   <div className="mt-3 grid gap-3 xl:grid-cols-2">
-                    <ListBlock title="Priority actions" items={ruleReport.actions} ordered />
-                    <ListBlock title="Risks" items={ruleReport.risks} emptyText="No unusual risks surfaced beyond normal optimization variance." />
+                    <ListBlock title={t.priorityActions} items={ruleReport.actions} ordered />
+                    <ListBlock title={t.risks} items={ruleReport.risks} emptyText={t.noUnusualRisks} />
                   </div>
 
                   <div className="mt-3 grid gap-2.5 md:grid-cols-2 xl:grid-cols-3">
                     <ScorePill
-                      label="Traffic quality"
+                      label={t.trafficQuality}
                       value={ruleReport.scoreBreakdown.trafficQuality}
-                      description="Measures engagement depth and browsing quality."
+                      description={t.trafficQualityDescription}
                     />
                     <ScorePill
-                      label="Discovery"
+                      label={t.discovery}
                       value={ruleReport.scoreBreakdown.discovery}
-                      description="Shows how well sessions move into product exploration."
+                      description={t.discoveryDescription}
                     />
                     <ScorePill
-                      label="Intent"
+                      label={t.intent}
                       value={ruleReport.scoreBreakdown.intent}
-                      description="Shows whether product views turn into add-to-cart intent."
+                      description={t.intentDescription}
                     />
                     <ScorePill
-                      label="Checkout"
+                      label={t.checkout}
                       value={ruleReport.scoreBreakdown.checkout}
-                      description="Captures momentum from cart into completed checkout."
+                      description={t.checkoutDescription}
                     />
                     <ScorePill
-                      label="Revenue efficiency"
+                      label={t.revenueEfficiency}
                       value={ruleReport.scoreBreakdown.revenueEfficiency}
-                      description="Combines purchase efficiency with order value quality."
+                      description={t.revenueEfficiencyDescription}
                     />
                   </div>
                 </section>
@@ -160,10 +164,10 @@ export function LandingPageDetailDrawer({
                   <Sparkles className="h-4 w-4 text-sky-600" />
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
-                      UX Audit
+                      {t.uxAudit}
                     </p>
                     <p className="mt-1 text-sm text-slate-600">
-                      UX findings, friction points, and improvement opportunities for this landing page.
+                      {t.uxAuditDescription}
                     </p>
                   </div>
                 </div>
@@ -171,7 +175,7 @@ export function LandingPageDetailDrawer({
                 {!aiAnalysisRequested ? (
                   <div className="space-y-3">
                     <p className="text-sm text-slate-600">
-                      Run AI when you want a focused UX audit for this landing page.
+                      {t.runAuditPrompt}
                     </p>
                     <Button
                       type="button"
@@ -182,7 +186,7 @@ export function LandingPageDetailDrawer({
                       }}
                       className="border-sky-300 bg-sky-50 text-sky-700 hover:bg-sky-100 hover:text-sky-800"
                     >
-                      Run UX audit
+                      {t.runAudit}
                     </Button>
                   </div>
                 ) : commentaryQuery.isLoading || commentaryQuery.isFetching ? (
@@ -194,10 +198,10 @@ export function LandingPageDetailDrawer({
                 ) : commentaryQuery.isError ? (
                   <div className="space-y-3">
                     <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                      UX audit could not be loaded for this page.
+                      {t.auditLoadError}
                     </div>
                     <Button type="button" variant="outline" onClick={() => commentaryQuery.refetch()}>
-                      Retry UX audit
+                      {t.retryAudit}
                     </Button>
                   </div>
                 ) : commentaryQuery.data ? (
@@ -206,11 +210,11 @@ export function LandingPageDetailDrawer({
                       {commentaryQuery.data.commentary.summary}
                     </p>
 
-                    <AiList title="Critical findings" items={commentaryQuery.data.commentary.insights} />
-                    <AiList title="Quick wins" items={commentaryQuery.data.commentary.recommendations} />
-                    <AiList title="UX risks" items={commentaryQuery.data.commentary.risks} />
+                    <AiList title={t.criticalFindings} items={commentaryQuery.data.commentary.insights} />
+                    <AiList title={t.quickWins} items={commentaryQuery.data.commentary.recommendations} />
+                    <AiList title={t.uxRisks} items={commentaryQuery.data.commentary.risks} />
                     <Button type="button" variant="outline" onClick={() => commentaryQuery.refetch()}>
-                      Re-run UX audit
+                      {t.rerunAudit}
                     </Button>
                   </div>
                 ) : null}
@@ -305,25 +309,31 @@ function ScorePill({
   );
 }
 
-function DecisionBadge({ action }: { action: ReturnType<typeof buildLandingPageRuleReport>["action"] }) {
+function DecisionBadge({
+  action,
+  language,
+}: {
+  action: ReturnType<typeof buildLandingPageRuleReport>["action"];
+  language: "en" | "tr";
+}) {
   return (
     <span
       className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide ${getDecisionBadgeClass(action)}`}
     >
-      {formatLandingPageActionLabel(action)}
+      {formatLandingPageActionLabel(action, language)}
     </span>
   );
 }
 
-function ruleHeadline(action: ReturnType<typeof buildLandingPageRuleReport>["action"]): string {
-  if (action === "scale") return "Ready for controlled scale";
-  if (action === "fix_above_fold") return "Improve the first screen experience";
-  if (action === "fix_product_discovery") return "Discovery is the main bottleneck";
-  if (action === "fix_product_story") return "Product story needs stronger buying intent";
-  if (action === "fix_checkout_intent") return "Cart-to-checkout momentum needs work";
-  if (action === "fix_late_checkout") return "Late checkout friction is suppressing conversions";
-  if (action === "tracking_audit") return "Validate analytics before deeper CRO changes";
-  return "Monitor this page before broader changes";
+function ruleHeadline(action: ReturnType<typeof buildLandingPageRuleReport>["action"], language: "en" | "tr"): string {
+  if (action === "scale") return language === "tr" ? "Kontrollu buyutme icin hazir" : "Ready for controlled scale";
+  if (action === "fix_above_fold") return language === "tr" ? "Ilk ekran deneyimini iyilestirin" : "Improve the first screen experience";
+  if (action === "fix_product_discovery") return language === "tr" ? "Ana darbo-gaz kesif asamasi" : "Discovery is the main bottleneck";
+  if (action === "fix_product_story") return language === "tr" ? "Urun hikayesi daha guclu satin alma niyeti gerektiriyor" : "Product story needs stronger buying intent";
+  if (action === "fix_checkout_intent") return language === "tr" ? "Cart'tan checkout'a ivme calisma gerektiriyor" : "Cart-to-checkout momentum needs work";
+  if (action === "fix_late_checkout") return language === "tr" ? "Gec checkout surtunmesi donusumleri baskiliyor" : "Late checkout friction is suppressing conversions";
+  if (action === "tracking_audit") return language === "tr" ? "Daha derin CRO degisikliklerinden once analytics'i dogrulayin" : "Validate analytics before deeper CRO changes";
+  return language === "tr" ? "Daha genis degisikliklerden once bu sayfayi izleyin" : "Monitor this page before broader changes";
 }
 
 function getDecisionTheme(action: ReturnType<typeof buildLandingPageRuleReport>["action"]): string {

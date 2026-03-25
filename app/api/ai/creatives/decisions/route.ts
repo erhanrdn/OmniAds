@@ -9,6 +9,8 @@ import {
   type CreativeDecisionInputRow,
   type CreativeDecisionHistoricalWindows,
 } from "@/lib/ai/generate-creative-decisions";
+import { resolveRequestLanguage } from "@/lib/request-language";
+import type { AppLanguage } from "@/lib/i18n";
 
 interface RequestPayload {
   businessId?: string;
@@ -171,6 +173,7 @@ function normalizeDecisionArray(value: unknown): CreativeDecisionResult[] {
 async function getCachedCreativeDecisions(params: {
   businessId: string;
   analysisKey: string;
+  locale: AppLanguage;
 }): Promise<CachedCreativeDecisionRow | null> {
   const sql = getDb();
   const rows = (await sql`
@@ -178,6 +181,7 @@ async function getCachedCreativeDecisions(params: {
     FROM ai_creative_decisions_cache
     WHERE business_id = ${params.businessId}
       AND analysis_key = ${params.analysisKey}
+      AND locale = ${params.locale}
     LIMIT 1
   `) as CachedCreativeDecisionRow[];
   return rows[0] ?? null;
@@ -186,6 +190,7 @@ async function getCachedCreativeDecisions(params: {
 async function saveCreativeDecisions(params: {
   businessId: string;
   analysisKey: string;
+  locale: AppLanguage;
   currency: string;
   creativeCount: number;
   decisions: CreativeDecisionResult[];
@@ -197,6 +202,7 @@ async function saveCreativeDecisions(params: {
     INSERT INTO ai_creative_decisions_cache (
       business_id,
       analysis_key,
+      locale,
       currency,
       creative_count,
       decisions,
@@ -206,6 +212,7 @@ async function saveCreativeDecisions(params: {
     ) VALUES (
       ${params.businessId},
       ${params.analysisKey},
+      ${params.locale},
       ${params.currency},
       ${params.creativeCount},
       ${JSON.stringify(params.decisions)}::jsonb,
@@ -213,8 +220,9 @@ async function saveCreativeDecisions(params: {
       ${params.warning ?? null},
       now()
     )
-    ON CONFLICT (business_id, analysis_key)
+    ON CONFLICT (business_id, analysis_key, locale)
     DO UPDATE SET
+      locale = EXCLUDED.locale,
       currency = EXCLUDED.currency,
       creative_count = EXCLUDED.creative_count,
       decisions = EXCLUDED.decisions,
@@ -233,6 +241,7 @@ export async function POST(request: NextRequest) {
 
   const creatives = normalizeRows(payload?.creatives);
   const currency = payload?.currency ?? "USD";
+  const locale = await resolveRequestLanguage(request);
   const forceRefresh = payload?.forceRefresh === true;
   if (creatives.length === 0) {
     return NextResponse.json(
@@ -251,6 +260,7 @@ export async function POST(request: NextRequest) {
     const cached = await getCachedCreativeDecisions({
       businessId: access.membership.businessId,
       analysisKey,
+      locale,
     });
     if (cached) {
       return NextResponse.json({
@@ -268,6 +278,7 @@ export async function POST(request: NextRequest) {
   await saveCreativeDecisions({
     businessId: access.membership.businessId,
     analysisKey,
+    locale,
     currency,
     creativeCount: creatives.length,
     decisions,

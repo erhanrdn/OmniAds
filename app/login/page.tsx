@@ -8,12 +8,28 @@ import { logClientAuthEvent } from "@/lib/auth-diagnostics";
 import { resolvePostLoginDestination } from "@/lib/auth-routing";
 import { replaceAuthenticatedWorkspace } from "@/lib/client-auth-state";
 import { BrandLogo } from "@/components/brand/BrandLogo";
+import {
+  DEFAULT_LANGUAGE,
+  getLanguageFromCookieValue,
+  getPreferredLanguage,
+  getTranslations,
+  LANGUAGE_COOKIE_NAME,
+} from "@/lib/i18n";
+import { usePreferencesStore } from "@/store/preferences-store";
 
 const REMEMBER_EMAIL_KEY = "omniads.remember_email";
+
+function getLanguageCookie() {
+  return document.cookie
+    .split("; ")
+    .find((part) => part.startsWith(`${LANGUAGE_COOKIE_NAME}=`))
+    ?.split("=")[1];
+}
 
 interface LoginResponse {
   user?: {
     id: string;
+    language?: "en" | "tr";
   };
   businesses?: Array<{
     id: string;
@@ -37,6 +53,13 @@ function LoginPageClient() {
   const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const language = usePreferencesStore((state) => state.language);
+  const setLanguage = usePreferencesStore((state) => state.setLanguage);
+  const t = getTranslations(language).login;
+
+  useEffect(() => {
+    setLanguage(getLanguageFromCookieValue(getLanguageCookie()));
+  }, [setLanguage]);
 
   useEffect(() => {
     const inviteEmail = searchParams.get("email");
@@ -78,6 +101,12 @@ function LoginPageClient() {
         return null;
       })) as LoginResponse | null;
       if (!payload?.authenticated || !payload.user?.id) return;
+      setLanguage(
+        getPreferredLanguage({
+          userLanguage: payload.user.language,
+          cookieLanguage: getLanguageCookie(),
+        })
+      );
 
       replaceAuthenticatedWorkspace({
         userId: payload.user.id,
@@ -98,11 +127,16 @@ function LoginPageClient() {
         activeBusinessId: payload.activeBusinessId ?? null,
         nextPath: searchParams.get("next"),
       });
+      const localeValue = getLanguageCookie();
+      const hasLanguage = getLanguageFromCookieValue(localeValue) !== DEFAULT_LANGUAGE || Boolean(localeValue);
+      const localizedDestination = hasLanguage
+        ? destination
+        : `/select-language?next=${encodeURIComponent(destination)}`;
       logClientAuthEvent("login_page_redirect_existing_session", {
-        destination,
+        destination: localizedDestination,
         userId: payload.user.id,
       });
-      router.replace(destination);
+      router.replace(localizedDestination);
       router.refresh();
     }
 
@@ -150,6 +184,12 @@ function LoginPageClient() {
         // no-op
       }
       if (payload?.user?.id) {
+        setLanguage(
+          getPreferredLanguage({
+            userLanguage: payload.user.language,
+            cookieLanguage: getLanguageCookie(),
+          })
+        );
         replaceAuthenticatedWorkspace({
           userId: payload.user.id,
           businesses: (payload.businesses ?? []).map((business) => ({
@@ -169,13 +209,18 @@ function LoginPageClient() {
         activeBusinessId: payload?.activeBusinessId ?? null,
         nextPath: searchParams.get("next"),
       });
+      const localeValue = getLanguageCookie();
+      const hasLanguage = getLanguageFromCookieValue(localeValue) !== DEFAULT_LANGUAGE || Boolean(localeValue);
+      const localizedDestination = hasLanguage
+        ? destination
+        : `/select-language?next=${encodeURIComponent(destination)}`;
       logClientAuthEvent("login_succeeded", {
-        destination,
+        destination: localizedDestination,
         userId: payload?.user?.id ?? null,
         membershipCount: payload?.businesses?.length ?? 0,
         activeBusinessId: payload?.activeBusinessId ?? null,
       });
-      router.push(destination);
+      router.push(localizedDestination);
       router.refresh();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Could not sign in.";
@@ -197,14 +242,14 @@ function LoginPageClient() {
             size={64}
           />
           <p className="text-muted-foreground text-sm">
-            Sign in to your account to continue
+            {t.subtitle}
           </p>
         </div>
 
         <div className="space-y-4">
           <div className="space-y-2">
             <label className="text-sm font-medium" htmlFor="email">
-              Email
+              {t.email}
             </label>
             <input
               id="email"
@@ -216,7 +261,7 @@ function LoginPageClient() {
           </div>
           <div className="space-y-2">
             <label className="text-sm font-medium" htmlFor="password">
-              Password
+              {t.password}
             </label>
             <input
               id="password"
@@ -233,11 +278,11 @@ function LoginPageClient() {
               onChange={(event) => setRememberMe(event.target.checked)}
               className="h-4 w-4 rounded border-input text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
-            <span>Remember me</span>
+            <span>{t.rememberMe}</span>
           </label>
           {error ? <p className="text-xs text-destructive">{error}</p> : null}
           <Button className="w-full" onClick={handleLogin} disabled={loading}>
-            {loading ? "Signing in..." : "Sign in"}
+            {loading ? t.signingIn : t.signIn}
           </Button>
 
           <div className="relative">
@@ -281,18 +326,18 @@ function LoginPageClient() {
                 fill="#EA4335"
               />
             </svg>
-            Sign in with Google
+            {t.signInWithGoogle}
           </Button>
 
         </div>
 
         <p className="text-center text-xs text-muted-foreground">
-          No account yet?{" "}
+          {t.noAccount}{" "}
           <Link
             href="/signup"
             className="text-foreground underline underline-offset-2"
           >
-            Create one
+            {t.createOne}
           </Link>
           .
         </p>

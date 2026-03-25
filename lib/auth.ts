@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { runMigrations } from "@/lib/migrations";
 import { logStartupError } from "@/lib/startup-diagnostics";
+import type { AppLanguage } from "@/lib/i18n";
 
 export type MembershipRole = "admin" | "collaborator" | "guest";
 export type MembershipStatus = "active" | "invited" | "pending";
@@ -14,6 +15,7 @@ export interface SessionUser {
   name: string;
   email: string;
   avatar: string | null;
+  language: AppLanguage;
 }
 
 export interface SessionContext {
@@ -64,7 +66,8 @@ async function findSessionByToken(
       u.id AS user_id,
       u.name AS user_name,
       u.email AS user_email,
-      u.avatar AS user_avatar
+      u.avatar AS user_avatar,
+      u.language AS user_language
     FROM sessions s
     JOIN users u ON u.id = s.user_id
     WHERE s.token_hash = ${tokenHash}
@@ -77,6 +80,7 @@ async function findSessionByToken(
     user_name: string;
     user_email: string;
     user_avatar: string | null;
+    user_language: AppLanguage;
   }>;
   const row = rows[0];
   if (!row) return null;
@@ -96,6 +100,7 @@ async function findSessionByToken(
       name: row.user_name,
       email: row.user_email,
       avatar: row.user_avatar,
+      language: row.user_language,
     },
   };
 }

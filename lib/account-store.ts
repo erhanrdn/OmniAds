@@ -2,6 +2,7 @@ import { randomBytes } from "crypto";
 import { getDb } from "@/lib/db";
 import { runMigrations } from "@/lib/migrations";
 import { MembershipRole } from "@/lib/auth";
+import type { AppLanguage } from "@/lib/i18n";
 
 export interface UserRow {
   id: string;
@@ -9,6 +10,7 @@ export interface UserRow {
   email: string;
   password_hash: string;
   avatar: string | null;
+  language: AppLanguage;
   created_at: string;
   suspended_at?: string | null;
   last_login_at?: string | null;
@@ -19,7 +21,7 @@ export async function getUserByEmail(email: string): Promise<UserRow | null> {
   await runMigrations();
   const sql = getDb();
   const rows = (await sql`
-    SELECT id, name, email, password_hash, avatar, created_at, suspended_at, last_login_at, is_superadmin
+    SELECT id, name, email, password_hash, avatar, language, created_at, suspended_at, last_login_at, is_superadmin
     FROM users
     WHERE lower(email) = lower(${email})
     LIMIT 1
@@ -31,7 +33,7 @@ export async function getUserById(userId: string): Promise<UserRow | null> {
   await runMigrations();
   const sql = getDb();
   const rows = (await sql`
-    SELECT id, name, email, password_hash, avatar, created_at
+    SELECT id, name, email, password_hash, avatar, language, created_at
     FROM users
     WHERE id = ${userId}
     LIMIT 1
@@ -43,28 +45,32 @@ export async function createUser(input: {
   name: string;
   email: string;
   passwordHash: string;
+  language?: AppLanguage;
 }): Promise<UserRow> {
   await runMigrations();
   const sql = getDb();
   const rows = (await sql`
-    INSERT INTO users (name, email, password_hash)
-    VALUES (${input.name.trim()}, ${input.email.trim().toLowerCase()}, ${input.passwordHash})
-    RETURNING id, name, email, password_hash, avatar, created_at
+    INSERT INTO users (name, email, password_hash, language)
+    VALUES (${input.name.trim()}, ${input.email.trim().toLowerCase()}, ${input.passwordHash}, ${input.language ?? "en"})
+    RETURNING id, name, email, password_hash, avatar, language, created_at
   `) as UserRow[];
   return rows[0] as UserRow;
 }
 
 export async function updateUserProfile(input: {
   userId: string;
-  name: string;
+  name?: string;
+  language?: AppLanguage;
 }): Promise<UserRow> {
   await runMigrations();
   const sql = getDb();
   const rows = (await sql`
     UPDATE users
-    SET name = ${input.name.trim()}
+    SET
+      name = COALESCE(${input.name?.trim() ?? null}, name),
+      language = COALESCE(${input.language ?? null}, language)
     WHERE id = ${input.userId}
-    RETURNING id, name, email, password_hash, avatar, created_at
+    RETURNING id, name, email, password_hash, avatar, language, created_at
   `) as UserRow[];
   return rows[0] as UserRow;
 }
@@ -97,14 +103,14 @@ export async function findOrCreateGoogleUser(input: {
 
   // First try to find by google_id
   const byGoogleId = (await sql`
-    SELECT id, name, email, password_hash, avatar, created_at
+    SELECT id, name, email, password_hash, avatar, language, created_at
     FROM users WHERE google_id = ${input.googleId} LIMIT 1
   `) as UserRow[];
   if (byGoogleId[0]) return byGoogleId[0];
 
   // Then try to find by email (existing password user linking their Google)
   const byEmail = (await sql`
-    SELECT id, name, email, password_hash, avatar, created_at
+    SELECT id, name, email, password_hash, avatar, language, created_at
     FROM users WHERE lower(email) = lower(${input.email}) LIMIT 1
   `) as UserRow[];
   if (byEmail[0]) {
@@ -120,9 +126,9 @@ export async function findOrCreateGoogleUser(input: {
 
   // Create new user (no password — Google-only account)
   const created = (await sql`
-    INSERT INTO users (name, email, password_hash, avatar, google_id, auth_provider)
-    VALUES (${input.name.trim()}, ${input.email.trim().toLowerCase()}, '', ${input.avatar}, ${input.googleId}, 'google')
-    RETURNING id, name, email, password_hash, avatar, created_at
+    INSERT INTO users (name, email, password_hash, avatar, google_id, auth_provider, language)
+    VALUES (${input.name.trim()}, ${input.email.trim().toLowerCase()}, '', ${input.avatar}, ${input.googleId}, 'google', 'en')
+    RETURNING id, name, email, password_hash, avatar, language, created_at
   `) as UserRow[];
   return created[0] as UserRow;
 }
@@ -142,14 +148,14 @@ export async function findOrCreateFacebookUser(input: {
 
   // First try to find by facebook_id
   const byFacebookId = (await sql`
-    SELECT id, name, email, password_hash, avatar, created_at
+    SELECT id, name, email, password_hash, avatar, language, created_at
     FROM users WHERE facebook_id = ${input.facebookId} LIMIT 1
   `) as UserRow[];
   if (byFacebookId[0]) return byFacebookId[0];
 
   // Then try to find by email (existing user linking their Facebook)
   const byEmail = (await sql`
-    SELECT id, name, email, password_hash, avatar, created_at
+    SELECT id, name, email, password_hash, avatar, language, created_at
     FROM users WHERE lower(email) = lower(${input.email}) LIMIT 1
   `) as UserRow[];
   if (byEmail[0]) {
@@ -165,9 +171,9 @@ export async function findOrCreateFacebookUser(input: {
 
   // Create new user (no password — Facebook-only account)
   const created = (await sql`
-    INSERT INTO users (name, email, password_hash, avatar, facebook_id, auth_provider)
-    VALUES (${input.name.trim()}, ${input.email.trim().toLowerCase()}, '', ${input.avatar}, ${input.facebookId}, 'facebook')
-    RETURNING id, name, email, password_hash, avatar, created_at
+    INSERT INTO users (name, email, password_hash, avatar, facebook_id, auth_provider, language)
+    VALUES (${input.name.trim()}, ${input.email.trim().toLowerCase()}, '', ${input.avatar}, ${input.facebookId}, 'facebook', 'en')
+    RETURNING id, name, email, password_hash, avatar, language, created_at
   `) as UserRow[];
   return created[0] as UserRow;
 }

@@ -14,6 +14,7 @@ import {
   INTENT_LABELS,
 } from "@/lib/geo-query-classification";
 import { computeMomentum, computePreviousPeriod } from "@/lib/geo-momentum";
+import { resolveRequestLanguage } from "@/lib/request-language";
 
 type ScRow = { keys: string[]; clicks: number; impressions: number; ctr: number; position: number };
 
@@ -38,6 +39,7 @@ async function fetchSCQueries(
 }
 
 export async function GET(request: NextRequest) {
+  const language = await resolveRequestLanguage(request);
   const businessId = request.nextUrl.searchParams.get("businessId");
   const startDate =
     request.nextUrl.searchParams.get("startDate") ??
@@ -78,7 +80,7 @@ export async function GET(request: NextRequest) {
 
   if (currentRows.length === 0) {
     return NextResponse.json(
-      { error: "sc_fetch_failed", message: "Could not fetch Search Console queries." },
+      { error: "sc_fetch_failed", message: language === "tr" ? "Search Console sorgulari getirilemedi." : "Could not fetch Search Console queries." },
       { status: 502 }
     );
   }
@@ -120,10 +122,10 @@ export async function GET(request: NextRequest) {
     // Richer recommendation: combine classification + GEO score + position
     let recommendation: string | null = opportunityLabel;
     if (!recommendation) {
-      if (geoScore >= 65 && position > 5) recommendation = "High-value GEO target — deepen content to rank in top 5";
-      else if (geoScore >= 65) recommendation = "Strong GEO query — ensure full answer-first structure";
-      else if (position >= 5 && position <= 12 && impressions > 50) recommendation = "Near page 1 — add FAQ + structured data to push over";
-      else if (cls.format === "comparison" && ctr < 0.04) recommendation = "Comparison intent — add a comparison table to improve CTR";
+      if (geoScore >= 65 && position > 5) recommendation = language === "tr" ? "Yuksek degerli GEO hedefi — ilk 5'e girmek icin icerigi derinlestir" : "High-value GEO target — deepen content to rank in top 5";
+      else if (geoScore >= 65) recommendation = language === "tr" ? "Guclu GEO sorgusu — tam answer-first yapiyi saglayin" : "Strong GEO query — ensure full answer-first structure";
+      else if (position >= 5 && position <= 12 && impressions > 50) recommendation = language === "tr" ? "Ilk sayfaya yakin — ustune cikmak icin FAQ + structured data ekleyin" : "Near page 1 — add FAQ + structured data to push over";
+      else if (cls.format === "comparison" && ctr < 0.04) recommendation = language === "tr" ? "Comparison intent — CTR'yi iyilestirmek icin comparison table ekleyin" : "Comparison intent — add a comparison table to improve CTR";
     }
 
     return {

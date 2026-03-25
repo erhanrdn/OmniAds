@@ -1,5 +1,6 @@
 import type { MetaBreakdownsResponse } from "@/app/api/meta/breakdowns/route";
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
+import type { AppLanguage } from "@/lib/i18n";
 import type { MetaBidRegimeHistorySummary } from "@/lib/meta/config-snapshots";
 import type { MetaCreativeIntelligenceSummary } from "@/lib/meta/creative-intelligence";
 import {
@@ -103,6 +104,396 @@ export interface MetaRecommendationsResponse {
   status: "ok";
   summary: MetaDecisionSummary;
   recommendations: MetaRecommendation[];
+}
+
+function evidenceValue(recommendation: MetaRecommendation, label: string) {
+  return recommendation.evidence.find((item) => item.label === label)?.value ?? null;
+}
+
+function localizeMetaRecommendation(recommendation: MetaRecommendation, language: AppLanguage): MetaRecommendation {
+  if (language !== "tr") {
+    return recommendation;
+  }
+
+  const campaignName = recommendation.campaignName ?? "Bu kampanya";
+  const comparisonCohort = recommendation.comparisonCohort ?? "mevcut kohort";
+  const historicalRegime = recommendation.historicalRegime ?? "Constrained Bidding";
+  const currentRegime = evidenceValue(recommendation, "Current regime") ?? "Mixed";
+  const historicalRegimeEvidence = evidenceValue(recommendation, "Historical regime") ?? historicalRegime;
+  const defensiveBidBand = recommendation.defensiveBidBand ?? evidenceValue(recommendation, "Defensive bid band");
+  const scaleBidBand = recommendation.scaleBidBand ?? evidenceValue(recommendation, "Scale bid band");
+  const roasBand = evidenceValue(recommendation, "ROAS band");
+  const coreRoas = evidenceValue(recommendation, "Core ROAS");
+  const corePurchases = evidenceValue(recommendation, "Core purchases");
+  const coreCpa = evidenceValue(recommendation, "Core CPA");
+  const bidMethod = evidenceValue(recommendation, "Bid method");
+  const currentTarget = evidenceValue(recommendation, "Current target");
+  const suggestedTargetRange = evidenceValue(recommendation, "Suggested target range");
+  const suggestedBidRange = evidenceValue(recommendation, "Suggested bid range");
+  const spendShare = evidenceValue(recommendation, "Spend share");
+  const peerGroupRoas = evidenceValue(recommendation, "Peer-group ROAS");
+  const bestCampaign = evidenceValue(recommendation, "Best campaign");
+  const weakCampaign = evidenceValue(recommendation, "Weak campaign");
+  const laneMix = evidenceValue(recommendation, "Lane mix");
+  const testLanes = evidenceValue(recommendation, "Test lanes");
+  const validationLanes = evidenceValue(recommendation, "Validation lanes");
+  const scalingLanes = evidenceValue(recommendation, "Scaling lanes");
+  const stableScalingCreatives = evidenceValue(recommendation, "Stable scaling creatives");
+  const scalingReadyCreatives = evidenceValue(recommendation, "Scaling-ready creatives");
+  const keepInTest = evidenceValue(recommendation, "Keep in TEST");
+  const keepOutOfScaling = evidenceValue(recommendation, "Keep out of scaling");
+  const testOnlyCreatives = evidenceValue(recommendation, "Test-only creatives");
+  const blockedCreatives = evidenceValue(recommendation, "Blocked creatives");
+  const thinSignalCountries = evidenceValue(recommendation, "Thin-signal countries");
+  const thinSignalSpendShare = evidenceValue(recommendation, "Thin-signal spend share");
+  const top2CountryShare = evidenceValue(recommendation, "Top-2 country share");
+  const scalingGeos = evidenceValue(recommendation, "Scaling geos");
+  const selectedRoas = evidenceValue(recommendation, "Selected ROAS");
+  const baselineRoas = evidenceValue(recommendation, "Baseline ROAS");
+  const peakWindow = evidenceValue(recommendation, "Peak window");
+  const constrainedShare = evidenceValue(recommendation, "Constrained share");
+  const seasonalityFlag = recommendation.seasonalState ?? "normalized";
+
+  const localizedEvidence = recommendation.evidence.map((item) => {
+    const labelMap: Record<string, string> = {
+      "Thin-signal countries": "Zayif sinyalli ulkeler",
+      "Thin-signal spend share": "Zayif sinyal harcama payi",
+      "Top-2 country share": "Ilk 2 ulke payi",
+      "Scaling geos": "Scaling GEO'lar",
+      "Scaling lanes": "Scaling lane'leri",
+      "Validation lanes": "Dogrulama lane'leri",
+      "Test lanes": "Test lane'leri",
+      "Stable scaling creatives": "Stabil scaling creative'leri",
+      "Top creative lane": "En iyi creative lane",
+      "Compared within": "Karsilastirma kohortu",
+      "Test-only creatives": "Sadece test creative'leri",
+      "Blocked creatives": "Bloke creative'ler",
+      "Strong campaigns": "Guclu kampanyalar",
+      "Structure": "Yapi",
+      "Best scaling lane": "En iyi scaling lane",
+      "Test-only queue": "Test kuyru gu",
+      "Fatigued creatives": "Yorulmus creative'ler",
+      "Scaling-ready creatives": "Scaling'e hazir creative'ler",
+      "Keep in TEST": "TEST'te tut",
+      "Keep out of scaling": "Scaling disinda tut",
+      "Target scaling lane": "Hedef scaling lane",
+      "Optimization": "Optimizasyon",
+      "Bidding": "Teklifleme",
+      "Budgeting": "Butceleme",
+      "Selected ROAS": "Secili ROAS",
+      "Baseline ROAS": "Baz ROAS",
+      "Peak window": "Peak pencere",
+      "Historical regime": "Tarihsel rejim",
+      "Current regime": "Mevcut rejim",
+      "Constrained share": "Kisitli pay",
+      "Defensive bid band": "Defansif teklif bandi",
+      "Scale bid band": "Olcekleme teklif bandi",
+      "ROAS band": "ROAS bandi",
+      "Seasonal state": "Sezonsal durum",
+      "Starting defensive band": "Baslangic defansif bandi",
+      "Core purchases": "Temel purchase sayisi",
+      "Core ROAS": "Temel ROAS",
+      "Cost / lead": "Lead basi maliyet",
+      "Leads": "Lead sayisi",
+      "Bid method": "Teklif yontemi",
+      "Current target": "Mevcut hedef",
+      "Suggested target range": "Onerilen hedef araligi",
+      "Bid value": "Teklif degeri",
+      "Suggested bid range": "Onerilen teklif araligi",
+      "Peer-group ROAS": "Benzer grup ROAS",
+      "Core CPA": "Temel CPA",
+      "Spend share": "Harcama payi",
+      "Comparison set": "Karsilastirma seti",
+      "Lane filter": "Lane filtresi",
+      "Lane mix": "Lane karisimi",
+      "Best campaign": "En iyi kampanya",
+      "Weak campaign": "Zayif kampanya",
+      "Low-signal campaigns": "Dusuk sinyalli kampanyalar",
+    };
+    return { ...item, label: labelMap[item.label] ?? item.label };
+  });
+
+  const localizedTimeframe = {
+    coreVerdict:
+      recommendation.type === "rebuild_with_constraints"
+        ? "Temel karar, sezonsallik, agirliklandirilmis performans ve hesap hafizasini birlikte degerlendirerek artimli optimizasyonun artik yeterli olmadigini soyluyor."
+        : recommendation.type === "seasonal_regime_shift"
+          ? "Temel karar, secili araligi normal calisma hali saymak yerine normalize baz ve peak donemini birlikte degerlendiriyor."
+          : recommendation.type === "bid_band_from_history"
+            ? "Temel karar, teklif bandini 7/14/30/90/gecmis verimlilik pencerelerinden turetiyor."
+            : recommendation.timeframeContext.coreVerdict,
+    selectedRangeOverlay:
+      recommendation.type === "seasonal_regime_shift"
+        ? "Secili aralik daha genis rejim modeliyle birlikte okunuyor."
+        : recommendation.type === "bid_band_from_history"
+          ? "Secili aralik sadece mevcut donemin bu bandin ustunde mi altinda mi davrandigini dogrulamak icin kullaniliyor."
+          : recommendation.timeframeContext.selectedRangeOverlay,
+    historicalSupport:
+      recommendation.type === "historical_bid_regime_fit"
+        ? "Tarihsel destek, secili kampanyalar uzerindeki daha uzun konfigurasyon hafizasindan geliyor."
+        : recommendation.timeframeContext.historicalSupport,
+    seasonalityFlag: recommendation.timeframeContext.seasonalityFlag,
+    note:
+      recommendation.timeframeContext.note && recommendation.type === "seasonal_regime_shift"
+        ? seasonalityFlag === "peak"
+          ? "Secili aralik hala yuksek talep donemi gibi davraniyor; bunu kalici baz gibi okumayin."
+          : seasonalityFlag === "post_peak"
+            ? "Yuksek talep etkisi zayifladi; mevcut ekonomi artik daha cok normallesmis doneme benziyor."
+            : "Mevcut ekonomi son ve uzun vadeli bazlarin altina inmis durumda; bu normal sezonsalliktan daha fazla bozulmaya isaret ediyor."
+        : recommendation.timeframeContext.note,
+  };
+
+  switch (recommendation.type) {
+    case "geo_cluster_for_signal_density":
+      return {
+        ...recommendation,
+        decision: "Zayif sinyalli ulkeleri parcalamak yerine grupla",
+        title: "Ikincil pazarlarda GEO sinyali fazla ince",
+        why: "Ulke seviyesindeki sinyal daginik. Cok sayida pazar, izole scaling ogrenmesini hakli cikaracak conversion derinligi olmadan harcama yapiyor.",
+        summary: `${thinSignalCountries ?? "Birden fazla"} ulke halen anlamli conversion derinliginin altinda, buna karsin ${scalingGeos ?? "bazi"} daha olgun GEO daha temiz purchase ekonomisi gosteriyor.`,
+        recommendedAction: "Zayif hacimli ulkeleri ortak bir TEST GEO yapisinda toplayin; daha guclu GEO'lari ayri scaling yapilarinda koruyun.",
+        expectedImpact: "Daha guclu ogrenme yogunlugu, daha az eksik bilgiyle GEO karari ve kucuk pazarlarda daha temiz creative dogrulamasi.",
+        evidence: localizedEvidence,
+        timeframeContext: localizedTimeframe,
+      };
+    case "scaling_structure_fit":
+      return {
+        ...recommendation,
+        decision: "Scaling kampanyalarini test kampanyalarindan ayir",
+        title: "Scaling ve testing ayni operasyon katmaninda olmamali",
+        why: "Hesapta gercek conversion kaniti olan kampanyalar varken, digerlerinde hala yeterli sinyal yok. Bunlari ayni scaling beklentisiyle yonetmek butce ve ogrenme kararlarini bulandirir.",
+        summary: `${comparisonCohort} ailesinde ${scalingLanes ?? "0"} scaling lane, ${validationLanes ?? "0"} validation lane ve ${testLanes ?? "0"} test lane var${stableScalingCreatives ? `; ayrica ${stableScalingCreatives} stabil scaling creative'i mevcut` : ""}.`,
+        recommendedAction: "Kanitlanmis kampanyalari scaling lane olarak koruyun; kesif asamasindaki creative'leri ayri bir TEST yapisina tasiyin.",
+        expectedImpact: "Daha temiz scaling, daha temiz testing geri bildirimi ve kesif yapilarinda gereksiz butce kesintilerinin azalmasi.",
+        evidence: localizedEvidence,
+        timeframeContext: localizedTimeframe,
+      };
+    case "creative_test_structure":
+      return {
+        ...recommendation,
+        decision: "Zayif sinyalli kampanyalar icin ortak bir creative test lane kullan",
+        title: "Creative testing icin ayri ve havuzlanmis bir yapi gerekiyor",
+        why: "Kampanyalarda conversion derinligi hala zayifken, creative kararlarini cok sayida kucuk scaling kampanyasina dagitmak yerine ortak bir TEST ortaminda vermek daha sagliklidir.",
+        summary: `${testLanes ?? "Birden fazla"} TEST lane, ${comparisonCohort} icinde ayri ayri creative kesfi tasimak yerine ortak bir test yapiyla yonetilmeli${testOnlyCreatives ? `; su an ${testOnlyCreatives} creative hala test-only durumda` : ""}.`,
+        recommendedAction: "Kesif creative'leri ortak bir TEST kampanyasinda toplayin; scaling lane'lerde yalnizca kanitlanmis winner creative'leri tutun.",
+        expectedImpact: "Daha hizli creative ogrenmesi ve kanitlanmamis kombinasyonlarda scaling butcesi kaybinin azalmasi.",
+        evidence: localizedEvidence,
+        timeframeContext: localizedTimeframe,
+      };
+    case "winner_promotion_flow":
+      return {
+        ...recommendation,
+        decision: "Kanitlanmis creative'leri scaling'e tasiyin, kesfi izole tutun",
+        title: "Scaling kampanyalari winner creative'leri devralmali, sifirdan ogrenmemeli",
+        why: "Bir kampanya ailesinde kanitlanmis bir scaling lane varsa, her kucuk kampanyanin yeniden winner bulmaya calismasi yerine dogrulanmis creative pattern'lerin oraya tasinmasi gerekir.",
+        summary: `${campaignName}, ${comparisonCohort} ailesi icindeki guclu scaling yapilarindan biri olarak davranıyor${scalingReadyCreatives ? ` ve ${scalingReadyCreatives} adet scaling'e hazir creative mevcut` : ""}.`,
+        recommendedAction: "Winner creative'leri once en guclu scaling lane'e tasiyin; test-only veya zayif creative'leri TEST ortaminda tutmaya devam edin.",
+        expectedImpact: "Kanıtlanmış mesajlarla daha hizli olcekleme ve creative testing eforunun daha az tekrar etmesi.",
+        evidence: localizedEvidence,
+        timeframeContext: localizedTimeframe,
+      };
+    case "campaign_structure":
+      return {
+        ...recommendation,
+        decision: "Kampanya yapisini sadeleştir",
+        title: `${campaignName}: karisik kampanya yapisini sadeleştir`,
+        why: "Bu kampanya ad set seviyesinde optimization, bidding veya budget sinyallerini karıştırıyor; bu da temiz ogrenmeyi zayiflatiyor.",
+        summary: "Mevcut kampanya konfigurasyonu karisik. Aynı optimization ve bidding mantigina sahip ad set'leri birlikte tutun.",
+        recommendedAction: "Karisik ad set'leri daha temiz gruplara ayirin; her kampanyada tek objective ve tek bid logic olsun.",
+        expectedImpact: "Daha temiz ogrenme, daha kolay butce kontrolu ve daha guvenilir scaling kararlari.",
+        evidence: localizedEvidence,
+        timeframeContext: localizedTimeframe,
+      };
+    case "seasonal_regime_shift":
+      return {
+        ...recommendation,
+        decision: seasonalityFlag === "peak" ? "Mevcut sezonsal sivrilmeden fazla ogrenme cikarmayin" : "Beklentileri post-peak baza sifirlayin",
+        title:
+          seasonalityFlag === "post_peak"
+            ? "Peak talep zayifladi"
+            : seasonalityFlag === "peak"
+              ? "Secili aralik hala sezonsal gorunuyor"
+              : "Mevcut donem yapisal olarak bazin altinda gorunuyor",
+        why: localizedTimeframe.note ?? recommendation.why,
+        summary:
+          seasonalityFlag === "peak"
+            ? `Secili aralik halen normalize bazin (${baselineRoas ?? selectedRoas ?? "mevcut ROAS"}) ustunde; genis yapisal kararlar icin erken olabilir.`
+            : `Secili ROAS ${selectedRoas ?? "mevcut seviye"}, baz ROAS ise ${baselineRoas ?? "baz seviye"} civarinda. ${peakWindow ? `Peak pencere: ${peakWindow}.` : ""}`,
+        recommendedAction:
+          seasonalityFlag === "peak"
+            ? "Buyuk rebuild kararlarini yuksek talep penceresi bittikten sonraya birakin veya ayri kontrollu bir testte dogrulayin."
+            : "Bidding, budget ve scaling kararlarini mevcut peak olmayan baza gore alin.",
+        expectedImpact: "Sezonsal sivrilmelerden kaynaklanan yanlis pozitiflerin azalmasi ve daha temiz operasyonel kararlar.",
+        evidence: localizedEvidence,
+        timeframeContext: localizedTimeframe,
+      };
+    case "historical_bid_regime_fit":
+      return {
+        ...recommendation,
+        decision: "Hesabin tarihsel bidding rejimine geri don",
+        title: "Mevcut bidding rejimi hesap gecmisiyle uyumsuz",
+        why: "Bu hesabin stabil gecmisi kisitli bidding tarafina yatkin, fakat mevcut kampanya seti farkli bir baskin bidding modu kullaniyor.",
+        summary: `Tarihsel kazanand rejim ${historicalRegimeEvidence}, mevcut kampanyalar ise agirlikla ${currentRegime} modunda calisiyor.`,
+        recommendedAction: `${historicalRegimeEvidence} rejimini ana rebuild hipotezi olarak alin ve kontrollu butceyle mevcut yapiya karsi test edin.`,
+        expectedImpact: "Kisa sureli talep sivrilmeleri disinda hesabin daha stabil ekonomisiyle daha iyi uyum.",
+        evidence: localizedEvidence,
+        timeframeContext: localizedTimeframe,
+      };
+    case "bid_band_from_history":
+      return {
+        ...recommendation,
+        decision: "Tek nokta tahmini yerine tarihsel verimlilik bantlarini kullan",
+        title: "Tarihsel bid bantlari daha guvenli calisma alanini tanimliyor",
+        why: "Bid kararları tek bir son datapoint yerine coklu pencere AOV ve ROAS bantlarina dayandiginda daha stabil olur.",
+        summary: defensiveBidBand
+          ? `Defansif bid bandi ${defensiveBidBand}${scaleBidBand ? `, scaling bandi ise ${scaleBidBand}` : ""}.`
+          : `Onerilen ROAS calisma bandi ${roasBand}.`,
+        recommendedAction: defensiveBidBand
+          ? `${defensiveBidBand} bandini karlilik korumasi icin, ${scaleBidBand ?? defensiveBidBand} bandini ise daha agresif scaling icin referans alin.`
+          : `${roasBand ?? "Mevcut ROAS bandini"} calisan hedef band olarak kullanin ve gercek ROAS buna gore ayarlansin.`,
+        expectedImpact: "Daha tutarli bidding degisiklikleri ve kisa vadeli oynakliga asiri tepkinin azalmasi.",
+        evidence: localizedEvidence,
+        timeframeContext: localizedTimeframe,
+      };
+    case "rebuild_with_constraints":
+      return {
+        ...recommendation,
+        decision: `${historicalRegime} ile durdur ve yeniden kur`,
+        title: `${historicalRegime} rebuild'i, daha fazla Lowest Cost optimizasyonundan daha guvenli`,
+        why: "Hesap daha guclu talep rejiminden cikmis durumda ve tarihsel konfigurasyon hafizasi stabil calisma modu olarak kisitli bidding'i isaret ediyor.",
+        summary: `Post-peak veya bozulan ekonomi ile birlikte ${historicalRegime} yonundeki tarihsel egilim, kucuk ayarlar yerine rebuild'i daha guvenli kiliyor.`,
+        recommendedAction: defensiveBidBand
+          ? `En zayif kampanyalari durdurup ${historicalRegime} ile yeniden baslatin; baslangic savunma bandi olarak ${defensiveBidBand} kullanin.`
+          : `En zayif kampanyalari durdurup ${historicalRegime} ana operating model olacak sekilde yeniden kurun.`,
+        expectedImpact: "Hesap yuksek talep doneminden cikarken karlilik uzerinde daha temiz kontrol.",
+        evidence: localizedEvidence,
+        timeframeContext: localizedTimeframe,
+      };
+    case "optimization_fit":
+      return {
+        ...recommendation,
+        decision: recommendation.decision.includes("lead") ? "Lead optimizasyon kalitesini yeniden degerlendir" : "Daha alt huni objective'ini test et",
+        title: recommendation.title.replace(": move beyond Add To Cart optimization", ": Add To Cart optimizasyonunun otesine gec").replace(": lead optimization is expensive", ": lead optimizasyonu pahali"),
+        why: recommendation.why.includes("Lead cost")
+          ? "Lead maliyeti yuksek ve mevcut objective hacmi kaliteye tercih ediyor olabilir."
+          : "Kampanya artik anlamli purchase uretiyor; bu nedenle huninin daha asagisinda optimize etmek karlilik kontrolunu guclendirebilir.",
+        summary: recommendation.summary.includes("lead")
+          ? "Agirliklandirilmis lead verimliligi kalite odakli bir yeniden testi hakli cikaracak kadar zayif."
+          : "Agirliklandirilmis performans, Purchase veya Value optimization testini hakli cikaracak kadar yeterli purchase hacmi gosteriyor.",
+        recommendedAction: recommendation.recommendedAction
+          .replace("Duplicate the campaign and test Purchase or Value optimization against the current Add To Cart setup.", "Kampanyayi kopyalayin ve mevcut Add To Cart yapisina karsi Purchase veya Value optimization test edin.")
+          .replace("Test a tighter audience or quality-lead / purchase-aligned structure instead of scaling the current lead setup.", "Mevcut lead yapisini buyutmek yerine daha sikı audience veya quality-lead / purchase-aligned bir yapi test edin."),
+        expectedImpact: recommendation.expectedImpact.includes("wasted spend")
+          ? "Bos harcamanin azalmasi ve downstream conversion kalitesinin iyilesmesi."
+          : "Daha iyi downstream conversion kalitesi ve daha stabil ROAS.",
+        evidence: localizedEvidence,
+        timeframeContext: localizedTimeframe,
+      };
+    case "bid_value_guidance":
+      return {
+        ...recommendation,
+        decision: currentTarget ? "Target ROAS seviyesini dikkatle ayarla" : "ROAS hedefine gore daha guvenli bir calisma bandi kur",
+        title: `${campaignName}: Target ROAS ile gercek getiriyi birlikte ayarla`,
+        why: "Target ROAS sabit kabul edilmemeli. Gercek getiri hedefin belirgin uzerindeyse hacmi masada birakiyor olabilirsiniz.",
+        summary: currentTarget
+          ? `Temel ROAS ${coreRoas ?? "mevcut seviye"}, hedef ise ${currentTarget}.`
+          : `Kampanya config'indeki mevcut Target ROAS net okunamiyor; bu nedenle tarihsel performanstan turetilen ${suggestedTargetRange ?? "bir hedef araligi"} kullaniliyor.`,
+        recommendedAction:
+          recommendation.recommendedAction
+            .replace("Test lowering Target ROAS from ", "Target ROAS'i ")
+            .replace(" by 10-15% to unlock more volume.", " seviyesinden %10-15 dusurerek daha fazla hacim test edin.")
+            .replace("Keep Target ROAS tight and avoid aggressive scaling until actual ROAS is consistently above ", "Gercek ROAS istikrarla ")
+            .replace("Use ", "")
+            || (suggestedTargetRange
+              ? `${suggestedTargetRange} araligini calisan Target ROAS bandi olarak alin.`
+              : "Scaling oncesi acik bir Target ROAS bandi tanimlayin."),
+        expectedImpact: recommendation.expectedImpact.includes("delivery")
+          ? "Karlilik korumalarindan tamamen vazgecmeden daha fazla delivery."
+          : "Marji koruyarak daha kontrollu bir bidding davranisi.",
+        evidence: localizedEvidence,
+        timeframeContext: localizedTimeframe,
+      };
+    case "bid_strategy_fit":
+      return {
+        ...recommendation,
+        decision: recommendation.decision.includes("efficiency") ? "Verimlilik guardrail'lari ekle" : "Manual bid kisitini yeniden degerlendir",
+        title: recommendation.title
+          .replace(": bid constraint may be limiting scale", ": bid kisiti olceklemenin onunu kesiyor olabilir")
+          .replace(": Lowest Cost is not protecting profitability", ": Lowest Cost karliligi korumuyor"),
+        why: recommendation.why.includes("Lowest Cost")
+          ? "Lowest Cost delivery icin guclu olabilir, ancak coklu pencerede zayif verimlilik daha guclu kisitlar gerektigini gosteriyor."
+          : "Manual bid stratejileri verimliligi koruyabilir, ama kampanya saglikli oldugunda buyumenin onundeki darboğaza da donusebilir.",
+        summary: suggestedBidRange
+          ? `Kampanya kisitli bir bidding stratejisi kullaniyor. Tarihsel AOV ve ROAS'e gore daha guvenli referans bid araligi ${suggestedBidRange}.`
+          : recommendation.summary,
+        recommendedAction: recommendation.recommendedAction
+          .replace("Test loosening ", "")
+          .replace(" by 10-15% before increasing budget aggressively.", " kisitini butceyi agresif sekilde arttirmadan once %10-15 gevsetmeyi test edin."),
+        expectedImpact: recommendation.expectedImpact === "More delivery while keeping changes controlled."
+          ? "Degisiklikleri kontrollu tutarken daha fazla delivery."
+          : "Daha fazla hacim acmadan once kar kalitesi uzerinde daha iyi kontrol.",
+        evidence: localizedEvidence,
+        timeframeContext: localizedTimeframe,
+      };
+    case "scale_for_volume":
+      return {
+        ...recommendation,
+        decision: recommendation.decisionState === "act" ? "Bu kampanyayi daha fazla hacim icin olcekle" : "Olcekleme testini dikkatli yap",
+        title: `${campaignName}: hacim olceklemesi icin guclu aday`,
+        why: "Bu kampanya benzer optimization niyetine sahip akranlara gore kabul edilebilir karlilik sunuyor ve kontrollu scaling'i destekleyecek kadar conversion derinligine sahip.",
+        summary: `Temel agirliklandirilmis performans, ${corePurchases ?? "yeterli"} purchase ve ${coreRoas ?? "guclu"} ROAS ile ilave butce veya daha gevsek delivery kisitlarini hakli cikariyor.`,
+        recommendedAction: recommendation.recommendedAction,
+        expectedImpact: "Kontrolu tamamen kaybetmeden daha yuksek delivery ve daha fazla conversion hacmi.",
+        evidence: localizedEvidence,
+        timeframeContext: localizedTimeframe,
+      };
+    case "scale_for_profitability":
+      return {
+        ...recommendation,
+        decision: recommendation.decisionState === "act" ? "Scaling'den once karliligi koru" : "Daha buyuk kesintilerden once verimliligi izle",
+        title: `${campaignName}: scaling'den once karlilik gelmeli`,
+        why: "Bu kampanya anlamli harcama tuketiyor ancak ayni optimization niyetindeki akranlarinin verimlilik benchmark'inin gerisinde kaliyor.",
+        summary: `Su an scaling yapmak, gelirden daha hizli sekilde israfi buyutebilir. Harcama payi ${spendShare ?? "mevcut seviye"}, peer-group ROAS ise ${peerGroupRoas ?? "referans seviye"}.`,
+        recommendedAction: recommendation.recommendedAction,
+        expectedImpact: "Bos harcamanin azalmasi ve daha temiz butce dagilimi.",
+        evidence: localizedEvidence,
+        timeframeContext: localizedTimeframe,
+      };
+    case "budget_allocation":
+      return {
+        ...recommendation,
+        decision: recommendation.decision.includes("efficiency") ? "Butceyi daha verimli ceplere kaydir" : "Butceyi olceklenebilir kampanyalara yeniden dagit",
+        title: recommendation.title.includes("efficiency") ? "Butce daha guclu verimlilik ceplerine kaymali" : "Butce en guclu scale adaylarina kayabilir",
+        why: `Hesap ${comparisonCohort} icinde net performans dagilimi gosteriyor; bu nedenle butce o kohortta esit dagitilmamali.`,
+        summary: `${comparisonCohort} icinde ${bestCampaign ?? "guclu kampanya"} ile ${weakCampaign ?? "zayif kampanya"} arasinda belirgin fark var${laneMix ? `; lane dagilimi ${laneMix}` : ""}.`,
+        recommendedAction: recommendation.recommendedAction,
+        expectedImpact: "Daha temiz blended ROAS ve daha guclu kampanyalarda daha hizli ogrenme.",
+        evidence: localizedEvidence,
+        timeframeContext: localizedTimeframe,
+      };
+    default:
+      return {
+        ...recommendation,
+        evidence: localizedEvidence,
+        timeframeContext: localizedTimeframe,
+      };
+  }
+}
+
+function localizeMetaRecommendationsResponse(
+  response: MetaRecommendationsResponse,
+  language: AppLanguage
+): MetaRecommendationsResponse {
+  if (language !== "tr") {
+    return response;
+  }
+
+  return {
+    ...response,
+    recommendations: response.recommendations.map((recommendation) =>
+      localizeMetaRecommendation(recommendation, language)
+    ),
+  };
 }
 
 interface MetaSeasonalContext {
@@ -1838,11 +2229,14 @@ function maybeAccountBudgetShift(
   };
 }
 
-function buildSummary(recommendations: MetaRecommendation[]): MetaDecisionSummary {
+function buildSummary(recommendations: MetaRecommendation[], language: AppLanguage): MetaDecisionSummary {
   if (recommendations.length === 0) {
     return {
-      title: "No strong intervention signal",
-      summary: "Meta decision engine does not see a high-confidence structural, scale, or profitability action yet. Keep monitoring with the current setup.",
+      title: language === "tr" ? "Guclu bir mudahale sinyali yok" : "No strong intervention signal",
+      summary:
+        language === "tr"
+          ? "Meta karar motoru henuz yuksek guvenli bir yapi, olcekleme veya karlilik aksiyonu gormuyor. Mevcut kurulumla izlemeye devam edin."
+          : "Meta decision engine does not see a high-confidence structural, scale, or profitability action yet. Keep monitoring with the current setup.",
       primaryLens: "structure",
       confidence: "low",
       recommendationCount: 0,
@@ -1870,13 +2264,25 @@ function buildSummary(recommendations: MetaRecommendation[]): MetaDecisionSummar
     : top.historicalRegime
       ? `Historical regime: ${top.historicalRegime}`
       : null;
+  const localizedCurrentRegime =
+    language === "tr" && currentRegime ? currentRegime.replace("Current regime:", "Mevcut rejim:") : currentRegime;
+  const localizedRecommendedMode =
+    language === "tr" && recommendedMode
+      ? recommendedMode.replace("Recommended mode:", "Onerilen mod:").replace("Historical regime:", "Tarihsel rejim:")
+      : recommendedMode;
 
   return {
     title: rebuildRecommendation
-      ? "Meta operating model reset recommended"
+      ? language === "tr"
+        ? "Meta calisma modeli icin yeniden kurulum oneriliyor"
+        : "Meta operating model reset recommended"
       : top.decisionState === "act"
-        ? "Highest-priority Meta action"
-        : "Meta watchlist and tests",
+        ? language === "tr"
+          ? "Meta icin en yuksek oncelikli aksiyon"
+          : "Highest-priority Meta action"
+        : language === "tr"
+          ? "Meta izleme listesi ve testler"
+          : "Meta watchlist and tests",
     summary:
       rebuildRecommendation
         ? rebuildRecommendation.summary
@@ -1885,16 +2291,20 @@ function buildSummary(recommendations: MetaRecommendation[]): MetaDecisionSummar
         : winnerPromotionRecommendation
         ? winnerPromotionRecommendation.summary
         : actCount > 0
-        ? `${actCount} recommendation${actCount === 1 ? "" : "s"} are strong enough to act on now. Highest priority: ${top.title}.`
+        ? language === "tr"
+          ? `${actCount} oneri su anda aksiyona alinacak kadar guclu. En yuksek oncelik: ${top.title}.`
+          : `${actCount} recommendation${actCount === 1 ? "" : "s"} are strong enough to act on now. Highest priority: ${top.title}.`
         : seasonalRecommendation
           ? seasonalRecommendation.summary
-          : `No high-confidence act-now recommendation yet. Strongest current signal: ${top.title}.`,
+          : language === "tr"
+            ? `Henuz hemen aksiyona alinacak yuksek guvenli bir oneri yok. En guclu mevcut sinyal: ${top.title}.`
+            : `No high-confidence act-now recommendation yet. Strongest current signal: ${top.title}.`,
     primaryLens: top.lens,
     confidence: top.confidence,
     recommendationCount: recommendations.length,
     operatingMode,
-    currentRegime,
-    recommendedMode,
+    currentRegime: localizedCurrentRegime,
+    recommendedMode: localizedRecommendedMode,
   };
 }
 
@@ -1931,7 +2341,9 @@ export function buildMetaRecommendations(input: {
   breakdowns: MetaBreakdownsResponse | null;
   historicalBidRegimes?: Record<string, MetaBidRegimeHistorySummary>;
   creativeIntelligence?: MetaCreativeIntelligenceSummary | null;
+  language?: AppLanguage;
 }): MetaRecommendationsResponse {
+  const language = input.language ?? "en";
   const purchaseWindows: MetaRecommendationWindows = {
     selected: filterPurchaseObjectiveRows(input.windows.selected),
     previousSelected: filterPurchaseObjectiveRows(input.windows.previousSelected),
@@ -1948,9 +2360,11 @@ export function buildMetaRecommendations(input: {
     return {
       status: "ok",
       summary: {
-        title: "No purchase-focused Meta insight",
+        title: language === "tr" ? "Purchase odakli Meta icgorusu yok" : "No purchase-focused Meta insight",
         summary:
-          "AI Insights are currently limited to purchase/value campaigns. This workspace does not have an eligible purchase campaign in the current dataset.",
+          language === "tr"
+            ? "AI Icgoruleri su anda purchase/value kampanyalariyla sinirlidir. Bu workspace mevcut veri setinde uygun bir purchase kampanyasina sahip degil."
+            : "AI Insights are currently limited to purchase/value campaigns. This workspace does not have an eligible purchase campaign in the current dataset.",
         primaryLens: "structure",
         confidence: "low",
         recommendationCount: 0,
@@ -2049,9 +2463,9 @@ export function buildMetaRecommendations(input: {
     .slice(0, 8);
   const deduped = ensurePriorityRecommendationsIncluded(recommendations, dedupedBase);
 
-  return {
+  return localizeMetaRecommendationsResponse({
     status: "ok",
-    summary: buildSummary(deduped),
+    summary: buildSummary(deduped, language),
     recommendations: deduped,
-  };
+  }, language);
 }

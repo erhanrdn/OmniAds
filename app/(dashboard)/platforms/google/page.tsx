@@ -26,13 +26,13 @@ import {
   formatMetricCell,
   RecommendationCard,
   GoogleInsightsDrawer,
+  getScopeLabels,
   type DrawerPayload,
   type GrowthRecommendation,
   type InsightsTab,
   type MainTab,
   type MetricColumn,
   type OptimizationScope,
-  SCOPE_LABELS,
   type SortColumn,
   type SortDirection,
   type StatusFilter,
@@ -41,8 +41,10 @@ import {
 } from "@/app/(dashboard)/platforms/google/google-page-support";
 import { useGooglePageData } from "@/app/(dashboard)/platforms/google/google-page-hooks";
 import { useBusinessIntegrationsBootstrap } from "@/hooks/use-business-integrations-bootstrap";
+import { usePreferencesStore } from "@/store/preferences-store";
 
 export default function GooglePage() {
+  const language = usePreferencesStore((state) => state.language);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const businessId = selectedBusinessId ?? "";
   const sym = useCurrencySymbol();
@@ -123,14 +125,17 @@ export default function GooglePage() {
     return () => clearTimeout(timeout);
   }, [toastMessage]);
 
-  const showComingSoon = () => setToastMessage("Coming soon");
+  const showComingSoon = () => setToastMessage(language === "tr" ? "Yakinda" : "Coming soon");
+  const scopeLabels = getScopeLabels(language);
 
   return (
     <div className="space-y-5">
       <div className="space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight">Google Ads</h1>
         <p className="text-sm text-muted-foreground">
-          View Search, Display, and Performance Max campaign data.
+          {language === "tr"
+            ? "Search, Display ve Performance Max kampanya verilerini goruntuleyin."
+            : "View Search, Display, and Performance Max campaign data."}
         </p>
       </div>
 
@@ -146,17 +151,21 @@ export default function GooglePage() {
         <IntegrationEmptyState
           providerLabel="Google"
           status={googleView.status === "action_required" ? "error" : "disconnected"}
-          description="View Search, Display, and Performance Max campaign data once your Google Ads account is connected."
+          description={
+            language === "tr"
+              ? "Google Ads hesabi baglandiktan sonra Search, Display ve Performance Max kampanya verilerini goruntuleyin."
+              : "View Search, Display, and Performance Max campaign data once your Google Ads account is connected."
+          }
         />
       )}
 
       {googleConnected && (<>
       <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-card p-2">
         {[
-          { key: "campaigns", label: "Campaigns" },
-          { key: "adGroups", label: "Ad Groups" },
-          { key: "ads", label: "Ads" },
-          { key: "insights", label: "Insights" },
+          { key: "campaigns", label: language === "tr" ? "Kampanyalar" : "Campaigns" },
+          { key: "adGroups", label: language === "tr" ? "Reklam Gruplari" : "Ad Groups" },
+          { key: "ads", label: language === "tr" ? "Reklamlar" : "Ads" },
+          { key: "insights", label: language === "tr" ? "Icgoruler" : "Insights" },
         ].map((tab) => (
           <button
             key={tab.key}
@@ -178,14 +187,14 @@ export default function GooglePage() {
         <>
           <div className="flex flex-wrap items-center gap-3">
             <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Account
+              {language === "tr" ? "Hesap" : "Account"}
             </label>
             <select
               value={selectedAccountId}
               onChange={(event) => setSelectedAccountId(event.target.value)}
               className="h-9 rounded-md border bg-background px-3 text-sm"
             >
-              <option value="all">All enabled accounts</option>
+              <option value="all">{language === "tr" ? "Tum etkin hesaplar" : "All enabled accounts"}</option>
               {enabledAccounts.map((account) => (
                 <option key={account.accountId} value={account.accountId}>
                   {account.name}
@@ -194,31 +203,31 @@ export default function GooglePage() {
             </select>
 
             <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Status
+              {language === "tr" ? "Durum" : "Status"}
             </label>
             <select
               value={statusFilter}
               onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}
               className="h-9 rounded-md border bg-background px-3 text-sm"
             >
-              <option value="all">All</option>
-              <option value="active">Active</option>
-              <option value="paused">Paused</option>
+              <option value="all">{language === "tr" ? "Tum" : "All"}</option>
+              <option value="active">{language === "tr" ? "Aktif" : "Active"}</option>
+              <option value="paused">{language === "tr" ? "Duraklatildi" : "Paused"}</option>
             </select>
 
             <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Sort
+              {language === "tr" ? "Siralama" : "Sort"}
             </label>
             <select
               value={sortColumn}
               onChange={(event) => setSortColumn(event.target.value as SortColumn)}
               className="h-9 rounded-md border bg-background px-3 text-sm"
             >
-              <option value="name">Name</option>
-              <option value="status">Status</option>
+              <option value="name">{language === "tr" ? "Ad" : "Name"}</option>
+              <option value="status">{language === "tr" ? "Durum" : "Status"}</option>
               <option value="spend">Spend</option>
-              <option value="purchases">Purchases</option>
-              <option value="revenue">Revenue</option>
+              <option value="purchases">{language === "tr" ? "Satin alimlar" : "Purchases"}</option>
+              <option value="revenue">{language === "tr" ? "Gelir" : "Revenue"}</option>
               <option value="roas">ROAS</option>
               <option value="cpa">CPA</option>
               <option value="ctr">CTR</option>
@@ -232,7 +241,13 @@ export default function GooglePage() {
                 setSortDirection((prev) => (prev === "asc" ? "desc" : "asc"))
               }
             >
-              {sortDirection === "asc" ? "Asc" : "Desc"}
+              {sortDirection === "asc"
+                ? language === "tr"
+                  ? "Artan"
+                  : "Asc"
+                : language === "tr"
+                  ? "Azalan"
+                  : "Desc"}
             </Button>
           </div>
 
@@ -242,8 +257,12 @@ export default function GooglePage() {
           )}
           {!tableQuery.isLoading && !tableQuery.isError && filteredRows.length === 0 && (
             <EmptyState
-              title="No rows found"
-              description="No rows match the selected account, level, or filters."
+              title={language === "tr" ? "Satir bulunamadi" : "No rows found"}
+              description={
+                language === "tr"
+                  ? "Secilen hesap, seviye veya filtrelerle eslesen satir yok."
+                  : "No rows match the selected account, level, or filters."
+              }
             />
           )}
 
@@ -252,8 +271,8 @@ export default function GooglePage() {
               <table className="min-w-full text-sm">
                 <thead className="bg-muted/45 text-left">
                   <tr>
-                    <th className="px-4 py-3 font-medium">Name</th>
-                    <th className="px-4 py-3 font-medium">Status</th>
+                    <th className="px-4 py-3 font-medium">{language === "tr" ? "Ad" : "Name"}</th>
+                    <th className="px-4 py-3 font-medium">{language === "tr" ? "Durum" : "Status"}</th>
                     {DEFAULT_COLUMNS.map((column) => (
                       <th key={column} className="px-4 py-3 font-medium uppercase">
                         {column}
@@ -267,7 +286,15 @@ export default function GooglePage() {
                       <td className="px-4 py-3">{row.name}</td>
                       <td className="px-4 py-3">
                         <Badge variant={row.status === "active" ? "default" : "secondary"}>
-                          {row.status}
+                          {row.status === "active"
+                            ? language === "tr"
+                              ? "Aktif"
+                              : "active"
+                            : row.status === "paused"
+                              ? language === "tr"
+                                ? "Duraklatildi"
+                                : "paused"
+                              : row.status}
                         </Badge>
                       </td>
                       {DEFAULT_COLUMNS.map((column) => (
@@ -288,14 +315,14 @@ export default function GooglePage() {
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
             <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Account
+              {language === "tr" ? "Hesap" : "Account"}
             </label>
             <select
               value={selectedAccountId}
               onChange={(event) => setSelectedAccountId(event.target.value)}
               className="h-9 rounded-md border bg-background px-3 text-sm"
             >
-              <option value="all">All enabled accounts</option>
+              <option value="all">{language === "tr" ? "Tum etkin hesaplar" : "All enabled accounts"}</option>
               {enabledAccounts.map((account) => (
                 <option key={account.accountId} value={account.accountId}>
                   {account.name}
@@ -308,10 +335,10 @@ export default function GooglePage() {
               onChange={(event) => setInsightsDateRange(event.target.value as DateRange)}
               className="h-9 rounded-md border bg-background px-3 text-sm"
             >
-              <option value="7">Last 7 days</option>
-              <option value="14">Last 14 days</option>
-              <option value="30">Last 30 days</option>
-              <option value="custom">Custom (UI-only)</option>
+              <option value="7">{language === "tr" ? "Son 7 gun" : "Last 7 days"}</option>
+              <option value="14">{language === "tr" ? "Son 14 gun" : "Last 14 days"}</option>
+              <option value="30">{language === "tr" ? "Son 30 gun" : "Last 30 days"}</option>
+              <option value="custom">{language === "tr" ? "Ozel (yalnizca UI)" : "Custom (UI-only)"}</option>
             </select>
 
             <select
@@ -321,12 +348,12 @@ export default function GooglePage() {
               }
               className="h-9 rounded-md border bg-background px-3 text-sm"
             >
-              <option value="account">Account</option>
-              <option value="campaign">Campaign</option>
-              <option value="assetGroup">Asset group</option>
-              <option value="country">Country</option>
-              <option value="productCategory">Product category</option>
-              <option value="productLevel">Product level</option>
+              <option value="account">{scopeLabels.account}</option>
+              <option value="campaign">{scopeLabels.campaign}</option>
+              <option value="assetGroup">{scopeLabels.assetGroup}</option>
+              <option value="country">{scopeLabels.country}</option>
+              <option value="productCategory">{scopeLabels.productCategory}</option>
+              <option value="productLevel">{scopeLabels.productLevel}</option>
             </select>
 
             {(optimizationScope === "campaign" ||
@@ -398,10 +425,10 @@ export default function GooglePage() {
 
           <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-card p-2">
             {[
-              { key: "recommendations", label: "Recommendations" },
-              { key: "searchTerms", label: "Search terms" },
-              { key: "products", label: "Products" },
-              { key: "assets", label: "Assets (PMax)" },
+              { key: "recommendations", label: language === "tr" ? "Oneriler" : "Recommendations" },
+              { key: "searchTerms", label: language === "tr" ? "Search term'ler" : "Search terms" },
+              { key: "products", label: language === "tr" ? "Urunler" : "Products" },
+              { key: "assets", label: language === "tr" ? "Asset'ler (PMax)" : "Assets (PMax)" },
             ].map((tab) => (
               <button
                 key={tab.key}
@@ -428,13 +455,25 @@ export default function GooglePage() {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                      Growth Score
+                      {language === "tr" ? "Buyume Skoru" : "Growth Score"}
                     </p>
                     <p className="mt-1 text-2xl font-semibold">{growthScore.score}/100</p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant="secondary">Upside: {growthScore.upsideLevel}</Badge>
-                    <Badge variant="outline">Priority issues: {growthScore.priorityIssues}</Badge>
+                    <Badge variant="secondary">
+                      {language === "tr" ? "Potansiyel" : "Upside"}: {growthScore.upsideLevel === "High"
+                        ? language === "tr"
+                          ? "Yuksek"
+                          : "High"
+                        : growthScore.upsideLevel === "Medium"
+                          ? language === "tr"
+                            ? "Orta"
+                            : "Medium"
+                          : language === "tr"
+                            ? "Dusuk"
+                            : "Low"}
+                    </Badge>
+                    <Badge variant="outline">{language === "tr" ? "Oncelikli sorunlar" : "Priority issues"}: {growthScore.priorityIssues}</Badge>
                   </div>
                 </div>
                 <div className="mt-3 h-2 rounded bg-muted">
@@ -447,7 +486,7 @@ export default function GooglePage() {
 
               <div className="space-y-2">
                 <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                  Optimization Issues
+                  {language === "tr" ? "Optimizasyon Sorunlari" : "Optimization Issues"}
                 </h3>
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                   {growthEngineRecommendations
@@ -456,7 +495,7 @@ export default function GooglePage() {
                       <RecommendationCard
                         key={rec.id}
                         recommendation={rec}
-                        scopeLabel={SCOPE_LABELS[optimizationScope]}
+                        scopeLabel={scopeLabels[optimizationScope]}
                         onOpen={() => setDrawerPayload({ type: "recommendation", data: rec })}
                       />
                     ))}
@@ -465,7 +504,7 @@ export default function GooglePage() {
 
               <div className="space-y-2">
                 <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                  Growth Opportunities
+                  {language === "tr" ? "Buyume Firsatlari" : "Growth Opportunities"}
                 </h3>
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                   {growthEngineRecommendations
@@ -474,7 +513,7 @@ export default function GooglePage() {
                       <RecommendationCard
                         key={rec.id}
                         recommendation={rec}
-                        scopeLabel={SCOPE_LABELS[optimizationScope]}
+                        scopeLabel={scopeLabels[optimizationScope]}
                         onOpen={() => setDrawerPayload({ type: "recommendation", data: rec })}
                       />
                     ))}
@@ -489,15 +528,15 @@ export default function GooglePage() {
                 <input
                   value={searchTermQuery}
                   onChange={(event) => setSearchTermQuery(event.target.value)}
-                  placeholder="Search terms..."
+                  placeholder={language === "tr" ? "Search term ara..." : "Search terms..."}
                   className="h-9 min-w-56 rounded-md border bg-background px-3 text-sm"
                 />
                 <div className="flex items-center gap-2">
                   <Button size="sm" variant="outline" onClick={showComingSoon}>
-                    Select rows
+                    {language === "tr" ? "Satir sec" : "Select rows"}
                   </Button>
                   <Button size="sm" onClick={showComingSoon}>
-                    Propose negatives
+                    {language === "tr" ? "Negative oner" : "Propose negatives"}
                   </Button>
                 </div>
               </div>
@@ -554,8 +593,12 @@ export default function GooglePage() {
             <>
               {(productsQuery.data ?? []).length === 0 ? (
                 <EmptyState
-                  title="Requires Merchant Center feed / Shopping data"
-                  description="Connect Merchant Center to view product-level performance."
+                  title={language === "tr" ? "Merchant Center feed / Shopping verisi gerekli" : "Requires Merchant Center feed / Shopping data"}
+                  description={
+                    language === "tr"
+                      ? "Urun seviyesinde performans gormek icin Merchant Center baglayin."
+                      : "Connect Merchant Center to view product-level performance."
+                  }
                 />
               ) : (
                 <div className="max-h-[600px] overflow-auto rounded-xl border">

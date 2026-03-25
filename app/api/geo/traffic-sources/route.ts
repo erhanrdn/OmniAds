@@ -14,8 +14,10 @@ import {
 } from "@/lib/geo-intelligence";
 import { scoreAiTrafficValue } from "@/lib/geo-scoring";
 import { computeMomentum, computePreviousPeriod } from "@/lib/geo-momentum";
+import { resolveRequestLanguage } from "@/lib/request-language";
 
 export async function GET(request: NextRequest) {
+  const language = await resolveRequestLanguage(request);
   const businessId = request.nextUrl.searchParams.get("businessId");
   const startDate =
     request.nextUrl.searchParams.get("startDate") ?? "30daysAgo";
@@ -146,13 +148,13 @@ export async function GET(request: NextRequest) {
       // Targeted recommendation
       let recommendation: string | null = null;
       if (valueScored.label === "elite" || valueScored.label === "strong") {
-        recommendation = "High-value channel — scale with answer-first content";
+        recommendation = language === "tr" ? "Yuksek degerli kanal — answer-first icerikle olcekle" : "High-value channel — scale with answer-first content";
       } else if (momentum.status === "breakout") {
-        recommendation = "Breakout growth — prioritise content for this engine";
+        recommendation = language === "tr" ? "Patlayan buyume — bu motor icin icerige oncelik ver" : "Breakout growth — prioritise content for this engine";
       } else if (momentum.status === "rising" && valueScored.label === "promising") {
-        recommendation = "Growing — invest in FAQ/guide format content";
+        recommendation = language === "tr" ? "Yukseliyor — FAQ/guide formatina yatirim yap" : "Growing — invest in FAQ/guide format content";
       } else if (valueScored.label === "weak" && s.sessions > 20) {
-        recommendation = "Improve landing experience for this engine's users";
+        recommendation = language === "tr" ? "Bu motorun kullanicilari icin landing deneyimini iyilestir" : "Improve landing experience for this engine's users";
       }
 
       return {

@@ -16,6 +16,8 @@ import {
   type AiCreativeHistoricalWindows,
   type CreativeRuleReportPayload,
 } from "@/src/services";
+import { getTranslations } from "@/lib/i18n";
+import { usePreferencesStore } from "@/store/preferences-store";
 
 interface CreativeDetailExperienceProps {
   businessId: string;
@@ -54,6 +56,8 @@ export function CreativeDetailExperience({
   onNotesChange,
   onDateRangeChange,
 }: CreativeDetailExperienceProps) {
+  const language = usePreferencesStore((state) => state.language);
+  const creativeTranslations = getTranslations(language).creativeDetail;
   const [source, setSource] = useState<StageSource>("html");
   const [detailPreviewHtml, setDetailPreviewHtml] = useState<string | null>(null);
   const [detailPreviewLoading, setDetailPreviewLoading] = useState(false);
@@ -317,7 +321,7 @@ export function CreativeDetailExperience({
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <Sparkles className="h-4 w-4 text-sky-600" />
-                    <h4 className="text-sm font-semibold text-slate-900">AI strategy interpretation</h4>
+                    <h4 className="text-sm font-semibold text-slate-900">{creativeTranslations.aiInterpretation}</h4>
                   </div>
                   {aiInterpretationRequested && commentaryQuery.data ? (
                     <span
@@ -328,7 +332,7 @@ export function CreativeDetailExperience({
                           : "border-sky-300 bg-sky-50 text-sky-700"
                       )}
                     >
-                      {commentaryQuery.data.source === "fallback" ? "Fallback" : "AI"}
+                      {commentaryQuery.data.source === "fallback" ? getTranslations(language).common.fallback : getTranslations(language).common.ai}
                     </span>
                   ) : null}
                 </div>
@@ -341,19 +345,19 @@ export function CreativeDetailExperience({
                     }}
                     className="inline-flex items-center rounded-lg border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-100"
                   >
-                    Generate AI interpretation
+                    {creativeTranslations.generateInterpretation}
                   </button>
                 ) : commentaryQuery.isLoading || commentaryQuery.isFetching ? (
-                  <p className="text-sm text-slate-600">Analyzing report...</p>
+                  <p className="text-sm text-slate-600">{creativeTranslations.analyzing}</p>
                 ) : commentaryQuery.isError ? (
                   <div className="space-y-2">
-                    <p className="text-sm text-rose-700">AI interpretation is temporarily unavailable.</p>
+                    <p className="text-sm text-rose-700">{creativeTranslations.unavailable}</p>
                     <button
                       type="button"
                       onClick={() => commentaryQuery.refetch()}
                       className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
                     >
-                      Retry
+                      {getTranslations(language).common.retry}
                     </button>
                   </div>
                 ) : commentaryQuery.data?.commentary ? (
@@ -365,15 +369,15 @@ export function CreativeDetailExperience({
                     ) : null}
                     <p className="text-sm font-semibold text-slate-900">{commentaryQuery.data.commentary.headline}</p>
                     <p className="text-sm leading-6 text-slate-700">{commentaryQuery.data.commentary.summary}</p>
-                    <ListBlock title="Opportunities" items={commentaryQuery.data.commentary.opportunities} />
-                    <ListBlock title="Risks" items={commentaryQuery.data.commentary.risks} />
-                    <ListBlock title="Next actions" items={commentaryQuery.data.commentary.nextActions} ordered />
+                    <ListBlock title={creativeTranslations.opportunities} items={commentaryQuery.data.commentary.opportunities} />
+                    <ListBlock title={creativeTranslations.risks} items={commentaryQuery.data.commentary.risks} />
+                    <ListBlock title={creativeTranslations.nextActions} items={commentaryQuery.data.commentary.nextActions} ordered />
                     <button
                       type="button"
                       onClick={() => commentaryQuery.refetch()}
                       className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
                     >
-                      Refresh interpretation
+                      {creativeTranslations.refreshInterpretation}
                     </button>
                   </div>
                 ) : null}

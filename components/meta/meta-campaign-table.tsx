@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { MetaCampaignData, MetaAdSetData } from "@/lib/api/meta";
 import type { MetaAdSetsResponse } from "@/app/api/meta/adsets/route";
+import { usePreferencesStore } from "@/store/preferences-store";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -95,7 +96,8 @@ function fmtBidValue(
 }
 
 function renderConfigText(value: string | null | undefined, isMixed?: boolean) {
-  if (isMixed) return "Mixed";
+  const language = usePreferencesStore.getState().language;
+  if (isMixed) return language === "tr" ? "Karisik" : "Mixed";
   if (!value) return "—";
   return value;
 }
@@ -179,32 +181,33 @@ function MicroBar({
 // ── Status badge ──────────────────────────────────────────────────────────────
 
 export function StatusBadge({ status }: { status: string }) {
+  const language = usePreferencesStore((state) => state.language);
   const lower = status.toLowerCase();
   if (lower === "active")
     return (
       <Badge className="border-0 bg-emerald-500/15 font-medium text-emerald-600 hover:bg-emerald-500/20">
-        Active
+        {language === "tr" ? "Aktif" : "Active"}
       </Badge>
     );
   if (lower === "paused")
     return (
       <Badge className="border-0 bg-slate-400/15 text-slate-500 hover:bg-slate-400/20">
-        Paused
+        {language === "tr" ? "Duraklatildi" : "Paused"}
       </Badge>
     );
   if (lower === "archived")
     return (
-      <Badge className="border-0 bg-zinc-400/10 text-zinc-400">Archived</Badge>
+      <Badge className="border-0 bg-zinc-400/10 text-zinc-400">{language === "tr" ? "Arsivlendi" : "Archived"}</Badge>
     );
   if (lower === "in_process")
     return (
       <Badge className="border-0 bg-blue-500/15 text-blue-600">
-        In Process
+        {language === "tr" ? "Isleniyor" : "In Process"}
       </Badge>
     );
   if (lower === "with_issues")
     return (
-      <Badge className="border-0 bg-amber-500/15 text-amber-600">Issues</Badge>
+      <Badge className="border-0 bg-amber-500/15 text-amber-600">{language === "tr" ? "Sorunlar" : "Issues"}</Badge>
     );
   return (
     <Badge variant="outline" className="text-xs">
@@ -214,10 +217,11 @@ export function StatusBadge({ status }: { status: string }) {
 }
 
 function LaneBadge({ lane }: { lane: "Scaling" | "Validation" | "Test" }) {
+  const language = usePreferencesStore((state) => state.language);
   if (lane === "Scaling") {
     return (
       <Badge className="border-0 bg-blue-500/10 text-blue-700 hover:bg-blue-500/15">
-        Scaling
+        {language === "tr" ? "Scaling" : "Scaling"}
       </Badge>
     );
   }
@@ -225,14 +229,14 @@ function LaneBadge({ lane }: { lane: "Scaling" | "Validation" | "Test" }) {
   if (lane === "Validation") {
     return (
       <Badge className="border-0 bg-slate-500/10 text-slate-700 hover:bg-slate-500/15">
-        Validation
+        {language === "tr" ? "Dogrulama" : "Validation"}
       </Badge>
     );
   }
 
   return (
     <Badge className="border-0 bg-amber-500/10 text-amber-700 hover:bg-amber-500/15">
-      Test
+      {language === "tr" ? "Test" : "Test"}
     </Badge>
   );
 }
@@ -281,10 +285,11 @@ function AdSetSubTable({
   campaignPreviousBidValueCapturedAt: string | null | undefined;
 }) {
   const sym = useCurrencySymbol();
+  const language = usePreferencesStore((state) => state.language);
   if (rows.length === 0) {
     return (
       <div className="px-4 py-3 text-xs text-muted-foreground">
-        No ad set data for the selected date range.
+        {language === "tr" ? "Secilen tarih araliginda ad set verisi yok." : "No ad set data for the selected date range."}
       </div>
     );
   }
@@ -299,11 +304,11 @@ function AdSetSubTable({
         </colgroup>
         <thead className="bg-muted/40 text-left">
           <tr>
-            <th className="px-4 py-2 pl-10 font-medium">Ad Set</th>
-            <th className="px-3 py-2 font-medium">Status</th>
-            <th className="px-3 py-2 font-medium">Optimization</th>
-            <th className="px-3 py-2 font-medium">Bidding</th>
-            <th className="px-3 py-2 font-medium">Budget</th>
+            <th className="px-4 py-2 pl-10 font-medium">{language === "tr" ? "Ad Set" : "Ad Set"}</th>
+            <th className="px-3 py-2 font-medium">{language === "tr" ? "Durum" : "Status"}</th>
+            <th className="px-3 py-2 font-medium">{language === "tr" ? "Optimizasyon" : "Optimization"}</th>
+            <th className="px-3 py-2 font-medium">{language === "tr" ? "Teklifleme" : "Bidding"}</th>
+            <th className="px-3 py-2 font-medium">{language === "tr" ? "Butce" : "Budget"}</th>
             <th className="px-3 py-2 text-right font-medium">Bid Value</th>
             <th className="px-3 py-2 text-right font-medium">Spend</th>
             <th className="px-3 py-2 text-right font-medium">Conv.</th>
@@ -377,7 +382,7 @@ function AdSetSubTable({
                     {(typeof adset.previousDailyBudget === "number" ||
                       typeof adset.previousLifetimeBudget === "number") && (
                       <div className="truncate text-[10px] tabular-nums text-muted-foreground">
-                        prev {fmtBudget(adset.previousDailyBudget ?? null, adset.previousLifetimeBudget ?? null, sym)}
+                        {language === "tr" ? "onceki" : "prev"} {fmtBudget(adset.previousDailyBudget ?? null, adset.previousLifetimeBudget ?? null, sym)}
                         {formatRelativeAge(adset.previousBudgetCapturedAt)
                           ? ` · ${formatRelativeAge(adset.previousBudgetCapturedAt)}`
                           : ""}
@@ -388,7 +393,7 @@ function AdSetSubTable({
                       isPrevLoading &&
                       hasBudgetValue(adset.dailyBudget, adset.lifetimeBudget) && (
                         <div className="truncate text-[10px] text-muted-foreground">
-                          fetching…
+                          {language === "tr" ? "getiriliyor..." : "fetching..."}
                         </div>
                       )}
                   </>
@@ -400,7 +405,7 @@ function AdSetSubTable({
                 </div>
                 {typeof effectivePreviousBidValue === "number" && !adset.isBidValueMixed && (
                   <div className="text-[10px] tabular-nums text-muted-foreground">
-                    prev {fmtBidValue(
+                    {language === "tr" ? "onceki" : "prev"} {fmtBidValue(
                       effectivePreviousBidValue,
                       effectivePreviousBidValueFormat ?? effectiveBidValueFormat,
                       sym
@@ -415,7 +420,7 @@ function AdSetSubTable({
                   isPrevLoading &&
                   typeof effectiveBidValue === "number" && (
                     <div className="text-[10px] text-muted-foreground">
-                      fetching…
+                      {language === "tr" ? "getiriliyor..." : "fetching..."}
                     </div>
                   )}
               </td>
@@ -472,6 +477,7 @@ function CampaignRow({
   isCampaignPrevLoading,
 }: CampaignRowProps) {
   const sym = useCurrencySymbol();
+  const language = usePreferencesStore((state) => state.language);
   const colSpan = columns === "compact" ? 8 : 11;
   const showBudgetOnCampaignRow =
     campaign.budgetLevel === "campaign" &&
@@ -573,7 +579,7 @@ function CampaignRow({
                   ) : null}
                   {campaign.recommendationCount ? (
                     <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                      {campaign.recommendationCount} insight{campaign.recommendationCount > 1 ? "s" : ""}
+                      {campaign.recommendationCount} {language === "tr" ? "icgoru" : `insight${campaign.recommendationCount > 1 ? "s" : ""}`}
                     </span>
                   ) : null}
                 </div>
@@ -612,7 +618,7 @@ function CampaignRow({
               {(typeof campaign.previousDailyBudget === "number" ||
                 typeof campaign.previousLifetimeBudget === "number") && (
                 <div className="truncate text-[10px] tabular-nums text-muted-foreground">
-                  prev {fmtBudget(campaign.previousDailyBudget ?? null, campaign.previousLifetimeBudget ?? null, sym)}
+                  {language === "tr" ? "onceki" : "prev"} {fmtBudget(campaign.previousDailyBudget ?? null, campaign.previousLifetimeBudget ?? null, sym)}
                   {formatRelativeAge(campaign.previousBudgetCapturedAt)
                     ? ` · ${formatRelativeAge(campaign.previousBudgetCapturedAt)}`
                     : ""}
@@ -622,7 +628,7 @@ function CampaignRow({
                 typeof campaign.previousLifetimeBudget === "number") &&
                 isCampaignPrevLoading && (
                   <div className="truncate text-[10px] text-muted-foreground">
-                    fetching…
+                    {language === "tr" ? "getiriliyor..." : "fetching..."}
                   </div>
                 )}
             </>
@@ -732,7 +738,7 @@ function CampaignRow({
             {adSetsQuery.isLoading && (
               <div className="flex items-center gap-2 border-t bg-muted/20 px-4 py-3 text-xs text-muted-foreground">
                 <Loader2 className="h-3 w-3 animate-spin" />
-                Loading ad sets…
+                {language === "tr" ? "Ad set'ler yukleniyor..." : "Loading ad sets..."}
               </div>
             )}
             {adSetsQuery.isError && (
@@ -740,7 +746,9 @@ function CampaignRow({
                 <AlertCircle className="h-3 w-3" />
                 {adSetsQuery.error instanceof Error
                   ? adSetsQuery.error.message
-                  : "Could not load ad sets."}
+                  : language === "tr"
+                    ? "Ad set'ler yuklenemedi."
+                    : "Could not load ad sets."}
                 <Button
                   size="sm"
                   variant="ghost"
@@ -750,7 +758,7 @@ function CampaignRow({
                     adSetsQuery.refetch();
                   }}
                 >
-                  Retry
+                  {language === "tr" ? "Tekrar dene" : "Retry"}
                 </Button>
               </div>
             )}
@@ -784,6 +792,7 @@ export function MetaCampaignTable({
   showMicroBars = false,
   columns = "full",
 }: MetaCampaignTableProps) {
+  const language = usePreferencesStore((state) => state.language);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(
     () => new Set(campaigns.map((campaign) => campaign.id))
   );
@@ -802,7 +811,7 @@ export function MetaCampaignTable({
   if (campaigns.length === 0) {
     return (
       <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
-        No campaigns found for the selected date range.
+        {language === "tr" ? "Secilen tarih araliginda kampanya bulunamadi." : "No campaigns found for the selected date range."}
       </div>
     );
   }
@@ -814,15 +823,15 @@ export function MetaCampaignTable({
         <table className={`${minW} w-full text-sm`}>
           <thead className="sticky top-0 z-10 bg-card text-left text-xs font-medium uppercase tracking-wider text-muted-foreground border-b">
             <tr>
-              <th className="px-3 py-2.5">Campaign</th>
-              <th className="px-3 py-2.5">Status</th>
-              <th className="px-3 py-2.5">Objective</th>
-              <th className="px-3 py-2.5">Budget</th>
-              <th className="px-3 py-2.5">Spend</th>
+              <th className="px-3 py-2.5">{language === "tr" ? "Kampanya" : "Campaign"}</th>
+              <th className="px-3 py-2.5">{language === "tr" ? "Durum" : "Status"}</th>
+              <th className="px-3 py-2.5">{language === "tr" ? "Objective" : "Objective"}</th>
+              <th className="px-3 py-2.5">{language === "tr" ? "Butce" : "Budget"}</th>
+              <th className="px-3 py-2.5">{language === "tr" ? "Harcama" : "Spend"}</th>
               {columns === "full" && (
                 <th className="px-3 py-2.5">Conv.</th>
               )}
-              <th className="px-3 py-2.5">Revenue</th>
+              <th className="px-3 py-2.5">{language === "tr" ? "Gelir" : "Revenue"}</th>
               <th className="px-3 py-2.5">ROAS</th>
               <th className="px-3 py-2.5">CPA</th>
               {columns === "full" && (

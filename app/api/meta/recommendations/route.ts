@@ -10,6 +10,7 @@ import type { MetaBreakdownsResponse } from "@/app/api/meta/breakdowns/route";
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
 import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
 import { buildCreativeHistoryById, mapApiRowToUiRow } from "@/app/(dashboard)/creatives/page-support";
+import { resolveRequestLanguage } from "@/lib/request-language";
 
 const META_RECOMMENDATIONS_REPORT_VERSION = "v12";
 
@@ -52,9 +53,12 @@ async function fetchInternalJson<T>(
 
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
+  const language = await resolveRequestLanguage(request);
   const businessId = searchParams.get("businessId");
   const startDate = searchParams.get("startDate");
   const endDate = searchParams.get("endDate");
+  const cacheSearchParams = new URLSearchParams(searchParams);
+  cacheSearchParams.set("locale", language);
 
   const access = await requireBusinessAccess({
     request,
@@ -86,6 +90,7 @@ export async function GET(request: NextRequest) {
           allHistory: demoCampaigns,
         },
         breakdowns: demoBreakdowns,
+        language,
       })
     );
   }
@@ -94,7 +99,7 @@ export async function GET(request: NextRequest) {
     businessId,
     provider: "meta",
     reportType: `meta_recommendations_${META_RECOMMENDATIONS_REPORT_VERSION}`,
-    searchParams,
+    searchParams: cacheSearchParams,
   });
   if (cached) return NextResponse.json(cached);
 
@@ -247,13 +252,14 @@ export async function GET(request: NextRequest) {
         })
       ).entries()
     ),
+    language,
   });
 
   await setCachedRouteReport({
     businessId,
     provider: "meta",
     reportType: `meta_recommendations_${META_RECOMMENDATIONS_REPORT_VERSION}`,
-    searchParams,
+    searchParams: cacheSearchParams,
     payload,
   });
 

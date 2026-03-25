@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const AUTH_COOKIE = "omniads_session";
+const LANGUAGE_COOKIE = "adsecute_locale";
 
 const PUBLIC_PAGE_PREFIXES = [
   "/login",
@@ -14,6 +15,7 @@ const PUBLIC_PAGE_PREFIXES = [
   "/product",
   "/pricing",
   "/demo",
+  "/select-language",
 ];
 const PUBLIC_API_PREFIXES = [
   "/api/auth/login",
@@ -44,6 +46,7 @@ function isPublicApi(pathname: string): boolean {
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const hasSession = Boolean(request.cookies.get(AUTH_COOKIE)?.value);
+  const hasLanguage = Boolean(request.cookies.get(LANGUAGE_COOKIE)?.value);
 
   if (pathname.startsWith("/api/")) {
     if (isPublicApi(pathname)) {
@@ -71,6 +74,14 @@ export function proxy(request: NextRequest) {
         loginUrl.searchParams.set("next", nextPath);
       }
       return NextResponse.redirect(loginUrl);
+    }
+    if (hasSession && !hasLanguage) {
+      const languageUrl = new URL("/select-language", request.url);
+      const nextPath = `${pathname}${request.nextUrl.search}`;
+      if (nextPath !== "/select-language") {
+        languageUrl.searchParams.set("next", nextPath);
+      }
+      return NextResponse.redirect(languageUrl);
     }
   }
 

@@ -2,6 +2,8 @@
 
 import type { AiDailyInsightSnapshot } from "@/src/types/models";
 import { Button } from "@/components/ui/button";
+import { getTranslations } from "@/lib/i18n";
+import { usePreferencesStore } from "@/store/preferences-store";
 
 function SectionList({
   title,
@@ -40,6 +42,9 @@ export function AiDailyBrief({
   onRegenerate?: () => void;
   regenerating?: boolean;
 }) {
+  const language = usePreferencesStore((state) => state.language);
+  const t = getTranslations(language).aiBrief;
+
   if (loading) {
     return (
       <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
@@ -53,7 +58,7 @@ export function AiDailyBrief({
   if (error) {
     return (
       <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
-        Could not load AI daily brief. {error}
+        {t.errorPrefix} {error}
       </div>
     );
   }
@@ -61,7 +66,7 @@ export function AiDailyBrief({
   if (!insight) {
     return (
       <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-        No AI brief available yet. Once the scheduled AI run completes, this section will populate automatically.
+        {t.empty}
       </div>
     );
   }
@@ -69,7 +74,7 @@ export function AiDailyBrief({
   return (
     <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-base font-semibold text-slate-900">Today&apos;s AI Brief</h3>
+        <h3 className="text-base font-semibold text-slate-900">{t.title}</h3>
         <div className="flex items-center gap-2">
           {onRegenerate ? (
             <Button
@@ -79,11 +84,11 @@ export function AiDailyBrief({
               onClick={onRegenerate}
               disabled={Boolean(regenerating)}
             >
-              {regenerating ? "Generating..." : "Regenerate"}
+              {regenerating ? getTranslations(language).common.generating : getTranslations(language).common.regenerate}
             </Button>
           ) : null}
           <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-600">
-            Insight date: {insight.insightDate}
+            {t.insightDate}: {insight.insightDate}
           </span>
         </div>
       </div>
@@ -91,9 +96,9 @@ export function AiDailyBrief({
       <p className="text-sm leading-relaxed text-slate-700">{insight.summary}</p>
 
       <div className="grid gap-3 lg:grid-cols-3">
-        <SectionList title="Opportunities" items={insight.opportunities} />
-        <SectionList title="Risks" items={insight.risks} />
-        <SectionList title="Recommendations" items={insight.recommendations} />
+        <SectionList title={t.opportunities} items={insight.opportunities} />
+        <SectionList title={t.risks} items={insight.risks} />
+        <SectionList title={t.recommendations} items={insight.recommendations} />
       </div>
     </div>
   );

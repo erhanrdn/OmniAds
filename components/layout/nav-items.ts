@@ -19,6 +19,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { PlanId } from "@/lib/pricing/plans";
+import type { AppLanguage } from "@/lib/i18n";
+import { getTranslations } from "@/lib/i18n";
 
 export interface NavItem {
   label: string;
@@ -28,22 +30,25 @@ export interface NavItem {
   requiredPlan?: PlanId;
 }
 
-export const navItems: NavItem[] = [
-  { label: "Overview", href: "/overview", icon: LayoutDashboard, group: "Main" },
-  { label: "Meta", href: "/platforms/meta", icon: Facebook, group: "Platforms", requiredPlan: "growth" },
-  { label: "Google Ads", href: "/google-ads", icon: Search, group: "Platforms", requiredPlan: "growth" },
-  { label: "TikTok", href: "/platforms/tiktok", icon: Music2, group: "Platforms", requiredPlan: "pro" },
-  { label: "Pinterest", href: "/platforms/pinterest", icon: Image, group: "Platforms", requiredPlan: "pro" },
-  { label: "Snapchat", href: "/platforms/snapchat", icon: Ghost, group: "Platforms", requiredPlan: "pro" },
-  { label: "Klaviyo", href: "/platforms/klaviyo", icon: Mail, group: "Platforms", requiredPlan: "pro" },
-  { label: "Analytics", href: "/analytics", icon: LineChart, group: "Platforms", requiredPlan: "growth" },
-  { label: "GEO Intelligence", href: "/geo-intelligence", icon: BrainCircuit, group: "Platforms", requiredPlan: "pro" },
-  { label: "SEO Intelligence", href: "/seo-intelligence", icon: SearchCheck, group: "Platforms", requiredPlan: "pro" },
-  { label: "Creatives", href: "/creatives", icon: Palette, group: "Assets", requiredPlan: "growth" },
-  { label: "Landing Pages", href: "/landing-pages", icon: Globe, group: "Assets", requiredPlan: "growth" },
-  { label: "Copies", href: "/copies", icon: FileText, group: "Assets", requiredPlan: "growth" },
-  { label: "Reports", href: "/reports", icon: BarChart3, group: "Manage", requiredPlan: "pro" },
-  { label: "Integrations", href: "/integrations", icon: Plug, group: "Manage" },
-  { label: "Team", href: "/team", icon: Users, group: "Manage", requiredPlan: "scale" },
-  { label: "Settings", href: "/settings", icon: Settings, group: "Manage" },
-];
+export function getNavItems(language: AppLanguage): NavItem[] {
+  const t = getTranslations(language).navigation;
+  return [
+    { label: t.overview, href: "/overview", icon: LayoutDashboard, group: "Main" },
+    { label: t.meta, href: "/platforms/meta", icon: Facebook, group: "Platforms", requiredPlan: "growth" },
+    { label: t.googleAds, href: "/google-ads", icon: Search, group: "Platforms", requiredPlan: "growth" },
+    { label: t.tikTok, href: "/platforms/tiktok", icon: Music2, group: "Platforms", requiredPlan: "pro" },
+    { label: t.pinterest, href: "/platforms/pinterest", icon: Image, group: "Platforms", requiredPlan: "pro" },
+    { label: t.snapchat, href: "/platforms/snapchat", icon: Ghost, group: "Platforms", requiredPlan: "pro" },
+    { label: t.klaviyo, href: "/platforms/klaviyo", icon: Mail, group: "Platforms", requiredPlan: "pro" },
+    { label: t.analytics, href: "/analytics", icon: LineChart, group: "Platforms", requiredPlan: "growth" },
+    { label: t.geoIntelligence, href: "/geo-intelligence", icon: BrainCircuit, group: "Platforms", requiredPlan: "pro" },
+    { label: t.seoIntelligence, href: "/seo-intelligence", icon: SearchCheck, group: "Platforms", requiredPlan: "pro" },
+    { label: t.creatives, href: "/creatives", icon: Palette, group: "Assets", requiredPlan: "growth" },
+    { label: t.landingPages, href: "/landing-pages", icon: Globe, group: "Assets", requiredPlan: "growth" },
+    { label: t.copies, href: "/copies", icon: FileText, group: "Assets", requiredPlan: "growth" },
+    { label: t.reports, href: "/reports", icon: BarChart3, group: "Manage", requiredPlan: "pro" },
+    { label: t.integrations, href: "/integrations", icon: Plug, group: "Manage" },
+    { label: t.team, href: "/team", icon: Users, group: "Manage", requiredPlan: "scale" },
+    { label: t.settings, href: "/settings", icon: Settings, group: "Manage" },
+  ];
+}

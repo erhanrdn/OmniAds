@@ -13,6 +13,7 @@ import {
   type Confidence,
   assignEffort,
 } from "./geo-scoring";
+import type { AppLanguage } from "@/lib/i18n";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -42,13 +43,19 @@ export function buildRewriteTitleRec(opts: {
   priority: Priority;
   confidence: Confidence;
   position: number;
+  language?: AppLanguage;
 }): GeoRecommendation {
   const type: RecommendationType = "rewrite_title";
+  const language = opts.language ?? "en";
   return {
     type,
-    title: "Rewrite title tag for AI snippet inclusion",
-    reason: `The page ranks at position ${opts.position.toFixed(1)} but is unlikely to be cited by AI engines due to a non-descriptive or keyword-stuffed title.`,
-    expectedOutcome: "Titles that answer a specific question are cited ~2–3× more often by AI assistants.",
+    title: language === "tr" ? "AI snippet gorunurlugu icin title tag'i yeniden yaz" : "Rewrite title tag for AI snippet inclusion",
+    reason: language === "tr"
+      ? `Sayfa ${opts.position.toFixed(1)} pozisyonunda ama title yeterince acik olmadigi veya anahtar kelime dolduruldugu icin AI motorlari tarafindan alintilanma ihtimali dusuk.`
+      : `The page ranks at position ${opts.position.toFixed(1)} but is unlikely to be cited by AI engines due to a non-descriptive or keyword-stuffed title.`,
+    expectedOutcome: language === "tr"
+      ? "Belirli bir soruya cevap veren title'lar AI asistanlari tarafindan yaklasik 2-3 kat daha fazla alintilanir."
+      : "Titles that answer a specific question are cited ~2–3× more often by AI assistants.",
     effort: assignEffort(type),
     priority: opts.priority,
     confidence: opts.confidence,
@@ -56,7 +63,9 @@ export function buildRewriteTitleRec(opts: {
     target: opts.target,
     evidence: opts.evidence,
     whyItMatters:
-      "AI engines prioritize pages whose title clearly signals the answer. A more direct, question-answering title improves the odds of being pulled into AI responses.",
+      language === "tr"
+        ? "AI motorlari, cevabi title seviyesinde acikca sinyal veren sayfalari onceliklendirir. Daha direkt ve cevap odakli bir title, AI cevaplarina cekilme sansini artirir."
+        : "AI engines prioritize pages whose title clearly signals the answer. A more direct, question-answering title improves the odds of being pulled into AI responses.",
   };
 }
 
@@ -66,13 +75,19 @@ export function buildAddFaqRec(opts: {
   priority: Priority;
   confidence: Confidence;
   queryCount: number;
+  language?: AppLanguage;
 }): GeoRecommendation {
   const type: RecommendationType = "add_faq";
+  const language = opts.language ?? "en";
   return {
     type,
-    title: "Add FAQ section to answer top questions",
-    reason: `This page or topic has ${opts.queryCount} informational queries — each is a question AI engines are actively trying to answer.`,
-    expectedOutcome: "FAQ schema + inline Q&A formatting increases AI assistant citation frequency for long-tail queries.",
+    title: language === "tr" ? "En yaygin sorulari cevaplayan bir FAQ bolumu ekle" : "Add FAQ section to answer top questions",
+    reason: language === "tr"
+      ? `Bu sayfa veya konu ${opts.queryCount} adet bilgilendirici sorgu aliyor; bunlarin her biri AI motorlarinin aktif olarak cevaplamaya calistigi sorular.`
+      : `This page or topic has ${opts.queryCount} informational queries — each is a question AI engines are actively trying to answer.`,
+    expectedOutcome: language === "tr"
+      ? "FAQ schema ve satir ici Soru-Cevap formati, long-tail sorgularda AI alintilanma sikligini artirir."
+      : "FAQ schema + inline Q&A formatting increases AI assistant citation frequency for long-tail queries.",
     effort: assignEffort(type),
     priority: opts.priority,
     confidence: opts.confidence,
@@ -80,7 +95,9 @@ export function buildAddFaqRec(opts: {
     target: opts.target,
     evidence: opts.evidence,
     whyItMatters:
-      "AI answer engines extract structured Q&A pairs to build responses. A dedicated FAQ section gives them a ready-made source, increasing the probability your page is cited.",
+      language === "tr"
+        ? "AI cevap motorlari, yanitlarini kurarken yapi landirilmis Soru-Cevap ciftlerini kullanir. Ozel bir FAQ bolumu, onlara hazir bir kaynak sunar ve sayfanizin alintilanma olasiligini artirir."
+        : "AI answer engines extract structured Q&A pairs to build responses. A dedicated FAQ section gives them a ready-made source, increasing the probability your page is cited.",
   };
 }
 
@@ -90,13 +107,19 @@ export function buildExpandGuideRec(opts: {
   priority: Priority;
   confidence: Confidence;
   impressions: number;
+  language?: AppLanguage;
 }): GeoRecommendation {
   const type: RecommendationType = "expand_guide";
+  const language = opts.language ?? "en";
   return {
     type,
-    title: "Expand into a comprehensive guide",
-    reason: `The topic has ${opts.impressions.toLocaleString()} impressions but thin content coverage. Comprehensive guides are preferred by AI engines over shallow pages.`,
-    expectedOutcome: "Deep, comprehensive guides are cited by AI 3–5× more often than thin pages on the same topic.",
+    title: language === "tr" ? "Icerigi kapsamli bir guide'a genislet" : "Expand into a comprehensive guide",
+    reason: language === "tr"
+      ? `Konu ${opts.impressions.toLocaleString()} impression aliyor ama icerik kapsami zayif. AI motorlari yuzeysel sayfalar yerine kapsamli guide'lari tercih eder.`
+      : `The topic has ${opts.impressions.toLocaleString()} impressions but thin content coverage. Comprehensive guides are preferred by AI engines over shallow pages.`,
+    expectedOutcome: language === "tr"
+      ? "Derin ve kapsamli guide'lar, ayni konudaki ince sayfalara gore AI tarafinda 3-5 kat daha fazla alintilanir."
+      : "Deep, comprehensive guides are cited by AI 3–5× more often than thin pages on the same topic.",
     effort: assignEffort(type),
     priority: opts.priority,
     confidence: opts.confidence,
@@ -104,7 +127,9 @@ export function buildExpandGuideRec(opts: {
     target: opts.target,
     evidence: opts.evidence,
     whyItMatters:
-      "AI assistants prefer authoritative, in-depth sources when answering complex questions. Expanding thin content into a full guide establishes topic ownership.",
+      language === "tr"
+        ? "AI asistanlari karmasik sorulari cevaplarken otoriter ve derin kaynaklari tercih eder. Ince icerigi tam bir guide'a donusturmek konu sahipligini guclendirir."
+        : "AI assistants prefer authoritative, in-depth sources when answering complex questions. Expanding thin content into a full guide establishes topic ownership.",
   };
 }
 
@@ -114,13 +139,19 @@ export function buildBuildClusterRec(opts: {
   priority: Priority;
   confidence: Confidence;
   queryCount: number;
+  language?: AppLanguage;
 }): GeoRecommendation {
   const type: RecommendationType = "build_cluster";
+  const language = opts.language ?? "en";
   return {
     type,
-    title: "Build a content cluster around this topic",
-    reason: `${opts.queryCount} related queries exist but are served by scattered or thin pages. A content cluster with a hub page signals topic authority to AI engines.`,
-    expectedOutcome: "Content clusters improve entity recognition in AI systems, leading to more consistent citation across the topic.",
+    title: language === "tr" ? "Bu konu etrafinda bir content cluster kur" : "Build a content cluster around this topic",
+    reason: language === "tr"
+      ? `${opts.queryCount} iliskili sorgu var ama bunlar daginik veya ince sayfalar tarafindan karsilaniyor. Hub page iceren bir content cluster, AI motorlarina konu otoritesi sinyali verir.`
+      : `${opts.queryCount} related queries exist but are served by scattered or thin pages. A content cluster with a hub page signals topic authority to AI engines.`,
+    expectedOutcome: language === "tr"
+      ? "Content cluster'lar, AI sistemlerinde entity tanimayi iyilestirir ve konu genelinde daha tutarli alintilanmaya yol acar."
+      : "Content clusters improve entity recognition in AI systems, leading to more consistent citation across the topic.",
     effort: assignEffort(type),
     priority: opts.priority,
     confidence: opts.confidence,
@@ -128,7 +159,9 @@ export function buildBuildClusterRec(opts: {
     target: opts.target,
     evidence: opts.evidence,
     whyItMatters:
-      "AI engines build entity knowledge graphs. Sites with clustered, interlinked content on a topic are recognized as authoritative sources and cited more broadly.",
+      language === "tr"
+        ? "AI motorlari entity knowledge graph'lari kurar. Bir konuda cluster ve ic link yapisi guclu siteler daha otoriter kabul edilir ve daha genis alintilanir."
+        : "AI engines build entity knowledge graphs. Sites with clustered, interlinked content on a topic are recognized as authoritative sources and cited more broadly.",
   };
 }
 
@@ -282,13 +315,19 @@ export function buildRefreshRec(opts: {
   priority: Priority;
   confidence: Confidence;
   avgPosition: number;
+  language?: AppLanguage;
 }): GeoRecommendation {
   const type: RecommendationType = "refresh_outdated";
+  const language = opts.language ?? "en";
   return {
     type,
-    title: "Refresh and update outdated content",
-    reason: `This page ranks at position ${opts.avgPosition.toFixed(1)} but engagement signals suggest the content may no longer fully satisfy searcher intent.`,
-    expectedOutcome: "Fresh, updated content gets re-indexed by AI crawlers and sees improved citation rates.",
+    title: language === "tr" ? "Eskiyen icerigi guncelle ve yenile" : "Refresh and update outdated content",
+    reason: language === "tr"
+      ? `Bu sayfa ${opts.avgPosition.toFixed(1)} pozisyonunda ama engagement sinyalleri icerigin arama niyetini artik tam karsilamadigini gosteriyor olabilir.`
+      : `This page ranks at position ${opts.avgPosition.toFixed(1)} but engagement signals suggest the content may no longer fully satisfy searcher intent.`,
+    expectedOutcome: language === "tr"
+      ? "Taze ve guncel icerik AI crawler'lari tarafindan yeniden indexlenir ve daha iyi alintilanma oranlari gorur."
+      : "Fresh, updated content gets re-indexed by AI crawlers and sees improved citation rates.",
     effort: assignEffort(type),
     priority: opts.priority,
     confidence: opts.confidence,
@@ -296,7 +335,9 @@ export function buildRefreshRec(opts: {
     target: opts.target,
     evidence: opts.evidence,
     whyItMatters:
-      "AI engines increasingly weight content freshness for time-sensitive queries. Refreshing statistics, examples, and recommendations keeps the page competitive.",
+      language === "tr"
+        ? "AI motorlari zaman hassasiyetli sorgularda icerik tazeligine giderek daha fazla agirlik verir. Istatistikleri, ornekleri ve onerileri guncellemek sayfayi rekabetci tutar."
+        : "AI engines increasingly weight content freshness for time-sensitive queries. Refreshing statistics, examples, and recommendations keeps the page competitive.",
   };
 }
 

@@ -18,6 +18,8 @@ import {
   resolveGoogleAccountsToQuery,
   uniqueByKey,
 } from "@/lib/google-api-routes-support";
+import type { AppLanguage } from "@/lib/i18n";
+import { resolveRequestLanguage } from "@/lib/request-language";
 
 type GoogleDateRange = "7" | "14" | "30" | "custom";
 
@@ -33,6 +35,10 @@ interface Recommendation {
   impact: "High" | "Med" | "Low";
   summary: string[];
   evidence: RecommendationEvidence[];
+}
+
+function tr(language: AppLanguage, english: string, turkish: string) {
+  return language === "tr" ? turkish : english;
 }
 
 function getGoogleRouteParams(request: NextRequest) {
@@ -558,6 +564,7 @@ export async function getGoogleRecommendationsRoute(request: NextRequest) {
   if (authError) return authError;
 
   try {
+    const language = await resolveRequestLanguage(request);
     const dateRangeParams = getDateRangeForQuery(dateRange);
     const assignedAccounts = await getAssignedGoogleAccounts(businessId);
 
@@ -592,7 +599,7 @@ export async function getGoogleRecommendationsRoute(request: NextRequest) {
     );
 
     const allSearchTerms = searchTermResults.flatMap((result: any) => result.results || []);
-    const searchTermWasteRec = computeSearchTermWaste(allSearchTerms);
+    const searchTermWasteRec = computeSearchTermWaste(allSearchTerms, language);
     if (searchTermWasteRec) recommendations.push(searchTermWasteRec);
 
     const campaignResults = await Promise.all(
@@ -617,10 +624,10 @@ export async function getGoogleRecommendationsRoute(request: NextRequest) {
     );
 
     const allCampaigns = campaignResults.flatMap((result: any) => result.results || []);
-    const concentrationRec = computeSpendConcentration(allCampaigns);
+    const concentrationRec = computeSpendConcentration(allCampaigns, language);
     if (concentrationRec) recommendations.push(concentrationRec);
 
-    const zeroConvRec = computeZeroConversionSpend(allCampaigns);
+    const zeroConvRec = computeZeroConversionSpend(allCampaigns, language);
     if (zeroConvRec) recommendations.push(zeroConvRec);
 
     const assetResults = await Promise.all(
@@ -644,7 +651,7 @@ export async function getGoogleRecommendationsRoute(request: NextRequest) {
     );
 
     const allAssets = assetResults.flatMap((result: any) => result.results || []);
-    const assetRec = computeAssetGaps(allAssets);
+    const assetRec = computeAssetGaps(allAssets, language);
     if (assetRec) recommendations.push(assetRec);
 
     return NextResponse.json({ data: recommendations, count: recommendations.length });
@@ -770,7 +777,7 @@ function normalizeMatchType(status: string | undefined): "Broad" | "Phrase" | "E
   return "Broad";
 }
 
-function computeSearchTermWaste(terms: any[]): Recommendation | null {
+function computeSearchTermWaste(terms: any[], language: AppLanguage): Recommendation | null {
   if (!terms.length) return null;
 
   let totalCost = 0;
@@ -801,23 +808,42 @@ function computeSearchTermWaste(terms: any[]): Recommendation | null {
 
   return {
     id: "rec-search-waste",
-    title: "Search term waste opportunity",
-    description: "Identify high-spend search terms with no conversions to exclude",
+    title: tr(language, "Search term waste opportunity", "Search term israf firsati"),
+    description: tr(
+      language,
+      "Identify high-spend search terms with no conversions to exclude",
+      "Conversion getirmeyen yuksek spend'li search term'leri dislamak icin tespit edin"
+    ),
     impact: "High",
     summary: [
-      `${wastefulTerms.length} search terms consumed $${wasteCost.toFixed(0)} with zero conversions.`,
-      `These represent ${wastePct}% of total search spend.`,
-      "Adding negative keywords can immediately improve efficiency.",
+      tr(
+        language,
+        `${wastefulTerms.length} search terms consumed $${wasteCost.toFixed(0)} with zero conversions.`,
+        `${wastefulTerms.length} search term, conversion olmadan $${wasteCost.toFixed(0)} spend tuketti.`
+      ),
+      tr(
+        language,
+        `These represent ${wastePct}% of total search spend.`,
+        `Bu, toplam search spend'in ${wastePct}% seviyesine denk geliyor.`
+      ),
+      tr(
+        language,
+        "Adding negative keywords can immediately improve efficiency.",
+        "Negative keyword eklemek verimliligi hizla iyilestirebilir."
+      ),
     ],
     evidence: [
-      { label: "Waste terms found", value: String(wastefulTerms.length) },
-      { label: "Waste spend", value: `$${wasteCost.toFixed(0)}` },
-      { label: "% of total spend", value: `${wastePct}%` },
+      {
+        label: tr(language, "Waste terms found", "Bulunan israf term sayisi"),
+        value: String(wastefulTerms.length),
+      },
+      { label: tr(language, "Waste spend", "Israf spend"), value: `$${wasteCost.toFixed(0)}` },
+      { label: tr(language, "% of total spend", "Toplam spend payi"), value: `${wastePct}%` },
     ],
   };
 }
 
-function computeSpendConcentration(campaigns: any[]): Recommendation | null {
+function computeSpendConcentration(campaigns: any[], language: AppLanguage): Recommendation | null {
   if (!campaigns.length) return null;
 
   const campaignData = campaigns
@@ -850,23 +876,39 @@ function computeSpendConcentration(campaigns: any[]): Recommendation | null {
   const weakSpend = weakCampaigns.reduce((sum, campaign) => sum + campaign.cost, 0);
   return {
     id: "rec-concentration",
-    title: "Spend concentration risk",
-    description: "Reallocate budget from underperforming campaigns to winners",
+    title: tr(language, "Spend concentration risk", "Spend yogunlasma riski"),
+    description: tr(
+      language,
+      "Reallocate budget from underperforming campaigns to winners",
+      "Butceyi zayif kampanyalardan kazanan kampanyalara yeniden dagitin"
+    ),
     impact: "Med",
     summary: [
-      `${weakCampaigns.length} campaigns have ROAS below average but high spend share.`,
-      `${((weakSpend / totalCost) * 100).toFixed(1)}% of budget is at risk.`,
-      "Consider reallocating to top-performing campaigns.",
+      tr(
+        language,
+        `${weakCampaigns.length} campaigns have ROAS below average but high spend share.`,
+        `${weakCampaigns.length} kampanya, ortalamanin altinda ROAS'a ragmen yuksek spend payi tasiyor.`
+      ),
+      tr(
+        language,
+        `${((weakSpend / totalCost) * 100).toFixed(1)}% of budget is at risk.`,
+        `Butcenin ${((weakSpend / totalCost) * 100).toFixed(1)}% kismi risk altinda.`
+      ),
+      tr(
+        language,
+        "Consider reallocating to top-performing campaigns.",
+        "Butceyi en iyi performans gosteren kampanyalara kaydirmayi degerlendirin."
+      ),
     ],
     evidence: [
-      { label: "Weak campaigns", value: String(weakCampaigns.length) },
-      { label: "Account avg ROAS", value: avgRoas.toFixed(2) },
-      { label: "Risk spend", value: `$${weakSpend.toFixed(0)}` },
+      { label: tr(language, "Weak campaigns", "Zayif kampanyalar"), value: String(weakCampaigns.length) },
+      { label: tr(language, "Account avg ROAS", "Hesap ort. ROAS"), value: avgRoas.toFixed(2) },
+      { label: tr(language, "Risk spend", "Riskli spend"), value: `$${weakSpend.toFixed(0)}` },
     ],
   };
 }
 
-function computeZeroConversionSpend(campaigns: any[]): Recommendation | null {
+function computeZeroConversionSpend(campaigns: any[], language: AppLanguage): Recommendation | null {
   const zeroConvCampaigns = campaigns
     .map((campaign) => {
       const metrics = campaign as any;
@@ -885,23 +927,39 @@ function computeZeroConversionSpend(campaigns: any[]): Recommendation | null {
   const zeroSpend = zeroConvCampaigns.reduce((sum, campaign) => sum + campaign.cost, 0);
   return {
     id: "rec-zero-conv",
-    title: "Zero-conversion spend",
-    description: "Pause or optimize campaigns with no conversions",
+    title: tr(language, "Zero-conversion spend", "Zero-conversion spend"),
+    description: tr(
+      language,
+      "Pause or optimize campaigns with no conversions",
+      "Conversion getirmeyen kampanyalari duraklatin veya optimize edin"
+    ),
     impact: "High",
     summary: [
-      `${zeroConvCampaigns.length} campaigns have spent $${zeroSpend.toFixed(0)} with zero conversions.`,
-      "These may need creative refresh, audience adjustments, or pausing.",
-      "Review targeting and bids to improve conversion probability.",
+      tr(
+        language,
+        `${zeroConvCampaigns.length} campaigns have spent $${zeroSpend.toFixed(0)} with zero conversions.`,
+        `${zeroConvCampaigns.length} kampanya, hic conversion olmadan $${zeroSpend.toFixed(0)} spend yapti.`
+      ),
+      tr(
+        language,
+        "These may need creative refresh, audience adjustments, or pausing.",
+        "Bu kampanyalar creative yenileme, audience ayari veya duraklatma gerektirebilir."
+      ),
+      tr(
+        language,
+        "Review targeting and bids to improve conversion probability.",
+        "Conversion olasiligini artirmak icin targeting ve bid ayarlarini gozden gecirin."
+      ),
     ],
     evidence: [
-      { label: "Campaigns at risk", value: String(zeroConvCampaigns.length) },
-      { label: "Spend with 0 conv", value: `$${zeroSpend.toFixed(0)}` },
-      { label: "Recommended action", value: "Optimize or pause" },
+      { label: tr(language, "Campaigns at risk", "Riskli kampanyalar"), value: String(zeroConvCampaigns.length) },
+      { label: tr(language, "Spend with 0 conv", "0 conv ile spend"), value: `$${zeroSpend.toFixed(0)}` },
+      { label: tr(language, "Recommended action", "Onerilen aksiyon"), value: tr(language, "Optimize or pause", "Optimize et veya duraklat") },
     ],
   };
 }
 
-function computeAssetGaps(assets: any[]): Recommendation | null {
+function computeAssetGaps(assets: any[], language: AppLanguage): Recommendation | null {
   if (!assets.length) return null;
 
   const lowAssets = assets.filter((asset) => {
@@ -917,18 +975,26 @@ function computeAssetGaps(assets: any[]): Recommendation | null {
 
   return {
     id: "rec-asset-gaps",
-    title: "PMax asset performance gaps",
-    description: "Deploy new creatives to replace low-performing assets",
+    title: tr(language, "PMax asset performance gaps", "PMax asset performans bosluklari"),
+    description: tr(
+      language,
+      "Deploy new creatives to replace low-performing assets",
+      "Dusuk performansli asset'leri degistirmek icin yeni creative'ler yayinlayin"
+    ),
     impact: "Med",
     summary: [
-      `${lowAssets.length} assets marked with low performance.`,
-      `These assets have spent $${lowCost.toFixed(0)}.`,
-      "Test new headlines, images, or videos to improve engagement.",
+      tr(language, `${lowAssets.length} assets marked with low performance.`, `${lowAssets.length} asset dusuk performans etiketi almis durumda.`),
+      tr(language, `These assets have spent $${lowCost.toFixed(0)}.`, `Bu asset'ler toplam $${lowCost.toFixed(0)} spend yapti.`),
+      tr(
+        language,
+        "Test new headlines, images, or videos to improve engagement.",
+        "Engagement'i iyilestirmek icin yeni headline, image veya video testleri yapin."
+      ),
     ],
     evidence: [
-      { label: "Low-performing assets", value: String(lowAssets.length) },
-      { label: "Spend on low assets", value: `$${lowCost.toFixed(0)}` },
-      { label: "Recommended action", value: "Refresh creatives" },
+      { label: tr(language, "Low-performing assets", "Dusuk performansli asset'ler"), value: String(lowAssets.length) },
+      { label: tr(language, "Spend on low assets", "Dusuk asset spend'i"), value: `$${lowCost.toFixed(0)}` },
+      { label: tr(language, "Recommended action", "Onerilen aksiyon"), value: tr(language, "Refresh creatives", "Creative'leri yenile") },
     ],
   };
 }

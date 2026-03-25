@@ -31,8 +31,10 @@ import {
   buildBuildClusterRec,
   buildRefreshRec,
 } from "@/lib/geo-recommendations";
+import { resolveRequestLanguage } from "@/lib/request-language";
 
 export async function GET(request: NextRequest) {
+  const language = await resolveRequestLanguage(request);
   const businessId = request.nextUrl.searchParams.get("businessId");
   const startDate =
     request.nextUrl.searchParams.get("startDate") ??
@@ -120,13 +122,19 @@ export async function GET(request: NextRequest) {
           effort: "medium",
           confidence,
           impact: "+20–40% revenue from AI traffic",
-          title: "AI-discovered page losing commercial potential",
+          title: language === "tr" ? "AI tarafindan kesfedilen sayfa ticari potansiyel kaybediyor" : "AI-discovered page losing commercial potential",
           target: path,
-          evidence: `${Math.round(aiSessions)} AI-source sessions with only ${(cvr * 100).toFixed(1)}% purchase CVR vs ${(siteAvgCvr * 100).toFixed(1)}% site average.`,
+          evidence: language === "tr"
+            ? `${Math.round(aiSessions)} AI kaynakli oturum, yalnizca %${(cvr * 100).toFixed(1)} purchase CVR ve site ortalamasi olan %${(siteAvgCvr * 100).toFixed(1)} seviyesinin altinda.`
+            : `${Math.round(aiSessions)} AI-source sessions with only ${(cvr * 100).toFixed(1)}% purchase CVR vs ${(siteAvgCvr * 100).toFixed(1)}% site average.`,
           recommendation:
-            "Add a clear product/service CTA, comparison table, or buying guide section to convert AI-discovery intent into revenue.",
+            language === "tr"
+              ? "AI kesif niyetini gelire cevirmek icin net bir urun/hizmet CTA'si, comparison table veya buying guide bolumu ekleyin."
+              : "Add a clear product/service CTA, comparison table, or buying guide section to convert AI-discovery intent into revenue.",
           whyItMatters:
-            "AI-referred visitors often have high informational intent that transitions to purchase intent with the right nudge. Leaving this gap means losing high-quality leads.",
+            language === "tr"
+              ? "AI kaynakli ziyaretciler genelde yuksek bilgilendirici niyetle gelir ve dogru yonlendirmeyle purchase niyetine gecer. Bu boslugu kapatmamak yuksek kaliteli talebi kaybetmek demektir."
+              : "AI-referred visitors often have high informational intent that transitions to purchase intent with the right nudge. Leaving this gap means losing high-quality leads.",
         });
       }
 
@@ -140,13 +148,19 @@ export async function GET(request: NextRequest) {
           effort: "medium",
           confidence,
           impact: "+15–30% engagement",
-          title: "Poor content match for AI-sourced visitors",
+          title: language === "tr" ? "AI kaynakli ziyaretciler icin icerik uyumu zayif" : "Poor content match for AI-sourced visitors",
           target: path,
-          evidence: `${Math.round(aiSessions)} AI sessions but ${(engRate * 100).toFixed(0)}% engagement rate — visitors are not finding what they expected.`,
+          evidence: language === "tr"
+            ? `${Math.round(aiSessions)} AI oturumu var ama engagement rate %${(engRate * 100).toFixed(0)} — ziyaretciler beklediklerini bulamiyor.`
+            : `${Math.round(aiSessions)} AI sessions but ${(engRate * 100).toFixed(0)}% engagement rate — visitors are not finding what they expected.`,
           recommendation:
-            "Restructure this page to directly answer the informational queries driving AI-source traffic. Use FAQ blocks and direct answers near the top.",
+            language === "tr"
+              ? "Bu sayfayi, AI trafigini getiren bilgilendirici sorgulara dogrudan cevap verecek sekilde yeniden duzenleyin. Ust kisimda FAQ bloklari ve direkt cevaplar kullanin."
+              : "Restructure this page to directly answer the informational queries driving AI-source traffic. Use FAQ blocks and direct answers near the top.",
           whyItMatters:
-            "Low engagement tells AI engines that this page doesn't satisfy the query intent, which can reduce future citation frequency.",
+            language === "tr"
+              ? "Dusuk engagement, bu sayfanin sorgu niyetini karsilamadigini AI motorlarina gosterir; bu da gelecekteki alintilanma sikligini azaltabilir."
+              : "Low engagement tells AI engines that this page doesn't satisfy the query intent, which can reduce future citation frequency.",
         });
       }
     }
@@ -165,12 +179,18 @@ export async function GET(request: NextRequest) {
         effort: "high",
         confidence: assignConfidence(hasGA4, hasSC, Math.round(sourceSessions)),
         impact: "+30–60% AI channel reach",
-        title: `Amplify ${engine} discovery across more pages`,
+        title: language === "tr" ? `${engine} kesfini daha fazla sayfaya yayin` : `Amplify ${engine} discovery across more pages`,
         target: engine,
-        evidence: `${engine} is already sending ${Math.round(sourceSessions)} sessions, concentrated on only a few pages.`,
-        recommendation: `Create structured, answer-friendly content on more category and topic pages. ${engine} favors comprehensive pages with clear headings and direct answers.`,
+        evidence: language === "tr"
+          ? `${engine} zaten ${Math.round(sourceSessions)} oturum gonderiyor ama bu trafik yalnizca birkac sayfada toplanmis durumda.`
+          : `${engine} is already sending ${Math.round(sourceSessions)} sessions, concentrated on only a few pages.`,
+        recommendation: language === "tr"
+          ? `Daha fazla kategori ve konu sayfasinda yapi li ve answer-first icerik olusturun. ${engine}, acik basliklara ve dogrudan cevaplara sahip kapsamli sayfalari tercih eder.`
+          : `Create structured, answer-friendly content on more category and topic pages. ${engine} favors comprehensive pages with clear headings and direct answers.`,
         whyItMatters:
-          "When an AI engine trusts your site for one topic, expanding topical coverage can multiply citations across related queries.",
+          language === "tr"
+            ? "Bir AI motoru sitenize bir konuda guvendiginde, konu kapsamini genisletmek iliskili sorgularda alintilanmayi carpabilir."
+            : "When an AI engine trusts your site for one topic, expanding topical coverage can multiply citations across related queries.",
       });
     }
   } catch (err) {
@@ -236,6 +256,7 @@ export async function GET(request: NextRequest) {
           priority,
           confidence,
           position: q.position,
+          language,
         });
         opportunities.push(recommendationToOpportunity(rec));
       }
@@ -262,6 +283,7 @@ export async function GET(request: NextRequest) {
           priority,
           confidence,
           impressions: topic.impressions,
+          language,
         });
         opportunities.push(recommendationToOpportunity(rec));
       }
@@ -280,6 +302,7 @@ export async function GET(request: NextRequest) {
           priority,
           confidence,
           queryCount: topic.queryCount,
+          language,
         });
         opportunities.push(recommendationToOpportunity(rec));
       }
@@ -309,6 +332,7 @@ export async function GET(request: NextRequest) {
           priority,
           confidence,
           queryCount: 1,
+          language,
         });
         opportunities.push(recommendationToOpportunity(rec));
       }
@@ -333,6 +357,7 @@ export async function GET(request: NextRequest) {
           priority,
           confidence,
           avgPosition: position,
+          language,
         });
         opportunities.push(recommendationToOpportunity(rec));
       }
@@ -348,14 +373,18 @@ export async function GET(request: NextRequest) {
       priority: "high",
       effort: "low",
       confidence: "high",
-      impact: "Unlocks AI traffic attribution",
-      title: "Connect GA4 to detect AI-source traffic",
+      impact: language === "tr" ? "AI trafik atifini acar" : "Unlocks AI traffic attribution",
+      title: language === "tr" ? "AI kaynakli trafigi tespit etmek icin GA4 baglayin" : "Connect GA4 to detect AI-source traffic",
       target: "GA4 Integration",
-      evidence: "Without GA4, AI referral traffic detection is unavailable.",
+      evidence: language === "tr" ? "GA4 olmadan AI referral trafigi tespit edilemez." : "Without GA4, AI referral traffic detection is unavailable.",
       recommendation:
-        "Connect GA4 and select a property in Integrations to unlock AI traffic source analysis.",
+        language === "tr"
+          ? "AI trafik kaynagi analizini acmak icin GA4 baglayin ve Integrations icinde bir property secin."
+          : "Connect GA4 and select a property in Integrations to unlock AI traffic source analysis.",
       whyItMatters:
-        "Knowing which AI engines send traffic — and how those visitors behave — is the foundation of a GEO strategy. Without GA4 attribution, you're flying blind.",
+        language === "tr"
+          ? "Hangi AI motorlarinin trafik gonderdigini ve bu ziyaretcilerin nasil davrandigini bilmek GEO stratejisinin temelidir. GA4 atifi olmadan kor ucuyorsunuz."
+          : "Knowing which AI engines send traffic — and how those visitors behave — is the foundation of a GEO strategy. Without GA4 attribution, you're flying blind.",
     });
   }
 

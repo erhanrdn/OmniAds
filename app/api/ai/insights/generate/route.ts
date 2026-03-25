@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { runDailyInsightForBusiness } from "@/lib/ai/run-daily-insights";
+import { resolveRequestLanguage } from "@/lib/request-language";
 
 export async function POST(request: NextRequest) {
   const payload = (await request.json().catch(() => null)) as
@@ -11,8 +12,9 @@ export async function POST(request: NextRequest) {
   const access = await requireBusinessAccess({ request, businessId });
   if ("error" in access) return access.error;
   const resolvedBusinessId = access.membership.businessId;
+  const locale = await resolveRequestLanguage(request);
 
-  const result = await runDailyInsightForBusiness({ businessId: resolvedBusinessId });
+  const result = await runDailyInsightForBusiness({ businessId: resolvedBusinessId, locale });
 
   if (result.status === "failed") {
     return NextResponse.json(

@@ -7,11 +7,27 @@ import { Button } from "@/components/ui/button";
 import { logClientAuthEvent } from "@/lib/auth-diagnostics";
 import { resolvePostLoginDestination } from "@/lib/auth-routing";
 import { replaceAuthenticatedWorkspace } from "@/lib/client-auth-state";
+import {
+  DEFAULT_LANGUAGE,
+  getLanguageFromCookieValue,
+  getPreferredLanguage,
+  getTranslations,
+  LANGUAGE_COOKIE_NAME,
+} from "@/lib/i18n";
+import { usePreferencesStore } from "@/store/preferences-store";
+
+function getLanguageCookie() {
+  return document.cookie
+    .split("; ")
+    .find((part) => part.startsWith(`${LANGUAGE_COOKIE_NAME}=`))
+    ?.split("=")[1];
+}
 
 interface SignupResponse {
   authenticated?: boolean;
   user?: {
     id: string;
+    language?: "en" | "tr";
   };
   businesses?: Array<{
     id: string;
@@ -37,6 +53,13 @@ function SignupPageClient() {
   const [businessName, setBusinessName] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const language = usePreferencesStore((state) => state.language);
+  const setLanguage = usePreferencesStore((state) => state.setLanguage);
+  const t = getTranslations(language).signup;
+
+  useEffect(() => {
+    setLanguage(getLanguageFromCookieValue(getLanguageCookie()));
+  }, [setLanguage]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -50,6 +73,12 @@ function SignupPageClient() {
         .json()
         .catch(() => null)) as SignupResponse | null;
       if (!payload?.authenticated || !payload.user?.id) return;
+      setLanguage(
+        getPreferredLanguage({
+          userLanguage: payload.user.language,
+          cookieLanguage: getLanguageCookie(),
+        })
+      );
 
       replaceAuthenticatedWorkspace({
         userId: payload.user.id,
@@ -65,12 +94,15 @@ function SignupPageClient() {
         activeBusinessId: payload.activeBusinessId ?? null,
       });
 
+      const destination = resolvePostLoginDestination({
+        businesses: payload.businesses ?? [],
+        activeBusinessId: payload.activeBusinessId ?? null,
+        nextPath: searchParams.get("next"),
+      });
+      const localeValue = getLanguageCookie();
+      const hasLanguage = getLanguageFromCookieValue(localeValue) !== DEFAULT_LANGUAGE || Boolean(localeValue);
       router.replace(
-        resolvePostLoginDestination({
-          businesses: payload.businesses ?? [],
-          activeBusinessId: payload.activeBusinessId ?? null,
-          nextPath: searchParams.get("next"),
-        }),
+        hasLanguage ? destination : `/select-language?next=${encodeURIComponent(destination)}`,
       );
       router.refresh();
     }
@@ -100,6 +132,12 @@ function SignupPageClient() {
       if (!res.ok)
         throw new Error(payload?.message ?? "Could not create account.");
       if (payload?.user?.id) {
+        setLanguage(
+          getPreferredLanguage({
+            userLanguage: payload.user.language,
+            cookieLanguage: getLanguageCookie(),
+          })
+        );
         replaceAuthenticatedWorkspace({
           userId: payload.user.id,
           businesses: (payload.businesses ?? []).map((business) => ({
@@ -119,12 +157,17 @@ function SignupPageClient() {
         activeBusinessId: payload?.activeBusinessId ?? null,
         nextPath: searchParams.get("next"),
       });
+      const localeValue = getLanguageCookie();
+      const hasLanguage = getLanguageFromCookieValue(localeValue) !== DEFAULT_LANGUAGE || Boolean(localeValue);
+      const localizedDestination = hasLanguage
+        ? destination
+        : `/select-language?next=${encodeURIComponent(destination)}`;
       logClientAuthEvent("signup_succeeded", {
-        destination,
+        destination: localizedDestination,
         userId: payload?.user?.id ?? null,
         membershipCount: payload?.businesses?.length ?? 0,
       });
-      router.push(destination);
+      router.push(localizedDestination);
       router.refresh();
     } catch (err: unknown) {
       const message =
@@ -141,12 +184,12 @@ function SignupPageClient() {
       <div className="w-full max-w-sm space-y-6">
         <div className="space-y-2 text-center">
           <h1 className="text-2xl font-semibold tracking-tight">
-            Create account
+            {t.title}
           </h1>
           <p className="text-sm text-muted-foreground">
             {inviteToken
-              ? "Create your account to accept this team invite."
-              : "Sign up and create your first business workspace."}
+              ? t.inviteSubtitle
+              : t.defaultSubtitle}
           </p>
         </div>
 
@@ -155,14 +198,14 @@ function SignupPageClient() {
             value={name}
             onChange={(event) => setName(event.target.value)}
             className="h-10 w-full rounded-md border bg-background px-3 text-sm"
-            placeholder="Full name"
+            placeholder={t.fullName}
           />
           <input
             type="email"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             className="h-10 w-full rounded-md border bg-background px-3 text-sm"
-            placeholder="Email"
+            placeholder={t.email}
             disabled={Boolean(inviteEmail)}
           />
           <input
@@ -170,18 +213,18 @@ function SignupPageClient() {
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             className="h-10 w-full rounded-md border bg-background px-3 text-sm"
-            placeholder="Password (min 8 chars)"
+            placeholder={t.password}
           />
           <input
             value={businessName}
             onChange={(event) => setBusinessName(event.target.value)}
             className="h-10 w-full rounded-md border bg-background px-3 text-sm"
-            placeholder="Business name"
+            placeholder={t.businessName}
             disabled={Boolean(inviteToken)}
           />
           {error ? <p className="text-xs text-destructive">{error}</p> : null}
           <Button onClick={handleSignup} disabled={loading} className="w-full">
-            {loading ? "Creating account..." : "Sign up"}
+            {loading ? t.creating : t.signUp}
           </Button>
 
           <div className="relative">
@@ -190,7 +233,7 @@ function SignupPageClient() {
             </div>
             <div className="relative flex justify-center text-xs uppercase">
               <span className="bg-background px-2 text-muted-foreground">
-                or
+                {t.or}
               </span>
             </div>
           </div>
@@ -221,7 +264,7 @@ function SignupPageClient() {
                 fill="#EA4335"
               />
             </svg>
-            Sign up with Google
+            {t.signUpWithGoogle}
           </Button>
 
           <Button
@@ -238,17 +281,17 @@ function SignupPageClient() {
                 fill="#1877F2"
               />
             </svg>
-            Sign up with Facebook
+            {t.signUpWithFacebook}
           </Button>
         </div>
 
         <p className="text-center text-xs text-muted-foreground">
-          Already have an account?{" "}
+          {t.alreadyHaveAccount}{" "}
           <Link
             href="/login"
             className="text-foreground underline underline-offset-2"
           >
-            Sign in
+            {t.signIn}
           </Link>
           .
         </p>

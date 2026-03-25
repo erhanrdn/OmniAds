@@ -34,6 +34,7 @@ import { LoadingSkeleton } from "@/components/states/loading-skeleton";
 import { DataEmptyState } from "@/components/states/DataEmptyState";
 import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
+import { usePreferencesStore } from "@/store/preferences-store";
 import type { MetaBreakdownsResponse } from "@/app/api/meta/breakdowns/route";
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
 import {
@@ -225,6 +226,7 @@ interface KpiCardProps {
   valueClass?: string; // optional value color override
   changePct?: number | null;
   positiveIsGood?: boolean;
+  comparisonLabel?: string;
 }
 
 function KpiCard({
@@ -236,6 +238,7 @@ function KpiCard({
   valueClass = "text-foreground",
   changePct = null,
   positiveIsGood = true,
+  comparisonLabel = "vs previous period",
 }: KpiCardProps) {
   const hasChange = typeof changePct === "number";
   const isPositive = hasChange ? changePct > 0 : false;
@@ -276,7 +279,7 @@ function KpiCard({
           {hasChange && (
             <p className={`mt-1 text-[11px] font-semibold ${colorClass}`}>
               {sign}
-              {changePct.toFixed(1)}% vs previous period
+              {changePct.toFixed(1)}% {comparisonLabel}
             </p>
           )}
         </div>
@@ -293,16 +296,20 @@ function KpiCard({
 function SectionError({
   message,
   onRetry,
+  language,
 }: {
   message: string;
   onRetry: () => void;
+  language: "en" | "tr";
 }) {
   return (
     <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4">
-      <p className="text-sm font-medium text-destructive">Could not load data</p>
+      <p className="text-sm font-medium text-destructive">
+        {language === "tr" ? "Veri yuklenemedi" : "Could not load data"}
+      </p>
       <p className="mt-1 text-xs text-destructive/80">{message}</p>
       <Button className="mt-3" variant="outline" size="sm" onClick={onRetry}>
-        Retry
+        {language === "tr" ? "Tekrar dene" : "Retry"}
       </Button>
     </div>
   );
@@ -310,18 +317,23 @@ function SectionError({
 
 function NoAccountsAssigned() {
   const router = useRouter();
+  const language = usePreferencesStore((state) => state.language);
   return (
     <div className="rounded-xl border border-dashed p-8 text-center">
-      <p className="text-sm font-medium">No Meta ad accounts assigned</p>
+      <p className="text-sm font-medium">
+        {language === "tr" ? "Meta reklam hesabi atanmamis" : "No Meta ad accounts assigned"}
+      </p>
       <p className="mt-1 text-sm text-muted-foreground">
-        Assign one or more Meta ad accounts to this business.
+        {language === "tr"
+          ? "Bu isletmeye bir veya daha fazla Meta reklam hesabi atayin."
+          : "Assign one or more Meta ad accounts to this business."}
       </p>
       <Button
         className="mt-4"
         variant="outline"
         onClick={() => router.push("/integrations")}
       >
-        Open Integrations
+        {language === "tr" ? "Entegrasyonlari ac" : "Open Integrations"}
       </Button>
     </div>
   );
@@ -408,12 +420,15 @@ function LocationBreakdownList({
   rows: AggregatedBreakdownRow[];
 }) {
   const sym = useCurrencySymbol();
+  const language = usePreferencesStore((state) => state.language);
   const total = rows.reduce((a, r) => a + r.spend, 0);
   const top = rows.slice(0, 7);
 
   if (top.length === 0) {
     return (
-      <p className="text-xs text-muted-foreground">No location data.</p>
+      <p className="text-xs text-muted-foreground">
+        {language === "tr" ? "Lokasyon verisi yok." : "No location data."}
+      </p>
     );
   }
 
@@ -489,6 +504,7 @@ function SidebarCard({
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function MetaPage() {
+  const language = usePreferencesStore((state) => state.language);
   const businesses = useAppStore((s) => s.businesses);
   const selectedBusinessId = useAppStore((s) => s.selectedBusinessId);
   const businessId = selectedBusinessId ?? "";
@@ -695,7 +711,9 @@ export default function MetaPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Meta Ads</h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            Campaign performance, demographic breakdowns, and ad set drill-down.
+            {language === "tr"
+              ? "Kampanya performansi, demografik kirilimlar ve ad set detay incelemesi."
+              : "Campaign performance, demographic breakdowns, and ad set drill-down."}
           </p>
         </div>
         <div className="shrink-0 rounded-xl border bg-card p-1 shadow-sm">
@@ -716,7 +734,11 @@ export default function MetaPage() {
           status={
             metaView.status === "action_required" ? "error" : "disconnected"
           }
-          description="View campaigns, ad sets, and creative insights once your Meta account is connected."
+          description={
+            language === "tr"
+              ? "Meta hesabinizi bagladiginizda kampanyalari, ad set'leri ve creative icgorulerini goruntuleyin."
+              : "View campaigns, ad sets, and creative insights once your Meta account is connected."
+          }
         />
       )}
 
@@ -728,13 +750,18 @@ export default function MetaPage() {
           ───────────────────────────────────────────────────────────────── */}
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <KpiCard
-              label="Total Spend"
+              label={language === "tr" ? "Toplam Harcama" : "Total Spend"}
               value={
                 campaignsQuery.isLoading ? "—" : fmtK(kpis.totalSpend, sym)
               }
-              subLabel={`${campaignsQuery.data?.rows?.length ?? 0} campaigns`}
+              subLabel={
+                language === "tr"
+                  ? `${campaignsQuery.data?.rows?.length ?? 0} kampanya`
+                  : `${campaignsQuery.data?.rows?.length ?? 0} campaigns`
+              }
               icon={DollarSign}
               accentClass="border-l-4 border-l-blue-500/60"
+              comparisonLabel={language === "tr" ? "onceki doneme gore" : "vs previous period"}
               changePct={
                 comparisonWindow
                   ? computeChangePct(kpis.totalSpend, previousKpis.totalSpend)
@@ -742,14 +769,15 @@ export default function MetaPage() {
               }
             />
             <KpiCard
-              label="Total Revenue"
+              label={language === "tr" ? "Toplam Gelir" : "Total Revenue"}
               value={
                 campaignsQuery.isLoading ? "—" : fmtK(kpis.totalRevenue, sym)
               }
-              subLabel="Attributed purchases"
+              subLabel={language === "tr" ? "Atfedilen purchase'lar" : "Attributed purchases"}
               icon={TrendingUp}
               accentClass="border-l-4 border-l-emerald-500/60"
               valueClass="text-emerald-600"
+              comparisonLabel={language === "tr" ? "onceki doneme gore" : "vs previous period"}
               changePct={
                 comparisonWindow
                   ? computeChangePct(kpis.totalRevenue, previousKpis.totalRevenue)
@@ -761,9 +789,10 @@ export default function MetaPage() {
               value={
                 campaignsQuery.isLoading ? "—" : fmt$(kpis.avgCpa, sym)
               }
-              subLabel="Cost per conversion"
+              subLabel={language === "tr" ? "Donusum basi maliyet" : "Cost per conversion"}
               icon={Target}
               accentClass="border-l-4 border-l-violet-500/60"
+              comparisonLabel={language === "tr" ? "onceki doneme gore" : "vs previous period"}
               changePct={
                 comparisonWindow
                   ? computeChangePct(kpis.avgCpa, previousKpis.avgCpa)
@@ -778,7 +807,7 @@ export default function MetaPage() {
                   ? "—"
                   : `${kpis.blendedRoas.toFixed(2)}×`
               }
-              subLabel="All campaigns combined"
+              subLabel={language === "tr" ? "Tum kampanyalar birlesik" : "All campaigns combined"}
               icon={BarChart2}
               accentClass={
                 kpis.blendedRoas > 2.5
@@ -799,6 +828,7 @@ export default function MetaPage() {
                   ? computeChangePct(kpis.blendedRoas, previousKpis.blendedRoas)
                   : null
               }
+              comparisonLabel={language === "tr" ? "onceki doneme gore" : "vs previous period"}
             />
           </div>
 
@@ -814,11 +844,13 @@ export default function MetaPage() {
           {/* ── Campaign table — full width ──────────────────────────────── */}
           <div className="space-y-2">
             <h2 className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">
-              Campaign Performance
+              {language === "tr" ? "Kampanya Performansi" : "Campaign Performance"}
             </h2>
             {comparisonWindow && (
               <p className="text-xs text-muted-foreground">
-                Comparison active: deltas are shown against {comparisonWindow.startDate} - {comparisonWindow.endDate}.
+                {language === "tr"
+                  ? `Karsilastirma aktif: farklar ${comparisonWindow.startDate} - ${comparisonWindow.endDate} araligina gore gosteriliyor.`
+                  : `Comparison active: deltas are shown against ${comparisonWindow.startDate} - ${comparisonWindow.endDate}.`}
               </p>
             )}
 
@@ -829,8 +861,11 @@ export default function MetaPage() {
                 message={
                   campaignsQuery.error instanceof Error
                     ? campaignsQuery.error.message
-                    : "Could not load campaign data."
+                    : language === "tr"
+                      ? "Kampanya verisi yuklenemedi."
+                      : "Could not load campaign data."
                 }
+                language={language}
                 onRetry={() => campaignsQuery.refetch()}
               />
             )}
@@ -845,8 +880,12 @@ export default function MetaPage() {
               if (rows.length === 0)
                 return (
                   <DataEmptyState
-                    title="No campaign data found"
-                    description="No campaigns ran in the selected date range for the assigned Meta ad accounts."
+                    title={language === "tr" ? "Kampanya verisi bulunamadi" : "No campaign data found"}
+                    description={
+                      language === "tr"
+                        ? "Secilen tarih araliginda atanmis Meta reklam hesaplari icin calisan kampanya bulunamadi."
+                        : "No campaigns ran in the selected date range for the assigned Meta ad accounts."
+                    }
                   />
                 );
 
@@ -867,12 +906,13 @@ export default function MetaPage() {
           {/* ── Breakdown cards — 3 columns below campaign table ─────────── */}
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             {/* ROAS by Age */}
-            <SidebarCard title="ROAS by Age">
+            <SidebarCard title={language === "tr" ? "Yasa Gore ROAS" : "ROAS by Age"}>
               {breakdownsQuery.isLoading ? (
                 <LoadingSkeleton rows={3} />
               ) : breakdownsQuery.isError ? (
                 <SectionError
-                  message="Could not load breakdowns."
+                  message={language === "tr" ? "Kirilimlar yuklenemedi." : "Could not load breakdowns."}
+                  language={language}
                   onRetry={() => breakdownsQuery.refetch()}
                 />
               ) : (
@@ -883,7 +923,7 @@ export default function MetaPage() {
             </SidebarCard>
 
             {/* Top Countries */}
-            <SidebarCard title="Top Countries">
+            <SidebarCard title={language === "tr" ? "En Iyi Ulkeler" : "Top Countries"}>
               {breakdownsQuery.isLoading ? (
                 <LoadingSkeleton rows={4} />
               ) : breakdownsQuery.isError ? null : (
@@ -894,7 +934,7 @@ export default function MetaPage() {
             </SidebarCard>
 
             {/* Platform Share */}
-            <SidebarCard title="Platform Share">
+            <SidebarCard title={language === "tr" ? "Platform Payi" : "Platform Share"}>
               {breakdownsQuery.isLoading ? (
                 <LoadingSkeleton rows={3} />
               ) : breakdownsQuery.isError ? null : (
@@ -914,7 +954,7 @@ export default function MetaPage() {
           </div>
 
           {/* ── Budget Distribution ──────────────────────────────────────── */}
-          <SidebarCard title="Budget Distribution">
+          <SidebarCard title={language === "tr" ? "Butce Dagilimi" : "Budget Distribution"}>
             {breakdownsQuery.isLoading ? (
               <LoadingSkeleton rows={3} />
             ) : breakdownsQuery.isError ? null : (() => {
@@ -927,7 +967,7 @@ export default function MetaPage() {
               if (campaignRows.length === 0)
                 return (
                   <p className="text-xs text-muted-foreground">
-                    Budget data unavailable.
+                    {language === "tr" ? "Butce verisi kullanilamiyor." : "Budget data unavailable."}
                   </p>
                 );
 

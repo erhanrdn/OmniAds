@@ -19,6 +19,7 @@ import {
   clusterQueryTopics,
 } from "@/lib/geo-intelligence";
 import { scorePageGeo, scoreQueryGeo, scoreTopicGeo, scoreAiTrafficValue } from "@/lib/geo-scoring";
+import { resolveRequestLanguage } from "@/lib/request-language";
 
 export async function GET(request: NextRequest) {
   const businessId = request.nextUrl.searchParams.get("businessId");
@@ -36,6 +37,7 @@ export async function GET(request: NextRequest) {
     minRole: "collaborator",
   });
   if ("error" in access) return access.error;
+  const language = await resolveRequestLanguage(request);
   if (await isDemoBusiness(businessId)) {
     return NextResponse.json(getDemoGeoOverview());
   }
@@ -269,6 +271,7 @@ export async function GET(request: NextRequest) {
     totalQueryCount,
     totalAiSessions: aiSessions,
     totalSessions,
+    language,
   });
 
   // GEO opportunity score: 0–100 composite
@@ -295,8 +298,10 @@ export async function GET(request: NextRequest) {
 
   if (aiSessions > 0 && aiPurchaseCvr < totalPurchaseCvr * 0.5 && totalPurchaseCvr > 0) {
     top3Priorities.push({
-      title: "Convert AI traffic to revenue",
-      description: "AI-referred visitors are engaging but not converting. Add CTAs, comparison tables, and buying guides to your top AI pages.",
+      title: language === "tr" ? "AI trafigini gelire donustur" : "Convert AI traffic to revenue",
+      description: language === "tr"
+        ? "AI yonlendirmeli ziyaretciler etkilesiyor ancak donusmuyor. En iyi AI sayfalariniza CTA, comparison table ve buying guide bolumleri ekleyin."
+        : "AI-referred visitors are engaging but not converting. Add CTAs, comparison tables, and buying guides to your top AI pages.",
       priority: "high",
       effort: "Medium",
       impact: "+20–40% revenue from AI traffic",
@@ -304,8 +309,10 @@ export async function GET(request: NextRequest) {
   }
   if (aiStyleQueryCount > 0 && totalQueryCount > 0 && aiStyleQueryCount / totalQueryCount < 0.3) {
     top3Priorities.push({
-      title: "Expand informational content coverage",
-      description: `Only ${Math.round((aiStyleQueryCount / totalQueryCount) * 100)}% of ranking queries are AI-style. Create FAQ sections and how-to guides to improve AI citation rates.`,
+      title: language === "tr" ? "Bilgilendirici icerik kapsamini genislet" : "Expand informational content coverage",
+      description: language === "tr"
+        ? `Siralanan sorgularin yalnizca %${Math.round((aiStyleQueryCount / totalQueryCount) * 100)} kadari AI-style. AI citation oranlarini iyilestirmek icin FAQ bolumleri ve how-to rehberleri olusturun.`
+        : `Only ${Math.round((aiStyleQueryCount / totalQueryCount) * 100)}% of ranking queries are AI-style. Create FAQ sections and how-to guides to improve AI citation rates.`,
       priority: "high",
       effort: "High",
       impact: "+30–60% AI query visibility",
@@ -313,8 +320,10 @@ export async function GET(request: NextRequest) {
   }
   if (strongestGeoTopic && strongestGeoTopic.coverageStrength === "Weak") {
     top3Priorities.push({
-      title: `Build authority for "${strongestGeoTopic.topic}"`,
-      description: `Your strongest GEO topic has only weak coverage. A content cluster or hub page could unlock ${strongestGeoTopic.impressions.toLocaleString()} impressions.`,
+      title: language === "tr" ? `"${strongestGeoTopic.topic}" icin otorite insa et` : `Build authority for "${strongestGeoTopic.topic}"`,
+      description: language === "tr"
+        ? `En guclu GEO konunuzun kapsami hala zayif. Bir content cluster veya hub page ${strongestGeoTopic.impressions.toLocaleString()} impression acabilir.`
+        : `Your strongest GEO topic has only weak coverage. A content cluster or hub page could unlock ${strongestGeoTopic.impressions.toLocaleString()} impressions.`,
       priority: "medium",
       effort: "High",
       impact: "+40–80% topic authority",
@@ -322,8 +331,10 @@ export async function GET(request: NextRequest) {
   }
   if (top3Priorities.length < 3 && aiSessions === 0) {
     top3Priorities.push({
-      title: "Attract your first AI-engine visitors",
-      description: "No AI-source traffic detected yet. Start with structured FAQ content, schema markup, and direct-answer formatting on your top pages.",
+      title: language === "tr" ? "Ilk AI motoru ziyaretcilerinizi cekin" : "Attract your first AI-engine visitors",
+      description: language === "tr"
+        ? "Henuz AI-source trafik tespit edilmedi. En iyi sayfalarinizda structured FAQ content, schema markup ve direct-answer format ile baslayin."
+        : "No AI-source traffic detected yet. Start with structured FAQ content, schema markup, and direct-answer formatting on your top pages.",
       priority: "high",
       effort: "Medium",
       impact: "Unlock AI discovery channel",
@@ -331,8 +342,10 @@ export async function GET(request: NextRequest) {
   }
   if (top3Priorities.length < 3 && totalQueryCount > 0) {
     top3Priorities.push({
-      title: "Add FAQ schema to top-ranking pages",
-      description: "AI engines extract Q&A pairs to generate answers. Adding FAQ schema to your top informational pages increases citation frequency.",
+      title: language === "tr" ? "Ust siradaki sayfalara FAQ schema ekle" : "Add FAQ schema to top-ranking pages",
+      description: language === "tr"
+        ? "AI motorlari yanit uretmek icin Q&A ciftlerini ceker. En iyi bilgilendirici sayfalariniza FAQ schema eklemek citation sikligini artirir."
+        : "AI engines extract Q&A pairs to generate answers. Adding FAQ schema to your top informational pages increases citation frequency.",
       priority: "medium",
       effort: "Low",
       impact: "+15–25% long-tail visibility",

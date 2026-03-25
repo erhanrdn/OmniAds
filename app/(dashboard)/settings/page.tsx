@@ -34,6 +34,7 @@ import {
   TIMEZONE_OPTIONS,
   type WorkspaceRole,
 } from "@/app/(dashboard)/settings/settings-support";
+import { getTranslations, LANGUAGE_OPTIONS } from "@/lib/i18n";
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -55,13 +56,16 @@ export default function SettingsPage() {
   const metricDisplay = usePreferencesStore((state) => state.metricDisplay);
   const tableDensity = usePreferencesStore((state) => state.tableDensity);
   const heatmapEnabled = usePreferencesStore((state) => state.heatmapEnabled);
+  const language = usePreferencesStore((state) => state.language);
   const setDefaultDateRange = usePreferencesStore((state) => state.setDefaultDateRange);
   const setMetricDisplay = usePreferencesStore((state) => state.setMetricDisplay);
   const setTableDensity = usePreferencesStore((state) => state.setTableDensity);
   const setHeatmapEnabled = usePreferencesStore((state) => state.setHeatmapEnabled);
+  const setLanguage = usePreferencesStore((state) => state.setLanguage);
 
   const activeBusiness =
     businesses.find((business) => business.id === selectedBusinessId) ?? null;
+  const settingsTranslations = getTranslations(language).settings;
   const integrations = selectedBusinessId ? byBusinessId[selectedBusinessId] : undefined;
   const connectedIntegrations = Object.values(integrations ?? {}).filter(
     (integration) => integration.status === "connected"
@@ -69,6 +73,7 @@ export default function SettingsPage() {
 
   const [accountName, setAccountName] = useState("");
   const [accountEmail, setAccountEmail] = useState("");
+  const [accountLanguage, setAccountLanguage] = useState<"en" | "tr">("en");
   const [accountCreatedAt, setAccountCreatedAt] = useState<string | null>(null);
   const [workspaceRole, setWorkspaceRole] = useState<WorkspaceRole>("guest");
 
@@ -126,6 +131,8 @@ export default function SettingsPage() {
       setAccountError(null);
       setAccountName(user.name ?? "");
       setAccountEmail(user.email ?? "");
+      setAccountLanguage(user.language === "tr" ? "tr" : "en");
+      setLanguage(user.language === "tr" ? "tr" : "en");
       setAccountCreatedAt(user.createdAt ?? null);
     } catch (error: unknown) {
       setAccountError(error instanceof Error ? error.message : "Could not load account settings.");
@@ -256,13 +263,16 @@ export default function SettingsPage() {
       const response = await fetch("/api/settings/account", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: accountName }),
+        body: JSON.stringify({ name: accountName, language: accountLanguage }),
       });
-      const payload = (await response.json().catch(() => null)) as { user?: { name?: string }; message?: string } | null;
+      const payload = (await response.json().catch(() => null)) as { user?: { name?: string; language?: "en" | "tr" }; message?: string } | null;
       if (!response.ok || !payload?.user) {
         throw new Error(payload?.message ?? "Could not update account settings.");
       }
       setAccountName(payload.user.name ?? accountName);
+      const nextLanguage = payload.user.language === "tr" ? "tr" : "en";
+      setAccountLanguage(nextLanguage);
+      setLanguage(nextLanguage);
       setToast({ type: "success", message: "Account settings updated." });
       router.refresh();
     } catch (error: unknown) {
@@ -724,6 +734,38 @@ export default function SettingsPage() {
             {savingAccount ? "Saving..." : "Update profile"}
           </Button>
         </SettingsActionRow>
+
+        <div className="mt-6 border-t pt-5">
+          <h3 className="text-sm font-semibold">{settingsTranslations.languageTitle}</h3>
+          <div className="mt-3 grid gap-4 md:grid-cols-[1fr_auto] md:items-end">
+            <SettingsField
+              label={settingsTranslations.languageLabel}
+              hint={settingsTranslations.languageHint}
+            >
+              <SettingsSelect
+                value={accountLanguage}
+                onChange={(event) => setAccountLanguage(event.target.value as "en" | "tr")}
+              >
+                {LANGUAGE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.nativeLabel} ({option.label})
+                  </option>
+                ))}
+              </SettingsSelect>
+            </SettingsField>
+            <div className="rounded-xl border bg-background px-4 py-3">
+              <p className="text-sm font-medium">{settingsTranslations.languageDescription}</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {accountLanguage === "tr" ? "Turkce" : "English"}
+              </p>
+            </div>
+          </div>
+          <SettingsActionRow>
+            <Button onClick={() => void handleAccountSave()} disabled={savingAccount}>
+              {settingsTranslations.saveLanguage}
+            </Button>
+          </SettingsActionRow>
+        </div>
 
         <div className="mt-6 border-t pt-5">
           <h3 className="text-sm font-semibold">Change password</h3>

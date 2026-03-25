@@ -3,13 +3,16 @@
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { useAppStore } from "@/store/app-store";
+import { usePreferencesStore } from "@/store/preferences-store";
 import { logClientAuthEvent } from "@/lib/auth-diagnostics";
 import { applyAuthenticatedWorkspace, clearAuthScopedClientState } from "@/lib/client-auth-state";
+import type { AppLanguage } from "@/lib/i18n";
 
 interface MeResponse {
   authenticated: boolean;
   user?: {
     id: string;
+    language?: AppLanguage;
   };
   businesses?: Array<{
     id: string;
@@ -27,6 +30,7 @@ export function AuthBootstrap() {
   const hasHydrated = useAppStore((state) => state.hasHydrated);
   const authBootstrapStatus = useAppStore((state) => state.authBootstrapStatus);
   const setAuthBootstrapStatus = useAppStore((state) => state.setAuthBootstrapStatus);
+  const setLanguage = usePreferencesStore((state) => state.setLanguage);
   const pathname = usePathname();
 
   useEffect(() => {
@@ -70,6 +74,9 @@ export function AuthBootstrap() {
           businesses,
           activeBusinessId: payload.activeBusinessId ?? null,
         });
+        if (payload.user.language) {
+          setLanguage(payload.user.language);
+        }
         logClientAuthEvent("bootstrap_applied_workspace", {
           pathname,
           userId: payload.user.id,
@@ -96,7 +103,7 @@ export function AuthBootstrap() {
         controller.abort();
       }
     };
-  }, [hasHydrated, pathname, setAuthBootstrapStatus]);
+  }, [hasHydrated, pathname, setAuthBootstrapStatus, setLanguage]);
 
   return null;
 }

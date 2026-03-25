@@ -2,9 +2,10 @@
 
 import { formatMoney } from "@/components/creatives/money";
 import {
-  LANDING_PAGE_FUNNEL_LABELS,
   buildLandingPageAiReport,
+  getLandingPageFunnelLabel,
 } from "@/lib/landing-pages/performance";
+import type { AppLanguage } from "@/lib/i18n";
 import type {
   LandingPageAiReport,
   LandingPageFunnelStepKey,
@@ -69,51 +70,71 @@ export function filterLandingPageRows(
 
 export function buildSummaryCards(
   summary: LandingPagePerformanceSummary,
-  currency: string | null
+  currency: string | null,
+  language: AppLanguage = "en"
 ) {
   return [
     {
-      label: "Sessions",
+      label: language === "tr" ? "Oturumlar" : "Sessions",
       value: formatInteger(summary.totalSessions),
-      sub: `${formatInteger(summary.totalLandingPages)} landing pages`,
+      sub:
+        language === "tr"
+          ? `${formatInteger(summary.totalLandingPages)} landing page`
+          : `${formatInteger(summary.totalLandingPages)} landing pages`,
     },
     {
-      label: "Engagement Rate",
+      label: language === "tr" ? "Etkilesim Orani" : "Engagement Rate",
       value: formatPercent(summary.avgEngagementRate),
-      sub: `Scroll rate ${formatPercent(summary.avgScrollRate)}`,
+      sub:
+        language === "tr"
+          ? `Scroll orani ${formatPercent(summary.avgScrollRate)}`
+          : `Scroll rate ${formatPercent(summary.avgScrollRate)}`,
     },
     {
-      label: "Purchases",
+      label: language === "tr" ? "Satin Almalar" : "Purchases",
       value: formatInteger(summary.totalPurchases),
       sub: `Session CVR ${formatPercent(summary.sessionToPurchaseRate)}`,
     },
     {
-      label: "Revenue",
+      label: language === "tr" ? "Gelir" : "Revenue",
       value: formatCurrency(summary.totalRevenue, currency),
-      sub: summary.topLandingPagePath ? `Top page ${summary.topLandingPagePath}` : "No top page yet",
+      sub:
+        summary.topLandingPagePath
+          ? language === "tr"
+            ? `En iyi sayfa ${summary.topLandingPagePath}`
+            : `Top page ${summary.topLandingPagePath}`
+          : language === "tr"
+            ? "Henuz one cikan sayfa yok"
+            : "No top page yet",
     },
     {
-      label: "Avg Order Value",
+      label: language === "tr" ? "AOV" : "Avg Order Value",
       value: formatCurrency(summary.averagePurchaseRevenue, currency),
-      sub: `${formatInteger(summary.totalCheckouts)} checkout starts`,
+      sub:
+        language === "tr"
+          ? `${formatInteger(summary.totalCheckouts)} checkout baslangici`
+          : `${formatInteger(summary.totalCheckouts)} checkout starts`,
     },
     {
-      label: "Weakest Page",
+      label: language === "tr" ? "En Zayif Sayfa" : "Weakest Page",
       value: summary.weakestLandingPagePath ?? "—",
-      sub: "Lowest session-to-purchase rate among active pages",
+      sub:
+        language === "tr"
+          ? "Aktif sayfalar arasinda en dusuk session-to-purchase orani"
+          : "Lowest session-to-purchase rate among active pages",
     },
   ];
 }
 
-export function getDropOffLabel(step: LandingPageFunnelStepKey | null): string {
-  if (!step) return "No clear drop-off";
-  if (step === "sessions") return `${LANDING_PAGE_FUNNEL_LABELS.sessions} -> ${LANDING_PAGE_FUNNEL_LABELS.view_item}`;
-  if (step === "view_item") return `${LANDING_PAGE_FUNNEL_LABELS.view_item} -> ${LANDING_PAGE_FUNNEL_LABELS.add_to_cart}`;
-  if (step === "add_to_cart") return `${LANDING_PAGE_FUNNEL_LABELS.add_to_cart} -> ${LANDING_PAGE_FUNNEL_LABELS.begin_checkout}`;
-  if (step === "begin_checkout") return `${LANDING_PAGE_FUNNEL_LABELS.begin_checkout} -> ${LANDING_PAGE_FUNNEL_LABELS.add_shipping_info}`;
-  if (step === "add_shipping_info") return `${LANDING_PAGE_FUNNEL_LABELS.add_shipping_info} -> ${LANDING_PAGE_FUNNEL_LABELS.purchase}`;
-  if (step === "add_payment_info") return "Add payment info -> Purchase";
-  return LANDING_PAGE_FUNNEL_LABELS[step];
+export function getDropOffLabel(step: LandingPageFunnelStepKey | null, language: AppLanguage = "en"): string {
+  if (!step) return language === "tr" ? "Net bir dusus yok" : "No clear drop-off";
+  if (step === "sessions") return `${getLandingPageFunnelLabel("sessions", language)} -> ${getLandingPageFunnelLabel("view_item", language)}`;
+  if (step === "view_item") return `${getLandingPageFunnelLabel("view_item", language)} -> ${getLandingPageFunnelLabel("add_to_cart", language)}`;
+  if (step === "add_to_cart") return `${getLandingPageFunnelLabel("add_to_cart", language)} -> ${getLandingPageFunnelLabel("begin_checkout", language)}`;
+  if (step === "begin_checkout") return `${getLandingPageFunnelLabel("begin_checkout", language)} -> ${getLandingPageFunnelLabel("add_shipping_info", language)}`;
+  if (step === "add_shipping_info") return `${getLandingPageFunnelLabel("add_shipping_info", language)} -> ${getLandingPageFunnelLabel("purchase", language)}`;
+  if (step === "add_payment_info") return `${getLandingPageFunnelLabel("add_payment_info", language)} -> ${getLandingPageFunnelLabel("purchase", language)}`;
+  return getLandingPageFunnelLabel(step, language);
 }
 
 export function toAiReport(row: LandingPagePerformanceRow): LandingPageAiReport {

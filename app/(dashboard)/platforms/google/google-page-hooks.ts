@@ -15,7 +15,7 @@ import {
   calculateGrowthScore,
   DATE_RANGE,
   DEFAULT_COLUMNS,
-  EXTRA_GROWTH_RECOMMENDATIONS,
+  getExtraGrowthRecommendations,
   reweightRecommendationForScope,
   TAB_TO_LEVEL,
   type DateRange,
@@ -27,6 +27,7 @@ import {
   type SortDirection,
   type StatusFilter,
 } from "@/app/(dashboard)/platforms/google/google-page-support";
+import { usePreferencesStore } from "@/store/preferences-store";
 
 interface UseGooglePageDataParams {
   businessId: string;
@@ -67,6 +68,7 @@ export function useGooglePageData({
   searchTermQuery,
   setSelectedAccountId,
 }: UseGooglePageDataParams) {
+  const language = usePreferencesStore((state) => state.language);
   const accountQuery = useQuery({
     queryKey: ["google-platform-accounts", businessId],
     enabled: googleConnected,
@@ -199,13 +201,14 @@ export function useGooglePageData({
                 : "Account";
 
     const base = (recommendationsQuery.data ?? []).map((recommendation) =>
-      reweightRecommendationForScope(recommendation, optimizationScope, scopeContext)
+      reweightRecommendationForScope(recommendation, optimizationScope, scopeContext, language)
     );
-    const growthExtras = EXTRA_GROWTH_RECOMMENDATIONS.map((recommendation) =>
-      reweightRecommendationForScope(recommendation, optimizationScope, scopeContext)
+    const growthExtras = getExtraGrowthRecommendations(language).map((recommendation) =>
+      reweightRecommendationForScope(recommendation, optimizationScope, scopeContext, language)
     );
     return [...base, ...growthExtras];
   }, [
+    language,
     optimizationScope,
     recommendationsQuery.data,
     selectedAssetGroup,
@@ -224,13 +227,17 @@ export function useGooglePageData({
         ...recommendation,
         title:
           recommendation.id === "rec-1"
-            ? "Negative keyword waste"
+            ? language === "tr"
+              ? "Negative keyword israfi"
+              : "Negative keyword waste"
             : recommendation.id === "rec-2"
-              ? "Keyword expansion"
+              ? language === "tr"
+                ? "Keyword genisleme"
+                : "Keyword expansion"
               : recommendation.title,
         category: optimizationIds.has(recommendation.id) ? "optimization" : "growth",
       }));
-  }, [scopedRecommendations]);
+  }, [language, scopedRecommendations]);
 
   const growthScore = useMemo(
     () => calculateGrowthScore(growthEngineRecommendations),

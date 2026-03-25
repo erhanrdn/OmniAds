@@ -253,9 +253,9 @@ export default function OverviewPage() {
         </SummarySection>
       ) : null}
 
-      {platformSections.map((platform) => (
+      {platformSections.map((platform, index) => (
         <SummarySection
-          key={platform.id}
+          key={`${platform.id}-${platform.provider}-${platform.title}-${index}`}
           title={renderPlatformSectionTitle(platform.provider, platform.title)}
           description={`Mini dashboard for ${resolvePlatformLabel(platform.provider, platform.title)} performance.`}
         >

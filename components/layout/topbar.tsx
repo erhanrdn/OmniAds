@@ -5,16 +5,21 @@ import { useAppStore } from "@/store/app-store";
 import { Button } from "@/components/ui/button";
 import { Menu, Bell, Users } from "lucide-react";
 import { usePathname } from "next/navigation";
-import { navItems } from "./nav-items";
+import { getNavItems } from "./nav-items";
 import { BusinessSelector } from "@/components/business/BusinessSelector";
+import { LanguageSwitcher } from "@/components/layout/LanguageSwitcher";
 import { PersonalAccountMenu } from "@/components/layout/PersonalAccountMenu";
 import { TeamAccessModal } from "@/components/layout/TeamAccessModal";
+import { getTranslations } from "@/lib/i18n";
+import { usePreferencesStore } from "@/store/preferences-store";
 
-function getPageTitle(pathname: string): string {
+function getPageTitle(pathname: string, language: "en" | "tr"): string {
+  const navItems = getNavItems(language);
+  const t = getTranslations(language);
   const item = navItems.find((n) => n.href === pathname);
   if (item) return item.label;
-  if (pathname === "/select-business") return "Select Business";
-  if (pathname === "/businesses/new") return "Create Business";
+  if (pathname === "/select-business") return t.navigation.selectBusiness;
+  if (pathname === "/businesses/new") return t.navigation.createBusiness;
   return "Adsecute";
 }
 
@@ -25,8 +30,10 @@ interface TopbarProps {
 export function Topbar({ userName }: TopbarProps) {
   const toggleDesktopSidebar = useAppStore((s) => s.toggleDesktopSidebar);
   const setMobileSidebarOpen = useAppStore((s) => s.setMobileSidebarOpen);
+  const language = usePreferencesStore((s) => s.language);
   const pathname = usePathname();
-  const title = getPageTitle(pathname);
+  const title = getPageTitle(pathname, language);
+  const t = getTranslations(language).layout;
   const isOverviewPage = pathname === "/overview";
   const [teamModalOpen, setTeamModalOpen] = useState(false);
 
@@ -45,7 +52,7 @@ export function Topbar({ userName }: TopbarProps) {
           variant="ghost"
           size="icon"
           onClick={handleMenuClick}
-          aria-label="Toggle sidebar"
+          aria-label={t.toggleSidebar}
         >
           <Menu className="w-5 h-5" />
         </Button>
@@ -60,15 +67,16 @@ export function Topbar({ userName }: TopbarProps) {
 
         <div className="flex flex-wrap items-center gap-2">
           <BusinessSelector />
+          <LanguageSwitcher />
 
-          <Button variant="ghost" size="icon" aria-label="Notifications">
+          <Button variant="ghost" size="icon" aria-label={t.notifications}>
             <Bell className="w-5 h-5" />
           </Button>
 
           <Button
             variant="ghost"
             size="icon"
-            aria-label="Team access"
+            aria-label={t.teamAccess}
             onClick={() => setTeamModalOpen(true)}
           >
             <Users className="w-5 h-5" />

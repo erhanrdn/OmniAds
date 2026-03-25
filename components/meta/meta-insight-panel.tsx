@@ -2,6 +2,8 @@
 
 import { BrainCircuit, TrendingUp, ShieldAlert, Workflow, TestTube2 } from "lucide-react";
 import type { MetaRecommendationsResponse, MetaRecommendation } from "@/lib/meta/recommendations";
+import { getTranslations } from "@/lib/i18n";
+import { usePreferencesStore } from "@/store/preferences-store";
 
 const STRATEGY_LAYER_ORDER: NonNullable<MetaRecommendation["strategyLayer"]>[] = [
   "seasonality",
@@ -11,34 +13,37 @@ const STRATEGY_LAYER_ORDER: NonNullable<MetaRecommendation["strategyLayer"]>[] =
   "budget",
 ];
 
-function strategyLayerMeta(layer: NonNullable<MetaRecommendation["strategyLayer"]>) {
+function strategyLayerMeta(
+  layer: NonNullable<MetaRecommendation["strategyLayer"]>,
+  t: ReturnType<typeof getTranslations>["meta"]
+) {
   if (layer === "seasonality") {
     return {
-      title: "Operating Model",
-      description: "Seasonality, regime fit, and rebuild direction.",
+      title: t.operatingModel,
+      description: t.operatingModelDescription,
     };
   }
   if (layer === "bidding") {
     return {
-      title: "Bidding",
-      description: "Bid method, safer ranges, and constraint changes.",
+      title: t.bidding,
+      description: t.biddingDescription,
     };
   }
   if (layer === "scaling") {
     return {
-      title: "Scaling",
-      description: "Scale candidates and controlled budget expansion.",
+      title: t.scaling,
+      description: t.scalingDescription,
     };
   }
   if (layer === "budget") {
     return {
-      title: "Budget Allocation",
-      description: "Where budget should concentrate inside comparable cohorts.",
+      title: t.budgetAllocation,
+      description: t.budgetAllocationDescription,
     };
   }
   return {
-    title: "Structure",
-    description: "Campaign lanes, creative deployment, and geo shape.",
+    title: t.structure,
+    description: t.structureDescription,
   };
 }
 
@@ -63,10 +68,37 @@ function LensIcon({ lens }: { lens: MetaRecommendation["lens"] }) {
 function RecommendationCard({
   recommendation,
   onOpenCampaign,
+  t,
 }: {
   recommendation: MetaRecommendation;
   onOpenCampaign?: (campaignId: string) => void;
+  t: ReturnType<typeof getTranslations>["meta"];
 }) {
+  const lensLabel =
+    recommendation.lens === "volume"
+      ? t.lensVolume
+      : recommendation.lens === "profitability"
+        ? t.lensProfitability
+        : t.lensStructure;
+  const decisionLabel =
+    recommendation.decisionState === "act"
+      ? t.decisionAct
+      : recommendation.decisionState === "test"
+        ? t.decisionTest
+        : t.decisionWatch;
+  const confidenceLabel =
+    recommendation.confidence === "high"
+      ? t.confidenceHigh
+      : recommendation.confidence === "medium"
+        ? t.confidenceMedium
+        : t.confidenceLow;
+  const priorityLabel =
+    recommendation.priority === "high"
+      ? t.priorityHigh
+      : recommendation.priority === "medium"
+        ? t.priorityMedium
+        : t.priorityLow;
+
   return (
     <div className="rounded-xl border bg-card p-4 shadow-sm">
       <div className="flex items-start justify-between gap-3">
@@ -77,12 +109,12 @@ function RecommendationCard({
           <div>
             <p className="text-sm font-semibold">{recommendation.title}</p>
             <p className="text-[11px] text-muted-foreground">
-              {recommendation.campaignName ?? "Account-level recommendation"}
+              {recommendation.campaignName ?? t.accountLevelRecommendation}
             </p>
           </div>
         </div>
         <span className={`rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${decisionTone(recommendation.decisionState)}`}>
-          {recommendation.decisionState}
+          {decisionLabel}
         </span>
       </div>
 
@@ -93,29 +125,29 @@ function RecommendationCard({
             onClick={() => onOpenCampaign?.(recommendation.campaignId!)}
             className="text-[11px] font-medium text-blue-700 hover:underline"
           >
-            Jump to campaign
+            {t.jumpToCampaign}
           </button>
         </div>
       ) : null}
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <span className={`rounded-full px-2 py-1 text-[10px] font-medium uppercase tracking-wide ${badgeTone(recommendation.lens)}`}>
-          {recommendation.lens}
+          {lensLabel}
         </span>
         <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-          {recommendation.confidence} confidence
+          {confidenceLabel} {t.confidenceSuffix}
         </span>
         <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-          {recommendation.priority} priority
+          {priorityLabel} {t.prioritySuffix}
         </span>
         {recommendation.comparisonCohort ? (
           <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            compared within {recommendation.comparisonCohort}
+            {t.comparedWithin} {recommendation.comparisonCohort}
           </span>
         ) : null}
         {recommendation.historicalRegime ? (
           <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            historical regime {recommendation.historicalRegime}
+            {t.historicalRegimePrefix} {recommendation.historicalRegime}
           </span>
         ) : null}
       </div>
@@ -125,7 +157,7 @@ function RecommendationCard({
 
       <div className="mt-3 space-y-2 rounded-lg bg-muted/35 p-3">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          Recommended Action
+          {t.recommendedAction}
         </p>
         <p className="text-sm">{recommendation.recommendedAction}</p>
       </div>
@@ -146,7 +178,7 @@ function RecommendationCard({
           {recommendation.defensiveBidBand ? (
             <div className="rounded-lg border bg-background px-3 py-2">
               <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                Defensive Bid Band
+                {t.defensiveBidBand}
               </p>
               <p className="mt-1 text-sm font-medium">{recommendation.defensiveBidBand}</p>
             </div>
@@ -154,7 +186,7 @@ function RecommendationCard({
           {recommendation.scaleBidBand ? (
             <div className="rounded-lg border bg-background px-3 py-2">
               <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                Scale Bid Band
+                {t.scaleBidBand}
               </p>
               <p className="mt-1 text-sm font-medium">{recommendation.scaleBidBand}</p>
             </div>
@@ -162,9 +194,9 @@ function RecommendationCard({
           {recommendation.requiresRebuild ? (
             <div className="rounded-lg border bg-background px-3 py-2">
               <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                Rebuild
+                {t.rebuild}
               </p>
-              <p className="mt-1 text-sm font-medium">{recommendation.rebuildReason ?? "Recommended"}</p>
+              <p className="mt-1 text-sm font-medium">{recommendation.rebuildReason ?? t.recommended}</p>
             </div>
           ) : null}
         </div>
@@ -175,12 +207,12 @@ function RecommendationCard({
           {recommendation.promoteCreatives?.length ? (
             <div className="rounded-lg border bg-background px-3 py-2">
               <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                Promote To Scaling
+                {t.promoteToScaling}
               </p>
               <p className="mt-1 text-sm font-medium">{recommendation.promoteCreatives.join(", ")}</p>
               {recommendation.targetScalingLane ? (
                 <p className="mt-1 text-[10px] text-muted-foreground">
-                  Target lane: {recommendation.targetScalingLane}
+                  {t.targetLane}: {recommendation.targetScalingLane}
                 </p>
               ) : null}
             </div>
@@ -188,7 +220,7 @@ function RecommendationCard({
           {recommendation.keepTestingCreatives?.length ? (
             <div className="rounded-lg border bg-background px-3 py-2">
               <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                Keep In TEST
+                {t.keepInTest}
               </p>
               <p className="mt-1 text-sm font-medium">{recommendation.keepTestingCreatives.join(", ")}</p>
             </div>
@@ -196,7 +228,7 @@ function RecommendationCard({
           {recommendation.doNotDeployCreatives?.length ? (
             <div className="rounded-lg border bg-background px-3 py-2">
               <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                Keep Out Of Scaling
+                {t.keepOutOfScaling}
               </p>
               <p className="mt-1 text-sm font-medium">{recommendation.doNotDeployCreatives.join(", ")}</p>
             </div>
@@ -209,7 +241,7 @@ function RecommendationCard({
           {recommendation.scalingGeoCluster?.length ? (
             <div className="rounded-lg border bg-background px-3 py-2">
               <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                Scaling Geo Cluster
+                {t.scalingGeoCluster}
               </p>
               <p className="mt-1 text-sm font-medium">{recommendation.scalingGeoCluster.join(", ")}</p>
             </div>
@@ -217,7 +249,7 @@ function RecommendationCard({
           {recommendation.testingGeoCluster?.length ? (
             <div className="rounded-lg border bg-background px-3 py-2">
               <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                TEST Geo Cluster
+                {t.testGeoCluster}
               </p>
               <p className="mt-1 text-sm font-medium">{recommendation.testingGeoCluster.join(", ")}</p>
             </div>
@@ -225,7 +257,7 @@ function RecommendationCard({
           {recommendation.matureGeoSplit?.length ? (
             <div className="rounded-lg border bg-background px-3 py-2">
               <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                Keep Separate
+                {t.keepSeparate}
               </p>
               <p className="mt-1 text-sm font-medium">{recommendation.matureGeoSplit.join(", ")}</p>
             </div>
@@ -234,18 +266,18 @@ function RecommendationCard({
       ) : null}
 
       <div className="mt-3 rounded-lg border border-dashed px-3 py-2">
-        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Decision model</p>
+        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{t.decisionModel}</p>
         <div className="mt-2 space-y-2">
           <div>
-            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Core verdict</p>
+            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{t.coreVerdict}</p>
             <p className="mt-1 text-xs text-foreground">{recommendation.timeframeContext.coreVerdict}</p>
           </div>
           <div>
-            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Selected range note</p>
+            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{t.selectedRangeNote}</p>
             <p className="mt-1 text-xs text-foreground">{recommendation.timeframeContext.selectedRangeOverlay}</p>
           </div>
           <div>
-            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Historical support</p>
+            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{t.historicalSupport}</p>
             <p className="mt-1 text-xs text-muted-foreground">{recommendation.timeframeContext.historicalSupport}</p>
           </div>
         </div>
@@ -270,6 +302,9 @@ export function MetaInsightPanel({
   onRetry: () => void;
   onOpenCampaign?: (campaignId: string) => void;
 }) {
+  const language = usePreferencesStore((state) => state.language);
+  const t = getTranslations(language).meta;
+
   if (isLoading) {
     return (
       <div className="rounded-xl border bg-card p-4 shadow-sm">
@@ -278,8 +313,8 @@ export function MetaInsightPanel({
             <BrainCircuit className="h-4 w-4 text-violet-600" />
           </div>
           <div>
-            <p className="text-sm font-semibold">AI Insights</p>
-            <p className="text-xs text-muted-foreground">Building multi-window recommendations…</p>
+            <p className="text-sm font-semibold">{t.title}</p>
+            <p className="text-xs text-muted-foreground">{t.loading}</p>
           </div>
         </div>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
@@ -305,8 +340,8 @@ export function MetaInsightPanel({
               <BrainCircuit className="h-4 w-4 text-violet-600" />
             </div>
             <div>
-              <p className="text-sm font-semibold">AI Insights</p>
-              <p className="text-xs text-muted-foreground">Could not build recommendations right now.</p>
+              <p className="text-sm font-semibold">{t.title}</p>
+              <p className="text-xs text-muted-foreground">{t.loadError}</p>
             </div>
           </div>
           <button
@@ -314,7 +349,7 @@ export function MetaInsightPanel({
             onClick={onRetry}
             className="rounded-lg border px-3 py-1.5 text-xs font-medium hover:bg-muted"
           >
-            Retry
+            {getTranslations(language).common.retry}
           </button>
         </div>
       </div>
@@ -329,9 +364,9 @@ export function MetaInsightPanel({
             <BrainCircuit className="h-4 w-4 text-violet-600" />
           </div>
           <div>
-            <p className="text-sm font-semibold">AI Insights</p>
+            <p className="text-sm font-semibold">{t.title}</p>
             <p className="text-xs text-muted-foreground">
-              Multi-window engine does not see a strong intervention signal yet.
+              {t.noStrongSignal}
             </p>
           </div>
         </div>
@@ -341,7 +376,7 @@ export function MetaInsightPanel({
 
   const groupedRecommendations = STRATEGY_LAYER_ORDER.map((layer) => ({
     layer,
-    ...strategyLayerMeta(layer),
+    ...strategyLayerMeta(layer, t),
     recommendations: data.recommendations.filter(
       (recommendation) => (recommendation.strategyLayer ?? "structure") === layer
     ),
@@ -355,21 +390,21 @@ export function MetaInsightPanel({
             <BrainCircuit className="h-4 w-4 text-violet-600" />
           </div>
           <div>
-            <p className="text-sm font-semibold">AI Insights</p>
+            <p className="text-sm font-semibold">{t.title}</p>
             <p className="text-xs text-muted-foreground">
-              Multi-window Meta decision engine validated against selected range + 3/7/14/30/90/history.
+              {t.validatedAgainst}
             </p>
           </div>
         </div>
         <div className="rounded-full bg-muted px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
           <TestTube2 className="mr-1 inline h-3.5 w-3.5" />
-          Conservative rules
+          {t.conservativeRules}
         </div>
       </div>
 
       <div className="mt-4 rounded-xl border bg-muted/25 p-4">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          Account Summary
+          {t.accountSummary}
         </p>
         <p className="mt-1 text-base font-semibold">{data.summary.title}</p>
         <p className="mt-2 text-sm text-muted-foreground">{data.summary.summary}</p>
@@ -378,7 +413,7 @@ export function MetaInsightPanel({
             {data.summary.operatingMode ? (
               <div className="rounded-lg border bg-background px-3 py-2">
                 <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                  Operating Mode
+                  {t.operatingMode}
                 </p>
                 <p className="mt-1 text-sm font-medium">{data.summary.operatingMode}</p>
               </div>
@@ -386,7 +421,7 @@ export function MetaInsightPanel({
             {data.summary.currentRegime ? (
               <div className="rounded-lg border bg-background px-3 py-2">
                 <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                  Current Regime
+                  {t.currentRegime}
                 </p>
                 <p className="mt-1 text-sm font-medium">{data.summary.currentRegime}</p>
               </div>
@@ -394,7 +429,7 @@ export function MetaInsightPanel({
             {data.summary.recommendedMode ? (
               <div className="rounded-lg border bg-background px-3 py-2">
                 <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                  Recommended Mode
+                  {t.recommendedMode}
                 </p>
                 <p className="mt-1 text-sm font-medium">{data.summary.recommendedMode}</p>
               </div>
@@ -412,7 +447,7 @@ export function MetaInsightPanel({
                 <p className="text-xs text-muted-foreground">{group.description}</p>
               </div>
               <div className="rounded-full bg-muted px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                {group.recommendations.length} card{group.recommendations.length > 1 ? "s" : ""}
+                {group.recommendations.length} {group.recommendations.length > 1 ? t.cards : t.card}
               </div>
             </div>
             <div className="grid gap-3 lg:grid-cols-2">
@@ -421,6 +456,7 @@ export function MetaInsightPanel({
                   key={recommendation.id}
                   recommendation={recommendation}
                   onOpenCampaign={onOpenCampaign}
+                  t={t}
                 />
               ))}
             </div>

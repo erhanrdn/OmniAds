@@ -13,14 +13,18 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { getTranslations } from "@/lib/i18n";
+import { usePreferencesStore } from "@/store/preferences-store";
 
 interface PersonalAccountMenuProps {
   userName: string;
 }
 
 export function PersonalAccountMenu({ userName }: PersonalAccountMenuProps) {
+  const language = usePreferencesStore((state) => state.language);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState<string | null>(null);
+  const t = getTranslations(language).layout;
 
   async function handleSignOut() {
     if (isSigningOut) return;
@@ -33,7 +37,7 @@ export function PersonalAccountMenu({ userName }: PersonalAccountMenuProps) {
         headers: { "Cache-Control": "no-store" },
       });
       if (!response.ok) {
-        throw new Error("Could not sign out. Please try again.");
+        throw new Error(t.signOutError);
       }
 
       clearAuthScopedClientState();
@@ -41,7 +45,7 @@ export function PersonalAccountMenu({ userName }: PersonalAccountMenuProps) {
       window.location.assign("/");
     } catch (error: unknown) {
       const message =
-        error instanceof Error ? error.message : "Could not sign out. Please try again.";
+        error instanceof Error ? error.message : t.signOutError;
       setSignOutError(message);
       logClientAuthEvent("logout_failed", { userName, message });
     } finally {
@@ -65,15 +69,15 @@ export function PersonalAccountMenu({ userName }: PersonalAccountMenuProps) {
         <DropdownMenuSeparator />
         <DropdownMenuItem className="gap-2">
           <Settings className="h-4 w-4" />
-          Account settings
+          {t.accountSettings}
         </DropdownMenuItem>
         <DropdownMenuItem className="gap-2">
           <HelpCircle className="h-4 w-4" />
-          Help Docs
+          {t.helpDocs}
         </DropdownMenuItem>
         <DropdownMenuItem className="gap-2">
           <Sparkles className="h-4 w-4" />
-          What's new
+          {t.whatsNew}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
@@ -82,7 +86,7 @@ export function PersonalAccountMenu({ userName }: PersonalAccountMenuProps) {
           disabled={isSigningOut}
         >
           <LogOut className="h-4 w-4 text-destructive" />
-          {isSigningOut ? "Signing out..." : "Sign out"}
+          {isSigningOut ? t.signingOut : t.signOut}
         </DropdownMenuItem>
         {signOutError ? (
           <>

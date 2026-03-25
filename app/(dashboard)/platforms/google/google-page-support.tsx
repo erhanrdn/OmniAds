@@ -1,6 +1,8 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useCurrencySymbol, getCurrencySymbol } from "@/hooks/use-currency";
+import type { AppLanguage } from "@/lib/i18n";
+import { usePreferencesStore } from "@/store/preferences-store";
 import {
   Sheet,
   SheetContent,
@@ -68,65 +70,121 @@ export const DEFAULT_COLUMNS: MetricColumn[] = [
   "cpm",
 ];
 
-export const SCOPE_LABELS: Record<OptimizationScope, string> = {
-  account: "Account",
-  campaign: "Campaign",
-  assetGroup: "Asset group",
-  country: "Country",
-  productCategory: "Product category",
-  productLevel: "Product level",
-};
+function tr(language: AppLanguage, english: string, turkish: string) {
+  return language === "tr" ? turkish : english;
+}
 
-export const EXTRA_GROWTH_RECOMMENDATIONS: GoogleRecommendation[] = [
-  {
-    id: "rec-g-product-scale",
-    title: "Product scaling opportunity",
-    description: "Identify high-margin SKUs that can absorb incremental budget safely.",
-    impact: "High",
-    summary: [
-      "Three SKUs have strong margin and stable conversion velocity.",
-      "Current spend share on these winners is below optimal allocation.",
-      "Scaling these SKUs can increase profit with limited efficiency risk.",
-    ],
-    evidence: [
-      { label: "Scale-ready SKUs", value: "3" },
-      { label: "Margin benchmark", value: "42%" },
-      { label: "Projected profit lift", value: "$1,480" },
-    ],
-  },
-  {
-    id: "rec-g-geo-expand",
-    title: "Geo expansion opportunity",
-    description: "Expand budget into high-ROAS regions with under-served impression share.",
-    impact: "Med",
-    summary: [
-      "Two regions show strong conversion value with constrained spend.",
-      "Search demand is growing while CPC remains below account average.",
-      "Geo expansion can improve incremental scale without harming efficiency.",
-    ],
-    evidence: [
-      { label: "Candidate regions", value: "2" },
-      { label: "Avg regional ROAS", value: "4.06" },
-      { label: "Headroom estimate", value: "$3,200" },
-    ],
-  },
-  {
-    id: "rec-g-creative-op",
-    title: "Creative opportunity",
-    description: "Deploy new headline/visual angles in underperforming asset groups.",
-    impact: "Med",
-    summary: [
-      "Current creative set repeats generic claims with weak differentiation.",
-      "Top-converting search language is not reflected in ad messaging.",
-      "New angle testing can lift CTR and improve downstream conversion rate.",
-    ],
-    evidence: [
-      { label: "Low-performing assets", value: "8" },
-      { label: "CTR improvement potential", value: "+0.38%" },
-      { label: "Expected ROAS lift", value: "+0.22" },
-    ],
-  },
-];
+export function getScopeLabels(language: AppLanguage): Record<OptimizationScope, string> {
+  return {
+    account: tr(language, "Account", "Hesap"),
+    campaign: tr(language, "Campaign", "Kampanya"),
+    assetGroup: tr(language, "Asset group", "Asset grubu"),
+    country: tr(language, "Country", "Ulke"),
+    productCategory: tr(language, "Product category", "Urun kategorisi"),
+    productLevel: tr(language, "Product level", "Urun seviyesi"),
+  };
+}
+
+export function getExtraGrowthRecommendations(language: AppLanguage): GoogleRecommendation[] {
+  return [
+    {
+      id: "rec-g-product-scale",
+      title: tr(language, "Product scaling opportunity", "Urun olcekleme firsati"),
+      description: tr(
+        language,
+        "Identify high-margin SKUs that can absorb incremental budget safely.",
+        "Ek butceyi verimli sekilde tasiyabilecek yuksek marjli SKU'lari belirleyin."
+      ),
+      impact: "High",
+      summary: language === "tr"
+        ? [
+            "Uc SKU guclu marj yapisi ve istikrarli conversion hizi gosteriyor.",
+            "Bu kazanan SKU'larin mevcut spend payi optimal dagilimin altinda kaliyor.",
+            "Bu SKU'lari olcekleme, verimliligi fazla bozmadan karliligi artirabilir.",
+          ]
+        : [
+            "Three SKUs have strong margin and stable conversion velocity.",
+            "Current spend share on these winners is below optimal allocation.",
+            "Scaling these SKUs can increase profit with limited efficiency risk.",
+          ],
+      evidence: language === "tr"
+        ? [
+            { label: "Olcege hazir SKU'lar", value: "3" },
+            { label: "Marj benchmark'i", value: "42%" },
+            { label: "Tahmini kar artisi", value: "$1,480" },
+          ]
+        : [
+            { label: "Scale-ready SKUs", value: "3" },
+            { label: "Margin benchmark", value: "42%" },
+            { label: "Projected profit lift", value: "$1,480" },
+          ],
+    },
+    {
+      id: "rec-g-geo-expand",
+      title: tr(language, "Geo expansion opportunity", "Geo genisleme firsati"),
+      description: tr(
+        language,
+        "Expand budget into high-ROAS regions with under-served impression share.",
+        "Impression share'i yeterince kullanilmayan yuksek ROAS bolgelere butce genisletin."
+      ),
+      impact: "Med",
+      summary: language === "tr"
+        ? [
+            "Iki bolge kisitli spend ile guclu conversion value uretiyor.",
+            "Search talebi buyurken CPC hesap ortalamasinin altinda kaliyor.",
+            "Geo genisleme, verimliligi bozmadan ek olcek yaratabilir.",
+          ]
+        : [
+            "Two regions show strong conversion value with constrained spend.",
+            "Search demand is growing while CPC remains below account average.",
+            "Geo expansion can improve incremental scale without harming efficiency.",
+          ],
+      evidence: language === "tr"
+        ? [
+            { label: "Aday bolgeler", value: "2" },
+            { label: "Ort. bolgesel ROAS", value: "4.06" },
+            { label: "Tahmini bosluk", value: "$3,200" },
+          ]
+        : [
+            { label: "Candidate regions", value: "2" },
+            { label: "Avg regional ROAS", value: "4.06" },
+            { label: "Headroom estimate", value: "$3,200" },
+          ],
+    },
+    {
+      id: "rec-g-creative-op",
+      title: tr(language, "Creative opportunity", "Creative firsati"),
+      description: tr(
+        language,
+        "Deploy new headline/visual angles in underperforming asset groups.",
+        "Dusuk performansli asset group'larda yeni headline ve gorsel acilarini test edin."
+      ),
+      impact: "Med",
+      summary: language === "tr"
+        ? [
+            "Mevcut creative set, zayif farklilasmayla ayni jenerik iddialari tekrarliyor.",
+            "En iyi conversion getiren search dili, ad mesajlarina yeterince yansimiyor.",
+            "Yeni aci testleri CTR'yi ve asagi akistaki conversion rate'i artirabilir.",
+          ]
+        : [
+            "Current creative set repeats generic claims with weak differentiation.",
+            "Top-converting search language is not reflected in ad messaging.",
+            "New angle testing can lift CTR and improve downstream conversion rate.",
+          ],
+      evidence: language === "tr"
+        ? [
+            { label: "Dusuk performansli asset'ler", value: "8" },
+            { label: "CTR iyilesme potansiyeli", value: "+0.38%" },
+            { label: "Beklenen ROAS artisi", value: "+0.22" },
+          ]
+        : [
+            { label: "Low-performing assets", value: "8" },
+            { label: "CTR improvement potential", value: "+0.38%" },
+            { label: "Expected ROAS lift", value: "+0.22" },
+          ],
+    },
+  ];
+}
 
 export function formatMetricCell(column: MetricColumn, row: PlatformTableRow, sym = "$") {
   const value = row.metrics[column];
@@ -148,6 +206,7 @@ export function RecommendationCard({
   scopeLabel: string;
   onOpen: () => void;
 }) {
+  const language = usePreferencesStore((state) => state.language);
   return (
     <div className="rounded-xl border bg-card p-4">
       <div className="flex items-start justify-between gap-2">
@@ -165,11 +224,11 @@ export function RecommendationCard({
         </Badge>
       </div>
       <Badge variant="outline" className="mt-2">
-        Scope: {scopeLabel}
+        {tr(language, "Scope", "Kapsam")}: {scopeLabel}
       </Badge>
       <p className="mt-2 text-xs text-muted-foreground">{recommendation.description}</p>
       <Button className="mt-4" variant="outline" size="sm" onClick={onOpen}>
-        View details
+        {tr(language, "View details", "Detaylari gor")}
       </Button>
     </div>
   );
@@ -209,6 +268,7 @@ export function GoogleInsightsDrawer({
   onToast: (message: string) => void;
 }) {
   const sym = useCurrencySymbol();
+  const language = usePreferencesStore((state) => state.language);
   return (
     <Sheet open={Boolean(payload)} onOpenChange={(open) => (open ? null : onClose())}>
       <SheetContent side="right" className="w-full sm:max-w-2xl">
@@ -219,12 +279,14 @@ export function GoogleInsightsDrawer({
                 {payload.type === "recommendation"
                   ? payload.data.title
                   : payload.type === "searchTerm"
-                    ? "Term analysis"
+                    ? tr(language, "Term analysis", "Terim analizi")
                     : payload.type === "product"
-                      ? "Product efficiency analysis"
-                      : "Asset improvement suggestions"}
+                      ? tr(language, "Product efficiency analysis", "Urun verimlilik analizi")
+                      : tr(language, "Asset improvement suggestions", "Asset iyilestirme onerileri")}
               </SheetTitle>
-              <SheetDescription>Date range: last {dateRange} days</SheetDescription>
+              <SheetDescription>
+                {tr(language, `Date range: last ${dateRange} days`, `Tarih araligi: son ${dateRange} gun`)}
+              </SheetDescription>
             </SheetHeader>
 
             <div className="space-y-4 overflow-y-auto px-4 pb-6">
@@ -243,11 +305,11 @@ export function GoogleInsightsDrawer({
                   <h3 className="font-semibold">{payload.data.search_term}</h3>
                   <p className="mt-2 text-muted-foreground">
                     {payload.data.roas < 1.2
-                      ? "Low return and high CPA suggest this term should be added as negative."
-                      : "Strong return profile suggests this term should be promoted as exact/phrase."}
+                      ? tr(language, "Low return and high CPA suggest this term should be added as negative.", "Dusuk getiri ve yuksek CPA, bu term'in negative olarak eklenmesi gerektigini gosteriyor.")
+                      : tr(language, "Strong return profile suggests this term should be promoted as exact/phrase.", "Guclu getiri profili, bu term'in exact/phrase olarak terfi ettirilmesini destekliyor.")}
                   </p>
                   <ul className="mt-3 space-y-1">
-                    <li>- Match type: {payload.data.match_type}</li>
+                    <li>- {tr(language, "Match type", "Match type")}: {payload.data.match_type}</li>
                     <li>- ROAS: {payload.data.roas.toFixed(2)}</li>
                     <li>- CPA: {sym}{payload.data.cpa.toFixed(2)}</li>
                   </ul>
@@ -259,14 +321,14 @@ export function GoogleInsightsDrawer({
                   <h3 className="font-semibold">{payload.data.title}</h3>
                   <p className="mt-2 text-muted-foreground">
                     {payload.data.roas < 1.5
-                      ? "This product is likely leaking budget. Consider bid down or temporary exclusion."
-                      : "This product is efficient. Consider scaling with dedicated asset coverage."}
+                      ? tr(language, "This product is likely leaking budget. Consider bid down or temporary exclusion.", "Bu urun buyuk ihtimalle butce sizdiriyor. Bid dusurme veya gecici dislama dusunulebilir.")
+                      : tr(language, "This product is efficient. Consider scaling with dedicated asset coverage.", "Bu urun verimli calisiyor. Ayrilmis asset coverage ile olcekleme dusunulebilir.")}
                   </p>
                   <ul className="mt-3 space-y-1">
-                    <li>- Brand: {payload.data.brand}</li>
+                    <li>- {tr(language, "Brand", "Marka")}: {payload.data.brand}</li>
                     <li>- ROAS: {payload.data.roas.toFixed(2)}</li>
-                    <li>- Cost: {sym}{payload.data.cost.toLocaleString()}</li>
-                    <li>- Conversion value: {sym}{payload.data.conv_value.toLocaleString()}</li>
+                    <li>- {tr(language, "Cost", "Maliyet")}: {sym}{payload.data.cost.toLocaleString()}</li>
+                    <li>- {tr(language, "Conversion value", "Conversion value")}: {sym}{payload.data.conv_value.toLocaleString()}</li>
                   </ul>
                 </section>
               )}
@@ -276,13 +338,13 @@ export function GoogleInsightsDrawer({
                   <h3 className="font-semibold">{payload.data.asset_name}</h3>
                   <p className="mt-2 text-muted-foreground">
                     {payload.data.performance_label === "Low"
-                      ? "Refresh this asset with sharper value proposition and clearer visual hierarchy."
-                      : "Keep this asset in rotation and test close variants to prevent fatigue."}
+                      ? tr(language, "Refresh this asset with sharper value proposition and clearer visual hierarchy.", "Bu asset'i daha net bir value proposition ve daha guclu gorsel hiyerarsi ile yenileyin.")
+                      : tr(language, "Keep this asset in rotation and test close variants to prevent fatigue.", "Bu asset'i rotasyonda tutun ve yorgunlugu onlemek icin yakin varyantlarini test edin.")}
                   </p>
                   <ul className="mt-3 space-y-1">
-                    <li>- Asset group: {payload.data.asset_group}</li>
-                    <li>- Type: {payload.data.asset_type}</li>
-                    <li>- Performance: {payload.data.performance_label}</li>
+                    <li>- {tr(language, "Asset group", "Asset grubu")}: {payload.data.asset_group}</li>
+                    <li>- {tr(language, "Type", "Tur")}: {payload.data.asset_type}</li>
+                    <li>- {tr(language, "Performance", "Performans")}: {payload.data.performance_label}</li>
                     <li>- ROAS: {payload.data.roas.toFixed(2)}</li>
                   </ul>
                 </section>
@@ -337,6 +399,7 @@ function NegativeKeywordDrawer({
   recommendation: GoogleRecommendation;
   onToast: (message: string) => void;
 }) {
+  const language = usePreferencesStore((state) => state.language);
   const negativePack = getNegativeKeywordPack(recommendation.title);
   return (
     <>
@@ -345,14 +408,14 @@ function NegativeKeywordDrawer({
       <SectionSimulation recommendation={recommendation} />
       <SectionSuggestedActions
         actions={[
-          "Review candidates by campaign intent",
-          "Apply list in shared negative keyword set",
-          "Monitor conversion rate and query mix for 7 days",
+          tr(language, "Review candidates by campaign intent", "Adaylari campaign intent'e gore gozden gecirin"),
+          tr(language, "Apply list in shared negative keyword set", "Listeyi shared negative keyword set icinde uygulayin"),
+          tr(language, "Monitor conversion rate and query mix for 7 days", "7 gun boyunca conversion rate ve query mix'i izleyin"),
         ]}
       />
       <SectionReadyToCopy
-        title="Ready to copy"
-        subtitle={`Campaign type: ${negativePack.campaignType}`}
+        title={tr(language, "Ready to copy", "Kopyalamaya hazir")}
+        subtitle={`${tr(language, "Campaign type", "Campaign type")}: ${negativePack.campaignType}`}
         lines={negativePack.keywords}
         onToast={onToast}
       />
@@ -368,24 +431,25 @@ function SearchThemeDrawer({
   recommendation: GoogleRecommendation;
   onToast: (message: string) => void;
 }) {
+  const language = usePreferencesStore((state) => state.language);
   const themeClusters = [
-    "Eco detergent alternatives",
-    "Sensitive skin laundry",
-    "Plastic-free cleaning products",
-    "Bulk subscription savings",
+    tr(language, "Eco detergent alternatives", "Ekolojik deterjan alternatifleri"),
+    tr(language, "Sensitive skin laundry", "Hassas cilt icin camasir bakimi"),
+    tr(language, "Plastic-free cleaning products", "Plastiksiz temizlik urunleri"),
+    tr(language, "Bulk subscription savings", "Toplu abonelik tasarrufu"),
   ];
   return (
     <>
       <SectionSummary summary={recommendation.summary} />
       <SectionEvidence evidence={recommendation.evidence} />
       <section className="rounded-xl border p-4">
-        <h3 className="text-sm font-semibold">Root Cause</h3>
+        <h3 className="text-sm font-semibold">{tr(language, "Root Cause", "Temel Neden")}</h3>
         <p className="mt-2 text-sm text-muted-foreground">
-          Existing PMax search themes are broad and miss high-intent cluster coverage.
+          {tr(language, "Existing PMax search themes are broad and miss high-intent cluster coverage.", "Mevcut PMax search theme'leri fazla genis ve yuksek intent'li cluster kapsamasini kaciriyor.")}
         </p>
       </section>
       <section className="rounded-xl border p-4">
-        <h3 className="text-sm font-semibold">Theme clusters</h3>
+        <h3 className="text-sm font-semibold">{tr(language, "Theme clusters", "Theme cluster'lari")}</h3>
         <ul className="mt-2 space-y-1 text-sm">
           {themeClusters.map((cluster) => (
             <li key={cluster}>- {cluster}</li>
@@ -395,14 +459,14 @@ function SearchThemeDrawer({
       <SectionSimulation recommendation={recommendation} />
       <SectionSuggestedActions
         actions={[
-          "Create new search themes from top clusters",
-          "Map one theme per asset group",
-          "Align headlines with cluster intent language",
+          tr(language, "Create new search themes from top clusters", "En guclu cluster'lardan yeni search theme'leri uretin"),
+          tr(language, "Map one theme per asset group", "Her asset group icin bir ana theme esleyin"),
+          tr(language, "Align headlines with cluster intent language", "Headline'lari cluster intent diliyle hizalayin"),
         ]}
       />
       <SectionReadyToCopy
-        title="Ready to copy"
-        subtitle="Theme list"
+        title={tr(language, "Ready to copy", "Kopyalamaya hazir")}
+        subtitle={tr(language, "Theme list", "Theme listesi")}
         lines={themeClusters}
         onToast={onToast}
       />
@@ -423,6 +487,7 @@ function ProductWasteDrawer({
   shopifyProducts: ShopifyProductPerformance[];
 }) {
   const sym = useCurrencySymbol();
+  const language = usePreferencesStore((state) => state.language);
   const selectedProduct =
     shopifyProducts.find((product) => product.sku === selectedProductSku) ?? shopifyProducts[0];
   const scopeRows =
@@ -435,16 +500,16 @@ function ProductWasteDrawer({
     <>
       <SectionSummary summary={recommendation.summary} />
       <section className="rounded-xl border p-4">
-        <h3 className="text-sm font-semibold">Evidence</h3>
+        <h3 className="text-sm font-semibold">{tr(language, "Evidence", "Kanitlar")}</h3>
         <table className="mt-2 min-w-full text-sm">
           <thead>
             <tr className="border-b text-left text-muted-foreground">
               <th className="py-2">SKU</th>
               <th className="py-2">Spend</th>
-              <th className="py-2">Revenue</th>
-              <th className="py-2">Margin</th>
-              <th className="py-2">Profit</th>
-              <th className="py-2">Profit ROAS</th>
+              <th className="py-2">{tr(language, "Revenue", "Gelir")}</th>
+              <th className="py-2">{tr(language, "Margin", "Marj")}</th>
+              <th className="py-2">{tr(language, "Profit", "Kar")}</th>
+              <th className="py-2">{tr(language, "Profit ROAS", "Profit ROAS")}</th>
             </tr>
           </thead>
           <tbody>
@@ -467,26 +532,26 @@ function ProductWasteDrawer({
         </table>
       </section>
       <section className="rounded-xl border p-4">
-        <h3 className="text-sm font-semibold">Root Cause</h3>
+        <h3 className="text-sm font-semibold">{tr(language, "Root Cause", "Temel Neden")}</h3>
         <ul className="mt-2 space-y-1 text-sm">
-          <li>- Shopify margin data indicates weak gross margin after COGS and refunds.</li>
-          <li>- Low-margin SKUs absorb paid traffic without sufficient unit economics.</li>
-          <li>- Current bid strategy over-indexes on low-profit query/product mixes.</li>
+          <li>- {tr(language, "Shopify margin data indicates weak gross margin after COGS and refunds.", "Shopify marj verisi, COGS ve refund sonrasinda brut marjin zayif kaldigini gosteriyor.")}</li>
+          <li>- {tr(language, "Low-margin SKUs absorb paid traffic without sufficient unit economics.", "Dusuk marjli SKU'lar, yeterli unit economics olusmadan paid traffic tuketiyor.")}</li>
+          <li>- {tr(language, "Current bid strategy over-indexes on low-profit query/product mixes.", "Mevcut bid stratejisi, dusuk karli query ve product karmalarina fazla agirlik veriyor.")}</li>
         </ul>
       </section>
       <section className="rounded-xl border p-4">
-        <h3 className="text-sm font-semibold">Simulation</h3>
+        <h3 className="text-sm font-semibold">{tr(language, "Simulation", "Simulasyon")}</h3>
         <table className="mt-2 min-w-full text-sm">
           <thead>
             <tr className="border-b text-left text-muted-foreground">
-              <th className="py-2">Metric</th>
-              <th className="py-2">Current</th>
-              <th className="py-2">Simulated</th>
+              <th className="py-2">{tr(language, "Metric", "Metrik")}</th>
+              <th className="py-2">{tr(language, "Current", "Mevcut")}</th>
+              <th className="py-2">{tr(language, "Simulated", "Simule")}</th>
             </tr>
           </thead>
           <tbody>
             <tr className="border-b">
-              <td className="py-2">Profit</td>
+              <td className="py-2">{tr(language, "Profit", "Kar")}</td>
               <td className="py-2">{sym}{simulation.currentProfit.toLocaleString()}</td>
               <td className="py-2">{sym}{simulation.simulatedProfit.toLocaleString()}</td>
             </tr>
@@ -504,7 +569,11 @@ function ProductWasteDrawer({
         </div>
       </section>
       <SectionSuggestedActions
-        actions={["Reduce bids", "Exclude SKU", "Increase bids on high margin products"]}
+        actions={[
+          tr(language, "Reduce bids", "Bid'leri azalt"),
+          tr(language, "Exclude SKU", "SKU'yu haric tut"),
+          tr(language, "Increase bids on high margin products", "Yuksek marjli urunlerde bid'leri artir"),
+        ]}
       />
       <DrawerDisclaimer />
     </>
@@ -512,6 +581,7 @@ function ProductWasteDrawer({
 }
 
 function AssetImprovementDrawer({ recommendation }: { recommendation: GoogleRecommendation }) {
+  const language = usePreferencesStore((state) => state.language);
   const lowAssets = [
     { name: "UGC Demo Cut v2", type: "video", roas: 1.11 },
     { name: "Headline - Best Soap Ever", type: "text", roas: 1.24 },
@@ -521,12 +591,12 @@ function AssetImprovementDrawer({ recommendation }: { recommendation: GoogleReco
     <>
       <SectionSummary summary={recommendation.summary} />
       <section className="rounded-xl border p-4">
-        <h3 className="text-sm font-semibold">Evidence</h3>
+        <h3 className="text-sm font-semibold">{tr(language, "Evidence", "Kanitlar")}</h3>
         <table className="mt-2 min-w-full text-sm">
           <thead>
             <tr className="border-b text-left text-muted-foreground">
-              <th className="py-2">Asset</th>
-              <th className="py-2">Type</th>
+              <th className="py-2">{tr(language, "Asset", "Asset")}</th>
+              <th className="py-2">{tr(language, "Type", "Tur")}</th>
               <th className="py-2">ROAS</th>
             </tr>
           </thead>
@@ -542,19 +612,18 @@ function AssetImprovementDrawer({ recommendation }: { recommendation: GoogleReco
         </table>
       </section>
       <section className="rounded-xl border p-4">
-        <h3 className="text-sm font-semibold">Root Cause</h3>
+        <h3 className="text-sm font-semibold">{tr(language, "Root Cause", "Temel Neden")}</h3>
         <p className="mt-2 text-sm text-muted-foreground">
-          Repeated generic messaging and low-contrast imagery reduce engagement in
-          prospecting traffic.
+          {tr(language, "Repeated generic messaging and low-contrast imagery reduce engagement in prospecting traffic.", "Tekrarlayan jenerik mesajlar ve dusuk kontrastli gorseller, prospecting trafikte engagement'i dusuruyor.")}
         </p>
       </section>
       <SectionSimulation recommendation={recommendation} />
       <section className="rounded-xl border p-4">
-        <h3 className="text-sm font-semibold">Suggested Actions</h3>
+        <h3 className="text-sm font-semibold">{tr(language, "Suggested Actions", "Onerilen Aksiyonlar")}</h3>
         <ul className="mt-2 space-y-1 text-sm">
-          <li>- Test headline variant: "Zero Plastic Laundry in 1 Sheet"</li>
-          <li>- Replace static packshots with in-use lifestyle context</li>
-          <li>- Add offer-forward description for first 90 characters</li>
+          <li>- {tr(language, 'Test headline variant: "Zero Plastic Laundry in 1 Sheet"', 'Su headline varyantini test edin: "Zero Plastic Laundry in 1 Sheet"')}</li>
+          <li>- {tr(language, "Replace static packshots with in-use lifestyle context", "Statik packshot'lari kullanim baglamini gosteren lifestyle gorsellerle degistirin")}</li>
+          <li>- {tr(language, "Add offer-forward description for first 90 characters", "Ilk 90 karakterde teklifi daha net one cikaracak bir aciklama ekleyin")}</li>
         </ul>
       </section>
       <DrawerDisclaimer />
@@ -563,23 +632,23 @@ function AssetImprovementDrawer({ recommendation }: { recommendation: GoogleReco
 }
 
 function GrowthOpportunityDrawer({ recommendation }: { recommendation: GoogleRecommendation }) {
+  const language = usePreferencesStore((state) => state.language);
   return (
     <>
       <SectionSummary summary={recommendation.summary} />
       <SectionEvidence evidence={recommendation.evidence} />
       <section className="rounded-xl border p-4">
-        <h3 className="text-sm font-semibold">Root Cause</h3>
+        <h3 className="text-sm font-semibold">{tr(language, "Root Cause", "Temel Neden")}</h3>
         <p className="mt-2 text-sm text-muted-foreground">
-          Current allocation under-weights this growth vector relative to conversion quality and
-          incremental demand potential.
+          {tr(language, "Current allocation under-weights this growth vector relative to conversion quality and incremental demand potential.", "Mevcut dagilim, conversion kalitesi ve ek talep potansiyeline gore bu buyume eksenine gerektiginden az agirlik veriyor.")}
         </p>
       </section>
       <SectionSimulation recommendation={recommendation} />
       <SectionSuggestedActions
         actions={[
-          "Reallocate 10-15% budget toward this opportunity",
-          "Track incremental conversion value by cohort",
-          "Promote winning entities into dedicated campaigns",
+          tr(language, "Reallocate 10-15% budget toward this opportunity", "Butcenin %10-15'ini bu firsata kaydirin"),
+          tr(language, "Track incremental conversion value by cohort", "Ek conversion value'yu cohort bazinda takip edin"),
+          tr(language, "Promote winning entities into dedicated campaigns", "Kazanan varliklari dedicated campaign'lere tasiyin"),
         ]}
       />
       <DrawerDisclaimer />
@@ -588,9 +657,10 @@ function GrowthOpportunityDrawer({ recommendation }: { recommendation: GoogleRec
 }
 
 function SectionSummary({ summary }: { summary: string[] }) {
+  const language = usePreferencesStore((state) => state.language);
   return (
     <section className="rounded-xl border p-4">
-      <h3 className="text-sm font-semibold">AI Summary</h3>
+      <h3 className="text-sm font-semibold">{tr(language, "AI Summary", "AI Ozeti")}</h3>
       <ul className="mt-2 space-y-1 text-sm">
         {summary.map((item) => (
           <li key={item}>- {item}</li>
@@ -601,9 +671,10 @@ function SectionSummary({ summary }: { summary: string[] }) {
 }
 
 function SectionEvidence({ evidence }: { evidence: Array<{ label: string; value: string }> }) {
+  const language = usePreferencesStore((state) => state.language);
   return (
     <section className="rounded-xl border p-4">
-      <h3 className="text-sm font-semibold">Evidence</h3>
+      <h3 className="text-sm font-semibold">{tr(language, "Evidence", "Kanitlar")}</h3>
       <table className="mt-2 min-w-full text-sm">
         <tbody>
           {evidence.map((row) => (
@@ -620,16 +691,17 @@ function SectionEvidence({ evidence }: { evidence: Array<{ label: string; value:
 
 function SectionSimulation({ recommendation }: { recommendation: GoogleRecommendation }) {
   const sym = useCurrencySymbol();
+  const language = usePreferencesStore((state) => state.language);
   const simulation = generateSimulationImpact(recommendation);
   return (
     <section className="rounded-xl border p-4">
-      <h3 className="text-sm font-semibold">Simulation</h3>
+      <h3 className="text-sm font-semibold">{tr(language, "Simulation", "Simulasyon")}</h3>
       <table className="mt-2 min-w-full text-sm">
         <thead>
           <tr className="border-b text-left text-muted-foreground">
-            <th className="py-2">Metric</th>
-            <th className="py-2">Current</th>
-            <th className="py-2">Simulated</th>
+            <th className="py-2">{tr(language, "Metric", "Metrik")}</th>
+            <th className="py-2">{tr(language, "Current", "Mevcut")}</th>
+            <th className="py-2">{tr(language, "Simulated", "Simule")}</th>
           </tr>
         </thead>
         <tbody>
@@ -639,7 +711,7 @@ function SectionSimulation({ recommendation }: { recommendation: GoogleRecommend
             <td className="py-2">{sym}{simulation.simulated.spend.toLocaleString()}</td>
           </tr>
           <tr className="border-b">
-            <td className="py-2">Revenue</td>
+            <td className="py-2">{tr(language, "Revenue", "Gelir")}</td>
             <td className="py-2">{sym}{simulation.current.revenue.toLocaleString()}</td>
             <td className="py-2">{sym}{simulation.simulated.revenue.toLocaleString()}</td>
           </tr>
@@ -652,11 +724,11 @@ function SectionSimulation({ recommendation }: { recommendation: GoogleRecommend
       </table>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <Badge variant="default">ROAS +{simulation.impact.roasLift.toFixed(2)}</Badge>
-        <Badge variant="secondary">Efficiency +{simulation.impact.efficiencyPct.toFixed(1)}%</Badge>
-        <Badge variant="outline">Waste removed ${simulation.impact.wasteRemoved.toLocaleString()}</Badge>
+        <Badge variant="secondary">{tr(language, "Efficiency", "Verimlilik")} +{simulation.impact.efficiencyPct.toFixed(1)}%</Badge>
+        <Badge variant="outline">{tr(language, "Waste removed", "Temizlenen israf")} ${simulation.impact.wasteRemoved.toLocaleString()}</Badge>
       </div>
       <div className="mt-3 inline-flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs">
-        <span className="text-muted-foreground">Prediction confidence</span>
+        <span className="text-muted-foreground">{tr(language, "Prediction confidence", "Tahmin guveni")}</span>
         <Badge
           variant={
             simulation.confidence === "High"
@@ -666,7 +738,11 @@ function SectionSimulation({ recommendation }: { recommendation: GoogleRecommend
                 : "outline"
           }
         >
-          {simulation.confidence}
+          {simulation.confidence === "High"
+            ? tr(language, "High", "Yuksek")
+            : simulation.confidence === "Medium"
+              ? tr(language, "Medium", "Orta")
+              : tr(language, "Low", "Dusuk")}
         </Badge>
       </div>
     </section>
@@ -674,9 +750,10 @@ function SectionSimulation({ recommendation }: { recommendation: GoogleRecommend
 }
 
 function SectionSuggestedActions({ actions }: { actions: string[] }) {
+  const language = usePreferencesStore((state) => state.language);
   return (
     <section className="rounded-xl border p-4">
-      <h3 className="text-sm font-semibold">Suggested Actions</h3>
+      <h3 className="text-sm font-semibold">{tr(language, "Suggested Actions", "Onerilen Aksiyonlar")}</h3>
       <ul className="mt-2 space-y-1 text-sm">
         {actions.map((action) => (
           <li key={action}>- {action}</li>
@@ -697,6 +774,7 @@ function SectionReadyToCopy({
   lines: string[];
   onToast: (message: string) => void;
 }) {
+  const language = usePreferencesStore((state) => state.language);
   return (
     <section className="rounded-xl border p-4">
       <h3 className="text-sm font-semibold">{title}</h3>
@@ -710,23 +788,23 @@ function SectionReadyToCopy({
         onClick={async () => {
           try {
             await navigator.clipboard.writeText(lines.join("\n"));
-            onToast("List copied");
+            onToast(tr(language, "List copied", "Liste kopyalandi"));
           } catch {
-            onToast("Could not copy list");
+            onToast(tr(language, "Could not copy list", "Liste kopyalanamadi"));
           }
         }}
       >
-        Copy list
+        {tr(language, "Copy list", "Listeyi kopyala")}
       </Button>
     </section>
   );
 }
 
 function DrawerDisclaimer() {
+  const language = usePreferencesStore((state) => state.language);
   return (
     <p className="px-1 text-xs text-muted-foreground">
-      Recommendations are not applied automatically. Review and apply them inside
-      Google Ads.
+      {tr(language, "Recommendations are not applied automatically. Review and apply them inside Google Ads.", "Oneriler otomatik uygulanmaz. Gozden gecirip Google Ads icinde manuel olarak uygulayin.")}
     </p>
   );
 }
@@ -734,7 +812,8 @@ function DrawerDisclaimer() {
 export function reweightRecommendationForScope(
   recommendation: GoogleRecommendation,
   scope: OptimizationScope,
-  context: string
+  context: string,
+  language: AppLanguage
 ) {
   const multipliers: Record<OptimizationScope, number> = {
     account: 1,
@@ -753,7 +832,7 @@ export function reweightRecommendationForScope(
 
   return {
     ...recommendation,
-    description: `${recommendation.description} Scope: ${context}.`,
+    description: `${recommendation.description} ${tr(language, "Scope", "Kapsam")}: ${context}.`,
     evidence,
   };
 }

@@ -1,4 +1,5 @@
 import { getOpenAI } from "@/lib/openai";
+import { getAiNarrativeLanguage, getNonTranslatableTermsInstruction, type AppLanguage } from "@/lib/i18n";
 
 const AI_MODEL = "gpt-5-nano";
 
@@ -60,11 +61,13 @@ Required JSON schema:
   "recommendations": ["rec1", "rec2"]
 }`;
 
-function buildUserPrompt(metrics: BusinessMetricsSummary): string {
+function buildUserPrompt(metrics: BusinessMetricsSummary, language: AppLanguage): string {
   const parts = [
     `Business: ${metrics.businessName}`,
     `Date: ${metrics.date}`,
     `Currency: ${metrics.currency}`,
+    `Narrative language: ${getAiNarrativeLanguage(language)}`,
+    getNonTranslatableTermsInstruction(language),
     "",
     "=== Overall Metrics ===",
     `Total Spend: ${metrics.metrics.totalSpend.toFixed(2)}`,
@@ -122,6 +125,7 @@ function buildUserPrompt(metrics: BusinessMetricsSummary): string {
  */
 export async function generateDailyInsights(
   metrics: BusinessMetricsSummary,
+  language: AppLanguage,
 ): Promise<{ insight: AiDailyInsight; raw: unknown }> {
   const openai = getOpenAI();
 
@@ -132,7 +136,7 @@ export async function generateDailyInsights(
     response_format: { type: "json_object" },
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: buildUserPrompt(metrics) },
+      { role: "user", content: buildUserPrompt(metrics, language) },
     ],
   });
 

@@ -1,7 +1,10 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { QueryProvider } from "@/providers/query-provider";
+import { getSessionFromCookies } from "@/lib/auth";
+import { getLanguageFromCookieValue, getPreferredLanguage, LANGUAGE_COOKIE_NAME } from "@/lib/i18n";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -33,13 +36,20 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const cookieStore = await cookies();
+  const session = await getSessionFromCookies();
+  const language = getPreferredLanguage({
+    userLanguage: session?.user.language,
+    cookieLanguage: getLanguageFromCookieValue(cookieStore.get(LANGUAGE_COOKIE_NAME)?.value),
+  });
+
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang={language} suppressHydrationWarning>
       <body suppressHydrationWarning className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <QueryProvider>{children}</QueryProvider>
       </body>

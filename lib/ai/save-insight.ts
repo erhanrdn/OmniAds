@@ -1,10 +1,12 @@
 import { getDb } from "@/lib/db";
 import type { AiDailyInsight } from "@/lib/ai/generate-daily-insights";
+import type { AppLanguage } from "@/lib/i18n";
 
 export interface AiDailyInsightRow {
   id: string;
   business_id: string;
   insight_date: string;
+  locale: AppLanguage;
   summary: string;
   risks: string[];
   opportunities: string[];
@@ -21,18 +23,20 @@ export interface AiDailyInsightRow {
 export async function saveInsight(params: {
   businessId: string;
   insightDate: string;
+  locale: AppLanguage;
   insight: AiDailyInsight;
   rawResponse: unknown;
 }): Promise<AiDailyInsightRow> {
   const sql = getDb();
   const rows = (await sql`
     INSERT INTO ai_daily_insights (
-      business_id, insight_date, summary,
+      business_id, insight_date, locale, summary,
       risks, opportunities, recommendations,
       raw_response, status
     ) VALUES (
       ${params.businessId},
       ${params.insightDate},
+      ${params.locale},
       ${params.insight.summary},
       ${JSON.stringify(params.insight.risks)}::jsonb,
       ${JSON.stringify(params.insight.opportunities)}::jsonb,
@@ -40,7 +44,7 @@ export async function saveInsight(params: {
       ${JSON.stringify(params.rawResponse)}::jsonb,
       'success'
     )
-    ON CONFLICT (business_id, insight_date) DO UPDATE SET
+    ON CONFLICT (business_id, insight_date, locale) DO UPDATE SET
       summary         = EXCLUDED.summary,
       risks           = EXCLUDED.risks,
       opportunities   = EXCLUDED.opportunities,
@@ -60,18 +64,20 @@ export async function saveInsight(params: {
 export async function saveInsightFailure(params: {
   businessId: string;
   insightDate: string;
+  locale: AppLanguage;
   errorMessage: string;
   rawResponse?: unknown;
 }): Promise<void> {
   const sql = getDb();
   await sql`
     INSERT INTO ai_daily_insights (
-      business_id, insight_date, summary,
+      business_id, insight_date, locale, summary,
       risks, opportunities, recommendations,
       raw_response, status, error_message
     ) VALUES (
       ${params.businessId},
       ${params.insightDate},
+      ${params.locale},
       '',
       '[]'::jsonb,
       '[]'::jsonb,
@@ -80,7 +86,7 @@ export async function saveInsightFailure(params: {
       'failed',
       ${params.errorMessage}
     )
-    ON CONFLICT (business_id, insight_date) DO UPDATE SET
+    ON CONFLICT (business_id, insight_date, locale) DO UPDATE SET
       status        = 'failed',
       error_message = EXCLUDED.error_message,
       raw_response  = COALESCE(EXCLUDED.raw_response, ai_daily_insights.raw_response),

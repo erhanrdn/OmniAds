@@ -4,6 +4,7 @@ import {
   type BusinessMetricsSummary,
 } from "@/lib/ai/generate-daily-insights";
 import { saveInsight, saveInsightFailure } from "@/lib/ai/save-insight";
+import type { AppLanguage } from "@/lib/i18n";
 import { getOverviewData } from "@/lib/overview-service";
 
 interface BusinessRow {
@@ -181,8 +182,10 @@ export interface DailyInsightRunResult {
 export async function runDailyInsightForBusiness(params: {
   businessId: string;
   insightDate?: string;
+  locale?: AppLanguage;
 }): Promise<SingleBusinessInsightResult> {
   const insightDate = params.insightDate ?? new Date().toISOString().split("T")[0];
+  const locale = params.locale ?? "en";
   const business = await fetchBusinessById(params.businessId);
 
   if (!business || business.is_demo_business) {
@@ -209,10 +212,11 @@ export async function runDailyInsightForBusiness(params: {
       };
     }
 
-    const { insight, raw } = await generateDailyInsights(summary);
+    const { insight, raw } = await generateDailyInsights(summary, locale);
     await saveInsight({
       businessId: business.id,
       insightDate,
+      locale,
       insight,
       rawResponse: raw,
     });
@@ -228,6 +232,7 @@ export async function runDailyInsightForBusiness(params: {
     await saveInsightFailure({
       businessId: params.businessId,
       insightDate,
+      locale,
       errorMessage: message,
     }).catch(() => undefined);
 

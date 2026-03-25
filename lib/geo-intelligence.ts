@@ -434,8 +434,10 @@ export function generateGeoInsights(data: {
   topAiPage?: { path: string; aiSessions: number; purchaseCvr: number };
   totalAiSessions?: number;
   totalSessions?: number;
+  language?: "en" | "tr";
 }): GeoInsight[] {
   const insights: GeoInsight[] = [];
+  const language = data.language ?? "en";
 
   // AI source outperforming site average
   if (data.aiSources && data.siteAvgPurchaseCvr !== undefined) {
@@ -450,7 +452,9 @@ export function generateGeoInsights(data: {
       if (multiplier >= 1.5) {
         insights.push({
           type: "positive",
-          text: `${bestSource.engine} visitors convert ${multiplier.toFixed(1)}× better than site average — a high-value AI discovery channel.`,
+          text: language === "tr"
+            ? `${bestSource.engine} ziyaretcileri site ortalamasindan ${multiplier.toFixed(1)}x daha iyi donusuyor; bu yuksek degerli bir AI kesif kanali.`
+            : `${bestSource.engine} visitors convert ${multiplier.toFixed(1)}x better than site average - a high-value AI discovery channel.`,
         });
       }
     }
@@ -464,15 +468,19 @@ export function generateGeoInsights(data: {
   ) {
     const aiShare = data.totalAiSessions / data.totalSessions;
     if (aiShare >= 0.02) {
-      insights.push({
-        type: "positive",
-        text: `${(aiShare * 100).toFixed(1)}% of your sessions originate from AI discovery engines — GEO is already generating real traffic.`,
-      });
-    } else if (data.totalAiSessions > 0) {
-      insights.push({
-        type: "neutral",
-        text: `AI engine traffic is small but present. Improving content structure and answer-readiness can accelerate GEO growth.`,
-      });
+        insights.push({
+          type: "positive",
+          text: language === "tr"
+            ? `Oturumlarinizin %${(aiShare * 100).toFixed(1)} kadari AI kesif motorlarindan geliyor; GEO zaten gercek trafik uretiyor.`
+            : `${(aiShare * 100).toFixed(1)}% of your sessions originate from AI discovery engines - GEO is already generating real traffic.`,
+        });
+      } else if (data.totalAiSessions > 0) {
+        insights.push({
+          type: "neutral",
+          text: language === "tr"
+            ? "AI motoru trafigi henuz kucuk ama mevcut. Icerik yapisini ve cevap hazirligini iyilestirmek GEO buyumesini hizlandirabilir."
+            : "AI engine traffic is small but present. Improving content structure and answer-readiness can accelerate GEO growth.",
+        });
     }
   }
 
@@ -484,10 +492,12 @@ export function generateGeoInsights(data: {
   ) {
     const pct = data.aiStyleQueryCount / data.totalQueryCount;
     if (pct >= 0.3) {
-      insights.push({
-        type: "positive",
-        text: `${Math.round(pct * 100)}% of your ranking queries have informational intent — strong foundation for AI answer-engine visibility.`,
-      });
+        insights.push({
+          type: "positive",
+          text: language === "tr"
+            ? `Siraladiginiz sorgularin %${Math.round(pct * 100)} kadari bilgilendirici niyet tasiyor; bu AI yanit motoru gorunurlugu icin guclu bir temel.`
+            : `${Math.round(pct * 100)}% of your ranking queries have informational intent - strong foundation for AI answer-engine visibility.`,
+        });
     }
   }
 
@@ -499,7 +509,9 @@ export function generateGeoInsights(data: {
   ) {
     insights.push({
       type: "warning",
-      text: `${data.topAiPage.path} attracts AI-source visitors but converts weakly. Add commercial pathways to monetize GEO traffic.`,
+      text: language === "tr"
+        ? `${data.topAiPage.path} AI kaynakli ziyaretci cekiyor ancak zayif donusuyor. GEO trafigini paraya cevirmek icin ticari yollar ekleyin.`
+        : `${data.topAiPage.path} attracts AI-source visitors but converts weakly. Add commercial pathways to monetize GEO traffic.`,
     });
   }
 
@@ -517,7 +529,9 @@ export function generateGeoInsights(data: {
     ) {
       insights.push({
         type: "warning",
-        text: `AI-source visitors engage ${(avgAiEngagement * 100).toFixed(0)}% of the time vs ${(data.siteAvgEngagementRate * 100).toFixed(0)}% site average — content may not match AI-driven discovery intent.`,
+        text: language === "tr"
+          ? `AI kaynakli ziyaretciler %${(avgAiEngagement * 100).toFixed(0)} oraninda etkilesiyor; site ortalamasi %${(data.siteAvgEngagementRate * 100).toFixed(0)}. Icerik AI kaynakli kesif niyetiyle eslesmiyor olabilir.`
+          : `AI-source visitors engage ${(avgAiEngagement * 100).toFixed(0)}% of the time vs ${(data.siteAvgEngagementRate * 100).toFixed(0)}% site average - content may not match AI-driven discovery intent.`,
       });
     }
   }

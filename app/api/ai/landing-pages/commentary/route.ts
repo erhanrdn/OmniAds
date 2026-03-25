@@ -5,6 +5,8 @@ import {
   buildLandingPageAiFallback,
   LANDING_PAGE_FUNNEL_LABELS,
 } from "@/lib/landing-pages/performance";
+import { getAiNarrativeLanguage, getNonTranslatableTermsInstruction, type AppLanguage } from "@/lib/i18n";
+import { resolveRequestLanguage } from "@/lib/request-language";
 import type {
   LandingPageAiCommentary,
   LandingPageAiReport,
@@ -41,7 +43,8 @@ interface FetchedPageSnapshot {
   warning: string | null;
 }
 
-const SYSTEM_PROMPT = `Act as a Senior UX Auditor with strong expertise in Baymard Institute ecommerce guidance, Jakob Nielsen's usability heuristics, Laws of UX, and WCAG 2.1 basics.
+function getSystemPrompt(language: AppLanguage) {
+  return `Act as a Senior UX Auditor with strong expertise in Baymard Institute ecommerce guidance, Jakob Nielsen's usability heuristics, Laws of UX, and WCAG 2.1 basics.
 
 You will receive:
 1. a compact funnel report
@@ -67,7 +70,10 @@ Rules:
 - Do not invent hidden causes, benchmarks, tracking completeness, or performance thresholds.
 - Avoid generic CRO filler. Recommendations should map to the reported weak point.
 - Keep the tone concise, professional, and useful for ecommerce operators and stakeholders.
+- Write all narrative strings in ${getAiNarrativeLanguage(language)}.
+- ${getNonTranslatableTermsInstruction(language)}
 - Return ONLY valid JSON matching the requested schema.`;
+}
 
 function isValidReport(report: unknown): report is LandingPageAiReport {
   if (!report || typeof report !== "object") return false;
@@ -141,18 +147,20 @@ function parseJson(content: string): unknown {
   }
 }
 
-function sanitizeErrorMessage(input: string): string {
+function sanitizeErrorMessage(input: string, language: AppLanguage): string {
   const normalized = input.toLowerCase();
   if (normalized.includes("api key") && normalized.includes("not set")) {
-    return "AI service is not configured.";
+    return language === "tr" ? "AI servisi yapilandirilmamis." : "AI service is not configured.";
   }
   if (normalized.includes("invalid_api_key") || normalized.includes("incorrect api key")) {
-    return "AI service credentials are invalid.";
+    return language === "tr" ? "AI servis kimlik bilgileri gecersiz." : "AI service credentials are invalid.";
   }
   if (normalized.includes("rate limit") || normalized.includes("quota")) {
-    return "AI service is temporarily rate limited.";
+    return language === "tr" ? "AI servisi gecici olarak oran sinirina takildi." : "AI service is temporarily rate limited.";
   }
-  return "AI commentary generation failed. Showing rule-based analysis.";
+  return language === "tr"
+    ? "AI yorum uretimi basarisiz oldu. Kural tabanli analiz gosteriliyor."
+    : "AI commentary generation failed. Showing rule-based analysis.";
 }
 
 function stripHtml(input: string): string {
@@ -245,6 +253,7 @@ function buildUserPrompt(
   report: LandingPageAiReport,
   ruleReport: LandingPageRuleReport,
   pageSnapshot: FetchedPageSnapshot,
+  language: AppLanguage,
 ): string {
   return JSON.stringify({
     task: "Generate a compact UX audit for this landing page. The output should complement the deterministic performance diagnosis rather than repeat it.",
@@ -257,9 +266,11 @@ function buildUserPrompt(
       "Do not simply paraphrase the deterministic rule report; add net-new UX interpretation and practical audit findings.",
       "Recommendations should be framed as UX fixes, IA fixes, clarity improvements, or handoff improvements.",
       "Call out when tracking confidence is weak or when analytics may be misleading.",
+      `Write all narrative content in ${getAiNarrativeLanguage(language)}.`,
+      getNonTranslatableTermsInstruction(language),
     ],
     outputSchema: {
-      summary: "string, 2-4 sentences written like an executive summary",
+      summary: `string, 2-4 sentences written like an executive summary in ${getAiNarrativeLanguage(language)}`,
       insights: "string[3] containing critical UX findings or violations",
       recommendations: "string[3] containing actionable UX recommendations or quick wins",
       risks: "string[3] containing cognitive load, accessibility, or conversion-risk observations",
@@ -267,7 +278,7 @@ function buildUserPrompt(
     report: {
       ...report,
       biggestLeakLabel: report.biggestLeak
-        ? `${LANDING_PAGE_FUNNEL_LABELS[report.biggestLeak.from]} -> ${LANDING_PAGE_FUNNEL_LABELS[report.biggestLeak.to]}`
+        ? `${LANDING_PAGE_FUNNEL_LABELS[language][report.biggestLeak.from]} -> ${LANDING_PAGE_FUNNEL_LABELS[language][report.biggestLeak.to]}`
         : null,
     },
     ruleReport,
@@ -305,6 +316,7 @@ export async function POST(request: NextRequest) {
 
   const access = await requireBusinessAccess({ request, businessId });
   if ("error" in access) return access.error;
+  const language = await resolveRequestLanguage(request);
 
   const report = payload?.report;
   const ruleReport = payload?.ruleReport;
@@ -320,10 +332,10 @@ export async function POST(request: NextRequest) {
   }
 
   const pageSnapshot = await fetchLandingPageSnapshot(report.url);
-  const fallback = buildLandingPageAiFallback(report, ruleReport, pageSnapshot);
+  const fallback = buildLandingPageAiFallback(report, ruleReport, language, pageSnapshot);
   const messages = [
-    { role: "system" as const, content: SYSTEM_PROMPT },
-    { role: "user" as const, content: buildUserPrompt(report, ruleReport, pageSnapshot) },
+    { role: "system" as const, content: getSystemPrompt(language) },
+    { role: "user" as const, content: buildUserPrompt(report, ruleReport, pageSnapshot, language) },
   ];
 
   try {
@@ -361,7 +373,7 @@ export async function POST(request: NextRequest) {
       ok: true,
       source: "fallback",
       commentary: fallback,
-      warning: sanitizeErrorMessage(raw),
+      warning: sanitizeErrorMessage(raw, language),
     });
   }
 }

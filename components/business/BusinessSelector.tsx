@@ -15,6 +15,8 @@ import { cn } from "@/lib/utils";
 import { Building2, Check, ChevronsUpDown, Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { logClientAuthEvent } from "@/lib/auth-diagnostics";
+import { getTranslations } from "@/lib/i18n";
+import { usePreferencesStore } from "@/store/preferences-store";
 
 function getInitials(name: string) {
   return name
@@ -27,6 +29,7 @@ function getInitials(name: string) {
 
 export function BusinessSelector() {
   const router = useRouter();
+  const language = usePreferencesStore((state) => state.language);
   const hasHydrated = useAppStore((state) => state.hasHydrated);
   const authBootstrapStatus = useAppStore((state) => state.authBootstrapStatus);
   const businesses = useAppStore((state) => state.businesses);
@@ -37,6 +40,7 @@ export function BusinessSelector() {
   const selectedBusiness =
     businesses.find((item) => item.id === selectedBusinessId) ?? null;
   const isDemoOnlyWorkspace = businesses.length === 1 && Boolean(businesses[0]?.isDemoBusiness);
+  const t = getTranslations(language).layout;
 
   async function handleSelect(businessId: string) {
     if (businessId === selectedBusinessId || pendingBusinessId) return;
@@ -77,9 +81,9 @@ export function BusinessSelector() {
         variant="outline"
         className="h-9 gap-2 rounded-lg border-slate-200 bg-white px-3 text-sm shadow-sm transition-colors hover:bg-slate-50"
         onClick={() => router.push("/businesses/new")}
-      >
+        >
         <Plus className="h-4 w-4" />
-        <span className="hidden sm:inline">Create business</span>
+        <span className="hidden sm:inline">{t.createBusiness}</span>
       </Button>
     );
   }
@@ -110,14 +114,14 @@ export function BusinessSelector() {
             {selectedBusiness ? getInitials(selectedBusiness.name) : "SB"}
           </div>
           <span className="truncate hidden sm:block">
-            {selectedBusiness?.name ?? "Select business"}
+            {selectedBusiness?.name ?? t.selectBusiness}
           </span>
           <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64">
         <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-          Switch business
+          {t.switchBusiness}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         {businesses.map((business) => (
@@ -152,14 +156,14 @@ export function BusinessSelector() {
               className="cursor-pointer gap-2 text-muted-foreground"
             >
               <Building2 className="h-4 w-4" />
-              Manage businesses
+              {t.manageBusinesses}
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => router.push("/businesses/new")}
               className="cursor-pointer gap-2"
             >
               <Plus className="h-4 w-4" />
-              Create new business
+              {t.createNewBusiness}
             </DropdownMenuItem>
           </>
         ) : null}

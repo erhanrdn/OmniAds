@@ -4,6 +4,7 @@ import { acceptInvite, createBusinessWithAdminMembership, createUser, getInviteB
 import { listUserBusinesses } from "@/lib/access";
 import { logServerAuthEvent } from "@/lib/auth-diagnostics";
 import { scopeBusinessesForUser } from "@/lib/reviewer-access";
+import { getLanguageFromCookieValue, LANGUAGE_COOKIE_NAME } from "@/lib/i18n";
 
 interface SignupBody {
   name?: string;
@@ -68,7 +69,8 @@ export async function POST(request: NextRequest) {
   }
 
   const passwordHash = await hashPassword(password);
-  const user = await createUser({ name, email, passwordHash });
+  const initialLanguage = getLanguageFromCookieValue(request.cookies.get(LANGUAGE_COOKIE_NAME)?.value);
+  const user = await createUser({ name, email, passwordHash, language: initialLanguage });
   let business: { id: string; name: string; timezone: string; currency: string } | null = null;
   if (inviteToken) {
     const accepted = await acceptInvite(inviteToken, user.id);
@@ -101,7 +103,7 @@ export async function POST(request: NextRequest) {
   });
 
   const response = NextResponse.json({
-    user: { id: user.id, name: user.name, email: user.email },
+    user: { id: user.id, name: user.name, email: user.email, language: user.language },
     businesses,
     activeBusinessId: business?.id ?? null,
   }, { headers: { "Cache-Control": "no-store, max-age=0", Vary: "Cookie" } });
