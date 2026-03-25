@@ -157,6 +157,8 @@ export const translations = {
       upgradeToUnlock: "Upgrade to {plan} to unlock",
       accountLevelRecommendation: "Account-level recommendation",
       jumpToCampaign: "Jump to campaign",
+      showDetails: "Analysis details",
+      hideDetails: "Hide details",
     },
     login: {
       subtitle: "Sign in to your account to continue",
@@ -367,6 +369,8 @@ export const translations = {
       upgradeToUnlock: "{plan} planina gecerek kilidi ac",
       accountLevelRecommendation: "Hesap seviyesi önerisi",
       jumpToCampaign: "Kampanyaya git",
+      showDetails: "Analiz detayları",
+      hideDetails: "Detayları gizle",
     },
     login: {
       subtitle: "Devam etmek için hesabınıza giriş yapın",

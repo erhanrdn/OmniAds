@@ -23,7 +23,9 @@ import {
   TrendingUp,
   Target,
   BarChart2,
+
 } from "lucide-react";
+
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { useAppStore } from "@/store/app-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
@@ -45,11 +47,12 @@ import {
 } from "@/components/date-range/DateRangePicker";
 import { usePersistentDateRange } from "@/hooks/use-persistent-date-range";
 import { useCurrencySymbol } from "@/hooks/use-currency";
-import { MetaCampaignTable, type MetaCampaignTableRow } from "@/components/meta/meta-campaign-table";
+import { type MetaCampaignTableRow } from "@/components/meta/meta-campaign-table";
 import { PlacementBreakdownChart } from "@/components/meta/placement-breakdown-chart";
 import { useBusinessIntegrationsBootstrap } from "@/hooks/use-business-integrations-bootstrap";
 import { PlanGate } from "@/components/pricing/PlanGate";
-import { MetaInsightPanel } from "@/components/meta/meta-insight-panel";
+import { MetaCampaignList } from "@/components/meta/meta-campaign-list";
+import { MetaCampaignDetail } from "@/components/meta/meta-campaign-detail";
 import type { MetaRecommendationsResponse } from "@/lib/meta/recommendations";
 import { buildMetaCampaignLaneSignals } from "@/lib/meta/campaign-lanes";
 
@@ -122,10 +125,6 @@ function fmtK(n: number, sym = "$"): string {
   return fmt$(n, sym);
 }
 
-function pct(part: number, whole: number): string {
-  if (whole <= 0) return "0%";
-  return `${((part / whole) * 100).toFixed(1)}%`;
-}
 
 function parseISODate(value: string): Date {
   return new Date(`${value}T00:00:00.000Z`);
@@ -518,7 +517,10 @@ export default function MetaPage() {
   );
 
   const [dateRange, setDateRange] = usePersistentDateRange();
-  const [focusedCampaignId, setFocusedCampaignId] = useState<string | null>(null);
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
+  const [lastAnalyzedAt, setLastAnalyzedAt] = useState<Date | null>(null);
+  const [checkedRecIds, setCheckedRecIds] = useState<Set<string>>(new Set());
+
 
   if (!selectedBusinessId) return <BusinessEmptyState />;
 
@@ -582,17 +584,33 @@ export default function MetaPage() {
 
   const recommendationsQuery = useQuery({
     queryKey: ["meta-recommendations-v8", businessId, startDate, endDate],
-    enabled: metaConnected && campaignsQuery.isSuccess,
-    staleTime: 5 * 60 * 1000,
+    enabled: false,
+    staleTime: Infinity,
     queryFn: () => fetchMetaRecommendations(businessId, startDate, endDate),
   });
 
+  // Scroll the left panel item into view when a campaign is selected via AI recommendation
   useEffect(() => {
-    if (!focusedCampaignId) return;
-    const row = document.getElementById(`meta-campaign-${focusedCampaignId}`);
-    if (!row) return;
-    row.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, [focusedCampaignId]);
+    if (!selectedCampaignId) return;
+    const el = document.getElementById(`meta-list-item-${selectedCampaignId}`);
+    el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [selectedCampaignId]);
+
+  function handleAnalyze() {
+    recommendationsQuery.refetch().then(() => {
+      setLastAnalyzedAt(new Date());
+      setCheckedRecIds(new Set());
+    });
+  }
+
+  function handleToggleCheck(id: string) {
+    setCheckedRecIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   const comparisonCampaignsQuery = useQuery({
     queryKey: [
@@ -652,7 +670,7 @@ export default function MetaPage() {
         laneLabel: laneById.get(row.id)?.lane ?? null,
         recommendationCount: recommendationMetaById.get(row.id)?.count ?? 0,
         topActionHint: recommendationMetaById.get(row.id)?.topActionHint ?? null,
-        isFocused: focusedCampaignId === row.id,
+        isFocused: selectedCampaignId === row.id,
         previousManualBidAmount: prevConfigById.get(row.id)?.previousManualBidAmount ?? row.previousManualBidAmount,
         previousBidValue: prevConfigById.get(row.id)?.previousBidValue ?? row.previousBidValue,
         previousBidValueFormat: prevConfigById.get(row.id)?.previousBidValueFormat ?? row.previousBidValueFormat,
@@ -677,7 +695,7 @@ export default function MetaPage() {
         laneLabel: laneById.get(row.id)?.lane ?? null,
         recommendationCount: recommendationMetaById.get(row.id)?.count ?? 0,
         topActionHint: recommendationMetaById.get(row.id)?.topActionHint ?? null,
-        isFocused: focusedCampaignId === row.id,
+        isFocused: selectedCampaignId === row.id,
         previousManualBidAmount: prevConfigById.get(row.id)?.previousManualBidAmount ?? row.previousManualBidAmount,
         previousBidValue: prevConfigById.get(row.id)?.previousBidValue ?? row.previousBidValue,
         previousBidValueFormat: prevConfigById.get(row.id)?.previousBidValueFormat ?? row.previousBidValueFormat,
@@ -699,7 +717,7 @@ export default function MetaPage() {
     campaignsQuery.data?.rows,
     comparisonCampaignsQuery.data?.rows,
     comparisonWindow,
-    focusedCampaignId,
+    selectedCampaignId,
     recommendationsQuery.data?.recommendations,
   ]);
 
@@ -744,16 +762,11 @@ export default function MetaPage() {
 
       {metaConnected && (
         <>
-          {/* ── KPI Row ───────────────────────────────────────────────────
-              Derived from campaign data — no extra fetch.
-              Numbers use font-mono for alignment and terminal-grade readability.
-          ───────────────────────────────────────────────────────────────── */}
+          {/* ── KPI Row — unchanged ──────────────────────────────────────── */}
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <KpiCard
               label={language === "tr" ? "Toplam Harcama" : "Total Spend"}
-              value={
-                campaignsQuery.isLoading ? "—" : fmtK(kpis.totalSpend, sym)
-              }
+              value={campaignsQuery.isLoading ? "—" : fmtK(kpis.totalSpend, sym)}
               subLabel={
                 language === "tr"
                   ? `${campaignsQuery.data?.rows?.length ?? 0} kampanya`
@@ -762,51 +775,31 @@ export default function MetaPage() {
               icon={DollarSign}
               accentClass="border-l-4 border-l-blue-500/60"
               comparisonLabel={language === "tr" ? "önceki döneme göre" : "vs previous period"}
-              changePct={
-                comparisonWindow
-                  ? computeChangePct(kpis.totalSpend, previousKpis.totalSpend)
-                  : null
-              }
+              changePct={comparisonWindow ? computeChangePct(kpis.totalSpend, previousKpis.totalSpend) : null}
             />
             <KpiCard
               label={language === "tr" ? "Toplam Gelir" : "Total Revenue"}
-              value={
-                campaignsQuery.isLoading ? "—" : fmtK(kpis.totalRevenue, sym)
-              }
+              value={campaignsQuery.isLoading ? "—" : fmtK(kpis.totalRevenue, sym)}
               subLabel={language === "tr" ? "Atfedilen purchase'lar" : "Attributed purchases"}
               icon={TrendingUp}
               accentClass="border-l-4 border-l-emerald-500/60"
               valueClass="text-emerald-600"
               comparisonLabel={language === "tr" ? "önceki döneme göre" : "vs previous period"}
-              changePct={
-                comparisonWindow
-                  ? computeChangePct(kpis.totalRevenue, previousKpis.totalRevenue)
-                  : null
-              }
+              changePct={comparisonWindow ? computeChangePct(kpis.totalRevenue, previousKpis.totalRevenue) : null}
             />
             <KpiCard
               label="Avg. CPA"
-              value={
-                campaignsQuery.isLoading ? "—" : fmt$(kpis.avgCpa, sym)
-              }
+              value={campaignsQuery.isLoading ? "—" : fmt$(kpis.avgCpa, sym)}
               subLabel={language === "tr" ? "Dönüşum basi maliyet" : "Cost per conversion"}
               icon={Target}
               accentClass="border-l-4 border-l-violet-500/60"
               comparisonLabel={language === "tr" ? "önceki döneme göre" : "vs previous period"}
-              changePct={
-                comparisonWindow
-                  ? computeChangePct(kpis.avgCpa, previousKpis.avgCpa)
-                  : null
-              }
+              changePct={comparisonWindow ? computeChangePct(kpis.avgCpa, previousKpis.avgCpa) : null}
               positiveIsGood={false}
             />
             <KpiCard
               label="Blended ROAS"
-              value={
-                campaignsQuery.isLoading
-                  ? "—"
-                  : `${kpis.blendedRoas.toFixed(2)}×`
-              }
+              value={campaignsQuery.isLoading ? "—" : `${kpis.blendedRoas.toFixed(2)}×`}
               subLabel={language === "tr" ? "Tum kampanyalar birlesik" : "All campaigns combined"}
               icon={BarChart2}
               accentClass={
@@ -823,183 +816,168 @@ export default function MetaPage() {
                   ? "text-amber-500"
                   : "text-red-500"
               }
-              changePct={
-                comparisonWindow
-                  ? computeChangePct(kpis.blendedRoas, previousKpis.blendedRoas)
-                  : null
-              }
+              changePct={comparisonWindow ? computeChangePct(kpis.blendedRoas, previousKpis.blendedRoas) : null}
               comparisonLabel={language === "tr" ? "önceki döneme göre" : "vs previous period"}
             />
           </div>
 
-          {/* ── AI Insights ───────────────────────────────────────────────── */}
-          <MetaInsightPanel
-            data={recommendationsQuery.data}
-            isLoading={recommendationsQuery.isLoading}
-            isError={recommendationsQuery.isError}
-            onRetry={() => recommendationsQuery.refetch()}
-            onOpenCampaign={setFocusedCampaignId}
-          />
+          {/* ── Master-detail layout ─────────────────────────────────────── */}
+          {campaignsQuery.isLoading && <LoadingSkeleton rows={6} />}
 
-          {/* ── Campaign table — full width ──────────────────────────────── */}
-          <div className="space-y-2">
-            <h2 className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">
-              {language === "tr" ? "Kampanya Performansi" : "Campaign Performance"}
-            </h2>
-            {comparisonWindow && (
-              <p className="text-xs text-muted-foreground">
-                {language === "tr"
-                  ? `Karşılaştırma aktif: farklar ${comparisonWindow.startDate} - ${comparisonWindow.endDate} araligina göre gösteriliyor.`
-                  : `Comparison active: deltas are shown against ${comparisonWindow.startDate} - ${comparisonWindow.endDate}.`}
-              </p>
-            )}
+          {campaignsQuery.isError && (
+            <SectionError
+              message={
+                campaignsQuery.error instanceof Error
+                  ? campaignsQuery.error.message
+                  : language === "tr"
+                  ? "Kampanya verisi yüklenemedi."
+                  : "Could not load campaign data."
+              }
+              language={language}
+              onRetry={() => campaignsQuery.refetch()}
+            />
+          )}
 
-            {campaignsQuery.isLoading && <LoadingSkeleton rows={5} />}
+          {!campaignsQuery.isLoading && !campaignsQuery.isError && (() => {
+            const status = campaignsQuery.data?.status;
+            if (status === "no_accounts_assigned") return <NoAccountsAssigned />;
 
-            {campaignsQuery.isError && (
-              <SectionError
-                message={
-                  campaignsQuery.error instanceof Error
-                    ? campaignsQuery.error.message
-                    : language === "tr"
-                      ? "Kampanya verisi yüklenemedi."
-                      : "Could not load campaign data."
-                }
-                language={language}
-                onRetry={() => campaignsQuery.refetch()}
-              />
-            )}
-
-            {!campaignsQuery.isLoading && !campaignsQuery.isError && (() => {
-              const status = campaignsQuery.data?.status;
-              const rows = campaignsQuery.data?.rows ?? [];
-
-              if (status === "no_accounts_assigned")
-                return <NoAccountsAssigned />;
-
-              if (rows.length === 0)
-                return (
-                  <DataEmptyState
-                    title={language === "tr" ? "Kampanya verisi bulunamadi" : "No campaign data found"}
-                    description={
-                      language === "tr"
-                        ? "Secilen tarih araliginda atanmis Meta reklam hesaplari için çalışan kampanya bulunamadi."
-                        : "No campaigns ran in the selected date range for the assigned Meta ad accounts."
-                    }
-                  />
-                );
-
+            const rows = campaignsQuery.data?.rows ?? [];
+            if (rows.length === 0)
               return (
-                <MetaCampaignTable
-                  campaigns={campaignRowsForTable}
-                  businessId={businessId}
-                  since={startDate}
-                  until={endDate}
-                  isCampaignPrevLoading={campaignPrevQuery.isLoading || campaignPrevQuery.isFetching}
-                  showMicroBars
-                  columns="compact"
+                <DataEmptyState
+                  title={language === "tr" ? "Kampanya verisi bulunamadi" : "No campaign data found"}
+                  description={
+                    language === "tr"
+                      ? "Secilen tarih araliginda atanmis Meta reklam hesaplari için çalışan kampanya bulunamadi."
+                      : "No campaigns ran in the selected date range for the assigned Meta ad accounts."
+                  }
                 />
               );
-            })()}
-          </div>
 
-          {/* ── Breakdown cards — 3 columns below campaign table ─────────── */}
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            {/* ROAS by Age */}
-            <SidebarCard title={language === "tr" ? "Yasa Göre ROAS" : "ROAS by Age"}>
-              {breakdownsQuery.isLoading ? (
-                <LoadingSkeleton rows={3} />
-              ) : breakdownsQuery.isError ? (
-                <SectionError
-                  message={language === "tr" ? "Kirilimlar yüklenemedi." : "Could not load breakdowns."}
-                  language={language}
-                  onRetry={() => breakdownsQuery.refetch()}
-                />
-              ) : (
-                <AgeBreakdownBadges
-                  rows={breakdownsQuery.data?.age ?? []}
-                />
-              )}
-            </SidebarCard>
+            // Map of campaign ID → highest-priority decision state (act > test > watch)
+            const ORDER = { act: 0, test: 1, watch: 2 } as const;
+            const campaignRecStates = new Map<string, "act" | "test" | "watch">();
+            for (const r of recommendationsQuery.data?.recommendations ?? []) {
+              if (!r.campaignId) continue;
+              const existing = campaignRecStates.get(r.campaignId);
+              if (!existing || ORDER[r.decisionState] < ORDER[existing]) {
+                campaignRecStates.set(r.campaignId, r.decisionState);
+              }
+            }
 
-            {/* Top Countries */}
-            <SidebarCard title={language === "tr" ? "En Iyi Ulkeler" : "Top Countries"}>
-              {breakdownsQuery.isLoading ? (
-                <LoadingSkeleton rows={4} />
-              ) : breakdownsQuery.isError ? null : (
-                <LocationBreakdownList
-                  rows={breakdownsQuery.data?.location ?? []}
-                />
-              )}
-            </SidebarCard>
+            const selectedCampaign =
+              campaignRowsForTable.find((c) => c.id === selectedCampaignId) ?? null;
 
-            {/* Platform Share */}
-            <SidebarCard title={language === "tr" ? "Platform Payi" : "Platform Share"}>
-              {breakdownsQuery.isLoading ? (
-                <LoadingSkeleton rows={3} />
-              ) : breakdownsQuery.isError ? null : (
-                <PlacementBreakdownChart
-                  rows={(breakdownsQuery.data?.placement ?? []).map(
-                    (row) => ({
-                      key: row.key,
-                      label: row.label,
-                      spend: row.spend,
-                      roas:
-                        row.spend > 0 ? row.revenue / row.spend : 0,
-                    })
-                  )}
-                />
-              )}
-            </SidebarCard>
-          </div>
+            const placementRows = (breakdownsQuery.data?.placement ?? []).map((row) => ({
+              key: row.key,
+              label: row.label,
+              spend: row.spend,
+              roas: row.spend > 0 ? row.revenue / row.spend : 0,
+            }));
 
-          {/* ── Budget Distribution ──────────────────────────────────────── */}
-          <SidebarCard title={language === "tr" ? "Butce Dağılımi" : "Budget Distribution"}>
-            {breakdownsQuery.isLoading ? (
-              <LoadingSkeleton rows={3} />
-            ) : breakdownsQuery.isError ? null : (() => {
-              const campaignRows =
-                breakdownsQuery.data?.budget.campaign ?? [];
-              const total = campaignRows.reduce(
-                (a, r) => a + r.spend,
-                0
-              );
-              if (campaignRows.length === 0)
-                return (
-                  <p className="text-xs text-muted-foreground">
-                    {language === "tr" ? "Butce verisi kullanılamıyor." : "Budget data unavailable."}
-                  </p>
-                );
-
-              return (
-                <div className="grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-3 lg:grid-cols-4">
-                  {campaignRows.slice(0, 6).map((row) => (
-                    <div key={row.key} className="space-y-0.5">
-                      <div className="flex items-center justify-between">
-                        <span
-                          className="max-w-[70%] truncate text-[11px] font-medium"
-                          title={row.label}
-                        >
-                          {row.label}
-                        </span>
-                        <span className="text-[11px] tabular-nums text-muted-foreground">
-                          {pct(row.spend, total)}
-                        </span>
-                      </div>
-                      <div className="relative h-1.5 overflow-hidden rounded-full bg-muted">
-                        <div
-                          className="absolute inset-y-0 left-0 rounded-full bg-violet-500/50"
-                          style={{
-                            width: pct(row.spend, total),
-                          }}
-                        />
-                      </div>
+            return (
+              <div className="flex gap-4" style={{ minHeight: "520px" }}>
+                {/* ── Left panel: campaign list + breakdowns ───────────── */}
+                <div className="flex w-64 shrink-0 flex-col gap-3 xl:w-72">
+                  {/* Campaign list */}
+                  <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                    <div className="border-b border-slate-100 px-3 py-2.5">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                        {language === "tr" ? "Kampanyalar" : "Campaigns"}
+                        <span className="ml-1.5 text-slate-300">{campaignRowsForTable.length}</span>
+                      </p>
                     </div>
-                  ))}
+                    <div className="max-h-80 overflow-y-auto p-1.5">
+                      <MetaCampaignList
+                        campaigns={campaignRowsForTable}
+                        selectedId={selectedCampaignId}
+                        onSelect={setSelectedCampaignId}
+                        campaignRecStates={campaignRecStates}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Age breakdown */}
+                  <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                    <div className="border-b border-slate-100 px-3 py-2.5">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                        {language === "tr" ? "Yaşa Göre ROAS" : "ROAS by Age"}
+                      </p>
+                    </div>
+                    <div className="p-3">
+                      {breakdownsQuery.isLoading ? (
+                        <div className="space-y-1.5">
+                          {[0, 1, 2].map((i) => (
+                            <div key={i} className="h-8 animate-pulse rounded bg-slate-100" />
+                          ))}
+                        </div>
+                      ) : (
+                        <AgeBreakdownBadges rows={breakdownsQuery.data?.age ?? []} />
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Location breakdown */}
+                  <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                    <div className="border-b border-slate-100 px-3 py-2.5">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                        {language === "tr" ? "En İyi Ülkeler" : "Top Countries"}
+                      </p>
+                    </div>
+                    <div className="p-3">
+                      {breakdownsQuery.isLoading ? (
+                        <div className="space-y-1.5">
+                          {[0, 1, 2].map((i) => (
+                            <div key={i} className="h-6 animate-pulse rounded bg-slate-100" />
+                          ))}
+                        </div>
+                      ) : (
+                        <LocationBreakdownList rows={breakdownsQuery.data?.location ?? []} />
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Platform Share */}
+                  <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                    <div className="border-b border-slate-100 px-3 py-2.5">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                        {language === "tr" ? "Platform Payı" : "Platform Share"}
+                      </p>
+                    </div>
+                    <div className="p-3">
+                      {breakdownsQuery.isLoading ? (
+                        <div className="space-y-1.5">
+                          {[0, 1, 2].map((i) => (
+                            <div key={i} className="h-6 animate-pulse rounded bg-slate-100" />
+                          ))}
+                        </div>
+                      ) : (
+                        <PlacementBreakdownChart rows={placementRows} topN={6} />
+                      )}
+                    </div>
+                  </div>
                 </div>
-              );
-            })()}
-          </SidebarCard>
+
+                {/* ── Right panel: campaign detail ──────────────────────── */}
+                <div className="min-h-0 flex-1 overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50/60 shadow-sm">
+                  <MetaCampaignDetail
+                    campaign={selectedCampaign}
+                    recommendationsData={recommendationsQuery.data}
+                    isRecsLoading={recommendationsQuery.isFetching}
+                    lastAnalyzedAt={lastAnalyzedAt}
+                    checkedRecIds={checkedRecIds}
+                    onToggleCheck={handleToggleCheck}
+                    onAnalyze={handleAnalyze}
+                    businessId={businessId}
+                    since={startDate}
+                    until={endDate}
+                    language={language}
+                  />
+                </div>
+              </div>
+            );
+          })()}
         </>
       )}
     </div>

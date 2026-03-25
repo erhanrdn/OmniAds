@@ -1,6 +1,7 @@
 "use client";
 
-import { BrainCircuit, TrendingUp, ShieldAlert, Workflow, TestTube2 } from "lucide-react";
+import { useState } from "react";
+import { BrainCircuit, TrendingUp, ShieldAlert, Workflow, TestTube2, ChevronDown, ChevronUp } from "lucide-react";
 import type { MetaRecommendationsResponse, MetaRecommendation } from "@/lib/meta/recommendations";
 import { getTranslations } from "@/lib/i18n";
 import { usePreferencesStore } from "@/store/preferences-store";
@@ -74,6 +75,8 @@ function RecommendationCard({
   onOpenCampaign?: (campaignId: string) => void;
   t: ReturnType<typeof getTranslations>["meta"];
 }) {
+  const [showDetails, setShowDetails] = useState(false);
+
   const lensLabel =
     recommendation.lens === "volume"
       ? t.lensVolume
@@ -100,190 +103,225 @@ function RecommendationCard({
         : t.priorityLow;
 
   return (
-    <div className="rounded-xl border bg-card p-4 shadow-sm">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <div className="rounded-lg bg-muted/50 p-2">
-            <LensIcon lens={recommendation.lens} />
-          </div>
-          <div>
-            <p className="text-sm font-semibold">{recommendation.title}</p>
-            <p className="text-[11px] text-muted-foreground">
+    <div className="rounded-xl border bg-card shadow-sm">
+      {/* ── Top stripe: decision badge + campaign ──────────────────── */}
+      <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
+        <div className="flex items-center gap-2.5">
+          <span
+            className={`rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${decisionTone(recommendation.decisionState)}`}
+          >
+            {decisionLabel}
+          </span>
+          <div className="min-w-0">
+            <p className="truncate text-xs font-semibold text-foreground">
               {recommendation.campaignName ?? t.accountLevelRecommendation}
             </p>
-          </div>
-        </div>
-        <span className={`rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${decisionTone(recommendation.decisionState)}`}>
-          {decisionLabel}
-        </span>
-      </div>
-
-      {recommendation.campaignId ? (
-        <div className="mt-2 flex justify-end">
-          <button
-            type="button"
-            onClick={() => onOpenCampaign?.(recommendation.campaignId!)}
-            className="text-[11px] font-medium text-blue-700 hover:underline"
-          >
-            {t.jumpToCampaign}
-          </button>
-        </div>
-      ) : null}
-
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <span className={`rounded-full px-2 py-1 text-[10px] font-medium uppercase tracking-wide ${badgeTone(recommendation.lens)}`}>
-          {lensLabel}
-        </span>
-        <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-          {confidenceLabel} {t.confidenceSuffix}
-        </span>
-        <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-          {priorityLabel} {t.prioritySuffix}
-        </span>
-        {recommendation.comparisonCohort ? (
-          <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            {t.comparedWithin} {recommendation.comparisonCohort}
-          </span>
-        ) : null}
-        {recommendation.historicalRegime ? (
-          <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            {t.historicalRegimePrefix} {recommendation.historicalRegime}
-          </span>
-        ) : null}
-      </div>
-
-      <p className="mt-3 text-sm text-foreground">{recommendation.summary}</p>
-      <p className="mt-2 text-xs text-muted-foreground">{recommendation.why}</p>
-
-      <div className="mt-3 space-y-2 rounded-lg bg-muted/35 p-3">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          {t.recommendedAction}
-        </p>
-        <p className="text-sm">{recommendation.recommendedAction}</p>
-      </div>
-
-      <div className="mt-3 grid gap-2 md:grid-cols-3">
-        {recommendation.evidence.slice(0, 3).map((item) => (
-          <div key={`${recommendation.id}-${item.label}`} className="rounded-lg border bg-background px-3 py-2">
-            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-              {item.label}
+            <p className="truncate text-[11px] text-muted-foreground">
+              {recommendation.title}
             </p>
-            <p className="mt-1 text-sm font-medium">{item.value}</p>
           </div>
-        ))}
-      </div>
-
-      {(recommendation.defensiveBidBand || recommendation.scaleBidBand || recommendation.requiresRebuild) ? (
-        <div className="mt-3 grid gap-2 md:grid-cols-3">
-          {recommendation.defensiveBidBand ? (
-            <div className="rounded-lg border bg-background px-3 py-2">
-              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                {t.defensiveBidBand}
-              </p>
-              <p className="mt-1 text-sm font-medium">{recommendation.defensiveBidBand}</p>
-            </div>
-          ) : null}
-          {recommendation.scaleBidBand ? (
-            <div className="rounded-lg border bg-background px-3 py-2">
-              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                {t.scaleBidBand}
-              </p>
-              <p className="mt-1 text-sm font-medium">{recommendation.scaleBidBand}</p>
-            </div>
-          ) : null}
-          {recommendation.requiresRebuild ? (
-            <div className="rounded-lg border bg-background px-3 py-2">
-              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                {t.rebuild}
-              </p>
-              <p className="mt-1 text-sm font-medium">{recommendation.rebuildReason ?? t.recommended}</p>
-            </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <LensIcon lens={recommendation.lens} />
+          {recommendation.campaignId ? (
+            <button
+              type="button"
+              onClick={() => onOpenCampaign?.(recommendation.campaignId!)}
+              className="text-[11px] font-medium text-blue-700 hover:underline"
+            >
+              {t.jumpToCampaign}
+            </button>
           ) : null}
         </div>
-      ) : null}
+      </div>
 
-      {(recommendation.promoteCreatives?.length || recommendation.keepTestingCreatives?.length || recommendation.doNotDeployCreatives?.length) ? (
-        <div className="mt-3 grid gap-2 md:grid-cols-3">
-          {recommendation.promoteCreatives?.length ? (
-            <div className="rounded-lg border bg-background px-3 py-2">
-              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                {t.promoteToScaling}
-              </p>
-              <p className="mt-1 text-sm font-medium">{recommendation.promoteCreatives.join(", ")}</p>
-              {recommendation.targetScalingLane ? (
-                <p className="mt-1 text-[10px] text-muted-foreground">
-                  {t.targetLane}: {recommendation.targetScalingLane}
+      <div className="p-4">
+        {/* ── Recommended action — the primary message ───────────────── */}
+        <p className="text-base font-semibold leading-snug text-foreground">
+          {recommendation.recommendedAction}
+        </p>
+
+        {/* ── Evidence chips ─────────────────────────────────────────── */}
+        {recommendation.evidence.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {recommendation.evidence.slice(0, 3).map((item) => (
+              <div
+                key={`${recommendation.id}-${item.label}`}
+                className="rounded-lg border bg-background px-2.5 py-1.5"
+              >
+                <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  {item.label}
                 </p>
+                <p className="text-xs font-semibold">{item.value}</p>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ── Meta badges ────────────────────────────────────────────── */}
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          <span className={`rounded-full px-2 py-1 text-[10px] font-medium uppercase tracking-wide ${badgeTone(recommendation.lens)}`}>
+            {lensLabel}
+          </span>
+          <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            {confidenceLabel} {t.confidenceSuffix}
+          </span>
+          <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            {priorityLabel} {t.prioritySuffix}
+          </span>
+          {recommendation.comparisonCohort ? (
+            <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              {t.comparedWithin} {recommendation.comparisonCohort}
+            </span>
+          ) : null}
+          {recommendation.historicalRegime ? (
+            <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              {t.historicalRegimePrefix} {recommendation.historicalRegime}
+            </span>
+          ) : null}
+        </div>
+
+        {/* ── Analysis details toggle ────────────────────────────────── */}
+        <button
+          type="button"
+          onClick={() => setShowDetails((v) => !v)}
+          className="mt-3 flex w-full items-center justify-between rounded-lg border border-dashed px-3 py-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/40"
+        >
+          <span>{showDetails ? t.hideDetails ?? "Hide details" : t.showDetails ?? "Analysis details"}</span>
+          {showDetails ? (
+            <ChevronUp className="h-3.5 w-3.5" />
+          ) : (
+            <ChevronDown className="h-3.5 w-3.5" />
+          )}
+        </button>
+
+        {/* ── Collapsible detail section ─────────────────────────────── */}
+        {showDetails && (
+          <div className="mt-3 space-y-3">
+            {/* Summary + Why */}
+            <div className="space-y-1.5 rounded-lg bg-muted/30 p-3">
+              <p className="text-sm text-foreground">{recommendation.summary}</p>
+              <p className="text-xs text-muted-foreground">{recommendation.why}</p>
+            </div>
+
+            {/* Bid bands + rebuild */}
+            {(recommendation.defensiveBidBand || recommendation.scaleBidBand || recommendation.requiresRebuild) ? (
+              <div className="grid gap-2 md:grid-cols-3">
+                {recommendation.defensiveBidBand ? (
+                  <div className="rounded-lg border bg-background px-3 py-2">
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      {t.defensiveBidBand}
+                    </p>
+                    <p className="mt-1 text-sm font-medium">{recommendation.defensiveBidBand}</p>
+                  </div>
+                ) : null}
+                {recommendation.scaleBidBand ? (
+                  <div className="rounded-lg border bg-background px-3 py-2">
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      {t.scaleBidBand}
+                    </p>
+                    <p className="mt-1 text-sm font-medium">{recommendation.scaleBidBand}</p>
+                  </div>
+                ) : null}
+                {recommendation.requiresRebuild ? (
+                  <div className="rounded-lg border bg-background px-3 py-2">
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      {t.rebuild}
+                    </p>
+                    <p className="mt-1 text-sm font-medium">{recommendation.rebuildReason ?? t.recommended}</p>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {/* Creatives */}
+            {(recommendation.promoteCreatives?.length || recommendation.keepTestingCreatives?.length || recommendation.doNotDeployCreatives?.length) ? (
+              <div className="grid gap-2 md:grid-cols-3">
+                {recommendation.promoteCreatives?.length ? (
+                  <div className="rounded-lg border bg-background px-3 py-2">
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      {t.promoteToScaling}
+                    </p>
+                    <p className="mt-1 text-sm font-medium">{recommendation.promoteCreatives.join(", ")}</p>
+                    {recommendation.targetScalingLane ? (
+                      <p className="mt-1 text-[10px] text-muted-foreground">
+                        {t.targetLane}: {recommendation.targetScalingLane}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+                {recommendation.keepTestingCreatives?.length ? (
+                  <div className="rounded-lg border bg-background px-3 py-2">
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      {t.keepInTest}
+                    </p>
+                    <p className="mt-1 text-sm font-medium">{recommendation.keepTestingCreatives.join(", ")}</p>
+                  </div>
+                ) : null}
+                {recommendation.doNotDeployCreatives?.length ? (
+                  <div className="rounded-lg border bg-background px-3 py-2">
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      {t.keepOutOfScaling}
+                    </p>
+                    <p className="mt-1 text-sm font-medium">{recommendation.doNotDeployCreatives.join(", ")}</p>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {/* Geo clusters */}
+            {(recommendation.scalingGeoCluster?.length || recommendation.testingGeoCluster?.length || recommendation.matureGeoSplit?.length) ? (
+              <div className="grid gap-2 md:grid-cols-3">
+                {recommendation.scalingGeoCluster?.length ? (
+                  <div className="rounded-lg border bg-background px-3 py-2">
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      {t.scalingGeoCluster}
+                    </p>
+                    <p className="mt-1 text-sm font-medium">{recommendation.scalingGeoCluster.join(", ")}</p>
+                  </div>
+                ) : null}
+                {recommendation.testingGeoCluster?.length ? (
+                  <div className="rounded-lg border bg-background px-3 py-2">
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      {t.testGeoCluster}
+                    </p>
+                    <p className="mt-1 text-sm font-medium">{recommendation.testingGeoCluster.join(", ")}</p>
+                  </div>
+                ) : null}
+                {recommendation.matureGeoSplit?.length ? (
+                  <div className="rounded-lg border bg-background px-3 py-2">
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      {t.keepSeparate}
+                    </p>
+                    <p className="mt-1 text-sm font-medium">{recommendation.matureGeoSplit.join(", ")}</p>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {/* Decision model / timeframe context */}
+            <div className="rounded-lg border border-dashed px-3 py-2">
+              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{t.decisionModel}</p>
+              <div className="mt-2 space-y-2">
+                <div>
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{t.coreVerdict}</p>
+                  <p className="mt-1 text-xs text-foreground">{recommendation.timeframeContext.coreVerdict}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{t.selectedRangeNote}</p>
+                  <p className="mt-1 text-xs text-foreground">{recommendation.timeframeContext.selectedRangeOverlay}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{t.historicalSupport}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{recommendation.timeframeContext.historicalSupport}</p>
+                </div>
+              </div>
+              {recommendation.timeframeContext.note ? (
+                <p className="mt-1 text-xs text-amber-700">{recommendation.timeframeContext.note}</p>
               ) : null}
             </div>
-          ) : null}
-          {recommendation.keepTestingCreatives?.length ? (
-            <div className="rounded-lg border bg-background px-3 py-2">
-              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                {t.keepInTest}
-              </p>
-              <p className="mt-1 text-sm font-medium">{recommendation.keepTestingCreatives.join(", ")}</p>
-            </div>
-          ) : null}
-          {recommendation.doNotDeployCreatives?.length ? (
-            <div className="rounded-lg border bg-background px-3 py-2">
-              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                {t.keepOutOfScaling}
-              </p>
-              <p className="mt-1 text-sm font-medium">{recommendation.doNotDeployCreatives.join(", ")}</p>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      {(recommendation.scalingGeoCluster?.length || recommendation.testingGeoCluster?.length || recommendation.matureGeoSplit?.length) ? (
-        <div className="mt-3 grid gap-2 md:grid-cols-3">
-          {recommendation.scalingGeoCluster?.length ? (
-            <div className="rounded-lg border bg-background px-3 py-2">
-              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                {t.scalingGeoCluster}
-              </p>
-              <p className="mt-1 text-sm font-medium">{recommendation.scalingGeoCluster.join(", ")}</p>
-            </div>
-          ) : null}
-          {recommendation.testingGeoCluster?.length ? (
-            <div className="rounded-lg border bg-background px-3 py-2">
-              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                {t.testGeoCluster}
-              </p>
-              <p className="mt-1 text-sm font-medium">{recommendation.testingGeoCluster.join(", ")}</p>
-            </div>
-          ) : null}
-          {recommendation.matureGeoSplit?.length ? (
-            <div className="rounded-lg border bg-background px-3 py-2">
-              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                {t.keepSeparate}
-              </p>
-              <p className="mt-1 text-sm font-medium">{recommendation.matureGeoSplit.join(", ")}</p>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      <div className="mt-3 rounded-lg border border-dashed px-3 py-2">
-        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{t.decisionModel}</p>
-        <div className="mt-2 space-y-2">
-          <div>
-            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{t.coreVerdict}</p>
-            <p className="mt-1 text-xs text-foreground">{recommendation.timeframeContext.coreVerdict}</p>
           </div>
-          <div>
-            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{t.selectedRangeNote}</p>
-            <p className="mt-1 text-xs text-foreground">{recommendation.timeframeContext.selectedRangeOverlay}</p>
-          </div>
-          <div>
-            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{t.historicalSupport}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{recommendation.timeframeContext.historicalSupport}</p>
-          </div>
-        </div>
-        {recommendation.timeframeContext.note ? (
-          <p className="mt-1 text-xs text-amber-700">{recommendation.timeframeContext.note}</p>
-        ) : null}
+        )}
       </div>
     </div>
   );

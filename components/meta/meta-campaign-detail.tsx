@@ -1,0 +1,394 @@
+"use client";
+
+/**
+ * components/meta/meta-campaign-detail.tsx
+ *
+ * Right panel in the master-detail layout.
+ *
+ * Two states:
+ *  - No campaign selected: shows account-level AI overview + placement breakdown
+ *  - Campaign selected: AI recommendation (if any) + metric grid + ad-set list
+ */
+
+import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { ChevronRight } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { usePreferencesStore } from "@/store/preferences-store";
+import { useCurrencySymbol } from "@/hooks/use-currency";
+import type { MetaCampaignTableRow } from "@/components/meta/meta-campaign-table";
+import type { MetaRecommendation, MetaRecommendationsResponse } from "@/lib/meta/recommendations";
+import { MetaAccountRecs } from "@/components/meta/meta-account-recs";
+import type { MetaAdSetsResponse } from "@/app/api/meta/adsets/route";
+import { PlacementBreakdownChart } from "@/components/meta/placement-breakdown-chart";
+
+// ── Formatters ────────────────────────────────────────────────────────────────
+
+function formatRelativeAge(isoValue: string | null | undefined): string | null {
+  if (!isoValue) return null;
+  const timestamp = new Date(isoValue).getTime();
+  if (!Number.isFinite(timestamp)) return null;
+  const diffMs = Date.now() - timestamp;
+  if (diffMs < 0) return null;
+  const minute = 60_000, hour = 60 * minute, day = 24 * hour, month = 30 * day, year = 365 * day;
+  if (diffMs >= year) return `${Math.floor(diffMs / year)}y ago`;
+  if (diffMs >= month) return `${Math.floor(diffMs / month)}mo ago`;
+  if (diffMs >= day) return `${Math.floor(diffMs / day)}d ago`;
+  if (diffMs >= hour) return `${Math.floor(diffMs / hour)}h ago`;
+  if (diffMs >= minute) return `${Math.floor(diffMs / minute)}m ago`;
+  return "just now";
+}
+
+function fmt$(n: number, sym = "$") {
+  return `${sym}${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function fmtK(n: number, sym = "$") {
+  if (n >= 1_000_000) return `${sym}${(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 1_000) return `${sym}${(n / 1_000).toFixed(1)}k`;
+  return fmt$(n, sym);
+}
+
+// ── Decision badge ────────────────────────────────────────────────────────────
+
+function DecisionBadge({ state }: { state: MetaRecommendation["decisionState"] }) {
+  const cls =
+    state === "act"
+      ? "bg-foreground text-background"
+      : state === "test"
+      ? "bg-violet-500/10 text-violet-700"
+      : "bg-muted text-muted-foreground";
+
+  const labels: Record<typeof state, string> = { act: "ACT", test: "TEST", watch: "WATCH" };
+
+  return (
+    <span className={`inline-block rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${cls}`}>
+      {labels[state]}
+    </span>
+  );
+}
+
+// ── ROAS color ────────────────────────────────────────────────────────────────
+
+function roasColor(roas: number) {
+  if (roas > 2.5) return "text-emerald-600";
+  if (roas >= 1.5) return "text-amber-500";
+  return "text-red-500";
+}
+
+// ── Metric tile ───────────────────────────────────────────────────────────────
+
+function MetricTile({
+  label,
+  value,
+  sub,
+  valueClass,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  valueClass?: string;
+}) {
+  return (
+    <div className="rounded-lg border bg-white px-3 py-2 shadow-sm shadow-slate-100/60">
+      <p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-slate-400">{label}</p>
+      <p className={cn("mt-0.5 font-mono text-sm font-bold tabular-nums leading-tight", valueClass ?? "text-slate-950")}>
+        {value}
+      </p>
+      {sub && <p className="mt-0.5 text-[9px] text-slate-400">{sub}</p>}
+    </div>
+  );
+}
+
+// ── Props ─────────────────────────────────────────────────────────────────────
+
+interface MetaCampaignDetailProps {
+  campaign: MetaCampaignTableRow | null;
+  recommendationsData: MetaRecommendationsResponse | undefined;
+  isRecsLoading: boolean;
+  lastAnalyzedAt: Date | null;
+  checkedRecIds: Set<string>;
+  onToggleCheck: (id: string) => void;
+  onAnalyze: () => void;
+  businessId: string;
+  since: string;
+  until: string;
+  language: "en" | "tr";
+}
+
+// ── Ad-set list ───────────────────────────────────────────────────────────────
+
+function AdSetList({
+  campaignId,
+  businessId,
+  since,
+  until,
+  sym,
+  language,
+}: {
+  campaignId: string;
+  businessId: string;
+  since: string;
+  until: string;
+  sym: string;
+  language: "en" | "tr";
+}) {
+  const { data, isLoading, isError } = useQuery<MetaAdSetsResponse>({
+    queryKey: ["meta-adsets", businessId, campaignId, since, until],
+    queryFn: async () => {
+      const params = new URLSearchParams({ businessId, campaignId, startDate: since, endDate: until });
+      const res = await fetch(`/api/meta/adsets?${params}`);
+      if (!res.ok) throw new Error("adsets fetch failed");
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="space-y-1.5">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="h-10 animate-pulse rounded-lg bg-slate-100" />
+        ))}
+      </div>
+    );
+  }
+
+  if (isError || !data?.rows?.length) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        {language === "tr" ? "Ad set verisi yok." : "No ad set data for this range."}
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {data.rows.map((adset) => {
+        const roas = adset.spend > 0 ? adset.revenue / adset.spend : 0;
+        const isActive = adset.status.toLowerCase() === "active";
+        const bidLabel = adset.isBidStrategyMixed
+          ? (language === "tr" ? "Karışık" : "Mixed")
+          : adset.bidStrategyLabel ?? "—";
+        const bidValueStr = adset.bidValue != null
+          ? adset.bidValueFormat === "roas"
+            ? `${adset.bidValue.toFixed(2)}x`
+            : fmt$(adset.bidValue / 100, sym)
+          : null;
+        const prevBidValueStr = adset.previousBidValue != null
+          ? (adset.previousBidValueFormat ?? adset.bidValueFormat) === "roas"
+            ? `${adset.previousBidValue.toFixed(2)}x`
+            : fmt$(adset.previousBidValue / 100, sym)
+          : null;
+
+        return (
+          <div
+            key={adset.id}
+            className="flex items-center gap-3 rounded-lg border border-slate-100 bg-white px-3 py-2 shadow-sm"
+          >
+            {/* Status dot */}
+            <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", isActive ? "bg-emerald-500" : "bg-slate-400")} />
+
+            {/* Name + bid */}
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[12px] font-semibold text-slate-800">{adset.name}</p>
+              <div className="mt-0.5 flex items-baseline gap-1">
+                <span className="text-[10px] font-medium text-slate-400">{bidLabel}</span>
+                {bidValueStr && (
+                  <span className="font-mono text-[11px] font-bold text-slate-700">{bidValueStr}</span>
+                )}
+                {prevBidValueStr && (
+                  <span className="text-[10px] text-slate-400">← {prevBidValueStr}{adset.previousBidValueCapturedAt ? ` · ${formatRelativeAge(adset.previousBidValueCapturedAt)}` : ""}</span>
+                )}
+              </div>
+            </div>
+
+            {/* Metrics */}
+            <div className="flex shrink-0 items-center gap-4">
+              <div className="text-right">
+                <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">Spend</p>
+                <p className="font-mono text-[11px] font-bold tabular-nums text-slate-700">{fmtK(adset.spend, sym)}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">ROAS</p>
+                <p className={cn("font-mono text-[11px] font-bold tabular-nums", roasColor(roas))}>{roas.toFixed(2)}×</p>
+              </div>
+              <div className="text-right">
+                <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">CPA</p>
+                <p className="font-mono text-[11px] font-bold tabular-nums text-slate-700">{fmt$(adset.cpa, sym)}</p>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Empty / account overview state ───────────────────────────────────────────
+
+interface AccountOverviewProps {
+  recommendationsData: MetaRecommendationsResponse | undefined;
+  isRecsLoading: boolean;
+  lastAnalyzedAt: Date | null;
+  checkedRecIds: Set<string>;
+  onToggleCheck: (id: string) => void;
+  onAnalyze: () => void;
+  language: "en" | "tr";
+}
+
+function AccountOverview(props: AccountOverviewProps) {
+  return (
+    <div className="space-y-4 p-6">
+      <div>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+          {props.language === "tr" ? "Hesap Geneli Analiz" : "Account Analysis"}
+        </p>
+        <p className="mt-0.5 text-xs text-slate-500">
+          {props.language === "tr"
+            ? "Kampanya seçin veya hesap geneli AI analizi başlatın."
+            : "Select a campaign, or run an account-level AI analysis below."}
+        </p>
+      </div>
+      <MetaAccountRecs {...props} />
+    </div>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+
+export function MetaCampaignDetail({
+  campaign,
+  recommendationsData,
+  isRecsLoading,
+  lastAnalyzedAt,
+  checkedRecIds,
+  onToggleCheck,
+  onAnalyze,
+  businessId,
+  since,
+  until,
+  language,
+}: MetaCampaignDetailProps) {
+  const sym = useCurrencySymbol();
+
+  if (!campaign) {
+    return (
+      <AccountOverview
+        recommendationsData={recommendationsData}
+        isRecsLoading={isRecsLoading}
+        lastAnalyzedAt={lastAnalyzedAt}
+        checkedRecIds={checkedRecIds}
+        onToggleCheck={onToggleCheck}
+        onAnalyze={onAnalyze}
+        language={language}
+      />
+    );
+  }
+
+  // Find this campaign's recommendation (highest priority = act > test > watch)
+
+  const ORDER: Record<MetaRecommendation["decisionState"], number> = { act: 0, test: 1, watch: 2 };
+  const rec = (recommendationsData?.recommendations ?? [])
+    .filter((r) => r.campaignId === campaign.id)
+    .sort((a, b) => ORDER[a.decisionState] - ORDER[b.decisionState])[0] ?? null;
+
+  const roas = campaign.roas;
+
+
+  return (
+    <div className="space-y-5 p-6">
+      {/* Campaign header */}
+      <div>
+        <div className="flex items-start gap-2">
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+              {campaign.objective ?? "—"}
+            </p>
+            <h2 className="mt-0.5 text-lg font-bold leading-tight text-slate-950">
+              {campaign.name}
+            </h2>
+          </div>
+          <span
+            className={cn(
+              "shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold uppercase",
+              campaign.status.toLowerCase() === "active"
+                ? "bg-emerald-500/10 text-emerald-700"
+                : "bg-slate-400/10 text-slate-500"
+            )}
+          >
+            {campaign.status}
+          </span>
+        </div>
+      </div>
+
+      {/* AI Recommendation */}
+      {rec && (
+        <div className="rounded-2xl border border-slate-200 bg-gradient-to-b from-white to-slate-50 p-4 shadow-sm">
+          <div className="flex items-center gap-2.5">
+            <DecisionBadge state={rec.decisionState} />
+            <p className="text-[11px] text-slate-500">{rec.title}</p>
+          </div>
+          <p className="mt-2.5 text-base font-semibold leading-snug text-slate-950">
+            {rec.recommendedAction}
+          </p>
+          {rec.evidence.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {rec.evidence.slice(0, 3).map((ev) => (
+                <div
+                  key={ev.label}
+                  className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 shadow-sm"
+                >
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">
+                    {ev.label}
+                  </p>
+                  <p className="text-xs font-semibold text-slate-800">{ev.value}</p>
+                </div>
+              ))}
+            </div>
+          )}
+          {rec.why && (
+            <p className="mt-3 text-xs leading-relaxed text-slate-500">{rec.why}</p>
+          )}
+        </div>
+      )}
+
+      {/* Metric grid — Spend / Revenue / ROAS / CPA / Budget */}
+      <div className="grid grid-cols-5 gap-1.5">
+        <MetricTile label="Spend" value={fmtK(campaign.spend, sym)} />
+        <MetricTile label="Revenue" value={fmtK(campaign.revenue, sym)} valueClass="text-emerald-600" />
+        <MetricTile label="ROAS" value={`${roas.toFixed(2)}×`} valueClass={roasColor(roas)} />
+        <MetricTile label="CPA" value={fmt$(campaign.cpa, sym)} />
+        {(campaign.dailyBudget != null || campaign.lifetimeBudget != null) && (
+          <MetricTile
+            label={language === "tr" ? "Bütçe" : "Budget"}
+            value={campaign.dailyBudget != null
+              ? `${fmt$(campaign.dailyBudget / 100, sym)}/day`
+              : `${fmt$(campaign.lifetimeBudget! / 100, sym)} lifetime`}
+            sub={(campaign.previousDailyBudget != null || campaign.previousLifetimeBudget != null)
+              ? `prev ${campaign.previousDailyBudget != null
+                  ? `${fmt$(campaign.previousDailyBudget / 100, sym)}/d`
+                  : `${fmt$(campaign.previousLifetimeBudget! / 100, sym)}`}${campaign.previousBudgetCapturedAt ? ` · ${formatRelativeAge(campaign.previousBudgetCapturedAt)}` : ""}`
+              : undefined}
+          />
+        )}
+      </div>
+
+      {/* Ad sets */}
+      <div className="space-y-2">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+          {language === "tr" ? "Ad Set'ler" : "Ad Sets"}
+        </p>
+        <AdSetList
+          campaignId={campaign.id}
+          businessId={businessId}
+          since={since}
+          until={until}
+          sym={sym}
+          language={language}
+        />
+      </div>
+
+    </div>
+  );
+}
