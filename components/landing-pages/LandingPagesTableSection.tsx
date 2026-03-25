@@ -11,6 +11,7 @@ import {
   formatPercent,
   getDropOffLabel,
 } from "@/components/landing-pages/support";
+import { usePreferencesStore } from "@/store/preferences-store";
 
 interface LandingPagesTableSectionProps {
   rows: LandingPagePerformanceRow[];
@@ -21,22 +22,24 @@ interface LandingPagesTableSectionProps {
   selectedPath?: string | null;
 }
 
-const COLUMNS: Array<{
+function getColumns(language: "en" | "tr"): Array<{
   key: LandingPageSortableMetric;
   label: string;
   render: (row: LandingPagePerformanceRow, currency: string | null) => string;
-}> = [
-  { key: "sessions", label: "Sessions", render: (row) => formatInteger(row.sessions) },
-  { key: "engagementRate", label: "Engagement", render: (row) => formatPercent(row.engagementRate) },
-  { key: "scrollRate", label: "Scroll", render: (row) => formatPercent(row.scrollRate) },
-  { key: "viewItem", label: "View Item", render: (row) => formatInteger(row.viewItem) },
-  { key: "addToCarts", label: "Add to Cart", render: (row) => formatInteger(row.addToCarts) },
-  { key: "checkouts", label: "Checkout", render: (row) => formatInteger(row.checkouts) },
-  { key: "addShippingInfo", label: "Shipping", render: (row) => formatInteger(row.addShippingInfo) },
-  { key: "purchases", label: "Purchases", render: (row) => formatInteger(row.purchases) },
-  { key: "totalRevenue", label: "Revenue", render: (row, currency) => formatCurrency(row.totalRevenue, currency) },
-  { key: "averagePurchaseRevenue", label: "AOV", render: (row, currency) => formatCurrency(row.averagePurchaseRevenue, currency) },
-];
+}> {
+  return [
+    { key: "sessions", label: language === "tr" ? "Oturumlar" : "Sessions", render: (row) => formatInteger(row.sessions) },
+    { key: "engagementRate", label: language === "tr" ? "Etkilesim" : "Engagement", render: (row) => formatPercent(row.engagementRate) },
+    { key: "scrollRate", label: "Scroll", render: (row) => formatPercent(row.scrollRate) },
+    { key: "viewItem", label: language === "tr" ? "Urun Goruntuleme" : "View Item", render: (row) => formatInteger(row.viewItem) },
+    { key: "addToCarts", label: language === "tr" ? "Sepete Ekle" : "Add to Cart", render: (row) => formatInteger(row.addToCarts) },
+    { key: "checkouts", label: "Checkout", render: (row) => formatInteger(row.checkouts) },
+    { key: "addShippingInfo", label: language === "tr" ? "Kargo Bilgisi" : "Shipping", render: (row) => formatInteger(row.addShippingInfo) },
+    { key: "purchases", label: language === "tr" ? "Satin Almalar" : "Purchases", render: (row) => formatInteger(row.purchases) },
+    { key: "totalRevenue", label: language === "tr" ? "Gelir" : "Revenue", render: (row, currency) => formatCurrency(row.totalRevenue, currency) },
+    { key: "averagePurchaseRevenue", label: "AOV", render: (row, currency) => formatCurrency(row.averagePurchaseRevenue, currency) },
+  ];
+}
 
 export function LandingPagesTableSection({
   rows,
@@ -46,14 +49,18 @@ export function LandingPagesTableSection({
   onRowClick,
   selectedPath,
 }: LandingPagesTableSectionProps) {
+  const language = usePreferencesStore((state) => state.language);
+  const columns = getColumns(language);
   return (
     <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
       <div className="border-b border-slate-200 bg-[linear-gradient(180deg,#fbfdff_0%,#f5f9ff_100%)] px-5 py-4">
         <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
-          Funnel Table
+          {language === "tr" ? "Funnel Tablosu" : "Funnel Table"}
         </p>
         <p className="mt-1 text-sm text-slate-600">
-          Click any landing page to inspect drop-offs, conversion rates, and AI commentary.
+          {language === "tr"
+            ? "Dususu, conversion oranlarini ve AI yorumlarini incelemek icin bir landing page secin."
+            : "Click any landing page to inspect drop-offs, conversion rates, and AI commentary."}
         </p>
       </div>
 
@@ -64,7 +71,7 @@ export function LandingPagesTableSection({
               <th className="sticky left-0 z-[1] min-w-[320px] border-r border-slate-200 bg-slate-50 px-5 py-3 text-left font-semibold">
                 Landing Page
               </th>
-              {COLUMNS.map((column) => {
+              {columns.map((column) => {
                 const active = sort.key === column.key;
                 return (
                   <th key={column.key} className="px-3 py-3 text-right font-semibold">
@@ -114,12 +121,12 @@ export function LandingPagesTableSection({
                           Session CVR {formatPercent(row.sessionToPurchaseRate)}
                         </span>
                         <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-700">
-                          Leak {getDropOffLabel(row.largestDropOffStep)}
+                          {language === "tr" ? "Kacak" : "Leak"} {getDropOffLabel(row.largestDropOffStep, language)}
                         </span>
                       </div>
                     </div>
                   </td>
-                  {COLUMNS.map((column) => (
+                  {columns.map((column) => (
                     <td key={column.key} className="px-3 py-4 text-right text-slate-700">
                       {column.render(row, currency)}
                     </td>

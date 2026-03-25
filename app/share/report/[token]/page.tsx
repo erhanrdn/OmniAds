@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { getCustomReportShareSnapshot } from "@/lib/custom-report-store";
 import { ReportCanvas } from "@/components/reports/report-canvas";
+import { getLanguageFromCookieValue, LANGUAGE_COOKIE_NAME } from "@/lib/i18n";
 
 export const metadata: Metadata = {
   title: "Shared Report",
@@ -13,6 +15,7 @@ export default async function ShareReportPage({
 }: {
   params: Promise<{ token: string }>;
 }) {
+  const language = getLanguageFromCookieValue((await cookies()).get(LANGUAGE_COOKIE_NAME)?.value);
   const { token } = await params;
   const payload = await getCustomReportShareSnapshot(token);
 
@@ -20,15 +23,15 @@ export default async function ShareReportPage({
     return (
       <main className="flex min-h-screen items-center justify-center bg-background px-6">
         <div className="w-full max-w-md rounded-2xl border bg-card p-6 text-center shadow-sm">
-          <h1 className="text-lg font-semibold">Share link not found or expired</h1>
+          <h1 className="text-lg font-semibold">{language === "tr" ? "Paylasim linki bulunamadi veya suresi doldu" : "Share link not found or expired"}</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            This shared report may have expired or the URL is invalid.
+            {language === "tr" ? "Bu paylasilan raporun suresi dolmus olabilir veya URL gecersiz olabilir." : "This shared report may have expired or the URL is invalid."}
           </p>
           <Link
             href="/"
             className="mt-4 inline-flex rounded-md border px-3 py-1.5 text-sm hover:bg-muted/40"
           >
-            Back to Adsecute
+            {language === "tr" ? "Adsecute'e don" : "Back to Adsecute"}
           </Link>
         </div>
       </main>
@@ -42,7 +45,7 @@ export default async function ShareReportPage({
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="max-w-3xl">
               <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                Shared Report
+                {language === "tr" ? "Paylasilan Rapor" : "Shared Report"}
               </p>
               <h1 className="mt-2 text-3xl font-semibold tracking-tight">{payload.name}</h1>
               {payload.description ? (
@@ -52,13 +55,13 @@ export default async function ShareReportPage({
             <div className="grid min-w-[220px] gap-3 rounded-3xl border bg-slate-50/90 p-4 text-sm text-slate-600">
               <div>
                 <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
-                  Date Range
+                  {language === "tr" ? "Tarih Araligi" : "Date Range"}
                 </div>
                 <div className="mt-1 font-medium text-slate-900">{payload.dateRangeLabel}</div>
               </div>
               <div>
                 <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
-                  Generated
+                  {language === "tr" ? "Olusturulma" : "Generated"}
                 </div>
                 <div className="mt-1 font-medium text-slate-900">
                   {new Date(payload.generatedAt).toLocaleString()}
@@ -66,7 +69,7 @@ export default async function ShareReportPage({
               </div>
               <div>
                 <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
-                  Expires
+                  {language === "tr" ? "Bitis" : "Expires"}
                 </div>
                 <div className="mt-1 font-medium text-slate-900">
                   {new Date(payload.expiresAt).toLocaleString()}
@@ -77,13 +80,14 @@ export default async function ShareReportPage({
         </div>
 
         <div className="rounded-[32px] border border-dashed bg-white/70 px-6 py-4 text-sm text-slate-600 shadow-sm">
-          This is a captured share snapshot from Adsecute. Open the link anytime before it expires
-          to review the generated report layout.
+          {language === "tr"
+            ? "Bu, Adsecute tarafindan olusturulmus bir paylasim goruntusudur. Suresi dolmadan once linki acarak olusturulan rapor duzenini inceleyebilirsiniz."
+            : "This is a captured share snapshot from Adsecute. Open the link anytime before it expires to review the generated report layout."}
         </div>
 
         <div className="rounded-[32px] border bg-white/80 p-5 shadow-sm backdrop-blur">
           <p className="mb-4 text-xs uppercase tracking-[0.18em] text-slate-400">
-            Shared Report
+            {language === "tr" ? "Paylasilan Rapor" : "Shared Report"}
           </p>
           <ReportCanvas report={payload} />
         </div>

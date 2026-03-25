@@ -1,4 +1,5 @@
 type Row = Record<string, any>;
+import type { AppLanguage } from "@/lib/i18n";
 
 export interface CrossEntityInsightEntity {
   entityType: string;
@@ -117,8 +118,9 @@ function makeInsight<T extends CrossEntityInsight>(insight: T): T {
   return insight;
 }
 
-export function buildCrossEntityIntelligence(input: CrossEntityInput) {
+export function buildCrossEntityIntelligence(input: CrossEntityInput, language: AppLanguage = "en") {
   const insights: CrossEntityInsight[] = [];
+  const tr = (english: string, turkish: string) => (language === "tr" ? turkish : english);
   const products = input.products.slice().sort((a, b) => num(b.revenue) - num(a.revenue));
   const campaigns = input.campaigns.slice().sort((a, b) => num(b.spend) - num(a.spend));
   const assetGroups = input.assetGroups.slice().sort((a, b) => num(b.spend) - num(a.spend));
@@ -166,8 +168,8 @@ export function buildCrossEntityIntelligence(input: CrossEntityInput) {
       makeInsight<CampaignProductInsight>({
         id: `campaign-product-${campaign.campaignId ?? campaign.id}`,
         type: "campaign_product",
-        title: `${campaign.campaignName ?? campaign.name} is likely dependent on a small product set`,
-        description: "Best-effort campaign-to-product mapping suggests a concentrated product dependency.",
+        title: tr(`${campaign.campaignName ?? campaign.name} is likely dependent on a small product set`, `${campaign.campaignName ?? campaign.name} kucuk bir product set'e bagimli olabilir`),
+        description: tr("Best-effort campaign-to-product mapping suggests a concentrated product dependency.", "Best-effort campaign-to-product eslesmesi, yogunlasmis bir product bagimliligina isaret ediyor."),
         reasoning: `Top inferred product drivers are ${candidateProducts
           .map((entry) => entry.product.productTitle ?? entry.product.title)
           .join(", ")}. This is inferred from naming overlap and available product concentration, not exact campaign-level product attribution.`,
@@ -214,8 +216,8 @@ export function buildCrossEntityIntelligence(input: CrossEntityInput) {
         makeInsight<AssetGroupProductInsight>({
           id: `asset-group-product-${assetGroup.assetGroupId ?? assetGroup.id}`,
           type: "asset_group_product",
-          title: `${assetGroup.assetGroupName ?? assetGroup.name} is likely supported by a narrow product set`,
-          description: "Asset-group naming and product patterns suggest a small set of dominant products.",
+        title: tr(`${assetGroup.assetGroupName ?? assetGroup.name} is likely supported by a narrow product set`, `${assetGroup.assetGroupName ?? assetGroup.name} dar bir product set tarafindan destekleniyor olabilir`),
+        description: tr("Asset-group naming and product patterns suggest a small set of dominant products.", "Asset group isimlendirmesi ve product pattern'leri, baskin urunlerin dar bir grupta toplandigini gosteriyor."),
           reasoning: `Dominant best-effort product matches are ${dominantProducts
             .map((entry) => entry.product.productTitle ?? entry.product.title)
             .join(", ")}.`,
@@ -246,9 +248,9 @@ export function buildCrossEntityIntelligence(input: CrossEntityInput) {
         makeInsight<AssetGroupProductInsight>({
           id: `asset-group-product-gap-${assetGroup.assetGroupId ?? assetGroup.id}`,
           type: "asset_group_product",
-          title: `${assetGroup.assetGroupName ?? assetGroup.name} has weak visible product support`,
-          description: "The asset group is consuming budget without a clear product driver emerging from best-effort matching.",
-          reasoning: "Shared campaign, name overlap, and product title patterns did not reveal strong product support.",
+          title: tr(`${assetGroup.assetGroupName ?? assetGroup.name} has weak visible product support`, `${assetGroup.assetGroupName ?? assetGroup.name} tarafinda gorunur urun destegi zayif`),
+          description: tr("The asset group is consuming budget without a clear product driver emerging from best-effort matching.", "Bu asset group, best-effort eslesmede net bir product driver ortaya cikmadan butce tuketiyor."),
+          reasoning: tr("Shared campaign, name overlap, and product title patterns did not reveal strong product support.", "Shared campaign, isim ortusmesi ve product title pattern'leri guclu bir product destegi gostermiyor."),
           confidence: 0.46,
           impact: "medium",
           relatedEntities: [
@@ -281,8 +283,8 @@ export function buildCrossEntityIntelligence(input: CrossEntityInput) {
       makeInsight<SearchClusterProductInsight>({
         id: `cluster-product-${cluster.clusterId}`,
         type: "search_cluster_product",
-        title: `${cluster.label} likely maps to specific products`,
-        description: "Search demand appears concentrated around a small set of products.",
+        title: tr(`${cluster.label} likely maps to specific products`, `${cluster.label} belirli product'lara eslesiyor olabilir`),
+        description: tr("Search demand appears concentrated around a small set of products.", "Search talebi kucuk bir product set'i etrafinda yogunlasiyor gorunuyor."),
         reasoning: `Best-effort product alignment suggests ${matches
           .map((entry) => entry.product.productTitle ?? entry.product.title)
           .join(", ")} support this cluster.`,
@@ -322,8 +324,8 @@ export function buildCrossEntityIntelligence(input: CrossEntityInput) {
       makeInsight<AssetThemeAlignmentInsight>({
         id: `asset-theme-${assetGroup.assetGroupId ?? assetGroup.id}`,
         type: "asset_theme_alignment",
-        title: `${assetGroup.assetGroupName ?? assetGroup.name} has weak theme support in assets`,
-        description: "Configured search themes are not strongly reflected in current asset messaging.",
+        title: tr(`${assetGroup.assetGroupName ?? assetGroup.name} has weak theme support in assets`, `${assetGroup.assetGroupName ?? assetGroup.name} icinde asset theme destegi zayif`),
+        description: tr("Configured search themes are not strongly reflected in current asset messaging.", "Tanimli search theme'leri mevcut asset mesajlarina yeterince yansimiyor."),
         reasoning: `Themes like ${missingThemes.slice(0, 3).join(", ")} have low direct wording support in headlines and descriptions. This is inferred messaging alignment, not theme performance attribution.`,
         confidence: clamp(0.58 + missingThemes.length * 0.05),
         impact: "medium",
@@ -349,8 +351,8 @@ export function buildCrossEntityIntelligence(input: CrossEntityInput) {
     makeInsight<SpendConcentrationInsight>({
       id: "spend-concentration",
       type: "spend_concentration",
-      title: "Spend concentration risk is elevated",
-      description: "A small set of entities is carrying a large share of spend.",
+      title: tr("Spend concentration risk is elevated", "Spend yogunlasma riski yuksek"),
+      description: tr("A small set of entities is carrying a large share of spend.", "Kucuk bir entity grubu spend'in buyuk bir kismini tasiyor."),
       reasoning: `Top 3 campaigns hold ${(top3CampaignSpend * 100).toFixed(0)}% of spend, top 3 products hold ${(top3ProductSpend * 100).toFixed(0)}%, and top 3 asset groups hold ${(top3AssetGroupSpend * 100).toFixed(0)}%.`,
       confidence: 0.88,
       impact: top3CampaignSpend >= 0.6 || top3ProductSpend >= 0.6 ? "high" : "medium",
@@ -369,8 +371,8 @@ export function buildCrossEntityIntelligence(input: CrossEntityInput) {
     makeInsight<RevenueDependencyInsight>({
       id: "revenue-dependency",
       type: "revenue_dependency",
-      title: "Revenue dependency is concentrated",
-      description: "A small number of entities appear to carry a large share of revenue.",
+      title: tr("Revenue dependency is concentrated", "Gelir bagimliligi yogunlasmis durumda"),
+      description: tr("A small number of entities appear to carry a large share of revenue.", "Az sayida entity gelirin buyuk bir kismini tasiyor gorunuyor."),
       reasoning: `Top 2 products drive ${(top2ProductRevenue * 100).toFixed(0)}% of revenue and top 2 campaigns drive ${(top2CampaignRevenue * 100).toFixed(0)}%.`,
       confidence: 0.9,
       impact: top2ProductRevenue >= 0.55 || top2CampaignRevenue >= 0.55 ? "high" : "medium",
@@ -404,8 +406,8 @@ export function buildCrossEntityIntelligence(input: CrossEntityInput) {
       makeInsight<ProductSupportInsight>({
         id: `product-support-${product.productItemId ?? product.productId ?? product.itemId}`,
         type: "product_support",
-        title: `${product.productTitle ?? product.title} appears to be supported by a narrow setup`,
-        description: "Best-effort campaign and asset-group alignment suggests this product relies on a specific delivery path.",
+        title: tr(`${product.productTitle ?? product.title} appears to be supported by a narrow setup`, `${product.productTitle ?? product.title} dar bir kurgu tarafindan destekleniyor gorunuyor`),
+        description: tr("Best-effort campaign and asset-group alignment suggests this product relies on a specific delivery path.", "Best-effort campaign ve asset group hizalamasina gore bu urun belirli bir delivery path'e yaslaniyor."),
         reasoning: `Most likely supporting campaigns are ${supportingCampaigns
           .map((entry) => entry.campaign.campaignName ?? entry.campaign.name)
           .join(", ") || "unclear"}, with asset-group support from ${supportingAssetGroups
@@ -448,8 +450,8 @@ export function buildCrossEntityIntelligence(input: CrossEntityInput) {
       makeInsight<ScalePathInsight>({
         id: "scale-path-primary",
         type: "scale_path",
-        title: "A multi-entity scale path is visible",
-        description: "Campaign, product, and asset-group signals are pointing in the same direction.",
+        title: tr("A multi-entity scale path is visible", "Coklu entity bazli bir scale yolu gorunuyor"),
+        description: tr("Campaign, product, and asset-group signals are pointing in the same direction.", "Campaign, product ve asset group sinyalleri ayni yonde hizalaniyor."),
         reasoning: `${scaleCampaign.campaignName ?? scaleCampaign.name} is efficient, ${scaleProduct.productTitle ?? scaleProduct.title} is a strong product candidate, and ${scaleAssetGroup.assetGroupName ?? scaleAssetGroup.name} is supporting scale.`,
         confidence: 0.82,
         impact: "high",
@@ -488,8 +490,8 @@ export function buildCrossEntityIntelligence(input: CrossEntityInput) {
       makeInsight<WasteConcentrationInsight>({
         id: "waste-concentration-primary",
         type: "waste_concentration",
-        title: "Waste appears concentrated across connected entities",
-        description: "The same pockets of budget inefficiency are showing up in multiple entity layers.",
+        title: tr("Waste appears concentrated across connected entities", "Israf bagli entity'ler arasinda yogunlasiyor gorunuyor"),
+        description: tr("The same pockets of budget inefficiency are showing up in multiple entity layers.", "Ayni butce verimsizlikleri birden fazla entity katmaninda tekrar goruluyor."),
         reasoning: `Signals point to ${weakCampaign ? weakCampaign.campaignName ?? weakCampaign.name : "noisy campaign demand"}, ${weakAssetGroup ? weakAssetGroup.assetGroupName ?? weakAssetGroup.name : "weak asset-group support"}, ${weakProduct ? weakProduct.productTitle ?? weakProduct.title : "underperforming products"}, and ${weakCluster ? weakCluster.label : "generic search demand"}. This is a best-effort concentration view, not exact multi-touch attribution.`,
         confidence: 0.76,
         impact: "high",

@@ -5,6 +5,7 @@ import { upsertIntegration } from "@/lib/integrations";
 import { requireBusinessAccess } from "@/lib/access";
 import { sanitizeNextPath } from "@/lib/auth-routing";
 import { scheduleProviderAccountSnapshotRefresh } from "@/lib/provider-account-snapshots";
+import { resolveRequestLanguage } from "@/lib/request-language";
 
 /**
  * GET /api/oauth/google/callback?code=...&state=...
@@ -17,6 +18,8 @@ import { scheduleProviderAccountSnapshotRefresh } from "@/lib/provider-account-s
  *   5. Redirects to the frontend callback page with status
  */
 export async function GET(request: NextRequest) {
+  const language = await resolveRequestLanguage(request);
+  const tr = (english: string, turkish: string) => (language === "tr" ? turkish : english);
   const { searchParams } = request.nextUrl;
   const code = searchParams.get("code");
   const state = searchParams.get("state");
@@ -68,7 +71,7 @@ export async function GET(request: NextRequest) {
       buildFrontendCallbackUrl({
         provider: "google",
         status: "error",
-        error: "Missing code or state parameter.",
+        error: tr("Missing code or state parameter.", "Code veya state parametresi eksik."),
       }),
     );
   }
@@ -80,7 +83,7 @@ export async function GET(request: NextRequest) {
       buildFrontendCallbackUrl({
         provider: "google",
         status: "error",
-        error: "Invalid OAuth state. Please try again.",
+        error: tr("Invalid OAuth state. Please try again.", "OAuth state gecersiz. Lutfen tekrar deneyin."),
       }),
     );
   }
@@ -103,7 +106,7 @@ export async function GET(request: NextRequest) {
       buildFrontendCallbackUrl({
         provider: "google",
         status: "error",
-        error: "Malformed OAuth state.",
+        error: tr("Malformed OAuth state.", "OAuth state bozuk."),
       }),
     );
   }
@@ -120,7 +123,7 @@ export async function GET(request: NextRequest) {
         status: "error",
         businessId,
         returnTo,
-        error: "You do not have permission to connect integrations for this business.",
+        error: tr("You do not have permission to connect integrations for this business.", "Bu business icin integration baglama yetkiniz yok."),
       }),
     );
   }
@@ -145,7 +148,7 @@ export async function GET(request: NextRequest) {
       throw new Error(
         tokenData.error_description ||
           tokenData.error ||
-          "Failed to exchange authorization code.",
+          tr("Failed to exchange authorization code.", "Authorization code degisimi basarisiz oldu."),
       );
     }
 
@@ -168,7 +171,7 @@ export async function GET(request: NextRequest) {
 
     if (userinfoData.error) {
       throw new Error(
-        userinfoData.error.message || "Failed to fetch Google user profile.",
+        userinfoData.error.message || tr("Failed to fetch Google user profile.", "Google kullanici profili alinamadi."),
       );
     }
 

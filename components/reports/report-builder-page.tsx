@@ -11,6 +11,7 @@ import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { useAppStore } from "@/store/app-store";
 import type { CustomReportRecord, RenderedReportPayload } from "@/lib/custom-reports";
 import { ReportCanvas } from "@/components/reports/report-canvas";
+import { usePreferencesStore } from "@/store/preferences-store";
 
 const ReportBuilder = dynamic(
   () => import("@/components/reports/report-builder").then((module) => module.ReportBuilder),
@@ -55,6 +56,7 @@ export function ReportBuilderPage({
   reportId?: string;
   templateId?: string | null;
 }) {
+  const language = usePreferencesStore((state) => state.language);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const businessId = selectedBusinessId ?? "";
 
@@ -98,14 +100,14 @@ export function ReportBuilderPage({
     if (renderedQuery.isLoading) {
       return (
         <div className="rounded-3xl border bg-white p-8 text-sm text-muted-foreground animate-pulse">
-          Loading report...
+          {language === "tr" ? "Rapor yukleniyor..." : "Loading report..."}
         </div>
       );
     }
     if (renderedQuery.error || !renderedQuery.data) {
       return (
         <div className="rounded-3xl border border-red-200 bg-red-50 p-8 text-sm text-red-700">
-          {renderedQuery.error instanceof Error ? renderedQuery.error.message : "Failed to load report."}
+          {renderedQuery.error instanceof Error ? renderedQuery.error.message : language === "tr" ? "Rapor yuklenemedi." : "Failed to load report."}
         </div>
       );
     }
@@ -164,7 +166,7 @@ export function ReportBuilderPage({
                 href="/reports"
                 className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50 transition"
               >
-                ← Back
+                {language === "tr" ? "← Geri" : "← Back"}
               </Link>
               <h1 className="text-base font-semibold text-slate-900">{report.name}</h1>
             </div>
@@ -183,7 +185,7 @@ export function ReportBuilderPage({
                   onClick={() => setExportOpen((o) => !o)}
                   className="inline-flex items-center gap-1.5 rounded-full border bg-white px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 transition"
                 >
-                  Export
+                  {language === "tr" ? "Disa Aktar" : "Export"}
                   <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
                 </button>
                 {exportOpen && (
@@ -195,7 +197,7 @@ export function ReportBuilderPage({
                       className="flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-xs hover:bg-slate-50 disabled:opacity-60 transition"
                     >
                       <Link2 className="h-3.5 w-3.5 shrink-0" />
-                      {shareLoading ? "Generating link..." : "Share link"}
+                      {shareLoading ? (language === "tr" ? "Link olusturuluyor..." : "Generating link...") : language === "tr" ? "Link paylas" : "Share link"}
                     </button>
                     <button
                       type="button"
@@ -204,11 +206,11 @@ export function ReportBuilderPage({
                       className="mt-2 flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-xs hover:bg-slate-50 disabled:opacity-60 transition"
                     >
                       <FileDown className="h-3.5 w-3.5 shrink-0" />
-                      {csvLoading ? "Exporting..." : "Export CSV"}
+                      {csvLoading ? (language === "tr" ? "Disa aktariliyor..." : "Exporting...") : "Export CSV"}
                     </button>
                     {shareUrl && (
                       <div className="mt-2 rounded-lg border bg-slate-50 p-2">
-                        <p className="mb-1 text-[11px] text-slate-500">Share link ready</p>
+                        <p className="mb-1 text-[11px] text-slate-500">{language === "tr" ? "Paylasim linki hazir" : "Share link ready"}</p>
                         <div className="flex items-center gap-1.5">
                           <input
                             readOnly
@@ -221,7 +223,7 @@ export function ReportBuilderPage({
                             className="inline-flex h-7 shrink-0 items-center gap-1 rounded border px-2 text-[11px] hover:bg-slate-100 transition"
                           >
                             <Copy className="h-3 w-3" />
-                            {copied ? "Copied!" : "Copy"}
+                            {copied ? (language === "tr" ? "Kopyalandi!" : "Copied!") : language === "tr" ? "Kopyala" : "Copy"}
                           </button>
                         </div>
                       </div>
@@ -234,7 +236,7 @@ export function ReportBuilderPage({
                 href={`/reports/${reportId}/edit`}
                 className="rounded-full bg-slate-900 px-4 py-1.5 text-xs font-medium text-white hover:bg-slate-700 transition"
               >
-                Edit
+                {language === "tr" ? "Duzenle" : "Edit"}
               </Link>
             </div>
           </div>
@@ -242,7 +244,7 @@ export function ReportBuilderPage({
         {/* Canvas */}
         <div className="mx-auto max-w-[1400px] px-6 py-8">
           {renderedQuery.isFetching ? (
-            <div className="flex items-center justify-center py-16 text-sm text-slate-400">Loading...</div>
+            <div className="flex items-center justify-center py-16 text-sm text-slate-400">{language === "tr" ? "Yukleniyor..." : "Loading..."}</div>
           ) : (
             <ReportCanvas report={report} />
           )}
@@ -255,7 +257,7 @@ export function ReportBuilderPage({
   if (mode === "edit" && reportQuery.isLoading) {
     return (
       <div className="rounded-3xl border bg-white p-8 text-sm text-muted-foreground">
-        Loading report...
+        {language === "tr" ? "Rapor yukleniyor..." : "Loading report..."}
       </div>
     );
   }
@@ -263,7 +265,7 @@ export function ReportBuilderPage({
   if (mode === "edit" && reportQuery.error) {
     return (
       <div className="rounded-3xl border border-red-200 bg-red-50 p-8 text-sm text-red-700">
-        {reportQuery.error instanceof Error ? reportQuery.error.message : "Failed to load report."}
+        {reportQuery.error instanceof Error ? reportQuery.error.message : language === "tr" ? "Rapor yuklenemedi." : "Failed to load report."}
       </div>
     );
   }

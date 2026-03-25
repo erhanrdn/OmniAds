@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { useAppStore } from "@/store/app-store";
 import { CUSTOM_REPORT_TEMPLATES, type CustomReportRecord } from "@/lib/custom-reports";
 import { PlanGate } from "@/components/pricing/PlanGate";
+import { usePreferencesStore } from "@/store/preferences-store";
 
 async function fetchReports(businessId: string) {
   const response = await fetch(`/api/reports?businessId=${encodeURIComponent(businessId)}`, {
@@ -22,6 +23,7 @@ async function fetchReports(businessId: string) {
 }
 
 export default function ReportsPage() {
+  const language = usePreferencesStore((state) => state.language);
   const businesses = useAppStore((state) => state.businesses);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const businessId = selectedBusinessId ?? "";
@@ -107,19 +109,22 @@ export default function ReportsPage() {
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div className="max-w-2xl space-y-3">
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
-              Custom Reporting
+              {language === "tr" ? "Ozel Raporlama" : "Custom Reporting"}
             </p>
             <h1 className="text-4xl font-semibold tracking-tight text-slate-950">
-              Build one-click reports for {business?.name ?? "this business"}
+              {language === "tr"
+                ? `${business?.name ?? "bu is"} icin tek tikla raporlar olusturun`
+                : `Build one-click reports for ${business?.name ?? "this business"}`}
             </h1>
             <p className="text-sm leading-6 text-slate-600">
-              Save reusable report formats under each business, start from a template, then share
-              the final output as a public link or export table widgets as CSV.
+              {language === "tr"
+                ? "Her is altinda tekrar kullanilabilir rapor formatlari kaydedin, bir template ile baslayin, sonra ciktiyi public link olarak paylasin veya tablo widget'larini CSV olarak disa aktarın."
+                : "Save reusable report formats under each business, start from a template, then share the final output as a public link or export table widgets as CSV."}
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
             <Button asChild size="lg">
-              <Link href="/reports/new">Create Blank Report</Link>
+              <Link href="/reports/new">{language === "tr" ? "Bos Rapor Olustur" : "Create Blank Report"}</Link>
             </Button>
           </div>
         </div>
@@ -129,9 +134,9 @@ export default function ReportsPage() {
         <div className="rounded-[28px] border bg-white p-6 shadow-sm">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <h2 className="text-xl font-semibold">Saved Reports</h2>
+              <h2 className="text-xl font-semibold">{language === "tr" ? "Kayitli Raporlar" : "Saved Reports"}</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Every saved report belongs to the active business.
+                {language === "tr" ? "Kayitli her rapor aktif ise aittir." : "Every saved report belongs to the active business."}
               </p>
             </div>
             {actionMessage ? <p className="text-sm text-slate-500">{actionMessage}</p> : null}
@@ -140,7 +145,7 @@ export default function ReportsPage() {
             <input
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="Search reports..."
+              placeholder={language === "tr" ? "Raporlarda ara..." : "Search reports..."}
               className="min-w-[220px] rounded-xl border px-3 py-2 text-sm"
             />
             <select
@@ -148,26 +153,26 @@ export default function ReportsPage() {
               onChange={(event) => setSortMode(event.target.value as "recent" | "name")}
               className="rounded-xl border px-3 py-2 text-sm"
             >
-              <option value="recent">Sort: Recently updated</option>
-              <option value="name">Sort: Name</option>
+              <option value="recent">{language === "tr" ? "Sirala: Son guncellenen" : "Sort: Recently updated"}</option>
+              <option value="name">{language === "tr" ? "Sirala: Ad" : "Sort: Name"}</option>
             </select>
           </div>
 
           {reportsQuery.isLoading ? (
             <div className="mt-6 rounded-2xl border border-dashed p-10 text-sm text-muted-foreground">
-              Loading saved reports...
+              {language === "tr" ? "Kayitli raporlar yukleniyor..." : "Loading saved reports..."}
             </div>
           ) : reportsQuery.error ? (
             <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">
-              {reportsQuery.error instanceof Error ? reportsQuery.error.message : "Failed to load reports."}
+              {reportsQuery.error instanceof Error ? reportsQuery.error.message : language === "tr" ? "Raporlar yuklenemedi." : "Failed to load reports."}
             </div>
           ) : reports.length === 0 ? (
             <div className="mt-6 rounded-2xl border border-dashed p-10 text-sm text-muted-foreground">
-              No saved reports yet. Start from a template or create a blank report.
+              {language === "tr" ? "Henuz kayitli rapor yok. Bir template ile baslayin veya bos bir rapor olusturun." : "No saved reports yet. Start from a template or create a blank report."}
             </div>
           ) : filteredReports.length === 0 ? (
             <div className="mt-6 rounded-2xl border border-dashed p-10 text-sm text-muted-foreground">
-              No reports match this search yet.
+              {language === "tr" ? "Bu aramaya uyan rapor bulunamadi." : "No reports match this search yet."}
             </div>
           ) : (
             <div className="mt-6 space-y-3">
@@ -180,10 +185,10 @@ export default function ReportsPage() {
                     <Link href={`/reports/${report.id}`} className="block">
                       <h3 className="text-base font-semibold text-slate-950">{report.name}</h3>
                       <p className="mt-1 text-sm text-slate-500">
-                        {report.description || "No description yet."}
+                        {report.description || (language === "tr" ? "Henuz aciklama yok." : "No description yet.")}
                       </p>
                       <p className="mt-3 text-xs text-slate-400">
-                        Updated {new Date(report.updatedAt).toLocaleString()}
+                        {language === "tr" ? "Guncellendi" : "Updated"} {new Date(report.updatedAt).toLocaleString()}
                       </p>
                     </Link>
                     <Link href={`/reports/${report.id}`} className="block">
@@ -192,11 +197,11 @@ export default function ReportsPage() {
                   </div>
                   <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
                     <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
-                      {report.definition?.widgets?.length ?? 0} widgets
+                      {report.definition?.widgets?.length ?? 0} {language === "tr" ? "widget" : "widgets"}
                     </span>
                     <div className="flex flex-wrap gap-2">
                       <Button asChild variant="outline" size="sm">
-                        <Link href={`/reports/${report.id}`}>Edit</Link>
+                        <Link href={`/reports/${report.id}`}>{language === "tr" ? "Duzenle" : "Edit"}</Link>
                       </Button>
                       <Button
                         variant="outline"
@@ -204,7 +209,7 @@ export default function ReportsPage() {
                         onClick={() => handleDuplicate(report)}
                         disabled={busyReportId === report.id}
                       >
-                        Duplicate
+                        {language === "tr" ? "Kopyala" : "Duplicate"}
                       </Button>
                       <Button
                         variant="outline"
@@ -212,7 +217,7 @@ export default function ReportsPage() {
                         onClick={() => handleDelete(report.id)}
                         disabled={busyReportId === report.id}
                       >
-                        Delete
+                        {language === "tr" ? "Sil" : "Delete"}
                       </Button>
                     </div>
                   </div>
@@ -224,9 +229,9 @@ export default function ReportsPage() {
 
         <div className="rounded-[28px] border bg-white p-6 shadow-sm">
           <div>
-            <h2 className="text-xl font-semibold">Template Gallery</h2>
+            <h2 className="text-xl font-semibold">{language === "tr" ? "Template Galerisi" : "Template Gallery"}</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Start with a one-click structure, then customize every widget and slot.
+              {language === "tr" ? "Tek tikla bir yapiyla baslayin, sonra her widget ve slot'u ozellestirin." : "Start with a one-click structure, then customize every widget and slot."}
             </p>
           </div>
           <div className="mt-6 grid gap-4 md:grid-cols-2">

@@ -1,5 +1,6 @@
 import { type LucideIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { usePreferencesStore } from "@/store/preferences-store";
 
 interface PlaceholderPageProps {
   title: string;
@@ -14,6 +15,7 @@ export function PlaceholderPage({
   icon: Icon,
   badge,
 }: PlaceholderPageProps) {
+  const language = usePreferencesStore((state) => state.language);
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] text-center gap-4">
       {Icon && (
@@ -27,7 +29,7 @@ export function PlaceholderPage({
           {badge && <Badge variant="secondary">{badge}</Badge>}
         </div>
         <p className="text-muted-foreground text-sm max-w-xs">
-          {description ?? "This page is under construction. Check back soon."}
+          {description ?? (language === "tr" ? "Bu sayfa hazirlaniyor. Yakinda tekrar kontrol edin." : "This page is under construction. Check back soon.")}
         </p>
       </div>
     </div>

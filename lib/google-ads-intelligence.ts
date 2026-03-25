@@ -4,6 +4,7 @@
  * Produces actionable insights from Google Ads performance data.
  * All rules are deterministic — no AI API calls.
  */
+import type { AppLanguage } from "@/lib/i18n";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -165,9 +166,11 @@ export function generateOverviewInsights(params: {
   totalRevenue: number;
   roas: number;
   cpa: number;
+  language?: AppLanguage;
 }): GadsInsight[] {
   const insights: GadsInsight[] = [];
-  const { campaigns, totalSpend, totalConversions, roas, cpa } = params;
+  const { campaigns, totalSpend, totalConversions, roas, cpa, language = "en" } = params;
+  const tr = (english: string, turkish: string) => (language === "tr" ? turkish : english);
 
   if (campaigns.length === 0) return insights;
 
@@ -189,10 +192,13 @@ export function generateOverviewInsights(params: {
       insights.push({
         id: "brand_roas_gap",
         severity: "opportunity",
-        title: "Brand campaigns outperform non-brand",
-        description: `Brand ROAS is ${brandRoas.toFixed(1)}x vs ${nonBrandRoas.toFixed(1)}x for non-brand.`,
+        title: tr("Brand campaigns outperform non-brand", "Brand kampanyalari non-brand kampanyalardan daha iyi performans gosteriyor"),
+        description: tr(
+          `Brand ROAS is ${brandRoas.toFixed(1)}x vs ${nonBrandRoas.toFixed(1)}x for non-brand.`,
+          `Brand ROAS ${brandRoas.toFixed(1)}x seviyesinde; non-brand tarafta ise ${nonBrandRoas.toFixed(1)}x.`
+        ),
         evidence: `${brandCampaigns.length} brand campaigns, ${nonBrandCampaigns.length} non-brand`,
-        recommendation: "Consider protecting brand terms with exact-match bidding while expanding non-brand coverage.",
+        recommendation: tr("Consider protecting brand terms with exact-match bidding while expanding non-brand coverage.", "Brand terimlerini exact-match bidding ile korurken non-brand kapsamini genisletmeyi degerlendirin."),
       });
     }
   }
@@ -208,9 +214,9 @@ export function generateOverviewInsights(params: {
       insights.push({
         id: "shopping_dominance",
         severity: "positive",
-        title: `Shopping campaigns drive ${pct}% of revenue`,
-        description: "Shopping / Performance Max is your primary revenue channel.",
-        recommendation: "Ensure product feeds are optimised with accurate prices, titles, and availability.",
+        title: tr(`Shopping campaigns drive ${pct}% of revenue`, `Shopping kampanyalari gelirin %${pct}'ini getiriyor`),
+        description: tr("Shopping / Performance Max is your primary revenue channel.", "Shopping / Performance Max ana gelir kanaliniz olarak calisiyor."),
+        recommendation: tr("Ensure product feeds are optimised with accurate prices, titles, and availability.", "Product feed'lerin fiyat, title ve stok bilgileri acisindan optimize oldugundan emin olun."),
       });
     }
   }
@@ -221,13 +227,13 @@ export function generateOverviewInsights(params: {
     insights.push({
       id: "budget_limited_is",
       severity: "warning",
-      title: `${budgetLimited.length} campaign${budgetLimited.length > 1 ? "s" : ""} losing impression share due to budget`,
-      description: "These campaigns are eligible for more impressions but are constrained by daily budget.",
+      title: tr(`${budgetLimited.length} campaign${budgetLimited.length > 1 ? "s" : ""} losing impression share due to budget`, `${budgetLimited.length} kampanya butce nedeniyle impression share kaybediyor`),
+      description: tr("These campaigns are eligible for more impressions but are constrained by daily budget.", "Bu kampanyalar daha fazla impression alabilir durumda, ancak gunluk butce tarafinda kisitli kaliyor."),
       evidence: budgetLimited
         .slice(0, 3)
         .map((c) => `${c.name} (${Math.round((c.lostIsBudget ?? 0) * 100)}% lost)`)
         .join(", "),
-      recommendation: "Increase budgets on high-ROAS budget-limited campaigns.",
+      recommendation: tr("Increase budgets on high-ROAS budget-limited campaigns.", "Yuksek ROAS ureten ve butceye takilan kampanyalarda butceyi artirin."),
     });
   }
 
@@ -240,13 +246,16 @@ export function generateOverviewInsights(params: {
     insights.push({
       id: "zero_conversion_waste",
       severity: "critical",
-      title: `$${wastedSpend.toFixed(0)} spent with zero conversions`,
-      description: `${wasteCampaigns.length} campaign${wasteCampaigns.length > 1 ? "s have" : " has"} generated spend but no conversions.`,
+      title: tr(`$${wastedSpend.toFixed(0)} spent with zero conversions`, `$${wastedSpend.toFixed(0)} spend ile hic conversion yok`),
+      description: tr(
+        `${wasteCampaigns.length} campaign${wasteCampaigns.length > 1 ? "s have" : " has"} generated spend but no conversions.`,
+        `${wasteCampaigns.length} kampanya spend urettigi halde hic conversion getirmedi.`
+      ),
       evidence: wasteCampaigns
         .slice(0, 3)
         .map((c) => `${c.name}: $${c.spend.toFixed(0)}`)
         .join(", "),
-      recommendation: "Pause underperforming campaigns or revise targeting and landing pages.",
+      recommendation: tr("Pause underperforming campaigns or revise targeting and landing pages.", "Dusuk performansli kampanyalari duraklatin veya targeting ve landing page yapisini yeniden ele alin."),
     });
   }
 
@@ -286,9 +295,11 @@ export function generateOpportunities(params: {
   ads: GadsAdRow[];
   accountAvgRoas: number;
   accountAvgCpa: number;
+  language?: AppLanguage;
 }): GadsOpportunity[] {
   const opps: GadsOpportunity[] = [];
-  const { campaigns, keywords, searchTerms, ads, accountAvgRoas, accountAvgCpa } = params;
+  const { campaigns, keywords, searchTerms, ads, accountAvgRoas, accountAvgCpa, language = "en" } = params;
+  const tr = (english: string, turkish: string) => (language === "tr" ? turkish : english);
 
   // 1. Budget shift opportunities
   const highRoasLowBudgetLimited = campaigns.filter(
@@ -306,17 +317,17 @@ export function generateOpportunities(params: {
       opps.push({
         id: "budget_shift",
         type: "budget_shift",
-        title: "Reallocate budget from low-ROAS to high-ROAS campaigns",
+        title: tr("Reallocate budget from low-ROAS to high-ROAS campaigns", "Butceyi dusuk ROAS kampanyalardan yuksek ROAS kampanyalara kaydir"),
         whyItMatters:
-          "High-performing campaigns are constrained while low-performers consume budget.",
+          tr("High-performing campaigns are constrained while low-performers consume budget.", "Yuksek performansli kampanyalar kisitli kalirken zayif kampanyalar butce tuketiyor."),
         evidence: `${highRoasLowBudgetLimited.map((c) => c.name).slice(0, 2).join(", ")} limited by budget; ${lowRoasHighSpend.map((c) => c.name).slice(0, 2).join(", ")} underperforming.`,
         expectedImpact: `+15–30% revenue with ~$${budgetToShift.toFixed(0)} shifted`,
-        impact: "Revenue growth",
+        impact: tr("Revenue growth", "Gelir buyumesi"),
         confidence: "high",
         effort: "low",
         priority: "high",
         recommendedAction:
-          "Move incremental budget away from weak campaigns and into high-ROAS campaigns that are losing impression share to budget.",
+          tr("Move incremental budget away from weak campaigns and into high-ROAS campaigns that are losing impression share to budget.", "Ek butceyi zayif kampanyalardan alip butce nedeniyle impression share kaybeden yuksek ROAS kampanyalara kaydirin."),
       });
     }
   }
@@ -330,19 +341,19 @@ export function generateOpportunities(params: {
     opps.push({
       id: "negative_keywords",
       type: "negative_keyword",
-      title: `Add ${wasteTerms.length} negative keywords to stop $${totalWaste.toFixed(0)} in wasted spend`,
-      whyItMatters: "These search terms consume budget without converting.",
+      title: tr(`Add ${wasteTerms.length} negative keywords to stop $${totalWaste.toFixed(0)} in wasted spend`, `$${totalWaste.toFixed(0)} israf spend'i durdurmak icin ${wasteTerms.length} negative keyword ekle`),
+      whyItMatters: tr("These search terms consume budget without converting.", "Bu search term'ler conversion getirmeden butce tuketiyor."),
       evidence: wasteTerms
         .slice(0, 4)
         .map((t) => `"${t.searchTerm}" (${t.clicks} clicks, $${t.spend.toFixed(0)})`)
         .join("; "),
       expectedImpact: `Recover $${totalWaste.toFixed(0)}/period + improved Quality Scores`,
-      impact: "Waste reduction",
+      impact: tr("Waste reduction", "Israf azaltilmasi"),
       confidence: "high",
       effort: "low",
       priority: "high",
       recommendedAction:
-        "Add the worst terms as negatives at the campaign or shared-list level, then review the query mix after one reporting window.",
+        tr("Add the worst terms as negatives at the campaign or shared-list level, then review the query mix after one reporting window.", "En zayif term'leri campaign veya shared-list seviyesinde negative olarak ekleyin; sonra bir raporlama periyodu sonunda query mix'i tekrar inceleyin."),
     });
   }
 
@@ -354,7 +365,7 @@ export function generateOpportunities(params: {
     opps.push({
       id: "new_keywords",
       type: "new_keyword",
-      title: `${keywordOpps.length} converting search term${keywordOpps.length > 1 ? "s" : ""} not yet a keyword`,
+      title: tr(`${keywordOpps.length} converting search term${keywordOpps.length > 1 ? "s" : ""} not yet a keyword`, `${keywordOpps.length} conversion getiren search term henuz keyword degil`),
       whyItMatters:
         "Adding these as exact-match keywords gives you bid control and prevents budget bleeding.",
       evidence: keywordOpps
@@ -362,12 +373,12 @@ export function generateOpportunities(params: {
         .map((t) => `"${t.searchTerm}" (${t.conversions} conv, ROAS ${t.roas.toFixed(1)}x)`)
         .join("; "),
       expectedImpact: "+10–25% conversion efficiency on these terms",
-      impact: "Efficiency gain",
+      impact: tr("Efficiency gain", "Verimlilik kazanimi"),
       confidence: "high",
       effort: "low",
       priority: "high",
       recommendedAction:
-        "Promote the best converting queries into exact-match keywords and separate them from broader exploratory traffic.",
+        tr("Promote the best converting queries into exact-match keywords and separate them from broader exploratory traffic.", "En iyi conversion getiren query'leri exact-match keyword olarak terfi ettirin ve daha genis kesif trafiginden ayirin."),
     });
   }
 
@@ -382,16 +393,16 @@ export function generateOpportunities(params: {
       opps.push({
         id: "ad_copy_improvement",
         type: "ad_copy",
-        title: "Top ads significantly outperform bottom ads — pause and learn",
+        title: tr("Top ads significantly outperform bottom ads — pause and learn", "En iyi reklamlar en zayif reklamlari belirgin sekilde geciyor"),
         whyItMatters: "Removing weak ads forces budget toward high-performers and raises Quality Score.",
         evidence: `Top-quartile CTR: ${topCtr.toFixed(1)}% vs bottom-quartile: ${bottomCtr.toFixed(1)}%`,
         expectedImpact: "+10–20% CTR improvement across ad groups",
-        impact: "Creative lift",
+        impact: tr("Creative lift", "Creative iyilesmesi"),
         confidence: "medium",
         effort: "low",
         priority: "medium",
         recommendedAction:
-          "Pause the weakest ads, copy the strongest angles into new variants, and keep one challenger running per ad group.",
+          tr("Pause the weakest ads, copy the strongest angles into new variants, and keep one challenger running per ad group.", "En zayif reklamlari duraklatin, en guclu acilari yeni varyantlara tasiyin ve her ad group'ta bir challenger acik tutun."),
       });
     }
   }
@@ -404,7 +415,7 @@ export function generateOpportunities(params: {
     opps.push({
       id: "high_qs_low_is",
       type: "bid_adjustment",
-      title: `${highQsLowIs.length} high Quality Score keyword${highQsLowIs.length > 1 ? "s" : ""} have low impression share`,
+      title: tr(`${highQsLowIs.length} high Quality Score keyword${highQsLowIs.length > 1 ? "s" : ""} have low impression share`, `${highQsLowIs.length} yuksek Quality Score keyword dusuk impression share'de kaliyor`),
       whyItMatters:
         "High QS keywords are underserved — increasing bids or budgets would yield efficient growth.",
       evidence: highQsLowIs
@@ -412,12 +423,12 @@ export function generateOpportunities(params: {
         .map((k) => `"${k.keyword}" (QS ${k.qualityScore}, IS ${Math.round((k.impressionShare ?? 0) * 100)}%)`)
         .join("; "),
       expectedImpact: "+20–40% impression volume with low CPC increase",
-      impact: "Scale headroom",
+      impact: tr("Scale headroom", "Olcek boslugu"),
       confidence: "medium",
       effort: "low",
       priority: "medium",
       recommendedAction:
-        "Increase bids or budget support on these high-QS keywords before broadening to lower-quality inventory.",
+        tr("Increase bids or budget support on these high-QS keywords before broadening to lower-quality inventory.", "Daha dusuk kaliteli envantere genislemeden once bu yuksek Quality Score keyword'lerde bid veya butce destegini artirin."),
     });
   }
 
@@ -430,19 +441,19 @@ export function generateOpportunities(params: {
     opps.push({
       id: "keyword_waste",
       type: "negative_keyword",
-      title: `${wastedKeywords.length} keyword${wastedKeywords.length > 1 ? "s" : ""} spending $${totalWaste.toFixed(0)} with zero conversions`,
-      whyItMatters: "These keywords drain budget without contributing to goals.",
+      title: tr(`${wastedKeywords.length} keyword${wastedKeywords.length > 1 ? "s" : ""} spending $${totalWaste.toFixed(0)} with zero conversions`, `${wastedKeywords.length} keyword $${totalWaste.toFixed(0)} spend yapiyor ama hic conversion getirmiyor`),
+      whyItMatters: tr("These keywords drain budget without contributing to goals.", "Bu keyword'ler hedeflere katkı saglamadan butce tuketiyor."),
       evidence: wastedKeywords
         .slice(0, 3)
         .map((k) => `"${k.keyword}" ($${k.spend.toFixed(0)}, ${k.clicks} clicks)`)
         .join("; "),
       expectedImpact: `Recover $${totalWaste.toFixed(0)}/period`,
-      impact: "Waste reduction",
+      impact: tr("Waste reduction", "Israf azaltilmasi"),
       confidence: "high",
       effort: "low",
       priority: "high",
       recommendedAction:
-        "Reduce bids, pause the weakest keywords, or move the spend into better-converting query coverage.",
+        tr("Reduce bids, pause the weakest keywords, or move the spend into better-converting query coverage.", "Bid'leri dusurun, en zayif keyword'leri duraklatin veya spend'i daha iyi conversion getiren query alanlarina kaydirin."),
     });
   }
 
@@ -463,9 +474,11 @@ export interface BudgetRecommendation {
 
 export function generateBudgetRecommendations(
   campaigns: GadsCampaignRow[],
-  accountAvgRoas: number
+  accountAvgRoas: number,
+  language: AppLanguage = "en"
 ): BudgetRecommendation[] {
   const recs: BudgetRecommendation[] = [];
+  const tr = (english: string, turkish: string) => (language === "tr" ? turkish : english);
 
   for (const c of campaigns) {
     if (c.roas > accountAvgRoas * 1.3 && (c.lostIsBudget ?? 0) > 0.15) {
@@ -475,7 +488,7 @@ export function generateBudgetRecommendations(
         currentSpend: c.spend,
         suggestedBudgetChange: suggested,
         direction: "increase",
-        reason: `ROAS ${c.roas.toFixed(1)}x (above avg) but losing ${Math.round((c.lostIsBudget ?? 0) * 100)}% IS to budget`,
+        reason: tr(`ROAS ${c.roas.toFixed(1)}x (above avg) but losing ${Math.round((c.lostIsBudget ?? 0) * 100)}% IS to budget`, `ROAS ${c.roas.toFixed(1)}x (ortalamanin ustunde) ancak butce nedeniyle IS kaybi %${Math.round((c.lostIsBudget ?? 0) * 100)}`),
       });
     } else if (c.spend > 100 && c.roas < accountAvgRoas * 0.4 && c.conversions < 2) {
       const suggested = c.spend * 0.5;
@@ -484,7 +497,7 @@ export function generateBudgetRecommendations(
         currentSpend: c.spend,
         suggestedBudgetChange: -suggested,
         direction: "decrease",
-        reason: `Low ROAS ${c.roas.toFixed(1)}x with only ${c.conversions} conversion${c.conversions !== 1 ? "s" : ""}`,
+        reason: tr(`Low ROAS ${c.roas.toFixed(1)}x with only ${c.conversions} conversion${c.conversions !== 1 ? "s" : ""}`, `Dusuk ROAS ${c.roas.toFixed(1)}x ve yalnizca ${c.conversions} conversion`),
       });
     }
   }

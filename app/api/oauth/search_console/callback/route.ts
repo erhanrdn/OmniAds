@@ -2,8 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { SEARCH_CONSOLE_CONFIG } from "@/lib/oauth/search-console-config";
 import { upsertIntegration } from "@/lib/integrations";
 import { requireBusinessAccess } from "@/lib/access";
+import { resolveRequestLanguage } from "@/lib/request-language";
 
 export async function GET(request: NextRequest) {
+  const language = await resolveRequestLanguage(request);
+  const tr = (english: string, turkish: string) => (language === "tr" ? turkish : english);
   const { searchParams } = request.nextUrl;
   const code = searchParams.get("code");
   const state = searchParams.get("state");
@@ -22,7 +25,7 @@ export async function GET(request: NextRequest) {
   if (!code || !state) {
     return NextResponse.redirect(
       `${baseUrl}/integrations/callback/search_console?status=error&error=${encodeURIComponent(
-        "Missing code or state parameter.",
+        tr("Missing code or state parameter.", "Code veya state parametresi eksik."),
       )}`,
     );
   }
@@ -31,7 +34,7 @@ export async function GET(request: NextRequest) {
   if (!cookieState || cookieState !== state) {
     return NextResponse.redirect(
       `${baseUrl}/integrations/callback/search_console?status=error&error=${encodeURIComponent(
-        "Invalid OAuth state. Please try again.",
+        tr("Invalid OAuth state. Please try again.", "OAuth state gecersiz. Lutfen tekrar deneyin."),
       )}`,
     );
   }
@@ -44,7 +47,7 @@ export async function GET(request: NextRequest) {
   } catch {
     return NextResponse.redirect(
       `${baseUrl}/integrations/callback/search_console?status=error&error=${encodeURIComponent(
-        "Malformed OAuth state.",
+        tr("Malformed OAuth state.", "OAuth state bozuk."),
       )}`,
     );
   }
@@ -57,7 +60,7 @@ export async function GET(request: NextRequest) {
   if ("error" in access) {
     return NextResponse.redirect(
       `${baseUrl}/integrations/callback/search_console?status=error&businessId=${businessId}&error=${encodeURIComponent(
-        "You do not have permission to connect integrations for this business.",
+        tr("You do not have permission to connect integrations for this business.", "Bu business icin integration baglama yetkiniz yok."),
       )}`,
     );
   }
@@ -81,7 +84,7 @@ export async function GET(request: NextRequest) {
       throw new Error(
         tokenData.error_description ||
           tokenData.error ||
-          "Failed to exchange authorization code.",
+          tr("Failed to exchange authorization code.", "Authorization code degisimi basarisiz oldu."),
       );
     }
 
@@ -97,7 +100,7 @@ export async function GET(request: NextRequest) {
       businessId,
       provider: "search_console",
       status: "connected",
-      providerAccountName: "Not selected",
+      providerAccountName: language === "tr" ? "Secilmedi" : "Not selected",
       accessToken,
       refreshToken,
       tokenExpiresAt,
@@ -122,7 +125,7 @@ export async function GET(request: NextRequest) {
     const message =
       err instanceof Error
         ? err.message
-        : "Unknown error during Search Console OAuth.";
+        : tr("Unknown error during Search Console OAuth.", "Search Console OAuth sirasinda bilinmeyen bir hata olustu.");
 
     return NextResponse.redirect(
       `${baseUrl}/integrations/callback/search_console?status=error&businessId=${businessId}&error=${encodeURIComponent(

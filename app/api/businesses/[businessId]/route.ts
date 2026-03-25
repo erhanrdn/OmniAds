@@ -4,6 +4,7 @@ import { requireBusinessAccess } from "@/lib/access";
 import { getDb } from "@/lib/db";
 import { runMigrations } from "@/lib/migrations";
 import { isDemoBusinessId } from "@/lib/demo-business";
+import { resolveRequestLanguage } from "@/lib/request-language";
 
 interface UpdateBusinessBody {
   name?: string;
@@ -15,10 +16,11 @@ export async function PATCH(
   request: NextRequest,
   context: { params: Promise<{ businessId: string }> }
 ) {
+  const language = await resolveRequestLanguage(request);
   const { businessId } = await context.params;
   if (!businessId) {
     return NextResponse.json(
-      { error: "missing_business_id", message: "businessId path parameter is required." },
+      { error: "missing_business_id", message: language === "tr" ? "businessId path parametresi zorunludur." : "businessId path parameter is required." },
       { status: 400 }
     );
   }
@@ -30,7 +32,7 @@ export async function PATCH(
   if ("error" in access) return access.error;
   if (isDemoBusinessId(businessId)) {
     return NextResponse.json(
-      { error: "forbidden", message: "Demo business settings cannot be changed." },
+      { error: "forbidden", message: language === "tr" ? "Demo business ayarlari degistirilemez." : "Demo business settings cannot be changed." },
       { status: 403 }
     );
   }
@@ -42,7 +44,7 @@ export async function PATCH(
 
   if (name.length < 2 || !timezone || !currency) {
     return NextResponse.json(
-      { error: "invalid_payload", message: "Name, timezone, and currency are required." },
+      { error: "invalid_payload", message: language === "tr" ? "Ad, timezone ve currency zorunludur." : "Name, timezone, and currency are required." },
       { status: 400 }
     );
   }
@@ -60,10 +62,11 @@ export async function DELETE(
   request: NextRequest,
   context: { params: Promise<{ businessId: string }> }
 ) {
+  const language = await resolveRequestLanguage(request);
   const { businessId } = await context.params;
   if (!businessId) {
     return NextResponse.json(
-      { error: "missing_business_id", message: "businessId path parameter is required." },
+      { error: "missing_business_id", message: language === "tr" ? "businessId path parametresi zorunludur." : "businessId path parameter is required." },
       { status: 400 }
     );
   }
@@ -75,7 +78,7 @@ export async function DELETE(
   if ("error" in access) return access.error;
   if (isDemoBusinessId(businessId)) {
     return NextResponse.json(
-      { error: "forbidden", message: "Demo business cannot be deleted." },
+      { error: "forbidden", message: language === "tr" ? "Demo business silinemez." : "Demo business cannot be deleted." },
       { status: 403 }
     );
   }

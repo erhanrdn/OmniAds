@@ -40,6 +40,7 @@ import {
 } from "@/lib/report-metric-catalog";
 import { ReportWidgetCard } from "@/components/reports/report-canvas";
 import { TemplateMiniPreview } from "@/components/reports/template-mini-preview";
+import { usePreferencesStore } from "@/store/preferences-store";
 
 const WIDGET_LIBRARY: Array<{
   type: CustomReportWidgetType;
@@ -402,6 +403,8 @@ export function ReportBuilder({
   initialRecord?: CustomReportRecord | null;
   initialTemplateId?: string | null;
 }) {
+  const language = usePreferencesStore((state) => state.language);
+  const tr = (english: string, turkish: string) => (language === "tr" ? turkish : english);
   const router = useRouter();
   const initialTemplate = CUSTOM_REPORT_TEMPLATES.find((item) => item.id === initialTemplateId) ?? null;
   const isBlankBuilder = !initialRecord && !initialTemplate;
@@ -411,7 +414,7 @@ export function ReportBuilder({
       ? cloneReportDefinition(initialTemplate.definition)
       : createBlankReportDefinition();
 
-  const [name, setName] = useState(initialRecord?.name ?? initialTemplate?.name ?? "Untitled Report");
+  const [name, setName] = useState(initialRecord?.name ?? initialTemplate?.name ?? tr("Untitled Report", "Adsiz Rapor"));
   const [description, setDescription] = useState(initialRecord?.description ?? initialTemplate?.description ?? "");
   const [templateId, setTemplateId] = useState<string | null>(initialRecord?.templateId ?? initialTemplate?.id ?? null);
   const [definition, setDefinition] = useState<CustomReportDocument>(startingDefinition);
@@ -454,7 +457,7 @@ export function ReportBuilder({
       : nextTemplate
         ? cloneReportDefinition(nextTemplate.definition)
         : createBlankReportDefinition();
-    setName(initialRecord?.name ?? nextTemplate?.name ?? "Untitled Report");
+    setName(initialRecord?.name ?? nextTemplate?.name ?? tr("Untitled Report", "Adsiz Rapor"));
     setDescription(initialRecord?.description ?? nextTemplate?.description ?? "");
     setTemplateId(initialRecord?.templateId ?? nextTemplate?.id ?? null);
     setDefinition(nextDefinition);
@@ -512,7 +515,7 @@ export function ReportBuilder({
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error((payload as { message?: string } | null)?.message ?? "Preview failed.");
+        throw new Error((payload as { message?: string } | null)?.message ?? tr("Preview failed.", "Onizleme basarisiz oldu."));
       }
       return (payload as { report: RenderedReportPayload }).report;
     },
@@ -1235,7 +1238,7 @@ export function ReportBuilder({
                                   }}
                                   className="flex min-w-0 flex-1 items-center justify-between px-3 py-2.5 text-left text-sm hover:bg-slate-50 transition"
                                 >
-                                  <span className="truncate text-slate-900">{metricLabel || "Select metric"}</span>
+                                  <span className="truncate text-slate-900">{metricLabel || tr("Select metric", "Metrik sec")}</span>
                                   <ChevronDown className={`ml-2 h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform ${rowOpen ? "rotate-180" : ""}`} />
                                 </button>
                                 {canAddMore && metricKeys.length > 1 ? (
@@ -1250,7 +1253,7 @@ export function ReportBuilder({
                                       setOpenMetricRowIndex(null);
                                     }}
                                     className="flex h-full items-center border-l border-slate-100 px-2.5 text-slate-300 hover:text-red-400 transition"
-                                    title="Remove metric"
+                                    title={tr("Remove metric", "Metrigi kaldir")}
                                   >
                                     <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
                                   </button>
@@ -1266,7 +1269,7 @@ export function ReportBuilder({
                                       autoFocus
                                       value={metricSearch}
                                       onChange={(e) => setMetricSearch(e.target.value)}
-                                      placeholder="Search"
+                                      placeholder={tr("Search", "Ara")}
                                       className="w-full bg-transparent text-sm outline-none text-slate-900 placeholder:text-slate-400"
                                     />
                                   </div>
@@ -1319,7 +1322,7 @@ export function ReportBuilder({
                           }}
                           className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-slate-300 py-2.5 text-sm font-medium text-slate-500 hover:border-slate-400 hover:text-slate-700 transition"
                         >
-                          + Metric
+                          {tr("+ Metric", "+ Metrik")}
                         </button>
                       ) : null}
                     </div>
@@ -1403,7 +1406,7 @@ export function ReportBuilder({
                       {/* Dimension picker */}
                       {dimensionOptions.length > 0 && (
                         <div>
-                          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Dimension</p>
+                          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">{tr("Dimension", "Boyut")}</p>
                           <select
                             value={tableDimension}
                             onChange={(e) => updateWidget(selectedWidget.id, { tableDimension: e.target.value, columns: [] })}
@@ -1429,7 +1432,7 @@ export function ReportBuilder({
                       {/* Metrics section */}
                       <div>
                         <div className="mb-2 flex items-center justify-between">
-                          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Metrics</p>
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{tr("Metrics", "Metrikler")}</p>
                           <select
                             value={selectedWidget.limit ?? 8}
                             onChange={(e) => updateWidget(selectedWidget.id, { limit: Number(e.target.value) })}
@@ -1480,7 +1483,7 @@ export function ReportBuilder({
                             }}
                             className="flex w-full items-center justify-between px-3 py-2.5 text-left text-sm hover:bg-slate-50 transition"
                           >
-                            <span className="text-slate-500">+ Add metric</span>
+                            <span className="text-slate-500">{tr("+ Add metric", "+ Metrik ekle")}</span>
                             <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform ${columnMenuOpen ? "rotate-180" : ""}`} />
                           </button>
                           {columnMenuOpen && (
@@ -1491,7 +1494,7 @@ export function ReportBuilder({
                                   autoFocus
                                   value={columnSearch}
                                   onChange={(e) => setColumnSearch(e.target.value)}
-                                  placeholder="Search metrics"
+                                  placeholder={tr("Search metrics", "Metrik ara")}
                                   className="w-full bg-transparent text-sm outline-none text-slate-900 placeholder:text-slate-400"
                                 />
                               </div>
@@ -1530,7 +1533,7 @@ export function ReportBuilder({
                 {(selectedWidget.type === "trend" || selectedWidget.type === "bar") ? (
                   <div className="px-4 py-3">
                     <div className="mb-3 flex items-center justify-between">
-                      <p className="font-semibold text-slate-900">Breakdown</p>
+                      <p className="font-semibold text-slate-900">{tr("Breakdown", "Kirilim")}</p>
                     </div>
                     {(() => {
                       const breakdownOptions = getBreakdownOptionsForPlatform(selectedWidgetChannel, selectedWidget.type);
@@ -1563,7 +1566,7 @@ export function ReportBuilder({
                                   autoFocus
                                   value={breakdownSearch}
                                   onChange={(e) => setBreakdownSearch(e.target.value)}
-                                  placeholder="Search"
+                                  placeholder={tr("Search", "Ara")}
                                   className="w-full bg-transparent text-sm outline-none text-slate-900 placeholder:text-slate-400"
                                 />
                               </div>
@@ -1615,7 +1618,7 @@ export function ReportBuilder({
                 {/* Body (text / section) */}
                 {(selectedWidget.type === "text" || selectedWidget.type === "section") ? (
                   <div className="px-4 py-3 space-y-2">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Body</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{tr("Body", "Icerik")}</p>
                     <textarea
                       value={selectedWidget.text ?? ""}
                       onChange={(e) => updateWidget(selectedWidget.id, { text: e.target.value })}
@@ -1627,17 +1630,17 @@ export function ReportBuilder({
 
                 {/* Copy */}
                 <div className="px-4 py-3 space-y-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Copy</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{tr("Copy", "Metin")}</p>
                   <input
                     value={selectedWidget.title}
                     onChange={(e) => updateWidget(selectedWidget.id, { title: e.target.value })}
-                    placeholder="Title"
+                    placeholder={tr("Title", "Baslik")}
                     className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
                   />
                   <input
                     value={selectedWidget.subtitle ?? ""}
                     onChange={(e) => updateWidget(selectedWidget.id, { subtitle: e.target.value || undefined })}
-                    placeholder="Subtitle (optional)"
+                    placeholder={tr("Subtitle (optional)", "Alt baslik (opsiyonel)")}
                     className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
                   />
                 </div>
@@ -1649,7 +1652,7 @@ export function ReportBuilder({
           {true ? (
             <section className="rounded-3xl border bg-white p-4 shadow-sm">
               <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                Templates
+                {tr("Templates", "Template'ler")}
               </h2>
               <div className="mt-3 flex flex-wrap gap-2">
                 {templateCategories.map((category) => (
@@ -1694,13 +1697,13 @@ export function ReportBuilder({
           <div className="rounded-3xl border bg-white p-4 shadow-sm">
             <div className="mb-4 flex items-start justify-between gap-4">
               <div className="flex-1">
-                <h2 className="text-lg font-semibold">Canvas</h2>
+                <h2 className="text-lg font-semibold">{tr("Canvas", "Tuval")}</h2>
                 <textarea
                   value={description}
                   onChange={(event) => setDescription(event.target.value)}
                   rows={1}
                   className="mt-1 w-full resize-none rounded-xl border-0 bg-transparent px-0 text-sm text-muted-foreground placeholder:text-slate-400 focus:outline-none focus:ring-0"
-                  placeholder="Add a description for this report..."
+                  placeholder={tr("Add a description for this report...", "Bu rapor icin bir aciklama ekleyin...")}
                 />
               </div>
               {templateId ? (
@@ -1713,14 +1716,14 @@ export function ReportBuilder({
               <div className="mb-4 rounded-[28px] border border-dashed border-blue-200 bg-[linear-gradient(135deg,#eff6ff,#ffffff)] px-5 py-5">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div>
-                    <div className="text-sm font-semibold text-slate-950">Start with your first widget</div>
+                    <div className="text-sm font-semibold text-slate-950">{tr("Start with your first widget", "Ilk widget'inizle baslayin")}</div>
                     <p className="mt-1 max-w-2xl text-sm text-slate-600">
                       Drag a metric, chart, table, or section from the left palette into the canvas. Once it lands,
                       click the widget to configure its source, account, and content.
                     </p>
                   </div>
                     <div className="rounded-2xl border border-blue-200 bg-white px-4 py-3 text-xs font-medium text-blue-700 shadow-sm">
-                      Drag from left
+                      {tr("Drag from left", "Soldan surukleyin")}
                     </div>
                 </div>
                 <div className="mt-3 text-xs text-slate-500">
@@ -1797,7 +1800,7 @@ export function ReportBuilder({
                           {hoveredSlot === slot ? (
                             <div className="relative z-10 flex h-full min-h-[64px] flex-col items-center justify-center">
                               <div className="text-sm font-semibold text-emerald-700">
-                                {draggedWidgetType ? "Drop to create" : "Drop here"}
+                                {draggedWidgetType ? tr("Drop to create", "Olusturmak icin birak") : tr("Drop here", "Buraya birak")}
                               </div>
                             </div>
                           ) : null}
@@ -1878,9 +1881,9 @@ export function ReportBuilder({
                               setSelectedSlot(widget.slot);
                         }}
                             className="rounded-full px-2 py-1 text-[10px] font-semibold text-slate-600 hover:bg-slate-100"
-                            title="Edit widget"
+                            title={tr("Edit widget", "Widget'i duzenle")}
                           >
-                            Edit
+                            {tr("Edit", "Duzenle")}
                           </button>
                           <button
                             type="button"
@@ -1889,9 +1892,9 @@ export function ReportBuilder({
                               duplicateWidget(widget.id);
                             }}
                             className="rounded-full px-2 py-1 text-[10px] font-semibold text-slate-600 hover:bg-slate-100"
-                            title="Duplicate widget"
+                            title={tr("Duplicate widget", "Widget'i kopyala")}
                           >
-                            Copy
+                            {tr("Copy", "Kopyala")}
                           </button>
                           <button
                             type="button"
@@ -1900,7 +1903,7 @@ export function ReportBuilder({
                               removeWidget(widget.id);
                             }}
                             className="rounded-full px-2 py-1 text-[10px] font-semibold text-red-600 hover:bg-red-50"
-                            title="Remove widget"
+                            title={tr("Remove widget", "Widget'i kaldir")}
                           >
                             Del
                           </button>
@@ -1921,7 +1924,7 @@ export function ReportBuilder({
                             });
                           }}
                           className="absolute bottom-8 right-0 top-8 w-2 cursor-ew-resize opacity-0 transition-opacity group-hover:opacity-100"
-                          title="Drag to resize width"
+                          title={tr("Drag to resize width", "Genisligi yeniden boyutlandirmak icin surukleyin")}
                         >
                           <span className="block h-full w-1 mx-auto rounded-full bg-blue-400/60 hover:bg-blue-500" />
                         </button>
@@ -1941,7 +1944,7 @@ export function ReportBuilder({
                             });
                           }}
                           className="absolute bottom-0 left-8 right-8 h-2 cursor-ns-resize opacity-0 transition-opacity group-hover:opacity-100"
-                          title="Drag to resize height"
+                          title={tr("Drag to resize height", "Yuksekligi yeniden boyutlandirmak icin surukleyin")}
                         >
                           <span className="block h-1 w-full my-auto rounded-full bg-blue-400/60 hover:bg-blue-500" />
                         </button>
@@ -1961,7 +1964,7 @@ export function ReportBuilder({
                             });
                           }}
                           className="absolute bottom-0 right-0 h-5 w-5 cursor-se-resize opacity-0 transition-opacity group-hover:opacity-100 flex items-end justify-end p-1"
-                          title="Drag to resize"
+                          title={tr("Drag to resize", "Yeniden boyutlandirmak icin surukleyin")}
                         >
                           <span className="block h-3 w-3 rounded-br-lg border-b-2 border-r-2 border-blue-400/80" />
                         </button>
@@ -1977,11 +1980,11 @@ export function ReportBuilder({
                     <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">
                       {dragPreview.mode === "create"
                         ? dragPreview.snapped
-                          ? "Create Preview"
+                          ? tr("Create Preview", "Olusturma Onizlemesi")
                           : "Drop to Create"
                         : dragPreview.snapped
                           ? "Snap Preview"
-                          : "Drop Preview"}
+                          : tr("Drop Preview", "Birakma Onizlemesi")}
                     </div>
                     <div className="mt-2 text-sm font-semibold text-emerald-900">
                       {dragPreview.title}
@@ -1999,7 +2002,7 @@ export function ReportBuilder({
 
           {previewQuery.error ? (
             <div className="rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-              {previewQuery.error instanceof Error ? previewQuery.error.message : "Preview failed."}
+              {previewQuery.error instanceof Error ? previewQuery.error.message : tr("Preview failed.", "Onizleme basarisiz oldu.")}
             </div>
           ) : null}
         </section>

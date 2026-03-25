@@ -4,6 +4,7 @@ import { SHOPIFY_CONFIG } from "@/lib/oauth/shopify-config";
 import { upsertIntegration } from "@/lib/integrations";
 import { updateBusinessCurrency } from "@/lib/account-store";
 import { requireBusinessAccess } from "@/lib/access";
+import { resolveRequestLanguage } from "@/lib/request-language";
 
 /**
  * GET /api/oauth/shopify/callback?code=...&shop=...&state=...&hmac=...&timestamp=...
@@ -17,6 +18,8 @@ import { requireBusinessAccess } from "@/lib/access";
  *   6. Redirects to the frontend callback page with status
  */
 export async function GET(request: NextRequest) {
+  const language = await resolveRequestLanguage(request);
+  const tr = (english: string, turkish: string) => (language === "tr" ? turkish : english);
   const { searchParams } = request.nextUrl;
   const code = searchParams.get("code");
   const shop = searchParams.get("shop");
@@ -36,7 +39,7 @@ export async function GET(request: NextRequest) {
 
   // ── Validate required params ───────────────────────────────
   if (!code || !shop || !state || !hmac || !timestamp) {
-    return errorRedirect("Missing required Shopify callback parameters.");
+    return errorRedirect(tr("Missing required Shopify callback parameters.", "Gerekli Shopify callback parametreleri eksik."));
   }
 
   // ── Validate HMAC signature ────────────────────────────────
@@ -63,13 +66,13 @@ export async function GET(request: NextRequest) {
       expected: expectedHmac,
       received: hmac,
     });
-    return errorRedirect("HMAC verification failed. Request may be tampered.");
+    return errorRedirect(tr("HMAC verification failed. Request may be tampered.", "HMAC dogrulamasi basarisiz. Istekle oynanmis olabilir."));
   }
 
   // ── Validate state against cookie ──────────────────────────
   const cookieState = request.cookies.get("shopify_oauth_state")?.value;
   if (!cookieState || cookieState !== state) {
-    return errorRedirect("Invalid OAuth state. Please try again.");
+    return errorRedirect(tr("Invalid OAuth state. Please try again.", "OAuth state gecersiz. Lutfen tekrar deneyin."));
   }
 
   // Decode businessId from state
@@ -79,7 +82,7 @@ export async function GET(request: NextRequest) {
     businessId = payload.businessId;
     if (!businessId) throw new Error("No businessId in state payload");
   } catch {
-    return errorRedirect("Malformed OAuth state.");
+    return errorRedirect(tr("Malformed OAuth state.", "OAuth state bozuk."));
   }
 
   const access = await requireBusinessAccess({
@@ -89,7 +92,7 @@ export async function GET(request: NextRequest) {
   });
   if ("error" in access) {
     return errorRedirect(
-      "You do not have permission to connect integrations for this business.",
+      tr("You do not have permission to connect integrations for this business.", "Bu business icin integration baglama yetkiniz yok."),
       businessId,
     );
   }

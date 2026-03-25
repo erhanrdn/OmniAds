@@ -16,6 +16,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
+import { usePreferencesStore } from "@/store/preferences-store";
 
 type SortKey =
   | "channel"
@@ -43,6 +44,10 @@ const OPTIONAL_COLUMNS: Array<{ key: SortKey; label: string }> = [
   { key: "aov", label: "AOV" },
 ];
 
+function tr(language: "en" | "tr", english: string, turkish: string) {
+  return language === "tr" ? turkish : english;
+}
+
 export function SummaryAttributionTable({
   rows,
   currencySymbol,
@@ -50,6 +55,7 @@ export function SummaryAttributionTable({
   rows: OverviewAttributionRow[];
   currencySymbol: string;
 }) {
+  const language = usePreferencesStore((state) => state.language);
   const [sortKey, setSortKey] = useState<SortKey>("spend");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
   const [filterText, setFilterText] = useState("");
@@ -71,7 +77,7 @@ export function SummaryAttributionTable({
           <input
             value={filterText}
             onChange={(event) => setFilterText(event.target.value)}
-            placeholder="Filter channels"
+            placeholder={tr(language, "Filter channels", "Kanallari filtrele")}
             className="h-10 w-56 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-0 placeholder:text-slate-400"
           />
         </div>
@@ -79,7 +85,7 @@ export function SummaryAttributionTable({
           <DropdownMenuTrigger asChild>
             <Button variant="outline" className="gap-2 rounded-xl">
               <SlidersHorizontal className="h-4 w-4" />
-              Columns
+              {tr(language, "Columns", "Kolonlar")}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-52">
@@ -126,7 +132,15 @@ export function SummaryAttributionTable({
                         : "inline-flex items-center justify-end gap-1"
                     }
                   >
-                    {column.label}
+                    {column.key === "channel"
+                      ? tr(language, "Channel", "Kanal")
+                      : column.key === "revenue"
+                        ? tr(language, "Revenue", "Gelir")
+                        : column.key === "conversions"
+                          ? tr(language, "Conversions", "Donusumler")
+                          : column.key === "clicks"
+                            ? tr(language, "Clicks", "Tiklamalar")
+                            : column.label}
                     {sortKey === column.key ? (
                       sortDirection === "asc" ? (
                         <ArrowUp className="h-3.5 w-3.5" />

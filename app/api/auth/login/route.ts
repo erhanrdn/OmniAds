@@ -5,6 +5,7 @@ import { listUserBusinesses } from "@/lib/access";
 import { logServerAuthEvent } from "@/lib/auth-diagnostics";
 import { isReviewerEmail, scopeBusinessesForUser } from "@/lib/reviewer-access";
 import { getDb } from "@/lib/db";
+import { resolveRequestLanguage } from "@/lib/request-language";
 
 interface LoginBody {
   email?: string;
@@ -12,6 +13,8 @@ interface LoginBody {
 }
 
 export async function POST(request: NextRequest) {
+  const language = await resolveRequestLanguage(request);
+  const tr = (english: string, turkish: string) => (language === "tr" ? turkish : english);
   const body = (await request.json().catch(() => null)) as LoginBody | null;
   const email = body?.email?.trim().toLowerCase() ?? "";
   const password = body?.password ?? "";
@@ -19,7 +22,7 @@ export async function POST(request: NextRequest) {
   if (!email || !password) {
     logServerAuthEvent("login_rejected_invalid_payload", { email });
     return NextResponse.json(
-      { error: "invalid_payload", message: "Email and password are required." },
+      { error: "invalid_payload", message: tr("Email and password are required.", "Email ve sifre zorunludur.") },
       { status: 400 },
     );
   }
@@ -28,7 +31,7 @@ export async function POST(request: NextRequest) {
   if (!user) {
     logServerAuthEvent("login_rejected_unknown_user", { email });
     return NextResponse.json(
-      { error: "invalid_credentials", message: "Invalid email or password." },
+      { error: "invalid_credentials", message: tr("Invalid email or password.", "Email veya sifre hatali.") },
       { status: 401 },
     );
   }
@@ -42,8 +45,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error: "social_only",
-        message:
-          'This account uses social sign-in. Please use the "Sign in with Google" or "Sign in with Facebook" button.',
+        message: tr('This account uses social sign-in. Please use the "Sign in with Google" or "Sign in with Facebook" button.', 'Bu hesap sosyal giris kullaniyor. Lutfen "Google ile giris yap" veya "Facebook ile giris yap" butonunu kullanin.'),
       },
       { status: 401 },
     );
@@ -53,7 +55,7 @@ export async function POST(request: NextRequest) {
   if ((user as any).suspended_at) {
     logServerAuthEvent("login_rejected_suspended", { email, userId: user.id });
     return NextResponse.json(
-      { error: "account_suspended", message: "This account has been suspended. Please contact support." },
+      { error: "account_suspended", message: tr("This account has been suspended. Please contact support.", "Bu hesap askiya alinmis. Lutfen destek ile iletisime gecin.") },
       { status: 403 },
     );
   }
@@ -65,7 +67,7 @@ export async function POST(request: NextRequest) {
       userId: user.id,
     });
     return NextResponse.json(
-      { error: "invalid_credentials", message: "Invalid email or password." },
+      { error: "invalid_credentials", message: tr("Invalid email or password.", "Email veya sifre hatali.") },
       { status: 401 },
     );
   }
@@ -82,7 +84,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error: "reviewer_account_not_ready",
-        message: "Reviewer account is not assigned to the demo workspace.",
+        message: tr("Reviewer account is not assigned to the demo workspace.", "Reviewer hesabi demo workspace'e atanmamis."),
       },
       { status: 403 },
     );

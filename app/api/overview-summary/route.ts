@@ -31,12 +31,14 @@ import {
   toRatioSparklineSeries,
   toSparklineSeries,
 } from "@/lib/overview-summary-support";
+import { resolveRequestLanguage } from "@/lib/request-language";
 import type {
   OverviewMetricCardData,
   OverviewSummaryData,
 } from "@/src/types/models";
 
 export async function GET(request: NextRequest) {
+  const language = await resolveRequestLanguage(request);
   const businessId = request.nextUrl.searchParams.get("businessId");
   const startDate = request.nextUrl.searchParams.get("startDate");
   const endDate = request.nextUrl.searchParams.get("endDate");
@@ -250,32 +252,33 @@ export async function GET(request: NextRequest) {
         })
       : Promise.resolve(null),
   ]);
+  const tr = (english: string, turkish: string) => (language === "tr" ? turkish : english);
 
   const pins: OverviewMetricCardData[] = [
     buildMetricCard({
       id: "pins-revenue",
-      title: "Total Revenue",
-      subtitle: "Primary ecommerce outcome",
+      title: tr("Total Revenue", "Toplam Gelir"),
+      subtitle: tr("Primary ecommerce outcome", "Ana ecommerce sonucu"),
       value: currentOverview.kpis.revenue ?? null,
       previousValue: previousOverview?.kpis.revenue ?? null,
       unit: "currency",
       sourceKey: revenueSource?.source ?? "unavailable",
-      sourceLabel: revenueSource?.label ?? "Unavailable",
+      sourceLabel: revenueSource?.label ?? tr("Unavailable", "Kullanilamiyor"),
       helperText:
-        revenueSource?.source === "unavailable" ? "Connect Shopify or GA4" : undefined,
+        revenueSource?.source === "unavailable" ? tr("Connect Shopify or GA4", "Shopify veya GA4 baglayin") : undefined,
       sparklineData: revenueSeries,
       compareMode,
       icon: "badge-dollar-sign",
     }),
     buildMetricCard({
       id: "pins-spend",
-      title: "Total Spend",
-      subtitle: "Paid media investment",
+      title: tr("Total Spend", "Toplam Spend"),
+      subtitle: tr("Paid media investment", "Paid media yatirimi"),
       value: currentOverview.kpis.spend ?? null,
       previousValue: previousOverview?.kpis.spend ?? null,
       unit: "currency",
       sourceKey: "ad_platforms",
-      sourceLabel: "Ad platforms",
+      sourceLabel: tr("Ad platforms", "Reklam platformlari"),
       sparklineData: spendSeries,
       compareMode,
       icon: "wallet",
@@ -283,7 +286,7 @@ export async function GET(request: NextRequest) {
     buildMetricCard({
       id: "pins-mer",
       title: "MER",
-      subtitle: "Revenue / spend",
+      subtitle: tr("Revenue / spend", "Gelir / spend"),
       value: currentOverview.kpis.spend > 0 ? currentOverview.kpis.revenue / currentOverview.kpis.spend : null,
       previousValue:
         previousOverview && previousOverview.kpis.spend > 0
@@ -292,9 +295,9 @@ export async function GET(request: NextRequest) {
       unit: "ratio",
       sourceKey: revenueSource?.source ?? "unavailable",
       sourceLabel:
-        revenueSource?.source === "ga4_fallback" ? "GA4 + ad platforms" : "Revenue + ad platforms",
+        revenueSource?.source === "ga4_fallback" ? tr("GA4 + ad platforms", "GA4 + reklam platformlari") : tr("Revenue + ad platforms", "Gelir + reklam platformlari"),
       helperText:
-        revenueSource?.source === "unavailable" ? "Connect Shopify or GA4" : undefined,
+        revenueSource?.source === "unavailable" ? tr("Connect Shopify or GA4", "Shopify veya GA4 baglayin") : undefined,
       sparklineData: merSeries,
       compareMode,
       icon: "line-chart",
@@ -302,43 +305,43 @@ export async function GET(request: NextRequest) {
     buildMetricCard({
       id: "pins-blended-roas",
       title: "Blended ROAS",
-      subtitle: "Revenue relative to ad spend",
+      subtitle: tr("Revenue relative to ad spend", "Gelirin reklam spend'ine gore durumu"),
       value: currentOverview.kpis.roas ?? null,
       previousValue: previousOverview?.kpis.roas ?? null,
       unit: "ratio",
       sourceKey: roasSource?.source ?? "unavailable",
-      sourceLabel: roasSource?.label ?? "Unavailable",
+      sourceLabel: roasSource?.label ?? tr("Unavailable", "Kullanilamiyor"),
       helperText:
-        roasSource?.source === "unavailable" ? "Connect Shopify or GA4" : undefined,
+        roasSource?.source === "unavailable" ? tr("Connect Shopify or GA4", "Shopify veya GA4 baglayin") : undefined,
       sparklineData: merSeries,
       compareMode,
       icon: "chart-line",
     }),
     buildMetricCard({
       id: "pins-conversion-rate",
-      title: "Conversion Rate",
-      subtitle: "Store purchase conversion",
+      title: tr("Conversion Rate", "Conversion Rate"),
+      subtitle: tr("Store purchase conversion", "Magaza satin alma donusumu"),
       value: conversionRateCurrent !== null ? conversionRateCurrent * 100 : null,
       previousValue: conversionRatePrevious !== null ? conversionRatePrevious * 100 : null,
       unit: "percent",
       sourceKey: analyticsConnected ? "ga4" : "unavailable",
-      sourceLabel: analyticsConnected ? "GA4" : "Unavailable",
-      helperText: analyticsConnected ? undefined : "Connect GA4",
+      sourceLabel: analyticsConnected ? "GA4" : tr("Unavailable", "Kullanilamiyor"),
+      helperText: analyticsConnected ? undefined : tr("Connect GA4", "GA4 baglayin"),
       sparklineData: ga4ConversionRateSeries,
       compareMode,
       icon: "target",
     }),
     buildMetricCard({
       id: "pins-orders",
-      title: "Orders",
-      subtitle: "Completed purchases",
+      title: tr("Orders", "Siparisler"),
+      subtitle: tr("Completed purchases", "Tamamlanan satin almalar"),
       value: currentOverview.kpis.purchases ?? null,
       previousValue: previousOverview?.kpis.purchases ?? null,
       unit: "count",
       sourceKey: purchasesSource?.source ?? "unavailable",
-      sourceLabel: purchasesSource?.label ?? "Unavailable",
+      sourceLabel: purchasesSource?.label ?? tr("Unavailable", "Kullanilamiyor"),
       helperText:
-        purchasesSource?.source === "unavailable" ? "Connect Shopify or GA4" : undefined,
+        purchasesSource?.source === "unavailable" ? tr("Connect Shopify or GA4", "Shopify veya GA4 baglayin") : undefined,
       sparklineData: purchaseSeries,
       compareMode,
       icon: "shopping-cart",
@@ -351,13 +354,13 @@ export async function GET(request: NextRequest) {
     buildMetricCard({
       id: "store-aov",
       title: "AOV",
-      subtitle: "Average order value",
+      subtitle: tr("Average order value", "Ortalama siparis degeri"),
       value: averageOrderValueCurrent ?? currentOverview.kpis.aov ?? null,
       previousValue: averageOrderValuePrevious ?? previousOverview?.kpis.aov ?? null,
       unit: "currency",
       sourceKey: aovSource?.source ?? "unavailable",
       sourceLabel: aovSource?.label ?? "GA4",
-      helperText: aovSource?.source === "unavailable" ? "Connect Shopify or GA4" : undefined,
+      helperText: aovSource?.source === "unavailable" ? tr("Connect Shopify or GA4", "Shopify veya GA4 baglayin") : undefined,
       sparklineData: ga4AovSeries.length > 0 ? ga4AovSeries : toRatioSparklineSeries(
         currentOverview.trends.custom,
         (point) => point.revenue,
@@ -368,52 +371,52 @@ export async function GET(request: NextRequest) {
     }),
     buildMetricCard({
       id: "store-conversion-rate",
-      title: "Conversion Rate",
+      title: tr("Conversion Rate", "Conversion Rate"),
       value: conversionRateCurrent !== null ? conversionRateCurrent * 100 : null,
       previousValue: conversionRatePrevious !== null ? conversionRatePrevious * 100 : null,
       unit: "percent",
       sourceKey: analyticsConnected ? "ga4" : "unavailable",
-      sourceLabel: analyticsConnected ? "GA4" : "Unavailable",
-      helperText: analyticsConnected ? undefined : "Connect GA4",
+      sourceLabel: analyticsConnected ? "GA4" : tr("Unavailable", "Kullanilamiyor"),
+      helperText: analyticsConnected ? undefined : tr("Connect GA4", "GA4 baglayin"),
       sparklineData: ga4ConversionRateSeries,
       compareMode,
       icon: "percent",
     }),
     buildMetricCard({
       id: "store-new-customers",
-      title: "New Customers",
+      title: tr("New Customers", "Yeni Musteriler"),
       value: firstTimePurchasersCurrent,
       previousValue: firstTimePurchasersPrevious,
       unit: "count",
       sourceKey: analyticsConnected ? "ga4" : "unavailable",
-      sourceLabel: analyticsConnected ? "GA4" : "Unavailable",
-      helperText: analyticsConnected ? undefined : "Connect GA4",
+      sourceLabel: analyticsConnected ? "GA4" : tr("Unavailable", "Kullanilamiyor"),
+      helperText: analyticsConnected ? undefined : tr("Connect GA4", "GA4 baglayin"),
       sparklineData: ga4NewCustomersSeries,
       compareMode,
     }),
     buildMetricCard({
       id: "store-returning-customers",
-      title: "Returning Customers",
+      title: tr("Returning Customers", "Geri Donen Musteriler"),
       value: returningPurchasersCurrent,
       previousValue: returningPurchasersPrevious,
       unit: "count",
       sourceKey: analyticsConnected ? "ga4" : "unavailable",
-      sourceLabel: analyticsConnected ? "GA4" : "Unavailable",
-      helperText: analyticsConnected ? undefined : "Connect GA4",
+      sourceLabel: analyticsConnected ? "GA4" : tr("Unavailable", "Kullanilamiyor"),
+      helperText: analyticsConnected ? undefined : tr("Connect GA4", "GA4 baglayin"),
       sparklineData: ga4ReturningCustomersSeries,
       compareMode,
     }),
   ];
 
-  const ltvSourceLabel = "GA4 fallback";
+  const ltvSourceLabel = tr("GA4 fallback", "GA4 fallback");
   const ltvEstimatedHelper = shopifyConnected
-    ? "Estimated from GA4 because Shopify lifecycle data is unavailable for this view"
-    : "Estimated from GA4";
+    ? tr("Estimated from GA4 because Shopify lifecycle data is unavailable for this view", "Bu gorunumde Shopify lifecycle verisi olmadigi icin GA4 uzerinden tahmin edildi")
+    : tr("Estimated from GA4", "GA4 uzerinden tahmin edildi");
   const ltv: OverviewMetricCardData[] = [
     currentGa4Ltv?.averageCustomerLtv !== null && currentGa4Ltv?.averageCustomerLtv !== undefined
       ? buildMetricCard({
           id: "ltv-average",
-          title: "Average Customer LTV",
+          title: tr("Average Customer LTV", "Ortalama Musteri LTV"),
           helperText: ltvEstimatedHelper,
           value: currentGa4Ltv.averageCustomerLtv,
           previousValue: previousGa4Ltv?.averageCustomerLtv ?? null,
@@ -455,7 +458,7 @@ export async function GET(request: NextRequest) {
     currentGa4Ltv?.repeatPurchaseRate !== null && currentGa4Ltv?.repeatPurchaseRate !== undefined
       ? buildMetricCard({
           id: "ltv-repeat-rate",
-          title: "Repeat Purchase Rate",
+          title: tr("Repeat Purchase Rate", "Tekrar Satin Alma Orani"),
           helperText: ltvEstimatedHelper,
           value: currentGa4Ltv.repeatPurchaseRate,
           previousValue: previousGa4Ltv?.repeatPurchaseRate ?? null,
@@ -469,7 +472,7 @@ export async function GET(request: NextRequest) {
     currentGa4Ltv?.revenuePerCustomer !== null && currentGa4Ltv?.revenuePerCustomer !== undefined
       ? buildMetricCard({
           id: "ltv-revenue-per-customer",
-          title: "Revenue per Customer",
+          title: tr("Revenue per Customer", "Musteri Basina Gelir"),
           helperText: ltvEstimatedHelper,
           value: currentGa4Ltv.revenuePerCustomer,
           previousValue: previousGa4Ltv?.revenuePerCustomer ?? null,
@@ -523,16 +526,16 @@ export async function GET(request: NextRequest) {
           ).toFixed(1)
         )
       : null;
-  const costModelMissingHelper = "Set cost model";
+  const costModelMissingHelper = tr("Set cost model", "Maliyet modelini ayarla");
   const expenses: OverviewMetricCardData[] = [
     buildMetricCard({
       id: "expenses-ad-spend",
-      title: "Ad Spend",
+      title: tr("Ad Spend", "Reklam Spend'i"),
       value: currentOverview.kpis.spend ?? null,
       previousValue: previousOverview?.kpis.spend ?? null,
       unit: "currency",
       sourceKey: "ad_platforms",
-      sourceLabel: "Ad platforms",
+      sourceLabel: tr("Ad platforms", "Reklam platformlari"),
       sparklineData: spendSeries,
       compareMode,
       icon: "wallet",
@@ -545,7 +548,7 @@ export async function GET(request: NextRequest) {
           value: cogsValue,
           unit: "currency",
           sourceKey: "manual_cost_model",
-          sourceLabel: "Manual cost model",
+          sourceLabel: tr("Manual cost model", "Manuel maliyet modeli"),
           compareMode,
         })
       : buildUnavailableMetric({
@@ -562,7 +565,7 @@ export async function GET(request: NextRequest) {
           value: shippingValue,
           unit: "currency",
           sourceKey: "manual_cost_model",
-          sourceLabel: "Manual cost model",
+          sourceLabel: tr("Manual cost model", "Manuel maliyet modeli"),
           compareMode,
         })
       : buildUnavailableMetric({
@@ -579,7 +582,7 @@ export async function GET(request: NextRequest) {
           value: feeValue,
           unit: "currency",
           sourceKey: "manual_cost_model",
-          sourceLabel: "Manual cost model",
+          sourceLabel: tr("Manual cost model", "Manuel maliyet modeli"),
           compareMode,
         })
       : buildUnavailableMetric({
@@ -591,12 +594,12 @@ export async function GET(request: NextRequest) {
     costModelData
       ? buildMetricCard({
           id: "expenses-total-tracked",
-          title: "Total Expenses",
-          subtitle: "Ad spend + modeled costs",
+          title: tr("Total Expenses", "Toplam Giderler"),
+          subtitle: tr("Ad spend + modeled costs", "Reklam spend'i + modellenmis maliyetler"),
           value: totalExpensesValue,
           unit: "currency",
           sourceKey: "manual_cost_model",
-          sourceLabel: "Ad platforms + manual cost model",
+          sourceLabel: tr("Ad platforms + manual cost model", "Reklam platformlari + manuel maliyet modeli"),
           sparklineData: revenueSeries.map((point, index) => ({
             date: point.date,
             value: roundSparklineValue(
@@ -611,14 +614,14 @@ export async function GET(request: NextRequest) {
         })
       : buildMetricCard({
       id: "expenses-total-tracked",
-      title: "Total Expenses",
-      subtitle: "Tracked expenses",
+      title: tr("Total Expenses", "Toplam Giderler"),
+      subtitle: tr("Tracked expenses", "Izlenen giderler"),
       value: currentOverview.kpis.spend ?? null,
       previousValue: previousOverview?.kpis.spend ?? null,
       unit: "currency",
       sourceKey: "ad_platforms",
-      sourceLabel: "Ad spend only",
-      helperText: "Set cost model to include COGS, shipping, fees, and fixed cost",
+      sourceLabel: tr("Ad spend only", "Yalnizca reklam spend'i"),
+      helperText: tr("Set cost model to include COGS, shipping, fees, and fixed cost", "COGS, kargo, fee ve sabit giderleri dahil etmek icin maliyet modeli ayarlayin"),
       sparklineData: spendSeries,
       compareMode,
       icon: "badge-dollar-sign",
@@ -626,11 +629,11 @@ export async function GET(request: NextRequest) {
     costModelData
       ? buildMetricCard({
           id: "expenses-net-profit",
-          title: "Net Profit",
+          title: tr("Net Profit", "Net Kar"),
           value: netProfitValue,
           unit: "currency",
           sourceKey: "manual_cost_model",
-          sourceLabel: "Revenue + ad spend + manual cost model",
+          sourceLabel: tr("Revenue + ad spend + manual cost model", "Gelir + reklam spend'i + manuel maliyet modeli"),
           sparklineData: revenueSeries.map((point, index) => ({
             date: point.date,
             value: roundSparklineValue(
@@ -645,18 +648,18 @@ export async function GET(request: NextRequest) {
         })
       : buildUnavailableMetric({
           id: "expenses-net-profit",
-          title: "Net Profit",
+          title: tr("Net Profit", "Net Kar"),
           helperText: costModelMissingHelper,
           unit: "currency",
         }),
     costModelData
       ? buildMetricCard({
           id: "expenses-contribution-margin",
-          title: "Contribution Margin",
+          title: tr("Contribution Margin", "Katki Marji"),
           value: contributionMarginValue,
           unit: "percent",
           sourceKey: "manual_cost_model",
-          sourceLabel: "Revenue + variable costs",
+          sourceLabel: tr("Revenue + variable costs", "Gelir + degisken maliyetler"),
           sparklineData: revenueSeries.map((point, index) => {
             const spendValue = spendSeries[index]?.value ?? 0;
             const variableCost =
@@ -672,7 +675,7 @@ export async function GET(request: NextRequest) {
         })
       : buildUnavailableMetric({
           id: "expenses-contribution-margin",
-          title: "Contribution Margin",
+          title: tr("Contribution Margin", "Katki Marji"),
           helperText: costModelMissingHelper,
           unit: "percent",
         }),
@@ -707,9 +710,9 @@ export async function GET(request: NextRequest) {
           : null,
       unit: "ratio",
       sourceKey: revenueSource?.source ?? "unavailable",
-      sourceLabel: "Derived",
+      sourceLabel: tr("Derived", "Turetilmis"),
       helperText:
-        revenueSource?.source === "unavailable" ? "Connect Shopify or GA4" : undefined,
+        revenueSource?.source === "unavailable" ? tr("Connect Shopify or GA4", "Shopify veya GA4 baglayin") : undefined,
       sparklineData: merSeries,
       compareMode,
     }),
@@ -720,7 +723,7 @@ export async function GET(request: NextRequest) {
       previousValue: previousOverview?.kpis.cpa ?? null,
       unit: "currency",
       sourceKey: "ad_platforms",
-      sourceLabel: "Ad platforms",
+      sourceLabel: tr("Ad platforms", "Reklam platformlari"),
       sparklineData: blendedCpaSeries,
       compareMode,
     }),
@@ -729,39 +732,39 @@ export async function GET(request: NextRequest) {
   const webAnalytics: OverviewMetricCardData[] = [
     buildMetricCard({
       id: "web-sessions",
-      title: "Sessions",
+      title: tr("Sessions", "Oturumlar"),
       value: sessionsCurrent,
       previousValue: sessionsPrevious,
       unit: "count",
       sourceKey: analyticsConnected ? "ga4" : "unavailable",
-      sourceLabel: analyticsConnected ? "GA4" : "Unavailable",
-      helperText: analyticsConnected ? undefined : "Connect GA4",
+      sourceLabel: analyticsConnected ? "GA4" : tr("Unavailable", "Kullanilamiyor"),
+      helperText: analyticsConnected ? undefined : tr("Connect GA4", "GA4 baglayin"),
       sparklineData: ga4SessionsSeries,
       compareMode,
       icon: "activity",
     }),
     buildMetricCard({
       id: "web-session-duration",
-      title: "Session Duration",
+      title: tr("Session Duration", "Oturum Suresi"),
       value: avgSessionDurationCurrent,
       previousValue: avgSessionDurationPrevious,
       unit: "duration_seconds",
       sourceKey: analyticsConnected ? "ga4" : "unavailable",
-      sourceLabel: analyticsConnected ? "GA4" : "Unavailable",
-      helperText: analyticsConnected ? undefined : "Connect GA4",
+      sourceLabel: analyticsConnected ? "GA4" : tr("Unavailable", "Kullanilamiyor"),
+      helperText: analyticsConnected ? undefined : tr("Connect GA4", "GA4 baglayin"),
       sparklineData: ga4AvgSessionDurationSeries,
       compareMode,
       icon: "clock-3",
     }),
     buildMetricCard({
       id: "web-engagement-rate",
-      title: "Engagement Rate",
+      title: tr("Engagement Rate", "Etkilesim Orani"),
       value: engagementRateCurrent !== null ? engagementRateCurrent * 100 : null,
       previousValue: engagementRatePrevious !== null ? engagementRatePrevious * 100 : null,
       unit: "percent",
       sourceKey: analyticsConnected ? "ga4" : "unavailable",
-      sourceLabel: analyticsConnected ? "GA4" : "Unavailable",
-      helperText: analyticsConnected ? undefined : "Connect GA4",
+      sourceLabel: analyticsConnected ? "GA4" : tr("Unavailable", "Kullanilamiyor"),
+      helperText: analyticsConnected ? undefined : tr("Connect GA4", "GA4 baglayin"),
       sparklineData: ga4EngagementRateSeries,
       compareMode,
       icon: "gauge",

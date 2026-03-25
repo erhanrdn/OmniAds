@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { cookies } from "next/headers";
 import {
   ArrowRight,
   BarChart3,
@@ -11,6 +12,7 @@ import {
   ShoppingBag,
   Zap,
 } from "lucide-react";
+import { getLanguageFromCookieValue, LANGUAGE_COOKIE_NAME } from "@/lib/i18n";
 
 export const metadata: Metadata = {
   title: "Demo | Adsecute",
@@ -58,6 +60,19 @@ const DEMO_MODULES = [
 ];
 
 export default function DemoPage() {
+  // Server-side fallback for public marketing pages.
+  const languagePromise = cookies().then((store) =>
+    getLanguageFromCookieValue(store.get(LANGUAGE_COOKIE_NAME)?.value)
+  );
+  return <DemoPageContent languagePromise={languagePromise} />;
+}
+
+async function DemoPageContent({
+  languagePromise,
+}: {
+  languagePromise: Promise<"en" | "tr">;
+}) {
+  const language = await languagePromise;
   return (
     <div>
       {/* Hero */}
@@ -66,33 +81,33 @@ export default function DemoPage() {
           <div className="max-w-3xl">
             <div className="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 mb-6">
               <Zap className="h-3.5 w-3.5" />
-              Live demo workspace
+              {language === "tr" ? "Canli demo workspace" : "Live demo workspace"}
             </div>
             <h1 className="text-4xl sm:text-5xl font-bold tracking-tight text-foreground leading-[1.1] mb-6">
-              See Adsecute with real-looking data.
+              {language === "tr" ? "Adsecute'i gercek gorunumlu verilerle gorun." : "See Adsecute with real-looking data."}
             </h1>
             <p className="text-lg text-muted-foreground leading-relaxed mb-8">
-              The Adsecute demo workspace is loaded with realistic ecommerce data from UrbanTrail
-              — a Shopify brand selling outdoor backpacks and travel gear. Every module, every
-              insight, every AI recommendation is populated and ready to explore.
+              {language === "tr"
+                ? "Adsecute demo workspace'i, outdoor sirt cantalari ve seyahat ekipmanlari satan bir Shopify markasi olan UrbanTrail'in gercekci ecommerce verileriyle dolu. Her modul, her icgoru ve her AI onerisi hazir durumda."
+                : "The Adsecute demo workspace is loaded with realistic ecommerce data from UrbanTrail — a Shopify brand selling outdoor backpacks and travel gear. Every module, every insight, every AI recommendation is populated and ready to explore."}
             </p>
             <div className="flex flex-col sm:flex-row gap-3">
               <a
                 href="/api/auth/demo-login"
                 className="inline-flex items-center justify-center rounded-lg bg-foreground px-6 py-3 text-sm font-medium text-background hover:opacity-90 transition-opacity"
               >
-                Explore the demo
+                {language === "tr" ? "Demoyu kesfet" : "Explore the demo"}
                 <ArrowRight className="ml-2 h-4 w-4" />
               </a>
               <Link
                 href="/login"
                 className="inline-flex items-center justify-center rounded-lg border border-border px-6 py-3 text-sm font-medium text-foreground hover:bg-muted transition-colors"
               >
-                Create your account
+                {language === "tr" ? "Hesabini olustur" : "Create your account"}
               </Link>
             </div>
             <p className="mt-4 text-xs text-muted-foreground">
-              Log in and select the Adsecute Demo workspace to start exploring.
+              {language === "tr" ? "Kesfe baslamak icin giris yapin ve Adsecute Demo workspace'ini secin." : "Log in and select the Adsecute Demo workspace to start exploring."}
             </p>
           </div>
         </div>

@@ -2,6 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { fmtCurrency, fmtNumber, fmtRoas, fmtPercent, TabSkeleton, TabEmpty, SimpleTable, ColDef } from "./shared";
+import { usePreferencesStore } from "@/store/preferences-store";
 
 interface BudgetCampaign {
   id: string;
@@ -27,9 +28,10 @@ interface BudgetRec {
   reason: string;
 }
 
-const cols: ColDef<BudgetCampaign>[] = [
-  { key: "name", header: "Campaign", accessor: (r) => r.name, render: (r) => <span className="text-xs font-medium truncate block max-w-[160px]">{r.name}</span> },
-  { key: "dailyBudget", header: "Daily Budget", accessor: (r) => r.dailyBudget, align: "right", render: (r) => r.dailyBudget > 0 ? fmtCurrency(r.dailyBudget) : "—" },
+function getCols(language: "en" | "tr"): ColDef<BudgetCampaign>[] {
+  return [
+  { key: "name", header: language === "tr" ? "Kampanya" : "Campaign", accessor: (r) => r.name, render: (r) => <span className="text-xs font-medium truncate block max-w-[160px]">{r.name}</span> },
+  { key: "dailyBudget", header: language === "tr" ? "Gunluk Butce" : "Daily Budget", accessor: (r) => r.dailyBudget, align: "right", render: (r) => r.dailyBudget > 0 ? fmtCurrency(r.dailyBudget) : "—" },
   { key: "spend", header: "Spend", accessor: (r) => r.spend, align: "right", render: (r) => fmtCurrency(r.spend) },
   { key: "conversions", header: "Conv.", accessor: (r) => r.conversions, align: "right", render: (r) => fmtNumber(r.conversions) },
   {
@@ -45,7 +47,7 @@ const cols: ColDef<BudgetCampaign>[] = [
     render: (r) => r.impressionShare != null ? fmtPercent(r.impressionShare * 100) : "—",
   },
   {
-    key: "lostIsBudget", header: "Lost IS (Budget)", accessor: (r) => r.lostIsBudget ?? 0, align: "right",
+    key: "lostIsBudget", header: language === "tr" ? "Kayip IS (Butce)" : "Lost IS (Budget)", accessor: (r) => r.lostIsBudget ?? 0, align: "right",
     render: (r) =>
       r.lostIsBudget != null && r.lostIsBudget > 0
         ? <span className="text-amber-600 dark:text-amber-400 font-semibold">{fmtPercent(r.lostIsBudget * 100)}</span>
@@ -53,7 +55,7 @@ const cols: ColDef<BudgetCampaign>[] = [
   },
   {
     key: "lostIsRank",
-    header: "Lost IS (Rank)",
+    header: language === "tr" ? "Kayip IS (Rank)" : "Lost IS (Rank)",
     accessor: (r) => r.lostIsRank ?? 0,
     align: "right",
     render: (r) =>
@@ -62,6 +64,7 @@ const cols: ColDef<BudgetCampaign>[] = [
         : "—",
   },
 ];
+}
 
 interface BudgetTabProps {
   campaigns?: BudgetCampaign[];
@@ -72,22 +75,25 @@ interface BudgetTabProps {
 }
 
 export function BudgetTab({ campaigns, recommendations, totalSpend, accountAvgRoas, isLoading }: BudgetTabProps) {
+  const language = usePreferencesStore((state) => state.language);
+  const cols = getCols(language);
   if (isLoading) return <TabSkeleton />;
   if (!campaigns || campaigns.length === 0) {
-    return <TabEmpty message="No budget data found for this period." />;
+    return <TabEmpty message={language === "tr" ? "Bu donem icin butce verisi bulunamadi." : "No budget data found for this period."} />;
   }
 
   return (
     <div className="space-y-6">
       <p className="text-sm text-muted-foreground">
-        Budget distribution and impression share signals. Campaigns losing significant IS to budget
-        are constrained — consider reallocation from low-ROAS campaigns.
+        {language === "tr"
+          ? "Butce dagilimi ve impression share sinyalleri. Butce nedeniyle anlamli IS kaybeden kampanyalar kisitli kaliyor; dusuk ROAS kampanyalardan yeniden dagilim dusunun."
+          : "Budget distribution and impression share signals. Campaigns losing significant IS to budget are constrained — consider reallocation from low-ROAS campaigns."}
       </p>
 
       {/* Budget recommendations */}
       {recommendations && recommendations.length > 0 && (
         <div className="space-y-2">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Budget Recommendations</p>
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{language === "tr" ? "Butce Onerileri" : "Budget Recommendations"}</p>
           <div className="grid gap-2 sm:grid-cols-2">
             {recommendations.slice(0, 4).map((rec, i) => (
               <div
@@ -103,7 +109,7 @@ export function BudgetTab({ campaigns, recommendations, totalSpend, accountAvgRo
                 <p className="text-xs text-muted-foreground mt-0.5">{rec.reason}</p>
                 <p className={cn("text-sm font-bold mt-2", rec.direction === "increase" ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400")}>
                   {rec.direction === "increase" ? "+" : "-"}{fmtCurrency(Math.abs(rec.suggestedBudgetChange))}
-                  <span className="text-xs font-normal text-muted-foreground ml-1">suggested shift</span>
+                  <span className="text-xs font-normal text-muted-foreground ml-1">{language === "tr" ? "onerilen kaydirma" : "suggested shift"}</span>
                 </p>
               </div>
             ))}

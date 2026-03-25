@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { acceptInvite, createUser, getInviteByToken, getUserByEmail } from "@/lib/account-store";
 import { attachSessionCookie, createSession, getSessionFromRequest, hashPassword } from "@/lib/auth";
 import { getDb } from "@/lib/db";
+import { resolveRequestLanguage } from "@/lib/request-language";
 
 interface AcceptInviteBody {
   name?: string;
@@ -12,11 +13,13 @@ export async function GET(
   _request: NextRequest,
   context: { params: Promise<{ token: string }> }
 ) {
+  const language = await resolveRequestLanguage(_request);
+  const tr = (english: string, turkish: string) => (language === "tr" ? turkish : english);
   const { token } = await context.params;
   const invite = await getInviteByToken(token);
   if (!invite) {
     return NextResponse.json(
-      { error: "not_found", message: "Invite link is invalid." },
+      { error: "not_found", message: tr("Invite link is invalid.", "Davet linki gecersiz.") },
       { status: 404 }
     );
   }
@@ -46,24 +49,26 @@ export async function POST(
   request: NextRequest,
   context: { params: Promise<{ token: string }> }
 ) {
+  const language = await resolveRequestLanguage(request);
+  const tr = (english: string, turkish: string) => (language === "tr" ? turkish : english);
   const { token } = await context.params;
   const invite = await getInviteByToken(token);
   if (!invite) {
     return NextResponse.json(
-      { error: "not_found", message: "Invite link is invalid." },
+      { error: "not_found", message: tr("Invite link is invalid.", "Davet linki gecersiz.") },
       { status: 404 }
     );
   }
   if (invite.status !== "pending") {
     return NextResponse.json(
-      { error: "invite_closed", message: "Invite is no longer pending." },
+      { error: "invite_closed", message: tr("Invite is no longer pending.", "Davet artik beklemede degil.") },
       { status: 409 }
     );
   }
   const expiresAtMs = new Date(invite.expires_at).getTime();
   if (!Number.isFinite(expiresAtMs) || expiresAtMs < Date.now()) {
     return NextResponse.json(
-      { error: "invite_expired", message: "Invite link is invalid or expired." },
+      { error: "invite_expired", message: tr("Invite link is invalid or expired.", "Davet linki gecersiz veya suresi dolmus.") },
       { status: 410 }
     );
   }
@@ -74,7 +79,7 @@ export async function POST(
     return NextResponse.json(
       {
         error: "email_mismatch",
-        message: "This invite was sent to a different email address.",
+        message: tr("This invite was sent to a different email address.", "Bu davet farkli bir email adresine gonderildi."),
       },
       { status: 403 }
     );
@@ -86,7 +91,7 @@ export async function POST(
       return NextResponse.json(
         {
           error: "login_required",
-          message: "This invite is for an existing account. Please log in first.",
+          message: tr("This invite is for an existing account. Please log in first.", "Bu davet mevcut bir hesap icin. Lutfen once giris yapin."),
         },
         { status: 401 }
       );
@@ -99,7 +104,7 @@ export async function POST(
       return NextResponse.json(
         {
           error: "invalid_payload",
-          message: "Name and password (min 8 chars) are required to accept invite.",
+          message: tr("Name and password (min 8 chars) are required to accept invite.", "Daveti kabul etmek icin ad ve sifre (en az 8 karakter) zorunludur."),
         },
         { status: 400 }
       );
@@ -116,7 +121,7 @@ export async function POST(
   const accepted = await acceptInvite(token, userId);
   if (!accepted) {
     return NextResponse.json(
-      { error: "accept_failed", message: "Could not accept invite." },
+      { error: "accept_failed", message: tr("Could not accept invite.", "Davet kabul edilemedi.") },
       { status: 400 }
     );
   }

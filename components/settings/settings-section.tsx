@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { usePreferencesStore } from "@/store/preferences-store";
 import { cn } from "@/lib/utils";
 
 export function SettingsSection({
@@ -140,6 +141,7 @@ export function ConfirmOverlay({
   onConfirm: () => void;
   busy?: boolean;
 }) {
+  const language = usePreferencesStore((state) => state.language);
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -150,10 +152,10 @@ export function ConfirmOverlay({
         </div>
         <div className="mt-5 flex justify-end gap-2">
           <Button variant="outline" onClick={onCancel} disabled={busy}>
-            Cancel
+            {language === "tr" ? "Iptal" : "Cancel"}
           </Button>
           <Button variant={confirmVariant} onClick={onConfirm} disabled={busy}>
-            {busy ? "Working..." : confirmLabel}
+            {busy ? (language === "tr" ? "Isleniyor..." : "Working...") : confirmLabel}
           </Button>
         </div>
       </div>

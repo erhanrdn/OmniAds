@@ -283,8 +283,9 @@ function ScorePill({
   value: number;
   description: string;
 }) {
+  const language = usePreferencesStore((state) => state.language);
   const rounded = Math.round(value);
-  const tone = scoreTone(rounded);
+  const tone = scoreTone(rounded, language);
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white/90 p-3.5">
@@ -295,7 +296,7 @@ function ScorePill({
         </div>
         <div className="text-right">
           <p className="text-2xl font-semibold text-slate-950">{rounded}</p>
-          <p className="text-[11px] text-slate-500">out of 100</p>
+          <p className="text-[11px] text-slate-500">{language === "tr" ? "100 uzerinden" : "out of 100"}</p>
         </div>
       </div>
       <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
@@ -350,9 +351,9 @@ function getDecisionBadgeClass(action: ReturnType<typeof buildLandingPageRuleRep
   return "bg-orange-500 text-white";
 }
 
-function scoreTone(value: number): { label: string; barClass: string } {
-  if (value >= 80) return { label: "Strong", barClass: "bg-emerald-500" };
-  if (value >= 60) return { label: "Healthy", barClass: "bg-sky-500" };
-  if (value >= 40) return { label: "Mixed", barClass: "bg-amber-500" };
-  return { label: "Weak", barClass: "bg-orange-500" };
+function scoreTone(value: number, language: "en" | "tr"): { label: string; barClass: string } {
+  if (value >= 80) return { label: language === "tr" ? "Guclu" : "Strong", barClass: "bg-emerald-500" };
+  if (value >= 60) return { label: language === "tr" ? "Saglikli" : "Healthy", barClass: "bg-sky-500" };
+  if (value >= 40) return { label: language === "tr" ? "Karisik" : "Mixed", barClass: "bg-amber-500" };
+  return { label: language === "tr" ? "Zayif" : "Weak", barClass: "bg-orange-500" };
 }

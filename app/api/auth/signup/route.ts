@@ -5,6 +5,7 @@ import { listUserBusinesses } from "@/lib/access";
 import { logServerAuthEvent } from "@/lib/auth-diagnostics";
 import { scopeBusinessesForUser } from "@/lib/reviewer-access";
 import { getLanguageFromCookieValue, LANGUAGE_COOKIE_NAME } from "@/lib/i18n";
+import { resolveRequestLanguage } from "@/lib/request-language";
 
 interface SignupBody {
   name?: string;
@@ -17,6 +18,8 @@ interface SignupBody {
 }
 
 export async function POST(request: NextRequest) {
+  const language = await resolveRequestLanguage(request);
+  const tr = (english: string, turkish: string) => (language === "tr" ? turkish : english);
   const body = (await request.json().catch(() => null)) as SignupBody | null;
   const name = body?.name?.trim() ?? "";
   const email = body?.email?.trim().toLowerCase() ?? "";
@@ -29,14 +32,14 @@ export async function POST(request: NextRequest) {
   if (!name || !email || !password) {
     logServerAuthEvent("signup_rejected_invalid_payload", { email });
     return NextResponse.json(
-      { error: "invalid_payload", message: "Name, email, and password are required." },
+      { error: "invalid_payload", message: tr("Name, email, and password are required.", "Ad, email ve sifre zorunludur.") },
       { status: 400 }
     );
   }
   if (password.length < 8) {
     logServerAuthEvent("signup_rejected_weak_password", { email });
     return NextResponse.json(
-      { error: "weak_password", message: "Password must be at least 8 characters." },
+      { error: "weak_password", message: tr("Password must be at least 8 characters.", "Sifre en az 8 karakter olmali.") },
       { status: 400 }
     );
   }
@@ -45,7 +48,7 @@ export async function POST(request: NextRequest) {
   if (existing) {
     logServerAuthEvent("signup_rejected_email_exists", { email });
     return NextResponse.json(
-      { error: "email_exists", message: "An account with this email already exists." },
+      { error: "email_exists", message: tr("An account with this email already exists.", "Bu email ile zaten bir hesap var.") },
       { status: 409 }
     );
   }
@@ -55,14 +58,14 @@ export async function POST(request: NextRequest) {
     if (!validatedInvite || validatedInvite.status !== "pending") {
       logServerAuthEvent("signup_rejected_invite_invalid", { email, inviteTokenPresent: true });
       return NextResponse.json(
-        { error: "invite_invalid", message: "Invite link is invalid or expired." },
+        { error: "invite_invalid", message: tr("Invite link is invalid or expired.", "Davet linki gecersiz veya suresi dolmus.") },
         { status: 400 }
       );
     }
     if (validatedInvite.email.toLowerCase() !== email) {
       logServerAuthEvent("signup_rejected_invite_email_mismatch", { email });
       return NextResponse.json(
-        { error: "invite_email_mismatch", message: "Signup email must match invite email." },
+        { error: "invite_email_mismatch", message: tr("Signup email must match invite email.", "Kayit email'i davet email'i ile eslesmelidir.") },
         { status: 403 }
       );
     }
@@ -77,7 +80,7 @@ export async function POST(request: NextRequest) {
     if (!accepted) {
       logServerAuthEvent("signup_rejected_invite_accept_failed", { email, userId: user.id });
       return NextResponse.json(
-        { error: "invite_accept_failed", message: "Could not accept invite." },
+        { error: "invite_accept_failed", message: tr("Could not accept invite.", "Davet kabul edilemedi.") },
         { status: 400 }
       );
     }
