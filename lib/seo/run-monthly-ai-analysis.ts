@@ -1,13 +1,16 @@
 import { computePreviousPeriod } from "@/lib/geo-momentum";
 import { getDb } from "@/lib/db";
 import { getAnalyticsOverviewData } from "@/lib/analytics-overview";
+import { isDemoBusiness } from "@/lib/business-mode.server";
+import { getDemoSearchConsoleAnalytics } from "@/lib/demo-business";
 import type { SeoTechnicalFindingsPayload } from "@/lib/seo/findings";
-import { buildSeoTechnicalFindings } from "@/lib/seo/findings";
+import { buildDemoTechnicalFindings, buildSeoTechnicalFindings } from "@/lib/seo/findings";
 import {
   buildAiAnalysis,
   buildAiContextBlocks,
   buildAiDataLayers,
   buildAiRequestedOutputs,
+  buildDemoPreviousRows,
   buildSeoOverviewPayload,
   fetchSearchConsoleAnalyticsRows,
   type SeoAiAnalysis,
@@ -128,6 +131,77 @@ export async function getSeoMonthlyAiAnalysisForPeriod(params: {
   } satisfies SeoMonthlyAiAnalysisResponse;
 }
 
+async function buildSeoMonthlyAnalysisInputs(params: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+}): Promise<{
+  siteUrl: string;
+  overview: SeoOverviewPayload;
+  technicalFindings: SeoTechnicalFindingsPayload;
+}> {
+  if (await isDemoBusiness(params.businessId)) {
+    const siteUrl = "sc-domain:urbantrail.co";
+    const currentRows = getDemoSearchConsoleAnalytics().rows;
+    const previousRows = buildDemoPreviousRows(currentRows);
+    const overview = await buildSeoOverviewPayload({
+      siteUrl,
+      startDate: params.startDate,
+      endDate: params.endDate,
+      currentRows,
+      previousRows,
+    });
+
+    return {
+      siteUrl,
+      overview,
+      technicalFindings: buildDemoTechnicalFindings(siteUrl),
+    };
+  }
+
+  const context = await resolveSearchConsoleContext({
+    businessId: params.businessId,
+    requireSite: true,
+  });
+  const siteUrl = context.siteUrl ?? "";
+  const { prevStart, prevEnd } = computePreviousPeriod(params.startDate, params.endDate);
+  const [currentRows, previousRows] = await Promise.all([
+    fetchSearchConsoleAnalyticsRows({
+      accessToken: context.accessToken,
+      siteUrl,
+      startDate: params.startDate,
+      endDate: params.endDate,
+      rowLimit: 500,
+    }),
+    fetchSearchConsoleAnalyticsRows({
+      accessToken: context.accessToken,
+      siteUrl,
+      startDate: prevStart,
+      endDate: prevEnd,
+      rowLimit: 500,
+    }),
+  ]);
+
+  const overview = await buildSeoOverviewPayload({
+    siteUrl,
+    startDate: params.startDate,
+    endDate: params.endDate,
+    currentRows,
+    previousRows,
+  });
+
+  return {
+    siteUrl,
+    overview,
+    technicalFindings: await buildSeoTechnicalFindings({
+      siteUrl,
+      accessToken: context.accessToken,
+      currentRows,
+      previousRows,
+    }),
+  };
+}
+
 export async function generateSeoMonthlyAiAnalysis(params: {
   businessId: string;
   startDate: string;
@@ -175,47 +249,15 @@ export async function generateSeoMonthlyAiAnalysis(params: {
     };
   }
 
-  const context = await resolveSearchConsoleContext({
+  const { siteUrl, overview, technicalFindings } = await buildSeoMonthlyAnalysisInputs({
     businessId: params.businessId,
-    requireSite: true,
-  });
-
-  const { prevStart, prevEnd } = computePreviousPeriod(params.startDate, params.endDate);
-  const [currentRows, previousRows] = await Promise.all([
-    fetchSearchConsoleAnalyticsRows({
-      accessToken: context.accessToken,
-      siteUrl: context.siteUrl ?? "",
-      startDate: params.startDate,
-      endDate: params.endDate,
-      rowLimit: 500,
-    }),
-    fetchSearchConsoleAnalyticsRows({
-      accessToken: context.accessToken,
-      siteUrl: context.siteUrl ?? "",
-      startDate: prevStart,
-      endDate: prevEnd,
-      rowLimit: 500,
-    }),
-  ]);
-
-  const overview = await buildSeoOverviewPayload({
-    siteUrl: context.siteUrl ?? "",
     startDate: params.startDate,
     endDate: params.endDate,
-    currentRows,
-    previousRows,
-  });
-
-  const technicalFindings = await buildSeoTechnicalFindings({
-    siteUrl: context.siteUrl ?? "",
-    accessToken: context.accessToken,
-    currentRows,
-    previousRows,
   });
 
   const siteContext = await resolveSeoPromptSiteContext({
     businessId: params.businessId,
-    siteUrl: context.siteUrl ?? "",
+    siteUrl,
     allPages: overview.leaders.pages,
     allMoverPages: overview.movers.decliningPages,
   });
@@ -237,10 +279,10 @@ export async function generateSeoMonthlyAiAnalysis(params: {
 
   try {
     const analysis = await buildAiAnalysis({
-      siteUrl: context.siteUrl ?? "",
+      siteUrl,
       siteContext,
       gscData: buildGscDataString({
-        siteUrl: context.siteUrl ?? "",
+        siteUrl,
         summary: overview.summary,
         leaders: overview.leaders,
         movers: overview.movers,
@@ -288,7 +330,7 @@ export async function generateSeoMonthlyAiAnalysis(params: {
         overviewData: {
           dataLayers: buildAiDataLayers(),
           contextBlocks: buildAiContextBlocks({
-            siteUrl: context.siteUrl ?? "",
+            siteUrl,
             summary: overview.summary,
             allPages: [...overview.leaders.pages, ...overview.movers.decliningPages, ...overview.movers.improvingPages],
             decliningPages: overview.movers.decliningPages,

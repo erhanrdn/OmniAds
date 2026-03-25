@@ -1,6 +1,27 @@
 export const DEMO_BUSINESS_ID = "11111111-1111-4111-8111-111111111111";
 export const DEMO_BUSINESS_NAME = "Adsecute Demo";
 
+export type DemoAssignableProvider = "meta" | "google";
+
+export interface DemoProviderAccount {
+  id: string;
+  name: string;
+  currency?: string;
+  timezone?: string;
+  isManager?: boolean;
+}
+
+export interface DemoGa4Property {
+  propertyId: string;
+  propertyName: string;
+  accountId: string;
+  accountName: string;
+}
+
+function getDemoIsoNow() {
+  return new Date().toISOString();
+}
+
 export interface DemoBusinessSummary {
   id: string;
   name: string;
@@ -94,7 +115,7 @@ export function getDemoBusinessSummary(): DemoBusinessSummary {
 }
 
 export function getDemoIntegrations() {
-  const now = new Date().toISOString();
+  const now = getDemoIsoNow();
   const providers = [
     "shopify",
     "meta",
@@ -112,18 +133,30 @@ export function getDemoIntegrations() {
     provider,
     status: provider === "tiktok" || provider === "pinterest" || provider === "snapchat" ? "disconnected" : "connected",
     provider_account_id:
-      provider === "google"
+      provider === "shopify"
+        ? "urbantrail.myshopify.com"
+        : provider === "google"
         ? "5241455382"
         : provider === "meta"
           ? "act_210009998877"
+          : provider === "ga4"
+            ? "properties/3322114455"
+            : provider === "search_console"
+              ? "sc-domain:urbantrail.co"
           : provider === "klaviyo"
             ? "X8Y72L"
             : null,
     provider_account_name:
-      provider === "google"
+      provider === "shopify"
+        ? "UrbanTrail"
+        : provider === "google"
         ? "UrbanTrail US"
         : provider === "meta"
           ? "UrbanTrail DTC"
+          : provider === "ga4"
+            ? "UrbanTrail Store GA4"
+            : provider === "search_console"
+              ? "urbantrail.co"
           : provider === "klaviyo"
             ? "UrbanTrail Lifecycle"
             : null,
@@ -152,4 +185,130 @@ export function getDemoIntegrations() {
     created_at: now,
     updated_at: now,
   }));
+}
+
+export function getDemoIntegration(provider: string) {
+  return getDemoIntegrations().find((item) => item.provider === provider) ?? null;
+}
+
+export function getDemoProviderAccounts(
+  provider: DemoAssignableProvider
+): DemoProviderAccount[] {
+  if (provider === "google") {
+    return [
+      {
+        id: "5241455382",
+        name: "UrbanTrail US",
+        currency: "USD",
+        timezone: "America/Los_Angeles",
+        isManager: false,
+      },
+      {
+        id: "6317742091",
+        name: "UrbanTrail Canada",
+        currency: "CAD",
+        timezone: "America/Toronto",
+        isManager: false,
+      },
+      {
+        id: "8421193045",
+        name: "UrbanTrail Experiments",
+        currency: "USD",
+        timezone: "America/Chicago",
+        isManager: false,
+      },
+    ];
+  }
+
+  return [
+    {
+      id: "act_210009998877",
+      name: "UrbanTrail DTC",
+      currency: "USD",
+      timezone: "America/Los_Angeles",
+      isManager: false,
+    },
+    {
+      id: "act_210009998901",
+      name: "UrbanTrail Prospecting",
+      currency: "USD",
+      timezone: "America/New_York",
+      isManager: false,
+    },
+    {
+      id: "act_210009998955",
+      name: "UrbanTrail Retention",
+      currency: "USD",
+      timezone: "America/Chicago",
+      isManager: false,
+    },
+  ];
+}
+
+export function getDemoGa4Properties(): DemoGa4Property[] {
+  return [
+    {
+      propertyId: "properties/3322114455",
+      propertyName: "UrbanTrail Store GA4",
+      accountId: "accounts/90112233",
+      accountName: "UrbanTrail Analytics",
+    },
+    {
+      propertyId: "properties/3322114466",
+      propertyName: "UrbanTrail Blog GA4",
+      accountId: "accounts/90112233",
+      accountName: "UrbanTrail Analytics",
+    },
+  ];
+}
+
+export function getDemoBillingState() {
+  return {
+    connected: true,
+    planId: "pro" as const,
+    planName: "Pro",
+    monthlyPrice: 99,
+    status: "active",
+    shopId: "urbantrail.myshopify.com",
+    storeName: "UrbanTrail",
+    source: "demo" as const,
+  };
+}
+
+export function getDemoSelectedGa4PropertyId() {
+  const integration = getDemoIntegration("ga4");
+  const metadata =
+    integration?.metadata && typeof integration.metadata === "object"
+      ? (integration.metadata as Record<string, unknown>)
+      : null;
+  const propertyId = metadata?.propertyResourceName;
+  return typeof propertyId === "string" ? propertyId : null;
+}
+
+export function getDemoProviderDiscoveryPayload(
+  provider: DemoAssignableProvider
+) {
+  const assignedId = getDemoIntegration(provider)?.provider_account_id ?? null;
+  const now = getDemoIsoNow();
+
+  return {
+    data: getDemoProviderAccounts(provider).map((account) => ({
+      ...account,
+      assigned: assignedId === account.id,
+    })),
+    meta: {
+      source: "snapshot" as const,
+      fetchedAt: now,
+      stale: false,
+      refreshFailed: false,
+      lastError: null,
+      lastKnownGoodAvailable: true,
+      refreshRequestedAt: null,
+      lastRefreshAttemptAt: null,
+      nextRefreshAfter: null,
+      refreshInProgress: false,
+      sourceReason: "demo_fixture",
+    },
+    notice: "Using demo workspace fixture data.",
+  };
 }

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
+import { isDemoBusiness } from "@/lib/business-mode.server";
+import { getDemoProviderDiscoveryPayload } from "@/lib/demo-business";
 import { getIntegration } from "@/lib/integrations";
 import { fetchMetaAdAccounts, getMetaApiErrorMessage } from "@/lib/meta-ad-accounts";
 import { resolveProviderDiscoveryPayload } from "@/lib/provider-account-discovery";
@@ -34,6 +36,15 @@ export async function GET(request: NextRequest) {
     minRole: "guest",
   });
   if ("error" in access) return access.error;
+
+  if (await isDemoBusiness(businessId)) {
+    const payload = getDemoProviderDiscoveryPayload("meta");
+    return NextResponse.json({
+      data: payload.data,
+      meta: payload.meta,
+      notice: payload.notice,
+    });
+  }
 
   const integration = await getIntegration(businessId, "meta");
   if (!integration) {

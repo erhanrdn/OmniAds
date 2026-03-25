@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuthedRequest } from "@/lib/access";
+import { isDemoBusiness } from "@/lib/business-mode.server";
+import { getDemoBillingState } from "@/lib/demo-business";
 import { getIntegration } from "@/lib/integrations";
 import { getCurrentPlan } from "@/lib/shopify/billing/checkSubscription";
 import { createSubscription } from "@/lib/shopify/billing/createSubscription";
@@ -22,6 +24,10 @@ export async function GET(request: NextRequest) {
       { error: "businessId query parameter is required." },
       { status: 400 },
     );
+  }
+
+  if (await isDemoBusiness(businessId)) {
+    return NextResponse.json(getDemoBillingState());
   }
 
   const sql = getDb();
@@ -121,6 +127,15 @@ export async function POST(request: NextRequest) {
       { error: "businessId and planId are required." },
       { status: 400 },
     );
+  }
+
+  if (await isDemoBusiness(businessId)) {
+    return NextResponse.json({
+      planId,
+      status: "active",
+      confirmationUrl: null,
+      demo: true,
+    });
   }
 
   const billingInterval = interval === "annual" ? "annual" : "monthly";

@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isDemoBusiness } from "@/lib/business-mode.server";
+import { getDemoGa4Properties, getDemoSelectedGa4PropertyId } from "@/lib/demo-business";
 import {
   fetchGA4Properties,
 } from "@/lib/google-analytics-accounts";
@@ -38,6 +40,13 @@ export async function GET(request: NextRequest) {
     minRole: "collaborator",
   });
   if ("error" in access) return access.error;
+
+  if (await isDemoBusiness(businessId)) {
+    return NextResponse.json({
+      data: getDemoGa4Properties(),
+      selectedPropertyId: getDemoSelectedGa4PropertyId(),
+    });
+  }
 
   let ga4Context: GA4ResolvedAnalyticsContext;
   try {

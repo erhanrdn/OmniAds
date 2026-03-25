@@ -27,6 +27,12 @@ function resolvePeriod(request: NextRequest) {
   return { startDate, endDate };
 }
 
+function isDemoSearchConsoleFailure(message: string | undefined) {
+  if (!message) return false;
+  const normalized = message.toLowerCase();
+  return normalized.includes("search console") && normalized.includes("not connected");
+}
+
 export async function GET(request: NextRequest) {
   const businessId = request.nextUrl.searchParams.get("businessId");
   if (!businessId) {
@@ -40,6 +46,7 @@ export async function GET(request: NextRequest) {
   if ("error" in access) return access.error;
 
   const { startDate, endDate } = resolvePeriod(request);
+  const demoBusiness = await isDemoBusiness(businessId);
 
   try {
     const monthly = await getSeoMonthlyAiAnalysisForPeriod({
@@ -48,9 +55,20 @@ export async function GET(request: NextRequest) {
       endDate,
     });
 
-    let overviewData = monthly.overviewData;
+    const effectiveMonthly =
+      demoBusiness && monthly.status === "failed" && isDemoSearchConsoleFailure(monthly.unavailableReason)
+        ? {
+            ...monthly,
+            status: "not_generated" as const,
+            canGenerate: Boolean(process.env.OPENAI_API_KEY),
+            unavailableReason: undefined,
+            analysis: null,
+          }
+        : monthly;
+
+    let overviewData = effectiveMonthly.overviewData;
     if (!overviewData) {
-      if (await isDemoBusiness(businessId)) {
+      if (demoBusiness) {
         const currentRows = getDemoSearchConsoleAnalytics().rows;
         const previousRows = buildDemoPreviousRows(currentRows);
         const overview = await buildSeoOverviewPayload({
@@ -92,9 +110,9 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json({
-      ...monthly,
+      ...effectiveMonthly,
       overviewData,
-      monthLabel: getSeoMonthlyLabel(monthly.monthKey),
+      monthLabel: getSeoMonthlyLabel(effectiveMonthly.monthKey),
     });
   } catch (error) {
     if (error instanceof SearchConsoleAuthError) {

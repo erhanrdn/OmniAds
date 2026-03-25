@@ -8,8 +8,8 @@ import { useAppStore } from "@/store/app-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
 import { usePreferencesStore } from "@/store/preferences-store";
 import { clearAuthScopedClientState } from "@/lib/client-auth-state";
+import { isDemoBusinessId } from "@/lib/demo-business";
 import { PRICING_PLANS, PLAN_ORDER, type PlanId } from "@/lib/pricing/plans";
-import { DEMO_BUSINESS_ID } from "@/lib/demo-business-support";
 import {
   ConfirmOverlay,
   SettingsActionRow,
@@ -93,6 +93,7 @@ export default function SettingsPage() {
     monthlyPrice: number;
     status: string;
     storeName: string | null;
+    source?: string | null;
   } | null>(null);
   const [billingLoading, setBillingLoading] = useState(false);
   const [billingChanging, setBillingChanging] = useState(false);
@@ -177,6 +178,13 @@ export default function SettingsPage() {
 
   const loadProviderHealth = useCallback(async () => {
     if (!selectedBusinessId) return;
+    if (isDemoBusinessId(selectedBusinessId)) {
+      setProviderHealth({
+        meta: { label: "Healthy", value: "Demo data fixture" },
+        google: { label: "Healthy", value: "Demo data fixture" },
+      });
+      return;
+    }
     const nextHealth: Record<string, { label: string; value: string }> = {};
     for (const provider of ["meta", "google"] as const) {
       try {
@@ -212,7 +220,7 @@ export default function SettingsPage() {
   }, [loadBilling, loadProviderHealth, loadTeam, loadWorkspaceRole, selectedBusinessId]);
 
   const isWorkspaceAdmin = workspaceRole === "admin";
-  const isDemoWorkspace = selectedBusinessId === DEMO_BUSINESS_ID;
+  const isDemoWorkspace = isDemoBusinessId(selectedBusinessId);
 
   const totalMembers = members.length;
   const totalInvites = invites.filter((invite) => invite.status === "pending").length;
@@ -380,6 +388,11 @@ export default function SettingsPage() {
 
   async function handleResyncIntegrations() {
     if (!selectedBusinessId) return;
+    if (isDemoBusinessId(selectedBusinessId)) {
+      await loadProviderHealth();
+      setToast({ type: "success", message: "Demo workspace is already using fixture-backed integration data." });
+      return;
+    }
     try {
       await fetch(`/api/integrations?businessId=${encodeURIComponent(selectedBusinessId)}`, { cache: "no-store" });
       await loadProviderHealth();
@@ -391,6 +404,11 @@ export default function SettingsPage() {
 
   async function handleForceRefreshSnapshots() {
     if (!selectedBusinessId) return;
+    if (isDemoBusinessId(selectedBusinessId)) {
+      await loadProviderHealth();
+      setToast({ type: "success", message: "Demo workspace snapshots are fixture-backed and already up to date." });
+      return;
+    }
     try {
       await Promise.all(
         connectedIntegrations
@@ -474,6 +492,10 @@ export default function SettingsPage() {
 
   async function handlePlanChange(planId: PlanId) {
     if (!selectedBusinessId) return;
+    if (isDemoBusinessId(selectedBusinessId)) {
+      setToast({ type: "success", message: "Billing changes are disabled for the demo workspace." });
+      return;
+    }
     setBillingChanging(true);
     try {
       const response = await fetch("/api/billing", {
@@ -577,28 +599,34 @@ export default function SettingsPage() {
             {/* Plan comparison */}
             {billing?.connected ? (
               <div>
-                <div className="mb-3 flex items-center justify-between">
-                  <p className="text-sm font-medium">Available plans</p>
-                  <div className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/30 p-0.5">
-                    <button
-                      onClick={() => setBillingInterval("monthly")}
-                      className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                        billingInterval === "monthly" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      Monthly
-                    </button>
-                    <button
-                      onClick={() => setBillingInterval("annual")}
-                      className={`flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                        billingInterval === "annual" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      Annual
-                      <span className="rounded-full bg-indigo-100 px-1 py-0.5 text-[10px] font-semibold text-indigo-700">−20%</span>
-                    </button>
+                {isDemoWorkspace ? (
+                  <div className="mb-3 rounded-xl border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
+                    Demo workspace billing is fixture-backed. Plan changes are disabled here so the review flow stays stable.
                   </div>
-                </div>
+                ) : (
+                  <div className="mb-3 flex items-center justify-between">
+                    <p className="text-sm font-medium">Available plans</p>
+                    <div className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/30 p-0.5">
+                      <button
+                        onClick={() => setBillingInterval("monthly")}
+                        className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                          billingInterval === "monthly" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        Monthly
+                      </button>
+                      <button
+                        onClick={() => setBillingInterval("annual")}
+                        className={`flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                          billingInterval === "annual" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        Annual
+                        <span className="rounded-full bg-indigo-100 px-1 py-0.5 text-[10px] font-semibold text-indigo-700">−20%</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                   {PLAN_ORDER.map((planId) => {
                     const plan = PRICING_PLANS[planId];
@@ -628,10 +656,16 @@ export default function SettingsPage() {
                               size="sm"
                               variant="outline"
                               className="w-full text-xs"
-                              disabled={billingChanging}
+                              disabled={billingChanging || isDemoWorkspace}
                               onClick={() => void handlePlanChange(planId)}
                             >
-                              {billingChanging ? "Updating..." : plan.monthlyPrice > (billing.monthlyPrice ?? 0) ? "Upgrade" : "Downgrade"}
+                              {isDemoWorkspace
+                                ? "Locked in demo"
+                                : billingChanging
+                                  ? "Updating..."
+                                  : plan.monthlyPrice > (billing.monthlyPrice ?? 0)
+                                    ? "Upgrade"
+                                    : "Downgrade"}
                             </Button>
                           )}
                         </div>

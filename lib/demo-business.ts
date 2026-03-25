@@ -2,11 +2,28 @@ import {
   DEMO_BUSINESS_ID,
   DEMO_PRODUCTS,
   DEMO_DEMOGRAPHICS,
+  getDemoBillingState,
   getDemoBusinessSummary,
+  getDemoGa4Properties,
   getDemoIntegrations,
+  getDemoIntegration,
+  getDemoProviderDiscoveryPayload,
+  getDemoProviderAccounts,
+  getDemoSelectedGa4PropertyId,
 } from "@/lib/demo-business-support";
 
-export { DEMO_BUSINESS_ID, DEMO_PRODUCTS, getDemoBusinessSummary, getDemoIntegrations };
+export {
+  DEMO_BUSINESS_ID,
+  DEMO_PRODUCTS,
+  getDemoBillingState,
+  getDemoBusinessSummary,
+  getDemoGa4Properties,
+  getDemoIntegrations,
+  getDemoIntegration,
+  getDemoProviderDiscoveryPayload,
+  getDemoProviderAccounts,
+  getDemoSelectedGa4PropertyId,
+};
 
 export function isDemoBusinessId(businessId: string | null | undefined): boolean {
   return businessId === DEMO_BUSINESS_ID;

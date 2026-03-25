@@ -21,6 +21,7 @@ import { ProviderAssignmentDrawer } from "@/components/integrations/provider-ass
 import { GA4PropertyPicker } from "@/components/integrations/ga4-property-picker";
 import { getProviderLabel } from "@/components/integrations/oauth";
 import { logClientAuthEvent } from "@/lib/auth-diagnostics";
+import { isDemoBusinessId } from "@/lib/demo-business";
 import { ArrowRight, CheckCircle2, Layers3, Link2, Sparkles } from "lucide-react";
 
 /** Providers that have real backend OAuth (not mock) */
@@ -410,6 +411,7 @@ export default function IntegrationsPage() {
     (sum, item) => sum + item.view.assignedCount,
     0,
   );
+  const isDemoWorkspace = isDemoBusinessId(businessId);
 
   return (
     <div className="space-y-5">
@@ -420,6 +422,11 @@ export default function IntegrationsPage() {
               <Sparkles className="h-3.5 w-3.5" />
               Active business
               <span className="text-foreground">{activeBusiness?.name ?? "Unknown"}</span>
+              {isDemoWorkspace ? (
+                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                  Demo fixtures active
+                </span>
+              ) : null}
             </div>
             <div className="space-y-1">
               <h1 className="text-2xl font-semibold tracking-tight text-foreground">
@@ -436,7 +443,7 @@ export default function IntegrationsPage() {
             <SummaryTile
               label="Connected"
               value={String(connectedCount)}
-              note="Live integrations"
+              note={isDemoWorkspace ? "Fixture-backed integrations" : "Live integrations"}
               tone="positive"
             />
             <SummaryTile

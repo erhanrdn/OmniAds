@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isDemoBusiness } from "@/lib/business-mode.server";
 import { getIntegration } from "@/lib/integrations";
 import { upsertProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { runMigrations } from "@/lib/migrations";
@@ -18,6 +19,27 @@ export async function POST(
       },
       { status: 400 }
     );
+  }
+
+  if (await isDemoBusiness(businessId)) {
+    const body = await request.json().catch(() => null);
+    const accountIds = body?.account_ids;
+
+    if (!Array.isArray(accountIds) || accountIds.some((id) => typeof id !== "string")) {
+      return NextResponse.json(
+        {
+          error: "invalid_payload",
+          message: "account_ids must be an array of strings.",
+        },
+        { status: 400 }
+      );
+    }
+
+    const cleaned = Array.from(new Set(accountIds.map((id) => id.trim()).filter(Boolean)));
+    return NextResponse.json({
+      success: true,
+      assigned_accounts: cleaned,
+    });
   }
 
   const integration = await getIntegration(businessId, "meta");

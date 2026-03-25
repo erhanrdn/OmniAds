@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isDemoBusiness } from "@/lib/business-mode.server";
+import { getDemoGa4Properties } from "@/lib/demo-business";
 import { getIntegration, upsertIntegration } from "@/lib/integrations";
 import {
   fetchGA4Properties,
@@ -63,6 +65,44 @@ export async function POST(request: NextRequest) {
     minRole: "collaborator",
   });
   if ("error" in access) return access.error;
+
+  if (await isDemoBusiness(businessId)) {
+    const normalizedPropertyId = normalizeGa4PropertyId(propertyId);
+    const property = getDemoGa4Properties().find((item) => item.propertyId === normalizedPropertyId);
+    if (!property) {
+      return NextResponse.json(
+        {
+          error: "property_not_accessible",
+          message: "The selected property is not available in the demo workspace.",
+        },
+        { status: 403 },
+      );
+    }
+
+    const now = new Date().toISOString();
+    return NextResponse.json({
+      success: true,
+      integration: {
+        id: "demo-ga4",
+        provider: "ga4",
+        status: "connected",
+        provider_account_id: property.propertyId,
+        provider_account_name: property.propertyName,
+        connected_at: now,
+        updated_at: now,
+        metadata: {
+          ga4PropertyId: property.propertyId,
+          ga4PropertyName: property.propertyName,
+          ga4AccountId: property.accountId,
+          ga4AccountName: property.accountName,
+          propertyId: property.propertyId.replace(/^properties\//, ""),
+          propertyName: property.propertyName,
+          propertyResourceName: property.propertyId,
+          selectedAt: now,
+        },
+      },
+    });
+  }
 
   // Get the existing GA4 integration
   const integration = await getIntegration(businessId, "ga4");
