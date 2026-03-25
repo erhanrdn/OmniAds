@@ -1072,6 +1072,7 @@ export async function buildSeoOverviewPayload(params: {
   currentRows: SearchConsoleAnalyticsRow[];
   previousRows: SearchConsoleAnalyticsRow[];
   businessId?: string;
+  preferRuleBasedBrief?: boolean;
 }): Promise<SeoOverviewPayload> {
   const { prevStart, prevEnd } = computePreviousPeriod(params.startDate, params.endDate);
   const currentTotals = computeTotals(params.currentRows);
@@ -1148,6 +1149,12 @@ export async function buildSeoOverviewPayload(params: {
         likelyCause: a.rootCauses[0]?.title ?? a.ecommerceContext,
         nextStep: a.priorities[0]?.title ?? "",
       };
+    } else if (params.preferRuleBasedBrief) {
+      aiBrief = buildFallbackAiBrief({
+        summary,
+        causes,
+        recommendations,
+      });
     } else {
       aiBrief = await buildAiBrief({
         siteUrl: params.siteUrl,
@@ -1158,6 +1165,12 @@ export async function buildSeoOverviewPayload(params: {
         decliningPages: movers.decliningPages,
       });
     }
+  } else if (params.preferRuleBasedBrief) {
+    aiBrief = buildFallbackAiBrief({
+      summary,
+      causes,
+      recommendations,
+    });
   } else {
     aiBrief = await buildAiBrief({
       siteUrl: params.siteUrl,

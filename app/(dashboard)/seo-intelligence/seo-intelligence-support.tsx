@@ -160,8 +160,7 @@ export function SeoMonthlyAiPanel(props: {
                 This month&apos;s SEO strategy analysis is locked in
               </h3>
               <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
-                The overview below is the saved AI output for {monthly.monthLabel}. Teams can
-                review, share, and work from the same plan without re-running the model.
+                {`The overview below is the saved AI output for ${monthly.monthLabel}. Teams can review, share, and work from the same plan without re-running the model.`}
               </p>
             </div>
             <div className="grid gap-2 text-sm lg:min-w-[280px]">

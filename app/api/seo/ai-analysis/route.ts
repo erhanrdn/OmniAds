@@ -77,6 +77,8 @@ export async function GET(request: NextRequest) {
           endDate,
           currentRows,
           previousRows,
+          businessId,
+          preferRuleBasedBrief: true,
         });
         overviewData = overview.aiWorkspace;
       } else {

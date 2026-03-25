@@ -51,6 +51,7 @@ export async function GET(request: NextRequest) {
       currentRows,
       previousRows,
       businessId,
+      preferRuleBasedBrief: true,
     });
     return NextResponse.json(payload);
   }
