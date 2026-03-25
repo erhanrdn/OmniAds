@@ -79,21 +79,21 @@ export function BudgetTab({ campaigns, recommendations, totalSpend, accountAvgRo
   const cols = getCols(language);
   if (isLoading) return <TabSkeleton />;
   if (!campaigns || campaigns.length === 0) {
-    return <TabEmpty message={language === "tr" ? "Bu donem icin butce verisi bulunamadi." : "No budget data found for this period."} />;
+    return <TabEmpty message={language === "tr" ? "Bu dönem için bütçe verisi bulunamadi." : "No budget data found for this period."} />;
   }
 
   return (
     <div className="space-y-6">
       <p className="text-sm text-muted-foreground">
         {language === "tr"
-          ? "Butce dagilimi ve impression share sinyalleri. Butce nedeniyle anlamli IS kaybeden kampanyalar kisitli kaliyor; dusuk ROAS kampanyalardan yeniden dagilim dusunun."
+          ? "Butce dağılımi ve impression share sinyalleri. Butce nedeniyle anlamli IS kaybeden kampanyalar kısıtli kaliyor; düşük ROAS kampanyalardan yeniden dağılım dusunun."
           : "Budget distribution and impression share signals. Campaigns losing significant IS to budget are constrained — consider reallocation from low-ROAS campaigns."}
       </p>
 
       {/* Budget recommendations */}
       {recommendations && recommendations.length > 0 && (
         <div className="space-y-2">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{language === "tr" ? "Butce Onerileri" : "Budget Recommendations"}</p>
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{language === "tr" ? "Butce Önerileri" : "Budget Recommendations"}</p>
           <div className="grid gap-2 sm:grid-cols-2">
             {recommendations.slice(0, 4).map((rec, i) => (
               <div
@@ -109,7 +109,7 @@ export function BudgetTab({ campaigns, recommendations, totalSpend, accountAvgRo
                 <p className="text-xs text-muted-foreground mt-0.5">{rec.reason}</p>
                 <p className={cn("text-sm font-bold mt-2", rec.direction === "increase" ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400")}>
                   {rec.direction === "increase" ? "+" : "-"}{fmtCurrency(Math.abs(rec.suggestedBudgetChange))}
-                  <span className="text-xs font-normal text-muted-foreground ml-1">{language === "tr" ? "onerilen kaydirma" : "suggested shift"}</span>
+                  <span className="text-xs font-normal text-muted-foreground ml-1">{language === "tr" ? "önerilen kaydırma" : "suggested shift"}</span>
                 </p>
               </div>
             ))}

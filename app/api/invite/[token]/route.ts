@@ -19,7 +19,7 @@ export async function GET(
   const invite = await getInviteByToken(token);
   if (!invite) {
     return NextResponse.json(
-      { error: "not_found", message: tr("Invite link is invalid.", "Davet linki gecersiz.") },
+      { error: "not_found", message: tr("Invite link is invalid.", "Davet linki geçersiz.") },
       { status: 404 }
     );
   }
@@ -55,7 +55,7 @@ export async function POST(
   const invite = await getInviteByToken(token);
   if (!invite) {
     return NextResponse.json(
-      { error: "not_found", message: tr("Invite link is invalid.", "Davet linki gecersiz.") },
+      { error: "not_found", message: tr("Invite link is invalid.", "Davet linki geçersiz.") },
       { status: 404 }
     );
   }
@@ -68,7 +68,7 @@ export async function POST(
   const expiresAtMs = new Date(invite.expires_at).getTime();
   if (!Number.isFinite(expiresAtMs) || expiresAtMs < Date.now()) {
     return NextResponse.json(
-      { error: "invite_expired", message: tr("Invite link is invalid or expired.", "Davet linki gecersiz veya suresi dolmus.") },
+      { error: "invite_expired", message: tr("Invite link is invalid or expired.", "Davet linki geçersiz veya süresi dolmuş.") },
       { status: 410 }
     );
   }
@@ -79,7 +79,7 @@ export async function POST(
     return NextResponse.json(
       {
         error: "email_mismatch",
-        message: tr("This invite was sent to a different email address.", "Bu davet farkli bir email adresine gonderildi."),
+        message: tr("This invite was sent to a different email address.", "Bu davet farklı bir email adresine gönderildi."),
       },
       { status: 403 }
     );
@@ -91,7 +91,7 @@ export async function POST(
       return NextResponse.json(
         {
           error: "login_required",
-          message: tr("This invite is for an existing account. Please log in first.", "Bu davet mevcut bir hesap icin. Lutfen once giris yapin."),
+          message: tr("This invite is for an existing account. Please log in first.", "Bu davet mevcut bir hesap için. Lütfen önce giriş yapın."),
         },
         { status: 401 }
       );
@@ -104,7 +104,7 @@ export async function POST(
       return NextResponse.json(
         {
           error: "invalid_payload",
-          message: tr("Name and password (min 8 chars) are required to accept invite.", "Daveti kabul etmek icin ad ve sifre (en az 8 karakter) zorunludur."),
+          message: tr("Name and password (min 8 chars) are required to accept invite.", "Daveti kabul etmek için ad ve şifre (en az 8 karakter) zorunludur."),
         },
         { status: 400 }
       );

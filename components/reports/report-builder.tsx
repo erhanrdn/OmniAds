@@ -515,7 +515,7 @@ export function ReportBuilder({
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error((payload as { message?: string } | null)?.message ?? tr("Preview failed.", "Onizleme basarisiz oldu."));
+        throw new Error((payload as { message?: string } | null)?.message ?? tr("Preview failed.", "Onizleme başarısız oldu."));
       }
       return (payload as { report: RenderedReportPayload }).report;
     },
@@ -1618,7 +1618,7 @@ export function ReportBuilder({
                 {/* Body (text / section) */}
                 {(selectedWidget.type === "text" || selectedWidget.type === "section") ? (
                   <div className="px-4 py-3 space-y-2">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{tr("Body", "Icerik")}</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{tr("Body", "İçerik")}</p>
                     <textarea
                       value={selectedWidget.text ?? ""}
                       onChange={(e) => updateWidget(selectedWidget.id, { text: e.target.value })}
@@ -1634,13 +1634,13 @@ export function ReportBuilder({
                   <input
                     value={selectedWidget.title}
                     onChange={(e) => updateWidget(selectedWidget.id, { title: e.target.value })}
-                    placeholder={tr("Title", "Baslik")}
+                    placeholder={tr("Title", "Başlık")}
                     className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
                   />
                   <input
                     value={selectedWidget.subtitle ?? ""}
                     onChange={(e) => updateWidget(selectedWidget.id, { subtitle: e.target.value || undefined })}
-                    placeholder={tr("Subtitle (optional)", "Alt baslik (opsiyonel)")}
+                    placeholder={tr("Subtitle (optional)", "Alt başlık (opsiyonel)")}
                     className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
                   />
                 </div>
@@ -1703,7 +1703,7 @@ export function ReportBuilder({
                   onChange={(event) => setDescription(event.target.value)}
                   rows={1}
                   className="mt-1 w-full resize-none rounded-xl border-0 bg-transparent px-0 text-sm text-muted-foreground placeholder:text-slate-400 focus:outline-none focus:ring-0"
-                  placeholder={tr("Add a description for this report...", "Bu rapor icin bir aciklama ekleyin...")}
+                  placeholder={tr("Add a description for this report...", "Bu rapor için bir açıklama ekleyin...")}
                 />
               </div>
               {templateId ? (
@@ -1716,14 +1716,14 @@ export function ReportBuilder({
               <div className="mb-4 rounded-[28px] border border-dashed border-blue-200 bg-[linear-gradient(135deg,#eff6ff,#ffffff)] px-5 py-5">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div>
-                    <div className="text-sm font-semibold text-slate-950">{tr("Start with your first widget", "Ilk widget'inizle baslayin")}</div>
+                    <div className="text-sm font-semibold text-slate-950">{tr("Start with your first widget", "İlk widget'inizle başlayın")}</div>
                     <p className="mt-1 max-w-2xl text-sm text-slate-600">
                       Drag a metric, chart, table, or section from the left palette into the canvas. Once it lands,
                       click the widget to configure its source, account, and content.
                     </p>
                   </div>
                     <div className="rounded-2xl border border-blue-200 bg-white px-4 py-3 text-xs font-medium text-blue-700 shadow-sm">
-                      {tr("Drag from left", "Soldan surukleyin")}
+                      {tr("Drag from left", "Soldan sürükleyin")}
                     </div>
                 </div>
                 <div className="mt-3 text-xs text-slate-500">
@@ -1800,7 +1800,7 @@ export function ReportBuilder({
                           {hoveredSlot === slot ? (
                             <div className="relative z-10 flex h-full min-h-[64px] flex-col items-center justify-center">
                               <div className="text-sm font-semibold text-emerald-700">
-                                {draggedWidgetType ? tr("Drop to create", "Olusturmak icin birak") : tr("Drop here", "Buraya birak")}
+                                {draggedWidgetType ? tr("Drop to create", "Oluşturmak için bırak") : tr("Drop here", "Buraya birak")}
                               </div>
                             </div>
                           ) : null}
@@ -1881,9 +1881,9 @@ export function ReportBuilder({
                               setSelectedSlot(widget.slot);
                         }}
                             className="rounded-full px-2 py-1 text-[10px] font-semibold text-slate-600 hover:bg-slate-100"
-                            title={tr("Edit widget", "Widget'i duzenle")}
+                            title={tr("Edit widget", "Widget'i düzenle")}
                           >
-                            {tr("Edit", "Duzenle")}
+                            {tr("Edit", "Düzenle")}
                           </button>
                           <button
                             type="button"
@@ -1924,7 +1924,7 @@ export function ReportBuilder({
                             });
                           }}
                           className="absolute bottom-8 right-0 top-8 w-2 cursor-ew-resize opacity-0 transition-opacity group-hover:opacity-100"
-                          title={tr("Drag to resize width", "Genisligi yeniden boyutlandirmak icin surukleyin")}
+                          title={tr("Drag to resize width", "Genişliği yeniden boyutlandırmak için sürükleyin")}
                         >
                           <span className="block h-full w-1 mx-auto rounded-full bg-blue-400/60 hover:bg-blue-500" />
                         </button>
@@ -1944,7 +1944,7 @@ export function ReportBuilder({
                             });
                           }}
                           className="absolute bottom-0 left-8 right-8 h-2 cursor-ns-resize opacity-0 transition-opacity group-hover:opacity-100"
-                          title={tr("Drag to resize height", "Yuksekligi yeniden boyutlandirmak icin surukleyin")}
+                          title={tr("Drag to resize height", "Yüksekliği yeniden boyutlandırmak için sürükleyin")}
                         >
                           <span className="block h-1 w-full my-auto rounded-full bg-blue-400/60 hover:bg-blue-500" />
                         </button>
@@ -1964,7 +1964,7 @@ export function ReportBuilder({
                             });
                           }}
                           className="absolute bottom-0 right-0 h-5 w-5 cursor-se-resize opacity-0 transition-opacity group-hover:opacity-100 flex items-end justify-end p-1"
-                          title={tr("Drag to resize", "Yeniden boyutlandirmak icin surukleyin")}
+                          title={tr("Drag to resize", "Yeniden boyutlandırmak için sürükleyin")}
                         >
                           <span className="block h-3 w-3 rounded-br-lg border-b-2 border-r-2 border-blue-400/80" />
                         </button>
@@ -1980,7 +1980,7 @@ export function ReportBuilder({
                     <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">
                       {dragPreview.mode === "create"
                         ? dragPreview.snapped
-                          ? tr("Create Preview", "Olusturma Onizlemesi")
+                          ? tr("Create Preview", "Oluşturma Önizlemesi")
                           : "Drop to Create"
                         : dragPreview.snapped
                           ? "Snap Preview"
@@ -2002,7 +2002,7 @@ export function ReportBuilder({
 
           {previewQuery.error ? (
             <div className="rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-              {previewQuery.error instanceof Error ? previewQuery.error.message : tr("Preview failed.", "Onizleme basarisiz oldu.")}
+              {previewQuery.error instanceof Error ? previewQuery.error.message : tr("Preview failed.", "Onizleme başarısız oldu.")}
             </div>
           ) : null}
         </section>

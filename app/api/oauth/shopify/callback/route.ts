@@ -66,13 +66,13 @@ export async function GET(request: NextRequest) {
       expected: expectedHmac,
       received: hmac,
     });
-    return errorRedirect(tr("HMAC verification failed. Request may be tampered.", "HMAC dogrulamasi basarisiz. Istekle oynanmis olabilir."));
+    return errorRedirect(tr("HMAC verification failed. Request may be tampered.", "HMAC doğrulamasi başarısız. Istekle oynanmis olabilir."));
   }
 
   // ── Validate state against cookie ──────────────────────────
   const cookieState = request.cookies.get("shopify_oauth_state")?.value;
   if (!cookieState || cookieState !== state) {
-    return errorRedirect(tr("Invalid OAuth state. Please try again.", "OAuth state gecersiz. Lutfen tekrar deneyin."));
+    return errorRedirect(tr("Invalid OAuth state. Please try again.", "OAuth state geçersiz. Lütfen tekrar deneyin."));
   }
 
   // Decode businessId from state
@@ -92,7 +92,7 @@ export async function GET(request: NextRequest) {
   });
   if ("error" in access) {
     return errorRedirect(
-      tr("You do not have permission to connect integrations for this business.", "Bu business icin integration baglama yetkiniz yok."),
+      tr("You do not have permission to connect integrations for this business.", "Bu business için integration bağlama yetkiniz yok."),
       businessId,
     );
   }

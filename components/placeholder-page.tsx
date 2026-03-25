@@ -29,7 +29,7 @@ export function PlaceholderPage({
           {badge && <Badge variant="secondary">{badge}</Badge>}
         </div>
         <p className="text-muted-foreground text-sm max-w-xs">
-          {description ?? (language === "tr" ? "Bu sayfa hazirlaniyor. Yakinda tekrar kontrol edin." : "This page is under construction. Check back soon.")}
+          {description ?? (language === "tr" ? "Bu sayfa hazırlanıyor. Yakında tekrar kontrol edin." : "This page is under construction. Check back soon.")}
         </p>
       </div>
     </div>

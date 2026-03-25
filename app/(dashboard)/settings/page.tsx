@@ -756,7 +756,7 @@ export default function SettingsPage() {
             <div className="rounded-xl border bg-background px-4 py-3">
               <p className="text-sm font-medium">{settingsTranslations.languageDescription}</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                {accountLanguage === "tr" ? "Turkce" : "English"}
+                {accountLanguage === "tr" ? "Türkçe" : "English"}
               </p>
             </div>
           </div>

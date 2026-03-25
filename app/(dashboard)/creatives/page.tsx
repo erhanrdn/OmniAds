@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { useAppStore } from "@/store/app-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
+import { usePreferencesStore } from "@/store/preferences-store";
 import { buildDefaultProviderDomains, deriveProviderViewState } from "@/store/integrations-support";
 import { isDemoBusinessSelected } from "@/lib/business-mode";
 import { EmptyState } from "@/components/states/empty-state";
@@ -65,6 +66,7 @@ export default function CreativesPage() {
   const businessId = selectedBusinessId ?? "";
   const selectedBusinessCurrency =
     businesses.find((business) => business.id === selectedBusinessId)?.currency ?? null;
+  const language = usePreferencesStore((state) => state.language);
 
   const domains = useIntegrationsStore((state) =>
     selectedBusinessId ? state.domainsByBusinessId[selectedBusinessId] : undefined
@@ -694,8 +696,16 @@ export default function CreativesPage() {
               !creativesMetadataQuery.isError &&
               (deferredFilteredRows.length === 0 || dataStatus === "no_data") && (
                 <EmptyState
-                  title="No creative performance data found for the selected range"
-                  description="Try a wider date range or verify that assigned Meta accounts have active ad delivery."
+                  title={
+                    language === "tr"
+                      ? "Seçili aralık için creative performans verisi bulunamadı"
+                      : "No creative performance data found for the selected range"
+                  }
+                  description={
+                    language === "tr"
+                      ? "Daha geniş bir tarih aralığı deneyin veya bağlı Meta hesaplarinda aktif reklam yayini olduğunu doğrulayin."
+                      : "Try a wider date range or verify that assigned Meta accounts have active ad delivery."
+                  }
                 />
               )}
 

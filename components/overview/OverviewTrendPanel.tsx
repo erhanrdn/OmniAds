@@ -64,7 +64,7 @@ export function OverviewTrendPanel({
         <div>
           <h2 className="text-lg font-semibold tracking-tight">{language === "tr" ? "Performans Trendleri" : "Performance Trends"}</h2>
           <p className="text-sm text-muted-foreground">
-            {language === "tr" ? "Secilen metrik ve tarih araligi icin trend gorunumu" : "Trend view for selected metric and date range"}
+            {language === "tr" ? "Seçilen metrik ve tarih aralığı için trend görünümü" : "Trend view for selected metric and date range"}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -104,10 +104,10 @@ export function OverviewTrendPanel({
       {!isLoading && baseSeries.length === 0 ? (
         <div className="mt-4">
           <DataEmptyState
-            title={language === "tr" ? "Henuz trend verisi yok" : "No trend data yet"}
+            title={language === "tr" ? "Henüz trend verisi yok" : "No trend data yet"}
             description={
               language === "tr"
-                ? "Performans veri senkronizasyonu tamamlandiginda trend gorunumu belirecek."
+                ? "Performans veri senkronizasyonu tamamlandiginda trend görünümu belirecek."
                 : "Trend visualization will appear after performance data sync completes."
             }
           />

@@ -296,7 +296,7 @@ function ScorePill({
         </div>
         <div className="text-right">
           <p className="text-2xl font-semibold text-slate-950">{rounded}</p>
-          <p className="text-[11px] text-slate-500">{language === "tr" ? "100 uzerinden" : "out of 100"}</p>
+          <p className="text-[11px] text-slate-500">{language === "tr" ? "100 üzerinden" : "out of 100"}</p>
         </div>
       </div>
       <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
@@ -327,14 +327,14 @@ function DecisionBadge({
 }
 
 function ruleHeadline(action: ReturnType<typeof buildLandingPageRuleReport>["action"], language: "en" | "tr"): string {
-  if (action === "scale") return language === "tr" ? "Kontrollu buyutme icin hazir" : "Ready for controlled scale";
-  if (action === "fix_above_fold") return language === "tr" ? "Ilk ekran deneyimini iyilestirin" : "Improve the first screen experience";
-  if (action === "fix_product_discovery") return language === "tr" ? "Ana darbo-gaz kesif asamasi" : "Discovery is the main bottleneck";
-  if (action === "fix_product_story") return language === "tr" ? "Urun hikayesi daha guclu satin alma niyeti gerektiriyor" : "Product story needs stronger buying intent";
-  if (action === "fix_checkout_intent") return language === "tr" ? "Cart'tan checkout'a ivme calisma gerektiriyor" : "Cart-to-checkout momentum needs work";
-  if (action === "fix_late_checkout") return language === "tr" ? "Gec checkout surtunmesi donusumleri baskiliyor" : "Late checkout friction is suppressing conversions";
-  if (action === "tracking_audit") return language === "tr" ? "Daha derin CRO degisikliklerinden once analytics'i dogrulayin" : "Validate analytics before deeper CRO changes";
-  return language === "tr" ? "Daha genis degisikliklerden once bu sayfayi izleyin" : "Monitor this page before broader changes";
+  if (action === "scale") return language === "tr" ? "Kontrollü büyütme için hazır" : "Ready for controlled scale";
+  if (action === "fix_above_fold") return language === "tr" ? "Ilk ekran deneyimini iyileştirin" : "Improve the first screen experience";
+  if (action === "fix_product_discovery") return language === "tr" ? "Ana darbogaz ürün kesfi tarafinda" : "Discovery is the main bottleneck";
+  if (action === "fix_product_story") return language === "tr" ? "Ürün hikayesi satın alma niyetini guclendirmiyor" : "Product story needs stronger buying intent";
+  if (action === "fix_checkout_intent") return language === "tr" ? "Cart'tan checkout'a gecis ivmesi zayıf" : "Cart-to-checkout momentum needs work";
+  if (action === "fix_late_checkout") return language === "tr" ? "Gec checkout sürtünmesi dönüşumleri baskiliyor" : "Late checkout friction is suppressing conversions";
+  if (action === "tracking_audit") return language === "tr" ? "Daha derin CRO değişikliklerinden önce analytics'i doğrulayın" : "Validate analytics before deeper CRO changes";
+  return language === "tr" ? "Daha geniş değişikliklerden önce bu sayfayı izleyin" : "Monitor this page before broader changes";
 }
 
 function getDecisionTheme(action: ReturnType<typeof buildLandingPageRuleReport>["action"]): string {
@@ -352,8 +352,8 @@ function getDecisionBadgeClass(action: ReturnType<typeof buildLandingPageRuleRep
 }
 
 function scoreTone(value: number, language: "en" | "tr"): { label: string; barClass: string } {
-  if (value >= 80) return { label: language === "tr" ? "Guclu" : "Strong", barClass: "bg-emerald-500" };
+  if (value >= 80) return { label: language === "tr" ? "Güçlü" : "Strong", barClass: "bg-emerald-500" };
   if (value >= 60) return { label: language === "tr" ? "Saglikli" : "Healthy", barClass: "bg-sky-500" };
-  if (value >= 40) return { label: language === "tr" ? "Karisik" : "Mixed", barClass: "bg-amber-500" };
-  return { label: language === "tr" ? "Zayif" : "Weak", barClass: "bg-orange-500" };
+  if (value >= 40) return { label: language === "tr" ? "Karışık" : "Mixed", barClass: "bg-amber-500" };
+  return { label: language === "tr" ? "Zayıf" : "Weak", barClass: "bg-orange-500" };
 }

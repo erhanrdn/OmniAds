@@ -83,7 +83,7 @@ export async function GET(request: NextRequest) {
       buildFrontendCallbackUrl({
         provider: "google",
         status: "error",
-        error: tr("Invalid OAuth state. Please try again.", "OAuth state gecersiz. Lutfen tekrar deneyin."),
+        error: tr("Invalid OAuth state. Please try again.", "OAuth state geçersiz. Lütfen tekrar deneyin."),
       }),
     );
   }
@@ -123,7 +123,7 @@ export async function GET(request: NextRequest) {
         status: "error",
         businessId,
         returnTo,
-        error: tr("You do not have permission to connect integrations for this business.", "Bu business icin integration baglama yetkiniz yok."),
+        error: tr("You do not have permission to connect integrations for this business.", "Bu business için integration bağlama yetkiniz yok."),
       }),
     );
   }
@@ -148,7 +148,7 @@ export async function GET(request: NextRequest) {
       throw new Error(
         tokenData.error_description ||
           tokenData.error ||
-          tr("Failed to exchange authorization code.", "Authorization code degisimi basarisiz oldu."),
+          tr("Failed to exchange authorization code.", "Authorization code değişimi başarısız oldu."),
       );
     }
 
@@ -171,7 +171,7 @@ export async function GET(request: NextRequest) {
 
     if (userinfoData.error) {
       throw new Error(
-        userinfoData.error.message || tr("Failed to fetch Google user profile.", "Google kullanici profili alinamadi."),
+        userinfoData.error.message || tr("Failed to fetch Google user profile.", "Google kullanıcı profili alinamadi."),
       );
     }
 

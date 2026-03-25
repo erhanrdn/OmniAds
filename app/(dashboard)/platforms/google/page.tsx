@@ -165,7 +165,7 @@ export default function GooglePage() {
           { key: "campaigns", label: language === "tr" ? "Kampanyalar" : "Campaigns" },
           { key: "adGroups", label: language === "tr" ? "Reklam Gruplari" : "Ad Groups" },
           { key: "ads", label: language === "tr" ? "Reklamlar" : "Ads" },
-          { key: "insights", label: language === "tr" ? "Icgoruler" : "Insights" },
+          { key: "insights", label: language === "tr" ? "İçgörüler" : "Insights" },
         ].map((tab) => (
           <button
             key={tab.key}
@@ -338,7 +338,7 @@ export default function GooglePage() {
               <option value="7">{language === "tr" ? "Son 7 gun" : "Last 7 days"}</option>
               <option value="14">{language === "tr" ? "Son 14 gun" : "Last 14 days"}</option>
               <option value="30">{language === "tr" ? "Son 30 gun" : "Last 30 days"}</option>
-              <option value="custom">{language === "tr" ? "Ozel (yalnizca UI)" : "Custom (UI-only)"}</option>
+              <option value="custom">{language === "tr" ? "Özel (yalnızca UI)" : "Custom (UI-only)"}</option>
             </select>
 
             <select
@@ -425,9 +425,9 @@ export default function GooglePage() {
 
           <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-card p-2">
             {[
-              { key: "recommendations", label: language === "tr" ? "Oneriler" : "Recommendations" },
+              { key: "recommendations", label: language === "tr" ? "Öneriler" : "Recommendations" },
               { key: "searchTerms", label: language === "tr" ? "Search term'ler" : "Search terms" },
-              { key: "products", label: language === "tr" ? "Urunler" : "Products" },
+              { key: "products", label: language === "tr" ? "Ürünler" : "Products" },
               { key: "assets", label: language === "tr" ? "Asset'ler (PMax)" : "Assets (PMax)" },
             ].map((tab) => (
               <button
@@ -463,14 +463,14 @@ export default function GooglePage() {
                     <Badge variant="secondary">
                       {language === "tr" ? "Potansiyel" : "Upside"}: {growthScore.upsideLevel === "High"
                         ? language === "tr"
-                          ? "Yuksek"
+                          ? "Yüksek"
                           : "High"
                         : growthScore.upsideLevel === "Medium"
                           ? language === "tr"
                             ? "Orta"
                             : "Medium"
                           : language === "tr"
-                            ? "Dusuk"
+                            ? "Düşük"
                             : "Low"}
                     </Badge>
                     <Badge variant="outline">{language === "tr" ? "Oncelikli sorunlar" : "Priority issues"}: {growthScore.priorityIssues}</Badge>
@@ -504,7 +504,7 @@ export default function GooglePage() {
 
               <div className="space-y-2">
                 <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                  {language === "tr" ? "Buyume Firsatlari" : "Growth Opportunities"}
+                  {language === "tr" ? "Buyume Fırsatlari" : "Growth Opportunities"}
                 </h3>
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                   {growthEngineRecommendations
@@ -596,7 +596,7 @@ export default function GooglePage() {
                   title={language === "tr" ? "Merchant Center feed / Shopping verisi gerekli" : "Requires Merchant Center feed / Shopping data"}
                   description={
                     language === "tr"
-                      ? "Urun seviyesinde performans gormek icin Merchant Center baglayin."
+                      ? "Ürün seviyesinde performans gormek için Merchant Center bağlayın."
                       : "Connect Merchant Center to view product-level performance."
                   }
                 />

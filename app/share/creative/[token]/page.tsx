@@ -30,9 +30,9 @@ export default async function ShareCreativePage({
     return (
       <main className="flex min-h-screen items-center justify-center bg-background px-6">
         <div className="w-full max-w-md rounded-2xl border bg-card p-6 text-center shadow-sm">
-          <h1 className="text-lg font-semibold">{language === "tr" ? "Paylasim linki bulunamadi veya suresi doldu" : "Share link not found or expired"}</h1>
+          <h1 className="text-lg font-semibold">{language === "tr" ? "Paylaşim linki bulunamadi veya süresi doldu" : "Share link not found or expired"}</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            {language === "tr" ? "Bu paylasilan creative ciktilari suresi dolmus olabilir veya URL gecersiz olabilir." : "This shared creatives export may have expired or the URL is invalid."}
+            {language === "tr" ? "Bu paylaşılan creative çıktıları süresi dolmuş olabilir veya URL geçersiz olabilir." : "This shared creatives export may have expired or the URL is invalid."}
           </p>
           <Link
             href="/"

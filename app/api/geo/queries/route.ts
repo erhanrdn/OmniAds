@@ -122,10 +122,10 @@ export async function GET(request: NextRequest) {
     // Richer recommendation: combine classification + GEO score + position
     let recommendation: string | null = opportunityLabel;
     if (!recommendation) {
-      if (geoScore >= 65 && position > 5) recommendation = language === "tr" ? "Yuksek degerli GEO hedefi — ilk 5'e girmek icin icerigi derinlestir" : "High-value GEO target — deepen content to rank in top 5";
-      else if (geoScore >= 65) recommendation = language === "tr" ? "Guclu GEO sorgusu — tam answer-first yapiyi saglayin" : "Strong GEO query — ensure full answer-first structure";
-      else if (position >= 5 && position <= 12 && impressions > 50) recommendation = language === "tr" ? "Ilk sayfaya yakin — ustune cikmak icin FAQ + structured data ekleyin" : "Near page 1 — add FAQ + structured data to push over";
-      else if (cls.format === "comparison" && ctr < 0.04) recommendation = language === "tr" ? "Comparison intent — CTR'yi iyilestirmek icin comparison table ekleyin" : "Comparison intent — add a comparison table to improve CTR";
+      if (geoScore >= 65 && position > 5) recommendation = language === "tr" ? "Yuksek degerli GEO hedefi — ilk 5'e girmek için içeriği derinlestir" : "High-value GEO target — deepen content to rank in top 5";
+      else if (geoScore >= 65) recommendation = language === "tr" ? "Güçlü GEO sorgusu — tam answer-first yapıyı sağlayın" : "Strong GEO query — ensure full answer-first structure";
+      else if (position >= 5 && position <= 12 && impressions > 50) recommendation = language === "tr" ? "Ilk sayfaya yakin — ustune cikmak için FAQ + structured data ekleyin" : "Near page 1 — add FAQ + structured data to push over";
+      else if (cls.format === "comparison" && ctr < 0.04) recommendation = language === "tr" ? "Comparison intent — CTR'yi iyileştirmek için comparison table ekleyin" : "Comparison intent — add a comparison table to improve CTR";
     }
 
     return {

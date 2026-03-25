@@ -164,7 +164,7 @@ export default function AdminDashboard() {
           <p className="text-sm text-gray-500 mt-1">Platforma genel bakış</p>
         </div>
         <div className="rounded-xl border border-red-200 bg-red-50 px-5 py-4">
-          <p className="text-sm font-medium text-red-800">Admin istatistikleri yuklenemedi.</p>
+          <p className="text-sm font-medium text-red-800">Admin istatistikleri yüklenemedi.</p>
           <p className="text-sm text-red-700 mt-1">{loadError}</p>
         </div>
       </div>

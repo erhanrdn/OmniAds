@@ -298,9 +298,9 @@ export async function GET(request: NextRequest) {
 
   if (aiSessions > 0 && aiPurchaseCvr < totalPurchaseCvr * 0.5 && totalPurchaseCvr > 0) {
     top3Priorities.push({
-      title: language === "tr" ? "AI trafigini gelire donustur" : "Convert AI traffic to revenue",
+      title: language === "tr" ? "AI trafigini gelire dönüştur" : "Convert AI traffic to revenue",
       description: language === "tr"
-        ? "AI yonlendirmeli ziyaretciler etkilesiyor ancak donusmuyor. En iyi AI sayfalariniza CTA, comparison table ve buying guide bolumleri ekleyin."
+        ? "AI yonlendirmeli ziyaretciler etkilesiyor ancak dönüşmuyor. En iyi AI sayfalarınıza CTA, comparison table ve buying guide bölümleri ekleyin."
         : "AI-referred visitors are engaging but not converting. Add CTAs, comparison tables, and buying guides to your top AI pages.",
       priority: "high",
       effort: "Medium",
@@ -309,9 +309,9 @@ export async function GET(request: NextRequest) {
   }
   if (aiStyleQueryCount > 0 && totalQueryCount > 0 && aiStyleQueryCount / totalQueryCount < 0.3) {
     top3Priorities.push({
-      title: language === "tr" ? "Bilgilendirici icerik kapsamini genislet" : "Expand informational content coverage",
+      title: language === "tr" ? "Bilgilendirici içerik kapsamını genişlet" : "Expand informational content coverage",
       description: language === "tr"
-        ? `Siralanan sorgularin yalnizca %${Math.round((aiStyleQueryCount / totalQueryCount) * 100)} kadari AI-style. AI citation oranlarini iyilestirmek icin FAQ bolumleri ve how-to rehberleri olusturun.`
+        ? `Sıralanan sorguların yalnızca %${Math.round((aiStyleQueryCount / totalQueryCount) * 100)} kadarı AI-style. AI citation oranlarını iyileştirmek için FAQ bölümleri ve how-to rehberleri oluşturun.`
         : `Only ${Math.round((aiStyleQueryCount / totalQueryCount) * 100)}% of ranking queries are AI-style. Create FAQ sections and how-to guides to improve AI citation rates.`,
       priority: "high",
       effort: "High",
@@ -320,9 +320,9 @@ export async function GET(request: NextRequest) {
   }
   if (strongestGeoTopic && strongestGeoTopic.coverageStrength === "Weak") {
     top3Priorities.push({
-      title: language === "tr" ? `"${strongestGeoTopic.topic}" icin otorite insa et` : `Build authority for "${strongestGeoTopic.topic}"`,
+      title: language === "tr" ? `"${strongestGeoTopic.topic}" için otorite inşa et` : `Build authority for "${strongestGeoTopic.topic}"`,
       description: language === "tr"
-        ? `En guclu GEO konunuzun kapsami hala zayif. Bir content cluster veya hub page ${strongestGeoTopic.impressions.toLocaleString()} impression acabilir.`
+        ? `En güçlü GEO konunuzun kapsamı hala zayıf. Bir content cluster veya hub page ${strongestGeoTopic.impressions.toLocaleString()} impression acabilir.`
         : `Your strongest GEO topic has only weak coverage. A content cluster or hub page could unlock ${strongestGeoTopic.impressions.toLocaleString()} impressions.`,
       priority: "medium",
       effort: "High",
@@ -331,9 +331,9 @@ export async function GET(request: NextRequest) {
   }
   if (top3Priorities.length < 3 && aiSessions === 0) {
     top3Priorities.push({
-      title: language === "tr" ? "Ilk AI motoru ziyaretcilerinizi cekin" : "Attract your first AI-engine visitors",
+      title: language === "tr" ? "İlk AI motoru ziyaretçilerinizi çekin" : "Attract your first AI-engine visitors",
       description: language === "tr"
-        ? "Henuz AI-source trafik tespit edilmedi. En iyi sayfalarinizda structured FAQ content, schema markup ve direct-answer format ile baslayin."
+        ? "Henüz AI-source trafik tespit edilmedi. En iyi sayfalarınızda structured FAQ content, schema markup ve direct-answer format ile başlayın."
         : "No AI-source traffic detected yet. Start with structured FAQ content, schema markup, and direct-answer formatting on your top pages.",
       priority: "high",
       effort: "Medium",
@@ -342,9 +342,9 @@ export async function GET(request: NextRequest) {
   }
   if (top3Priorities.length < 3 && totalQueryCount > 0) {
     top3Priorities.push({
-      title: language === "tr" ? "Ust siradaki sayfalara FAQ schema ekle" : "Add FAQ schema to top-ranking pages",
+      title: language === "tr" ? "Üst siradaki sayfalara FAQ schema ekle" : "Add FAQ schema to top-ranking pages",
       description: language === "tr"
-        ? "AI motorlari yanit uretmek icin Q&A ciftlerini ceker. En iyi bilgilendirici sayfalariniza FAQ schema eklemek citation sikligini artirir."
+        ? "AI motorları yanıt üretmek için Q&A çiftlerini çeker. En iyi bilgilendirici sayfalarınıza FAQ schema eklemek citation sıklığını artırır."
         : "AI engines extract Q&A pairs to generate answers. Adding FAQ schema to your top informational pages increases citation frequency.",
       priority: "medium",
       effort: "Low",

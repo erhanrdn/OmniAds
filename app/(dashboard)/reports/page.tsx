@@ -113,18 +113,18 @@ export default function ReportsPage() {
             </p>
             <h1 className="text-4xl font-semibold tracking-tight text-slate-950">
               {language === "tr"
-                ? `${business?.name ?? "bu is"} icin tek tikla raporlar olusturun`
+                ? `${business?.name ?? "bu iş"} için tek tıkla raporlar oluşturun`
                 : `Build one-click reports for ${business?.name ?? "this business"}`}
             </h1>
             <p className="text-sm leading-6 text-slate-600">
               {language === "tr"
-                ? "Her is altinda tekrar kullanilabilir rapor formatlari kaydedin, bir template ile baslayin, sonra ciktiyi public link olarak paylasin veya tablo widget'larini CSV olarak disa aktarın."
+                ? "Her iş altında tekrar kullanılabilir rapor formatları kaydedin, bir template ile başlayın, sonra çıktıyı public link olarak paylaşın veya tablo widget'larını CSV olarak dışa aktarın."
                 : "Save reusable report formats under each business, start from a template, then share the final output as a public link or export table widgets as CSV."}
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
             <Button asChild size="lg">
-              <Link href="/reports/new">{language === "tr" ? "Bos Rapor Olustur" : "Create Blank Report"}</Link>
+              <Link href="/reports/new">{language === "tr" ? "Boş Rapor Oluştur" : "Create Blank Report"}</Link>
             </Button>
           </div>
         </div>
@@ -153,22 +153,22 @@ export default function ReportsPage() {
               onChange={(event) => setSortMode(event.target.value as "recent" | "name")}
               className="rounded-xl border px-3 py-2 text-sm"
             >
-              <option value="recent">{language === "tr" ? "Sirala: Son guncellenen" : "Sort: Recently updated"}</option>
+              <option value="recent">{language === "tr" ? "Sirala: Son güncellenen" : "Sort: Recently updated"}</option>
               <option value="name">{language === "tr" ? "Sirala: Ad" : "Sort: Name"}</option>
             </select>
           </div>
 
           {reportsQuery.isLoading ? (
             <div className="mt-6 rounded-2xl border border-dashed p-10 text-sm text-muted-foreground">
-              {language === "tr" ? "Kayitli raporlar yukleniyor..." : "Loading saved reports..."}
+              {language === "tr" ? "Kayitli raporlar yükleniyor..." : "Loading saved reports..."}
             </div>
           ) : reportsQuery.error ? (
             <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">
-              {reportsQuery.error instanceof Error ? reportsQuery.error.message : language === "tr" ? "Raporlar yuklenemedi." : "Failed to load reports."}
+              {reportsQuery.error instanceof Error ? reportsQuery.error.message : language === "tr" ? "Raporlar yüklenemedi." : "Failed to load reports."}
             </div>
           ) : reports.length === 0 ? (
             <div className="mt-6 rounded-2xl border border-dashed p-10 text-sm text-muted-foreground">
-              {language === "tr" ? "Henuz kayitli rapor yok. Bir template ile baslayin veya bos bir rapor olusturun." : "No saved reports yet. Start from a template or create a blank report."}
+              {language === "tr" ? "Henüz kayıtlı rapor yok. Bir template ile başlayın veya boş bir rapor oluşturun." : "No saved reports yet. Start from a template or create a blank report."}
             </div>
           ) : filteredReports.length === 0 ? (
             <div className="mt-6 rounded-2xl border border-dashed p-10 text-sm text-muted-foreground">
@@ -185,10 +185,10 @@ export default function ReportsPage() {
                     <Link href={`/reports/${report.id}`} className="block">
                       <h3 className="text-base font-semibold text-slate-950">{report.name}</h3>
                       <p className="mt-1 text-sm text-slate-500">
-                        {report.description || (language === "tr" ? "Henuz aciklama yok." : "No description yet.")}
+                        {report.description || (language === "tr" ? "Henüz açıklama yok." : "No description yet.")}
                       </p>
                       <p className="mt-3 text-xs text-slate-400">
-                        {language === "tr" ? "Guncellendi" : "Updated"} {new Date(report.updatedAt).toLocaleString()}
+                        {language === "tr" ? "Güncellendi" : "Updated"} {new Date(report.updatedAt).toLocaleString()}
                       </p>
                     </Link>
                     <Link href={`/reports/${report.id}`} className="block">
@@ -201,7 +201,7 @@ export default function ReportsPage() {
                     </span>
                     <div className="flex flex-wrap gap-2">
                       <Button asChild variant="outline" size="sm">
-                        <Link href={`/reports/${report.id}`}>{language === "tr" ? "Duzenle" : "Edit"}</Link>
+                        <Link href={`/reports/${report.id}`}>{language === "tr" ? "Düzenle" : "Edit"}</Link>
                       </Button>
                       <Button
                         variant="outline"
@@ -231,7 +231,7 @@ export default function ReportsPage() {
           <div>
             <h2 className="text-xl font-semibold">{language === "tr" ? "Template Galerisi" : "Template Gallery"}</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              {language === "tr" ? "Tek tikla bir yapiyla baslayin, sonra her widget ve slot'u ozellestirin." : "Start with a one-click structure, then customize every widget and slot."}
+              {language === "tr" ? "Tek tıkla bir yapıyla başlayın, sonra her widget ve slot'u özelleştirin." : "Start with a one-click structure, then customize every widget and slot."}
             </p>
           </div>
           <div className="mt-6 grid gap-4 md:grid-cols-2">

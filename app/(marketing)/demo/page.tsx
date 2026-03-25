@@ -84,11 +84,11 @@ async function DemoPageContent({
               {language === "tr" ? "Canli demo workspace" : "Live demo workspace"}
             </div>
             <h1 className="text-4xl sm:text-5xl font-bold tracking-tight text-foreground leading-[1.1] mb-6">
-              {language === "tr" ? "Adsecute'i gercek gorunumlu verilerle gorun." : "See Adsecute with real-looking data."}
+              {language === "tr" ? "Adsecute'i gerçek görünümlü verilerle görün." : "See Adsecute with real-looking data."}
             </h1>
             <p className="text-lg text-muted-foreground leading-relaxed mb-8">
               {language === "tr"
-                ? "Adsecute demo workspace'i, outdoor sirt cantalari ve seyahat ekipmanlari satan bir Shopify markasi olan UrbanTrail'in gercekci ecommerce verileriyle dolu. Her modul, her icgoru ve her AI onerisi hazir durumda."
+                ? "Adsecute demo workspace'i, outdoor sirt cantalari ve seyahat ekipmanlari satan bir Shopify markasi olan UrbanTrail'in gerçekci ecommerce verileriyle dolu. Her modul, her icgoru ve her AI önerisi hazir durumda."
                 : "The Adsecute demo workspace is loaded with realistic ecommerce data from UrbanTrail — a Shopify brand selling outdoor backpacks and travel gear. Every module, every insight, every AI recommendation is populated and ready to explore."}
             </p>
             <div className="flex flex-col sm:flex-row gap-3">
@@ -103,11 +103,11 @@ async function DemoPageContent({
                 href="/login"
                 className="inline-flex items-center justify-center rounded-lg border border-border px-6 py-3 text-sm font-medium text-foreground hover:bg-muted transition-colors"
               >
-                {language === "tr" ? "Hesabini olustur" : "Create your account"}
+                {language === "tr" ? "Hesabini oluştur" : "Create your account"}
               </Link>
             </div>
             <p className="mt-4 text-xs text-muted-foreground">
-              {language === "tr" ? "Kesfe baslamak icin giris yapin ve Adsecute Demo workspace'ini secin." : "Log in and select the Adsecute Demo workspace to start exploring."}
+              {language === "tr" ? "Keşfe başlamak için giriş yapın ve Adsecute Demo workspace'ini seçin." : "Log in and select the Adsecute Demo workspace to start exploring."}
             </p>
           </div>
         </div>

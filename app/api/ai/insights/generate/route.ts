@@ -21,7 +21,11 @@ export async function POST(request: NextRequest) {
       {
         ok: false,
         error: "ai_generation_failed",
-        message: result.error ?? "AI generation failed. Please try again.",
+        message:
+          result.error ??
+          (locale === "tr"
+            ? "AI içeriği oluşturulamadi. Lütfen tekrar deneyin."
+            : "AI generation failed. Please try again."),
       },
       { status: 500 }
     );
@@ -32,7 +36,11 @@ export async function POST(request: NextRequest) {
       {
         ok: false,
         error: "ai_generation_skipped",
-        message: result.error ?? "No data available to generate AI brief.",
+        message:
+          result.error ??
+          (locale === "tr"
+            ? "AI brief oluşturmak için yeterli veri yok."
+            : "No data available to generate AI brief."),
       },
       { status: 409 }
     );

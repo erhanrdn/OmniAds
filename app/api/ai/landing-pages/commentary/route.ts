@@ -5,7 +5,12 @@ import {
   buildLandingPageAiFallback,
   LANDING_PAGE_FUNNEL_LABELS,
 } from "@/lib/landing-pages/performance";
-import { getAiNarrativeLanguage, getNonTranslatableTermsInstruction, type AppLanguage } from "@/lib/i18n";
+import {
+  getAiNarrativeLanguage,
+  getNativeNarrativeStyleInstruction,
+  getNonTranslatableTermsInstruction,
+  type AppLanguage,
+} from "@/lib/i18n";
 import { resolveRequestLanguage } from "@/lib/request-language";
 import type {
   LandingPageAiCommentary,
@@ -71,6 +76,7 @@ Rules:
 - Avoid generic CRO filler. Recommendations should map to the reported weak point.
 - Keep the tone concise, professional, and useful for ecommerce operators and stakeholders.
 - Write all narrative strings in ${getAiNarrativeLanguage(language)}.
+- ${getNativeNarrativeStyleInstruction(language)}
 - ${getNonTranslatableTermsInstruction(language)}
 - Return ONLY valid JSON matching the requested schema.`;
 }
@@ -150,16 +156,16 @@ function parseJson(content: string): unknown {
 function sanitizeErrorMessage(input: string, language: AppLanguage): string {
   const normalized = input.toLowerCase();
   if (normalized.includes("api key") && normalized.includes("not set")) {
-    return language === "tr" ? "AI servisi yapilandirilmamis." : "AI service is not configured.";
+    return language === "tr" ? "AI servisi yapılandırılmamış." : "AI service is not configured.";
   }
   if (normalized.includes("invalid_api_key") || normalized.includes("incorrect api key")) {
-    return language === "tr" ? "AI servis kimlik bilgileri gecersiz." : "AI service credentials are invalid.";
+    return language === "tr" ? "AI servis kimlik bilgileri geçersiz." : "AI service credentials are invalid.";
   }
   if (normalized.includes("rate limit") || normalized.includes("quota")) {
-    return language === "tr" ? "AI servisi gecici olarak oran sinirina takildi." : "AI service is temporarily rate limited.";
+    return language === "tr" ? "AI servisi geçici olarak oran sınırına takıldı." : "AI service is temporarily rate limited.";
   }
   return language === "tr"
-    ? "AI yorum uretimi basarisiz oldu. Kural tabanli analiz gosteriliyor."
+    ? "AI yorum üretimi başarısız oldu. Kural tabanlı analiz gösteriliyor."
     : "AI commentary generation failed. Showing rule-based analysis.";
 }
 
@@ -267,6 +273,7 @@ function buildUserPrompt(
       "Recommendations should be framed as UX fixes, IA fixes, clarity improvements, or handoff improvements.",
       "Call out when tracking confidence is weak or when analytics may be misleading.",
       `Write all narrative content in ${getAiNarrativeLanguage(language)}.`,
+      getNativeNarrativeStyleInstruction(language),
       getNonTranslatableTermsInstruction(language),
     ],
     outputSchema: {
@@ -325,7 +332,10 @@ export async function POST(request: NextRequest) {
       {
         ok: false,
         error: "invalid_report",
-        message: "A valid landing page AI and rule report payload is required.",
+        message:
+          language === "tr"
+            ? "Gecerli bir landing page AI raporu ve rule report payload'i gerekli."
+            : "A valid landing page AI and rule report payload is required.",
       },
       { status: 400 }
     );

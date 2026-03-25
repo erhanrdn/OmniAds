@@ -157,24 +157,24 @@ export async function GET(request: NextRequest) {
 
     // Strongest signal
     let strongestSignal: string;
-    if (momentum.status === "breakout") strongestSignal = language === "tr" ? "Patlayan buyume" : "Breakout growth";
-    else if (purchaseCvr >= 0.03) strongestSignal = language === "tr" ? "Guclu AI CVR" : "Strong AI CVR";
-    else if (engagementRate >= 0.7) strongestSignal = language === "tr" ? "Yuksek engagement" : "High engagement";
-    else if (aiSessions >= 50) strongestSignal = language === "tr" ? "Yuksek AI trafigi" : "High AI traffic";
-    else strongestSignal = language === "tr" ? "Yukselen AI sayfasi" : "Emerging AI page";
+    if (momentum.status === "breakout") strongestSignal = language === "tr" ? "Patlayan büyüme" : "Breakout growth";
+    else if (purchaseCvr >= 0.03) strongestSignal = language === "tr" ? "Güçlü AI CVR" : "Strong AI CVR";
+    else if (engagementRate >= 0.7) strongestSignal = language === "tr" ? "Yüksek engagement" : "High engagement";
+    else if (aiSessions >= 50) strongestSignal = language === "tr" ? "Yüksek AI trafiği" : "High AI traffic";
+    else strongestSignal = language === "tr" ? "Yukselen AI sayfası" : "Emerging AI page";
 
     // Recommendation — more targeted with readiness + value context
     let recommendation: string | null = null;
     if (readinessScored.score < 30 && aiSessions > 10)
-      recommendation = language === "tr" ? "Hazirlik dusuk — FAQ / answer-first yapi ekleyin" : "Low readiness — add FAQ / answer-first structure";
+      recommendation = language === "tr" ? "Hazirlik düşük — FAQ / answer-first yapı ekleyin" : "Low readiness — add FAQ / answer-first structure";
     else if (engagementRate < 0.4 && aiSessions > 20)
-      recommendation = language === "tr" ? "Engagement zayif — answer intent icin yeniden yapilandirin" : "Poor engagement — restructure for answer intent";
+      recommendation = language === "tr" ? "Engagement zayıf — answer intent için yeniden yapılandırın" : "Poor engagement — restructure for answer intent";
     else if (purchaseCvr < 0.01 && aiSessions > 30)
-      recommendation = language === "tr" ? "Conversion dusuk — ticari CTA'lar veya comparison table ekleyin" : "Low conversion — add commercial CTAs or comparison table";
+      recommendation = language === "tr" ? "Conversion düşük — ticari CTA'lar veya comparison table ekleyin" : "Low conversion — add commercial CTAs or comparison table";
     else if (valueScored.label === "elite" || valueScored.label === "strong")
-      recommendation = language === "tr" ? "Yuksek degerli AI kanali — icerik stratejisini burada olcekle" : "High-value AI channel — scale content strategy here";
+      recommendation = language === "tr" ? "Yüksek degerli AI kanali — içerik stratejisini burada ölçekle" : "High-value AI channel — scale content strategy here";
     else if (engagementRate >= 0.7)
-      recommendation = language === "tr" ? "Guclu engagement — konu derinligini genislet" : "Strong engagement — expand topic depth";
+      recommendation = language === "tr" ? "Güçlü engagement — konu derinligini genişlet" : "Strong engagement — expand topic depth";
 
     return {
       path,

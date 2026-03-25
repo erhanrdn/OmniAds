@@ -3,6 +3,7 @@ import { requireBusinessAccess } from "@/lib/access";
 import { getOpenAI } from "@/lib/openai";
 import {
   getAiNarrativeLanguage,
+  getNativeNarrativeStyleInstruction,
   getNonTranslatableTermsInstruction,
   type AppLanguage,
 } from "@/lib/i18n";
@@ -48,6 +49,7 @@ Rules:
 - Do not invent new metrics, thresholds, or hidden data.
 - Keep language concise and operator-friendly.
 - Write all narrative strings in ${getAiNarrativeLanguage(language)}.
+- ${getNativeNarrativeStyleInstruction(language)}
 - ${getNonTranslatableTermsInstruction(language)}
 - If confidence is low, explicitly mention uncertainty and suggest validation steps.
 - Return ONLY valid JSON matching the required schema.`;
@@ -57,41 +59,41 @@ function sanitizeErrorMessage(input: string, language: AppLanguage): string {
   const normalized = input.toLowerCase();
   if (normalized.includes("unsupported_parameter")) {
     return language === "tr"
-      ? "AI servisi bu model/hesap icin bir istek parametresini reddetti."
+      ? "AI servisi bu model/hesap için bir istek parametresini reddetti."
       : "AI service rejected one request parameter for this model/account.";
   }
   if (normalized.includes("api key") && normalized.includes("not set")) {
     return language === "tr"
-      ? "AI servisi yapilandirilmamis (API key eksik)."
+      ? "AI servisi yapılandırılmamış (API key eksik)."
       : "AI service is not configured (missing API key).";
   }
   if (normalized.includes("incorrect api key") || normalized.includes("invalid_api_key")) {
     return language === "tr"
-      ? "AI servisi dogru yapilandirilmamis (gecersiz API key)."
+      ? "AI servisi doğru yapılandırılmamış (geçersiz API key)."
       : "AI service is not configured correctly (invalid API key).";
   }
   if (normalized.includes("rate limit") || normalized.includes("quota")) {
     return language === "tr"
-      ? "AI servisi gecici olarak oran sinirina takildi. Lutfen kisa sure sonra tekrar deneyin."
+      ? "AI servisi gecici olarak oran sinirina takildi. Lütfen kisa sure sonra tekrar deneyin."
       : "AI service is temporarily rate limited. Please try again shortly.";
   }
   if (normalized.includes("model") && normalized.includes("not")) {
     return language === "tr"
-      ? "Yapilandirilan AI modeli bu API key/hesap icin kullanilabilir degil."
+      ? "Yapilandirilan AI modeli bu API key/hesap için kullanilabilir degil."
       : "Configured AI model is not available for this API key/account.";
   }
   if (normalized.includes("unauthorized") || normalized.includes("authentication")) {
     return language === "tr"
-      ? "Yapilandirilan API key icin AI servis kimlik dogrulamasi basarisiz oldu."
+      ? "Yapilandirilan API key için AI servis kimlik doğrulamasi başarısız oldu."
       : "AI service authentication failed for the configured API key.";
   }
   if (normalized.includes("timeout") || normalized.includes("timed out")) {
     return language === "tr"
-      ? "AI servisinde yorum uretilirken zaman asimi olustu."
+      ? "AI servisinde yorum uretilirken zaman asimi olüstu."
       : "AI service timed out while generating commentary.";
   }
   return language === "tr"
-    ? "AI yorum uretimi basarisiz oldu. Kural tabanli ozet gosteriliyor."
+    ? "AI yorum üretimi başarısız oldu. Kural tabanli özet gösteriliyor."
     : "AI commentary generation failed. Showing rule-based summary.";
 }
 
@@ -192,7 +194,7 @@ function buildFallbackCommentary(report: CreativeRuleReportPayload, language: Ap
     report.summary.trim().length > 0
       ? report.summary.trim()
       : language === "tr"
-        ? `Rule engine bu creative icin ${report.score}/100 skor ve %${Math.round(report.confidence * 100)} guven hesaplandi.`
+        ? `Rule engine bu creative için ${report.score}/100 skor ve %${Math.round(report.confidence * 100)} güven hesapladı.`
         : `Rule engine scored this creative ${report.score}/100 with ${Math.round(report.confidence * 100)}% confidence.`;
 
   return {
@@ -221,25 +223,25 @@ function buildFallbackCommentary(report: CreativeRuleReportPayload, language: Ap
       report.action === "scale_hard"
         ? [
             language === "tr"
-              ? "Butceyi kontrollu adimlarla artirin ve ROAS sapmasini gunluk izleyin."
+              ? "Butceyi kontrollü adimlarla artirin ve ROAS sapmasini gunluk izleyin."
               : "Increase budget in controlled steps and monitor ROAS drift daily.",
             language === "tr"
-              ? "Bu konsepti benzer kitlelere guardrail ile kopyalayin."
+              ? "Bu konsepti benzer kitlelere taşıyın ama ROAS ve CPA için net sınırlar koyun."
               : "Duplicate this concept to adjacent audiences with guardrails.",
           ]
         : report.action === "scale"
           ? [
               language === "tr"
-                ? "72 saat boyunca CPA stabilitesini dogrulayarak kademeli buyutun."
+                ? "72 saat boyunca CPA stabilitesini doğrulayarak kademeli buyutun."
                 : "Scale gradually while validating CPA stability over 72 hours.",
               language === "tr"
-                ? "Yorulmaya karsi bir challenger testi canli tutun."
+                ? "Yorulmaya karsi alternatif bir test creative'ini canli tutun."
                 : "Keep one challenger test live to protect against fatigue.",
             ]
           : report.action === "pause" || report.action === "kill"
             ? [
                 language === "tr"
-                  ? "Artan harcamayi durdurun ve butceyi en iyi performans gosterenlere yonlendirin."
+                  ? "Artan harcamayı durdürün ve butceyi en iyi performans gösterenlere yonlendirin."
                   : "Stop incremental spend and redirect budget to top performers.",
                 language === "tr"
                   ? "Anlamli olcude farkli bir aciyla yeni bir konsept yayinlayin."
@@ -247,10 +249,10 @@ function buildFallbackCommentary(report: CreativeRuleReportPayload, language: Ap
               ]
             : [
                 language === "tr"
-                  ? "Guven artana kadar harcamayi kontrollu tutun."
+                  ? "Güven artana kadar harcamayı kontrollü tutun."
                   : "Keep spend controlled until confidence improves.",
                 language === "tr"
-                  ? "Ek donusum hacmi geldikten sonra yeniden degerlendirin."
+                  ? "Ek dönüşum hacmi geldikten sonra yeniden degerlendirin."
                   : "Re-evaluate after additional conversion volume.",
               ],
   };
@@ -271,6 +273,7 @@ function buildUserPrompt(report: CreativeRuleReportPayload, currency: string, la
       "Do not repeat identical points across sections.",
       "Make nextActions concrete and operational.",
       `Write all narrative content in ${getAiNarrativeLanguage(language)}.`,
+      getNativeNarrativeStyleInstruction(language),
       getNonTranslatableTermsInstruction(language),
     ],
     currency,
@@ -317,7 +320,10 @@ export async function POST(request: NextRequest) {
       {
         ok: false,
         error: "invalid_report",
-        message: "A valid rule report payload is required.",
+        message:
+          language === "tr"
+            ? "Gecerli bir creative rule report payload'i gerekli."
+            : "A valid rule report payload is required.",
       },
       { status: 400 }
     );

@@ -1,5 +1,10 @@
 import { getOpenAI } from "@/lib/openai";
-import { getAiNarrativeLanguage, getNonTranslatableTermsInstruction, type AppLanguage } from "@/lib/i18n";
+import {
+  getAiNarrativeLanguage,
+  getNativeNarrativeStyleInstruction,
+  getNonTranslatableTermsInstruction,
+  type AppLanguage,
+} from "@/lib/i18n";
 
 const AI_MODEL = "gpt-5-nano";
 
@@ -43,7 +48,8 @@ export interface AiDailyInsight {
   recommendations: string[];
 }
 
-const SYSTEM_PROMPT = `You are an advertising performance analyst for a multi-channel marketing platform.
+function getSystemPrompt(language: AppLanguage) {
+  return `You are an advertising performance analyst for a multi-channel marketing platform.
 Your job is to analyze structured marketing metrics and return actionable insights.
 
 Rules:
@@ -52,6 +58,9 @@ Rules:
 - Keep each string under 200 characters.
 - Be specific and reference actual numbers from the data.
 - Provide 1-3 items per array.
+- Write all narrative output in ${getAiNarrativeLanguage(language)}.
+- ${getNativeNarrativeStyleInstruction(language)}
+- ${getNonTranslatableTermsInstruction(language)}
 
 Required JSON schema:
 {
@@ -60,6 +69,7 @@ Required JSON schema:
   "opportunities": ["opp1", "opp2"],
   "recommendations": ["rec1", "rec2"]
 }`;
+}
 
 function buildUserPrompt(metrics: BusinessMetricsSummary, language: AppLanguage): string {
   const parts = [
@@ -67,6 +77,7 @@ function buildUserPrompt(metrics: BusinessMetricsSummary, language: AppLanguage)
     `Date: ${metrics.date}`,
     `Currency: ${metrics.currency}`,
     `Narrative language: ${getAiNarrativeLanguage(language)}`,
+    getNativeNarrativeStyleInstruction(language),
     getNonTranslatableTermsInstruction(language),
     "",
     "=== Overall Metrics ===",
@@ -135,7 +146,7 @@ export async function generateDailyInsights(
     max_tokens: 1024,
     response_format: { type: "json_object" },
     messages: [
-      { role: "system", content: SYSTEM_PROMPT },
+      { role: "system", content: getSystemPrompt(language) },
       { role: "user", content: buildUserPrompt(metrics, language) },
     ],
   });

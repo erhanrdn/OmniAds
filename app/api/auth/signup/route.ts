@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
   if (password.length < 8) {
     logServerAuthEvent("signup_rejected_weak_password", { email });
     return NextResponse.json(
-      { error: "weak_password", message: tr("Password must be at least 8 characters.", "Sifre en az 8 karakter olmali.") },
+      { error: "weak_password", message: tr("Password müst be at least 8 characters.", "Sifre en az 8 karakter olmali.") },
       { status: 400 }
     );
   }
@@ -58,14 +58,14 @@ export async function POST(request: NextRequest) {
     if (!validatedInvite || validatedInvite.status !== "pending") {
       logServerAuthEvent("signup_rejected_invite_invalid", { email, inviteTokenPresent: true });
       return NextResponse.json(
-        { error: "invite_invalid", message: tr("Invite link is invalid or expired.", "Davet linki gecersiz veya suresi dolmus.") },
+        { error: "invite_invalid", message: tr("Invite link is invalid or expired.", "Davet linki geçersiz veya süresi dolmuş.") },
         { status: 400 }
       );
     }
     if (validatedInvite.email.toLowerCase() !== email) {
       logServerAuthEvent("signup_rejected_invite_email_mismatch", { email });
       return NextResponse.json(
-        { error: "invite_email_mismatch", message: tr("Signup email must match invite email.", "Kayit email'i davet email'i ile eslesmelidir.") },
+        { error: "invite_email_mismatch", message: tr("Signup email müst match invite email.", "Kayit email'i davet email'i ile eslesmelidir.") },
         { status: 403 }
       );
     }

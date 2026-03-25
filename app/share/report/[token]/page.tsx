@@ -23,9 +23,9 @@ export default async function ShareReportPage({
     return (
       <main className="flex min-h-screen items-center justify-center bg-background px-6">
         <div className="w-full max-w-md rounded-2xl border bg-card p-6 text-center shadow-sm">
-          <h1 className="text-lg font-semibold">{language === "tr" ? "Paylasim linki bulunamadi veya suresi doldu" : "Share link not found or expired"}</h1>
+          <h1 className="text-lg font-semibold">{language === "tr" ? "Paylaşim linki bulunamadi veya süresi doldu" : "Share link not found or expired"}</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            {language === "tr" ? "Bu paylasilan raporun suresi dolmus olabilir veya URL gecersiz olabilir." : "This shared report may have expired or the URL is invalid."}
+            {language === "tr" ? "Bu paylaşilan raporun süresi dolmuş olabilir veya URL geçersiz olabilir." : "This shared report may have expired or the URL is invalid."}
           </p>
           <Link
             href="/"
@@ -45,7 +45,7 @@ export default async function ShareReportPage({
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="max-w-3xl">
               <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                {language === "tr" ? "Paylasilan Rapor" : "Shared Report"}
+                {language === "tr" ? "Paylaşilan Rapor" : "Shared Report"}
               </p>
               <h1 className="mt-2 text-3xl font-semibold tracking-tight">{payload.name}</h1>
               {payload.description ? (
@@ -61,7 +61,7 @@ export default async function ShareReportPage({
               </div>
               <div>
                 <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
-                  {language === "tr" ? "Olusturulma" : "Generated"}
+                  {language === "tr" ? "Oluşturulma" : "Generated"}
                 </div>
                 <div className="mt-1 font-medium text-slate-900">
                   {new Date(payload.generatedAt).toLocaleString()}
@@ -81,13 +81,13 @@ export default async function ShareReportPage({
 
         <div className="rounded-[32px] border border-dashed bg-white/70 px-6 py-4 text-sm text-slate-600 shadow-sm">
           {language === "tr"
-            ? "Bu, Adsecute tarafindan olusturulmus bir paylasim goruntusudur. Suresi dolmadan once linki acarak olusturulan rapor duzenini inceleyebilirsiniz."
+            ? "Bu, Adsecute tarafindan oluşturulmuş bir paylaşım görüntüsüdür. Süresi dolmadan önce linki açarak oluşturulan rapor düzenini inceleyebilirsiniz."
             : "This is a captured share snapshot from Adsecute. Open the link anytime before it expires to review the generated report layout."}
         </div>
 
         <div className="rounded-[32px] border bg-white/80 p-5 shadow-sm backdrop-blur">
           <p className="mb-4 text-xs uppercase tracking-[0.18em] text-slate-400">
-            {language === "tr" ? "Paylasilan Rapor" : "Shared Report"}
+            {language === "tr" ? "Paylaşilan Rapor" : "Shared Report"}
           </p>
           <ReportCanvas report={payload} />
         </div>

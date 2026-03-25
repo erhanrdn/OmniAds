@@ -808,18 +808,18 @@ function computeSearchTermWaste(terms: any[], language: AppLanguage): Recommenda
 
   return {
     id: "rec-search-waste",
-    title: tr(language, "Search term waste opportunity", "Search term israf firsati"),
+    title: tr(language, "Search term waste opportunity", "Search term bos harcama firsati"),
     description: tr(
       language,
       "Identify high-spend search terms with no conversions to exclude",
-      "Conversion getirmeyen yuksek spend'li search term'leri dislamak icin tespit edin"
+      "Conversion getirmeyen yüksek harcamali search term'leri dislamak için belirleyin"
     ),
     impact: "High",
     summary: [
       tr(
         language,
         `${wastefulTerms.length} search terms consumed $${wasteCost.toFixed(0)} with zero conversions.`,
-        `${wastefulTerms.length} search term, conversion olmadan $${wasteCost.toFixed(0)} spend tuketti.`
+        `${wastefulTerms.length} search term, conversion getirmeden $${wasteCost.toFixed(0)} harcadi.`
       ),
       tr(
         language,
@@ -829,16 +829,16 @@ function computeSearchTermWaste(terms: any[], language: AppLanguage): Recommenda
       tr(
         language,
         "Adding negative keywords can immediately improve efficiency.",
-        "Negative keyword eklemek verimliligi hizla iyilestirebilir."
+        "Negative keyword eklemek verimliligi hizla iyileştirebilir."
       ),
     ],
     evidence: [
       {
-        label: tr(language, "Waste terms found", "Bulunan israf term sayisi"),
+        label: tr(language, "Waste terms found", "Bulunan bos harcama term sayisi"),
         value: String(wastefulTerms.length),
       },
-      { label: tr(language, "Waste spend", "Israf spend"), value: `$${wasteCost.toFixed(0)}` },
-      { label: tr(language, "% of total spend", "Toplam spend payi"), value: `${wastePct}%` },
+      { label: tr(language, "Waste spend", "Bos harcama"), value: `$${wasteCost.toFixed(0)}` },
+      { label: tr(language, "% of total spend", "Toplam harcama payi"), value: `${wastePct}%` },
     ],
   };
 }
@@ -876,18 +876,18 @@ function computeSpendConcentration(campaigns: any[], language: AppLanguage): Rec
   const weakSpend = weakCampaigns.reduce((sum, campaign) => sum + campaign.cost, 0);
   return {
     id: "rec-concentration",
-    title: tr(language, "Spend concentration risk", "Spend yogunlasma riski"),
+    title: tr(language, "Spend concentration risk", "Harcama yoğunlasma riski"),
     description: tr(
       language,
       "Reallocate budget from underperforming campaigns to winners",
-      "Butceyi zayif kampanyalardan kazanan kampanyalara yeniden dagitin"
+      "Butceyi zayıf kampanyalardan kazanan kampanyalara yeniden dagitin"
     ),
     impact: "Med",
     summary: [
       tr(
         language,
         `${weakCampaigns.length} campaigns have ROAS below average but high spend share.`,
-        `${weakCampaigns.length} kampanya, ortalamanin altinda ROAS'a ragmen yuksek spend payi tasiyor.`
+        `${weakCampaigns.length} kampanya, ortalamanin altinda ROAS'a ragmen yüksek harcama payi tasiyor.`
       ),
       tr(
         language,
@@ -897,13 +897,13 @@ function computeSpendConcentration(campaigns: any[], language: AppLanguage): Rec
       tr(
         language,
         "Consider reallocating to top-performing campaigns.",
-        "Butceyi en iyi performans gosteren kampanyalara kaydirmayi degerlendirin."
+        "Butceyi en iyi performans gösteren kampanyalara kaydırmayi degerlendirin."
       ),
     ],
     evidence: [
-      { label: tr(language, "Weak campaigns", "Zayif kampanyalar"), value: String(weakCampaigns.length) },
+      { label: tr(language, "Weak campaigns", "Zayıf kampanyalar"), value: String(weakCampaigns.length) },
       { label: tr(language, "Account avg ROAS", "Hesap ort. ROAS"), value: avgRoas.toFixed(2) },
-      { label: tr(language, "Risk spend", "Riskli spend"), value: `$${weakSpend.toFixed(0)}` },
+      { label: tr(language, "Risk spend", "Riskli harcama"), value: `$${weakSpend.toFixed(0)}` },
     ],
   };
 }
@@ -927,7 +927,7 @@ function computeZeroConversionSpend(campaigns: any[], language: AppLanguage): Re
   const zeroSpend = zeroConvCampaigns.reduce((sum, campaign) => sum + campaign.cost, 0);
   return {
     id: "rec-zero-conv",
-    title: tr(language, "Zero-conversion spend", "Zero-conversion spend"),
+    title: tr(language, "Zero-conversion spend", "Conversion getirmeyen harcama"),
     description: tr(
       language,
       "Pause or optimize campaigns with no conversions",
@@ -938,23 +938,23 @@ function computeZeroConversionSpend(campaigns: any[], language: AppLanguage): Re
       tr(
         language,
         `${zeroConvCampaigns.length} campaigns have spent $${zeroSpend.toFixed(0)} with zero conversions.`,
-        `${zeroConvCampaigns.length} kampanya, hic conversion olmadan $${zeroSpend.toFixed(0)} spend yapti.`
+        `${zeroConvCampaigns.length} kampanya, hic conversion getirmeden $${zeroSpend.toFixed(0)} harcadi.`
       ),
       tr(
         language,
-        "These may need creative refresh, audience adjustments, or pausing.",
+        "These may need creative refresh, audience adjüstments, or pausing.",
         "Bu kampanyalar creative yenileme, audience ayari veya duraklatma gerektirebilir."
       ),
       tr(
         language,
         "Review targeting and bids to improve conversion probability.",
-        "Conversion olasiligini artirmak icin targeting ve bid ayarlarini gozden gecirin."
+        "Conversion olasılığını artirmak için targeting ve bid ayarlarini gözden gecirin."
       ),
     ],
     evidence: [
       { label: tr(language, "Campaigns at risk", "Riskli kampanyalar"), value: String(zeroConvCampaigns.length) },
-      { label: tr(language, "Spend with 0 conv", "0 conv ile spend"), value: `$${zeroSpend.toFixed(0)}` },
-      { label: tr(language, "Recommended action", "Onerilen aksiyon"), value: tr(language, "Optimize or pause", "Optimize et veya duraklat") },
+      { label: tr(language, "Spend with 0 conv", "0 conv ile harcama"), value: `$${zeroSpend.toFixed(0)}` },
+      { label: tr(language, "Recommended action", "Önerilen aksiyon"), value: tr(language, "Optimize or pause", "Optimize et veya duraklat") },
     ],
   };
 }
@@ -979,22 +979,22 @@ function computeAssetGaps(assets: any[], language: AppLanguage): Recommendation 
     description: tr(
       language,
       "Deploy new creatives to replace low-performing assets",
-      "Dusuk performansli asset'leri degistirmek icin yeni creative'ler yayinlayin"
+      "Düşük performanslı asset'leri değiştirmek için yeni creative'ler yayinlayin"
     ),
     impact: "Med",
     summary: [
-      tr(language, `${lowAssets.length} assets marked with low performance.`, `${lowAssets.length} asset dusuk performans etiketi almis durumda.`),
-      tr(language, `These assets have spent $${lowCost.toFixed(0)}.`, `Bu asset'ler toplam $${lowCost.toFixed(0)} spend yapti.`),
+      tr(language, `${lowAssets.length} assets marked with low performance.`, `${lowAssets.length} asset düşük performans etiketi almis durumda.`),
+      tr(language, `These assets have spent $${lowCost.toFixed(0)}.`, `Bu asset'ler toplam $${lowCost.toFixed(0)} harcadi.`),
       tr(
         language,
         "Test new headlines, images, or videos to improve engagement.",
-        "Engagement'i iyilestirmek icin yeni headline, image veya video testleri yapin."
+        "Engagement'i iyileştirmek için yeni headline, image veya video testleri yapin."
       ),
     ],
     evidence: [
-      { label: tr(language, "Low-performing assets", "Dusuk performansli asset'ler"), value: String(lowAssets.length) },
-      { label: tr(language, "Spend on low assets", "Dusuk asset spend'i"), value: `$${lowCost.toFixed(0)}` },
-      { label: tr(language, "Recommended action", "Onerilen aksiyon"), value: tr(language, "Refresh creatives", "Creative'leri yenile") },
+      { label: tr(language, "Low-performing assets", "Düşük performanslı asset'ler"), value: String(lowAssets.length) },
+      { label: tr(language, "Spend on low assets", "Düşük performanslı asset harcamasi"), value: `$${lowCost.toFixed(0)}` },
+      { label: tr(language, "Recommended action", "Önerilen aksiyon"), value: tr(language, "Refresh creatives", "Creative'leri yenile") },
     ],
   };
 }

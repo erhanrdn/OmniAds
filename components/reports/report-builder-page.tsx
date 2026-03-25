@@ -100,14 +100,14 @@ export function ReportBuilderPage({
     if (renderedQuery.isLoading) {
       return (
         <div className="rounded-3xl border bg-white p-8 text-sm text-muted-foreground animate-pulse">
-          {language === "tr" ? "Rapor yukleniyor..." : "Loading report..."}
+          {language === "tr" ? "Rapor yükleniyor..." : "Loading report..."}
         </div>
       );
     }
     if (renderedQuery.error || !renderedQuery.data) {
       return (
         <div className="rounded-3xl border border-red-200 bg-red-50 p-8 text-sm text-red-700">
-          {renderedQuery.error instanceof Error ? renderedQuery.error.message : language === "tr" ? "Rapor yuklenemedi." : "Failed to load report."}
+          {renderedQuery.error instanceof Error ? renderedQuery.error.message : language === "tr" ? "Rapor yüklenemedi." : "Failed to load report."}
         </div>
       );
     }
@@ -197,7 +197,7 @@ export function ReportBuilderPage({
                       className="flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-xs hover:bg-slate-50 disabled:opacity-60 transition"
                     >
                       <Link2 className="h-3.5 w-3.5 shrink-0" />
-                      {shareLoading ? (language === "tr" ? "Link olusturuluyor..." : "Generating link...") : language === "tr" ? "Link paylas" : "Share link"}
+                      {shareLoading ? (language === "tr" ? "Link oluşturuluyor..." : "Generating link...") : language === "tr" ? "Link paylaş" : "Share link"}
                     </button>
                     <button
                       type="button"
@@ -210,7 +210,7 @@ export function ReportBuilderPage({
                     </button>
                     {shareUrl && (
                       <div className="mt-2 rounded-lg border bg-slate-50 p-2">
-                        <p className="mb-1 text-[11px] text-slate-500">{language === "tr" ? "Paylasim linki hazir" : "Share link ready"}</p>
+                        <p className="mb-1 text-[11px] text-slate-500">{language === "tr" ? "Paylaşım linki hazır" : "Share link ready"}</p>
                         <div className="flex items-center gap-1.5">
                           <input
                             readOnly
@@ -236,7 +236,7 @@ export function ReportBuilderPage({
                 href={`/reports/${reportId}/edit`}
                 className="rounded-full bg-slate-900 px-4 py-1.5 text-xs font-medium text-white hover:bg-slate-700 transition"
               >
-                {language === "tr" ? "Duzenle" : "Edit"}
+                {language === "tr" ? "Düzenle" : "Edit"}
               </Link>
             </div>
           </div>
@@ -244,7 +244,7 @@ export function ReportBuilderPage({
         {/* Canvas */}
         <div className="mx-auto max-w-[1400px] px-6 py-8">
           {renderedQuery.isFetching ? (
-            <div className="flex items-center justify-center py-16 text-sm text-slate-400">{language === "tr" ? "Yukleniyor..." : "Loading..."}</div>
+            <div className="flex items-center justify-center py-16 text-sm text-slate-400">{language === "tr" ? "Yükleniyor..." : "Loading..."}</div>
           ) : (
             <ReportCanvas report={report} />
           )}
@@ -257,7 +257,7 @@ export function ReportBuilderPage({
   if (mode === "edit" && reportQuery.isLoading) {
     return (
       <div className="rounded-3xl border bg-white p-8 text-sm text-muted-foreground">
-        {language === "tr" ? "Rapor yukleniyor..." : "Loading report..."}
+        {language === "tr" ? "Rapor yükleniyor..." : "Loading report..."}
       </div>
     );
   }
@@ -265,7 +265,7 @@ export function ReportBuilderPage({
   if (mode === "edit" && reportQuery.error) {
     return (
       <div className="rounded-3xl border border-red-200 bg-red-50 p-8 text-sm text-red-700">
-        {reportQuery.error instanceof Error ? reportQuery.error.message : language === "tr" ? "Rapor yuklenemedi." : "Failed to load report."}
+        {reportQuery.error instanceof Error ? reportQuery.error.message : language === "tr" ? "Rapor yüklenemedi." : "Failed to load report."}
       </div>
     );
   }

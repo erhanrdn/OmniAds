@@ -31,8 +31,8 @@ export const LANDING_PAGE_FUNNEL_LABELS: Record<AppLanguage, Record<LandingPageF
   },
   tr: {
     sessions: "Oturumlar",
-    scroll: "Kaydirma",
-    view_item: "Urun goruntuleme",
+    scroll: "Kaydırma",
+    view_item: "Ürün goruntuleme",
     add_to_cart: "Sepete ekleme",
     begin_checkout: "Checkout baslangici",
     add_shipping_info: "Kargo bilgisi",
@@ -298,14 +298,14 @@ export function buildLandingPageAiFallback(
   const summary =
     handoffSummary
       ? language === "tr"
-        ? `${visibleTitle} giris sayfasi gorevini yerine getiriyor ve daha zayif donusum sinyali kullanicilar bu sayfadan ayrilip urun veya cart akislarina gectikten sonra ortaya cikiyor.`
+        ? `${visibleTitle} giriş sayfası görevini yerine getiriyor ve daha zayıf dönüşum sinyali kullanıcılar bu sayfadan ayrılip ürün veya cart akislarina gectikten sonra ortaya cikiyor.`
         : `${visibleTitle} is doing its main entry-page job, and the weaker conversion signal appears after visitors leave this page for downstream product or cart flows.`
       : report.biggestLeak
       ? language === "tr"
         ? `${visibleTitle} en fazla kullaniciyi ${biggestLeakLabel} arasinda kaybediyor.`
         : `${visibleTitle} loses the most users between ${biggestLeakLabel}.`
       : language === "tr"
-        ? `${visibleTitle} hunisi gorece dengeli ve tek bir yikici dusus noktasi yok.`
+        ? `${visibleTitle} hunisi görece dengeli ve tek bir yikici dusus noktasi yok.`
         : `${visibleTitle} has a relatively even funnel with no single catastrophic drop-off step.`;
 
   const insights = [
@@ -313,78 +313,78 @@ export function buildLandingPageAiFallback(
       ? visibleHeading && visibleHeading !== visibleTitle
         ? `The fetched page is framed around "${visibleHeading}", so the visible page promise is clearer than the downstream conversion signal suggests.`
         : language === "tr"
-          ? `Alinan sayfa net bir ${ruleReport?.archetype ?? "landing"} baglami sunuyor; bu da etkilesimin neden gorece saglikli kaldigini aciklamaya yardimci oluyor.`
+          ? `Alinan sayfa net bir ${ruleReport?.archetype ?? "landing"} baglami sunuyor; bu da etkilesimin neden görece sağlıklı kaldigini açıklamaya yardimci oluyor.`
           : `The fetched page presents a clear ${ruleReport?.archetype ?? "landing"} context, which helps explain why engagement stays relatively healthy.`
-      : report.strengths[0] ?? (language === "tr" ? "Trafik kalitesi ve asagi huni donusumu daha yakindan dogrulanmali." : "Traffic quality and downstream conversion need closer validation."),
+      : report.strengths[0] ?? (language === "tr" ? "Trafik kalitesi ve asagi huni dönüşumu daha yakindan doğrulanmali." : "Traffic quality and downstream conversion need closer validation."),
     visibleMeta
       ? language === "tr"
-        ? `Gorunen aciklamasi "${visibleMeta.slice(0, 110)}${visibleMeta.length > 110 ? "..." : ""}" uzerine kurulu; bunu gercek CTA yolu ve urun yolculuguyla karsilastirmak gerekir.`
+        ? `Gorunen açıklamasi "${visibleMeta.slice(0, 110)}${visibleMeta.length > 110 ? "..." : ""}" uzerine kurulu; bunu gerçek CTA yolu ve ürün yolculuguyla karşılastirmak gerekir.`
         : `Its visible description leans on "${visibleMeta.slice(0, 110)}${visibleMeta.length > 110 ? "..." : ""}", which is worth checking against the actual CTA path and product journey.`
-      : report.concerns[0] ?? (language === "tr" ? "Tek bir baskin sorun yok ancak hunide halen optimizasyon alani bulunuyor." : "No single concern dominates, but optimization headroom remains in the funnel."),
+      : report.concerns[0] ?? (language === "tr" ? "Tek bir baskın sorun yok ancak hunide hâlen optimizasyon alanı bulunuyor." : "No single concern dominates, but optimization headroom remains in the funnel."),
     handoffSummary
       ? language === "tr"
-        ? "Buradaki ana soru bu sayfanin kullanicilari dogru urun setine ve sonraki adima yonlendirip yonlendirmedigi; yoksa PDP veya cart gibi davranmasi gerekip gerekmedigi degil."
+        ? "Buradaki ana soru bu sayfanın kullanıcılari dogru ürün setine ve sonraki adima yonlendirip yonlendirmedigi; yoksa PDP veya cart gibi davranmasi gerekip gerekmedigi değil."
         : "The main question here is whether this page is sending users into the right product set and next step, not whether it should behave like a PDP or cart."
       : report.strongestStep
         ? language === "tr"
           ? `En net ileri hareket halen ${labels[report.strongestStep.from]} -> ${labels[report.strongestStep.to]} adiminda goruluyor.`
           : `The clearest forward motion still happens at ${labels[report.strongestStep.from]} -> ${labels[report.strongestStep.to]}.`
         : language === "tr"
-          ? "Asagi huni adimlarinin hicbiri net bir guc olarak one cikacak kadar hacme sahip degil."
+          ? "Asagi huni adimlarinin hicbiri net bir guc olarak one cikacak kadar hacme sahip değil."
           : "No downstream step has enough volume to call out as a clear strength.",
   ];
 
   const recommendations = [
     handoffSummary
       ? language === "tr"
-        ? "Sayfanin kendisini yeniden tasarlamadan once bu sayfanin ziyaretcileri hangi urun kartlarina, koleksiyon satirlarina veya sonraki tik hedeflerine yonlendirdigini inceleyin."
+        ? "Sayfanın kendisini yeniden tasarlamadan önce bu sayfanın ziyaretçileri hangi ürün kartlarına, koleksiyon satırlarına veya sonraki tık hedeflerine yönlendirdiğini inceleyin."
         : "Review which product tiles, collection rows, or next-click destinations this page pushes visitors into before redesigning the page itself."
       : report.biggestLeak
       ? language === "tr"
-        ? `Daha fazla trafik buyutmeden once duzeltmeleri ${biggestLeakLabel} etrafinda onceliklendirin.`
+        ? `Daha fazla trafik büyütmeden önce düzeltmeleri ${biggestLeakLabel} etrafında önceliklendirin.`
         : `Prioritize fixes around ${biggestLeakLabel} before scaling more traffic.`
       : language === "tr"
-        ? "Ilk ilerlemeyi iyilestirmek icin hero ve ilk CTA'nin daha yuksek niyetli varyasyonlarini test edin."
+        ? "Ilk ilerlemeyi iyileştirmek için hero ve ilk CTA'nin daha yüksek niyetli varyasyonlarini test edin."
         : "Test higher-intent variants of the hero and first CTA to improve initial progression.",
     fetchedContext
       ? language === "tr"
-        ? "Gorunen baslik, kategori cercevesi ve ilk ticari ipucunun bir sonraki tiklamayi kullaniciyi aratmadan acik hale getirip getirmedigini denetleyin."
+        ? "Gorunen başlık, kategori çerçevesi ve ilk ticari ipucunun bir sonraki tıklamayi kullaniciyi aratmadan açık hale getirip getirmedigini denetleyin."
         : "Audit whether the visible headline, category framing, and first commerce cue make the next click obvious without forcing users to hunt."
       : report.conversionRate >= 0.02
         ? language === "tr"
-          ? "Zaten donusen yapiyi copy ve layout degisikliklerini kademeli test ederek koruyun."
+          ? "Zaten dönüşen yapiyi copy ve layout değişikliklerini kademeli test ederek koruyun."
           : "Protect what is already converting by testing copy and layout changes incrementally."
         : language === "tr"
-          ? "Reklamlar, baslik, teklif cercevesi ve ilk CTA arasindaki mesaj uyumunu denetleyin."
+          ? "Reklamlar, başlık, teklif çerçevesi ve ilk CTA arasindaki mesaj uyumunu denetleyin."
           : "Audit message match between ads, headline, offer framing, and first CTA.",
     handoffSummary
       ? language === "tr"
-        ? "Bu sayfanin isaret ettiginden daha zayif merchandising, guven veya checkout ivmesi olup olmadigi icin hedef urun sayfalarini ve cart yolunu kontrol edin."
+        ? "Bu sayfanın işaret ettiğinden daha zayıf merchandising, güven veya checkout ivmesi olup olmadığını görmek için hedef ürün sayfalarını ve cart yolunu kontrol edin."
         : "Check the destination product pages and cart path for weaker merchandising, trust, or checkout momentum than this page suggests."
       : language === "tr"
-        ? "Gec huni kararlarinin tam veriye dayanmasi icin checkout ve shipping adimlarindaki analytics etiketlerini inceleyin."
+        ? "Geç huni kararlarının tam veriye dayanması için checkout ve shipping adımlarındaki analytics etiketlerini inceleyin."
         : "Review analytics tagging on checkout and shipping steps so late-funnel decisions are based on complete data.",
   ];
 
   const risks = [
     fetchedContext
       ? language === "tr"
-        ? "Gorunen sayfa yapisini asiri agresif degistirmek asil sorunun sonraki tik hedefinde olup olmadigini gizleyebilir."
+        ? "Görünen sayfa yapısını aşırı agresif değiştirmek asıl sorunun sonraki tık hedefinde olup olmadığını gizleyebilir."
         : "Changing the visible page structure too aggressively can hide whether the real issue lives in the next-click destination."
-      : report.concerns[1] ?? (language === "tr" ? "Adim takibi eksikse dusuk guvenli degisiklikler asil sizintiyi gizleyebilir." : "Low-conviction changes may hide the real leak if step tracking is incomplete."),
+      : report.concerns[1] ?? (language === "tr" ? "Adım takibi eksikse düşük güvenli değişiklikler asıl sızıntıyı gizleyebilir." : "Low-conviction changes may hide the real leak if step tracking is incomplete."),
     report.biggestLeak && report.biggestLeak.from === "sessions"
       ? language === "tr"
-        ? "Urun kesfini iyilestirmeden trafigi buyutmek bosa giden oturumlari artirabilir."
+        ? "Ürün keşfini iyileştirmeden trafiği büyütmek boşa giden oturumları artırabilir."
         : "Scaling traffic before improving product discovery can magnify wasted sessions."
       : handoffSummary
         ? language === "tr"
-          ? "Bu sayfadan PDP'lere gecis dengesizse acilis sayfasi gercekte oldugundan daha zayif gorunebilir."
+          ? "Bu sayfadan PDP'lere gecis dengesizse açılış sayfası gerçekte oldugundan daha zayıf gorunebilir."
           : "If the handoff from this page into PDPs is uneven, the landing page can look weaker than it really is."
         : language === "tr"
-          ? "Gec huni surtunmesi, ust huni trafigi saglikli gorunse bile geliri baskilayabilir."
+          ? "Gec huni sürtünmesi, üst huni trafiği sağlıklı gorunse bile geliri baskilayabilir."
           : "Late-funnel friction can suppress revenue even when top-of-funnel traffic looks healthy.",
     language === "tr"
-      ? "Event enstrumantasyonu parcaliysa, bazi huni kayiplari yalnizca bu sayfa yerine eksik tracking veya hedef sayfa sorunlarini yansitabilir."
+      ? "Event enstrumantasyonu parcaliysa, bazi huni kayiplari yalnızca bu sayfa yerine eksik tracking veya hedef sayfa sorunlarini yansitabilir."
       : "If event instrumentation is partial, some funnel losses may reflect missing tracking or destination-page issues instead of this page alone.",
   ];
 

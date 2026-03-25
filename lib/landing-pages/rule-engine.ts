@@ -290,8 +290,8 @@ function actionLabel(action: LandingPageRuleAction, language: AppLanguage = "en"
       scale: "Buyut",
       watch: "Izle",
       fix_above_fold: "Above Fold'u Duzelt",
-      fix_product_discovery: "Urun Kesfini Duzelt",
-      fix_product_story: "Urun Hikayesini Duzelt",
+      fix_product_discovery: "Ürün Kesfini Duzelt",
+      fix_product_story: "Ürün Hikayesini Duzelt",
       fix_checkout_intent: "Checkout Niyetini Duzelt",
       fix_late_checkout: "Gec Checkout'u Duzelt",
       tracking_audit: "Tracking Denetimi",
@@ -313,9 +313,9 @@ function archetypeLabel(archetype: LandingPageArchetype, language: AppLanguage =
     tr: {
       homepage: "Anasayfa",
       listing: "Listeleme",
-      product: "Urun",
+      product: "Ürün",
       campaign: "Kampanya",
-      content: "Icerik",
+      content: "İçerik",
       other: "Diger",
     },
   };
@@ -324,11 +324,11 @@ function archetypeLabel(archetype: LandingPageArchetype, language: AppLanguage =
 
 function primaryLeakLabel(step: LandingPageFunnelStepKey | null, language: AppLanguage = "en"): string {
   if (!step) return language === "tr" ? "huni" : "funnel";
-  if (step === "sessions") return language === "tr" ? "oturumlar -> urun goruntuleme" : "sessions -> view item";
-  if (step === "view_item") return language === "tr" ? "urun goruntuleme -> sepete ekleme" : "view item -> add to cart";
+  if (step === "sessions") return language === "tr" ? "oturumlar -> ürün görüntüleme" : "sessions -> view item";
+  if (step === "view_item") return language === "tr" ? "ürün görüntüleme -> sepete ekleme" : "view item -> add to cart";
   if (step === "add_to_cart") return language === "tr" ? "sepete ekleme -> checkout baslangici" : "add to cart -> begin checkout";
   if (step === "begin_checkout") return language === "tr" ? "checkout baslangici -> kargo bilgisi" : "begin checkout -> add shipping info";
-  if (step === "add_shipping_info") return language === "tr" ? "kargo bilgisi -> satin alma" : "add shipping info -> purchase";
+  if (step === "add_shipping_info") return language === "tr" ? "kargo bilgisi -> satın alma" : "add shipping info -> purchase";
   if (step === "add_payment_info") return "add payment info -> purchase";
   return step.replaceAll("_", " ");
 }
@@ -337,22 +337,22 @@ function issueList(row: LandingPagePerformanceRow, archetype: LandingPageArchety
   const issues: string[] = [];
   if (causeTags.includes("tracking_gap")) {
     issues.push(language === "tr"
-      ? "Gelir ve satin alma sinyalleri uyumsuz gorunuyor; bu nedenle daha derin CRO kararlarindan once bu sayfanin analytics denetimine ihtiyaci var."
+      ? "Gelir ve satın alma sinyalleri uyumsuz görünüyor; bu nedenle daha derin CRO kararlarından önce bu sayfanın analytics denetimine ihtiyacı var."
       : "Revenue and purchase signals look misaligned, so this page needs an analytics audit before deeper CRO decisions.");
   }
   if (causeTags.includes("weak_above_fold")) {
     issues.push(language === "tr"
-      ? "Kullanicilar sayfaya geliyor ancak ilk etkilesim zayif; bu da hero, ilk CTA veya mesaj uyumunda calisma gerektigini gosteriyor."
+      ? "Kullanicilar sayfaya geliyor ancak ilk etkilesim zayıf; bu da hero, ilk CTA veya mesaj uyumunda çalışma gerektigini gösteriyor."
       : "Users are landing, but early engagement is weak, which suggests the hero, first CTA, or message match needs work.");
   }
   if (causeTags.includes("poor_product_discovery")) {
     issues.push(
       archetype === "content"
         ? language === "tr"
-          ? "Ziyaretciler icerigi tuketiyor ancak urun kesfine yeterince hizli gecemiyor."
+          ? "Ziyaretçiler icerigi tuketiyor ancak ürün kesfine yeterince hızlı gecemiyor."
           : "Visitors are consuming content but not bridging into product exploration fast enough."
         : language === "tr"
-          ? "Cok az oturum acilis asamasindan urun kesfine ilerliyor."
+          ? "Cok az oturum açılış asamasindan ürün kesfine ilerliyor."
           : "Too few sessions progress from landing to product exploration."
     );
   }
@@ -360,10 +360,10 @@ function issueList(row: LandingPagePerformanceRow, archetype: LandingPageArchety
     issues.push(
       isTopOfFunnelArchetype(archetype)
         ? language === "tr"
-          ? "Ziyaretciler urun detay sayfalarina ulasiyor ancak ana yavaslama bu sayfa trafigi asagi akis tarafina devrettikten sonra ortaya cikiyor."
+          ? "Ziyaretçiler ürün detay sayfalarina ulasiyor ancak ana yavaslama bu sayfa trafiği asagi akış tarafina devrettikten sonra ortaya cikiyor."
           : "Visitors are reaching product detail pages, but the main slowdown appears after this page hands traffic off downstream."
         : language === "tr"
-          ? "Urun ilgisi var ancak sayfa bu ilgiyi sepete ekleme niyetine ceviremiyor."
+          ? "Ürün ilgisi var ancak sayfa bu ilgiyi sepete ekleme niyetine ceviremiyor."
           : "Product interest is present, but the page is not converting that attention into add-to-cart intent."
     );
   }
@@ -371,10 +371,10 @@ function issueList(row: LandingPagePerformanceRow, archetype: LandingPageArchety
     issues.push(
       isTopOfFunnelArchetype(archetype)
         ? language === "tr"
-          ? "Kullanicilar bu sayfadan ayrildiktan sonra asagi akis cart ve checkout ivmesi daha zayif gorunuyor; ana sorun PDP veya cart UX'te olabilir."
+          ? "Kullanicilar bu sayfadan ayrıldiktan sonra asagi akış cart ve checkout ivmesi daha zayıf görünüyor; ana sorun PDP veya cart UX'te olabilir."
           : "Downstream cart and checkout momentum looks weaker after users leave this page, so the main issue may live in PDP or cart UX."
         : language === "tr"
-          ? "Cart olusuyor ancak kullanicilar checkout'a gecmeden once ivme keskin sekilde dusuyor."
+          ? "Cart oluşuyor ancak kullanıcılar checkout'a geçmeden önce ivme keskin şekilde düşüyor."
           : "Cart creation is happening, but momentum drops sharply before users commit to checkout."
     );
   }
@@ -382,10 +382,10 @@ function issueList(row: LandingPagePerformanceRow, archetype: LandingPageArchety
     issues.push(
       isTopOfFunnelArchetype(archetype)
         ? language === "tr"
-          ? "Gec huni surtunmesi bu sayfanin handoff'undan sonra ortaya cikiyor; bu durum sorunun acilis sayfasindan cok checkout tarafinda oldugunu gosteriyor."
+          ? "Gec huni sürtünmesi bu sayfanın handoff'undan sonra ortaya cikiyor; bu durum sorunun açılış sayfasından cok checkout tarafinda olduğunu gösteriyor."
           : "Late-funnel friction appears after this page's handoff, which points more to checkout execution than this landing page itself."
         : language === "tr"
-          ? "Kullanicilar satin alma niyetini gosterdikten sonra gec huni surtunmesi donusumleri baskiliyor."
+          ? "Kullanicilar satın alma niyetini gösterdikten sonra gec huni sürtünmesi dönüşumleri baskiliyor."
           : "Late-funnel friction is suppressing conversions after users have already shown buying intent."
     );
   }
@@ -396,22 +396,22 @@ function strengthList(row: LandingPagePerformanceRow, causeTags: LandingPageCaus
   const strengths: string[] = [];
   if (causeTags.includes("healthy_engagement")) {
     strengths.push(language === "tr"
-      ? "Etkilesim yeterince guclu; ana darbo-gaz trafik kalitesi veya mesaj uyumu degil."
+      ? "Etkilesim yeterince güçlü; ana darbo-gaz trafik kalitesi veya mesaj uyumu değil."
       : "Engagement is strong enough that traffic quality or message match is not the main bottleneck.");
   }
   if (causeTags.includes("healthy_purchase_intent")) {
     strengths.push(language === "tr"
-      ? "Ziyaretciler urune ulastiginda sepete ekleme niyeti saglikli."
+      ? "Ziyaretçiler ürüne ulastiginda sepete ekleme niyeti sağlıklı."
       : "Once visitors reach a product, add-to-cart intent is healthy.");
   }
   if (causeTags.includes("strong_late_checkout")) {
     strengths.push(language === "tr"
-      ? "Musteriler yapili checkout adimlarina basladiginda ilerleme saglikli kaliyor."
+      ? "Müşteriler yapili checkout adimlarina basladiginda ilerleme sağlıklı kaliyor."
       : "Checkout progression stays healthy once shoppers begin the structured checkout steps.");
   }
   if (row.sessionToPurchaseRate >= 0.015) {
     strengths.push(language === "tr"
-      ? "Session-to-purchase verimliligi mevcut kazananlari korumayi destekleyecek kadar guclu."
+      ? "Session-to-purchase verimliligi mevcut kazananlari korumayi destekleyecek kadar güçlü."
       : "Session-to-purchase efficiency is strong enough to justify protecting current winners.");
   }
   return strengths.slice(0, 3);
@@ -420,62 +420,62 @@ function strengthList(row: LandingPagePerformanceRow, causeTags: LandingPageCaus
 function recommendationList(action: LandingPageRuleAction, archetype: LandingPageArchetype, language: AppLanguage = "en"): string[] {
   const recommendations: Record<LandingPageRuleAction, string[]> = {
     scale: [
-      language === "tr" ? "Mevcut kazanan yapiyi koruyun ve agresif yeniden tasarim yerine trafigi kademeli buyutun." : "Protect the current winning structure and scale traffic gradually instead of redesigning aggressively.",
-      language === "tr" ? "Mevcut kontrol etrafinda baslik, merchandising veya teklif degisikliklerini kademeli test edin." : "Test incremental headline, merchandising, or offer changes around the existing control.",
-      language === "tr" ? "Bu sayfayi ayni arketipteki diger sayfalar icin benchmark olarak kullanin." : "Use this page as a benchmark for other pages in the same archetype.",
+      language === "tr" ? "Mevcut kazanan yapıyı koruyun ve agresif yeniden tasarım yerine trafiği kademeli büyütün." : "Protect the current winning structure and scale traffic gradually instead of redesigning aggressively.",
+      language === "tr" ? "Mevcut kontrol etrafında başlık, merchandising veya teklif değişikliklerini kademeli test edin." : "Test incremental headline, merchandising, or offer changes around the existing control.",
+      language === "tr" ? "Bu sayfayı ayni arketipteki diger sayfalar için benchmark olarak kullanin." : "Use this page as a benchmark for other pages in the same archetype.",
     ],
     watch: [
       isTopOfFunnelArchetype(archetype)
         ? language === "tr"
-          ? "Asagi akis checkout davranisini bu sayfaya yuklemeden once bu sayfayi giris ve kesif yuzeyi olarak degerlendirin."
+          ? "Aşağı akış checkout davranışını bu sayfaya yüklemeden önce bu sayfayı giriş ve keşif yüzeyi olarak değerlendirin."
           : "Treat this page primarily as an entry and discovery surface before blaming downstream checkout behavior on it."
         : language === "tr"
-          ? "Daha genis layout degisikliklerinden once bu sayfayi izleyin."
+          ? "Daha geniş layout değişikliklerinden önce bu sayfayı izleyin."
           : "Monitor this page before making broader layout changes.",
       isTopOfFunnelArchetype(archetype)
         ? language === "tr"
-          ? "Bu sayfanin trafik gonderdigi hedef urun sayfalarini ve cart akisini inceleyin."
+          ? "Bu sayfanın trafik gonderdigi hedef ürün sayfalarini ve cart akisini inceleyin."
           : "Inspect the destination product pages and cart flow that this page hands traffic into."
         : language === "tr"
-          ? "Mevcut akisi bozmadan netligi artiran hafif testlere oncelik verin."
+          ? "Mevcut akışı bozmadan netliği artıran hafif testlere öncelik verin."
           : "Prioritize lightweight tests that improve clarity without disrupting the current flow.",
-      language === "tr" ? "Bu sayfayi yalnizca ayni arketipteki diger sayfalarla karsilastirin." : "Compare this page only against others in the same archetype.",
+      language === "tr" ? "Bu sayfayı yalnızca ayni arketipteki diger sayfalarla karşılastirin." : "Compare this page only against others in the same archetype.",
     ],
     fix_above_fold: [
-      language === "tr" ? "Teklif, kategori veya sonraki adimi hemen netlestirecek sekilde hero alanini yeniden yazin." : "Rewrite the hero to make the offer, category, or next step immediately obvious.",
+      language === "tr" ? "Teklif, kategori veya sonraki adimi hemen netlestirecek şekilde hero alanini yeniden yazin." : "Rewrite the hero to make the offer, category, or next step immediately obvious.",
       language === "tr" ? "Ilk CTA'yi guclendirin ve above fold alandaki dikkat dagiticilari azaltin." : "Tighten the first CTA and reduce distractions above the fold.",
-      language === "tr" ? "Reklamlar, arama niyeti ve acilis bolumu arasindaki mesaj uyumunu denetleyin." : "Audit message match between ads, search intent, and the opening section.",
+      language === "tr" ? "Reklamlar, arama niyeti ve açılış bölümü arasindaki mesaj uyumunu denetleyin." : "Audit message match between ads, search intent, and the opening section.",
     ],
     fix_product_discovery: [
       archetype === "content"
         ? language === "tr"
-          ? "Sayfanin daha erken kisimlarinda daha guclu urun kopruleri, inline CTA'lar ve gorunur urun modulleri ekleyin."
+          ? "Sayfanin daha erken kisimlarinda daha güçlü ürün kopruleri, inline CTA'lar ve gorunur ürün modulleri ekleyin."
           : "Introduce stronger product bridges, inline CTAs, and visible product modules earlier in the page."
         : language === "tr"
-          ? "Ziyaretcilerin urunlere daha hizli ulasmasi icin gezinme, urun modulleri ve ilk tik yolunu iyilestirin."
+          ? "Ziyaretçilerin ürünlere daha hızlı ulaşması için gezinme, ürün modülleri ve ilk tık yolunu iyileştirin."
           : "Improve navigation, product modules, and first-click paths so visitors reach products faster.",
-      language === "tr" ? "Kesif CTA'larindan once gelen cikmaz icerik bloklarini azaltin." : "Reduce dead-end content blocks ahead of discovery CTAs.",
-      language === "tr" ? "Ilk ticari adimi mobilde ve sayfanin ust kisimlarinda daha belirgin hale getirin." : "Make the first commerce step more obvious on mobile and near the top of the page.",
+      language === "tr" ? "Keşif CTA'larından önce gelen çıkmaz içerik bloklarını azaltın." : "Reduce dead-end content blocks ahead of discovery CTAs.",
+      language === "tr" ? "İlk ticari adımı mobilde ve sayfanın üst kısımlarında daha belirgin hale getirin." : "Make the first commerce step more obvious on mobile and near the top of the page.",
     ],
     fix_product_story: [
-      language === "tr" ? "Birincil CTA yakininda fiyatlama, teklif cercevesi, guven unsurlari ve urun faydalarini guclendirin." : "Strengthen pricing, offer framing, trust cues, and product benefits near the primary CTA.",
-      language === "tr" ? "Varyant surtunmesini azaltin ve sepete ekleme yolunu daha dogrudan hale getirin." : "Reduce variant friction and make the add-to-cart path more direct.",
-      language === "tr" ? "Daha fazla trafik gondermeden once daha ikna edici urun hikayesi test edin." : "Test more persuasive product storytelling before sending more traffic.",
+      language === "tr" ? "Birincil CTA yakınında fiyatlama, teklif çerçevesi, güven unsurları ve ürün faydalarını güçlendirin." : "Strengthen pricing, offer framing, trust cues, and product benefits near the primary CTA.",
+      language === "tr" ? "Varyant sürtünmesini azaltın ve sepete ekleme yolunu daha doğrudan hale getirin." : "Reduce variant friction and make the add-to-cart path more direct.",
+      language === "tr" ? "Daha fazla trafik göndermeden önce daha ikna edici ürün hikayesi test edin." : "Test more persuasive product storytelling before sending more traffic.",
     ],
     fix_checkout_intent: [
-      language === "tr" ? "Shipping surprizleri, guven bosluklari ve dikkat dagitan cross-sell'ler icin cart deneyimini denetleyin." : "Audit the cart experience for shipping surprises, trust gaps, and distracting cross-sells.",
-      language === "tr" ? "Checkout CTA'larini daha belirgin yapin ve cart icindeki tereddudu azaltin." : "Make checkout CTAs more prominent and reduce hesitation in the cart.",
-      language === "tr" ? "Promosyonlarin, shipping'in veya vergilerin fiyat soku yaraticak sekilde davranip davranmadigini kontrol edin." : "Check whether promotions, shipping, or taxes are creating sticker shock.",
+      language === "tr" ? "Shipping sürprizleri, güven boşlukları ve dikkat dağıtan cross-sell'ler için cart deneyimini denetleyin." : "Audit the cart experience for shipping surprises, trust gaps, and distracting cross-sells.",
+      language === "tr" ? "Checkout CTA'larını daha belirgin yapın ve cart içindeki tereddüdü azaltın." : "Make checkout CTAs more prominent and reduce hesitation in the cart.",
+      language === "tr" ? "Promosyonların, shipping'in veya vergilerin fiyat şoku yaratacak şekilde davranıp davranmadığını kontrol edin." : "Check whether promotions, shipping, or taxes are creating sticker shock.",
     ],
     fix_late_checkout: [
-      language === "tr" ? "Shipping, validation hatalari ve guven mesajlari etrafinda checkout UX'i inceleyin." : "Review checkout UX around shipping, validation errors, and trust messaging.",
-      language === "tr" ? "Son adimlari basitlestirin ve yuksek niyetli musterileri kesen gec asama surtunmesini kaldirin." : "Simplify the final steps and remove late-stage friction that interrupts high-intent shoppers.",
-      language === "tr" ? "Deneyleri yargilamadan once checkout ve shipping adimlarindaki tracking'in tam oldugunu dogrulayin." : "Verify that checkout and shipping step tracking is complete before judging experiments.",
+      language === "tr" ? "Shipping, validation hataları ve güven mesajları etrafında checkout UX'i inceleyin." : "Review checkout UX around shipping, validation errors, and trust messaging.",
+      language === "tr" ? "Son adımları basitleştirin ve yüksek niyetli müşterileri kesen geç aşama sürtünmesini kaldırın." : "Simplify the final steps and remove late-stage friction that interrupts high-intent shoppers.",
+      language === "tr" ? "Deneyleri yargılamadan önce checkout ve shipping adımlarındaki tracking'in tam olduğunu doğrulayın." : "Verify that checkout and shipping step tracking is complete before judging experiments.",
     ],
     tracking_audit: [
-      language === "tr" ? "Bu sayfanin huni verisine gore aksiyon almadan once satin alma ve gelir enstrumantasyonunu dogrulayin." : "Validate purchase and revenue instrumentation before acting on this page's funnel data.",
-      language === "tr" ? "Checkout, shipping ve purchase event'lerinin tutarli sekilde tetiklenip tetiklenmedigini kontrol edin." : "Check whether checkout, shipping, and purchase events are firing consistently.",
-      language === "tr" ? "Analytics kapsami guvenilir olana kadar buyuk CRO degisikliklerini erteleyin." : "Hold off on major CRO changes until analytics coverage is trustworthy.",
+      language === "tr" ? "Bu sayfanın huni verisine göre aksiyon almadan önce satın alma ve gelir enstrümantasyonunu doğrulayın." : "Validate purchase and revenue instrumentation before acting on this page's funnel data.",
+      language === "tr" ? "Checkout, shipping ve purchase event'lerinin tutarlı şekilde tetiklenip tetiklenmediğini kontrol edin." : "Check whether checkout, shipping, and purchase events are firing consistently.",
+      language === "tr" ? "Analytics kapsamı güvenilir olana kadar büyük CRO değişikliklerini erteleyin." : "Hold off on major CRO changes until analytics coverage is trustworthy.",
     ],
   };
   return recommendations[action];
@@ -489,18 +489,18 @@ function riskList(
   language: AppLanguage = "en",
 ): string[] {
   const risks: string[] = [];
-  if (confidence < 0.45) risks.push(language === "tr" ? "Bu sayfanin hacmi sinirli; bu nedenle karar guveni hala orta-dusuk seviyede." : "This page has limited volume, so verdict confidence is still moderate to low.");
-  if (causeTags.includes("tracking_gap")) risks.push(language === "tr" ? "Tracking tutarsizliklari gercek huni sizintisini gizliyor olabilir." : "Tracking inconsistencies may be masking the real funnel leak.");
-  if (row.largestDropOffStep === "sessions") risks.push(language === "tr" ? "Kesif iyilesmeden trafigi buyutmek bosa giden oturumlari artirabilir." : "Scaling more traffic now may amplify wasted sessions before discovery improves.");
-  if (row.largestDropOffStep === "view_item") risks.push(language === "tr" ? "Urun hikayesini duzeltmeden daha fazla urun trafigi gondermek getiriyi zayiflatabilir." : "Sending more product traffic without fixing product story will likely dilute return.");
+  if (confidence < 0.45) risks.push(language === "tr" ? "Bu sayfanın hacmi sınırlı; bu nedenle karar güveni hâlâ orta-düşük seviyede." : "This page has limited volume, so verdict confidence is still moderate to low.");
+  if (causeTags.includes("tracking_gap")) risks.push(language === "tr" ? "Tracking tutarsızlıkları gerçek huni sızıntısını gizliyor olabilir." : "Tracking inconsistencies may be masking the real funnel leak.");
+  if (row.largestDropOffStep === "sessions") risks.push(language === "tr" ? "Keşif iyileşmeden trafiği büyütmek boşa giden oturumları artırabilir." : "Scaling more traffic now may amplify wasted sessions before discovery improves.");
+  if (row.largestDropOffStep === "view_item") risks.push(language === "tr" ? "Ürün hikayesini düzeltmeden daha fazla ürün trafiği göndermek getiriyi zayıflatabilir." : "Sending more product traffic without fixing product story will likely dilute return.");
   if (row.largestDropOffStep === "add_to_cart") {
     risks.push(
       isTopOfFunnelArchetype(archetype)
         ? language === "tr"
-          ? "Asagi akis urun sayfalari veya cart akislari zayifsa bu sayfa gercekte oldugundan daha kotu gorunebilir."
+          ? "Aşağı akış ürün sayfaları veya cart akışları zayıfsa bu sayfa gerçekte olduğundan daha kötü görünebilir."
           : "If downstream product pages or cart flows are weak, this page can look worse than it really is."
         : language === "tr"
-          ? "Ust huni trafigi saglikli gorunse bile cart surtunmesi geliri baskilayabilir."
+          ? "Üst huni trafiği sağlıklı görünse bile cart sürtünmesi geliri baskılayabilir."
           : "Cart friction can suppress revenue even when top-of-funnel traffic looks healthy."
     );
   }
@@ -517,13 +517,13 @@ function summaryFor(report: {
 }): string {
   if (hasOnlyDownstreamLeak(report.archetype, report.causeTags)) {
     return report.language === "tr"
-      ? `${report.title}, kullanicilari ileri tasima anlaminda ana ${archetypeLabel(report.archetype, report.language).toLowerCase()} gorevini yerine getiriyor; ancak daha zayif donusum sinyali kullanicilar bu sayfadan urun veya cart akislarina gectikten sonra ortaya cikiyor.`
+      ? `${report.title}, kullanıcılari ileri tasima anlaminda ana ${archetypeLabel(report.archetype, report.language).toLowerCase()} görevini yerine getiriyor; ancak daha zayıf dönüşum sinyali kullanıcılar bu sayfadan ürün veya cart akislarina gectikten sonra ortaya cikiyor.`
       : `${report.title} is doing its main ${archetypeLabel(report.archetype, report.language).toLowerCase()} job of moving visitors forward, but the weaker conversion signal appears after users leave this page for product or cart flows.`;
   }
   const archetypeText = archetypeLabel(report.archetype, report.language).toLowerCase();
   const leakText = primaryLeakLabel(report.primaryLeak, report.language);
   return report.language === "tr"
-    ? `${report.title}, su anda "${actionLabel(report.action, report.language)}" dikkati gerektiren bir ${archetypeText} sayfasi gibi davraniyor ve ana sizinti ${leakText} etrafinda toplaniyor.`
+    ? `${report.title}, su anda "${actionLabel(report.action, report.language)}" dikkati gerektiren bir ${archetypeText} sayfası gibi davranıyor ve ana sizinti ${leakText} etrafında toplanıyor.`
     : `${report.title} is behaving like a ${archetypeText} page that currently needs "${actionLabel(report.action, report.language)}" attention, with the main leak centered around ${leakText}.`;
 }
 

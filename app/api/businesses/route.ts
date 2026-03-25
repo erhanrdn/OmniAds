@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
   const language = await resolveRequestLanguage(request);
   const session = await getSessionFromRequest(request);
   if (!session) {
-    return NextResponse.json({ error: "auth_error", message: language === "tr" ? "Kimlik dogrulamasi gerekli." : "Authentication required." }, { status: 401 });
+    return NextResponse.json({ error: "auth_error", message: language === "tr" ? "Kimlik doğrulamasi gerekli." : "Authentication required." }, { status: 401 });
   }
   const { businesses, activeBusinessId } = await resolveBusinessContext(session);
   return NextResponse.json({
@@ -28,11 +28,11 @@ export async function POST(request: NextRequest) {
   const language = await resolveRequestLanguage(request);
   const session = await getSessionFromRequest(request);
   if (!session) {
-    return NextResponse.json({ error: "auth_error", message: language === "tr" ? "Kimlik dogrulamasi gerekli." : "Authentication required." }, { status: 401 });
+    return NextResponse.json({ error: "auth_error", message: language === "tr" ? "Kimlik doğrulamasi gerekli." : "Authentication required." }, { status: 401 });
   }
   if (isReviewerEmail(session.user.email)) {
     return NextResponse.json(
-      { error: "forbidden", message: language === "tr" ? "Reviewer hesaplari business olusturamaz." : "Reviewer accounts cannot create businesses." },
+      { error: "forbidden", message: language === "tr" ? "Reviewer hesaplari business oluşturamaz." : "Reviewer accounts cannot create businesses." },
       { status: 403 }
     );
   }

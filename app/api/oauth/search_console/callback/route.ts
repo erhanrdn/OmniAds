@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
   if (!cookieState || cookieState !== state) {
     return NextResponse.redirect(
       `${baseUrl}/integrations/callback/search_console?status=error&error=${encodeURIComponent(
-        tr("Invalid OAuth state. Please try again.", "OAuth state gecersiz. Lutfen tekrar deneyin."),
+        tr("Invalid OAuth state. Please try again.", "OAuth state geçersiz. Lütfen tekrar deneyin."),
       )}`,
     );
   }
@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
   if ("error" in access) {
     return NextResponse.redirect(
       `${baseUrl}/integrations/callback/search_console?status=error&businessId=${businessId}&error=${encodeURIComponent(
-        tr("You do not have permission to connect integrations for this business.", "Bu business icin integration baglama yetkiniz yok."),
+        tr("You do not have permission to connect integrations for this business.", "Bu business için integration bağlama yetkiniz yok."),
       )}`,
     );
   }
@@ -84,7 +84,7 @@ export async function GET(request: NextRequest) {
       throw new Error(
         tokenData.error_description ||
           tokenData.error ||
-          tr("Failed to exchange authorization code.", "Authorization code degisimi basarisiz oldu."),
+          tr("Failed to exchange authorization code.", "Authorization code değişimi başarısız oldu."),
       );
     }
 
@@ -125,7 +125,7 @@ export async function GET(request: NextRequest) {
     const message =
       err instanceof Error
         ? err.message
-        : tr("Unknown error during Search Console OAuth.", "Search Console OAuth sirasinda bilinmeyen bir hata olustu.");
+        : tr("Unknown error during Search Console OAuth.", "Search Console OAuth sirasinda bilinmeyen bir hata olüstu.");
 
     return NextResponse.redirect(
       `${baseUrl}/integrations/callback/search_console?status=error&businessId=${businessId}&error=${encodeURIComponent(

@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error: "social_only",
-        message: tr('This account uses social sign-in. Please use the "Sign in with Google" or "Sign in with Facebook" button.', 'Bu hesap sosyal giris kullaniyor. Lutfen "Google ile giris yap" veya "Facebook ile giris yap" butonunu kullanin.'),
+        message: tr('This account uses social sign-in. Please use the "Sign in with Google" or "Sign in with Facebook" button.', 'Bu hesap sosyal giriş kullaniyor. Lütfen "Google ile giriş yap" veya "Facebook ile giriş yap" butonunu kullanin.'),
       },
       { status: 401 },
     );
@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
   if ((user as any).suspended_at) {
     logServerAuthEvent("login_rejected_suspended", { email, userId: user.id });
     return NextResponse.json(
-      { error: "account_suspended", message: tr("This account has been suspended. Please contact support.", "Bu hesap askiya alinmis. Lutfen destek ile iletisime gecin.") },
+      { error: "account_suspended", message: tr("This account has been suspended. Please contact support.", "Bu hesap askiya alinmis. Lütfen destek ile iletisime gecin.") },
       { status: 403 },
     );
   }

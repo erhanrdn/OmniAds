@@ -148,13 +148,13 @@ export async function GET(request: NextRequest) {
       // Targeted recommendation
       let recommendation: string | null = null;
       if (valueScored.label === "elite" || valueScored.label === "strong") {
-        recommendation = language === "tr" ? "Yuksek degerli kanal — answer-first icerikle olcekle" : "High-value channel — scale with answer-first content";
+        recommendation = language === "tr" ? "Yüksek degerli kanal — answer-first içerikle ölçekle" : "High-value channel — scale with answer-first content";
       } else if (momentum.status === "breakout") {
-        recommendation = language === "tr" ? "Patlayan buyume — bu motor icin icerige oncelik ver" : "Breakout growth — prioritise content for this engine";
+        recommendation = language === "tr" ? "Patlayan büyüme — bu motor için içeriğe öncelik ver" : "Breakout growth — prioritise content for this engine";
       } else if (momentum.status === "rising" && valueScored.label === "promising") {
         recommendation = language === "tr" ? "Yukseliyor — FAQ/guide formatina yatirim yap" : "Growing — invest in FAQ/guide format content";
       } else if (valueScored.label === "weak" && s.sessions > 20) {
-        recommendation = language === "tr" ? "Bu motorun kullanicilari icin landing deneyimini iyilestir" : "Improve landing experience for this engine's users";
+        recommendation = language === "tr" ? "Bu motorun kullanıcılari için landing deneyimini iyileştir" : "Improve landing experience for this engine's users";
       }
 
       return {

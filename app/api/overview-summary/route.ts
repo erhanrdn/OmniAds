@@ -263,17 +263,17 @@ export async function GET(request: NextRequest) {
       previousValue: previousOverview?.kpis.revenue ?? null,
       unit: "currency",
       sourceKey: revenueSource?.source ?? "unavailable",
-      sourceLabel: revenueSource?.label ?? tr("Unavailable", "Kullanilamiyor"),
+      sourceLabel: revenueSource?.label ?? tr("Unavailable", "Kullanılamıyor"),
       helperText:
-        revenueSource?.source === "unavailable" ? tr("Connect Shopify or GA4", "Shopify veya GA4 baglayin") : undefined,
+        revenueSource?.source === "unavailable" ? tr("Connect Shopify or GA4", "Shopify veya GA4 bağlayın") : undefined,
       sparklineData: revenueSeries,
       compareMode,
       icon: "badge-dollar-sign",
     }),
     buildMetricCard({
       id: "pins-spend",
-      title: tr("Total Spend", "Toplam Spend"),
-      subtitle: tr("Paid media investment", "Paid media yatirimi"),
+      title: tr("Total Spend", "Toplam Harcama"),
+      subtitle: tr("Paid media investment", "Paid media harcamasi"),
       value: currentOverview.kpis.spend ?? null,
       previousValue: previousOverview?.kpis.spend ?? null,
       unit: "currency",
@@ -286,7 +286,7 @@ export async function GET(request: NextRequest) {
     buildMetricCard({
       id: "pins-mer",
       title: "MER",
-      subtitle: tr("Revenue / spend", "Gelir / spend"),
+      subtitle: tr("Revenue / spend", "Gelir / harcama"),
       value: currentOverview.kpis.spend > 0 ? currentOverview.kpis.revenue / currentOverview.kpis.spend : null,
       previousValue:
         previousOverview && previousOverview.kpis.spend > 0
@@ -297,7 +297,7 @@ export async function GET(request: NextRequest) {
       sourceLabel:
         revenueSource?.source === "ga4_fallback" ? tr("GA4 + ad platforms", "GA4 + reklam platformlari") : tr("Revenue + ad platforms", "Gelir + reklam platformlari"),
       helperText:
-        revenueSource?.source === "unavailable" ? tr("Connect Shopify or GA4", "Shopify veya GA4 baglayin") : undefined,
+        revenueSource?.source === "unavailable" ? tr("Connect Shopify or GA4", "Shopify veya GA4 bağlayın") : undefined,
       sparklineData: merSeries,
       compareMode,
       icon: "line-chart",
@@ -305,14 +305,14 @@ export async function GET(request: NextRequest) {
     buildMetricCard({
       id: "pins-blended-roas",
       title: "Blended ROAS",
-      subtitle: tr("Revenue relative to ad spend", "Gelirin reklam spend'ine gore durumu"),
+      subtitle: tr("Revenue relative to ad spend", "Gelirin reklam harcamasina göre durumu"),
       value: currentOverview.kpis.roas ?? null,
       previousValue: previousOverview?.kpis.roas ?? null,
       unit: "ratio",
       sourceKey: roasSource?.source ?? "unavailable",
-      sourceLabel: roasSource?.label ?? tr("Unavailable", "Kullanilamiyor"),
+      sourceLabel: roasSource?.label ?? tr("Unavailable", "Kullanılamıyor"),
       helperText:
-        roasSource?.source === "unavailable" ? tr("Connect Shopify or GA4", "Shopify veya GA4 baglayin") : undefined,
+        roasSource?.source === "unavailable" ? tr("Connect Shopify or GA4", "Shopify veya GA4 bağlayın") : undefined,
       sparklineData: merSeries,
       compareMode,
       icon: "chart-line",
@@ -320,13 +320,13 @@ export async function GET(request: NextRequest) {
     buildMetricCard({
       id: "pins-conversion-rate",
       title: tr("Conversion Rate", "Conversion Rate"),
-      subtitle: tr("Store purchase conversion", "Magaza satin alma donusumu"),
+      subtitle: tr("Store purchase conversion", "Magaza satın alma dönüşum orani"),
       value: conversionRateCurrent !== null ? conversionRateCurrent * 100 : null,
       previousValue: conversionRatePrevious !== null ? conversionRatePrevious * 100 : null,
       unit: "percent",
       sourceKey: analyticsConnected ? "ga4" : "unavailable",
-      sourceLabel: analyticsConnected ? "GA4" : tr("Unavailable", "Kullanilamiyor"),
-      helperText: analyticsConnected ? undefined : tr("Connect GA4", "GA4 baglayin"),
+      sourceLabel: analyticsConnected ? "GA4" : tr("Unavailable", "Kullanılamıyor"),
+      helperText: analyticsConnected ? undefined : tr("Connect GA4", "GA4 bağlayın"),
       sparklineData: ga4ConversionRateSeries,
       compareMode,
       icon: "target",
@@ -334,14 +334,14 @@ export async function GET(request: NextRequest) {
     buildMetricCard({
       id: "pins-orders",
       title: tr("Orders", "Siparisler"),
-      subtitle: tr("Completed purchases", "Tamamlanan satin almalar"),
+      subtitle: tr("Completed purchases", "Tamamlanan satın almalar"),
       value: currentOverview.kpis.purchases ?? null,
       previousValue: previousOverview?.kpis.purchases ?? null,
       unit: "count",
       sourceKey: purchasesSource?.source ?? "unavailable",
-      sourceLabel: purchasesSource?.label ?? tr("Unavailable", "Kullanilamiyor"),
+      sourceLabel: purchasesSource?.label ?? tr("Unavailable", "Kullanılamıyor"),
       helperText:
-        purchasesSource?.source === "unavailable" ? tr("Connect Shopify or GA4", "Shopify veya GA4 baglayin") : undefined,
+        purchasesSource?.source === "unavailable" ? tr("Connect Shopify or GA4", "Shopify veya GA4 bağlayın") : undefined,
       sparklineData: purchaseSeries,
       compareMode,
       icon: "shopping-cart",
@@ -360,7 +360,7 @@ export async function GET(request: NextRequest) {
       unit: "currency",
       sourceKey: aovSource?.source ?? "unavailable",
       sourceLabel: aovSource?.label ?? "GA4",
-      helperText: aovSource?.source === "unavailable" ? tr("Connect Shopify or GA4", "Shopify veya GA4 baglayin") : undefined,
+      helperText: aovSource?.source === "unavailable" ? tr("Connect Shopify or GA4", "Shopify veya GA4 bağlayın") : undefined,
       sparklineData: ga4AovSeries.length > 0 ? ga4AovSeries : toRatioSparklineSeries(
         currentOverview.trends.custom,
         (point) => point.revenue,
@@ -376,47 +376,47 @@ export async function GET(request: NextRequest) {
       previousValue: conversionRatePrevious !== null ? conversionRatePrevious * 100 : null,
       unit: "percent",
       sourceKey: analyticsConnected ? "ga4" : "unavailable",
-      sourceLabel: analyticsConnected ? "GA4" : tr("Unavailable", "Kullanilamiyor"),
-      helperText: analyticsConnected ? undefined : tr("Connect GA4", "GA4 baglayin"),
+      sourceLabel: analyticsConnected ? "GA4" : tr("Unavailable", "Kullanılamıyor"),
+      helperText: analyticsConnected ? undefined : tr("Connect GA4", "GA4 bağlayın"),
       sparklineData: ga4ConversionRateSeries,
       compareMode,
       icon: "percent",
     }),
     buildMetricCard({
       id: "store-new-customers",
-      title: tr("New Customers", "Yeni Musteriler"),
+      title: tr("New Customers", "Yeni Müşteriler"),
       value: firstTimePurchasersCurrent,
       previousValue: firstTimePurchasersPrevious,
       unit: "count",
       sourceKey: analyticsConnected ? "ga4" : "unavailable",
-      sourceLabel: analyticsConnected ? "GA4" : tr("Unavailable", "Kullanilamiyor"),
-      helperText: analyticsConnected ? undefined : tr("Connect GA4", "GA4 baglayin"),
+      sourceLabel: analyticsConnected ? "GA4" : tr("Unavailable", "Kullanılamıyor"),
+      helperText: analyticsConnected ? undefined : tr("Connect GA4", "GA4 bağlayın"),
       sparklineData: ga4NewCustomersSeries,
       compareMode,
     }),
     buildMetricCard({
       id: "store-returning-customers",
-      title: tr("Returning Customers", "Geri Donen Musteriler"),
+      title: tr("Returning Customers", "Geri Dönen Müşteriler"),
       value: returningPurchasersCurrent,
       previousValue: returningPurchasersPrevious,
       unit: "count",
       sourceKey: analyticsConnected ? "ga4" : "unavailable",
-      sourceLabel: analyticsConnected ? "GA4" : tr("Unavailable", "Kullanilamiyor"),
-      helperText: analyticsConnected ? undefined : tr("Connect GA4", "GA4 baglayin"),
+      sourceLabel: analyticsConnected ? "GA4" : tr("Unavailable", "Kullanılamıyor"),
+      helperText: analyticsConnected ? undefined : tr("Connect GA4", "GA4 bağlayın"),
       sparklineData: ga4ReturningCustomersSeries,
       compareMode,
     }),
   ];
 
-  const ltvSourceLabel = tr("GA4 fallback", "GA4 fallback");
+  const ltvSourceLabel = tr("GA4 fallback", "GA4 yedegi");
   const ltvEstimatedHelper = shopifyConnected
-    ? tr("Estimated from GA4 because Shopify lifecycle data is unavailable for this view", "Bu gorunumde Shopify lifecycle verisi olmadigi icin GA4 uzerinden tahmin edildi")
-    : tr("Estimated from GA4", "GA4 uzerinden tahmin edildi");
+    ? tr("Estimated from GA4 because Shopify lifecycle data is unavailable for this view", "Bu görünümde Shopify lifecycle verisi olmadigi için GA4 verisinden tahmin edildi")
+    : tr("Estimated from GA4", "GA4 üzerinden tahmin edildi");
   const ltv: OverviewMetricCardData[] = [
     currentGa4Ltv?.averageCustomerLtv !== null && currentGa4Ltv?.averageCustomerLtv !== undefined
       ? buildMetricCard({
           id: "ltv-average",
-          title: tr("Average Customer LTV", "Ortalama Musteri LTV"),
+          title: tr("Average Customer LTV", "Ortalama Müşteri LTV"),
           helperText: ltvEstimatedHelper,
           value: currentGa4Ltv.averageCustomerLtv,
           previousValue: previousGa4Ltv?.averageCustomerLtv ?? null,
@@ -472,7 +472,7 @@ export async function GET(request: NextRequest) {
     currentGa4Ltv?.revenuePerCustomer !== null && currentGa4Ltv?.revenuePerCustomer !== undefined
       ? buildMetricCard({
           id: "ltv-revenue-per-customer",
-          title: tr("Revenue per Customer", "Musteri Basina Gelir"),
+          title: tr("Revenue per Customer", "Müşteri Basina Gelir"),
           helperText: ltvEstimatedHelper,
           value: currentGa4Ltv.revenuePerCustomer,
           previousValue: previousGa4Ltv?.revenuePerCustomer ?? null,
@@ -621,7 +621,7 @@ export async function GET(request: NextRequest) {
       unit: "currency",
       sourceKey: "ad_platforms",
       sourceLabel: tr("Ad spend only", "Yalnizca reklam spend'i"),
-      helperText: tr("Set cost model to include COGS, shipping, fees, and fixed cost", "COGS, kargo, fee ve sabit giderleri dahil etmek icin maliyet modeli ayarlayin"),
+      helperText: tr("Set cost model to include COGS, shipping, fees, and fixed cost", "COGS, kargo, fee ve sabit giderleri dahil etmek için maliyet modeli ayarlayin"),
       sparklineData: spendSeries,
       compareMode,
       icon: "badge-dollar-sign",
@@ -659,7 +659,7 @@ export async function GET(request: NextRequest) {
           value: contributionMarginValue,
           unit: "percent",
           sourceKey: "manual_cost_model",
-          sourceLabel: tr("Revenue + variable costs", "Gelir + degisken maliyetler"),
+          sourceLabel: tr("Revenue + variable costs", "Gelir + değişken maliyetler"),
           sparklineData: revenueSeries.map((point, index) => {
             const spendValue = spendSeries[index]?.value ?? 0;
             const variableCost =
@@ -710,9 +710,9 @@ export async function GET(request: NextRequest) {
           : null,
       unit: "ratio",
       sourceKey: revenueSource?.source ?? "unavailable",
-      sourceLabel: tr("Derived", "Turetilmis"),
+      sourceLabel: tr("Derived", "Türetilmiş"),
       helperText:
-        revenueSource?.source === "unavailable" ? tr("Connect Shopify or GA4", "Shopify veya GA4 baglayin") : undefined,
+        revenueSource?.source === "unavailable" ? tr("Connect Shopify or GA4", "Shopify veya GA4 bağlayın") : undefined,
       sparklineData: merSeries,
       compareMode,
     }),
@@ -737,8 +737,8 @@ export async function GET(request: NextRequest) {
       previousValue: sessionsPrevious,
       unit: "count",
       sourceKey: analyticsConnected ? "ga4" : "unavailable",
-      sourceLabel: analyticsConnected ? "GA4" : tr("Unavailable", "Kullanilamiyor"),
-      helperText: analyticsConnected ? undefined : tr("Connect GA4", "GA4 baglayin"),
+      sourceLabel: analyticsConnected ? "GA4" : tr("Unavailable", "Kullanılamıyor"),
+      helperText: analyticsConnected ? undefined : tr("Connect GA4", "GA4 bağlayın"),
       sparklineData: ga4SessionsSeries,
       compareMode,
       icon: "activity",
@@ -750,8 +750,8 @@ export async function GET(request: NextRequest) {
       previousValue: avgSessionDurationPrevious,
       unit: "duration_seconds",
       sourceKey: analyticsConnected ? "ga4" : "unavailable",
-      sourceLabel: analyticsConnected ? "GA4" : tr("Unavailable", "Kullanilamiyor"),
-      helperText: analyticsConnected ? undefined : tr("Connect GA4", "GA4 baglayin"),
+      sourceLabel: analyticsConnected ? "GA4" : tr("Unavailable", "Kullanılamıyor"),
+      helperText: analyticsConnected ? undefined : tr("Connect GA4", "GA4 bağlayın"),
       sparklineData: ga4AvgSessionDurationSeries,
       compareMode,
       icon: "clock-3",
@@ -763,8 +763,8 @@ export async function GET(request: NextRequest) {
       previousValue: engagementRatePrevious !== null ? engagementRatePrevious * 100 : null,
       unit: "percent",
       sourceKey: analyticsConnected ? "ga4" : "unavailable",
-      sourceLabel: analyticsConnected ? "GA4" : tr("Unavailable", "Kullanilamiyor"),
-      helperText: analyticsConnected ? undefined : tr("Connect GA4", "GA4 baglayin"),
+      sourceLabel: analyticsConnected ? "GA4" : tr("Unavailable", "Kullanılamıyor"),
+      helperText: analyticsConnected ? undefined : tr("Connect GA4", "GA4 bağlayın"),
       sparklineData: ga4EngagementRateSeries,
       compareMode,
       icon: "gauge",

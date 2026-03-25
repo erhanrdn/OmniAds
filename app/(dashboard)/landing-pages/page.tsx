@@ -162,8 +162,8 @@ export default function LandingPagesPage() {
         <IntegrationEmptyState
           providerLabel="GA4"
           status={ga4View.status === "action_required" ? "error" : "disconnected"}
-          title={language === "tr" ? "Landing page funnel analizini acmak icin GA4 baglayin" : "Connect GA4 to unlock landing page funnel analysis"}
-          description={language === "tr" ? "Landing page performansi GA4 property'nizle calisir. Sayfa bazinda purchase funnel incelemek icin GA4 baglayin ve bir property secin." : "Landing page performance is powered by your GA4 property. Connect GA4 and select a property to inspect your purchase funnel by page."}
+          title={language === "tr" ? "Landing page funnel analizini açmak için GA4 bağlayın" : "Connect GA4 to unlock landing page funnel analysis"}
+          description={language === "tr" ? "Landing page performansı GA4 property'nizle çalışır. Sayfa bazında purchase funnel incelemek için GA4 bağlayın ve bir property seçin." : "Landing page performance is powered by your GA4 property. Connect GA4 and select a property to inspect your purchase funnel by page."}
         />
       </div>
     );
@@ -181,10 +181,10 @@ export default function LandingPagesPage() {
                 {language === "tr" ? "Landing Page Performance" : "Landing Page Performance"}
               </p>
               <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
-                {language === "tr" ? "GA4 funnel diagnostigi: oturum girisinden tamamlanan purchase'a" : "GA4 funnel diagnostics from session entry to completed purchase"}
+                {language === "tr" ? "GA4 funnel diagnostigi: oturum girişinden tamamlanan purchase'a" : "GA4 funnel diagnostics from session entry to completed purchase"}
               </h2>
               <p className="mt-2 text-sm leading-6 text-slate-600">
-                {language === "tr" ? "Creatives sayfa yapisi uzerine yeniden kuruldu: ozet kartlari, siralanabilir funnel tablo ve her landing page icin AI analizli detay drawer." : "Rebuilt on top of the creatives page structure: summary cards, sortable funnel table, and a detailed drawer with AI analysis for each landing page."}
+                {language === "tr" ? "Creatives sayfa yapısı üzerine yeniden kuruldu: özet kartları, sıralanabilir funnel tablo ve her landing page için AI analizli detay drawer." : "Rebuilt on top of the creatives page structure: summary cards, sortable funnel table, and a detailed drawer with AI analysis for each landing page."}
               </p>
             </div>
 
@@ -209,7 +209,7 @@ export default function LandingPagesPage() {
           <ErrorState
             description={formatAnalyticsErrorMessage(
               query.error,
-              language === "tr" ? "Landing page performansi yuklenemedi." : "Failed to load landing page performance."
+              language === "tr" ? "Landing page performansı yüklenemedi." : "Failed to load landing page performance."
             )}
             onRetry={() => query.refetch()}
           />
@@ -229,7 +229,7 @@ export default function LandingPagesPage() {
             {visibleRows.length === 0 ? (
               <EmptyState
                 title="No landing pages found"
-                description="Try adjusting the date range or clearing the page search."
+                description="Try adjüsting the date range or clearing the page search."
               />
             ) : (
               <LandingPagesTableSection

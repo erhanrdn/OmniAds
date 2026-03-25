@@ -31,7 +31,7 @@ function getColumns(language: "en" | "tr"): Array<{
     { key: "sessions", label: language === "tr" ? "Oturumlar" : "Sessions", render: (row) => formatInteger(row.sessions) },
     { key: "engagementRate", label: language === "tr" ? "Etkilesim" : "Engagement", render: (row) => formatPercent(row.engagementRate) },
     { key: "scrollRate", label: "Scroll", render: (row) => formatPercent(row.scrollRate) },
-    { key: "viewItem", label: language === "tr" ? "Urun Goruntuleme" : "View Item", render: (row) => formatInteger(row.viewItem) },
+    { key: "viewItem", label: language === "tr" ? "Ürün Goruntuleme" : "View Item", render: (row) => formatInteger(row.viewItem) },
     { key: "addToCarts", label: language === "tr" ? "Sepete Ekle" : "Add to Cart", render: (row) => formatInteger(row.addToCarts) },
     { key: "checkouts", label: "Checkout", render: (row) => formatInteger(row.checkouts) },
     { key: "addShippingInfo", label: language === "tr" ? "Kargo Bilgisi" : "Shipping", render: (row) => formatInteger(row.addShippingInfo) },
@@ -59,7 +59,7 @@ export function LandingPagesTableSection({
         </p>
         <p className="mt-1 text-sm text-slate-600">
           {language === "tr"
-            ? "Dususu, conversion oranlarini ve AI yorumlarini incelemek icin bir landing page secin."
+            ? "Düşüşü, conversion oranlarını ve AI yorumlarını incelemek için bir landing page seçin."
             : "Click any landing page to inspect drop-offs, conversion rates, and AI commentary."}
         </p>
       </div>

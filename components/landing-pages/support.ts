@@ -127,7 +127,7 @@ export function buildSummaryCards(
 }
 
 export function getDropOffLabel(step: LandingPageFunnelStepKey | null, language: AppLanguage = "en"): string {
-  if (!step) return language === "tr" ? "Net bir dusus yok" : "No clear drop-off";
+  if (!step) return language === "tr" ? "Net bir düşüş yok" : "No clear drop-off";
   if (step === "sessions") return `${getLandingPageFunnelLabel("sessions", language)} -> ${getLandingPageFunnelLabel("view_item", language)}`;
   if (step === "view_item") return `${getLandingPageFunnelLabel("view_item", language)} -> ${getLandingPageFunnelLabel("add_to_cart", language)}`;
   if (step === "add_to_cart") return `${getLandingPageFunnelLabel("add_to_cart", language)} -> ${getLandingPageFunnelLabel("begin_checkout", language)}`;

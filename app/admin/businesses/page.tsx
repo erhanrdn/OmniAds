@@ -68,7 +68,7 @@ export default function AdminBusinessesPage() {
       .then(async (r) => {
         const data = await r.json().catch(() => null);
         if (!r.ok) {
-          throw new Error(data?.message ?? "Workspace listesi yuklenemedi.");
+          throw new Error(data?.message ?? "Workspace listesi yüklenemedi.");
         }
         return data;
       })
@@ -80,7 +80,7 @@ export default function AdminBusinessesPage() {
         console.error("[admin/businesses page]", err);
         setBusinesses([]);
         setTotal(0);
-        setError(err instanceof Error ? err.message : "Workspace listesi yuklenemedi.");
+        setError(err instanceof Error ? err.message : "Workspace listesi yüklenemedi.");
       })
       .finally(() => setLoading(false));
   }, [page, debouncedSearch, plan]);

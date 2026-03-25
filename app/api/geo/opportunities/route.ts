@@ -125,15 +125,15 @@ export async function GET(request: NextRequest) {
           title: language === "tr" ? "AI tarafindan kesfedilen sayfa ticari potansiyel kaybediyor" : "AI-discovered page losing commercial potential",
           target: path,
           evidence: language === "tr"
-            ? `${Math.round(aiSessions)} AI kaynakli oturum, yalnizca %${(cvr * 100).toFixed(1)} purchase CVR ve site ortalamasi olan %${(siteAvgCvr * 100).toFixed(1)} seviyesinin altinda.`
+            ? `${Math.round(aiSessions)} AI kaynakli oturum, yalnızca %${(cvr * 100).toFixed(1)} purchase CVR ve site ortalamasi olan %${(siteAvgCvr * 100).toFixed(1)} seviyesinin altında.`
             : `${Math.round(aiSessions)} AI-source sessions with only ${(cvr * 100).toFixed(1)}% purchase CVR vs ${(siteAvgCvr * 100).toFixed(1)}% site average.`,
           recommendation:
             language === "tr"
-              ? "AI kesif niyetini gelire cevirmek icin net bir urun/hizmet CTA'si, comparison table veya buying guide bolumu ekleyin."
+              ? "AI keşif niyetini gelire çevirmek için net bir ürün/hizmet CTA'si, comparison table veya buying guide bölümü ekleyin."
               : "Add a clear product/service CTA, comparison table, or buying guide section to convert AI-discovery intent into revenue.",
           whyItMatters:
             language === "tr"
-              ? "AI kaynakli ziyaretciler genelde yuksek bilgilendirici niyetle gelir ve dogru yonlendirmeyle purchase niyetine gecer. Bu boslugu kapatmamak yuksek kaliteli talebi kaybetmek demektir."
+              ? "AI kaynakli ziyaretçiler genelde yüksek bilgilendirici niyetle gelir ve dogru yonlendirmeyle purchase niyetine gecer. Bu boslugu kapatmamak yüksek kaliteli talebi kaybetmek demektir."
               : "AI-referred visitors often have high informational intent that transitions to purchase intent with the right nudge. Leaving this gap means losing high-quality leads.",
         });
       }
@@ -148,18 +148,18 @@ export async function GET(request: NextRequest) {
           effort: "medium",
           confidence,
           impact: "+15–30% engagement",
-          title: language === "tr" ? "AI kaynakli ziyaretciler icin icerik uyumu zayif" : "Poor content match for AI-sourced visitors",
+          title: language === "tr" ? "AI kaynakli ziyaretçiler için içerik uyumu zayıf" : "Poor content match for AI-sourced visitors",
           target: path,
           evidence: language === "tr"
-            ? `${Math.round(aiSessions)} AI oturumu var ama engagement rate %${(engRate * 100).toFixed(0)} — ziyaretciler beklediklerini bulamiyor.`
+            ? `${Math.round(aiSessions)} AI oturumu var ama engagement rate %${(engRate * 100).toFixed(0)} — ziyaretçiler beklediklerini bulamiyor.`
             : `${Math.round(aiSessions)} AI sessions but ${(engRate * 100).toFixed(0)}% engagement rate — visitors are not finding what they expected.`,
           recommendation:
             language === "tr"
-              ? "Bu sayfayi, AI trafigini getiren bilgilendirici sorgulara dogrudan cevap verecek sekilde yeniden duzenleyin. Ust kisimda FAQ bloklari ve direkt cevaplar kullanin."
+              ? "Bu sayfayı, AI trafiğini getiren bilgilendirici sorgulara doğrudan cevap verecek şekilde yeniden düzenleyin. Üst kisimda FAQ bloklari ve direkt cevaplar kullanin."
               : "Restructure this page to directly answer the informational queries driving AI-source traffic. Use FAQ blocks and direct answers near the top.",
           whyItMatters:
             language === "tr"
-              ? "Dusuk engagement, bu sayfanin sorgu niyetini karsilamadigini AI motorlarina gosterir; bu da gelecekteki alintilanma sikligini azaltabilir."
+              ? "Düşük engagement, bu sayfanın sorgu niyetini karşılamadigini AI motorlarina gösterir; bu da gelecekteki alintilanma sıklığıni azaltabilir."
               : "Low engagement tells AI engines that this page doesn't satisfy the query intent, which can reduce future citation frequency.",
         });
       }
@@ -182,14 +182,14 @@ export async function GET(request: NextRequest) {
         title: language === "tr" ? `${engine} kesfini daha fazla sayfaya yayin` : `Amplify ${engine} discovery across more pages`,
         target: engine,
         evidence: language === "tr"
-          ? `${engine} zaten ${Math.round(sourceSessions)} oturum gonderiyor ama bu trafik yalnizca birkac sayfada toplanmis durumda.`
+          ? `${engine} zaten ${Math.round(sourceSessions)} oturum gonderiyor ama bu trafik yalnızca birkac sayfada toplanmis durumda.`
           : `${engine} is already sending ${Math.round(sourceSessions)} sessions, concentrated on only a few pages.`,
         recommendation: language === "tr"
-          ? `Daha fazla kategori ve konu sayfasinda yapi li ve answer-first icerik olusturun. ${engine}, acik basliklara ve dogrudan cevaplara sahip kapsamli sayfalari tercih eder.`
+          ? `Daha fazla kategori ve konu sayfasında yapılı ve answer-first içerik oluşturun. ${engine}, açık başlıklara ve doğrudan cevaplara sahip kapsamlı sayfaları tercih eder.`
           : `Create structured, answer-friendly content on more category and topic pages. ${engine} favors comprehensive pages with clear headings and direct answers.`,
         whyItMatters:
           language === "tr"
-            ? "Bir AI motoru sitenize bir konuda guvendiginde, konu kapsamini genisletmek iliskili sorgularda alintilanmayi carpabilir."
+            ? "Bir AI motoru sitenize bir konuda güvendiğinde, konu kapsamını genişletmek ilişkili sorgularda alıntılanmayı çarpabilir."
             : "When an AI engine trusts your site for one topic, expanding topical coverage can multiply citations across related queries.",
       });
     }
@@ -374,16 +374,16 @@ export async function GET(request: NextRequest) {
       effort: "low",
       confidence: "high",
       impact: language === "tr" ? "AI trafik atifini acar" : "Unlocks AI traffic attribution",
-      title: language === "tr" ? "AI kaynakli trafigi tespit etmek icin GA4 baglayin" : "Connect GA4 to detect AI-source traffic",
+      title: language === "tr" ? "AI kaynakli trafiği tespit etmek için GA4 bağlayın" : "Connect GA4 to detect AI-source traffic",
       target: "GA4 Integration",
-      evidence: language === "tr" ? "GA4 olmadan AI referral trafigi tespit edilemez." : "Without GA4, AI referral traffic detection is unavailable.",
+      evidence: language === "tr" ? "GA4 olmadan AI referral trafiği tespit edilemez." : "Without GA4, AI referral traffic detection is unavailable.",
       recommendation:
         language === "tr"
-          ? "AI trafik kaynagi analizini acmak icin GA4 baglayin ve Integrations icinde bir property secin."
+          ? "AI trafik kaynağı analizini açmak için GA4 bağlayın ve Integrations içinde bir property seçin."
           : "Connect GA4 and select a property in Integrations to unlock AI traffic source analysis.",
       whyItMatters:
         language === "tr"
-          ? "Hangi AI motorlarinin trafik gonderdigini ve bu ziyaretcilerin nasil davrandigini bilmek GEO stratejisinin temelidir. GA4 atifi olmadan kor ucuyorsunuz."
+          ? "Hangi AI motorlarinin trafik gonderdigini ve bu ziyaretçilerin nasil davrandigini bilmek GEO stratejisinin temelidir. GA4 atifi olmadan kor ucuyorsunuz."
           : "Knowing which AI engines send traffic — and how those visitors behave — is the foundation of a GEO strategy. Without GA4 attribution, you're flying blind.",
     });
   }

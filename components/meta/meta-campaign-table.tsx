@@ -97,7 +97,7 @@ function fmtBidValue(
 
 function renderConfigText(value: string | null | undefined, isMixed?: boolean) {
   const language = usePreferencesStore.getState().language;
-  if (isMixed) return language === "tr" ? "Karisik" : "Mixed";
+  if (isMixed) return language === "tr" ? "Karışık" : "Mixed";
   if (!value) return "—";
   return value;
 }
@@ -131,7 +131,7 @@ function formatRelativeAge(isoValue: string | null | undefined): string | null {
   if (diffMs >= day) return `${Math.floor(diffMs / day)}d ago`;
   if (diffMs >= hour) return `${Math.floor(diffMs / hour)}h ago`;
   if (diffMs >= minute) return `${Math.floor(diffMs / minute)}m ago`;
-  return "just now";
+  return "jüst now";
 }
 
 function diffPct(current: number, previous?: number): number | null {
@@ -382,7 +382,7 @@ function AdSetSubTable({
                     {(typeof adset.previousDailyBudget === "number" ||
                       typeof adset.previousLifetimeBudget === "number") && (
                       <div className="truncate text-[10px] tabular-nums text-muted-foreground">
-                        {language === "tr" ? "onceki" : "prev"} {fmtBudget(adset.previousDailyBudget ?? null, adset.previousLifetimeBudget ?? null, sym)}
+                        {language === "tr" ? "önceki" : "prev"} {fmtBudget(adset.previousDailyBudget ?? null, adset.previousLifetimeBudget ?? null, sym)}
                         {formatRelativeAge(adset.previousBudgetCapturedAt)
                           ? ` · ${formatRelativeAge(adset.previousBudgetCapturedAt)}`
                           : ""}
@@ -405,7 +405,7 @@ function AdSetSubTable({
                 </div>
                 {typeof effectivePreviousBidValue === "number" && !adset.isBidValueMixed && (
                   <div className="text-[10px] tabular-nums text-muted-foreground">
-                    {language === "tr" ? "onceki" : "prev"} {fmtBidValue(
+                    {language === "tr" ? "önceki" : "prev"} {fmtBidValue(
                       effectivePreviousBidValue,
                       effectivePreviousBidValueFormat ?? effectiveBidValueFormat,
                       sym
@@ -618,7 +618,7 @@ function CampaignRow({
               {(typeof campaign.previousDailyBudget === "number" ||
                 typeof campaign.previousLifetimeBudget === "number") && (
                 <div className="truncate text-[10px] tabular-nums text-muted-foreground">
-                  {language === "tr" ? "onceki" : "prev"} {fmtBudget(campaign.previousDailyBudget ?? null, campaign.previousLifetimeBudget ?? null, sym)}
+                  {language === "tr" ? "önceki" : "prev"} {fmtBudget(campaign.previousDailyBudget ?? null, campaign.previousLifetimeBudget ?? null, sym)}
                   {formatRelativeAge(campaign.previousBudgetCapturedAt)
                     ? ` · ${formatRelativeAge(campaign.previousBudgetCapturedAt)}`
                     : ""}
@@ -738,7 +738,7 @@ function CampaignRow({
             {adSetsQuery.isLoading && (
               <div className="flex items-center gap-2 border-t bg-muted/20 px-4 py-3 text-xs text-muted-foreground">
                 <Loader2 className="h-3 w-3 animate-spin" />
-                {language === "tr" ? "Ad set'ler yukleniyor..." : "Loading ad sets..."}
+                {language === "tr" ? "Ad set'ler yükleniyor..." : "Loading ad sets..."}
               </div>
             )}
             {adSetsQuery.isError && (
@@ -747,7 +747,7 @@ function CampaignRow({
                 {adSetsQuery.error instanceof Error
                   ? adSetsQuery.error.message
                   : language === "tr"
-                    ? "Ad set'ler yuklenemedi."
+                    ? "Ad set'ler yüklenemedi."
                     : "Could not load ad sets."}
                 <Button
                   size="sm"
