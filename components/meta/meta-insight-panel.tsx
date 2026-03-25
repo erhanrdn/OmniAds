@@ -187,7 +187,7 @@ function RecommendationCard({
           onClick={() => setShowDetails((v) => !v)}
           className="mt-3 flex w-full items-center justify-between rounded-lg border border-dashed px-3 py-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/40"
         >
-          <span>{showDetails ? t.hideDetails ?? "Hide details" : t.showDetails ?? "Analysis details"}</span>
+          <span>{showDetails ? "Hide details" : "Analysis details"}</span>
           {showDetails ? (
             <ChevronUp className="h-3.5 w-3.5" />
           ) : (
