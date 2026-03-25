@@ -635,14 +635,16 @@ export async function executeGaqlForAccounts(params: {
  * Normalize date range parameter to YYYY-MM-DD format for GAQL
  */
 export function getDateRangeForQuery(
-  dateRange: "7" | "14" | "30" | "90" | "mtd" | "qtd" | "custom",
+  dateRange: "3" | "7" | "14" | "30" | "90" | "mtd" | "qtd" | "custom",
   customStart?: string,
   customEnd?: string,
 ): { startDate: string; endDate: string } {
   const endDate = new Date();
   const startDate = new Date(endDate);
 
-  if (dateRange === "7") {
+  if (dateRange === "3") {
+    startDate.setDate(endDate.getDate() - 3);
+  } else if (dateRange === "7") {
     startDate.setDate(endDate.getDate() - 7);
   } else if (dateRange === "14") {
     startDate.setDate(endDate.getDate() - 14);

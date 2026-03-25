@@ -1,3 +1,11 @@
+import type {
+  GoogleAdvisorDateRange,
+  GoogleAdvisorResponse,
+  GoogleCampaignRoleRow,
+  GoogleRecommendation as GoogleAdvisorRecommendation,
+  GoogleRecommendationSection,
+} from "@/lib/google-ads/growth-advisor-types";
+
 export interface GoogleRecommendation {
   id: string;
   title: string;
@@ -6,6 +14,14 @@ export interface GoogleRecommendation {
   summary: string[];
   evidence: Array<{ label: string; value: string }>;
 }
+
+export type {
+  GoogleAdvisorDateRange,
+  GoogleAdvisorResponse,
+  GoogleAdvisorRecommendation,
+  GoogleCampaignRoleRow,
+  GoogleRecommendationSection,
+};
 
 export interface GoogleSearchTermRow {
   id: string;
@@ -95,12 +111,33 @@ export async function getGoogleRecommendations(params: {
   return data.data || [];
 }
 
+export async function getGoogleAdvisor(params: {
+  businessId: string;
+  dateRange: GoogleAdvisorDateRange;
+  accountId?: string;
+}): Promise<GoogleAdvisorResponse> {
+  const url = new URL(
+    "/api/google-ads/advisor",
+    typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"
+  );
+  url.searchParams.set("businessId", params.businessId);
+  url.searchParams.set("dateRange", params.dateRange);
+  if (params.accountId) url.searchParams.set("accountId", params.accountId);
+
+  const response = await fetch(url.toString());
+  if (!response.ok) {
+    throw new Error(`Failed to fetch Google advisor: ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
 /**
  * Fetch real search term data from Google Ads
  */
 export async function getGoogleSearchTerms(params: {
   businessId: string;
-  dateRange: "7" | "14" | "30" | "custom";
+  dateRange: "3" | "7" | "14" | "30" | "90" | "custom";
   search?: string;
   accountId?: string;
 }): Promise<GoogleSearchTermRow[]> {
@@ -127,7 +164,7 @@ export async function getGoogleSearchTerms(params: {
  */
 export async function getGoogleProducts(params: {
   businessId: string;
-  dateRange: "7" | "14" | "30" | "custom";
+  dateRange: "3" | "7" | "14" | "30" | "90" | "custom";
   accountId?: string;
 }): Promise<GoogleProductRow[]> {
   const url = new URL(
@@ -152,7 +189,7 @@ export async function getGoogleProducts(params: {
  */
 export async function getGoogleAssets(params: {
   businessId: string;
-  dateRange: "7" | "14" | "30" | "custom";
+  dateRange: "3" | "7" | "14" | "30" | "90" | "custom";
   accountId?: string;
 }): Promise<GoogleAssetRow[]> {
   const url = new URL(
@@ -178,7 +215,7 @@ export async function getGoogleAssets(params: {
  */
 export async function getGoogleShopifyProducts(params: {
   businessId: string;
-  dateRange: "7" | "14" | "30" | "custom";
+  dateRange: "3" | "7" | "14" | "30" | "90" | "custom";
 }): Promise<ShopifyProductPerformance[]> {
   // Shopify product-level tracking requires separate integration
   // This is a placeholder for future Shopify + Google Ads revenue attribution

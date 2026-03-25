@@ -27,7 +27,7 @@ import {
   type RawRow,
 } from "@/lib/google-ads/reporting-support";
 
-export type DateRange = "7" | "14" | "30" | "90" | "mtd" | "qtd" | "custom";
+export type DateRange = "3" | "7" | "14" | "30" | "90" | "mtd" | "qtd" | "custom";
 export type CompareMode = "none" | "previous_period" | "previous_year" | "custom";
 
 export interface BaseReportParams {

@@ -562,6 +562,275 @@ export function getDemoGoogleAdsOpportunities() {
   return { data, count: data.length };
 }
 
+export function getDemoGoogleAdsAdvisor() {
+  const recommendations = [
+    {
+      id: "demo-google-non-brand",
+      level: "account",
+      type: "non_brand_expansion",
+      strategyLayer: "Non-Brand Expansion",
+      decisionState: "act",
+      priority: "high",
+      confidence: "high",
+      comparisonCohort: "Brand Search + PMax",
+      title: "Non-brand demand is being found, but not captured cleanly",
+      summary:
+        "PMax and broad query capture are surfacing real commercial demand that deserves its own controlled Search lane.",
+      why:
+        "Without a non-brand buildout, the account has weak query governance and no clean way to scale demand beyond brand.",
+      recommendedAction:
+        "Launch exact on proven query winners, support adjacent variants with phrase, and keep broad discovery tightly guarded by shared negatives.",
+      potentialContribution: {
+        label: "Incremental revenue capture",
+        impact: "high",
+        summary: "A cleaner non-brand lane should unlock more new customer demand.",
+        estimatedRevenueLiftRange: "$1,200-$2,800",
+      },
+      evidence: [
+        { label: "Recurring converting query clusters", value: "4" },
+        { label: "Best query ROAS", value: "4.7x" },
+        { label: "Expected launch mix", value: "4 exact / 3 phrase / 2 broad themes" },
+      ],
+      timeframeContext: {
+        coreVerdict:
+          "Recurring commercial search demand exists beyond brand and should not stay hidden inside PMax alone.",
+        selectedRangeNote:
+          "The selected range confirms which query winners are hottest now, but the launch call is supported by repeat demand across longer windows.",
+        historicalSupport: "5/6 weighted windows show non-brand converting demand.",
+      },
+      seedQueriesExact: [
+        "carry on backpack for travel",
+        "travel weekender bag",
+        "waterproof hiking backpack",
+        "weekend carry on backpack",
+      ],
+      seedQueriesPhrase: [
+        "travel backpack for flights",
+        "carry on bag backpack",
+        "weekender backpack for women",
+      ],
+      seedThemesBroad: ["carry backpack travel", "weekender backpack", "hiking backpack waterproof"],
+      negativeGuardrails: ["cheap", "free", "pattern", "used", "repair"],
+    },
+    {
+      id: "demo-google-shopping",
+      level: "account",
+      type: "shopping_launch_or_split",
+      strategyLayer: "Shopping & Products",
+      decisionState: "act",
+      priority: "medium",
+      confidence: "medium",
+      title: "Shopping should be used as a control layer, not left entirely to PMax",
+      summary:
+        "The catalog has enough winner concentration that a Shopping lane would add product control instead of just duplicating PMax.",
+      why:
+        "Hero products and hidden winners deserve their own visibility and budget steering.",
+      recommendedAction:
+        "Launch a hero-SKU Shopping campaign first, then split into category-led clusters if the winners keep holding share.",
+      potentialContribution: {
+        label: "Control gain",
+        impact: "medium",
+        summary: "Better SKU visibility and budget precision.",
+        estimatedRevenueLiftRange: "$900-$1,900",
+      },
+      evidence: [
+        { label: "Hidden winners", value: "2" },
+        { label: "Top product revenue share", value: "54%" },
+        { label: "Launch mode", value: "hero_sku_shopping" },
+      ],
+      timeframeContext: {
+        coreVerdict: "Shopping adds product-level control that PMax alone cannot provide.",
+        selectedRangeNote: "Recent SKU concentration confirms which products should anchor the first Shopping launch.",
+        historicalSupport: "4/6 weighted windows show the same hero products dominating revenue.",
+      },
+      launchMode: "hero_sku_shopping",
+      startingSkuClusters: ["UrbanTrail Carry-On Backpack", "Waterproof Hiking Pack"],
+    },
+    {
+      id: "demo-google-query",
+      level: "account",
+      type: "query_governance",
+      strategyLayer: "Search Governance",
+      decisionState: "act",
+      priority: "high",
+      confidence: "high",
+      title: "Low-intent query waste is still making it through",
+      summary: "Some search clusters are spending enough to deserve shared negatives now.",
+      why: "Wasteful queries drag efficiency and muddy what a clean non-brand buildout should look like.",
+      recommendedAction:
+        "Add the worst generic clusters to shared negatives before expanding broad or phrase coverage.",
+      potentialContribution: {
+        label: "Waste recovery",
+        impact: "high",
+        summary: "Should improve signal quality quickly.",
+        estimatedWasteRecoveryRange: "$300-$640",
+      },
+      evidence: [
+        { label: "Waste clusters", value: "3" },
+        { label: "Waste spend", value: "$450" },
+        { label: "Top waste query", value: "cheap camping backpack" },
+      ],
+      timeframeContext: {
+        coreVerdict: "Waste is recurring enough that one-off exclusions are no longer enough.",
+        selectedRangeNote: "Recent waste confirms the same low-intent queries are still active.",
+        historicalSupport: "4/6 weighted windows show repeat waste clusters.",
+      },
+      negativeClusters: ["cheap camping backpack", "free backpack patterns"],
+      negativeQueries: ["cheap camping backpack", "free backpack patterns pdf"],
+    },
+    {
+      id: "demo-google-assets",
+      level: "account",
+      type: "creative_asset_deployment",
+      strategyLayer: "Assets & Testing",
+      decisionState: "act",
+      priority: "medium",
+      confidence: "medium",
+      title: "Asset rotation should separate scaling winners from replacement work",
+      summary:
+        "The account already has clear asset winners, so scaling lanes should stop carrying creative discovery.",
+      why:
+        "Weak assets slow down PMax learning and make it harder to know whether performance is a demand issue or a message issue.",
+      recommendedAction:
+        "Keep winner assets in scaling rotation, move average assets into TEST, and replace the weak assets with search-led messaging angles.",
+      potentialContribution: {
+        label: "Signal gain",
+        impact: "medium",
+        summary: "Cleaner asset deployment improves both scale quality and testing speed.",
+      },
+      evidence: [
+        { label: "Scale-ready assets", value: "2" },
+        { label: "Replace now", value: "1" },
+        { label: "Test-only assets", value: "2" },
+      ],
+      timeframeContext: {
+        coreVerdict: "Asset decisions should follow winner states, not just current spend.",
+        selectedRangeNote: "Recent asset behavior confirms the same gap between winners and laggards.",
+        historicalSupport: "Asset winners line up with the same top search themes across longer windows.",
+      },
+      scaleReadyAssets: ["Carry-on ready headline", "Weekend packing reel"],
+      testOnlyAssets: ["Benefit-led description", "Explorer Backpack Lifestyle Carousel"],
+      replaceAssets: ["Static studio shot"],
+      replacementAngles: [
+        'Lead with "carry on backpack" intent in the first line',
+        "Use UrbanTrail Carry-On Backpack as the visual proof point",
+      ],
+    },
+    {
+      id: "demo-google-pmax",
+      level: "account",
+      type: "pmax_scaling_fit",
+      strategyLayer: "PMax Scaling",
+      decisionState: "watch",
+      priority: "medium",
+      confidence: "medium",
+      title: "PMax can scale, but only after feed and query governance get cleaner",
+      summary:
+        "PMax is productive enough to matter, but not clean enough yet to be treated as a budget dump.",
+      why:
+        "The current setup still has product and query noise that would likely scale with it.",
+      recommendedAction:
+        "Clean query waste, launch Shopping control, refresh weak assets, then revisit whether PMax deserves another 10-15% budget step-up.",
+      potentialContribution: {
+        label: "Incremental revenue capture",
+        impact: "medium",
+        summary: "PMax scale should come after cleanup, not before it.",
+      },
+      evidence: [
+        { label: "Selected PMax ROAS", value: "3.7x" },
+        { label: "Weak asset groups", value: "1" },
+        { label: "Hidden winner products", value: "2" },
+      ],
+      timeframeContext: {
+        coreVerdict: "PMax is a viable scaling lane, but only if the surrounding control layers are healthier.",
+        selectedRangeNote: "Recent performance is encouraging but not clean enough to override the broader structural issues.",
+        historicalSupport: "PMax remains productive in 5/6 weighted windows.",
+      },
+    },
+    {
+      id: "demo-google-brand-control",
+      level: "account",
+      type: "brand_capture_control",
+      strategyLayer: "Operating Model",
+      decisionState: "act",
+      priority: "medium",
+      confidence: "high",
+      title: "Brand should stay isolated so it does not hide growth weakness",
+      summary:
+        "Brand efficiency is good, but it should not be the benchmark used to justify non-brand or PMax scaling.",
+      why:
+        "Brand demand can make the whole account look healthier than the growth engine really is.",
+      recommendedAction:
+        "Keep Brand Search as a support lane and judge budget expansion on non-brand and PMax cohorts separately.",
+      potentialContribution: {
+        label: "Control gain",
+        impact: "medium",
+        summary: "Protects decision quality and avoids false-positive scale calls.",
+      },
+      evidence: [
+        { label: "Brand revenue share", value: "32%" },
+        { label: "Brand ROAS", value: "7.6x" },
+        { label: "Best growth-lane ROAS", value: "4.7x" },
+      ],
+      timeframeContext: {
+        coreVerdict: "Brand is a support lane, not the right growth benchmark.",
+        selectedRangeNote: "Recent brand efficiency remains strong but does not change the operating-model recommendation.",
+        historicalSupport: "Brand outperforms growth lanes in 6/6 weighted windows.",
+      },
+    },
+  ];
+
+  const sections = [
+    "Operating Model",
+    "Search Governance",
+    "Non-Brand Expansion",
+    "Shopping & Products",
+    "PMax Scaling",
+    "Assets & Testing",
+  ].map((title) => ({
+    id: title.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+    title,
+    recommendations: recommendations.filter((recommendation) => recommendation.strategyLayer === title),
+  })).filter((section) => section.recommendations.length > 0);
+
+  return {
+    summary: {
+      headline: "Brand + PMax mix is hiding a non-brand growth gap",
+      operatorNote:
+        "6 actionable Google recommendations are live. Highest priority: launch a controlled non-brand Search buildout.",
+      demandMap: "Brand Search 18.4% spend • PMax 46.2% spend • Shopping 22.1% spend • Non-Brand Search 13.3% spend",
+      topPriority:
+        "Launch a non-brand Search buildout from the proven query clusters, then fund it with a small budget carve-out instead of scaling PMax blindly.",
+      totalRecommendations: 6,
+      actRecommendationCount: 4,
+      campaignRoles: [
+        {
+          campaignId: "g-brand",
+          campaignName: "Brand Campaign",
+          family: "brand_search",
+          familyLabel: "Brand Search",
+          role: "Support",
+          roleLabel: "Support",
+          recommendationCount: 2,
+          topActionHint: "Keep brand isolated and judge scale on non-brand cohorts.",
+        },
+        {
+          campaignId: "g-pmax",
+          campaignName: "Travel Gear Performance Max",
+          family: "pmax_scaling",
+          familyLabel: "PMax",
+          role: "Scaling",
+          roleLabel: "Scaling",
+          recommendationCount: 4,
+          topActionHint: "Clean product and query waste before pushing more budget through PMax.",
+        },
+      ],
+    },
+    recommendations,
+    sections,
+  };
+}
+
 export function getDemoGoogleAdsDiagnostics() {
   const rows = [
     { label: "Overview", partial: false, warningCount: 0, failureCount: 0, unavailableMetricCount: 0, rows: 1, meta: { partial: false, warnings: [], failed_queries: [], unavailable_metrics: [] } },

@@ -1,4 +1,5 @@
 export type GoogleAdsDateRange =
+  | "3"
   | "7"
   | "14"
   | "30"
@@ -16,6 +17,7 @@ export type GoogleAdsCompareMode =
 function normalizeDateRange(value: string | null): GoogleAdsDateRange {
   switch (value) {
     case "7":
+    case "3":
     case "14":
     case "30":
     case "90":

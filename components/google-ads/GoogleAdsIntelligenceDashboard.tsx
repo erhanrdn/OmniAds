@@ -6,6 +6,9 @@ import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MiniTrendAreaChart } from "@/components/overview/MiniTrendAreaChart";
+import { EmptyState } from "@/components/states/empty-state";
+import { ErrorState } from "@/components/states/error-state";
+import { GoogleAdvisorPanel } from "@/components/google/google-advisor-panel";
 import {
   DateRangePicker,
   DEFAULT_DATE_RANGE,
@@ -39,6 +42,7 @@ import {
   type PanelKey,
   type TrendLabelMode,
 } from "@/components/google-ads/google-ads-dashboard-support";
+import type { GoogleAdvisorResponse, GoogleAdvisorRecommendation } from "@/src/services/google";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -62,12 +66,40 @@ function trendData(current: number, dates: string[]): Array<{ date: string; valu
   }));
 }
 
+function filterAdvisorByTypes(
+  advisor: GoogleAdvisorResponse | undefined,
+  allowedTypes: string[]
+): GoogleAdvisorResponse | null {
+  if (!advisor) return null;
+  const allowed = new Set(allowedTypes);
+  const sections = advisor.sections
+    .map((section) => ({
+      ...section,
+      recommendations: section.recommendations.filter((recommendation) =>
+        allowed.has(recommendation.type)
+      ),
+    }))
+    .filter((section) => section.recommendations.length > 0);
+
+  if (sections.length === 0) return null;
+
+  return {
+    ...advisor,
+    sections,
+    recommendations: sections.flatMap((section) => section.recommendations),
+  };
+}
+
 export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: string }) {
   const [dateRange, setDateRange] = useState<DateRangeValue>(DEFAULT_DATE_RANGE);
   const [channelFilter, setChannelFilter] = useState<string>("all");
   const [selectedCampaignNames, setSelectedCampaignNames] = useState<string[]>([]);
   const [includeSpentInactive, setIncludeSpentInactive] = useState(false);
   const [activePanel, setActivePanel] = useState<PanelKey>("summary");
+  const [focusedSearchTerms, setFocusedSearchTerms] = useState<string[]>([]);
+  const [focusedProducts, setFocusedProducts] = useState<string[]>([]);
+  const [focusedAssets, setFocusedAssets] = useState<string[]>([]);
+  const [focusedAssetGroups, setFocusedAssetGroups] = useState<string[]>([]);
 
   const { start: startDate, end: endDate } = getPresetDates(
     dateRange.rangePreset,
@@ -91,6 +123,25 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
       }
       const res = await fetch(`/api/google-ads/campaigns?${params}`);
       if (!res.ok) throw new Error("fetch failed");
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const {
+    data: advisorData,
+    isLoading: isAdvisorLoading,
+    isError: isAdvisorError,
+  } = useQuery<GoogleAdvisorResponse>({
+    queryKey: ["google-ads-dashboard-advisor-v1", businessId, startDate, endDate],
+    queryFn: async () => {
+      const params = new URLSearchParams({ businessId, dateRange: apiDateRange });
+      if (apiDateRange === "custom") {
+        params.set("customStart", startDate);
+        params.set("customEnd", endDate);
+      }
+      const res = await fetch(`/api/google-ads/advisor?${params}`);
+      if (!res.ok) throw new Error("advisor fetch failed");
       return res.json();
     },
     staleTime: 5 * 60 * 1000,
@@ -431,6 +482,11 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
     [devicesData?.rows]
   );
 
+  const campaignAdvisorMap = useMemo(() => {
+    const rows = advisorData?.summary.campaignRoles ?? [];
+    return new Map(rows.map((row) => [row.campaignId, row]));
+  }, [advisorData?.summary.campaignRoles]);
+
   const searchSourceCounts = useMemo(() => {
     let pmax = 0;
     let search = 0;
@@ -448,6 +504,93 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
   if (isError) {
     return <div className="py-10 text-sm text-muted-foreground">Campaign data could not be loaded.</div>;
   }
+
+  const summaryAdvisor = filterAdvisorByTypes(advisorData, [
+    "operating_model_gap",
+    "brand_capture_control",
+    "pmax_scaling_fit",
+    "budget_reallocation",
+  ]);
+
+  const insightsAdvisor = filterAdvisorByTypes(advisorData, [
+    "non_brand_expansion",
+    "query_governance",
+    "keyword_buildout",
+    "geo_device_adjustment",
+    "diagnostic_guardrail",
+  ]);
+
+  const assetGroupAdvisor = filterAdvisorByTypes(advisorData, [
+    "asset_group_structure",
+    "pmax_scaling_fit",
+    "geo_device_adjustment",
+  ]);
+
+  const productsAdvisor = filterAdvisorByTypes(advisorData, [
+    "shopping_launch_or_split",
+    "product_allocation",
+    "budget_reallocation",
+  ]);
+
+  const assetsAdvisor = filterAdvisorByTypes(advisorData, [
+    "creative_asset_deployment",
+  ]);
+
+  const focusAdvisorEntity = (recommendation: GoogleAdvisorRecommendation) => {
+    const searchFocus = [
+      ...(recommendation.negativeQueries ?? []),
+      ...(recommendation.promoteToExact ?? []),
+      ...(recommendation.promoteToPhrase ?? []),
+    ];
+    const productFocus = [
+      ...(recommendation.startingSkuClusters ?? []),
+      ...(recommendation.scaleSkuClusters ?? []),
+      ...(recommendation.reduceSkuClusters ?? []),
+      ...(recommendation.hiddenWinnerSkuClusters ?? []),
+      ...(recommendation.heroSkuClusters ?? []),
+    ];
+    const assetFocus = [
+      ...(recommendation.scaleReadyAssets ?? []),
+      ...(recommendation.testOnlyAssets ?? []),
+      ...(recommendation.replaceAssets ?? []),
+    ];
+    const assetGroupFocus = [
+      ...(recommendation.weakAssetGroups ?? []),
+      ...(recommendation.keepSeparateAssetGroups ?? []),
+    ];
+
+    setFocusedSearchTerms(searchFocus);
+    setFocusedProducts(productFocus);
+    setFocusedAssets(assetFocus);
+    setFocusedAssetGroups(assetGroupFocus);
+
+    if (searchFocus.length > 0) {
+      setActivePanel("insights");
+      return;
+    }
+    if (productFocus.length > 0) {
+      setActivePanel("products");
+      return;
+    }
+    if (assetFocus.length > 0) {
+      setActivePanel("assets");
+      return;
+    }
+    if (assetGroupFocus.length > 0) {
+      setActivePanel("assetGroupAudience");
+      return;
+    }
+
+    if (activePanel !== "summary") {
+      setActivePanel("summary");
+    }
+    const entityKey = recommendation.entityName?.toLowerCase().trim();
+    if (!entityKey) return;
+    const exactMatch = campaignNameOptions.find((name) => name.toLowerCase().trim() === entityKey);
+    if (exactMatch) {
+      setSelectedCampaignNames([exactMatch]);
+    }
+  };
 
   return (
     <div className="space-y-5">
@@ -528,7 +671,13 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                 </DropdownMenuContent>
               </DropdownMenu>
 
-              <DateRangePicker value={dateRange} onChange={setDateRange} className="ml-1" comparisonPlaceholderLabel="Compare to" />
+              <DateRangePicker
+                value={dateRange}
+                onChange={setDateRange}
+                className="ml-1"
+                comparisonPlaceholderLabel="Compare to"
+                rangePresets={["3d", "7d", "14d", "30d", "90d", "custom"]}
+              />
             </div>
           </div>
           <p className="mt-0.5 text-xs text-muted-foreground">{isLoading ? "Loading..." : `${scopedRows.length} campaigns · Google Ads`}</p>
@@ -615,12 +764,42 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
         </div>
       ) : (
         <div className="grid gap-2 md:grid-cols-3 xl:grid-cols-5 2xl:grid-cols-6">
-          {sortedRows.map((c) => <CampaignCard key={c.id} campaign={c} accountAvgRoas={data?.summary.accountAvgRoas ?? blendedRoas} />)}
+          {sortedRows.map((c) => (
+            <CampaignCard
+              key={c.id}
+              campaign={c}
+              accountAvgRoas={data?.summary.accountAvgRoas ?? blendedRoas}
+              advisorRow={
+                campaignAdvisorMap.get(String(c.id)) ??
+                Array.from(campaignAdvisorMap.values()).find((row) => row.campaignName === c.name)
+              }
+            />
+          ))}
         </div>
       ))}
 
+      {activePanel === "summary" && summaryAdvisor?.sections.length ? (
+        <section className="space-y-3 rounded-xl border border-border/70 bg-card p-3">
+          <p className="text-xs text-muted-foreground">Account-level growth decisions and lane orchestration</p>
+          <GoogleAdvisorPanel advisor={summaryAdvisor} onFocusEntity={focusAdvisorEntity} />
+        </section>
+      ) : null}
+
       {activePanel === "insights" ? (
         <section className="space-y-3 rounded-xl border border-border/70 bg-card p-3">
+          {isAdvisorLoading ? (
+            <Skeleton className="h-40 w-full rounded-xl" />
+          ) : isAdvisorError ? (
+            <ErrorState />
+          ) : insightsAdvisor?.summary ? (
+            <GoogleAdvisorPanel advisor={insightsAdvisor} onFocusEntity={focusAdvisorEntity} />
+          ) : (
+            <EmptyState
+              title="Search advisor is not ready"
+              description="Search/query-specific advisor recommendations are not available for this date range yet."
+            />
+          )}
+
           <p className="text-xs text-muted-foreground">Search terms and when/where ads appeared metrics</p>
           {isSearchTermsLoading || isGeoLoading || isDevicesLoading ? (
             <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-xl" />)}</div>
@@ -644,7 +823,13 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                       {searchTermNegativeRows.map((row, index) => (
                         <div
                           key={`${row.key ?? `${row.searchTerm}-${row.campaign ?? ""}`}-${index}`}
-                          className="rounded-md border border-border/70 bg-muted/20 p-2"
+                          className={cn(
+                            "rounded-md border border-border/70 bg-muted/20 p-2",
+                            focusedSearchTerms.some(
+                              (term) =>
+                                term.toLowerCase().trim() === row.searchTerm.toLowerCase().trim()
+                            ) && "border-rose-300 bg-rose-50/40"
+                          )}
                         >
                           <div className="flex items-start justify-between gap-2">
                             <p className="line-clamp-1 text-[11px] font-medium">{row.searchTerm}</p>
@@ -656,6 +841,14 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                           <p className="mt-0.5 text-[10px] text-muted-foreground">Spend {fmtCurrency(row.spend)} · ROAS {fmtRoas(row.roas)} · Conv {row.conversions.toFixed(0)}</p>
                           <div className="mt-1 flex flex-wrap gap-1">
                             <span className="rounded-full border border-border/70 bg-rose-50/40 px-1.5 py-0.5 text-[9px] text-rose-700">Add negative</span>
+                            {focusedSearchTerms.some(
+                              (term) =>
+                                term.toLowerCase().trim() === row.searchTerm.toLowerCase().trim()
+                            ) ? (
+                              <span className="rounded-full border border-border/70 bg-amber-50/40 px-1.5 py-0.5 text-[9px] text-amber-700">
+                                Advisor focus
+                              </span>
+                            ) : null}
                             {row.recommendation ? <span className="rounded-full border border-border/70 bg-amber-50/40 px-1.5 py-0.5 text-[9px] text-amber-700">{row.recommendation}</span> : null}
                           </div>
                         </div>
@@ -673,7 +866,13 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                       {searchTermPositiveRows.map((row, index) => (
                         <div
                           key={`${row.key ?? `${row.searchTerm}-${row.campaign ?? ""}`}-${index}`}
-                          className="rounded-md border border-border/70 bg-muted/20 p-2"
+                          className={cn(
+                            "rounded-md border border-border/70 bg-muted/20 p-2",
+                            focusedSearchTerms.some(
+                              (term) =>
+                                term.toLowerCase().trim() === row.searchTerm.toLowerCase().trim()
+                            ) && "border-emerald-300 bg-emerald-50/40"
+                          )}
                         >
                           <div className="flex items-start justify-between gap-2">
                             <p className="line-clamp-1 text-[11px] font-medium">{row.searchTerm}</p>
@@ -685,6 +884,14 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                           <p className="mt-0.5 text-[10px] text-muted-foreground">Spend {fmtCurrency(row.spend)} · ROAS {fmtRoas(row.roas)} · Conv {row.conversions.toFixed(0)}</p>
                           <div className="mt-1 flex flex-wrap gap-1">
                             <span className="rounded-full border border-border/70 bg-emerald-50/40 px-1.5 py-0.5 text-[9px] text-emerald-700">{row.recommendation === "Promote in headlines" ? "Promote headline" : "Add exact"}</span>
+                            {focusedSearchTerms.some(
+                              (term) =>
+                                term.toLowerCase().trim() === row.searchTerm.toLowerCase().trim()
+                            ) ? (
+                              <span className="rounded-full border border-border/70 bg-sky-50/40 px-1.5 py-0.5 text-[9px] text-sky-700">
+                                Advisor focus
+                              </span>
+                            ) : null}
                             {row.recommendation ? <span className="rounded-full border border-border/70 bg-sky-50/40 px-1.5 py-0.5 text-[9px] text-sky-700">{row.recommendation}</span> : null}
                           </div>
                         </div>
@@ -742,7 +949,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
           ) : (
             <div className="max-h-[520px] space-y-2.5 overflow-auto pr-1">
               {campaignSignalCards.map(({ campaign, groups, totalThemes, alignedThemes, themeAlignment, weakAudienceSegments, audienceRows }) => (
-                <div key={campaign.id} className="rounded-lg border border-border/70 bg-card p-3">
+                    <div key={campaign.id} className="rounded-lg border border-border/70 bg-card p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <p className="text-sm font-semibold">{campaign.name}</p>
@@ -762,6 +969,20 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
 
                       return (
                         <div key={group.id} className="rounded-lg border border-border/70 bg-muted/20 p-2.5">
+                          <div className="mb-2 flex flex-wrap gap-1">
+                            {focusedAssetGroups.some(
+                              (name) => name.toLowerCase().trim() === group.name.toLowerCase().trim()
+                            ) ? (
+                              <span className="rounded-full border border-border/70 bg-sky-50/40 px-1.5 py-0.5 text-[9px] text-sky-700">
+                                Advisor focus
+                              </span>
+                            ) : null}
+                            {(group.coverageScore ?? 0) < 50 || group.messagingMismatchCount ? (
+                              <span className="rounded-full border border-border/70 bg-rose-50/40 px-1.5 py-0.5 text-[9px] text-rose-700">
+                                Weak structure
+                              </span>
+                            ) : null}
+                          </div>
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
                               <p className="truncate text-xs font-semibold">{group.name}</p>
@@ -783,6 +1004,9 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
               ))}
             </div>
           )}
+          {assetGroupAdvisor?.sections.length ? (
+            <GoogleAdvisorPanel advisor={assetGroupAdvisor} onFocusEntity={focusAdvisorEntity} />
+          ) : null}
         </section>
       ) : null}
 
@@ -808,6 +1032,25 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                   const isWeak = product.spend > 20 && product.roas < Math.max(avgProductRoas * 0.8, 1.5);
                   return (
                     <div key={product.itemId ?? `${product.title ?? "product"}-${index}`} className="rounded-lg border border-border/70 bg-card px-2.5 py-2">
+                      <div className="mb-1 flex flex-wrap gap-1">
+                        {focusedProducts.some(
+                          (name) => name.toLowerCase().trim() === (product.title ?? "").toLowerCase().trim()
+                        ) ? (
+                          <span className="rounded-full border border-border/70 bg-sky-50/40 px-1.5 py-0.5 text-[9px] text-sky-700">
+                            Advisor focus
+                          </span>
+                        ) : null}
+                        {product.title && productRows.some((row) => row.title === product.title && row.roas >= Math.max(avgProductRoas, 2.5)) ? (
+                          <span className="rounded-full border border-border/70 bg-emerald-50/40 px-1.5 py-0.5 text-[9px] text-emerald-700">
+                            Scale candidate
+                          </span>
+                        ) : null}
+                        {isWeak ? (
+                          <span className="rounded-full border border-border/70 bg-rose-50/40 px-1.5 py-0.5 text-[9px] text-rose-700">
+                            Reduce
+                          </span>
+                        ) : null}
+                      </div>
                       <div className="flex items-center justify-between gap-2">
                         <div className="min-w-0">
                           <p className="truncate text-[12px] font-medium">{product.title ?? product.itemId ?? "Unnamed product"}</p>
@@ -828,6 +1071,9 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
               </div>
             </>
           )}
+          {productsAdvisor?.sections.length ? (
+            <GoogleAdvisorPanel advisor={productsAdvisor} onFocusEntity={focusAdvisorEntity} />
+          ) : null}
         </section>
       ) : null}
 
@@ -859,9 +1105,34 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                       ) : (
                         <div className="space-y-1.5">
                           {list.map((asset) => (
-                            <div key={asset.id} className="rounded-md border border-border/70 bg-muted/20 p-2">
+                            <div
+                              key={asset.id}
+                              className={cn(
+                                "rounded-md border border-border/70 bg-muted/20 p-2",
+                                focusedAssets.some(
+                                  (name) =>
+                                    name.toLowerCase().trim() ===
+                                    (asset.preview ?? asset.assetText ?? "Unnamed asset")
+                                      .toLowerCase()
+                                      .trim()
+                                ) && "border-rose-300 bg-rose-50/40"
+                              )}
+                            >
                               <p className="line-clamp-1 text-[11px] font-medium">{asset.preview ?? asset.assetText ?? "Unnamed asset"}</p>
                               <p className="mt-0.5 text-[10px] text-muted-foreground">Spend {fmtCurrency(asset.spend)} · ROAS {fmtRoas(asset.roas)} · Conv {asset.conversions.toFixed(0)}</p>
+                              {focusedAssets.some(
+                                (name) =>
+                                  name.toLowerCase().trim() ===
+                                  (asset.preview ?? asset.assetText ?? "Unnamed asset")
+                                    .toLowerCase()
+                                    .trim()
+                              ) ? (
+                                <div className="mt-1">
+                                  <span className="rounded-full border border-border/70 bg-amber-50/40 px-1.5 py-0.5 text-[9px] text-amber-700">
+                                    Advisor replace focus
+                                  </span>
+                                </div>
+                              ) : null}
                             </div>
                           ))}
                         </div>
@@ -872,6 +1143,9 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
               </div>
             </>
           )}
+          {assetsAdvisor?.sections.length ? (
+            <GoogleAdvisorPanel advisor={assetsAdvisor} onFocusEntity={focusAdvisorEntity} />
+          ) : null}
         </section>
       ) : null}
     </div>
@@ -890,7 +1164,20 @@ function Kpi({ label, value, series, formatter, dateLabelMode, highlight }: { la
   );
 }
 
-function CampaignCard({ campaign, accountAvgRoas }: { campaign: Campaign; accountAvgRoas: number }) {
+function CampaignCard({
+  campaign,
+  accountAvgRoas,
+  advisorRow,
+}: {
+  campaign: Campaign;
+  accountAvgRoas: number;
+  advisorRow?: {
+    familyLabel: string;
+    roleLabel: string;
+    recommendationCount: number;
+    topActionHint: string | null;
+  };
+}) {
   const cfg = ACTION_CONFIG[campaign.actionState];
   const roasUp = campaign.roas >= accountAvgRoas;
   return (
@@ -904,6 +1191,16 @@ function CampaignCard({ campaign, accountAvgRoas }: { campaign: Campaign; accoun
         <span className={cn("rounded-full border px-1.5 py-0.5 text-[9px] font-semibold", cfg.border, cfg.chip)}>
           <span className={cn("mr-1 inline-block h-1.5 w-1.5 rounded-full align-middle", cfg.dot)} />{cfg.label}
         </span>
+        {advisorRow ? (
+          <>
+            <span className="rounded-full border border-border/70 bg-muted/30 px-1.5 py-0.5 text-[9px] text-foreground/80">
+              {advisorRow.familyLabel}
+            </span>
+            <span className="rounded-full border border-border/70 bg-background px-1.5 py-0.5 text-[9px] text-muted-foreground">
+              {advisorRow.roleLabel}
+            </span>
+          </>
+        ) : null}
       </div>
       <div className="mt-2 grid grid-cols-2 gap-1 text-right">
         <Metric label="Spend" value={fmtCurrency(campaign.spend)} />
@@ -911,6 +1208,25 @@ function CampaignCard({ campaign, accountAvgRoas }: { campaign: Campaign; accoun
         <Metric label="Revenue" value={fmtCurrency(campaign.revenue)} />
         <Metric label="Conv." value={campaign.conversions.toFixed(0)} />
       </div>
+      {advisorRow?.topActionHint ? (
+        <div className="mt-3 border-t border-border/70 pt-2">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
+                Advisor
+              </p>
+              <p className="mt-1 line-clamp-2 text-[10px] text-foreground/80">
+                {advisorRow.topActionHint}
+              </p>
+            </div>
+            {advisorRow.recommendationCount > 0 ? (
+              <span className="shrink-0 rounded-full border border-border/70 bg-muted/20 px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground">
+                {advisorRow.recommendationCount}
+              </span>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -217,7 +217,8 @@ export const PANEL_ITEMS: Array<{ key: PanelKey; label: string }> = [
 
 export function mapRangePresetToApi(
   value: RangePreset
-): "7" | "14" | "30" | "90" | "custom" {
+): "3" | "7" | "14" | "30" | "90" | "custom" {
+  if (value === "3d") return "3";
   if (value === "7d") return "7";
   if (value === "14d") return "14";
   if (value === "30d") return "30";
