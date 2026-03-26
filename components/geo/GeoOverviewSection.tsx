@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import { formatPercentFromRatioSmart } from "@/lib/metric-format";
 import { GeoKpiCard } from "./GeoKpiCard";
 import { GeoInsightCallout } from "./GeoInsightCallout";
 import type { GeoInsight } from "@/lib/geo-intelligence";
@@ -42,7 +43,7 @@ interface GeoOverviewSectionProps {
 
 function fmt(n: number, type: "number" | "percent" | "score" = "number"): string {
   if (isNaN(n) || n === undefined) return "—";
-  if (type === "percent") return `${(n * 100).toFixed(1)}%`;
+  if (type === "percent") return formatPercentFromRatioSmart(n);
   if (type === "score") return `${Math.round(n)} / 100`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return n.toFixed(0);

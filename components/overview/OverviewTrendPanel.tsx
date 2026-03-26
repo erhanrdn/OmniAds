@@ -1,5 +1,13 @@
 "use client";
 
+import { useMemo, useState } from "react";
+import {
+  computeNiceAxisTicks,
+  resolveChartDomain,
+  type ChartDomainMode,
+  type ChartDomainUnit,
+} from "@/lib/chart-domain";
+import { formatCurrencySmart } from "@/lib/metric-format";
 import { cn } from "@/lib/utils";
 import { DataEmptyState } from "@/components/states/DataEmptyState";
 import { LoadingSkeleton } from "@/components/states/loading-skeleton";
@@ -42,6 +50,7 @@ export function OverviewTrendPanel({
   isLoading = false,
 }: OverviewTrendPanelProps) {
   const language = usePreferencesStore((state) => state.language);
+  const [domainMode, setDomainMode] = useState<ChartDomainMode>("adaptive");
   const baseSeries = dataByWindow[selectedWindow];
 
   const series = [
@@ -52,11 +61,6 @@ export function OverviewTrendPanel({
       points: baseSeries.map((point) => getMetricValue(point, selectedMetric)),
     },
   ];
-
-  const maxValue = Math.max(
-    1,
-    ...series.flatMap((line) => line.points.map((point) => point.value))
-  );
 
   return (
     <section className="rounded-2xl border bg-card p-5 shadow-sm">
@@ -99,6 +103,27 @@ export function OverviewTrendPanel({
         ))}
       </div>
 
+      <div className="mt-3 inline-flex rounded-lg border bg-muted/40 p-1">
+        {([
+          { key: "adaptive", label: language === "tr" ? "Adaptif" : "Adaptive" },
+          { key: "zero_based", label: language === "tr" ? "Sifirdan baslat" : "Start at zero" },
+        ] as const).map((option) => (
+          <button
+            key={option.key}
+            type="button"
+            onClick={() => setDomainMode(option.key)}
+            className={cn(
+              "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+              domainMode === option.key
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+
       {isLoading ? <LoadingSkeleton rows={1} /> : null}
 
       {!isLoading && baseSeries.length === 0 ? (
@@ -118,11 +143,11 @@ export function OverviewTrendPanel({
         <div className="mt-4 rounded-xl border bg-background p-4">
           <SimpleLineChart
             labels={baseSeries.map((item) => item.label)}
-            maxValue={maxValue}
             lines={series}
             selectedMetric={selectedMetric}
             currencySymbol={currencySymbol}
             language={language}
+            domainMode={domainMode}
           />
         </div>
       ) : null}
@@ -132,14 +157,13 @@ export function OverviewTrendPanel({
 
 function SimpleLineChart({
   labels,
-  maxValue,
   lines,
   selectedMetric,
   currencySymbol,
   language,
+  domainMode,
 }: {
   labels: string[];
-  maxValue: number;
   lines: Array<{
     key: string;
     label: string;
@@ -149,26 +173,64 @@ function SimpleLineChart({
   selectedMetric: TrendMetric;
   currencySymbol: string;
   language: "en" | "tr";
+  domainMode: ChartDomainMode;
 }) {
   const width = 720;
   const height = 220;
-  const xStep = labels.length > 1 ? width / (labels.length - 1) : width;
+  const plotLeft = 42;
+  const plotRight = 12;
+  const plotTop = 12;
+  const plotBottom = 20;
+  const plotWidth = width - plotLeft - plotRight;
+  const plotHeight = height - plotTop - plotBottom;
+  const xStep = labels.length > 1 ? plotWidth / (labels.length - 1) : plotWidth;
+  const unit = metricToUnit(selectedMetric);
+  const allValues = lines.flatMap((line) => line.points.map((point) => point.value));
+  const domain = useMemo(
+    () =>
+      resolveChartDomain(allValues, {
+        unit,
+        mode: domainMode,
+        detailLevel: "detail",
+      }),
+    [allValues, domainMode, unit]
+  );
+  const ticks = useMemo(
+    () => computeNiceAxisTicks(domain.min, domain.max, 4),
+    [domain.max, domain.min]
+  );
+  const niceMin = ticks[0] ?? domain.min;
+  const niceMax = ticks[ticks.length - 1] ?? domain.max;
+  const range = niceMax - niceMin || 1;
 
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
         <span>{metricLabel(selectedMetric, language)}</span>
-        <span>{language === "tr" ? "Maks" : "Max"}: {formatMetric(maxValue, selectedMetric, currencySymbol)}</span>
+        <span>
+          {language === "tr" ? "Aralik" : "Range"}:{" "}
+          {formatMetric(niceMin, selectedMetric, currencySymbol)} - {formatMetric(niceMax, selectedMetric, currencySymbol)}
+        </span>
       </div>
 
       <div className="overflow-x-auto">
         <svg viewBox={`0 0 ${width} 240`} className="h-60 min-w-[700px] w-full" role="img" aria-label={language === "tr" ? "Performans trend grafigi" : "Performance trend chart"}>
-          <line x1="0" y1={height} x2={width} y2={height} stroke="var(--border)" />
+          {ticks.map((tick) => {
+            const y = plotTop + plotHeight - ((tick - niceMin) / range) * plotHeight;
+            return (
+              <g key={tick}>
+                <line x1={plotLeft} y1={y} x2={plotLeft + plotWidth} y2={y} stroke="var(--border)" />
+                <text x={plotLeft - 6} y={y + 3} textAnchor="end" className="fill-muted-foreground" fontSize="10">
+                  {formatMetric(tick, selectedMetric, currencySymbol)}
+                </text>
+              </g>
+            );
+          })}
           {lines.map((line) => {
             const path = line.points
               .map((point, index) => {
-                const x = index * xStep;
-                const y = height - (point.value / maxValue) * height;
+                const x = plotLeft + index * xStep;
+                const y = plotTop + plotHeight - ((point.value - niceMin) / range) * plotHeight;
                 return `${index === 0 ? "M" : "L"} ${x} ${y}`;
               })
               .join(" ");
@@ -185,6 +247,7 @@ function SimpleLineChart({
               />
             );
           })}
+          <line x1={plotLeft} y1={plotTop + plotHeight} x2={plotLeft + plotWidth} y2={plotTop + plotHeight} stroke="var(--border)" />
         </svg>
       </div>
 
@@ -211,6 +274,12 @@ function SimpleLineChart({
   );
 }
 
+function metricToUnit(metric: TrendMetric): ChartDomainUnit {
+  if (metric === "revenue" || metric === "spend") return "currency";
+  if (metric === "purchases") return "count";
+  return "ratio";
+}
+
 function getMetricValue(point: TrendPoint, metric: TrendMetric) {
   if (metric === "revenue") return { label: point.label, value: point.revenue };
   if (metric === "spend") return { label: point.label, value: point.spend };
@@ -229,7 +298,7 @@ function metricLabel(metric: TrendMetric, language: "en" | "tr") {
 
 function formatMetric(value: number, metric: TrendMetric, currencySymbol: string) {
   if (metric === "revenue" || metric === "spend") {
-    return `${currencySymbol}${Math.round(value).toLocaleString()}`;
+    return formatCurrencySmart(value, currencySymbol);
   }
   if (metric === "purchases") {
     return Math.round(value).toLocaleString();

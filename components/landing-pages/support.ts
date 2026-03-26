@@ -31,12 +31,14 @@ export interface LandingPageSortState {
   direction: "asc" | "desc";
 }
 
+import { formatPercentFromRatioSmart } from "@/lib/metric-format";
+
 export function formatInteger(value: number): string {
   return Math.round(Number.isFinite(value) ? value : 0).toLocaleString();
 }
 
 export function formatPercent(value: number): string {
-  return `${(Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0)) * 100).toFixed(1)}%`;
+  return formatPercentFromRatioSmart(Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0)));
 }
 
 export function formatCurrency(value: number, currency: string | null): string {

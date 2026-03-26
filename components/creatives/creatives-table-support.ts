@@ -1,5 +1,6 @@
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { formatMoney } from "@/components/creatives/money";
+import { formatPercentSmart } from "@/lib/metric-format";
 
 export function fmtCurrency(
   n: number,
@@ -10,7 +11,7 @@ export function fmtCurrency(
 }
 
 export function fmtPercent(n: number): string {
-  return `${n.toFixed(2)}%`;
+  return formatPercentSmart(n);
 }
 
 export function fmtInteger(n: number): string {

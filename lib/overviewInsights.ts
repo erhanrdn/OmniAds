@@ -26,7 +26,7 @@ interface BuildOpportunitiesArgs {
   ga4Connected: boolean;
 }
 
-const formatCurrency = (value: number) => `$${value.toLocaleString()}`;
+const formatCurrency = (value: number) => formatCurrencySmart(value, "$");
 
 export function buildOverviewOpportunities({
   data,
@@ -280,3 +280,4 @@ export function buildOpportunityNotes(item: OpportunityItem) {
 function capitalize(value: string) {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
+import { formatCurrencySmart } from "@/lib/metric-format";

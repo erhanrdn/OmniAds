@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { cn } from "@/lib/utils";
-import { SubTabNav, fmtCurrency, fmtNumber, fmtRoas, TabSkeleton, TabEmpty, SimpleTable, ColDef } from "./shared";
+import { SubTabNav, fmtCurrency, fmtNumber, fmtPercent, fmtRoas, TabSkeleton, TabEmpty, SimpleTable, ColDef } from "./shared";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -237,7 +237,7 @@ function KeywordsSection({ keywords, insights, isLoading }: { keywords?: Keyword
     { key: "conversions", header: "Conv.", accessor: (r) => r.conversions, align: "right", render: (r) => fmtNumber(r.conversions) },
     { key: "roas", header: "ROAS", accessor: (r) => r.roas, align: "right", render: (r) => r.roas === 0 ? "—" : <span className={cn(r.roas >= 3 ? "text-emerald-600 dark:text-emerald-400" : "")}>{fmtRoas(r.roas)}</span> },
     { key: "qualityScore", header: "QS", accessor: (r) => r.qualityScore ?? 0, align: "right", render: (r) => <QsIndicator score={r.qualityScore} /> },
-    { key: "impressionShare", header: "IS", accessor: (r) => r.impressionShare ?? 0, align: "right", render: (r) => r.impressionShare != null ? `${(r.impressionShare * 100).toFixed(0)}%` : "—" },
+    { key: "impressionShare", header: "IS", accessor: (r) => r.impressionShare ?? 0, align: "right", render: (r) => r.impressionShare != null ? fmtPercent(r.impressionShare * 100) : "—" },
     { key: "ctr", header: "CTR", accessor: (r) => r.ctr, align: "right", render: (r) => `${r.ctr.toFixed(1)}%` },
     { key: "clicks", header: "Clicks", accessor: (r) => r.clicks, align: "right", render: (r) => fmtNumber(r.clicks) },
   ];

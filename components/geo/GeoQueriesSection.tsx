@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { formatPercentFromRatioSmart } from "@/lib/metric-format";
 import { cn } from "@/lib/utils";
 import { GeoScoreBreakdown, GeoMomentumBadge, QueryIntentBadge } from "./GeoScoreBreakdown";
 
@@ -54,7 +55,7 @@ const FILTERS: { id: Filter; label: string }[] = [
 
 function fmt(n: number, type: "number" | "percent" = "number"): string {
   if (isNaN(n) || n === undefined) return "—";
-  if (type === "percent") return `${(n * 100).toFixed(1)}%`;
+  if (type === "percent") return formatPercentFromRatioSmart(n);
   if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
   return n.toFixed(0);
 }

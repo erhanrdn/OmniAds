@@ -1,6 +1,7 @@
 export type CustomReportDateRangePreset = "7" | "30" | "90";
 export type CustomReportCompareMode = "none" | "previous_period";
 export type CustomReportWidgetType = "metric" | "trend" | "bar" | "table" | "text" | "section";
+export type CustomReportAxisMode = "adaptive" | "zero_based" | "symmetric";
 export type CustomReportBreakdown = "day" | "week" | "month" | "age" | "gender" | "country" | "region";
 export type CustomReportPlatform =
   | "all"
@@ -42,6 +43,7 @@ export interface CustomReportWidgetDefinition {
   limit?: number;
   columns?: string[];
   tableDimension?: string;
+  axisMode?: CustomReportAxisMode;
 }
 
 export interface CustomReportDocument {
@@ -95,6 +97,7 @@ export interface RenderedReportWidget {
   text?: string;
   emptyMessage?: string;
   warning?: string | null;
+  axisMode?: CustomReportAxisMode;
 }
 
 export interface RenderedReportPayload {

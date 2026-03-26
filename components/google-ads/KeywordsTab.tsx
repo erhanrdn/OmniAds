@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { fmtCurrency, fmtNumber, fmtRoas, TabSkeleton, TabEmpty, SimpleTable, ColDef } from "./shared";
+import { fmtCurrency, fmtNumber, fmtPercent, fmtRoas, TabSkeleton, TabEmpty, SimpleTable, ColDef } from "./shared";
 
 interface Keyword {
   keyword: string;
@@ -73,7 +73,7 @@ const cols: ColDef<Keyword>[] = [
   },
   {
     key: "impressionShare", header: "IS", accessor: (r) => r.impressionShare ?? 0, align: "right",
-    render: (r) => r.impressionShare != null ? `${(r.impressionShare * 100).toFixed(0)}%` : "—",
+    render: (r) => r.impressionShare != null ? fmtPercent(r.impressionShare * 100) : "—",
   },
   { key: "ctr", header: "CTR", accessor: (r) => r.ctr, align: "right", render: (r) => `${r.ctr.toFixed(1)}%` },
   { key: "clicks", header: "Clicks", accessor: (r) => r.clicks, align: "right", render: (r) => fmtNumber(r.clicks) },

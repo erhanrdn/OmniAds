@@ -162,9 +162,9 @@ export function buildUnavailableMetric(params: {
   };
 }
 
-export function roundSparklineValue(value: number) {
+export function roundSparklineValue(value: number, digits = 4) {
   if (!Number.isFinite(value)) return 0;
-  return Number(value.toFixed(2));
+  return Number(value.toFixed(digits));
 }
 
 export function toSparklineSeries<T>(
@@ -189,7 +189,7 @@ export function toRatioSparklineSeries<T>(
     const bottom = denominator(point) ?? 0;
     return {
       date: (point as { date: string }).date,
-      value: bottom > 0 ? roundSparklineValue(top / bottom) : 0,
+      value: bottom > 0 ? roundSparklineValue(top / bottom, 4) : 0,
     };
   });
 }
@@ -205,7 +205,7 @@ export function toPercentSparklineSeries<T>(
     const bottom = denominator(point) ?? 0;
     return {
       date: (point as { date: string }).date,
-      value: bottom > 0 ? roundSparklineValue((top / bottom) * 100) : 0,
+      value: bottom > 0 ? roundSparklineValue((top / bottom) * 100, 4) : 0,
     };
   });
 }

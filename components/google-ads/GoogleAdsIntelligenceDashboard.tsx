@@ -18,6 +18,7 @@ import {
 import {
   ACTION_CONFIG,
   fmtCurrency,
+  fmtCurrencyPrecise,
   fmtNumber,
   fmtPct,
   fmtRoas,
@@ -41,6 +42,7 @@ import {
   type DevicesResponse,
   type PanelKey,
   type TrendLabelMode,
+  type GoogleAdsTrendsResponse,
 } from "@/components/google-ads/google-ads-dashboard-support";
 import type { GoogleAdvisorResponse, GoogleAdvisorRecommendation } from "@/src/services/google";
 import {
@@ -52,19 +54,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-
-
-function trendData(current: number, dates: string[]): Array<{ date: string; value: number }> {
-  if (!Array.isArray(dates) || dates.length === 0) {
-    return [];
-  }
-
-  const safeCurrent = Number.isFinite(current) ? current : 0;
-  return dates.map((date, index) => ({
-    date,
-    value: Math.max(0, safeCurrent * (0.82 + index / Math.max(dates.length * 4, 1))),
-  }));
-}
 
 function filterAdvisorByTypes(
   advisor: GoogleAdvisorResponse | undefined,
@@ -108,7 +97,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
   );
   const compareMode = dateRange.comparisonPreset === "none" ? "none" : "previous_period";
   const apiDateRange = mapRangePresetToApi(dateRange.rangePreset);
-  const { dates: trendTimelineDates, labelMode: trendLabelMode } = useMemo(
+  const { labelMode: trendLabelMode } = useMemo(
     () => resolveTrendTimeline(startDate, endDate),
     [startDate, endDate]
   );
@@ -252,6 +241,23 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
     staleTime: 5 * 60 * 1000,
   });
 
+  const { data: trendsData } = useQuery<GoogleAdsTrendsResponse>({
+    queryKey: ["gads-trends", businessId, startDate, endDate],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        businessId,
+        dateRange: "custom",
+        customStart: startDate,
+        customEnd: endDate,
+        compareMode: "none",
+      });
+      const res = await fetch(`/api/google-ads/trends?${params}`);
+      if (!res.ok) throw new Error("trends fetch failed");
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
   const rows = data?.rows ?? [];
   const scopedRows = rows.filter((r) => isCampaignActive(r.status) || (includeSpentInactive && r.spend > 0));
   const channels = Array.from(new Set(scopedRows.map((r) => r.channel))).filter(Boolean).sort();
@@ -290,6 +296,104 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
           sortedRows.filter((r) => typeof r.lostIsBudget === "number").length) *
         100
       : 0;
+
+  const summaryTrendSeries = useMemo(() => {
+    const rows = trendsData?.rows ?? [];
+    if (rows.length === 0) {
+      return {
+        spend: [],
+        roas: [],
+        revenue: [],
+        conversions: [],
+        cpa: [],
+        impressions: [],
+        clicks: [],
+        ctr: [],
+        cpc: [],
+        conversionRate: [],
+        impressionShare: [],
+        lostIsBudget: [],
+      } as Record<string, Array<{ date: string; value: number }>>;
+    }
+
+    const selectedNames = new Set(selectedInScope);
+
+    const matchesFilters = (row: { name: string; status: string; channel: string; spend: number }) => {
+      const activeMatch = isCampaignActive(row.status) || (includeSpentInactive && row.spend > 0);
+      const channelMatch = channelFilter === "all" || row.channel === channelFilter;
+      const campaignMatch = selectedNames.size === 0 || selectedNames.has(row.name);
+      return activeMatch && channelMatch && campaignMatch;
+    };
+
+    return {
+      spend: rows.map((point) => {
+        const scoped = point.rows.filter(matchesFilters);
+        return { date: point.date, value: scoped.reduce((sum, row) => sum + row.spend, 0) };
+      }),
+      revenue: rows.map((point) => {
+        const scoped = point.rows.filter(matchesFilters);
+        return { date: point.date, value: scoped.reduce((sum, row) => sum + row.revenue, 0) };
+      }),
+      conversions: rows.map((point) => {
+        const scoped = point.rows.filter(matchesFilters);
+        return { date: point.date, value: scoped.reduce((sum, row) => sum + row.conversions, 0) };
+      }),
+      impressions: rows.map((point) => {
+        const scoped = point.rows.filter(matchesFilters);
+        return { date: point.date, value: scoped.reduce((sum, row) => sum + row.impressions, 0) };
+      }),
+      clicks: rows.map((point) => {
+        const scoped = point.rows.filter(matchesFilters);
+        return { date: point.date, value: scoped.reduce((sum, row) => sum + row.clicks, 0) };
+      }),
+      roas: rows.map((point) => {
+        const scoped = point.rows.filter(matchesFilters);
+        const spend = scoped.reduce((sum, row) => sum + row.spend, 0);
+        const revenue = scoped.reduce((sum, row) => sum + row.revenue, 0);
+        return { date: point.date, value: spend > 0 ? revenue / spend : 0 };
+      }),
+      cpa: rows.map((point) => {
+        const scoped = point.rows.filter(matchesFilters);
+        const spend = scoped.reduce((sum, row) => sum + row.spend, 0);
+        const conversions = scoped.reduce((sum, row) => sum + row.conversions, 0);
+        return { date: point.date, value: conversions > 0 ? spend / conversions : 0 };
+      }),
+      ctr: rows.map((point) => {
+        const scoped = point.rows.filter(matchesFilters);
+        const impressions = scoped.reduce((sum, row) => sum + row.impressions, 0);
+        const clicks = scoped.reduce((sum, row) => sum + row.clicks, 0);
+        return { date: point.date, value: impressions > 0 ? (clicks / impressions) * 100 : 0 };
+      }),
+      cpc: rows.map((point) => {
+        const scoped = point.rows.filter(matchesFilters);
+        const spend = scoped.reduce((sum, row) => sum + row.spend, 0);
+        const clicks = scoped.reduce((sum, row) => sum + row.clicks, 0);
+        return { date: point.date, value: clicks > 0 ? spend / clicks : 0 };
+      }),
+      conversionRate: rows.map((point) => {
+        const scoped = point.rows.filter(matchesFilters);
+        const conversions = scoped.reduce((sum, row) => sum + row.conversions, 0);
+        const clicks = scoped.reduce((sum, row) => sum + row.clicks, 0);
+        return { date: point.date, value: clicks > 0 ? (conversions / clicks) * 100 : 0 };
+      }),
+      impressionShare: rows.map((point) => {
+        const scoped = point.rows.filter(matchesFilters).filter((row) => typeof row.impressionShare === "number");
+        const avg =
+          scoped.length > 0
+            ? (scoped.reduce((sum, row) => sum + Number(row.impressionShare ?? 0), 0) / scoped.length) * 100
+            : 0;
+        return { date: point.date, value: avg };
+      }),
+      lostIsBudget: rows.map((point) => {
+        const scoped = point.rows.filter(matchesFilters).filter((row) => typeof row.lostIsBudget === "number");
+        const avg =
+          scoped.length > 0
+            ? (scoped.reduce((sum, row) => sum + Number(row.lostIsBudget ?? 0), 0) / scoped.length) * 100
+            : 0;
+        return { date: point.date, value: avg };
+      }),
+    };
+  }, [trendsData?.rows, selectedInScope, includeSpentInactive, channelFilter]);
 
   const assetGroupsByCampaignKey = useMemo(() => {
     const map = new Map<string, AssetGroupRow[]>();
@@ -688,11 +792,11 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
         <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-5">
             {isLoading ? Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-xl" />) : (
               <>
-                <Kpi label="Spend" value={fmtCurrency(totalSpend)} series={trendData(totalSpend, trendTimelineDates)} formatter={fmtCurrency} dateLabelMode={trendLabelMode} />
-                <Kpi label="ROAS" value={fmtRoas(blendedRoas)} series={trendData(blendedRoas, trendTimelineDates)} formatter={fmtRoas} dateLabelMode={trendLabelMode} highlight={blendedRoas >= 3} />
-                <Kpi label="Revenue" value={fmtCurrency(totalRevenue)} series={trendData(totalRevenue, trendTimelineDates)} formatter={fmtCurrency} dateLabelMode={trendLabelMode} />
-                <Kpi label="Conv" value={totalConv.toFixed(0)} series={trendData(totalConv, trendTimelineDates)} formatter={(v) => v.toFixed(0)} dateLabelMode={trendLabelMode} />
-                <Kpi label="CPA" value={totalConv > 0 ? fmtCurrency(blendedCpa) : "-"} series={trendData(blendedCpa, trendTimelineDates)} formatter={fmtCurrency} dateLabelMode={trendLabelMode} />
+                <Kpi label="Spend" value={fmtCurrency(totalSpend)} series={summaryTrendSeries.spend} formatter={fmtCurrency} dateLabelMode={trendLabelMode} />
+                <Kpi label="ROAS" value={fmtRoas(blendedRoas)} series={summaryTrendSeries.roas} formatter={fmtRoas} dateLabelMode={trendLabelMode} highlight={blendedRoas >= 3} />
+                <Kpi label="Revenue" value={fmtCurrency(totalRevenue)} series={summaryTrendSeries.revenue} formatter={fmtCurrency} dateLabelMode={trendLabelMode} />
+                <Kpi label="Conv" value={totalConv.toFixed(0)} series={summaryTrendSeries.conversions} formatter={(v) => v.toFixed(0)} dateLabelMode={trendLabelMode} />
+                <Kpi label="CPA" value={totalConv > 0 ? fmtCurrency(blendedCpa) : "-"} series={summaryTrendSeries.cpa} formatter={fmtCurrency} dateLabelMode={trendLabelMode} />
               </>
             )}
         </div>
@@ -701,7 +805,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
               label="Impressions"
               value={fmtNumber(totalImpressions)}
               accent="sky"
-              series={trendData(totalImpressions, trendTimelineDates)}
+              series={summaryTrendSeries.impressions}
               formatter={fmtNumber}
               dateLabelMode={trendLabelMode}
             />
@@ -709,7 +813,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
               label="Clicks"
               value={fmtNumber(totalClicks)}
               accent="emerald"
-              series={trendData(totalClicks, trendTimelineDates)}
+              series={summaryTrendSeries.clicks}
               formatter={fmtNumber}
               dateLabelMode={trendLabelMode}
             />
@@ -717,23 +821,23 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
               label="CTR"
               value={fmtPct(blendedCtr)}
               accent="indigo"
-              series={trendData(blendedCtr, trendTimelineDates)}
+              series={summaryTrendSeries.ctr}
               formatter={fmtPct}
               dateLabelMode={trendLabelMode}
             />
             <OverviewMetric
               label="Average CPC"
-              value={totalClicks > 0 ? fmtCurrency(blendedCpc) : "-"}
+              value={totalClicks > 0 ? fmtCurrencyPrecise(blendedCpc) : "-"}
               accent="amber"
-              series={trendData(totalClicks > 0 ? blendedCpc : 0, trendTimelineDates)}
-              formatter={fmtCurrency}
+              series={summaryTrendSeries.cpc}
+              formatter={fmtCurrencyPrecise}
               dateLabelMode={trendLabelMode}
             />
             <OverviewMetric
               label="Conversion Rate"
               value={totalClicks > 0 ? fmtPct(blendedCvR) : "-"}
               accent="teal"
-              series={trendData(totalClicks > 0 ? blendedCvR : 0, trendTimelineDates)}
+              series={summaryTrendSeries.conversionRate}
               formatter={fmtPct}
               dateLabelMode={trendLabelMode}
             />
@@ -741,7 +845,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
               label="Impression Share"
               value={avgImpressionShare > 0 ? fmtPct(avgImpressionShare) : "-"}
               accent="violet"
-              series={trendData(avgImpressionShare > 0 ? avgImpressionShare : 0, trendTimelineDates)}
+              series={summaryTrendSeries.impressionShare}
               formatter={fmtPct}
               dateLabelMode={trendLabelMode}
             />
@@ -749,7 +853,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
               label="Lost IS (Budget)"
               value={avgLostIsBudget > 0 ? fmtPct(avgLostIsBudget) : "-"}
               accent="rose"
-              series={trendData(avgLostIsBudget > 0 ? avgLostIsBudget : 0, trendTimelineDates)}
+              series={summaryTrendSeries.lostIsBudget}
               formatter={fmtPct}
               dateLabelMode={trendLabelMode}
             />

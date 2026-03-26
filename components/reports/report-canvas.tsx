@@ -2,6 +2,11 @@
 
 import { useState, useCallback } from "react";
 import type { RenderedReportPayload, RenderedReportWidget } from "@/lib/custom-reports";
+import {
+  computeNiceAxisTicks,
+  resolveChartDomain,
+  type ChartDomainMode,
+} from "@/lib/chart-domain";
 import { getMetricLabelForKey } from "@/lib/report-metric-catalog";
 
 const COLUMN_LABEL_MAP: Record<string, string> = {
@@ -43,8 +48,10 @@ function slotStyle(slot: number, widget: RenderedReportWidget) {
 }
 
 function formatYLabel(value: number): string {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value % 1_000_000 === 0 ? 0 : 1)}M`;
-  if (value >= 1_000) return `${(value / 1_000).toFixed(value % 1_000 === 0 ? 0 : 1)}k`;
+  const abs = Math.abs(value);
+  const sign = value < 0 ? "-" : "";
+  if (abs >= 1_000_000) return `${sign}${(abs / 1_000_000).toFixed(abs % 1_000_000 === 0 ? 0 : 1)}M`;
+  if (abs >= 1_000) return `${sign}${(abs / 1_000).toFixed(abs % 1_000 === 0 ? 0 : 1)}k`;
   if (value === 0) return "0";
   if (value % 1 !== 0) return value.toFixed(value < 10 ? 2 : 1);
   return String(value);
@@ -113,6 +120,7 @@ function MiniChart({
   points,
   series,
   tone,
+  axisMode = "adaptive",
 }: {
   points: Array<{ label: string; value: number }>;
   series?: Array<{
@@ -122,6 +130,7 @@ function MiniChart({
     points: Array<{ label: string; value: number }>;
   }>;
   tone: "line" | "bar";
+  axisMode?: ChartDomainMode;
 }) {
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
   const [tooltipPixel, setTooltipPixel] = useState<{ x: number; y: number } | null>(null);
@@ -276,36 +285,50 @@ function MiniChart({
   const rightSeries = activeSeries.filter((_, i) => seriesMaxes[i]! < LEFT_THRESHOLD && seriesMaxes[i]! > 0);
   const dualAxis = rightSeries.length > 0;
 
-  // Per-series independent max for right-axis series (each fills the chart height independently)
-  const rightSeriesMaxMap = new Map(rightSeries.map((s) => [
-    s.key,
-    Math.max(...s.points.map((p) => p.value), 1),
-  ]));
+  const leftDomain = resolveChartDomain(
+    leftSeries.flatMap((s) => s.points.map((p) => p.value)),
+    {
+      unit: "unknown",
+      mode: axisMode,
+      detailLevel: "report",
+    }
+  );
+  const leftTicks = computeNiceAxisTicks(leftDomain.min, leftDomain.max, 4);
+  const leftNiceMin = leftTicks[0] ?? leftDomain.min;
+  const leftNiceMax = leftTicks[leftTicks.length - 1] ?? leftDomain.max;
 
-  const leftRawMax = Math.max(...leftSeries.flatMap((s) => s.points.map((p) => p.value)), 1);
-  const leftTicks = computeNiceTicks(leftRawMax);
-  const leftNiceMax = leftTicks[leftTicks.length - 1] ?? leftRawMax;
-
-  // Right axis labels based on the first right series only
   const firstRightSeries = rightSeries[0];
-  const firstRightMax = firstRightSeries ? (rightSeriesMaxMap.get(firstRightSeries.key) ?? 1) : 1;
-  const rightTicks = dualAxis ? computeNiceTicks(firstRightMax) : [];
-  const rightNiceMax = rightTicks[rightTicks.length - 1] ?? firstRightMax;
+  const rightDomain = dualAxis
+    ? resolveChartDomain(
+        rightSeries.flatMap((s) => s.points.map((p) => p.value)),
+        {
+          unit: "unknown",
+          mode: axisMode,
+          detailLevel: "report",
+        }
+      )
+    : null;
+  const rightTicks = dualAxis && rightDomain
+    ? computeNiceAxisTicks(rightDomain.min, rightDomain.max, 4)
+    : [];
+  const rightNiceMin = rightTicks[0] ?? rightDomain?.min ?? 0;
+  const rightNiceMax = rightTicks[rightTicks.length - 1] ?? rightDomain?.max ?? 1;
 
   const PAD_RIGHT_AXIS = dualAxis ? 38 : PAD_RIGHT;
   const chartWAdj = VB_W - PAD_LEFT - PAD_RIGHT_AXIS;
 
-  function ptY(value: number, yMax: number) {
-    return PAD_TOP + chartH - (value / yMax) * chartH;
+  function ptY(value: number, min: number, max: number) {
+    const range = max - min || 1;
+    return PAD_TOP + chartH - ((value - min) / range) * chartH;
   }
   function ptX(i: number, total: number) {
     return total === 1 ? PAD_LEFT + chartWAdj / 2 : PAD_LEFT + (i / (total - 1)) * chartWAdj;
   }
-  function seriesNiceMax(item: typeof activeSeries[number]) {
-    if (!rightSeries.includes(item)) return leftNiceMax;
-    // Each right series uses its own max so it fills the chart
-    const m = rightSeriesMaxMap.get(item.key) ?? 1;
-    return computeNiceTicks(m).at(-1) ?? m;
+  function seriesDomain(item: typeof activeSeries[number]) {
+    if (!rightSeries.includes(item) || !rightDomain) {
+      return { min: leftNiceMin, max: leftNiceMax };
+    }
+    return { min: rightNiceMin, max: rightNiceMax };
   }
 
   const hoveredVbX = hoveredIdx !== null && allLinePoints.length > 0
@@ -339,7 +362,7 @@ function MiniChart({
         {(() => {
           const leftLabelColor = leftSeries.length === 1 ? leftSeries[0]!.color : "#94a3b8";
           return leftTicks.map((val) => {
-            const y = ptY(val, leftNiceMax);
+            const y = ptY(val, leftNiceMin, leftNiceMax);
             return (
               <g key={`ly-${val}`}>
                 <line x1={PAD_LEFT} y1={y} x2={VB_W - PAD_RIGHT_AXIS} y2={y} stroke="#e2e8f0" strokeWidth="1" />
@@ -353,7 +376,7 @@ function MiniChart({
 
         {/* Right Y labels — based on first right series only */}
         {dualAxis && firstRightSeries && rightTicks.map((val) => {
-          const y = ptY(val, rightNiceMax);
+          const y = ptY(val, rightNiceMin, rightNiceMax);
           return (
             <text key={`ry-${val}`} x={VB_W - PAD_RIGHT_AXIS + 4} y={y + 3.5}
               textAnchor="start" fontSize="9" fill={firstRightSeries.color}>
@@ -382,10 +405,10 @@ function MiniChart({
         {activeSeries.map((item) => {
           const pts = item.points;
           if (!pts.length) return null;
-          const yMax = seriesNiceMax(item);
+          const itemDomain = seriesDomain(item);
           const coords = pts.map((pt, i) => ({
             x: ptX(i, pts.length),
-            y: ptY(pt.value, yMax),
+            y: ptY(pt.value, itemDomain.min, itemDomain.max),
           }));
           const d = coords.map((c, i) => `${i === 0 ? "M" : "L"} ${c.x.toFixed(1)} ${c.y.toFixed(1)}`).join(" ");
           const showDots = pts.length <= 20;
@@ -436,7 +459,7 @@ function MiniChart({
               <span className="h-2 w-2 rounded-full" style={{ backgroundColor: item.color }} />
               {item.label}
               {dualAxis && rightSeries.includes(item) && (
-                <span className="text-[9px] opacity-50" title="Independent scale">~</span>
+                <span className="text-[9px] opacity-50" title="Shared right-axis scale">~</span>
               )}
             </span>
           ))}
@@ -500,6 +523,7 @@ export function ReportWidgetCard({ widget, embedded }: { widget: RenderedReportW
             points={widget.points}
             series={widget.series}
             tone={widget.type === "bar" ? "bar" : "line"}
+            axisMode={widget.type === "bar" ? "zero_based" : widget.axisMode ?? "adaptive"}
           />
         </div>
       ) : null}

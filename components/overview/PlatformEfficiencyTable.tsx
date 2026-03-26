@@ -2,6 +2,7 @@
 
 import { DataEmptyState } from "@/components/states/DataEmptyState";
 import { LoadingSkeleton } from "@/components/states/loading-skeleton";
+import { formatCurrencySmart } from "@/lib/metric-format";
 import type { OverviewData } from "@/src/types/models";
 
 interface PlatformEfficiencyTableProps {
@@ -108,5 +109,5 @@ export function PlatformEfficiencyTable({
 }
 
 function formatCurrency(value: number, symbol: string) {
-  return `${symbol}${value.toLocaleString()}`;
+  return formatCurrencySmart(value, symbol);
 }

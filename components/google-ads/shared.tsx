@@ -3,14 +3,12 @@
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getCurrencySymbol } from "@/hooks/use-currency";
+import { formatCurrencySmart, formatPercentSmart } from "@/lib/metric-format";
 
 // ── Formatting ────────────────────────────────────────────────────────
 
 export function fmtCurrency(n: number): string {
-  const sym = getCurrencySymbol();
-  if (n >= 1_000_000) return `${sym}${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${sym}${(n / 1_000).toFixed(1)}K`;
-  return `${sym}${n.toFixed(0)}`;
+  return formatCurrencySmart(n, getCurrencySymbol());
 }
 
 export function fmtNumber(n: number): string {
@@ -20,7 +18,7 @@ export function fmtNumber(n: number): string {
 }
 
 export function fmtPercent(n: number): string {
-  return `${n.toFixed(1)}%`;
+  return formatPercentSmart(n);
 }
 
 export function fmtRoas(n: number): string {

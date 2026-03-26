@@ -2,6 +2,7 @@
 
 import { SortableTable, type ColumnDef } from "./SortableTable";
 import { Skeleton } from "@/components/ui/skeleton";
+import { formatCurrencySmart, formatPercentFromRatioSmart } from "@/lib/metric-format";
 import { cn } from "@/lib/utils";
 
 type DemoDimension =
@@ -41,10 +42,9 @@ const DIMENSION_LABELS: Record<DemoDimension, string> = {
 
 function fmt(n: number, type: "number" | "percent" | "currency" = "number"): string {
   if (isNaN(n) || n === undefined) return "—";
-  if (type === "percent") return `${(n * 100).toFixed(1)}%`;
+  if (type === "percent") return formatPercentFromRatioSmart(n);
   if (type === "currency") {
-    if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}K`;
-    return `$${n.toFixed(0)}`;
+    return formatCurrencySmart(n, "$");
   }
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return n.toFixed(0);

@@ -2,6 +2,7 @@
 
 import { Skeleton } from "@/components/ui/skeleton";
 import { SortableTable, type ColumnDef } from "@/components/analytics/SortableTable";
+import { formatCurrencySmart, formatPercentFromRatioSmart } from "@/lib/metric-format";
 import { AiTrafficValueBadge, GeoMomentumBadge } from "./GeoScoreBreakdown";
 
 interface AiSource {
@@ -37,10 +38,9 @@ const ENGINE_COLORS: Record<string, string> = {
 
 function fmt(n: number, type: "number" | "percent" | "currency" = "number"): string {
   if (isNaN(n) || n === undefined) return "—";
-  if (type === "percent") return `${(n * 100).toFixed(1)}%`;
+  if (type === "percent") return formatPercentFromRatioSmart(n);
   if (type === "currency") {
-    if (n >= 1000) return `$${(n / 1000).toFixed(1)}K`;
-    return `$${n.toFixed(0)}`;
+    return formatCurrencySmart(n, "$");
   }
   if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
   return n.toFixed(0);

@@ -14,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { MiniTrendAreaChart } from "@/components/overview/MiniTrendAreaChart";
 import { MetricSourceLogos } from "@/components/overview/MetricSourceLogos";
+import { formatMetricValue as formatMetricByUnit } from "@/lib/metric-format";
 import { ArrowDownRight, ArrowUpRight, Minus, MoreHorizontal } from "lucide-react";
 
 export function MetricCard({
@@ -153,13 +154,7 @@ function formatValue(
   unit: "currency" | "count" | "ratio" | "percent" | "duration_seconds",
   currencySymbol: string
 ) {
-  if (value === null || Number.isNaN(value)) return "\u2014";
-  if (unit === "currency") return `${currencySymbol}${value.toLocaleString()}`;
-  if (unit === "count") return Math.round(value).toLocaleString();
-  if (unit === "ratio") return value.toFixed(2);
-  if (unit === "percent") return `${value.toFixed(1)}%`;
-  if (unit === "duration_seconds") return `${Math.round(value)}s`;
-  return String(value);
+  return formatMetricByUnit(value, unit, currencySymbol);
 }
 
 function resolveDelta(changePercent: number | null) {

@@ -654,6 +654,7 @@ export async function renderCustomReport(params: {
                 subtitle: widget.subtitle,
                 points: dimPoints,
                 series,
+                axisMode: widget.type === "bar" ? "zero_based" : widget.axisMode ?? "adaptive",
                 emptyMessage: dimPoints.length === 0 ? "No breakdown data yet." : undefined,
               };
             }
@@ -721,6 +722,7 @@ export async function renderCustomReport(params: {
               subtitle: widget.subtitle,
               points: chartPoints,
               series,
+              axisMode: widget.type === "bar" ? "zero_based" : widget.axisMode ?? "adaptive",
               emptyMessage: chartPoints.length === 0 ? "No trend data yet." : undefined,
             };
           }

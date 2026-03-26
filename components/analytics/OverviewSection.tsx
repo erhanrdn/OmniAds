@@ -3,6 +3,7 @@
 import { AnalyticsKpiCard } from "./AnalyticsKpiCard";
 import { InsightCallout } from "./InsightCallout";
 import type { AnalyticsInsight } from "@/lib/google-analytics-reporting";
+import { formatCurrencySmart, formatPercentFromRatioSmart } from "@/lib/metric-format";
 
 interface OverviewKpis {
   sessions: number;
@@ -28,11 +29,9 @@ interface OverviewSectionProps {
 
 function fmt(n: number, type: "number" | "percent" | "currency" | "duration" = "number"): string {
   if (isNaN(n) || n === undefined) return "—";
-  if (type === "percent") return `${(n * 100).toFixed(1)}%`;
+  if (type === "percent") return formatPercentFromRatioSmart(n);
   if (type === "currency") {
-    if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
-    if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}K`;
-    return `$${n.toFixed(0)}`;
+    return formatCurrencySmart(n, "$");
   }
   if (type === "duration") {
     const mins = Math.floor(n / 60);

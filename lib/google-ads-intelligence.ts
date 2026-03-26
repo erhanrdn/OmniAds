@@ -5,6 +5,7 @@
  * All rules are deterministic — no AI API calls.
  */
 import type { AppLanguage } from "@/lib/i18n";
+import { formatCurrencySmart, formatPercentFromRatioSmart } from "@/lib/metric-format";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -520,9 +521,7 @@ export function generateBudgetRecommendations(
 // ── Formatting helpers ────────────────────────────────────────────────
 
 export function fmtCurrency(n: number): string {
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}K`;
-  return `$${n.toFixed(0)}`;
+  return formatCurrencySmart(n, "$");
 }
 
 export function fmtNumber(n: number): string {
@@ -532,7 +531,10 @@ export function fmtNumber(n: number): string {
 }
 
 export function fmtPercent(n: number, decimals = 1): string {
-  return `${(n * 100).toFixed(decimals)}%`;
+  if (decimals !== 1) {
+    return `${(n * 100).toFixed(decimals)}%`;
+  }
+  return formatPercentFromRatioSmart(n);
 }
 
 export function fmtRoas(n: number): string {

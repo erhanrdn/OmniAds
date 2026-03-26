@@ -4,6 +4,7 @@ import type { OverviewData } from "@/src/types/models";
 import { MetricSourceLogos } from "@/components/overview/MetricSourceLogos";
 import { MetricLoadingCard } from "@/components/states/MetricLoadingCard";
 import { MetricUnavailableCard } from "@/components/states/MetricUnavailableCard";
+import { formatCurrencySmart } from "@/lib/metric-format";
 
 type KpiKey = keyof OverviewData["kpis"];
 
@@ -103,5 +104,5 @@ function renderMetricCard(
 }
 
 function formatCurrency(value: number, symbol: string) {
-  return `${symbol}${value.toLocaleString()}`;
+  return formatCurrencySmart(value, symbol);
 }

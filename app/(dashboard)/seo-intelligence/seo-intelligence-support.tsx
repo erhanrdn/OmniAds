@@ -46,8 +46,10 @@ export interface SeoMonthlyAiAnalysisResponse {
   analysis: SeoAiAnalysis | null;
 }
 
+import { formatPercentFromRatioSmart } from "@/lib/metric-format";
+
 export function formatMetric(value: number, mode: "number" | "percent" | "position") {
-  if (mode === "percent") return `${(value * 100).toFixed(1)}%`;
+  if (mode === "percent") return formatPercentFromRatioSmart(value);
   if (mode === "position") return value > 0 ? value.toFixed(1) : "0.0";
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
 }

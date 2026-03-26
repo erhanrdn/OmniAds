@@ -2,6 +2,7 @@
 
 import { SortableTable, type ColumnDef } from "./SortableTable";
 import { Skeleton } from "@/components/ui/skeleton";
+import { formatPercentFromRatioSmart } from "@/lib/metric-format";
 
 interface LandingPageRow {
   path: string;
@@ -16,7 +17,7 @@ interface LandingPageRow {
 
 function fmt(n: number, type: "number" | "percent" | "duration" = "number"): string {
   if (isNaN(n)) return "—";
-  if (type === "percent") return `${(n * 100).toFixed(1)}%`;
+  if (type === "percent") return formatPercentFromRatioSmart(n);
   if (type === "duration") {
     const mins = Math.floor(n / 60);
     const secs = Math.floor(n % 60);

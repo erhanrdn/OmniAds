@@ -2,6 +2,11 @@
 
 import React, { useMemo, useState } from "react";
 import type { PointerEvent } from "react";
+import {
+  normalizePercentSeries,
+  resolveChartDomain,
+  type ChartDomainMode,
+} from "@/lib/chart-domain";
 import type { OverviewMetricCardData } from "@/src/types/models";
 
 const CHART_WIDTH = 160;
@@ -22,6 +27,7 @@ export function MiniTrendAreaChart({
   className = "h-12 w-full",
   valueFormatter,
   dateLabelMode = "auto",
+  domainMode = "adaptive",
 }: {
   data: Array<{ date: string; value: number }>;
   tone: OverviewMetricCardData["trendDirection"];
@@ -30,16 +36,19 @@ export function MiniTrendAreaChart({
   className?: string;
   valueFormatter?: (value: number) => string;
   dateLabelMode?: DateLabelMode;
+  domainMode?: ChartDomainMode;
 }) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
 
   const series = useMemo(() => {
     if (!data || data.length < 2) return [];
 
-    const values = data.map((point) =>
+    const inputValues = data.map((point) =>
       Number.isFinite(point.value) ? point.value : 0
     );
-    const smoothed = smoothSeries(values, 0.32);
+    const values =
+      unit === "percent" ? normalizePercentSeries(inputValues) : inputValues;
+    const smoothed = unit === "percent" ? values : smoothSeries(values, 0.32);
 
     return data.map((point, index) => ({
       date: point.date,
@@ -47,11 +56,19 @@ export function MiniTrendAreaChart({
       smooth: smoothed[index],
       index,
     }));
-  }, [data]);
+  }, [data, unit]);
 
   const domain = useMemo(
-    () => resolveDomain(series.map((item) => item.smooth), unit),
-    [series, unit]
+    () =>
+      resolveChartDomain(
+        series.map((item) => item.raw),
+        {
+          unit,
+          mode: domainMode,
+          detailLevel: "sparkline",
+        }
+      ),
+    [domainMode, series, unit]
   );
 
   const points = useMemo(() => {
@@ -221,40 +238,6 @@ function smoothSeries(values: number[], alpha = 0.32) {
   }
 
   return output;
-}
-
-function resolveDomain(values: number[], unit: ChartUnit) {
-  if (values.length === 0) {
-    return { min: 0, max: 1 };
-  }
-
-  const maxValue = Math.max(...values, 0);
-  const minValue = Math.min(...values, 0);
-
-  if (
-    unit === "currency" ||
-    unit === "count" ||
-    unit === "ratio" ||
-    unit === "duration_seconds"
-  ) {
-    return {
-      min: 0,
-      max: maxValue > 0 ? maxValue * 1.1 : 1,
-    };
-  }
-
-  if (unit === "percent") {
-    return {
-      min: 0,
-      max: Math.max(100, maxValue * 1.1),
-    };
-  }
-
-  const span = Math.max(Math.abs(minValue), Math.abs(maxValue), 1);
-  return {
-    min: -span * 1.1,
-    max: span * 1.1,
-  };
 }
 
 function formatCompactValue(value: number) {

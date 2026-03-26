@@ -221,15 +221,11 @@ const BENCHMARKS = {
 };
 
 function formatPercent(value: number) {
-  return `${(value * 100).toFixed(1)}%`;
+  return formatPercentFromRatioSmart(value);
 }
 
 function formatCurrency(value: number) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }).format(value);
+  return formatCurrencySmart(value, "$", { compactLarge: false });
 }
 
 function formatNumber(value: number) {
@@ -672,3 +668,4 @@ export async function getKlaviyoDashboardData(
     diagnostics,
   };
 }
+import { formatCurrencySmart, formatPercentFromRatioSmart } from "@/lib/metric-format";

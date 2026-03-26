@@ -32,14 +32,12 @@ export function benchmarkLabel(status: KlaviyoBenchmarkStatus) {
   }
 }
 
+import { formatCurrencySmart, formatPercentFromRatioSmart } from "@/lib/metric-format";
+
 export function percent(value: number) {
-  return `${(value * 100).toFixed(1)}%`;
+  return formatPercentFromRatioSmart(value);
 }
 
 export function currency(value: number) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }).format(value);
+  return formatCurrencySmart(value, "$", { compactLarge: false });
 }

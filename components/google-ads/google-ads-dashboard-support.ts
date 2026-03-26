@@ -1,5 +1,6 @@
 import { getCurrencySymbol } from "@/hooks/use-currency";
 import type { RangePreset } from "@/components/date-range/DateRangePicker";
+import { formatCurrencySmart, formatPercentSmart } from "@/lib/metric-format";
 
 export type ActionState = "scale" | "optimize" | "test" | "reduce";
 export type TrendLabelMode = "day" | "month";
@@ -177,6 +178,27 @@ export interface DevicesResponse {
   rows: DeviceRow[];
 }
 
+export interface GoogleAdsTrendCampaignRow {
+  id: string;
+  name: string;
+  status: string;
+  channel: string;
+  spend: number;
+  revenue: number;
+  conversions: number;
+  impressions: number;
+  clicks: number;
+  impressionShare: number | null;
+  lostIsBudget: number | null;
+}
+
+export interface GoogleAdsTrendsResponse {
+  rows: Array<{
+    date: string;
+    rows: GoogleAdsTrendCampaignRow[];
+  }>;
+}
+
 export const ACTION_CONFIG: Record<
   ActionState,
   { label: string; dot: string; chip: string; border: string }
@@ -232,10 +254,11 @@ export function isCampaignActive(status: string): boolean {
 }
 
 export function fmtCurrency(n: number): string {
-  const sym = getCurrencySymbol();
-  if (n >= 1_000_000) return `${sym}${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${sym}${(n / 1_000).toFixed(1)}K`;
-  return `${sym}${n.toFixed(0)}`;
+  return formatCurrencySmart(n, getCurrencySymbol());
+}
+
+export function fmtCurrencyPrecise(n: number): string {
+  return formatCurrencySmart(n, getCurrencySymbol());
 }
 
 export function fmtRoas(n: number): string {
@@ -243,7 +266,7 @@ export function fmtRoas(n: number): string {
 }
 
 export function fmtPct(n: number): string {
-  return `${n.toFixed(0)}%`;
+  return formatPercentSmart(n);
 }
 
 export function fmtNumber(n: number): string {

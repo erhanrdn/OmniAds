@@ -505,9 +505,9 @@ function currencySymbol(code: CurrencyCode) {
 
 type SparklinePoint = { date: string; value: number };
 
-function rv(value: number): number {
+function rv(value: number, digits = 4): number {
   if (!Number.isFinite(value)) return 0;
-  return Number(value.toFixed(2));
+  return Number(value.toFixed(digits));
 }
 
 function buildSparklineMap(
@@ -535,7 +535,7 @@ function buildSparklineMap(
   }));
   const ga4ConvRateSeries = ga4Daily.map((p) => ({
     date: p.date,
-    value: p.sessions > 0 ? rv((p.purchases / p.sessions) * 100) : 0,
+    value: p.sessions > 0 ? rv((p.purchases / p.sessions) * 100, 4) : 0,
   }));
   const ga4NewCustomersSeries = ga4Daily.map((p) => ({ date: p.date, value: rv(p.firstTimePurchasers) }));
   const ga4ReturningCustomersSeries = ga4Daily.map((p) => ({
@@ -550,13 +550,13 @@ function buildSparklineMap(
     date: p.date,
     value:
       p.totalPurchasers > 0
-        ? rv((Math.max(p.totalPurchasers - p.firstTimePurchasers, 0) / p.totalPurchasers) * 100)
+        ? rv((Math.max(p.totalPurchasers - p.firstTimePurchasers, 0) / p.totalPurchasers) * 100, 4)
         : 0,
   }));
   const ga4SessionsSeries = ga4Daily.map((p) => ({ date: p.date, value: rv(p.sessions) }));
   const ga4EngagementSeries = ga4Daily.map((p) => ({
     date: p.date,
-    value: rv(p.engagementRate * 100),
+    value: rv(p.engagementRate * 100, 4),
   }));
   const ga4SessionDurationSeries = ga4Daily.map((p) => ({
     date: p.date,

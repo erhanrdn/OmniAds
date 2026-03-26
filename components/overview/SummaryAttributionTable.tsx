@@ -16,6 +16,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
+import { formatCurrencySmart } from "@/lib/metric-format";
+import { formatPercentSmart } from "@/lib/metric-format";
 import { usePreferencesStore } from "@/store/preferences-store";
 
 type SortKey =
@@ -269,7 +271,7 @@ function ChannelBadge({ channel }: { channel: string }) {
 
 function formatCurrency(value: number | null, currencySymbol: string) {
   if (value === null) return "—";
-  return `${currencySymbol}${value.toLocaleString()}`;
+  return formatCurrencySmart(value, currencySymbol);
 }
 
 function formatCount(value: number | null) {
@@ -284,5 +286,5 @@ function formatRatio(value: number | null) {
 
 function formatPercent(value: number | null) {
   if (value === null) return "—";
-  return `${value.toFixed(1)}%`;
+  return formatPercentSmart(value);
 }
