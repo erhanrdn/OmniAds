@@ -46,6 +46,10 @@ interface Stats {
     activeCooldowns: number;
     successJobs24h: number;
     topIssue: string | null;
+    googleAdsQueueDepth?: number;
+    googleAdsLeasedPartitions?: number;
+    googleAdsDeadLetterPartitions?: number;
+    googleAdsOldestQueuedPartition?: string | null;
   };
   revenueRiskSummary?: {
     atRiskBusinesses: number;
@@ -211,6 +215,10 @@ export default function AdminDashboard() {
     activeCooldowns: 0,
     successJobs24h: 0,
     topIssue: null,
+    googleAdsQueueDepth: 0,
+    googleAdsLeasedPartitions: 0,
+    googleAdsDeadLetterPartitions: 0,
+    googleAdsOldestQueuedPartition: null,
   };
   const revenueRiskSummary = stats?.revenueRiskSummary ?? {
     atRiskBusinesses: 0,
@@ -431,6 +439,7 @@ export default function AdminDashboard() {
             { label: "Failed 24h", value: syncHealthSummary.failedJobs24h },
             { label: "Stuck", value: syncHealthSummary.stuckJobs },
             { label: "Cooldown", value: syncHealthSummary.activeCooldowns },
+            { label: "GAds Queue", value: syncHealthSummary.googleAdsQueueDepth ?? 0 },
           ]}
           footnote={syncHealthSummary.topIssue ?? "Sync tarafında aktif problem yok"}
         />

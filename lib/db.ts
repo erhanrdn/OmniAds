@@ -2,6 +2,8 @@ import { neon } from "@neondatabase/serverless";
 import { logStartupEvent } from "@/lib/startup-diagnostics";
 
 const DEFAULT_DB_TIMEOUT_MS = 8_000;
+const DEFAULT_DB_RETRY_ATTEMPTS = 2;
+const DB_RETRY_DELAY_MS = 250;
 
 function getDbTimeoutMs() {
   const raw = process.env.DB_QUERY_TIMEOUT_MS?.trim();
@@ -20,6 +22,39 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, operation: strin
       promise.finally(() => clearTimeout(timer)).catch(() => clearTimeout(timer));
     }),
   ]);
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableDbError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  const code = typeof error === "object" && error && "code" in error ? String((error as { code?: unknown }).code ?? "") : "";
+  return (
+    code === "XX000" ||
+    code === "08001" ||
+    code === "08006" ||
+    message.includes("server_login_retry") ||
+    message.includes("partial pkt in login phase") ||
+    message.includes("server login has been failing")
+  );
+}
+
+async function withDbRetries<T>(operation: () => Promise<T>): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= DEFAULT_DB_RETRY_ATTEMPTS; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (attempt >= DEFAULT_DB_RETRY_ATTEMPTS || !isRetryableDbError(error)) {
+        throw error;
+      }
+      await sleep(DB_RETRY_DELAY_MS * (attempt + 1));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
 /**
@@ -49,10 +84,14 @@ export function getDb() {
   const timeoutMs = getDbTimeoutMs();
   const wrapped = Object.assign(
     ((strings: TemplateStringsArray, ...values: unknown[]) =>
-      withTimeout(client(strings, ...values), timeoutMs, "Database query")) as ReturnType<typeof neon>,
+      withDbRetries(() =>
+        withTimeout(client(strings, ...values), timeoutMs, "Database query")
+      )) as ReturnType<typeof neon>,
     {
       query: ((...args: Parameters<typeof client.query>) =>
-        withTimeout(client.query(...args), timeoutMs, "Database query")) as typeof client.query,
+        withDbRetries(() =>
+          withTimeout(client.query(...args), timeoutMs, "Database query")
+        )) as typeof client.query,
     }
   );
 

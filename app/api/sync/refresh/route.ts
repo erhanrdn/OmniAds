@@ -2,7 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { runMigrations } from "@/lib/migrations";
 import { expireStaleMetaSyncJobs, hasBlockingMetaSyncJob } from "@/lib/meta/warehouse";
-import { syncGoogleAdsReports } from "@/lib/sync/google-ads-sync";
+import {
+  syncGoogleAdsInitial,
+  syncGoogleAdsRecent,
+  syncGoogleAdsReports,
+  syncGoogleAdsRepairRange,
+  syncGoogleAdsToday,
+} from "@/lib/sync/google-ads-sync";
+import {
+  cleanupGoogleAdsObsoleteSyncJobs,
+  expireStaleGoogleAdsSyncJobs,
+  getGoogleAdsQueueHealth,
+} from "@/lib/google-ads/warehouse";
 import { syncGA4Reports } from "@/lib/sync/ga4-sync";
 import { syncMetaInitial, syncMetaRecent, syncMetaRepairRange, syncMetaToday } from "@/lib/sync/meta-sync";
 import { syncSearchConsoleReports } from "@/lib/sync/search-console-sync";
@@ -43,6 +54,25 @@ async function isJobAlreadyRunning(
         lookbackMinutes: 90,
       });
     }
+    if (provider === "google_ads") {
+      await cleanupGoogleAdsObsoleteSyncJobs({ businessId }).catch(() => null);
+      await expireStaleGoogleAdsSyncJobs({ businessId }).catch(() => null);
+      const queueHealth = await getGoogleAdsQueueHealth({ businessId }).catch(() => null);
+      if (!queueHealth) return false;
+      if (mode === "today") {
+        return (queueHealth.maintenanceLeasedPartitions ?? 0) > 0;
+      }
+      if (mode === "recent") {
+        return (
+          (queueHealth.coreLeasedPartitions ?? 0) > 0 ||
+          (queueHealth.maintenanceLeasedPartitions ?? 0) > 0
+        );
+      }
+      if (mode === "initial" || mode === "repair") {
+        return (queueHealth.coreLeasedPartitions ?? 0) > 0;
+      }
+      return (queueHealth.leasedPartitions ?? 0) > 0;
+    }
     const rows = await sql`
       SELECT id FROM provider_sync_jobs
       WHERE business_id = ${businessId}
@@ -65,7 +95,17 @@ async function runSyncForProvider(
 ): Promise<void> {
   switch (provider) {
     case "google_ads":
-      await syncGoogleAdsReports(businessId);
+      if (mode === "today") await syncGoogleAdsToday(businessId);
+      else if (mode === "initial") await syncGoogleAdsInitial(businessId);
+      else if (mode === "repair" && range) {
+        await syncGoogleAdsRepairRange({
+          businessId,
+          startDate: range.startDate,
+          endDate: range.endDate,
+        });
+      }
+      else if (mode === "recent") await syncGoogleAdsReports(businessId);
+      else await syncGoogleAdsRecent(businessId);
       break;
     case "ga4":
       await syncGA4Reports(businessId);

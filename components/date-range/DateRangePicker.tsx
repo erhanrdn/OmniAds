@@ -665,10 +665,10 @@ export function DateRangePicker({
                 mode="comparison"
                 draft={draft}
                 onDraftChange={setDraft}
-                onApply={handleApply}
-                onCancel={handleCancel}
-                comparisonPresets={availableComparisonPresets}
-              />
+              onApply={handleApply}
+              onCancel={handleCancel}
+              comparisonPresets={availableComparisonPresets}
+            />
             </Popover.Content>
           </Popover.Portal>
         </Popover.Root>

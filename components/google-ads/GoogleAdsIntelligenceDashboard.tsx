@@ -1,11 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MiniTrendAreaChart } from "@/components/overview/MiniTrendAreaChart";
+import {
+  GoogleAdsSyncProgress,
+  shouldRenderGoogleAdsSyncProgress,
+} from "@/components/google-ads/google-ads-sync-progress";
 import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
 import { GoogleAdvisorPanel } from "@/components/google/google-advisor-panel";
@@ -45,6 +49,7 @@ import {
   type GoogleAdsTrendsResponse,
 } from "@/components/google-ads/google-ads-dashboard-support";
 import type { GoogleAdvisorResponse, GoogleAdvisorRecommendation } from "@/src/services/google";
+import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -54,6 +59,70 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+
+function getGoogleAdsSyncEmptyState(
+  status: GoogleAdsStatusResponse | undefined,
+  areaLabel: string
+) {
+  if (!status) {
+    return {
+      title: `${areaLabel} is loading`,
+      description: "Warehouse status is being checked. This section will fill in as soon as ready data is available.",
+    };
+  }
+  if (!status.connected) {
+    return {
+      title: "Google Ads is not connected",
+      description: `Connect a Google Ads account to load ${areaLabel.toLowerCase()}.`,
+    };
+  }
+  if ((status.assignedAccountIds?.length ?? 0) === 0) {
+    return {
+      title: "Choose a Google Ads account",
+      description: `Assign at least one Google Ads account to prepare ${areaLabel.toLowerCase()}.`,
+    };
+  }
+  if (status.state === "action_required") {
+    return {
+      title: `${areaLabel} needs a sync retry`,
+      description:
+        status.latestSync?.lastError ??
+        "The warehouse paused while preparing this data. Existing data stays visible while sync retries in the background.",
+    };
+  }
+  if (status.state === "paused") {
+    return {
+      title: `${areaLabel} is waiting for background sync`,
+      description:
+        status.latestSync?.lastError ??
+        "Historical sync is currently paused. Ready data stays visible while the background worker resumes.",
+    };
+  }
+  if (status.priorityWindow?.isActive) {
+    return {
+      title: `${areaLabel} is being prepared`,
+      description:
+        "Your selected date range is being prioritized now. Ready data will appear here progressively.",
+    };
+  }
+  if (
+    status.state === "syncing" ||
+    status.state === "partial" ||
+    status.state === "stale"
+  ) {
+    const readyThrough = status.latestSync?.readyThroughDate;
+    return {
+      title: `${areaLabel} is still preparing`,
+      description: readyThrough
+        ? `Historical data is syncing in the background. Ready through ${readyThrough}.`
+        : "Historical data is syncing in the background. This section will fill in progressively.",
+    };
+  }
+  return {
+    title: `No ${areaLabel.toLowerCase()} found`,
+    description: "Try broadening the date range or filters.",
+  };
+}
 
 function filterAdvisorByTypes(
   advisor: GoogleAdvisorResponse | undefined,
@@ -79,6 +148,56 @@ function filterAdvisorByTypes(
   };
 }
 
+function buildAdvisorQueryParams(input: {
+  businessId: string;
+  apiDateRange: string;
+  startDate: string;
+  endDate: string;
+}) {
+  const params = new URLSearchParams({
+    businessId: input.businessId,
+    dateRange: input.apiDateRange,
+  });
+  if (input.apiDateRange === "custom") {
+    params.set("customStart", input.startDate);
+    params.set("customEnd", input.endDate);
+  }
+  return params;
+}
+
+function getAdvisorIdleState(
+  status: GoogleAdsStatusResponse | undefined
+) {
+  if (!status) {
+    return {
+      title: "Advisor analysis is unavailable",
+      description: "Warehouse readiness is being checked before analysis can start.",
+    };
+  }
+  if (!status.connected) {
+    return {
+      title: "Advisor analysis is unavailable",
+      description: "Connect a Google Ads account to enable advisor analysis.",
+    };
+  }
+  if ((status.assignedAccountIds?.length ?? 0) === 0) {
+    return {
+      title: "Advisor analysis is unavailable",
+      description: "Assign a Google Ads account to prepare advisor inputs.",
+    };
+  }
+  if (status.advisor?.ready) {
+    return {
+      title: "Run analysis when ready",
+      description: "Advisor analysis is available on demand for this date range.",
+    };
+  }
+  return {
+    title: "Run analysis when historical support is ready",
+    description: "Advisor analysis becomes available when campaign, search term, and product history are ready for the selected dates.",
+  };
+}
+
 export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: string }) {
   const [dateRange, setDateRange] = useState<DateRangeValue>(DEFAULT_DATE_RANGE);
   const [channelFilter, setChannelFilter] = useState<string>("all");
@@ -101,6 +220,18 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
     () => resolveTrendTimeline(startDate, endDate),
     [startDate, endDate]
   );
+  const needsAdvisorData =
+    activePanel === "summary" ||
+    activePanel === "insights" ||
+    activePanel === "assetGroupAudience" ||
+    activePanel === "products" ||
+    activePanel === "assets";
+  const needsTrendData = activePanel === "summary";
+  const needsAssetGroupAudienceData = activePanel === "assetGroupAudience";
+  const needsProductsData = activePanel === "products";
+  const needsAssetsData = activePanel === "assets";
+  const needsInsightsData = activePanel === "insights";
+  const currentAdvisorKey = `${businessId}:${startDate}:${endDate}:${apiDateRange}`;
 
   const { data, isLoading, isError } = useQuery<CampaignsResponse>({
     queryKey: ["gads-campaigns", businessId, startDate, endDate, compareMode],
@@ -115,25 +246,39 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
       return res.json();
     },
     staleTime: 5 * 60 * 1000,
+    enabled: Boolean(businessId),
   });
 
+  const [advisorData, setAdvisorData] = useState<GoogleAdvisorResponse | undefined>(undefined);
+  const [advisorAnalysisKey, setAdvisorAnalysisKey] = useState<string | null>(null);
+  const [lastAnalyzedLabel, setLastAnalyzedLabel] = useState<string | null>(null);
   const {
-    data: advisorData,
-    isLoading: isAdvisorLoading,
+    mutate: runAdvisorAnalysis,
+    isPending: isAdvisorLoading,
     isError: isAdvisorError,
-  } = useQuery<GoogleAdvisorResponse>({
-    queryKey: ["google-ads-dashboard-advisor-v1", businessId, startDate, endDate],
-    queryFn: async () => {
-      const params = new URLSearchParams({ businessId, dateRange: apiDateRange });
-      if (apiDateRange === "custom") {
-        params.set("customStart", startDate);
-        params.set("customEnd", endDate);
-      }
+  } = useMutation<GoogleAdvisorResponse>({
+    mutationFn: async () => {
+      const params = buildAdvisorQueryParams({
+        businessId,
+        apiDateRange,
+        startDate,
+        endDate,
+      });
       const res = await fetch(`/api/google-ads/advisor?${params}`);
       if (!res.ok) throw new Error("advisor fetch failed");
       return res.json();
     },
-    staleTime: 5 * 60 * 1000,
+    onSuccess: (payload) => {
+      setAdvisorData(payload);
+      setAdvisorAnalysisKey(currentAdvisorKey);
+      setLastAnalyzedLabel(new Date().toLocaleString("en-GB", {
+        year: "numeric",
+        month: "short",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      }));
+    },
   });
 
   const { data: assetGroupData, isLoading: isAssetGroupsLoading } = useQuery<AssetGroupsResponse>({
@@ -149,6 +294,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
       return res.json();
     },
     staleTime: 5 * 60 * 1000,
+    enabled: needsAssetGroupAudienceData,
   });
 
   const { data: audiencesData, isLoading: isAudiencesLoading } = useQuery<AudiencesResponse>({
@@ -164,6 +310,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
       return res.json();
     },
     staleTime: 5 * 60 * 1000,
+    enabled: needsAssetGroupAudienceData,
   });
 
   const { data: assetsData, isLoading: isAssetsLoading } = useQuery<AssetsResponse>({
@@ -179,6 +326,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
       return res.json();
     },
     staleTime: 5 * 60 * 1000,
+    enabled: needsAssetsData,
   });
 
   const { data: productsData, isLoading: isProductsLoading } = useQuery<ProductsResponse>({
@@ -194,6 +342,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
       return res.json();
     },
     staleTime: 5 * 60 * 1000,
+    enabled: needsProductsData,
   });
 
   const { data: searchTermsData, isLoading: isSearchTermsLoading } = useQuery<SearchIntelligenceResponse>({
@@ -209,6 +358,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
       return res.json();
     },
     staleTime: 5 * 60 * 1000,
+    enabled: needsInsightsData,
   });
 
   const { data: geoData, isLoading: isGeoLoading } = useQuery<GeoResponse>({
@@ -224,6 +374,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
       return res.json();
     },
     staleTime: 5 * 60 * 1000,
+    enabled: needsInsightsData,
   });
 
   const { data: devicesData, isLoading: isDevicesLoading } = useQuery<DevicesResponse>({
@@ -239,6 +390,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
       return res.json();
     },
     staleTime: 5 * 60 * 1000,
+    enabled: needsInsightsData,
   });
 
   const { data: trendsData } = useQuery<GoogleAdsTrendsResponse>({
@@ -256,7 +408,35 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
       return res.json();
     },
     staleTime: 5 * 60 * 1000,
+    enabled: needsTrendData,
   });
+
+  const { data: syncStatus } = useQuery<GoogleAdsStatusResponse>({
+    queryKey: ["gads-status", businessId, startDate, endDate],
+    queryFn: async () => {
+      const params = new URLSearchParams({ businessId, startDate, endDate });
+      const res = await fetch(`/api/google-ads/status?${params}`);
+      if (!res.ok) throw new Error("status fetch failed");
+      return res.json();
+    },
+    staleTime: 30 * 1000,
+    refetchInterval: (query) => {
+      const state = query.state.data?.state;
+      return state === "syncing" || state === "partial" || state === "stale" ? 15 * 1000 : false;
+    },
+  });
+  const advisorReady = Boolean(syncStatus?.advisor?.ready);
+  const advisorCurrent = advisorAnalysisKey === currentAdvisorKey ? advisorData : undefined;
+  const advisorIsStale = advisorAnalysisKey != null && advisorAnalysisKey !== currentAdvisorKey;
+  const advisorIdleState = getAdvisorIdleState(syncStatus);
+
+  useEffect(() => {
+    if (!advisorReady && advisorAnalysisKey === currentAdvisorKey) {
+      setAdvisorData(undefined);
+      setAdvisorAnalysisKey(null);
+      setLastAnalyzedLabel(null);
+    }
+  }, [advisorReady, advisorAnalysisKey, currentAdvisorKey]);
 
   const rows = data?.rows ?? [];
   const scopedRows = rows.filter((r) => isCampaignActive(r.status) || (includeSpentInactive && r.spend > 0));
@@ -587,9 +767,9 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
   );
 
   const campaignAdvisorMap = useMemo(() => {
-    const rows = advisorData?.summary.campaignRoles ?? [];
+    const rows = advisorCurrent?.summary.campaignRoles ?? [];
     return new Map(rows.map((row) => [row.campaignId, row]));
-  }, [advisorData?.summary.campaignRoles]);
+  }, [advisorCurrent?.summary.campaignRoles]);
 
   const searchSourceCounts = useMemo(() => {
     let pmax = 0;
@@ -609,14 +789,20 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
     return <div className="py-10 text-sm text-muted-foreground">Campaign data could not be loaded.</div>;
   }
 
-  const summaryAdvisor = filterAdvisorByTypes(advisorData, [
+  const summaryEmptyState = getGoogleAdsSyncEmptyState(syncStatus, "Campaign data");
+  const insightsEmptyState = getGoogleAdsSyncEmptyState(syncStatus, "Search insights");
+  const assetGroupEmptyState = getGoogleAdsSyncEmptyState(syncStatus, "Asset groups and audiences");
+  const productsEmptyState = getGoogleAdsSyncEmptyState(syncStatus, "Product performance");
+  const assetsEmptyState = getGoogleAdsSyncEmptyState(syncStatus, "Asset performance");
+
+  const summaryAdvisor = filterAdvisorByTypes(advisorCurrent, [
     "operating_model_gap",
     "brand_capture_control",
     "pmax_scaling_fit",
     "budget_reallocation",
   ]);
 
-  const insightsAdvisor = filterAdvisorByTypes(advisorData, [
+  const insightsAdvisor = filterAdvisorByTypes(advisorCurrent, [
     "non_brand_expansion",
     "query_governance",
     "keyword_buildout",
@@ -624,19 +810,19 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
     "diagnostic_guardrail",
   ]);
 
-  const assetGroupAdvisor = filterAdvisorByTypes(advisorData, [
+  const assetGroupAdvisor = filterAdvisorByTypes(advisorCurrent, [
     "asset_group_structure",
     "pmax_scaling_fit",
     "geo_device_adjustment",
   ]);
 
-  const productsAdvisor = filterAdvisorByTypes(advisorData, [
+  const productsAdvisor = filterAdvisorByTypes(advisorCurrent, [
     "shopping_launch_or_split",
     "product_allocation",
     "budget_reallocation",
   ]);
 
-  const assetsAdvisor = filterAdvisorByTypes(advisorData, [
+  const assetsAdvisor = filterAdvisorByTypes(advisorCurrent, [
     "creative_asset_deployment",
   ]);
 
@@ -775,16 +961,60 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                 </DropdownMenuContent>
               </DropdownMenu>
 
-              <DateRangePicker
-                value={dateRange}
-                onChange={setDateRange}
-                className="ml-1"
-                comparisonPlaceholderLabel="Compare to"
-                rangePresets={["3d", "7d", "14d", "30d", "90d", "custom"]}
-              />
+              <div className="ml-1 flex flex-wrap items-center gap-2">
+                <DateRangePicker
+                  value={dateRange}
+                  onChange={setDateRange}
+                  comparisonPlaceholderLabel="Compare to"
+                  rangePresets={["3d", "7d", "14d", "30d", "90d", "custom"]}
+                />
+                <div className="flex flex-col gap-1">
+                  <button
+                    type="button"
+                    onClick={() => runAdvisorAnalysis()}
+                    disabled={!advisorReady || isAdvisorLoading}
+                    className={cn(
+                      "inline-flex h-9 items-center rounded-md border px-3 text-xs font-semibold transition-colors",
+                      !advisorReady || isAdvisorLoading
+                        ? "cursor-not-allowed border-border bg-muted text-muted-foreground"
+                        : advisorCurrent
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                          : "border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100"
+                    )}
+                  >
+                    {isAdvisorLoading
+                      ? "Running analysis..."
+                      : advisorCurrent
+                        ? "Re-run Advisor Analysis"
+                        : "Run Advisor Analysis"}
+                  </button>
+                  <p className="text-[11px] text-muted-foreground">
+                    {!advisorReady
+                      ? "Waiting for historical advisor data"
+                      : advisorIsStale
+                        ? "Analysis is out of date for this range"
+                        : lastAnalyzedLabel
+                          ? `Last analyzed ${lastAnalyzedLabel}`
+                          : "Run on demand when you need advisor output"}
+                  </p>
+                </div>
+                {shouldRenderGoogleAdsSyncProgress(syncStatus) ? (
+                  <GoogleAdsSyncProgress
+                    status={syncStatus}
+                    variant="inline"
+                    className="max-w-full"
+                  />
+                ) : null}
+              </div>
             </div>
           </div>
-          <p className="mt-0.5 text-xs text-muted-foreground">{isLoading ? "Loading..." : `${scopedRows.length} campaigns · Google Ads`}</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {isLoading
+              ? "Loading campaign data..."
+              : scopedRows.length > 0
+                ? `${scopedRows.length} campaigns · Google Ads`
+                : summaryEmptyState.description}
+          </p>
         </div>
       </div>
 
@@ -863,9 +1093,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
       {activePanel === "summary" && (isLoading ? (
         <div className="space-y-2.5">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-xl" />)}</div>
       ) : sortedRows.length === 0 ? (
-        <div className="flex min-h-[18vh] flex-col items-center justify-center rounded-2xl border border-dashed">
-          <p className="text-sm text-muted-foreground">No campaigns match this filter</p>
-        </div>
+        <EmptyState title={summaryEmptyState.title} description={summaryEmptyState.description} />
       ) : (
         <div className="grid gap-2 md:grid-cols-3 xl:grid-cols-5 2xl:grid-cols-6">
           {sortedRows.map((c) => (
@@ -887,6 +1115,16 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
           <p className="text-xs text-muted-foreground">Account-level growth decisions and lane orchestration</p>
           <GoogleAdvisorPanel advisor={summaryAdvisor} onFocusEntity={focusAdvisorEntity} />
         </section>
+      ) : activePanel === "summary" ? (
+        <section className="space-y-3 rounded-xl border border-border/70 bg-card p-3">
+          {isAdvisorLoading ? (
+            <Skeleton className="h-32 w-full rounded-xl" />
+          ) : isAdvisorError ? (
+            <ErrorState />
+          ) : (
+            <EmptyState title={advisorIdleState.title} description={advisorIdleState.description} />
+          )}
+        </section>
       ) : null}
 
       {activePanel === "insights" ? (
@@ -899,8 +1137,8 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
             <GoogleAdvisorPanel advisor={insightsAdvisor} onFocusEntity={focusAdvisorEntity} />
           ) : (
             <EmptyState
-              title="Search advisor is not ready"
-              description="Search/query-specific advisor recommendations are not available for this date range yet."
+              title={advisorIdleState.title}
+              description={advisorIdleState.description}
             />
           )}
 
@@ -1012,8 +1250,11 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                     {topGeoRows.length === 0 ? (
                       <p className="text-[11px] text-muted-foreground">No geo data in this range.</p>
                     ) : (
-                      topGeoRows.map((row) => (
-                        <div key={row.country} className="flex items-center justify-between rounded-md border border-border/70 bg-muted/20 px-2 py-1.5 text-[11px]">
+                      topGeoRows.map((row, index) => (
+                        <div
+                          key={`${row.country}-${row.spend}-${row.roas}-${index}`}
+                          className="flex items-center justify-between rounded-md border border-border/70 bg-muted/20 px-2 py-1.5 text-[11px]"
+                        >
                           <span className="truncate font-medium">{row.country}</span>
                           <span className="text-muted-foreground">Spend {fmtCurrency(row.spend)} · ROAS {fmtRoas(row.roas)}</span>
                         </div>
@@ -1028,8 +1269,11 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                     {topDeviceRows.length === 0 ? (
                       <p className="text-[11px] text-muted-foreground">No device data in this range.</p>
                     ) : (
-                      topDeviceRows.map((row) => (
-                        <div key={row.device} className="flex items-center justify-between rounded-md border border-border/70 bg-muted/20 px-2 py-1.5 text-[11px]">
+                      topDeviceRows.map((row, index) => (
+                        <div
+                          key={`${row.device}-${row.spend}-${row.roas}-${index}`}
+                          className="flex items-center justify-between rounded-md border border-border/70 bg-muted/20 px-2 py-1.5 text-[11px]"
+                        >
                           <span className="truncate font-medium">{row.device}</span>
                           <span className="text-muted-foreground">Spend {fmtCurrency(row.spend)} · ROAS {fmtRoas(row.roas)}</span>
                         </div>
@@ -1049,7 +1293,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
           {isAssetGroupsLoading || isAudiencesLoading ? (
             <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-28 w-full rounded-xl" />)}</div>
           ) : campaignSignalCards.length === 0 ? (
-            <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">No asset group details found for this filter.</div>
+            <EmptyState title={assetGroupEmptyState.title} description={assetGroupEmptyState.description} />
           ) : (
             <div className="max-h-[520px] space-y-2.5 overflow-auto pr-1">
               {campaignSignalCards.map(({ campaign, groups, totalThemes, alignedThemes, themeAlignment, weakAudienceSegments, audienceRows }) => (
@@ -1110,7 +1354,9 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
           )}
           {assetGroupAdvisor?.sections.length ? (
             <GoogleAdvisorPanel advisor={assetGroupAdvisor} onFocusEntity={focusAdvisorEntity} />
-          ) : null}
+          ) : (
+            <EmptyState title={advisorIdleState.title} description={advisorIdleState.description} />
+          )}
         </section>
       ) : null}
 
@@ -1120,7 +1366,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
           {isProductsLoading ? (
             <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20 w-full rounded-xl" />)}</div>
           ) : productRows.length === 0 ? (
-            <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">No product data found for this filter.</div>
+            <EmptyState title={productsEmptyState.title} description={productsEmptyState.description} />
           ) : (
             <>
               <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
@@ -1177,7 +1423,9 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
           )}
           {productsAdvisor?.sections.length ? (
             <GoogleAdvisorPanel advisor={productsAdvisor} onFocusEntity={focusAdvisorEntity} />
-          ) : null}
+          ) : (
+            <EmptyState title={advisorIdleState.title} description={advisorIdleState.description} />
+          )}
         </section>
       ) : null}
 
@@ -1187,7 +1435,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
           {isAssetsLoading ? (
             <div className="space-y-2">{Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-28 w-full rounded-xl" />)}</div>
           ) : scopedAssets.length === 0 ? (
-            <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">No asset data found for this filter.</div>
+            <EmptyState title={assetsEmptyState.title} description={assetsEmptyState.description} />
           ) : (
             <>
               <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
@@ -1249,7 +1497,9 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
           )}
           {assetsAdvisor?.sections.length ? (
             <GoogleAdvisorPanel advisor={assetsAdvisor} onFocusEntity={focusAdvisorEntity} />
-          ) : null}
+          ) : (
+            <EmptyState title={advisorIdleState.title} description={advisorIdleState.description} />
+          )}
         </section>
       ) : null}
     </div>

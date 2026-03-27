@@ -72,7 +72,21 @@ async function findSessionByToken(
     JOIN users u ON u.id = s.user_id
     WHERE s.token_hash = ${tokenHash}
     LIMIT 1
-  `) as Array<{
+  `.catch((error) => {
+    logStartupError("auth_session_lookup_failed", error, {
+      reason: "auth_session_lookup",
+    });
+    return [] as Array<{
+      session_id: string;
+      active_business_id: string | null;
+      expires_at: string;
+      user_id: string;
+      user_name: string;
+      user_email: string;
+      user_avatar: string | null;
+      user_language: AppLanguage;
+    }>;
+  })) as Array<{
     session_id: string;
     active_business_id: string | null;
     expires_at: string;

@@ -2,9 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { isDemoBusiness } from "@/lib/business-mode.server";
 import { requireBusinessAccess } from "@/lib/access";
 import { getDemoGoogleAdsOpportunities } from "@/lib/demo-business";
-import { getGoogleAdsOpportunitiesReport } from "@/lib/google-ads/reporting";
+import { getGoogleAdsOpportunitiesReport } from "@/lib/google-ads/serving";
 import { parseGoogleAdsRequestParams } from "@/lib/google-ads-request-params";
-import { getCachedRouteReport, setCachedRouteReport } from "@/lib/route-report-cache";
 
 export async function GET(request: NextRequest) {
   const { businessId, accountId, dateRange, customStart, customEnd, debug } =
@@ -20,14 +19,6 @@ export async function GET(request: NextRequest) {
   if (await isDemoBusiness(businessId)) {
     return NextResponse.json(getDemoGoogleAdsOpportunities());
   }
-
-  const cached = await getCachedRouteReport<Record<string, unknown>>({
-    businessId,
-    provider: "google_ads",
-    reportType: "google_ads_opportunities",
-    searchParams: request.nextUrl.searchParams,
-  });
-  if (cached) return NextResponse.json(cached);
 
   const report = await getGoogleAdsOpportunitiesReport({
     businessId,
@@ -45,12 +36,5 @@ export async function GET(request: NextRequest) {
     summary: report.summary,
     meta: report.meta,
   };
-  await setCachedRouteReport({
-    businessId,
-    provider: "google_ads",
-    reportType: "google_ads_opportunities",
-    searchParams: request.nextUrl.searchParams,
-    payload,
-  });
   return NextResponse.json(payload);
 }

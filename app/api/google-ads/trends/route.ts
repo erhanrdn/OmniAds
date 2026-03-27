@@ -5,9 +5,8 @@ import {
   getDemoGoogleAdsCampaigns,
   getDemoSparklines,
 } from "@/lib/demo-business";
-import { getGoogleAdsCampaignsReport } from "@/lib/google-ads/reporting";
+import { getGoogleAdsCampaignsReport } from "@/lib/google-ads/serving";
 import { parseGoogleAdsRequestParams } from "@/lib/google-ads-request-params";
-import { getCachedRouteReport, setCachedRouteReport } from "@/lib/route-report-cache";
 
 interface GoogleAdsTrendCampaignRow {
   id: string;
@@ -91,14 +90,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ rows: buildDemoTrendRows() });
   }
 
-  const cached = await getCachedRouteReport<Record<string, unknown>>({
-    businessId,
-    provider: "google_ads",
-    reportType: "google_ads_daily_trends",
-    searchParams: request.nextUrl.searchParams,
-  });
-  if (cached) return NextResponse.json(cached);
-
   if (!customStart || !customEnd) {
     return NextResponse.json({ error: "customStart and customEnd are required" }, { status: 400 });
   }
@@ -141,13 +132,5 @@ export async function GET(request: NextRequest) {
   );
 
   const payload = { rows, meta: { dateRange, customStart, customEnd } };
-  await setCachedRouteReport({
-    businessId,
-    provider: "google_ads",
-    reportType: "google_ads_daily_trends",
-    searchParams: request.nextUrl.searchParams,
-    payload,
-  });
-
   return NextResponse.json(payload);
 }

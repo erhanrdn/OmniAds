@@ -1,6 +1,6 @@
 import { isDemoBusiness } from "@/lib/business-mode.server";
 import { getDemoOverview, getDemoSparklines, isDemoBusinessId } from "@/lib/demo-business";
-import { getGoogleAdsOverviewReport } from "@/lib/google-ads/reporting";
+import { getGoogleAdsOverviewReport } from "@/lib/google-ads/serving";
 import {
   resolveGa4AnalyticsContext,
   runGA4Report,
@@ -127,7 +127,6 @@ interface DailyTrendsBundle {
 }
 
 const META_OVERVIEW_CACHE_TTL_MINUTES = 15;
-const GOOGLE_OVERVIEW_CACHE_TTL_MINUTES = 15;
 const GA4_FALLBACK_CACHE_TTL_MINUTES = 15;
 const GA4_FALLBACK_ERROR_COOLDOWN_MS = 10 * 60 * 1000;
 const ga4FallbackFailureUntilByBusiness = new Map<string, number>();
@@ -302,16 +301,6 @@ async function getGoogleOverviewFragment(input: {
   startDate: string;
   endDate: string;
 }): Promise<GoogleOverviewFragment> {
-  const dateRangeKey = getReportingDateRangeKey(input.startDate, input.endDate);
-  const cached = await getCachedReport<GoogleOverviewFragment>({
-    businessId: input.businessId,
-    provider: "google_ads",
-    reportType: "overview",
-    dateRangeKey,
-    maxAgeMinutes: GOOGLE_OVERVIEW_CACHE_TTL_MINUTES,
-  });
-  if (cached) return cached;
-
   const googleOverview = await getGoogleAdsOverviewReport({
     businessId: input.businessId,
     accountId: null,
@@ -349,14 +338,6 @@ async function getGoogleOverviewFragment(input: {
           }
         : null,
   };
-
-  await setCachedReport({
-    businessId: input.businessId,
-    provider: "google_ads",
-    reportType: "overview",
-    dateRangeKey,
-    payload,
-  });
 
   return payload;
 }

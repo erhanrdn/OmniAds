@@ -47,8 +47,24 @@ export interface AdminSyncHealthPayload {
     activeCooldowns: number;
     successJobs24h: number;
     topIssue: string | null;
+    googleAdsQueueDepth?: number;
+    googleAdsLeasedPartitions?: number;
+    googleAdsDeadLetterPartitions?: number;
+    googleAdsOldestQueuedPartition?: string | null;
   };
   issues: AdminSyncIssueRow[];
+  googleAdsBusinesses?: Array<{
+    businessId: string;
+    businessName: string;
+    queueDepth: number;
+    leasedPartitions: number;
+    deadLetterPartitions: number;
+    oldestQueuedPartition: string | null;
+    latestPartitionActivityAt: string | null;
+    campaignCompletedDays: number;
+    searchTermCompletedDays: number;
+    productCompletedDays: number;
+  }>;
 }
 
 export interface AdminRevenueRiskWorkspaceRow {
@@ -122,6 +138,20 @@ interface RawCooldownRow {
   error_message: string | null;
   cooldown_until: string;
   updated_at: string;
+}
+
+interface RawGoogleAdsHealthRow {
+  business_id: string;
+  business_name: string;
+  queue_depth: number | string;
+  leased_partitions: number | string;
+  dead_letter_partitions: number | string;
+  oldest_queued_partition: string | null;
+  latest_partition_activity_at: string | null;
+  campaign_completed_days: number | string | null;
+  campaign_dead_letter_count: number | string | null;
+  search_term_completed_days: number | string | null;
+  product_completed_days: number | string | null;
 }
 
 interface RawRevenueWorkspaceRow {
@@ -276,6 +306,7 @@ export function buildAdminAuthHealth(rows: RawAuthIntegrationRow[]): AdminAuthHe
 export function buildAdminSyncHealth(input: {
   jobs: RawSyncJobRow[];
   cooldowns: RawCooldownRow[];
+  googleAdsHealth?: RawGoogleAdsHealthRow[];
 }): AdminSyncHealthPayload {
   const issues: AdminSyncIssueRow[] = [];
   const impactedBusinesses = new Set<string>();
@@ -285,6 +316,11 @@ export function buildAdminSyncHealth(input: {
   let activeCooldowns = input.cooldowns.length;
   let successJobs24h = 0;
   const issueTypes: string[] = [];
+  let googleAdsQueueDepth = 0;
+  let googleAdsLeasedPartitions = 0;
+  let googleAdsDeadLetterPartitions = 0;
+  let googleAdsOldestQueuedPartition: string | null = null;
+  const googleAdsBusinesses: NonNullable<AdminSyncHealthPayload["googleAdsBusinesses"]> = [];
 
   for (const row of input.jobs) {
     const triggeredMs = new Date(row.triggered_at).getTime();
@@ -343,6 +379,70 @@ export function buildAdminSyncHealth(input: {
     });
   }
 
+  for (const row of input.googleAdsHealth ?? []) {
+    const queueDepth = Number(row.queue_depth ?? 0);
+    const leasedPartitions = Number(row.leased_partitions ?? 0);
+    const deadLetterPartitions = Number(row.dead_letter_partitions ?? 0);
+    const campaignCompletedDays = Number(row.campaign_completed_days ?? 0);
+    const searchTermCompletedDays = Number(row.search_term_completed_days ?? 0);
+    const productCompletedDays = Number(row.product_completed_days ?? 0);
+
+    googleAdsBusinesses.push({
+      businessId: row.business_id,
+      businessName: row.business_name,
+      queueDepth,
+      leasedPartitions,
+      deadLetterPartitions,
+      oldestQueuedPartition: row.oldest_queued_partition,
+      latestPartitionActivityAt: row.latest_partition_activity_at,
+      campaignCompletedDays,
+      searchTermCompletedDays,
+      productCompletedDays,
+    });
+
+    googleAdsQueueDepth += queueDepth;
+    googleAdsLeasedPartitions += leasedPartitions;
+    googleAdsDeadLetterPartitions += deadLetterPartitions;
+    if (
+      row.oldest_queued_partition &&
+      (!googleAdsOldestQueuedPartition ||
+        new Date(row.oldest_queued_partition).getTime() <
+          new Date(googleAdsOldestQueuedPartition).getTime())
+    ) {
+      googleAdsOldestQueuedPartition = row.oldest_queued_partition;
+    }
+
+    if (deadLetterPartitions > 0) {
+      impactedBusinesses.add(row.business_id);
+      issueTypes.push("Google Ads dead-letter partitions");
+      issues.push({
+        businessId: row.business_id,
+        businessName: row.business_name,
+        provider: "google_ads",
+        reportType: "queue_dead_letter",
+        status: "failed",
+        detail: `${deadLetterPartitions} Google Ads partition dead-letter durumunda.`,
+        triggeredAt: row.latest_partition_activity_at,
+        completedAt: row.oldest_queued_partition,
+      });
+    }
+
+    if (queueDepth > 0 && leasedPartitions === 0) {
+      impactedBusinesses.add(row.business_id);
+      issueTypes.push("Google Ads queue backlog");
+      issues.push({
+        businessId: row.business_id,
+        businessName: row.business_name,
+        provider: "google_ads",
+        reportType: "queue_backlog",
+        status: "running",
+        detail: `Google Ads queue backlog aktif. queued=${queueDepth}, campaign=${campaignCompletedDays}, search_terms=${searchTermCompletedDays}, products=${productCompletedDays}`,
+        triggeredAt: row.latest_partition_activity_at,
+        completedAt: row.oldest_queued_partition,
+      });
+    }
+  }
+
   return {
     summary: {
       impactedBusinesses: impactedBusinesses.size,
@@ -352,11 +452,24 @@ export function buildAdminSyncHealth(input: {
       activeCooldowns,
       successJobs24h,
       topIssue: getTopIssue(issueTypes),
+      googleAdsQueueDepth,
+      googleAdsLeasedPartitions,
+      googleAdsDeadLetterPartitions,
+      googleAdsOldestQueuedPartition,
     },
     issues: issues.sort((a, b) => {
       const left = a.triggeredAt ? new Date(a.triggeredAt).getTime() : 0;
       const right = b.triggeredAt ? new Date(b.triggeredAt).getTime() : 0;
       return right - left;
+    }),
+    googleAdsBusinesses: googleAdsBusinesses.sort((a, b) => {
+      if (b.deadLetterPartitions !== a.deadLetterPartitions) {
+        return b.deadLetterPartitions - a.deadLetterPartitions;
+      }
+      if (b.queueDepth !== a.queueDepth) {
+        return b.queueDepth - a.queueDepth;
+      }
+      return a.businessName.localeCompare(b.businessName);
     }),
   };
 }
@@ -490,6 +603,32 @@ async function readActiveCooldowns() {
   `) as RawCooldownRow[];
 }
 
+async function readGoogleAdsHealthRows() {
+  const sql = getDb();
+  return (await sql`
+    SELECT
+      partition.business_id,
+      b.name AS business_name,
+      COUNT(*) FILTER (WHERE partition.status = 'queued') AS queue_depth,
+      COUNT(*) FILTER (WHERE partition.status IN ('leased', 'running')) AS leased_partitions,
+      COUNT(*) FILTER (WHERE partition.status = 'dead_letter') AS dead_letter_partitions,
+      MIN(partition.partition_date) FILTER (WHERE partition.status = 'queued') AS oldest_queued_partition,
+      MAX(partition.updated_at) AS latest_partition_activity_at,
+      MAX(state.completed_days) FILTER (WHERE state.scope = 'campaign_daily') AS campaign_completed_days,
+      MAX(state.dead_letter_count) FILTER (WHERE state.scope = 'campaign_daily') AS campaign_dead_letter_count,
+      MAX(state.completed_days) FILTER (WHERE state.scope = 'search_term_daily') AS search_term_completed_days,
+      MAX(state.completed_days) FILTER (WHERE state.scope = 'product_daily') AS product_completed_days
+    FROM google_ads_sync_partitions partition
+    JOIN businesses b ON b.id::text = partition.business_id
+    LEFT JOIN google_ads_sync_state state
+      ON state.business_id = partition.business_id
+      AND state.provider_account_id = partition.provider_account_id
+    GROUP BY partition.business_id, b.name
+    HAVING COUNT(*) > 0
+    ORDER BY dead_letter_partitions DESC, queue_depth DESC, latest_partition_activity_at DESC
+  `) as RawGoogleAdsHealthRow[];
+}
+
 async function readRevenueWorkspaces() {
   const sql = getDb();
   return (await sql`
@@ -528,11 +667,12 @@ async function readRevenueSubscriptions() {
 }
 
 export async function getAdminOperationsHealth() {
-  const [authRows, syncJobs, cooldowns, revenueWorkspaces, revenueSubscriptions] =
+  const [authRows, syncJobs, cooldowns, googleAdsHealth, revenueWorkspaces, revenueSubscriptions] =
     await Promise.all([
       readAuthRows().catch(() => []),
       readSyncJobs().catch(() => []),
       readActiveCooldowns().catch(() => []),
+      readGoogleAdsHealthRows().catch(() => []),
       readRevenueWorkspaces().catch(() => []),
       readRevenueSubscriptions().catch(() => []),
     ]);
@@ -541,6 +681,7 @@ export async function getAdminOperationsHealth() {
   const syncHealth = buildAdminSyncHealth({
     jobs: syncJobs,
     cooldowns,
+    googleAdsHealth,
   });
   const revenueRisk = buildAdminRevenueRisk({
     workspaces: revenueWorkspaces,

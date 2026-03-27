@@ -31,6 +31,52 @@ function withMigrationTimeout<T>(promise: Promise<T>, timeoutMs: number): Promis
   ]);
 }
 
+function buildGoogleAdsWarehouseTableQuery(tableName: string) {
+  return `
+    CREATE TABLE IF NOT EXISTS ${tableName} (
+      id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      business_id       TEXT NOT NULL,
+      provider_account_id TEXT NOT NULL,
+      date              DATE NOT NULL,
+      account_timezone  TEXT NOT NULL DEFAULT 'UTC',
+      account_currency  TEXT NOT NULL DEFAULT 'USD',
+      entity_key        TEXT NOT NULL,
+      entity_label      TEXT,
+      campaign_id       TEXT,
+      campaign_name     TEXT,
+      ad_group_id       TEXT,
+      ad_group_name     TEXT,
+      status            TEXT,
+      channel           TEXT,
+      classification    TEXT,
+      payload_json      JSONB NOT NULL DEFAULT '{}'::jsonb,
+      spend             NUMERIC(18, 4) NOT NULL DEFAULT 0,
+      revenue           NUMERIC(18, 4) NOT NULL DEFAULT 0,
+      conversions       NUMERIC(18, 4) NOT NULL DEFAULT 0,
+      impressions       BIGINT NOT NULL DEFAULT 0,
+      clicks            BIGINT NOT NULL DEFAULT 0,
+      ctr               NUMERIC(18, 4),
+      cpc               NUMERIC(18, 4),
+      cpa               NUMERIC(18, 4),
+      roas              NUMERIC(18, 4) NOT NULL DEFAULT 0,
+      conversion_rate   NUMERIC(18, 4),
+      interaction_rate  NUMERIC(18, 4),
+      source_snapshot_id UUID REFERENCES google_ads_raw_snapshots(id) ON DELETE SET NULL,
+      created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (business_id, provider_account_id, date, entity_key)
+    )
+  `;
+}
+
+function buildGoogleAdsWarehouseIndexQueries(tableName: string) {
+  return [
+    `CREATE INDEX IF NOT EXISTS idx_${tableName}_business_date ON ${tableName} (business_id, date DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_${tableName}_account_date ON ${tableName} (provider_account_id, date DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_${tableName}_campaign_date ON ${tableName} (campaign_id, date DESC)`,
+  ];
+}
+
 export async function runMigrations(options?: { force?: boolean; reason?: string }) {
   const force = options?.force ?? false;
   const reason = options?.reason ?? "unspecified";
@@ -670,6 +716,189 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
         sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_daily_business_date ON meta_creative_daily (business_id, date DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_daily_account_date ON meta_creative_daily (provider_account_id, date DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_daily_creative ON meta_creative_daily (creative_id, date DESC)`.catch(() => {}),
+        // ── Google Ads warehouse-first tables ──────────────────────────────
+        sql`CREATE TABLE IF NOT EXISTS google_ads_sync_jobs (
+          id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id         TEXT NOT NULL,
+          provider_account_id TEXT NOT NULL,
+          sync_type           TEXT NOT NULL
+                              CHECK (sync_type IN ('initial_backfill', 'incremental_recent', 'today_refresh', 'repair_window', 'reconnect_backfill')),
+          scope               TEXT NOT NULL DEFAULT 'account_daily',
+          start_date          DATE NOT NULL,
+          end_date            DATE NOT NULL,
+          status              TEXT NOT NULL DEFAULT 'pending'
+                              CHECK (status IN ('pending', 'running', 'succeeded', 'partial', 'failed', 'cancelled')),
+          progress_percent    DOUBLE PRECISION NOT NULL DEFAULT 0,
+          trigger_source      TEXT NOT NULL DEFAULT 'system',
+          retry_count         INTEGER NOT NULL DEFAULT 0,
+          last_error          TEXT,
+          triggered_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+          started_at          TIMESTAMPTZ,
+          finished_at         TIMESTAMPTZ,
+          updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_sync_jobs_business ON google_ads_sync_jobs (business_id, triggered_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_sync_jobs_account ON google_ads_sync_jobs (provider_account_id, triggered_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_sync_jobs_status ON google_ads_sync_jobs (status, triggered_at DESC)`.catch(() => {}),
+        sql`
+          WITH ranked AS (
+            SELECT
+              id,
+              ROW_NUMBER() OVER (
+                PARTITION BY business_id, provider_account_id, sync_type, scope, start_date, end_date, trigger_source
+                ORDER BY updated_at DESC, triggered_at DESC, id DESC
+              ) AS row_number
+            FROM google_ads_sync_jobs
+            WHERE status = 'running'
+          )
+          UPDATE google_ads_sync_jobs job
+          SET
+            status = 'failed',
+            last_error = COALESCE(job.last_error, 'duplicate running sync job cleaned up during migration'),
+            finished_at = now(),
+            updated_at = now()
+          FROM ranked
+          WHERE job.id = ranked.id
+            AND ranked.row_number > 1
+        `.catch(() => {}),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_google_ads_sync_jobs_running_unique
+          ON google_ads_sync_jobs (
+            business_id,
+            provider_account_id,
+            sync_type,
+            scope,
+            start_date,
+            end_date,
+            trigger_source
+          )
+          WHERE status = 'running'`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS google_ads_runner_leases (
+          business_id       TEXT NOT NULL,
+          lane              TEXT NOT NULL CHECK (lane IN ('core', 'extended', 'maintenance')),
+          lease_owner       TEXT NOT NULL,
+          lease_expires_at  TIMESTAMPTZ NOT NULL,
+          created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+          PRIMARY KEY (business_id, lane)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_runner_leases_expiry
+          ON google_ads_runner_leases (lease_expires_at, updated_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS google_ads_sync_partitions (
+          id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id         TEXT NOT NULL,
+          provider_account_id TEXT NOT NULL,
+          lane                TEXT NOT NULL CHECK (lane IN ('core', 'extended', 'maintenance')),
+          scope               TEXT NOT NULL,
+          partition_date      DATE NOT NULL,
+          status              TEXT NOT NULL DEFAULT 'queued'
+                              CHECK (status IN ('queued', 'leased', 'running', 'succeeded', 'failed', 'dead_letter', 'cancelled')),
+          priority            INTEGER NOT NULL DEFAULT 0,
+          source              TEXT NOT NULL DEFAULT 'system',
+          lease_owner         TEXT,
+          lease_expires_at    TIMESTAMPTZ,
+          attempt_count       INTEGER NOT NULL DEFAULT 0,
+          next_retry_at       TIMESTAMPTZ,
+          last_error          TEXT,
+          created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+          started_at          TIMESTAMPTZ,
+          finished_at         TIMESTAMPTZ,
+          updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider_account_id, lane, scope, partition_date)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_sync_partitions_queue
+          ON google_ads_sync_partitions (business_id, lane, status, priority DESC, partition_date DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_sync_partitions_lease
+          ON google_ads_sync_partitions (status, lease_expires_at, next_retry_at, updated_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS google_ads_sync_runs (
+          id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          partition_id        UUID REFERENCES google_ads_sync_partitions(id) ON DELETE CASCADE,
+          business_id         TEXT NOT NULL,
+          provider_account_id TEXT NOT NULL,
+          lane                TEXT NOT NULL CHECK (lane IN ('core', 'extended', 'maintenance')),
+          scope               TEXT NOT NULL,
+          partition_date      DATE NOT NULL,
+          status              TEXT NOT NULL CHECK (status IN ('running', 'succeeded', 'failed', 'cancelled')),
+          worker_id           TEXT,
+          attempt_count       INTEGER NOT NULL DEFAULT 0,
+          row_count           INTEGER,
+          duration_ms         INTEGER,
+          error_class         TEXT,
+          error_message       TEXT,
+          meta_json           JSONB NOT NULL DEFAULT '{}'::jsonb,
+          started_at          TIMESTAMPTZ,
+          finished_at         TIMESTAMPTZ,
+          created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_sync_runs_partition ON google_ads_sync_runs (partition_id, created_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_sync_runs_business ON google_ads_sync_runs (business_id, created_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS google_ads_sync_state (
+          business_id                  TEXT NOT NULL,
+          provider_account_id          TEXT NOT NULL,
+          scope                        TEXT NOT NULL,
+          historical_target_start      DATE NOT NULL,
+          historical_target_end        DATE NOT NULL,
+          effective_target_start       DATE NOT NULL,
+          effective_target_end         DATE NOT NULL,
+          ready_through_date           DATE,
+          last_successful_partition_date DATE,
+          latest_background_activity_at TIMESTAMPTZ,
+          latest_successful_sync_at    TIMESTAMPTZ,
+          completed_days               INTEGER NOT NULL DEFAULT 0,
+          dead_letter_count            INTEGER NOT NULL DEFAULT 0,
+          updated_at                   TIMESTAMPTZ NOT NULL DEFAULT now(),
+          PRIMARY KEY (business_id, provider_account_id, scope)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_sync_state_business
+          ON google_ads_sync_state (business_id, scope, updated_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS google_ads_raw_snapshots (
+          id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id          TEXT NOT NULL,
+          provider_account_id  TEXT NOT NULL,
+          endpoint_name        TEXT NOT NULL,
+          entity_scope         TEXT NOT NULL DEFAULT 'account',
+          start_date           DATE NOT NULL,
+          end_date             DATE NOT NULL,
+          account_timezone     TEXT,
+          account_currency     TEXT,
+          payload_json         JSONB NOT NULL DEFAULT '{}'::jsonb,
+          payload_hash         TEXT NOT NULL,
+          request_context      JSONB NOT NULL DEFAULT '{}'::jsonb,
+          provider_http_status INTEGER,
+          status               TEXT NOT NULL DEFAULT 'fetched'
+                               CHECK (status IN ('fetched', 'partial', 'failed')),
+          fetched_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_raw_snapshots_business ON google_ads_raw_snapshots (business_id, fetched_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_raw_snapshots_account ON google_ads_raw_snapshots (provider_account_id, fetched_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_raw_snapshots_window ON google_ads_raw_snapshots (business_id, provider_account_id, start_date, end_date)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_raw_snapshots_endpoint ON google_ads_raw_snapshots (endpoint_name, fetched_at DESC)`.catch(() => {}),
+        sql.query(buildGoogleAdsWarehouseTableQuery("google_ads_account_daily")).catch(() => {}),
+        sql.query(buildGoogleAdsWarehouseTableQuery("google_ads_campaign_daily")).catch(() => {}),
+        sql.query(buildGoogleAdsWarehouseTableQuery("google_ads_ad_group_daily")).catch(() => {}),
+        sql.query(buildGoogleAdsWarehouseTableQuery("google_ads_ad_daily")).catch(() => {}),
+        sql.query(buildGoogleAdsWarehouseTableQuery("google_ads_keyword_daily")).catch(() => {}),
+        sql.query(buildGoogleAdsWarehouseTableQuery("google_ads_search_term_daily")).catch(() => {}),
+        sql.query(buildGoogleAdsWarehouseTableQuery("google_ads_asset_group_daily")).catch(() => {}),
+        sql.query(buildGoogleAdsWarehouseTableQuery("google_ads_asset_daily")).catch(() => {}),
+        sql.query(buildGoogleAdsWarehouseTableQuery("google_ads_audience_daily")).catch(() => {}),
+        sql.query(buildGoogleAdsWarehouseTableQuery("google_ads_geo_daily")).catch(() => {}),
+        sql.query(buildGoogleAdsWarehouseTableQuery("google_ads_device_daily")).catch(() => {}),
+        sql.query(buildGoogleAdsWarehouseTableQuery("google_ads_product_daily")).catch(() => {}),
+        ...buildGoogleAdsWarehouseIndexQueries("google_ads_account_daily").map((query) => sql.query(query).catch(() => {})),
+        ...buildGoogleAdsWarehouseIndexQueries("google_ads_campaign_daily").map((query) => sql.query(query).catch(() => {})),
+        ...buildGoogleAdsWarehouseIndexQueries("google_ads_ad_group_daily").map((query) => sql.query(query).catch(() => {})),
+        ...buildGoogleAdsWarehouseIndexQueries("google_ads_ad_daily").map((query) => sql.query(query).catch(() => {})),
+        ...buildGoogleAdsWarehouseIndexQueries("google_ads_keyword_daily").map((query) => sql.query(query).catch(() => {})),
+        ...buildGoogleAdsWarehouseIndexQueries("google_ads_search_term_daily").map((query) => sql.query(query).catch(() => {})),
+        ...buildGoogleAdsWarehouseIndexQueries("google_ads_asset_group_daily").map((query) => sql.query(query).catch(() => {})),
+        ...buildGoogleAdsWarehouseIndexQueries("google_ads_asset_daily").map((query) => sql.query(query).catch(() => {})),
+        ...buildGoogleAdsWarehouseIndexQueries("google_ads_audience_daily").map((query) => sql.query(query).catch(() => {})),
+        ...buildGoogleAdsWarehouseIndexQueries("google_ads_geo_daily").map((query) => sql.query(query).catch(() => {})),
+        ...buildGoogleAdsWarehouseIndexQueries("google_ads_device_daily").map((query) => sql.query(query).catch(() => {})),
+        ...buildGoogleAdsWarehouseIndexQueries("google_ads_product_daily").map((query) => sql.query(query).catch(() => {})),
       ]);
 
       // ── Seed superadmin ───────────────────────────────────────────────────

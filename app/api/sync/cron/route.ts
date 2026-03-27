@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { runMigrations } from "@/lib/migrations";
 import { runMetaMaintenanceSync } from "@/lib/sync/meta-sync";
-import { syncGoogleAdsReports } from "@/lib/sync/google-ads-sync";
+import { scheduleGoogleAdsBackgroundSync, syncGoogleAdsReports } from "@/lib/sync/google-ads-sync";
 import { syncGA4Reports } from "@/lib/sync/ga4-sync";
 import { syncSearchConsoleReports } from "@/lib/sync/search-console-sync";
 
@@ -83,6 +83,15 @@ export async function POST(request: NextRequest) {
     succeeded: results.filter((r) => r.status === "fulfilled").length,
     failed: results.filter((r) => r.status === "rejected").length,
   });
+
+  for (const result of summary) {
+    if (typeof result === "object" && result && "businessId" in result) {
+      scheduleGoogleAdsBackgroundSync({
+        businessId: String(result.businessId),
+        delayMs: 20_000,
+      });
+    }
+  }
 
   return NextResponse.json({ ok: true, synced: businesses.length, results: summary });
 }

@@ -4,6 +4,7 @@ import { getIntegration } from "@/lib/integrations";
 import { upsertProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { runMigrations } from "@/lib/migrations";
 import { readProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
+import { scheduleGoogleAdsBackgroundSync } from "@/lib/sync/google-ads-sync";
 
 const GOOGLE_ACCOUNT_SNAPSHOT_FRESHNESS_MS = 60 * 60_000;
 
@@ -196,6 +197,8 @@ export async function POST(
     returnedAccountIds: row!.account_ids,
     updatedAt: row!.updated_at,
   });
+
+  scheduleGoogleAdsBackgroundSync({ businessId, delayMs: 0 });
 
   return NextResponse.json({
     success: true,
