@@ -10,6 +10,7 @@ import {
   getMetaAccountDailyCoverage,
   getMetaAccountDailyStats,
   getMetaRawSnapshotCoverageByEndpoint,
+  getMetaSyncJobHealth,
 } from "@/lib/meta/warehouse";
 import { resolveMetaCredentials } from "@/lib/api/meta";
 import {
@@ -65,12 +66,13 @@ export async function GET(request: NextRequest) {
   const access = await requireBusinessAccess({ request, businessId });
   if ("error" in access) return access.error;
 
-  const [integration, assignments, latestSync, accountStats, credentials] = await Promise.all([
+  const [integration, assignments, latestSync, accountStats, credentials, jobHealth] = await Promise.all([
     getIntegration(businessId!, "meta").catch(() => null),
     getProviderAccountAssignments(businessId!, "meta").catch(() => null),
     getLatestMetaSyncHealth({ businessId: businessId!, providerAccountId: null }).catch(() => null),
     getMetaAccountDailyStats({ businessId: businessId!, providerAccountId: null }).catch(() => null),
     resolveMetaCredentials(businessId!).catch(() => null),
+    getMetaSyncJobHealth({ businessId: businessId! }).catch(() => null),
   ]);
 
   const accountIds = assignments?.account_ids ?? [];
@@ -172,16 +174,6 @@ export async function GET(request: NextRequest) {
     overallCompletedDays < initialTotalDays &&
     latestSync?.status !== "running";
 
-  const latestSyncCoverage =
-    latestSync?.start_date && latestSync?.end_date
-      ? await getMetaAccountDailyCoverage({
-          businessId: businessId!,
-          providerAccountId: null,
-          startDate: latestSync.start_date,
-          endDate: latestSync.end_date,
-        }).catch(() => null)
-      : null;
-
   const historicalProgressPercent = Math.min(
     100,
     Math.round((overallCompletedDays / initialTotalDays) * 100)
@@ -242,6 +234,12 @@ export async function GET(request: NextRequest) {
           pendingSurfaces,
         },
       },
+      jobHealth: jobHealth
+        ? {
+            runningJobs: jobHealth.runningJobs,
+            staleRunningJobs: jobHealth.staleRunningJobs,
+          }
+        : null,
       latestSync: latestSync
         ? {
             id: latestSync.id,

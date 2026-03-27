@@ -36,13 +36,13 @@ import {
   CreativesTableShell,
   buildCreativeHistoryById,
   fetchMetaCreatives,
+  getPreviewPollingInterval,
   hasRenderablePreview,
   mapApiRowToUiRow,
   MetaCreativesResponse,
   PLATFORM_LABELS,
   PreviewStripState,
   SHARE_METRIC_IDS,
-  shouldPollForPreviewReadiness,
   toCsv,
   toSharedCreative,
   type CreativeHistoryWindowKey,
@@ -257,17 +257,28 @@ export default function CreativesPage() {
         sort: "spend",
         mediaMode: "metadata",
       }),
-    refetchInterval: (query) =>
-      shouldPollForPreviewReadiness(query.state.data as MetaCreativesResponse | undefined)
-        ? 2500
-        : false,
-    refetchIntervalInBackground: true,
+    staleTime: 30 * 1000,
   });
   const metaStatusQuery = useQuery({
     queryKey: ["meta-creatives-status", businessId],
     enabled: platform === "meta" && platformConnected && metaHasAssignments,
     staleTime: 30 * 1000,
-    refetchInterval: 10_000,
+    refetchInterval: (query) => {
+      const payload = query.state.data as MetaStatusResponse | undefined;
+      const coverage = payload?.warehouse?.coverage?.creatives;
+      const totalRows = coverage?.totalRows ?? 0;
+      const previewReadyRows = coverage?.previewReadyRows ?? 0;
+      const totalDays = coverage?.totalDays ?? 0;
+      const completedDays = coverage?.completedDays ?? 0;
+      const previewPending =
+        totalRows > 0 ? previewReadyRows < totalRows : completedDays < totalDays;
+      const stillRunning =
+        payload?.state === "syncing" ||
+        payload?.latestSync?.status === "running" ||
+        (payload?.jobHealth?.runningJobs ?? 0) > 0;
+      if (!previewPending && !stillRunning) return false;
+      return stillRunning ? 5_000 : 15_000;
+    },
     queryFn: () => fetchMetaStatus(businessId),
   });
   const creativesMediaQuery = useQuery({
@@ -295,9 +306,7 @@ export default function CreativesPage() {
         mediaMode: "full",
       }),
     refetchInterval: (query) =>
-      shouldPollForPreviewReadiness(query.state.data as MetaCreativesResponse | undefined)
-        ? 3000
-        : false,
+      getPreviewPollingInterval(query.state.data as MetaCreativesResponse | undefined),
     refetchIntervalInBackground: true,
   });
   const creativeHistoryWindowDefs = useMemo<Array<{ key: CreativeHistoryWindowKey; start: string; end: string }>>(

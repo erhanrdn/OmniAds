@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { runMigrations } from "@/lib/migrations";
+import { expireStaleMetaSyncJobs, hasBlockingMetaSyncJob } from "@/lib/meta/warehouse";
 import { syncGoogleAdsReports } from "@/lib/sync/google-ads-sync";
 import { syncGA4Reports } from "@/lib/sync/ga4-sync";
 import { syncMetaInitial, syncMetaRecent, syncMetaRepairRange, syncMetaToday } from "@/lib/sync/meta-sync";
@@ -25,25 +26,22 @@ async function isJobAlreadyRunning(
     await runMigrations();
     const sql = getDb();
     if (provider === "meta") {
-      if (mode === "repair") {
-        const metaRepairRows = await sql`
-          SELECT id FROM meta_sync_jobs
-          WHERE business_id = ${businessId}
-            AND status = 'running'
-            AND sync_type = 'repair_window'
-            AND started_at > now() - interval '30 minutes'
-          LIMIT 1
-        ` as unknown as Array<{ id: string }>;
-        return metaRepairRows.length > 0;
-      }
-      const metaRows = await sql`
-        SELECT id FROM meta_sync_jobs
-        WHERE business_id = ${businessId}
-          AND status = 'running'
-          AND started_at > now() - interval '30 minutes'
-        LIMIT 1
-      ` as unknown as Array<{ id: string }>;
-      return metaRows.length > 0;
+      await expireStaleMetaSyncJobs({ businessId }).catch(() => null);
+      const syncTypesByMode: Record<
+        NonNullable<typeof mode>,
+        string[]
+      > = {
+        repair: ["repair_window"],
+        today: ["today_refresh"],
+        recent: ["incremental_recent", "initial_backfill", "reconnect_backfill"],
+        initial: ["initial_backfill", "reconnect_backfill"],
+      };
+      return hasBlockingMetaSyncJob({
+        businessId,
+        syncTypes: syncTypesByMode[mode ?? "recent"],
+        excludeTriggerSources: ["request_runtime"],
+        lookbackMinutes: 90,
+      });
     }
     const rows = await sql`
       SELECT id FROM provider_sync_jobs

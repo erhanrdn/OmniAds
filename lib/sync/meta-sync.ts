@@ -9,7 +9,9 @@ import {
 import { syncMetaCreativesWarehouseDay } from "@/lib/meta/creatives-warehouse";
 import {
   createMetaSyncJob,
+  expireStaleMetaSyncJobs,
   getMetaAdDailyCoverage,
+  getMetaAdDailyPreviewCoverage,
   getMetaAdSetDailyCoverage,
   getMetaAccountDailyCoverage,
   getLatestMetaSyncHealth,
@@ -18,6 +20,7 @@ import {
 } from "@/lib/meta/warehouse";
 import type { MetaSyncType } from "@/lib/meta/warehouse-types";
 import {
+  getCreativeMediaRetentionStart,
   META_WAREHOUSE_HISTORY_DAYS,
   dayCountInclusive,
 } from "@/lib/meta/history";
@@ -141,7 +144,13 @@ async function getMetaDailyCoverageState(input: {
   businessId: string;
   day: string;
 }) {
-  const [accountCoverage, adsetCoverage, creativeCoverage, breakdownCoverageByEndpoint] =
+  const [
+    accountCoverage,
+    adsetCoverage,
+    creativeCoverage,
+    creativePreviewCoverage,
+    breakdownCoverageByEndpoint,
+  ] =
     await Promise.all([
       getMetaAccountDailyCoverage({
         businessId: input.businessId,
@@ -156,6 +165,12 @@ async function getMetaDailyCoverageState(input: {
         endDate: input.day,
       }).catch(() => null),
       getMetaAdDailyCoverage({
+        businessId: input.businessId,
+        providerAccountId: null,
+        startDate: input.day,
+        endDate: input.day,
+      }).catch(() => null),
+      getMetaAdDailyPreviewCoverage({
         businessId: input.businessId,
         providerAccountId: null,
         startDate: input.day,
@@ -177,10 +192,15 @@ async function getMetaDailyCoverageState(input: {
       (endpointName) => (breakdownCoverageByEndpoint?.get(endpointName)?.completed_days ?? 0) >= 1
     );
   const creativesComplete = (creativeCoverage?.completed_days ?? 0) >= 1;
+  const creativesMediaReady =
+    (creativePreviewCoverage?.total_rows ?? 0) === 0 ||
+    (creativePreviewCoverage?.preview_ready_rows ?? 0) >=
+      (creativePreviewCoverage?.total_rows ?? 0);
 
   return {
     reportingComplete,
     creativesComplete,
+    creativesMediaReady,
   };
 }
 
@@ -212,6 +232,7 @@ function startMetaInitialBackfillInBackground(businessId: string) {
 }
 
 async function resumeMetaBootstrapIfNeeded(businessId: string) {
+  await expireStaleMetaSyncJobs({ businessId }).catch(() => null);
   const credentials = await resolveMetaCredentials(businessId).catch(() => null);
   if (!credentials?.accountIds?.length) return false;
   const { startDate, endDate } = getMetaHistoricalWindow(credentials);
@@ -255,6 +276,9 @@ export async function backfillMetaRange(input: {
   const days = enumerateDays(input.startDate, input.endDate, input.recentFirst ?? false);
   const primaryAccountId = credentials.accountIds[0] ?? "workspace";
   const assignedAccountIds = credentials.accountIds;
+  const creativeMediaRetentionStart = getCreativeMediaRetentionStart(
+    getMetaReferenceToday(credentials)
+  );
   const syncJobId = await createMetaSyncJob({
     businessId: input.businessId,
     providerAccountId: primaryAccountId,
@@ -296,11 +320,21 @@ export async function backfillMetaRange(input: {
       }
 
       if (!coverageState.creativesComplete) {
+        const shouldRetainCreativeMedia = day >= creativeMediaRetentionStart;
         await syncMetaCreativesWarehouseDay({
           businessId: input.businessId,
           day,
           accessToken: credentials.accessToken,
           assignedAccountIds,
+          mediaMode: shouldRetainCreativeMedia ? "full" : "metadata",
+        });
+      } else if (day >= creativeMediaRetentionStart && !coverageState.creativesMediaReady) {
+        await syncMetaCreativesWarehouseDay({
+          businessId: input.businessId,
+          day,
+          accessToken: credentials.accessToken,
+          assignedAccountIds,
+          mediaMode: "full",
         });
       }
       succeeded += 1;
@@ -454,4 +488,35 @@ export async function ensureMetaWarehouseRangeFilled(input: {
   });
   void resumeMetaBootstrapIfNeeded(input.businessId);
   return result;
+}
+
+export async function runMetaMaintenanceSync(businessId: string) {
+  const staleExpired = await expireStaleMetaSyncJobs({ businessId }).catch(() => 0);
+  const [recent, today, bootstrapResumed] = await Promise.all([
+    syncMetaRecent(businessId).catch((error) => ({
+      businessId,
+      attempted: 0,
+      succeeded: 0,
+      failed: 1,
+      skipped: false,
+      error: error instanceof Error ? error.message : String(error),
+    })),
+    syncMetaToday(businessId).catch((error) => ({
+      businessId,
+      attempted: 0,
+      succeeded: 0,
+      failed: 1,
+      skipped: false,
+      error: error instanceof Error ? error.message : String(error),
+    })),
+    resumeMetaBootstrapIfNeeded(businessId).catch(() => false),
+  ]);
+
+  return {
+    businessId,
+    staleExpired,
+    bootstrapResumed,
+    recent,
+    today,
+  };
 }

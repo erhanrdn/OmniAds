@@ -160,14 +160,17 @@ async function syncMetaCreativesAccountDay(input: {
   accountId: string;
   accessToken: string;
   day: string;
+  mediaMode?: "metadata" | "full";
 }) {
+  const mediaMode = input.mediaMode ?? "full";
+  const enableFullMediaHydration = mediaMode === "full";
   const response = await buildCreativesResponse(
     {
       businessId: input.businessId,
       assignedAccountIds: [input.accountId],
       accessToken: input.accessToken,
-      mediaMode: "full",
-      enableFullMediaHydration: true,
+      mediaMode,
+      enableFullMediaHydration,
       groupBy: "adName",
       format: "all",
       sort: "spend",
@@ -276,6 +279,7 @@ export async function syncMetaCreativesWarehouseDay(input: {
   day: string;
   accessToken: string;
   assignedAccountIds: string[];
+  mediaMode?: "metadata" | "full";
 }) {
   for (const accountId of input.assignedAccountIds) {
     await syncMetaCreativesAccountDay({
@@ -283,6 +287,7 @@ export async function syncMetaCreativesWarehouseDay(input: {
       accountId,
       accessToken: input.accessToken,
       day: input.day,
+      mediaMode: input.mediaMode,
     });
   }
 }
@@ -362,6 +367,8 @@ export async function ensureMetaCreativesWarehouseRangeFilled(input: {
       day,
       accessToken: integration.access_token,
       assignedAccountIds,
+      mediaMode:
+        input.mediaMode === "full" && shouldRetainMedia ? "full" : "metadata",
     });
   }
 
@@ -407,17 +414,20 @@ export async function getMetaCreativesWarehousePayload(input: {
       includeDebugFields: false,
     })
   );
+  const previewCoverage = buildPreviewCoverage(responseRows);
+  const previewMissingCount = previewCoverage.previewMissingCount;
+  const previewHydrating = input.mediaMode === "full" && previewMissingCount > 0;
 
   return {
     status: "ok",
     rows: responseRows,
     media_mode: input.mediaMode,
-    media_hydrated: input.mediaMode === "full",
+    media_hydrated: input.mediaMode === "full" && previewMissingCount === 0,
     snapshot_source: "persisted" as const,
     snapshot_level: input.mediaMode,
-    freshness_state: "fresh" as const,
-    is_refreshing: false,
-    preview_coverage: buildPreviewCoverage(responseRows),
+    freshness_state: previewHydrating ? ("stale" as const) : ("fresh" as const),
+    is_refreshing: previewHydrating,
+    preview_coverage: previewCoverage,
   };
 }
 

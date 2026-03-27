@@ -243,9 +243,9 @@ export async function getLatestMetaSyncHealth(input: {
         ELSE 3
       END ASC,
       CASE
-        WHEN status = 'succeeded' THEN 0
+        WHEN status = 'running' THEN 0
         WHEN status = 'partial' THEN 1
-        WHEN status = 'running' THEN 2
+        WHEN status = 'succeeded' THEN 2
         ELSE 3
       END ASC,
       progress_percent DESC,
@@ -268,6 +268,92 @@ export async function getLatestMetaSyncHealth(input: {
     updated_at: string;
   }>;
   return rows[0] ?? null;
+}
+
+export async function expireStaleMetaSyncJobs(input: {
+  businessId?: string | null;
+  staleAfterMinutes?: number;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const staleAfterMinutes = Math.max(10, Math.floor(input.staleAfterMinutes ?? 45));
+  const rows = await sql`
+    UPDATE meta_sync_jobs
+    SET
+      status = 'cancelled',
+      last_error = COALESCE(last_error, 'Sync job expired after inactivity.'),
+      finished_at = COALESCE(finished_at, now()),
+      updated_at = now()
+    WHERE status = 'running'
+      AND (${input.businessId ?? null}::text IS NULL OR business_id = ${input.businessId ?? null})
+      AND COALESCE(updated_at, started_at, triggered_at) < now() - (${staleAfterMinutes} || ' minutes')::interval
+    RETURNING id
+  ` as Array<{ id: string }>;
+  return rows.length;
+}
+
+export async function hasBlockingMetaSyncJob(input: {
+  businessId: string;
+  syncTypes?: string[] | null;
+  triggerSources?: string[] | null;
+  excludeTriggerSources?: string[] | null;
+  scopes?: string[] | null;
+  lookbackMinutes?: number;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const lookbackMinutes = Math.max(5, Math.floor(input.lookbackMinutes ?? 90));
+  const rows = await sql`
+    SELECT id
+    FROM meta_sync_jobs
+    WHERE business_id = ${input.businessId}
+      AND status = 'running'
+      AND COALESCE(updated_at, started_at, triggered_at) > now() - (${lookbackMinutes} || ' minutes')::interval
+      AND (
+        ${input.syncTypes ?? null}::text[] IS NULL
+        OR sync_type = ANY(${input.syncTypes ?? null}::text[])
+      )
+      AND (
+        ${input.triggerSources ?? null}::text[] IS NULL
+        OR trigger_source = ANY(${input.triggerSources ?? null}::text[])
+      )
+      AND (
+        ${input.excludeTriggerSources ?? null}::text[] IS NULL
+        OR NOT (trigger_source = ANY(${input.excludeTriggerSources ?? null}::text[]))
+      )
+      AND (
+        ${input.scopes ?? null}::text[] IS NULL
+        OR scope = ANY(${input.scopes ?? null}::text[])
+      )
+    LIMIT 1
+  ` as Array<{ id: string }>;
+  return rows.length > 0;
+}
+
+export async function getMetaSyncJobHealth(input: {
+  businessId: string;
+  staleAfterMinutes?: number;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const staleAfterMinutes = Math.max(10, Math.floor(input.staleAfterMinutes ?? 45));
+  const rows = await sql`
+    SELECT
+      COUNT(*) FILTER (WHERE status = 'running')::int AS running_jobs,
+      COUNT(*) FILTER (
+        WHERE status = 'running'
+          AND COALESCE(updated_at, started_at, triggered_at) < now() - (${staleAfterMinutes} || ' minutes')::interval
+      )::int AS stale_running_jobs
+    FROM meta_sync_jobs
+    WHERE business_id = ${input.businessId}
+  ` as Array<{
+    running_jobs: number;
+    stale_running_jobs: number;
+  }>;
+  return {
+    runningJobs: rows[0]?.running_jobs ?? 0,
+    staleRunningJobs: rows[0]?.stale_running_jobs ?? 0,
+  };
 }
 
 export async function getMetaAccountDailyCoverage(input: {

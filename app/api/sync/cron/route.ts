@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { runMigrations } from "@/lib/migrations";
+import { runMetaMaintenanceSync } from "@/lib/sync/meta-sync";
 import { syncGoogleAdsReports } from "@/lib/sync/google-ads-sync";
 import { syncGA4Reports } from "@/lib/sync/ga4-sync";
 import { syncSearchConsoleReports } from "@/lib/sync/search-console-sync";
@@ -8,7 +9,7 @@ import { syncSearchConsoleReports } from "@/lib/sync/search-console-sync";
 /**
  * POST /api/sync/cron
  *
- * Proactively syncs Google Ads, GA4, and Search Console data for all
+ * Proactively syncs Google Ads, GA4, Search Console, and Meta data for all
  * active (non-demo) businesses. Should be called every 10 minutes via
  * Vercel Cron or an external scheduler.
  *
@@ -55,10 +56,11 @@ export async function POST(request: NextRequest) {
 
   const results = await Promise.allSettled(
     businesses.map(async (business) => {
-      const [gads, ga4, sc] = await Promise.allSettled([
+      const [gads, ga4, sc, meta] = await Promise.allSettled([
         syncGoogleAdsReports(business.id),
         syncGA4Reports(business.id),
         syncSearchConsoleReports(business.id),
+        runMetaMaintenanceSync(business.id),
       ]);
 
       return {
@@ -67,6 +69,7 @@ export async function POST(request: NextRequest) {
         googleAds: gads.status === "fulfilled" ? gads.value : { error: String((gads as PromiseRejectedResult).reason) },
         ga4: ga4.status === "fulfilled" ? ga4.value : { error: String((ga4 as PromiseRejectedResult).reason) },
         searchConsole: sc.status === "fulfilled" ? sc.value : { error: String((sc as PromiseRejectedResult).reason) },
+        meta: meta.status === "fulfilled" ? meta.value : { error: String((meta as PromiseRejectedResult).reason) },
       };
     }),
   );

@@ -61,5 +61,9 @@ export interface MetaStatusResponse {
       pendingSurfaces?: string[];
     } | null;
   } | null;
+  jobHealth?: {
+    runningJobs: number;
+    staleRunningJobs: number;
+  } | null;
   latestSync?: MetaSyncDetails | null;
 }

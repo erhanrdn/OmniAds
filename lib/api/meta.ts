@@ -304,8 +304,30 @@ async function fetchPagedCollection<TItem>(initialUrl: string): Promise<TItem[]>
   return rows;
 }
 
-function inferRequestSyncType(since: string, until: string): MetaSyncType {
-  if (since === until) return "today_refresh";
+function getTodayIsoForTimeZone(timeZone?: string | null): string {
+  if (!timeZone) return new Date().toISOString().slice(0, 10);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const year = parts.find((part) => part.type === "year")?.value ?? "1970";
+  const month = parts.find((part) => part.type === "month")?.value ?? "01";
+  const day = parts.find((part) => part.type === "day")?.value ?? "01";
+  return `${year}-${month}-${day}`;
+}
+
+function inferRequestSyncType(
+  since: string,
+  until: string,
+  referenceToday?: string | null
+): MetaSyncType {
+  if (since === until) {
+    return since.slice(0, 10) === (referenceToday ?? "").slice(0, 10)
+      ? "today_refresh"
+      : "repair_window";
+  }
   const start = new Date(`${since}T00:00:00Z`).getTime();
   const end = new Date(`${until}T00:00:00Z`).getTime();
   const daySpan = Number.isFinite(start) && Number.isFinite(end)
@@ -327,10 +349,16 @@ async function withMetaSyncJob<T>(input: {
   until: string;
   run: () => Promise<T>;
 }) {
+  const accountTimezone =
+    input.credentials.accountProfiles[input.accountId]?.timezone ?? null;
   const syncJobId = await createMetaSyncJob({
     businessId: input.credentials.businessId,
     providerAccountId: input.accountId,
-    syncType: inferRequestSyncType(input.since, input.until),
+    syncType: inferRequestSyncType(
+      input.since,
+      input.until,
+      getTodayIsoForTimeZone(accountTimezone)
+    ),
     scope: input.scope,
     startDate: input.since,
     endDate: input.until,

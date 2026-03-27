@@ -51,12 +51,20 @@ export function hasRenderablePreview(row: MetaCreativeRow): boolean {
 
 export function shouldPollForPreviewReadiness(payload: MetaCreativesResponse | undefined): boolean {
   if (!payload || !Array.isArray(payload.rows) || payload.rows.length === 0) return false;
-  const previewCoverage = payload.preview_coverage?.previewCoverage ?? 0;
-  if (previewCoverage > 0) return false;
-  if (payload.media_hydrated) return false;
-  if (payload.is_refreshing) return true;
-  if (payload.snapshot_source === "live") return true;
-  return payload.freshness_state === "stale";
+  const previewMissingCount = payload.preview_coverage?.previewMissingCount ?? 0;
+  if (previewMissingCount <= 0) return false;
+  if (payload.media_mode !== "full") return false;
+  return payload.is_refreshing || payload.freshness_state === "stale";
+}
+
+export function getPreviewPollingInterval(
+  payload: MetaCreativesResponse | undefined
+): number | false {
+  if (!shouldPollForPreviewReadiness(payload)) return false;
+  const previewMissingCount = payload?.preview_coverage?.previewMissingCount ?? 0;
+  if (previewMissingCount <= 0) return false;
+  if (!payload?.is_refreshing && payload?.freshness_state !== "stale") return false;
+  return payload.is_refreshing ? 2500 : 8000;
 }
 
 export function toCsv(rows: MetaCreativeRow[]): string {
