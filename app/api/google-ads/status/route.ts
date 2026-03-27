@@ -362,26 +362,6 @@ export async function GET(request: NextRequest) {
     : historicalProgressPercent;
   const latestError = effectiveLatestSync?.last_error ? String(effectiveLatestSync.last_error) : null;
 
-  const state = !connected
-    ? "not_connected"
-    : accountIds.length === 0
-      ? "connected_no_assignment"
-      : historicalQueuePaused
-        ? "paused"
-      : (queueHealth?.deadLetterPartitions ?? 0) > 0
-        ? "action_required"
-      : effectiveLatestSync?.status === "failed" && !runningJobs
-        ? "action_required"
-      : staleRunningJobs > 0
-          ? "stale"
-          : !selectedRangeIncomplete && historicalProgressPercent >= 100
-            ? "ready"
-            : effectiveLatestSync?.status === "running" || runningJobs > 0 || needsBootstrap || selectedRangeIncomplete
-              ? "syncing"
-              : productPendingSurfaces.length > 0
-                ? "partial"
-                : "ready";
-
   const advisorRequiredSurfaces = [
     {
       name: "campaign_daily",
@@ -435,14 +415,75 @@ export async function GET(request: NextRequest) {
         (entry.coverage?.completed_days ?? 0) < selectedRangeTotalDays
     )
     .map((entry) => entry.name);
+  const advisorCompletedDays =
+    selectedRangeTotalDays != null
+      ? Math.min(
+          ...advisorRequiredSurfaces.map((entry) => entry.coverage?.completed_days ?? 0)
+        )
+      : null;
+  const advisorReadyThroughDate =
+    advisorRequiredSurfaces
+      .map((entry) => entry.coverage?.ready_through_date)
+      .filter((value): value is string => Boolean(value))
+      .sort((a, b) => a.localeCompare(b))[0] ?? null;
   const advisorReady =
     connected &&
     accountIds.length > 0 &&
     selectedRangeTotalDays != null &&
     advisorMissingSurfaces.length === 0;
+  const advisorNotReady =
+    connected &&
+    accountIds.length > 0 &&
+    selectedRangeTotalDays != null &&
+    !selectedRangeIncomplete &&
+    historicalProgressPercent >= 100 &&
+    !advisorReady;
+  const effectiveCompletedDays = selectedRangeIncomplete
+    ? selectedRangeCompletedDays
+    : advisorNotReady
+      ? advisorCompletedDays ?? overallCompletedDays
+      : overallCompletedDays;
+  const effectiveTotalDays = selectedRangeIncomplete
+    ? selectedRangeTotalDays ?? effectiveHistoricalTotalDays
+    : advisorNotReady
+      ? selectedRangeTotalDays ?? effectiveHistoricalTotalDays
+      : effectiveHistoricalTotalDays;
+  const effectiveReadyThroughDate = selectedRangeIncomplete
+    ? selectedRangeCoverage?.ready_through_date ?? null
+    : advisorNotReady
+      ? advisorReadyThroughDate
+      : historicalReadyThroughDate;
+  const effectiveProgressPercent =
+    effectiveTotalDays > 0
+      ? Math.min(100, Math.round(((effectiveCompletedDays ?? 0) / effectiveTotalDays) * 100))
+      : progressPercent;
 
   return NextResponse.json({
-    state,
+    state:
+      !connected
+        ? "not_connected"
+        : accountIds.length === 0
+          ? "connected_no_assignment"
+          : historicalQueuePaused
+            ? "paused"
+            : (queueHealth?.deadLetterPartitions ?? 0) > 0
+              ? "action_required"
+              : effectiveLatestSync?.status === "failed" && !runningJobs
+                ? "action_required"
+                : staleRunningJobs > 0
+                  ? "stale"
+                  : advisorNotReady
+                    ? "advisor_not_ready"
+                    : !selectedRangeIncomplete && historicalProgressPercent >= 100
+                      ? "ready"
+                      : effectiveLatestSync?.status === "running" ||
+                            runningJobs > 0 ||
+                            needsBootstrap ||
+                            selectedRangeIncomplete
+                        ? "syncing"
+                        : productPendingSurfaces.length > 0
+                          ? "partial"
+                          : "ready",
     connected,
     assignedAccountIds: accountIds,
     primaryAccountTimezone,
@@ -526,33 +567,25 @@ export async function GET(request: NextRequest) {
           startedAt: effectiveLatestSync.started_at ? String(effectiveLatestSync.started_at) : null,
           finishedAt: effectiveLatestSync.finished_at ? String(effectiveLatestSync.finished_at) : null,
           lastError: latestError,
-          progressPercent,
-          completedDays: selectedRangeIncomplete ? selectedRangeCompletedDays : overallCompletedDays,
-          totalDays:
-            selectedRangeIncomplete
-              ? selectedRangeTotalDays ?? effectiveHistoricalTotalDays
-              : effectiveHistoricalTotalDays,
-          readyThroughDate: selectedRangeIncomplete
-            ? selectedRangeCoverage?.ready_through_date ?? null
-            : historicalReadyThroughDate,
+          progressPercent: effectiveProgressPercent,
+          completedDays: effectiveCompletedDays,
+          totalDays: effectiveTotalDays,
+          readyThroughDate: effectiveReadyThroughDate,
           phaseLabel:
-            phaseLabel === "Ready"
+            advisorNotReady
+              ? "Preparing advisor support"
+              : phaseLabel === "Ready"
               ? null
               : selectedRangeIncomplete
                 ? phaseLabel
                 : phaseLabel,
         }
       : {
-          progressPercent,
-          completedDays: selectedRangeIncomplete ? selectedRangeCompletedDays : overallCompletedDays,
-          totalDays:
-            selectedRangeIncomplete
-              ? selectedRangeTotalDays ?? effectiveHistoricalTotalDays
-              : effectiveHistoricalTotalDays,
-          readyThroughDate: selectedRangeIncomplete
-            ? selectedRangeCoverage?.ready_through_date ?? null
-            : historicalReadyThroughDate,
-          phaseLabel,
+          progressPercent: effectiveProgressPercent,
+          completedDays: effectiveCompletedDays,
+          totalDays: effectiveTotalDays,
+          readyThroughDate: effectiveReadyThroughDate,
+          phaseLabel: advisorNotReady ? "Preparing advisor support" : phaseLabel,
         },
   });
 }

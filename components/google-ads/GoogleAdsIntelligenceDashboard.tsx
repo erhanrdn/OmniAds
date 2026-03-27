@@ -106,16 +106,23 @@ function getGoogleAdsSyncEmptyState(
     };
   }
   if (
+    status.state === "advisor_not_ready" ||
     status.state === "syncing" ||
     status.state === "partial" ||
     status.state === "stale"
   ) {
     const readyThrough = status.latestSync?.readyThroughDate;
     return {
-      title: `${areaLabel} is still preparing`,
-      description: readyThrough
-        ? `Historical data is syncing in the background. Ready through ${readyThrough}.`
-        : "Historical data is syncing in the background. This section will fill in progressively.",
+      title:
+        status.state === "advisor_not_ready"
+          ? `${areaLabel} is waiting for advisor support`
+          : `${areaLabel} is still preparing`,
+      description:
+        status.state === "advisor_not_ready"
+          ? "Core history is ready. Search term and product history are still syncing for advisor analysis."
+          : readyThrough
+            ? `Historical data is syncing in the background. Ready through ${readyThrough}.`
+            : "Historical data is syncing in the background. This section will fill in progressively.",
     };
   }
   return {
@@ -422,7 +429,12 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
     staleTime: 30 * 1000,
     refetchInterval: (query) => {
       const state = query.state.data?.state;
-      return state === "syncing" || state === "partial" || state === "stale" ? 15 * 1000 : false;
+      return state === "syncing" ||
+        state === "partial" ||
+        state === "stale" ||
+        state === "advisor_not_ready"
+        ? 15 * 1000
+        : false;
     },
   });
   const advisorReady = Boolean(syncStatus?.advisor?.ready);

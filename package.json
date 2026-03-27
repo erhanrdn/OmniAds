@@ -19,7 +19,8 @@
     "google:ads:cleanup": "node --import tsx scripts/google-ads-cleanup.ts",
     "google:ads:replay-dead-letter": "node --import tsx scripts/google-ads-replay-dead-letter.ts",
     "google:ads:reschedule": "node --import tsx scripts/google-ads-reschedule.ts",
-    "google:ads:refresh-state": "node --import tsx scripts/google-ads-refresh-state.ts"
+    "google:ads:refresh-state": "node --import tsx scripts/google-ads-refresh-state.ts",
+    "google:ads:progress-diff": "node --import tsx scripts/google-ads-progress-diff.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",

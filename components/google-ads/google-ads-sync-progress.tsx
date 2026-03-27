@@ -18,6 +18,7 @@ export function shouldRenderGoogleAdsSyncProgress(
     status.state === "syncing" ||
     status.state === "paused" ||
     status.state === "partial" ||
+    status.state === "advisor_not_ready" ||
     status.state === "stale" ||
     status.latestSync?.status === "pending" ||
     status.latestSync?.status === "running" ||
@@ -56,6 +57,7 @@ function getTitle(status: GoogleAdsStatusResponse) {
   if (status.state === "action_required") return "Google Ads sync needs attention";
   if (status.state === "paused") return "Google Ads historical sync is paused";
   if (status.priorityWindow?.isActive) return "Preparing selected dates";
+  if (status.state === "advisor_not_ready") return "Advisor support is still preparing";
   if (status.state === "stale") return "Google Ads sync is catching up";
   if (status.state === "partial") return "Google Ads data is partially ready";
   if (status.state === "syncing") return "Google Ads historical data is syncing";
@@ -71,6 +73,9 @@ function getDescription(status: GoogleAdsStatusResponse) {
   }
   if (status.priorityWindow?.isActive) {
     return "The selected date range is being written first so this screen can fill in sooner.";
+  }
+  if (status.state === "advisor_not_ready") {
+    return "Core Google Ads history is ready. Search term and product history are still filling in for advisor analysis.";
   }
   if (status.state === "partial" || status.state === "syncing" || status.state === "stale") {
     return "Ready sections will appear progressively as warehouse coverage expands.";

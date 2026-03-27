@@ -1,5 +1,7 @@
 # Google Ads Product Readiness Checklist
 
+Use this checklist as the canonical backend exit gate. Product-ready is declared only after a real business passes a `T0` and `T0 + 24h` validation window.
+
 ## Core Validation
 
 1. Run `npm run build`
@@ -12,8 +14,11 @@
 
 ## Extended Validation
 
-1. Run `npm run google:ads:state-check -- <businessId>`
-2. Confirm state rows exist for:
+1. Run `npm run google:ads:state-check -- <businessId>` at `T0`
+2. Capture a before/after delta with:
+   - `npm run google:ads:progress-diff -- <businessId> <T0 sinceIsoTimestamp>`
+3. Repeat both checks at `T0 + 24h`
+4. Confirm state rows exist for:
    - `search_term_daily`
    - `product_daily`
    - `asset_group_daily`
@@ -21,7 +26,7 @@
    - `geo_daily`
    - `device_daily`
    - `audience_daily`
-3. Compare repeated snapshots and confirm:
+5. Compare repeated snapshots and confirm:
    - `search_term_daily` completed days increase over time
    - `product_daily` completed days increase over time
    - extended queue depth declines when core backlog is low
@@ -75,6 +80,7 @@ The Google Ads stack is considered product-ready only when all of the following 
 
 - `campaign_daily` historical coverage increases continuously without user presence
 - extended advisor surfaces generate state rows
+- both `search_term_daily` and `product_daily` increase during the same 24 hour validation window
 - `/api/google-ads/status` is fully state-driven
 - advisor runs only on manual trigger
 - request-time sync no longer creates queue storms

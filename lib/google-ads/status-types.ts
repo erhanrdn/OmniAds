@@ -24,6 +24,7 @@ export interface GoogleAdsStatusResponse {
     | "syncing"
     | "paused"
     | "partial"
+    | "advisor_not_ready"
     | "stale"
     | "action_required"
     | "ready";

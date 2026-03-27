@@ -143,12 +143,14 @@ export function mergeGoogleAdsWarehouseState(
     syncing: 3,
     stale: 4,
     partial: 5,
-    ready: 6,
+    advisor_not_ready: 6,
+    ready: 7,
   };
   return priority[next] > priority[current] ? next : current;
 }
 
 export async function createGoogleAdsSyncJob(input: GoogleAdsSyncJobRecord) {
+  // Legacy-only: retained for reset/debug visibility. Queue/status truth must not depend on this table.
   await runMigrations();
   const sql = getDb();
   const insertedRows = await sql`
@@ -233,6 +235,7 @@ export async function updateGoogleAdsSyncJob(input: {
   startedAt?: string | null;
   finishedAt?: string | null;
 }) {
+  // Legacy-only: retained for reset/debug visibility. Queue/status truth must not depend on this table.
   await runMigrations();
   const sql = getDb();
   await sql`

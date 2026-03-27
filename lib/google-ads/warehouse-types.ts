@@ -29,6 +29,7 @@ export type GoogleAdsWarehouseDataState =
   | "connected_no_assignment"
   | "syncing"
   | "partial"
+  | "advisor_not_ready"
   | "stale"
   | "ready"
   | "action_required";

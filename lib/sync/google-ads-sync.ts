@@ -57,6 +57,13 @@ const runtimeSyncStore = globalThis as typeof globalThis & {
   __googleAdsBackgroundWorkerTimers?: Map<string, ReturnType<typeof setTimeout>>;
 };
 
+function envNumber(name: string, fallback: number) {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 function getBackgroundSyncKeys() {
   if (!runtimeSyncStore.__googleAdsBackgroundSyncKeys) {
     runtimeSyncStore.__googleAdsBackgroundSyncKeys = new Set<string>();
@@ -73,11 +80,27 @@ function getBackgroundWorkerTimers() {
 
 const GOOGLE_ADS_BOOTSTRAP_BATCH_DAYS = 4;
 const GOOGLE_ADS_RECENT_MAINTENANCE_DAYS = 7;
-const GOOGLE_ADS_BACKGROUND_LOOP_DELAY_MS = 5_000;
-const GOOGLE_ADS_CORE_WORKER_LIMIT = 4;
-const GOOGLE_ADS_MAINTENANCE_WORKER_LIMIT = 2;
-const GOOGLE_ADS_EXTENDED_WORKER_LIMIT = 3;
-const GOOGLE_ADS_PARTITION_LEASE_MINUTES = 5;
+const GOOGLE_ADS_BACKGROUND_LOOP_DELAY_MS = envNumber("GOOGLE_ADS_BACKGROUND_LOOP_DELAY_MS", 5_000);
+const GOOGLE_ADS_CORE_WORKER_LIMIT = envNumber("GOOGLE_ADS_CORE_WORKER_LIMIT", 4);
+const GOOGLE_ADS_MAINTENANCE_WORKER_LIMIT = envNumber("GOOGLE_ADS_MAINTENANCE_WORKER_LIMIT", 2);
+const GOOGLE_ADS_EXTENDED_WORKER_LIMIT = envNumber("GOOGLE_ADS_EXTENDED_WORKER_LIMIT", 4);
+const GOOGLE_ADS_EXTENDED_BURST_WORKER_LIMIT = envNumber(
+  "GOOGLE_ADS_EXTENDED_BURST_WORKER_LIMIT",
+  3
+);
+const GOOGLE_ADS_EXTENDED_CORE_BACKLOG_THRESHOLD = envNumber(
+  "GOOGLE_ADS_EXTENDED_CORE_BACKLOG_THRESHOLD",
+  2
+);
+const GOOGLE_ADS_PARTITION_LEASE_MINUTES = envNumber("GOOGLE_ADS_PARTITION_LEASE_MINUTES", 5);
+const GOOGLE_ADS_TRANSIENT_RETRY_BASE_MINUTES = envNumber(
+  "GOOGLE_ADS_TRANSIENT_RETRY_BASE_MINUTES",
+  2
+);
+const GOOGLE_ADS_QUOTA_RETRY_BASE_MINUTES = envNumber(
+  "GOOGLE_ADS_QUOTA_RETRY_BASE_MINUTES",
+  8
+);
 const GOOGLE_ADS_PARTITION_MAX_ATTEMPTS = 6;
 
 const GOOGLE_ADS_EXTENDED_SCOPES: GoogleAdsWarehouseScope[] = [
@@ -92,8 +115,6 @@ const GOOGLE_ADS_EXTENDED_SCOPES: GoogleAdsWarehouseScope[] = [
   "ad_daily",
   "keyword_daily",
 ];
-
-const GOOGLE_ADS_EXTENDED_BURST_WORKER_LIMIT = 2;
 
 const GOOGLE_ADS_STATE_SCOPES: GoogleAdsWarehouseScope[] = [
   "account_daily",
@@ -721,25 +742,30 @@ async function syncGoogleAdsAccountDay(input: {
   };
 
   const primaryScope = wants("campaign_daily") ? "campaign_daily" : "account_daily";
-  const primaryJob = await createScopeSyncJob({
-    ...input,
-    startDate: input.date,
-    endDate: input.date,
-    scope: primaryScope,
-  });
-  if (!primaryJob?.id) return false;
-  if (!primaryJob.created && !input.partitionOwned) {
-    return false;
-  }
+  const shouldWriteLegacyJobs = !input.partitionOwned;
+  let jobIds: string[] = [];
 
-  const secondaryScopes = Array.from(scopes).filter((scope) => scope !== primaryScope);
-  const secondaryJobs = await Promise.all(
-    secondaryScopes.map((scope) =>
-      createScopeSyncJob({ ...input, startDate: input.date, endDate: input.date, scope })
-    )
-  );
-  const jobs = [primaryJob, ...secondaryJobs];
-  const jobIds = jobs.map((job) => job?.id).filter((value): value is string => Boolean(value));
+  if (shouldWriteLegacyJobs) {
+    const primaryJob = await createScopeSyncJob({
+      ...input,
+      startDate: input.date,
+      endDate: input.date,
+      scope: primaryScope,
+    });
+    if (!primaryJob?.id) return false;
+    if (!primaryJob.created) {
+      return false;
+    }
+
+    const secondaryScopes = Array.from(scopes).filter((scope) => scope !== primaryScope);
+    const secondaryJobs = await Promise.all(
+      secondaryScopes.map((scope) =>
+        createScopeSyncJob({ ...input, startDate: input.date, endDate: input.date, scope })
+      )
+    );
+    const jobs = [primaryJob, ...secondaryJobs];
+    jobIds = jobs.map((job) => job?.id).filter((value): value is string => Boolean(value));
+  }
 
   try {
     const campaigns = await getGoogleAdsCampaignsReport({
@@ -1264,7 +1290,10 @@ function classifyGoogleAdsSyncError(error: unknown) {
 }
 
 function computePartitionRetryDelayMinutes(attemptCount: number, errorClass: string) {
-  const base = errorClass === "quota" ? 10 : 3;
+  const base =
+    errorClass === "quota"
+      ? GOOGLE_ADS_QUOTA_RETRY_BASE_MINUTES
+      : GOOGLE_ADS_TRANSIENT_RETRY_BASE_MINUTES;
   const exp = Math.min(attemptCount, 5);
   const jitter = Math.floor(Math.random() * 3);
   return Math.min(60, base * 2 ** Math.max(0, exp - 1) + jitter);
@@ -1574,27 +1603,8 @@ export async function ensureGoogleAdsWarehouseRangeFilled(input: {
   startDate: string;
   endDate: string;
 }) {
-  const accountIds = await getAssignedGoogleAccounts(input.businessId).catch(() => []);
-  if (accountIds.length === 0) return;
-  const prioritizedDates = enumerateDays(input.startDate, input.endDate, true).slice(0, 1);
-  if (prioritizedDates.length === 0) return;
-  await Promise.all(
-    accountIds.flatMap((providerAccountId) =>
-      prioritizedDates.map((date) =>
-        queueGoogleAdsSyncPartition({
-          businessId: input.businessId,
-          providerAccountId,
-          lane: "core",
-          scope: "campaign_daily",
-          partitionDate: date,
-          status: "queued",
-          priority: 100,
-          source: "selected_range",
-          attemptCount: 0,
-        }).catch(() => null)
-      )
-    )
-  );
+  // Non-blocking legacy compatibility helper: keep background sync moving, but do not create
+  // request-time selected-range queue storms.
   scheduleGoogleAdsBackgroundSync({ businessId: input.businessId, delayMs: 0 });
 }
 
@@ -1697,7 +1707,7 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
     const shouldBurstExtended =
       partitions.every((partition) => partition.lane !== "extended") &&
       (postBatchQueueHealth?.extendedQueueDepth ?? 0) > 0 &&
-      (postBatchQueueHealth?.coreQueueDepth ?? 0) === 0 &&
+      (postBatchQueueHealth?.coreQueueDepth ?? 0) <= GOOGLE_ADS_EXTENDED_CORE_BACKLOG_THRESHOLD &&
       (postBatchQueueHealth?.coreLeasedPartitions ?? 0) === 0 &&
       (postBatchQueueHealth?.maintenanceQueueDepth ?? 0) === 0 &&
       (postBatchQueueHealth?.maintenanceLeasedPartitions ?? 0) === 0;
@@ -1743,9 +1753,9 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
     if ((queueHealth?.queueDepth ?? 0) > 0 || (queueHealth?.leasedPartitions ?? 0) > 0) {
       const nextDelayMs =
         (queueHealth?.extendedQueueDepth ?? 0) > 0 &&
-        (queueHealth?.coreQueueDepth ?? 0) === 0 &&
+        (queueHealth?.coreQueueDepth ?? 0) <= GOOGLE_ADS_EXTENDED_CORE_BACKLOG_THRESHOLD &&
         (queueHealth?.maintenanceQueueDepth ?? 0) === 0
-          ? 1_500
+          ? Math.max(750, Math.floor(GOOGLE_ADS_BACKGROUND_LOOP_DELAY_MS / 3))
           : GOOGLE_ADS_BACKGROUND_LOOP_DELAY_MS;
       scheduleGoogleAdsBackgroundSync({ businessId, delayMs: nextDelayMs });
     }
