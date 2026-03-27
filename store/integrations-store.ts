@@ -13,7 +13,7 @@ import {
   withAssignedAccountFlags,
 } from "@/store/integrations-support";
 
-export const INTEGRATIONS_STORE_PERSIST_KEY = "omniads-integrations-store-v1";
+export const INTEGRATIONS_STORE_PERSIST_KEY = "omniads-integrations-store-v2";
 
 export type IntegrationProvider =
   | "shopify"

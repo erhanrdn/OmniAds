@@ -1,0 +1,986 @@
+import { resolveMetaCredentials } from "@/lib/api/meta";
+import {
+  readLatestMetaConfigSnapshots,
+  readPreviousDifferentMetaConfigDiffs,
+} from "@/lib/meta/config-snapshots";
+import { normalizeOptimizationGoal } from "@/lib/meta/configuration";
+import {
+  emptyMetaWarehouseMetrics,
+  getMetaAdSetDailyCoverage,
+  getLatestMetaSyncHealth,
+  getMetaAccountDailyCoverage,
+  getMetaAccountDailyRange,
+  getMetaAdSetDailyRange,
+  getMetaCampaignDailyRange,
+  getMetaRawSnapshotCoverageByEndpoint,
+  getMetaRawSnapshotsForWindow,
+} from "@/lib/meta/warehouse";
+import {
+  type MetaAccountDailyRow,
+  type MetaAdSetDailyRow,
+  type MetaCampaignDailyRow,
+  type MetaWarehouseFreshness,
+} from "@/lib/meta/warehouse-types";
+
+function getTodayIsoForTimeZoneServer(timeZone: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const year = parts.find((part) => part.type === "year")?.value ?? "1970";
+  const month = parts.find((part) => part.type === "month")?.value ?? "01";
+  const day = parts.find((part) => part.type === "day")?.value ?? "01";
+  return `${year}-${month}-${day}`;
+}
+
+function r2(value: number) {
+  return Math.round(value * 100) / 100;
+}
+
+function buildFreshnessFromRows(
+  rows: Array<{ updatedAt?: string }>,
+  fallbackState: MetaWarehouseFreshness["dataState"] = "ready"
+): MetaWarehouseFreshness {
+  const lastSyncedAt = rows.reduce<string | null>((latest, row) => {
+    if (!row.updatedAt) return latest;
+    if (!latest || row.updatedAt > latest) return row.updatedAt;
+    return latest;
+  }, null);
+  return {
+    dataState: rows.length > 0 ? fallbackState : "syncing",
+    lastSyncedAt,
+    liveRefreshedAt: null,
+    isPartial: false,
+    missingWindows: [],
+    warnings: [],
+  };
+}
+
+function addDaysToIso(value: string, days: number) {
+  const date = new Date(`${value}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+const META_BREAKDOWN_ENDPOINTS = [
+  "breakdown_age",
+  "breakdown_country",
+  "breakdown_publisher_platform,platform_position,impression_device",
+] as const;
+
+export interface MetaWarehouseSummaryResponse {
+  freshness: MetaWarehouseFreshness;
+  historicalSync: {
+    progressPercent: number;
+    completedDays: number;
+    totalDays: number;
+    readyThroughDate: string | null;
+    state: "ready" | "syncing" | "partial";
+  };
+  totals: {
+    spend: number;
+    revenue: number;
+    conversions: number;
+    roas: number;
+    cpa: number | null;
+    ctr: number | null;
+    cpc: number | null;
+    impressions: number;
+    clicks: number;
+    reach: number;
+  };
+  accounts: Array<{
+    providerAccountId: string;
+    accountName: string | null;
+    currency: string;
+    timezone: string;
+    spend: number;
+    revenue: number;
+    conversions: number;
+    roas: number;
+  }>;
+}
+
+export interface MetaWarehouseTrendPoint {
+  date: string;
+  spend: number;
+  revenue: number;
+  conversions: number;
+  roas: number;
+  cpa: number | null;
+  ctr: number | null;
+  cpc: number | null;
+  impressions: number;
+  clicks: number;
+}
+
+export interface MetaWarehouseTrendResponse {
+  freshness: MetaWarehouseFreshness;
+  points: MetaWarehouseTrendPoint[];
+}
+
+export interface MetaWarehouseCampaignResponse {
+  freshness: MetaWarehouseFreshness;
+  rows: Array<{
+    providerAccountId: string;
+    campaignId: string;
+    campaignName: string | null;
+    campaignStatus: string | null;
+    objective: string | null;
+    buyingType: string | null;
+    spend: number;
+    revenue: number;
+    conversions: number;
+    roas: number;
+    cpa: number | null;
+    ctr: number | null;
+    cpc: number | null;
+    impressions: number;
+    clicks: number;
+  }>;
+}
+
+export interface MetaWarehouseCampaignTableRow {
+  id: string;
+  accountId: string;
+  name: string;
+  status: string;
+  objective?: string | null;
+  budgetLevel?: "campaign" | "adset" | null;
+  spend: number;
+  purchases: number;
+  revenue: number;
+  roas: number;
+  cpa: number;
+  ctr: number;
+  cpm: number;
+  cpc: number;
+  cpp: number;
+  impressions: number;
+  reach: number;
+  frequency: number;
+  clicks: number;
+  uniqueClicks: number;
+  uniqueCtr: number;
+  inlineLinkClickCtr: number;
+  outboundClicks: number;
+  outboundCtr: number;
+  uniqueOutboundClicks: number;
+  uniqueOutboundCtr: number;
+  landingPageViews: number;
+  costPerLandingPageView: number;
+  addToCart: number;
+  addToCartValue: number;
+  costPerAddToCart: number;
+  initiateCheckout: number;
+  initiateCheckoutValue: number;
+  costPerCheckoutInitiated: number;
+  leads: number;
+  leadsValue: number;
+  costPerLead: number;
+  registrationsCompleted: number;
+  registrationsCompletedValue: number;
+  costPerRegistrationCompleted: number;
+  searches: number;
+  searchesValue: number;
+  costPerSearch: number;
+  addPaymentInfo: number;
+  addPaymentInfoValue: number;
+  costPerAddPaymentInfo: number;
+  pageLikes: number;
+  costPerPageLike: number;
+  postEngagement: number;
+  costPerEngagement: number;
+  postReactions: number;
+  costPerReaction: number;
+  postComments: number;
+  costPerPostComment: number;
+  postShares: number;
+  costPerPostShare: number;
+  messagingConversationsStarted: number;
+  costPerMessagingConversationStarted: number;
+  appInstalls: number;
+  costPerAppInstall: number;
+  contentViews: number;
+  contentViewsValue: number;
+  costPerContentView: number;
+  videoViews3s: number;
+  videoViews15s: number;
+  videoViews25: number;
+  videoViews50: number;
+  videoViews75: number;
+  videoViews95: number;
+  videoViews100: number;
+  costPerVideoView: number;
+  currency: string;
+  optimizationGoal: string | null;
+  bidStrategyType: string | null;
+  bidStrategyLabel: string | null;
+  manualBidAmount: number | null;
+  previousManualBidAmount: number | null;
+  bidValue: number | null;
+  bidValueFormat: "currency" | "roas" | null;
+  previousBidValue: number | null;
+  previousBidValueFormat: "currency" | "roas" | null;
+  previousBidValueCapturedAt: string | null;
+  dailyBudget: number | null;
+  lifetimeBudget: number | null;
+  previousDailyBudget: number | null;
+  previousLifetimeBudget: number | null;
+  previousBudgetCapturedAt: string | null;
+  isBudgetMixed: boolean;
+  isConfigMixed: boolean;
+  isOptimizationGoalMixed: boolean;
+  isBidStrategyMixed: boolean;
+  isBidValueMixed: boolean;
+}
+
+export interface MetaWarehouseAdSetTableRow {
+  id: string;
+  accountId: string;
+  name: string;
+  campaignId: string;
+  status: string;
+  budgetLevel?: "campaign" | "adset" | null;
+  dailyBudget: number | null;
+  lifetimeBudget: number | null;
+  optimizationGoal: string | null;
+  bidStrategyType: string | null;
+  bidStrategyLabel: string | null;
+  manualBidAmount: number | null;
+  previousManualBidAmount: number | null;
+  bidValue: number | null;
+  bidValueFormat: "currency" | "roas" | null;
+  previousBidValue: number | null;
+  previousBidValueFormat: "currency" | "roas" | null;
+  previousBidValueCapturedAt: string | null;
+  isBudgetMixed: boolean;
+  previousDailyBudget: number | null;
+  previousLifetimeBudget: number | null;
+  previousBudgetCapturedAt: string | null;
+  isConfigMixed: boolean;
+  isOptimizationGoalMixed: boolean;
+  isBidStrategyMixed: boolean;
+  isBidValueMixed: boolean;
+  spend: number;
+  purchases: number;
+  revenue: number;
+  roas: number;
+  cpa: number;
+  ctr: number;
+  cpm: number;
+  impressions: number;
+  clicks: number;
+}
+
+export interface MetaWarehouseBreakdownsResponse {
+  freshness: MetaWarehouseFreshness;
+  age: Array<{ key: string; label: string; spend: number; purchases: number; revenue: number; clicks: number; impressions: number }>;
+  location: Array<{ key: string; label: string; spend: number; purchases: number; revenue: number; clicks: number; impressions: number }>;
+  placement: Array<{ key: string; label: string; spend: number; purchases: number; revenue: number; clicks: number; impressions: number }>;
+  budget: {
+    campaign: Array<{ key: string; label: string; spend: number }>;
+    adset: Array<{ key: string; label: string; spend: number }>;
+  };
+}
+
+export async function getMetaWarehouseSummary(input: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+  providerAccountIds?: string[] | null;
+}): Promise<MetaWarehouseSummaryResponse> {
+  const rows = await getMetaAccountDailyRange(input);
+  const credentials = await resolveMetaCredentials(input.businessId).catch(() => null);
+  const health = await getLatestMetaSyncHealth({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountIds?.length === 1 ? input.providerAccountIds[0] : null,
+  });
+  const empty = emptyMetaWarehouseMetrics();
+
+  let totals = rows.reduce(
+    (acc, row) => {
+      acc.spend += row.spend;
+      acc.revenue += row.revenue;
+      acc.conversions += row.conversions;
+      acc.impressions += row.impressions;
+      acc.clicks += row.clicks;
+      acc.reach += row.reach;
+      return acc;
+    },
+    {
+      ...empty,
+      spend: 0,
+      revenue: 0,
+      conversions: 0,
+      impressions: 0,
+      clicks: 0,
+      reach: 0,
+    }
+  );
+
+  const accountsMap = new Map<
+    string,
+    {
+      providerAccountId: string;
+      accountName: string | null;
+      currency: string;
+      timezone: string;
+      spend: number;
+      revenue: number;
+      conversions: number;
+      roas: number;
+    }
+  >();
+  for (const row of rows) {
+    const existing = accountsMap.get(row.providerAccountId);
+    if (existing) {
+      existing.spend = r2(existing.spend + row.spend);
+      existing.revenue = r2(existing.revenue + row.revenue);
+      existing.conversions += row.conversions;
+      existing.roas = existing.spend > 0 ? r2(existing.revenue / existing.spend) : 0;
+    } else {
+      accountsMap.set(row.providerAccountId, {
+        providerAccountId: row.providerAccountId,
+        accountName: row.accountName,
+        currency: row.accountCurrency,
+        timezone: row.accountTimezone,
+        spend: row.spend,
+        revenue: row.revenue,
+        conversions: row.conversions,
+        roas: row.roas,
+      });
+    }
+  }
+
+  const freshness = buildFreshnessFromRows(
+    rows,
+    rows.length > 0 ? "ready" : health?.status === "running" ? "syncing" : "stale"
+  );
+
+  const primaryAccountId = credentials?.accountIds[0] ?? null;
+  const primaryTimeZone =
+    primaryAccountId && credentials?.accountProfiles?.[primaryAccountId]?.timezone
+      ? credentials.accountProfiles[primaryAccountId].timezone
+      : null;
+  const historicalToday = primaryTimeZone
+    ? getTodayIsoForTimeZoneServer(primaryTimeZone)
+    : new Date().toISOString().slice(0, 10);
+  const historicalEnd = addDaysToIso(historicalToday, -1);
+  const historicalStart = addDaysToIso(historicalEnd, -364);
+  const historicalCoverage =
+    credentials?.accountIds?.length
+      ? await getMetaAccountDailyCoverage({
+          businessId: input.businessId,
+          providerAccountId: null,
+          startDate: historicalStart,
+          endDate: historicalEnd,
+        }).catch(() => null)
+      : null;
+  const [historicalAdsetCoverage, historicalBreakdownCoverageByEndpoint] =
+    credentials?.accountIds?.length
+      ? await Promise.all([
+          getMetaAdSetDailyCoverage({
+            businessId: input.businessId,
+            providerAccountId: null,
+            startDate: historicalStart,
+            endDate: historicalEnd,
+          }).catch(() => null),
+          getMetaRawSnapshotCoverageByEndpoint({
+            businessId: input.businessId,
+            providerAccountId: null,
+            endpointNames: [...META_BREAKDOWN_ENDPOINTS],
+            startDate: historicalStart,
+            endDate: historicalEnd,
+          }).catch(() => null),
+        ])
+      : [null, null];
+  const historicalAccountCoverageDays = historicalCoverage?.completed_days ?? 0;
+  const historicalAdsetCoverageDays = historicalAdsetCoverage?.completed_days ?? 0;
+  const historicalBreakdownCoverageDays = historicalBreakdownCoverageByEndpoint
+    ? Math.min(
+        ...META_BREAKDOWN_ENDPOINTS.map(
+          (endpointName) =>
+            historicalBreakdownCoverageByEndpoint.get(endpointName)?.completed_days ?? 0
+        )
+      )
+    : 0;
+  const historicalCompletedDays = Math.min(
+    historicalAccountCoverageDays,
+    historicalAdsetCoverageDays,
+    historicalBreakdownCoverageDays
+  );
+  const historicalTotalDays = 365;
+  const historicalProgressPercent = Math.max(
+    0,
+    Math.min(100, Math.round((historicalCompletedDays / historicalTotalDays) * 100))
+  );
+  const historicalState =
+    historicalProgressPercent >= 100
+      ? "ready"
+      : health?.status === "partial"
+        ? "partial"
+        : "syncing";
+
+  return {
+    freshness,
+    historicalSync: {
+      progressPercent: historicalProgressPercent,
+      completedDays: historicalCompletedDays,
+      totalDays: historicalTotalDays,
+      readyThroughDate: historicalCoverage?.ready_through_date ?? null,
+      state: historicalState,
+    },
+    totals: {
+      spend: r2(totals.spend),
+      revenue: r2(totals.revenue),
+      conversions: totals.conversions,
+      roas: totals.spend > 0 ? r2(totals.revenue / totals.spend) : 0,
+      cpa: totals.conversions > 0 ? r2(totals.spend / totals.conversions) : null,
+      ctr: totals.impressions > 0 ? r2((totals.clicks / totals.impressions) * 100) : null,
+      cpc: totals.clicks > 0 ? r2(totals.spend / totals.clicks) : null,
+      impressions: totals.impressions,
+      clicks: totals.clicks,
+      reach: totals.reach,
+    },
+    accounts: Array.from(accountsMap.values()).sort((a, b) => b.spend - a.spend),
+  };
+}
+
+export async function getMetaWarehouseTrends(input: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+  providerAccountIds?: string[] | null;
+}): Promise<MetaWarehouseTrendResponse> {
+  const rows = await getMetaAccountDailyRange(input);
+  const byDate = new Map<string, MetaAccountDailyRow[]>();
+  for (const row of rows) {
+    const list = byDate.get(row.date);
+    if (list) list.push(row);
+    else byDate.set(row.date, [row]);
+  }
+
+  let points = Array.from(byDate.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([date, dailyRows]) => {
+      const spend = r2(dailyRows.reduce((sum, row) => sum + row.spend, 0));
+      const revenue = r2(dailyRows.reduce((sum, row) => sum + row.revenue, 0));
+      const conversions = dailyRows.reduce((sum, row) => sum + row.conversions, 0);
+      const impressions = dailyRows.reduce((sum, row) => sum + row.impressions, 0);
+      const clicks = dailyRows.reduce((sum, row) => sum + row.clicks, 0);
+      return {
+        date,
+        spend,
+        revenue,
+        conversions,
+        roas: spend > 0 ? r2(revenue / spend) : 0,
+        cpa: conversions > 0 ? r2(spend / conversions) : null,
+        ctr: impressions > 0 ? r2((clicks / impressions) * 100) : null,
+        cpc: clicks > 0 ? r2(spend / clicks) : null,
+        impressions,
+        clicks,
+      };
+    });
+
+  return {
+    freshness: {
+      ...buildFreshnessFromRows(points.map((point) => ({ updatedAt: point.date })), rows.length > 0 ? "ready" : "syncing"),
+    },
+    points,
+  };
+}
+
+export async function getMetaWarehouseCampaigns(input: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+  providerAccountIds?: string[] | null;
+}): Promise<MetaWarehouseCampaignResponse> {
+  const rows = await getMetaCampaignDailyRange(input);
+  const byCampaign = new Map<string, MetaCampaignDailyRow[]>();
+  for (const row of rows) {
+    const key = `${row.providerAccountId}:${row.campaignId}`;
+    const list = byCampaign.get(key);
+    if (list) list.push(row);
+    else byCampaign.set(key, [row]);
+  }
+
+  let aggregated = Array.from(byCampaign.entries()).map(([, campaignRows]) => {
+    const first = campaignRows[0];
+    const spend = r2(campaignRows.reduce((sum, row) => sum + row.spend, 0));
+    const revenue = r2(campaignRows.reduce((sum, row) => sum + row.revenue, 0));
+    const conversions = campaignRows.reduce((sum, row) => sum + row.conversions, 0);
+    const impressions = campaignRows.reduce((sum, row) => sum + row.impressions, 0);
+    const clicks = campaignRows.reduce((sum, row) => sum + row.clicks, 0);
+    return {
+      providerAccountId: first.providerAccountId,
+      campaignId: first.campaignId,
+      campaignName: first.campaignNameCurrent ?? first.campaignNameHistorical,
+      campaignStatus: first.campaignStatus,
+      objective: first.objective,
+      buyingType: first.buyingType,
+      spend,
+      revenue,
+      conversions,
+      roas: spend > 0 ? r2(revenue / spend) : 0,
+      cpa: conversions > 0 ? r2(spend / conversions) : null,
+      ctr: impressions > 0 ? r2((clicks / impressions) * 100) : null,
+      cpc: clicks > 0 ? r2(spend / clicks) : null,
+      impressions,
+      clicks,
+    };
+  });
+
+  return {
+    freshness: {
+      ...buildFreshnessFromRows(rows, rows.length > 0 ? "ready" : "syncing"),
+    },
+    rows: aggregated.sort((a, b) => b.spend - a.spend),
+  };
+}
+
+function zeroDetailedMetrics() {
+  return {
+    uniqueClicks: 0,
+    uniqueCtr: 0,
+    inlineLinkClickCtr: 0,
+    outboundClicks: 0,
+    outboundCtr: 0,
+    uniqueOutboundClicks: 0,
+    uniqueOutboundCtr: 0,
+    landingPageViews: 0,
+    costPerLandingPageView: 0,
+    addToCart: 0,
+    addToCartValue: 0,
+    costPerAddToCart: 0,
+    initiateCheckout: 0,
+    initiateCheckoutValue: 0,
+    costPerCheckoutInitiated: 0,
+    leads: 0,
+    leadsValue: 0,
+    costPerLead: 0,
+    registrationsCompleted: 0,
+    registrationsCompletedValue: 0,
+    costPerRegistrationCompleted: 0,
+    searches: 0,
+    searchesValue: 0,
+    costPerSearch: 0,
+    addPaymentInfo: 0,
+    addPaymentInfoValue: 0,
+    costPerAddPaymentInfo: 0,
+    pageLikes: 0,
+    costPerPageLike: 0,
+    postEngagement: 0,
+    costPerEngagement: 0,
+    postReactions: 0,
+    costPerReaction: 0,
+    postComments: 0,
+    costPerPostComment: 0,
+    postShares: 0,
+    costPerPostShare: 0,
+    messagingConversationsStarted: 0,
+    costPerMessagingConversationStarted: 0,
+    appInstalls: 0,
+    costPerAppInstall: 0,
+    contentViews: 0,
+    contentViewsValue: 0,
+    costPerContentView: 0,
+    videoViews3s: 0,
+    videoViews15s: 0,
+    videoViews25: 0,
+    videoViews50: 0,
+    videoViews75: 0,
+    videoViews95: 0,
+    videoViews100: 0,
+    costPerVideoView: 0,
+  };
+}
+
+function buildCampaignTableRow(input: {
+  row: MetaWarehouseCampaignResponse["rows"][number];
+  latestConfig?: {
+    optimizationGoal: string | null;
+    bidStrategyType: string | null;
+    bidStrategyLabel: string | null;
+    manualBidAmount: number | null;
+    bidValue: number | null;
+    bidValueFormat: "currency" | "roas" | null;
+    dailyBudget: number | null;
+    lifetimeBudget: number | null;
+    isBudgetMixed?: boolean;
+    isConfigMixed?: boolean;
+    isOptimizationGoalMixed?: boolean;
+    isBidStrategyMixed?: boolean;
+    isBidValueMixed?: boolean;
+  } | null;
+  previousConfig?: {
+    previousManualBidAmount: number | null;
+    previousBidValue: number | null;
+    previousBidValueFormat: "currency" | "roas" | null;
+    previousBidCapturedAt: string | null;
+    previousDailyBudget: number | null;
+    previousLifetimeBudget: number | null;
+    previousBudgetCapturedAt: string | null;
+  } | null;
+}): MetaWarehouseCampaignTableRow {
+  const latest = input.latestConfig;
+  const previous = input.previousConfig;
+  return {
+    id: input.row.campaignId,
+    accountId: input.row.providerAccountId,
+    name: input.row.campaignName ?? "Unknown Campaign",
+    status: input.row.campaignStatus ?? "UNKNOWN",
+    objective: input.row.objective,
+    budgetLevel: latest?.dailyBudget != null || latest?.lifetimeBudget != null ? "campaign" : null,
+    spend: input.row.spend,
+    purchases: input.row.conversions,
+    revenue: input.row.revenue,
+    roas: input.row.roas,
+    cpa: input.row.cpa ?? 0,
+    ctr: input.row.ctr ?? 0,
+    cpm: input.row.impressions > 0 ? r2((input.row.spend / input.row.impressions) * 1000) : 0,
+    cpc: input.row.cpc ?? (input.row.clicks > 0 ? r2(input.row.spend / input.row.clicks) : 0),
+    cpp: input.row.impressions > 0 ? r2(input.row.spend / input.row.impressions) : 0,
+    impressions: input.row.impressions,
+    reach: input.row.impressions,
+    frequency: 0,
+    clicks: input.row.clicks,
+    currency: "USD",
+    optimizationGoal: latest?.optimizationGoal ?? normalizeOptimizationGoal(input.row.objective) ?? null,
+    bidStrategyType: latest?.bidStrategyType ?? null,
+    bidStrategyLabel: latest?.bidStrategyLabel ?? null,
+    manualBidAmount: latest?.manualBidAmount ?? null,
+    previousManualBidAmount: previous?.previousManualBidAmount ?? null,
+    bidValue: latest?.bidValue ?? null,
+    bidValueFormat: latest?.bidValueFormat ?? null,
+    previousBidValue: previous?.previousBidValue ?? null,
+    previousBidValueFormat: previous?.previousBidValueFormat ?? null,
+    previousBidValueCapturedAt: previous?.previousBidCapturedAt ?? null,
+    dailyBudget: latest?.dailyBudget ?? null,
+    lifetimeBudget: latest?.lifetimeBudget ?? null,
+    previousDailyBudget: previous?.previousDailyBudget ?? null,
+    previousLifetimeBudget: previous?.previousLifetimeBudget ?? null,
+    previousBudgetCapturedAt: previous?.previousBudgetCapturedAt ?? null,
+    isBudgetMixed: Boolean(latest?.isBudgetMixed),
+    isConfigMixed: Boolean(latest?.isConfigMixed),
+    isOptimizationGoalMixed: Boolean(latest?.isOptimizationGoalMixed),
+    isBidStrategyMixed: Boolean(latest?.isBidStrategyMixed),
+    isBidValueMixed: Boolean(latest?.isBidValueMixed),
+    ...zeroDetailedMetrics(),
+  };
+}
+
+export async function getMetaWarehouseCampaignTable(input: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+  providerAccountIds?: string[] | null;
+  includePrev?: boolean;
+}): Promise<MetaWarehouseCampaignTableRow[]> {
+  const payload = await getMetaWarehouseCampaigns(input);
+  const campaignIds = payload.rows.map((row) => row.campaignId);
+  const [latestConfigs, previousConfigs] = await Promise.all([
+    readLatestMetaConfigSnapshots({
+      businessId: input.businessId,
+      entityLevel: "campaign",
+      entityIds: campaignIds,
+    }),
+    input.includePrev
+      ? readPreviousDifferentMetaConfigDiffs({
+          businessId: input.businessId,
+          entityLevel: "campaign",
+          entityIds: campaignIds,
+        })
+      : Promise.resolve(new Map()),
+  ]);
+
+  return payload.rows.map((row) =>
+    buildCampaignTableRow({
+      row,
+      latestConfig: latestConfigs.get(row.campaignId),
+      previousConfig: previousConfigs.get(row.campaignId),
+    })
+  );
+}
+
+function buildAdSetTableRow(input: {
+  row: MetaAdSetDailyRow;
+  latestConfig?: {
+    optimizationGoal: string | null;
+    bidStrategyType: string | null;
+    bidStrategyLabel: string | null;
+    manualBidAmount: number | null;
+    bidValue: number | null;
+    bidValueFormat: "currency" | "roas" | null;
+    dailyBudget: number | null;
+    lifetimeBudget: number | null;
+    isBudgetMixed?: boolean;
+    isConfigMixed?: boolean;
+    isOptimizationGoalMixed?: boolean;
+    isBidStrategyMixed?: boolean;
+    isBidValueMixed?: boolean;
+  } | null;
+  previousConfig?: {
+    previousManualBidAmount: number | null;
+    previousBidValue: number | null;
+    previousBidValueFormat: "currency" | "roas" | null;
+    previousBidCapturedAt: string | null;
+    previousDailyBudget: number | null;
+    previousLifetimeBudget: number | null;
+    previousBudgetCapturedAt: string | null;
+  } | null;
+}): MetaWarehouseAdSetTableRow {
+  const latest = input.latestConfig;
+  const previous = input.previousConfig;
+  return {
+    id: input.row.adsetId,
+    accountId: input.row.providerAccountId,
+    name: input.row.adsetNameCurrent ?? input.row.adsetNameHistorical ?? "Unknown Ad Set",
+    campaignId: input.row.campaignId ?? "",
+    status: input.row.adsetStatus ?? "UNKNOWN",
+    budgetLevel: latest?.dailyBudget != null || latest?.lifetimeBudget != null ? "adset" : null,
+    dailyBudget: latest?.dailyBudget ?? null,
+    lifetimeBudget: latest?.lifetimeBudget ?? null,
+    optimizationGoal: latest?.optimizationGoal ?? null,
+    bidStrategyType: latest?.bidStrategyType ?? null,
+    bidStrategyLabel: latest?.bidStrategyLabel ?? null,
+    manualBidAmount: latest?.manualBidAmount ?? null,
+    previousManualBidAmount: previous?.previousManualBidAmount ?? null,
+    bidValue: latest?.bidValue ?? null,
+    bidValueFormat: latest?.bidValueFormat ?? null,
+    previousBidValue: previous?.previousBidValue ?? null,
+    previousBidValueFormat: previous?.previousBidValueFormat ?? null,
+    previousBidValueCapturedAt: previous?.previousBidCapturedAt ?? null,
+    isBudgetMixed: Boolean(latest?.isBudgetMixed),
+    previousDailyBudget: previous?.previousDailyBudget ?? null,
+    previousLifetimeBudget: previous?.previousLifetimeBudget ?? null,
+    previousBudgetCapturedAt: previous?.previousBudgetCapturedAt ?? null,
+    isConfigMixed: Boolean(latest?.isConfigMixed),
+    isOptimizationGoalMixed: Boolean(latest?.isOptimizationGoalMixed),
+    isBidStrategyMixed: Boolean(latest?.isBidStrategyMixed),
+    isBidValueMixed: Boolean(latest?.isBidValueMixed),
+    spend: input.row.spend,
+    purchases: input.row.conversions,
+    revenue: input.row.revenue,
+    roas: input.row.roas,
+    cpa: input.row.cpa ?? 0,
+    ctr: input.row.ctr ?? 0,
+    cpm: input.row.impressions > 0 ? r2((input.row.spend / input.row.impressions) * 1000) : 0,
+    impressions: input.row.impressions,
+    clicks: input.row.clicks,
+  };
+}
+
+export async function getMetaWarehouseAdSets(input: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+  campaignId?: string | null;
+  providerAccountIds?: string[] | null;
+  includePrev?: boolean;
+}): Promise<MetaWarehouseAdSetTableRow[]> {
+  const rows = await getMetaAdSetDailyRange({
+    businessId: input.businessId,
+    startDate: input.startDate,
+    endDate: input.endDate,
+    providerAccountIds: input.providerAccountIds,
+    campaignIds: input.campaignId ? [input.campaignId] : null,
+  });
+
+  const byAdSet = new Map<string, MetaAdSetDailyRow[]>();
+  for (const row of rows) {
+    const list = byAdSet.get(row.adsetId);
+    if (list) list.push(row);
+    else byAdSet.set(row.adsetId, [row]);
+  }
+
+  const aggregated = Array.from(byAdSet.values()).map((dailyRows) => {
+    const first = dailyRows[0];
+    const spend = r2(dailyRows.reduce((sum, row) => sum + row.spend, 0));
+    const revenue = r2(dailyRows.reduce((sum, row) => sum + row.revenue, 0));
+    const purchases = dailyRows.reduce((sum, row) => sum + row.conversions, 0);
+    const impressions = dailyRows.reduce((sum, row) => sum + row.impressions, 0);
+    const clicks = dailyRows.reduce((sum, row) => sum + row.clicks, 0);
+    return {
+      ...first,
+      spend,
+      revenue,
+      conversions: purchases,
+      impressions,
+      clicks,
+      roas: spend > 0 ? r2(revenue / spend) : 0,
+      cpa: purchases > 0 ? r2(spend / purchases) : null,
+      ctr: impressions > 0 ? r2((clicks / impressions) * 100) : null,
+      cpc: clicks > 0 ? r2(spend / clicks) : null,
+    };
+  });
+
+  const adsetIds = aggregated.map((row) => row.adsetId);
+  const [latestConfigs, previousConfigs] = await Promise.all([
+    readLatestMetaConfigSnapshots({
+      businessId: input.businessId,
+      entityLevel: "adset",
+      entityIds: adsetIds,
+    }),
+    input.includePrev
+      ? readPreviousDifferentMetaConfigDiffs({
+          businessId: input.businessId,
+          entityLevel: "adset",
+          entityIds: adsetIds,
+        })
+      : Promise.resolve(new Map()),
+  ]);
+
+  return aggregated
+    .map((row) =>
+      buildAdSetTableRow({
+        row,
+        latestConfig: latestConfigs.get(row.adsetId),
+        previousConfig: previousConfigs.get(row.adsetId),
+      })
+    )
+    .sort((a, b) => b.spend - a.spend);
+}
+
+function parseSnapshotNumber(value: unknown) {
+  const parsed = typeof value === "string" ? Number(value) : typeof value === "number" ? value : 0;
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function extractSnapshotActionValue(actions: unknown, actionType: string) {
+  if (!Array.isArray(actions)) return 0;
+  const row = actions.find(
+    (item) =>
+      item &&
+      typeof item === "object" &&
+      "action_type" in item &&
+      (item as { action_type?: string }).action_type === actionType
+  ) as { value?: unknown } | undefined;
+  return parseSnapshotNumber(row?.value);
+}
+
+function aggregateBreakdownSnapshotRows(
+  payloads: unknown[],
+  keyFn: (row: Record<string, unknown>) => { key: string; label: string }
+) {
+  const byKey = new Map<
+    string,
+    { key: string; label: string; spend: number; purchases: number; revenue: number; clicks: number; impressions: number }
+  >();
+
+  for (const payload of payloads) {
+    if (!Array.isArray(payload)) continue;
+    for (const item of payload) {
+      if (!item || typeof item !== "object") continue;
+      const row = item as Record<string, unknown>;
+      const { key, label } = keyFn(row);
+      const spend = parseSnapshotNumber(row.spend);
+      const clicks = parseSnapshotNumber(row.clicks);
+      const impressions = parseSnapshotNumber(row.impressions);
+      const purchases = Math.round(extractSnapshotActionValue(row.actions, "purchase"));
+      const purchaseValue = extractSnapshotActionValue(row.action_values, "purchase");
+      const purchaseRoas = extractSnapshotActionValue(row.purchase_roas, "omni_purchase");
+      const revenue = purchaseValue > 0 ? purchaseValue : spend * purchaseRoas;
+      const existing = byKey.get(key);
+      if (existing) {
+        existing.spend = r2(existing.spend + spend);
+        existing.purchases += purchases;
+        existing.revenue = r2(existing.revenue + revenue);
+        existing.clicks += clicks;
+        existing.impressions += impressions;
+      } else {
+        byKey.set(key, {
+          key,
+          label,
+          spend: r2(spend),
+          purchases,
+          revenue: r2(revenue),
+          clicks,
+          impressions,
+        });
+      }
+    }
+  }
+
+  return Array.from(byKey.values()).sort((a, b) => b.spend - a.spend);
+}
+
+export async function getMetaWarehouseBreakdowns(input: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+  providerAccountIds?: string[] | null;
+}): Promise<MetaWarehouseBreakdownsResponse> {
+  const [snapshots, campaigns, adsets] = await Promise.all([
+    getMetaRawSnapshotsForWindow({
+      businessId: input.businessId,
+      providerAccountIds: input.providerAccountIds,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      endpointNames: [
+        "breakdown_age",
+        "breakdown_country",
+        "breakdown_publisher_platform,platform_position,impression_device",
+      ],
+    }),
+    getMetaWarehouseCampaigns(input),
+    getMetaWarehouseAdSets({
+      businessId: input.businessId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      providerAccountIds: input.providerAccountIds,
+      campaignId: "",
+    }).catch(() => []),
+  ]);
+
+  const agePayloads = snapshots
+    .filter((row) => row.endpoint_name === "breakdown_age")
+    .map((row) => row.payload_json);
+  const locationPayloads = snapshots
+    .filter((row) => row.endpoint_name === "breakdown_country")
+    .map((row) => row.payload_json);
+  const placementPayloads = snapshots
+    .filter((row) => row.endpoint_name === "breakdown_publisher_platform,platform_position,impression_device")
+    .map((row) => row.payload_json);
+
+  return {
+    freshness: buildFreshnessFromRows(
+      snapshots.map((row) => ({ updatedAt: row.updated_at })),
+      snapshots.length > 0 ? "ready" : "syncing"
+    ),
+    age: aggregateBreakdownSnapshotRows(agePayloads, (row) => ({
+      key: String(row.age ?? "unknown"),
+      label: String(row.age ?? "Unknown"),
+    })),
+    location: aggregateBreakdownSnapshotRows(locationPayloads, (row) => ({
+      key: String(row.country ?? "unknown"),
+      label: String(row.country ?? "Unknown"),
+    })),
+    placement: aggregateBreakdownSnapshotRows(placementPayloads, (row) => {
+      const parts = [
+        row.publisher_platform,
+        row.platform_position,
+        row.impression_device,
+      ].filter(Boolean);
+      return {
+        key: parts.map((value) => String(value)).join("|") || "unknown",
+        label: parts.map((value) => String(value)).join(" • ") || "Unknown",
+      };
+    }),
+    budget: {
+      campaign: campaigns.rows.map((row) => ({
+        key: row.campaignId,
+        label: row.campaignName ?? "Unknown campaign",
+        spend: row.spend,
+      })),
+      adset: adsets.map((row) => ({
+        key: row.id,
+        label: row.name,
+        spend: row.spend,
+      })),
+    },
+  };
+}

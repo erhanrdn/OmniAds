@@ -140,6 +140,29 @@ export async function setCachedReport<TPayload>(input: {
   `;
 }
 
+export async function clearCachedReports(input: {
+  provider: string;
+  businessId?: string | null;
+  reportTypePrefix?: string | null;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = await sql`
+    WITH deleted AS (
+      DELETE FROM provider_reporting_snapshots
+      WHERE provider = ${input.provider}
+        AND (${input.businessId ?? null}::text IS NULL OR business_id = ${input.businessId ?? null})
+        AND (
+          ${input.reportTypePrefix ?? null}::text IS NULL
+          OR report_type LIKE ${`${input.reportTypePrefix ?? ""}%`}
+        )
+      RETURNING 1
+    )
+    SELECT COUNT(*)::int AS count FROM deleted
+  ` as Array<{ count: number }>;
+  return Number(rows[0]?.count ?? 0);
+}
+
 export function getReportingDateRangeKey(startDate: string, endDate: string) {
   return `${startDate}:${endDate}`;
 }

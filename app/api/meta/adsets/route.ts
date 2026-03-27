@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { isDemoBusiness } from "@/lib/business-mode.server";
-import { resolveMetaCredentials, getAdSets } from "@/lib/api/meta";
+import { getIntegration } from "@/lib/integrations";
 import type { MetaAdSetData } from "@/lib/api/meta";
-import {
-  getCachedRouteReport,
-  setCachedRouteReport,
-} from "@/lib/route-report-cache";
+import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
+import { getMetaWarehouseAdSets } from "@/lib/meta/serving";
+import { ensureMetaWarehouseRangeFilled } from "@/lib/sync/meta-sync";
 
 // ── Demo stub ─────────────────────────────────────────────────────────────────
 
@@ -92,15 +91,12 @@ export interface MetaAdSetsResponse {
   rows: MetaAdSetData[];
 }
 
-const META_ADSETS_REPORT_VERSION = "v14";
-
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const businessId = searchParams.get("businessId");
   const campaignId = searchParams.get("campaignId");
   const startDate = searchParams.get("startDate");
   const endDate = searchParams.get("endDate");
-  const metaDebug = searchParams.get("metaDebug") === "1";
   const includePrev = searchParams.get("includePrev") === "1";
 
   const access = await requireBusinessAccess({
@@ -124,64 +120,53 @@ export async function GET(request: NextRequest) {
     } satisfies MetaAdSetsResponse);
   }
 
-  const cached = await getCachedRouteReport<MetaAdSetsResponse>({
-    businessId: businessId!,
-    provider: "meta",
-    reportType: `meta_adsets_${META_ADSETS_REPORT_VERSION}_${campaignId}`,
-    searchParams,
-  });
-  if (cached) return NextResponse.json(cached);
-
   const resolvedStart =
     startDate ?? new Date(Date.now() - 29 * 86_400_000).toISOString().slice(0, 10);
   const resolvedEnd =
     endDate ?? new Date().toISOString().slice(0, 10);
 
-  const credentials = await resolveMetaCredentials(businessId!);
-  if (!credentials) {
+  const integration = await getIntegration(businessId!, "meta").catch(() => null);
+  if (!integration?.access_token) {
     return NextResponse.json({
       status: "no_credentials",
       rows: [],
     } satisfies MetaAdSetsResponse);
   }
 
-  const rows = await getAdSets(
-    credentials,
-    campaignId,
-    resolvedStart,
-    resolvedEnd,
-    businessId!,
-    includePrev
-  );
-
-  if (metaDebug) {
-    console.log("[meta-adsets][debug] normalized rows", {
+  await ensureMetaWarehouseRangeFilled({
+    businessId: businessId!,
+    startDate: resolvedStart,
+    endDate: resolvedEnd,
+  }).catch((error) => {
+    console.warn("[meta-adsets] ensure_range_failed", {
       businessId,
       campaignId,
-      rowCount: rows.length,
-      rows: rows.map((row) => ({
-        id: row.id,
-        name: row.name,
-        optimizationGoal: row.optimizationGoal,
-        bidStrategyType: row.bidStrategyType,
-        bidStrategyLabel: row.bidStrategyLabel,
-        bidValue: row.bidValue ?? null,
-        bidValueFormat: row.bidValueFormat ?? null,
-        previousBidValue: row.previousBidValue ?? null,
-        dailyBudget: row.dailyBudget ?? null,
-        lifetimeBudget: row.lifetimeBudget ?? null,
-      })),
+      startDate: resolvedStart,
+      endDate: resolvedEnd,
+      message: error instanceof Error ? error.message : String(error),
     });
-  }
-
-  const payload: MetaAdSetsResponse = { status: "ok", rows };
-  await setCachedRouteReport({
-    businessId: businessId!,
-    provider: "meta",
-    reportType: `meta_adsets_${META_ADSETS_REPORT_VERSION}_${campaignId}`,
-    searchParams,
-    payload,
   });
 
-  return NextResponse.json(payload);
+  const assignment = await getProviderAccountAssignments(businessId!, "meta").catch(() => null);
+  const providerAccountIds = assignment?.account_ids ?? [];
+  try {
+    const warehouseRows = await getMetaWarehouseAdSets({
+      businessId: businessId!,
+      startDate: resolvedStart,
+      endDate: resolvedEnd,
+      campaignId,
+      providerAccountIds,
+      includePrev,
+    });
+    if (warehouseRows.length > 0) {
+      return NextResponse.json({ status: "ok", rows: warehouseRows } satisfies MetaAdSetsResponse);
+    }
+  } catch (error) {
+    console.warn("[meta-adsets] warehouse_read_failed", {
+      businessId,
+      campaignId,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return NextResponse.json({ status: "ok", rows: [] } satisfies MetaAdSetsResponse);
 }

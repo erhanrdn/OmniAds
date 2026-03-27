@@ -68,10 +68,6 @@ export function useBusinessIntegrationsBootstrap(businessId: string | null) {
 
   useEffect(() => {
     if (!businessId) return;
-    // An empty business is still a valid, fully-bootstrapped state.
-    if (bootstrapStatus === "ready") {
-      return;
-    }
     const locks = getBootstrapLocks();
     if (locks.has(businessId)) {
       return;
@@ -215,7 +211,6 @@ export function useBusinessIntegrationsBootstrap(businessId: string | null) {
     setProviderAssignmentState,
     setProviderDiscovery,
     startBusinessBootstrap,
-    bootstrapStatus,
   ]);
 
   return {

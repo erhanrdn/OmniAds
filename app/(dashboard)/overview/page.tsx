@@ -12,6 +12,7 @@ import { SummaryAttributionTable } from "@/components/overview/SummaryAttributio
 import { AiDailyBrief } from "@/components/overview/AiDailyBrief";
 import { PinsSection } from "@/components/overview/PinsSection";
 import { CostModelSheet } from "@/components/overview/CostModelSheet";
+import { MetaSyncProgress } from "@/components/meta/meta-sync-progress";
 import {
   DateRangePicker,
   DateRangeValue,
@@ -21,6 +22,7 @@ import { usePersistentDateRange } from "@/hooks/use-persistent-date-range";
 import { buildOverviewMetricCatalog } from "@/lib/overview-metric-catalog";
 import { useAppStore } from "@/store/app-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
+import type { MetaStatusResponse } from "@/lib/meta/status-types";
 import {
   getOverviewSummary,
   getOverviewSparklines,
@@ -33,6 +35,22 @@ import type { BusinessCostModelData, OverviewMetricCardData, OverviewSummaryData
 
 type CurrencyCode = string;
 type CompareMode = "none" | "previous_period";
+
+async function fetchMetaStatus(businessId: string): Promise<MetaStatusResponse> {
+  const params = new URLSearchParams({ businessId });
+  const response = await fetch(`/api/meta/status?${params.toString()}`, {
+    cache: "no-store",
+    headers: { Accept: "application/json" },
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(
+      (payload as { message?: string } | null)?.message ??
+        `Meta status request failed (${response.status})`
+    );
+  }
+  return payload as MetaStatusResponse;
+}
 
 const PLATFORM_TITLE_META: Record<
   string,
@@ -102,6 +120,17 @@ export default function OverviewPage() {
     enabled: Boolean(selectedBusinessId),
     queryFn: () => getLatestAiInsight(businessId),
     staleTime: 15 * 60 * 1000,
+  });
+
+  const metaStatusQuery = useQuery({
+    queryKey: ["overview-meta-status", businessId],
+    enabled: Boolean(selectedBusinessId),
+    staleTime: 30 * 1000,
+    refetchInterval: (query) => {
+      const state = (query.state.data as MetaStatusResponse | undefined)?.state;
+      return state === "syncing" || state === "partial" ? 5_000 : false;
+    },
+    queryFn: () => fetchMetaStatus(businessId),
   });
 
   const handleRegenerateAiBrief = async () => {
@@ -188,6 +217,7 @@ export default function OverviewPage() {
       <DataStatusRow
         dateRange={dateRange}
         onDateRangeChange={setDateRange}
+        metaStatus={metaStatusQuery.data}
       />
 
       <SummarySection
@@ -438,9 +468,11 @@ function LoadingInsightPlaceholder() {
 function DataStatusRow({
   dateRange,
   onDateRangeChange,
+  metaStatus,
 }: {
   dateRange: DateRangeValue;
   onDateRangeChange: (value: DateRangeValue) => void;
+  metaStatus?: MetaStatusResponse;
 }) {
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/60">
@@ -454,6 +486,7 @@ function DataStatusRow({
             <Badge>Active</Badge>
             <span className="text-slate-500">Live API responses with cached provider snapshots.</span>
           </div>
+          <MetaSyncProgress status={metaStatus} variant="inline" className="max-w-full" />
         </div>
 
         <div className="flex flex-wrap items-center gap-3 lg:justify-end">

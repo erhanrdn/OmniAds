@@ -23,6 +23,7 @@ import {
   TrendingUp,
   Target,
   BarChart2,
+  RefreshCw,
 
 } from "lucide-react";
 
@@ -39,11 +40,13 @@ import { useRouter } from "next/navigation";
 import { usePreferencesStore } from "@/store/preferences-store";
 import type { MetaBreakdownsResponse } from "@/app/api/meta/breakdowns/route";
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
+import type { MetaWarehouseSummaryResponse } from "@/lib/meta/serving";
 import {
   DateRangePicker,
   type ComparisonPreset,
   DateRangeValue,
   getPresetDates,
+  getPresetDatesForReferenceDate,
 } from "@/components/date-range/DateRangePicker";
 import { usePersistentDateRange } from "@/hooks/use-persistent-date-range";
 import { useCurrencySymbol } from "@/hooks/use-currency";
@@ -55,6 +58,8 @@ import { MetaCampaignList } from "@/components/meta/meta-campaign-list";
 import { MetaCampaignDetail } from "@/components/meta/meta-campaign-detail";
 import type { MetaRecommendationsResponse } from "@/lib/meta/recommendations";
 import { buildMetaCampaignLaneSignals } from "@/lib/meta/campaign-lanes";
+import { MetaSyncProgress, shouldRenderMetaSyncProgress } from "@/components/meta/meta-sync-progress";
+import type { MetaStatusResponse } from "@/lib/meta/status-types";
 
 // ── Data fetchers ─────────────────────────────────────────────────────────────
 
@@ -110,6 +115,42 @@ async function fetchMetaRecommendations(
   return payload as MetaRecommendationsResponse;
 }
 
+async function fetchMetaSummary(
+  businessId: string,
+  startDate: string,
+  endDate: string
+): Promise<MetaWarehouseSummaryResponse> {
+  const params = new URLSearchParams({ businessId, startDate, endDate });
+  const res = await fetch(`/api/meta/summary?${params.toString()}`, {
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+  const payload = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error(payload?.message ?? `Request failed (${res.status})`);
+  }
+  return payload as MetaWarehouseSummaryResponse;
+}
+
+async function fetchMetaStatus(
+  businessId: string,
+  startDate?: string,
+  endDate?: string
+): Promise<MetaStatusResponse> {
+  const params = new URLSearchParams({ businessId });
+  if (startDate) params.set("startDate", startDate);
+  if (endDate) params.set("endDate", endDate);
+  const res = await fetch(`/api/meta/status?${params.toString()}`, {
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+  const payload = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error(payload?.message ?? `Request failed (${res.status})`);
+  }
+  return payload as MetaStatusResponse;
+}
+
 // ── Formatters ────────────────────────────────────────────────────────────────
 
 function fmt$(n: number, sym = "$"): string {
@@ -140,6 +181,18 @@ function dayDiffInclusive(startDate: string, endDate: string): number {
   const start = parseISODate(startDate).getTime();
   const end = parseISODate(endDate).getTime();
   return Math.max(1, Math.floor((end - start) / 86_400_000) + 1);
+}
+
+function overlapDayCountInclusive(
+  startA: string,
+  endA: string,
+  startB: string,
+  endB: string
+): number {
+  const start = startA > startB ? startA : startB;
+  const end = endA < endB ? endA : endB;
+  if (start > end) return 0;
+  return dayDiffInclusive(start, end);
 }
 
 function getComparisonWindow(
@@ -310,6 +363,56 @@ function SectionError({
       <Button className="mt-3" variant="outline" size="sm" onClick={onRetry}>
         {language === "tr" ? "Tekrar dene" : "Retry"}
       </Button>
+    </div>
+  );
+}
+
+function MetaStatusBanner({
+  status,
+  language,
+}: {
+  status: MetaStatusResponse | undefined;
+  language: "en" | "tr";
+}) {
+  if (!status || status.state === "ready" || status.state === "not_connected") {
+    return null;
+  }
+
+  if (status.state === "connected_no_assignment") {
+    return (
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+        <p className="text-sm font-medium text-amber-800">
+          {language === "tr"
+            ? "Meta bağlı, ancak reklam hesabı atanmadı."
+            : "Meta is connected, but no ad account is assigned."}
+        </p>
+        <p className="mt-1 text-sm text-amber-700">
+          {language === "tr"
+            ? "Veri gösterebilmek için bu workspace'e en az bir Meta reklam hesabı atayın."
+            : "Assign at least one Meta ad account to this workspace to start serving data."}
+        </p>
+      </div>
+    );
+  }
+
+  if (status.state === "syncing" || status.state === "partial") {
+    return null;
+  }
+
+  return (
+    <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-4">
+      <p className="text-sm font-medium text-destructive">
+        {language === "tr"
+          ? "Meta senkronunda müdahale gerektiren bir durum var."
+          : "Meta sync needs attention."}
+      </p>
+      <p className="mt-1 text-sm text-destructive/80">
+        {status.latestSync?.lastError
+          ? status.latestSync.lastError
+          : language === "tr"
+            ? "Senkron tamamlanamadı. Entegrasyonu yeniden bağladıktan sonra tekrar deneyin."
+            : "The sync could not finish. Reconnect the integration and try again."}
+      </p>
     </div>
   );
 }
@@ -520,6 +623,8 @@ export default function MetaPage() {
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
   const [lastAnalyzedAt, setLastAnalyzedAt] = useState<Date | null>(null);
   const [checkedRecIds, setCheckedRecIds] = useState<Set<string>>(new Set());
+  const [isManualRefreshRunning, setIsManualRefreshRunning] = useState(false);
+  const [bootstrapRequestedForBusiness, setBootstrapRequestedForBusiness] = useState<string | null>(null);
 
 
   if (!selectedBusinessId) return <BusinessEmptyState />;
@@ -550,11 +655,42 @@ export default function MetaPage() {
       (bootstrapStatus !== "ready" && !metaView.isConnected));
   const metaConnected = metaView.isConnected || isDemoBusiness;
 
-  const { start: startDate, end: endDate } = getPresetDates(
-    dateRange.rangePreset,
-    dateRange.customStart,
-    dateRange.customEnd
-  );
+  const baseStatusQuery = useQuery({
+    queryKey: ["meta-status-base", businessId],
+    enabled: metaConnected,
+    staleTime: 30 * 1000,
+    refetchInterval: (query) => {
+      const state = (query.state.data as MetaStatusResponse | undefined)?.state;
+      return state === "syncing" || state === "partial" ? 5_000 : false;
+    },
+    queryFn: () => fetchMetaStatus(businessId),
+  });
+  const metaReferenceDate = baseStatusQuery.data?.currentDateInTimezone ?? undefined;
+  const metaTimeZoneLabel = baseStatusQuery.data?.primaryAccountTimezone ?? undefined;
+  const { start: startDate, end: endDate } = metaReferenceDate
+    ? getPresetDatesForReferenceDate(
+        dateRange.rangePreset,
+        metaReferenceDate,
+        dateRange.customStart,
+        dateRange.customEnd
+      )
+    : getPresetDates(
+        dateRange.rangePreset,
+        dateRange.customStart,
+        dateRange.customEnd
+      );
+  const statusQuery = useQuery({
+    queryKey: ["meta-status", businessId],
+    enabled: metaConnected,
+    staleTime: 30 * 1000,
+    refetchInterval: (query) => {
+      const state = (query.state.data as MetaStatusResponse | undefined)?.state;
+      return state === "syncing" || state === "partial" ? 5_000 : false;
+    },
+    queryFn: () => fetchMetaStatus(businessId),
+    placeholderData: baseStatusQuery.data,
+  });
+  const effectiveStatus = statusQuery.data ?? baseStatusQuery.data;
   const comparisonWindow = getComparisonWindow(
     startDate,
     endDate,
@@ -582,12 +718,52 @@ export default function MetaPage() {
     queryFn: () => fetchMetaBreakdowns(businessId, startDate, endDate),
   });
 
+  const summaryQuery = useQuery({
+    queryKey: ["meta-warehouse-summary", businessId, startDate, endDate],
+    enabled: metaConnected,
+    staleTime: 60 * 1000,
+    queryFn: () => fetchMetaSummary(businessId, startDate, endDate),
+  });
+
   const recommendationsQuery = useQuery({
     queryKey: ["meta-recommendations-v8", businessId, startDate, endDate],
     enabled: false,
     staleTime: Infinity,
     queryFn: () => fetchMetaRecommendations(businessId, startDate, endDate),
   });
+
+  useEffect(() => {
+    if (!businessId || !metaConnected) return;
+    const status = effectiveStatus;
+    if (!status?.needsBootstrap) return;
+    if (status.latestSync?.status === "running") return;
+    if (bootstrapRequestedForBusiness === businessId) return;
+
+    setBootstrapRequestedForBusiness(businessId);
+    void fetch("/api/sync/refresh", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({
+        businessId,
+        provider: "meta",
+        mode: "initial",
+      }),
+    }).finally(() => {
+      void baseStatusQuery.refetch();
+      void statusQuery.refetch();
+      void summaryQuery.refetch();
+    });
+  }, [
+    baseStatusQuery,
+    bootstrapRequestedForBusiness,
+    businessId,
+    effectiveStatus,
+    metaConnected,
+    summaryQuery,
+  ]);
 
   // Scroll the left panel item into view when a campaign is selected via AI recommendation
   useEffect(() => {
@@ -612,6 +788,36 @@ export default function MetaPage() {
     });
   }
 
+  async function handleRefreshData() {
+    if (!businessId || isManualRefreshRunning || isSyncInProgress) return;
+    try {
+      setIsManualRefreshRunning(true);
+      await fetch("/api/sync/refresh", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          businessId,
+          provider: "meta",
+        }),
+      });
+
+      await Promise.allSettled([
+        statusQuery.refetch(),
+        summaryQuery.refetch(),
+        campaignsQuery.refetch(),
+        campaignPrevQuery.refetch(),
+        breakdownsQuery.refetch(),
+        comparisonCampaignsQuery.refetch(),
+        comparisonSummaryQuery.refetch(),
+      ]);
+    } finally {
+      setIsManualRefreshRunning(false);
+    }
+  }
+
   const comparisonCampaignsQuery = useQuery({
     queryKey: [
       "meta-campaigns-compare",
@@ -629,16 +835,158 @@ export default function MetaPage() {
       ),
   });
 
+  const comparisonSummaryQuery = useQuery({
+    queryKey: [
+      "meta-warehouse-summary-compare",
+      businessId,
+      comparisonWindow?.startDate,
+      comparisonWindow?.endDate,
+    ],
+    enabled: metaConnected && Boolean(comparisonWindow),
+    staleTime: 60 * 1000,
+    queryFn: () =>
+      fetchMetaSummary(
+        businessId,
+        comparisonWindow!.startDate,
+        comparisonWindow!.endDate
+      ),
+  });
+
   // KPIs are derived from the campaign rows — no extra API call
-  const kpis = useMemo(
+  const warehouseKpis = useMemo(() => {
+    const totals = summaryQuery.data?.totals;
+    if (!totals) return null;
+    return {
+      totalSpend: totals.spend,
+      totalRevenue: totals.revenue,
+      avgCpa: totals.cpa ?? 0,
+      blendedRoas: totals.roas,
+    } satisfies KpiData;
+  }, [summaryQuery.data]);
+  const campaignWarehouseKpis = useMemo(
     () => computeKpis(campaignsQuery.data?.rows ?? []),
     [campaignsQuery.data]
   );
-  const previousKpis = useMemo(
+  const isTodayRange =
+    dateRange.rangePreset === "today" ||
+    (Boolean(metaReferenceDate) && startDate === endDate && startDate === metaReferenceDate);
+  const summaryHistoricalProgress = summaryQuery.data?.historicalSync;
+  const historicalBackfillEnd =
+    metaReferenceDate ? addDaysToISO(metaReferenceDate, -1) : null;
+  const historicalBackfillStart =
+    historicalBackfillEnd ? addDaysToISO(historicalBackfillEnd, -364) : null;
+  const statusHistoricalProgress = effectiveStatus?.latestSync
+    ? {
+        progressPercent: effectiveStatus.latestSync.progressPercent ?? 0,
+        completedDays: effectiveStatus.latestSync.completedDays ?? 0,
+        totalDays: effectiveStatus.latestSync.totalDays ?? 365,
+        readyThroughDate: effectiveStatus.latestSync.readyThroughDate ?? null,
+        state: (effectiveStatus.state === "ready"
+          ? "ready"
+          : effectiveStatus.state === "partial"
+            ? "partial"
+            : "syncing") as "ready" | "syncing" | "partial",
+      }
+    : null;
+  const mergedHistoricalProgress =
+    statusHistoricalProgress ?? summaryHistoricalProgress ?? null;
+  const summaryHistoricalWarehouseReady =
+    summaryQuery.isSuccess &&
+    (summaryHistoricalProgress?.state === "ready" &&
+      (summaryHistoricalProgress?.progressPercent ?? 0) >= 100);
+  const statusWarehouseWindowReady =
+    !isTodayRange &&
+    Boolean(
+      effectiveStatus?.warehouse?.firstDate &&
+        effectiveStatus?.warehouse?.lastDate &&
+        effectiveStatus.warehouse.firstDate <= startDate &&
+        effectiveStatus.warehouse.lastDate >= endDate
+    );
+  const historicalWarehouseReady =
+    statusWarehouseWindowReady ||
+    summaryHistoricalWarehouseReady ||
+    (!summaryQuery.isSuccess &&
+      (mergedHistoricalProgress?.state === "ready" &&
+        (mergedHistoricalProgress?.progressPercent ?? 0) >= 100));
+  const hasCampaignSpend =
+    (campaignsQuery.data?.rows ?? []).some((row) => (row.spend ?? 0) > 0);
+  const hasMissingBreakdownData =
+    !isTodayRange &&
+    !breakdownsQuery.isLoading &&
+    hasCampaignSpend &&
+    (breakdownsQuery.data?.age?.length ?? 0) === 0 &&
+    (breakdownsQuery.data?.location?.length ?? 0) === 0 &&
+    (breakdownsQuery.data?.placement?.length ?? 0) === 0;
+  const emptyKpis: KpiData = {
+    totalSpend: 0,
+    totalRevenue: 0,
+    avgCpa: 0,
+    blendedRoas: 0,
+  };
+  const kpis = warehouseKpis ?? campaignWarehouseKpis ?? emptyKpis;
+  const historicalProgressStatus: MetaStatusResponse | undefined = effectiveStatus
+    ? {
+        ...effectiveStatus,
+        state:
+          shouldRenderMetaSyncProgress(effectiveStatus) || hasMissingBreakdownData
+            ? "partial"
+            : effectiveStatus.state,
+        latestSync: {
+          status: effectiveStatus.latestSync?.status ?? "pending",
+          syncType: effectiveStatus.latestSync?.syncType ?? "initial_backfill",
+          scope: effectiveStatus.latestSync?.scope ?? "account_daily",
+          startDate: effectiveStatus.latestSync?.startDate ?? null,
+          endDate: effectiveStatus.latestSync?.endDate ?? null,
+          triggerSource: effectiveStatus.latestSync?.triggerSource ?? "initial_connect",
+          triggeredAt: effectiveStatus.latestSync?.triggeredAt ?? null,
+          startedAt: effectiveStatus.latestSync?.startedAt ?? null,
+          finishedAt: effectiveStatus.latestSync?.finishedAt ?? null,
+          lastError: effectiveStatus.latestSync?.lastError ?? null,
+          progressPercent:
+            mergedHistoricalProgress?.progressPercent ??
+            effectiveStatus.latestSync?.progressPercent ??
+            0,
+          completedDays:
+            mergedHistoricalProgress?.completedDays ??
+            effectiveStatus.latestSync?.completedDays ??
+            0,
+          totalDays:
+            mergedHistoricalProgress?.totalDays ??
+            effectiveStatus.latestSync?.totalDays ??
+            365,
+          readyThroughDate:
+            mergedHistoricalProgress?.readyThroughDate ??
+            effectiveStatus.latestSync?.readyThroughDate ??
+            effectiveStatus.warehouse?.lastDate ??
+            null,
+          phaseLabel:
+            effectiveStatus.latestSync?.phaseLabel ??
+            (language === "tr" ? "Gecmis veriler hazirlaniyor" : "Historical backfill"),
+        },
+      }
+    : undefined;
+  const shouldShowHistoricalProgress =
+    metaConnected &&
+    (shouldRenderMetaSyncProgress(historicalProgressStatus) || hasMissingBreakdownData);
+  const isSyncInProgress =
+    shouldShowHistoricalProgress &&
+    (historicalProgressStatus?.latestSync?.status ?? null) === "running";
+
+  const previousWarehouseKpis = useMemo(() => {
+    const totals = comparisonSummaryQuery.data?.totals;
+    if (!totals) return null;
+    return {
+      totalSpend: totals.spend,
+      totalRevenue: totals.revenue,
+      avgCpa: totals.cpa ?? 0,
+      blendedRoas: totals.roas,
+    } satisfies KpiData;
+  }, [comparisonSummaryQuery.data]);
+  const previousCampaignKpis = useMemo(
     () => computeKpis(comparisonCampaignsQuery.data?.rows ?? []),
     [comparisonCampaignsQuery.data]
   );
-
+  const previousKpis = previousWarehouseKpis ?? previousCampaignKpis ?? emptyKpis;
   const campaignRowsForTable = useMemo<MetaCampaignTableRow[]>(() => {
     const rows = campaignsQuery.data?.rows ?? [];
     const laneById = buildMetaCampaignLaneSignals(rows);
@@ -734,17 +1082,58 @@ export default function MetaPage() {
               : "Campaign performance, demographic breakdowns, and ad set drill-down."}
           </p>
         </div>
-        <div className="shrink-0 rounded-xl border bg-card p-1 shadow-sm">
-          <DateRangePicker
-            value={dateRange}
-            onChange={setDateRange}
-            rangePresets={["3d", "7d", "14d", "30d", "90d", "custom"]}
-          />
+        <div className="flex items-center gap-2">
+          {metaConnected && shouldShowHistoricalProgress && (
+            <MetaSyncProgress
+              status={historicalProgressStatus}
+              language={language}
+              variant="inline"
+              className="max-w-[320px]"
+            />
+          )}
+          {metaConnected && (
+            <Button
+              variant="outline"
+              className="shrink-0"
+              onClick={() => void handleRefreshData()}
+              disabled={isManualRefreshRunning || isSyncInProgress}
+            >
+              <RefreshCw
+                className={`mr-2 h-4 w-4 ${(isManualRefreshRunning || isSyncInProgress) ? "animate-spin" : ""}`}
+              />
+              {language === "tr"
+                ? isManualRefreshRunning || isSyncInProgress
+                  ? "Senkron devam ediyor"
+                  : "Veriyi yenile"
+                : isManualRefreshRunning || isSyncInProgress
+                  ? "Sync in progress"
+                  : "Refresh data"}
+            </Button>
+          )}
+          <div className="shrink-0 rounded-xl border bg-card p-1 shadow-sm">
+            <DateRangePicker
+              value={dateRange}
+              onChange={setDateRange}
+              rangePresets={["today", "yesterday", "3d", "7d", "14d", "30d", "90d", "custom"]}
+              referenceDate={metaReferenceDate}
+              timeZoneLabel={metaTimeZoneLabel}
+            />
+          </div>
         </div>
       </div>
 
       {/* ── Integration gate ─────────────────────────────────────────────── */}
-      {showBootstrapGuard && <LoadingSkeleton rows={4} />}
+      {!metaConnected && showBootstrapGuard && (
+        <LoadingSkeleton
+          rows={4}
+          title={language === "tr" ? "Meta bağlantısı hazırlanıyor" : "Preparing Meta connection"}
+          description={
+            language === "tr"
+              ? "Bağlantı, hesap keşfi ve assignment durumu kontrol ediliyor."
+              : "We are checking the connection, available ad accounts, and assignment state."
+          }
+        />
+      )}
 
       {!showBootstrapGuard && !metaConnected && (
         <IntegrationEmptyState
@@ -762,67 +1151,78 @@ export default function MetaPage() {
 
       {metaConnected && (
         <>
+          <MetaStatusBanner status={effectiveStatus} language={language} />
           {/* ── KPI Row — unchanged ──────────────────────────────────────── */}
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <KpiCard
-              label={language === "tr" ? "Toplam Harcama" : "Total Spend"}
-              value={campaignsQuery.isLoading ? "—" : fmtK(kpis.totalSpend, sym)}
-              subLabel={
-                language === "tr"
-                  ? `${campaignsQuery.data?.rows?.length ?? 0} kampanya`
-                  : `${campaignsQuery.data?.rows?.length ?? 0} campaigns`
-              }
-              icon={DollarSign}
-              accentClass="border-l-4 border-l-blue-500/60"
-              comparisonLabel={language === "tr" ? "önceki döneme göre" : "vs previous period"}
-              changePct={comparisonWindow ? computeChangePct(kpis.totalSpend, previousKpis.totalSpend) : null}
-            />
-            <KpiCard
-              label={language === "tr" ? "Toplam Gelir" : "Total Revenue"}
-              value={campaignsQuery.isLoading ? "—" : fmtK(kpis.totalRevenue, sym)}
-              subLabel={language === "tr" ? "Atfedilen purchase'lar" : "Attributed purchases"}
-              icon={TrendingUp}
-              accentClass="border-l-4 border-l-emerald-500/60"
-              valueClass="text-emerald-600"
-              comparisonLabel={language === "tr" ? "önceki döneme göre" : "vs previous period"}
-              changePct={comparisonWindow ? computeChangePct(kpis.totalRevenue, previousKpis.totalRevenue) : null}
-            />
-            <KpiCard
-              label="Avg. CPA"
-              value={campaignsQuery.isLoading ? "—" : fmt$(kpis.avgCpa, sym)}
-              subLabel={language === "tr" ? "Dönüşum basi maliyet" : "Cost per conversion"}
-              icon={Target}
-              accentClass="border-l-4 border-l-violet-500/60"
-              comparisonLabel={language === "tr" ? "önceki döneme göre" : "vs previous period"}
-              changePct={comparisonWindow ? computeChangePct(kpis.avgCpa, previousKpis.avgCpa) : null}
-              positiveIsGood={false}
-            />
-            <KpiCard
-              label="Blended ROAS"
-              value={campaignsQuery.isLoading ? "—" : `${kpis.blendedRoas.toFixed(2)}×`}
-              subLabel={language === "tr" ? "Tum kampanyalar birlesik" : "All campaigns combined"}
-              icon={BarChart2}
-              accentClass={
-                kpis.blendedRoas > 2.5
-                  ? "border-l-4 border-l-emerald-500/60"
-                  : kpis.blendedRoas >= 1.5
-                  ? "border-l-4 border-l-amber-500/60"
-                  : "border-l-4 border-l-red-500/60"
-              }
-              valueClass={
-                kpis.blendedRoas > 2.5
-                  ? "text-emerald-600"
-                  : kpis.blendedRoas >= 1.5
-                  ? "text-amber-500"
-                  : "text-red-500"
-              }
-              changePct={comparisonWindow ? computeChangePct(kpis.blendedRoas, previousKpis.blendedRoas) : null}
-              comparisonLabel={language === "tr" ? "önceki döneme göre" : "vs previous period"}
-            />
+                label={language === "tr" ? "Toplam Harcama" : "Total Spend"}
+                value={campaignsQuery.isLoading ? "—" : fmtK(kpis.totalSpend, sym)}
+                subLabel={
+                  language === "tr"
+                    ? `${campaignsQuery.data?.rows?.length ?? 0} kampanya`
+                    : `${campaignsQuery.data?.rows?.length ?? 0} campaigns`
+                }
+                icon={DollarSign}
+                accentClass="border-l-4 border-l-blue-500/60"
+                comparisonLabel={language === "tr" ? "önceki döneme göre" : "vs previous period"}
+                changePct={comparisonWindow ? computeChangePct(kpis.totalSpend, previousKpis.totalSpend) : null}
+              />
+              <KpiCard
+                label={language === "tr" ? "Toplam Gelir" : "Total Revenue"}
+                value={campaignsQuery.isLoading ? "—" : fmtK(kpis.totalRevenue, sym)}
+                subLabel={language === "tr" ? "Atfedilen purchase'lar" : "Attributed purchases"}
+                icon={TrendingUp}
+                accentClass="border-l-4 border-l-emerald-500/60"
+                valueClass="text-emerald-600"
+                comparisonLabel={language === "tr" ? "önceki döneme göre" : "vs previous period"}
+                changePct={comparisonWindow ? computeChangePct(kpis.totalRevenue, previousKpis.totalRevenue) : null}
+              />
+              <KpiCard
+                label="Avg. CPA"
+                value={campaignsQuery.isLoading ? "—" : fmt$(kpis.avgCpa, sym)}
+                subLabel={language === "tr" ? "Dönüşum basi maliyet" : "Cost per conversion"}
+                icon={Target}
+                accentClass="border-l-4 border-l-violet-500/60"
+                comparisonLabel={language === "tr" ? "önceki döneme göre" : "vs previous period"}
+                changePct={comparisonWindow ? computeChangePct(kpis.avgCpa, previousKpis.avgCpa) : null}
+                positiveIsGood={false}
+              />
+              <KpiCard
+                label="Blended ROAS"
+                value={campaignsQuery.isLoading ? "—" : `${kpis.blendedRoas.toFixed(2)}×`}
+                subLabel={language === "tr" ? "Tum kampanyalar birlesik" : "All campaigns combined"}
+                icon={BarChart2}
+                accentClass={
+                  kpis.blendedRoas > 2.5
+                    ? "border-l-4 border-l-emerald-500/60"
+                    : kpis.blendedRoas >= 1.5
+                    ? "border-l-4 border-l-amber-500/60"
+                    : "border-l-4 border-l-red-500/60"
+                }
+                valueClass={
+                  kpis.blendedRoas > 2.5
+                    ? "text-emerald-600"
+                    : kpis.blendedRoas >= 1.5
+                    ? "text-amber-500"
+                    : "text-red-500"
+                }
+                changePct={comparisonWindow ? computeChangePct(kpis.blendedRoas, previousKpis.blendedRoas) : null}
+                comparisonLabel={language === "tr" ? "önceki döneme göre" : "vs previous period"}
+              />
           </div>
 
           {/* ── Master-detail layout ─────────────────────────────────────── */}
-          {campaignsQuery.isLoading && <LoadingSkeleton rows={6} />}
+          {campaignsQuery.isLoading && (
+            <LoadingSkeleton
+              rows={6}
+              title={language === "tr" ? "Kampanya performansı yükleniyor" : "Loading campaign performance"}
+              description={
+                language === "tr"
+                  ? "Önce Meta account-level özet hazırlanır, ardından kampanyalar ve kırılımlar açılır."
+                  : "Account-level performance is prepared first, then campaigns and breakdowns open."
+              }
+            />
+          )}
 
           {campaignsQuery.isError && (
             <SectionError
@@ -908,6 +1308,11 @@ export default function MetaPage() {
                     <div className="p-3">
                       {breakdownsQuery.isLoading ? (
                         <div className="space-y-1.5">
+                          <p className="text-xs text-slate-500">
+                            {language === "tr"
+                              ? "Yaş segment performansı hazırlanıyor."
+                              : "Preparing age-segment performance."}
+                          </p>
                           {[0, 1, 2].map((i) => (
                             <div key={i} className="h-8 animate-pulse rounded bg-slate-100" />
                           ))}
@@ -928,6 +1333,11 @@ export default function MetaPage() {
                     <div className="p-3">
                       {breakdownsQuery.isLoading ? (
                         <div className="space-y-1.5">
+                          <p className="text-xs text-slate-500">
+                            {language === "tr"
+                              ? "Ülke bazlı harcama dağılımı hazırlanıyor."
+                              : "Preparing country-level spend distribution."}
+                          </p>
                           {[0, 1, 2].map((i) => (
                             <div key={i} className="h-6 animate-pulse rounded bg-slate-100" />
                           ))}
@@ -948,6 +1358,11 @@ export default function MetaPage() {
                     <div className="p-3">
                       {breakdownsQuery.isLoading ? (
                         <div className="space-y-1.5">
+                          <p className="text-xs text-slate-500">
+                            {language === "tr"
+                              ? "Placement dağılımı hazırlanıyor."
+                              : "Preparing placement distribution."}
+                          </p>
                           {[0, 1, 2].map((i) => (
                             <div key={i} className="h-6 animate-pulse rounded bg-slate-100" />
                           ))}

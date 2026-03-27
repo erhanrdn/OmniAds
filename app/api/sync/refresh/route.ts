@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import { runMigrations } from "@/lib/migrations";
 import { syncGoogleAdsReports } from "@/lib/sync/google-ads-sync";
 import { syncGA4Reports } from "@/lib/sync/ga4-sync";
+import { syncMetaInitial, syncMetaRecent, syncMetaRepairRange, syncMetaToday } from "@/lib/sync/meta-sync";
 import { syncSearchConsoleReports } from "@/lib/sync/search-console-sync";
 
 /**
@@ -18,10 +19,32 @@ import { syncSearchConsoleReports } from "@/lib/sync/search-console-sync";
 async function isJobAlreadyRunning(
   businessId: string,
   provider: string,
+  mode?: "recent" | "today" | "initial" | "repair",
 ): Promise<boolean> {
   try {
     await runMigrations();
     const sql = getDb();
+    if (provider === "meta") {
+      if (mode === "repair") {
+        const metaRepairRows = await sql`
+          SELECT id FROM meta_sync_jobs
+          WHERE business_id = ${businessId}
+            AND status = 'running'
+            AND sync_type = 'repair_window'
+            AND started_at > now() - interval '30 minutes'
+          LIMIT 1
+        ` as unknown as Array<{ id: string }>;
+        return metaRepairRows.length > 0;
+      }
+      const metaRows = await sql`
+        SELECT id FROM meta_sync_jobs
+        WHERE business_id = ${businessId}
+          AND status = 'running'
+          AND started_at > now() - interval '30 minutes'
+        LIMIT 1
+      ` as unknown as Array<{ id: string }>;
+      return metaRows.length > 0;
+    }
     const rows = await sql`
       SELECT id FROM provider_sync_jobs
       WHERE business_id = ${businessId}
@@ -36,13 +59,30 @@ async function isJobAlreadyRunning(
   }
 }
 
-async function runSyncForProvider(businessId: string, provider: string): Promise<void> {
+async function runSyncForProvider(
+  businessId: string,
+  provider: string,
+  mode: "recent" | "today" | "initial" | "repair" = "recent",
+  range?: { startDate: string; endDate: string }
+): Promise<void> {
   switch (provider) {
     case "google_ads":
       await syncGoogleAdsReports(businessId);
       break;
     case "ga4":
       await syncGA4Reports(businessId);
+      break;
+    case "meta":
+      if (mode === "today") await syncMetaToday(businessId);
+      else if (mode === "initial") await syncMetaInitial(businessId);
+      else if (mode === "repair" && range) {
+        await syncMetaRepairRange({
+          businessId,
+          startDate: range.startDate,
+          endDate: range.endDate,
+        });
+      }
+      else await syncMetaRecent(businessId);
       break;
     case "search_console":
       await syncSearchConsoleReports(businessId);
@@ -53,14 +93,20 @@ async function runSyncForProvider(businessId: string, provider: string): Promise
 }
 
 export async function POST(request: NextRequest) {
-  let body: { businessId?: string; provider?: string };
+  let body: {
+    businessId?: string;
+    provider?: string;
+    mode?: "recent" | "today" | "initial" | "repair";
+    startDate?: string;
+    endDate?: string;
+  };
   try {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const { businessId, provider } = body;
+  const { businessId, provider, mode, startDate, endDate } = body;
   if (!businessId || !provider) {
     return NextResponse.json(
       { error: "businessId and provider are required." },
@@ -68,7 +114,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const validProviders = ["google_ads", "ga4", "search_console"];
+  const validProviders = ["google_ads", "ga4", "meta", "search_console"];
   if (!validProviders.includes(provider)) {
     return NextResponse.json(
       { error: `Invalid provider. Must be one of: ${validProviders.join(", ")}` },
@@ -76,14 +122,26 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  if (provider === "meta" && mode === "repair" && (!startDate || !endDate)) {
+    return NextResponse.json(
+      { error: "startDate and endDate are required for meta repair sync." },
+      { status: 400 },
+    );
+  }
+
   // Zaten çalışan bir job varsa tekrar başlatma
-  const alreadyRunning = await isJobAlreadyRunning(businessId, provider);
+  const alreadyRunning = await isJobAlreadyRunning(businessId, provider, mode);
   if (alreadyRunning) {
     return NextResponse.json({ ok: true, status: "already_running" }, { status: 202 });
   }
 
   // Fire-and-forget: hemen 202 dön, arka planda sync başlat
-  runSyncForProvider(businessId, provider).catch((err) => {
+  runSyncForProvider(
+    businessId,
+    provider,
+    mode ?? "recent",
+    startDate && endDate ? { startDate, endDate } : undefined
+  ).catch((err) => {
     console.error("[sync-refresh] background_sync_failed", {
       businessId,
       provider,
@@ -91,5 +149,8 @@ export async function POST(request: NextRequest) {
     });
   });
 
-  return NextResponse.json({ ok: true, status: "started" }, { status: 202 });
+  return NextResponse.json(
+    { ok: true, status: "started", mode: mode ?? "recent" },
+    { status: 202 }
+  );
 }

@@ -3,6 +3,8 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getProviderLabel } from "@/components/integrations/oauth";
+import { MetaSyncProgress } from "@/components/meta/meta-sync-progress";
+import type { MetaStatusResponse } from "@/lib/meta/status-types";
 import { cn } from "@/lib/utils";
 import {
   IntegrationProvider,
@@ -15,6 +17,8 @@ interface IntegrationsCardProps {
   provider: IntegrationProvider;
   description: string;
   view: ProviderViewState;
+  syncNotice?: string | null;
+  metaSyncStatus?: MetaStatusResponse | null;
   onConnect: (provider: IntegrationProvider) => void;
   onReconnect: (provider: IntegrationProvider) => void;
   onRetry: (provider: IntegrationProvider) => void;
@@ -27,6 +31,8 @@ export function IntegrationsCard({
   provider,
   description,
   view,
+  syncNotice,
+  metaSyncStatus,
   onConnect,
   onReconnect,
   onRetry,
@@ -86,6 +92,16 @@ export function IntegrationsCard({
       {view.notice ? (
         <p className="mt-2 rounded-lg border border-sky-300/30 bg-sky-50 px-2.5 py-2 text-[11px] leading-4 text-sky-800">
           {view.notice}
+        </p>
+      ) : null}
+
+      {provider === "meta" && metaSyncStatus ? (
+        <div className="mt-2">
+          <MetaSyncProgress status={metaSyncStatus} variant="compact" />
+        </div>
+      ) : syncNotice ? (
+        <p className="mt-2 rounded-lg border border-blue-300/30 bg-blue-50 px-2.5 py-2 text-[11px] leading-4 text-blue-800">
+          {syncNotice}
         </p>
       ) : null}
 

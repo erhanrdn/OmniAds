@@ -138,6 +138,24 @@ export async function disconnectIntegration(
   `;
 }
 
+export async function disconnectAllIntegrationsForProvider(
+  provider: IntegrationProviderType
+): Promise<void> {
+  const sql = getDb();
+  await sql`
+    UPDATE integrations SET
+      status           = 'disconnected',
+      access_token     = NULL,
+      refresh_token    = NULL,
+      token_expires_at = NULL,
+      error_message    = NULL,
+      metadata         = '{}'::jsonb,
+      disconnected_at  = now(),
+      updated_at       = now()
+    WHERE provider = ${provider}
+  `;
+}
+
 /** Mark an integration as error */
 export async function setIntegrationError(
   businessId: string,

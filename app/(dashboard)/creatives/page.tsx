@@ -49,6 +49,63 @@ import {
 } from "@/app/(dashboard)/creatives/page-support";
 import { useBusinessIntegrationsBootstrap } from "@/hooks/use-business-integrations-bootstrap";
 import { PlanGate } from "@/components/pricing/PlanGate";
+import type { MetaStatusResponse } from "@/lib/meta/status-types";
+
+async function fetchMetaStatus(businessId: string): Promise<MetaStatusResponse> {
+  const params = new URLSearchParams({ businessId });
+  const response = await fetch(`/api/meta/status?${params.toString()}`, {
+    cache: "no-store",
+    headers: { Accept: "application/json" },
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(
+      (payload as { message?: string } | null)?.message ??
+        `Meta status request failed (${response.status})`
+    );
+  }
+  return payload as MetaStatusResponse;
+}
+
+function CreativesSyncInlineProgress({
+  status,
+}: {
+  status: MetaStatusResponse | undefined;
+}) {
+  const coverage = status?.warehouse?.coverage?.creatives;
+  const hasAssignment = (status?.assignedAccountIds?.length ?? 0) > 0;
+  if (!status?.connected || !hasAssignment || !coverage) return null;
+
+  const totalDays = Math.max(coverage.totalDays ?? 0, 1);
+  const completedDays = Math.max(0, coverage.completedDays ?? 0);
+  const progress = Math.max(
+    0,
+    Math.min(100, Math.round((completedDays / totalDays) * 100))
+  );
+  if (progress >= 100) return null;
+
+  const captionParts = [`${completedDays}/${totalDays} days`];
+  if (coverage.readyThroughDate) {
+    captionParts.push(`Ready through ${coverage.readyThroughDate}`);
+  }
+
+  return (
+    <div className="inline-flex min-w-[220px] items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+      <span className="shrink-0 font-semibold tabular-nums">{progress}%</span>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-[11px]">
+          {`Creatives backfill • ${captionParts.join(" • ")}`}
+        </div>
+        <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-blue-100">
+          <div
+            className="h-full rounded-full bg-blue-500 transition-[width] duration-300"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const CreativeDetailExperience = dynamic(
   () => import("@/components/creatives/CreativeDetailExperience").then((mod) => mod.CreativeDetailExperience),
@@ -153,6 +210,13 @@ export default function CreativesPage() {
         ? 2500
         : false,
     refetchIntervalInBackground: true,
+  });
+  const metaStatusQuery = useQuery({
+    queryKey: ["meta-creatives-status", businessId],
+    enabled: platform === "meta" && platformConnected && metaHasAssignments,
+    staleTime: 30 * 1000,
+    refetchInterval: 10_000,
+    queryFn: () => fetchMetaStatus(businessId),
   });
   const creativesMediaQuery = useQuery({
     queryKey: [
@@ -676,6 +740,7 @@ export default function CreativesPage() {
               csvError={csvError}
               previewStripState={previewStripState}
               previewStripSummary={topPreviewSummary}
+              actionsPrefix={<CreativesSyncInlineProgress status={metaStatusQuery.data} />}
             />
 
             {creativesMetadataQuery.isLoading && <CreativesTableShell />}

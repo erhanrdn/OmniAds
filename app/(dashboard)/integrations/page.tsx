@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,6 +24,7 @@ import { getProviderLabel } from "@/components/integrations/oauth";
 import { logClientAuthEvent } from "@/lib/auth-diagnostics";
 import { isDemoBusinessId } from "@/lib/demo-business";
 import { ArrowRight, CheckCircle2, Layers3, Link2, Sparkles } from "lucide-react";
+import type { MetaStatusResponse } from "@/lib/meta/status-types";
 
 /** Providers that have real backend OAuth (not mock) */
 const REAL_PROVIDERS: IntegrationProvider[] = [
@@ -94,6 +96,22 @@ interface SearchConsoleProperty {
   siteType?: "domain" | "url-prefix";
 }
 
+async function fetchMetaStatus(businessId: string): Promise<MetaStatusResponse> {
+  const params = new URLSearchParams({ businessId });
+  const response = await fetch(`/api/meta/status?${params.toString()}`, {
+    cache: "no-store",
+    headers: { Accept: "application/json" },
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(
+      (payload as { message?: string } | null)?.message ??
+        `Meta status request failed (${response.status})`
+    );
+  }
+  return payload as MetaStatusResponse;
+}
+
 function hasRenderableProviderViews(
   cards: Array<{ status: string; isConnected: boolean; assignedCount: number }>,
 ) {
@@ -151,6 +169,7 @@ export default function IntegrationsPage() {
   const [properties, setProperties] = useState<SearchConsoleProperty[]>([]);
   const [selectedPropertyUrl, setSelectedPropertyUrl] = useState("");
   const [viewStateLogCache] = useState(() => new Map<string, string>());
+  const [metaBootstrapRequestedForBusiness, setMetaBootstrapRequestedForBusiness] = useState<string | null>(null);
 
   const integrations = useMemo(() => {
     if (!businessId) return null;
@@ -166,6 +185,40 @@ export default function IntegrationsPage() {
     [providerViews],
   );
   const searchConsoleState = integrations?.search_console;
+  const metaStatusQuery = useQuery({
+    queryKey: ["meta-sync-status", businessId],
+    enabled: Boolean(businessId),
+    staleTime: 30 * 1000,
+    refetchInterval: (query) => {
+      const state = (query.state.data as MetaStatusResponse | undefined)?.state;
+      return state === "syncing" || state === "partial" ? 5_000 : false;
+    },
+    queryFn: () => fetchMetaStatus(businessId!),
+  });
+
+  useEffect(() => {
+    if (!businessId) return;
+    const status = metaStatusQuery.data;
+    if (!status?.connected || !status.needsBootstrap) return;
+    if (status.latestSync?.status === "running") return;
+    if (metaBootstrapRequestedForBusiness === businessId) return;
+
+    setMetaBootstrapRequestedForBusiness(businessId);
+    void fetch("/api/sync/refresh", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({
+        businessId,
+        provider: "meta",
+        mode: "initial",
+      }),
+    }).finally(() => {
+      void metaStatusQuery.refetch();
+    });
+  }, [businessId, metaBootstrapRequestedForBusiness, metaStatusQuery]);
 
   const closeSearchConsoleSelector = useCallback(() => {
     setIsPropertySelectorOpen(false);
@@ -391,10 +444,34 @@ export default function IntegrationsPage() {
   const providerCards = DISPLAY_PROVIDERS.map((provider) => {
     const view = providerViews.find((item) => item.provider === provider);
     const assignedIds = assignedAccountsByBusiness[businessId]?.[provider] ?? [];
+    let syncNotice: string | null = null;
+    let metaSyncStatus: MetaStatusResponse | null = null;
+    if (provider === "meta") {
+      const status = metaStatusQuery.data;
+      metaSyncStatus = status ?? null;
+      if (status?.state === "syncing") {
+        syncNotice =
+          typeof status.latestSync?.progressPercent === "number"
+            ? `Historical data is syncing. Progress: ${status.latestSync.progressPercent}%`
+            : "Historical data is syncing. Ready sections will appear progressively.";
+      } else if (status?.state === "connected_no_assignment") {
+        syncNotice = "Connection is live, but no Meta ad account is assigned to this workspace yet.";
+      } else if (status?.state === "action_required") {
+        syncNotice =
+          status.latestSync?.lastError ??
+          "Meta sync needs attention before historical data can be prepared.";
+      } else if (status?.state === "ready" && status.latestSync?.finishedAt) {
+        syncNotice = `Historical data prepared. Last sync finished ${new Date(
+          status.latestSync.finishedAt
+        ).toLocaleString()}.`;
+      }
+    }
     return {
       provider,
       assignedIds,
       view,
+      syncNotice,
+      metaSyncStatus,
     };
   }).filter(
     (item): item is typeof item & { view: NonNullable<typeof item.view> } => Boolean(item.view)
@@ -516,6 +593,8 @@ export default function IntegrationsPage() {
                     provider={item.provider}
                     description={DESCRIPTIONS[item.provider]}
                     view={item.view}
+                    syncNotice={item.syncNotice}
+                    metaSyncStatus={item.metaSyncStatus}
                     onConnect={handleConnect}
                     onReconnect={(p) => setActiveProvider(p)}
                     onRetry={handleRetry}

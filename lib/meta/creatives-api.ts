@@ -3,6 +3,10 @@ import { getIntegration } from "@/lib/integrations";
 import { fetchAssignedAccountIds, fetchCreativeDetailPreviewHtml } from "@/lib/meta/creatives-fetchers";
 import { buildCreativesResponse } from "@/lib/meta/creatives-service";
 import type { FormatFilter, GroupBy, SortKey } from "@/lib/meta/creatives-types";
+import {
+  ensureMetaCreativesWarehouseRangeFilled,
+  getMetaCreativesWarehousePayload,
+} from "@/lib/meta/creatives-warehouse";
 
 export interface MetaCreativesApiInput {
   request: NextRequest;
@@ -126,4 +130,70 @@ export async function getMetaCreativesApiPayload(input: MetaCreativesApiInput) {
     },
     request
   );
+}
+
+function buildUnavailableDetailPreview(creativeId: string) {
+  return {
+    status: "ok",
+    detail_preview: {
+      creative_id: creativeId,
+      mode: "unavailable",
+      source: null,
+      ad_format: null,
+      html: null,
+    },
+  };
+}
+
+export async function getMetaCreativesDbPayload(input: MetaCreativesApiInput) {
+  const {
+    businessId,
+    detailPreviewCreativeId = "",
+    mediaMode,
+    groupBy,
+    format,
+    sort,
+    start,
+    end,
+  } = input;
+
+  const integration = await getIntegration(businessId, "meta").catch(() => null);
+  if (!integration || integration.status !== "connected") {
+    return { status: "no_connection", rows: [] };
+  }
+  if (!integration.access_token) {
+    return { status: "no_access_token", rows: [] };
+  }
+
+  if (detailPreviewCreativeId) {
+    return buildUnavailableDetailPreview(detailPreviewCreativeId);
+  }
+
+  const assignedAccountIds = await fetchAssignedAccountIds(businessId);
+  if (assignedAccountIds.length === 0) {
+    return { status: "no_accounts_assigned", rows: [] };
+  }
+
+  await ensureMetaCreativesWarehouseRangeFilled({
+    businessId,
+    startDate: start,
+    endDate: end,
+  }).catch((error) => {
+    console.warn("[meta-creatives] ensure_warehouse_failed", {
+      businessId,
+      start,
+      end,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  });
+
+  return getMetaCreativesWarehousePayload({
+    businessId,
+    start,
+    end,
+    groupBy,
+    format,
+    sort,
+    mediaMode,
+  });
 }

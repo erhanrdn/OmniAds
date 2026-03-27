@@ -29,6 +29,7 @@ import {
 } from "@/components/creatives/creatives-top-section-support";
 import { cn } from "@/lib/utils";
 import { useDropdownBehavior } from "@/hooks/use-dropdown-behavior";
+import type { ReactNode } from "react";
 
 export type CreativeGroupBy = "adName" | "creative" | "copy" | "headline" | "landingPage" | "campaign" | "adSet";
 
@@ -127,6 +128,7 @@ interface CreativesTopSectionProps {
     missing: number;
     minimumReady: number;
   };
+  actionsPrefix?: ReactNode;
 }
 
 const GROUP_BY_OPTIONS: Array<{ value: CreativeGroupBy; label: string }> = [
@@ -345,6 +347,7 @@ export function CreativesTopSection({
   previewStripState = "ready",
   showAiActionsRow = true,
   previewStripSummary,
+  actionsPrefix,
 }: CreativesTopSectionProps) {
   const metricDefs = useMemo(
     () => selectedMetricIds.map((id) => CREATIVE_METRIC_MAP[id]).filter(Boolean) as CreativeMetricDefinition[],
@@ -392,7 +395,8 @@ export function CreativesTopSection({
 
           <div id="creative-ai-signals-slot" className="inline-flex items-center gap-1.5" />
 
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-2">
+            {actionsPrefix}
             <TopExportDropdown
               onShareExport={onShareExport}
               onCsvExport={onCsvExport}

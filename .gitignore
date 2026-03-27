@@ -43,3 +43,5 @@ next-env.d.ts
 
 # media cache
 /.cache/
+
+certificates

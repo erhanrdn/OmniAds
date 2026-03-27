@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { isDemoBusiness } from "@/lib/business-mode.server";
-import { getCachedRouteReport, setCachedRouteReport } from "@/lib/route-report-cache";
 import { getDemoMetaBreakdowns, getDemoMetaCampaigns } from "@/lib/demo-business";
 import { buildMetaRecommendations, type MetaRecommendationsResponse } from "@/lib/meta/recommendations";
 import { readMetaBidRegimeHistorySummaries } from "@/lib/meta/config-snapshots";
@@ -11,8 +10,6 @@ import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
 import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
 import { buildCreativeHistoryById, mapApiRowToUiRow } from "@/app/(dashboard)/creatives/page-support";
 import { resolveRequestLanguage } from "@/lib/request-language";
-
-const META_RECOMMENDATIONS_REPORT_VERSION = "v12";
 
 function parseISODate(value: string): Date {
   return new Date(`${value}T00:00:00.000Z`);
@@ -57,8 +54,6 @@ export async function GET(request: NextRequest) {
   const businessId = searchParams.get("businessId");
   const startDate = searchParams.get("startDate");
   const endDate = searchParams.get("endDate");
-  const cacheSearchParams = new URLSearchParams(searchParams);
-  cacheSearchParams.set("locale", language);
 
   const access = await requireBusinessAccess({
     request,
@@ -94,14 +89,6 @@ export async function GET(request: NextRequest) {
       })
     );
   }
-
-  const cached = await getCachedRouteReport<MetaRecommendationsResponse>({
-    businessId,
-    provider: "meta",
-    reportType: `meta_recommendations_${META_RECOMMENDATIONS_REPORT_VERSION}`,
-    searchParams: cacheSearchParams,
-  });
-  if (cached) return NextResponse.json(cached);
 
   const selectedSpanDays = dayDiffInclusive(startDate, endDate);
   const previousEnd = addDaysToISO(startDate, -1);
@@ -253,14 +240,6 @@ export async function GET(request: NextRequest) {
       ).entries()
     ),
     language,
-  });
-
-  await setCachedRouteReport({
-    businessId,
-    provider: "meta",
-    reportType: `meta_recommendations_${META_RECOMMENDATIONS_REPORT_VERSION}`,
-    searchParams: cacheSearchParams,
-    payload,
   });
 
   return NextResponse.json(payload);

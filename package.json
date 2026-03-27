@@ -10,7 +10,9 @@
     "build": "next build",
     "start": "next start",
     "seed:demo-business": "node scripts/seed-demo-business.mjs",
-    "seed:reviewer-account": "node scripts/seed-reviewer-account.mjs"
+    "seed:reviewer-account": "node scripts/seed-reviewer-account.mjs",
+    "meta:reset": "node --import tsx scripts/reset-meta-stack.ts",
+    "meta:smoke": "node --import tsx scripts/meta-warehouse-smoke.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",

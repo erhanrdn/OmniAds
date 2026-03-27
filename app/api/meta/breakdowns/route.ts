@@ -5,10 +5,8 @@ import { getDemoMetaBreakdowns } from "@/lib/demo-business";
 import { getIntegration } from "@/lib/integrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { runMigrations } from "@/lib/migrations";
-import {
-  getCachedRouteReport,
-  setCachedRouteReport,
-} from "@/lib/route-report-cache";
+import { getMetaWarehouseBreakdowns } from "@/lib/meta/serving";
+import { ensureMetaWarehouseRangeFilled } from "@/lib/sync/meta-sync";
 
 type BreakdownType = "age" | "country" | "placement" | "adset" | "campaign";
 
@@ -236,19 +234,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(getDemoMetaBreakdowns());
   }
 
-  const cached = await getCachedRouteReport<MetaBreakdownsResponse>({
-    businessId: businessId!,
-    provider: "meta",
-    reportType: "meta_breakdown",
-    searchParams,
-  });
-  if (cached) {
-    return NextResponse.json(cached);
-  }
-
   const integration = await getIntegration(businessId!, "meta").catch(() => null);
   if (!integration || integration.status !== "connected") {
-    const payload = {
+    return NextResponse.json({
       status: "no_connection",
       age: [],
       location: [],
@@ -256,18 +244,10 @@ export async function GET(request: NextRequest) {
       budget: { campaign: [], adset: [] },
       audience: { available: false, reason: "Audience type classification unavailable." },
       products: { available: false, reason: "Catalog product breakdown unavailable for current setup." },
-    } satisfies MetaBreakdownsResponse;
-    await setCachedRouteReport({
-      businessId: businessId!,
-      provider: "meta",
-      reportType: "meta_breakdown",
-      searchParams,
-      payload,
-    });
-    return NextResponse.json(payload);
+    } satisfies MetaBreakdownsResponse);
   }
   if (!integration.access_token) {
-    const payload = {
+    return NextResponse.json({
       status: "no_access_token",
       age: [],
       location: [],
@@ -275,20 +255,12 @@ export async function GET(request: NextRequest) {
       budget: { campaign: [], adset: [] },
       audience: { available: false, reason: "Audience type classification unavailable." },
       products: { available: false, reason: "Catalog product breakdown unavailable for current setup." },
-    } satisfies MetaBreakdownsResponse;
-    await setCachedRouteReport({
-      businessId: businessId!,
-      provider: "meta",
-      reportType: "meta_breakdown",
-      searchParams,
-      payload,
-    });
-    return NextResponse.json(payload);
+    } satisfies MetaBreakdownsResponse);
   }
 
   const assignedAccountIds = await fetchAssignedAccountIds(businessId!);
   if (assignedAccountIds.length === 0) {
-    const payload = {
+    return NextResponse.json({
       status: "no_accounts_assigned",
       age: [],
       location: [],
@@ -296,92 +268,68 @@ export async function GET(request: NextRequest) {
       budget: { campaign: [], adset: [] },
       audience: { available: false, reason: "Audience type classification unavailable." },
       products: { available: false, reason: "Catalog product breakdown unavailable for current setup." },
-    } satisfies MetaBreakdownsResponse;
-    await setCachedRouteReport({
-      businessId: businessId!,
-      provider: "meta",
-      reportType: "meta_breakdown",
-      searchParams,
-      payload,
-    });
-    return NextResponse.json(payload);
+    } satisfies MetaBreakdownsResponse);
   }
 
-  const ageRows: BreakdownInsightRow[] = [];
-  const countryRows: BreakdownInsightRow[] = [];
-  const placementRows: BreakdownInsightRow[] = [];
-  const adsetRows: BreakdownInsightRow[] = [];
-  const campaignRows: BreakdownInsightRow[] = [];
+  await ensureMetaWarehouseRangeFilled({
+    businessId: businessId!,
+    startDate,
+    endDate,
+  }).catch((error) => {
+    console.warn("[meta-breakdowns] ensure_range_failed", {
+      businessId,
+      startDate,
+      endDate,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  });
 
-  await Promise.all(
-    assignedAccountIds.map(async (accountId) => {
-      const [age, country, placement, adset, campaign] = await Promise.all([
-        fetchBreakdownInsights({
-          accountId,
-          accessToken: integration.access_token!,
-          since: startDate,
-          until: endDate,
-          type: "age",
-        }),
-        fetchBreakdownInsights({
-          accountId,
-          accessToken: integration.access_token!,
-          since: startDate,
-          until: endDate,
-          type: "country",
-        }),
-        fetchBreakdownInsights({
-          accountId,
-          accessToken: integration.access_token!,
-          since: startDate,
-          until: endDate,
-          type: "placement",
-        }),
-        fetchBreakdownInsights({
-          accountId,
-          accessToken: integration.access_token!,
-          since: startDate,
-          until: endDate,
-          type: "adset",
-        }),
-        fetchBreakdownInsights({
-          accountId,
-          accessToken: integration.access_token!,
-          since: startDate,
-          until: endDate,
-          type: "campaign",
-        }),
-      ]);
-      ageRows.push(...age);
-      countryRows.push(...country);
-      placementRows.push(...placement);
-      adsetRows.push(...adset);
-      campaignRows.push(...campaign);
-    })
-  );
-
-  const ageAgg = aggregateRows(ageRows, "age");
-  const countryAgg = aggregateRows(countryRows, "country");
-  const placementAgg = aggregateRows(placementRows, "placement");
-  const adsetAgg = aggregateRows(adsetRows, "adset").map((row) => ({
-    key: row.key,
-    label: row.label,
-    spend: row.spend,
-  }));
-  const campaignAgg = aggregateRows(campaignRows, "campaign").map((row) => ({
-    key: row.key,
-    label: row.label,
-    spend: row.spend,
-  }));
-
-  const payload = {
+  try {
+    const warehouse = await getMetaWarehouseBreakdowns({
+      businessId: businessId!,
+      startDate,
+      endDate,
+      providerAccountIds: assignedAccountIds,
+    });
+    const hasWarehouseRows =
+      warehouse.age.length > 0 ||
+      warehouse.location.length > 0 ||
+      warehouse.placement.length > 0 ||
+      warehouse.budget.campaign.length > 0 ||
+      warehouse.budget.adset.length > 0;
+    if (hasWarehouseRows) {
+      return NextResponse.json({
+        status: "ok",
+        age: warehouse.age,
+        location: warehouse.location,
+        placement: warehouse.placement,
+        budget: warehouse.budget,
+        audience: {
+          available: false,
+          reason:
+            "Audience Performance unavailable: no reliable audience-type dimension from current Meta account setup.",
+        },
+        products: {
+          available: false,
+          reason:
+            "Top Products unavailable: product-level catalog breakdown is not available from current Meta insights endpoint/tokens.",
+        },
+      } satisfies MetaBreakdownsResponse);
+    }
+  } catch (error) {
+    console.warn("[meta-breakdowns] warehouse_read_failed", {
+      businessId,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return NextResponse.json({
     status: "ok",
-    age: ageAgg,
-    location: countryAgg,
-    placement: placementAgg,
+    age: [],
+    location: [],
+    placement: [],
     budget: {
-      campaign: campaignAgg,
-      adset: adsetAgg,
+      campaign: [],
+      adset: [],
     },
     audience: {
       available: false,
@@ -393,13 +341,5 @@ export async function GET(request: NextRequest) {
       reason:
         "Top Products unavailable: product-level catalog breakdown is not available from current Meta insights endpoint/tokens.",
     },
-  } satisfies MetaBreakdownsResponse;
-  await setCachedRouteReport({
-    businessId: businessId!,
-    provider: "meta",
-    reportType: "meta_breakdown",
-    searchParams,
-    payload,
-  });
-  return NextResponse.json(payload);
+  } satisfies MetaBreakdownsResponse);
 }

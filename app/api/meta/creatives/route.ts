@@ -5,7 +5,7 @@ import { getDemoMetaCreatives } from "@/lib/demo-business";
 import type { FormatFilter, GroupBy, SortKey } from "@/lib/meta/creatives-types";
 export type { MetaCreativeApiRow } from "@/lib/meta/creatives-types";
 import { toISODate, nDaysAgo } from "@/lib/meta/creatives-row-mappers";
-import { getMetaCreativesApiPayload } from "@/lib/meta/creatives-api";
+import { getMetaCreativesDbPayload } from "@/lib/meta/creatives-api";
 
 export async function GET(request: NextRequest) {
   const requestStartedAt = Date.now();
@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(getDemoMetaCreatives());
   }
 
-  const result = await getMetaCreativesApiPayload({
+  const result = await getMetaCreativesDbPayload({
     request,
     requestStartedAt,
     businessId,

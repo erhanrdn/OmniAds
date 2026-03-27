@@ -1047,8 +1047,7 @@ export async function buildCreativesResponse(
   const snapshotPersistEligible =
     !debugPreview &&
     !debugThumbnail &&
-    !debugPerf &&
-    responseRows.length > 0;
+    !debugPerf;
 
   if (snapshotPersistEligible) {
     await persistMetaCreativesSnapshot({

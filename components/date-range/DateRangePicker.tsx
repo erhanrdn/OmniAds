@@ -77,10 +77,68 @@ function toISO(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+function parseISODate(value: string): Date {
+  return new Date(`${value}T00:00:00.000Z`);
+}
+
 function addDays(d: Date, n: number): Date {
   const r = new Date(d);
   r.setDate(r.getDate() + n);
   return r;
+}
+
+export function getTodayIsoForTimeZone(timeZone: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const year = parts.find((part) => part.type === "year")?.value ?? "1970";
+  const month = parts.find((part) => part.type === "month")?.value ?? "01";
+  const day = parts.find((part) => part.type === "day")?.value ?? "01";
+  return `${year}-${month}-${day}`;
+}
+
+export function getPresetDatesForReferenceDate(
+  preset: RangePreset,
+  referenceDate: string,
+  customStart?: string,
+  customEnd?: string
+): { start: string; end: string } {
+  const today = parseISODate(referenceDate);
+  switch (preset) {
+    case "today":
+      return { start: referenceDate, end: referenceDate };
+    case "yesterday": {
+      const y = toISO(addDays(today, -1));
+      return { start: y, end: y };
+    }
+    case "3d":
+      return { start: toISO(addDays(today, -2)), end: referenceDate };
+    case "7d":
+      return { start: toISO(addDays(today, -6)), end: referenceDate };
+    case "14d":
+      return { start: toISO(addDays(today, -13)), end: referenceDate };
+    case "30d":
+      return { start: toISO(addDays(today, -29)), end: referenceDate };
+    case "90d":
+      return { start: toISO(addDays(today, -89)), end: referenceDate };
+    case "365d":
+      return { start: toISO(addDays(today, -364)), end: referenceDate };
+    case "lastMonth": {
+      const y = today.getUTCFullYear();
+      const m = today.getUTCMonth();
+      const start = new Date(Date.UTC(m === 0 ? y - 1 : y, m === 0 ? 11 : m - 1, 1));
+      const end = new Date(Date.UTC(y, m, 0));
+      return { start: toISO(start), end: toISO(end) };
+    }
+    case "custom":
+      return {
+        start: customStart || toISO(addDays(today, -29)),
+        end: customEnd || referenceDate,
+      };
+  }
 }
 
 export function getPresetDates(
@@ -88,40 +146,9 @@ export function getPresetDates(
   customStart?: string,
   customEnd?: string
 ): { start: string; end: string } {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  switch (preset) {
-    case "today":
-      return { start: toISO(today), end: toISO(today) };
-    case "yesterday": {
-      const y = addDays(today, -1);
-      return { start: toISO(y), end: toISO(y) };
-    }
-    case "3d":
-      return { start: toISO(addDays(today, -2)), end: toISO(today) };
-    case "7d":
-      return { start: toISO(addDays(today, -6)), end: toISO(today) };
-    case "14d":
-      return { start: toISO(addDays(today, -13)), end: toISO(today) };
-    case "30d":
-      return { start: toISO(addDays(today, -29)), end: toISO(today) };
-    case "90d":
-      return { start: toISO(addDays(today, -89)), end: toISO(today) };
-    case "365d":
-      return { start: toISO(addDays(today, -364)), end: toISO(today) };
-    case "lastMonth": {
-      const y = today.getFullYear();
-      const m = today.getMonth();
-      const start = new Date(m === 0 ? y - 1 : y, m === 0 ? 11 : m - 1, 1);
-      const end = new Date(y, m, 0);
-      return { start: toISO(start), end: toISO(end) };
-    }
-    case "custom":
-      return {
-        start: customStart || toISO(addDays(today, -29)),
-        end: customEnd || toISO(today),
-      };
-  }
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  return getPresetDatesForReferenceDate(preset, toISO(now), customStart, customEnd);
 }
 
 function formatDateLabel(iso: string): string {
@@ -140,6 +167,29 @@ function formatDateRange(start: string, end: string): string {
 function getTriggerLabel(value: DateRangeValue, presets = RANGE_PRESETS): string {
   if (value.rangePreset === "custom") {
     return formatDateRange(value.customStart, value.customEnd) || "Custom";
+  }
+  return presets.find((p) => p.value === value.rangePreset)?.label
+    ?? RANGE_PRESETS.find((p) => p.value === value.rangePreset)?.label
+    ?? "Select range";
+}
+
+function getTriggerLabelForReferenceDate(
+  value: DateRangeValue,
+  presets = RANGE_PRESETS,
+  referenceDate?: string
+): string {
+  if (value.rangePreset === "custom") {
+    return formatDateRange(value.customStart, value.customEnd) || "Custom";
+  }
+  if (!referenceDate) return getTriggerLabel(value, presets);
+  const { start, end } = getPresetDatesForReferenceDate(
+    value.rangePreset,
+    referenceDate,
+    value.customStart,
+    value.customEnd
+  );
+  if (value.rangePreset === "today" || value.rangePreset === "yesterday") {
+    return formatDateRange(start, end);
   }
   return presets.find((p) => p.value === value.rangePreset)?.label
     ?? RANGE_PRESETS.find((p) => p.value === value.rangePreset)?.label
@@ -292,10 +342,12 @@ interface PanelProps {
   onApply: () => void;
   onCancel: () => void;
   rangePresets?: { value: RangePreset; label: string }[];
+  referenceDate?: string;
+  timeZoneLabel?: string;
 }
 
-function Panel({ mode, draft, onDraftChange, onApply, onCancel, rangePresets }: PanelProps) {
-  const today = new Date();
+function Panel({ mode, draft, onDraftChange, onApply, onCancel, rangePresets, referenceDate, timeZoneLabel }: PanelProps) {
+  const today = referenceDate ? parseISODate(referenceDate) : new Date();
   const isRange = mode === "range";
 
   const [calYear, setCalYear] = useState(today.getFullYear());
@@ -308,7 +360,14 @@ function Panel({ mode, draft, onDraftChange, onApply, onCancel, rangePresets }: 
     : false;
 
   const { start: displayStart, end: displayEnd } = isRange
-    ? getPresetDates(draft.rangePreset, draft.customStart, draft.customEnd)
+    ? (referenceDate
+        ? getPresetDatesForReferenceDate(
+            draft.rangePreset,
+            referenceDate,
+            draft.customStart,
+            draft.customEnd
+          )
+        : getPresetDates(draft.rangePreset, draft.customStart, draft.customEnd))
     : { start: draft.comparisonStart, end: draft.comparisonEnd };
 
   function handleDateClick(date: string) {
@@ -332,6 +391,10 @@ function Panel({ mode, draft, onDraftChange, onApply, onCancel, rangePresets }: 
   }
 
   const presets = isRange ? (rangePresets ?? RANGE_PRESETS) : COMPARISON_PRESETS;
+  const resolvedReferenceRange = (preset: RangePreset) =>
+    referenceDate
+      ? getPresetDatesForReferenceDate(preset, referenceDate, draft.customStart, draft.customEnd)
+      : getPresetDates(preset, draft.customStart, draft.customEnd);
 
   return (
     <div className="flex flex-col">
@@ -351,7 +414,14 @@ function Panel({ mode, draft, onDraftChange, onApply, onCancel, rangePresets }: 
                 type="button"
                 onClick={() => {
                   if (isRange) {
-                    onDraftChange({ ...draft, rangePreset: preset.value as RangePreset });
+                    const nextPreset = preset.value as RangePreset;
+                    const resolved = resolvedReferenceRange(nextPreset);
+                    onDraftChange({
+                      ...draft,
+                      rangePreset: nextPreset,
+                      customStart: resolved.start,
+                      customEnd: resolved.end,
+                    });
                     if (preset.value === "custom") setPickStep("start");
                   } else {
                     onDraftChange({
@@ -408,7 +478,7 @@ function Panel({ mode, draft, onDraftChange, onApply, onCancel, rangePresets }: 
           )}
 
           <p className="text-center text-[10px] text-muted-foreground">
-            {Intl.DateTimeFormat().resolvedOptions().timeZone}
+            {timeZoneLabel ?? Intl.DateTimeFormat().resolvedOptions().timeZone}
           </p>
         </div>
       </div>
@@ -443,6 +513,8 @@ export interface DateRangePickerProps {
   showComparisonTrigger?: boolean;
   comparisonPlaceholderLabel?: string;
   rangePresets?: RangePreset[];
+  referenceDate?: string;
+  timeZoneLabel?: string;
 }
 
 export function DateRangePicker({
@@ -452,6 +524,8 @@ export function DateRangePicker({
   showComparisonTrigger = true,
   comparisonPlaceholderLabel = "None",
   rangePresets,
+  referenceDate,
+  timeZoneLabel,
 }: DateRangePickerProps) {
   const [openMode, setOpenMode] = useState<"range" | "comparison" | null>(null);
   const [draft, setDraft] = useState<DateRangeValue>(value);
@@ -460,8 +534,25 @@ export function DateRangePicker({
       ? RANGE_PRESETS.filter((preset) => rangePresets.includes(preset.value))
       : RANGE_PRESETS;
 
+  function getResolvedDraftFromValue(nextValue: DateRangeValue): DateRangeValue {
+    if (!referenceDate || nextValue.rangePreset === "custom") {
+      return { ...nextValue };
+    }
+    const resolved = getPresetDatesForReferenceDate(
+      nextValue.rangePreset,
+      referenceDate,
+      nextValue.customStart,
+      nextValue.customEnd
+    );
+    return {
+      ...nextValue,
+      customStart: resolved.start,
+      customEnd: resolved.end,
+    };
+  }
+
   function openPanel(mode: "range" | "comparison") {
-    setDraft({ ...value });
+    setDraft(getResolvedDraftFromValue(value));
     setOpenMode(mode);
   }
 
@@ -471,11 +562,11 @@ export function DateRangePicker({
   }
 
   function handleCancel() {
-    setDraft({ ...value });
+    setDraft(getResolvedDraftFromValue(value));
     setOpenMode(null);
   }
 
-  const rangeLabel = getTriggerLabel(value, availableRangePresets);
+  const rangeLabel = getTriggerLabelForReferenceDate(value, availableRangePresets, referenceDate);
   const compLabel =
     value.comparisonPreset === "none"
       ? comparisonPlaceholderLabel
@@ -516,6 +607,8 @@ export function DateRangePicker({
               onApply={handleApply}
               onCancel={handleCancel}
               rangePresets={availableRangePresets}
+              referenceDate={referenceDate}
+              timeZoneLabel={timeZoneLabel}
             />
           </Popover.Content>
         </Popover.Portal>

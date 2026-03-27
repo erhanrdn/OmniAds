@@ -53,3 +53,25 @@ export async function getProviderAccountAssignments(
 
   return rows[0] ?? null;
 }
+
+export async function clearProviderAccountAssignments(
+  businessId: string,
+  provider: IntegrationProviderType
+): Promise<void> {
+  const sql = getDb();
+  await sql`
+    DELETE FROM provider_account_assignments
+    WHERE business_id = ${businessId}
+      AND provider = ${provider}
+  `;
+}
+
+export async function clearAllProviderAccountAssignmentsForProvider(
+  provider: IntegrationProviderType
+): Promise<void> {
+  const sql = getDb();
+  await sql`
+    DELETE FROM provider_account_assignments
+    WHERE provider = ${provider}
+  `;
+}

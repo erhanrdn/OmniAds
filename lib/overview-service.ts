@@ -24,6 +24,8 @@ import {
   getReportingDateRangeKey,
   setCachedReport,
 } from "@/lib/reporting-cache";
+import { getMetaWarehouseSummary } from "@/lib/meta/serving";
+import { ensureMetaWarehouseRangeFilled } from "@/lib/sync/meta-sync";
 
 interface TrendPoint {
   date: string;
@@ -210,16 +212,6 @@ async function getMetaOverviewFragment(input: {
   startDate: string;
   endDate: string;
 }): Promise<MetaOverviewFragment> {
-  const dateRangeKey = getReportingDateRangeKey(input.startDate, input.endDate);
-  const cached = await getCachedReport<MetaOverviewFragment>({
-    businessId: input.businessId,
-    provider: "meta",
-    reportType: "overview",
-    dateRangeKey,
-    maxAgeMinutes: META_OVERVIEW_CACHE_TTL_MINUTES,
-  });
-  if (cached) return cached;
-
   let assignedAccountIds: string[] = [];
   try {
     const row = await getProviderAccountAssignments(input.businessId, "meta");
@@ -251,10 +243,10 @@ async function getMetaOverviewFragment(input: {
     }
   }
 
-  let accessToken: string | null = null;
+  let connected = false;
   try {
     const integration = await getIntegration(input.businessId, "meta");
-    accessToken = integration?.access_token ?? null;
+    connected = Boolean(integration?.status === "connected" && integration?.access_token);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     console.warn("[overview] integration read failed", {
@@ -263,110 +255,46 @@ async function getMetaOverviewFragment(input: {
     });
   }
 
-  if (!accessToken || assignedAccountIds.length === 0) {
+  if (!connected || assignedAccountIds.length === 0) {
     return { spend: 0, revenue: 0, purchases: 0, rows: [] };
   }
 
-  const metaResults = await Promise.allSettled(
-    assignedAccountIds.map(async (accountId) => {
-      const insightsUrl = new URL(`https://graph.facebook.com/v25.0/${accountId}/insights`);
-      insightsUrl.searchParams.set(
-        "fields",
-        "spend,actions,action_values,purchase_roas"
-      );
-      insightsUrl.searchParams.set(
-        "time_range",
-        JSON.stringify({ since: input.startDate, until: input.endDate })
-      );
-      insightsUrl.searchParams.set("access_token", accessToken);
-
-      const response = await fetch(insightsUrl.toString(), {
-        method: "GET",
-        headers: { Accept: "application/json" },
-        cache: "no-store",
-      });
-
-      if (!response.ok) {
-        const raw = await response.text().catch(() => "");
-        throw new Error(`Meta insights ${response.status}: ${raw.slice(0, 200)}`);
-      }
-
-      const json = (await response.json()) as {
-        data?: Array<{
-          spend?: string;
-          actions?: Array<{ action_type: string; value: string }>;
-          action_values?: Array<{ action_type: string; value: string }>;
-          purchase_roas?: Array<{ action_type: string; value: string }>;
-        }>;
-      };
-
-      const data = json.data?.[0];
-      if (!data) return null;
-
-      const spend = parseFloat(data.spend ?? "0") || 0;
-      const purchases = parseActionValue(data.actions, "purchase");
-      const revenueFromActionValues = parseActionValue(data.action_values, "purchase");
-      const purchaseRoasValue = parseActionValue(
-        data.purchase_roas as Array<{ action_type: string; value: string }> | undefined,
-        "omni_purchase"
-      );
-      const revenue =
-        revenueFromActionValues > 0 ? revenueFromActionValues : spend * purchaseRoasValue;
-
-      return {
-        platform: "meta",
-        spend,
-        revenue,
-        purchases,
-        cpa: purchases > 0 ? spend / purchases : 0,
-        roas: spend > 0 ? revenue / spend : 0,
-      } satisfies PlatformEfficiencyRow;
-    })
-  );
-
-  let totalSpend = 0;
-  let totalRevenue = 0;
-  let totalPurchases = 0;
-  const rows: PlatformEfficiencyRow[] = [];
-
-  for (const [index, result] of metaResults.entries()) {
-    if (result.status === "fulfilled" && result.value) {
-      totalSpend += result.value.spend;
-      totalRevenue += result.value.revenue;
-      totalPurchases += result.value.purchases;
-      rows.push(result.value);
-      continue;
-    }
-
-    const message =
-      result.status === "rejected"
-        ? result.reason instanceof Error
-          ? result.reason.message
-          : String(result.reason)
-        : "empty_meta_response";
-    console.warn("[overview] meta insights fetch failed for account", {
+  try {
+    await ensureMetaWarehouseRangeFilled({
       businessId: input.businessId,
-      accountId: assignedAccountIds[index],
+      startDate: input.startDate,
+      endDate: input.endDate,
+    });
+    const warehouseSummary = await getMetaWarehouseSummary({
+      businessId: input.businessId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      providerAccountIds: assignedAccountIds,
+    });
+    if (warehouseSummary.accounts.length > 0) {
+      const payload: MetaOverviewFragment = {
+        spend: warehouseSummary.totals.spend,
+        revenue: warehouseSummary.totals.revenue,
+        purchases: warehouseSummary.totals.conversions,
+        rows: warehouseSummary.accounts.map((account) => ({
+          platform: "meta",
+          spend: account.spend,
+          revenue: account.revenue,
+          purchases: account.conversions,
+          cpa: account.conversions > 0 ? account.spend / account.conversions : 0,
+          roas: account.roas,
+        })),
+      };
+      return payload;
+    }
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn("[overview] meta warehouse summary unavailable", {
+      businessId: input.businessId,
       message,
     });
   }
-
-  const payload: MetaOverviewFragment = {
-    spend: totalSpend,
-    revenue: totalRevenue,
-    purchases: totalPurchases,
-    rows,
-  };
-
-  await setCachedReport({
-    businessId: input.businessId,
-    provider: "meta",
-    reportType: "overview",
-    dateRangeKey,
-    payload,
-  });
-
-  return payload;
+  return { spend: 0, revenue: 0, purchases: 0, rows: [] };
 }
 
 async function getGoogleOverviewFragment(input: {
