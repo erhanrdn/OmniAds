@@ -362,6 +362,41 @@ export async function getMetaCreativeDailyCoverage(input: {
   return rows[0] ?? { completed_days: 0, ready_through_date: null };
 }
 
+export async function getMetaAdDailyPreviewCoverage(input: {
+  businessId: string;
+  providerAccountId?: string | null;
+  startDate: string;
+  endDate: string;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = await sql`
+    SELECT
+      COUNT(*)::int AS total_rows,
+      COUNT(*) FILTER (
+        WHERE
+          NULLIF(payload_json->>'preview_url', '') IS NOT NULL OR
+          NULLIF(payload_json->>'thumbnail_url', '') IS NOT NULL OR
+          NULLIF(payload_json->>'image_url', '') IS NOT NULL OR
+          NULLIF(payload_json->'preview'->>'image_url', '') IS NOT NULL OR
+          NULLIF(payload_json->'preview'->>'poster_url', '') IS NOT NULL OR
+          NULLIF(payload_json->'preview'->>'video_url', '') IS NOT NULL
+      )::int AS preview_ready_rows
+    FROM meta_ad_daily
+    WHERE business_id = ${input.businessId}
+      AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
+      AND date::date BETWEEN ${normalizeDate(input.startDate)}::date AND ${normalizeDate(input.endDate)}::date
+  ` as Array<{
+    total_rows: number;
+    preview_ready_rows: number;
+  }>;
+  const row = rows[0] ?? { total_rows: 0, preview_ready_rows: 0 };
+  return {
+    total_rows: Number(row.total_rows ?? 0),
+    preview_ready_rows: Number(row.preview_ready_rows ?? 0),
+  };
+}
+
 export async function getMetaRawSnapshotCoverageByEndpoint(input: {
   businessId: string;
   endpointNames: string[];

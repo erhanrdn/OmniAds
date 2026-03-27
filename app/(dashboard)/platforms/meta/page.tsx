@@ -60,6 +60,9 @@ import type { MetaRecommendationsResponse } from "@/lib/meta/recommendations";
 import { buildMetaCampaignLaneSignals } from "@/lib/meta/campaign-lanes";
 import { MetaSyncProgress, shouldRenderMetaSyncProgress } from "@/components/meta/meta-sync-progress";
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
+import { usePlanState } from "@/lib/pricing/usePlan";
+import { PRICING_PLANS } from "@/lib/pricing/plans";
+import { META_WAREHOUSE_HISTORY_DAYS } from "@/lib/meta/history";
 
 // ── Data fetchers ─────────────────────────────────────────────────────────────
 
@@ -239,6 +242,38 @@ function getComparisonWindow(
   return {
     startDate: addDaysToISO(startDate, -365),
     endDate: addDaysToISO(endDate, -365),
+  };
+}
+
+function clampDateRangeForHistoryLimit(
+  value: DateRangeValue,
+  referenceDate: string | undefined,
+  maxHistoryDays: number | null
+): DateRangeValue {
+  if (maxHistoryDays === null) return value;
+  const resolved = referenceDate
+    ? getPresetDatesForReferenceDate(
+        value.rangePreset,
+        referenceDate,
+        value.customStart,
+        value.customEnd
+      )
+    : getPresetDates(value.rangePreset, value.customStart, value.customEnd);
+  const earliestAllowed = addDaysToISO(resolved.end, -(maxHistoryDays - 1));
+  const clampedStart =
+    value.rangePreset === "custom" && resolved.start < earliestAllowed
+      ? earliestAllowed
+      : value.customStart;
+  const comparisonPreset =
+    value.comparisonPreset === "previousYear" || value.comparisonPreset === "previousYearMatch"
+      ? "none"
+      : value.comparisonPreset;
+  return {
+    ...value,
+    customStart: clampedStart,
+    comparisonPreset,
+    comparisonStart: comparisonPreset === "none" ? "" : value.comparisonStart,
+    comparisonEnd: comparisonPreset === "none" ? "" : value.comparisonEnd,
   };
 }
 
@@ -609,6 +644,7 @@ export default function MetaPage() {
   const language = usePreferencesStore((state) => state.language);
   const businesses = useAppStore((s) => s.businesses);
   const selectedBusinessId = useAppStore((s) => s.selectedBusinessId);
+  const { plan: currentPlan } = usePlanState();
   const businessId = selectedBusinessId ?? "";
   const sym = useCurrencySymbol();
 
@@ -625,6 +661,8 @@ export default function MetaPage() {
   const [checkedRecIds, setCheckedRecIds] = useState<Set<string>>(new Set());
   const [isManualRefreshRunning, setIsManualRefreshRunning] = useState(false);
   const [bootstrapRequestedForBusiness, setBootstrapRequestedForBusiness] = useState<string | null>(null);
+  const allowedHistoryDays = PRICING_PLANS[currentPlan].limits.analyticsHistoryDays;
+  const previousYearAllowed = allowedHistoryDays === null || allowedHistoryDays > 365;
 
 
   if (!selectedBusinessId) return <BusinessEmptyState />;
@@ -679,6 +717,24 @@ export default function MetaPage() {
         dateRange.customStart,
         dateRange.customEnd
       );
+
+  useEffect(() => {
+    if (allowedHistoryDays === null && previousYearAllowed) return;
+    const normalized = clampDateRangeForHistoryLimit(
+      dateRange,
+      metaReferenceDate,
+      allowedHistoryDays
+    );
+    const changed =
+      normalized.customStart !== dateRange.customStart ||
+      normalized.customEnd !== dateRange.customEnd ||
+      normalized.comparisonPreset !== dateRange.comparisonPreset ||
+      normalized.comparisonStart !== dateRange.comparisonStart ||
+      normalized.comparisonEnd !== dateRange.comparisonEnd;
+    if (changed) {
+      setDateRange(normalized);
+    }
+  }, [allowedHistoryDays, dateRange, metaReferenceDate, previousYearAllowed, setDateRange]);
   const statusQuery = useQuery({
     queryKey: ["meta-status", businessId],
     enabled: metaConnected,
@@ -874,12 +930,14 @@ export default function MetaPage() {
   const historicalBackfillEnd =
     metaReferenceDate ? addDaysToISO(metaReferenceDate, -1) : null;
   const historicalBackfillStart =
-    historicalBackfillEnd ? addDaysToISO(historicalBackfillEnd, -364) : null;
+    historicalBackfillEnd
+      ? addDaysToISO(historicalBackfillEnd, -(META_WAREHOUSE_HISTORY_DAYS - 1))
+      : null;
   const statusHistoricalProgress = effectiveStatus?.latestSync
     ? {
         progressPercent: effectiveStatus.latestSync.progressPercent ?? 0,
         completedDays: effectiveStatus.latestSync.completedDays ?? 0,
-        totalDays: effectiveStatus.latestSync.totalDays ?? 365,
+        totalDays: effectiveStatus.latestSync.totalDays ?? META_WAREHOUSE_HISTORY_DAYS,
         readyThroughDate: effectiveStatus.latestSync.readyThroughDate ?? null,
         state: (effectiveStatus.state === "ready"
           ? "ready"
@@ -953,7 +1011,7 @@ export default function MetaPage() {
           totalDays:
             mergedHistoricalProgress?.totalDays ??
             effectiveStatus.latestSync?.totalDays ??
-            365,
+            META_WAREHOUSE_HISTORY_DAYS,
           readyThroughDate:
             mergedHistoricalProgress?.readyThroughDate ??
             effectiveStatus.latestSync?.readyThroughDate ??
@@ -1113,8 +1171,17 @@ export default function MetaPage() {
           <div className="shrink-0 rounded-xl border bg-card p-1 shadow-sm">
             <DateRangePicker
               value={dateRange}
-              onChange={setDateRange}
+              onChange={(next) =>
+                setDateRange(
+                  clampDateRangeForHistoryLimit(next, metaReferenceDate, allowedHistoryDays)
+                )
+              }
               rangePresets={["today", "yesterday", "3d", "7d", "14d", "30d", "90d", "custom"]}
+              comparisonPresets={
+                previousYearAllowed
+                  ? undefined
+                  : ["none", "previousPeriod", "previousWeek", "previousMonth", "previousQuarter"]
+              }
               referenceDate={metaReferenceDate}
               timeZoneLabel={metaTimeZoneLabel}
             />

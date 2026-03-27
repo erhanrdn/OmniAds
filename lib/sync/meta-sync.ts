@@ -8,8 +8,8 @@ import {
 } from "@/lib/api/meta";
 import { syncMetaCreativesWarehouseDay } from "@/lib/meta/creatives-warehouse";
 import {
-  getMetaCreativeDailyCoverage,
   createMetaSyncJob,
+  getMetaAdDailyCoverage,
   getMetaAdSetDailyCoverage,
   getMetaAccountDailyCoverage,
   getLatestMetaSyncHealth,
@@ -17,8 +17,10 @@ import {
   updateMetaSyncJob,
 } from "@/lib/meta/warehouse";
 import type { MetaSyncType } from "@/lib/meta/warehouse-types";
-
-const META_WAREHOUSE_HISTORY_DAYS = 365;
+import {
+  META_WAREHOUSE_HISTORY_DAYS,
+  dayCountInclusive,
+} from "@/lib/meta/history";
 const META_BREAKDOWN_ENDPOINTS = [
   "breakdown_age",
   "breakdown_country",
@@ -93,7 +95,7 @@ async function getMetaWarehouseWindowCompletion(input: {
   endDate: string;
 }) {
   const totalDays = dayCountInclusive(input.startDate, input.endDate);
-  const [accountCoverage, adsetCoverage, creativeCoverage, breakdownCoverageByEndpoint] = await Promise.all([
+  const [accountCoverage, adsetCoverage, breakdownCoverageByEndpoint] = await Promise.all([
     getMetaAccountDailyCoverage({
       businessId: input.businessId,
       providerAccountId: null,
@@ -101,12 +103,6 @@ async function getMetaWarehouseWindowCompletion(input: {
       endDate: input.endDate,
     }).catch(() => null),
     getMetaAdSetDailyCoverage({
-      businessId: input.businessId,
-      providerAccountId: null,
-      startDate: input.startDate,
-      endDate: input.endDate,
-    }).catch(() => null),
-    getMetaCreativeDailyCoverage({
       businessId: input.businessId,
       providerAccountId: null,
       startDate: input.startDate,
@@ -123,7 +119,6 @@ async function getMetaWarehouseWindowCompletion(input: {
 
   const accountCompletedDays = accountCoverage?.completed_days ?? 0;
   const adsetCompletedDays = adsetCoverage?.completed_days ?? 0;
-  const creativeCompletedDays = creativeCoverage?.completed_days ?? 0;
   const breakdownCompletedDays = Math.min(
     ...META_BREAKDOWN_ENDPOINTS.map(
       (endpointName) => breakdownCoverageByEndpoint?.get(endpointName)?.completed_days ?? 0
@@ -132,7 +127,6 @@ async function getMetaWarehouseWindowCompletion(input: {
   const completedDays = Math.min(
     accountCompletedDays,
     adsetCompletedDays,
-    creativeCompletedDays,
     breakdownCompletedDays
   );
 
@@ -140,6 +134,53 @@ async function getMetaWarehouseWindowCompletion(input: {
     totalDays,
     completedDays,
     complete: completedDays >= totalDays,
+  };
+}
+
+async function getMetaDailyCoverageState(input: {
+  businessId: string;
+  day: string;
+}) {
+  const [accountCoverage, adsetCoverage, creativeCoverage, breakdownCoverageByEndpoint] =
+    await Promise.all([
+      getMetaAccountDailyCoverage({
+        businessId: input.businessId,
+        providerAccountId: null,
+        startDate: input.day,
+        endDate: input.day,
+      }).catch(() => null),
+      getMetaAdSetDailyCoverage({
+        businessId: input.businessId,
+        providerAccountId: null,
+        startDate: input.day,
+        endDate: input.day,
+      }).catch(() => null),
+      getMetaAdDailyCoverage({
+        businessId: input.businessId,
+        providerAccountId: null,
+        startDate: input.day,
+        endDate: input.day,
+      }).catch(() => null),
+      getMetaRawSnapshotCoverageByEndpoint({
+        businessId: input.businessId,
+        providerAccountId: null,
+        endpointNames: [...META_BREAKDOWN_ENDPOINTS],
+        startDate: input.day,
+        endDate: input.day,
+      }).catch(() => null),
+    ]);
+
+  const reportingComplete =
+    (accountCoverage?.completed_days ?? 0) >= 1 &&
+    (adsetCoverage?.completed_days ?? 0) >= 1 &&
+    META_BREAKDOWN_ENDPOINTS.every(
+      (endpointName) => (breakdownCoverageByEndpoint?.get(endpointName)?.completed_days ?? 0) >= 1
+    );
+  const creativesComplete = (creativeCoverage?.completed_days ?? 0) >= 1;
+
+  return {
+    reportingComplete,
+    creativesComplete,
   };
 }
 
@@ -234,24 +275,34 @@ export async function backfillMetaRange(input: {
   for (let index = 0; index < days.length; index += 1) {
     const day = days[index];
     try {
-      const campaignRows = await getCampaigns(credentials, day, day);
-      const campaignIds = Array.from(
-        new Set(campaignRows.map((row) => row.id).filter(Boolean))
-      );
-      for (const campaignId of campaignIds) {
-        await getAdSets(credentials, campaignId, day, day, input.businessId, false);
-      }
-      await Promise.all([
-        getAgeBreakdown(credentials, day, day),
-        getLocationBreakdown(credentials, day, day),
-        getPlacementBreakdown(credentials, day, day),
-      ]);
-      await syncMetaCreativesWarehouseDay({
+      const coverageState = await getMetaDailyCoverageState({
         businessId: input.businessId,
         day,
-        accessToken: credentials.accessToken,
-        assignedAccountIds,
       });
+
+      if (!coverageState.reportingComplete) {
+        const campaignRows = await getCampaigns(credentials, day, day);
+        const campaignIds = Array.from(
+          new Set(campaignRows.map((row) => row.id).filter(Boolean))
+        );
+        for (const campaignId of campaignIds) {
+          await getAdSets(credentials, campaignId, day, day, input.businessId, false);
+        }
+        await Promise.all([
+          getAgeBreakdown(credentials, day, day),
+          getLocationBreakdown(credentials, day, day),
+          getPlacementBreakdown(credentials, day, day),
+        ]);
+      }
+
+      if (!coverageState.creativesComplete) {
+        await syncMetaCreativesWarehouseDay({
+          businessId: input.businessId,
+          day,
+          accessToken: credentials.accessToken,
+          assignedAccountIds,
+        });
+      }
       succeeded += 1;
     } catch (error) {
       failed += 1;
@@ -379,12 +430,6 @@ export async function syncMetaInitial(businessId: string): Promise<MetaSyncResul
     syncType: "initial_backfill",
     recentFirst: true,
   });
-}
-
-function dayCountInclusive(startDate: string, endDate: string) {
-  const start = new Date(`${startDate}T00:00:00Z`).getTime();
-  const end = new Date(`${endDate}T00:00:00Z`).getTime();
-  return Math.max(1, Math.floor((end - start) / 86_400_000) + 1);
 }
 
 export async function ensureMetaWarehouseRangeFilled(input: {

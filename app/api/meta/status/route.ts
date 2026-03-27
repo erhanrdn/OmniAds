@@ -3,6 +3,7 @@ import { requireBusinessAccess } from "@/lib/access";
 import { getIntegration } from "@/lib/integrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import {
+  getMetaAdDailyPreviewCoverage,
   getMetaCreativeDailyCoverage,
   getMetaAdSetDailyCoverage,
   getLatestMetaSyncHealth,
@@ -11,8 +12,10 @@ import {
   getMetaRawSnapshotCoverageByEndpoint,
 } from "@/lib/meta/warehouse";
 import { resolveMetaCredentials } from "@/lib/api/meta";
-
-const META_WAREHOUSE_HISTORY_DAYS = 365;
+import {
+  META_WAREHOUSE_HISTORY_DAYS,
+  dayCountInclusive,
+} from "@/lib/meta/history";
 const META_BREAKDOWN_ENDPOINTS = [
   "breakdown_age",
   "breakdown_country",
@@ -30,12 +33,6 @@ function getTodayIsoForTimeZoneServer(timeZone: string): string {
   const month = parts.find((part) => part.type === "month")?.value ?? "01";
   const day = parts.find((part) => part.type === "day")?.value ?? "01";
   return `${year}-${month}-${day}`;
-}
-
-function dayCountInclusive(startDate: string, endDate: string) {
-  const start = new Date(`${startDate}T00:00:00Z`).getTime();
-  const end = new Date(`${endDate}T00:00:00Z`).getTime();
-  return Math.max(1, Math.floor((end - start) / 86_400_000) + 1);
 }
 
 function addDays(date: Date, days: number) {
@@ -98,7 +95,7 @@ export async function GET(request: NextRequest) {
   )
     .toISOString()
     .slice(0, 10);
-  const [initialCoverage, adsetCoverage, creativeCoverage, breakdownCoverageByEndpoint] =
+  const [initialCoverage, adsetCoverage, creativeCoverage, creativePreviewCoverage, breakdownCoverageByEndpoint] =
     connected && accountIds.length > 0
       ? await Promise.all([
           getMetaAccountDailyCoverage({
@@ -119,6 +116,12 @@ export async function GET(request: NextRequest) {
             startDate: initialBackfillStart,
             endDate: initialBackfillEnd,
           }).catch(() => null),
+          getMetaAdDailyPreviewCoverage({
+            businessId: businessId!,
+            providerAccountId: null,
+            startDate: initialBackfillStart,
+            endDate: initialBackfillEnd,
+          }).catch(() => null),
           getMetaRawSnapshotCoverageByEndpoint({
             businessId: businessId!,
             providerAccountId: null,
@@ -127,7 +130,7 @@ export async function GET(request: NextRequest) {
             endDate: initialBackfillEnd,
           }).catch(() => null),
         ])
-      : [null, null, null, null];
+      : [null, null, null, null, null];
 
   const initialCoverageDays = initialCoverage?.completed_days ?? 0;
   const initialTotalDays = dayCountInclusive(initialBackfillStart, initialBackfillEnd);
@@ -135,6 +138,12 @@ export async function GET(request: NextRequest) {
   const adsetReadyThroughDate = adsetCoverage?.ready_through_date ?? null;
   const creativeCoverageDays = creativeCoverage?.completed_days ?? 0;
   const creativeReadyThroughDate = creativeCoverage?.ready_through_date ?? null;
+  const creativePreviewReadyRows = creativePreviewCoverage?.preview_ready_rows ?? 0;
+  const creativeTotalRows = creativePreviewCoverage?.total_rows ?? 0;
+  const creativePreviewReadyPercent =
+    creativeTotalRows > 0
+      ? Math.max(0, Math.min(100, Math.round((creativePreviewReadyRows / creativeTotalRows) * 100)))
+      : 0;
   const breakdownEndpointCoverage = META_BREAKDOWN_ENDPOINTS.map((endpointName) =>
     breakdownCoverageByEndpoint?.get(endpointName) ?? { completed_days: 0, ready_through_date: null }
   );
@@ -226,6 +235,9 @@ export async function GET(request: NextRequest) {
             completedDays: creativeCoverageDays,
             totalDays: initialTotalDays,
             readyThroughDate: creativeReadyThroughDate,
+            previewReadyRows: creativePreviewReadyRows,
+            totalRows: creativeTotalRows,
+            previewReadyPercent: creativePreviewReadyPercent,
           },
           pendingSurfaces,
         },

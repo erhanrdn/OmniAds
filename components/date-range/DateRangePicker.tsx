@@ -342,11 +342,22 @@ interface PanelProps {
   onApply: () => void;
   onCancel: () => void;
   rangePresets?: { value: RangePreset; label: string }[];
+  comparisonPresets?: { value: ComparisonPreset; label: string }[];
   referenceDate?: string;
   timeZoneLabel?: string;
 }
 
-function Panel({ mode, draft, onDraftChange, onApply, onCancel, rangePresets, referenceDate, timeZoneLabel }: PanelProps) {
+function Panel({
+  mode,
+  draft,
+  onDraftChange,
+  onApply,
+  onCancel,
+  rangePresets,
+  comparisonPresets,
+  referenceDate,
+  timeZoneLabel,
+}: PanelProps) {
   const today = referenceDate ? parseISODate(referenceDate) : new Date();
   const isRange = mode === "range";
 
@@ -390,7 +401,7 @@ function Panel({ mode, draft, onDraftChange, onApply, onCancel, rangePresets, re
     }
   }
 
-  const presets = isRange ? (rangePresets ?? RANGE_PRESETS) : COMPARISON_PRESETS;
+  const presets = isRange ? (rangePresets ?? RANGE_PRESETS) : (comparisonPresets ?? COMPARISON_PRESETS);
   const resolvedReferenceRange = (preset: RangePreset) =>
     referenceDate
       ? getPresetDatesForReferenceDate(preset, referenceDate, draft.customStart, draft.customEnd)
@@ -513,6 +524,7 @@ export interface DateRangePickerProps {
   showComparisonTrigger?: boolean;
   comparisonPlaceholderLabel?: string;
   rangePresets?: RangePreset[];
+  comparisonPresets?: ComparisonPreset[];
   referenceDate?: string;
   timeZoneLabel?: string;
 }
@@ -524,6 +536,7 @@ export function DateRangePicker({
   showComparisonTrigger = true,
   comparisonPlaceholderLabel = "None",
   rangePresets,
+  comparisonPresets,
   referenceDate,
   timeZoneLabel,
 }: DateRangePickerProps) {
@@ -533,6 +546,10 @@ export function DateRangePicker({
     rangePresets && rangePresets.length > 0
       ? RANGE_PRESETS.filter((preset) => rangePresets.includes(preset.value))
       : RANGE_PRESETS;
+  const availableComparisonPresets =
+    comparisonPresets && comparisonPresets.length > 0
+      ? COMPARISON_PRESETS.filter((preset) => comparisonPresets.includes(preset.value))
+      : COMPARISON_PRESETS;
 
   function getResolvedDraftFromValue(nextValue: DateRangeValue): DateRangeValue {
     if (!referenceDate || nextValue.rangePreset === "custom") {
@@ -570,7 +587,8 @@ export function DateRangePicker({
   const compLabel =
     value.comparisonPreset === "none"
       ? comparisonPlaceholderLabel
-      : getComparisonLabel(value);
+      : availableComparisonPresets.find((preset) => preset.value === value.comparisonPreset)?.label ??
+        comparisonPlaceholderLabel;
   const hasComparison = value.comparisonPreset !== "none";
 
   return (
@@ -649,6 +667,7 @@ export function DateRangePicker({
                 onDraftChange={setDraft}
                 onApply={handleApply}
                 onCancel={handleCancel}
+                comparisonPresets={availableComparisonPresets}
               />
             </Popover.Content>
           </Popover.Portal>

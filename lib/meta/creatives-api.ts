@@ -178,6 +178,7 @@ export async function getMetaCreativesDbPayload(input: MetaCreativesApiInput) {
     businessId,
     startDate: start,
     endDate: end,
+    mediaMode,
   }).catch((error) => {
     console.warn("[meta-creatives] ensure_warehouse_failed", {
       businessId,

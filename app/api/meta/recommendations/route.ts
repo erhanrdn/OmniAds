@@ -10,6 +10,7 @@ import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
 import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
 import { buildCreativeHistoryById, mapApiRowToUiRow } from "@/app/(dashboard)/creatives/page-support";
 import { resolveRequestLanguage } from "@/lib/request-language";
+import { META_WAREHOUSE_HISTORY_DAYS } from "@/lib/meta/history";
 
 function parseISODate(value: string): Date {
   return new Date(`${value}T00:00:00.000Z`);
@@ -98,7 +99,7 @@ export async function GET(request: NextRequest) {
   const last14Start = addDaysToISO(endDate, -13);
   const last30Start = addDaysToISO(endDate, -29);
   const last90Start = addDaysToISO(endDate, -89);
-  const allHistoryStart = addDaysToISO(endDate, -364);
+  const allHistoryStart = addDaysToISO(endDate, -(META_WAREHOUSE_HISTORY_DAYS - 1));
 
   const baseParams = new URLSearchParams({ businessId });
 

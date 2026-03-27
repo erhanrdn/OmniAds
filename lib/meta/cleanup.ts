@@ -22,6 +22,11 @@ export interface MetaCacheCleanupSummary {
   metaCreativesSnapshotsDeleted: number;
 }
 
+export interface MetaCreativeMediaPruneSummary {
+  metaAdDailyUpdated: number;
+  metaCreativeDailyUpdated: number;
+}
+
 async function execCount(query: Promise<unknown>) {
   const rows = await query;
   const first = Array.isArray(rows) ? rows[0] : null;
@@ -169,5 +174,146 @@ export async function purgeMetaLegacyCaches(businessId?: string | null): Promise
   return {
     providerReportingSnapshotsDeleted,
     metaCreativesSnapshotsDeleted,
+  };
+}
+
+export async function pruneMetaCreativeMediaOutsideRetention(input: {
+  businessId?: string | null;
+  keepFromDate: string;
+}): Promise<MetaCreativeMediaPruneSummary> {
+  await runMigrations();
+  const sql = getDb();
+
+  const metaAdDailyUpdated = await execCount(sql`
+    WITH updated AS (
+      UPDATE meta_ad_daily
+      SET
+        payload_json = jsonb_set(
+          jsonb_set(
+            jsonb_set(
+              jsonb_set(
+                jsonb_set(
+                  jsonb_set(
+                    COALESCE(payload_json, '{}'::jsonb),
+                    '{preview_url}',
+                    'null'::jsonb,
+                    true
+                  ),
+                  '{thumbnail_url}',
+                  'null'::jsonb,
+                  true
+                ),
+                '{image_url}',
+                'null'::jsonb,
+                true
+              ),
+              '{table_thumbnail_url}',
+              'null'::jsonb,
+              true
+            ),
+            '{card_preview_url}',
+            'null'::jsonb,
+            true
+          ),
+          '{preview}',
+          jsonb_set(
+            jsonb_set(
+              jsonb_set(COALESCE(payload_json->'preview', '{}'::jsonb), '{image_url}', 'null'::jsonb, true),
+              '{poster_url}',
+              'null'::jsonb,
+              true
+            ),
+            '{video_url}',
+            'null'::jsonb,
+            true
+          ),
+          true
+        ),
+        updated_at = now()
+      WHERE (${input.businessId ?? null}::text IS NULL OR business_id = ${input.businessId ?? null})
+        AND date::date < ${input.keepFromDate}::date
+        AND (
+          NULLIF(payload_json->>'preview_url', '') IS NOT NULL OR
+          NULLIF(payload_json->>'thumbnail_url', '') IS NOT NULL OR
+          NULLIF(payload_json->>'image_url', '') IS NOT NULL OR
+          NULLIF(payload_json->>'table_thumbnail_url', '') IS NOT NULL OR
+          NULLIF(payload_json->>'card_preview_url', '') IS NOT NULL OR
+          NULLIF(payload_json->'preview'->>'image_url', '') IS NOT NULL OR
+          NULLIF(payload_json->'preview'->>'poster_url', '') IS NOT NULL OR
+          NULLIF(payload_json->'preview'->>'video_url', '') IS NOT NULL
+        )
+      RETURNING 1
+    )
+    SELECT COUNT(*)::int AS count FROM updated
+  `);
+
+  const metaCreativeDailyUpdated = await execCount(sql`
+    WITH updated AS (
+      UPDATE meta_creative_daily
+      SET
+        thumbnail_url = NULL,
+        payload_json = jsonb_set(
+          jsonb_set(
+            jsonb_set(
+              jsonb_set(
+                jsonb_set(
+                  jsonb_set(
+                    COALESCE(payload_json, '{}'::jsonb),
+                    '{preview_url}',
+                    'null'::jsonb,
+                    true
+                  ),
+                  '{thumbnail_url}',
+                  'null'::jsonb,
+                  true
+                ),
+                '{image_url}',
+                'null'::jsonb,
+                true
+              ),
+              '{table_thumbnail_url}',
+              'null'::jsonb,
+              true
+            ),
+            '{card_preview_url}',
+            'null'::jsonb,
+            true
+          ),
+          '{preview}',
+          jsonb_set(
+            jsonb_set(
+              jsonb_set(COALESCE(payload_json->'preview', '{}'::jsonb), '{image_url}', 'null'::jsonb, true),
+              '{poster_url}',
+              'null'::jsonb,
+              true
+            ),
+            '{video_url}',
+            'null'::jsonb,
+            true
+          ),
+          true
+        ),
+        updated_at = now()
+      WHERE (${input.businessId ?? null}::text IS NULL OR business_id = ${input.businessId ?? null})
+        AND date::date < ${input.keepFromDate}::date
+        AND (
+          thumbnail_url IS NOT NULL OR
+          NULLIF(payload_json->>'preview_url', '') IS NOT NULL OR
+          NULLIF(payload_json->>'thumbnail_url', '') IS NOT NULL OR
+          NULLIF(payload_json->>'image_url', '') IS NOT NULL OR
+          NULLIF(payload_json->>'table_thumbnail_url', '') IS NOT NULL OR
+          NULLIF(payload_json->>'card_preview_url', '') IS NOT NULL OR
+          NULLIF(payload_json->'preview'->>'image_url', '') IS NOT NULL OR
+          NULLIF(payload_json->'preview'->>'poster_url', '') IS NOT NULL OR
+          NULLIF(payload_json->'preview'->>'video_url', '') IS NOT NULL
+        )
+      RETURNING 1
+    )
+    SELECT COUNT(*)::int AS count FROM updated
+  `);
+
+  return {
+    metaAdDailyUpdated,
+    metaCreativeDailyUpdated,
   };
 }

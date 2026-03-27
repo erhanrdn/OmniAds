@@ -21,6 +21,7 @@ import {
   type MetaCampaignDailyRow,
   type MetaWarehouseFreshness,
 } from "@/lib/meta/warehouse-types";
+import { META_WAREHOUSE_HISTORY_DAYS, getHistoricalWindowStart } from "@/lib/meta/history";
 
 function getTodayIsoForTimeZoneServer(timeZone: string): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -369,7 +370,7 @@ export async function getMetaWarehouseSummary(input: {
     ? getTodayIsoForTimeZoneServer(primaryTimeZone)
     : new Date().toISOString().slice(0, 10);
   const historicalEnd = addDaysToIso(historicalToday, -1);
-  const historicalStart = addDaysToIso(historicalEnd, -364);
+  const historicalStart = getHistoricalWindowStart(historicalEnd, META_WAREHOUSE_HISTORY_DAYS);
   const historicalCoverage =
     credentials?.accountIds?.length
       ? await getMetaAccountDailyCoverage({
@@ -412,7 +413,7 @@ export async function getMetaWarehouseSummary(input: {
     historicalAdsetCoverageDays,
     historicalBreakdownCoverageDays
   );
-  const historicalTotalDays = 365;
+  const historicalTotalDays = META_WAREHOUSE_HISTORY_DAYS;
   const historicalProgressPercent = Math.max(
     0,
     Math.min(100, Math.round((historicalCompletedDays / historicalTotalDays) * 100))

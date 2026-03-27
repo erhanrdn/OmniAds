@@ -16,12 +16,17 @@ import {
 } from "@/lib/meta/creatives-row-mappers";
 import {
   getMetaAdDailyCoverage,
+  getMetaAdDailyPreviewCoverage,
   getMetaAdDailyRange,
   getMetaCreativeDailyRange,
   upsertMetaAdDailyRows,
   upsertMetaCreativeDailyRows,
 } from "@/lib/meta/warehouse";
 import type { MetaAdDailyRow, MetaCreativeDailyRow } from "@/lib/meta/warehouse-types";
+import {
+  getCreativeMediaRetentionStart,
+} from "@/lib/meta/history";
+import { pruneMetaCreativeMediaOutsideRetention } from "@/lib/meta/cleanup";
 
 function toIsoDate(date: Date) {
   return date.toISOString().slice(0, 10);
@@ -147,34 +152,6 @@ function buildPreviewCoverage(rows: MetaCreativeApiRow[]) {
     previewMissingCount,
     previewCoverage:
       totalCreatives > 0 ? Math.round((previewReadyCount / totalCreatives) * 100) : 0,
-  };
-}
-
-async function getMetaAdDailyPreviewCoverage(input: {
-  businessId: string;
-  startDate: string;
-  endDate: string;
-}) {
-  const rows = await getMetaAdDailyRange({
-    businessId: input.businessId,
-    startDate: input.startDate,
-    endDate: input.endDate,
-  });
-  const previewReadyRows = rows.reduce((count, row) => {
-    const payload = row.payloadJson as Partial<MetaCreativeApiRow> | null | undefined;
-    const hasPreview = Boolean(
-      payload?.preview_url ||
-        payload?.thumbnail_url ||
-        payload?.image_url ||
-        payload?.preview?.image_url ||
-        payload?.preview?.poster_url ||
-        payload?.preview?.video_url
-    );
-    return count + (hasPreview ? 1 : 0);
-  }, 0);
-  return {
-    totalRows: rows.length,
-    previewReadyRows,
   };
 }
 
@@ -314,7 +291,13 @@ export async function ensureMetaCreativesWarehouseRangeFilled(input: {
   businessId: string;
   startDate: string;
   endDate: string;
+  mediaMode?: "metadata" | "full";
 }) {
+  const retentionStart = getCreativeMediaRetentionStart(input.endDate);
+  await pruneMetaCreativeMediaOutsideRetention({
+    businessId: input.businessId,
+    keepFromDate: retentionStart,
+  }).catch(() => null);
   const [integration, assignedAccountIds, coverage, previewCoverage] = await Promise.all([
     getIntegration(input.businessId, "meta").catch(() => null),
     fetchAssignedAccountIds(input.businessId),
@@ -326,9 +309,10 @@ export async function ensureMetaCreativesWarehouseRangeFilled(input: {
     }).catch(() => null),
     getMetaAdDailyPreviewCoverage({
       businessId: input.businessId,
+      providerAccountId: null,
       startDate: input.startDate,
       endDate: input.endDate,
-    }).catch(() => ({ totalRows: 0, previewReadyRows: 0 })),
+    }).catch(() => ({ total_rows: 0, preview_ready_rows: 0 })),
   ]);
   if (!integration || integration.status !== "connected" || !integration.access_token) return null;
   if (assignedAccountIds.length === 0) return null;
@@ -343,21 +327,36 @@ export async function ensureMetaCreativesWarehouseRangeFilled(input: {
     );
   if (
     (coverage?.completed_days ?? 0) >= totalDays &&
-    previewCoverage.totalRows > 0 &&
-    previewCoverage.previewReadyRows >= previewCoverage.totalRows
+    (input.mediaMode !== "full" ||
+      previewCoverage.total_rows === 0 ||
+      previewCoverage.preview_ready_rows >= previewCoverage.total_rows)
   ) {
     return null;
   }
 
   const days = enumerateDays(input.startDate, input.endDate, true);
   for (const day of days) {
+    const shouldRetainMedia = day >= retentionStart;
     const dayCoverage = await getMetaAdDailyCoverage({
       businessId: input.businessId,
       providerAccountId: null,
       startDate: day,
       endDate: day,
     }).catch(() => null);
-    if ((dayCoverage?.completed_days ?? 0) >= 1) continue;
+    if ((dayCoverage?.completed_days ?? 0) >= 1) {
+      if (input.mediaMode !== "full") continue;
+      const dayPreviewCoverage = await getMetaAdDailyPreviewCoverage({
+        businessId: input.businessId,
+        providerAccountId: null,
+        startDate: day,
+        endDate: day,
+      }).catch(() => ({ total_rows: 0, preview_ready_rows: 0 }));
+      const dayNeedsMediaHydration =
+        dayPreviewCoverage.total_rows > 0 &&
+        dayPreviewCoverage.preview_ready_rows < dayPreviewCoverage.total_rows;
+      if (!dayNeedsMediaHydration) continue;
+      if (!shouldRetainMedia && input.startDate !== input.endDate) continue;
+    }
     await syncMetaCreativesWarehouseDay({
       businessId: input.businessId,
       day,

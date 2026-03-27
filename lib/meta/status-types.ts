@@ -54,6 +54,9 @@ export interface MetaStatusResponse {
         completedDays: number;
         totalDays: number;
         readyThroughDate: string | null;
+        previewReadyRows?: number;
+        totalRows?: number;
+        previewReadyPercent?: number;
       } | null;
       pendingSurfaces?: string[];
     } | null;

@@ -50,6 +50,13 @@ import {
 import { useBusinessIntegrationsBootstrap } from "@/hooks/use-business-integrations-bootstrap";
 import { PlanGate } from "@/components/pricing/PlanGate";
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
+import { usePlanState } from "@/lib/pricing/usePlan";
+import { PRICING_PLANS } from "@/lib/pricing/plans";
+import {
+  META_WAREHOUSE_HISTORY_DAYS,
+  addDaysToIsoDate,
+  dayCountInclusive,
+} from "@/lib/meta/history";
 
 async function fetchMetaStatus(businessId: string): Promise<MetaStatusResponse> {
   const params = new URLSearchParams({ businessId });
@@ -67,6 +74,23 @@ async function fetchMetaStatus(businessId: string): Promise<MetaStatusResponse> 
   return payload as MetaStatusResponse;
 }
 
+function clampCreativeDateRangeToHistoryLimit(
+  value: CreativeDateRangeValue,
+  maxHistoryDays: number | null
+): CreativeDateRangeValue {
+  if (maxHistoryDays === null) return value;
+  const resolved = resolveCreativeDateRange(value);
+  const totalDays = dayCountInclusive(resolved.start, resolved.end);
+  if (totalDays <= maxHistoryDays) return value;
+  return {
+    ...value,
+    preset: "custom",
+    customStart: addDaysToIsoDate(resolved.end, -(maxHistoryDays - 1)),
+    customEnd: resolved.end,
+    lastDays: Math.min(value.lastDays, maxHistoryDays),
+  };
+}
+
 function CreativesSyncInlineProgress({
   status,
 }: {
@@ -78,13 +102,26 @@ function CreativesSyncInlineProgress({
 
   const totalDays = Math.max(coverage.totalDays ?? 0, 1);
   const completedDays = Math.max(0, coverage.completedDays ?? 0);
-  const progress = Math.max(
+  const dayPercent = Math.max(
     0,
     Math.min(100, Math.round((completedDays / totalDays) * 100))
   );
+  const previewPercent = Math.max(
+    0,
+    Math.min(100, Math.round(coverage.previewReadyPercent ?? 0))
+  );
+  const progress =
+    (coverage.totalRows ?? 0) > 0
+      ? Math.min(dayPercent, previewPercent)
+      : dayPercent;
   if (progress >= 100) return null;
 
   const captionParts = [`${completedDays}/${totalDays} days`];
+  if ((coverage.totalRows ?? 0) > 0) {
+    captionParts.push(
+      `${coverage.previewReadyRows ?? 0}/${coverage.totalRows ?? 0} previews`
+    );
+  }
   if (coverage.readyThroughDate) {
     captionParts.push(`Ready through ${coverage.readyThroughDate}`);
   }
@@ -120,6 +157,7 @@ export default function CreativesPage() {
   const router = useRouter();
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const businesses = useAppStore((state) => state.businesses);
+  const { plan: currentPlan } = usePlanState();
   const businessId = selectedBusinessId ?? "";
   const selectedBusinessCurrency =
     businesses.find((business) => business.id === selectedBusinessId)?.currency ?? null;
@@ -136,6 +174,7 @@ export default function CreativesPage() {
   );
 
   const [dateRangeValue, setDateRangeValue] = usePersistentCreativeDateRange();
+  const allowedHistoryDays = PRICING_PLANS[currentPlan].limits.analyticsHistoryDays;
   const [groupBy, setGroupBy] = useState<CreativeGroupBy>("creative");
   const [topFilters, setTopFilters] = useState<CreativeFilterRule[]>([]);
   const [topMetricIds, setTopMetricIds] = useState<string[]>(["spend", "roas"]);
@@ -175,6 +214,12 @@ export default function CreativesPage() {
   const metaHasAssignments = isDemoBusiness || assignedMetaAccounts.length > 0;
 
   const { start: drStart, end: drEnd } = resolveCreativeDateRange(dateRangeValue);
+  const setBoundedDateRangeValue = useCallback(
+    (next: CreativeDateRangeValue) => {
+      setDateRangeValue(clampCreativeDateRangeToHistoryLimit(next, allowedHistoryDays));
+    },
+    [allowedHistoryDays, setDateRangeValue]
+  );
   const mainTableApiGroupBy = mapCreativeGroupByToApi(groupBy);
   const endDate = new Date(`${drEnd}T00:00:00.000Z`);
   const offsetIso = useCallback(
@@ -185,6 +230,13 @@ export default function CreativesPage() {
     },
     [endDate]
   );
+
+  useEffect(() => {
+    const normalized = clampCreativeDateRangeToHistoryLimit(dateRangeValue, allowedHistoryDays);
+    if (JSON.stringify(normalized) !== JSON.stringify(dateRangeValue)) {
+      setDateRangeValue(normalized);
+    }
+  }, [allowedHistoryDays, dateRangeValue, setDateRangeValue]);
 
   const creativesMetadataQuery = useQuery({
     queryKey: [
@@ -255,7 +307,7 @@ export default function CreativesPage() {
       { key: "last14", start: offsetIso(13), end: drEnd },
       { key: "last30", start: offsetIso(29), end: drEnd },
       { key: "last90", start: offsetIso(89), end: drEnd },
-      { key: "allHistory", start: offsetIso(364), end: drEnd },
+      { key: "allHistory", start: offsetIso(META_WAREHOUSE_HISTORY_DAYS - 1), end: drEnd },
     ],
     [drEnd, offsetIso]
   );
@@ -720,7 +772,7 @@ export default function CreativesPage() {
               showHeader={false}
               showAiActionsRow={false}
               dateRange={dateRangeValue}
-              onDateRangeChange={setDateRangeValue}
+              onDateRangeChange={setBoundedDateRangeValue}
               groupBy={groupBy}
               onGroupByChange={setGroupBy}
               filters={topFilters}
