@@ -1655,6 +1655,7 @@ function payloadProjectionSqlForScope(scope: GoogleAdsWarehouseScope) {
           'channel', payload_json -> 'channel',
           'servingStatus', payload_json -> 'servingStatus',
           'dailyBudget', payload_json -> 'dailyBudget',
+          'campaignBudgetResourceName', payload_json -> 'campaignBudgetResourceName',
           'budgetDeliveryMethod', payload_json -> 'budgetDeliveryMethod',
           'budgetExplicitlyShared', payload_json -> 'budgetExplicitlyShared',
           'impressionShare', payload_json -> 'impressionShare',

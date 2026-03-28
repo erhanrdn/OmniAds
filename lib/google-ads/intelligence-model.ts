@@ -25,6 +25,7 @@ export interface CampaignPerformanceRow
   channel: string;
   servingStatus: string | null;
   dailyBudget: number | null;
+  campaignBudgetResourceName?: string | null;
   budgetDeliveryMethod: string | null;
   budgetExplicitlyShared: boolean | null;
   impressionShare: number | null;
@@ -50,10 +51,17 @@ export interface SearchTermPerformanceRow
   adGroupId: string | null;
   adGroupName: string;
   intentClass: string;
+  intentConfidence?: "high" | "medium" | "low";
+  intentReason?: string;
+  intentNeedsReview?: boolean;
   wasteFlag: boolean;
   keywordOpportunityFlag: boolean;
   negativeKeywordFlag: boolean;
   clusterId: string;
+  ownershipClass?: "brand" | "non_brand" | "competitor" | "sku_specific" | "weak_commercial";
+  ownershipConfidence?: "high" | "medium" | "low";
+  ownershipReason?: string;
+  ownershipNeedsReview?: boolean;
 }
 
 export interface KeywordPerformanceRow

@@ -518,6 +518,7 @@ export function buildCampaignMap(coreRows: RawRow[], shareRows: RawRow[], budget
     const id = asString(getCompatValue(campaign, "id"));
     if (!id || !map.has(id)) continue;
     Object.assign(map.get(id)!, {
+      campaignBudgetResourceName: asString(getCompatValue(campaignBudget, "resource_name")),
       dailyBudget:
         asNumber(getCompatValue(campaignBudget, "amount_micros")) !== null
           ? Number((((asNumber(getCompatValue(campaignBudget, "amount_micros")) ?? 0) / 1_000_000)).toFixed(2))

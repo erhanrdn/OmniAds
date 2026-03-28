@@ -1,10 +1,13 @@
 import { getIntegration } from "@/lib/integrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
+import { getBusinessCostModel } from "@/lib/business-cost-model";
 import { getDateRangeForQuery } from "@/lib/google-ads-gaql";
 import { getComparisonWindow, pctDelta } from "@/lib/google-ads/reporting-support";
 import { buildGoogleAdsAdvisorWindows } from "@/lib/google-ads/advisor-windows";
 import { getCampaignBadges, generateOverviewInsights, type GadsCampaignRow } from "@/lib/google-ads-intelligence";
 import { buildGoogleGrowthAdvisor } from "@/lib/google-ads/growth-advisor";
+import { decorateAdvisorRecommendationsForExecution } from "@/lib/google-ads/advisor-handoff";
+import { annotateAdvisorMemory, getAdvisorExecutionCalibration } from "@/lib/google-ads/advisor-memory";
 import { buildGoogleAdsOpportunityEngine, type GoogleAdsOpportunity } from "@/lib/google-ads/opportunity-engine";
 import { buildCrossEntityIntelligence } from "@/lib/google-ads/cross-entity-intelligence";
 import {
@@ -839,12 +842,27 @@ export async function getGoogleAdsDiagnosticsReport(
 export async function getGoogleAdsAdvisorReport(
   params: BaseReportParams
 ) {
+  const advisorContext = await resolveWarehouseContext({
+    businessId: params.businessId,
+    accountId: params.accountId,
+    dateRange: params.dateRange,
+    customStart: params.customStart,
+    customEnd: params.customEnd,
+  });
+  const resolvedAccountId =
+    params.accountId && params.accountId !== "all"
+      ? params.accountId
+      : advisorContext.providerAccountIds.length === 1
+        ? advisorContext.providerAccountIds[0]
+        : null;
   const { requestedDays, selectedWindow, supportWindows } = buildGoogleAdsAdvisorWindows({
     dateRange: params.dateRange,
     customStart: params.customStart,
     customEnd: params.customEnd,
   });
   const [last3, last7, last14, last30, last90, allHistory] = supportWindows;
+
+  const costModel = await getBusinessCostModel(params.businessId);
 
   const [
     selectedCampaigns,
@@ -905,6 +923,31 @@ export async function getGoogleAdsAdvisorReport(
 
   const advisor = buildGoogleGrowthAdvisor({
     selectedLabel: selectedWindow.label,
+    commerceContext: {
+      costModel,
+      commerceSources: (selectedProducts.rows as Array<Record<string, unknown>>).map((row) => ({
+        productItemId: String(row.productItemId ?? row.itemId ?? "") || null,
+        productTitle: String(row.productTitle ?? row.title ?? ""),
+        inventory:
+          typeof row.inventory === "number"
+            ? Number(row.inventory)
+            : typeof row.stock === "number"
+              ? Number(row.stock)
+              : null,
+        availability:
+          typeof row.availability === "string"
+            ? String(row.availability)
+            : typeof row.productAvailability === "string"
+              ? String(row.productAvailability)
+              : null,
+        compareAtPrice:
+          typeof row.compareAtPrice === "number"
+            ? Number(row.compareAtPrice)
+            : typeof row.compare_at_price === "number"
+              ? Number(row.compare_at_price)
+              : null,
+      })),
+    },
     selectedCampaigns: selectedCampaigns.rows as never[],
     selectedSearchTerms: selectedSearch.rows as never[],
     selectedProducts: selectedProducts.rows as never[],
@@ -922,8 +965,56 @@ export async function getGoogleAdsAdvisorReport(
     ],
   });
 
+  const executionCalibration = await getAdvisorExecutionCalibration({
+    businessId: params.businessId,
+    accountId: params.accountId ?? "all",
+  });
+
+  const recommendations = decorateAdvisorRecommendationsForExecution({
+    accountId: resolvedAccountId,
+    selectedCampaigns: selectedCampaigns.rows as never[],
+    selectedSearchTerms: selectedSearch.rows as never[],
+    selectedProducts: selectedProducts.rows as never[],
+    selectedAssets: selectedAssets.rows as never[],
+    executionCalibration,
+    recommendations: await annotateAdvisorMemory({
+    businessId: params.businessId,
+    accountId: params.accountId ?? "all",
+    recommendations: advisor.recommendations,
+    }),
+  });
+  const recommendationsById = new Map(recommendations.map((recommendation) => [recommendation.id, recommendation]));
+  const sections = advisor.sections
+    .map((section) => ({
+      ...section,
+      recommendations: section.recommendations
+        .map((recommendation) => recommendationsById.get(recommendation.id) ?? recommendation)
+        .filter(Boolean),
+    }))
+    .filter((section) => section.recommendations.length > 0);
+
   return {
     ...advisor,
+    summary: {
+      ...advisor.summary,
+      headline: recommendations[0]?.title ?? advisor.summary.headline,
+      topPriority: recommendations[0]?.recommendedAction ?? advisor.summary.topPriority,
+      operatorNote:
+        recommendations.length > 0
+          ? `${recommendations.length} actionable Google recommendations are live. Highest priority: ${recommendations[0].title}.`
+          : advisor.summary.operatorNote,
+      watchouts: recommendations
+        .filter(
+          (recommendation) =>
+            recommendation.doBucket === "do_later" ||
+            recommendation.decisionState === "watch" ||
+            recommendation.integrityState === "blocked"
+        )
+        .slice(0, 3)
+        .map((recommendation) => recommendation.title),
+    },
+    recommendations,
+    sections,
     meta: {
       selectedCampaigns: selectedCampaigns.rows.length,
       selectedSearchTerms: selectedSearch.rows.length,

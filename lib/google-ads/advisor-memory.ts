@@ -1,0 +1,1114 @@
+import { getDb } from "@/lib/db";
+import type {
+  GoogleCompletionMode,
+  GoogleExecutionStatus,
+  GoogleOutcomeConfidence,
+  GoogleOutcomeVerdict,
+  GoogleOutcomeVerdictFailReason,
+  GoogleRecommendation,
+  GoogleRecommendationMemoryStatus,
+} from "@/lib/google-ads/growth-advisor-types";
+import { runMigrations } from "@/lib/migrations";
+
+interface RecommendationMemoryRow {
+  business_id: string;
+  account_id: string;
+  recommendation_fingerprint: string;
+  recommendation_type: string;
+  entity_id: string | null;
+  first_seen_at: string;
+  last_seen_at: string;
+  prior_status: GoogleRecommendationMemoryStatus | null;
+  current_status: GoogleRecommendationMemoryStatus;
+  seen_count: number;
+  last_do_bucket: GoogleRecommendation["doBucket"];
+  user_action: "applied" | "dismissed" | "ignored" | null;
+  dismiss_reason: string | null;
+  suppress_until: string | null;
+  applied_at: string | null;
+  outcome_check_at: string | null;
+  outcome_check_window_days: number | null;
+  outcome_verdict: GoogleOutcomeVerdict | null;
+  outcome_metric: string | null;
+  outcome_delta: number | null;
+  outcome_verdict_fail_reason: GoogleOutcomeVerdictFailReason | null;
+  outcome_confidence: GoogleOutcomeConfidence | null;
+  execution_status: GoogleExecutionStatus | null;
+  executed_at: string | null;
+  execution_error: string | null;
+  rollback_available: boolean | null;
+  rollback_executed_at: string | null;
+  completion_mode: GoogleCompletionMode | null;
+  completed_step_count: number | null;
+  total_step_count: number | null;
+  completed_step_ids: string[] | null;
+  skipped_step_ids: string[] | null;
+  core_step_ids: string[] | null;
+  execution_metadata: Record<string, unknown> | null;
+  applied_snapshot: Record<string, unknown> | null;
+  recommendation_snapshot: Record<string, unknown> | null;
+}
+
+const globalStore = globalThis as typeof globalThis & {
+  __googleAdvisorMemoryFallback?: Map<string, Map<string, RecommendationMemoryRow>>;
+};
+
+function getFallbackStore() {
+  if (!globalStore.__googleAdvisorMemoryFallback) {
+    globalStore.__googleAdvisorMemoryFallback = new Map();
+  }
+  return globalStore.__googleAdvisorMemoryFallback;
+}
+
+function bucketWeight(bucket: GoogleRecommendation["doBucket"]) {
+  return bucket === "do_now" ? 0 : bucket === "do_next" ? 1 : 2;
+}
+
+function integrityWeight(state: GoogleRecommendation["integrityState"]) {
+  return state === "ready" ? 3 : state === "downgraded" ? 2 : state === "blocked" ? 1 : 0;
+}
+
+function severityScore(snapshot: Record<string, unknown> | null | undefined) {
+  if (!snapshot) return null;
+  const bucket = String(snapshot.doBucket ?? "do_later") as GoogleRecommendation["doBucket"];
+  const rankScore = Number(snapshot.rankScore ?? 0);
+  const integrityState = String(snapshot.integrityState ?? "ready") as GoogleRecommendation["integrityState"];
+  return Number((((2 - bucketWeight(bucket)) * 10) + rankScore + integrityWeight(integrityState) * 2).toFixed(2));
+}
+
+function shouldEscalate(previous: RecommendationMemoryRow | undefined, seenCount: number) {
+  if (previous?.user_action) return false;
+  return seenCount >= 5;
+}
+
+function deriveStatus(
+  previous: RecommendationMemoryRow | undefined,
+  recommendation: GoogleRecommendation,
+  seenCount: number
+): GoogleRecommendationMemoryStatus {
+  if (!previous) return "new";
+  if (previous.current_status === "resolved") return "new";
+  if (shouldEscalate(previous, seenCount)) return "escalated";
+  if (bucketWeight(recommendation.doBucket) < bucketWeight(previous.last_do_bucket)) return "escalated";
+  if (bucketWeight(recommendation.doBucket) > bucketWeight(previous.last_do_bucket)) return "downgraded";
+  return "persistent";
+}
+
+function shouldSuppress(previous: RecommendationMemoryRow | undefined, nowIso: string) {
+  if (!previous) return false;
+  if (previous.user_action !== "dismissed") return false;
+  if (!previous.suppress_until) return true;
+  return previous.suppress_until > nowIso;
+}
+
+function safeSnapshot(recommendation: GoogleRecommendation) {
+  return {
+    id: recommendation.id,
+    title: recommendation.title,
+    decisionState: recommendation.decisionState,
+    doBucket: recommendation.doBucket,
+    rankScore: recommendation.rankScore,
+    integrityState: recommendation.integrityState,
+    impactBand: recommendation.impactBand,
+    overlapType: recommendation.overlapType ?? null,
+    affectedCampaignIds: recommendation.affectedCampaignIds ?? [],
+    commerceSignals: recommendation.commerceSignals ?? null,
+    commerceConfidence: recommendation.commerceConfidence ?? null,
+    coreStepIds: recommendation.coreStepIds ?? [],
+    executionTrustScore: recommendation.executionTrustScore ?? null,
+    executionTrustBand: recommendation.executionTrustBand ?? null,
+    executionPolicyReason: recommendation.executionPolicyReason ?? null,
+    dependencyReadiness: recommendation.dependencyReadiness ?? null,
+    stabilizationHoldUntil: recommendation.stabilizationHoldUntil ?? null,
+    batchEligible: recommendation.batchEligible ?? false,
+    batchGroupKey: recommendation.batchGroupKey ?? null,
+  };
+}
+
+function outcomeWindowDaysForRecommendationType(type: GoogleRecommendation["type"]) {
+  switch (type) {
+    case "query_governance":
+      return 3;
+    case "brand_leakage":
+    case "search_shopping_overlap":
+    case "orphaned_non_brand_demand":
+    case "keyword_buildout":
+      return 10;
+    case "shopping_launch_or_split":
+    case "product_allocation":
+    case "pmax_scaling_fit":
+    case "budget_reallocation":
+      return 14;
+    default:
+      return 7;
+  }
+}
+
+function outcomeConfidenceForRecommendation(recommendation: GoogleRecommendation | null | undefined): GoogleOutcomeConfidence {
+  if (!recommendation) return "medium";
+  if (recommendation.dataTrust === "low") return "low";
+  if (recommendation.commerceConfidence === "low") return "low";
+  if (recommendation.dataTrust === "high") return "high";
+  return "medium";
+}
+
+function outcomeForCurrentState(input: {
+  previous: RecommendationMemoryRow;
+  currentRecommendation?: GoogleRecommendation | null;
+}) {
+  if (!input.previous.applied_at || !input.previous.outcome_check_at) return null;
+  const nowIso = new Date().toISOString();
+  const outcomeDue = input.previous.outcome_check_at <= nowIso;
+  if (!outcomeDue) {
+    return {
+      verdict: "unknown" as GoogleOutcomeVerdict,
+      metric: null,
+      delta: null,
+      failReason: "insufficient_data_window" as GoogleOutcomeVerdictFailReason,
+      confidence: "low" as GoogleOutcomeConfidence,
+    };
+  }
+  if (input.previous.outcome_verdict && input.previous.outcome_verdict !== "unknown") return null;
+
+  const baselineScore = severityScore(input.previous.applied_snapshot ?? input.previous.recommendation_snapshot);
+  if (baselineScore === null) {
+    return {
+      verdict: "unknown" as GoogleOutcomeVerdict,
+      metric: null,
+      delta: null,
+      failReason: "missing_baseline" as GoogleOutcomeVerdictFailReason,
+      confidence: "low" as GoogleOutcomeConfidence,
+    };
+  }
+  if (!input.currentRecommendation) {
+    const completionConfidence =
+      input.previous.completion_mode === "partial" ||
+      (input.previous.skipped_step_ids ?? []).some((stepId) =>
+        (input.previous.core_step_ids ?? []).includes(stepId)
+      )
+        ? "low"
+        : "high";
+    return {
+      verdict: "improved" as GoogleOutcomeVerdict,
+      metric: "condition_resolution",
+      delta: baselineScore ? Number((-baselineScore).toFixed(2)) : -1,
+      failReason: null,
+      confidence: completionConfidence as GoogleOutcomeConfidence,
+    };
+  }
+
+  const currentScore = severityScore(safeSnapshot(input.currentRecommendation));
+  if (currentScore === null) {
+    return {
+      verdict: "unknown" as GoogleOutcomeVerdict,
+      metric: "severity_score",
+      delta: null,
+      failReason: "entity_not_found" as GoogleOutcomeVerdictFailReason,
+      confidence: "low" as GoogleOutcomeConfidence,
+    };
+  }
+
+  const delta = Number((currentScore - baselineScore).toFixed(2));
+  if (delta <= -2) {
+    return {
+      verdict: "improved" as GoogleOutcomeVerdict,
+      metric: "severity_score",
+      delta,
+      failReason: null,
+      confidence:
+        input.previous.completion_mode === "partial" ||
+        (input.previous.skipped_step_ids ?? []).some((stepId) =>
+          (input.previous.core_step_ids ?? []).includes(stepId)
+        )
+          ? ("low" as GoogleOutcomeConfidence)
+          : outcomeConfidenceForRecommendation(input.currentRecommendation),
+    };
+  }
+  if (delta >= 2) {
+    return {
+      verdict: "degraded" as GoogleOutcomeVerdict,
+      metric: "severity_score",
+      delta,
+      failReason: null,
+      confidence:
+        input.previous.completion_mode === "partial" ||
+        (input.previous.skipped_step_ids ?? []).some((stepId) =>
+          (input.previous.core_step_ids ?? []).includes(stepId)
+        )
+          ? ("low" as GoogleOutcomeConfidence)
+          : outcomeConfidenceForRecommendation(input.currentRecommendation),
+    };
+  }
+  return {
+    verdict: "neutral" as GoogleOutcomeVerdict,
+    metric: "severity_score",
+    delta,
+    failReason: null,
+    confidence:
+      input.previous.completion_mode === "partial" ||
+      (input.previous.skipped_step_ids ?? []).some((stepId) =>
+        (input.previous.core_step_ids ?? []).includes(stepId)
+      )
+        ? ("low" as GoogleOutcomeConfidence)
+        : outcomeConfidenceForRecommendation(input.currentRecommendation),
+  };
+}
+
+function isDbConfigured() {
+  return Boolean(process.env.DATABASE_URL?.trim());
+}
+
+function annotateAdvisorMemoryFallback(input: {
+  businessId: string;
+  accountId: string;
+  recommendations: GoogleRecommendation[];
+}) {
+  const root = getFallbackStore();
+  const scopeKey = `${input.businessId}:${input.accountId}`;
+  const scope = root.get(scopeKey) ?? new Map<string, RecommendationMemoryRow>();
+  root.set(scopeKey, scope);
+
+  const nowIso = new Date().toISOString();
+  const currentFingerprints = new Set<string>();
+  const persisted: GoogleRecommendation[] = [];
+
+  for (const recommendation of input.recommendations) {
+    currentFingerprints.add(recommendation.recommendationFingerprint);
+    const previous = scope.get(recommendation.recommendationFingerprint);
+    const seenCount = (previous?.seen_count ?? 0) + 1;
+    const currentStatus = deriveStatus(previous, recommendation, seenCount);
+    const suppress = shouldSuppress(previous, nowIso);
+    const outcome = previous ? outcomeForCurrentState({ previous, currentRecommendation: recommendation }) : null;
+
+    const row: RecommendationMemoryRow = {
+      business_id: input.businessId,
+      account_id: input.accountId,
+      recommendation_fingerprint: recommendation.recommendationFingerprint,
+      recommendation_type: recommendation.type,
+      entity_id: recommendation.entityId ?? null,
+      first_seen_at: previous?.first_seen_at ?? nowIso,
+      last_seen_at: nowIso,
+      prior_status: previous?.current_status ?? null,
+      current_status: suppress ? "suppressed" : currentStatus,
+      seen_count: seenCount,
+      last_do_bucket: recommendation.doBucket,
+      user_action: previous?.user_action ?? null,
+      dismiss_reason: previous?.dismiss_reason ?? null,
+      suppress_until: previous?.suppress_until ?? null,
+      applied_at: previous?.applied_at ?? null,
+      outcome_check_at: previous?.outcome_check_at ?? null,
+      outcome_check_window_days: previous?.outcome_check_window_days ?? null,
+      outcome_verdict: outcome?.verdict ?? previous?.outcome_verdict ?? null,
+      outcome_metric: outcome?.metric ?? previous?.outcome_metric ?? null,
+      outcome_delta: outcome?.delta ?? previous?.outcome_delta ?? null,
+      outcome_verdict_fail_reason:
+        outcome?.failReason ?? previous?.outcome_verdict_fail_reason ?? null,
+      outcome_confidence: outcome?.confidence ?? previous?.outcome_confidence ?? null,
+      execution_status: previous?.execution_status ?? "not_started",
+      executed_at: previous?.executed_at ?? null,
+      execution_error: previous?.execution_error ?? null,
+      rollback_available: previous?.rollback_available ?? null,
+      rollback_executed_at: previous?.rollback_executed_at ?? null,
+      completion_mode: previous?.completion_mode ?? "unknown",
+      completed_step_count: previous?.completed_step_count ?? null,
+      total_step_count: previous?.total_step_count ?? recommendation.orderedHandoffSteps?.length ?? null,
+      completed_step_ids: previous?.completed_step_ids ?? null,
+      skipped_step_ids: previous?.skipped_step_ids ?? null,
+      core_step_ids: previous?.core_step_ids ?? recommendation.coreStepIds ?? null,
+      execution_metadata: previous?.execution_metadata ?? null,
+      applied_snapshot: previous?.applied_snapshot ?? null,
+      recommendation_snapshot: safeSnapshot(recommendation),
+    };
+    scope.set(recommendation.recommendationFingerprint, row);
+
+    if (suppress) continue;
+
+    persisted.push({
+      ...recommendation,
+      firstSeenAt: row.first_seen_at,
+      lastSeenAt: row.last_seen_at,
+      priorStatus: row.prior_status,
+      currentStatus: row.current_status,
+      seenCount: row.seen_count,
+      userAction: row.user_action,
+      dismissReason: row.dismiss_reason,
+      suppressUntil: row.suppress_until,
+      appliedAt: row.applied_at,
+      outcomeCheckAt: row.outcome_check_at,
+      outcomeCheckWindowDays: row.outcome_check_window_days,
+      outcomeVerdict: row.outcome_verdict,
+      outcomeMetric: row.outcome_metric,
+      outcomeDelta: row.outcome_delta,
+      outcomeVerdictFailReason: row.outcome_verdict_fail_reason,
+      outcomeConfidence: row.outcome_confidence,
+      executionStatus: row.execution_status,
+      executedAt: row.executed_at,
+      executionError: row.execution_error,
+      rollbackAvailable: row.rollback_available,
+      rollbackExecutedAt: row.rollback_executed_at,
+      completionMode: row.completion_mode,
+      completedStepCount: row.completed_step_count,
+      totalStepCount: row.total_step_count,
+      completedStepIds: row.completed_step_ids ?? undefined,
+      skippedStepIds: row.skipped_step_ids ?? undefined,
+      coreStepIds: row.core_step_ids ?? recommendation.coreStepIds ?? undefined,
+      baselineSnapshot: row.applied_snapshot,
+    });
+  }
+
+  for (const [fingerprint, row] of scope.entries()) {
+    if (currentFingerprints.has(fingerprint)) continue;
+    const outcome = outcomeForCurrentState({ previous: row, currentRecommendation: null });
+    scope.set(fingerprint, {
+      ...row,
+      prior_status: row.current_status,
+      current_status:
+        row.user_action === "dismissed" && row.suppress_until && row.suppress_until > nowIso
+          ? "suppressed"
+          : "resolved",
+      outcome_verdict: outcome?.verdict ?? row.outcome_verdict,
+      outcome_metric: outcome?.metric ?? row.outcome_metric,
+      outcome_delta: outcome?.delta ?? row.outcome_delta,
+      outcome_verdict_fail_reason: outcome?.failReason ?? row.outcome_verdict_fail_reason,
+      outcome_confidence: outcome?.confidence ?? row.outcome_confidence,
+    });
+  }
+
+  return persisted;
+}
+
+export async function annotateAdvisorMemory(input: {
+  businessId: string;
+  accountId: string;
+  recommendations: GoogleRecommendation[];
+}) {
+  if (!isDbConfigured()) {
+    return annotateAdvisorMemoryFallback(input);
+  }
+  await runMigrations({ reason: "google_advisor_memory" });
+  const sql = getDb();
+  const nowIso = new Date().toISOString();
+  const fingerprints = Array.from(
+    new Set(input.recommendations.map((recommendation) => recommendation.recommendationFingerprint))
+  );
+
+  const previousRows = fingerprints.length
+    ? ((await sql`
+        SELECT
+          business_id,
+          account_id,
+          recommendation_fingerprint,
+          recommendation_type,
+          entity_id,
+          first_seen_at,
+          last_seen_at,
+          prior_status,
+          current_status,
+          seen_count,
+          last_do_bucket,
+          user_action,
+          dismiss_reason,
+          suppress_until,
+          applied_at,
+          outcome_check_at,
+          outcome_check_window_days,
+          outcome_verdict,
+          outcome_metric,
+          outcome_delta,
+          outcome_verdict_fail_reason,
+          outcome_confidence,
+          execution_status,
+          executed_at,
+          execution_error,
+          rollback_available,
+          rollback_executed_at,
+          completion_mode,
+          completed_step_count,
+          total_step_count,
+          completed_step_ids,
+          skipped_step_ids,
+          core_step_ids,
+          execution_metadata,
+          applied_snapshot,
+          recommendation_snapshot
+        FROM google_ads_advisor_memory
+        WHERE business_id = ${input.businessId}
+          AND account_id = ${input.accountId}
+          AND recommendation_fingerprint = ANY(${fingerprints}::text[])
+      `) as RecommendationMemoryRow[])
+    : [];
+
+  const previousByFingerprint = new Map(
+    previousRows.map((row) => [row.recommendation_fingerprint, row])
+  );
+
+  const scopeRows = ((await sql`
+    SELECT
+      business_id,
+      account_id,
+      recommendation_fingerprint,
+      recommendation_type,
+      entity_id,
+      first_seen_at,
+      last_seen_at,
+      prior_status,
+      current_status,
+      seen_count,
+      last_do_bucket,
+      user_action,
+      dismiss_reason,
+      suppress_until,
+      applied_at,
+      outcome_check_at,
+      outcome_check_window_days,
+      outcome_verdict,
+      outcome_metric,
+      outcome_delta,
+      outcome_verdict_fail_reason,
+      outcome_confidence,
+      execution_status,
+      executed_at,
+      execution_error,
+      rollback_available,
+      rollback_executed_at,
+      completion_mode,
+      completed_step_count,
+      total_step_count,
+      completed_step_ids,
+      skipped_step_ids,
+      core_step_ids,
+      execution_metadata,
+      applied_snapshot,
+      recommendation_snapshot
+    FROM google_ads_advisor_memory
+    WHERE business_id = ${input.businessId}
+      AND account_id = ${input.accountId}
+  `) as RecommendationMemoryRow[]);
+
+  const currentFingerprints = new Set<string>();
+  const persisted: GoogleRecommendation[] = [];
+  const suppressedFingerprints: string[] = [];
+
+  for (const recommendation of input.recommendations) {
+    currentFingerprints.add(recommendation.recommendationFingerprint);
+    const previous = previousByFingerprint.get(recommendation.recommendationFingerprint);
+    const seenCount = (previous?.seen_count ?? 0) + 1;
+    const currentStatus = deriveStatus(previous, recommendation, seenCount);
+    const suppress = shouldSuppress(previous, nowIso);
+    const outcome = previous ? outcomeForCurrentState({ previous, currentRecommendation: recommendation }) : null;
+
+    const row: RecommendationMemoryRow = {
+      business_id: input.businessId,
+      account_id: input.accountId,
+      recommendation_fingerprint: recommendation.recommendationFingerprint,
+      recommendation_type: recommendation.type,
+      entity_id: recommendation.entityId ?? null,
+      first_seen_at: previous?.first_seen_at ?? nowIso,
+      last_seen_at: nowIso,
+      prior_status: previous?.current_status ?? null,
+      current_status: suppress ? "suppressed" : currentStatus,
+      seen_count: seenCount,
+      last_do_bucket: recommendation.doBucket,
+      user_action: previous?.user_action ?? null,
+      dismiss_reason: previous?.dismiss_reason ?? null,
+      suppress_until: previous?.suppress_until ?? null,
+      applied_at: previous?.applied_at ?? null,
+      outcome_check_at: previous?.outcome_check_at ?? null,
+      outcome_check_window_days: previous?.outcome_check_window_days ?? null,
+      outcome_verdict: outcome?.verdict ?? previous?.outcome_verdict ?? null,
+      outcome_metric: outcome?.metric ?? previous?.outcome_metric ?? null,
+      outcome_delta: outcome?.delta ?? previous?.outcome_delta ?? null,
+      outcome_verdict_fail_reason:
+        outcome?.failReason ?? previous?.outcome_verdict_fail_reason ?? null,
+      outcome_confidence: outcome?.confidence ?? previous?.outcome_confidence ?? null,
+      execution_status: previous?.execution_status ?? "not_started",
+      executed_at: previous?.executed_at ?? null,
+      execution_error: previous?.execution_error ?? null,
+      rollback_available: previous?.rollback_available ?? null,
+      rollback_executed_at: previous?.rollback_executed_at ?? null,
+      completion_mode: previous?.completion_mode ?? "unknown",
+      completed_step_count: previous?.completed_step_count ?? null,
+      total_step_count: previous?.total_step_count ?? recommendation.orderedHandoffSteps?.length ?? null,
+      completed_step_ids: previous?.completed_step_ids ?? null,
+      skipped_step_ids: previous?.skipped_step_ids ?? null,
+      core_step_ids: previous?.core_step_ids ?? recommendation.coreStepIds ?? null,
+      execution_metadata: previous?.execution_metadata ?? null,
+      applied_snapshot: previous?.applied_snapshot ?? null,
+      recommendation_snapshot: safeSnapshot(recommendation),
+    };
+
+    await sql`
+      INSERT INTO google_ads_advisor_memory (
+        business_id,
+        account_id,
+        recommendation_fingerprint,
+        recommendation_type,
+        entity_id,
+        first_seen_at,
+        last_seen_at,
+        prior_status,
+        current_status,
+        seen_count,
+        last_do_bucket,
+        user_action,
+        dismiss_reason,
+        suppress_until,
+        applied_at,
+        outcome_check_at,
+        outcome_check_window_days,
+        outcome_verdict,
+        outcome_metric,
+        outcome_delta,
+        outcome_verdict_fail_reason,
+        outcome_confidence,
+        execution_status,
+        executed_at,
+        execution_error,
+        rollback_available,
+        rollback_executed_at,
+        completion_mode,
+        completed_step_count,
+        total_step_count,
+        completed_step_ids,
+        skipped_step_ids,
+        core_step_ids,
+        execution_metadata,
+        applied_snapshot,
+        recommendation_snapshot,
+        created_at,
+        updated_at
+      ) VALUES (
+        ${row.business_id},
+        ${row.account_id},
+        ${row.recommendation_fingerprint},
+        ${row.recommendation_type},
+        ${row.entity_id},
+        ${row.first_seen_at},
+        ${row.last_seen_at},
+        ${row.prior_status},
+        ${row.current_status},
+        ${row.seen_count},
+        ${row.last_do_bucket},
+        ${row.user_action},
+        ${row.dismiss_reason},
+        ${row.suppress_until},
+        ${row.applied_at},
+        ${row.outcome_check_at},
+        ${row.outcome_check_window_days},
+        ${row.outcome_verdict},
+        ${row.outcome_metric},
+        ${row.outcome_delta},
+        ${row.outcome_verdict_fail_reason},
+        ${row.outcome_confidence},
+        ${row.execution_status},
+        ${row.executed_at},
+        ${row.execution_error},
+        ${row.rollback_available},
+        ${row.rollback_executed_at},
+        ${row.completion_mode},
+        ${row.completed_step_count},
+        ${row.total_step_count},
+        ${JSON.stringify(row.completed_step_ids ?? [])}::jsonb,
+        ${JSON.stringify(row.skipped_step_ids ?? [])}::jsonb,
+        ${JSON.stringify(row.core_step_ids ?? [])}::jsonb,
+        ${JSON.stringify(row.execution_metadata ?? {})}::jsonb,
+        ${JSON.stringify(row.applied_snapshot ?? {})}::jsonb,
+        ${JSON.stringify(row.recommendation_snapshot ?? {})}::jsonb,
+        now(),
+        now()
+      )
+      ON CONFLICT (business_id, account_id, recommendation_fingerprint)
+      DO UPDATE SET
+        recommendation_type = EXCLUDED.recommendation_type,
+        entity_id = EXCLUDED.entity_id,
+        last_seen_at = EXCLUDED.last_seen_at,
+        prior_status = EXCLUDED.prior_status,
+        current_status = EXCLUDED.current_status,
+        seen_count = EXCLUDED.seen_count,
+        last_do_bucket = EXCLUDED.last_do_bucket,
+        user_action = EXCLUDED.user_action,
+        dismiss_reason = EXCLUDED.dismiss_reason,
+        suppress_until = EXCLUDED.suppress_until,
+        applied_at = EXCLUDED.applied_at,
+        outcome_check_at = EXCLUDED.outcome_check_at,
+        outcome_check_window_days = EXCLUDED.outcome_check_window_days,
+        outcome_verdict = EXCLUDED.outcome_verdict,
+        outcome_metric = EXCLUDED.outcome_metric,
+        outcome_delta = EXCLUDED.outcome_delta,
+        outcome_verdict_fail_reason = EXCLUDED.outcome_verdict_fail_reason,
+        outcome_confidence = EXCLUDED.outcome_confidence,
+        execution_status = EXCLUDED.execution_status,
+        executed_at = EXCLUDED.executed_at,
+        execution_error = EXCLUDED.execution_error,
+        rollback_available = EXCLUDED.rollback_available,
+        rollback_executed_at = EXCLUDED.rollback_executed_at,
+        completion_mode = EXCLUDED.completion_mode,
+        completed_step_count = EXCLUDED.completed_step_count,
+        total_step_count = EXCLUDED.total_step_count,
+        completed_step_ids = EXCLUDED.completed_step_ids,
+        skipped_step_ids = EXCLUDED.skipped_step_ids,
+        core_step_ids = EXCLUDED.core_step_ids,
+        execution_metadata = EXCLUDED.execution_metadata,
+        applied_snapshot = EXCLUDED.applied_snapshot,
+        recommendation_snapshot = EXCLUDED.recommendation_snapshot,
+        updated_at = now()
+    `;
+
+    if (suppress) {
+      suppressedFingerprints.push(recommendation.recommendationFingerprint);
+      continue;
+    }
+
+    persisted.push({
+      ...recommendation,
+      firstSeenAt: row.first_seen_at,
+      lastSeenAt: row.last_seen_at,
+      priorStatus: row.prior_status,
+      currentStatus: row.current_status,
+      seenCount: row.seen_count,
+      userAction: row.user_action,
+      dismissReason: row.dismiss_reason,
+      suppressUntil: row.suppress_until,
+      appliedAt: row.applied_at,
+      outcomeCheckAt: row.outcome_check_at,
+      outcomeCheckWindowDays: row.outcome_check_window_days,
+      outcomeVerdict: row.outcome_verdict,
+      outcomeMetric: row.outcome_metric,
+      outcomeDelta: row.outcome_delta,
+      outcomeVerdictFailReason: row.outcome_verdict_fail_reason,
+      outcomeConfidence: row.outcome_confidence,
+      executionStatus: row.execution_status,
+      executedAt: row.executed_at,
+      executionError: row.execution_error,
+      rollbackAvailable: row.rollback_available,
+      rollbackExecutedAt: row.rollback_executed_at,
+      completionMode: row.completion_mode,
+      completedStepCount: row.completed_step_count,
+      totalStepCount: row.total_step_count,
+      completedStepIds: row.completed_step_ids ?? undefined,
+      skippedStepIds: row.skipped_step_ids ?? undefined,
+      coreStepIds: row.core_step_ids ?? recommendation.coreStepIds ?? undefined,
+      baselineSnapshot: row.applied_snapshot,
+    });
+  }
+
+  for (const row of scopeRows) {
+    if (currentFingerprints.has(row.recommendation_fingerprint)) continue;
+    const outcome = outcomeForCurrentState({ previous: row, currentRecommendation: null });
+    await sql`
+      UPDATE google_ads_advisor_memory
+      SET
+        prior_status = current_status,
+        current_status = CASE
+          WHEN user_action = 'dismissed' AND suppress_until IS NOT NULL AND suppress_until > ${nowIso}
+            THEN 'suppressed'
+          ELSE 'resolved'
+        END,
+        outcome_verdict = COALESCE(${outcome?.verdict ?? null}, outcome_verdict),
+        outcome_metric = COALESCE(${outcome?.metric ?? null}, outcome_metric),
+        outcome_delta = COALESCE(${outcome?.delta ?? null}, outcome_delta),
+        outcome_verdict_fail_reason = COALESCE(${outcome?.failReason ?? null}, outcome_verdict_fail_reason),
+        outcome_confidence = COALESCE(${outcome?.confidence ?? null}, outcome_confidence),
+        updated_at = now()
+      WHERE business_id = ${input.businessId}
+        AND account_id = ${input.accountId}
+        AND recommendation_fingerprint = ${row.recommendation_fingerprint}
+    `;
+  }
+
+  return persisted;
+}
+
+export async function updateAdvisorMemoryAction(input: {
+  businessId: string;
+  accountId: string;
+  recommendationFingerprint: string;
+  action: "dismissed" | "ignored" | "applied" | "unsuppress";
+  dismissReason?: string | null;
+  suppressUntil?: string | null;
+}) {
+  if (!isDbConfigured()) {
+    const root = getFallbackStore();
+    const scope = root.get(`${input.businessId}:${input.accountId}`);
+    const row = scope?.get(input.recommendationFingerprint);
+    if (row && scope) {
+      const windowDays = outcomeWindowDaysForRecommendationType(
+        row.recommendation_type as GoogleRecommendation["type"]
+      );
+      const appliedAt =
+        input.action === "applied" ? new Date().toISOString() : row.applied_at;
+      const outcomeCheckAt =
+        input.action === "applied"
+          ? new Date(Date.now() + windowDays * 24 * 60 * 60 * 1000).toISOString()
+          : row.outcome_check_at;
+      scope.set(input.recommendationFingerprint, {
+        ...row,
+        user_action: input.action === "unsuppress" ? null : input.action,
+        dismiss_reason: input.action === "dismissed" ? (input.dismissReason ?? null) : null,
+        suppress_until:
+          input.action === "dismissed"
+            ? (input.suppressUntil ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString())
+            : null,
+        prior_status: row.current_status,
+        current_status:
+          input.action === "dismissed"
+            ? "suppressed"
+            : input.action === "unsuppress"
+              ? "persistent"
+              : row.current_status,
+        applied_at: appliedAt,
+        outcome_check_at: outcomeCheckAt,
+        outcome_check_window_days: input.action === "applied" ? windowDays : row.outcome_check_window_days,
+        outcome_verdict: input.action === "applied" ? "unknown" : row.outcome_verdict,
+        outcome_metric: input.action === "applied" ? null : row.outcome_metric,
+        outcome_delta: input.action === "applied" ? null : row.outcome_delta,
+        outcome_verdict_fail_reason:
+          input.action === "applied" ? "insufficient_data_window" : row.outcome_verdict_fail_reason,
+        outcome_confidence: input.action === "applied" ? "low" : row.outcome_confidence,
+        applied_snapshot:
+          input.action === "applied" ? (row.recommendation_snapshot ?? null) : row.applied_snapshot,
+      });
+    }
+    return;
+  }
+  await runMigrations({ reason: "google_advisor_memory_action" });
+  const sql = getDb();
+  const nextStatus =
+    input.action === "dismissed"
+      ? "suppressed"
+      : input.action === "unsuppress"
+        ? "persistent"
+        : null;
+  const appliedAt =
+    input.action === "applied" ? new Date().toISOString() : null;
+  const existing = (await sql`
+    SELECT recommendation_type
+    FROM google_ads_advisor_memory
+    WHERE business_id = ${input.businessId}
+      AND account_id = ${input.accountId}
+      AND recommendation_fingerprint = ${input.recommendationFingerprint}
+    LIMIT 1
+  `) as Array<{ recommendation_type: string }>;
+  const windowDays = outcomeWindowDaysForRecommendationType(
+    (existing[0]?.recommendation_type as GoogleRecommendation["type"]) ?? "budget_reallocation"
+  );
+  const outcomeCheckAt =
+    input.action === "applied"
+      ? new Date(Date.now() + windowDays * 24 * 60 * 60 * 1000).toISOString()
+      : null;
+
+  await sql`
+    UPDATE google_ads_advisor_memory
+    SET
+      user_action = ${input.action === "unsuppress" ? null : input.action},
+      dismiss_reason = ${input.action === "dismissed" ? (input.dismissReason ?? null) : null},
+      suppress_until = ${
+        input.action === "dismissed"
+          ? (input.suppressUntil ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString())
+          : null
+      },
+      applied_at = COALESCE(${appliedAt}, applied_at),
+      outcome_check_at = CASE
+        WHEN ${input.action} = 'applied' THEN ${outcomeCheckAt}
+        ELSE outcome_check_at
+      END,
+      outcome_check_window_days = CASE
+        WHEN ${input.action} = 'applied' THEN ${windowDays}
+        ELSE outcome_check_window_days
+      END,
+      outcome_verdict = CASE
+        WHEN ${input.action} = 'applied' THEN 'unknown'
+        ELSE outcome_verdict
+      END,
+      outcome_metric = CASE
+        WHEN ${input.action} = 'applied' THEN NULL
+        ELSE outcome_metric
+      END,
+      outcome_delta = CASE
+        WHEN ${input.action} = 'applied' THEN NULL
+        ELSE outcome_delta
+      END,
+      outcome_verdict_fail_reason = CASE
+        WHEN ${input.action} = 'applied' THEN 'insufficient_data_window'
+        ELSE outcome_verdict_fail_reason
+      END,
+      outcome_confidence = CASE
+        WHEN ${input.action} = 'applied' THEN 'low'
+        ELSE outcome_confidence
+      END,
+      applied_snapshot = CASE
+        WHEN ${input.action} = 'applied' THEN recommendation_snapshot
+        ELSE applied_snapshot
+      END,
+      prior_status = current_status,
+      current_status = COALESCE(${nextStatus}, current_status),
+      updated_at = now()
+    WHERE business_id = ${input.businessId}
+      AND account_id = ${input.accountId}
+      AND recommendation_fingerprint = ${input.recommendationFingerprint}
+  `;
+}
+
+export async function updateAdvisorExecutionState(input: {
+  businessId: string;
+  accountId: string;
+  recommendationFingerprint: string;
+  executionStatus: GoogleExecutionStatus;
+  executionError?: string | null;
+  rollbackAvailable?: boolean | null;
+  rollbackExecutedAt?: string | null;
+  executionMetadata?: Record<string, unknown> | null;
+}) {
+  const nowIso = new Date().toISOString();
+  if (!isDbConfigured()) {
+    const scope = getFallbackStore().get(`${input.businessId}:${input.accountId}`);
+    const row = scope?.get(input.recommendationFingerprint);
+    if (row && scope) {
+      const nextAppliedAt = input.executionStatus === "applied" ? nowIso : row.applied_at;
+      scope.set(input.recommendationFingerprint, {
+        ...row,
+        execution_status: input.executionStatus,
+        executed_at: input.executionStatus === "pending" ? row.executed_at : nowIso,
+        execution_error: input.executionError ?? null,
+        rollback_available: input.rollbackAvailable ?? row.rollback_available ?? false,
+        rollback_executed_at: input.rollbackExecutedAt ?? row.rollback_executed_at,
+        execution_metadata: input.executionMetadata ?? row.execution_metadata ?? null,
+        user_action: input.executionStatus === "applied" ? "applied" : row.user_action,
+        applied_at: nextAppliedAt,
+      });
+    }
+    return;
+  }
+  await runMigrations({ reason: "google_advisor_execution_state" });
+  const sql = getDb();
+  await sql`
+    UPDATE google_ads_advisor_memory
+    SET
+      execution_status = ${input.executionStatus},
+      executed_at = CASE
+        WHEN ${input.executionStatus} = 'pending' THEN COALESCE(executed_at, now())
+        ELSE now()
+      END,
+      execution_error = ${input.executionError ?? null},
+      rollback_available = COALESCE(${input.rollbackAvailable ?? null}, rollback_available),
+      rollback_executed_at = COALESCE(${input.rollbackExecutedAt ?? null}, rollback_executed_at),
+      execution_metadata = COALESCE(${JSON.stringify(input.executionMetadata ?? null)}::jsonb, execution_metadata),
+      user_action = CASE
+        WHEN ${input.executionStatus} = 'applied' THEN 'applied'
+        ELSE user_action
+      END,
+      applied_at = CASE
+        WHEN ${input.executionStatus} = 'applied' THEN COALESCE(applied_at, now())
+        ELSE applied_at
+      END,
+      updated_at = now()
+    WHERE business_id = ${input.businessId}
+      AND account_id = ${input.accountId}
+      AND recommendation_fingerprint = ${input.recommendationFingerprint}
+  `;
+}
+
+export async function updateAdvisorCompletionState(input: {
+  businessId: string;
+  accountId: string;
+  recommendationFingerprint: string;
+  completionMode: GoogleCompletionMode;
+  completedStepCount?: number | null;
+  totalStepCount?: number | null;
+  completedStepIds?: string[] | null;
+  skippedStepIds?: string[] | null;
+  coreStepIds?: string[] | null;
+}) {
+  const nextStatus: GoogleExecutionStatus =
+    input.completionMode === "partial" ? "partially_applied" : "applied";
+  if (!isDbConfigured()) {
+    const scope = getFallbackStore().get(`${input.businessId}:${input.accountId}`);
+    const row = scope?.get(input.recommendationFingerprint);
+    if (row && scope) {
+      scope.set(input.recommendationFingerprint, {
+        ...row,
+        completion_mode: input.completionMode,
+        completed_step_count: input.completedStepCount ?? row.completed_step_count,
+        total_step_count: input.totalStepCount ?? row.total_step_count,
+        completed_step_ids: input.completedStepIds ?? row.completed_step_ids ?? null,
+        skipped_step_ids: input.skippedStepIds ?? row.skipped_step_ids ?? null,
+        core_step_ids: input.coreStepIds ?? row.core_step_ids ?? null,
+        execution_status: nextStatus,
+      });
+    }
+    return;
+  }
+  await runMigrations({ reason: "google_advisor_completion_state" });
+  const sql = getDb();
+  await sql`
+    UPDATE google_ads_advisor_memory
+    SET
+      completion_mode = ${input.completionMode},
+      completed_step_count = COALESCE(${input.completedStepCount ?? null}, completed_step_count),
+      total_step_count = COALESCE(${input.totalStepCount ?? null}, total_step_count),
+      completed_step_ids = COALESCE(${JSON.stringify(input.completedStepIds ?? null)}::jsonb, completed_step_ids),
+      skipped_step_ids = COALESCE(${JSON.stringify(input.skippedStepIds ?? null)}::jsonb, skipped_step_ids),
+      core_step_ids = COALESCE(${JSON.stringify(input.coreStepIds ?? null)}::jsonb, core_step_ids),
+      execution_status = ${nextStatus},
+      updated_at = now()
+    WHERE business_id = ${input.businessId}
+      AND account_id = ${input.accountId}
+      AND recommendation_fingerprint = ${input.recommendationFingerprint}
+  `;
+}
+
+export async function getAdvisorExecutionCalibration(input: {
+  businessId: string;
+  accountId?: string | null;
+}) {
+  if (!isDbConfigured()) {
+    const scope = getFallbackStore().get(`${input.businessId}:${input.accountId ?? "all"}`);
+    const rows = Array.from(scope?.values() ?? []);
+    return buildExecutionCalibration(rows);
+  }
+  await runMigrations({ reason: "google_advisor_execution_calibration" });
+  const sql = getDb();
+  const rows = (await sql`
+    SELECT recommendation_type, outcome_verdict, outcome_verdict_fail_reason, execution_status, rollback_executed_at, completion_mode, execution_metadata, execution_error
+    FROM google_ads_advisor_memory
+    WHERE business_id = ${input.businessId}
+      AND (${input.accountId ?? null}::text IS NULL OR account_id = ${input.accountId ?? null})
+  `) as Array<{
+    recommendation_type: string;
+    outcome_verdict: GoogleOutcomeVerdict | null;
+    outcome_verdict_fail_reason: GoogleOutcomeVerdictFailReason | null;
+    execution_status: GoogleExecutionStatus | null;
+    rollback_executed_at: string | null;
+    completion_mode: GoogleCompletionMode | null;
+    execution_metadata: Record<string, unknown> | null;
+    execution_error: string | null;
+  }>;
+  return buildExecutionCalibration(rows);
+}
+
+function buildExecutionCalibration(
+  rows: Array<{
+    recommendation_type: string;
+    outcome_verdict?: GoogleOutcomeVerdict | null;
+    outcome_verdict_fail_reason?: GoogleOutcomeVerdictFailReason | null;
+    execution_status?: GoogleExecutionStatus | null;
+    rollback_executed_at?: string | null;
+    completion_mode?: GoogleCompletionMode | null;
+    execution_metadata?: Record<string, unknown> | null;
+    execution_error?: string | null;
+  }>
+) {
+  const byFamily = new Map<string, { total: number; degraded: number; unknown: number }>();
+  const failReasons = new Map<string, number>();
+  const executionStatuses = new Map<string, number>();
+  const mutateActionTypes = new Map<string, number>();
+  const executionFailureReasons = new Map<string, number>();
+  const byPattern = new Map<
+    string,
+    { success: number; rollback: number; degraded: number; failure: number; lastTrustBand: string | null }
+  >();
+  let rollbackCount = 0;
+  let partialCount = 0;
+  let fullCount = 0;
+  for (const row of rows) {
+    const family = byFamily.get(row.recommendation_type) ?? { total: 0, degraded: 0, unknown: 0 };
+    family.total += 1;
+    if (row.outcome_verdict === "degraded") family.degraded += 1;
+    if (row.outcome_verdict === "unknown") family.unknown += 1;
+    byFamily.set(row.recommendation_type, family);
+    if (row.outcome_verdict_fail_reason) {
+      failReasons.set(
+        row.outcome_verdict_fail_reason,
+        (failReasons.get(row.outcome_verdict_fail_reason) ?? 0) + 1
+      );
+    }
+    if (row.execution_status) {
+      executionStatuses.set(row.execution_status, (executionStatuses.get(row.execution_status) ?? 0) + 1);
+    }
+    const mutateActionType = String(row.execution_metadata?.mutateActionType ?? "");
+    if (mutateActionType) {
+      mutateActionTypes.set(mutateActionType, (mutateActionTypes.get(mutateActionType) ?? 0) + 1);
+    }
+    const patternKey = String(row.execution_metadata?.policyPatternKey ?? "");
+    if (patternKey) {
+      const current = byPattern.get(patternKey) ?? {
+        success: 0,
+        rollback: 0,
+        degraded: 0,
+        failure: 0,
+        lastTrustBand: null,
+      };
+      if (row.execution_status === "applied") current.success += 1;
+      if (row.execution_status === "failed") current.failure += 1;
+      if (row.rollback_executed_at) current.rollback += 1;
+      if (row.outcome_verdict === "degraded") current.degraded += 1;
+      current.lastTrustBand = String(row.execution_metadata?.executionTrustBand ?? current.lastTrustBand ?? "") || null;
+      byPattern.set(patternKey, current);
+    }
+    if (row.execution_status === "failed") {
+      const message = String(row.execution_error ?? "").toLowerCase();
+      const bucket =
+        message.includes("shared_budget_blocked") || message.includes("shared budget")
+          ? "shared_budget_blocked"
+          : message.includes("intent_uncertain") || message.includes("intent")
+            ? "intent_uncertainty"
+            : message.includes("commerce_blocked") || message.includes("stock") || message.includes("out-of-stock")
+              ? "commerce_blocker"
+              : "google_ads_api_rejection";
+      executionFailureReasons.set(bucket, (executionFailureReasons.get(bucket) ?? 0) + 1);
+    }
+    if (row.rollback_executed_at) rollbackCount += 1;
+    if (row.completion_mode === "partial") partialCount += 1;
+    if (row.completion_mode === "full") fullCount += 1;
+  }
+  return {
+    recommendationFamilies: Array.from(byFamily.entries()).map(([type, counts]) => ({ type, ...counts })),
+    failReasons: Object.fromEntries(failReasons.entries()),
+    executionStatuses: Object.fromEntries(executionStatuses.entries()),
+    mutateActionTypes: Object.fromEntries(mutateActionTypes.entries()),
+    executionFailureReasons: Object.fromEntries(executionFailureReasons.entries()),
+    patterns: Object.fromEntries(byPattern.entries()),
+    rollbackCount,
+    partialCount,
+    fullCount,
+  };
+}
+
+export async function logAdvisorExecutionEvent(input: {
+  businessId: string;
+  accountId: string;
+  recommendationFingerprint: string;
+  mutateActionType: string;
+  operation: string;
+  status: string;
+  payload?: Record<string, unknown> | null;
+  response?: Record<string, unknown> | null;
+  errorMessage?: string | null;
+}) {
+  if (!isDbConfigured()) return;
+  await runMigrations({ reason: "google_advisor_execution_log" });
+  const sql = getDb();
+  await sql`
+    INSERT INTO google_ads_advisor_execution_logs (
+      business_id,
+      account_id,
+      recommendation_fingerprint,
+      mutate_action_type,
+      operation,
+      status,
+      payload_json,
+      response_json,
+      error_message
+    ) VALUES (
+      ${input.businessId},
+      ${input.accountId},
+      ${input.recommendationFingerprint},
+      ${input.mutateActionType},
+      ${input.operation},
+      ${input.status},
+      ${JSON.stringify(input.payload ?? null)}::jsonb,
+      ${JSON.stringify(input.response ?? null)}::jsonb,
+      ${input.errorMessage ?? null}
+    )
+  `;
+}

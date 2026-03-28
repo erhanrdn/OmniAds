@@ -7,17 +7,33 @@ import type {
   ProductPerformanceRow,
   SearchTermPerformanceRow,
 } from "@/lib/google-ads/intelligence-model";
+import type { BusinessCostModel } from "@/lib/business-cost-model";
 import type {
   GoogleAdvisorResponse,
+  GoogleActionability,
+  GoogleCommerceConfidence,
+  GoogleDataTrust,
+  GoogleDecisionFamily,
+  GoogleDoBucket,
   GoogleCampaignFamily,
   GoogleCampaignRoleRow,
   GoogleContributionImpact,
   GoogleDemandRole,
+  GoogleIntegrityState,
   GooglePotentialContribution,
+  GoogleQueryOwnershipClass,
   GoogleRecommendation,
   GoogleRecommendationEvidence,
   GoogleRecommendationSection,
+  GoogleReversibility,
+  GoogleSequenceStage,
+  GoogleSupportStrength,
 } from "@/lib/google-ads/growth-advisor-types";
+import {
+  applyCommerceSignalsToRecommendations,
+  buildProductCommerceAssessments,
+} from "@/lib/google-ads/commerce-signals";
+import { applyQueryOwnership, buildQueryOwnershipContext } from "@/lib/google-ads/query-ownership";
 
 interface WindowInput {
   key: "last3" | "last7" | "last14" | "last30" | "last90" | "all_history";
@@ -29,6 +45,16 @@ interface WindowInput {
 
 interface BuildGoogleGrowthAdvisorInput {
   selectedLabel: string;
+  commerceContext?: {
+    costModel?: BusinessCostModel | null;
+    commerceSources?: Array<{
+      productItemId: string | null;
+      productTitle: string;
+      inventory?: number | null;
+      availability?: string | null;
+      compareAtPrice?: number | null;
+    }>;
+  };
   selectedCampaigns: CampaignPerformanceRow[];
   selectedSearchTerms: SearchTermPerformanceRow[];
   selectedProducts: ProductPerformanceRow[];
@@ -60,6 +86,48 @@ interface FamilySummary {
   cpa: number;
   spendShare: number;
   revenueShare: number;
+}
+
+type AdvisorBaseRecommendation = Omit<
+  GoogleRecommendation,
+  | "decisionFamily"
+  | "doBucket"
+  | "dataTrust"
+  | "integrityState"
+  | "supportStrength"
+  | "actionability"
+  | "reversibility"
+  | "whyNow"
+  | "whatChanged"
+  | "reasonCodes"
+  | "confidenceExplanation"
+  | "confidenceDegradationReasons"
+  | "impactBand"
+  | "effortScore"
+  | "rollbackGuidance"
+  | "validationChecklist"
+  | "blockers"
+  | "blockedByRecommendationIds"
+  | "conflictsWithRecommendationIds"
+  | "dependsOnRecommendationIds"
+  | "sequenceStage"
+  | "rankScore"
+  | "rankExplanation"
+  | "impactScore"
+  | "recommendationFingerprint"
+  | "firstSeenAt"
+  | "lastSeenAt"
+  | "currentStatus"
+  | "userAction"
+  | "dismissReason"
+  | "aiCommentary"
+>;
+
+interface IntegrityContext {
+  selectedTotals: MetricAggregate;
+  selectedSearchTerms: SearchTermPerformanceRow[];
+  selectedProducts: ProductPerformanceRow[];
+  windows: WindowInput[];
 }
 
 const WINDOW_WEIGHTS: Array<{ key: WindowInput["key"]; weight: number }> = [
@@ -450,6 +518,25 @@ function buildCampaignRoleRows(
   });
 }
 
+function inferAffectedCampaignIds(
+  recommendation: AdvisorBaseRecommendation,
+  campaigns: CampaignPerformanceRow[]
+) {
+  if (recommendation.affectedCampaignIds && recommendation.affectedCampaignIds.length > 0) {
+    return recommendation.affectedCampaignIds;
+  }
+  if (recommendation.level === "campaign" && recommendation.entityId) {
+    return [recommendation.entityId];
+  }
+  if (!recommendation.affectedFamilies || recommendation.affectedFamilies.length !== 1) {
+    return undefined;
+  }
+  const matches = campaigns
+    .filter((campaign) => classifyCampaignFamily(campaign) === recommendation.affectedFamilies?.[0])
+    .map((campaign) => String(campaign.campaignId ?? ""));
+  return matches.length === 1 ? matches : undefined;
+}
+
 function sectionOrder(): GoogleRecommendationSection["title"][] {
   return [
     "Operating Model",
@@ -463,11 +550,778 @@ function sectionOrder(): GoogleRecommendationSection["title"][] {
   ];
 }
 
+function buildRecommendationFingerprint(recommendation: AdvisorBaseRecommendation) {
+  return [
+    recommendation.type,
+    recommendation.entityId ?? recommendation.level,
+    recommendation.affectedFamilies?.slice().sort().join(",") ?? "",
+    recommendation.negativeQueries?.slice(0, 2).join("|") ?? "",
+    recommendation.promoteToExact?.slice(0, 2).join("|") ?? "",
+    recommendation.scaleSkuClusters?.slice(0, 2).join("|") ?? "",
+  ].join("::");
+}
+
+function toSequenceStage(recommendation: AdvisorBaseRecommendation): GoogleSequenceStage {
+  switch (recommendation.type) {
+    case "query_governance":
+    case "diagnostic_guardrail":
+    case "brand_leakage":
+    case "search_shopping_overlap":
+    case "orphaned_non_brand_demand":
+      return "stabilize";
+    case "brand_capture_control":
+    case "product_allocation":
+      return "protect";
+    case "keyword_buildout":
+    case "non_brand_expansion":
+    case "budget_reallocation":
+      return "unlock";
+    case "shopping_launch_or_split":
+    case "creative_asset_deployment":
+    case "asset_group_structure":
+      return "expand";
+    default:
+      return "scale";
+  }
+}
+
+function toReversibility(recommendation: AdvisorBaseRecommendation): GoogleReversibility {
+  switch (recommendation.type) {
+    case "query_governance":
+    case "geo_device_adjustment":
+    case "brand_leakage":
+      return "high";
+    case "search_shopping_overlap":
+    case "orphaned_non_brand_demand":
+    case "keyword_buildout":
+    case "budget_reallocation":
+    case "creative_asset_deployment":
+      return "medium";
+    default:
+      return "low";
+  }
+}
+
+function overlapSeverityLabel(
+  overlapSpend: number,
+  selectedTotals: MetricAggregate,
+  recurringWindows: number
+): "low" | "medium" | "high" | "critical" {
+  const spendShare = selectedTotals.spend > 0 ? overlapSpend / selectedTotals.spend : 0;
+  if (spendShare >= 0.25 || recurringWindows >= 5) return "critical";
+  if (spendShare >= 0.14 || recurringWindows >= 4) return "high";
+  if (spendShare >= 0.07 || recurringWindows >= 3) return "medium";
+  return "low";
+}
+
+function overlapTrendLabel(
+  recurringWindows: number
+): "improving" | "stable" | "worsening" | "unknown" {
+  if (recurringWindows >= 4) return "worsening";
+  if (recurringWindows >= 2) return "stable";
+  if (recurringWindows === 1) return "improving";
+  return "unknown";
+}
+
+function supportCountForRecommendation(
+  recommendation: AdvisorBaseRecommendation,
+  windows: WindowInput[]
+) {
+  if (recommendation.type === "query_governance" || recommendation.type === "brand_capture_control") {
+    const targetQueries = new Set(
+      [...(recommendation.negativeQueries ?? []), ...(recommendation.negativeGuardrails ?? [])].map(normalizeSearchTerm)
+    );
+    return windows.filter((window) =>
+      window.searchTerms.some((row) => {
+        const normalized = normalizeSearchTerm(row.searchTerm);
+        return targetQueries.has(normalized) || targetQueries.has((row.ownershipClass ?? "").replace(/_/g, " "));
+      })
+    ).length;
+  }
+
+  if (recommendation.type === "keyword_buildout") {
+    const targetQueries = new Set(
+      [...(recommendation.promoteToExact ?? []), ...(recommendation.promoteToPhrase ?? [])].map(normalizeSearchTerm)
+    );
+    return windows.filter((window) =>
+      window.searchTerms.some((row) => targetQueries.has(normalizeSearchTerm(row.searchTerm)))
+    ).length;
+  }
+
+  if (recommendation.type === "product_allocation" || recommendation.type === "shopping_launch_or_split") {
+    const targets = new Set(
+      [
+        ...(recommendation.startingSkuClusters ?? []),
+        ...(recommendation.scaleSkuClusters ?? []),
+        ...(recommendation.reduceSkuClusters ?? []),
+        ...(recommendation.hiddenWinnerSkuClusters ?? []),
+      ].map((value) => value.toLowerCase())
+    );
+    return windows.filter((window) =>
+      window.products.some((row) => targets.has((row.productTitle ?? "").toLowerCase()))
+    ).length;
+  }
+
+  if (recommendation.type === "brand_leakage") {
+    const targetQueries = new Set((recommendation.negativeQueries ?? []).map(normalizeSearchTerm));
+    return windows.filter((window) =>
+      window.searchTerms.some(
+        (row) =>
+          row.ownershipClass === "brand" &&
+          targetQueries.has(normalizeSearchTerm(row.searchTerm))
+      )
+    ).length;
+  }
+
+  if (recommendation.type === "orphaned_non_brand_demand") {
+    const targetQueries = new Set(
+      [...(recommendation.promoteToExact ?? []), ...(recommendation.promoteToPhrase ?? [])].map(normalizeSearchTerm)
+    );
+    return windows.filter((window) =>
+      window.searchTerms.some(
+        (row) =>
+          (row.ownershipClass === "non_brand" || row.ownershipClass === "sku_specific") &&
+          targetQueries.has(normalizeSearchTerm(row.searchTerm))
+      )
+    ).length;
+  }
+
+  if (recommendation.affectedFamilies?.length) {
+    return windows.filter((window) =>
+      window.campaigns.some((campaign) =>
+        recommendation.affectedFamilies?.includes(classifyCampaignFamily(campaign))
+      )
+    ).length;
+  }
+
+  return 0;
+}
+
+function toSupportStrength(
+  recommendation: AdvisorBaseRecommendation,
+  windows: WindowInput[]
+): GoogleSupportStrength {
+  const supportCount = supportCountForRecommendation(recommendation, windows);
+  if (supportCount >= 4) return "strong";
+  if (supportCount >= 2) return "moderate";
+  return "weak";
+}
+
+function mapDecisionFamily(type: GoogleRecommendation["type"]): GoogleDecisionFamily {
+  switch (type) {
+    case "query_governance":
+    case "brand_capture_control":
+    case "brand_leakage":
+    case "search_shopping_overlap":
+    case "orphaned_non_brand_demand":
+      return "waste_control";
+    case "non_brand_expansion":
+    case "shopping_launch_or_split":
+    case "keyword_buildout":
+    case "budget_reallocation":
+      return "growth_unlock";
+    case "operating_model_gap":
+    case "pmax_scaling_fit":
+    case "asset_group_structure":
+    case "creative_asset_deployment":
+      return "structure_repair";
+    case "diagnostic_guardrail":
+      return "commercial_constraint";
+    case "product_allocation":
+    case "geo_device_adjustment":
+    default:
+      return "experimentation";
+  }
+}
+
+function toReasonCodes(recommendation: AdvisorBaseRecommendation) {
+  const base = recommendation.type.toUpperCase();
+  const state = recommendation.decisionState.toUpperCase();
+  const priority = recommendation.priority.toUpperCase();
+  return [
+    `${base}_${state}`,
+    `${base}_${priority}_PRIORITY`,
+    ...(recommendation.affectedFamilies?.map((family) => `FAMILY_${family.toUpperCase()}`) ?? []),
+    ...(recommendation.diagnosticFlags?.map((flag) =>
+      `DIAGNOSTIC_${flag.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}`
+    ) ?? []),
+  ].slice(0, 6);
+}
+
+function toDataTrust(input: {
+  recommendation: AdvisorBaseRecommendation;
+  selectedTotals: MetricAggregate;
+  selectedSearchTerms: SearchTermPerformanceRow[];
+  selectedProducts: ProductPerformanceRow[];
+}) : GoogleDataTrust {
+  const { recommendation, selectedTotals, selectedSearchTerms, selectedProducts } = input;
+  if (recommendation.type === "diagnostic_guardrail") return "low";
+  if (recommendation.confidence === "high" && selectedTotals.conversions >= 12) return "high";
+  if (
+    selectedTotals.conversions < 8 ||
+    (recommendation.affectedFamilies?.includes("non_brand_search") && selectedSearchTerms.length === 0) ||
+    (recommendation.affectedFamilies?.includes("pmax_scaling") && selectedProducts.length === 0)
+  ) {
+    return "low";
+  }
+  return recommendation.confidence === "low" ? "low" : "medium";
+}
+
+function toConfidenceDegradationReasons(input: {
+  recommendation: AdvisorBaseRecommendation;
+  selectedTotals: MetricAggregate;
+  selectedSearchTerms: SearchTermPerformanceRow[];
+  selectedProducts: ProductPerformanceRow[];
+}) {
+  const reasons: string[] = [];
+  const { recommendation, selectedTotals, selectedSearchTerms, selectedProducts } = input;
+  if (selectedTotals.conversions < 8) reasons.push("Sparse conversion support in the selected range.");
+  if (
+    recommendation.affectedFamilies?.includes("non_brand_search") &&
+    selectedSearchTerms.length === 0
+  ) {
+    reasons.push("Search-term depth is thin for non-brand decisions.");
+  }
+  if (recommendation.affectedFamilies?.includes("pmax_scaling") && selectedProducts.length === 0) {
+    reasons.push("Product visibility is missing for PMax-linked decisions.");
+  }
+  if (recommendation.prerequisites?.length) {
+    reasons.push("Recommendation depends on prerequisites remaining true.");
+  }
+  return reasons;
+}
+
+function toConfidenceExplanation(input: {
+  recommendation: AdvisorBaseRecommendation;
+  dataTrust: GoogleDataTrust;
+  degradationReasons: string[];
+}) {
+  const { recommendation, dataTrust, degradationReasons } = input;
+  const trustLine =
+    dataTrust === "high"
+      ? "Weighted windows and current entity depth agree on this signal."
+      : dataTrust === "medium"
+        ? "The recommendation is supported, but some supporting depth is limited."
+        : "This recommendation is directionally useful, but signal depth is limited.";
+  const degradationLine =
+    degradationReasons.length > 0
+      ? ` Confidence is capped by ${degradationReasons[0].toLowerCase()}`
+      : "";
+  return `${trustLine}${degradationLine}`;
+}
+
+function toImpactBand(recommendation: AdvisorBaseRecommendation): GoogleContributionImpact {
+  if (recommendation.priority === "high" || recommendation.potentialContribution.impact === "high") {
+    return "high";
+  }
+  if (recommendation.priority === "medium" || recommendation.potentialContribution.impact === "medium") {
+    return "medium";
+  }
+  return "low";
+}
+
+function toImpactScore(impactBand: GoogleContributionImpact) {
+  return impactBand === "high" ? 3 : impactBand === "medium" ? 2 : 1;
+}
+
+function toEffortScore(recommendation: AdvisorBaseRecommendation): "low" | "medium" | "high" {
+  if (recommendation.playbookSteps && recommendation.playbookSteps.length >= 3) return "medium";
+  if (recommendation.type === "shopping_launch_or_split" || recommendation.type === "asset_group_structure") {
+    return "high";
+  }
+  if (
+    recommendation.type === "query_governance" ||
+    recommendation.type === "keyword_buildout" ||
+    recommendation.type === "geo_device_adjustment"
+  ) {
+    return "low";
+  }
+  return "medium";
+}
+
+function toRollbackGuidance(recommendation: AdvisorBaseRecommendation) {
+  switch (recommendation.type) {
+    case "query_governance":
+      return "Remove newly added negatives if protected conversion volume drops after the first review window.";
+    case "keyword_buildout":
+      return "Pull back promoted exact or phrase coverage if conversion quality falls below the originating query baseline.";
+    case "budget_reallocation":
+      return "Return budget to the prior lane if the validation cohort fails to hold efficiency after the first controlled test window.";
+    default:
+      return null;
+  }
+}
+
+function toValidationChecklist(recommendation: AdvisorBaseRecommendation) {
+  const checklist = [
+    ...(recommendation.prerequisites ?? []).slice(0, 2),
+    ...(recommendation.playbookSteps ?? []).slice(0, 2),
+  ];
+  if (checklist.length > 0) return checklist;
+  return ["Validate the underlying signal again after the next full review window."];
+}
+
+function toBlockers(input: {
+  recommendation: AdvisorBaseRecommendation;
+  dataTrust: GoogleDataTrust;
+  selectedSearchTerms: SearchTermPerformanceRow[];
+  selectedProducts: ProductPerformanceRow[];
+}) {
+  const blockers: string[] = [];
+  if (
+    input.recommendation.affectedFamilies?.includes("non_brand_search") &&
+    input.selectedSearchTerms.length === 0
+  ) {
+    blockers.push("Search-term visibility needs to improve before more granular execution.");
+  }
+  if (input.recommendation.affectedFamilies?.includes("pmax_scaling") && input.selectedProducts.length === 0) {
+    blockers.push("Product-level visibility is missing for PMax-linked validation.");
+  }
+  if (input.dataTrust === "low" && blockers.length === 0) {
+    blockers.push("Decision confidence is capped by limited signal depth.");
+  }
+  return blockers.slice(0, 3);
+}
+
+function toWhatChanged(input: {
+  recommendation: AdvisorBaseRecommendation;
+  selectedLabel: string;
+}) {
+  if (!input.selectedLabel.toLowerCase().includes("selected")) return null;
+  switch (input.recommendation.type) {
+    case "query_governance":
+      return "Recent waste concentration is still visible in the current selected range.";
+    case "keyword_buildout":
+      return "Recent converting queries continue to validate the same promotion candidates.";
+    case "product_allocation":
+      return "The current product mix still shows a visible split between winners and laggards.";
+    case "diagnostic_guardrail":
+      return "The latest range did not add enough new signal to remove the current guardrails.";
+    default:
+      return null;
+  }
+}
+
+function toWhyNow(recommendation: AdvisorBaseRecommendation) {
+  return recommendation.timeframeContext.selectedRangeNote;
+}
+
+function toDoBucket(input: {
+  recommendation: AdvisorBaseRecommendation;
+  dataTrust: GoogleDataTrust;
+  blockers: string[];
+  impactBand: GoogleContributionImpact;
+}): GoogleDoBucket {
+  const { recommendation, dataTrust, blockers, impactBand } = input;
+  if (
+    recommendation.priority === "high" &&
+    recommendation.decisionState === "act" &&
+    dataTrust !== "low" &&
+    blockers.length === 0
+  ) {
+    return "do_now";
+  }
+  if (
+    recommendation.decisionState === "watch" ||
+    recommendation.confidence === "low" ||
+    impactBand === "low" ||
+    dataTrust === "low"
+  ) {
+    return "do_later";
+  }
+  return "do_next";
+}
+
+function toActionability(blockers: string[]): GoogleActionability {
+  if (blockers.length === 0) return "ready_now";
+  if (blockers.some((blocker) => blocker.toLowerCase().includes("missing") || blocker.toLowerCase().includes("visibility"))) {
+    return "not_ready";
+  }
+  return "ready_after_prerequisite";
+}
+
+function commerceConfidenceWeight(value: GoogleCommerceConfidence | null | undefined) {
+  return value === "high" ? 3 : value === "medium" ? 2 : value === "low" ? 1 : 0;
+}
+
+function enrichRecommendation(input: {
+  recommendation: AdvisorBaseRecommendation;
+  selectedTotals: MetricAggregate;
+  selectedSearchTerms: SearchTermPerformanceRow[];
+  selectedProducts: ProductPerformanceRow[];
+  selectedLabel: string;
+  windows: WindowInput[];
+}): GoogleRecommendation {
+  const dataTrust = toDataTrust(input);
+  const confidenceDegradationReasons = toConfidenceDegradationReasons(input);
+  const impactBand = toImpactBand(input.recommendation);
+  const blockers = toBlockers({
+    recommendation: input.recommendation,
+    dataTrust,
+    selectedSearchTerms: input.selectedSearchTerms,
+    selectedProducts: input.selectedProducts,
+  });
+  return {
+    ...input.recommendation,
+    decisionFamily: mapDecisionFamily(input.recommendation.type),
+    doBucket: toDoBucket({
+      recommendation: input.recommendation,
+      dataTrust,
+      blockers,
+      impactBand,
+    }),
+    dataTrust,
+    integrityState: "ready",
+    supportStrength: toSupportStrength(input.recommendation, input.windows),
+    actionability: toActionability(blockers),
+    reversibility: toReversibility(input.recommendation),
+    whyNow: toWhyNow(input.recommendation),
+    whatChanged: toWhatChanged({ recommendation: input.recommendation, selectedLabel: input.selectedLabel }),
+    reasonCodes: toReasonCodes(input.recommendation),
+    confidenceExplanation: toConfidenceExplanation({
+      recommendation: input.recommendation,
+      dataTrust,
+      degradationReasons: confidenceDegradationReasons,
+    }),
+    confidenceDegradationReasons,
+    impactBand,
+    impactScore: toImpactScore(impactBand),
+    effortScore: toEffortScore(input.recommendation),
+    rollbackGuidance: toRollbackGuidance(input.recommendation),
+    validationChecklist: toValidationChecklist(input.recommendation),
+    blockers,
+    blockedByRecommendationIds: [],
+    conflictsWithRecommendationIds: [],
+    dependsOnRecommendationIds: [],
+    sequenceStage: toSequenceStage(input.recommendation),
+    rankScore: 0,
+    rankExplanation: "Initial rank will be derived after integrity checks.",
+    recommendationFingerprint: buildRecommendationFingerprint(input.recommendation),
+    aiCommentary: null,
+    overlapSeverity: input.recommendation.overlapSeverity ?? null,
+    overlapTrend: input.recommendation.overlapTrend ?? null,
+    commerceSignals: null,
+    commerceConfidence: null,
+    orderedHandoffSteps: [],
+    estimatedOperatorMinutes: null,
+  };
+}
+
+function bucketWeight(bucket: GoogleDoBucket) {
+  return bucket === "do_now" ? 0 : bucket === "do_next" ? 1 : 2;
+}
+
+function confidenceWeight(confidence: GoogleRecommendation["confidence"]) {
+  return confidence === "high" ? 3 : confidence === "medium" ? 2 : 1;
+}
+
+function trustWeight(dataTrust: GoogleDataTrust) {
+  return dataTrust === "high" ? 3 : dataTrust === "medium" ? 2 : 1;
+}
+
+function reversibilityWeight(reversibility: GoogleReversibility) {
+  return reversibility === "high" ? 3 : reversibility === "medium" ? 2 : 1;
+}
+
+function effortPenalty(effort: GoogleRecommendation["effortScore"]) {
+  return effort === "low" ? 0 : effort === "medium" ? 1 : 2;
+}
+
+function computeDependencies(recommendations: GoogleRecommendation[]) {
+  const byType = new Map(recommendations.map((recommendation) => [recommendation.type, recommendation]));
+  for (const recommendation of recommendations) {
+    const dependsOn = new Set<string>();
+    const conflictsWith = new Set<string>();
+    const overlapGuardrail =
+      byType.get("brand_leakage") ??
+      byType.get("search_shopping_overlap") ??
+      byType.get("orphaned_non_brand_demand");
+
+    if (recommendation.type === "non_brand_expansion" || recommendation.type === "keyword_buildout") {
+      const governance = byType.get("query_governance");
+      if (governance) dependsOn.add(governance.id);
+      const orphaned = byType.get("orphaned_non_brand_demand");
+      if (orphaned && recommendation.type === "keyword_buildout") dependsOn.add(orphaned.id);
+    }
+    if (recommendation.type === "budget_reallocation") {
+      const governance = byType.get("query_governance");
+      if (governance) dependsOn.add(governance.id);
+      const diagnostics = byType.get("diagnostic_guardrail");
+      if (diagnostics) dependsOn.add(diagnostics.id);
+      if (overlapGuardrail) dependsOn.add(overlapGuardrail.id);
+    }
+    if (recommendation.type === "pmax_scaling_fit") {
+      const structure = byType.get("asset_group_structure");
+      if (structure) dependsOn.add(structure.id);
+      const shopping = byType.get("shopping_launch_or_split");
+      if (shopping) conflictsWith.add(shopping.id);
+      const leakage = byType.get("brand_leakage");
+      const overlap = byType.get("search_shopping_overlap");
+      if (leakage) dependsOn.add(leakage.id);
+      if (overlap) dependsOn.add(overlap.id);
+    }
+    if (recommendation.type === "shopping_launch_or_split") {
+      const pmax = byType.get("pmax_scaling_fit");
+      if (pmax && pmax.decisionState === "act") conflictsWith.add(pmax.id);
+      const overlap = byType.get("search_shopping_overlap");
+      if (overlap) dependsOn.add(overlap.id);
+    }
+    if (recommendation.type === "brand_leakage") {
+      const pmax = byType.get("pmax_scaling_fit");
+      const budget = byType.get("budget_reallocation");
+      if (pmax) conflictsWith.add(pmax.id);
+      if (budget) conflictsWith.add(budget.id);
+    }
+    if (recommendation.type === "search_shopping_overlap") {
+      const pmax = byType.get("pmax_scaling_fit");
+      const shopping = byType.get("shopping_launch_or_split");
+      if (pmax) conflictsWith.add(pmax.id);
+      if (shopping) conflictsWith.add(shopping.id);
+    }
+
+    recommendation.dependsOnRecommendationIds = Array.from(dependsOn);
+    recommendation.blockedByRecommendationIds = Array.from(dependsOn);
+    recommendation.conflictsWithRecommendationIds = Array.from(conflictsWith);
+  }
+}
+
+function applyDecisionIntegrity(input: {
+  recommendations: GoogleRecommendation[];
+  context: IntegrityContext;
+}) {
+  const next = input.recommendations.map((recommendation) => ({ ...recommendation }));
+  computeDependencies(next);
+
+  for (const recommendation of next) {
+    const degradation = [...recommendation.confidenceDegradationReasons];
+
+    if (
+      input.context.selectedTotals.conversions < 6 &&
+      recommendation.decisionFamily === "growth_unlock"
+    ) {
+      degradation.push("Signal sufficiency is low for aggressive growth actions.");
+      recommendation.integrityState = "downgraded";
+      recommendation.decisionState = recommendation.decisionState === "act" ? "test" : recommendation.decisionState;
+      recommendation.doBucket = "do_next";
+    }
+
+    const supportCount = supportCountForRecommendation(recommendation, input.context.windows);
+    if (supportCount <= 1) {
+      degradation.push("Cross-window support is weak or isolated.");
+      recommendation.integrityState = recommendation.integrityState === "ready" ? "downgraded" : recommendation.integrityState;
+      recommendation.supportStrength = "weak";
+      if (recommendation.doBucket === "do_now") recommendation.doBucket = "do_next";
+    }
+
+    if (recommendation.blockedByRecommendationIds && recommendation.blockedByRecommendationIds.length > 0) {
+      recommendation.integrityState = recommendation.actionability === "not_ready" ? "blocked" : "downgraded";
+      if (recommendation.doBucket === "do_now") {
+        recommendation.doBucket =
+          recommendation.actionability === "ready_after_prerequisite" ? "do_next" : "do_later";
+      }
+    }
+
+    if (recommendation.conflictsWithRecommendationIds && recommendation.conflictsWithRecommendationIds.length > 0) {
+      degradation.push("This action conflicts with another active recommendation.");
+      recommendation.integrityState = recommendation.integrityState === "ready" ? "downgraded" : recommendation.integrityState;
+      if (recommendation.doBucket === "do_now") recommendation.doBucket = "do_next";
+    }
+
+    if (recommendation.actionability === "not_ready") {
+      degradation.push("Execution blockers make this action premature right now.");
+      recommendation.integrityState = "blocked";
+      recommendation.doBucket = "do_later";
+    }
+
+    const strictOutOfStock =
+      recommendation.commerceSignals?.stockState === "out_of_stock" &&
+      recommendation.commerceConfidence === "high" &&
+      (recommendation.type === "pmax_scaling_fit" ||
+        recommendation.type === "shopping_launch_or_split" ||
+        recommendation.type === "product_allocation" ||
+        recommendation.type === "budget_reallocation" ||
+        recommendation.type === "non_brand_expansion" ||
+        recommendation.type === "orphaned_non_brand_demand");
+    const lowStockConstraint =
+      recommendation.commerceSignals?.stockState === "low_stock" &&
+      recommendation.commerceConfidence === "high" &&
+      (recommendation.type === "pmax_scaling_fit" ||
+        recommendation.type === "shopping_launch_or_split" ||
+        recommendation.type === "product_allocation" ||
+        recommendation.type === "budget_reallocation");
+    const lowMarginConstraint =
+      recommendation.commerceSignals?.marginBand === "low" &&
+      (recommendation.type === "pmax_scaling_fit" ||
+        recommendation.type === "shopping_launch_or_split" ||
+        recommendation.type === "product_allocation" ||
+        recommendation.type === "budget_reallocation" ||
+        recommendation.type === "search_shopping_overlap" ||
+        recommendation.type === "orphaned_non_brand_demand");
+
+    if (strictOutOfStock) {
+      degradation.push("High-confidence commerce data shows the affected inventory is out of stock.");
+      recommendation.integrityState = "blocked";
+      recommendation.actionability = "not_ready";
+      recommendation.doBucket = "do_later";
+      recommendation.blockers = Array.from(
+        new Set([...recommendation.blockers, "Affected products are out of stock."])
+      );
+    } else if (lowStockConstraint) {
+      degradation.push("Affected products are low in stock, so aggressive scaling should wait.");
+      recommendation.integrityState =
+        recommendation.integrityState === "ready" ? "downgraded" : recommendation.integrityState;
+      if (recommendation.doBucket === "do_now") recommendation.doBucket = "do_next";
+    } else if (lowMarginConstraint) {
+      degradation.push("Margin quality is weak, so this growth action is commercially less attractive.");
+      recommendation.integrityState =
+        recommendation.integrityState === "ready" ? "downgraded" : recommendation.integrityState;
+      if (recommendation.doBucket === "do_now") recommendation.doBucket = "do_next";
+    }
+
+    recommendation.confidenceDegradationReasons = Array.from(new Set(degradation));
+    recommendation.confidenceExplanation = toConfidenceExplanation({
+      recommendation,
+      dataTrust: recommendation.dataTrust,
+      degradationReasons: recommendation.confidenceDegradationReasons,
+    });
+  }
+
+  for (const recommendation of next) {
+    const blockerPenalty = (recommendation.blockedByRecommendationIds?.length ?? 0) * 2;
+    const dependencyPenalty = (recommendation.dependsOnRecommendationIds?.length ?? 0) * 1.5;
+    const commercePenalty =
+      recommendation.commerceSignals?.stockState === "out_of_stock" && recommendation.commerceConfidence === "high"
+        ? 5
+        : recommendation.commerceSignals?.stockState === "low_stock" && recommendation.commerceConfidence === "high"
+          ? 2.5
+          : recommendation.commerceSignals?.marginBand === "low"
+            ? 1.5
+            : recommendation.commerceConfidence === "low"
+              ? 0.6
+              : 0;
+    const commerceBoost =
+      recommendation.commerceSignals?.marginBand === "high" &&
+      recommendation.commerceSignals?.stockState === "in_stock"
+        ? 1.5 + commerceConfidenceWeight(recommendation.commerceConfidence) * 0.4
+        : 0;
+    const integrityWeight =
+      recommendation.integrityState === "ready"
+        ? 3
+        : recommendation.integrityState === "downgraded"
+          ? 2
+          : recommendation.integrityState === "blocked"
+            ? 1
+            : 0;
+
+    recommendation.rankScore = Number(
+      (
+        recommendation.impactScore * 3.5 +
+        trustWeight(recommendation.dataTrust) * 2.5 +
+        reversibilityWeight(recommendation.reversibility) * 2 +
+        integrityWeight * 2 +
+        commerceBoost +
+        confidenceWeight(recommendation.confidence) * 1.5 -
+        commercePenalty -
+        effortPenalty(recommendation.effortScore) * 1.2 -
+        blockerPenalty -
+        dependencyPenalty
+      ).toFixed(2)
+    );
+    recommendation.rankExplanation = `${recommendation.impactBand} impact, ${recommendation.dataTrust} trust, ${recommendation.reversibility} reversibility, ${recommendation.effortScore} effort, integrity ${recommendation.integrityState}${recommendation.commerceSignals ? `, commerce ${recommendation.commerceSignals.marginBand} margin / ${recommendation.commerceSignals.stockState}` : ""}.`;
+  }
+
+  return next
+    .filter((recommendation) => recommendation.integrityState !== "suppressed")
+    .sort((a, b) => {
+      return (
+        bucketWeight(a.doBucket) - bucketWeight(b.doBucket) ||
+        b.rankScore - a.rankScore ||
+        confidenceWeight(b.confidence) - confidenceWeight(a.confidence)
+      );
+    });
+}
+
+function deriveDecisionSummary(input: {
+  recommendations: GoogleRecommendation[];
+  selectedFamilies: FamilySummary[];
+}) {
+  const { recommendations, selectedFamilies } = input;
+  const topReady = recommendations.find(
+    (recommendation) => recommendation.integrityState === "ready" && recommendation.doBucket === "do_now"
+  );
+  const topConstraintRec =
+    recommendations.find(
+      (recommendation) =>
+        recommendation.integrityState !== "suppressed" &&
+        (recommendation.decisionFamily === "waste_control" ||
+          recommendation.decisionFamily === "commercial_constraint" ||
+          recommendation.decisionFamily === "structure_repair")
+    ) ?? null;
+  const topGrowthRec =
+    recommendations.find(
+      (recommendation) =>
+        recommendation.integrityState !== "suppressed" &&
+        recommendation.actionability !== "not_ready" &&
+        recommendation.decisionFamily === "growth_unlock"
+    ) ?? null;
+
+  let accountState: GoogleAdvisorResponse["summary"]["accountState"] = "scaling_ready";
+  if (recommendations.some((recommendation) => recommendation.dataTrust === "low")) {
+    accountState = "data_insufficient";
+  } else if (topConstraintRec?.decisionFamily === "commercial_constraint") {
+    accountState = "quality_degraded";
+  } else if (topConstraintRec?.decisionFamily === "structure_repair") {
+    accountState = "structural_decline";
+  } else if (
+    selectedFamilies.some((family) => family.family === "brand_search" && family.spendShare >= 30) &&
+    topConstraintRec?.decisionFamily === "waste_control"
+  ) {
+    accountState = "budget_constrained";
+  }
+
+  const accountOperatingMode =
+    accountState === "data_insufficient"
+      ? "Operate with guardrails"
+      : accountState === "quality_degraded"
+        ? "Protect efficiency"
+        : accountState === "structural_decline"
+          ? "Repair structure"
+          : topGrowthRec
+            ? "Unlock growth"
+            : "Stabilize and monitor";
+
+  return {
+    accountState,
+    accountOperatingMode,
+    topConstraint: topConstraintRec?.title ?? "No active efficiency constraint detected.",
+    topGrowthLever:
+      topGrowthRec?.title ?? "No immediate growth unlock is ahead of the current guardrails.",
+    recommendedFocusToday:
+      topReady
+        ? `${topReady.recommendedAction}${
+            topReady.dependsOnRecommendationIds?.length
+              ? " Complete the listed prerequisite first."
+              : ""
+          }`
+        : recommendations[0]?.recommendedAction ?? "Monitor the account until stronger decision signals appear.",
+  };
+}
+
 export function buildGoogleGrowthAdvisor(
   input: BuildGoogleGrowthAdvisorInput
 ): GoogleAdvisorResponse {
+  const ownershipContext = buildQueryOwnershipContext({
+    campaigns: input.selectedCampaigns,
+    searchTerms: input.selectedSearchTerms,
+    products: input.selectedProducts,
+  });
+  const selectedSearchTerms = applyQueryOwnership(input.selectedSearchTerms, ownershipContext);
+  const windows = input.windows.map((window) => ({
+    ...window,
+    searchTerms: applyQueryOwnership(window.searchTerms, ownershipContext),
+  }));
   const selectedFamilies = buildFamilySummaries(input.selectedCampaigns);
-  const recommendationPool: GoogleRecommendation[] = [];
+  const recommendationPool: AdvisorBaseRecommendation[] = [];
   const selectedTotals = aggregateCampaignRows(input.selectedCampaigns);
   const accountCore = finalizeMetrics(
     WINDOW_WEIGHTS.reduce(
@@ -522,26 +1376,47 @@ export function buildGoogleGrowthAdvisor(
 
   const familyMap = new Map(selectedFamilies.map((family) => [family.family, family]));
   const hasFamily = (family: GoogleCampaignFamily) => familyMap.has(family);
-  const brandTokens = brandTokensFromAccount(input.selectedCampaigns, input.selectedSearchTerms);
+  const brandTokens = brandTokensFromAccount(input.selectedCampaigns, selectedSearchTerms);
+  const isCleanupIntent = (row: typeof selectedSearchTerms[number]) =>
+    row.intentClass === "support_or_post_purchase" ||
+    row.intentClass === "research_low_intent" ||
+    row.ownershipClass === "weak_commercial";
+  const isHighIntentQuery = (row: typeof selectedSearchTerms[number]) =>
+    row.intentClass === "product_specific" || row.intentClass === "category_high_intent";
+  const isPhraseIntentQuery = (row: typeof selectedSearchTerms[number]) =>
+    isHighIntentQuery(row) ||
+    row.intentClass === "category_mid_intent" ||
+    row.intentClass === "price_sensitive";
   const recurringNonBrandSupport = buildQueryWindowSupportMap(
-    input.windows,
+    windows,
     (row) =>
-      !isBrandLikeQuery(row.searchTerm, brandTokens) &&
+      row.ownershipClass !== "brand" &&
+      !isCleanupIntent(row) &&
       (Number(row.conversions ?? 0) >= 1 || Number(row.revenue ?? 0) >= 100)
   );
   const recurringWasteSupport = buildQueryWindowSupportMap(
-    input.windows,
-    (row) => Boolean(row.negativeKeywordFlag || row.wasteFlag) && Number(row.spend ?? 0) >= 20
+    windows,
+    (row) =>
+      (Boolean(row.negativeKeywordFlag || row.wasteFlag) || row.ownershipClass === "weak_commercial") &&
+      Number(row.spend ?? 0) >= 20
   );
 
-  const nonBrandSeedRows = input.selectedSearchTerms
-    .filter((row) => !isBrandLikeQuery(row.searchTerm, brandTokens))
+  const nonBrandSeedRows = selectedSearchTerms
+    .filter((row) => row.ownershipClass === "non_brand" || row.ownershipClass === "sku_specific")
+    .filter((row) => !isCleanupIntent(row))
     .filter((row) => Number(row.conversions ?? 0) >= 1 || Number(row.revenue ?? 0) >= 100)
     .filter((row) => Number(row.roas ?? 0) >= Math.max(accountCore.roas * 0.8, 1.25))
     .sort((a, b) => Number(b.revenue ?? 0) - Number(a.revenue ?? 0));
+  const highIntentSeedRows = nonBrandSeedRows.filter((row) => isHighIntentQuery(row));
+  const researchHeavySeedRows = selectedSearchTerms.filter(
+    (row) =>
+      (row.ownershipClass === "non_brand" || row.ownershipClass === "sku_specific") &&
+      row.intentClass === "research_low_intent"
+  );
 
-  const brandLeakageRows = input.selectedSearchTerms
-    .filter((row) => isBrandLikeQuery(row.searchTerm, brandTokens))
+  const brandLeakageRows = selectedSearchTerms
+    .filter((row) => row.ownershipClass === "brand")
+    .filter((row) => row.intentClass === "brand_core" || row.intentClass === "brand_mixed")
     .filter((row) => {
       const family = input.selectedCampaigns.find(
         (campaign) => String(campaign.campaignId ?? "") === String(row.campaignId ?? "")
@@ -558,16 +1433,129 @@ export function buildGoogleGrowthAdvisor(
     })
     .filter((row) => Number(row.spend ?? 0) >= 15 || Number(row.conversions ?? 0) >= 1)
     .sort((a, b) => Number(b.spend ?? 0) - Number(a.spend ?? 0));
+  const brandMixedLeakageRows = brandLeakageRows.filter((row) => row.intentClass === "brand_mixed");
+  const searchShoppingOverlapCandidates = input.selectedProducts
+    .map((row) => {
+      const shoppingCampaignIds = (row.campaignIds ?? []).filter((campaignId) => {
+        const campaign = input.selectedCampaigns.find(
+          (candidate) => String(candidate.campaignId ?? "") === String(campaignId)
+        );
+        return campaign ? classifyCampaignFamily(campaign) === "shopping" : false;
+      });
+      if (shoppingCampaignIds.length === 0) return null;
+      const productTokens = normalizeSearchTerm(row.productTitle ?? "")
+        .split(" ")
+        .filter((token) => token.length >= 4);
+      const matches = selectedSearchTerms.filter((term) => {
+        if (term.intentClass !== "product_specific") return false;
+        const family = input.selectedCampaigns.find(
+          (candidate) => String(candidate.campaignId ?? "") === String(term.campaignId ?? "")
+        );
+        if (!family || classifyCampaignFamily(family) !== "non_brand_search") return false;
+        const normalizedTerm = normalizeSearchTerm(term.searchTerm);
+        const hasTokenOverlap =
+          productTokens.filter((token) => normalizedTerm.includes(token)).length >= Math.min(2, productTokens.length);
+        const hasItemId = normalizedTerm.includes(normalizeSearchTerm(row.productItemId ?? ""));
+        return hasTokenOverlap || hasItemId;
+      });
+      if (matches.length === 0) return null;
+      return {
+        product: row,
+        matches,
+        overlapSpend:
+          matches.reduce((sum, match) => sum + Number(match.spend ?? 0), 0) + Number(row.spend ?? 0),
+      };
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+    .sort((a, b) => b.overlapSpend - a.overlapSpend);
+  const recurringOrphanedNonBrandRows = nonBrandSeedRows.filter((row) => {
+    const support = recurringNonBrandSupport.get(normalizeSearchTerm(row.searchTerm)) ?? 0;
+    return support >= 2;
+  });
+
+  if (!hasFamily("non_brand_search") && recurringOrphanedNonBrandRows.length >= 2) {
+    const orphanedRecurringWindows = input.windows.filter((window) =>
+      window.searchTerms.some(
+        (row) => (row.ownershipClass === "non_brand" || row.ownershipClass === "sku_specific") && Number(row.conversions ?? 0) >= 1
+      )
+    ).length;
+    const orphanedSpend = recurringOrphanedNonBrandRows.reduce(
+      (sum, row) => sum + Number(row.spend ?? 0),
+      0
+    );
+    const exactCandidates = recurringOrphanedNonBrandRows
+      .filter((row) => isHighIntentQuery(row))
+      .filter((row) => Number(row.conversions ?? 0) >= 2)
+      .slice(0, 4)
+      .map((row) => row.searchTerm);
+    const phraseCandidates = recurringOrphanedNonBrandRows
+      .filter((row) => isPhraseIntentQuery(row))
+      .filter((row) => !exactCandidates.includes(row.searchTerm))
+      .slice(0, 4)
+      .map((row) => row.searchTerm);
+    recommendationPool.push({
+      id: "google-orphaned-non-brand-demand",
+      level: "account",
+      type: "orphaned_non_brand_demand",
+      strategyLayer: "Non-Brand Expansion",
+      decisionState: "act",
+      priority: "high",
+      confidence: recurringOrphanedNonBrandRows.length >= 4 ? "high" : "medium",
+      comparisonCohort: "Unowned non-brand demand",
+      title: "Recurring non-brand demand is visible, but no owned search lane is controlling it",
+      summary:
+        "Commercial non-brand queries are recurring often enough to matter, but they are still being absorbed indirectly instead of being owned in a dedicated Search lane.",
+      why:
+        "Without an owned lane, PMax or mixed campaigns can make growth look healthier than it really is while proven non-brand demand remains structurally unmanaged.",
+      recommendedAction:
+        "Treat this as an ownership gap first: stand up exact and phrase control for the recurring non-brand winners before trusting broader growth scale calls.",
+      potentialContribution: toContribution(
+        "Control gain",
+        "high",
+        "Owning recurring non-brand demand directly should improve demand routing and make later scale decisions more trustworthy.",
+        formatCurrencyRange(selectedTotals.revenue * 0.06, selectedTotals.revenue * 0.14)
+      ),
+      evidence: [
+        metricEvidence("Recurring orphaned queries", String(recurringOrphanedNonBrandRows.length)),
+        metricEvidence(
+          "High-intent owned candidates",
+          String(recurringOrphanedNonBrandRows.filter((row) => isHighIntentQuery(row)).length)
+        ),
+        metricEvidence("Exact-ready terms", String(exactCandidates.length)),
+        metricEvidence("Phrase-ready terms", String(phraseCandidates.length)),
+      ],
+      timeframeContext: buildTimeframeContext(
+        "Core verdict says recurring non-brand demand exists before a dedicated ownership lane does.",
+        `${input.selectedLabel} confirms the current query pressure, but the issue is lane ownership rather than a one-window spike.`,
+        `Historical support comes from ${input.windows.filter((window) => window.searchTerms.some((row) => (row.ownershipClass === "non_brand" || row.ownershipClass === "sku_specific") && Number(row.conversions ?? 0) >= 1)).length}/${input.windows.length} windows with recurring non-brand conversions.`
+      ),
+      affectedFamilies: ["non_brand_search", "pmax_scaling"],
+      promoteToExact: exactCandidates,
+      promoteToPhrase: phraseCandidates,
+      overlapType: "orphaned_non_brand_demand",
+      overlapEntities: recurringOrphanedNonBrandRows.slice(0, 6).map((row) => row.searchTerm),
+      overlapSeverity: overlapSeverityLabel(orphanedSpend, selectedTotals, orphanedRecurringWindows),
+      overlapTrend: overlapTrendLabel(orphanedRecurringWindows),
+      prerequisites: [
+        "Recurring non-brand terms should be owned before broader growth scale is trusted",
+      ],
+      playbookSteps: [
+        "Promote exact-ready winners into owned search coverage first.",
+        "Wrap adjacent phrase coverage around the winners without opening the lane too broad.",
+        "Re-evaluate growth scale only after owned non-brand coverage is live.",
+      ],
+    });
+  }
 
   if (hasFamily("brand_search") && hasFamily("pmax_scaling") && !hasFamily("non_brand_search")) {
     if (nonBrandSeedRows.length >= 2) {
       const exactSeedRows = nonBrandSeedRows.filter((row) => {
         const support = recurringNonBrandSupport.get(normalizeSearchTerm(row.searchTerm)) ?? 0;
-        return Number(row.conversions ?? 0) >= 2 && support >= 2;
+        return isHighIntentQuery(row) && Number(row.conversions ?? 0) >= 2 && support >= 2;
       });
       const phraseSeedRows = nonBrandSeedRows.filter((row) => {
         const support = recurringNonBrandSupport.get(normalizeSearchTerm(row.searchTerm)) ?? 0;
-        return !exactSeedRows.includes(row) && Number(row.conversions ?? 0) >= 1 && support >= 1;
+        return isPhraseIntentQuery(row) && !exactSeedRows.includes(row) && Number(row.conversions ?? 0) >= 1 && support >= 1;
       });
       const seedQueriesExact = exactSeedRows.slice(0, 5).map((row) => row.searchTerm);
       const seedQueriesPhrase = phraseSeedRows.slice(0, 5).map((row) => row.searchTerm);
@@ -589,7 +1577,10 @@ export function buildGoogleGrowthAdvisor(
         strategyLayer: "Non-Brand Expansion",
         decisionState: "act",
         priority: "high",
-        confidence: nonBrandSeedRows.length >= 4 ? "high" : "medium",
+        confidence:
+          highIntentSeedRows.length >= 3 && highIntentSeedRows.length >= researchHeavySeedRows.length
+            ? "high"
+            : "medium",
         comparisonCohort: "Brand Search + PMax",
         title: "Non-brand demand is showing up, but no search lane is catching it directly",
         summary:
@@ -606,6 +1597,8 @@ export function buildGoogleGrowthAdvisor(
         ),
         evidence: [
           metricEvidence("Recurring non-brand query count", String(nonBrandSeedRows.length)),
+          metricEvidence("High-intent seed queries", String(highIntentSeedRows.length)),
+          metricEvidence("Research-heavy non-brand terms", String(researchHeavySeedRows.length)),
           metricEvidence(
             "Recurring exact-ready terms",
             String(exactSeedRows.length)
@@ -806,14 +1799,20 @@ export function buildGoogleGrowthAdvisor(
 
   if (brandLeakageRows.length >= 2) {
     const leakageQueries = brandLeakageRows.slice(0, 6).map((row) => row.searchTerm);
+    const leakageRecurringWindows = windows.filter((window) =>
+      window.searchTerms.some(
+        (row) => row.ownershipClass === "brand" && !String(row.campaignName ?? "").toLowerCase().includes("brand")
+      )
+    ).length;
+    const leakageSpend = brandLeakageRows.reduce((sum, row) => sum + Number(row.spend ?? 0), 0);
     recommendationPool.push({
       id: "google-brand-leakage-control",
       level: "account",
-      type: "brand_capture_control",
+      type: "brand_leakage",
       strategyLayer: "Search Governance",
       decisionState: "act",
       priority: "high",
-      confidence: "high",
+      confidence: brandMixedLeakageRows.length > 0 ? "medium" : "high",
       comparisonCohort: "Brand leakage",
       title: "Brand demand is leaking into non-brand lanes",
       summary:
@@ -834,6 +1833,7 @@ export function buildGoogleGrowthAdvisor(
       ),
       evidence: [
         metricEvidence("Leaked brand queries", String(brandLeakageRows.length)),
+        metricEvidence("Brand-mixed leakage", String(brandMixedLeakageRows.length)),
         metricEvidence(
           "Leakage spend",
           `$${round(brandLeakageRows.reduce((sum, row) => sum + Number(row.spend ?? 0), 0)).toLocaleString()}`
@@ -845,10 +1845,16 @@ export function buildGoogleGrowthAdvisor(
       ],
       timeframeContext: buildTimeframeContext(
         "Core verdict says brand capture is not clean enough to trust the growth-lane read at face value.",
-        `${input.selectedLabel} shows the current leakage, but the underlying issue is lane contamination rather than one short-term query spike.`,
-        `Historical support found in ${input.windows.filter((window) => window.searchTerms.some((row) => isBrandLikeQuery(row.searchTerm, brandTokens) && !String(row.campaignName ?? "").toLowerCase().includes("brand"))).length}/${input.windows.length} windows.`
+          `${input.selectedLabel} shows the current leakage, but the underlying issue is lane contamination rather than one short-term query spike.`,
+        `Historical support found in ${windows.filter((window) => window.searchTerms.some((row) => row.ownershipClass === "brand" && !String(row.campaignName ?? "").toLowerCase().includes("brand"))).length}/${windows.length} windows.`
       ),
       affectedFamilies: ["brand_search", "non_brand_search", "pmax_scaling"],
+      overlapType: "brand_leakage",
+      overlapEntities: Array.from(
+        new Set(brandLeakageRows.slice(0, 6).map((row) => String(row.campaignName ?? row.campaignId ?? "")))
+      ),
+      overlapSeverity: overlapSeverityLabel(leakageSpend, selectedTotals, leakageRecurringWindows),
+      overlapTrend: overlapTrendLabel(leakageRecurringWindows),
       negativeQueries: leakageQueries,
       negativeGuardrails: uniqueTokensFromQueries(leakageQueries, 6),
       prerequisites: [
@@ -862,11 +1868,97 @@ export function buildGoogleGrowthAdvisor(
     });
   }
 
-  const wasteQueries = input.selectedSearchTerms
-    .filter((row) => Boolean(row.negativeKeywordFlag || row.wasteFlag))
+  if (searchShoppingOverlapCandidates.length > 0) {
+    const strongestOverlap = searchShoppingOverlapCandidates[0];
+    const overlapRecurringWindows = input.windows.filter((window) =>
+      window.searchTerms.some((row) => row.intentClass === "product_specific")
+    ).length;
+    const overlappingProducts = searchShoppingOverlapCandidates
+      .slice(0, 4)
+      .map((entry) => entry.product.productTitle);
+    const overlappingQueries = searchShoppingOverlapCandidates
+      .flatMap((entry) => entry.matches.map((match) => match.searchTerm))
+      .slice(0, 6);
+    recommendationPool.push({
+      id: "google-search-shopping-overlap",
+      level: "account",
+      type: "search_shopping_overlap",
+      strategyLayer: "Shopping & Products",
+      decisionState: "act",
+      priority: "high",
+      confidence: searchShoppingOverlapCandidates.length >= 2 ? "high" : "medium",
+      comparisonCohort: "Search vs Shopping ownership",
+      title: "SKU-specific demand is being captured by both Search and Shopping lanes",
+      summary:
+        "At least one SKU-specific demand pocket is converting through both Search and Shopping, which makes lane efficiency harder to trust at face value.",
+      why:
+        "When SKU-specific demand is split across lanes without a clear owner, Search and Shopping can both look healthier than their true incremental contribution.",
+      recommendedAction:
+        "Treat the overlap as a routing problem first: decide which lane should own the SKU-specific demand, then reduce duplicate capture before judging either lane as scale-ready.",
+      potentialContribution: toContribution(
+        "Control gain",
+        "high",
+        "Resolving Search/Shopping overlap should make SKU-level performance and budget routing materially easier to trust.",
+        undefined,
+        formatCurrencyRange(strongestOverlap.overlapSpend * 0.08, strongestOverlap.overlapSpend * 0.2)
+      ),
+      evidence: [
+        metricEvidence("Overlapping SKU clusters", String(searchShoppingOverlapCandidates.length)),
+        metricEvidence(
+          "Product-specific query matches",
+          String(searchShoppingOverlapCandidates.flatMap((entry) => entry.matches).length)
+        ),
+        metricEvidence("Primary overlap product", strongestOverlap.product.productTitle),
+        metricEvidence("Overlap spend", `$${round(strongestOverlap.overlapSpend).toLocaleString()}`),
+      ],
+      timeframeContext: buildTimeframeContext(
+        "Core verdict says the overlap is structural enough to change how Search and Shopping should be interpreted.",
+        `${input.selectedLabel} shows where the overlap is visible now, but the issue is lane competition rather than a temporary conversion spike.`,
+        `Historical support comes from ${input.windows.filter((window) => window.searchTerms.some((row) => row.intentClass === "product_specific")).length}/${input.windows.length} windows with SKU-specific query visibility.`
+      ),
+      affectedFamilies: ["non_brand_search", "shopping", "pmax_scaling"],
+      overlapType: "search_shopping_overlap",
+      overlapSeverity: overlapSeverityLabel(
+        strongestOverlap.overlapSpend,
+        selectedTotals,
+        overlapRecurringWindows
+      ),
+      overlapTrend: overlapTrendLabel(overlapRecurringWindows),
+      overlapEntities: Array.from(
+        new Set([
+          ...overlappingProducts,
+          ...searchShoppingOverlapCandidates
+            .slice(0, 4)
+            .flatMap((entry) => entry.product.campaignNames ?? []),
+          ...searchShoppingOverlapCandidates
+            .slice(0, 4)
+            .flatMap((entry) => entry.matches.map((match) => match.campaignName)),
+        ])
+      ),
+      scaleSkuClusters: overlappingProducts,
+      negativeQueries: overlappingQueries,
+      prerequisites: [
+        "SKU-specific demand should have a primary owning lane before scale decisions are trusted",
+      ],
+      playbookSteps: [
+        "Pick the primary lane that should own the SKU-specific demand.",
+        "Reduce duplicate capture in the secondary lane before scaling either side.",
+        "Re-check lane efficiency only after overlap is cleaned up.",
+      ],
+    });
+  }
+
+  const wasteQueries = selectedSearchTerms
+    .filter((row) => Boolean(row.negativeKeywordFlag || row.wasteFlag) || row.ownershipClass === "weak_commercial")
     .filter((row) => Number(row.spend ?? 0) >= 20)
     .sort((a, b) => Number(b.spend ?? 0) - Number(a.spend ?? 0));
   if (wasteQueries.length >= 2) {
+    const riskyWasteQueries = wasteQueries.filter(
+      (row) =>
+        row.intentClass === "product_specific" ||
+        row.intentClass === "category_high_intent" ||
+        row.intentClass === "brand_mixed"
+    );
     const negativeQueries = wasteQueries.slice(0, 6).map((row) => row.searchTerm);
     const negativeClusters = topClusters(wasteQueries, 4, () => true);
     const negativeGuardrails = uniqueTokensFromQueries(negativeQueries, 8);
@@ -877,7 +1969,7 @@ export function buildGoogleGrowthAdvisor(
       strategyLayer: "Search Governance",
       decisionState: "act",
       priority: "high",
-      confidence: "high",
+      confidence: riskyWasteQueries.length > 0 ? "medium" : "high",
       comparisonCohort: "Search query waste",
       title: "Query waste is still being allowed through the account",
       summary:
@@ -912,11 +2004,12 @@ export function buildGoogleGrowthAdvisor(
           `$${round(wasteQueries.reduce((sum, row) => sum + Number(row.spend ?? 0), 0)).toLocaleString()}`
         ),
         metricEvidence("Top waste cluster", negativeClusters[0] ?? "n/a"),
+        metricEvidence("High-intent manual-review terms", String(riskyWasteQueries.length)),
       ],
       timeframeContext: buildTimeframeContext(
         "Core verdict says query waste is broad enough to merit shared governance, not one-off cleanup.",
-        `${input.selectedLabel} highlights the current leakage, but longer windows confirm this is a repeatable waste pattern rather than a one-off spike.`,
-        `Historical support found in ${input.windows.filter((window) => window.searchTerms.some((row) => Boolean(row.negativeKeywordFlag || row.wasteFlag) && Number(row.spend ?? 0) >= 20)).length}/${input.windows.length} windows.`
+          `${input.selectedLabel} highlights the current leakage, but longer windows confirm this is a repeatable waste pattern rather than a one-off spike.`,
+        `Historical support found in ${windows.filter((window) => window.searchTerms.some((row) => (Boolean(row.negativeKeywordFlag || row.wasteFlag) || row.ownershipClass === "weak_commercial") && Number(row.spend ?? 0) >= 20)).length}/${windows.length} windows.`
       ),
       affectedFamilies: ["brand_search", "non_brand_search"],
       negativeClusters,
@@ -936,14 +2029,14 @@ export function buildGoogleGrowthAdvisor(
   const exactCandidates = nonBrandSeedRows
     .filter((row) => {
       const support = recurringNonBrandSupport.get(normalizeSearchTerm(row.searchTerm)) ?? 0;
-      return Number(row.conversions ?? 0) >= 2 && support >= 2;
+      return isHighIntentQuery(row) && Number(row.conversions ?? 0) >= 2 && support >= 2;
     })
     .slice(0, 5)
     .map((row) => row.searchTerm);
   const phraseCandidates = nonBrandSeedRows
     .filter((row) => {
       const support = recurringNonBrandSupport.get(normalizeSearchTerm(row.searchTerm)) ?? 0;
-      return Number(row.conversions ?? 0) >= 1 && support >= 1;
+      return isPhraseIntentQuery(row) && Number(row.conversions ?? 0) >= 1 && support >= 1;
     })
     .map((row) => row.searchTerm)
     .filter((query) => !exactCandidates.includes(query))
@@ -982,6 +2075,10 @@ export function buildGoogleGrowthAdvisor(
         metricEvidence("Promote to exact", String(exactCandidates.length)),
         metricEvidence("Recurring exact support", String(recurringExactCount)),
         metricEvidence("Promote to phrase", String(phraseCandidates.length)),
+        metricEvidence(
+          "High-intent candidates",
+          String(nonBrandSeedRows.filter((row) => isHighIntentQuery(row)).length)
+        ),
         metricEvidence("Broad discovery themes", String(broadThemes.length)),
       ],
       timeframeContext: buildTimeframeContext(
@@ -1454,15 +2551,35 @@ export function buildGoogleGrowthAdvisor(
     });
   }
 
-  const recommendations = recommendationPool.sort((a, b) => {
-    const priorityScore = { high: 0, medium: 1, low: 2 };
-    const decisionScore = { act: 0, test: 1, watch: 2 };
-    const confidenceScore = { high: 0, medium: 1, low: 2 };
-    return (
-      priorityScore[a.priority] - priorityScore[b.priority] ||
-      decisionScore[a.decisionState] - decisionScore[b.decisionState] ||
-      confidenceScore[a.confidence] - confidenceScore[b.confidence]
+  const enrichedRecommendations = recommendationPool.map((recommendation) =>
+      enrichRecommendation({
+        recommendation: {
+          ...recommendation,
+          affectedCampaignIds: inferAffectedCampaignIds(recommendation, input.selectedCampaigns),
+        },
+        selectedTotals,
+        selectedSearchTerms,
+        selectedProducts: input.selectedProducts,
+        selectedLabel: input.selectedLabel,
+        windows,
+      })
     );
+  const commerceAssessments = buildProductCommerceAssessments({
+    products: input.selectedProducts,
+    costModel: input.commerceContext?.costModel ?? null,
+    commerceSources: input.commerceContext?.commerceSources ?? [],
+  });
+  const recommendations = applyDecisionIntegrity({
+    recommendations: applyCommerceSignalsToRecommendations({
+      recommendations: enrichedRecommendations,
+      assessments: commerceAssessments,
+    }),
+    context: {
+      selectedTotals,
+      selectedSearchTerms,
+      selectedProducts: input.selectedProducts,
+      windows,
+    },
   });
 
   const sections: GoogleRecommendationSection[] = sectionOrder()
@@ -1474,6 +2591,10 @@ export function buildGoogleGrowthAdvisor(
     .filter((section) => section.recommendations.length > 0);
 
   const campaignRoles = buildCampaignRoleRows(selectedFamilies, recommendations);
+  const decisionSummary = deriveDecisionSummary({
+    recommendations,
+    selectedFamilies,
+  });
   const headline = recommendations[0]?.title ?? "Google growth model is stable for now";
   const actRecommendationCount = recommendations.filter(
     (recommendation) => recommendation.decisionState === "act"
@@ -1486,6 +2607,11 @@ export function buildGoogleGrowthAdvisor(
         recommendations.length > 0
           ? `${recommendations.length} actionable Google recommendations are live. Highest priority: ${recommendations[0].title}.`
           : "No high-signal ecommerce Google recommendations were generated for this account.",
+      accountState: decisionSummary.accountState,
+      accountOperatingMode: decisionSummary.accountOperatingMode,
+      topConstraint: decisionSummary.topConstraint,
+      topGrowthLever: decisionSummary.topGrowthLever,
+      recommendedFocusToday: decisionSummary.recommendedFocusToday,
       demandMap:
         selectedFamilies.length > 0
           ? selectedFamilies
@@ -1498,6 +2624,22 @@ export function buildGoogleGrowthAdvisor(
       topPriority: recommendations[0]?.recommendedAction ?? "No immediate action required.",
       totalRecommendations: recommendations.length,
       actRecommendationCount,
+      watchouts: recommendations
+        .filter(
+          (recommendation) =>
+            recommendation.doBucket === "do_later" ||
+            recommendation.decisionState === "watch" ||
+            recommendation.integrityState === "blocked"
+        )
+        .slice(0, 3)
+        .map((recommendation) => recommendation.title),
+      dataTrustSummary:
+        recommendations.some(
+          (recommendation) =>
+            recommendation.dataTrust === "low" || recommendation.integrityState !== "ready"
+        )
+          ? "Some decisions are constrained by thin signal depth, blockers, or integrity downgrades."
+          : "Current decisions are supported by stable weighted windows, enough supporting depth, and clean execution readiness.",
       campaignRoles,
     },
     recommendations,

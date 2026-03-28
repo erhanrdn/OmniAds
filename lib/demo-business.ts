@@ -580,6 +580,9 @@ export function getDemoGoogleAdsOpportunities() {
 }
 
 export function getDemoGoogleAdsAdvisor() {
+  const toStringArray = (value: unknown) =>
+    Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+
   const recommendations = [
     {
       id: "demo-google-non-brand",
@@ -810,16 +813,69 @@ export function getDemoGoogleAdsAdvisor() {
     recommendations: recommendations.filter((recommendation) => recommendation.strategyLayer === title),
   })).filter((section) => section.recommendations.length > 0);
 
+  const enrichedRecommendations = recommendations.map((recommendation, index) => ({
+    ...recommendation,
+    decisionFamily:
+      recommendation.type === "query_governance" || recommendation.type === "brand_capture_control"
+        ? "waste_control"
+        : recommendation.type === "non_brand_expansion" || recommendation.type === "shopping_launch_or_split"
+          ? "growth_unlock"
+          : recommendation.type === "diagnostic_guardrail"
+            ? "commercial_constraint"
+            : "structure_repair",
+    doBucket:
+      index < 2 ? "do_now" : recommendation.decisionState === "watch" ? "do_later" : "do_next",
+    dataTrust: recommendation.confidence === "high" ? "high" : "medium",
+    whyNow: recommendation.timeframeContext.selectedRangeNote,
+    whatChanged: index < 2 ? "The selected range is still confirming the same priority shift." : null,
+    reasonCodes: [recommendation.type.toUpperCase(), `DECISION_${recommendation.decisionState.toUpperCase()}`],
+    confidenceExplanation:
+      recommendation.confidence === "high"
+        ? "Weighted windows and the current selected range agree on this decision."
+        : "The direction is supported, but the recommendation should still be validated in the next review window.",
+    confidenceDegradationReasons:
+      recommendation.confidence === "high" ? [] : ["This recommendation still depends on follow-through validation."],
+    impactBand: recommendation.potentialContribution.impact,
+    effortScore:
+      recommendation.type === "query_governance" ? "low" : recommendation.type === "shopping_launch_or_split" ? "high" : "medium",
+    rollbackGuidance:
+      recommendation.type === "query_governance"
+        ? "Remove the new negatives if protected conversion volume falls below baseline after the first review."
+        : null,
+    validationChecklist: [
+      ...toStringArray("prerequisites" in recommendation ? recommendation.prerequisites : []).slice(0, 2),
+      ...toStringArray("playbookSteps" in recommendation ? recommendation.playbookSteps : []).slice(0, 2),
+    ],
+    blockers: [],
+    aiCommentary: null,
+  }));
+
+  const enrichedSections = sections.map((section) => ({
+    ...section,
+    recommendations: enrichedRecommendations.filter((recommendation) => recommendation.strategyLayer === section.title),
+  }));
+
   return {
     summary: {
       headline: "Brand + PMax mix is hiding a non-brand growth gap",
       operatorNote:
         "6 actionable Google recommendations are live. Highest priority: launch a controlled non-brand Search buildout.",
+      accountOperatingMode: "Unlock growth",
+      topConstraint: "Brand and PMax are still masking non-brand demand clarity.",
+      topGrowthLever: "Launch a controlled non-brand Search buildout from recurring winners.",
+      recommendedFocusToday:
+        "Launch a non-brand Search buildout from the proven query clusters, then fund it with a controlled budget carve-out.",
       demandMap: "Brand Search 18.4% spend • PMax 46.2% spend • Shopping 22.1% spend • Non-Brand Search 13.3% spend",
       topPriority:
         "Launch a non-brand Search buildout from the proven query clusters, then fund it with a small budget carve-out instead of scaling PMax blindly.",
       totalRecommendations: 6,
       actRecommendationCount: 4,
+      watchouts: [
+        "PMax still carries too much unchecked catalog demand.",
+        "Brand efficiency remains strong enough to hide growth weakness.",
+      ],
+      dataTrustSummary:
+        "Demo recommendations are shown with stable weighted-window support and no external commerce constraints connected.",
       campaignRoles: [
         {
           campaignId: "g-brand",
@@ -843,8 +899,8 @@ export function getDemoGoogleAdsAdvisor() {
         },
       ],
     },
-    recommendations,
-    sections,
+    recommendations: enrichedRecommendations,
+    sections: enrichedSections,
   };
 }
 

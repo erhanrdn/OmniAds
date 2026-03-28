@@ -140,6 +140,10 @@ export interface SearchIntelligenceRow {
   wasteFlag?: boolean;
   keywordOpportunityFlag?: boolean;
   negativeKeywordFlag?: boolean;
+  ownershipClass?: "brand" | "non_brand" | "competitor" | "sku_specific" | "weak_commercial";
+  ownershipConfidence?: "high" | "medium" | "low";
+  ownershipReason?: string;
+  ownershipNeedsReview?: boolean;
 }
 
 export interface SearchIntelligenceResponse {

@@ -440,6 +440,10 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
     },
   });
   const advisorReady = Boolean(syncStatus?.advisor?.ready);
+  const advisorExecutionAccountId =
+    (syncStatus?.assignedAccountIds?.length ?? 0) === 1
+      ? syncStatus?.assignedAccountIds?.[0] ?? null
+      : null;
   const advisorCurrent = advisorAnalysisKey === currentAdvisorKey ? advisorData : undefined;
   const advisorIsStale = advisorAnalysisKey != null && advisorAnalysisKey !== currentAdvisorKey;
   const advisorIdleState = getAdvisorIdleState(syncStatus);
@@ -1128,7 +1132,12 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
       {activePanel === "summary" && summaryAdvisor?.sections.length ? (
         <section className="space-y-3 rounded-xl border border-border/70 bg-card p-3">
           <p className="text-xs text-muted-foreground">Account-level growth decisions and lane orchestration</p>
-          <GoogleAdvisorPanel advisor={summaryAdvisor} onFocusEntity={focusAdvisorEntity} />
+          <GoogleAdvisorPanel
+            advisor={summaryAdvisor}
+            onFocusEntity={focusAdvisorEntity}
+            businessId={businessId}
+            accountId={advisorExecutionAccountId}
+          />
         </section>
       ) : activePanel === "summary" ? (
         <section className="space-y-3 rounded-xl border border-border/70 bg-card p-3">
@@ -1149,7 +1158,12 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
           ) : isAdvisorError ? (
             <ErrorState />
           ) : insightsAdvisor?.summary ? (
-            <GoogleAdvisorPanel advisor={insightsAdvisor} onFocusEntity={focusAdvisorEntity} />
+            <GoogleAdvisorPanel
+              advisor={insightsAdvisor}
+              onFocusEntity={focusAdvisorEntity}
+              businessId={businessId}
+              accountId={advisorExecutionAccountId}
+            />
           ) : (
             <EmptyState
               title={advisorIdleState.title}
@@ -1368,7 +1382,12 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
             </div>
           )}
           {assetGroupAdvisor?.sections.length ? (
-            <GoogleAdvisorPanel advisor={assetGroupAdvisor} onFocusEntity={focusAdvisorEntity} />
+            <GoogleAdvisorPanel
+              advisor={assetGroupAdvisor}
+              onFocusEntity={focusAdvisorEntity}
+              businessId={businessId}
+              accountId={advisorExecutionAccountId}
+            />
           ) : (
             <EmptyState title={advisorIdleState.title} description={advisorIdleState.description} />
           )}
@@ -1437,7 +1456,12 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
             </>
           )}
           {productsAdvisor?.sections.length ? (
-            <GoogleAdvisorPanel advisor={productsAdvisor} onFocusEntity={focusAdvisorEntity} />
+            <GoogleAdvisorPanel
+              advisor={productsAdvisor}
+              onFocusEntity={focusAdvisorEntity}
+              businessId={businessId}
+              accountId={advisorExecutionAccountId}
+            />
           ) : (
             <EmptyState title={advisorIdleState.title} description={advisorIdleState.description} />
           )}
@@ -1511,7 +1535,12 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
             </>
           )}
           {assetsAdvisor?.sections.length ? (
-            <GoogleAdvisorPanel advisor={assetsAdvisor} onFocusEntity={focusAdvisorEntity} />
+            <GoogleAdvisorPanel
+              advisor={assetsAdvisor}
+              onFocusEntity={focusAdvisorEntity}
+              businessId={businessId}
+              accountId={advisorExecutionAccountId}
+            />
           ) : (
             <EmptyState title={advisorIdleState.title} description={advisorIdleState.description} />
           )}

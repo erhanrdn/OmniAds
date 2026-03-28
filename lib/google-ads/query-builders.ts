@@ -160,6 +160,7 @@ export function buildCampaignBudgetQuery(
     query: buildGoogleAdsQuery({
       select: [
         "campaign.id",
+        "campaign_budget.resource_name",
         "campaign_budget.amount_micros",
         "campaign_budget.delivery_method",
         "campaign_budget.explicitly_shared",
