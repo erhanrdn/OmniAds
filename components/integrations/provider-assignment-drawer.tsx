@@ -99,6 +99,12 @@ export function ProviderAssignmentDrawer({
     Boolean(quotaRetryAfterAt) &&
     new Date(quotaRetryAfterAt as string).getTime() > Date.now();
   const quotaRetryLabel = formatRetryAfter(quotaRetryAfterAt);
+  const discoveryTrustLabel =
+    domain?.discovery.trustLevel === "risky"
+      ? "Cached list is available, but freshness is risky."
+      : domain?.discovery.trustLevel === "safe" && domain?.discovery.sourceHealth !== "fresh"
+        ? "Cached list is available and safe to use."
+        : null;
 
   useEffect(() => {
     latestAssignedAccountIdsRef.current = assignedAccountIds;
@@ -134,6 +140,9 @@ export function ProviderAssignmentDrawer({
         status: snapshot.meta?.stale ? "stale" : "ready",
         entities: snapshot.accounts,
         source: snapshot.meta?.source ?? null,
+        sourceHealth: snapshot.meta?.sourceHealth ?? null,
+        trustLevel: snapshot.meta?.trustLevel ?? null,
+        trustScore: snapshot.meta?.trustScore ?? null,
         fetchedAt: snapshot.meta?.fetchedAt ?? null,
         notice: snapshot.notice,
         stale: snapshot.meta?.stale ?? false,
@@ -222,6 +231,9 @@ export function ProviderAssignmentDrawer({
         setProviderDiscovery(businessId, provider, {
           status: "failed",
           entities: [],
+          sourceHealth: domain?.discovery.sourceHealth ?? null,
+          trustLevel: domain?.discovery.trustLevel ?? null,
+          trustScore: domain?.discovery.trustScore ?? null,
           errorMessage: err instanceof Error ? err.message : String(err),
           notice: null,
           refreshFailed: true,
@@ -341,9 +353,20 @@ export function ProviderAssignmentDrawer({
 
         <div className="flex min-h-0 flex-1 flex-col px-6 py-4">
           {noticeMessage ? (
-            <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            <div
+              className={`mb-3 rounded-md border px-3 py-2 text-sm ${
+                domain?.discovery.sourceHealth === "healthy_cached"
+                  ? "border-sky-200 bg-sky-50 text-sky-900"
+                  : "border-amber-200 bg-amber-50 text-amber-900"
+              }`}
+            >
               <div className="flex items-center justify-between gap-3">
-                <span>{noticeMessage}</span>
+                <div className="space-y-1">
+                  <span className="block">{noticeMessage}</span>
+                  {discoveryTrustLabel ? (
+                    <span className="block text-xs opacity-80">{discoveryTrustLabel}</span>
+                  ) : null}
+                </div>
                 <Button
                   type="button"
                   size="sm"

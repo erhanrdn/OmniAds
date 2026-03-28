@@ -108,8 +108,12 @@ export interface GoogleAdsRawSnapshotRecord {
   id?: string;
   businessId: string;
   providerAccountId: string;
+  partitionId?: string | null;
+  checkpointId?: string | null;
   endpointName: string;
   entityScope: string;
+  pageIndex?: number | null;
+  providerCursor?: string | null;
   startDate: string;
   endDate: string;
   accountTimezone: string | null;
@@ -117,9 +121,43 @@ export interface GoogleAdsRawSnapshotRecord {
   payloadJson: unknown;
   payloadHash: string;
   requestContext: Record<string, unknown>;
+  responseHeaders?: Record<string, unknown>;
   providerHttpStatus: number | null;
   status: GoogleAdsRawSnapshotStatus;
   fetchedAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface GoogleAdsSyncCheckpointRecord {
+  id?: string;
+  partitionId: string;
+  businessId: string;
+  providerAccountId: string;
+  checkpointScope: string;
+  isPaginated?: boolean;
+  phase: "fetch_raw" | "transform" | "bulk_upsert" | "finalize";
+  status: "pending" | "running" | "succeeded" | "failed" | "cancelled";
+  pageIndex: number;
+  nextPageToken?: string | null;
+  providerCursor?: string | null;
+  rawSnapshotIds?: string[];
+  rowsFetched?: number;
+  rowsWritten?: number;
+  lastSuccessfulEntityKey?: string | null;
+  lastResponseHeaders?: Record<string, unknown>;
+  checkpointHash?: string | null;
+  attemptCount: number;
+  progressHeartbeatAt?: string | null;
+  retryAfterAt?: string | null;
+  leaseOwner?: string | null;
+  leaseExpiresAt?: string | null;
+  poisonedAt?: string | null;
+  poisonReason?: string | null;
+  replayReasonCode?: string | null;
+  replayDetail?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }

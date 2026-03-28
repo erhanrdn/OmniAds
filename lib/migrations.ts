@@ -424,6 +424,8 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
         sql`ALTER TABLE provider_account_snapshots ADD COLUMN IF NOT EXISTS refresh_in_progress BOOLEAN NOT NULL DEFAULT FALSE`,
         sql`ALTER TABLE provider_account_snapshots ADD COLUMN IF NOT EXISTS accounts_hash TEXT`,
         sql`ALTER TABLE provider_account_snapshots ADD COLUMN IF NOT EXISTS source_reason TEXT`,
+        sql`ALTER TABLE provider_account_snapshots ADD COLUMN IF NOT EXISTS last_successful_refresh_at TIMESTAMPTZ`,
+        sql`ALTER TABLE provider_account_snapshots ADD COLUMN IF NOT EXISTS refresh_failure_streak INTEGER NOT NULL DEFAULT 0`,
         sql`ALTER TABLE shopify_subscriptions ADD COLUMN IF NOT EXISTS business_id UUID REFERENCES businesses(id) ON DELETE SET NULL`,
         sql`ALTER TABLE shopify_subscriptions ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES users(id) ON DELETE SET NULL`,
       ]);
@@ -682,6 +684,23 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_sync_worker_heartbeats_status
           ON sync_worker_heartbeats (status, last_heartbeat_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS sync_reclaim_events (
+          id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          provider_scope    TEXT NOT NULL,
+          business_id       TEXT NOT NULL,
+          partition_id      TEXT,
+          checkpoint_scope  TEXT,
+          event_type        TEXT NOT NULL
+                           CHECK (event_type IN ('reclaimed', 'poisoned')),
+          disposition       TEXT,
+          reason_code       TEXT,
+          detail            TEXT,
+          created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`.catch(() => {}),
+        sql`ALTER TABLE sync_reclaim_events ADD COLUMN IF NOT EXISTS disposition TEXT`.catch(() => {}),
+        sql`ALTER TABLE sync_reclaim_events ADD COLUMN IF NOT EXISTS reason_code TEXT`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_sync_reclaim_events_provider
+          ON sync_reclaim_events (provider_scope, business_id, created_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS sync_runner_leases (
           business_id        TEXT NOT NULL,
           provider_scope     TEXT NOT NULL,
@@ -1020,6 +1039,45 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_sync_runs_partition ON google_ads_sync_runs (partition_id, created_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_sync_runs_business ON google_ads_sync_runs (business_id, created_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS google_ads_sync_checkpoints (
+          id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          partition_id               UUID NOT NULL REFERENCES google_ads_sync_partitions(id) ON DELETE CASCADE,
+          business_id                TEXT NOT NULL,
+          provider_account_id        TEXT NOT NULL,
+          checkpoint_scope           TEXT NOT NULL,
+          phase                      TEXT NOT NULL
+                                      CHECK (phase IN ('fetch_raw', 'transform', 'bulk_upsert', 'finalize')),
+          status                     TEXT NOT NULL
+                                      CHECK (status IN ('pending', 'running', 'succeeded', 'failed', 'cancelled')),
+          page_index                 INTEGER NOT NULL DEFAULT 0,
+          next_page_token            TEXT,
+          provider_cursor            TEXT,
+          rows_fetched               INTEGER NOT NULL DEFAULT 0,
+          rows_written               INTEGER NOT NULL DEFAULT 0,
+          last_successful_entity_key TEXT,
+          last_response_headers      JSONB NOT NULL DEFAULT '{}'::jsonb,
+          checkpoint_hash            TEXT,
+          attempt_count              INTEGER NOT NULL DEFAULT 0,
+          retry_after_at             TIMESTAMPTZ,
+          lease_owner                TEXT,
+          lease_expires_at           TIMESTAMPTZ,
+          started_at                 TIMESTAMPTZ,
+          finished_at                TIMESTAMPTZ,
+          created_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (partition_id, checkpoint_scope)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_sync_checkpoints_partition
+          ON google_ads_sync_checkpoints (partition_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_sync_checkpoints_scope
+          ON google_ads_sync_checkpoints (business_id, provider_account_id, checkpoint_scope, status, updated_at DESC)`.catch(() => {}),
+        sql`ALTER TABLE google_ads_sync_checkpoints ADD COLUMN IF NOT EXISTS is_paginated BOOLEAN NOT NULL DEFAULT FALSE`.catch(() => {}),
+        sql`ALTER TABLE google_ads_sync_checkpoints ADD COLUMN IF NOT EXISTS raw_snapshot_ids JSONB NOT NULL DEFAULT '[]'::jsonb`.catch(() => {}),
+        sql`ALTER TABLE google_ads_sync_checkpoints ADD COLUMN IF NOT EXISTS progress_heartbeat_at TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE google_ads_sync_checkpoints ADD COLUMN IF NOT EXISTS poisoned_at TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE google_ads_sync_checkpoints ADD COLUMN IF NOT EXISTS poison_reason TEXT`.catch(() => {}),
+        sql`ALTER TABLE google_ads_sync_checkpoints ADD COLUMN IF NOT EXISTS replay_reason_code TEXT`.catch(() => {}),
+        sql`ALTER TABLE google_ads_sync_checkpoints ADD COLUMN IF NOT EXISTS replay_detail TEXT`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS google_ads_sync_state (
           business_id                  TEXT NOT NULL,
           provider_account_id          TEXT NOT NULL,
@@ -1063,6 +1121,13 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_raw_snapshots_account ON google_ads_raw_snapshots (provider_account_id, fetched_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_raw_snapshots_window ON google_ads_raw_snapshots (business_id, provider_account_id, start_date, end_date)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_raw_snapshots_endpoint ON google_ads_raw_snapshots (endpoint_name, fetched_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_raw_snapshots_partition_endpoint
+          ON google_ads_raw_snapshots (partition_id, endpoint_name, page_index)`.catch(() => {}),
+        sql`ALTER TABLE google_ads_raw_snapshots ADD COLUMN IF NOT EXISTS partition_id UUID REFERENCES google_ads_sync_partitions(id) ON DELETE CASCADE`.catch(() => {}),
+        sql`ALTER TABLE google_ads_raw_snapshots ADD COLUMN IF NOT EXISTS checkpoint_id UUID REFERENCES google_ads_sync_checkpoints(id) ON DELETE SET NULL`.catch(() => {}),
+        sql`ALTER TABLE google_ads_raw_snapshots ADD COLUMN IF NOT EXISTS page_index INTEGER`.catch(() => {}),
+        sql`ALTER TABLE google_ads_raw_snapshots ADD COLUMN IF NOT EXISTS provider_cursor TEXT`.catch(() => {}),
+        sql`ALTER TABLE google_ads_raw_snapshots ADD COLUMN IF NOT EXISTS response_headers JSONB NOT NULL DEFAULT '{}'::jsonb`.catch(() => {}),
         sql.query(buildGoogleAdsWarehouseTableQuery("google_ads_account_daily")).catch(() => {}),
         sql.query(buildGoogleAdsWarehouseTableQuery("google_ads_campaign_daily")).catch(() => {}),
         sql.query(buildGoogleAdsWarehouseTableQuery("google_ads_ad_group_daily")).catch(() => {}),

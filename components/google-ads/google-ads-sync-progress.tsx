@@ -36,6 +36,9 @@ function formatSyncCaption(status: GoogleAdsStatusResponse) {
   if (!latestSync && !priorityWindow) return null;
 
   const parts: string[] = [];
+  if (status.domainReadiness?.summary) {
+    parts.push(status.domainReadiness.summary);
+  }
   if (priorityWindow?.isActive) {
     parts.push("Selected dates are being prepared first");
   } else if (latestSync?.phaseLabel) {
@@ -46,6 +49,15 @@ function formatSyncCaption(status: GoogleAdsStatusResponse) {
   }
   if (latestSync?.readyThroughDate) {
     parts.push(`Ready through ${latestSync.readyThroughDate}`);
+  }
+  if (
+    status.checkpointHealth?.resumeCapable &&
+    status.checkpointHealth.latestCheckpointPhase &&
+    status.checkpointHealth.lastSuccessfulPageIndex != null
+  ) {
+    parts.push(
+      `Checkpoint ${status.checkpointHealth.latestCheckpointPhase} • Chunk ${status.checkpointHealth.lastSuccessfulPageIndex + 1}`
+    );
   }
   if (status.jobHealth?.legacyRuntimeJobs) {
     parts.push("Background sync is stabilizing");
@@ -68,6 +80,9 @@ function getTitle(status: GoogleAdsStatusResponse) {
 }
 
 function getDescription(status: GoogleAdsStatusResponse) {
+  if (status.domainReadiness?.summary) {
+    return status.domainReadiness.summary;
+  }
   if (status.readinessLevel === "usable" && status.state !== "ready") {
     return "Overview and campaign surfaces are ready. Advisor and deeper entity coverage are still filling in.";
   }

@@ -23,12 +23,17 @@ interface ProviderAccountSnapshotRow {
   refresh_in_progress: boolean;
   accounts_hash: string | null;
   source_reason: string | null;
+  last_successful_refresh_at: string | null;
+  refresh_failure_streak: number;
   created_at: string;
   updated_at: string;
 }
 
+export type ProviderAccountTrustLevel = "safe" | "risky" | "blocking";
+
 export interface ProviderAccountSnapshotMeta {
   source: "live" | "snapshot";
+  sourceHealth: "fresh" | "healthy_cached" | "stale_cached" | "degraded_blocking";
   fetchedAt: string | null;
   stale: boolean;
   refreshFailed: boolean;
@@ -41,6 +46,11 @@ export interface ProviderAccountSnapshotMeta {
   retryAfterAt: string | null;
   refreshInProgress: boolean;
   sourceReason: string | null;
+  trustLevel?: ProviderAccountTrustLevel;
+  trustScore?: number;
+  snapshotAgeHours?: number | null;
+  lastSuccessfulRefreshAgeHours?: number | null;
+  refreshFailureStreak?: number;
 }
 
 export interface ProviderAccountSnapshotResult {
@@ -125,6 +135,52 @@ function getRetryAfterMs(row: ProviderAccountSnapshotRow | null) {
   return Number.isFinite(retryAfterMs) && retryAfterMs > 0 ? retryAfterMs : 0;
 }
 
+function classifySnapshotSourceHealth(input: {
+  source: "live" | "snapshot";
+  stale: boolean;
+  refreshFailed: boolean;
+  lastKnownGoodAvailable: boolean;
+}): ProviderAccountSnapshotMeta["sourceHealth"] {
+  if (input.source === "live" && !input.refreshFailed) return "fresh";
+  if (input.lastKnownGoodAvailable && !input.stale) return "healthy_cached";
+  if (input.lastKnownGoodAvailable) return "stale_cached";
+  return "degraded_blocking";
+}
+
+function computeAgeHours(value: string | null) {
+  if (!value) return null;
+  const ms = new Date(value).getTime();
+  if (!Number.isFinite(ms)) return null;
+  return Math.round((Math.max(0, Date.now() - ms) / 36_000)) / 100;
+}
+
+function computeSnapshotTrust(input: {
+  sourceHealth: ProviderAccountSnapshotMeta["sourceHealth"];
+  stale: boolean;
+  refreshFailed: boolean;
+  failureClass: ProviderSnapshotFailureClass;
+  lastKnownGoodAvailable: boolean;
+  refreshFailureStreak: number;
+}) {
+  if (input.sourceHealth === "degraded_blocking" || !input.lastKnownGoodAvailable) {
+    return { trustLevel: "blocking" as const, trustScore: 0 };
+  }
+  if (input.sourceHealth === "fresh") {
+    return { trustLevel: "safe" as const, trustScore: 100 };
+  }
+  if (!input.stale && !input.refreshFailed) {
+    return { trustLevel: "safe" as const, trustScore: 88 };
+  }
+  if (
+    input.failureClass === "quota" &&
+    input.refreshFailureStreak <= 2 &&
+    input.lastKnownGoodAvailable
+  ) {
+    return { trustLevel: "safe" as const, trustScore: 74 };
+  }
+  return { trustLevel: "risky" as const, trustScore: 42 };
+}
+
 export function classifyProviderSnapshotFailure(
   lastError: string | null | undefined
 ): ProviderSnapshotFailureClass {
@@ -201,6 +257,8 @@ async function getSnapshotRow(
       refresh_in_progress,
       accounts_hash,
       source_reason,
+      last_successful_refresh_at,
+      refresh_failure_streak,
       created_at,
       updated_at
     FROM provider_account_snapshots
@@ -223,6 +281,8 @@ async function upsertSnapshotRow(input: {
   nextRefreshAfter?: Date | null;
   refreshInProgress?: boolean;
   sourceReason?: string | null;
+  lastSuccessfulRefreshAt?: Date | null;
+  refreshFailureStreak?: number;
 }) {
   await runMigrations();
   const sql = getDb();
@@ -241,6 +301,8 @@ async function upsertSnapshotRow(input: {
       refresh_in_progress,
       accounts_hash,
       source_reason,
+      last_successful_refresh_at,
+      refresh_failure_streak,
       updated_at
     )
     VALUES (
@@ -256,6 +318,8 @@ async function upsertSnapshotRow(input: {
       ${input.refreshInProgress ?? false},
       ${accountsHash},
       ${input.sourceReason ?? null},
+      ${toIso(input.lastSuccessfulRefreshAt ?? null)},
+      ${input.refreshFailureStreak ?? 0},
       now()
     )
     ON CONFLICT (business_id, provider) DO UPDATE SET
@@ -269,6 +333,8 @@ async function upsertSnapshotRow(input: {
       refresh_in_progress = EXCLUDED.refresh_in_progress,
       accounts_hash = EXCLUDED.accounts_hash,
       source_reason = EXCLUDED.source_reason,
+      last_successful_refresh_at = COALESCE(EXCLUDED.last_successful_refresh_at, provider_account_snapshots.last_successful_refresh_at),
+      refresh_failure_streak = EXCLUDED.refresh_failure_streak,
       updated_at = now()
   `;
 }
@@ -283,6 +349,8 @@ async function updateSnapshotLifecycle(input: {
   refreshFailed?: boolean;
   lastError?: string | null;
   sourceReason?: string | null;
+  lastSuccessfulRefreshAt?: Date | null;
+  refreshFailureStreak?: number;
 }) {
   await runMigrations();
   const sql = getDb();
@@ -299,6 +367,8 @@ async function updateSnapshotLifecycle(input: {
       next_refresh_after,
       refresh_in_progress,
       source_reason,
+      last_successful_refresh_at,
+      refresh_failure_streak,
       updated_at
     )
     VALUES (
@@ -313,6 +383,8 @@ async function updateSnapshotLifecycle(input: {
       ${toIso(input.nextRefreshAfter ?? null)},
       ${input.refreshInProgress ?? false},
       ${input.sourceReason ?? null},
+      ${toIso(input.lastSuccessfulRefreshAt ?? null)},
+      ${input.refreshFailureStreak ?? 0},
       now()
     )
     ON CONFLICT (business_id, provider) DO UPDATE SET
@@ -323,6 +395,8 @@ async function updateSnapshotLifecycle(input: {
       next_refresh_after = COALESCE(${toIso(input.nextRefreshAfter ?? null)}, provider_account_snapshots.next_refresh_after),
       refresh_in_progress = COALESCE(${input.refreshInProgress}, provider_account_snapshots.refresh_in_progress),
       source_reason = COALESCE(${input.sourceReason ?? null}, provider_account_snapshots.source_reason),
+      last_successful_refresh_at = COALESCE(${toIso(input.lastSuccessfulRefreshAt ?? null)}, provider_account_snapshots.last_successful_refresh_at),
+      refresh_failure_streak = COALESCE(${input.refreshFailureStreak}, provider_account_snapshots.refresh_failure_streak),
       updated_at = now()
   `;
 }
@@ -334,20 +408,42 @@ function toSnapshotMeta(input: {
   const failureClass = input.snapshot.refresh_failed
     ? classifyProviderSnapshotFailure(input.snapshot.last_error)
     : null;
+  const stale = !isFresh(input.snapshot, input.freshnessMs);
+  const lastKnownGoodAvailable = (input.snapshot.accounts_payload ?? []).length > 0;
+  const sourceHealth = classifySnapshotSourceHealth({
+    source: "snapshot",
+    stale,
+    refreshFailed: input.snapshot.refresh_failed,
+    lastKnownGoodAvailable,
+  });
+  const trust = computeSnapshotTrust({
+    sourceHealth,
+    stale,
+    refreshFailed: input.snapshot.refresh_failed,
+    failureClass,
+    lastKnownGoodAvailable,
+    refreshFailureStreak: Number(input.snapshot.refresh_failure_streak ?? 0),
+  });
   return {
     source: "snapshot",
+    sourceHealth,
     fetchedAt: input.snapshot.fetched_at,
-    stale: !isFresh(input.snapshot, input.freshnessMs),
+    stale,
     refreshFailed: input.snapshot.refresh_failed,
     failureClass,
     lastError: input.snapshot.last_error,
-    lastKnownGoodAvailable: (input.snapshot.accounts_payload ?? []).length > 0,
+    lastKnownGoodAvailable,
     refreshRequestedAt: input.snapshot.refresh_requested_at,
     lastRefreshAttemptAt: input.snapshot.last_refresh_attempt_at,
     nextRefreshAfter: input.snapshot.next_refresh_after,
     retryAfterAt: input.snapshot.next_refresh_after,
     refreshInProgress: input.snapshot.refresh_in_progress,
     sourceReason: input.snapshot.source_reason,
+    trustLevel: trust.trustLevel,
+    trustScore: trust.trustScore,
+    snapshotAgeHours: computeAgeHours(input.snapshot.fetched_at),
+    lastSuccessfulRefreshAgeHours: computeAgeHours(input.snapshot.last_successful_refresh_at),
+    refreshFailureStreak: Number(input.snapshot.refresh_failure_streak ?? 0),
   };
 }
 
@@ -421,6 +517,8 @@ async function runSnapshotRefresh(input: ResolveProviderAccountSnapshotInput) {
         nextRefreshAfter: null,
         refreshInProgress: false,
         sourceReason: input.reason ?? "manual_refresh",
+        lastSuccessfulRefreshAt: now,
+        refreshFailureStreak: 0,
       });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
@@ -442,6 +540,10 @@ async function runSnapshotRefresh(input: ResolveProviderAccountSnapshotInput) {
           nextRefreshAfter,
           refreshInProgress: false,
           sourceReason: input.reason ?? "manual_refresh",
+          lastSuccessfulRefreshAt: currentSnapshot.last_successful_refresh_at
+            ? new Date(currentSnapshot.last_successful_refresh_at)
+            : null,
+          refreshFailureStreak: Number(currentSnapshot.refresh_failure_streak ?? 0) + 1,
         });
       } else {
         await updateSnapshotLifecycle({
@@ -454,6 +556,7 @@ async function runSnapshotRefresh(input: ResolveProviderAccountSnapshotInput) {
           refreshFailed: true,
           lastError: message,
           sourceReason: input.reason ?? "manual_refresh",
+          refreshFailureStreak: 1,
         });
       }
 
@@ -540,12 +643,18 @@ export async function forceProviderAccountSnapshotRefresh(
     meta: {
       ...snapshot.meta,
       source: "live",
+      sourceHealth: "fresh",
       stale: false,
       refreshFailed: false,
       failureClass: null,
       lastError: null,
       refreshInProgress: false,
       retryAfterAt: null,
+      trustLevel: "safe",
+      trustScore: 100,
+      snapshotAgeHours: 0,
+      lastSuccessfulRefreshAgeHours: 0,
+      refreshFailureStreak: 0,
     },
   };
 }
@@ -606,10 +715,16 @@ export async function resolveProviderAccountSnapshot(
     meta: {
       ...refreshedSnapshot.meta,
       source: "live",
+      sourceHealth: "fresh",
       stale: false,
       refreshFailed: false,
       lastError: null,
       refreshInProgress: false,
+      trustLevel: "safe",
+      trustScore: 100,
+      snapshotAgeHours: 0,
+      lastSuccessfulRefreshAgeHours: 0,
+      refreshFailureStreak: 0,
     },
   };
 }

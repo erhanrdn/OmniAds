@@ -1,5 +1,9 @@
 import { getDb } from "@/lib/db";
 import { runMigrations } from "@/lib/migrations";
+import type {
+  ProviderReclaimDisposition,
+  ProviderReclaimReasonCode,
+} from "@/lib/sync/provider-orchestration";
 
 function normalizeTimestamp(value: unknown) {
   if (!value) return null;
@@ -140,6 +144,7 @@ export async function getSyncWorkerHealthSummary() {
     onlineWorkers: Number(summary.online_workers ?? 0),
     workerInstances: Number(summary.worker_instances ?? 0),
     lastHeartbeatAt: normalizeTimestamp(summary.last_heartbeat_at),
+    lastProgressHeartbeatAt: null,
     workers: workerRows.map((row) => ({
       workerId: String(row.worker_id),
       instanceType: String(row.instance_type),
@@ -150,4 +155,43 @@ export async function getSyncWorkerHealthSummary() {
       lastPartitionId: row.last_partition_id ? String(row.last_partition_id) : null,
     })),
   };
+}
+
+export async function recordSyncReclaimEvents(input: {
+  providerScope: string;
+  businessId: string;
+  partitionIds: string[];
+  checkpointScope?: string | null;
+  eventType: "reclaimed" | "poisoned";
+  disposition?: ProviderReclaimDisposition | null;
+  reasonCode?: ProviderReclaimReasonCode | null;
+  detail?: string | null;
+}) {
+  if (input.partitionIds.length === 0) return;
+  await runMigrations();
+  const sql = getDb();
+  for (const partitionId of input.partitionIds) {
+    await sql`
+      INSERT INTO sync_reclaim_events (
+        provider_scope,
+        business_id,
+        partition_id,
+        checkpoint_scope,
+        event_type,
+        disposition,
+        reason_code,
+        detail
+      )
+      VALUES (
+        ${input.providerScope},
+        ${input.businessId},
+        ${partitionId},
+        ${input.checkpointScope ?? null},
+        ${input.eventType},
+        ${input.disposition ?? null},
+        ${input.reasonCode ?? null},
+        ${input.detail ?? null}
+      )
+    `;
+  }
 }

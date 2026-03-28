@@ -12,6 +12,8 @@ import {
 } from "@/lib/google-ads/reporting";
 import { readProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
 import { getAssignedGoogleAccounts } from "@/lib/google-ads-gaql";
+import { recordSyncReclaimEvents } from "@/lib/sync/worker-health";
+import type { ProviderReplayReasonCode } from "@/lib/sync/provider-orchestration";
 import {
   acquireGoogleAdsRunnerLease,
   buildGoogleAdsRawSnapshotHash,
@@ -26,11 +28,15 @@ import {
   getGoogleAdsPartitionHealth,
   getGoogleAdsPartitionDates,
   getGoogleAdsQueueHealth,
+  getGoogleAdsSyncCheckpoint,
   leaseGoogleAdsSyncPartitions,
+  listGoogleAdsRawSnapshotsForPartition,
   persistGoogleAdsRawSnapshot,
   queueGoogleAdsSyncPartition,
   releaseGoogleAdsRunnerLease,
+  heartbeatGoogleAdsPartitionLease,
   upsertGoogleAdsSyncState,
+  upsertGoogleAdsSyncCheckpoint,
   updateGoogleAdsSyncRun,
   updateGoogleAdsSyncJob,
   upsertGoogleAdsDailyRows,
@@ -102,6 +108,7 @@ const GOOGLE_ADS_QUOTA_RETRY_BASE_MINUTES = envNumber(
   8
 );
 const GOOGLE_ADS_PARTITION_MAX_ATTEMPTS = 6;
+const GOOGLE_ADS_CHECKPOINT_CHUNK_SIZE = envNumber("GOOGLE_ADS_CHECKPOINT_CHUNK_SIZE", 250);
 
 function canUseInProcessBackgroundScheduling() {
   return process.env.SYNC_WORKER_MODE !== "1";
@@ -141,6 +148,138 @@ function nullIfEmpty(value: unknown) {
   if (value == null) return null;
   const text = String(value).trim();
   return text.length > 0 ? text : null;
+}
+
+function chunkRows<T>(rows: T[], size: number) {
+  const chunks: T[][] = [];
+  for (let index = 0; index < rows.length; index += Math.max(1, size)) {
+    chunks.push(rows.slice(index, index + Math.max(1, size)));
+  }
+  return chunks;
+}
+
+function uniqueSnapshotIds(snapshotIds: Array<string | null | undefined>) {
+  return Array.from(new Set(snapshotIds.filter((value): value is string => Boolean(value))));
+}
+
+function extractSnapshotRows(payload: unknown): GenericRow[] {
+  return Array.isArray(payload) ? (payload as GenericRow[]) : [];
+}
+
+export function resolveGoogleReplayReasonCode(input: {
+  checkpointStatus?: string | null;
+  checkpointPhase?: string | null;
+  poisonedAt?: string | null;
+  retryAfterAt?: string | null;
+}): ProviderReplayReasonCode {
+  if (input.poisonedAt) return "quarantine_release";
+  if (input.checkpointStatus === "failed" && input.checkpointPhase === "transform") {
+    return "transform_failure_replay";
+  }
+  if (input.checkpointStatus === "failed" && input.checkpointPhase === "bulk_upsert") {
+    return "flush_verification_mismatch";
+  }
+  if (input.retryAfterAt) return "quota_retry";
+  return "reclaim_replay";
+}
+
+export function resolvePhaseAwareReplayDecision(input: {
+  checkpoint: Awaited<ReturnType<typeof getGoogleAdsSyncCheckpoint>> | null;
+  existingSnapshots: Array<{
+    id: string;
+    page_index: number | null;
+    payload_json: unknown;
+  }>;
+  totalChunks: number;
+}) {
+  const checkpoint = input.checkpoint;
+  const storedSnapshotIds = uniqueSnapshotIds(input.existingSnapshots.map((row) => row.id));
+  const lineageIds = uniqueSnapshotIds(checkpoint?.rawSnapshotIds ?? []);
+  const continuityBroken = lineageIds.some((id) => !storedSnapshotIds.includes(id));
+  const completenessBroken =
+    checkpoint != null &&
+    checkpoint.phase === "finalize" &&
+    input.totalChunks > 0 &&
+    storedSnapshotIds.length < input.totalChunks;
+
+  if (!checkpoint) {
+    return {
+      startChunkIndex: 0,
+      finalizeOnly: false,
+      replayReasonCode: null as ProviderReplayReasonCode | null,
+      replayDetail: null as string | null,
+      continuityBroken: false,
+    };
+  }
+
+  if (checkpoint.status === "succeeded" && checkpoint.phase === "finalize") {
+    return {
+      startChunkIndex: input.totalChunks,
+      finalizeOnly: false,
+      replayReasonCode: null as ProviderReplayReasonCode | null,
+      replayDetail: null as string | null,
+      continuityBroken: false,
+    };
+  }
+
+  if (checkpoint.phase === "finalize" && checkpoint.status !== "succeeded") {
+    const canFinalizeOnly =
+      !continuityBroken &&
+      !completenessBroken &&
+      (checkpoint.rowsFetched ?? 0) >= (checkpoint.rowsWritten ?? 0);
+    return {
+      startChunkIndex: canFinalizeOnly ? input.totalChunks : Math.max(0, checkpoint.pageIndex ?? 0),
+      finalizeOnly: canFinalizeOnly,
+      replayReasonCode: resolveGoogleReplayReasonCode({
+        checkpointStatus: checkpoint.status,
+        checkpointPhase: checkpoint.phase,
+        poisonedAt: checkpoint.poisonedAt,
+        retryAfterAt: checkpoint.retryAfterAt,
+      }),
+      replayDetail: canFinalizeOnly
+        ? "Finalize replay resumed after checkpoint verification succeeded."
+        : "Finalize replay requires chunk replay because checkpoint verification was incomplete.",
+      continuityBroken,
+    };
+  }
+
+  return {
+    startChunkIndex: Math.max(0, checkpoint.pageIndex ?? 0),
+    finalizeOnly: false,
+    replayReasonCode: resolveGoogleReplayReasonCode({
+      checkpointStatus: checkpoint.status,
+      checkpointPhase: checkpoint.phase,
+      poisonedAt: checkpoint.poisonedAt,
+      retryAfterAt: checkpoint.retryAfterAt,
+    }),
+    replayDetail: checkpoint.phase
+      ? `Resuming Google Ads sync from ${checkpoint.phase} phase at chunk ${checkpoint.pageIndex ?? 0}.`
+      : null,
+    continuityBroken,
+  };
+}
+
+export function validateGoogleReplayCompleteness(input: {
+  totalChunks: number;
+  finalRawSnapshotIds: string[];
+  storedSnapshotIds: string[];
+  rowsFetched: number;
+  rowsWritten: number;
+}) {
+  const storedSnapshotSet = new Set(input.storedSnapshotIds);
+  const lineageBroken = input.finalRawSnapshotIds.some(
+    (snapshotId) => !storedSnapshotSet.has(snapshotId)
+  );
+  const snapshotCoverageBroken =
+    input.totalChunks > 0 && storedSnapshotSet.size < input.totalChunks;
+  const rowCountBroken = input.rowsFetched < input.rowsWritten;
+
+  return {
+    lineageBroken,
+    snapshotCoverageBroken,
+    rowCountBroken,
+    ok: !lineageBroken && !snapshotCoverageBroken && !rowCountBroken,
+  };
 }
 
 function computeDerivedMetrics(input: {
@@ -283,35 +422,290 @@ async function persistScopeRows(input: {
   rows: GenericRow[];
   requestContext: Record<string, unknown>;
   mapRow: (row: GenericRow, snapshotId: string | null) => GoogleAdsWarehouseDailyRow | null;
+  partitionId?: string;
+  workerId?: string;
+  attemptCount?: number;
 }) {
-  const snapshotId = await persistGoogleAdsRawSnapshot({
-    businessId: input.businessId,
-    providerAccountId: input.providerAccountId,
-    endpointName: input.endpointName,
-    entityScope: input.scope,
-    startDate: input.date,
-    endDate: input.date,
-    accountTimezone: input.accountTimezone,
-    accountCurrency: input.accountCurrency,
-    payloadJson: input.rows,
-    payloadHash: buildGoogleAdsRawSnapshotHash({
+  if (!input.partitionId) {
+    const snapshotId = await persistGoogleAdsRawSnapshot({
       businessId: input.businessId,
       providerAccountId: input.providerAccountId,
       endpointName: input.endpointName,
+      entityScope: input.scope,
       startDate: input.date,
       endDate: input.date,
-      payload: input.rows,
-    }),
-    requestContext: input.requestContext,
-    providerHttpStatus: 200,
-    status: "fetched",
+      accountTimezone: input.accountTimezone,
+      accountCurrency: input.accountCurrency,
+      payloadJson: input.rows,
+      payloadHash: buildGoogleAdsRawSnapshotHash({
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        endpointName: input.endpointName,
+        startDate: input.date,
+        endDate: input.date,
+        payload: input.rows,
+      }),
+      requestContext: input.requestContext,
+      providerHttpStatus: 200,
+      responseHeaders: {},
+      status: "fetched",
+    });
+
+    const warehouseRows = input.rows
+      .map((row) => input.mapRow(row, snapshotId))
+      .filter((row): row is GoogleAdsWarehouseDailyRow => Boolean(row));
+    await upsertGoogleAdsDailyRows(input.scope, warehouseRows);
+    return { snapshotId, rowCount: warehouseRows.length };
+  }
+
+  const checkpointScope = input.scope;
+  const existingCheckpoint = await getGoogleAdsSyncCheckpoint({
+    partitionId: input.partitionId,
+    checkpointScope,
+  }).catch(() => null);
+  const existingSnapshots = await listGoogleAdsRawSnapshotsForPartition({
+    partitionId: input.partitionId,
+    endpointName: input.endpointName,
+  }).catch(() => []);
+  const existingSnapshotPages = new Map(
+    existingSnapshots.map((row) => [Number(row.page_index ?? 0), row] as const)
+  );
+  const rowChunks = chunkRows(input.rows, GOOGLE_ADS_CHECKPOINT_CHUNK_SIZE);
+  const replayDecision = resolvePhaseAwareReplayDecision({
+    checkpoint: existingCheckpoint,
+    existingSnapshots,
+    totalChunks: rowChunks.length,
+  });
+  const startChunkIndex = replayDecision.startChunkIndex;
+  let rowsFetched = existingCheckpoint?.rowsFetched ?? 0;
+  let rowsWritten = existingCheckpoint?.rowsWritten ?? 0;
+  let latestSnapshotId: string | null = null;
+  let replayedSnapshotCount = 0;
+  let accumulatedRawSnapshotIds = uniqueSnapshotIds(existingCheckpoint?.rawSnapshotIds ?? []);
+
+  for (let pageIndex = startChunkIndex; pageIndex < rowChunks.length; pageIndex += 1) {
+    const checkpointChunk = rowChunks[pageIndex] ?? [];
+    if (input.workerId) {
+      await heartbeatGoogleAdsPartitionLease({
+        partitionId: input.partitionId,
+        workerId: input.workerId,
+        leaseMinutes: GOOGLE_ADS_PARTITION_LEASE_MINUTES,
+      });
+    }
+
+    const checkpointId = await upsertGoogleAdsSyncCheckpoint({
+      partitionId: input.partitionId,
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      checkpointScope,
+      isPaginated: false,
+      phase: "fetch_raw",
+      status: "running",
+      pageIndex,
+      nextPageToken: pageIndex + 1 < rowChunks.length ? String(pageIndex + 1) : null,
+      providerCursor: pageIndex + 1 < rowChunks.length ? String(pageIndex + 1) : null,
+      rowsFetched,
+      rowsWritten,
+      attemptCount: input.attemptCount ?? 0,
+      rawSnapshotIds: accumulatedRawSnapshotIds,
+      progressHeartbeatAt: new Date().toISOString(),
+      replayReasonCode: replayDecision.replayReasonCode,
+      replayDetail: replayDecision.replayDetail,
+      leaseOwner: input.workerId ?? null,
+      startedAt: existingCheckpoint?.startedAt ?? new Date().toISOString(),
+    });
+
+    const existingSnapshot = existingSnapshotPages.get(pageIndex);
+    latestSnapshotId = existingSnapshot?.id ?? null;
+    if (!latestSnapshotId) {
+      latestSnapshotId = await persistGoogleAdsRawSnapshot({
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        partitionId: input.partitionId,
+        checkpointId,
+        endpointName: input.endpointName,
+        entityScope: input.scope,
+        pageIndex,
+        providerCursor: String(pageIndex),
+        startDate: input.date,
+        endDate: input.date,
+        accountTimezone: input.accountTimezone,
+        accountCurrency: input.accountCurrency,
+        payloadJson: checkpointChunk,
+        payloadHash: buildGoogleAdsRawSnapshotHash({
+          businessId: input.businessId,
+          providerAccountId: input.providerAccountId,
+          endpointName: input.endpointName,
+          startDate: input.date,
+          endDate: input.date,
+          payload: checkpointChunk,
+        }),
+        requestContext: {
+          ...input.requestContext,
+          partitionId: input.partitionId,
+          checkpointScope,
+          pageIndex,
+        },
+        responseHeaders: {
+          checkpointScope,
+          pageIndex,
+          chunkSize: checkpointChunk.length,
+        },
+        providerHttpStatus: 200,
+        status: "fetched",
+      });
+    } else if (replayDecision.replayReasonCode) {
+      replayedSnapshotCount += 1;
+    }
+
+    const sourceChunk = existingSnapshot
+      ? extractSnapshotRows(existingSnapshot.payload_json)
+      : checkpointChunk;
+    accumulatedRawSnapshotIds = uniqueSnapshotIds([...accumulatedRawSnapshotIds, latestSnapshotId]);
+    const replayingPersistedChunk =
+      Boolean(existingSnapshot) &&
+      Boolean(replayDecision.replayReasonCode) &&
+      existingCheckpoint != null &&
+      existingCheckpoint.phase !== "fetch_raw";
+
+    rowsFetched += replayingPersistedChunk ? 0 : sourceChunk.length;
+
+    await upsertGoogleAdsSyncCheckpoint({
+      partitionId: input.partitionId,
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      checkpointScope,
+      isPaginated: false,
+      phase: "transform",
+      status: "running",
+      pageIndex,
+      nextPageToken: pageIndex + 1 < rowChunks.length ? String(pageIndex + 1) : null,
+      providerCursor: pageIndex + 1 < rowChunks.length ? String(pageIndex + 1) : null,
+      rowsFetched,
+      rowsWritten,
+      attemptCount: input.attemptCount ?? 0,
+      rawSnapshotIds: accumulatedRawSnapshotIds,
+      progressHeartbeatAt: new Date().toISOString(),
+      replayReasonCode: replayDecision.replayReasonCode,
+      replayDetail:
+        existingSnapshot && replayDecision.replayReasonCode
+          ? `${replayDecision.replayDetail ?? "Checkpoint replay active."} Replaying persisted raw snapshot for chunk ${pageIndex}.`
+          : replayDecision.replayDetail,
+      leaseOwner: input.workerId ?? null,
+      startedAt: existingCheckpoint?.startedAt ?? new Date().toISOString(),
+    });
+
+    const warehouseRows = sourceChunk
+      .map((row) => input.mapRow(row, latestSnapshotId))
+      .filter((row): row is GoogleAdsWarehouseDailyRow => Boolean(row));
+
+    await upsertGoogleAdsSyncCheckpoint({
+      partitionId: input.partitionId,
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      checkpointScope,
+      isPaginated: false,
+      phase: "bulk_upsert",
+      status: "running",
+      pageIndex,
+      nextPageToken: pageIndex + 1 < rowChunks.length ? String(pageIndex + 1) : null,
+      providerCursor: pageIndex + 1 < rowChunks.length ? String(pageIndex + 1) : null,
+      rowsFetched,
+      rowsWritten,
+      attemptCount: input.attemptCount ?? 0,
+      rawSnapshotIds: accumulatedRawSnapshotIds,
+      progressHeartbeatAt: new Date().toISOString(),
+      replayReasonCode: replayDecision.replayReasonCode,
+      replayDetail: replayDecision.replayDetail,
+      leaseOwner: input.workerId ?? null,
+      lastSuccessfulEntityKey:
+        warehouseRows.length > 0 ? warehouseRows[warehouseRows.length - 1]?.entityKey ?? null : null,
+      startedAt: existingCheckpoint?.startedAt ?? new Date().toISOString(),
+    });
+
+    await upsertGoogleAdsDailyRows(input.scope, warehouseRows);
+    rowsWritten += warehouseRows.length;
+  }
+
+  const finalRawSnapshotIds = uniqueSnapshotIds([
+    ...accumulatedRawSnapshotIds,
+    ...existingSnapshots.map((row) => row.id),
+    latestSnapshotId,
+  ]);
+  const storedSnapshotIds = uniqueSnapshotIds([
+    ...existingSnapshots.map((row) => row.id),
+    latestSnapshotId,
+  ]);
+  const completeness = validateGoogleReplayCompleteness({
+    totalChunks: rowChunks.length,
+    finalRawSnapshotIds,
+    storedSnapshotIds,
+    rowsFetched,
+    rowsWritten,
   });
 
-  const warehouseRows = input.rows
-    .map((row) => input.mapRow(row, snapshotId))
-    .filter((row): row is GoogleAdsWarehouseDailyRow => Boolean(row));
-  await upsertGoogleAdsDailyRows(input.scope, warehouseRows);
-  return { snapshotId, rowCount: warehouseRows.length };
+  if (!completeness.ok) {
+    const replayDetail = [
+      completeness.lineageBroken ? "raw snapshot lineage is incomplete" : null,
+      completeness.snapshotCoverageBroken
+        ? "stored raw snapshot count is lower than expected chunk count"
+        : null,
+      completeness.rowCountBroken ? "rowsWritten exceeded rowsFetched" : null,
+    ]
+      .filter(Boolean)
+      .join("; ");
+    await upsertGoogleAdsSyncCheckpoint({
+      partitionId: input.partitionId,
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      checkpointScope,
+      isPaginated: false,
+      phase: "finalize",
+      status: "failed",
+      pageIndex: Math.max(0, rowChunks.length - 1),
+      nextPageToken: null,
+      providerCursor: null,
+      rowsFetched,
+      rowsWritten,
+      attemptCount: input.attemptCount ?? 0,
+      rawSnapshotIds: finalRawSnapshotIds,
+      progressHeartbeatAt: new Date().toISOString(),
+      replayReasonCode: "flush_verification_mismatch",
+      replayDetail,
+      leaseOwner: input.workerId ?? null,
+      startedAt: existingCheckpoint?.startedAt ?? new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+    });
+    throw new Error(`Google Ads finalize guard failed for ${input.scope}: ${replayDetail}`);
+  }
+
+  await upsertGoogleAdsSyncCheckpoint({
+    partitionId: input.partitionId,
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    checkpointScope,
+    isPaginated: false,
+    phase: "finalize",
+    status: "succeeded",
+    pageIndex: Math.max(0, rowChunks.length - 1),
+    nextPageToken: null,
+    providerCursor: null,
+    rowsFetched,
+    rowsWritten,
+    attemptCount: input.attemptCount ?? 0,
+    rawSnapshotIds: finalRawSnapshotIds,
+    progressHeartbeatAt: new Date().toISOString(),
+    replayReasonCode: replayDecision.replayReasonCode,
+    replayDetail:
+      replayDecision.replayReasonCode && replayedSnapshotCount > 0
+        ? `${replayDecision.replayDetail ?? "Replay completed."} Reused ${replayedSnapshotCount} persisted chunk snapshot(s).`
+        : replayDecision.replayDetail,
+    leaseOwner: input.workerId ?? null,
+    finishedAt: new Date().toISOString(),
+    startedAt: existingCheckpoint?.startedAt ?? new Date().toISOString(),
+  });
+
+  return { snapshotId: latestSnapshotId, rowCount: rowsWritten };
 }
 
 function aggregateAdGroupRows(input: {
@@ -731,6 +1125,9 @@ async function syncGoogleAdsAccountDay(input: {
   triggerSource: string;
   scopes?: GoogleAdsWarehouseScope[];
   partitionOwned?: boolean;
+  partitionId?: string;
+  workerId?: string;
+  attemptCount?: number;
 }) {
   const scopes = new Set<GoogleAdsWarehouseScope>(
     input.scopes ?? [
@@ -876,6 +1273,9 @@ async function syncGoogleAdsAccountDay(input: {
           },
         ],
         requestContext: { source: "sync", report: "overview" },
+        partitionId: input.partitionId,
+        workerId: input.workerId,
+        attemptCount: input.attemptCount,
         mapRow: (row, snapshotId) =>
           buildWarehouseRow({
             businessId: input.businessId,
@@ -911,6 +1311,9 @@ async function syncGoogleAdsAccountDay(input: {
         scope: "campaign_daily",
         rows: campaigns.rows as GenericRow[],
         requestContext: { source: "sync", report: "campaigns" },
+        partitionId: input.partitionId,
+        workerId: input.workerId,
+        attemptCount: input.attemptCount,
         mapRow: (row, snapshotId) =>
           buildWarehouseRow({
             businessId: input.businessId,
@@ -948,6 +1351,9 @@ async function syncGoogleAdsAccountDay(input: {
       scope: "search_term_daily",
       rows: searchIntelligence.rows as GenericRow[],
       requestContext: { source: "sync", report: "search_intelligence" },
+      partitionId: input.partitionId,
+      workerId: input.workerId,
+      attemptCount: input.attemptCount,
       mapRow: (row, snapshotId) =>
         buildWarehouseRow({
           businessId: input.businessId,
@@ -990,6 +1396,9 @@ async function syncGoogleAdsAccountDay(input: {
       scope: "keyword_daily",
       rows: keywords.rows as GenericRow[],
       requestContext: { source: "sync", report: "keywords" },
+      partitionId: input.partitionId,
+      workerId: input.workerId,
+      attemptCount: input.attemptCount,
       mapRow: (row, snapshotId) =>
         buildWarehouseRow({
           businessId: input.businessId,
@@ -1027,6 +1436,9 @@ async function syncGoogleAdsAccountDay(input: {
       scope: "ad_daily",
       rows: ads.rows as GenericRow[],
       requestContext: { source: "sync", report: "ads" },
+      partitionId: input.partitionId,
+      workerId: input.workerId,
+      attemptCount: input.attemptCount,
       mapRow: (row, snapshotId) =>
         buildWarehouseRow({
           businessId: input.businessId,
@@ -1054,22 +1466,94 @@ async function syncGoogleAdsAccountDay(input: {
         : null;
 
     if (wants("ad_group_daily")) {
-      await upsertGoogleAdsDailyRows(
-        "ad_group_daily",
-        aggregateAdGroupRows({
+      const adGroupRows = aggregateAdGroupRows({
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        date: input.date,
+        accountTimezone: profile.timezone,
+        accountCurrency: profile.currency,
+        sourceSnapshotId: adsSnapshot?.snapshotId ?? searchSnapshot?.snapshotId ?? null,
+        rows: [
+          ...((ads?.rows as GenericRow[] | undefined) ?? []),
+          ...((keywords?.rows as GenericRow[] | undefined) ?? []),
+          ...((searchIntelligence?.rows as GenericRow[] | undefined) ?? []),
+        ],
+      });
+      if (input.partitionId) {
+        const checkpointScope = "ad_group_daily";
+        const existingCheckpoint = await getGoogleAdsSyncCheckpoint({
+          partitionId: input.partitionId,
+          checkpointScope,
+        }).catch(() => null);
+        const chunks = chunkRows(adGroupRows, GOOGLE_ADS_CHECKPOINT_CHUNK_SIZE);
+        const startChunkIndex =
+          existingCheckpoint?.status === "succeeded" && existingCheckpoint.phase === "finalize"
+            ? chunks.length
+            : Math.max(0, existingCheckpoint?.pageIndex ?? 0);
+        let rowsWritten = existingCheckpoint?.rowsWritten ?? 0;
+        for (let pageIndex = startChunkIndex; pageIndex < chunks.length; pageIndex += 1) {
+          if (input.workerId) {
+            await heartbeatGoogleAdsPartitionLease({
+              partitionId: input.partitionId,
+              workerId: input.workerId,
+              leaseMinutes: GOOGLE_ADS_PARTITION_LEASE_MINUTES,
+            });
+          }
+          await upsertGoogleAdsSyncCheckpoint({
+            partitionId: input.partitionId,
+            businessId: input.businessId,
+            providerAccountId: input.providerAccountId,
+            checkpointScope,
+            isPaginated: false,
+            phase: "bulk_upsert",
+            status: "running",
+            pageIndex,
+            nextPageToken: pageIndex + 1 < chunks.length ? String(pageIndex + 1) : null,
+            providerCursor: pageIndex + 1 < chunks.length ? String(pageIndex + 1) : null,
+            rowsFetched: adGroupRows.length,
+            rowsWritten,
+            attemptCount: input.attemptCount ?? 0,
+            rawSnapshotIds: [
+              ...(existingCheckpoint?.rawSnapshotIds ?? []),
+              ...(adsSnapshot?.snapshotId ? [adsSnapshot.snapshotId] : []),
+              ...(searchSnapshot?.snapshotId ? [searchSnapshot.snapshotId] : []),
+            ],
+            progressHeartbeatAt: new Date().toISOString(),
+            leaseOwner: input.workerId ?? null,
+            lastSuccessfulEntityKey:
+              chunks[pageIndex]?.[chunks[pageIndex].length - 1]?.entityKey ?? null,
+            startedAt: existingCheckpoint?.startedAt ?? new Date().toISOString(),
+          });
+          await upsertGoogleAdsDailyRows("ad_group_daily", chunks[pageIndex] ?? []);
+          rowsWritten += (chunks[pageIndex] ?? []).length;
+        }
+        await upsertGoogleAdsSyncCheckpoint({
+          partitionId: input.partitionId,
           businessId: input.businessId,
           providerAccountId: input.providerAccountId,
-          date: input.date,
-          accountTimezone: profile.timezone,
-          accountCurrency: profile.currency,
-          sourceSnapshotId: adsSnapshot?.snapshotId ?? searchSnapshot?.snapshotId ?? null,
-          rows: [
-            ...((ads?.rows as GenericRow[] | undefined) ?? []),
-            ...((keywords?.rows as GenericRow[] | undefined) ?? []),
-            ...((searchIntelligence?.rows as GenericRow[] | undefined) ?? []),
+          checkpointScope,
+          isPaginated: false,
+          phase: "finalize",
+          status: "succeeded",
+          pageIndex: Math.max(0, chunks.length - 1),
+          nextPageToken: null,
+          providerCursor: null,
+          rowsFetched: adGroupRows.length,
+          rowsWritten,
+          attemptCount: input.attemptCount ?? 0,
+          rawSnapshotIds: [
+            ...(existingCheckpoint?.rawSnapshotIds ?? []),
+            ...(adsSnapshot?.snapshotId ? [adsSnapshot.snapshotId] : []),
+            ...(searchSnapshot?.snapshotId ? [searchSnapshot.snapshotId] : []),
           ],
-        })
-      );
+          progressHeartbeatAt: new Date().toISOString(),
+          leaseOwner: input.workerId ?? null,
+          finishedAt: new Date().toISOString(),
+          startedAt: existingCheckpoint?.startedAt ?? new Date().toISOString(),
+        });
+      } else {
+        await upsertGoogleAdsDailyRows("ad_group_daily", adGroupRows);
+      }
     }
 
     if (wants("asset_daily") && assets) {
@@ -1083,6 +1567,9 @@ async function syncGoogleAdsAccountDay(input: {
       scope: "asset_daily",
       rows: assets.rows as GenericRow[],
       requestContext: { source: "sync", report: "assets" },
+      partitionId: input.partitionId,
+      workerId: input.workerId,
+      attemptCount: input.attemptCount,
       mapRow: (row, snapshotId) =>
         buildWarehouseRow({
           businessId: input.businessId,
@@ -1120,6 +1607,9 @@ async function syncGoogleAdsAccountDay(input: {
       scope: "asset_group_daily",
       rows: assetGroups.rows as GenericRow[],
       requestContext: { source: "sync", report: "asset_groups" },
+      partitionId: input.partitionId,
+      workerId: input.workerId,
+      attemptCount: input.attemptCount,
       mapRow: (row, snapshotId) =>
         buildWarehouseRow({
           businessId: input.businessId,
@@ -1156,6 +1646,9 @@ async function syncGoogleAdsAccountDay(input: {
       scope: "audience_daily",
       rows: audiences.rows as GenericRow[],
       requestContext: { source: "sync", report: "audiences" },
+      partitionId: input.partitionId,
+      workerId: input.workerId,
+      attemptCount: input.attemptCount,
       mapRow: (row, snapshotId) =>
         buildWarehouseRow({
           businessId: input.businessId,
@@ -1192,6 +1685,9 @@ async function syncGoogleAdsAccountDay(input: {
       scope: "geo_daily",
       rows: geo.rows as GenericRow[],
       requestContext: { source: "sync", report: "geo" },
+      partitionId: input.partitionId,
+      workerId: input.workerId,
+      attemptCount: input.attemptCount,
       mapRow: (row, snapshotId) =>
         buildWarehouseRow({
           businessId: input.businessId,
@@ -1224,6 +1720,9 @@ async function syncGoogleAdsAccountDay(input: {
       scope: "device_daily",
       rows: devices.rows as GenericRow[],
       requestContext: { source: "sync", report: "devices" },
+      partitionId: input.partitionId,
+      workerId: input.workerId,
+      attemptCount: input.attemptCount,
       mapRow: (row, snapshotId) =>
         buildWarehouseRow({
           businessId: input.businessId,
@@ -1256,6 +1755,9 @@ async function syncGoogleAdsAccountDay(input: {
       scope: "product_daily",
       rows: products.rows as GenericRow[],
       requestContext: { source: "sync", report: "products" },
+      partitionId: input.partitionId,
+      workerId: input.workerId,
+      attemptCount: input.attemptCount,
       mapRow: (row, snapshotId) =>
         buildWarehouseRow({
           businessId: input.businessId,
@@ -1444,6 +1946,9 @@ async function processGoogleAdsPartition(input: {
             : "background_recent",
       scopes,
       partitionOwned: true,
+      partitionId,
+      workerId: input.workerId,
+      attemptCount: input.partition.attemptCount + 1,
     });
 
     if (!synced) {
@@ -1511,7 +2016,67 @@ async function processGoogleAdsPartition(input: {
     const message = error instanceof Error ? error.message : String(error);
     const errorClass = classifyGoogleAdsSyncError(error);
     const nextAttempt = input.partition.attemptCount + 1;
-    const status = nextAttempt >= GOOGLE_ADS_PARTITION_MAX_ATTEMPTS ? "dead_letter" : "failed";
+    const activeCheckpoint = await getGoogleAdsSyncCheckpoint({
+      partitionId,
+      checkpointScope: input.partition.scope,
+    }).catch(() => null);
+    const poisonCandidate = nextAttempt >= 3;
+    const status =
+      poisonCandidate || nextAttempt >= GOOGLE_ADS_PARTITION_MAX_ATTEMPTS
+        ? "dead_letter"
+        : "failed";
+    await upsertGoogleAdsSyncCheckpoint({
+      partitionId,
+      businessId: input.partition.businessId,
+      providerAccountId: input.partition.providerAccountId,
+      checkpointScope: input.partition.scope,
+      isPaginated: activeCheckpoint?.isPaginated ?? false,
+      phase: activeCheckpoint?.phase ?? "bulk_upsert",
+      status: "failed",
+      pageIndex: activeCheckpoint?.pageIndex ?? 0,
+      nextPageToken: activeCheckpoint?.nextPageToken ?? null,
+      providerCursor: activeCheckpoint?.providerCursor ?? null,
+      rawSnapshotIds: activeCheckpoint?.rawSnapshotIds ?? [],
+      rowsFetched: activeCheckpoint?.rowsFetched ?? 0,
+      rowsWritten: activeCheckpoint?.rowsWritten ?? 0,
+      lastSuccessfulEntityKey: activeCheckpoint?.lastSuccessfulEntityKey ?? null,
+      lastResponseHeaders: activeCheckpoint?.lastResponseHeaders ?? {},
+      attemptCount: nextAttempt,
+      progressHeartbeatAt: new Date().toISOString(),
+      leaseOwner: input.workerId,
+      poisonedAt: poisonCandidate ? new Date().toISOString() : null,
+      poisonReason:
+        poisonCandidate
+          ? `Repeated failure on checkpoint page ${activeCheckpoint?.pageIndex ?? 0}: ${message}`
+          : null,
+      replayReasonCode:
+        poisonCandidate
+          ? "quarantine_release"
+          : resolveGoogleReplayReasonCode({
+              checkpointStatus: activeCheckpoint?.status ?? "failed",
+              checkpointPhase: activeCheckpoint?.phase ?? "bulk_upsert",
+              poisonedAt: activeCheckpoint?.poisonedAt,
+              retryAfterAt: activeCheckpoint?.retryAfterAt,
+            }),
+      replayDetail: `Partition failure captured during ${activeCheckpoint?.phase ?? "bulk_upsert"} phase: ${message}`,
+      retryAfterAt: new Date(
+        Date.now() + computePartitionRetryDelayMinutes(nextAttempt, errorClass) * 60_000
+      ).toISOString(),
+      startedAt: activeCheckpoint?.startedAt ?? null,
+      finishedAt: new Date().toISOString(),
+    }).catch(() => null);
+    if (poisonCandidate) {
+      await recordSyncReclaimEvents({
+        providerScope: "google_ads",
+        businessId: input.partition.businessId,
+        partitionIds: [partitionId],
+        checkpointScope: input.partition.scope,
+        eventType: "poisoned",
+        disposition: "poison_candidate",
+        reasonCode: "same_phase_reentry_limit",
+        detail: `Repeated failure on phase ${activeCheckpoint?.phase ?? "unknown"} page ${activeCheckpoint?.pageIndex ?? 0}: ${message}`,
+      }).catch(() => null);
+    }
     await completeGoogleAdsPartition({
       partitionId,
       status,

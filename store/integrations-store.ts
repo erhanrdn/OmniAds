@@ -103,6 +103,9 @@ export interface ProviderDiscoveryState {
   status: ProviderDiscoveryStatus;
   entities: ProviderDiscoveryEntity[];
   source: "live" | "snapshot" | null;
+  sourceHealth?: "fresh" | "healthy_cached" | "stale_cached" | "degraded_blocking" | null;
+  trustLevel?: "safe" | "risky" | "blocking" | null;
+  trustScore?: number | null;
   fetchedAt?: string | null;
   errorMessage?: string;
   notice?: string | null;
@@ -188,6 +191,9 @@ interface IntegrationsStore {
       status: ProviderDiscoveryStatus;
       entities?: ProviderDiscoveryEntity[];
       source?: "live" | "snapshot" | null;
+      sourceHealth?: "fresh" | "healthy_cached" | "stale_cached" | "degraded_blocking" | null;
+      trustLevel?: "safe" | "risky" | "blocking" | null;
+      trustScore?: number | null;
       fetchedAt?: string | null;
       errorMessage?: string;
       notice?: string | null;
@@ -420,6 +426,18 @@ export const useIntegrationsStore = create<IntegrationsStore>()(
                   payload.source === undefined
                     ? currentDomains[provider].discovery.source
                     : payload.source,
+                sourceHealth:
+                  payload.sourceHealth === undefined
+                    ? currentDomains[provider].discovery.sourceHealth
+                    : payload.sourceHealth,
+                trustLevel:
+                  payload.trustLevel === undefined
+                    ? currentDomains[provider].discovery.trustLevel
+                    : payload.trustLevel,
+                trustScore:
+                  payload.trustScore === undefined
+                    ? currentDomains[provider].discovery.trustScore
+                    : payload.trustScore,
                 fetchedAt:
                   payload.fetchedAt === undefined
                     ? currentDomains[provider].discovery.fetchedAt

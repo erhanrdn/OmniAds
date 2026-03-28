@@ -31,6 +31,7 @@ describe("resolveProviderDiscoveryPayload", () => {
       accounts: [{ id: "123", name: "Main account" }],
       meta: {
         source: "snapshot",
+        sourceHealth: "stale_cached",
         fetchedAt: "2026-03-21T10:00:00.000Z",
         stale: true,
         refreshFailed: false,
@@ -75,6 +76,7 @@ describe("resolveProviderDiscoveryPayload", () => {
       accounts: [{ id: "123", name: "Main account" }],
       meta: {
         source: "snapshot",
+        sourceHealth: "stale_cached",
         fetchedAt: "2026-03-21T10:00:00.000Z",
         stale: true,
         refreshFailed: true,
@@ -134,6 +136,7 @@ describe("resolveProviderDiscoveryPayload", () => {
       accounts: [{ id: "act_1", name: "Account 1" }],
       meta: {
         source: "live",
+        sourceHealth: "fresh",
         fetchedAt: "2026-03-21T10:00:00.000Z",
         stale: false,
         refreshFailed: false,

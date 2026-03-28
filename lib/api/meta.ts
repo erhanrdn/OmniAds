@@ -551,11 +551,18 @@ export interface MetaBulkCoreSyncResult {
   restoredPageCount: number;
   throttleCount: number;
   lastUsagePercent: number;
+  memoryInstrumentation?: {
+    maxHeapUsedBytes: number;
+    maxRowsBuffered: number;
+    flushThresholdRows: number;
+    oversizeWarning: boolean;
+  };
 }
 
 const META_BULK_PAGE_LIMIT = 1000;
 const META_USAGE_THROTTLE_THRESHOLD = 85;
 const META_USAGE_THROTTLE_SLEEP_MS = 15_000;
+const META_MEMORY_FLUSH_THRESHOLD_ROWS = Number(process.env.META_MEMORY_FLUSH_THRESHOLD_ROWS ?? 20_000) || 20_000;
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -819,10 +826,21 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     adsets: new Map<string, MetaAggregateTotals & { campaignId?: string | null; name?: string | null; status?: string | null; frequencySum?: number; frequencyWeight?: number }>(),
     ads: new Map<string, MetaAggregateTotals & { campaignId?: string | null; adsetId?: string | null; name?: string | null; status?: string | null; reach?: number; frequencySum?: number; frequencyWeight?: number; payloadJson?: unknown }>(),
   };
+  let maxHeapUsedBytes = process.memoryUsage().heapUsed;
+  let maxRowsBuffered = 0;
+
+  function captureMemorySnapshot() {
+    const heapUsed = process.memoryUsage().heapUsed;
+    maxHeapUsedBytes = Math.max(maxHeapUsedBytes, heapUsed);
+    const rowsBuffered =
+      aggregates.campaigns.size + aggregates.adsets.size + aggregates.ads.size;
+    maxRowsBuffered = Math.max(maxRowsBuffered, rowsBuffered);
+  }
 
   for (const rawPage of restoredPages) {
     const payload = Array.isArray(rawPage.payload_json) ? (rawPage.payload_json as RawAdInsight[]) : [];
     applyAdInsightRowsToAggregates(payload, aggregates);
+    captureMemorySnapshot();
   }
   let rowsFetchedTotal = restoredPages.reduce((sum, page) => {
     const payload = Array.isArray(page.payload_json) ? page.payload_json.length : 0;
@@ -933,6 +951,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
       },
     });
     applyAdInsightRowsToAggregates(rows, aggregates);
+    captureMemorySnapshot();
     rowsFetchedTotal += rows.length;
     nextPageUrl = json.paging?.next ?? null;
     pageIndex += 1;
@@ -1083,6 +1102,17 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
   ]);
 
   const positiveSpendAdIds = adRows.filter((row) => row.spend > 0).map((row) => row.adId);
+  const oversizeWarning = maxRowsBuffered >= META_MEMORY_FLUSH_THRESHOLD_ROWS;
+  if (oversizeWarning) {
+    console.warn("[meta-sync] core_memory_threshold_reached", {
+      businessId: input.credentials.businessId,
+      providerAccountId: input.accountId,
+      partitionId: input.partitionId,
+      maxHeapUsedBytes,
+      maxRowsBuffered,
+      flushThresholdRows: META_MEMORY_FLUSH_THRESHOLD_ROWS,
+    });
+  }
 
   await upsertMetaSyncCheckpoint({
     partitionId: input.partitionId,
@@ -1114,6 +1144,12 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     restoredPageCount: restoredPages.length,
     throttleCount,
     lastUsagePercent,
+    memoryInstrumentation: {
+      maxHeapUsedBytes,
+      maxRowsBuffered,
+      flushThresholdRows: META_MEMORY_FLUSH_THRESHOLD_ROWS,
+      oversizeWarning,
+    },
   };
 }
 

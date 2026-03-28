@@ -25,6 +25,7 @@ import { logClientAuthEvent } from "@/lib/auth-diagnostics";
 import { isDemoBusinessId } from "@/lib/demo-business";
 import { usePreferencesStore } from "@/store/preferences-store";
 import { ArrowRight, CheckCircle2, Layers3, Link2, Sparkles } from "lucide-react";
+import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
 import {
   formatMetaDateTime,
@@ -117,9 +118,49 @@ async function fetchMetaStatus(businessId: string): Promise<MetaStatusResponse> 
   return payload as MetaStatusResponse;
 }
 
+async function fetchGoogleAdsStatus(
+  businessId: string
+): Promise<GoogleAdsStatusResponse> {
+  const params = new URLSearchParams({ businessId });
+  const response = await fetch(`/api/google-ads/status?${params.toString()}`, {
+    cache: "no-store",
+    headers: { Accept: "application/json" },
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(
+      (payload as { message?: string } | null)?.message ??
+        `Google Ads status request failed (${response.status})`
+    );
+  }
+  return payload as GoogleAdsStatusResponse;
+}
+
 function getMetaStatusRefetchInterval(status: MetaStatusResponse | undefined) {
   const state = status?.state;
   if (state === "syncing" || state === "partial") return 5_000;
+  if (
+    state === "paused" ||
+    state === "stale" ||
+    (status?.jobHealth?.queueDepth ?? 0) > 0 ||
+    (status?.jobHealth?.leasedPartitions ?? 0) > 0
+  ) {
+    return 10_000;
+  }
+  return false;
+}
+
+function getGoogleAdsStatusRefetchInterval(
+  status: GoogleAdsStatusResponse | undefined
+) {
+  const state = status?.state;
+  if (
+    state === "syncing" ||
+    state === "partial" ||
+    state === "advisor_not_ready"
+  ) {
+    return 5_000;
+  }
   if (
     state === "paused" ||
     state === "stale" ||
@@ -212,6 +253,16 @@ export default function IntegrationsPage() {
     refetchInterval: (query) =>
       getMetaStatusRefetchInterval(query.state.data as MetaStatusResponse | undefined),
     queryFn: () => fetchMetaStatus(businessId!),
+  });
+  const googleAdsStatusQuery = useQuery({
+    queryKey: ["google-ads-sync-status", businessId],
+    enabled: Boolean(businessId),
+    staleTime: 30 * 1000,
+    refetchInterval: (query) =>
+      getGoogleAdsStatusRefetchInterval(
+        query.state.data as GoogleAdsStatusResponse | undefined
+      ),
+    queryFn: () => fetchGoogleAdsStatus(businessId!),
   });
 
   useEffect(() => {
@@ -462,9 +513,13 @@ export default function IntegrationsPage() {
   const providerCards = DISPLAY_PROVIDERS.map((provider) => {
     const view = providerViews.find((item) => item.provider === provider);
     const assignedIds = assignedAccountsByBusiness[businessId]?.[provider] ?? [];
+    const domain = domains?.[provider];
     let syncNotice: string | null = null;
+    let syncNoticeTone: "info" | "warning" | "error" = "info";
     let metaSyncStatus: MetaStatusResponse | null = null;
     let metaSyncLoading = false;
+    let googleSyncStatus: GoogleAdsStatusResponse | null = null;
+    let googleSyncLoading = false;
     if (provider === "meta") {
       const status = metaStatusQuery.data;
       metaSyncLoading = metaStatusQuery.isLoading && !status;
@@ -478,14 +533,38 @@ export default function IntegrationsPage() {
       } else if (status && status.state !== "action_required") {
         syncNotice = getMetaStatusNotice(status, language);
       }
+    } else if (provider === "google") {
+      const status = googleAdsStatusQuery.data;
+      const sourceHealth = domain?.discovery.sourceHealth ?? null;
+      googleSyncLoading = googleAdsStatusQuery.isLoading && !status;
+      googleSyncStatus = status ?? null;
+
+      if (sourceHealth === "healthy_cached") {
+        syncNotice =
+          domain?.discovery.notice ??
+          "Cached accounts available while the latest refresh finishes.";
+        syncNoticeTone = "info";
+      } else if (sourceHealth === "stale_cached") {
+        syncNotice =
+          domain?.discovery.notice ?? "Account list may be stale.";
+        syncNoticeTone = "warning";
+      } else if (
+        status?.domainReadiness?.summary &&
+        status.state !== "action_required"
+      ) {
+        syncNotice = status.domainReadiness.summary;
+      }
     }
     return {
       provider,
       assignedIds,
       view,
       syncNotice,
+      syncNoticeTone,
       metaSyncStatus,
       metaSyncLoading,
+      googleSyncStatus,
+      googleSyncLoading,
     };
   }).filter(
     (item): item is typeof item & { view: NonNullable<typeof item.view> } => Boolean(item.view)
@@ -609,8 +688,11 @@ export default function IntegrationsPage() {
                     language={language}
                     view={item.view}
                     syncNotice={item.syncNotice}
+                    syncNoticeTone={item.syncNoticeTone}
                     metaSyncStatus={item.metaSyncStatus}
                     metaSyncLoading={item.metaSyncLoading}
+                    googleSyncStatus={item.googleSyncStatus}
+                    googleSyncLoading={item.googleSyncLoading}
                     onConnect={handleConnect}
                     onReconnect={(p) => setActiveProvider(p)}
                     onRetry={handleRetry}

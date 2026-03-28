@@ -17,6 +17,13 @@ export interface ProviderCheckpointHealth {
   checkpointFailures: number;
 }
 
+export interface ProviderDomainReadiness {
+  coreSurfacesReady: string[];
+  deepSurfacesPending: string[];
+  blockingSurfaces: string[];
+  summary: string | null;
+}
+
 export function buildProviderSurfaces(input: {
   required: string[];
   available: string[];

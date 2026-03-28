@@ -1,9 +1,18 @@
-import type { ProviderSyncAdapter } from "@/lib/sync/provider-orchestration";
+import type {
+  ProviderSyncAdapter,
+  ProviderSyncCheckpointState,
+  ProviderSyncPartitionIdentity,
+} from "@/lib/sync/provider-orchestration";
 import { syncGoogleAdsReports } from "@/lib/sync/google-ads-sync";
 import { syncMetaReports } from "@/lib/sync/meta-sync";
 
 export interface ProviderWorkerAdapter
-  extends ProviderSyncAdapter<unknown, unknown, unknown, string> {
+  extends ProviderSyncAdapter<
+    ProviderSyncPartitionIdentity,
+    ProviderSyncCheckpointState,
+    unknown,
+    string
+  > {
   providerScope: "meta" | "google_ads";
   consumeBusiness(businessId: string): Promise<unknown>;
 }

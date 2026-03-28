@@ -10,6 +10,7 @@
     "build": "next build",
     "start": "next start",
     "worker:start": "node --import tsx scripts/sync-worker.ts",
+    "sync:prune": "node --import tsx scripts/sync-prune.ts",
     "seed:demo-business": "node scripts/seed-demo-business.mjs",
     "seed:reviewer-account": "node scripts/seed-reviewer-account.mjs",
     "meta:reset": "node --import tsx scripts/reset-meta-stack.ts",

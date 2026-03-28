@@ -37,6 +37,7 @@ interface SyncHealthPayload {
     workerOnline?: boolean;
     workerInstances?: number;
     workerLastHeartbeatAt?: string | null;
+    workerLastProgressHeartbeatAt?: string | null;
   };
   issues: SyncIssueRow[];
   workerHealth?: {
@@ -66,10 +67,16 @@ interface SyncHealthPayload {
     productCompletedDays: number;
     latestCheckpointPhase?: string | null;
     latestCheckpointUpdatedAt?: string | null;
+    lastProgressHeartbeatAt?: string | null;
     checkpointLagMinutes?: number | null;
     lastSuccessfulPageIndex?: number | null;
     resumeCapable?: boolean;
     checkpointFailures?: number;
+    poisonedCheckpointCount?: number;
+    reclaimCandidateCount?: number;
+    lastReclaimReason?: string | null;
+    latestPoisonReason?: string | null;
+    latestPoisonedAt?: string | null;
   }>;
   metaBusinesses?: Array<{
     businessId: string;
@@ -91,10 +98,13 @@ interface SyncHealthPayload {
     latestCheckpointScope?: string | null;
     latestCheckpointPhase?: string | null;
     latestCheckpointUpdatedAt?: string | null;
+    lastProgressHeartbeatAt?: string | null;
     checkpointLagMinutes?: number | null;
     lastSuccessfulPageIndex?: number | null;
     resumeCapable?: boolean;
     checkpointFailures?: number;
+    reclaimCandidateCount?: number;
+    lastReclaimReason?: string | null;
   }>;
 }
 
@@ -115,6 +125,7 @@ function getMetaBusinessSignals(business: NonNullable<SyncHealthPayload["metaBus
   if (business.retryableFailedPartitions > 0) signals.push("Retryable failed backlog");
   if (business.queueDepth > 0 && business.leasedPartitions === 0) signals.push("Queue waiting for worker");
   if (business.staleLeasePartitions > 0) signals.push("Stale lease detected");
+  if ((business.reclaimCandidateCount ?? 0) > 0) signals.push("Recent reclaim activity");
   if ((business.checkpointLagMinutes ?? 0) > 20) signals.push("Stale checkpoint");
   if (business.todayAccountRows === 0 || business.todayAdsetRows === 0) signals.push("Current day missing");
   if (business.stateRowCount === 0 && (business.queueDepth > 0 || business.leasedPartitions > 0 || business.deadLetterPartitions > 0)) {
@@ -221,6 +232,7 @@ export default function AdminSyncHealthPage() {
     workerOnline: false,
     workerInstances: 0,
     workerLastHeartbeatAt: null,
+    workerLastProgressHeartbeatAt: null,
   };
   const issues = payload?.issues ?? [];
   const googleAdsBusinesses = payload?.googleAdsBusinesses ?? [];
@@ -229,7 +241,13 @@ export default function AdminSyncHealthPage() {
   async function runProviderAction(
     businessId: string,
     provider: "google_ads" | "meta",
-    action: "cleanup" | "replay_dead_letter" | "reschedule" | "refresh_state"
+    action:
+      | "cleanup"
+      | "replay_dead_letter"
+      | "reschedule"
+      | "refresh_state"
+      | "release_quarantine"
+      | "force_manual_replay"
   ) {
     setActionState({
       businessId,
@@ -333,6 +351,9 @@ export default function AdminSyncHealthPage() {
           <p className="text-xs text-gray-500">
             Online workers <span className="font-medium text-gray-700">{payload?.workerHealth?.onlineWorkers ?? 0}</span>
           </p>
+          <p className="text-xs text-gray-500">
+            Last progress heartbeat <span className="font-medium text-gray-700">{formatDateTime(summary.workerLastProgressHeartbeatAt ?? null)}</span>
+          </p>
         </div>
         {payload?.workerHealth?.workers?.length ? (
           <div className="mt-4 space-y-2">
@@ -410,8 +431,16 @@ export default function AdminSyncHealthPage() {
                         Checkpoint {business.latestCheckpointPhase ?? "—"} • Last page {business.lastSuccessfulPageIndex ?? "—"} • Resume {business.resumeCapable ? "yes" : "no"}
                       </p>
                       <p className="mt-1 text-xs text-gray-500">
-                        Oldest queued {formatDateTime(business.oldestQueuedPartition)} • Latest activity {formatDateTime(business.latestPartitionActivityAt)} • Checkpoint {formatDateTime(business.latestCheckpointUpdatedAt ?? null)}
+                        Oldest queued {formatDateTime(business.oldestQueuedPartition)} • Latest activity {formatDateTime(business.latestPartitionActivityAt)} • Checkpoint {formatDateTime(business.latestCheckpointUpdatedAt ?? null)} • Progress {formatDateTime(business.lastProgressHeartbeatAt ?? null)}
                       </p>
+                      <p className="mt-1 text-xs text-gray-500">
+                        Reclaim candidates {business.reclaimCandidateCount ?? 0} • Poison {business.poisonedCheckpointCount ?? 0} • Last reclaim reason {business.lastReclaimReason ?? "—"}
+                      </p>
+                      {business.latestPoisonReason ? (
+                        <p className="mt-1 text-xs text-amber-700">
+                          Poison reason {business.latestPoisonReason} • Quarantined {formatDateTime(business.latestPoisonedAt ?? null)}
+                        </p>
+                      ) : null}
                       {actionState.businessId === business.businessId && actionState.message ? (
                         <p className="mt-2 text-xs text-emerald-700">{actionState.message}</p>
                       ) : null}
@@ -435,6 +464,20 @@ export default function AdminSyncHealthPage() {
                         busy={isBusy && actionState.action === "reschedule"}
                         onClick={() => runProviderAction(business.businessId, "google_ads", "reschedule")}
                       />
+                      {(business.poisonedCheckpointCount ?? 0) > 0 ? (
+                        <ActionButton
+                          label="Release Quarantine"
+                          busy={isBusy && actionState.action === "release_quarantine"}
+                          onClick={() => runProviderAction(business.businessId, "google_ads", "release_quarantine")}
+                        />
+                      ) : null}
+                      {(business.poisonedCheckpointCount ?? 0) > 0 ? (
+                        <ActionButton
+                          label="Force Manual Replay"
+                          busy={isBusy && actionState.action === "force_manual_replay"}
+                          onClick={() => runProviderAction(business.businessId, "google_ads", "force_manual_replay")}
+                        />
+                      ) : null}
                       <ActionButton
                         label="Refresh State"
                         busy={isBusy && actionState.action === "refresh_state"}
@@ -503,7 +546,10 @@ export default function AdminSyncHealthPage() {
                         Oldest queued {formatDateTime(business.oldestQueuedPartition)} • Latest activity {formatDateTime(business.latestPartitionActivityAt)}
                       </p>
                       <p className="mt-1 text-xs text-gray-500">
-                        Checkpoint {business.latestCheckpointScope ?? "—"} / {business.latestCheckpointPhase ?? "—"} • Last page {business.lastSuccessfulPageIndex ?? "—"} • Updated {formatDateTime(business.latestCheckpointUpdatedAt ?? null)}
+                        Checkpoint {business.latestCheckpointScope ?? "—"} / {business.latestCheckpointPhase ?? "—"} • Last page {business.lastSuccessfulPageIndex ?? "—"} • Updated {formatDateTime(business.latestCheckpointUpdatedAt ?? null)} • Progress {formatDateTime(business.lastProgressHeartbeatAt ?? null)}
+                      </p>
+                      <p className="mt-1 text-xs text-gray-500">
+                        Reclaim candidates {business.reclaimCandidateCount ?? 0} • Last reclaim reason {business.lastReclaimReason ?? "—"}
                       </p>
                       {actionState.businessId === business.businessId && actionState.message ? (
                         <p className="mt-2 text-xs text-emerald-700">{actionState.message}</p>

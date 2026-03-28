@@ -24,6 +24,7 @@ const DEFAULT_FRESHNESS_MS = 6 * 60 * 60_000;
 function buildMeta(input: Partial<ProviderAccountSnapshotMeta>): ProviderAccountSnapshotMeta {
   return {
     source: input.source ?? "snapshot",
+    sourceHealth: input.sourceHealth ?? "degraded_blocking",
     fetchedAt: input.fetchedAt ?? null,
     stale: input.stale ?? true,
     refreshFailed: input.refreshFailed ?? false,
@@ -36,7 +37,34 @@ function buildMeta(input: Partial<ProviderAccountSnapshotMeta>): ProviderAccount
     retryAfterAt: input.retryAfterAt ?? null,
     refreshInProgress: input.refreshInProgress ?? false,
     sourceReason: input.sourceReason ?? null,
+    trustLevel: input.trustLevel,
+    trustScore: input.trustScore,
+    snapshotAgeHours: input.snapshotAgeHours ?? null,
+    lastSuccessfulRefreshAgeHours: input.lastSuccessfulRefreshAgeHours ?? null,
+    refreshFailureStreak: input.refreshFailureStreak ?? 0,
   };
+}
+
+function buildDiscoveryNotice(input: {
+  snapshot: ProviderAccountSnapshotResult;
+  degradedNotice: string;
+  quotaNotice?: (retryAfterAt: string | null) => string;
+}) {
+  if (!input.snapshot.meta.refreshFailed) {
+    return null;
+  }
+
+  if (input.snapshot.meta.failureClass === "quota") {
+    return input.quotaNotice?.(input.snapshot.meta.retryAfterAt) ?? input.degradedNotice;
+  }
+
+  if (input.snapshot.meta.sourceHealth === "stale_cached") {
+    return input.snapshot.meta.trustLevel === "risky"
+      ? "Cached accounts are available, but freshness is currently risky."
+      : input.degradedNotice;
+  }
+
+  return input.degradedNotice;
 }
 
 function mergeAssignments(
@@ -110,11 +138,11 @@ export async function resolveProviderDiscoveryPayload(input: {
     return {
       data: mergeAssignments(snapshot.accounts, assignedIds),
       meta: snapshot.meta,
-      notice: snapshot.meta.refreshFailed
-        ? snapshot.meta.failureClass === "quota"
-          ? (input.quotaNotice?.(snapshot.meta.retryAfterAt) ?? input.degradedNotice)
-          : input.degradedNotice
-        : null,
+      notice: buildDiscoveryNotice({
+        snapshot,
+        degradedNotice: input.degradedNotice,
+        quotaNotice: input.quotaNotice,
+      }),
     };
   }
 
@@ -131,9 +159,12 @@ export async function resolveProviderDiscoveryPayload(input: {
       data: buildAssignedFallbackRows(assignedIds),
       meta: buildMeta({
         stale: true,
+        sourceHealth: "healthy_cached",
         lastKnownGoodAvailable: true,
         refreshInProgress: false,
         sourceReason: "initial_snapshot_refresh",
+        trustLevel: "safe",
+        trustScore: 68,
       }),
       notice: input.missingSnapshotNotice,
     };
@@ -141,14 +172,17 @@ export async function resolveProviderDiscoveryPayload(input: {
 
   return {
     data: [],
-    meta: buildMeta({
-      stale: true,
-      lastKnownGoodAvailable: false,
-      refreshInProgress: false,
-      sourceReason: "initial_snapshot_refresh",
-    }),
-    notice: input.unavailableNotice,
-  };
+      meta: buildMeta({
+        stale: true,
+        sourceHealth: "degraded_blocking",
+        lastKnownGoodAvailable: false,
+        refreshInProgress: false,
+        sourceReason: "initial_snapshot_refresh",
+        trustLevel: "blocking",
+        trustScore: 0,
+      }),
+      notice: input.unavailableNotice,
+    };
 }
 
 export function toSnapshotResultFromPayload(

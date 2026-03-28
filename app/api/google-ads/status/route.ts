@@ -11,6 +11,7 @@ import {
   getHistoricalWindowStart,
 } from "@/lib/google-ads/history";
 import {
+  getGoogleAdsCheckpointHealth,
   getGoogleAdsDailyCoverage,
   getGoogleAdsQueueHealth,
   getGoogleAdsSyncState,
@@ -29,6 +30,36 @@ import {
   buildProviderSurfaces,
   decideProviderReadinessLevel,
 } from "@/lib/provider-readiness";
+
+function buildGoogleDomainReadiness(input: {
+  availableSurfaces: string[];
+  missingSurfaces: string[];
+  advisorMissingSurfaces: string[];
+}) {
+  const coreSurfacesReady = ["account_daily", "campaign_daily"].filter((surface) =>
+    input.availableSurfaces.includes(surface)
+  );
+  const deepSurfacesPending = Array.from(
+    new Set(
+      input.missingSurfaces.filter((surface) => !["account_daily", "campaign_daily"].includes(surface))
+    )
+  );
+  const blockingSurfaces = ["account_daily", "campaign_daily"].filter((surface) =>
+    input.missingSurfaces.includes(surface)
+  );
+  const summary =
+    blockingSurfaces.length > 0
+      ? "Core spend and campaign summary are still syncing."
+      : deepSurfacesPending.length > 0 || input.advisorMissingSurfaces.length > 0
+        ? "Core spend and campaign summary are ready. Advisor and deeper coverage are still syncing."
+        : "Google Ads core and deep reporting surfaces are ready.";
+  return {
+    coreSurfacesReady,
+    deepSurfacesPending,
+    blockingSurfaces,
+    summary,
+  };
+}
 
 function getTodayIsoForTimeZoneServer(timeZone: string) {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -79,10 +110,11 @@ export async function GET(request: NextRequest) {
   await runMigrations();
   const sql = getDb();
 
-  const [integration, assignments, latestSync] = await Promise.all([
+  const [integration, assignments, latestSync, checkpointHealth] = await Promise.all([
     getIntegration(businessId!, "google").catch(() => null),
     getProviderAccountAssignments(businessId!, "google").catch(() => null),
     getLatestGoogleAdsSyncHealth({ businessId: businessId!, providerAccountId: null }).catch(() => null),
+    getGoogleAdsCheckpointHealth({ businessId: businessId!, providerAccountId: null }).catch(() => null),
   ]);
 
   const accountIds = assignments?.account_ids ?? [];
@@ -561,6 +593,11 @@ export async function GET(request: NextRequest) {
     available: surfaces.available,
     usable: ["account_daily", "campaign_daily"],
   });
+  const domainReadiness = buildGoogleDomainReadiness({
+    availableSurfaces,
+    missingSurfaces: surfaces.missing,
+    advisorMissingSurfaces,
+  });
   const effectiveCompletedDays = selectedRangeIncomplete
     ? selectedRangeCompletedDays
     : advisorNotReady
@@ -602,7 +639,8 @@ export async function GET(request: NextRequest) {
     connected,
     readinessLevel,
     surfaces,
-    checkpointHealth: null,
+    checkpointHealth: checkpointHealth ?? null,
+    domainReadiness,
     assignedAccountIds: accountIds,
     primaryAccountTimezone,
     currentDateInTimezone,

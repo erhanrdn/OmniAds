@@ -84,6 +84,9 @@ export function getMetaSyncTitle(
   status: MetaStatusResponse,
   language: MetaUiLanguage
 ) {
+  if (status.domainReadiness?.summary) {
+    return language === "tr" ? "Meta veri hazırlığı devam ediyor" : "Meta sync is still preparing data";
+  }
   if (status.readinessLevel === "usable" && status.state !== "ready") {
     return language === "tr"
       ? "Meta dashboard kullanılabilir, derin senkron sürüyor"
@@ -114,6 +117,9 @@ export function getMetaSyncDescription(
   status: MetaStatusResponse,
   language: MetaUiLanguage
 ) {
+  if (status.domainReadiness?.summary) {
+    return status.domainReadiness.summary;
+  }
   if (status.readinessLevel === "usable" && status.state !== "ready") {
     return language === "tr"
       ? "Özet ve kampanya görünümü hazır. Breakdown ve kreatif yüzeyleri arka planda tamamlanıyor."
@@ -148,6 +154,9 @@ export function getMetaSyncCaption(
   const context = getMetaSyncCaptionContext(status);
 
   const parts: string[] = [];
+  if (status.domainReadiness?.summary) {
+    parts.push(status.domainReadiness.summary);
+  }
   if (
     typeof latestSync.completedDays === "number" &&
     typeof latestSync.totalDays === "number" &&

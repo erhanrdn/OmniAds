@@ -1,11 +1,17 @@
 import { createHash } from "node:crypto";
 import { getDb } from "@/lib/db";
 import { runMigrations } from "@/lib/migrations";
+import { recordSyncReclaimEvents } from "@/lib/sync/worker-health";
+import type {
+  ProviderReclaimDecision,
+  ProviderReclaimDisposition,
+} from "@/lib/sync/provider-orchestration";
 import type {
   GoogleAdsPartitionStatus,
   GoogleAdsRawSnapshotRecord,
   GoogleAdsRunnerLeaseRecord,
   GoogleAdsSyncLane,
+  GoogleAdsSyncCheckpointRecord,
   GoogleAdsSyncJobRecord,
   GoogleAdsSyncPartitionRecord,
   GoogleAdsSyncRunRecord,
@@ -16,6 +22,7 @@ import type {
   GoogleAdsWarehouseMetricSet,
   GoogleAdsWarehouseScope,
 } from "@/lib/google-ads/warehouse-types";
+import { computeCheckpointLagMinutes } from "@/lib/provider-readiness";
 
 const GOOGLE_SCOPE_TABLES: Record<GoogleAdsWarehouseScope, string> = {
   account_daily: "google_ads_account_daily",
@@ -101,6 +108,20 @@ function toNumber(value: unknown) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function parseTimestampMs(value: unknown) {
+  const normalized = normalizeTimestamp(value);
+  if (!normalized) return null;
+  const ms = new Date(normalized).getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function tallyDisposition(
+  counts: Record<ProviderReclaimDisposition, number>,
+  disposition: ProviderReclaimDisposition
+) {
+  counts[disposition] = (counts[disposition] ?? 0) + 1;
+}
+
 export function buildGoogleAdsRawSnapshotHash(input: {
   businessId: string;
   providerAccountId: string;
@@ -118,6 +139,28 @@ export function buildGoogleAdsRawSnapshotHash(input: {
         startDate: normalizeDate(input.startDate),
         endDate: normalizeDate(input.endDate),
         payload: input.payload,
+      })
+    )
+    .digest("hex");
+}
+
+export function buildGoogleAdsSyncCheckpointHash(input: {
+  partitionId: string;
+  checkpointScope: string;
+  phase: string;
+  pageIndex: number;
+  nextPageToken?: string | null;
+  providerCursor?: string | null;
+}) {
+  return createHash("sha1")
+    .update(
+      JSON.stringify({
+        partitionId: input.partitionId,
+        checkpointScope: input.checkpointScope,
+        phase: input.phase,
+        pageIndex: input.pageIndex,
+        nextPageToken: input.nextPageToken ?? null,
+        providerCursor: input.providerCursor ?? null,
       })
     )
     .digest("hex");
@@ -586,6 +629,23 @@ export async function completeGoogleAdsPartition(input: {
   `;
 }
 
+export async function heartbeatGoogleAdsPartitionLease(input: {
+  partitionId: string;
+  workerId: string;
+  leaseMinutes?: number;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  await sql`
+    UPDATE google_ads_sync_partitions
+    SET
+      lease_owner = ${input.workerId},
+      lease_expires_at = now() + (${input.leaseMinutes ?? 5} || ' minutes')::interval,
+      updated_at = now()
+    WHERE id = ${input.partitionId}
+  `;
+}
+
 export async function cleanupGoogleAdsPartitionOrchestration(input: {
   businessId: string;
   staleLeaseMinutes?: number;
@@ -594,32 +654,187 @@ export async function cleanupGoogleAdsPartitionOrchestration(input: {
 }) {
   await runMigrations();
   const sql = getDb();
-  const stalePartitionRows = await sql`
-    UPDATE google_ads_sync_partitions
-    SET
-      status = 'failed',
-      lease_owner = NULL,
-      lease_expires_at = NULL,
-      next_retry_at = now() + interval '3 minutes',
-      last_error = COALESCE(last_error, 'stale partition lease expired automatically'),
-      updated_at = now()
-    WHERE business_id = ${input.businessId}
-      AND status IN ('leased', 'running')
-      AND (
-        COALESCE(lease_expires_at, started_at, updated_at) < now() - (${input.staleLeaseMinutes ?? 8} || ' minutes')::interval
-        OR (
-          updated_at < now() - interval '1 minute'
-          AND NOT EXISTS (
-            SELECT 1
-            FROM google_ads_runner_leases lease
-            WHERE lease.business_id = ${input.businessId}
-              AND lease.lane = 'core'
-              AND lease.lease_expires_at > now()
-          )
-        )
-      )
-    RETURNING id
+  const staleThresholdMs = Math.max(1, input.staleLeaseMinutes ?? 8) * 60_000;
+  const candidates = await sql`
+    SELECT
+      partition.id,
+      partition.scope,
+      partition.lane,
+      partition.status,
+      partition.attempt_count,
+      partition.updated_at,
+      partition.started_at,
+      partition.lease_expires_at,
+      checkpoint.checkpoint_scope,
+      checkpoint.phase,
+      checkpoint.page_index,
+      checkpoint.attempt_count AS checkpoint_attempt_count,
+      checkpoint.status AS checkpoint_status,
+      COALESCE(checkpoint.progress_heartbeat_at, checkpoint.updated_at) AS progress_updated_at,
+      checkpoint.poisoned_at,
+      checkpoint.poison_reason,
+      COALESCE(failures.same_phase_failures, 0) AS same_phase_failures,
+      EXISTS (
+        SELECT 1
+        FROM google_ads_runner_leases lease
+        WHERE lease.business_id = partition.business_id
+          AND lease.lane = partition.lane
+          AND lease.lease_expires_at > now()
+      ) AS has_active_runner_lease
+    FROM google_ads_sync_partitions partition
+    LEFT JOIN LATERAL (
+      SELECT *
+      FROM google_ads_sync_checkpoints checkpoint
+      WHERE checkpoint.partition_id = partition.id
+      ORDER BY checkpoint.updated_at DESC
+      LIMIT 1
+    ) checkpoint ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT COUNT(*)::int AS same_phase_failures
+      FROM google_ads_sync_checkpoints failed
+      WHERE failed.partition_id = partition.id
+        AND failed.phase = checkpoint.phase
+        AND failed.status = 'failed'
+    ) failures ON TRUE
+    WHERE partition.business_id = ${input.businessId}
+      AND partition.status IN ('leased', 'running')
   ` as Array<Record<string, unknown>>;
+
+  const now = Date.now();
+  const dispositionCounts: Record<ProviderReclaimDisposition, number> = {
+    alive_slow: 0,
+    stalled_reclaimable: 0,
+    poison_candidate: 0,
+  };
+  const stalledDecisions: Array<ProviderReclaimDecision & { partitionId: string }> = [];
+  const poisonDecisions: Array<
+    ProviderReclaimDecision & { partitionId: string; checkpointScope: string | null }
+  > = [];
+
+  for (const row of candidates) {
+    const partitionId = String(row.id);
+    const progressMs = parseTimestampMs(row.progress_updated_at ?? row.updated_at);
+    const leaseMs = parseTimestampMs(
+      row.lease_expires_at ?? row.started_at ?? row.updated_at
+    );
+    const updatedMs = parseTimestampMs(row.updated_at);
+    const hasRecentProgress =
+      progressMs != null && now - progressMs <= staleThresholdMs;
+    const hasActiveRunnerLease = Boolean(row.has_active_runner_lease);
+    const samePhaseFailures = toNumber(row.same_phase_failures);
+    const checkpointAttempts = toNumber(row.checkpoint_attempt_count);
+    const checkpointScope =
+      row.checkpoint_scope != null ? String(row.checkpoint_scope) : null;
+
+    let decision: ProviderReclaimDecision;
+    if (row.poisoned_at) {
+      decision = {
+        disposition: "poison_candidate",
+        reasonCode: "poison_checkpoint_detected",
+        detail: row.poison_reason
+          ? String(row.poison_reason)
+          : "Checkpoint already marked as poison candidate.",
+      };
+    } else if (samePhaseFailures >= 3 || checkpointAttempts >= 3) {
+      decision = {
+        disposition: "poison_candidate",
+        reasonCode: "same_phase_reentry_limit",
+        detail: `Checkpoint phase ${String(row.phase ?? "unknown")} repeatedly failed.`,
+      };
+    } else if (hasRecentProgress) {
+      decision = {
+        disposition: "alive_slow",
+        reasonCode: "progress_recently_advanced",
+        detail: "Recent checkpoint progress detected; keeping partition leased.",
+      };
+    } else if (hasActiveRunnerLease) {
+      decision = {
+        disposition: "alive_slow",
+        reasonCode: "active_worker_lease_present",
+        detail: "Runner lease is still active for this lane.",
+      };
+    } else if (
+      leaseMs != null &&
+      now - leaseMs > 0 &&
+      updatedMs != null &&
+      now - updatedMs > 60_000
+    ) {
+      decision = {
+        disposition: "stalled_reclaimable",
+        reasonCode: "worker_offline_no_progress",
+        detail: "Lease expired and no recent runner/progress heartbeat remained.",
+      };
+    } else if (leaseMs != null && now - leaseMs > 0) {
+      decision = {
+        disposition: "stalled_reclaimable",
+        reasonCode: "lease_expired_no_progress",
+        detail: "Partition lease expired without recent checkpoint progress.",
+      };
+    } else {
+      continue;
+    }
+
+    tallyDisposition(dispositionCounts, decision.disposition);
+    if (decision.disposition === "stalled_reclaimable") {
+      stalledDecisions.push({ partitionId, ...decision });
+    }
+    if (decision.disposition === "poison_candidate") {
+      poisonDecisions.push({ partitionId, checkpointScope, ...decision });
+    }
+  }
+
+  const stalePartitionIds = stalledDecisions.map((row) => row.partitionId);
+  if (stalePartitionIds.length > 0) {
+    await sql`
+      UPDATE google_ads_sync_partitions
+      SET
+        status = 'failed',
+        lease_owner = NULL,
+        lease_expires_at = NULL,
+        next_retry_at = now() + interval '3 minutes',
+        last_error = COALESCE(last_error, 'stalled partition reclaimed automatically'),
+        updated_at = now()
+      WHERE id = ANY(${stalePartitionIds}::uuid[])
+    `;
+    for (const decision of stalledDecisions) {
+      await recordSyncReclaimEvents({
+        providerScope: "google_ads",
+        businessId: input.businessId,
+        partitionIds: [decision.partitionId],
+        eventType: "reclaimed",
+        disposition: decision.disposition,
+        reasonCode: decision.reasonCode,
+        detail: decision.detail,
+      }).catch(() => null);
+    }
+  }
+
+  const poisonPartitionIds = poisonDecisions.map((row) => row.partitionId);
+  if (poisonPartitionIds.length > 0) {
+    await sql`
+      UPDATE google_ads_sync_partitions
+      SET
+        status = 'dead_letter',
+        lease_owner = NULL,
+        lease_expires_at = NULL,
+        next_retry_at = NULL,
+        last_error = COALESCE(last_error, 'poison checkpoint quarantined for manual recovery'),
+        updated_at = now()
+      WHERE id = ANY(${poisonPartitionIds}::uuid[])
+    `;
+    for (const decision of poisonDecisions) {
+      await recordSyncReclaimEvents({
+        providerScope: "google_ads",
+        businessId: input.businessId,
+        partitionIds: [decision.partitionId],
+        checkpointScope: decision.checkpointScope,
+        eventType: "poisoned",
+        disposition: decision.disposition,
+        reasonCode: decision.reasonCode,
+        detail: decision.detail,
+      }).catch(() => null);
+    }
+  }
 
   const duplicateLegacyIds = await sql`
     SELECT id
@@ -692,11 +907,17 @@ export async function cleanupGoogleAdsPartitionOrchestration(input: {
   ` as Array<Record<string, unknown>>;
 
   return {
-    stalePartitionCount: stalePartitionRows.length,
+    stalePartitionCount: stalePartitionIds.length,
+    aliveSlowCount: dispositionCounts.alive_slow,
+    poisonCandidateCount: poisonPartitionIds.length,
     duplicatePartitionCount: 0,
     staleRunCount: staleRunRows.length,
     duplicateLegacyCount,
     staleLegacyCount: staleLegacyRows.length,
+    reclaimReasons: {
+      stalledReclaimable: stalledDecisions.map((row) => row.reasonCode),
+      poisonCandidate: poisonDecisions.map((row) => row.reasonCode),
+    },
   };
 }
 
@@ -880,8 +1101,12 @@ export async function persistGoogleAdsRawSnapshot(input: GoogleAdsRawSnapshotRec
     INSERT INTO google_ads_raw_snapshots (
       business_id,
       provider_account_id,
+      partition_id,
+      checkpoint_id,
       endpoint_name,
       entity_scope,
+      page_index,
+      provider_cursor,
       start_date,
       end_date,
       account_timezone,
@@ -889,6 +1114,7 @@ export async function persistGoogleAdsRawSnapshot(input: GoogleAdsRawSnapshotRec
       payload_json,
       payload_hash,
       request_context,
+      response_headers,
       provider_http_status,
       status,
       fetched_at,
@@ -897,8 +1123,12 @@ export async function persistGoogleAdsRawSnapshot(input: GoogleAdsRawSnapshotRec
     VALUES (
       ${input.businessId},
       ${input.providerAccountId},
+      ${input.partitionId ?? null},
+      ${input.checkpointId ?? null},
       ${input.endpointName},
       ${input.entityScope},
+      ${input.pageIndex ?? null},
+      ${input.providerCursor ?? null},
       ${normalizeDate(input.startDate)},
       ${normalizeDate(input.endDate)},
       ${input.accountTimezone},
@@ -906,6 +1136,7 @@ export async function persistGoogleAdsRawSnapshot(input: GoogleAdsRawSnapshotRec
       ${JSON.stringify(input.payloadJson)}::jsonb,
       ${input.payloadHash},
       ${JSON.stringify(input.requestContext ?? {})}::jsonb,
+      ${JSON.stringify(input.responseHeaders ?? {})}::jsonb,
       ${input.providerHttpStatus},
       ${input.status},
       COALESCE(${input.fetchedAt ?? null}, now()),
@@ -914,6 +1145,203 @@ export async function persistGoogleAdsRawSnapshot(input: GoogleAdsRawSnapshotRec
     RETURNING id
   ` as Array<{ id: string }>;
   return rows[0]?.id ?? null;
+}
+
+export async function upsertGoogleAdsSyncCheckpoint(input: GoogleAdsSyncCheckpointRecord) {
+  await runMigrations();
+  const sql = getDb();
+  const checkpointHash =
+    input.checkpointHash ??
+    buildGoogleAdsSyncCheckpointHash({
+      partitionId: input.partitionId,
+      checkpointScope: input.checkpointScope,
+      phase: input.phase,
+      pageIndex: input.pageIndex,
+      nextPageToken: input.nextPageToken ?? null,
+      providerCursor: input.providerCursor ?? null,
+    });
+  const rows = await sql`
+    INSERT INTO google_ads_sync_checkpoints (
+      partition_id,
+      business_id,
+      provider_account_id,
+      checkpoint_scope,
+      is_paginated,
+      phase,
+      status,
+      page_index,
+      next_page_token,
+      provider_cursor,
+      raw_snapshot_ids,
+      rows_fetched,
+      rows_written,
+      last_successful_entity_key,
+      last_response_headers,
+      checkpoint_hash,
+      attempt_count,
+      progress_heartbeat_at,
+      retry_after_at,
+      lease_owner,
+      lease_expires_at,
+      poisoned_at,
+      poison_reason,
+      replay_reason_code,
+      replay_detail,
+      started_at,
+      finished_at,
+      updated_at
+    )
+    VALUES (
+      ${input.partitionId},
+      ${input.businessId},
+      ${input.providerAccountId},
+      ${input.checkpointScope},
+      ${input.isPaginated ?? false},
+      ${input.phase},
+      ${input.status},
+      ${input.pageIndex},
+      ${input.nextPageToken ?? null},
+      ${input.providerCursor ?? null},
+      ${JSON.stringify(input.rawSnapshotIds ?? [])}::jsonb,
+      ${input.rowsFetched ?? 0},
+      ${input.rowsWritten ?? 0},
+      ${input.lastSuccessfulEntityKey ?? null},
+      ${JSON.stringify(input.lastResponseHeaders ?? {})}::jsonb,
+      ${checkpointHash},
+      ${input.attemptCount},
+      COALESCE(${input.progressHeartbeatAt ?? null}, now()),
+      ${input.retryAfterAt ?? null},
+      ${input.leaseOwner ?? null},
+      ${input.leaseExpiresAt ?? null},
+      ${input.poisonedAt ?? null},
+      ${input.poisonReason ?? null},
+      ${input.replayReasonCode ?? null},
+      ${input.replayDetail ?? null},
+      ${input.startedAt ?? null},
+      ${input.finishedAt ?? null},
+      now()
+    )
+    ON CONFLICT (partition_id, checkpoint_scope)
+    DO UPDATE SET
+      is_paginated = EXCLUDED.is_paginated,
+      phase = EXCLUDED.phase,
+      status = EXCLUDED.status,
+      page_index = EXCLUDED.page_index,
+      next_page_token = EXCLUDED.next_page_token,
+      provider_cursor = EXCLUDED.provider_cursor,
+      raw_snapshot_ids = EXCLUDED.raw_snapshot_ids,
+      rows_fetched = EXCLUDED.rows_fetched,
+      rows_written = EXCLUDED.rows_written,
+      last_successful_entity_key = EXCLUDED.last_successful_entity_key,
+      last_response_headers = EXCLUDED.last_response_headers,
+      checkpoint_hash = EXCLUDED.checkpoint_hash,
+      attempt_count = EXCLUDED.attempt_count,
+      progress_heartbeat_at = COALESCE(EXCLUDED.progress_heartbeat_at, now()),
+      retry_after_at = EXCLUDED.retry_after_at,
+      lease_owner = EXCLUDED.lease_owner,
+      lease_expires_at = EXCLUDED.lease_expires_at,
+      poisoned_at = COALESCE(EXCLUDED.poisoned_at, google_ads_sync_checkpoints.poisoned_at),
+      poison_reason = COALESCE(EXCLUDED.poison_reason, google_ads_sync_checkpoints.poison_reason),
+      replay_reason_code = COALESCE(EXCLUDED.replay_reason_code, google_ads_sync_checkpoints.replay_reason_code),
+      replay_detail = COALESCE(EXCLUDED.replay_detail, google_ads_sync_checkpoints.replay_detail),
+      started_at = COALESCE(google_ads_sync_checkpoints.started_at, EXCLUDED.started_at, now()),
+      finished_at = EXCLUDED.finished_at,
+      updated_at = now()
+    RETURNING id
+  ` as Array<{ id: string }>;
+  return rows[0]?.id ?? null;
+}
+
+export async function getGoogleAdsSyncCheckpoint(input: {
+  partitionId: string;
+  checkpointScope: string;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = await sql`
+    SELECT *
+    FROM google_ads_sync_checkpoints
+    WHERE partition_id = ${input.partitionId}
+      AND checkpoint_scope = ${input.checkpointScope}
+    LIMIT 1
+  ` as Array<Record<string, unknown>>;
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    id: String(row.id),
+    partitionId: String(row.partition_id),
+    businessId: String(row.business_id),
+    providerAccountId: String(row.provider_account_id),
+    checkpointScope: String(row.checkpoint_scope),
+    isPaginated: Boolean(row.is_paginated),
+    phase: String(row.phase) as GoogleAdsSyncCheckpointRecord["phase"],
+    status: String(row.status) as GoogleAdsSyncCheckpointRecord["status"],
+    pageIndex: toNumber(row.page_index),
+    nextPageToken: row.next_page_token ? String(row.next_page_token) : null,
+    providerCursor: row.provider_cursor ? String(row.provider_cursor) : null,
+    rawSnapshotIds: Array.isArray(row.raw_snapshot_ids)
+      ? row.raw_snapshot_ids.map((value) => String(value))
+      : [],
+    rowsFetched: toNumber(row.rows_fetched),
+    rowsWritten: toNumber(row.rows_written),
+    lastSuccessfulEntityKey: row.last_successful_entity_key
+      ? String(row.last_successful_entity_key)
+      : null,
+    lastResponseHeaders:
+      row.last_response_headers && typeof row.last_response_headers === "object"
+        ? (row.last_response_headers as Record<string, unknown>)
+        : {},
+    checkpointHash: row.checkpoint_hash ? String(row.checkpoint_hash) : null,
+    attemptCount: toNumber(row.attempt_count),
+    progressHeartbeatAt: normalizeTimestamp(row.progress_heartbeat_at),
+    retryAfterAt: normalizeTimestamp(row.retry_after_at),
+    leaseOwner: row.lease_owner ? String(row.lease_owner) : null,
+    leaseExpiresAt: normalizeTimestamp(row.lease_expires_at),
+    poisonedAt: normalizeTimestamp(row.poisoned_at),
+    poisonReason: row.poison_reason ? String(row.poison_reason) : null,
+    replayReasonCode: row.replay_reason_code ? String(row.replay_reason_code) : null,
+    replayDetail: row.replay_detail ? String(row.replay_detail) : null,
+    startedAt: normalizeTimestamp(row.started_at),
+    finishedAt: normalizeTimestamp(row.finished_at),
+    createdAt: normalizeTimestamp(row.created_at) ?? undefined,
+    updatedAt: normalizeTimestamp(row.updated_at) ?? undefined,
+  } satisfies GoogleAdsSyncCheckpointRecord;
+}
+
+export async function listGoogleAdsRawSnapshotsForPartition(input: {
+  partitionId: string;
+  endpointName: string;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  return (sql`
+    SELECT
+      id,
+      checkpoint_id,
+      page_index,
+      payload_json,
+      response_headers,
+      provider_cursor,
+      request_context,
+      provider_http_status,
+      status,
+      fetched_at
+    FROM google_ads_raw_snapshots
+    WHERE partition_id = ${input.partitionId}
+      AND endpoint_name = ${input.endpointName}
+    ORDER BY COALESCE(page_index, 0) ASC, fetched_at ASC
+  ` as unknown) as Array<{
+    id: string;
+    checkpoint_id: string | null;
+    page_index: number | null;
+    payload_json: unknown;
+    response_headers: Record<string, unknown> | null;
+    provider_cursor: string | null;
+    request_context: Record<string, unknown> | null;
+    provider_http_status: number | null;
+    status: string;
+    fetched_at: string | null;
+  }>;
 }
 
 export async function upsertGoogleAdsDailyRows(
@@ -1571,6 +1999,58 @@ export async function getGoogleAdsPartitionHealth(input: {
   };
 }
 
+export async function getGoogleAdsCheckpointHealth(input: {
+  businessId: string;
+  providerAccountId?: string | null;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = await sql`
+    SELECT
+      checkpoint_scope,
+      is_paginated,
+      phase,
+      status,
+      page_index,
+      COALESCE(progress_heartbeat_at, updated_at) AS progress_updated_at,
+      poisoned_at,
+      poison_reason,
+      COUNT(*) FILTER (WHERE status = 'failed') OVER ()::int AS checkpoint_failures
+    FROM google_ads_sync_checkpoints
+    WHERE business_id = ${input.businessId}
+      AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
+    ORDER BY updated_at DESC
+    LIMIT 1
+  ` as Array<Record<string, unknown>>;
+  const row = rows[0];
+  if (!row) {
+    return {
+      latestCheckpointScope: null,
+      latestCheckpointPhase: null,
+      latestCheckpointStatus: null,
+      latestCheckpointUpdatedAt: null,
+      checkpointLagMinutes: null,
+      lastSuccessfulPageIndex: null,
+      resumeCapable: false,
+      checkpointFailures: 0,
+    };
+  }
+  const updatedAt = normalizeTimestamp(row.progress_updated_at);
+  return {
+    latestCheckpointScope: row.checkpoint_scope ? String(row.checkpoint_scope) : null,
+    latestCheckpointPhase: row.phase ? String(row.phase) : null,
+    latestCheckpointStatus: row.status ? String(row.status) : null,
+    latestCheckpointUpdatedAt: updatedAt,
+    checkpointLagMinutes: computeCheckpointLagMinutes(updatedAt),
+    lastSuccessfulPageIndex: toNumber(row.page_index),
+    resumeCapable:
+      !row.poisoned_at &&
+      row.status != null &&
+      ["pending", "running", "failed"].includes(String(row.status)),
+    checkpointFailures: toNumber(row.checkpoint_failures),
+  };
+}
+
 export async function replayGoogleAdsDeadLetterPartitions(input: {
   businessId: string;
   scope?: GoogleAdsWarehouseScope | null;
@@ -1592,6 +2072,92 @@ export async function replayGoogleAdsDeadLetterPartitions(input: {
     RETURNING id, lane, scope, partition_date
   ` as Array<Record<string, unknown>>;
   return rows.map((row) => ({
+    id: String(row.id),
+    lane: String(row.lane),
+    scope: String(row.scope),
+    partitionDate: normalizeDate(row.partition_date),
+  }));
+}
+
+export async function releaseGoogleAdsPoisonedPartitions(input: {
+  businessId: string;
+  scope?: GoogleAdsWarehouseScope | null;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const partitions = await sql`
+    WITH released_checkpoints AS (
+      UPDATE google_ads_sync_checkpoints checkpoint
+      SET
+        poisoned_at = NULL,
+        poison_reason = NULL,
+        replay_reason_code = 'quarantine_release',
+        replay_detail = 'Quarantine released by admin action.',
+        updated_at = now()
+      FROM google_ads_sync_partitions partition
+      WHERE checkpoint.partition_id = partition.id
+        AND partition.business_id = ${input.businessId}
+        AND partition.status = 'dead_letter'
+        AND checkpoint.poisoned_at IS NOT NULL
+        AND (${input.scope ?? null}::text IS NULL OR partition.scope = ${input.scope ?? null})
+      RETURNING checkpoint.partition_id
+    )
+    UPDATE google_ads_sync_partitions partition
+    SET
+      status = 'failed',
+      lease_owner = NULL,
+      lease_expires_at = NULL,
+      next_retry_at = NULL,
+      last_error = COALESCE(partition.last_error, 'poison quarantine released; awaiting replay'),
+      updated_at = now()
+    WHERE partition.id IN (SELECT partition_id FROM released_checkpoints)
+    RETURNING partition.id, partition.lane, partition.scope, partition.partition_date
+  ` as Array<Record<string, unknown>>;
+
+  return partitions.map((row) => ({
+    id: String(row.id),
+    lane: String(row.lane),
+    scope: String(row.scope),
+    partitionDate: normalizeDate(row.partition_date),
+  }));
+}
+
+export async function forceReplayGoogleAdsPoisonedPartitions(input: {
+  businessId: string;
+  scope?: GoogleAdsWarehouseScope | null;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const partitions = await sql`
+    WITH released_checkpoints AS (
+      UPDATE google_ads_sync_checkpoints checkpoint
+      SET
+        poisoned_at = NULL,
+        poison_reason = NULL,
+        replay_reason_code = 'manual_replay',
+        replay_detail = 'Manual replay requested from admin sync health.',
+        updated_at = now()
+      FROM google_ads_sync_partitions partition
+      WHERE checkpoint.partition_id = partition.id
+        AND partition.business_id = ${input.businessId}
+        AND partition.status = 'dead_letter'
+        AND checkpoint.poisoned_at IS NOT NULL
+        AND (${input.scope ?? null}::text IS NULL OR partition.scope = ${input.scope ?? null})
+      RETURNING checkpoint.partition_id
+    )
+    UPDATE google_ads_sync_partitions partition
+    SET
+      status = 'queued',
+      lease_owner = NULL,
+      lease_expires_at = NULL,
+      next_retry_at = NULL,
+      last_error = NULL,
+      updated_at = now()
+    WHERE partition.id IN (SELECT partition_id FROM released_checkpoints)
+    RETURNING partition.id, partition.lane, partition.scope, partition.partition_date
+  ` as Array<Record<string, unknown>>;
+
+  return partitions.map((row) => ({
     id: String(row.id),
     lane: String(row.lane),
     scope: String(row.scope),

@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 import { getDb } from "@/lib/db";
 import { runMigrations } from "@/lib/migrations";
+import { recordSyncReclaimEvents } from "@/lib/sync/worker-health";
+import type {
+  ProviderReclaimDecision,
+  ProviderReclaimDisposition,
+} from "@/lib/sync/provider-orchestration";
 import type {
   MetaAccountDailyRow,
   MetaAdDailyRow,
@@ -41,6 +46,20 @@ function normalizeTimestamp(value: unknown) {
 function toNumber(value: unknown) {
   const parsed = typeof value === "number" ? value : Number(value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function parseTimestampMs(value: unknown) {
+  const normalized = normalizeTimestamp(value);
+  if (!normalized) return null;
+  const ms = new Date(normalized).getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function tallyDisposition(
+  counts: Record<ProviderReclaimDisposition, number>,
+  disposition: ProviderReclaimDisposition
+) {
+  counts[disposition] = (counts[disposition] ?? 0) + 1;
 }
 
 function chunkRows<T>(rows: T[], size = 250) {
@@ -417,20 +436,109 @@ export async function cleanupMetaPartitionOrchestration(input: {
 }) {
   await runMigrations();
   const sql = getDb();
-  const stalePartitionRows = await sql`
-    UPDATE meta_sync_partitions
-    SET
-      status = 'failed',
-      lease_owner = NULL,
-      lease_expires_at = NULL,
-      next_retry_at = now() + interval '3 minutes',
-      last_error = COALESCE(last_error, 'stale partition lease expired automatically'),
-      updated_at = now()
-    WHERE business_id = ${input.businessId}
-      AND status IN ('leased', 'running')
-      AND COALESCE(lease_expires_at, started_at, updated_at) < now() - (${input.staleLeaseMinutes ?? 8} || ' minutes')::interval
-    RETURNING id
+  const staleThresholdMs = Math.max(1, input.staleLeaseMinutes ?? 8) * 60_000;
+  const candidates = await sql`
+    SELECT
+      partition.id,
+      partition.lane,
+      partition.scope,
+      partition.updated_at,
+      partition.started_at,
+      partition.lease_expires_at,
+      checkpoint.checkpoint_scope,
+      checkpoint.phase,
+      checkpoint.page_index,
+      checkpoint.updated_at AS checkpoint_updated_at,
+      EXISTS (
+        SELECT 1
+        FROM sync_runner_leases lease
+        WHERE lease.business_id = partition.business_id
+          AND lease.provider_scope = 'meta'
+          AND lease.lease_expires_at > now()
+      ) AS has_active_runner_lease
+    FROM meta_sync_partitions partition
+    LEFT JOIN LATERAL (
+      SELECT checkpoint_scope, phase, page_index, updated_at
+      FROM meta_sync_checkpoints checkpoint
+      WHERE checkpoint.partition_id = partition.id
+      ORDER BY checkpoint.updated_at DESC
+      LIMIT 1
+    ) checkpoint ON TRUE
+    WHERE partition.business_id = ${input.businessId}
+      AND partition.status IN ('leased', 'running')
   ` as Array<Record<string, unknown>>;
+
+  const now = Date.now();
+  const dispositionCounts: Record<ProviderReclaimDisposition, number> = {
+    alive_slow: 0,
+    stalled_reclaimable: 0,
+    poison_candidate: 0,
+  };
+  const stalledDecisions: Array<ProviderReclaimDecision & { partitionId: string }> = [];
+
+  for (const row of candidates) {
+    const partitionId = String(row.id);
+    const progressMs = parseTimestampMs(row.checkpoint_updated_at ?? row.updated_at);
+    const leaseMs = parseTimestampMs(
+      row.lease_expires_at ?? row.started_at ?? row.updated_at
+    );
+    const hasRecentProgress =
+      progressMs != null && now - progressMs <= staleThresholdMs;
+    const hasActiveRunnerLease = Boolean(row.has_active_runner_lease);
+
+    let decision: ProviderReclaimDecision;
+    if (hasRecentProgress) {
+      decision = {
+        disposition: "alive_slow",
+        reasonCode: "progress_recently_advanced",
+        detail: "Recent checkpoint progress detected; keeping partition leased.",
+      };
+    } else if (hasActiveRunnerLease) {
+      decision = {
+        disposition: "alive_slow",
+        reasonCode: "active_worker_lease_present",
+        detail: "Meta runner lease is still active.",
+      };
+    } else if (leaseMs != null && now - leaseMs > 0) {
+      decision = {
+        disposition: "stalled_reclaimable",
+        reasonCode: "lease_expired_no_progress",
+        detail: "Partition lease expired without recent checkpoint progress.",
+      };
+    } else {
+      continue;
+    }
+    tallyDisposition(dispositionCounts, decision.disposition);
+    if (decision.disposition === "stalled_reclaimable") {
+      stalledDecisions.push({ partitionId, ...decision });
+    }
+  }
+
+  const stalePartitionIds = stalledDecisions.map((row) => row.partitionId);
+  if (stalePartitionIds.length > 0) {
+    await sql`
+      UPDATE meta_sync_partitions
+      SET
+        status = 'failed',
+        lease_owner = NULL,
+        lease_expires_at = NULL,
+        next_retry_at = now() + interval '3 minutes',
+        last_error = COALESCE(last_error, 'stalled partition reclaimed automatically'),
+        updated_at = now()
+      WHERE id = ANY(${stalePartitionIds}::uuid[])
+    `;
+    for (const decision of stalledDecisions) {
+      await recordSyncReclaimEvents({
+        providerScope: "meta",
+        businessId: input.businessId,
+        partitionIds: [decision.partitionId],
+        eventType: "reclaimed",
+        disposition: decision.disposition,
+        reasonCode: decision.reasonCode,
+        detail: decision.detail,
+      }).catch(() => null);
+    }
+  }
 
   const staleLegacyRows = await sql`
     UPDATE meta_sync_jobs
@@ -472,9 +580,13 @@ export async function cleanupMetaPartitionOrchestration(input: {
   ` as Array<Record<string, unknown>>;
 
   return {
-    stalePartitionCount: stalePartitionRows.length,
+    stalePartitionCount: stalePartitionIds.length,
+    aliveSlowCount: dispositionCounts.alive_slow,
     staleRunCount: staleRunRows.length,
     staleLegacyCount: staleLegacyRows.length,
+    reclaimReasons: {
+      stalledReclaimable: stalledDecisions.map((row) => row.reasonCode),
+    },
   };
 }
 

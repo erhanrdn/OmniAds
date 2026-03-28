@@ -63,6 +63,7 @@ import {
   MetaSyncProgressSkeleton,
   shouldRenderMetaSyncProgress,
 } from "@/components/meta/meta-sync-progress";
+import { ProviderReadinessIndicator } from "@/components/sync/provider-readiness-indicator";
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
 import { usePlanState } from "@/lib/pricing/usePlan";
 import { PRICING_PLANS } from "@/lib/pricing/plans";
@@ -1204,7 +1205,15 @@ export default function MetaPage() {
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Meta Ads</h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-2xl font-bold tracking-tight">Meta Ads</h1>
+            {metaConnected && historicalProgressStatus ? (
+              <ProviderReadinessIndicator
+                readinessLevel={historicalProgressStatus.readinessLevel}
+                domainReadiness={historicalProgressStatus.domainReadiness}
+              />
+            ) : null}
+          </div>
           <p className="mt-0.5 text-sm text-muted-foreground">
             {language === "tr"
               ? "Kampanya performansı, demografik kırılımlar ve ad set detay incelemesi."

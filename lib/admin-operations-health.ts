@@ -59,12 +59,14 @@ export interface AdminSyncHealthPayload {
     workerOnline?: boolean;
     workerInstances?: number;
     workerLastHeartbeatAt?: string | null;
+    workerLastProgressHeartbeatAt?: string | null;
   };
   issues: AdminSyncIssueRow[];
   workerHealth?: {
     onlineWorkers: number;
     workerInstances: number;
     lastHeartbeatAt: string | null;
+    lastProgressHeartbeatAt?: string | null;
     workers: Array<{
       workerId: string;
       instanceType: string;
@@ -88,10 +90,16 @@ export interface AdminSyncHealthPayload {
     productCompletedDays: number;
     latestCheckpointPhase?: string | null;
     latestCheckpointUpdatedAt?: string | null;
+    lastProgressHeartbeatAt?: string | null;
     checkpointLagMinutes?: number | null;
     lastSuccessfulPageIndex?: number | null;
     resumeCapable?: boolean;
     checkpointFailures?: number;
+    poisonedCheckpointCount?: number;
+    reclaimCandidateCount?: number;
+    lastReclaimReason?: string | null;
+    latestPoisonReason?: string | null;
+    latestPoisonedAt?: string | null;
   }>;
   metaBusinesses?: Array<{
     businessId: string;
@@ -113,10 +121,13 @@ export interface AdminSyncHealthPayload {
     latestCheckpointScope?: string | null;
     latestCheckpointPhase?: string | null;
     latestCheckpointUpdatedAt?: string | null;
+    lastProgressHeartbeatAt?: string | null;
     checkpointLagMinutes?: number | null;
     lastSuccessfulPageIndex?: number | null;
     resumeCapable?: boolean;
     checkpointFailures?: number;
+    reclaimCandidateCount?: number;
+    lastReclaimReason?: string | null;
   }>;
 }
 
@@ -207,8 +218,14 @@ interface RawGoogleAdsHealthRow {
   product_completed_days: number | string | null;
   latest_checkpoint_phase?: string | null;
   latest_checkpoint_updated_at?: string | null;
+  latest_progress_heartbeat_at?: string | null;
   last_successful_page_index?: number | string | null;
   checkpoint_failures?: number | string | null;
+  poisoned_checkpoint_count?: number | string | null;
+  reclaim_candidate_count?: number | string | null;
+  last_reclaim_reason?: string | null;
+  latest_poison_reason?: string | null;
+  latest_poisoned_at?: string | null;
 }
 
 interface RawMetaHealthRow {
@@ -226,8 +243,11 @@ interface RawMetaHealthRow {
   latest_checkpoint_scope: string | null;
   latest_checkpoint_phase: string | null;
   latest_checkpoint_updated_at: string | null;
+  latest_progress_heartbeat_at: string | null;
   last_successful_page_index: number | string | null;
   checkpoint_failures: number | string | null;
+  reclaim_candidate_count?: number | string | null;
+  last_reclaim_reason?: string | null;
   today_account_rows: number | string;
   today_adset_rows: number | string;
   account_completed_days: number | string | null;
@@ -416,6 +436,7 @@ export function buildAdminSyncHealth(input: {
   let metaOldestQueuedPartition: string | null = null;
   const googleAdsBusinesses: NonNullable<AdminSyncHealthPayload["googleAdsBusinesses"]> = [];
   const metaBusinesses: NonNullable<AdminSyncHealthPayload["metaBusinesses"]> = [];
+  let latestProgressHeartbeatAt: string | null = null;
 
   for (const row of input.jobs) {
     const triggeredMs = new Date(row.triggered_at).getTime();
@@ -481,6 +502,8 @@ export function buildAdminSyncHealth(input: {
     const campaignCompletedDays = Number(row.campaign_completed_days ?? 0);
     const searchTermCompletedDays = Number(row.search_term_completed_days ?? 0);
     const productCompletedDays = Number(row.product_completed_days ?? 0);
+    const googleProgressHeartbeat =
+      row.latest_progress_heartbeat_at ?? row.latest_checkpoint_updated_at ?? null;
 
     googleAdsBusinesses.push({
       businessId: row.business_id,
@@ -495,12 +518,31 @@ export function buildAdminSyncHealth(input: {
       productCompletedDays,
       latestCheckpointPhase: row.latest_checkpoint_phase ?? null,
       latestCheckpointUpdatedAt: row.latest_checkpoint_updated_at ?? null,
-      checkpointLagMinutes: computeLagMinutes(row.latest_checkpoint_updated_at ?? null),
+      lastProgressHeartbeatAt: row.latest_progress_heartbeat_at ?? row.latest_checkpoint_updated_at ?? null,
+      checkpointLagMinutes: computeLagMinutes(googleProgressHeartbeat),
       lastSuccessfulPageIndex:
         row.last_successful_page_index == null ? null : Number(row.last_successful_page_index),
-      resumeCapable: false,
+      resumeCapable:
+        Boolean(row.latest_checkpoint_updated_at) &&
+        Number(row.poisoned_checkpoint_count ?? 0) === 0,
       checkpointFailures: Number(row.checkpoint_failures ?? 0),
+      poisonedCheckpointCount: Number(row.poisoned_checkpoint_count ?? 0),
+      reclaimCandidateCount: Number(row.reclaim_candidate_count ?? 0),
+      lastReclaimReason: row.last_reclaim_reason ?? null,
+      latestPoisonReason: row.latest_poison_reason ?? null,
+      latestPoisonedAt: row.latest_poisoned_at ?? null,
     });
+
+    if (
+      (row.latest_progress_heartbeat_at ?? row.latest_checkpoint_updated_at) &&
+      (!latestProgressHeartbeatAt ||
+        new Date(String(row.latest_progress_heartbeat_at ?? row.latest_checkpoint_updated_at)).getTime() >
+          new Date(latestProgressHeartbeatAt).getTime())
+    ) {
+      latestProgressHeartbeatAt = String(
+        row.latest_progress_heartbeat_at ?? row.latest_checkpoint_updated_at
+      );
+    }
 
     googleAdsQueueDepth += queueDepth;
     googleAdsLeasedPartitions += leasedPartitions;
@@ -543,6 +585,78 @@ export function buildAdminSyncHealth(input: {
         completedAt: row.oldest_queued_partition,
       });
     }
+
+    if (
+      googleProgressHeartbeat &&
+      computeLagMinutes(googleProgressHeartbeat) != null &&
+      (computeLagMinutes(googleProgressHeartbeat) ?? 0) > 20
+    ) {
+      impactedBusinesses.add(row.business_id);
+      issueTypes.push("Google Ads stale checkpoints");
+      issues.push({
+        businessId: row.business_id,
+        businessName: row.business_name,
+        provider: "google_ads",
+        reportType: "stale_checkpoint",
+        status: leasedPartitions > 0 ? "running" : "failed",
+        detail: `Google Ads checkpoint progress has not moved recently. phase=${row.latest_checkpoint_phase ?? "unknown"}, lag=${computeLagMinutes(googleProgressHeartbeat)}m, page=${Number(row.last_successful_page_index ?? 0)}`,
+        triggeredAt: googleProgressHeartbeat,
+        completedAt: row.oldest_queued_partition,
+      });
+    }
+
+    if (
+      leasedPartitions > 0 &&
+      googleProgressHeartbeat &&
+      (computeLagMinutes(googleProgressHeartbeat) ?? 0) > 8 &&
+      (computeLagMinutes(googleProgressHeartbeat) ?? 0) <= 20
+    ) {
+      impactedBusinesses.add(row.business_id);
+      issueTypes.push("Google Ads alive-slow partitions");
+      issues.push({
+        businessId: row.business_id,
+        businessName: row.business_name,
+        provider: "google_ads",
+        reportType: "alive_slow",
+        status: "running",
+        detail: `Google Ads sync is still leased but progressing slowly. phase=${row.latest_checkpoint_phase ?? "unknown"}, lag=${computeLagMinutes(googleProgressHeartbeat)}m.`,
+        triggeredAt: googleProgressHeartbeat,
+        completedAt: row.oldest_queued_partition,
+      });
+    }
+
+    if (Number(row.poisoned_checkpoint_count ?? 0) > 0) {
+      impactedBusinesses.add(row.business_id);
+      issueTypes.push("Google Ads poisoned checkpoints");
+      issues.push({
+        businessId: row.business_id,
+        businessName: row.business_name,
+        provider: "google_ads",
+        reportType: "poisoned_checkpoint",
+        status: "failed",
+        detail: `${Number(row.poisoned_checkpoint_count ?? 0)} Google Ads checkpoints are marked as poison candidates and need review.`,
+        triggeredAt:
+          row.latest_poisoned_at ??
+          row.latest_checkpoint_updated_at ??
+          row.latest_partition_activity_at,
+        completedAt: row.oldest_queued_partition,
+      });
+    }
+
+    if (Number(row.reclaim_candidate_count ?? 0) > 0) {
+      impactedBusinesses.add(row.business_id);
+      issueTypes.push("Google Ads stalled reclaim candidates");
+      issues.push({
+        businessId: row.business_id,
+        businessName: row.business_name,
+        provider: "google_ads",
+        reportType: "stalled_reclaimable",
+        status: "failed",
+        detail: `Recent reclaim activity detected. Last reason: ${row.last_reclaim_reason ?? "unknown"}.`,
+        triggeredAt: row.latest_checkpoint_updated_at ?? row.latest_partition_activity_at,
+        completedAt: row.oldest_queued_partition,
+      });
+    }
   }
 
   for (const row of input.metaHealth ?? []) {
@@ -557,6 +671,8 @@ export function buildAdminSyncHealth(input: {
     const accountCompletedDays = Number(row.account_completed_days ?? 0);
     const adsetCompletedDays = Number(row.adset_completed_days ?? 0);
     const creativeCompletedDays = Number(row.creative_completed_days ?? 0);
+    const metaProgressHeartbeat =
+      row.latest_progress_heartbeat_at ?? row.latest_checkpoint_updated_at ?? null;
 
     metaBusinesses.push({
       businessId: row.business_id,
@@ -578,12 +694,26 @@ export function buildAdminSyncHealth(input: {
       latestCheckpointScope: row.latest_checkpoint_scope,
       latestCheckpointPhase: row.latest_checkpoint_phase,
       latestCheckpointUpdatedAt: row.latest_checkpoint_updated_at,
-      checkpointLagMinutes: computeLagMinutes(row.latest_checkpoint_updated_at),
+      lastProgressHeartbeatAt: row.latest_progress_heartbeat_at ?? row.latest_checkpoint_updated_at,
+      checkpointLagMinutes: computeLagMinutes(metaProgressHeartbeat),
       lastSuccessfulPageIndex:
         row.last_successful_page_index == null ? null : Number(row.last_successful_page_index),
       resumeCapable: Boolean(row.latest_checkpoint_updated_at),
       checkpointFailures: Number(row.checkpoint_failures ?? 0),
+      reclaimCandidateCount: Number(row.reclaim_candidate_count ?? 0),
+      lastReclaimReason: row.last_reclaim_reason ?? null,
     });
+
+    if (
+      (row.latest_progress_heartbeat_at ?? row.latest_checkpoint_updated_at) &&
+      (!latestProgressHeartbeatAt ||
+        new Date(String(row.latest_progress_heartbeat_at ?? row.latest_checkpoint_updated_at)).getTime() >
+          new Date(latestProgressHeartbeatAt).getTime())
+    ) {
+      latestProgressHeartbeatAt = String(
+        row.latest_progress_heartbeat_at ?? row.latest_checkpoint_updated_at
+      );
+    }
 
     metaQueueDepth += queueDepth;
     metaLeasedPartitions += leasedPartitions;
@@ -714,6 +844,60 @@ export function buildAdminSyncHealth(input: {
         completedAt: row.oldest_queued_partition,
       });
     }
+
+    if (
+      leasedPartitions > 0 &&
+      metaProgressHeartbeat &&
+      (computeLagMinutes(metaProgressHeartbeat) ?? 0) > 8 &&
+      (computeLagMinutes(metaProgressHeartbeat) ?? 0) <= 20
+    ) {
+      impactedBusinesses.add(row.business_id);
+      issueTypes.push("Meta alive-slow partitions");
+      issues.push({
+        businessId: row.business_id,
+        businessName: row.business_name,
+        provider: "meta",
+        reportType: "alive_slow",
+        status: "running",
+        detail: `Meta sync is still leased but progressing slowly. phase=${row.latest_checkpoint_phase ?? "unknown"}, lag=${computeLagMinutes(metaProgressHeartbeat)}m.`,
+        triggeredAt: metaProgressHeartbeat,
+        completedAt: row.oldest_queued_partition,
+      });
+    }
+
+    if (Number(row.reclaim_candidate_count ?? 0) > 0) {
+      impactedBusinesses.add(row.business_id);
+      issueTypes.push("Meta stalled reclaim candidates");
+      issues.push({
+        businessId: row.business_id,
+        businessName: row.business_name,
+        provider: "meta",
+        reportType: "stalled_reclaimable",
+        status: "failed",
+        detail: `Recent reclaim activity detected. Last reason: ${row.last_reclaim_reason ?? "unknown"}.`,
+        triggeredAt: row.latest_checkpoint_updated_at ?? row.latest_partition_activity_at,
+        completedAt: row.oldest_queued_partition,
+      });
+    }
+  }
+
+  if ((input.workerHealth?.onlineWorkers ?? 0) === 0) {
+    for (const row of [...googleAdsBusinesses, ...metaBusinesses]) {
+      if ((row.leasedPartitions ?? 0) > 0) {
+        impactedBusinesses.add(row.businessId);
+        issueTypes.push("Worker offline with leased partitions");
+        issues.push({
+          businessId: row.businessId,
+          businessName: row.businessName,
+          provider: "latestCheckpointScope" in row ? "meta" : "google_ads",
+          reportType: "worker_offline_with_leased_partitions",
+          status: "failed",
+          detail: "No worker heartbeat is active while partitions remain leased.",
+          triggeredAt: row.latestPartitionActivityAt,
+          completedAt: row.oldestQueuedPartition,
+        });
+      }
+    }
   }
 
   return {
@@ -736,6 +920,7 @@ export function buildAdminSyncHealth(input: {
       workerOnline: (input.workerHealth?.onlineWorkers ?? 0) > 0,
       workerInstances: input.workerHealth?.workerInstances ?? 0,
       workerLastHeartbeatAt: input.workerHealth?.lastHeartbeatAt ?? null,
+      workerLastProgressHeartbeatAt: latestProgressHeartbeatAt,
     },
     issues: issues.sort((a, b) => {
       const left = a.triggeredAt ? new Date(a.triggeredAt).getTime() : 0;
@@ -913,16 +1098,90 @@ async function readGoogleAdsHealthRows() {
       MAX(state.dead_letter_count) FILTER (WHERE state.scope = 'campaign_daily') AS campaign_dead_letter_count,
       MAX(state.completed_days) FILTER (WHERE state.scope = 'search_term_daily') AS search_term_completed_days,
       MAX(state.completed_days) FILTER (WHERE state.scope = 'product_daily') AS product_completed_days,
-      NULL::text AS latest_checkpoint_phase,
-      NULL::timestamptz AS latest_checkpoint_updated_at,
-      NULL::int AS last_successful_page_index,
-      0::int AS checkpoint_failures
+      checkpoint.latest_checkpoint_phase,
+      checkpoint.latest_checkpoint_updated_at,
+      checkpoint.latest_progress_heartbeat_at,
+      checkpoint.last_successful_page_index,
+      checkpoint.checkpoint_failures,
+      checkpoint.poisoned_checkpoint_count,
+      checkpoint.latest_poison_reason,
+      checkpoint.latest_poisoned_at,
+      reclaim.reclaim_candidate_count,
+      reclaim.last_reclaim_reason
     FROM google_ads_sync_partitions partition
     JOIN businesses b ON b.id::text = partition.business_id
     LEFT JOIN google_ads_sync_state state
       ON state.business_id = partition.business_id
       AND state.provider_account_id = partition.provider_account_id
+    LEFT JOIN LATERAL (
+      SELECT
+        latest.phase AS latest_checkpoint_phase,
+        COALESCE(latest.progress_heartbeat_at, latest.updated_at) AS latest_checkpoint_updated_at,
+        COALESCE(latest.progress_heartbeat_at, latest.updated_at) AS latest_progress_heartbeat_at,
+        latest.page_index AS last_successful_page_index,
+        (
+          SELECT COUNT(*)::int
+          FROM google_ads_sync_checkpoints failures
+          WHERE failures.business_id = partition.business_id
+            AND failures.status = 'failed'
+        ) AS checkpoint_failures,
+        (
+          SELECT COUNT(*)::int
+          FROM google_ads_sync_checkpoints poisoned
+          WHERE poisoned.business_id = partition.business_id
+            AND poisoned.poisoned_at IS NOT NULL
+        ) AS poisoned_checkpoint_count,
+        (
+          SELECT poisoned.poison_reason
+          FROM google_ads_sync_checkpoints poisoned
+          WHERE poisoned.business_id = partition.business_id
+            AND poisoned.poisoned_at IS NOT NULL
+          ORDER BY poisoned.poisoned_at DESC
+          LIMIT 1
+        ) AS latest_poison_reason,
+        (
+          SELECT poisoned.poisoned_at
+          FROM google_ads_sync_checkpoints poisoned
+          WHERE poisoned.business_id = partition.business_id
+            AND poisoned.poisoned_at IS NOT NULL
+          ORDER BY poisoned.poisoned_at DESC
+          LIMIT 1
+        ) AS latest_poisoned_at
+      FROM google_ads_sync_checkpoints latest
+      WHERE latest.business_id = partition.business_id
+      ORDER BY latest.updated_at DESC
+      LIMIT 1
+    ) checkpoint ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT
+        (
+          SELECT COUNT(*)::int
+          FROM sync_reclaim_events reclaim_count
+          WHERE reclaim_count.provider_scope = 'google_ads'
+            AND reclaim_count.business_id = partition.business_id
+            AND reclaim_count.event_type = 'reclaimed'
+            AND reclaim_count.created_at > now() - interval '24 hours'
+        ) AS reclaim_candidate_count,
+        (
+          SELECT latest_reclaim.reason_code
+          FROM sync_reclaim_events latest_reclaim
+          WHERE latest_reclaim.provider_scope = 'google_ads'
+            AND latest_reclaim.business_id = partition.business_id
+          ORDER BY latest_reclaim.created_at DESC
+          LIMIT 1
+        ) AS last_reclaim_reason
+    ) reclaim ON TRUE
     GROUP BY partition.business_id, b.name
+      , checkpoint.latest_checkpoint_phase
+      , checkpoint.latest_checkpoint_updated_at
+      , checkpoint.latest_progress_heartbeat_at
+      , checkpoint.last_successful_page_index
+      , checkpoint.checkpoint_failures
+      , checkpoint.poisoned_checkpoint_count
+      , checkpoint.latest_poison_reason
+      , checkpoint.latest_poisoned_at
+      , reclaim.reclaim_candidate_count
+      , reclaim.last_reclaim_reason
     HAVING COUNT(*) > 0
     ORDER BY dead_letter_partitions DESC, queue_depth DESC, latest_partition_activity_at DESC
   `) as RawGoogleAdsHealthRow[];
@@ -948,8 +1207,11 @@ async function readMetaHealthRows() {
       checkpoint.latest_checkpoint_scope,
       checkpoint.latest_checkpoint_phase,
       checkpoint.latest_checkpoint_updated_at,
+      checkpoint.latest_progress_heartbeat_at,
       checkpoint.last_successful_page_index,
       checkpoint.checkpoint_failures,
+      reclaim.reclaim_candidate_count,
+      reclaim.last_reclaim_reason,
       (
         SELECT MAX(today_partition.partition_date)
         FROM meta_sync_partitions today_partition
@@ -991,6 +1253,7 @@ async function readMetaHealthRows() {
         latest.checkpoint_scope AS latest_checkpoint_scope,
         latest.phase AS latest_checkpoint_phase,
         latest.updated_at AS latest_checkpoint_updated_at,
+        latest.updated_at AS latest_progress_heartbeat_at,
         latest.page_index AS last_successful_page_index,
         (
           SELECT COUNT(*)::int
@@ -1003,14 +1266,36 @@ async function readMetaHealthRows() {
       ORDER BY latest.updated_at DESC
       LIMIT 1
     ) checkpoint ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT
+        (
+          SELECT COUNT(*)::int
+          FROM sync_reclaim_events reclaim_count
+          WHERE reclaim_count.provider_scope = 'meta'
+            AND reclaim_count.business_id = partition.business_id
+            AND reclaim_count.event_type = 'reclaimed'
+            AND reclaim_count.created_at > now() - interval '24 hours'
+        ) AS reclaim_candidate_count,
+        (
+          SELECT latest_reclaim.reason_code
+          FROM sync_reclaim_events latest_reclaim
+          WHERE latest_reclaim.provider_scope = 'meta'
+            AND latest_reclaim.business_id = partition.business_id
+          ORDER BY latest_reclaim.created_at DESC
+          LIMIT 1
+        ) AS last_reclaim_reason
+    ) reclaim ON TRUE
     GROUP BY
       partition.business_id,
       b.name,
       checkpoint.latest_checkpoint_scope,
       checkpoint.latest_checkpoint_phase,
       checkpoint.latest_checkpoint_updated_at,
+      checkpoint.latest_progress_heartbeat_at,
       checkpoint.last_successful_page_index,
-      checkpoint.checkpoint_failures
+      checkpoint.checkpoint_failures,
+      reclaim.reclaim_candidate_count,
+      reclaim.last_reclaim_reason
     HAVING COUNT(*) > 0
     ORDER BY dead_letter_partitions DESC, queue_depth DESC, latest_partition_activity_at DESC
   `) as RawMetaHealthRow[];
@@ -1067,6 +1352,7 @@ export async function getAdminOperationsHealth() {
         onlineWorkers: 0,
         workerInstances: 0,
         lastHeartbeatAt: null,
+        lastProgressHeartbeatAt: null,
         workers: [],
       })),
     ]);

@@ -69,6 +69,9 @@ function buildDefaultDiscoveryState(): ProviderDiscoveryState {
     status: "idle",
     entities: [],
     source: null,
+    sourceHealth: null,
+    trustLevel: null,
+    trustScore: null,
     fetchedAt: null,
     notice: null,
     stale: false,
@@ -224,6 +227,9 @@ export function normalizeBusinessProviderDomains(
           status: entities.length > 0 ? "ready" : "idle",
           entities,
           source: entities.length > 0 ? "snapshot" : null,
+          sourceHealth: entities.length > 0 ? "healthy_cached" : null,
+          trustLevel: entities.length > 0 ? "safe" : null,
+          trustScore: entities.length > 0 ? 68 : null,
           fetchedAt: legacy?.lastSyncAt ?? null,
           notice: null,
           stale: false,
@@ -363,6 +369,12 @@ export function deriveProviderViewState(
     domain.discovery.failureClass === "quota"
   ) {
     status = "ready";
+  } else if (
+    provider === "google" &&
+    domain.discovery.sourceHealth === "stale_cached" &&
+    hasDiscoveryEntities
+  ) {
+    status = "degraded";
   } else if (domain.discovery.refreshFailed) {
     status = assignedCount > 0 || !providerSupportsAssignments ? "degraded" : "needs_assignment";
   } else if (providerSupportsAssignments && domain.discovery.status === "failed") {

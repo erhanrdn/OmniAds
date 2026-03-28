@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
 import {
   cleanupGoogleAdsPartitionOrchestration,
+  forceReplayGoogleAdsPoisonedPartitions,
+  releaseGoogleAdsPoisonedPartitions,
   replayGoogleAdsDeadLetterPartitions,
 } from "@/lib/google-ads/warehouse";
 import { getAdminOperationsHealth } from "@/lib/admin-operations-health";
@@ -57,7 +59,13 @@ export async function POST(request: NextRequest) {
     const body = (await request.json().catch(() => null)) as
       | {
           provider?: string;
-          action?: "cleanup" | "replay_dead_letter" | "reschedule" | "refresh_state";
+          action?:
+            | "cleanup"
+            | "replay_dead_letter"
+            | "reschedule"
+            | "refresh_state"
+            | "release_quarantine"
+            | "force_manual_replay";
           businessId?: string;
           scope?: string | null;
         }
@@ -144,6 +152,45 @@ export async function POST(request: NextRequest) {
     if (body.action === "refresh_state") {
       await refreshGoogleAdsSyncStateForBusiness({ businessId: body.businessId });
       return NextResponse.json({ ok: true, action: body.action, provider: body.provider });
+    }
+
+    if (body.action === "release_quarantine") {
+      const scope =
+        body.scope && GOOGLE_ADS_RECOVERY_SCOPES.includes(body.scope as GoogleAdsWarehouseScope)
+          ? (body.scope as GoogleAdsWarehouseScope)
+          : null;
+      const result = await releaseGoogleAdsPoisonedPartitions({
+        businessId: body.businessId,
+        scope,
+      });
+      return NextResponse.json({
+        ok: true,
+        action: body.action,
+        provider: body.provider,
+        releasedCount: result.length,
+        result,
+        outcome: "quarantine released",
+      });
+    }
+
+    if (body.action === "force_manual_replay") {
+      const scope =
+        body.scope && GOOGLE_ADS_RECOVERY_SCOPES.includes(body.scope as GoogleAdsWarehouseScope)
+          ? (body.scope as GoogleAdsWarehouseScope)
+          : null;
+      const result = await forceReplayGoogleAdsPoisonedPartitions({
+        businessId: body.businessId,
+        scope,
+      });
+      return NextResponse.json({
+        ok: true,
+        action: body.action,
+        provider: body.provider,
+        replayedCount: result.length,
+        result,
+        outcome: "manual replay queued",
+        scheduled: await enqueueGoogleAdsScheduledWork(body.businessId),
+      });
     }
 
     if (body.action === "reschedule") {

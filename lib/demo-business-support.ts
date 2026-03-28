@@ -298,6 +298,7 @@ export function getDemoProviderDiscoveryPayload(
     })),
     meta: {
       source: "snapshot" as const,
+      sourceHealth: "healthy_cached" as const,
       fetchedAt: now,
       stale: false,
       refreshFailed: false,

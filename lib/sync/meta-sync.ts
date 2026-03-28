@@ -346,6 +346,16 @@ async function syncMetaPartitionDay(input: {
       attemptCount: input.attemptCount + 1,
       leaseMinutes: 10,
     });
+    if (bulkResult.memoryInstrumentation?.oversizeWarning) {
+      console.warn("[meta-sync] oversized_partition_detected", {
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        day: normalizedDay,
+        maxHeapUsedBytes: bulkResult.memoryInstrumentation.maxHeapUsedBytes,
+        maxRowsBuffered: bulkResult.memoryInstrumentation.maxRowsBuffered,
+        flushThresholdRows: bulkResult.memoryInstrumentation.flushThresholdRows,
+      });
+    }
     const breakdownJobs = [
       {
         breakdowns: "age,gender",

@@ -4,10 +4,15 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getProviderLabel } from "@/components/integrations/oauth";
 import {
+  GoogleAdsSyncProgress,
+  shouldRenderGoogleAdsSyncProgress,
+} from "@/components/google-ads/google-ads-sync-progress";
+import {
   MetaSyncProgress,
   MetaSyncProgressSkeleton,
   shouldRenderMetaSyncProgress,
 } from "@/components/meta/meta-sync-progress";
+import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
 import { cn } from "@/lib/utils";
 import {
@@ -23,8 +28,11 @@ interface IntegrationsCardProps {
   view: ProviderViewState;
   language?: "en" | "tr";
   syncNotice?: string | null;
+  syncNoticeTone?: "info" | "warning" | "error";
   metaSyncStatus?: MetaStatusResponse | null;
   metaSyncLoading?: boolean;
+  googleSyncStatus?: GoogleAdsStatusResponse | null;
+  googleSyncLoading?: boolean;
   onConnect: (provider: IntegrationProvider) => void;
   onReconnect: (provider: IntegrationProvider) => void;
   onRetry: (provider: IntegrationProvider) => void;
@@ -39,8 +47,11 @@ export function IntegrationsCard({
   view,
   language = "en",
   syncNotice,
+  syncNoticeTone = "info",
   metaSyncStatus,
   metaSyncLoading = false,
+  googleSyncStatus,
+  googleSyncLoading = false,
   onConnect,
   onReconnect,
   onRetry,
@@ -58,6 +69,14 @@ export function IntegrationsCard({
   const logoSrc = getProviderLogo(provider);
   const shouldShowMetaProgress =
     provider === "meta" && shouldRenderMetaSyncProgress(metaSyncStatus);
+  const shouldShowGoogleProgress =
+    provider === "google" && shouldRenderGoogleAdsSyncProgress(googleSyncStatus);
+  const syncNoticeClasses =
+    syncNoticeTone === "warning"
+      ? "border-amber-300/40 bg-amber-50 text-amber-800"
+      : syncNoticeTone === "error"
+        ? "border-rose-300/40 bg-rose-50 text-rose-800"
+        : "border-blue-300/30 bg-blue-50 text-blue-800";
 
   return (
     <div
@@ -117,8 +136,16 @@ export function IntegrationsCard({
             variant="compact"
           />
         </div>
+      ) : shouldShowGoogleProgress && googleSyncStatus ? (
+        <div className="mt-2">
+          <GoogleAdsSyncProgress status={googleSyncStatus} variant="compact" />
+        </div>
+      ) : provider === "google" && googleSyncLoading ? (
+        <p className="mt-2 rounded-lg border border-sky-300/30 bg-sky-50 px-2.5 py-2 text-[11px] leading-4 text-sky-800">
+          Loading sync status...
+        </p>
       ) : syncNotice ? (
-        <p className="mt-2 rounded-lg border border-blue-300/30 bg-blue-50 px-2.5 py-2 text-[11px] leading-4 text-blue-800">
+        <p className={cn("mt-2 rounded-lg px-2.5 py-2 text-[11px] leading-4", syncNoticeClasses)}>
           {syncNotice}
         </p>
       ) : null}

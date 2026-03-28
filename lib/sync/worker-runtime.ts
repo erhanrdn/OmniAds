@@ -5,6 +5,7 @@ import {
   heartbeatSyncWorker,
   releaseSyncRunnerLease,
 } from "@/lib/sync/worker-health";
+import { pruneSyncLifecycleData } from "@/lib/sync/retention";
 
 function envNumber(name: string, fallback: number) {
   const raw = process.env[name];
@@ -30,8 +31,11 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
   const maxBusinessesPerTick = envNumber("WORKER_MAX_BUSINESSES_PER_TICK", 50);
   const leaseMinutes = envNumber("WORKER_RUNNER_LEASE_MINUTES", 2);
   const heartbeatIntervalMs = envNumber("WORKER_HEARTBEAT_INTERVAL_MS", 15_000);
+  const globalDbConcurrency = envNumber("WORKER_GLOBAL_DB_CONCURRENCY", 4);
+  const pruneIntervalMs = envNumber("WORKER_PRUNE_INTERVAL_MS", 6 * 60 * 60_000);
   let shuttingDown = false;
   let lastHeartbeatAt = 0;
+  let lastPruneAt = 0;
 
   async function heartbeat(input: {
     providerScope: string;
@@ -74,11 +78,25 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
   });
 
   while (!shuttingDown) {
+    if (Date.now() - lastPruneAt >= pruneIntervalMs) {
+      await pruneSyncLifecycleData()
+        .then((result) => {
+          lastPruneAt = Date.now();
+          console.log("[durable-worker] lifecycle_prune", result);
+        })
+        .catch((error) => {
+          console.error("[durable-worker] lifecycle_prune_failed", {
+            message: error instanceof Error ? error.message : String(error),
+          });
+        });
+    }
+
     await heartbeat({
       providerScope: "all",
       status: "idle",
       metaJson: {
         adapters: options.adapters.map((adapter) => adapter.providerScope),
+        globalDbConcurrency,
       },
       force: true,
     }).catch(() => null);
@@ -91,8 +109,9 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
           : "GOOGLE_ADS_WORKER_CONCURRENCY",
         1
       );
-      for (let index = 0; index < businesses.length; index += concurrency) {
-        const businessBatch = businesses.slice(index, index + concurrency);
+      const effectiveConcurrency = Math.max(1, Math.min(concurrency, globalDbConcurrency));
+      for (let index = 0; index < businesses.length; index += effectiveConcurrency) {
+        const businessBatch = businesses.slice(index, index + effectiveConcurrency);
         await Promise.all(
           businessBatch.map(async (business) => {
         const leased = await acquireSyncRunnerLease({

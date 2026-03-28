@@ -1,5 +1,6 @@
 import type {
   ProviderCheckpointHealth,
+  ProviderDomainReadiness,
   ProviderReadinessLevel,
   ProviderSurfaceSummary,
 } from "@/lib/provider-readiness";
@@ -38,6 +39,7 @@ export interface GoogleAdsStatusResponse {
   readinessLevel?: ProviderReadinessLevel;
   surfaces?: ProviderSurfaceSummary;
   checkpointHealth?: ProviderCheckpointHealth | null;
+  domainReadiness?: ProviderDomainReadiness | null;
   assignedAccountIds: string[];
   primaryAccountTimezone?: string | null;
   currentDateInTimezone?: string | null;

@@ -10,6 +10,7 @@ import {
   GoogleAdsSyncProgress,
   shouldRenderGoogleAdsSyncProgress,
 } from "@/components/google-ads/google-ads-sync-progress";
+import { ProviderReadinessIndicator } from "@/components/sync/provider-readiness-indicator";
 import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
 import { GoogleAdvisorPanel } from "@/components/google/google-advisor-panel";
@@ -919,6 +920,12 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-base font-semibold tracking-tight">Campaigns</h1>
+            {syncStatus ? (
+              <ProviderReadinessIndicator
+                readinessLevel={syncStatus.readinessLevel}
+                domainReadiness={syncStatus.domainReadiness}
+              />
+            ) : null}
             <div className="flex flex-wrap items-center gap-1.5">
               <button
                 type="button"

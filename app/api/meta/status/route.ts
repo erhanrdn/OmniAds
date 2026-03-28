@@ -25,6 +25,35 @@ import {
   decideProviderReadinessLevel,
 } from "@/lib/provider-readiness";
 
+function buildMetaDomainReadiness(input: {
+  availableSurfaces: string[];
+  missingSurfaces: string[];
+}) {
+  const coreSurfacesReady = ["account_daily", "campaign_daily"].filter((surface) =>
+    input.availableSurfaces.includes(surface)
+  );
+  const deepSurfacesPending = Array.from(
+    new Set(
+      input.missingSurfaces.filter((surface) => !["account_daily", "campaign_daily"].includes(surface))
+    )
+  );
+  const blockingSurfaces = ["account_daily", "campaign_daily"].filter((surface) =>
+    input.missingSurfaces.includes(surface)
+  );
+  const summary =
+    blockingSurfaces.length > 0
+      ? "Core spend and campaign summary are still syncing."
+      : deepSurfacesPending.length > 0
+        ? "Core spend and campaign summary are ready. Creative and deeper reporting surfaces are still syncing."
+        : "Meta core and deep reporting surfaces are ready.";
+  return {
+    coreSurfacesReady,
+    deepSurfacesPending,
+    blockingSurfaces,
+    summary,
+  };
+}
+
 const META_BREAKDOWN_ENDPOINTS = [
   "breakdown_age",
   "breakdown_country",
@@ -435,6 +464,10 @@ export async function GET(request: NextRequest) {
     available: surfaces.available,
     usable: [...META_CORE_REQUIRED_SURFACES],
   });
+  const domainReadiness = buildMetaDomainReadiness({
+    availableSurfaces,
+    missingSurfaces: surfaces.missing,
+  });
 
   return NextResponse.json(
     {
@@ -442,6 +475,7 @@ export async function GET(request: NextRequest) {
       readinessLevel,
       surfaces,
       checkpointHealth,
+      domainReadiness,
       connected,
       assignedAccountIds: accountIds,
       primaryAccountTimezone,
