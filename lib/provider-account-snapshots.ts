@@ -52,6 +52,7 @@ interface ResolveProviderAccountSnapshotInput {
   liveLoader: () => Promise<ProviderAccountSnapshotItem[]>;
   freshnessMs?: number;
   reason?: string;
+  bypassCooldown?: boolean;
 }
 
 const DEFAULT_FRESHNESS_MS = 6 * 60 * 60_000;
@@ -328,7 +329,7 @@ async function runSnapshotRefresh(input: ResolveProviderAccountSnapshotInput) {
   const refreshPromise = (async () => {
     const existingSnapshot = await getSnapshotRow(input.businessId, input.provider);
     const retryAfterMs = getRetryAfterMs(existingSnapshot);
-    if (retryAfterMs > 0) {
+    if (retryAfterMs > 0 && !input.bypassCooldown) {
       throw new ProviderAccountSnapshotRefreshError({
         provider: input.provider,
         businessId: input.businessId,
@@ -461,6 +462,7 @@ export async function forceProviderAccountSnapshotRefresh(
   await runSnapshotRefresh({
     ...input,
     reason: input.reason ?? "manual_refresh",
+    bypassCooldown: true,
   });
 
   const snapshot = await readProviderAccountSnapshot({
