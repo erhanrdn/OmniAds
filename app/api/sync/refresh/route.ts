@@ -15,7 +15,7 @@ import {
   getGoogleAdsQueueHealth,
 } from "@/lib/google-ads/warehouse";
 import { syncGA4Reports } from "@/lib/sync/ga4-sync";
-import { syncMetaInitial, syncMetaRecent, syncMetaRepairRange, syncMetaToday } from "@/lib/sync/meta-sync";
+import { syncMetaInitial, syncMetaRecent, syncMetaRepairRange, syncMetaReports, syncMetaToday } from "@/lib/sync/meta-sync";
 import { syncSearchConsoleReports } from "@/lib/sync/search-console-sync";
 
 /**
@@ -38,21 +38,8 @@ async function isJobAlreadyRunning(
     const sql = getDb();
     if (provider === "meta") {
       await expireStaleMetaSyncJobs({ businessId }).catch(() => null);
-      const syncTypesByMode: Record<
-        NonNullable<typeof mode>,
-        string[]
-      > = {
-        repair: ["repair_window"],
-        today: ["today_refresh"],
-        recent: ["incremental_recent", "initial_backfill", "reconnect_backfill"],
-        initial: ["initial_backfill", "reconnect_backfill"],
-      };
-      return hasBlockingMetaSyncJob({
-        businessId,
-        syncTypes: syncTypesByMode[mode ?? "recent"],
-        excludeTriggerSources: ["request_runtime"],
-        lookbackMinutes: 90,
-      });
+      if (mode === "today") return false;
+      return false;
     }
     if (provider === "google_ads") {
       await cleanupGoogleAdsObsoleteSyncJobs({ businessId }).catch(() => null);
@@ -87,6 +74,30 @@ async function isJobAlreadyRunning(
   }
 }
 
+async function hasMetaQueueConsumerRunning(
+  businessId: string,
+  mode?: "recent" | "today" | "initial" | "repair",
+): Promise<boolean> {
+  try {
+    await runMigrations();
+    const sql = getDb();
+    const rows = await sql`
+      SELECT COUNT(*)::int AS leased_count
+      FROM meta_sync_partitions
+      WHERE business_id = ${businessId}
+        AND status IN ('leased', 'running')
+        AND (
+          ${mode ?? null}::text IS NULL
+          OR ${mode ?? null} <> 'today'
+          OR lane = 'maintenance'
+        )
+    ` as Array<{ leased_count: number }>;
+    return Number(rows[0]?.leased_count ?? 0) > 0;
+  } catch {
+    return false;
+  }
+}
+
 async function runSyncForProvider(
   businessId: string,
   provider: string,
@@ -111,16 +122,23 @@ async function runSyncForProvider(
       await syncGA4Reports(businessId);
       break;
     case "meta":
-      if (mode === "today") await syncMetaToday(businessId);
-      else if (mode === "initial") await syncMetaInitial(businessId);
-      else if (mode === "repair" && range) {
+      if (mode === "today") {
+        await syncMetaToday(businessId);
+        await syncMetaReports(businessId);
+      } else if (mode === "initial") {
+        await syncMetaInitial(businessId);
+        await syncMetaReports(businessId);
+      } else if (mode === "repair" && range) {
         await syncMetaRepairRange({
           businessId,
           startDate: range.startDate,
           endDate: range.endDate,
         });
+        await syncMetaReports(businessId);
+      } else {
+        await syncMetaRecent(businessId);
+        await syncMetaReports(businessId);
       }
-      else await syncMetaRecent(businessId);
       break;
     case "search_console":
       await syncSearchConsoleReports(businessId);
@@ -169,26 +187,39 @@ export async function POST(request: NextRequest) {
 
   // Zaten çalışan bir job varsa tekrar başlatma
   const alreadyRunning = await isJobAlreadyRunning(businessId, provider, mode);
-  if (alreadyRunning) {
+  const metaConsumerRunning =
+    provider === "meta"
+      ? await hasMetaQueueConsumerRunning(businessId, mode).catch(() => false)
+      : false;
+  if (alreadyRunning || metaConsumerRunning) {
     return NextResponse.json({ ok: true, status: "already_running" }, { status: 202 });
   }
 
-  // Fire-and-forget: hemen 202 dön, arka planda sync başlat
-  runSyncForProvider(
-    businessId,
-    provider,
-    mode ?? "recent",
-    startDate && endDate ? { startDate, endDate } : undefined
-  ).catch((err) => {
-    console.error("[sync-refresh] background_sync_failed", {
+  if (provider === "meta") {
+    await runSyncForProvider(
       businessId,
       provider,
-      message: err instanceof Error ? err.message : String(err),
+      mode ?? "recent",
+      startDate && endDate ? { startDate, endDate } : undefined
+    );
+  } else {
+    // Fire-and-forget: hemen 202 dön, arka planda sync başlat
+    runSyncForProvider(
+      businessId,
+      provider,
+      mode ?? "recent",
+      startDate && endDate ? { startDate, endDate } : undefined
+    ).catch((err) => {
+      console.error("[sync-refresh] background_sync_failed", {
+        businessId,
+        provider,
+        message: err instanceof Error ? err.message : String(err),
+      });
     });
-  });
+  }
 
   return NextResponse.json(
-    { ok: true, status: "started", mode: mode ?? "recent" },
-    { status: 202 }
+    { ok: true, status: provider === "meta" ? "completed" : "started", mode: mode ?? "recent" },
+    { status: provider === "meta" ? 200 : 202 }
   );
 }

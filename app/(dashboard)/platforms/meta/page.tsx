@@ -39,8 +39,8 @@ import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
 import { usePreferencesStore } from "@/store/preferences-store";
 import type { MetaBreakdownsResponse } from "@/app/api/meta/breakdowns/route";
-import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
-import type { MetaWarehouseSummaryResponse } from "@/lib/meta/serving";
+import type { MetaCampaignRow, MetaCampaignsResponse } from "@/app/api/meta/campaigns/route";
+import type { MetaSummaryRouteResponse } from "@/app/api/meta/summary/route";
 import {
   DateRangePicker,
   type ComparisonPreset,
@@ -58,11 +58,20 @@ import { MetaCampaignList } from "@/components/meta/meta-campaign-list";
 import { MetaCampaignDetail } from "@/components/meta/meta-campaign-detail";
 import type { MetaRecommendationsResponse } from "@/lib/meta/recommendations";
 import { buildMetaCampaignLaneSignals } from "@/lib/meta/campaign-lanes";
-import { MetaSyncProgress, shouldRenderMetaSyncProgress } from "@/components/meta/meta-sync-progress";
+import {
+  MetaSyncProgress,
+  MetaSyncProgressSkeleton,
+  shouldRenderMetaSyncProgress,
+} from "@/components/meta/meta-sync-progress";
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
 import { usePlanState } from "@/lib/pricing/usePlan";
 import { PRICING_PLANS } from "@/lib/pricing/plans";
 import { META_WAREHOUSE_HISTORY_DAYS } from "@/lib/meta/history";
+import {
+  formatMetaDate,
+  getMetaStatusNotice,
+} from "@/lib/meta/ui";
+import { getMetaPresetDates } from "@/lib/meta/date";
 
 // ── Data fetchers ─────────────────────────────────────────────────────────────
 
@@ -71,7 +80,7 @@ async function fetchMetaCampaigns(
   startDate: string,
   endDate: string,
   includePrev = false
-): Promise<{ status?: string; rows: MetaCampaignRow[] }> {
+): Promise<MetaCampaignsResponse> {
   const params = new URLSearchParams({ businessId, startDate, endDate });
   if (includePrev) params.set("includePrev", "1");
   const res = await fetch(`/api/meta/campaigns?${params.toString()}`, {
@@ -82,7 +91,7 @@ async function fetchMetaCampaigns(
     throw new Error(
       payload?.message ?? `Request failed (${res.status})`
     );
-  return payload as { status?: string; rows: MetaCampaignRow[] };
+  return payload as MetaCampaignsResponse;
 }
 
 async function fetchMetaBreakdowns(
@@ -122,7 +131,7 @@ async function fetchMetaSummary(
   businessId: string,
   startDate: string,
   endDate: string
-): Promise<MetaWarehouseSummaryResponse> {
+): Promise<MetaSummaryRouteResponse> {
   const params = new URLSearchParams({ businessId, startDate, endDate });
   const res = await fetch(`/api/meta/summary?${params.toString()}`, {
     headers: { Accept: "application/json" },
@@ -132,7 +141,7 @@ async function fetchMetaSummary(
   if (!res.ok) {
     throw new Error(payload?.message ?? `Request failed (${res.status})`);
   }
-  return payload as MetaWarehouseSummaryResponse;
+  return payload as MetaSummaryRouteResponse;
 }
 
 async function fetchMetaStatus(
@@ -152,6 +161,20 @@ async function fetchMetaStatus(
     throw new Error(payload?.message ?? `Request failed (${res.status})`);
   }
   return payload as MetaStatusResponse;
+}
+
+function getMetaStatusRefetchInterval(status: MetaStatusResponse | undefined) {
+  const state = status?.state;
+  if (state === "syncing" || state === "partial") return 5_000;
+  if (
+    state === "paused" ||
+    state === "stale" ||
+    (status?.jobHealth?.queueDepth ?? 0) > 0 ||
+    (status?.jobHealth?.leasedPartitions ?? 0) > 0
+  ) {
+    return 10_000;
+  }
+  return false;
 }
 
 // ── Formatters ────────────────────────────────────────────────────────────────
@@ -416,15 +439,15 @@ function MetaStatusBanner({
   if (status.state === "connected_no_assignment") {
     return (
       <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-        <p className="text-sm font-medium text-amber-800">
+        <p className="text-sm font-semibold text-amber-900">
           {language === "tr"
-            ? "Meta bağlı, ancak reklam hesabı atanmadı."
-            : "Meta is connected, but no ad account is assigned."}
+            ? "Meta bağlantısı hazır, ama reklam hesabı bekleniyor."
+            : "Meta is connected, but an ad account still needs to be assigned."}
         </p>
-        <p className="mt-1 text-sm text-amber-700">
+        <p className="mt-1.5 text-sm text-amber-800">
           {language === "tr"
-            ? "Veri gösterebilmek için bu workspace'e en az bir Meta reklam hesabı atayın."
-            : "Assign at least one Meta ad account to this workspace to start serving data."}
+            ? "Bu workspace'e en az bir Meta reklam hesabı atadığınızda kampanya ve kırılım verileri açılacak."
+            : "Assign at least one Meta ad account to this workspace to unlock campaigns and breakdowns."}
         </p>
       </div>
     );
@@ -434,22 +457,59 @@ function MetaStatusBanner({
     return null;
   }
 
+  if (status.state === "paused" || status.state === "stale") {
+    return (
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+        <p className="text-sm font-semibold text-amber-900">
+          {language === "tr"
+            ? "Meta senkronu gecikmeli ilerliyor."
+            : "Meta sync is progressing with delays."}
+        </p>
+        <p className="mt-1.5 text-sm text-amber-800">
+          {language === "tr"
+            ? "Kuyruktaki işler korunuyor. Worker yeniden hizalandığında senkron devam edecek."
+            : "Queued work is safe. Sync will continue once the worker catches up again."}
+        </p>
+        {status.latestSync?.lastError ? (
+          <p className="mt-2 text-xs text-amber-800/80">{status.latestSync.lastError}</p>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-4">
-      <p className="text-sm font-medium text-destructive">
+      <p className="text-sm font-semibold text-destructive">
         {language === "tr"
           ? "Meta senkronunda müdahale gerektiren bir durum var."
           : "Meta sync needs attention."}
       </p>
-      <p className="mt-1 text-sm text-destructive/80">
-        {status.latestSync?.lastError
-          ? status.latestSync.lastError
-          : language === "tr"
-            ? "Senkron tamamlanamadı. Entegrasyonu yeniden bağladıktan sonra tekrar deneyin."
-            : "The sync could not finish. Reconnect the integration and try again."}
+      <p className="mt-1.5 text-sm text-destructive/80">
+        {language === "tr"
+          ? "Arka plan senkronu tamamlanamadı. Entegrasyonu kontrol edin veya senkronu yeniden başlatın."
+          : "Background sync stopped before finishing. Review the integration or restart the sync."}
       </p>
+      {status.latestSync?.lastError ? (
+        <p className="mt-2 text-xs text-destructive/80">{status.latestSync.lastError}</p>
+      ) : null}
     </div>
   );
+}
+
+function isMetaCurrentDayPreparing(input: {
+  status: MetaStatusResponse | undefined;
+  startDate: string;
+  endDate: string;
+  summaryIsPartial: boolean;
+  campaignIsPartial: boolean;
+}) {
+  const currentDateInTimezone = input.status?.currentDateInTimezone;
+  if (!currentDateInTimezone) return false;
+  const matchesCurrentDay =
+    input.startDate === input.endDate && input.startDate === currentDateInTimezone;
+  if (!matchesCurrentDay) return false;
+  if (input.status?.state === "action_required") return false;
+  return input.summaryIsPartial || input.campaignIsPartial;
 }
 
 function NoAccountsAssigned() {
@@ -661,6 +721,8 @@ export default function MetaPage() {
   const [checkedRecIds, setCheckedRecIds] = useState<Set<string>>(new Set());
   const [isManualRefreshRunning, setIsManualRefreshRunning] = useState(false);
   const [bootstrapRequestedForBusiness, setBootstrapRequestedForBusiness] = useState<string | null>(null);
+  const [resolvedMetaReferenceDate, setResolvedMetaReferenceDate] = useState<string | null>(null);
+  const [resolvedMetaTimeZoneLabel, setResolvedMetaTimeZoneLabel] = useState<string | null>(null);
   const allowedHistoryDays = PRICING_PLANS[currentPlan].limits.analyticsHistoryDays;
   const previousYearAllowed = allowedHistoryDays === null || allowedHistoryDays > 365;
 
@@ -697,32 +759,38 @@ export default function MetaPage() {
     queryKey: ["meta-status-base", businessId],
     enabled: metaConnected,
     staleTime: 30 * 1000,
-    refetchInterval: (query) => {
-      const state = (query.state.data as MetaStatusResponse | undefined)?.state;
-      return state === "syncing" || state === "partial" ? 5_000 : false;
-    },
+    refetchInterval: (query) =>
+      getMetaStatusRefetchInterval(query.state.data as MetaStatusResponse | undefined),
     queryFn: () => fetchMetaStatus(businessId),
   });
   const metaReferenceDate = baseStatusQuery.data?.currentDateInTimezone ?? undefined;
   const metaTimeZoneLabel = baseStatusQuery.data?.primaryAccountTimezone ?? undefined;
-  const { start: startDate, end: endDate } = metaReferenceDate
-    ? getPresetDatesForReferenceDate(
-        dateRange.rangePreset,
-        metaReferenceDate,
-        dateRange.customStart,
-        dateRange.customEnd
-      )
-    : getPresetDates(
-        dateRange.rangePreset,
-        dateRange.customStart,
-        dateRange.customEnd
-      );
+
+  useEffect(() => {
+    if (metaReferenceDate) setResolvedMetaReferenceDate(metaReferenceDate);
+  }, [metaReferenceDate]);
+
+  useEffect(() => {
+    if (metaTimeZoneLabel) setResolvedMetaTimeZoneLabel(metaTimeZoneLabel);
+  }, [metaTimeZoneLabel]);
+
+  const effectiveMetaReferenceDate = metaReferenceDate ?? resolvedMetaReferenceDate;
+  const effectiveMetaTimeZoneLabel = metaTimeZoneLabel ?? resolvedMetaTimeZoneLabel;
+  const resolvedMetaRange = getMetaPresetDates({
+    value: dateRange,
+    referenceDate: effectiveMetaReferenceDate,
+  });
+  const startDate = resolvedMetaRange?.start ?? dateRange.customStart;
+  const endDate = resolvedMetaRange?.end ?? dateRange.customEnd;
+  const needsMetaReferenceDate = metaConnected && dateRange.rangePreset !== "custom";
+  const isMetaReferenceReady =
+    !needsMetaReferenceDate || Boolean(effectiveMetaReferenceDate);
 
   useEffect(() => {
     if (allowedHistoryDays === null && previousYearAllowed) return;
     const normalized = clampDateRangeForHistoryLimit(
       dateRange,
-      metaReferenceDate,
+      effectiveMetaReferenceDate ?? undefined,
       allowedHistoryDays
     );
     const changed =
@@ -734,49 +802,50 @@ export default function MetaPage() {
     if (changed) {
       setDateRange(normalized);
     }
-  }, [allowedHistoryDays, dateRange, metaReferenceDate, previousYearAllowed, setDateRange]);
+  }, [allowedHistoryDays, dateRange, effectiveMetaReferenceDate, previousYearAllowed, setDateRange]);
   const statusQuery = useQuery({
-    queryKey: ["meta-status", businessId],
-    enabled: metaConnected,
+    queryKey: ["meta-status", businessId, startDate, endDate],
+    enabled: metaConnected && isMetaReferenceReady && Boolean(startDate && endDate),
     staleTime: 30 * 1000,
-    refetchInterval: (query) => {
-      const state = (query.state.data as MetaStatusResponse | undefined)?.state;
-      return state === "syncing" || state === "partial" ? 5_000 : false;
-    },
-    queryFn: () => fetchMetaStatus(businessId),
+    refetchInterval: (query) =>
+      getMetaStatusRefetchInterval(query.state.data as MetaStatusResponse | undefined),
+    queryFn: () => fetchMetaStatus(businessId, startDate, endDate),
     placeholderData: baseStatusQuery.data,
   });
   const effectiveStatus = statusQuery.data ?? baseStatusQuery.data;
-  const comparisonWindow = getComparisonWindow(
-    startDate,
-    endDate,
-    dateRange.comparisonPreset,
-    dateRange.comparisonStart,
-    dateRange.comparisonEnd
-  );
+  const comparisonWindow =
+    startDate && endDate
+      ? getComparisonWindow(
+          startDate,
+          endDate,
+          dateRange.comparisonPreset,
+          dateRange.comparisonStart,
+          dateRange.comparisonEnd
+        )
+      : null;
 
   const campaignsQuery = useQuery({
     queryKey: ["meta-campaigns", businessId, startDate, endDate],
-    enabled: metaConnected,
+    enabled: metaConnected && isMetaReferenceReady && Boolean(startDate && endDate),
     queryFn: () => fetchMetaCampaigns(businessId, startDate, endDate, false),
   });
 
   const campaignPrevQuery = useQuery({
     queryKey: ["meta-campaigns-prev", businessId, startDate, endDate],
-    enabled: metaConnected && campaignsQuery.isSuccess,
+    enabled: metaConnected && isMetaReferenceReady && campaignsQuery.isSuccess,
     staleTime: 5 * 60 * 1000,
     queryFn: () => fetchMetaCampaigns(businessId, startDate, endDate, true),
   });
 
   const breakdownsQuery = useQuery({
     queryKey: ["meta-breakdowns", businessId, startDate, endDate],
-    enabled: metaConnected,
+    enabled: metaConnected && isMetaReferenceReady && Boolean(startDate && endDate),
     queryFn: () => fetchMetaBreakdowns(businessId, startDate, endDate),
   });
 
   const summaryQuery = useQuery({
     queryKey: ["meta-warehouse-summary", businessId, startDate, endDate],
-    enabled: metaConnected,
+    enabled: metaConnected && isMetaReferenceReady && Boolean(startDate && endDate),
     staleTime: 60 * 1000,
     queryFn: () => fetchMetaSummary(businessId, startDate, endDate),
   });
@@ -845,7 +914,7 @@ export default function MetaPage() {
   }
 
   async function handleRefreshData() {
-    if (!businessId || isManualRefreshRunning || isSyncInProgress) return;
+    if (!businessId || isManualRefreshRunning || isSyncInProgress || !startDate || !endDate || !isMetaReferenceReady) return;
     try {
       setIsManualRefreshRunning(true);
       await fetch("/api/sync/refresh", {
@@ -857,6 +926,9 @@ export default function MetaPage() {
         body: JSON.stringify({
           businessId,
           provider: "meta",
+          mode: isTodayRange ? "today" : "repair",
+          startDate,
+          endDate,
         }),
       });
 
@@ -925,10 +997,12 @@ export default function MetaPage() {
   );
   const isTodayRange =
     dateRange.rangePreset === "today" ||
-    (Boolean(metaReferenceDate) && startDate === endDate && startDate === metaReferenceDate);
-  const summaryHistoricalProgress = summaryQuery.data?.historicalSync;
+    (Boolean(effectiveMetaReferenceDate) &&
+      Boolean(startDate && endDate) &&
+      startDate === endDate &&
+      startDate === effectiveMetaReferenceDate);
   const historicalBackfillEnd =
-    metaReferenceDate ? addDaysToISO(metaReferenceDate, -1) : null;
+    effectiveMetaReferenceDate ? addDaysToISO(effectiveMetaReferenceDate, -1) : null;
   const historicalBackfillStart =
     historicalBackfillEnd
       ? addDaysToISO(historicalBackfillEnd, -(META_WAREHOUSE_HISTORY_DAYS - 1))
@@ -946,12 +1020,6 @@ export default function MetaPage() {
             : "syncing") as "ready" | "syncing" | "partial",
       }
     : null;
-  const mergedHistoricalProgress =
-    statusHistoricalProgress ?? summaryHistoricalProgress ?? null;
-  const summaryHistoricalWarehouseReady =
-    summaryQuery.isSuccess &&
-    (summaryHistoricalProgress?.state === "ready" &&
-      (summaryHistoricalProgress?.progressPercent ?? 0) >= 100);
   const statusWarehouseWindowReady =
     !isTodayRange &&
     Boolean(
@@ -962,19 +1030,10 @@ export default function MetaPage() {
     );
   const historicalWarehouseReady =
     statusWarehouseWindowReady ||
-    summaryHistoricalWarehouseReady ||
-    (!summaryQuery.isSuccess &&
-      (mergedHistoricalProgress?.state === "ready" &&
-        (mergedHistoricalProgress?.progressPercent ?? 0) >= 100));
+    (statusHistoricalProgress?.state === "ready" &&
+      (statusHistoricalProgress?.progressPercent ?? 0) >= 100);
   const hasCampaignSpend =
     (campaignsQuery.data?.rows ?? []).some((row) => (row.spend ?? 0) > 0);
-  const hasMissingBreakdownData =
-    !isTodayRange &&
-    !breakdownsQuery.isLoading &&
-    hasCampaignSpend &&
-    (breakdownsQuery.data?.age?.length ?? 0) === 0 &&
-    (breakdownsQuery.data?.location?.length ?? 0) === 0 &&
-    (breakdownsQuery.data?.placement?.length ?? 0) === 0;
   const emptyKpis: KpiData = {
     totalSpend: 0,
     totalRevenue: 0,
@@ -982,53 +1041,41 @@ export default function MetaPage() {
     blendedRoas: 0,
   };
   const kpis = warehouseKpis ?? campaignWarehouseKpis ?? emptyKpis;
-  const historicalProgressStatus: MetaStatusResponse | undefined = effectiveStatus
-    ? {
-        ...effectiveStatus,
-        state:
-          shouldRenderMetaSyncProgress(effectiveStatus) || hasMissingBreakdownData
-            ? "partial"
-            : effectiveStatus.state,
-        latestSync: {
-          status: effectiveStatus.latestSync?.status ?? "pending",
-          syncType: effectiveStatus.latestSync?.syncType ?? "initial_backfill",
-          scope: effectiveStatus.latestSync?.scope ?? "account_daily",
-          startDate: effectiveStatus.latestSync?.startDate ?? null,
-          endDate: effectiveStatus.latestSync?.endDate ?? null,
-          triggerSource: effectiveStatus.latestSync?.triggerSource ?? "initial_connect",
-          triggeredAt: effectiveStatus.latestSync?.triggeredAt ?? null,
-          startedAt: effectiveStatus.latestSync?.startedAt ?? null,
-          finishedAt: effectiveStatus.latestSync?.finishedAt ?? null,
-          lastError: effectiveStatus.latestSync?.lastError ?? null,
-          progressPercent:
-            mergedHistoricalProgress?.progressPercent ??
-            effectiveStatus.latestSync?.progressPercent ??
-            0,
-          completedDays:
-            mergedHistoricalProgress?.completedDays ??
-            effectiveStatus.latestSync?.completedDays ??
-            0,
-          totalDays:
-            mergedHistoricalProgress?.totalDays ??
-            effectiveStatus.latestSync?.totalDays ??
-            META_WAREHOUSE_HISTORY_DAYS,
-          readyThroughDate:
-            mergedHistoricalProgress?.readyThroughDate ??
-            effectiveStatus.latestSync?.readyThroughDate ??
-            effectiveStatus.warehouse?.lastDate ??
-            null,
-          phaseLabel:
-            effectiveStatus.latestSync?.phaseLabel ??
-            (language === "tr" ? "Gecmis veriler hazirlaniyor" : "Historical backfill"),
-        },
-      }
-    : undefined;
+  const historicalProgressStatus = effectiveStatus;
+  const selectedRangeCoverage = effectiveStatus?.warehouse?.coverage?.selectedRange ?? null;
+  const selectedRangeReady = Boolean(selectedRangeCoverage?.isComplete);
+  const historicalCoverage = effectiveStatus?.warehouse?.coverage?.historical ?? null;
+  const hasHistoricalBacklog =
+    Boolean(historicalCoverage) &&
+    (historicalCoverage?.completedDays ?? 0) < (historicalCoverage?.totalDays ?? 0);
+  const hasBackgroundQueueActivity =
+    (effectiveStatus?.jobHealth?.leasedPartitions ?? 0) > 0 ||
+    (effectiveStatus?.jobHealth?.queueDepth ?? 0) > 0;
+  const shouldKeepStatusVisible =
+    metaConnected &&
+    Boolean(
+      effectiveStatus &&
+        (
+          effectiveStatus.state === "action_required" ||
+          effectiveStatus.state === "paused" ||
+          effectiveStatus.state === "stale" ||
+          hasBackgroundQueueActivity ||
+          hasHistoricalBacklog ||
+          !selectedRangeReady
+        )
+    );
   const shouldShowHistoricalProgress =
     metaConnected &&
-    (shouldRenderMetaSyncProgress(historicalProgressStatus) || hasMissingBreakdownData);
+    shouldKeepStatusVisible &&
+    shouldRenderMetaSyncProgress(historicalProgressStatus);
+  const isStatusLoading =
+    metaConnected &&
+    (!isMetaReferenceReady ||
+      (!effectiveStatus && (baseStatusQuery.isLoading || statusQuery.isLoading)));
   const isSyncInProgress =
     shouldShowHistoricalProgress &&
-    (historicalProgressStatus?.latestSync?.status ?? null) === "running";
+    (historicalProgressStatus?.state === "syncing" ||
+      (historicalProgressStatus?.jobHealth?.leasedPartitions ?? 0) > 0);
 
   const previousWarehouseKpis = useMemo(() => {
     const totals = comparisonSummaryQuery.data?.totals;
@@ -1045,6 +1092,30 @@ export default function MetaPage() {
     [comparisonCampaignsQuery.data]
   );
   const previousKpis = previousWarehouseKpis ?? previousCampaignKpis ?? emptyKpis;
+  const isCurrentDayPreparing = isMetaCurrentDayPreparing({
+    status: effectiveStatus,
+    startDate,
+    endDate,
+    summaryIsPartial: Boolean(summaryQuery.data?.isPartial),
+    campaignIsPartial: Boolean(campaignsQuery.data?.isPartial),
+  });
+  const selectedDateLabel =
+    startDate === endDate ? startDate : `${startDate} - ${endDate}`;
+  const currentDayPreparingMessage =
+    language === "tr"
+      ? `Meta bu tarih için veriyi hala hazırlıyor. Referans gün ${effectiveStatus?.currentDateInTimezone ?? selectedDateLabel}${effectiveStatus?.primaryAccountTimezone ? ` (${effectiveStatus.primaryAccountTimezone})` : ""}.`
+      : `Meta is still preparing data for this date. The current account day is ${effectiveStatus?.currentDateInTimezone ?? selectedDateLabel}${effectiveStatus?.primaryAccountTimezone ? ` (${effectiveStatus.primaryAccountTimezone})` : ""}.`;
+  const metaAccountDayLabel =
+    effectiveMetaReferenceDate && effectiveMetaTimeZoneLabel
+      ? language === "tr"
+        ? `Meta hesap günü: ${formatMetaDate(effectiveMetaReferenceDate, language) ?? effectiveMetaReferenceDate} (${effectiveMetaTimeZoneLabel})`
+        : `Meta account day: ${formatMetaDate(effectiveMetaReferenceDate, language) ?? effectiveMetaReferenceDate} (${effectiveMetaTimeZoneLabel})`
+      : null;
+  const shouldMaskKpisAsPreparing =
+    isCurrentDayPreparing &&
+    !summaryQuery.isLoading &&
+    Boolean(summaryQuery.data?.isPartial || campaignsQuery.data?.isPartial) &&
+    !hasCampaignSpend;
   const campaignRowsForTable = useMemo<MetaCampaignTableRow[]>(() => {
     const rows = campaignsQuery.data?.rows ?? [];
     const laneById = buildMetaCampaignLaneSignals(rows);
@@ -1139,9 +1210,15 @@ export default function MetaPage() {
               ? "Kampanya performansı, demografik kırılımlar ve ad set detay incelemesi."
               : "Campaign performance, demographic breakdowns, and ad set drill-down."}
           </p>
+          {metaConnected && metaAccountDayLabel ? (
+            <p className="mt-1 text-xs text-muted-foreground">{metaAccountDayLabel}</p>
+          ) : null}
         </div>
         <div className="flex items-center gap-2">
-          {metaConnected && shouldShowHistoricalProgress && (
+          {metaConnected && isStatusLoading && (
+            <MetaSyncProgressSkeleton variant="inline" className="max-w-[320px]" />
+          )}
+          {metaConnected && !isStatusLoading && shouldShowHistoricalProgress && (
             <MetaSyncProgress
               status={historicalProgressStatus}
               language={language}
@@ -1154,7 +1231,7 @@ export default function MetaPage() {
               variant="outline"
               className="shrink-0"
               onClick={() => void handleRefreshData()}
-              disabled={isManualRefreshRunning || isSyncInProgress}
+              disabled={isManualRefreshRunning || isSyncInProgress || !isMetaReferenceReady || !startDate || !endDate}
             >
               <RefreshCw
                 className={`mr-2 h-4 w-4 ${(isManualRefreshRunning || isSyncInProgress) ? "animate-spin" : ""}`}
@@ -1169,22 +1246,26 @@ export default function MetaPage() {
             </Button>
           )}
           <div className="shrink-0 rounded-xl border bg-card p-1 shadow-sm">
-            <DateRangePicker
-              value={dateRange}
-              onChange={(next) =>
-                setDateRange(
-                  clampDateRangeForHistoryLimit(next, metaReferenceDate, allowedHistoryDays)
-                )
-              }
-              rangePresets={["today", "yesterday", "3d", "7d", "14d", "30d", "90d", "custom"]}
-              comparisonPresets={
-                previousYearAllowed
-                  ? undefined
-                  : ["none", "previousPeriod", "previousWeek", "previousMonth", "previousQuarter"]
-              }
-              referenceDate={metaReferenceDate}
-              timeZoneLabel={metaTimeZoneLabel}
-            />
+            {metaConnected && !isMetaReferenceReady ? (
+              <div className="h-10 w-[224px] animate-pulse rounded-lg bg-muted/50" />
+            ) : (
+              <DateRangePicker
+                value={dateRange}
+                onChange={(next) =>
+                  setDateRange(
+                    clampDateRangeForHistoryLimit(next, effectiveMetaReferenceDate ?? undefined, allowedHistoryDays)
+                  )
+                }
+                rangePresets={["today", "yesterday", "3d", "7d", "14d", "30d", "90d", "custom"]}
+                comparisonPresets={
+                  previousYearAllowed
+                    ? undefined
+                    : ["none", "previousPeriod", "previousWeek", "previousMonth", "previousQuarter"]
+                }
+                referenceDate={effectiveMetaReferenceDate ?? undefined}
+                timeZoneLabel={effectiveMetaTimeZoneLabel ?? undefined}
+              />
+            )}
           </div>
         </div>
       </div>
@@ -1208,10 +1289,15 @@ export default function MetaPage() {
           status={
             metaView.status === "action_required" ? "error" : "disconnected"
           }
+          title={
+            language === "tr"
+              ? "Meta bağlantısını tamamlayın"
+              : "Finish connecting Meta"
+          }
           description={
             language === "tr"
-              ? "Meta hesabinizi bagladiginizda kampanyalari, ad set'leri ve creative icgorulerini goruntuleyin."
-              : "View campaigns, ad sets, and creative insights once your Meta account is connected."
+              ? "Kampanyaları, ad set'leri ve creative içgörülerini açmak için Meta hesabınızı bağlayın."
+              : "Connect your Meta account to unlock campaigns, ad sets, and creative insights."
           }
         />
       )}
@@ -1223,11 +1309,19 @@ export default function MetaPage() {
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <KpiCard
                 label={language === "tr" ? "Toplam Harcama" : "Total Spend"}
-                value={campaignsQuery.isLoading ? "—" : fmtK(kpis.totalSpend, sym)}
+                value={
+                  campaignsQuery.isLoading || shouldMaskKpisAsPreparing
+                    ? "—"
+                    : fmtK(kpis.totalSpend, sym)
+                }
                 subLabel={
-                  language === "tr"
-                    ? `${campaignsQuery.data?.rows?.length ?? 0} kampanya`
-                    : `${campaignsQuery.data?.rows?.length ?? 0} campaigns`
+                  shouldMaskKpisAsPreparing
+                    ? language === "tr"
+                      ? "Gunluk Meta verisi hazirlaniyor"
+                      : "Current-day Meta data is preparing"
+                    : language === "tr"
+                      ? `${campaignsQuery.data?.rows?.length ?? 0} kampanya`
+                      : `${campaignsQuery.data?.rows?.length ?? 0} campaigns`
                 }
                 icon={DollarSign}
                 accentClass="border-l-4 border-l-blue-500/60"
@@ -1236,8 +1330,20 @@ export default function MetaPage() {
               />
               <KpiCard
                 label={language === "tr" ? "Toplam Gelir" : "Total Revenue"}
-                value={campaignsQuery.isLoading ? "—" : fmtK(kpis.totalRevenue, sym)}
-                subLabel={language === "tr" ? "Atfedilen purchase'lar" : "Attributed purchases"}
+                value={
+                  campaignsQuery.isLoading || shouldMaskKpisAsPreparing
+                    ? "—"
+                    : fmtK(kpis.totalRevenue, sym)
+                }
+                subLabel={
+                  shouldMaskKpisAsPreparing
+                    ? language === "tr"
+                      ? "Hazir olan kisimlar geldikce kartlar acilacak"
+                      : "Cards will unlock as the current day becomes available"
+                    : language === "tr"
+                      ? "Atfedilen purchase'lar"
+                      : "Attributed purchases"
+                }
                 icon={TrendingUp}
                 accentClass="border-l-4 border-l-emerald-500/60"
                 valueClass="text-emerald-600"
@@ -1246,8 +1352,20 @@ export default function MetaPage() {
               />
               <KpiCard
                 label="Avg. CPA"
-                value={campaignsQuery.isLoading ? "—" : fmt$(kpis.avgCpa, sym)}
-                subLabel={language === "tr" ? "Dönüşum basi maliyet" : "Cost per conversion"}
+                value={
+                  campaignsQuery.isLoading || shouldMaskKpisAsPreparing
+                    ? "—"
+                    : fmt$(kpis.avgCpa, sym)
+                }
+                subLabel={
+                  shouldMaskKpisAsPreparing
+                    ? language === "tr"
+                      ? "Meta gunu kapanmadan tum donusumler gorunmeyebilir"
+                      : "Conversions may remain incomplete until the Meta day closes"
+                    : language === "tr"
+                      ? "Dönüşum basi maliyet"
+                      : "Cost per conversion"
+                }
                 icon={Target}
                 accentClass="border-l-4 border-l-violet-500/60"
                 comparisonLabel={language === "tr" ? "önceki döneme göre" : "vs previous period"}
@@ -1256,8 +1374,20 @@ export default function MetaPage() {
               />
               <KpiCard
                 label="Blended ROAS"
-                value={campaignsQuery.isLoading ? "—" : `${kpis.blendedRoas.toFixed(2)}×`}
-                subLabel={language === "tr" ? "Tum kampanyalar birlesik" : "All campaigns combined"}
+                value={
+                  campaignsQuery.isLoading || shouldMaskKpisAsPreparing
+                    ? "—"
+                    : `${kpis.blendedRoas.toFixed(2)}×`
+                }
+                subLabel={
+                  shouldMaskKpisAsPreparing
+                    ? language === "tr"
+                      ? "Current-day metrikleri yuklenirken gecerli deger bekleniyor"
+                      : "Waiting for a stable current-day value while Meta finishes loading"
+                    : language === "tr"
+                      ? "Tum kampanyalar birlesik"
+                      : "All campaigns combined"
+                }
                 icon={BarChart2}
                 accentClass={
                   kpis.blendedRoas > 2.5
@@ -1313,11 +1443,33 @@ export default function MetaPage() {
             if (rows.length === 0)
               return (
                 <DataEmptyState
-                  title={language === "tr" ? "Kampanya verisi bulunamadi" : "No campaign data found"}
+                  title={
+                    isCurrentDayPreparing
+                      ? language === "tr"
+                        ? "Bugunun Meta verisi hazirlaniyor"
+                        : "Current-day Meta data is preparing"
+                      : campaignsQuery.data?.isPartial
+                      ? language === "tr"
+                        ? "Kampanya verileri hâlâ hazırlanıyor"
+                        : "Campaign data is still being prepared"
+                      : language === "tr"
+                        ? "Bu aralık için kampanya bulunamadı"
+                        : "No campaigns were found for this range"
+                  }
                   description={
-                    language === "tr"
-                      ? "Secilen tarih araliginda atanmis Meta reklam hesaplari için çalışan kampanya bulunamadi."
-                      : "No campaigns ran in the selected date range for the assigned Meta ad accounts."
+                    isCurrentDayPreparing
+                      ? currentDayPreparingMessage
+                      : campaignsQuery.data?.isPartial
+                        ? campaignsQuery.data.notReadyReason ??
+                        (effectiveStatus
+                          ? getMetaStatusNotice(effectiveStatus, language)
+                          : null) ??
+                        (language === "tr"
+                          ? "Hazır olan bölümler açılırken seçili tarih aralığının geri kalanı arka planda hazırlanıyor."
+                          : "Available sections will open first while the rest of the selected range is prepared in the background.")
+                        : language === "tr"
+                          ? "Seçili tarih aralığında atanmış Meta reklam hesaplarında teslim edilen kampanya bulunamadı."
+                          : "No campaigns delivered in the selected date range for the assigned Meta ad accounts."
                   }
                 />
               );

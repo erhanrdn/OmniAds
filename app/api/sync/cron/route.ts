@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { runMigrations } from "@/lib/migrations";
-import { runMetaMaintenanceSync } from "@/lib/sync/meta-sync";
+import { runMetaMaintenanceSync, syncMetaReports } from "@/lib/sync/meta-sync";
 import { scheduleGoogleAdsBackgroundSync, syncGoogleAdsReports } from "@/lib/sync/google-ads-sync";
 import { syncGA4Reports } from "@/lib/sync/ga4-sync";
 import { syncSearchConsoleReports } from "@/lib/sync/search-console-sync";
@@ -56,11 +56,12 @@ export async function POST(request: NextRequest) {
 
   const results = await Promise.allSettled(
     businesses.map(async (business) => {
-      const [gads, ga4, sc, meta] = await Promise.allSettled([
+      const [gads, ga4, sc, metaScheduled, metaConsumed] = await Promise.allSettled([
         syncGoogleAdsReports(business.id),
         syncGA4Reports(business.id),
         syncSearchConsoleReports(business.id),
         runMetaMaintenanceSync(business.id),
+        syncMetaReports(business.id),
       ]);
 
       return {
@@ -69,7 +70,16 @@ export async function POST(request: NextRequest) {
         googleAds: gads.status === "fulfilled" ? gads.value : { error: String((gads as PromiseRejectedResult).reason) },
         ga4: ga4.status === "fulfilled" ? ga4.value : { error: String((ga4 as PromiseRejectedResult).reason) },
         searchConsole: sc.status === "fulfilled" ? sc.value : { error: String((sc as PromiseRejectedResult).reason) },
-        meta: meta.status === "fulfilled" ? meta.value : { error: String((meta as PromiseRejectedResult).reason) },
+        meta: {
+          scheduled:
+            metaScheduled.status === "fulfilled"
+              ? metaScheduled.value
+              : { error: String((metaScheduled as PromiseRejectedResult).reason) },
+          consumed:
+            metaConsumed.status === "fulfilled"
+              ? metaConsumed.value
+              : { error: String((metaConsumed as PromiseRejectedResult).reason) },
+        },
       };
     }),
   );

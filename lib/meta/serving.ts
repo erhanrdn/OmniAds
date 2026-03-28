@@ -3,15 +3,16 @@ import {
   readLatestMetaConfigSnapshots,
   readPreviousDifferentMetaConfigDiffs,
 } from "@/lib/meta/config-snapshots";
+import { getMetaBreakdownSupportedStart } from "@/lib/meta/constraints";
 import { normalizeOptimizationGoal } from "@/lib/meta/configuration";
 import {
   emptyMetaWarehouseMetrics,
   getMetaAdSetDailyCoverage,
-  getLatestMetaSyncHealth,
   getMetaAccountDailyCoverage,
   getMetaAccountDailyRange,
   getMetaAdSetDailyRange,
   getMetaCampaignDailyRange,
+  getMetaQueueHealth,
   getMetaRawSnapshotCoverageByEndpoint,
   getMetaRawSnapshotsForWindow,
 } from "@/lib/meta/warehouse";
@@ -21,7 +22,7 @@ import {
   type MetaCampaignDailyRow,
   type MetaWarehouseFreshness,
 } from "@/lib/meta/warehouse-types";
-import { META_WAREHOUSE_HISTORY_DAYS, getHistoricalWindowStart } from "@/lib/meta/history";
+import { META_WAREHOUSE_HISTORY_DAYS, dayCountInclusive, getHistoricalWindowStart } from "@/lib/meta/history";
 
 function getTodayIsoForTimeZoneServer(timeZone: string): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -50,7 +51,7 @@ function buildFreshnessFromRows(
     return latest;
   }, null);
   return {
-    dataState: rows.length > 0 ? fallbackState : "syncing",
+    dataState: rows.length > 0 ? fallbackState : "stale",
     lastSyncedAt,
     liveRefreshedAt: null,
     isPartial: false,
@@ -73,6 +74,9 @@ const META_BREAKDOWN_ENDPOINTS = [
 
 export interface MetaWarehouseSummaryResponse {
   freshness: MetaWarehouseFreshness;
+  /**
+   * Deprecated compatibility field. Status/progress truth lives in /api/meta/status.
+   */
   historicalSync: {
     progressPercent: number;
     completedDays: number;
@@ -80,6 +84,7 @@ export interface MetaWarehouseSummaryResponse {
     readyThroughDate: string | null;
     state: "ready" | "syncing" | "partial";
   };
+  isPartial?: boolean;
   totals: {
     spend: number;
     revenue: number;
@@ -119,11 +124,13 @@ export interface MetaWarehouseTrendPoint {
 
 export interface MetaWarehouseTrendResponse {
   freshness: MetaWarehouseFreshness;
+  isPartial?: boolean;
   points: MetaWarehouseTrendPoint[];
 }
 
 export interface MetaWarehouseCampaignResponse {
   freshness: MetaWarehouseFreshness;
+  isPartial?: boolean;
   rows: Array<{
     providerAccountId: string;
     campaignId: string;
@@ -295,10 +302,6 @@ export async function getMetaWarehouseSummary(input: {
 }): Promise<MetaWarehouseSummaryResponse> {
   const rows = await getMetaAccountDailyRange(input);
   const credentials = await resolveMetaCredentials(input.businessId).catch(() => null);
-  const health = await getLatestMetaSyncHealth({
-    businessId: input.businessId,
-    providerAccountId: input.providerAccountIds?.length === 1 ? input.providerAccountIds[0] : null,
-  });
   const empty = emptyMetaWarehouseMetrics();
 
   let totals = rows.reduce(
@@ -358,7 +361,7 @@ export async function getMetaWarehouseSummary(input: {
 
   const freshness = buildFreshnessFromRows(
     rows,
-    rows.length > 0 ? "ready" : health?.status === "running" ? "syncing" : "stale"
+    rows.length > 0 ? "ready" : "stale"
   );
 
   const primaryAccountId = credentials?.accountIds[0] ?? null;
@@ -371,6 +374,10 @@ export async function getMetaWarehouseSummary(input: {
     : new Date().toISOString().slice(0, 10);
   const historicalEnd = addDaysToIso(historicalToday, -1);
   const historicalStart = getHistoricalWindowStart(historicalEnd, META_WAREHOUSE_HISTORY_DAYS);
+  const effectiveHistoricalStart =
+    historicalStart > getMetaBreakdownSupportedStart(historicalEnd)
+      ? historicalStart
+      : getMetaBreakdownSupportedStart(historicalEnd);
   const historicalCoverage =
     credentials?.accountIds?.length
       ? await getMetaAccountDailyCoverage({
@@ -393,7 +400,7 @@ export async function getMetaWarehouseSummary(input: {
             businessId: input.businessId,
             providerAccountId: null,
             endpointNames: [...META_BREAKDOWN_ENDPOINTS],
-            startDate: historicalStart,
+            startDate: effectiveHistoricalStart,
             endDate: historicalEnd,
           }).catch(() => null),
         ])
@@ -408,22 +415,30 @@ export async function getMetaWarehouseSummary(input: {
         )
       )
     : 0;
+  const effectiveHistoricalTotalDays = dayCountInclusive(effectiveHistoricalStart, historicalEnd);
   const historicalCompletedDays = Math.min(
     historicalAccountCoverageDays,
     historicalAdsetCoverageDays,
-    historicalBreakdownCoverageDays
+    historicalBreakdownCoverageDays,
+    effectiveHistoricalTotalDays
   );
-  const historicalTotalDays = META_WAREHOUSE_HISTORY_DAYS;
+  const historicalTotalDays = effectiveHistoricalTotalDays;
   const historicalProgressPercent = Math.max(
     0,
     Math.min(100, Math.round((historicalCompletedDays / historicalTotalDays) * 100))
   );
+  const queueHealth =
+    credentials?.accountIds?.length
+      ? await getMetaQueueHealth({ businessId: input.businessId }).catch(() => null)
+      : null;
   const historicalState =
     historicalProgressPercent >= 100
       ? "ready"
-      : health?.status === "partial"
-        ? "partial"
-        : "syncing";
+      : (queueHealth?.leasedPartitions ?? 0) > 0 || (queueHealth?.queueDepth ?? 0) > 0
+        ? "syncing"
+        : historicalCompletedDays > 0 || rows.length > 0
+          ? "partial"
+          : "syncing";
 
   return {
     freshness,
@@ -434,6 +449,7 @@ export async function getMetaWarehouseSummary(input: {
       readyThroughDate: historicalCoverage?.ready_through_date ?? null,
       state: historicalState,
     },
+    isPartial: rows.length === 0 || historicalCompletedDays < historicalTotalDays,
     totals: {
       spend: r2(totals.spend),
       revenue: r2(totals.revenue),
@@ -488,8 +504,9 @@ export async function getMetaWarehouseTrends(input: {
 
   return {
     freshness: {
-      ...buildFreshnessFromRows(points.map((point) => ({ updatedAt: point.date })), rows.length > 0 ? "ready" : "syncing"),
+      ...buildFreshnessFromRows(points.map((point) => ({ updatedAt: point.date })), rows.length > 0 ? "ready" : "stale"),
     },
+    isPartial: rows.length === 0,
     points,
   };
 }
@@ -537,8 +554,9 @@ export async function getMetaWarehouseCampaigns(input: {
 
   return {
     freshness: {
-      ...buildFreshnessFromRows(rows, rows.length > 0 ? "ready" : "syncing"),
+      ...buildFreshnessFromRows(rows, rows.length > 0 ? "ready" : "stale"),
     },
+    isPartial: rows.length === 0,
     rows: aggregated.sort((a, b) => b.spend - a.spend),
   };
 }

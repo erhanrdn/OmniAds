@@ -215,6 +215,16 @@ export interface MetaCredentials {
   >;
 }
 
+const META_ACCOUNT_PROFILE_TIMEOUT_MS = 8_000;
+
+function normalizeMetaApiDate(value: string): string {
+  const text = String(value ?? "").trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+  const parsed = new Date(text);
+  if (Number.isFinite(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+  throw new Error(`Invalid Meta date input: ${value}`);
+}
+
 /**
  * Resolve the Meta access token and assigned ad account IDs for a business.
  * Returns null when the integration is missing, disconnected, or has no
@@ -254,7 +264,10 @@ async function fetchAccountProfile(
     const url = new URL(`https://graph.facebook.com/v25.0/${accountId}`);
     url.searchParams.set("fields", "currency,name,timezone_name");
     url.searchParams.set("access_token", accessToken);
-    const res = await fetch(url.toString(), { cache: "no-store" });
+    const res = await fetch(url.toString(), {
+      cache: "no-store",
+      signal: AbortSignal.timeout(META_ACCOUNT_PROFILE_TIMEOUT_MS),
+    });
     if (!res.ok) return { currency: "USD", timezone: null, name: null };
     const json = (await res.json()) as {
       currency?: string;
@@ -323,13 +336,15 @@ function inferRequestSyncType(
   until: string,
   referenceToday?: string | null
 ): MetaSyncType {
-  if (since === until) {
-    return since.slice(0, 10) === (referenceToday ?? "").slice(0, 10)
+  const normalizedSince = normalizeMetaApiDate(since);
+  const normalizedUntil = normalizeMetaApiDate(until);
+  if (normalizedSince === normalizedUntil) {
+    return normalizedSince === (referenceToday ?? "").slice(0, 10)
       ? "today_refresh"
       : "repair_window";
   }
-  const start = new Date(`${since}T00:00:00Z`).getTime();
-  const end = new Date(`${until}T00:00:00Z`).getTime();
+  const start = new Date(`${normalizedSince}T00:00:00Z`).getTime();
+  const end = new Date(`${normalizedUntil}T00:00:00Z`).getTime();
   const daySpan = Number.isFinite(start) && Number.isFinite(end)
     ? Math.max(1, Math.round((end - start) / 86_400_000) + 1)
     : 1;
@@ -338,7 +353,7 @@ function inferRequestSyncType(
 }
 
 function isSingleDayWindow(since: string, until: string) {
-  return since.slice(0, 10) === until.slice(0, 10);
+  return normalizeMetaApiDate(since) === normalizeMetaApiDate(until);
 }
 
 async function withMetaSyncJob<T>(input: {
@@ -349,19 +364,21 @@ async function withMetaSyncJob<T>(input: {
   until: string;
   run: () => Promise<T>;
 }) {
+  const normalizedSince = normalizeMetaApiDate(input.since);
+  const normalizedUntil = normalizeMetaApiDate(input.until);
   const accountTimezone =
     input.credentials.accountProfiles[input.accountId]?.timezone ?? null;
   const syncJobId = await createMetaSyncJob({
     businessId: input.credentials.businessId,
     providerAccountId: input.accountId,
     syncType: inferRequestSyncType(
-      input.since,
-      input.until,
+      normalizedSince,
+      normalizedUntil,
       getTodayIsoForTimeZone(accountTimezone)
     ),
     scope: input.scope,
-    startDate: input.since,
-    endDate: input.until,
+    startDate: normalizedSince,
+    endDate: normalizedUntil,
     status: "running",
     progressPercent: 5,
     triggerSource: "request_runtime",
@@ -407,14 +424,16 @@ async function recordMetaRawSnapshot(input: {
   providerHttpStatus?: number | null;
   requestContext?: Record<string, unknown>;
 }) {
+  const normalizedSince = normalizeMetaApiDate(input.since);
+  const normalizedUntil = normalizeMetaApiDate(input.until);
   const profile = input.credentials.accountProfiles[input.accountId];
   return persistMetaRawSnapshot({
     businessId: input.credentials.businessId,
     providerAccountId: input.accountId,
     endpointName: input.endpointName,
     entityScope: input.entityScope,
-    startDate: input.since,
-    endDate: input.until,
+    startDate: normalizedSince,
+    endDate: normalizedUntil,
     accountTimezone: profile?.timezone ?? null,
     accountCurrency: profile?.currency ?? input.credentials.currency,
     payloadJson: input.payload,
@@ -422,8 +441,8 @@ async function recordMetaRawSnapshot(input: {
       businessId: input.credentials.businessId,
       providerAccountId: input.accountId,
       endpointName: input.endpointName,
-      startDate: input.since,
-      endDate: input.until,
+      startDate: normalizedSince,
+      endDate: normalizedUntil,
       payload: input.payload,
     }),
     requestContext: input.requestContext ?? {},
@@ -729,6 +748,8 @@ export async function getCampaigns(
   since: string,
   until: string
 ): Promise<MetaCampaignData[]> {
+  const normalizedSince = normalizeMetaApiDate(since);
+  const normalizedUntil = normalizeMetaApiDate(until);
   const allRows: MetaCampaignData[] = [];
 
   await Promise.all(
@@ -737,15 +758,21 @@ export async function getCampaigns(
         credentials,
         accountId,
         scope: "campaign_daily",
-        since,
-        until,
+        since: normalizedSince,
+        until: normalizedUntil,
         run: async () => {
           const [statusMap, insights] = await Promise.all([
             fetchCampaignStatuses(credentials, accountId, credentials.accessToken),
-            fetchCampaignInsights(credentials, accountId, since, until, credentials.accessToken),
+            fetchCampaignInsights(
+              credentials,
+              accountId,
+              normalizedSince,
+              normalizedUntil,
+              credentials.accessToken
+            ),
           ]);
           const profile = credentials.accountProfiles[accountId];
-          const normalizedDate = since.slice(0, 10);
+          const normalizedDate = normalizedSince;
 
           for (const insight of insights) {
             const campaignId = insight.campaign_id ?? "";
@@ -788,7 +815,7 @@ export async function getCampaigns(
             });
           }
 
-          if (isSingleDayWindow(since, until)) {
+          if (isSingleDayWindow(normalizedSince, normalizedUntil)) {
             const singleDayRows = allRows.filter(
               (row) => row.accountId === accountId
             );
@@ -911,6 +938,8 @@ export async function getAdSets(
   businessId?: string,
   includePrev = false
 ): Promise<MetaAdSetData[]> {
+  const normalizedSince = normalizeMetaApiDate(since);
+  const normalizedUntil = normalizeMetaApiDate(until);
   const results: MetaAdSetData[] = [];
 
   await Promise.all(
@@ -943,7 +972,7 @@ export async function getAdSets(
       );
       insightUrl.searchParams.set(
         "time_range",
-        JSON.stringify({ since, until })
+        JSON.stringify({ since: normalizedSince, until: normalizedUntil })
       );
       insightUrl.searchParams.set("limit", "200");
       insightUrl.searchParams.set("access_token", credentials.accessToken);
@@ -966,8 +995,8 @@ export async function getAdSets(
           accountId,
           endpointName: "adset_statuses",
           entityScope: "adset",
-          since,
-          until,
+          since: normalizedSince,
+          until: normalizedUntil,
           payload: statusJson.data ?? [],
           status: statusRes.ok ? "fetched" : "failed",
           providerHttpStatus: statusRes.status,
@@ -978,8 +1007,8 @@ export async function getAdSets(
           accountId,
           endpointName: "adset_insights",
           entityScope: "adset",
-          since,
-          until,
+          since: normalizedSince,
+          until: normalizedUntil,
           payload: insightJson.data ?? [],
           status: insightRes.ok ? "fetched" : "failed",
           providerHttpStatus: insightRes.status,
@@ -1173,9 +1202,9 @@ export async function getAdSets(
           });
         }
 
-        if (isSingleDayWindow(since, until)) {
+        if (isSingleDayWindow(normalizedSince, normalizedUntil)) {
           const profile = credentials.accountProfiles[accountId];
-          const normalizedDate = since.slice(0, 10);
+          const normalizedDate = normalizedSince;
           const singleDayRows = results.filter((row) => row.accountId === accountId);
           await upsertMetaAdSetDailyRows(
             singleDayRows.map((row) => ({
@@ -1265,6 +1294,8 @@ async function fetchBreakdownRaw(
   until: string,
   breakdowns: string
 ): Promise<RawBreakdownInsight[]> {
+  const normalizedSince = normalizeMetaApiDate(since);
+  const normalizedUntil = normalizeMetaApiDate(until);
   const url = new URL(
     `https://graph.facebook.com/v25.0/${accountId}/insights`
   );
@@ -1274,7 +1305,10 @@ async function fetchBreakdownRaw(
     "fields",
     "spend,clicks,impressions,ctr,cpm,actions,action_values,purchase_roas"
   );
-  url.searchParams.set("time_range", JSON.stringify({ since, until }));
+  url.searchParams.set(
+    "time_range",
+    JSON.stringify({ since: normalizedSince, until: normalizedUntil })
+  );
   url.searchParams.set("limit", "500");
   url.searchParams.set("access_token", accessToken);
 
@@ -1286,8 +1320,8 @@ async function fetchBreakdownRaw(
         accountId,
         endpointName: `breakdown_${breakdowns}`,
         entityScope: "breakdown",
-        since,
-        until,
+        since: normalizedSince,
+        until: normalizedUntil,
         payload: [],
         status: "failed",
         providerHttpStatus: res.status,
@@ -1301,8 +1335,8 @@ async function fetchBreakdownRaw(
       accountId,
       endpointName: `breakdown_${breakdowns}`,
       entityScope: "breakdown",
-      since,
-      until,
+      since: normalizedSince,
+      until: normalizedUntil,
       payload: json.data ?? [],
       status: "fetched",
       providerHttpStatus: res.status,
@@ -1315,8 +1349,8 @@ async function fetchBreakdownRaw(
       accountId,
       endpointName: `breakdown_${breakdowns}`,
       entityScope: "breakdown",
-      since,
-      until,
+      since: normalizedSince,
+      until: normalizedUntil,
       payload: [],
       status: "failed",
       requestContext: { level: "adset", breakdowns },

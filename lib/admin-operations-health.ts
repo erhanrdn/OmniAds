@@ -1,7 +1,7 @@
 import { getDb } from "@/lib/db";
 
 type AuthProvider = "meta" | "google" | "search_console" | "ga4" | "shopify";
-type SyncProvider = "google_ads" | "ga4" | "search_console";
+type SyncProvider = "google_ads" | "meta" | "ga4" | "search_console";
 
 export interface AdminAuthIssueRow {
   businessId: string;
@@ -51,6 +51,10 @@ export interface AdminSyncHealthPayload {
     googleAdsLeasedPartitions?: number;
     googleAdsDeadLetterPartitions?: number;
     googleAdsOldestQueuedPartition?: string | null;
+    metaQueueDepth?: number;
+    metaLeasedPartitions?: number;
+    metaDeadLetterPartitions?: number;
+    metaOldestQueuedPartition?: string | null;
   };
   issues: AdminSyncIssueRow[];
   googleAdsBusinesses?: Array<{
@@ -64,6 +68,24 @@ export interface AdminSyncHealthPayload {
     campaignCompletedDays: number;
     searchTermCompletedDays: number;
     productCompletedDays: number;
+  }>;
+  metaBusinesses?: Array<{
+    businessId: string;
+    businessName: string;
+    queueDepth: number;
+    leasedPartitions: number;
+    retryableFailedPartitions: number;
+    staleLeasePartitions: number;
+    deadLetterPartitions: number;
+    stateRowCount: number;
+    todayAccountRows: number;
+    todayAdsetRows: number;
+    currentDayReference: string | null;
+    oldestQueuedPartition: string | null;
+    latestPartitionActivityAt: string | null;
+    accountCompletedDays: number;
+    adsetCompletedDays: number;
+    creativeCompletedDays: number;
   }>;
 }
 
@@ -152,6 +174,25 @@ interface RawGoogleAdsHealthRow {
   campaign_dead_letter_count: number | string | null;
   search_term_completed_days: number | string | null;
   product_completed_days: number | string | null;
+}
+
+interface RawMetaHealthRow {
+  business_id: string;
+  business_name: string;
+  queue_depth: number | string;
+  leased_partitions: number | string;
+  retryable_failed_partitions: number | string;
+  stale_lease_partitions: number | string;
+  dead_letter_partitions: number | string;
+  state_row_count: number | string;
+  current_day_reference: string | null;
+  oldest_queued_partition: string | null;
+  latest_partition_activity_at: string | null;
+  today_account_rows: number | string;
+  today_adset_rows: number | string;
+  account_completed_days: number | string | null;
+  adset_completed_days: number | string | null;
+  creative_completed_days: number | string | null;
 }
 
 interface RawRevenueWorkspaceRow {
@@ -307,6 +348,7 @@ export function buildAdminSyncHealth(input: {
   jobs: RawSyncJobRow[];
   cooldowns: RawCooldownRow[];
   googleAdsHealth?: RawGoogleAdsHealthRow[];
+  metaHealth?: RawMetaHealthRow[];
 }): AdminSyncHealthPayload {
   const issues: AdminSyncIssueRow[] = [];
   const impactedBusinesses = new Set<string>();
@@ -320,7 +362,12 @@ export function buildAdminSyncHealth(input: {
   let googleAdsLeasedPartitions = 0;
   let googleAdsDeadLetterPartitions = 0;
   let googleAdsOldestQueuedPartition: string | null = null;
+  let metaQueueDepth = 0;
+  let metaLeasedPartitions = 0;
+  let metaDeadLetterPartitions = 0;
+  let metaOldestQueuedPartition: string | null = null;
   const googleAdsBusinesses: NonNullable<AdminSyncHealthPayload["googleAdsBusinesses"]> = [];
+  const metaBusinesses: NonNullable<AdminSyncHealthPayload["metaBusinesses"]> = [];
 
   for (const row of input.jobs) {
     const triggeredMs = new Date(row.triggered_at).getTime();
@@ -443,6 +490,154 @@ export function buildAdminSyncHealth(input: {
     }
   }
 
+  for (const row of input.metaHealth ?? []) {
+    const queueDepth = Number(row.queue_depth ?? 0);
+    const leasedPartitions = Number(row.leased_partitions ?? 0);
+    const retryableFailedPartitions = Number(row.retryable_failed_partitions ?? 0);
+    const staleLeasePartitions = Number(row.stale_lease_partitions ?? 0);
+    const deadLetterPartitions = Number(row.dead_letter_partitions ?? 0);
+    const stateRowCount = Number(row.state_row_count ?? 0);
+    const todayAccountRows = Number(row.today_account_rows ?? 0);
+    const todayAdsetRows = Number(row.today_adset_rows ?? 0);
+    const accountCompletedDays = Number(row.account_completed_days ?? 0);
+    const adsetCompletedDays = Number(row.adset_completed_days ?? 0);
+    const creativeCompletedDays = Number(row.creative_completed_days ?? 0);
+
+    metaBusinesses.push({
+      businessId: row.business_id,
+      businessName: row.business_name,
+      queueDepth,
+      leasedPartitions,
+      retryableFailedPartitions,
+      staleLeasePartitions,
+      deadLetterPartitions,
+      stateRowCount,
+      todayAccountRows,
+      todayAdsetRows,
+      currentDayReference: row.current_day_reference,
+      oldestQueuedPartition: row.oldest_queued_partition,
+      latestPartitionActivityAt: row.latest_partition_activity_at,
+      accountCompletedDays,
+      adsetCompletedDays,
+      creativeCompletedDays,
+    });
+
+    metaQueueDepth += queueDepth;
+    metaLeasedPartitions += leasedPartitions;
+    metaDeadLetterPartitions += deadLetterPartitions;
+    if (
+      row.oldest_queued_partition &&
+      (!metaOldestQueuedPartition ||
+        new Date(row.oldest_queued_partition).getTime() <
+          new Date(metaOldestQueuedPartition).getTime())
+    ) {
+      metaOldestQueuedPartition = row.oldest_queued_partition;
+    }
+
+    if (deadLetterPartitions > 0) {
+      impactedBusinesses.add(row.business_id);
+      issueTypes.push("Meta dead-letter partitions");
+      issues.push({
+        businessId: row.business_id,
+        businessName: row.business_name,
+        provider: "meta",
+        reportType: "queue_dead_letter",
+        status: "failed",
+        detail: `${deadLetterPartitions} Meta partition dead-letter durumunda.`,
+        triggeredAt: row.latest_partition_activity_at,
+        completedAt: row.oldest_queued_partition,
+      });
+    }
+
+    if (stateRowCount === 0 && (queueDepth > 0 || leasedPartitions > 0 || deadLetterPartitions > 0)) {
+      impactedBusinesses.add(row.business_id);
+      issueTypes.push("Meta state missing");
+      issues.push({
+        businessId: row.business_id,
+        businessName: row.business_name,
+        provider: "meta",
+        reportType: "state_missing",
+        status: "failed",
+        detail: `Meta sync state rows are missing. queue=${queueDepth}, leased=${leasedPartitions}, dead=${deadLetterPartitions}`,
+        triggeredAt: row.latest_partition_activity_at,
+        completedAt: row.oldest_queued_partition,
+      });
+    }
+
+    if (staleLeasePartitions > 0) {
+      impactedBusinesses.add(row.business_id);
+      issueTypes.push("Meta stale leases");
+      issues.push({
+        businessId: row.business_id,
+        businessName: row.business_name,
+        provider: "meta",
+        reportType: "stale_lease",
+        status: "running",
+        detail: `${staleLeasePartitions} Meta partitions look stuck in leased/running state and may need cleanup.`,
+        triggeredAt: row.latest_partition_activity_at,
+        completedAt: row.oldest_queued_partition,
+      });
+    }
+
+    if (retryableFailedPartitions > 0) {
+      impactedBusinesses.add(row.business_id);
+      issueTypes.push("Meta retryable failed backlog");
+      issues.push({
+        businessId: row.business_id,
+        businessName: row.business_name,
+        provider: "meta",
+        reportType: "retryable_failed_backlog",
+        status: leasedPartitions > 0 ? "running" : "failed",
+        detail: `${retryableFailedPartitions} Meta partitions failed but are still retryable and should be re-queued automatically.`,
+        triggeredAt: row.latest_partition_activity_at,
+        completedAt: row.oldest_queued_partition,
+      });
+    }
+
+    if (queueDepth > 0 && leasedPartitions === 0) {
+      impactedBusinesses.add(row.business_id);
+      issueTypes.push("Meta queue backlog");
+      issues.push({
+        businessId: row.business_id,
+        businessName: row.business_name,
+        provider: "meta",
+        reportType: "queue_backlog",
+        status: "running",
+        detail: `Meta queue backlog aktif. queued=${queueDepth}, account=${accountCompletedDays}, adsets=${adsetCompletedDays}, creatives=${creativeCompletedDays}`,
+        triggeredAt: row.latest_partition_activity_at,
+        completedAt: row.oldest_queued_partition,
+      });
+      if (!row.latest_partition_activity_at || Date.now() - new Date(row.latest_partition_activity_at).getTime() > 15 * 60 * 1000) {
+        issueTypes.push("Meta queue waiting for worker");
+        issues.push({
+          businessId: row.business_id,
+          businessName: row.business_name,
+          provider: "meta",
+          reportType: "queue_waiting_worker",
+          status: "running",
+          detail: `Meta queue has items but no active worker. queued=${queueDepth}, leased=${leasedPartitions}, latest_activity=${row.latest_partition_activity_at ?? "none"}`,
+          triggeredAt: row.latest_partition_activity_at,
+          completedAt: row.oldest_queued_partition,
+        });
+      }
+    }
+
+    if ((todayAccountRows === 0 || todayAdsetRows === 0) && queueDepth > 0) {
+      impactedBusinesses.add(row.business_id);
+      issueTypes.push("Meta current day missing");
+      issues.push({
+        businessId: row.business_id,
+        businessName: row.business_name,
+        provider: "meta",
+        reportType: "current_day_missing",
+        status: leasedPartitions > 0 ? "running" : "failed",
+        detail: `Meta current-day warehouse rows are missing. reference_day=${row.current_day_reference ?? "unknown"}, today_account_rows=${todayAccountRows}, today_adset_rows=${todayAdsetRows}, queue=${queueDepth}, leased=${leasedPartitions}`,
+        triggeredAt: row.latest_partition_activity_at,
+        completedAt: row.oldest_queued_partition,
+      });
+    }
+  }
+
   return {
     summary: {
       impactedBusinesses: impactedBusinesses.size,
@@ -456,6 +651,10 @@ export function buildAdminSyncHealth(input: {
       googleAdsLeasedPartitions,
       googleAdsDeadLetterPartitions,
       googleAdsOldestQueuedPartition,
+      metaQueueDepth,
+      metaLeasedPartitions,
+      metaDeadLetterPartitions,
+      metaOldestQueuedPartition,
     },
     issues: issues.sort((a, b) => {
       const left = a.triggeredAt ? new Date(a.triggeredAt).getTime() : 0;
@@ -463,6 +662,15 @@ export function buildAdminSyncHealth(input: {
       return right - left;
     }),
     googleAdsBusinesses: googleAdsBusinesses.sort((a, b) => {
+      if (b.deadLetterPartitions !== a.deadLetterPartitions) {
+        return b.deadLetterPartitions - a.deadLetterPartitions;
+      }
+      if (b.queueDepth !== a.queueDepth) {
+        return b.queueDepth - a.queueDepth;
+      }
+      return a.businessName.localeCompare(b.businessName);
+    }),
+    metaBusinesses: metaBusinesses.sort((a, b) => {
       if (b.deadLetterPartitions !== a.deadLetterPartitions) {
         return b.deadLetterPartitions - a.deadLetterPartitions;
       }
@@ -611,7 +819,12 @@ async function readGoogleAdsHealthRows() {
       b.name AS business_name,
       COUNT(*) FILTER (WHERE partition.status = 'queued') AS queue_depth,
       COUNT(*) FILTER (WHERE partition.status IN ('leased', 'running')) AS leased_partitions,
+      COUNT(*) FILTER (
+        WHERE partition.status IN ('leased', 'running')
+          AND partition.updated_at < now() - interval '15 minutes'
+      ) AS stale_lease_partitions,
       COUNT(*) FILTER (WHERE partition.status = 'dead_letter') AS dead_letter_partitions,
+      COUNT(DISTINCT CONCAT(state.provider_account_id, ':', state.scope)) AS state_row_count,
       MIN(partition.partition_date) FILTER (WHERE partition.status = 'queued') AS oldest_queued_partition,
       MAX(partition.updated_at) AS latest_partition_activity_at,
       MAX(state.completed_days) FILTER (WHERE state.scope = 'campaign_daily') AS campaign_completed_days,
@@ -627,6 +840,65 @@ async function readGoogleAdsHealthRows() {
     HAVING COUNT(*) > 0
     ORDER BY dead_letter_partitions DESC, queue_depth DESC, latest_partition_activity_at DESC
   `) as RawGoogleAdsHealthRow[];
+}
+
+async function readMetaHealthRows() {
+  const sql = getDb();
+  return (await sql`
+    SELECT
+      partition.business_id,
+      b.name AS business_name,
+      COUNT(*) FILTER (WHERE partition.status = 'queued') AS queue_depth,
+      COUNT(*) FILTER (WHERE partition.status IN ('leased', 'running')) AS leased_partitions,
+      COUNT(*) FILTER (WHERE partition.status = 'failed') AS retryable_failed_partitions,
+      COUNT(*) FILTER (
+        WHERE partition.status IN ('leased', 'running')
+          AND partition.updated_at < now() - interval '15 minutes'
+      ) AS stale_lease_partitions,
+      COUNT(*) FILTER (WHERE partition.status = 'dead_letter') AS dead_letter_partitions,
+      COUNT(DISTINCT CONCAT(state.provider_account_id, ':', state.scope)) AS state_row_count,
+      MIN(partition.partition_date) FILTER (WHERE partition.status = 'queued') AS oldest_queued_partition,
+      MAX(partition.updated_at) AS latest_partition_activity_at,
+      (
+        SELECT MAX(today_partition.partition_date)
+        FROM meta_sync_partitions today_partition
+        WHERE today_partition.business_id = partition.business_id
+          AND today_partition.source = 'today'
+      ) AS current_day_reference,
+      (
+        SELECT COUNT(*)::int
+        FROM meta_account_daily account_daily
+        WHERE account_daily.business_id = partition.business_id
+          AND account_daily.date = (
+            SELECT MAX(today_partition.partition_date)
+            FROM meta_sync_partitions today_partition
+            WHERE today_partition.business_id = partition.business_id
+              AND today_partition.source = 'today'
+          )
+      ) AS today_account_rows,
+      (
+        SELECT COUNT(*)::int
+        FROM meta_adset_daily adset_daily
+        WHERE adset_daily.business_id = partition.business_id
+          AND adset_daily.date = (
+            SELECT MAX(today_partition.partition_date)
+            FROM meta_sync_partitions today_partition
+            WHERE today_partition.business_id = partition.business_id
+              AND today_partition.source = 'today'
+          )
+      ) AS today_adset_rows,
+      MAX(state.completed_days) FILTER (WHERE state.scope = 'account_daily') AS account_completed_days,
+      MAX(state.completed_days) FILTER (WHERE state.scope = 'adset_daily') AS adset_completed_days,
+      MAX(state.completed_days) FILTER (WHERE state.scope = 'creative_daily') AS creative_completed_days
+    FROM meta_sync_partitions partition
+    JOIN businesses b ON b.id::text = partition.business_id
+    LEFT JOIN meta_sync_state state
+      ON state.business_id = partition.business_id
+      AND state.provider_account_id = partition.provider_account_id
+    GROUP BY partition.business_id, b.name
+    HAVING COUNT(*) > 0
+    ORDER BY dead_letter_partitions DESC, queue_depth DESC, latest_partition_activity_at DESC
+  `) as RawMetaHealthRow[];
 }
 
 async function readRevenueWorkspaces() {
@@ -667,12 +939,13 @@ async function readRevenueSubscriptions() {
 }
 
 export async function getAdminOperationsHealth() {
-  const [authRows, syncJobs, cooldowns, googleAdsHealth, revenueWorkspaces, revenueSubscriptions] =
+  const [authRows, syncJobs, cooldowns, googleAdsHealth, metaHealth, revenueWorkspaces, revenueSubscriptions] =
     await Promise.all([
       readAuthRows().catch(() => []),
       readSyncJobs().catch(() => []),
       readActiveCooldowns().catch(() => []),
       readGoogleAdsHealthRows().catch(() => []),
+      readMetaHealthRows().catch(() => []),
       readRevenueWorkspaces().catch(() => []),
       readRevenueSubscriptions().catch(() => []),
     ]);
@@ -682,6 +955,7 @@ export async function getAdminOperationsHealth() {
     jobs: syncJobs,
     cooldowns,
     googleAdsHealth,
+    metaHealth,
   });
   const revenueRisk = buildAdminRevenueRisk({
     workspaces: revenueWorkspaces,

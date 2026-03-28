@@ -554,6 +554,106 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
         sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_jobs_business ON meta_sync_jobs (business_id, triggered_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_jobs_account ON meta_sync_jobs (provider_account_id, triggered_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_jobs_status ON meta_sync_jobs (status, triggered_at DESC)`.catch(() => {}),
+        sql`
+          WITH ranked AS (
+            SELECT
+              id,
+              ROW_NUMBER() OVER (
+                PARTITION BY business_id, provider_account_id, sync_type, scope, start_date, end_date, trigger_source
+                ORDER BY updated_at DESC, triggered_at DESC, id DESC
+              ) AS row_number
+            FROM meta_sync_jobs
+            WHERE status = 'running'
+          )
+          UPDATE meta_sync_jobs job
+          SET
+            status = 'failed',
+            last_error = COALESCE(job.last_error, 'duplicate running sync job cleaned up during migration'),
+            finished_at = now(),
+            updated_at = now()
+          FROM ranked
+          WHERE job.id = ranked.id
+            AND ranked.row_number > 1
+        `.catch(() => {}),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_meta_sync_jobs_running_unique
+          ON meta_sync_jobs (
+            business_id,
+            provider_account_id,
+            sync_type,
+            scope,
+            start_date,
+            end_date,
+            trigger_source
+          )
+          WHERE status = 'running'`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS meta_sync_partitions (
+          id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id         TEXT NOT NULL,
+          provider_account_id TEXT NOT NULL,
+          lane                TEXT NOT NULL CHECK (lane IN ('core', 'extended', 'maintenance')),
+          scope               TEXT NOT NULL,
+          partition_date      DATE NOT NULL,
+          status              TEXT NOT NULL DEFAULT 'queued'
+                              CHECK (status IN ('queued', 'leased', 'running', 'succeeded', 'failed', 'dead_letter', 'cancelled')),
+          priority            INTEGER NOT NULL DEFAULT 0,
+          source              TEXT NOT NULL DEFAULT 'system',
+          lease_owner         TEXT,
+          lease_expires_at    TIMESTAMPTZ,
+          attempt_count       INTEGER NOT NULL DEFAULT 0,
+          next_retry_at       TIMESTAMPTZ,
+          last_error          TEXT,
+          created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+          started_at          TIMESTAMPTZ,
+          finished_at         TIMESTAMPTZ,
+          updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider_account_id, lane, scope, partition_date)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_partitions_queue
+          ON meta_sync_partitions (business_id, lane, status, priority DESC, partition_date DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_partitions_lease
+          ON meta_sync_partitions (status, lease_expires_at, next_retry_at, updated_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS meta_sync_runs (
+          id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          partition_id        UUID REFERENCES meta_sync_partitions(id) ON DELETE CASCADE,
+          business_id         TEXT NOT NULL,
+          provider_account_id TEXT NOT NULL,
+          lane                TEXT NOT NULL CHECK (lane IN ('core', 'extended', 'maintenance')),
+          scope               TEXT NOT NULL,
+          partition_date      DATE NOT NULL,
+          status              TEXT NOT NULL CHECK (status IN ('running', 'succeeded', 'failed', 'cancelled')),
+          worker_id           TEXT,
+          attempt_count       INTEGER NOT NULL DEFAULT 0,
+          row_count           INTEGER,
+          duration_ms         INTEGER,
+          error_class         TEXT,
+          error_message       TEXT,
+          meta_json           JSONB NOT NULL DEFAULT '{}'::jsonb,
+          started_at          TIMESTAMPTZ,
+          finished_at         TIMESTAMPTZ,
+          created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_runs_partition ON meta_sync_runs (partition_id, created_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_runs_business ON meta_sync_runs (business_id, created_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS meta_sync_state (
+          business_id                   TEXT NOT NULL,
+          provider_account_id           TEXT NOT NULL,
+          scope                         TEXT NOT NULL,
+          historical_target_start       DATE NOT NULL,
+          historical_target_end         DATE NOT NULL,
+          effective_target_start        DATE NOT NULL,
+          effective_target_end          DATE NOT NULL,
+          ready_through_date            DATE,
+          last_successful_partition_date DATE,
+          latest_background_activity_at TIMESTAMPTZ,
+          latest_successful_sync_at     TIMESTAMPTZ,
+          completed_days                INTEGER NOT NULL DEFAULT 0,
+          dead_letter_count             INTEGER NOT NULL DEFAULT 0,
+          updated_at                    TIMESTAMPTZ NOT NULL DEFAULT now(),
+          PRIMARY KEY (business_id, provider_account_id, scope)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_state_business
+          ON meta_sync_state (business_id, scope, updated_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS meta_raw_snapshots (
           id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id          TEXT NOT NULL,

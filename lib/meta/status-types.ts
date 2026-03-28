@@ -23,6 +23,8 @@ export interface MetaStatusResponse {
     | "connected_no_assignment"
     | "syncing"
     | "partial"
+    | "stale"
+    | "paused"
     | "action_required"
     | "ready";
   connected: boolean;
@@ -35,6 +37,27 @@ export interface MetaStatusResponse {
     firstDate: string | null;
     lastDate: string | null;
     coverage?: {
+      historical?: {
+        completedDays: number;
+        totalDays: number;
+        readyThroughDate: string | null;
+      } | null;
+      selectedRange?: {
+        startDate: string;
+        endDate: string;
+        completedDays: number;
+        totalDays: number;
+        readyThroughDate: string | null;
+        isComplete: boolean;
+      } | null;
+      scopes?: Array<{
+        scope: string;
+        completedDays: number;
+        totalDays: number;
+        readyThroughDate: string | null;
+        latestBackgroundActivityAt: string | null;
+        deadLetterCount: number;
+      }>;
       accountDaily?: {
         completedDays: number;
         totalDays: number;
@@ -64,6 +87,21 @@ export interface MetaStatusResponse {
   jobHealth?: {
     runningJobs: number;
     staleRunningJobs: number;
+    queueDepth?: number;
+    leasedPartitions?: number;
+    retryableFailedPartitions?: number;
+    deadLetterPartitions?: number;
+    oldestQueuedPartition?: string | null;
+    latestCoreActivityAt?: string | null;
+    latestExtendedActivityAt?: string | null;
+    latestMaintenanceActivityAt?: string | null;
+  } | null;
+  priorityWindow?: {
+    startDate: string;
+    endDate: string;
+    completedDays: number;
+    totalDays: number;
+    isActive: boolean;
   } | null;
   latestSync?: MetaSyncDetails | null;
 }

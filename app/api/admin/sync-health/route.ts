@@ -7,6 +7,9 @@ import {
 import { getAdminOperationsHealth } from "@/lib/admin-operations-health";
 import { refreshGoogleAdsSyncStateForBusiness, scheduleGoogleAdsBackgroundSync, syncGoogleAdsReports } from "@/lib/sync/google-ads-sync";
 import type { GoogleAdsWarehouseScope } from "@/lib/google-ads/warehouse-types";
+import { cleanupMetaPartitionOrchestration, replayMetaDeadLetterPartitions } from "@/lib/meta/warehouse";
+import { refreshMetaSyncStateForBusiness, syncMetaReports } from "@/lib/sync/meta-sync";
+import type { MetaWarehouseScope } from "@/lib/meta/warehouse-types";
 
 const GOOGLE_ADS_RECOVERY_SCOPES: GoogleAdsWarehouseScope[] = [
   "account_daily",
@@ -21,6 +24,13 @@ const GOOGLE_ADS_RECOVERY_SCOPES: GoogleAdsWarehouseScope[] = [
   "geo_daily",
   "device_daily",
   "product_daily",
+];
+
+const META_RECOVERY_SCOPES: MetaWarehouseScope[] = [
+  "account_daily",
+  "adset_daily",
+  "creative_daily",
+  "ad_daily",
 ];
 
 export async function GET(request: NextRequest) {
@@ -60,11 +70,50 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (body.provider !== "google_ads") {
+    if (body.provider !== "google_ads" && body.provider !== "meta") {
       return NextResponse.json(
-        { error: "Only google_ads recovery actions are supported in this endpoint." },
+        { error: "Only google_ads and meta recovery actions are supported in this endpoint." },
         { status: 400 }
       );
+    }
+
+    if (body.provider === "meta") {
+      if (body.action === "cleanup") {
+        const result = await cleanupMetaPartitionOrchestration({
+          businessId: body.businessId,
+        });
+        return NextResponse.json({ ok: true, action: body.action, provider: body.provider, result });
+      }
+
+      if (body.action === "replay_dead_letter") {
+        const scope =
+          body.scope && META_RECOVERY_SCOPES.includes(body.scope as MetaWarehouseScope)
+            ? (body.scope as MetaWarehouseScope)
+            : null;
+        const result = await replayMetaDeadLetterPartitions({
+          businessId: body.businessId,
+          scope,
+        });
+        const syncResult = await syncMetaReports(body.businessId);
+        return NextResponse.json({
+          ok: true,
+          action: body.action,
+          provider: body.provider,
+          replayedCount: result.length,
+          result,
+          syncResult,
+        });
+      }
+
+      if (body.action === "refresh_state") {
+        await refreshMetaSyncStateForBusiness({ businessId: body.businessId });
+        return NextResponse.json({ ok: true, action: body.action, provider: body.provider });
+      }
+
+      if (body.action === "reschedule") {
+        const result = await syncMetaReports(body.businessId);
+        return NextResponse.json({ ok: true, action: body.action, provider: body.provider, result });
+      }
     }
 
     if (body.action === "cleanup") {

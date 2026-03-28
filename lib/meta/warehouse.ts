@@ -7,15 +7,39 @@ import type {
   MetaAdSetDailyRow,
   MetaCampaignDailyRow,
   MetaCreativeDailyRow,
+  MetaPartitionStatus,
   MetaRawSnapshotRecord,
   MetaSyncJobRecord,
+  MetaSyncPartitionRecord,
+  MetaSyncRunRecord,
+  MetaSyncStateRecord,
   MetaWarehouseDataState,
   MetaWarehouseFreshness,
   MetaWarehouseMetricSet,
+  MetaWarehouseScope,
 } from "@/lib/meta/warehouse-types";
 
-function normalizeDate(value: string) {
-  return value.slice(0, 10);
+function normalizeDate(value: unknown) {
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  const text = String(value ?? "").trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+  const parsed = new Date(text);
+  if (Number.isFinite(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+  return text.slice(0, 10);
+}
+
+function normalizeTimestamp(value: unknown) {
+  if (!value) return null;
+  if (value instanceof Date) return value.toISOString();
+  const text = String(value).trim();
+  const parsed = new Date(text);
+  if (Number.isFinite(parsed.getTime())) return parsed.toISOString();
+  return text;
+}
+
+function toNumber(value: unknown) {
+  const parsed = typeof value === "number" ? value : Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 export function buildMetaRawSnapshotHash(input: {
@@ -79,8 +103,9 @@ export function mergeMetaWarehouseState(
     action_required: 2,
     syncing: 3,
     stale: 4,
-    partial: 5,
-    ready: 6,
+    paused: 5,
+    partial: 6,
+    ready: 7,
   };
   return priority[next] > priority[current] ? next : current;
 }
@@ -166,6 +191,425 @@ export async function updateMetaSyncJob(input: {
   `;
 }
 
+export async function queueMetaSyncPartition(input: MetaSyncPartitionRecord) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = await sql`
+    INSERT INTO meta_sync_partitions (
+      business_id,
+      provider_account_id,
+      lane,
+      scope,
+      partition_date,
+      status,
+      priority,
+      source,
+      lease_owner,
+      lease_expires_at,
+      attempt_count,
+      next_retry_at,
+      last_error,
+      started_at,
+      finished_at,
+      updated_at
+    )
+    VALUES (
+      ${input.businessId},
+      ${input.providerAccountId},
+      ${input.lane},
+      ${input.scope},
+      ${normalizeDate(input.partitionDate)},
+      ${input.status},
+      ${input.priority},
+      ${input.source},
+      ${input.leaseOwner ?? null},
+      ${input.leaseExpiresAt ?? null},
+      ${input.attemptCount},
+      ${input.nextRetryAt ?? null},
+      ${input.lastError ?? null},
+      ${input.startedAt ?? null},
+      ${input.finishedAt ?? null},
+      now()
+    )
+    ON CONFLICT (business_id, provider_account_id, lane, scope, partition_date)
+    DO UPDATE SET
+      priority = GREATEST(meta_sync_partitions.priority, EXCLUDED.priority),
+      source = CASE
+        WHEN meta_sync_partitions.source = 'priority_window' THEN meta_sync_partitions.source
+        WHEN EXCLUDED.source = 'priority_window' THEN EXCLUDED.source
+        ELSE meta_sync_partitions.source
+      END,
+      status = CASE
+        WHEN EXCLUDED.source IN ('priority_window', 'recent', 'today', 'request_runtime')
+          AND meta_sync_partitions.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
+          THEN 'queued'
+        ELSE meta_sync_partitions.status
+      END,
+      lease_owner = CASE
+        WHEN EXCLUDED.source IN ('priority_window', 'recent', 'today', 'request_runtime')
+          AND meta_sync_partitions.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
+          THEN NULL
+        ELSE meta_sync_partitions.lease_owner
+      END,
+      lease_expires_at = CASE
+        WHEN EXCLUDED.source IN ('priority_window', 'recent', 'today', 'request_runtime')
+          AND meta_sync_partitions.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
+          THEN NULL
+        ELSE meta_sync_partitions.lease_expires_at
+      END,
+      last_error = CASE
+        WHEN EXCLUDED.source IN ('priority_window', 'recent', 'today', 'request_runtime')
+          AND meta_sync_partitions.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
+          THEN NULL
+        ELSE meta_sync_partitions.last_error
+      END,
+      next_retry_at = CASE
+        WHEN EXCLUDED.source IN ('priority_window', 'recent', 'today', 'request_runtime')
+          AND meta_sync_partitions.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
+          THEN now()
+        WHEN meta_sync_partitions.status IN ('succeeded', 'running', 'leased')
+          THEN meta_sync_partitions.next_retry_at
+        ELSE LEAST(COALESCE(meta_sync_partitions.next_retry_at, now()), COALESCE(EXCLUDED.next_retry_at, now()))
+      END,
+      updated_at = now()
+    RETURNING id, status
+  ` as Array<{ id: string; status: MetaPartitionStatus }>;
+  return rows[0] ?? null;
+}
+
+export async function leaseMetaSyncPartitions(input: {
+  businessId: string;
+  lane?: "core" | "extended" | "maintenance";
+  workerId: string;
+  limit: number;
+  leaseMinutes?: number;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = await sql`
+    WITH candidates AS (
+      SELECT id
+      FROM meta_sync_partitions
+      WHERE business_id = ${input.businessId}
+        AND (${input.lane ?? null}::text IS NULL OR lane = ${input.lane ?? null})
+        AND (
+          status = 'queued'
+          OR (status = 'failed' AND COALESCE(next_retry_at, now()) <= now())
+          OR (status = 'leased' AND COALESCE(lease_expires_at, now()) <= now())
+        )
+      ORDER BY priority DESC, partition_date DESC, updated_at ASC
+      LIMIT ${Math.max(1, input.limit)}
+      FOR UPDATE SKIP LOCKED
+    )
+    UPDATE meta_sync_partitions partition
+    SET
+      status = 'leased',
+      lease_owner = ${input.workerId},
+      lease_expires_at = now() + (${input.leaseMinutes ?? 5} || ' minutes')::interval,
+      updated_at = now()
+    FROM candidates
+    WHERE partition.id = candidates.id
+    RETURNING
+      partition.id,
+      partition.business_id,
+      partition.provider_account_id,
+      partition.lane,
+      partition.scope,
+      partition.partition_date,
+      partition.status,
+      partition.priority,
+      partition.source,
+      partition.lease_owner,
+      partition.lease_expires_at,
+      partition.attempt_count,
+      partition.next_retry_at,
+      partition.last_error,
+      partition.created_at,
+      partition.started_at,
+      partition.finished_at,
+      partition.updated_at
+  ` as Array<Record<string, unknown>>;
+
+  return rows.map((row) => ({
+    id: String(row.id),
+    businessId: String(row.business_id),
+    providerAccountId: String(row.provider_account_id),
+    lane: String(row.lane) as MetaSyncPartitionRecord["lane"],
+    scope: String(row.scope) as MetaWarehouseScope,
+    partitionDate: normalizeDate(row.partition_date),
+    status: String(row.status) as MetaPartitionStatus,
+    priority: toNumber(row.priority),
+    source: String(row.source),
+    leaseOwner: row.lease_owner ? String(row.lease_owner) : null,
+    leaseExpiresAt: normalizeTimestamp(row.lease_expires_at),
+    attemptCount: toNumber(row.attempt_count),
+    nextRetryAt: normalizeTimestamp(row.next_retry_at),
+    lastError: row.last_error ? String(row.last_error) : null,
+    createdAt: normalizeTimestamp(row.created_at) ?? undefined,
+    startedAt: normalizeTimestamp(row.started_at),
+    finishedAt: normalizeTimestamp(row.finished_at),
+    updatedAt: normalizeTimestamp(row.updated_at) ?? undefined,
+  })) as MetaSyncPartitionRecord[];
+}
+
+export async function markMetaPartitionRunning(input: {
+  partitionId: string;
+  workerId: string;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  await sql`
+    UPDATE meta_sync_partitions
+    SET
+      status = 'running',
+      lease_owner = ${input.workerId},
+      started_at = COALESCE(started_at, now()),
+      lease_expires_at = now() + interval '5 minutes',
+      attempt_count = attempt_count + 1,
+      updated_at = now()
+    WHERE id = ${input.partitionId}
+  `;
+}
+
+export async function completeMetaPartition(input: {
+  partitionId: string;
+  status: Extract<MetaPartitionStatus, "succeeded" | "failed" | "dead_letter" | "cancelled">;
+  lastError?: string | null;
+  retryDelayMinutes?: number;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  await sql`
+    UPDATE meta_sync_partitions
+    SET
+      status = ${input.status},
+      lease_owner = NULL,
+      lease_expires_at = NULL,
+      next_retry_at = CASE
+        WHEN ${input.status} = 'failed'
+          THEN now() + (${input.retryDelayMinutes ?? 5} || ' minutes')::interval
+        ELSE NULL
+      END,
+      last_error = ${input.lastError ?? null},
+      finished_at = CASE
+        WHEN ${input.status} IN ('succeeded', 'dead_letter', 'cancelled') THEN now()
+        ELSE finished_at
+      END,
+      updated_at = now()
+    WHERE id = ${input.partitionId}
+  `;
+}
+
+export async function cleanupMetaPartitionOrchestration(input: {
+  businessId: string;
+  staleLeaseMinutes?: number;
+  staleRunMinutes?: number;
+  staleLegacyMinutes?: number;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const stalePartitionRows = await sql`
+    UPDATE meta_sync_partitions
+    SET
+      status = 'failed',
+      lease_owner = NULL,
+      lease_expires_at = NULL,
+      next_retry_at = now() + interval '3 minutes',
+      last_error = COALESCE(last_error, 'stale partition lease expired automatically'),
+      updated_at = now()
+    WHERE business_id = ${input.businessId}
+      AND status IN ('leased', 'running')
+      AND COALESCE(lease_expires_at, started_at, updated_at) < now() - (${input.staleLeaseMinutes ?? 8} || ' minutes')::interval
+    RETURNING id
+  ` as Array<Record<string, unknown>>;
+
+  const staleLegacyRows = await sql`
+    UPDATE meta_sync_jobs
+    SET
+      status = 'failed',
+      last_error = COALESCE(last_error, 'legacy meta sync job expired automatically'),
+      finished_at = now(),
+      updated_at = now()
+    WHERE business_id = ${input.businessId}
+      AND status = 'running'
+      AND started_at < now() - (${input.staleLegacyMinutes ?? 15} || ' minutes')::interval
+    RETURNING id
+  ` as Array<Record<string, unknown>>;
+
+  const staleRunRows = await sql`
+    UPDATE meta_sync_runs run
+    SET
+      status = 'failed',
+      error_class = COALESCE(error_class, 'stale_run'),
+      error_message = COALESCE(error_message, 'stale partition run closed automatically'),
+      finished_at = COALESCE(finished_at, now()),
+      duration_ms = COALESCE(
+        duration_ms,
+        GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (now() - COALESCE(started_at, created_at))) * 1000))::int
+      ),
+      updated_at = now()
+    WHERE run.business_id = ${input.businessId}
+      AND run.status = 'running'
+      AND (
+        COALESCE(run.started_at, run.created_at) < now() - (${input.staleRunMinutes ?? 12} || ' minutes')::interval
+        OR EXISTS (
+          SELECT 1
+          FROM meta_sync_partitions partition
+          WHERE partition.id = run.partition_id
+            AND partition.status NOT IN ('leased', 'running')
+        )
+      )
+    RETURNING run.id
+  ` as Array<Record<string, unknown>>;
+
+  return {
+    stalePartitionCount: stalePartitionRows.length,
+    staleRunCount: staleRunRows.length,
+    staleLegacyCount: staleLegacyRows.length,
+  };
+}
+
+export async function createMetaSyncRun(input: MetaSyncRunRecord) {
+  await runMigrations();
+  const sql = getDb();
+  await sql`
+    UPDATE meta_sync_runs
+    SET
+      status = 'cancelled',
+      error_class = COALESCE(error_class, 'superseded_attempt'),
+      error_message = COALESCE(error_message, 'partition attempt was superseded by a newer worker'),
+      finished_at = COALESCE(finished_at, now()),
+      duration_ms = COALESCE(
+        duration_ms,
+        GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (now() - COALESCE(started_at, created_at))) * 1000))::int
+      ),
+      updated_at = now()
+    WHERE partition_id = ${input.partitionId}
+      AND status = 'running'
+  `;
+  const rows = await sql`
+    INSERT INTO meta_sync_runs (
+      partition_id,
+      business_id,
+      provider_account_id,
+      lane,
+      scope,
+      partition_date,
+      status,
+      worker_id,
+      attempt_count,
+      row_count,
+      duration_ms,
+      error_class,
+      error_message,
+      meta_json,
+      started_at,
+      finished_at,
+      updated_at
+    )
+    VALUES (
+      ${input.partitionId},
+      ${input.businessId},
+      ${input.providerAccountId},
+      ${input.lane},
+      ${input.scope},
+      ${normalizeDate(input.partitionDate)},
+      ${input.status},
+      ${input.workerId ?? null},
+      ${input.attemptCount},
+      ${input.rowCount ?? null},
+      ${input.durationMs ?? null},
+      ${input.errorClass ?? null},
+      ${input.errorMessage ?? null},
+      ${JSON.stringify(input.metaJson ?? {})}::jsonb,
+      COALESCE(${input.startedAt ?? null}, now()),
+      ${input.finishedAt ?? null},
+      now()
+    )
+    RETURNING id
+  ` as Array<{ id: string }>;
+  return rows[0]?.id ?? null;
+}
+
+export async function updateMetaSyncRun(input: {
+  id: string;
+  status: MetaSyncRunRecord["status"];
+  rowCount?: number | null;
+  durationMs?: number | null;
+  errorClass?: string | null;
+  errorMessage?: string | null;
+  metaJson?: Record<string, unknown>;
+  finishedAt?: string | null;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  await sql`
+    UPDATE meta_sync_runs
+    SET
+      status = ${input.status},
+      row_count = COALESCE(${input.rowCount ?? null}, row_count),
+      duration_ms = COALESCE(${input.durationMs ?? null}, duration_ms),
+      error_class = COALESCE(${input.errorClass ?? null}, error_class),
+      error_message = COALESCE(${input.errorMessage ?? null}, error_message),
+      meta_json = COALESCE(${input.metaJson ? JSON.stringify(input.metaJson) : null}::jsonb, meta_json),
+      finished_at = COALESCE(${input.finishedAt ?? null}, finished_at),
+      updated_at = now()
+    WHERE id = ${input.id}
+  `;
+}
+
+export async function upsertMetaSyncState(input: MetaSyncStateRecord) {
+  await runMigrations();
+  const sql = getDb();
+  await sql`
+    INSERT INTO meta_sync_state (
+      business_id,
+      provider_account_id,
+      scope,
+      historical_target_start,
+      historical_target_end,
+      effective_target_start,
+      effective_target_end,
+      ready_through_date,
+      last_successful_partition_date,
+      latest_background_activity_at,
+      latest_successful_sync_at,
+      completed_days,
+      dead_letter_count,
+      updated_at
+    )
+    VALUES (
+      ${input.businessId},
+      ${input.providerAccountId},
+      ${input.scope},
+      ${normalizeDate(input.historicalTargetStart)},
+      ${normalizeDate(input.historicalTargetEnd)},
+      ${normalizeDate(input.effectiveTargetStart)},
+      ${normalizeDate(input.effectiveTargetEnd)},
+      ${input.readyThroughDate ? normalizeDate(input.readyThroughDate) : null},
+      ${input.lastSuccessfulPartitionDate ? normalizeDate(input.lastSuccessfulPartitionDate) : null},
+      ${input.latestBackgroundActivityAt ?? null},
+      ${input.latestSuccessfulSyncAt ?? null},
+      ${input.completedDays},
+      ${input.deadLetterCount},
+      now()
+    )
+    ON CONFLICT (business_id, provider_account_id, scope)
+    DO UPDATE SET
+      historical_target_start = EXCLUDED.historical_target_start,
+      historical_target_end = EXCLUDED.historical_target_end,
+      effective_target_start = EXCLUDED.effective_target_start,
+      effective_target_end = EXCLUDED.effective_target_end,
+      ready_through_date = EXCLUDED.ready_through_date,
+      last_successful_partition_date = EXCLUDED.last_successful_partition_date,
+      latest_background_activity_at = EXCLUDED.latest_background_activity_at,
+      latest_successful_sync_at = EXCLUDED.latest_successful_sync_at,
+      completed_days = EXCLUDED.completed_days,
+      dead_letter_count = EXCLUDED.dead_letter_count,
+      updated_at = now()
+  `;
+}
+
 export async function persistMetaRawSnapshot(input: MetaRawSnapshotRecord) {
   await runMigrations();
   const sql = getDb();
@@ -215,59 +659,85 @@ export async function getLatestMetaSyncHealth(input: {
 }) {
   await runMigrations();
   const sql = getDb();
-  const rows = await sql`
-    SELECT
-      id,
-      provider_account_id,
-      sync_type,
-      scope,
-      start_date,
-      end_date,
-      trigger_source,
-      triggered_at,
-      status,
-      last_error,
-      progress_percent,
-      finished_at,
-      started_at,
-      updated_at
-    FROM meta_sync_jobs
-    WHERE business_id = ${input.businessId}
-      AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
-      AND trigger_source <> 'request_runtime'
-    ORDER BY
-      CASE
-        WHEN sync_type IN ('initial_backfill', 'reconnect_backfill') THEN 0
-        WHEN sync_type = 'incremental_recent' THEN 1
-        WHEN sync_type = 'today_refresh' THEN 2
-        ELSE 3
-      END ASC,
-      CASE
-        WHEN status = 'running' THEN 0
-        WHEN status = 'partial' THEN 1
-        WHEN status = 'succeeded' THEN 2
-        ELSE 3
-      END ASC,
-      progress_percent DESC,
-      updated_at DESC
-    LIMIT 1
-  ` as Array<{
-    id: string;
-    provider_account_id: string;
-    sync_type: string;
-    scope: string;
-    start_date: string;
-    end_date: string;
-    trigger_source: string;
-    triggered_at: string;
-    status: string;
-    last_error: string | null;
-    progress_percent: number;
-    finished_at: string | null;
-    started_at: string | null;
-    updated_at: string;
-  }>;
-  return rows[0] ?? null;
+  const [runRows, partitionRows, legacyRows] = await Promise.all([
+    sql`
+      SELECT
+        id,
+        provider_account_id,
+        CASE
+          WHEN lane = 'maintenance' AND scope = 'creative_daily' THEN 'incremental_recent'
+          WHEN lane = 'maintenance' THEN 'today_refresh'
+          ELSE 'initial_backfill'
+        END AS sync_type,
+        scope,
+        partition_date AS start_date,
+        partition_date AS end_date,
+        'background_partition' AS trigger_source,
+        created_at AS triggered_at,
+        status,
+        error_message AS last_error,
+        NULL::double precision AS progress_percent,
+        finished_at,
+        started_at,
+        updated_at
+      FROM meta_sync_runs
+      WHERE business_id = ${input.businessId}
+        AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
+      ORDER BY updated_at DESC
+      LIMIT 1
+    `.catch(() => []) as Promise<Array<Record<string, unknown>>>,
+    sql`
+      SELECT
+        id,
+        provider_account_id,
+        CASE
+          WHEN lane = 'maintenance' AND source = 'today' THEN 'today_refresh'
+          WHEN lane = 'maintenance' THEN 'incremental_recent'
+          WHEN source = 'priority_window' THEN 'repair_window'
+          ELSE 'initial_backfill'
+        END AS sync_type,
+        scope,
+        partition_date AS start_date,
+        partition_date AS end_date,
+        source AS trigger_source,
+        created_at AS triggered_at,
+        status,
+        last_error,
+        NULL::double precision AS progress_percent,
+        finished_at,
+        started_at,
+        updated_at
+      FROM meta_sync_partitions
+      WHERE business_id = ${input.businessId}
+        AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
+      ORDER BY updated_at DESC
+      LIMIT 1
+    `.catch(() => []) as Promise<Array<Record<string, unknown>>>,
+    sql`
+      SELECT
+        id,
+        provider_account_id,
+        sync_type,
+        scope,
+        start_date,
+        end_date,
+        trigger_source,
+        triggered_at,
+        status,
+        last_error,
+        progress_percent,
+        finished_at,
+        started_at,
+        updated_at
+      FROM meta_sync_jobs
+      WHERE business_id = ${input.businessId}
+        AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
+        AND trigger_source <> 'request_runtime'
+      ORDER BY updated_at DESC
+      LIMIT 1
+    `.catch(() => []) as Promise<Array<Record<string, unknown>>>,
+  ]);
+  return runRows[0] ?? partitionRows[0] ?? legacyRows[0] ?? null;
 }
 
 export async function expireStaleMetaSyncJobs(input: {
@@ -303,7 +773,8 @@ export async function hasBlockingMetaSyncJob(input: {
   await runMigrations();
   const sql = getDb();
   const lookbackMinutes = Math.max(5, Math.floor(input.lookbackMinutes ?? 90));
-  const rows = await sql`
+  const [jobRows, partitionRows] = await Promise.all([
+    sql`
     SELECT id
     FROM meta_sync_jobs
     WHERE business_id = ${input.businessId}
@@ -326,8 +797,21 @@ export async function hasBlockingMetaSyncJob(input: {
         OR scope = ANY(${input.scopes ?? null}::text[])
       )
     LIMIT 1
-  ` as Array<{ id: string }>;
-  return rows.length > 0;
+  ` as unknown as Promise<Array<{ id: string }>>,
+    sql`
+      SELECT id
+      FROM meta_sync_partitions
+      WHERE business_id = ${input.businessId}
+        AND status IN ('leased', 'running')
+        AND updated_at > now() - (${lookbackMinutes} || ' minutes')::interval
+        AND (
+          ${input.scopes ?? null}::text[] IS NULL
+          OR scope = ANY(${input.scopes ?? null}::text[])
+        )
+      LIMIT 1
+    ` as unknown as Promise<Array<{ id: string }>>,
+  ]);
+  return jobRows.length > 0 || partitionRows.length > 0;
 }
 
 export async function getMetaSyncJobHealth(input: {
@@ -356,7 +840,115 @@ export async function getMetaSyncJobHealth(input: {
   };
 }
 
-export async function getMetaAccountDailyCoverage(input: {
+export async function getMetaQueueHealth(input: { businessId: string }) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = await sql`
+    SELECT
+      COUNT(*) FILTER (WHERE status = 'queued') AS queue_depth,
+      COUNT(*) FILTER (WHERE status IN ('leased', 'running')) AS leased_partitions,
+      COUNT(*) FILTER (WHERE lane = 'core' AND status = 'queued') AS core_queue_depth,
+      COUNT(*) FILTER (WHERE lane = 'core' AND status IN ('leased', 'running')) AS core_leased_partitions,
+      COUNT(*) FILTER (WHERE lane = 'extended' AND status = 'queued') AS extended_queue_depth,
+      COUNT(*) FILTER (WHERE lane = 'extended' AND status IN ('leased', 'running')) AS extended_leased_partitions,
+      COUNT(*) FILTER (WHERE lane = 'maintenance' AND status = 'queued') AS maintenance_queue_depth,
+      COUNT(*) FILTER (WHERE lane = 'maintenance' AND status IN ('leased', 'running')) AS maintenance_leased_partitions,
+      COUNT(*) FILTER (WHERE status = 'failed') AS retryable_failed_partitions,
+      COUNT(*) FILTER (WHERE status = 'dead_letter') AS dead_letter_partitions,
+      MIN(partition_date) FILTER (WHERE status = 'queued') AS oldest_queued_partition,
+      MAX(updated_at) FILTER (WHERE lane = 'core') AS latest_core_activity_at,
+      MAX(updated_at) FILTER (WHERE lane = 'extended') AS latest_extended_activity_at,
+      MAX(updated_at) FILTER (WHERE lane = 'maintenance') AS latest_maintenance_activity_at
+    FROM meta_sync_partitions
+    WHERE business_id = ${input.businessId}
+  ` as Array<Record<string, unknown>>;
+  const row = rows[0] ?? {};
+  return {
+    queueDepth: toNumber(row.queue_depth),
+    leasedPartitions: toNumber(row.leased_partitions),
+    coreQueueDepth: toNumber(row.core_queue_depth),
+    coreLeasedPartitions: toNumber(row.core_leased_partitions),
+    extendedQueueDepth: toNumber(row.extended_queue_depth),
+    extendedLeasedPartitions: toNumber(row.extended_leased_partitions),
+    maintenanceQueueDepth: toNumber(row.maintenance_queue_depth),
+    maintenanceLeasedPartitions: toNumber(row.maintenance_leased_partitions),
+    retryableFailedPartitions: toNumber(row.retryable_failed_partitions),
+    deadLetterPartitions: toNumber(row.dead_letter_partitions),
+    oldestQueuedPartition: row.oldest_queued_partition ? normalizeDate(row.oldest_queued_partition) : null,
+    latestCoreActivityAt: normalizeTimestamp(row.latest_core_activity_at),
+    latestExtendedActivityAt: normalizeTimestamp(row.latest_extended_activity_at),
+    latestMaintenanceActivityAt: normalizeTimestamp(row.latest_maintenance_activity_at),
+  };
+}
+
+export async function getMetaPartitionHealth(input: {
+  businessId: string;
+  providerAccountId?: string | null;
+  scope?: MetaWarehouseScope | null;
+  lane?: "core" | "extended" | "maintenance" | null;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = await sql`
+    SELECT
+      COUNT(*) FILTER (WHERE status = 'queued') AS queue_depth,
+      COUNT(*) FILTER (WHERE status IN ('leased', 'running')) AS leased_partitions,
+      COUNT(*) FILTER (WHERE status = 'failed') AS retryable_failed_partitions,
+      COUNT(*) FILTER (WHERE status = 'dead_letter') AS dead_letter_partitions,
+      MIN(partition_date) FILTER (WHERE status = 'queued') AS oldest_queued_partition,
+      MAX(updated_at) AS latest_activity_at
+    FROM meta_sync_partitions
+    WHERE business_id = ${input.businessId}
+      AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
+      AND (${input.scope ?? null}::text IS NULL OR scope = ${input.scope ?? null})
+      AND (${input.lane ?? null}::text IS NULL OR lane = ${input.lane ?? null})
+  ` as Array<Record<string, unknown>>;
+  const row = rows[0] ?? {};
+  return {
+    queueDepth: toNumber(row.queue_depth),
+    leasedPartitions: toNumber(row.leased_partitions),
+    retryableFailedPartitions: toNumber(row.retryable_failed_partitions),
+    deadLetterPartitions: toNumber(row.dead_letter_partitions),
+    oldestQueuedPartition: row.oldest_queued_partition ? normalizeDate(row.oldest_queued_partition) : null,
+    latestActivityAt: normalizeTimestamp(row.latest_activity_at),
+  };
+}
+
+export async function requeueMetaRetryableFailedPartitions(input: {
+  businessId: string;
+  limit?: number;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = await sql`
+    WITH candidates AS (
+      SELECT id
+      FROM meta_sync_partitions
+      WHERE business_id = ${input.businessId}
+        AND status = 'failed'
+        AND COALESCE(next_retry_at, now()) <= now()
+      ORDER BY partition_date DESC, updated_at ASC
+      LIMIT ${Math.max(1, input.limit ?? 500)}
+      FOR UPDATE SKIP LOCKED
+    )
+    UPDATE meta_sync_partitions partition
+    SET
+      status = 'queued',
+      lease_owner = NULL,
+      lease_expires_at = NULL,
+      next_retry_at = now(),
+      updated_at = now()
+    FROM candidates
+    WHERE partition.id = candidates.id
+    RETURNING partition.id
+  ` as Array<{ id: string }>;
+
+  return rows.map((row) => row.id);
+}
+
+async function getMetaCoverageForTable(input: {
+  tableName: string;
+  scope: MetaWarehouseScope;
   businessId: string;
   providerAccountId?: string | null;
   startDate: string;
@@ -364,19 +956,80 @@ export async function getMetaAccountDailyCoverage(input: {
 }) {
   await runMigrations();
   const sql = getDb();
-  const rows = await sql`
-    SELECT
-      COUNT(DISTINCT date::date)::int AS completed_days,
-      MAX(date::date)::text AS ready_through_date
-    FROM meta_account_daily
-    WHERE business_id = ${input.businessId}
-      AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
-      AND date::date BETWEEN ${normalizeDate(input.startDate)}::date AND ${normalizeDate(input.endDate)}::date
-  ` as Array<{
-    completed_days: number;
-    ready_through_date: string | null;
-  }>;
-  return rows[0] ?? { completed_days: 0, ready_through_date: null };
+  const [rows, partitionRows] = await Promise.all([
+    sql.query(
+      `
+        SELECT
+          COUNT(DISTINCT date) AS completed_days,
+          COALESCE(MAX(date), NULL) AS ready_through_date,
+          COALESCE(MAX(updated_at), NULL) AS latest_updated_at,
+          COUNT(*) AS total_rows
+        FROM ${input.tableName}
+        WHERE business_id = $1
+          AND date >= $2
+          AND date <= $3
+          AND ($4::text IS NULL OR provider_account_id = $4)
+      `,
+      [
+        input.businessId,
+        normalizeDate(input.startDate),
+        normalizeDate(input.endDate),
+        input.providerAccountId ?? null,
+      ]
+    ) as Promise<Array<Record<string, unknown>>>,
+    sql.query(
+      `
+        SELECT
+          COUNT(DISTINCT partition_date) AS completed_days,
+          COALESCE(MAX(partition_date), NULL) AS ready_through_date,
+          COALESCE(MAX(updated_at), NULL) AS latest_updated_at
+        FROM meta_sync_partitions
+        WHERE business_id = $1
+          AND scope = $2
+          AND partition_date >= $3
+          AND partition_date <= $4
+          AND status = 'succeeded'
+          AND ($5::text IS NULL OR provider_account_id = $5)
+      `,
+      [
+        input.businessId,
+        input.scope,
+        normalizeDate(input.startDate),
+        normalizeDate(input.endDate),
+        input.providerAccountId ?? null,
+      ]
+    ) as Promise<Array<Record<string, unknown>>>,
+  ]);
+  const row = rows[0] ?? {};
+  const partitionRow = partitionRows[0] ?? {};
+  return {
+    completed_days: Math.max(toNumber(row.completed_days), toNumber(partitionRow.completed_days)),
+    ready_through_date:
+      partitionRow.ready_through_date || row.ready_through_date
+        ? normalizeDate(partitionRow.ready_through_date ?? row.ready_through_date)
+        : null,
+    latest_updated_at:
+      partitionRow.latest_updated_at || row.latest_updated_at
+        ? normalizeTimestamp(partitionRow.latest_updated_at ?? row.latest_updated_at)
+        : null,
+    total_rows: toNumber(row.total_rows),
+  };
+}
+
+export async function getMetaAccountDailyCoverage(input: {
+  businessId: string;
+  providerAccountId?: string | null;
+  startDate: string;
+  endDate: string;
+}) {
+  return getMetaCoverageForTable({
+    tableName: "meta_account_daily",
+    scope: "account_daily",
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    startDate: input.startDate,
+    endDate: input.endDate,
+  });
 }
 
 export async function getMetaAdSetDailyCoverage(input: {
@@ -385,21 +1038,14 @@ export async function getMetaAdSetDailyCoverage(input: {
   startDate: string;
   endDate: string;
 }) {
-  await runMigrations();
-  const sql = getDb();
-  const rows = await sql`
-    SELECT
-      COUNT(DISTINCT date::date)::int AS completed_days,
-      MAX(date::date)::text AS ready_through_date
-    FROM meta_adset_daily
-    WHERE business_id = ${input.businessId}
-      AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
-      AND date::date BETWEEN ${normalizeDate(input.startDate)}::date AND ${normalizeDate(input.endDate)}::date
-  ` as Array<{
-    completed_days: number;
-    ready_through_date: string | null;
-  }>;
-  return rows[0] ?? { completed_days: 0, ready_through_date: null };
+  return getMetaCoverageForTable({
+    tableName: "meta_adset_daily",
+    scope: "adset_daily",
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    startDate: input.startDate,
+    endDate: input.endDate,
+  });
 }
 
 export async function getMetaAdDailyCoverage(input: {
@@ -408,21 +1054,14 @@ export async function getMetaAdDailyCoverage(input: {
   startDate: string;
   endDate: string;
 }) {
-  await runMigrations();
-  const sql = getDb();
-  const rows = await sql`
-    SELECT
-      COUNT(DISTINCT date::date)::int AS completed_days,
-      MAX(date::date)::text AS ready_through_date
-    FROM meta_ad_daily
-    WHERE business_id = ${input.businessId}
-      AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
-      AND date::date BETWEEN ${normalizeDate(input.startDate)}::date AND ${normalizeDate(input.endDate)}::date
-  ` as Array<{
-    completed_days: number;
-    ready_through_date: string | null;
-  }>;
-  return rows[0] ?? { completed_days: 0, ready_through_date: null };
+  return getMetaCoverageForTable({
+    tableName: "meta_ad_daily",
+    scope: "ad_daily",
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    startDate: input.startDate,
+    endDate: input.endDate,
+  });
 }
 
 export async function getMetaCreativeDailyCoverage(input: {
@@ -431,21 +1070,14 @@ export async function getMetaCreativeDailyCoverage(input: {
   startDate: string;
   endDate: string;
 }) {
-  await runMigrations();
-  const sql = getDb();
-  const rows = await sql`
-    SELECT
-      COUNT(DISTINCT date::date)::int AS completed_days,
-      MAX(date::date)::text AS ready_through_date
-    FROM meta_creative_daily
-    WHERE business_id = ${input.businessId}
-      AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
-      AND date::date BETWEEN ${normalizeDate(input.startDate)}::date AND ${normalizeDate(input.endDate)}::date
-  ` as Array<{
-    completed_days: number;
-    ready_through_date: string | null;
-  }>;
-  return rows[0] ?? { completed_days: 0, ready_through_date: null };
+  return getMetaCoverageForTable({
+    tableName: "meta_creative_daily",
+    scope: "creative_daily",
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    startDate: input.startDate,
+    endDate: input.endDate,
+  });
 }
 
 export async function getMetaAdDailyPreviewCoverage(input: {
@@ -527,6 +1159,83 @@ export async function getMetaRawSnapshotCoverageByEndpoint(input: {
     });
   }
   return map;
+}
+
+export async function replayMetaDeadLetterPartitions(input: {
+  businessId: string;
+  scope?: MetaWarehouseScope | null;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = await sql`
+    UPDATE meta_sync_partitions
+    SET
+      status = 'queued',
+      lease_owner = NULL,
+      lease_expires_at = NULL,
+      next_retry_at = NULL,
+      last_error = NULL,
+      updated_at = now()
+    WHERE business_id = ${input.businessId}
+      AND status = 'dead_letter'
+      AND (${input.scope ?? null}::text IS NULL OR scope = ${input.scope ?? null})
+    RETURNING id, lane, scope, partition_date
+  ` as Array<Record<string, unknown>>;
+  return rows.map((row) => ({
+    id: String(row.id),
+    lane: String(row.lane),
+    scope: String(row.scope),
+    partitionDate: normalizeDate(row.partition_date),
+  }));
+}
+
+export async function getMetaSyncState(input: {
+  businessId: string;
+  providerAccountId?: string | null;
+  scope: MetaWarehouseScope;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = await sql`
+    SELECT
+      business_id,
+      provider_account_id,
+      scope,
+      historical_target_start,
+      historical_target_end,
+      effective_target_start,
+      effective_target_end,
+      ready_through_date,
+      last_successful_partition_date,
+      latest_background_activity_at,
+      latest_successful_sync_at,
+      completed_days,
+      dead_letter_count,
+      updated_at
+    FROM meta_sync_state
+    WHERE business_id = ${input.businessId}
+      AND scope = ${input.scope}
+      AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
+    ORDER BY updated_at DESC
+  ` as Array<Record<string, unknown>>;
+  return rows.map((row) => ({
+    businessId: String(row.business_id),
+    providerAccountId: String(row.provider_account_id),
+    scope: String(row.scope) as MetaWarehouseScope,
+    historicalTargetStart: normalizeDate(row.historical_target_start),
+    historicalTargetEnd: normalizeDate(row.historical_target_end),
+    effectiveTargetStart: normalizeDate(row.effective_target_start),
+    effectiveTargetEnd: normalizeDate(row.effective_target_end),
+    readyThroughDate: row.ready_through_date ? normalizeDate(row.ready_through_date) : null,
+    lastSuccessfulPartitionDate: row.last_successful_partition_date
+      ? normalizeDate(row.last_successful_partition_date)
+      : null,
+    latestBackgroundActivityAt: normalizeTimestamp(row.latest_background_activity_at),
+    latestSuccessfulSyncAt: normalizeTimestamp(row.latest_successful_sync_at),
+    completedDays: toNumber(row.completed_days),
+    deadLetterCount: toNumber(row.dead_letter_count),
+    updatedAt: normalizeTimestamp(row.updated_at) ?? undefined,
+  })) as MetaSyncStateRecord[];
 }
 
 export async function getMetaAccountDailyStats(input: {

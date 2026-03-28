@@ -3,25 +3,28 @@ import { requireBusinessAccess } from "@/lib/access";
 import { getIntegration } from "@/lib/integrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import {
-  getMetaAdDailyPreviewCoverage,
-  getMetaCreativeDailyCoverage,
-  getMetaAdSetDailyCoverage,
   getLatestMetaSyncHealth,
   getMetaAccountDailyCoverage,
   getMetaAccountDailyStats,
+  getMetaAdDailyPreviewCoverage,
+  getMetaAdSetDailyCoverage,
+  getMetaCreativeDailyCoverage,
+  getMetaQueueHealth,
   getMetaRawSnapshotCoverageByEndpoint,
   getMetaSyncJobHealth,
+  getMetaSyncState,
 } from "@/lib/meta/warehouse";
 import { resolveMetaCredentials } from "@/lib/api/meta";
-import {
-  META_WAREHOUSE_HISTORY_DAYS,
-  dayCountInclusive,
-} from "@/lib/meta/history";
+import { META_WAREHOUSE_HISTORY_DAYS, dayCountInclusive } from "@/lib/meta/history";
+import { getMetaBreakdownSupportedStart, META_BREAKDOWN_MAX_HISTORY_DAYS } from "@/lib/meta/constraints";
+
 const META_BREAKDOWN_ENDPOINTS = [
   "breakdown_age",
   "breakdown_country",
   "breakdown_publisher_platform,platform_position,impression_device",
 ] as const;
+
+const META_STATE_SCOPES = ["account_daily", "adset_daily", "creative_daily", "ad_daily"] as const;
 
 function getTodayIsoForTimeZoneServer(timeZone: string): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -42,38 +45,46 @@ function addDays(date: Date, days: number) {
   return next;
 }
 
-function buildPhaseLabel(syncType?: string | null) {
-  switch (syncType) {
-    case "initial_backfill":
-      return "Historical backfill";
-    case "incremental_recent":
-      return "Recent window refresh";
-    case "today_refresh":
-      return "Today refresh";
-    case "repair_window":
-      return "Repairing missing dates";
-    case "reconnect_backfill":
-      return "Reconnect backfill";
-    default:
-      return "Preparing historical data";
+function buildPhaseLabel(input: {
+  selectedRangeIncomplete: boolean;
+  selectedRangeIsToday: boolean;
+  historicalQueuePaused: boolean;
+  staleLeasedQueue: boolean;
+  stateMissingWhileQueued: boolean;
+  overallCompletedDays: number;
+  totalDays: number;
+  latestSyncType?: string | null;
+}) {
+  if (input.staleLeasedQueue) return "Meta sync is catching up";
+  if (input.stateMissingWhileQueued) return "Meta queue is waiting for a worker";
+  if (input.selectedRangeIncomplete && input.selectedRangeIsToday) return "Preparing today's data";
+  if (input.selectedRangeIncomplete) return "Preparing selected dates";
+  if (input.historicalQueuePaused) return "Historical sync is paused";
+  if (input.overallCompletedDays < input.totalDays) return "Backfilling historical data";
+  if (input.latestSyncType === "incremental_recent" || input.latestSyncType === "today_refresh") {
+    return "Syncing recent history";
   }
+  return "Ready";
 }
 
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const businessId = url.searchParams.get("businessId");
+  const selectedStartDate = url.searchParams.get("startDate");
+  const selectedEndDate = url.searchParams.get("endDate");
 
   const access = await requireBusinessAccess({ request, businessId });
   if ("error" in access) return access.error;
 
-  const [integration, assignments, latestSync, accountStats, credentials, jobHealth] = await Promise.all([
-    getIntegration(businessId!, "meta").catch(() => null),
-    getProviderAccountAssignments(businessId!, "meta").catch(() => null),
-    getLatestMetaSyncHealth({ businessId: businessId!, providerAccountId: null }).catch(() => null),
-    getMetaAccountDailyStats({ businessId: businessId!, providerAccountId: null }).catch(() => null),
-    resolveMetaCredentials(businessId!).catch(() => null),
-    getMetaSyncJobHealth({ businessId: businessId! }).catch(() => null),
-  ]);
+  const [integration, assignments, latestSync, accountStats, credentials, legacyJobHealth] =
+    await Promise.all([
+      getIntegration(businessId!, "meta").catch(() => null),
+      getProviderAccountAssignments(businessId!, "meta").catch(() => null),
+      getLatestMetaSyncHealth({ businessId: businessId!, providerAccountId: null }).catch(() => null),
+      getMetaAccountDailyStats({ businessId: businessId!, providerAccountId: null }).catch(() => null),
+      resolveMetaCredentials(businessId!).catch(() => null),
+      getMetaSyncJobHealth({ businessId: businessId! }).catch(() => null),
+    ]);
 
   const accountIds = assignments?.account_ids ?? [];
   const connected = Boolean(integration?.status === "connected" && integration?.access_token);
@@ -85,6 +96,7 @@ export async function GET(request: NextRequest) {
   const currentDateInTimezone = primaryAccountTimezone
     ? getTodayIsoForTimeZoneServer(primaryAccountTimezone)
     : null;
+
   const initialBackfillEnd = addDays(
     new Date(`${currentDateInTimezone ?? new Date().toISOString().slice(0, 10)}T00:00:00Z`),
     -1
@@ -97,7 +109,17 @@ export async function GET(request: NextRequest) {
   )
     .toISOString()
     .slice(0, 10);
-  const [initialCoverage, adsetCoverage, creativeCoverage, creativePreviewCoverage, breakdownCoverageByEndpoint] =
+  const historicalTotalDays = dayCountInclusive(initialBackfillStart, initialBackfillEnd);
+  const breakdownHistoricalStart =
+    initialBackfillStart > getMetaBreakdownSupportedStart(initialBackfillEnd)
+      ? initialBackfillStart
+      : getMetaBreakdownSupportedStart(initialBackfillEnd);
+  const effectiveHistoricalTotalDays = Math.min(
+    historicalTotalDays,
+    dayCountInclusive(breakdownHistoricalStart, initialBackfillEnd)
+  );
+
+  const [accountCoverage, adsetCoverage, creativeCoverage, creativePreviewCoverage, breakdownCoverageByEndpoint, queueHealth, ...stateRows] =
     connected && accountIds.length > 0
       ? await Promise.all([
           getMetaAccountDailyCoverage({
@@ -128,72 +150,228 @@ export async function GET(request: NextRequest) {
             businessId: businessId!,
             providerAccountId: null,
             endpointNames: [...META_BREAKDOWN_ENDPOINTS],
-            startDate: initialBackfillStart,
+            startDate: breakdownHistoricalStart,
             endDate: initialBackfillEnd,
           }).catch(() => null),
+          getMetaQueueHealth({ businessId: businessId! }).catch(() => null),
+          ...META_STATE_SCOPES.map((scope) =>
+            getMetaSyncState({ businessId: businessId!, scope }).catch(() => [])
+          ),
         ])
-      : [null, null, null, null, null];
+      : [null, null, null, null, null, null, ...META_STATE_SCOPES.map(() => [])];
 
-  const initialCoverageDays = initialCoverage?.completed_days ?? 0;
-  const initialTotalDays = dayCountInclusive(initialBackfillStart, initialBackfillEnd);
-  const adsetCoverageDays = adsetCoverage?.completed_days ?? 0;
-  const adsetReadyThroughDate = adsetCoverage?.ready_through_date ?? null;
-  const creativeCoverageDays = creativeCoverage?.completed_days ?? 0;
-  const creativeReadyThroughDate = creativeCoverage?.ready_through_date ?? null;
-  const creativePreviewReadyRows = creativePreviewCoverage?.preview_ready_rows ?? 0;
-  const creativeTotalRows = creativePreviewCoverage?.total_rows ?? 0;
-  const creativePreviewReadyPercent =
-    creativeTotalRows > 0
-      ? Math.max(0, Math.min(100, Math.round((creativePreviewReadyRows / creativeTotalRows) * 100)))
-      : 0;
-  const breakdownEndpointCoverage = META_BREAKDOWN_ENDPOINTS.map((endpointName) =>
-    breakdownCoverageByEndpoint?.get(endpointName) ?? { completed_days: 0, ready_through_date: null }
+  const statesByScope = Object.fromEntries(
+    META_STATE_SCOPES.map((scope, index) => [scope, stateRows[index] ?? []])
+  ) as Record<(typeof META_STATE_SCOPES)[number], Awaited<ReturnType<typeof getMetaSyncState>>>;
+
+  const relevantStates = (scope: (typeof META_STATE_SCOPES)[number]) =>
+    (statesByScope[scope] ?? []).filter((row) =>
+      accountIds.length === 0 ? true : accountIds.includes(row.providerAccountId)
+    );
+
+  const accountDailyStates = relevantStates("account_daily");
+  const adsetDailyStates = relevantStates("adset_daily");
+  const creativeDailyStates = relevantStates("creative_daily");
+  const adDailyStates = relevantStates("ad_daily");
+
+  const breakdownCoverageDays = Math.min(
+    ...META_BREAKDOWN_ENDPOINTS.map(
+      (endpointName) => breakdownCoverageByEndpoint?.get(endpointName)?.completed_days ?? 0
+    )
   );
-  const breakdownCoverageDays =
-    breakdownEndpointCoverage.length > 0
-      ? Math.min(...breakdownEndpointCoverage.map((row) => row.completed_days))
-      : 0;
   const breakdownReadyThroughDate =
-    breakdownEndpointCoverage
-      .map((row) => row.ready_through_date)
+    META_BREAKDOWN_ENDPOINTS.map(
+      (endpointName) => breakdownCoverageByEndpoint?.get(endpointName)?.ready_through_date ?? null
+    )
       .filter((value): value is string => Boolean(value))
-      .sort()[0] ?? null;
-  const overallCompletedDays = Math.min(
-    initialCoverageDays,
-    adsetCoverageDays,
-    breakdownCoverageDays
-  );
-  const pendingSurfaces = [
-    initialCoverageDays < initialTotalDays ? "account_daily" : null,
-    adsetCoverageDays < initialTotalDays ? "adset_daily" : null,
-    breakdownCoverageDays < initialTotalDays ? "breakdowns" : null,
-  ].filter((value): value is string => Boolean(value));
-  const needsBootstrap =
+      .sort((a, b) => a.localeCompare(b))[0] ?? null;
+
+  const overallCompletedDays =
+    accountDailyStates.length > 0 && adsetDailyStates.length > 0
+      ? Math.min(
+          Math.min(...accountDailyStates.map((row) => row.completedDays)),
+          Math.min(...adsetDailyStates.map((row) => row.completedDays)),
+          historicalTotalDays
+        )
+      : Math.min(
+          accountCoverage?.completed_days ?? 0,
+          adsetCoverage?.completed_days ?? 0,
+          historicalTotalDays
+        );
+  const historicalReadyThroughDate =
+    [
+      accountDailyStates
+        .map((row) => row.readyThroughDate)
+        .filter((value): value is string => Boolean(value))
+        .sort((a, b) => a.localeCompare(b))[0] ?? accountCoverage?.ready_through_date ?? null,
+      adsetDailyStates
+        .map((row) => row.readyThroughDate)
+        .filter((value): value is string => Boolean(value))
+        .sort((a, b) => a.localeCompare(b))[0] ?? adsetCoverage?.ready_through_date ?? null,
+    ]
+      .filter((value): value is string => Boolean(value))
+      .sort((a, b) => a.localeCompare(b))[0] ?? null;
+
+  const selectedRangeCoverage =
+    connected && accountIds.length > 0 && selectedStartDate && selectedEndDate
+      ? await getMetaAccountDailyCoverage({
+          businessId: businessId!,
+          providerAccountId: null,
+          startDate: selectedStartDate,
+          endDate: selectedEndDate,
+        }).catch(() => null)
+      : null;
+  const selectedRangeTotalDays =
+    selectedStartDate && selectedEndDate ? dayCountInclusive(selectedStartDate, selectedEndDate) : null;
+  const selectedRangeCompletedDays = selectedRangeCoverage?.completed_days ?? 0;
+  const selectedRangeRequested = Boolean(selectedStartDate && selectedEndDate && selectedRangeTotalDays);
+  const selectedRangeIncomplete =
+    Boolean(selectedRangeTotalDays) && selectedRangeCompletedDays < (selectedRangeTotalDays ?? 0);
+  const selectedRangeIsToday =
+    Boolean(selectedStartDate && selectedEndDate && currentDateInTimezone) &&
+    selectedStartDate === selectedEndDate &&
+    selectedStartDate === currentDateInTimezone;
+
+  const scopeSummaries = [
+    {
+      scope: "account_daily",
+      states: accountDailyStates,
+      fallbackCompletedDays: accountCoverage?.completed_days ?? 0,
+      fallbackReadyThroughDate: accountCoverage?.ready_through_date ?? null,
+    },
+    {
+      scope: "adset_daily",
+      states: adsetDailyStates,
+      fallbackCompletedDays: adsetCoverage?.completed_days ?? 0,
+      fallbackReadyThroughDate: adsetCoverage?.ready_through_date ?? null,
+    },
+    {
+      scope: "creative_daily",
+      states: creativeDailyStates,
+      fallbackCompletedDays: creativeCoverage?.completed_days ?? 0,
+      fallbackReadyThroughDate: creativeCoverage?.ready_through_date ?? null,
+    },
+    {
+      scope: "ad_daily",
+      states: adDailyStates,
+      fallbackCompletedDays: 0,
+      fallbackReadyThroughDate: null,
+    },
+  ].map((entry) => ({
+    scope: entry.scope,
+    completedDays:
+      entry.states.length > 0
+        ? Math.min(...entry.states.map((row) => row.completedDays))
+        : entry.fallbackCompletedDays,
+    totalDays: historicalTotalDays,
+    readyThroughDate:
+      entry.states
+        .map((row) => row.readyThroughDate)
+        .filter((value): value is string => Boolean(value))
+        .sort((a, b) => a.localeCompare(b))[0] ?? entry.fallbackReadyThroughDate,
+    latestBackgroundActivityAt:
+      entry.states
+        .map((row) => row.latestBackgroundActivityAt)
+        .filter((value): value is string => Boolean(value))
+        .sort((a, b) => b.localeCompare(a))[0] ?? null,
+    deadLetterCount:
+      entry.states.length > 0 ? Math.max(...entry.states.map((row) => row.deadLetterCount)) : 0,
+  }));
+
+  const historicalProgressPercent =
+    historicalTotalDays > 0
+      ? Math.min(100, Math.round((overallCompletedDays / historicalTotalDays) * 100))
+      : 0;
+
+  const latestBackgroundActivityAt =
+    queueHealth?.latestCoreActivityAt ??
+    queueHealth?.latestMaintenanceActivityAt ??
+    queueHealth?.latestExtendedActivityAt ??
+    null;
+  const latestBackgroundActivityMs = latestBackgroundActivityAt
+    ? new Date(String(latestBackgroundActivityAt)).getTime()
+    : null;
+  const backgroundRecentlyActive =
+    latestBackgroundActivityMs != null &&
+    Number.isFinite(latestBackgroundActivityMs) &&
+    Date.now() - latestBackgroundActivityMs < 20 * 60 * 1000;
+  const historicalQueuePaused =
     connected &&
     accountIds.length > 0 &&
-    overallCompletedDays < initialTotalDays &&
-    latestSync?.status !== "running";
+    overallCompletedDays < historicalTotalDays &&
+    (queueHealth?.leasedPartitions ?? 0) === 0 &&
+    (queueHealth?.queueDepth ?? 0) > 0 &&
+    !backgroundRecentlyActive;
+  const staleLeasedQueue =
+    connected &&
+    accountIds.length > 0 &&
+    (queueHealth?.leasedPartitions ?? 0) > 0 &&
+    !backgroundRecentlyActive;
+  const stateMissingWhileQueued =
+    connected &&
+    accountIds.length > 0 &&
+    (queueHealth?.queueDepth ?? 0) > 0 &&
+    (queueHealth?.leasedPartitions ?? 0) === 0 &&
+    scopeSummaries.every((summary) => summary.completedDays === 0);
+  const phaseLabel = buildPhaseLabel({
+    selectedRangeIncomplete: Boolean(selectedRangeIncomplete),
+    selectedRangeIsToday,
+    historicalQueuePaused,
+    staleLeasedQueue,
+    stateMissingWhileQueued,
+    overallCompletedDays,
+    totalDays: historicalTotalDays,
+    latestSyncType: latestSync?.sync_type ? String(latestSync.sync_type) : null,
+  });
 
-  const historicalProgressPercent = Math.min(
-    100,
-    Math.round((overallCompletedDays / initialTotalDays) * 100)
-  );
+  const selectedRangeStillPreparing = Boolean(selectedRangeRequested && selectedRangeIncomplete);
+  const overallSyncActive =
+    connected &&
+    accountIds.length > 0 &&
+    (
+      overallCompletedDays < historicalTotalDays ||
+      (queueHealth?.leasedPartitions ?? 0) > 0 ||
+      (queueHealth?.queueDepth ?? 0) > 0 ||
+      (queueHealth?.retryableFailedPartitions ?? 0) > 0
+    );
+  const shouldReportSelectedRangeProgress = selectedRangeStillPreparing;
+  const responseProgressPercent =
+    shouldReportSelectedRangeProgress && selectedRangeTotalDays
+      ? Math.min(100, Math.round((selectedRangeCompletedDays / selectedRangeTotalDays) * 100))
+      : historicalProgressPercent;
+  const responseCompletedDays = shouldReportSelectedRangeProgress
+    ? selectedRangeCompletedDays
+    : overallCompletedDays;
+  const responseTotalDays = shouldReportSelectedRangeProgress
+    ? selectedRangeTotalDays
+    : historicalTotalDays;
+  const responseReadyThroughDate = shouldReportSelectedRangeProgress
+    ? selectedRangeCoverage?.ready_through_date ?? null
+    : historicalReadyThroughDate;
 
   const state = !connected
     ? "not_connected"
     : accountIds.length === 0
       ? "connected_no_assignment"
-      : latestSync?.status === "failed"
+      : (queueHealth?.deadLetterPartitions ?? 0) > 0
         ? "action_required"
-        : historicalProgressPercent >= 100
-          ? "ready"
-        : latestSync?.status === "running" || needsBootstrap
-        ? "syncing"
-        : latestSync?.status === "partial"
-          ? "partial"
-          : pendingSurfaces.length > 0
-            ? "partial"
-            : "ready";
+        : staleLeasedQueue
+          ? "stale"
+        : stateMissingWhileQueued
+          ? "paused"
+        : historicalQueuePaused
+          ? "paused"
+          : (legacyJobHealth?.staleRunningJobs ?? 0) > 0
+            ? "stale"
+            : (queueHealth?.retryableFailedPartitions ?? 0) > 0
+              ? "stale"
+            : overallSyncActive
+              ? "syncing"
+              : selectedRangeRequested && !selectedRangeIncomplete
+                ? "ready"
+                : !selectedRangeIncomplete && historicalProgressPercent >= 100
+                  ? "ready"
+                  : "partial";
 
   return NextResponse.json(
     {
@@ -202,95 +380,112 @@ export async function GET(request: NextRequest) {
       assignedAccountIds: accountIds,
       primaryAccountTimezone,
       currentDateInTimezone,
-      needsBootstrap,
+      needsBootstrap: connected && accountIds.length > 0 && overallCompletedDays < historicalTotalDays,
       warehouse: {
         rowCount: accountStats?.row_count ?? 0,
         firstDate: accountStats?.first_date ?? null,
         lastDate: accountStats?.last_date ?? null,
         coverage: {
+          historical: {
+            completedDays: overallCompletedDays,
+            totalDays: historicalTotalDays,
+            readyThroughDate: historicalReadyThroughDate,
+          },
+          selectedRange:
+            selectedStartDate && selectedEndDate && selectedRangeTotalDays
+              ? {
+                  startDate: selectedStartDate,
+                  endDate: selectedEndDate,
+                  completedDays: selectedRangeCompletedDays,
+                  totalDays: selectedRangeTotalDays,
+                  readyThroughDate: selectedRangeCoverage?.ready_through_date ?? null,
+                  isComplete: !selectedRangeIncomplete,
+                }
+              : null,
+          scopes: scopeSummaries,
           accountDaily: {
-            completedDays: initialCoverageDays,
-            totalDays: initialTotalDays,
-            readyThroughDate: initialCoverage?.ready_through_date ?? null,
+            completedDays: accountCoverage?.completed_days ?? 0,
+            totalDays: historicalTotalDays,
+            readyThroughDate: accountCoverage?.ready_through_date ?? null,
           },
           adsetDaily: {
-            completedDays: adsetCoverageDays,
-            totalDays: initialTotalDays,
-            readyThroughDate: adsetReadyThroughDate,
+            completedDays: adsetCoverage?.completed_days ?? 0,
+            totalDays: historicalTotalDays,
+            readyThroughDate: adsetCoverage?.ready_through_date ?? null,
           },
           breakdowns: {
             completedDays: breakdownCoverageDays,
-            totalDays: initialTotalDays,
+            totalDays: Math.min(historicalTotalDays, META_BREAKDOWN_MAX_HISTORY_DAYS),
             readyThroughDate: breakdownReadyThroughDate,
           },
           creatives: {
-            completedDays: creativeCoverageDays,
-            totalDays: initialTotalDays,
-            readyThroughDate: creativeReadyThroughDate,
-            previewReadyRows: creativePreviewReadyRows,
-            totalRows: creativeTotalRows,
-            previewReadyPercent: creativePreviewReadyPercent,
+            completedDays: creativeCoverage?.completed_days ?? 0,
+            totalDays: historicalTotalDays,
+            readyThroughDate: creativeCoverage?.ready_through_date ?? null,
+            previewReadyRows: creativePreviewCoverage?.preview_ready_rows ?? 0,
+            totalRows: creativePreviewCoverage?.total_rows ?? 0,
+            previewReadyPercent:
+              (creativePreviewCoverage?.total_rows ?? 0) > 0
+                ? Math.round(
+                    ((creativePreviewCoverage?.preview_ready_rows ?? 0) /
+                      (creativePreviewCoverage?.total_rows ?? 1)) *
+                      100
+                  )
+                : 0,
           },
-          pendingSurfaces,
+          pendingSurfaces: scopeSummaries
+            .filter((summary) => summary.completedDays < summary.totalDays)
+            .map((summary) => summary.scope),
         },
       },
-      jobHealth: jobHealth
-        ? {
-            runningJobs: jobHealth.runningJobs,
-            staleRunningJobs: jobHealth.staleRunningJobs,
-          }
-        : null,
-      latestSync: latestSync
-        ? {
-            id: latestSync.id,
-            status: latestSync.status,
-            syncType: latestSync.sync_type,
-            scope: latestSync.scope,
-            startDate: latestSync.start_date,
-            endDate: latestSync.end_date,
-            triggerSource: latestSync.trigger_source,
-            triggeredAt: latestSync.triggered_at,
-            startedAt: latestSync.started_at,
-            finishedAt: latestSync.finished_at,
-            lastError: latestSync.last_error,
-            progressPercent: historicalProgressPercent,
-            completedDays: overallCompletedDays,
-            totalDays: initialTotalDays,
-            readyThroughDate:
-              [
-                initialCoverage?.ready_through_date ?? null,
-                adsetReadyThroughDate,
-                breakdownReadyThroughDate,
-              ].filter((value): value is string => Boolean(value)).sort()[0] ?? accountStats?.last_date ?? null,
-            phaseLabel:
-              needsBootstrap || latestSync.sync_type === "initial_backfill"
-                ? buildPhaseLabel("initial_backfill")
-                : buildPhaseLabel(latestSync.sync_type),
-          }
-        : needsBootstrap
+      jobHealth: {
+        runningJobs: legacyJobHealth?.runningJobs ?? 0,
+        staleRunningJobs: legacyJobHealth?.staleRunningJobs ?? 0,
+        queueDepth: queueHealth?.queueDepth ?? 0,
+        leasedPartitions: queueHealth?.leasedPartitions ?? 0,
+        retryableFailedPartitions: queueHealth?.retryableFailedPartitions ?? 0,
+        deadLetterPartitions: queueHealth?.deadLetterPartitions ?? 0,
+        oldestQueuedPartition: queueHealth?.oldestQueuedPartition ?? null,
+        latestCoreActivityAt: queueHealth?.latestCoreActivityAt ?? null,
+        latestExtendedActivityAt: queueHealth?.latestExtendedActivityAt ?? null,
+        latestMaintenanceActivityAt: queueHealth?.latestMaintenanceActivityAt ?? null,
+      },
+      priorityWindow:
+        selectedStartDate && selectedEndDate && selectedRangeTotalDays
           ? {
-              status: "pending",
-              syncType: "initial_backfill",
-              scope: "account_daily",
-              startDate: initialBackfillStart,
-              endDate: initialBackfillEnd,
-              triggerSource: "initial_connect",
-              triggeredAt: null,
-              startedAt: null,
-              finishedAt: null,
-              lastError: null,
-              progressPercent: historicalProgressPercent,
-              completedDays: overallCompletedDays,
-              totalDays: initialTotalDays,
-              readyThroughDate:
-                [
-                  initialCoverage?.ready_through_date ?? null,
-                  adsetReadyThroughDate,
-                  breakdownReadyThroughDate,
-                ].filter((value): value is string => Boolean(value)).sort()[0] ?? accountStats?.last_date ?? null,
-              phaseLabel: buildPhaseLabel("initial_backfill"),
+              startDate: selectedStartDate,
+              endDate: selectedEndDate,
+              completedDays: selectedRangeCompletedDays,
+              totalDays: selectedRangeTotalDays,
+              isActive: Boolean(selectedRangeIncomplete) && (queueHealth?.leasedPartitions ?? 0) > 0,
             }
           : null,
+      latestSync: latestSync
+        ? {
+            id: latestSync.id ? String(latestSync.id) : null,
+            status: latestSync.status ? String(latestSync.status) : undefined,
+            syncType: latestSync.sync_type ? String(latestSync.sync_type) : null,
+            scope: latestSync.scope ? String(latestSync.scope) : null,
+            startDate: latestSync.start_date ? String(latestSync.start_date).slice(0, 10) : null,
+            endDate: latestSync.end_date ? String(latestSync.end_date).slice(0, 10) : null,
+            triggerSource: latestSync.trigger_source ? String(latestSync.trigger_source) : null,
+            triggeredAt: latestSync.triggered_at ? String(latestSync.triggered_at) : null,
+            startedAt: latestSync.started_at ? String(latestSync.started_at) : null,
+            finishedAt: latestSync.finished_at ? String(latestSync.finished_at) : null,
+            lastError: latestSync.last_error ? String(latestSync.last_error) : null,
+            progressPercent: responseProgressPercent,
+            completedDays: responseCompletedDays,
+            totalDays: responseTotalDays,
+            readyThroughDate: responseReadyThroughDate,
+            phaseLabel: phaseLabel === "Ready" ? null : phaseLabel,
+          }
+        : {
+            progressPercent: responseProgressPercent,
+            completedDays: responseCompletedDays,
+            totalDays: responseTotalDays,
+            readyThroughDate: responseReadyThroughDate,
+            phaseLabel: phaseLabel === "Ready" ? null : phaseLabel,
+          },
     },
     { headers: { "Cache-Control": "no-store" } }
   );

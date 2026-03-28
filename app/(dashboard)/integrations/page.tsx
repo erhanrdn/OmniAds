@@ -23,8 +23,13 @@ import { GA4PropertyPicker } from "@/components/integrations/ga4-property-picker
 import { getProviderLabel } from "@/components/integrations/oauth";
 import { logClientAuthEvent } from "@/lib/auth-diagnostics";
 import { isDemoBusinessId } from "@/lib/demo-business";
+import { usePreferencesStore } from "@/store/preferences-store";
 import { ArrowRight, CheckCircle2, Layers3, Link2, Sparkles } from "lucide-react";
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
+import {
+  formatMetaDateTime,
+  getMetaStatusNotice,
+} from "@/lib/meta/ui";
 
 /** Providers that have real backend OAuth (not mock) */
 const REAL_PROVIDERS: IntegrationProvider[] = [
@@ -112,6 +117,20 @@ async function fetchMetaStatus(businessId: string): Promise<MetaStatusResponse> 
   return payload as MetaStatusResponse;
 }
 
+function getMetaStatusRefetchInterval(status: MetaStatusResponse | undefined) {
+  const state = status?.state;
+  if (state === "syncing" || state === "partial") return 5_000;
+  if (
+    state === "paused" ||
+    state === "stale" ||
+    (status?.jobHealth?.queueDepth ?? 0) > 0 ||
+    (status?.jobHealth?.leasedPartitions ?? 0) > 0
+  ) {
+    return 10_000;
+  }
+  return false;
+}
+
 function hasRenderableProviderViews(
   cards: Array<{ status: string; isConnected: boolean; assignedCount: number }>,
 ) {
@@ -129,6 +148,7 @@ export default function IntegrationsPage() {
   const businessId = selectedBusinessId;
   const activeBusiness =
     businesses.find((item) => item.id === businessId) ?? null;
+  const language = usePreferencesStore((state) => state.language);
 
   const byBusinessId = useIntegrationsStore((state) => state.byBusinessId);
   const domainsByBusinessId = useIntegrationsStore((state) => state.domainsByBusinessId);
@@ -189,10 +209,8 @@ export default function IntegrationsPage() {
     queryKey: ["meta-sync-status", businessId],
     enabled: Boolean(businessId),
     staleTime: 30 * 1000,
-    refetchInterval: (query) => {
-      const state = (query.state.data as MetaStatusResponse | undefined)?.state;
-      return state === "syncing" || state === "partial" ? 5_000 : false;
-    },
+    refetchInterval: (query) =>
+      getMetaStatusRefetchInterval(query.state.data as MetaStatusResponse | undefined),
     queryFn: () => fetchMetaStatus(businessId!),
   });
 
@@ -446,24 +464,19 @@ export default function IntegrationsPage() {
     const assignedIds = assignedAccountsByBusiness[businessId]?.[provider] ?? [];
     let syncNotice: string | null = null;
     let metaSyncStatus: MetaStatusResponse | null = null;
+    let metaSyncLoading = false;
     if (provider === "meta") {
       const status = metaStatusQuery.data;
+      metaSyncLoading = metaStatusQuery.isLoading && !status;
       metaSyncStatus = status ?? null;
-      if (status?.state === "syncing") {
+      if (status?.state === "ready" && status.latestSync?.finishedAt) {
+        const finishedAt = formatMetaDateTime(status.latestSync.finishedAt, language);
         syncNotice =
-          typeof status.latestSync?.progressPercent === "number"
-            ? `Historical data is syncing. Progress: ${status.latestSync.progressPercent}%`
-            : "Historical data is syncing. Ready sections will appear progressively.";
-      } else if (status?.state === "connected_no_assignment") {
-        syncNotice = "Connection is live, but no Meta ad account is assigned to this workspace yet.";
-      } else if (status?.state === "action_required") {
-        syncNotice =
-          status.latestSync?.lastError ??
-          "Meta sync needs attention before historical data can be prepared.";
-      } else if (status?.state === "ready" && status.latestSync?.finishedAt) {
-        syncNotice = `Historical data prepared. Last sync finished ${new Date(
-          status.latestSync.finishedAt
-        ).toLocaleString()}.`;
+          language === "tr"
+            ? `Geçmiş veri hazır. Son senkron ${finishedAt ?? status.latestSync.finishedAt} tarihinde tamamlandı.`
+            : `Historical data is ready. The last sync finished ${finishedAt ?? status.latestSync.finishedAt}.`;
+      } else if (status && status.state !== "action_required") {
+        syncNotice = getMetaStatusNotice(status, language);
       }
     }
     return {
@@ -472,6 +485,7 @@ export default function IntegrationsPage() {
       view,
       syncNotice,
       metaSyncStatus,
+      metaSyncLoading,
     };
   }).filter(
     (item): item is typeof item & { view: NonNullable<typeof item.view> } => Boolean(item.view)
@@ -592,9 +606,11 @@ export default function IntegrationsPage() {
                     key={item.provider}
                     provider={item.provider}
                     description={DESCRIPTIONS[item.provider]}
+                    language={language}
                     view={item.view}
                     syncNotice={item.syncNotice}
                     metaSyncStatus={item.metaSyncStatus}
+                    metaSyncLoading={item.metaSyncLoading}
                     onConnect={handleConnect}
                     onReconnect={(p) => setActiveProvider(p)}
                     onRetry={handleRetry}

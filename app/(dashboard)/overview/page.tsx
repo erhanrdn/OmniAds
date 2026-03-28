@@ -22,6 +22,7 @@ import { usePersistentDateRange } from "@/hooks/use-persistent-date-range";
 import { buildOverviewMetricCatalog } from "@/lib/overview-metric-catalog";
 import { useAppStore } from "@/store/app-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
+import { usePreferencesStore } from "@/store/preferences-store";
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
 import {
   getOverviewSummary,
@@ -50,6 +51,20 @@ async function fetchMetaStatus(businessId: string): Promise<MetaStatusResponse> 
     );
   }
   return payload as MetaStatusResponse;
+}
+
+function getMetaStatusRefetchInterval(status: MetaStatusResponse | undefined) {
+  const state = status?.state;
+  if (state === "syncing" || state === "partial") return 5_000;
+  if (
+    state === "paused" ||
+    state === "stale" ||
+    (status?.jobHealth?.queueDepth ?? 0) > 0 ||
+    (status?.jobHealth?.leasedPartitions ?? 0) > 0
+  ) {
+    return 10_000;
+  }
+  return false;
 }
 
 const PLATFORM_TITLE_META: Record<
@@ -126,10 +141,8 @@ export default function OverviewPage() {
     queryKey: ["overview-meta-status", businessId],
     enabled: Boolean(selectedBusinessId),
     staleTime: 30 * 1000,
-    refetchInterval: (query) => {
-      const state = (query.state.data as MetaStatusResponse | undefined)?.state;
-      return state === "syncing" || state === "partial" ? 5_000 : false;
-    },
+    refetchInterval: (query) =>
+      getMetaStatusRefetchInterval(query.state.data as MetaStatusResponse | undefined),
     queryFn: () => fetchMetaStatus(businessId),
   });
 
@@ -474,6 +487,7 @@ function DataStatusRow({
   onDateRangeChange: (value: DateRangeValue) => void;
   metaStatus?: MetaStatusResponse;
 }) {
+  const language = usePreferencesStore((state) => state.language);
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/60">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -486,7 +500,12 @@ function DataStatusRow({
             <Badge>Active</Badge>
             <span className="text-slate-500">Live API responses with cached provider snapshots.</span>
           </div>
-          <MetaSyncProgress status={metaStatus} variant="inline" className="max-w-full" />
+          <MetaSyncProgress
+            status={metaStatus}
+            language={language}
+            variant="inline"
+            className="max-w-full"
+          />
         </div>
 
         <div className="flex flex-wrap items-center gap-3 lg:justify-end">

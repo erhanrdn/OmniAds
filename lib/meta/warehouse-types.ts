@@ -13,12 +13,24 @@ export type MetaSyncStatus =
   | "failed"
   | "cancelled";
 
+export type MetaSyncLane = "core" | "extended" | "maintenance";
+
+export type MetaPartitionStatus =
+  | "queued"
+  | "leased"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "dead_letter"
+  | "cancelled";
+
 export type MetaWarehouseDataState =
   | "not_connected"
   | "connected_no_assignment"
   | "syncing"
   | "partial"
   | "stale"
+  | "paused"
   | "ready"
   | "action_required";
 
@@ -137,6 +149,66 @@ export interface MetaRawSnapshotRecord {
   status: MetaRawSnapshotStatus;
   fetchedAt?: string;
   createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface MetaSyncPartitionRecord {
+  id?: string;
+  businessId: string;
+  providerAccountId: string;
+  lane: MetaSyncLane;
+  scope: MetaWarehouseScope;
+  partitionDate: string;
+  status: MetaPartitionStatus;
+  priority: number;
+  source: string;
+  leaseOwner?: string | null;
+  leaseExpiresAt?: string | null;
+  attemptCount: number;
+  nextRetryAt?: string | null;
+  lastError?: string | null;
+  createdAt?: string;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  updatedAt?: string;
+}
+
+export interface MetaSyncRunRecord {
+  id?: string;
+  partitionId: string;
+  businessId: string;
+  providerAccountId: string;
+  lane: MetaSyncLane;
+  scope: MetaWarehouseScope;
+  partitionDate: string;
+  status: "running" | "succeeded" | "failed" | "cancelled";
+  workerId?: string | null;
+  attemptCount: number;
+  rowCount?: number | null;
+  durationMs?: number | null;
+  errorClass?: string | null;
+  errorMessage?: string | null;
+  metaJson?: Record<string, unknown>;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface MetaSyncStateRecord {
+  businessId: string;
+  providerAccountId: string;
+  scope: MetaWarehouseScope;
+  historicalTargetStart: string;
+  historicalTargetEnd: string;
+  effectiveTargetStart: string;
+  effectiveTargetEnd: string;
+  readyThroughDate?: string | null;
+  lastSuccessfulPartitionDate?: string | null;
+  latestBackgroundActivityAt?: string | null;
+  latestSuccessfulSyncAt?: string | null;
+  completedDays: number;
+  deadLetterCount: number;
   updatedAt?: string;
 }
 

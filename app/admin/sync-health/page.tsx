@@ -4,11 +4,12 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { RefreshCw } from "lucide-react";
 import { InlineHelp } from "@/components/admin/inline-help";
+import { formatMetaDateTime } from "@/lib/meta/ui";
 
 interface SyncIssueRow {
   businessId: string;
   businessName: string;
-  provider: "google_ads" | "ga4" | "search_console";
+  provider: "google_ads" | "meta" | "ga4" | "search_console";
   reportType: string;
   status: "failed" | "running" | "cooldown";
   detail: string;
@@ -29,6 +30,10 @@ interface SyncHealthPayload {
     googleAdsLeasedPartitions?: number;
     googleAdsDeadLetterPartitions?: number;
     googleAdsOldestQueuedPartition?: string | null;
+    metaQueueDepth?: number;
+    metaLeasedPartitions?: number;
+    metaDeadLetterPartitions?: number;
+    metaOldestQueuedPartition?: string | null;
   };
   issues: SyncIssueRow[];
   googleAdsBusinesses?: Array<{
@@ -43,18 +48,59 @@ interface SyncHealthPayload {
     searchTermCompletedDays: number;
     productCompletedDays: number;
   }>;
+  metaBusinesses?: Array<{
+    businessId: string;
+    businessName: string;
+    queueDepth: number;
+    leasedPartitions: number;
+    retryableFailedPartitions: number;
+    deadLetterPartitions: number;
+    staleLeasePartitions: number;
+    stateRowCount: number;
+    todayAccountRows: number;
+    todayAdsetRows: number;
+    currentDayReference: string | null;
+    oldestQueuedPartition: string | null;
+    latestPartitionActivityAt: string | null;
+    accountCompletedDays: number;
+    adsetCompletedDays: number;
+    creativeCompletedDays: number;
+  }>;
 }
 
 function providerLabel(provider: SyncIssueRow["provider"]) {
   if (provider === "google_ads") return "Google Ads";
+  if (provider === "meta") return "Meta";
   if (provider === "search_console") return "Search Console";
   return "GA4";
 }
 
 function formatDateTime(value: string | null) {
-  if (!value) return "—";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString("tr-TR");
+  return formatMetaDateTime(value, "tr") ?? "—";
+}
+
+function getMetaBusinessSignals(business: NonNullable<SyncHealthPayload["metaBusinesses"]>[number]) {
+  const signals: string[] = [];
+  if (business.deadLetterPartitions > 0) signals.push("Dead letter present");
+  if (business.retryableFailedPartitions > 0) signals.push("Retryable failed backlog");
+  if (business.queueDepth > 0 && business.leasedPartitions === 0) signals.push("Queue waiting for worker");
+  if (business.staleLeasePartitions > 0) signals.push("Stale lease detected");
+  if (business.todayAccountRows === 0 || business.todayAdsetRows === 0) signals.push("Current day missing");
+  if (business.stateRowCount === 0 && (business.queueDepth > 0 || business.leasedPartitions > 0 || business.deadLetterPartitions > 0)) {
+    signals.push("State missing");
+  }
+  return signals;
+}
+
+function formatIssueType(issue: SyncIssueRow) {
+  if (issue.provider !== "meta") return issue.reportType;
+  if (issue.reportType === "queue_waiting_worker") return "queue waiting worker";
+  if (issue.reportType === "stale_lease") return "stale lease";
+  if (issue.reportType === "queue_dead_letter") return "dead letter present";
+  if (issue.reportType === "state_missing") return "state missing";
+  if (issue.reportType === "current_day_missing") return "current day missing";
+  if (issue.reportType === "retryable_failed_backlog") return "retryable failed backlog";
+  return issue.reportType;
 }
 
 const SYNC_HELP: Record<string, string> = {
@@ -136,12 +182,18 @@ export default function AdminSyncHealthPage() {
     googleAdsLeasedPartitions: 0,
     googleAdsDeadLetterPartitions: 0,
     googleAdsOldestQueuedPartition: null,
+    metaQueueDepth: 0,
+    metaLeasedPartitions: 0,
+    metaDeadLetterPartitions: 0,
+    metaOldestQueuedPartition: null,
   };
   const issues = payload?.issues ?? [];
   const googleAdsBusinesses = payload?.googleAdsBusinesses ?? [];
+  const metaBusinesses = payload?.metaBusinesses ?? [];
 
-  async function runGoogleAdsAction(
+  async function runProviderAction(
     businessId: string,
+    provider: "google_ads" | "meta",
     action: "cleanup" | "replay_dead_letter" | "reschedule" | "refresh_state"
   ) {
     setActionState({
@@ -157,7 +209,7 @@ export default function AdminSyncHealthPage() {
           "content-type": "application/json",
         },
         body: JSON.stringify({
-          provider: "google_ads",
+          provider,
           action,
           businessId,
         }),
@@ -213,19 +265,34 @@ export default function AdminSyncHealthPage() {
         <MetricCard label="GAds Queue" value={summary.googleAdsQueueDepth ?? 0} help="Google Ads partition queue depth across all businesses." />
         <MetricCard label="GAds Leased" value={summary.googleAdsLeasedPartitions ?? 0} help="Google Ads partitions currently leased or running." />
         <MetricCard label="GAds Dead" value={summary.googleAdsDeadLetterPartitions ?? 0} help="Google Ads dead-letter partitions that require intervention." />
+        <MetricCard label="Meta Queue" value={summary.metaQueueDepth ?? 0} help="Meta partition queue depth across all businesses." />
+        <MetricCard label="Meta Leased" value={summary.metaLeasedPartitions ?? 0} help="Meta partitions currently leased or running." />
+        <MetricCard label="Meta Dead" value={summary.metaDeadLetterPartitions ?? 0} help="Meta dead-letter partitions that require intervention." />
       </div>
 
       <div className="rounded-xl border border-gray-200 bg-white p-5">
         <p className="text-sm font-semibold text-gray-900">Özet</p>
-        <p className="text-sm text-gray-500 mt-2">
-          {summary.successJobs24h} başarılı job son 24 saatte tamamlandı. En yaygın problem:{" "}
-          <span className="font-medium text-gray-700">{summary.topIssue ?? "Sorun yok"}</span>
-        </p>
-        <p className="text-sm text-gray-500 mt-2">
-          En eski Google Ads queued partition:{" "}
-          <span className="font-medium text-gray-700">{formatDateTime(summary.googleAdsOldestQueuedPartition ?? null)}</span>
-        </p>
-        <p className="text-sm text-gray-500 mt-2">
+        <div className="mt-3 space-y-3 text-sm text-gray-500">
+          <p>
+            {summary.successJobs24h} başarılı job son 24 saatte tamamlandı. En yaygın problem:{" "}
+            <span className="font-medium text-gray-700">{summary.topIssue ?? "Sorun yok"}</span>
+          </p>
+          <div className="grid gap-2 md:grid-cols-2">
+            <p>
+              Google Ads kuyruk sağlığı:
+              <span className="ml-1 font-medium text-gray-700">
+                en eski queued {formatDateTime(summary.googleAdsOldestQueuedPartition ?? null)}
+              </span>
+            </p>
+            <p>
+              Meta kuyruk sağlığı:
+              <span className="ml-1 font-medium text-gray-700">
+                en eski queued {formatDateTime(summary.metaOldestQueuedPartition ?? null)}
+              </span>
+            </p>
+          </div>
+        </div>
+        <p className="text-sm text-gray-500 mt-3">
           Recovery actions are available below for cleanup, dead-letter replay, reschedule, and state refresh.
         </p>
       </div>
@@ -268,23 +335,97 @@ export default function AdminSyncHealthPage() {
                       <ActionButton
                         label="Cleanup"
                         busy={isBusy && actionState.action === "cleanup"}
-                        onClick={() => runGoogleAdsAction(business.businessId, "cleanup")}
+                        onClick={() => runProviderAction(business.businessId, "google_ads", "cleanup")}
                       />
                       <ActionButton
                         label="Replay Dead Letter"
                         busy={isBusy && actionState.action === "replay_dead_letter"}
-                        onClick={() => runGoogleAdsAction(business.businessId, "replay_dead_letter")}
+                        onClick={() => runProviderAction(business.businessId, "google_ads", "replay_dead_letter")}
                       />
                       <ActionButton
                         label="Reschedule"
                         busy={isBusy && actionState.action === "reschedule"}
-                        onClick={() => runGoogleAdsAction(business.businessId, "reschedule")}
+                        onClick={() => runProviderAction(business.businessId, "google_ads", "reschedule")}
                       />
                       <ActionButton
                         label="Refresh State"
                         busy={isBusy && actionState.action === "refresh_state"}
-                        onClick={() => runGoogleAdsAction(business.businessId, "refresh_state")}
+                        onClick={() => runProviderAction(business.businessId, "google_ads", "refresh_state")}
                       />
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-100">
+          <h2 className="text-sm font-semibold text-gray-900">Meta queue recovery</h2>
+          <p className="mt-1 text-sm text-gray-500">
+            Use these controls instead of manual SQL when a Meta queue is stuck.
+          </p>
+        </div>
+        {metaBusinesses.length === 0 ? (
+          <div className="px-5 py-10 text-sm text-gray-400">Meta queue verisi yok.</div>
+        ) : (
+          <div className="divide-y divide-gray-100">
+            {metaBusinesses.map((business) => {
+              const isBusy = actionState.businessId === business.businessId;
+              return (
+                <div key={business.businessId} className="px-5 py-4">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-gray-900">{business.businessName}</p>
+                      {getMetaBusinessSignals(business).length > 0 ? (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {getMetaBusinessSignals(business).map((signal) => (
+                            <span
+                              key={signal}
+                              className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-800"
+                            >
+                              {signal}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <MetricPill label="Queue" value={business.queueDepth} />
+                        <MetricPill label="Leased" value={business.leasedPartitions} />
+                        <MetricPill label="Retryable failed" value={business.retryableFailedPartitions} />
+                        <MetricPill label="Dead letter" value={business.deadLetterPartitions} />
+                        <MetricPill label="Stale lease" value={business.staleLeasePartitions} />
+                        <MetricPill label="State rows" value={business.stateRowCount} />
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <MetricPill label="Today account" value={business.todayAccountRows} />
+                        <MetricPill label="Today adset" value={business.todayAdsetRows} />
+                      </div>
+                      <p className="mt-3 text-xs text-gray-500">
+                        Current day reference {business.currentDayReference ?? "—"}
+                      </p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <MetricPill label="Account days" value={business.accountCompletedDays} />
+                        <MetricPill label="Adset days" value={business.adsetCompletedDays} />
+                        <MetricPill label="Creative days" value={business.creativeCompletedDays} />
+                      </div>
+                      <p className="mt-3 text-xs text-gray-500">
+                        Oldest queued {formatDateTime(business.oldestQueuedPartition)} • Latest activity {formatDateTime(business.latestPartitionActivityAt)}
+                      </p>
+                      {actionState.businessId === business.businessId && actionState.message ? (
+                        <p className="mt-2 text-xs text-emerald-700">{actionState.message}</p>
+                      ) : null}
+                      {actionState.businessId === business.businessId && actionState.error ? (
+                        <p className="mt-2 text-xs text-red-700">{actionState.error}</p>
+                      ) : null}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <ActionButton label="Cleanup" busy={isBusy && actionState.action === "cleanup"} onClick={() => runProviderAction(business.businessId, "meta", "cleanup")} />
+                      <ActionButton label="Replay Dead Letter" busy={isBusy && actionState.action === "replay_dead_letter"} onClick={() => runProviderAction(business.businessId, "meta", "replay_dead_letter")} />
+                      <ActionButton label="Reschedule" busy={isBusy && actionState.action === "reschedule"} onClick={() => runProviderAction(business.businessId, "meta", "reschedule")} />
+                      <ActionButton label="Refresh State" busy={isBusy && actionState.action === "refresh_state"} onClick={() => runProviderAction(business.businessId, "meta", "refresh_state")} />
                     </div>
                   </div>
                 </div>
@@ -308,7 +449,7 @@ export default function AdminSyncHealthPage() {
                   <div>
                     <p className="text-sm font-semibold text-gray-900">{issue.businessName}</p>
                     <p className="text-xs text-gray-500 mt-1">
-                      {providerLabel(issue.provider)} • {issue.reportType} • {issue.status}
+                      {providerLabel(issue.provider)} • {formatIssueType(issue)} • {issue.status}
                     </p>
                     <p className="text-sm text-gray-600 mt-3">{issue.detail}</p>
                   </div>
@@ -323,6 +464,20 @@ export default function AdminSyncHealthPage() {
         )}
       </div>
     </div>
+  );
+}
+
+function MetricPill({
+  label,
+  value,
+}: {
+  label: string;
+  value: number;
+}) {
+  return (
+    <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-700">
+      {label} {value}
+    </span>
   );
 }
 

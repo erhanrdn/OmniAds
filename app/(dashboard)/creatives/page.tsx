@@ -57,6 +57,11 @@ import {
   addDaysToIsoDate,
   dayCountInclusive,
 } from "@/lib/meta/history";
+import {
+  formatMetaReadyThroughDate,
+  getMetaSyncDescription,
+} from "@/lib/meta/ui";
+import { MetaSyncProgressSkeleton } from "@/components/meta/meta-sync-progress";
 
 async function fetchMetaStatus(businessId: string): Promise<MetaStatusResponse> {
   const params = new URLSearchParams({ businessId });
@@ -72,6 +77,20 @@ async function fetchMetaStatus(businessId: string): Promise<MetaStatusResponse> 
     );
   }
   return payload as MetaStatusResponse;
+}
+
+function getMetaStatusRefetchInterval(status: MetaStatusResponse | undefined) {
+  const state = status?.state;
+  if (state === "syncing" || state === "partial") return 5_000;
+  if (
+    state === "paused" ||
+    state === "stale" ||
+    (status?.jobHealth?.queueDepth ?? 0) > 0 ||
+    (status?.jobHealth?.leasedPartitions ?? 0) > 0
+  ) {
+    return 10_000;
+  }
+  return false;
 }
 
 function clampCreativeDateRangeToHistoryLimit(
@@ -93,9 +112,16 @@ function clampCreativeDateRangeToHistoryLimit(
 
 function CreativesSyncInlineProgress({
   status,
+  loading = false,
+  language = "en",
 }: {
   status: MetaStatusResponse | undefined;
+  loading?: boolean;
+  language?: "en" | "tr";
 }) {
+  if (loading) {
+    return <MetaSyncProgressSkeleton variant="inline" />;
+  }
   const coverage = status?.warehouse?.coverage?.creatives;
   const hasAssignment = (status?.assignedAccountIds?.length ?? 0) > 0;
   if (!status?.connected || !hasAssignment || !coverage) return null;
@@ -116,22 +142,28 @@ function CreativesSyncInlineProgress({
       : dayPercent;
   if (progress >= 100) return null;
 
-  const captionParts = [`${completedDays}/${totalDays} days`];
+  const captionParts = [
+    language === "tr"
+      ? `${completedDays}/${totalDays} gün`
+      : `${completedDays}/${totalDays} days`,
+  ];
   if ((coverage.totalRows ?? 0) > 0) {
     captionParts.push(
-      `${coverage.previewReadyRows ?? 0}/${coverage.totalRows ?? 0} previews`
+      language === "tr"
+        ? `${coverage.previewReadyRows ?? 0}/${coverage.totalRows ?? 0} önizleme`
+        : `${coverage.previewReadyRows ?? 0}/${coverage.totalRows ?? 0} previews`
     );
   }
-  if (coverage.readyThroughDate) {
-    captionParts.push(`Ready through ${coverage.readyThroughDate}`);
-  }
+  const readyThrough = formatMetaReadyThroughDate(coverage.readyThroughDate, language);
+  if (readyThrough) captionParts.push(readyThrough);
 
   return (
-    <div className="inline-flex min-w-[220px] items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+    <div className="inline-flex min-w-[240px] items-center gap-3 rounded-xl border border-blue-200 bg-blue-50 px-3.5 py-2.5 text-xs text-blue-900">
       <span className="shrink-0 font-semibold tabular-nums">{progress}%</span>
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-[11px]">
-          {`Creatives backfill • ${captionParts.join(" • ")}`}
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <div className="truncate text-[11px] font-medium">
+          {(language === "tr" ? "Creative arşivi hazırlanıyor" : "Creatives backfill") +
+            ` • ${captionParts.join(" • ")}`}
         </div>
         <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-blue-100">
           <div
@@ -275,7 +307,7 @@ export default function CreativesPage() {
       const stillRunning =
         payload?.state === "syncing" ||
         payload?.latestSync?.status === "running" ||
-        (payload?.jobHealth?.runningJobs ?? 0) > 0;
+        (payload?.jobHealth?.leasedPartitions ?? 0) > 0;
       if (!previewPending && !stillRunning) return false;
       return stillRunning ? 5_000 : 15_000;
     },
@@ -746,7 +778,21 @@ export default function CreativesPage() {
         }
 
         if (showBootstrapGuard) {
-          return <LoadingSkeleton rows={5} />;
+          return (
+            <LoadingSkeleton
+              rows={5}
+              title={
+                language === "tr"
+                  ? "Creative görünümü hazırlanıyor"
+                  : "Preparing the creatives view"
+              }
+              description={
+                language === "tr"
+                  ? "Meta bağlantısı, hesap atamaları ve ilk creative özetleri kontrol ediliyor."
+                  : "We are checking the Meta connection, assigned accounts, and the initial creative snapshot."
+              }
+            />
+          );
         }
 
         if (!platformConnected) {
@@ -754,7 +800,16 @@ export default function CreativesPage() {
             <IntegrationEmptyState
               providerLabel="Meta"
               status={metaView.status === "action_required" ? "error" : "disconnected"}
-              description="Connect Meta to view creative performance"
+              title={
+                language === "tr"
+                  ? "Creative performansını açmak için Meta'yı bağlayın"
+                  : "Connect Meta to unlock creative performance"
+              }
+              description={
+                language === "tr"
+                  ? "Creative performansı, önizlemeler ve paylaşım araçları Meta bağlantısı tamamlandığında görünür."
+                  : "Creative performance, preview coverage, and sharing tools appear once Meta is connected."
+              }
             />
           );
         }
@@ -763,13 +818,17 @@ export default function CreativesPage() {
           return (
             <div className="rounded-xl border border-dashed p-8 text-center">
               <h3 className="text-base font-semibold">
-                Assign Meta ad accounts to this business to load creatives
+                {language === "tr"
+                  ? "Creative verilerini açmak için Meta reklam hesaplarını atayın"
+                  : "Assign Meta ad accounts to load creatives"}
               </h3>
               <p className="mt-2 text-sm text-muted-foreground">
-                Connect and assign at least one Meta ad account for this business first.
+                {language === "tr"
+                  ? "Önce bu işletmeye en az bir Meta reklam hesabı bağlayıp atayın."
+                  : "Connect and assign at least one Meta ad account for this business first."}
               </p>
               <Button className="mt-4" variant="outline" onClick={() => router.push("/integrations") }>
-                Open Integrations
+                {language === "tr" ? "Entegrasyonları aç" : "Open Integrations"}
               </Button>
             </div>
           );
@@ -801,7 +860,13 @@ export default function CreativesPage() {
               csvError={csvError}
               previewStripState={previewStripState}
               previewStripSummary={topPreviewSummary}
-              actionsPrefix={<CreativesSyncInlineProgress status={metaStatusQuery.data} />}
+              actionsPrefix={
+                <CreativesSyncInlineProgress
+                  status={metaStatusQuery.data}
+                  loading={metaStatusQuery.isLoading && !metaStatusQuery.data}
+                  language={language}
+                />
+              }
             />
 
             {creativesMetadataQuery.isLoading && <CreativesTableShell />}
@@ -823,14 +888,32 @@ export default function CreativesPage() {
               (deferredFilteredRows.length === 0 || dataStatus === "no_data") && (
                 <EmptyState
                   title={
-                    language === "tr"
-                      ? "Seçili aralık için creative performans verisi bulunamadı"
-                      : "No creative performance data found for the selected range"
+                    (creativesMetadataQuery.data?.rows?.length ?? 0) > 0
+                      ? language === "tr"
+                        ? "Bu filtrelerle eşleşen creative bulunamadı"
+                        : "No creatives match the current filters"
+                      : metaStatusQuery.data?.state === "syncing" ||
+                          metaStatusQuery.data?.state === "partial" ||
+                          metaStatusQuery.data?.state === "paused"
+                        ? language === "tr"
+                          ? "Creative verileri hâlâ hazırlanıyor"
+                          : "Creative data is still being prepared"
+                        : language === "tr"
+                          ? "Seçili aralık için creative performans verisi bulunamadı"
+                          : "No creative performance data found for the selected range"
                   }
                   description={
-                    language === "tr"
-                      ? "Daha geniş bir tarih aralığı deneyin veya bağlı Meta hesaplarinda aktif reklam yayini olduğunu doğrulayin."
-                      : "Try a wider date range or verify that assigned Meta accounts have active ad delivery."
+                    (creativesMetadataQuery.data?.rows?.length ?? 0) > 0
+                      ? language === "tr"
+                        ? "Tarih aralığını veya filtreleri gevşeterek daha fazla creative görebilirsiniz."
+                        : "Relax the current filters or widen the date range to reveal more creatives."
+                      : metaStatusQuery.data?.state === "syncing" ||
+                          metaStatusQuery.data?.state === "partial" ||
+                          metaStatusQuery.data?.state === "paused"
+                        ? getMetaSyncDescription(metaStatusQuery.data, language)
+                        : language === "tr"
+                          ? "Daha geniş bir tarih aralığı deneyin veya bağlı Meta hesaplarında aktif reklam yayını olduğunu doğrulayın."
+                          : "Try a wider date range or verify that assigned Meta accounts have active ad delivery."
                   }
                 />
               )}

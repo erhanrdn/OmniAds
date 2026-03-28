@@ -5,8 +5,9 @@ import { getDemoMetaBreakdowns } from "@/lib/demo-business";
 import { getIntegration } from "@/lib/integrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { runMigrations } from "@/lib/migrations";
+import { getMetaBreakdownGuardrail } from "@/lib/meta/constraints";
+import { getMetaPartialReason, getMetaRangePreparationContext } from "@/lib/meta/readiness";
 import { getMetaWarehouseBreakdowns } from "@/lib/meta/serving";
-import { ensureMetaWarehouseRangeFilled } from "@/lib/sync/meta-sync";
 
 type BreakdownType = "age" | "country" | "placement" | "adset" | "campaign";
 
@@ -66,6 +67,8 @@ export interface MetaBreakdownsResponse {
     available: boolean;
     reason?: string;
   };
+  isPartial?: boolean;
+  notReadyReason?: string | null;
 }
 
 function toISODate(d: Date) {
@@ -231,7 +234,11 @@ export async function GET(request: NextRequest) {
   if ("error" in access) return access.error;
 
   if (await isDemoBusiness(businessId!)) {
-    return NextResponse.json(getDemoMetaBreakdowns());
+    return NextResponse.json({
+      ...getDemoMetaBreakdowns(),
+      isPartial: false,
+      notReadyReason: null,
+    } satisfies MetaBreakdownsResponse);
   }
 
   const integration = await getIntegration(businessId!, "meta").catch(() => null);
@@ -244,6 +251,8 @@ export async function GET(request: NextRequest) {
       budget: { campaign: [], adset: [] },
       audience: { available: false, reason: "Audience type classification unavailable." },
       products: { available: false, reason: "Catalog product breakdown unavailable for current setup." },
+      isPartial: false,
+      notReadyReason: "Meta integration is not connected.",
     } satisfies MetaBreakdownsResponse);
   }
   if (!integration.access_token) {
@@ -255,6 +264,8 @@ export async function GET(request: NextRequest) {
       budget: { campaign: [], adset: [] },
       audience: { available: false, reason: "Audience type classification unavailable." },
       products: { available: false, reason: "Catalog product breakdown unavailable for current setup." },
+      isPartial: false,
+      notReadyReason: "Meta access token is missing for this workspace.",
     } satisfies MetaBreakdownsResponse);
   }
 
@@ -268,20 +279,20 @@ export async function GET(request: NextRequest) {
       budget: { campaign: [], adset: [] },
       audience: { available: false, reason: "Audience type classification unavailable." },
       products: { available: false, reason: "Catalog product breakdown unavailable for current setup." },
+      isPartial: false,
+      notReadyReason: "No Meta ad account is assigned to this workspace.",
     } satisfies MetaBreakdownsResponse);
   }
 
-  await ensureMetaWarehouseRangeFilled({
+  const rangeContext = await getMetaRangePreparationContext({
     businessId: businessId!,
     startDate,
     endDate,
-  }).catch((error) => {
-    console.warn("[meta-breakdowns] ensure_range_failed", {
-      businessId,
-      startDate,
-      endDate,
-      message: error instanceof Error ? error.message : String(error),
-    });
+  });
+  const breakdownGuardrail = getMetaBreakdownGuardrail({
+    startDate,
+    endDate,
+    referenceToday: rangeContext.currentDateInTimezone,
   });
 
   try {
@@ -314,6 +325,8 @@ export async function GET(request: NextRequest) {
           reason:
             "Top Products unavailable: product-level catalog breakdown is not available from current Meta insights endpoint/tokens.",
         },
+        isPartial: false,
+        notReadyReason: null,
       } satisfies MetaBreakdownsResponse);
     }
   } catch (error) {
@@ -341,5 +354,13 @@ export async function GET(request: NextRequest) {
       reason:
         "Top Products unavailable: product-level catalog breakdown is not available from current Meta insights endpoint/tokens.",
     },
+    isPartial: true,
+    notReadyReason: breakdownGuardrail.message ??
+      getMetaPartialReason({
+        isSelectedCurrentDay: rangeContext.isSelectedCurrentDay,
+        currentDateInTimezone: rangeContext.currentDateInTimezone,
+        primaryAccountTimezone: rangeContext.primaryAccountTimezone,
+        defaultReason: "Breakdown warehouse data is still being prepared for the requested range.",
+      }),
   } satisfies MetaBreakdownsResponse);
 }

@@ -25,7 +25,6 @@ import {
   setCachedReport,
 } from "@/lib/reporting-cache";
 import { getMetaWarehouseSummary } from "@/lib/meta/serving";
-import { ensureMetaWarehouseRangeFilled } from "@/lib/sync/meta-sync";
 
 interface TrendPoint {
   date: string;
@@ -284,11 +283,6 @@ async function getMetaOverviewFragment(input: {
   }
 
   try {
-    await ensureMetaWarehouseRangeFilled({
-      businessId: input.businessId,
-      startDate: input.startDate,
-      endDate: input.endDate,
-    });
     const warehouseSummary = await getMetaWarehouseSummary({
       businessId: input.businessId,
       startDate: input.startDate,

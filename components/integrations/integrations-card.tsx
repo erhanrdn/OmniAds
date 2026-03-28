@@ -3,7 +3,11 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getProviderLabel } from "@/components/integrations/oauth";
-import { MetaSyncProgress } from "@/components/meta/meta-sync-progress";
+import {
+  MetaSyncProgress,
+  MetaSyncProgressSkeleton,
+  shouldRenderMetaSyncProgress,
+} from "@/components/meta/meta-sync-progress";
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
 import { cn } from "@/lib/utils";
 import {
@@ -17,8 +21,10 @@ interface IntegrationsCardProps {
   provider: IntegrationProvider;
   description: string;
   view: ProviderViewState;
+  language?: "en" | "tr";
   syncNotice?: string | null;
   metaSyncStatus?: MetaStatusResponse | null;
+  metaSyncLoading?: boolean;
   onConnect: (provider: IntegrationProvider) => void;
   onReconnect: (provider: IntegrationProvider) => void;
   onRetry: (provider: IntegrationProvider) => void;
@@ -31,8 +37,10 @@ export function IntegrationsCard({
   provider,
   description,
   view,
+  language = "en",
   syncNotice,
   metaSyncStatus,
+  metaSyncLoading = false,
   onConnect,
   onReconnect,
   onRetry,
@@ -48,6 +56,8 @@ export function IntegrationsCard({
   const isDegraded = view.status === "degraded";
   const isActionRequired = view.status === "action_required";
   const logoSrc = getProviderLogo(provider);
+  const shouldShowMetaProgress =
+    provider === "meta" && shouldRenderMetaSyncProgress(metaSyncStatus);
 
   return (
     <div
@@ -95,9 +105,17 @@ export function IntegrationsCard({
         </p>
       ) : null}
 
-      {provider === "meta" && metaSyncStatus ? (
+      {provider === "meta" && metaSyncLoading ? (
         <div className="mt-2">
-          <MetaSyncProgress status={metaSyncStatus} variant="compact" />
+          <MetaSyncProgressSkeleton variant="compact" />
+        </div>
+      ) : shouldShowMetaProgress && metaSyncStatus ? (
+        <div className="mt-2">
+          <MetaSyncProgress
+            status={metaSyncStatus}
+            language={language}
+            variant="compact"
+          />
         </div>
       ) : syncNotice ? (
         <p className="mt-2 rounded-lg border border-blue-300/30 bg-blue-50 px-2.5 py-2 text-[11px] leading-4 text-blue-800">

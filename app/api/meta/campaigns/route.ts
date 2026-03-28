@@ -5,8 +5,8 @@ import { getDemoMetaCampaigns } from "@/lib/demo-business";
 import { getIntegration } from "@/lib/integrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { runMigrations } from "@/lib/migrations";
+import { getMetaPartialReason, getMetaRangePreparationContext } from "@/lib/meta/readiness";
 import { getMetaWarehouseCampaignTable } from "@/lib/meta/serving";
-import { ensureMetaWarehouseRangeFilled } from "@/lib/sync/meta-sync";
 
 export interface MetaCampaignRow {
   id: string;
@@ -103,6 +103,13 @@ export interface MetaCampaignRow {
   isBidValueMixed: boolean;
 }
 
+export interface MetaCampaignsResponse {
+  status?: "ok" | "no_accounts_assigned" | "account_not_assigned" | "no_access_token";
+  rows: MetaCampaignRow[];
+  isPartial?: boolean;
+  notReadyReason?: string | null;
+}
+
 function toISODate(d: Date) {
   return d.toISOString().slice(0, 10);
 }
@@ -155,14 +162,24 @@ export async function GET(request: NextRequest) {
   if ("error" in access) return access.error;
 
   if (await isDemoBusiness(businessId)) {
-    return NextResponse.json(getDemoMetaCampaigns());
+    return NextResponse.json({
+      status: "ok",
+      rows: getDemoMetaCampaigns().rows as MetaCampaignRow[],
+      isPartial: false,
+      notReadyReason: null,
+    } satisfies MetaCampaignsResponse);
   }
 
   const resolvedStart = startDate ?? toISODate(nDaysAgo(29));
   const resolvedEnd = endDate ?? toISODate(new Date());
   const assignedAccountIds = await fetchAssignedAccountIds(businessId);
   if (assignedAccountIds.length === 0) {
-    return NextResponse.json({ status: "no_accounts_assigned", rows: [] });
+    return NextResponse.json({
+      status: "no_accounts_assigned",
+      rows: [],
+      isPartial: false,
+      notReadyReason: "No Meta ad account is assigned to this workspace.",
+    } satisfies MetaCampaignsResponse);
   }
 
   const targetAccountIds =
@@ -170,25 +187,28 @@ export async function GET(request: NextRequest) {
       ? assignedAccountIds.filter((accountId) => accountId === requestedAccountId)
       : assignedAccountIds;
   if (targetAccountIds.length === 0) {
-    return NextResponse.json({ status: "account_not_assigned", rows: [] });
+    return NextResponse.json({
+      status: "account_not_assigned",
+      rows: [],
+      isPartial: false,
+      notReadyReason: "The requested Meta ad account is not assigned to this workspace.",
+    } satisfies MetaCampaignsResponse);
   }
 
   const integration = await getIntegration(businessId, "meta").catch(() => null);
   if (!integration?.access_token) {
-    return NextResponse.json({ status: "no_access_token", rows: [] });
+    return NextResponse.json({
+      status: "no_access_token",
+      rows: [],
+      isPartial: false,
+      notReadyReason: "Meta access token is missing for this workspace.",
+    } satisfies MetaCampaignsResponse);
   }
 
-  await ensureMetaWarehouseRangeFilled({
+  const rangeContext = await getMetaRangePreparationContext({
     businessId,
     startDate: resolvedStart,
     endDate: resolvedEnd,
-  }).catch((error) => {
-    console.warn("[meta-campaigns] ensure_range_failed", {
-      businessId,
-      startDate: resolvedStart,
-      endDate: resolvedEnd,
-      message: error instanceof Error ? error.message : String(error),
-    });
   });
 
   let rows: MetaCampaignRow[] = [];
@@ -207,5 +227,18 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  return NextResponse.json({ status: "ok", rows });
+  return NextResponse.json({
+    status: "ok",
+    rows,
+    isPartial: rows.length === 0,
+    notReadyReason:
+      rows.length === 0
+        ? getMetaPartialReason({
+            isSelectedCurrentDay: rangeContext.isSelectedCurrentDay,
+            currentDateInTimezone: rangeContext.currentDateInTimezone,
+            primaryAccountTimezone: rangeContext.primaryAccountTimezone,
+            defaultReason: "Campaign warehouse data is still being prepared for the requested range.",
+          })
+        : null,
+  } satisfies MetaCampaignsResponse);
 }

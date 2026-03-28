@@ -4,8 +4,8 @@ import { isDemoBusiness } from "@/lib/business-mode.server";
 import { getIntegration } from "@/lib/integrations";
 import type { MetaAdSetData } from "@/lib/api/meta";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
+import { getMetaPartialReason, getMetaRangePreparationContext } from "@/lib/meta/readiness";
 import { getMetaWarehouseAdSets } from "@/lib/meta/serving";
-import { ensureMetaWarehouseRangeFilled } from "@/lib/sync/meta-sync";
 
 // ── Demo stub ─────────────────────────────────────────────────────────────────
 
@@ -89,6 +89,8 @@ function getDemoAdSets(campaignId: string): MetaAdSetData[] {
 export interface MetaAdSetsResponse {
   status?: "ok" | "no_credentials" | "no_campaign_id";
   rows: MetaAdSetData[];
+  isPartial?: boolean;
+  notReadyReason?: string | null;
 }
 
 export async function GET(request: NextRequest) {
@@ -117,6 +119,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       status: "ok",
       rows: getDemoAdSets(campaignId),
+      isPartial: false,
+      notReadyReason: null,
     } satisfies MetaAdSetsResponse);
   }
 
@@ -130,25 +134,18 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       status: "no_credentials",
       rows: [],
+      isPartial: false,
+      notReadyReason: "Meta access token is missing for this workspace.",
     } satisfies MetaAdSetsResponse);
   }
 
-  await ensureMetaWarehouseRangeFilled({
+  const assignment = await getProviderAccountAssignments(businessId!, "meta").catch(() => null);
+  const providerAccountIds = assignment?.account_ids ?? [];
+  const rangeContext = await getMetaRangePreparationContext({
     businessId: businessId!,
     startDate: resolvedStart,
     endDate: resolvedEnd,
-  }).catch((error) => {
-    console.warn("[meta-adsets] ensure_range_failed", {
-      businessId,
-      campaignId,
-      startDate: resolvedStart,
-      endDate: resolvedEnd,
-      message: error instanceof Error ? error.message : String(error),
-    });
   });
-
-  const assignment = await getProviderAccountAssignments(businessId!, "meta").catch(() => null);
-  const providerAccountIds = assignment?.account_ids ?? [];
   try {
     const warehouseRows = await getMetaWarehouseAdSets({
       businessId: businessId!,
@@ -159,7 +156,12 @@ export async function GET(request: NextRequest) {
       includePrev,
     });
     if (warehouseRows.length > 0) {
-      return NextResponse.json({ status: "ok", rows: warehouseRows } satisfies MetaAdSetsResponse);
+      return NextResponse.json({
+        status: "ok",
+        rows: warehouseRows,
+        isPartial: false,
+        notReadyReason: null,
+      } satisfies MetaAdSetsResponse);
     }
   } catch (error) {
     console.warn("[meta-adsets] warehouse_read_failed", {
@@ -168,5 +170,15 @@ export async function GET(request: NextRequest) {
       message: error instanceof Error ? error.message : String(error),
     });
   }
-  return NextResponse.json({ status: "ok", rows: [] } satisfies MetaAdSetsResponse);
+  return NextResponse.json({
+    status: "ok",
+    rows: [],
+    isPartial: true,
+    notReadyReason: getMetaPartialReason({
+      isSelectedCurrentDay: rangeContext.isSelectedCurrentDay,
+      currentDateInTimezone: rangeContext.currentDateInTimezone,
+      primaryAccountTimezone: rangeContext.primaryAccountTimezone,
+      defaultReason: "Ad set warehouse data is still being prepared for the requested range.",
+    }),
+  } satisfies MetaAdSetsResponse);
 }
