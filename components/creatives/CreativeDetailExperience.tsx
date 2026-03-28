@@ -5,11 +5,16 @@ import { useQuery } from "@tanstack/react-query";
 import { Sparkles, X } from "lucide-react";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { formatMoney, resolveCreativeCurrency } from "@/components/creatives/money";
+import { DateRangePicker } from "@/components/date-range/DateRangePicker";
 import { cn } from "@/lib/utils";
 import {
   formatCreativeDateLabel,
   type CreativeDateRangeValue,
 } from "@/components/creatives/CreativesTopSection";
+import {
+  creativeDateRangeToStandard,
+  standardDateRangeToCreative,
+} from "@/components/creatives/creatives-top-section-support";
 import {
   getAiCreativeRuleCommentary,
   type AiCreativeDecision,
@@ -34,14 +39,6 @@ interface CreativeDetailExperienceProps {
 }
 
 type StageSource = "html" | "image";
-
-const RANGE_PRESETS: Array<{ value: string; label: string; next: CreativeDateRangeValue }> = [
-  { value: "today", label: "Today", next: { preset: "today", customStart: "", customEnd: "", lastDays: 1, sinceDate: "" } },
-  { value: "last7Days", label: "Last 7 days", next: { preset: "last7Days", customStart: "", customEnd: "", lastDays: 7, sinceDate: "" } },
-  { value: "last14Days", label: "Last 14 days", next: { preset: "last14Days", customStart: "", customEnd: "", lastDays: 14, sinceDate: "" } },
-  { value: "last30Days", label: "Last 30 days", next: { preset: "last30Days", customStart: "", customEnd: "", lastDays: 30, sinceDate: "" } },
-  { value: "thisMonth", label: "This month", next: { preset: "thisMonth", customStart: "", customEnd: "", lastDays: 30, sinceDate: "" } },
-];
 
 export function CreativeDetailExperience({
   businessId,
@@ -172,20 +169,13 @@ export function CreativeDetailExperience({
           </div>
 
           <div className="flex items-center gap-2">
-            <select
-              value={RANGE_PRESETS.find((preset) => preset.next.preset === dateRange.preset)?.value ?? "custom"}
-              onChange={(event) => {
-                const next = RANGE_PRESETS.find((preset) => preset.value === event.target.value);
-                if (next) onDateRangeChange(next.next);
-              }}
-              className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700"
-              aria-label="Date range"
-            >
-              {RANGE_PRESETS.map((preset) => (
-                <option key={preset.value} value={preset.value}>{preset.label}</option>
-              ))}
-              <option value="custom" disabled>Custom range</option>
-            </select>
+            <DateRangePicker
+              value={creativeDateRangeToStandard(dateRange)}
+              onChange={(next) => onDateRangeChange(standardDateRangeToCreative(next))}
+              showComparisonTrigger={false}
+              rangePresets={["today", "yesterday", "7d", "14d", "30d", "365d", "lastMonth", "custom"]}
+              className="shrink-0"
+            />
 
             <button
               type="button"

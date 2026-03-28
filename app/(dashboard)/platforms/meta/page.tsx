@@ -1260,7 +1260,7 @@ export default function MetaPage() {
                 comparisonPresets={
                   previousYearAllowed
                     ? undefined
-                    : ["none", "previousPeriod", "previousWeek", "previousMonth", "previousQuarter"]
+                    : ["none", "custom", "previousPeriod", "previousWeek", "previousMonth", "previousQuarter"]
                 }
                 referenceDate={effectiveMetaReferenceDate ?? undefined}
                 timeZoneLabel={effectiveMetaTimeZoneLabel ?? undefined}

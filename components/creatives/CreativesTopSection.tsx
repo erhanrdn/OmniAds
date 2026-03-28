@@ -9,6 +9,7 @@ import { resolveCreativeCurrency } from "@/components/creatives/money";
 import {
   applyCreativeFilters,
   buildMonthGrid,
+  creativeDateRangeToStandard,
   DEFAULT_COPY_TOP_METRIC_IDS,
   DEFAULT_CREATIVE_DATE_RANGE,
   DEFAULT_TOP_METRIC_IDS,
@@ -26,7 +27,9 @@ import {
   resolveAverageHeatColor,
   resolveCreativeDateRange,
   selectCalendarDate,
+  standardDateRangeToCreative,
 } from "@/components/creatives/creatives-top-section-support";
+import { DateRangePicker } from "@/components/date-range/DateRangePicker";
 import { cn } from "@/lib/utils";
 import { useDropdownBehavior } from "@/hooks/use-dropdown-behavior";
 import type { ReactNode } from "react";
@@ -475,145 +478,13 @@ export function CreativesTopSection({
 }
 
 function CreativeDateRangePicker({ value, onChange }: { value: CreativeDateRangeValue; onChange: (next: CreativeDateRangeValue) => void }) {
-  const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState<CreativeDateRangeValue>(value);
-  const [monthCursor, setMonthCursor] = useState(() => {
-    const now = new Date();
-    return { year: now.getFullYear(), month: now.getMonth() };
-  });
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-
-  useDropdownBehavior({
-    id: "top-date-range",
-    open,
-    setOpen,
-    containerRef: wrapRef,
-    triggerRef,
-  });
-
-  const apply = () => {
-    onChange(normalizeRange(draft));
-    setOpen(false);
-  };
-
-  const cancel = () => {
-    setDraft(value);
-    setOpen(false);
-  };
-
-  const label = formatCreativeDateLabel(value);
-  const { start, end } = resolveCreativeDateRange(draft);
-
   return (
-    <div ref={wrapRef} className="relative">
-      <button
-        ref={triggerRef}
-        type="button"
-        onClick={() => {
-          setDraft(value);
-          setOpen((prev) => !prev);
-        }}
-        className="inline-flex items-center gap-2 rounded-full border bg-background px-3 py-2 text-xs"
-      >
-        {label}
-        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-      </button>
-
-      {open && (
-        <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-11 z-50 flex w-[760px] rounded-xl border bg-background shadow-lg duration-150">
-          <div className="w-56 border-r p-3">
-            <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Presets</p>
-            <div className="space-y-1">
-              {PRESET_OPTIONS.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => setDraft((prev) => ({ ...prev, preset: option.value }))}
-                  className={cn(
-                    "w-full rounded-md px-2 py-1.5 text-left text-xs",
-                    draft.preset === option.value ? "bg-accent text-accent-foreground" : "hover:bg-accent/60"
-                  )}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-
-            {draft.preset === "last" && (
-              <div className="mt-3 space-y-1">
-                <label className="text-[11px] text-muted-foreground">Days</label>
-                <input
-                  type="number"
-                  min={1}
-                  value={draft.lastDays}
-                  onChange={(event) =>
-                    setDraft((prev) => ({
-                      ...prev,
-                      lastDays: Math.max(1, Number.parseInt(event.target.value || "14", 10)),
-                    }))
-                  }
-                  className="h-8 w-full rounded-md border bg-background px-2 text-xs"
-                />
-              </div>
-            )}
-
-            {draft.preset === "since" && (
-              <div className="mt-3 space-y-1">
-                <label className="text-[11px] text-muted-foreground">Start date</label>
-                <input
-                  type="date"
-                  value={draft.sinceDate}
-                  onChange={(event) => setDraft((prev) => ({ ...prev, sinceDate: event.target.value }))}
-                  className="h-8 w-full rounded-md border bg-background px-2 text-xs"
-                />
-              </div>
-            )}
-          </div>
-
-          <div className="flex-1 p-3">
-            <div className="mb-2 text-xs text-muted-foreground">{formatDate(start)} - {formatDate(end)}</div>
-            <div className="flex gap-4">
-              <MonthCalendar
-                year={monthCursor.year}
-                month={monthCursor.month}
-                start={start}
-                end={end}
-                onSelect={(iso) => {
-                  setDraft((prev) => selectCalendarDate(prev, iso));
-                }}
-                onPrevMonth={() => setMonthCursor((prev) => moveMonth(prev, -1))}
-                onNextMonth={() => setMonthCursor((prev) => moveMonth(prev, 1))}
-                showPrev
-                showNext={false}
-              />
-              <MonthCalendar
-                year={nextMonth(monthCursor).year}
-                month={nextMonth(monthCursor).month}
-                start={start}
-                end={end}
-                onSelect={(iso) => {
-                  setDraft((prev) => selectCalendarDate(prev, iso));
-                }}
-                onPrevMonth={() => setMonthCursor((prev) => moveMonth(prev, -1))}
-                onNextMonth={() => setMonthCursor((prev) => moveMonth(prev, 1))}
-                showPrev={false}
-                showNext
-              />
-            </div>
-
-            <div className="mt-4 flex justify-end gap-2">
-              <button type="button" onClick={cancel} className="rounded-md border px-3 py-1.5 text-xs">
-                Cancel
-              </button>
-              <button type="button" onClick={apply} className="rounded-md bg-foreground px-3 py-1.5 text-xs text-background">
-                Apply
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+    <DateRangePicker
+      value={creativeDateRangeToStandard(value)}
+      onChange={(next) => onChange(standardDateRangeToCreative(next))}
+      showComparisonTrigger={false}
+      rangePresets={["today", "yesterday", "7d", "14d", "30d", "365d", "lastMonth", "custom"]}
+    />
   );
 }
 

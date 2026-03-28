@@ -1,5 +1,6 @@
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { formatMoney } from "@/components/creatives/money";
+import type { DateRangeValue } from "@/components/date-range/DateRangePicker";
 import { formatPercentSmart } from "@/lib/metric-format";
 import type {
   CreativeDatePreset,
@@ -135,6 +136,114 @@ export function formatCreativeDateLabel(value: CreativeDateRangeValue): string {
   return `${formatDate(start)} - ${formatDate(end)}`;
 }
 
+export function creativeDateRangeToStandard(value: CreativeDateRangeValue): DateRangeValue {
+  const resolved = resolveCreativeDateRange(value);
+
+  switch (value.preset) {
+    case "today":
+      return {
+        rangePreset: "today",
+        customStart: resolved.start,
+        customEnd: resolved.end,
+        comparisonPreset: "none",
+        comparisonStart: "",
+        comparisonEnd: "",
+      };
+    case "yesterday":
+      return {
+        rangePreset: "yesterday",
+        customStart: resolved.start,
+        customEnd: resolved.end,
+        comparisonPreset: "none",
+        comparisonStart: "",
+        comparisonEnd: "",
+      };
+    case "lastMonth":
+      return {
+        rangePreset: "lastMonth",
+        customStart: resolved.start,
+        customEnd: resolved.end,
+        comparisonPreset: "none",
+        comparisonStart: "",
+        comparisonEnd: "",
+      };
+    case "last7Days":
+      return {
+        rangePreset: "7d",
+        customStart: resolved.start,
+        customEnd: resolved.end,
+        comparisonPreset: "none",
+        comparisonStart: "",
+        comparisonEnd: "",
+      };
+    case "last14Days":
+      return {
+        rangePreset: "14d",
+        customStart: resolved.start,
+        customEnd: resolved.end,
+        comparisonPreset: "none",
+        comparisonStart: "",
+        comparisonEnd: "",
+      };
+    case "last30Days":
+      return {
+        rangePreset: "30d",
+        customStart: resolved.start,
+        customEnd: resolved.end,
+        comparisonPreset: "none",
+        comparisonStart: "",
+        comparisonEnd: "",
+      };
+    case "last365Days":
+      return {
+        rangePreset: "365d",
+        customStart: resolved.start,
+        customEnd: resolved.end,
+        comparisonPreset: "none",
+        comparisonStart: "",
+        comparisonEnd: "",
+      };
+    default:
+      return {
+        rangePreset: "custom",
+        customStart: resolved.start,
+        customEnd: resolved.end,
+        comparisonPreset: "none",
+        comparisonStart: "",
+        comparisonEnd: "",
+      };
+  }
+}
+
+export function standardDateRangeToCreative(value: DateRangeValue): CreativeDateRangeValue {
+  switch (value.rangePreset) {
+    case "today":
+      return { preset: "today", customStart: "", customEnd: "", lastDays: 1, sinceDate: "" };
+    case "yesterday":
+      return { preset: "yesterday", customStart: "", customEnd: "", lastDays: 1, sinceDate: "" };
+    case "7d":
+      return { preset: "last7Days", customStart: "", customEnd: "", lastDays: 7, sinceDate: "" };
+    case "14d":
+      return { preset: "last14Days", customStart: "", customEnd: "", lastDays: 14, sinceDate: "" };
+    case "30d":
+      return { preset: "last30Days", customStart: "", customEnd: "", lastDays: 30, sinceDate: "" };
+    case "365d":
+      return { preset: "last365Days", customStart: "", customEnd: "", lastDays: 365, sinceDate: "" };
+    case "lastMonth":
+      return { preset: "lastMonth", customStart: "", customEnd: "", lastDays: 30, sinceDate: "" };
+    case "3d":
+    case "90d":
+    case "custom":
+      return {
+        preset: "custom",
+        customStart: value.customStart,
+        customEnd: value.customEnd,
+        lastDays: getRangeDayCount(value.customStart, value.customEnd),
+        sinceDate: value.customStart,
+      };
+  }
+}
+
 export function applyCreativeFilters(
   rows: MetaCreativeRow[],
   rules: CreativeFilterRule[]
@@ -237,6 +346,12 @@ export function normalizeRange(range: CreativeDateRangeValue): CreativeDateRange
   }
 
   return next;
+}
+
+function getRangeDayCount(start: string, end: string): number {
+  if (!start || !end) return 14;
+  const diff = new Date(`${end}T00:00:00`).getTime() - new Date(`${start}T00:00:00`).getTime();
+  return Math.max(1, Math.round(diff / 86_400_000) + 1);
 }
 
 export function selectCalendarDate(

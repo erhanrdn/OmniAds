@@ -1,11 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Popover } from "radix-ui";
-import { CalendarIcon, ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
+import {
+  ArrowRightIcon,
+  CalendarIcon,
+  CheckIcon,
+  ChevronDownIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  Clock3Icon,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
-
-// ── Types ─────────────────────────────────────────────────────────────────────
 
 export type RangePreset =
   | "today"
@@ -21,6 +27,7 @@ export type RangePreset =
 
 export type ComparisonPreset =
   | "none"
+  | "custom"
   | "previousPeriod"
   | "previousWeek"
   | "previousMonth"
@@ -30,8 +37,8 @@ export type ComparisonPreset =
 
 export interface DateRangeValue {
   rangePreset: RangePreset;
-  customStart: string; // "YYYY-MM-DD"
-  customEnd: string;   // "YYYY-MM-DD"
+  customStart: string;
+  customEnd: string;
   comparisonPreset: ComparisonPreset;
   comparisonStart: string;
   comparisonEnd: string;
@@ -46,45 +53,46 @@ export const DEFAULT_DATE_RANGE: DateRangeValue = {
   comparisonEnd: "",
 };
 
-// ── Preset definitions ────────────────────────────────────────────────────────
-
-const RANGE_PRESETS: { value: RangePreset; label: string }[] = [
-  { value: "today", label: "Today" },
-  { value: "yesterday", label: "Yesterday" },
-  { value: "3d", label: "Last 3 Days" },
-  { value: "7d", label: "Last 7 Days" },
-  { value: "14d", label: "Last 14 Days" },
-  { value: "30d", label: "Last 30 Days" },
-  { value: "90d", label: "Last 90 Days" },
-  { value: "365d", label: "Last 365 Days" },
-  { value: "lastMonth", label: "Last Month" },
-  { value: "custom", label: "Custom" },
+const RANGE_PRESETS: Array<{ value: RangePreset; label: string; hint: string; group: string }> = [
+  { value: "today", label: "Today", hint: "Only the current day", group: "Quick Select" },
+  { value: "yesterday", label: "Yesterday", hint: "Previous completed day", group: "Quick Select" },
+  { value: "3d", label: "Last 3 days", hint: "Short performance pulse", group: "Rolling Windows" },
+  { value: "7d", label: "Last 7 days", hint: "Weekly read", group: "Rolling Windows" },
+  { value: "14d", label: "Last 14 days", hint: "Bi-weekly stability", group: "Rolling Windows" },
+  { value: "30d", label: "Last 30 days", hint: "Balanced operating view", group: "Rolling Windows" },
+  { value: "90d", label: "Last 90 days", hint: "Quarter-scale context", group: "Rolling Windows" },
+  { value: "365d", label: "Last 365 days", hint: "Long-term trend", group: "Rolling Windows" },
+  { value: "lastMonth", label: "Last month", hint: "Previous full calendar month", group: "Calendar Periods" },
+  { value: "custom", label: "Custom range", hint: "Pick exact dates", group: "Custom" },
 ];
 
-const COMPARISON_PRESETS: { value: ComparisonPreset; label: string }[] = [
-  { value: "none", label: "None" },
-  { value: "previousPeriod", label: "Previous period" },
-  { value: "previousWeek", label: "Previous week" },
-  { value: "previousMonth", label: "Previous month" },
-  { value: "previousQuarter", label: "Previous quarter" },
-  { value: "previousYear", label: "Previous year" },
-  { value: "previousYearMatch", label: "Previous year (match)" },
+const COMPARISON_PRESETS: Array<{ value: ComparisonPreset; label: string; hint: string; group: string }> = [
+  { value: "none", label: "None", hint: "Keep the view focused on one period", group: "Compare" },
+  { value: "custom", label: "Custom range", hint: "Pick exact comparison dates", group: "Compare" },
+  { value: "previousPeriod", label: "Previous period", hint: "Same length immediately before", group: "Compare" },
+  { value: "previousWeek", label: "Previous week", hint: "Useful for weekly pacing", group: "Compare" },
+  { value: "previousMonth", label: "Previous month", hint: "Month-over-month check", group: "Compare" },
+  { value: "previousQuarter", label: "Previous quarter", hint: "Quarter-level benchmark", group: "Compare" },
+  { value: "previousYear", label: "Previous year", hint: "Year-over-year comparison", group: "Compare" },
+  { value: "previousYearMatch", label: "Previous year (match)", hint: "Calendar-matched year-over-year", group: "Compare" },
 ];
 
-// ── Date helpers ──────────────────────────────────────────────────────────────
-
-function toISO(d: Date): string {
-  return d.toISOString().slice(0, 10);
+function toISO(date: Date): string {
+  return date.toISOString().slice(0, 10);
 }
 
 function parseISODate(value: string): Date {
   return new Date(`${value}T00:00:00.000Z`);
 }
 
-function addDays(d: Date, n: number): Date {
-  const r = new Date(d);
-  r.setDate(r.getDate() + n);
-  return r;
+function addDays(date: Date, amount: number): Date {
+  const next = new Date(date);
+  next.setUTCDate(next.getUTCDate() + amount);
+  return next;
+}
+
+function addMonths(date: Date, amount: number): Date {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + amount, 1));
 }
 
 export function getTodayIsoForTimeZone(timeZone: string): string {
@@ -94,6 +102,7 @@ export function getTodayIsoForTimeZone(timeZone: string): string {
     month: "2-digit",
     day: "2-digit",
   }).formatToParts(new Date());
+
   const year = parts.find((part) => part.type === "year")?.value ?? "1970";
   const month = parts.find((part) => part.type === "month")?.value ?? "01";
   const day = parts.find((part) => part.type === "day")?.value ?? "01";
@@ -107,12 +116,13 @@ export function getPresetDatesForReferenceDate(
   customEnd?: string
 ): { start: string; end: string } {
   const today = parseISODate(referenceDate);
+
   switch (preset) {
     case "today":
       return { start: referenceDate, end: referenceDate };
     case "yesterday": {
-      const y = toISO(addDays(today, -1));
-      return { start: y, end: y };
+      const yesterday = toISO(addDays(today, -1));
+      return { start: yesterday, end: yesterday };
     }
     case "3d":
       return { start: toISO(addDays(today, -2)), end: referenceDate };
@@ -127,10 +137,10 @@ export function getPresetDatesForReferenceDate(
     case "365d":
       return { start: toISO(addDays(today, -364)), end: referenceDate };
     case "lastMonth": {
-      const y = today.getUTCFullYear();
-      const m = today.getUTCMonth();
-      const start = new Date(Date.UTC(m === 0 ? y - 1 : y, m === 0 ? 11 : m - 1, 1));
-      const end = new Date(Date.UTC(y, m, 0));
+      const year = today.getUTCFullYear();
+      const month = today.getUTCMonth();
+      const start = new Date(Date.UTC(month === 0 ? year - 1 : year, month === 0 ? 11 : month - 1, 1));
+      const end = new Date(Date.UTC(year, month, 0));
       return { start: toISO(start), end: toISO(end) };
     }
     case "custom":
@@ -151,26 +161,39 @@ export function getPresetDates(
   return getPresetDatesForReferenceDate(preset, toISO(now), customStart, customEnd);
 }
 
-function formatDateLabel(iso: string): string {
+function formatShortDate(iso: string): string {
   if (!iso) return "";
-  const d = new Date(iso + "T00:00:00");
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+  }).format(new Date(`${iso}T00:00:00`));
+}
+
+function formatLongDate(iso: string): string {
+  if (!iso) return "";
+  return new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(`${iso}T00:00:00`));
 }
 
 function formatDateRange(start: string, end: string): string {
   if (!start || !end) return "";
-  const s = formatDateLabel(start);
-  const e = formatDateLabel(end);
-  return start === end ? s : `${s} – ${e}`;
+  return start === end ? formatShortDate(start) : `${formatShortDate(start)} - ${formatShortDate(end)}`;
+}
+
+function getRangeDays(start: string, end: string): number {
+  if (!start || !end) return 0;
+  const ms = parseISODate(end).getTime() - parseISODate(start).getTime();
+  return Math.max(1, Math.round(ms / 86_400_000) + 1);
 }
 
 function getTriggerLabel(value: DateRangeValue, presets = RANGE_PRESETS): string {
   if (value.rangePreset === "custom") {
-    return formatDateRange(value.customStart, value.customEnd) || "Custom";
+    return formatDateRange(value.customStart, value.customEnd) || "Custom range";
   }
-  return presets.find((p) => p.value === value.rangePreset)?.label
-    ?? RANGE_PRESETS.find((p) => p.value === value.rangePreset)?.label
-    ?? "Select range";
+  return presets.find((preset) => preset.value === value.rangePreset)?.label ?? "Date range";
 }
 
 function getTriggerLabelForReferenceDate(
@@ -179,60 +202,145 @@ function getTriggerLabelForReferenceDate(
   referenceDate?: string
 ): string {
   if (value.rangePreset === "custom") {
-    return formatDateRange(value.customStart, value.customEnd) || "Custom";
+    return formatDateRange(value.customStart, value.customEnd) || "Custom range";
   }
   if (!referenceDate) return getTriggerLabel(value, presets);
+
   const { start, end } = getPresetDatesForReferenceDate(
     value.rangePreset,
     referenceDate,
     value.customStart,
     value.customEnd
   );
+
   if (value.rangePreset === "today" || value.rangePreset === "yesterday") {
     return formatDateRange(start, end);
   }
-  return presets.find((p) => p.value === value.rangePreset)?.label
-    ?? RANGE_PRESETS.find((p) => p.value === value.rangePreset)?.label
-    ?? "Select range";
-}
 
-function getComparisonLabel(value: DateRangeValue): string {
-  return COMPARISON_PRESETS.find((p) => p.value === value.comparisonPreset)?.label ?? "None";
+  return presets.find((preset) => preset.value === value.rangePreset)?.label ?? "Date range";
 }
-
-// ── Mini Calendar ─────────────────────────────────────────────────────────────
 
 const DAYS_SHORT = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 const MONTH_NAMES = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December",
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
 ];
 
-function buildMonthGrid(year: number, month: number): (string | null)[] {
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const firstDow = new Date(year, month, 1).getDay();
-  const cells: (string | null)[] = Array(firstDow).fill(null);
-  for (let d = 1; d <= daysInMonth; d++) {
-    cells.push(`${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`);
+function buildMonthGrid(year: number, month: number): Array<string | null> {
+  const firstDay = new Date(Date.UTC(year, month, 1)).getUTCDay();
+  const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  const cells: Array<string | null> = Array(firstDay).fill(null);
+
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    cells.push(`${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`);
   }
-  while (cells.length % 7 !== 0) cells.push(null);
+
+  while (cells.length < 42) cells.push(null);
   return cells;
 }
 
-interface CalendarProps {
-  year: number;
-  month: number;
-  rangeStart: string;
-  rangeEnd: string;
-  hoverDate: string;
-  pickStep: "start" | "end";
-  interactive: boolean;
-  onDateClick: (date: string) => void;
-  onDateHover: (date: string) => void;
-  onMonthChange: (year: number, month: number) => void;
+function getPresetSections<T extends { group: string }>(items: T[]): Array<{ label: string; items: T[] }> {
+  const sections = new Map<string, T[]>();
+  for (const item of items) {
+    if (!sections.has(item.group)) sections.set(item.group, []);
+    sections.get(item.group)?.push(item);
+  }
+  return Array.from(sections.entries()).map(([label, sectionItems]) => ({ label, items: sectionItems }));
 }
 
-function Calendar({
+function getComparisonDescription(preset: ComparisonPreset): string {
+  switch (preset) {
+    case "none":
+      return "Comparison is off. The charts and tables stay focused on the selected primary range only.";
+    case "custom":
+      return "Use an exact comparison range that you choose manually.";
+    case "previousPeriod":
+      return "Matches the selected range length and compares it against the immediately preceding window.";
+    case "previousWeek":
+      return "Useful for weekly pacing, traffic quality shifts, and recent operational checks.";
+    case "previousMonth":
+      return "Helps you benchmark the current period against the prior calendar month.";
+    case "previousQuarter":
+      return "Best when you want a broader benchmark for seasonal or strategic movement.";
+    case "previousYear":
+      return "A direct year-over-year lens for growth, efficiency, and seasonality.";
+    case "previousYearMatch":
+      return "Aligns this period with a calendar-matched version from the previous year.";
+  }
+}
+
+function getResolvedPrimaryRange(draft: DateRangeValue, referenceDate?: string) {
+  return referenceDate
+    ? getPresetDatesForReferenceDate(draft.rangePreset, referenceDate, draft.customStart, draft.customEnd)
+    : getPresetDates(draft.rangePreset, draft.customStart, draft.customEnd);
+}
+
+function getDerivedComparisonRange(
+  primaryStart: string,
+  primaryEnd: string,
+  preset: ComparisonPreset,
+  customStart: string,
+  customEnd: string
+): { start: string; end: string } | null {
+  if (preset === "none") return null;
+
+  if (preset === "custom") {
+    return {
+      start: customStart || primaryStart,
+      end: customEnd || primaryEnd,
+    };
+  }
+
+  if (customStart && customEnd) {
+    return { start: customStart, end: customEnd };
+  }
+
+  const days = getRangeDays(primaryStart, primaryEnd);
+
+  if (preset === "previousPeriod") {
+    const end = toISO(addDays(parseISODate(primaryStart), -1));
+    const start = toISO(addDays(parseISODate(end), -(days - 1)));
+    return { start, end };
+  }
+
+  if (preset === "previousWeek") {
+    return {
+      start: toISO(addDays(parseISODate(primaryStart), -7)),
+      end: toISO(addDays(parseISODate(primaryEnd), -7)),
+    };
+  }
+
+  if (preset === "previousMonth") {
+    return {
+      start: toISO(addDays(parseISODate(primaryStart), -30)),
+      end: toISO(addDays(parseISODate(primaryEnd), -30)),
+    };
+  }
+
+  if (preset === "previousQuarter") {
+    return {
+      start: toISO(addDays(parseISODate(primaryStart), -90)),
+      end: toISO(addDays(parseISODate(primaryEnd), -90)),
+    };
+  }
+
+  return {
+    start: toISO(addDays(parseISODate(primaryStart), -365)),
+    end: toISO(addDays(parseISODate(primaryEnd), -365)),
+  };
+}
+
+function CalendarMonth({
   year,
   month,
   rangeStart,
@@ -242,147 +350,157 @@ function Calendar({
   interactive,
   onDateClick,
   onDateHover,
-  onMonthChange,
-}: CalendarProps) {
+  onPrevMonth,
+  onNextMonth,
+  todayIso,
+  showPrev,
+  showNext,
+}: {
+  year: number;
+  month: number;
+  rangeStart: string;
+  rangeEnd: string;
+  hoverDate: string;
+  pickStep: "start" | "end";
+  interactive: boolean;
+  onDateClick: (date: string) => void;
+  onDateHover: (date: string) => void;
+  onPrevMonth: () => void;
+  onNextMonth: () => void;
+  todayIso: string;
+  showPrev: boolean;
+  showNext: boolean;
+}) {
   const cells = buildMonthGrid(year, month);
-
-  const prevMonth = () => {
-    if (month === 0) onMonthChange(year - 1, 11);
-    else onMonthChange(year, month - 1);
-  };
-  const nextMonth = () => {
-    if (month === 11) onMonthChange(year + 1, 0);
-    else onMonthChange(year, month + 1);
-  };
-
   const effectiveEnd =
-    interactive && pickStep === "end" && hoverDate && hoverDate > rangeStart
-      ? hoverDate
-      : rangeEnd;
-
-  function getCellClass(date: string): string {
-    const isStart = date === rangeStart;
-    const isEnd = date === effectiveEnd;
-    const inRange =
-      rangeStart && effectiveEnd && date > rangeStart && date < effectiveEnd;
-
-    if (isStart || isEnd) {
-      return "h-8 w-8 flex items-center justify-center text-xs rounded-full cursor-pointer bg-foreground text-background font-medium";
-    }
-    if (inRange) {
-      return "h-8 w-8 flex items-center justify-center text-xs cursor-pointer bg-accent/70 text-accent-foreground rounded-none";
-    }
-    return cn(
-      "h-8 w-8 flex items-center justify-center text-xs rounded-full transition-colors",
-      interactive ? "cursor-pointer hover:bg-accent" : "cursor-default"
-    );
-  }
+    interactive && pickStep === "end" && hoverDate && rangeStart && hoverDate > rangeStart ? hoverDate : rangeEnd;
 
   return (
-    <div className="w-72 select-none">
-      <div className="mb-3 flex items-center justify-between">
+    <section className="min-w-0 flex-1 rounded-[18px] border border-slate-200/80 bg-white/90 p-3 shadow-[0_10px_24px_rgba(15,23,42,0.06)]">
+      <div className="mb-3 flex items-center justify-between gap-2">
         <button
           type="button"
-          onClick={prevMonth}
-          className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-accent transition-colors"
+          onClick={onPrevMonth}
+          className={cn(
+            "inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 transition-colors",
+            showPrev ? "hover:border-slate-300 hover:bg-slate-50" : "pointer-events-none opacity-0"
+          )}
         >
-          <ChevronLeftIcon className="h-4 w-4" />
+          <ChevronLeftIcon className="h-3.5 w-3.5" />
         </button>
-        <span className="text-sm font-medium">
-          {MONTH_NAMES[month]} {year}
-        </span>
+
+        <div className="text-center">
+          <div className="text-sm font-semibold text-slate-900">
+            {MONTH_NAMES[month]} {year}
+          </div>
+          <div className="text-[10px] text-slate-500">Pick a {pickStep === "start" ? "start" : "finish"} date</div>
+        </div>
+
         <button
           type="button"
-          onClick={nextMonth}
-          className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-accent transition-colors"
+          onClick={onNextMonth}
+          className={cn(
+            "inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 transition-colors",
+            showNext ? "hover:border-slate-300 hover:bg-slate-50" : "pointer-events-none opacity-0"
+          )}
         >
-          <ChevronRightIcon className="h-4 w-4" />
+          <ChevronRightIcon className="h-3.5 w-3.5" />
         </button>
       </div>
 
-      <div className="grid grid-cols-7 mb-1">
-        {DAYS_SHORT.map((d) => (
+      <div className="mb-1.5 grid grid-cols-7 gap-y-0.5">
+        {DAYS_SHORT.map((label) => (
           <div
-            key={d}
-            className="h-8 flex items-center justify-center text-[10px] font-medium text-muted-foreground"
+            key={label}
+            className={cn(
+              "flex h-7 items-center justify-center text-[10px] font-semibold uppercase tracking-[0.16em]",
+              label === "Sa" ? "text-slate-900" : "text-slate-400"
+            )}
           >
-            {d}
+            {label}
           </div>
         ))}
       </div>
 
-      <div className="grid grid-cols-7">
-        {cells.map((date, i) => (
-          <div key={i} className="flex items-center justify-center">
-            {date ? (
+      <div className="grid grid-cols-7 gap-y-0.5">
+        {cells.map((date, index) => {
+          if (!date) return <div key={`empty-${index}`} className="h-8" />;
+
+          const isStart = date === rangeStart;
+          const isEnd = date === effectiveEnd;
+          const isToday = date === todayIso;
+          const inRange = Boolean(rangeStart && effectiveEnd && date > rangeStart && date < effectiveEnd);
+
+          return (
+            <div key={date} className="flex h-8 items-center justify-center">
               <button
                 type="button"
-                className={getCellClass(date)}
                 onClick={() => interactive && onDateClick(date)}
                 onMouseEnter={() => interactive && onDateHover(date)}
+                className={cn(
+                  "relative flex h-7 w-7 items-center justify-center rounded-xl text-xs font-medium transition-all",
+                  interactive ? "cursor-pointer" : "cursor-default",
+                  isStart || isEnd
+                    ? "bg-slate-900 text-white shadow-[0_8px_14px_rgba(15,23,42,0.2)]"
+                    : inRange
+                      ? "rounded-lg bg-blue-50 text-blue-700"
+                      : "text-slate-700 hover:bg-slate-100",
+                  isToday && !(isStart || isEnd) && "border border-blue-200 text-blue-700"
+                )}
               >
-                {parseInt(date.slice(8))}
+                {Number.parseInt(date.slice(8), 10)}
               </button>
-            ) : (
-              <div className="h-8 w-8" />
-            )}
-          </div>
-        ))}
+            </div>
+          );
+        })}
       </div>
-    </div>
+    </section>
   );
 }
 
-// ── Preset + Calendar Panel ───────────────────────────────────────────────────
-
-interface PanelProps {
-  mode: "range" | "comparison";
-  draft: DateRangeValue;
-  onDraftChange: (d: DateRangeValue) => void;
-  onApply: () => void;
-  onCancel: () => void;
-  rangePresets?: { value: RangePreset; label: string }[];
-  comparisonPresets?: { value: ComparisonPreset; label: string }[];
-  referenceDate?: string;
-  timeZoneLabel?: string;
-}
-
-function Panel({
-  mode,
+function RangePanel({
   draft,
   onDraftChange,
   onApply,
   onCancel,
   rangePresets,
-  comparisonPresets,
   referenceDate,
   timeZoneLabel,
-}: PanelProps) {
-  const today = referenceDate ? parseISODate(referenceDate) : new Date();
-  const isRange = mode === "range";
+}: {
+  draft: DateRangeValue;
+  onDraftChange: (value: DateRangeValue) => void;
+  onApply: () => void;
+  onCancel: () => void;
+  rangePresets: Array<{ value: RangePreset; label: string; hint: string; group: string }>;
+  referenceDate?: string;
+  timeZoneLabel?: string;
+}) {
+  const todayIso = referenceDate ?? getTodayIsoForTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone);
+  const resolvedRange = referenceDate
+    ? getPresetDatesForReferenceDate(draft.rangePreset, referenceDate, draft.customStart, draft.customEnd)
+    : getPresetDates(draft.rangePreset, draft.customStart, draft.customEnd);
 
-  const [calYear, setCalYear] = useState(today.getFullYear());
-  const [calMonth, setCalMonth] = useState(today.getMonth());
   const [pickStep, setPickStep] = useState<"start" | "end">("start");
   const [hoverDate, setHoverDate] = useState("");
+  const [leftMonthDate, setLeftMonthDate] = useState<Date>(() => addMonths(parseISODate(resolvedRange.end), -1));
 
-  const isCustom = isRange
-    ? draft.rangePreset === "custom"
-    : false;
+  useEffect(() => {
+    const anchor = parseISODate(resolvedRange.end);
+    setLeftMonthDate(addMonths(anchor, -1));
+    setPickStep("start");
+    setHoverDate("");
+  }, [draft.rangePreset, resolvedRange.end, resolvedRange.start]);
 
-  const { start: displayStart, end: displayEnd } = isRange
-    ? (referenceDate
-        ? getPresetDatesForReferenceDate(
-            draft.rangePreset,
-            referenceDate,
-            draft.customStart,
-            draft.customEnd
-          )
-        : getPresetDates(draft.rangePreset, draft.customStart, draft.customEnd))
-    : { start: draft.comparisonStart, end: draft.comparisonEnd };
+  const leftYear = leftMonthDate.getUTCFullYear();
+  const leftMonth = leftMonthDate.getUTCMonth();
+  const rightMonthDate = addMonths(leftMonthDate, 1);
+  const rightYear = rightMonthDate.getUTCFullYear();
+  const rightMonth = rightMonthDate.getUTCMonth();
+  const presetSections = getPresetSections(rangePresets);
+  const rangeDays = getRangeDays(resolvedRange.start, resolvedRange.end);
+  const activePreset = rangePresets.find((preset) => preset.value === draft.rangePreset);
 
   function handleDateClick(date: string) {
-    if (!isRange) return;
     if (pickStep === "start" || draft.rangePreset !== "custom") {
       onDraftChange({
         ...draft,
@@ -391,122 +509,420 @@ function Panel({
         customEnd: date,
       });
       setPickStep("end");
-    } else {
-      if (date < draft.customStart) {
-        onDraftChange({ ...draft, customStart: date, customEnd: draft.customStart });
-      } else {
-        onDraftChange({ ...draft, customEnd: date });
-      }
-      setPickStep("start");
+      return;
     }
+
+    if (date < draft.customStart) {
+      onDraftChange({ ...draft, customStart: date, customEnd: draft.customStart });
+    } else {
+      onDraftChange({ ...draft, customEnd: date });
+    }
+    setPickStep("start");
   }
 
-  const presets = isRange ? (rangePresets ?? RANGE_PRESETS) : (comparisonPresets ?? COMPARISON_PRESETS);
-  const resolvedReferenceRange = (preset: RangePreset) =>
-    referenceDate
-      ? getPresetDatesForReferenceDate(preset, referenceDate, draft.customStart, draft.customEnd)
-      : getPresetDates(preset, draft.customStart, draft.customEnd);
-
   return (
-    <div className="flex flex-col">
-      <div className="flex">
-        {/* Left: Presets */}
-        <div className="w-52 border-r py-2 flex flex-col">
-          <p className="px-4 pb-2 pt-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-            {isRange ? "Date range" : "Compare to"}
-          </p>
-          {presets.map((preset) => {
-            const selected = isRange
-              ? draft.rangePreset === preset.value
-              : draft.comparisonPreset === preset.value;
-            return (
-              <button
-                key={preset.value}
-                type="button"
-                onClick={() => {
-                  if (isRange) {
-                    const nextPreset = preset.value as RangePreset;
-                    const resolved = resolvedReferenceRange(nextPreset);
-                    onDraftChange({
-                      ...draft,
-                      rangePreset: nextPreset,
-                      customStart: resolved.start,
-                      customEnd: resolved.end,
-                    });
-                    if (preset.value === "custom") setPickStep("start");
-                  } else {
-                    onDraftChange({
-                      ...draft,
-                      comparisonPreset: preset.value as ComparisonPreset,
-                    });
-                  }
-                }}
-                className={cn(
-                  "flex w-full items-center gap-2 px-4 py-2 text-sm text-left transition-colors hover:bg-accent",
-                  selected && "bg-accent text-accent-foreground font-medium"
-                )}
-              >
-                <span
-                  className={cn(
-                    "h-1.5 w-1.5 rounded-full shrink-0",
-                    selected ? "bg-foreground" : "bg-transparent"
-                  )}
-                />
-                {preset.label}
-              </button>
-            );
-          })}
-        </div>
+    <div className="flex w-[min(96vw,760px)] flex-col overflow-hidden rounded-[22px] bg-[linear-gradient(180deg,#f8fbff_0%,#f7f8fb_100%)]">
+      <div className="grid grid-cols-1 xl:grid-cols-[196px_minmax(0,1fr)]">
+        <aside className="border-b border-slate-200/80 bg-white/92 p-3 xl:border-b-0 xl:border-r">
+          <div className="mb-3">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">Date Range</div>
+            <div className="mt-1 text-xs text-slate-500">One standard picker for every Adsecute surface.</div>
+          </div>
 
-        {/* Right: Calendar */}
-        <div className="flex flex-col gap-3 p-4">
-          <Calendar
-            year={calYear}
-            month={calMonth}
-            rangeStart={displayStart}
-            rangeEnd={displayEnd}
-            hoverDate={hoverDate}
-            pickStep={pickStep}
-            interactive={isRange}
-            onDateClick={handleDateClick}
-            onDateHover={setHoverDate}
-            onMonthChange={(y, m) => {
-              setCalYear(y);
-              setCalMonth(m);
-            }}
-          />
+          <div className="max-h-[360px] space-y-3 overflow-y-auto pr-1 xl:max-h-[420px]">
+            {presetSections.map((section) => (
+              <div key={section.label} className="space-y-1">
+                <div className="px-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                  {section.label}
+                </div>
+                {section.items.map((preset) => {
+                  const selected = draft.rangePreset === preset.value;
+                  return (
+                    <button
+                      key={preset.value}
+                      type="button"
+                      onClick={() => {
+                        const resolved = referenceDate
+                          ? getPresetDatesForReferenceDate(
+                              preset.value,
+                              referenceDate,
+                              draft.customStart,
+                              draft.customEnd
+                            )
+                          : getPresetDates(preset.value, draft.customStart, draft.customEnd);
 
-          {isCustom && (
-            <p className="text-center text-xs text-muted-foreground">
-              {pickStep === "start" ? "Select start date" : "Select end date"}
-            </p>
-          )}
+                        onDraftChange({
+                          ...draft,
+                          rangePreset: preset.value,
+                          customStart: resolved.start,
+                          customEnd: resolved.end,
+                        });
+                        setPickStep(preset.value === "custom" ? "start" : "start");
+                      }}
+                      className={cn(
+                        "group flex w-full items-start gap-2 rounded-xl border px-2.5 py-2 text-left transition-all",
+                        selected
+                          ? "border-slate-900 bg-slate-900 text-white shadow-[0_10px_18px_rgba(15,23,42,0.18)]"
+                          : "border-transparent bg-slate-50 text-slate-700 hover:border-slate-200 hover:bg-white"
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border",
+                          selected ? "border-white/30 bg-white/10 text-white" : "border-slate-200 bg-white text-transparent group-hover:text-slate-400"
+                        )}
+                      >
+                        <CheckIcon className="h-3 w-3" />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-xs font-semibold">{preset.label}</span>
+                        <span className={cn("mt-0.5 block text-[10px]", selected ? "text-white/75" : "text-slate-500")}>
+                          {preset.hint}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </aside>
 
-          {displayStart && displayEnd && (
-            <div className="rounded-md border bg-muted/30 px-3 py-2 text-center text-xs">
-              {formatDateRange(displayStart, displayEnd)}
+        <div className="min-h-0 overflow-y-auto p-3 md:p-3.5">
+          <div className="space-y-3">
+            <div className="grid gap-2.5 lg:grid-cols-[minmax(0,1fr)_30px_minmax(0,1fr)_100px]">
+              <div className="rounded-[16px] border border-slate-200 bg-white/90 px-3 py-2.5 shadow-[0_8px_20px_rgba(15,23,42,0.05)]">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">Start</div>
+                <div className="mt-1 text-[clamp(0.9rem,1vw,1.05rem)] font-semibold text-slate-900">
+                  {formatLongDate(resolvedRange.start)}
+                </div>
+              </div>
+
+              <div className="hidden items-center justify-center lg:flex">
+                <ArrowRightIcon className="h-4 w-4 text-slate-400" />
+              </div>
+
+              <div className="rounded-[16px] border border-slate-200 bg-white/90 px-3 py-2.5 shadow-[0_8px_20px_rgba(15,23,42,0.05)]">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">End</div>
+                <div className="mt-1 text-[clamp(0.9rem,1vw,1.05rem)] font-semibold text-slate-900">
+                  {formatLongDate(resolvedRange.end)}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1.5 rounded-[16px] border border-slate-200 bg-white/90 px-3 py-2.5 text-xs text-slate-600 shadow-[0_8px_20px_rgba(15,23,42,0.05)]">
+                <Clock3Icon className="h-3.5 w-3.5 text-slate-400" />
+                <div>
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">Window</div>
+                  <div className="mt-0.5 font-semibold text-slate-900">{rangeDays}d</div>
+                </div>
+              </div>
             </div>
-          )}
 
-          <p className="text-center text-[10px] text-muted-foreground">
-            {timeZoneLabel ?? Intl.DateTimeFormat().resolvedOptions().timeZone}
-          </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-semibold text-blue-700">
+                {activePreset?.label ?? "Custom range"}
+              </span>
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] text-slate-600">
+                {pickStep === "start" ? "Pick a start date first" : "Pick the ending date next"}
+              </span>
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] text-slate-600">
+                {timeZoneLabel ?? Intl.DateTimeFormat().resolvedOptions().timeZone}
+              </span>
+            </div>
+
+            <div className="grid gap-3 xl:grid-cols-2">
+              <CalendarMonth
+                year={leftYear}
+                month={leftMonth}
+                rangeStart={resolvedRange.start}
+                rangeEnd={resolvedRange.end}
+                hoverDate={hoverDate}
+                pickStep={pickStep}
+                interactive
+                onDateClick={handleDateClick}
+                onDateHover={setHoverDate}
+                onPrevMonth={() => setLeftMonthDate((current) => addMonths(current, -1))}
+                onNextMonth={() => setLeftMonthDate((current) => addMonths(current, 1))}
+                todayIso={todayIso}
+                showPrev
+                showNext={false}
+              />
+              <CalendarMonth
+                year={rightYear}
+                month={rightMonth}
+                rangeStart={resolvedRange.start}
+                rangeEnd={resolvedRange.end}
+                hoverDate={hoverDate}
+                pickStep={pickStep}
+                interactive
+                onDateClick={handleDateClick}
+                onDateHover={setHoverDate}
+                onPrevMonth={() => setLeftMonthDate((current) => addMonths(current, -1))}
+                onNextMonth={() => setLeftMonthDate((current) => addMonths(current, 1))}
+                todayIso={todayIso}
+                showPrev={false}
+                showNext
+              />
+            </div>
+
+            <div className="rounded-[16px] border border-slate-200 bg-white/90 px-3 py-2.5 text-xs text-slate-600 shadow-[0_8px_20px_rgba(15,23,42,0.05)]">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">Selection Summary</div>
+              <div className="mt-1 font-medium text-slate-900">{formatDateRange(resolvedRange.start, resolvedRange.end)}</div>
+              <div className="mt-1 text-[10px] text-slate-500">
+                Start and end dates stay visible while browsing months so the range is easy to verify before applying.
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Footer */}
-      <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
+      <div className="flex flex-col gap-2.5 border-t border-slate-200/80 bg-white/92 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="text-xs text-slate-500">
+          Applied range will update charts, tables, and summaries everywhere this picker is used.
+        </div>
+        <div className="flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onApply}
+            className="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white shadow-[0_10px_18px_rgba(15,23,42,0.18)] transition-opacity hover:opacity-90"
+          >
+            Apply
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ComparisonPanel({
+  draft,
+  onDraftChange,
+  onApply,
+  onCancel,
+  comparisonPresets,
+  referenceDate,
+}: {
+  draft: DateRangeValue;
+  onDraftChange: (value: DateRangeValue) => void;
+  onApply: () => void;
+  onCancel: () => void;
+  comparisonPresets: Array<{ value: ComparisonPreset; label: string; hint: string; group: string }>;
+  referenceDate?: string;
+}) {
+  const presetSections = getPresetSections(comparisonPresets);
+  const active = comparisonPresets.find((preset) => preset.value === draft.comparisonPreset) ?? comparisonPresets[0];
+  const primaryRange = getResolvedPrimaryRange(draft, referenceDate);
+  const previewRange = getDerivedComparisonRange(
+    primaryRange.start,
+    primaryRange.end,
+    draft.comparisonPreset,
+    draft.comparisonStart,
+    draft.comparisonEnd
+  );
+  const todayIso = referenceDate ?? getTodayIsoForTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone);
+  const [pickStep, setPickStep] = useState<"start" | "end">("start");
+  const [hoverDate, setHoverDate] = useState("");
+  const [leftMonthDate, setLeftMonthDate] = useState<Date>(() =>
+    addMonths(parseISODate(previewRange?.end ?? primaryRange.end), -1)
+  );
+
+  useEffect(() => {
+    setLeftMonthDate(addMonths(parseISODate(previewRange?.end ?? primaryRange.end), -1));
+    setPickStep("start");
+    setHoverDate("");
+  }, [previewRange?.end, draft.comparisonPreset, primaryRange.end]);
+
+  const leftYear = leftMonthDate.getUTCFullYear();
+  const leftMonth = leftMonthDate.getUTCMonth();
+  const rightMonthDate = addMonths(leftMonthDate, 1);
+  const rightYear = rightMonthDate.getUTCFullYear();
+  const rightMonth = rightMonthDate.getUTCMonth();
+  const isCustomComparison = draft.comparisonPreset === "custom";
+
+  function handleComparisonDateClick(date: string) {
+    if (pickStep === "start" || !draft.comparisonStart || (draft.comparisonStart && draft.comparisonEnd)) {
+      onDraftChange({
+        ...draft,
+        comparisonPreset: "custom",
+        comparisonStart: date,
+        comparisonEnd: date,
+      });
+      setPickStep("end");
+      return;
+    }
+
+    if (date < draft.comparisonStart) {
+      onDraftChange({
+        ...draft,
+        comparisonPreset: "custom",
+        comparisonStart: date,
+        comparisonEnd: draft.comparisonStart,
+      });
+    } else {
+      onDraftChange({
+        ...draft,
+        comparisonPreset: "custom",
+        comparisonStart: draft.comparisonStart,
+        comparisonEnd: date,
+      });
+    }
+    setPickStep("start");
+  }
+
+  return (
+    <div
+      className={cn(
+        "flex flex-col overflow-hidden rounded-[22px] bg-[linear-gradient(180deg,#f8fbff_0%,#f7f8fb_100%)]",
+        isCustomComparison ? "w-[min(94vw,760px)]" : "w-[min(92vw,420px)]"
+      )}
+    >
+      <div className={cn("grid grid-cols-1", isCustomComparison ? "md:grid-cols-[196px_minmax(0,1fr)]" : "md:grid-cols-[196px_minmax(220px,1fr)]")}>
+        <aside className="border-b border-slate-200/80 bg-white/92 p-3 md:border-b-0 md:border-r">
+          <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">Compare To</div>
+
+          <div className="max-h-[320px] overflow-y-auto pr-1 xl:max-h-[380px]">
+            {presetSections.map((section) => (
+              <div key={section.label} className="mb-3 space-y-1">
+                <div className="px-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                  {section.label}
+                </div>
+                {section.items.map((preset) => {
+                  const selected = draft.comparisonPreset === preset.value;
+                  return (
+                    <button
+                      key={preset.value}
+                      type="button"
+                      onClick={() => {
+                        if (preset.value === "custom") {
+                          const nextStart = draft.comparisonStart || primaryRange.start;
+                          const nextEnd = draft.comparisonEnd || primaryRange.end;
+                          onDraftChange({
+                            ...draft,
+                            comparisonPreset: "custom",
+                            comparisonStart: nextStart,
+                            comparisonEnd: nextEnd,
+                          });
+                          setPickStep("start");
+                          return;
+                        }
+
+                        onDraftChange({
+                          ...draft,
+                          comparisonPreset: preset.value,
+                          comparisonStart: "",
+                          comparisonEnd: "",
+                        });
+                      }}
+                      className={cn(
+                        "group flex w-full items-start gap-2 rounded-xl border px-2.5 py-2 text-left transition-all",
+                        selected
+                          ? "border-slate-900 bg-slate-900 text-white shadow-[0_10px_18px_rgba(15,23,42,0.18)]"
+                          : "border-transparent bg-slate-50 text-slate-700 hover:border-slate-200 hover:bg-white"
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border",
+                          selected ? "border-white/30 bg-white/10 text-white" : "border-slate-200 bg-white text-transparent group-hover:text-slate-400"
+                        )}
+                      >
+                        <CheckIcon className="h-3 w-3" />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-xs font-semibold">{preset.label}</span>
+                        <span className={cn("mt-0.5 block text-[10px]", selected ? "text-white/75" : "text-slate-500")}>
+                          {preset.hint}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </aside>
+
+        <div className="p-3 md:p-3.5">
+          <div className="space-y-3">
+            <div className={cn("grid gap-2.5", isCustomComparison ? "sm:grid-cols-2" : "sm:grid-cols-1")}>
+              <div className="rounded-[16px] border border-slate-200 bg-white/90 px-3 py-2.5 shadow-[0_8px_20px_rgba(15,23,42,0.05)]">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">Start</div>
+                <div className="mt-1 text-xs font-semibold text-slate-900">
+                  {previewRange ? formatLongDate(previewRange.start) : "-"}
+                </div>
+              </div>
+              <div className="rounded-[16px] border border-slate-200 bg-white/90 px-3 py-2.5 shadow-[0_8px_20px_rgba(15,23,42,0.05)]">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">End</div>
+                <div className="mt-1 text-xs font-semibold text-slate-900">
+                  {previewRange ? formatLongDate(previewRange.end) : "-"}
+                </div>
+              </div>
+            </div>
+
+            {isCustomComparison ? (
+              <div className="grid gap-3 xl:grid-cols-2">
+                <CalendarMonth
+                  year={leftYear}
+                  month={leftMonth}
+                  rangeStart={previewRange?.start ?? primaryRange.start}
+                  rangeEnd={previewRange?.end ?? primaryRange.end}
+                  hoverDate={hoverDate}
+                  pickStep={pickStep}
+                  interactive
+                  onDateClick={handleComparisonDateClick}
+                  onDateHover={setHoverDate}
+                  onPrevMonth={() => setLeftMonthDate((current) => addMonths(current, -1))}
+                  onNextMonth={() => setLeftMonthDate((current) => addMonths(current, 1))}
+                  todayIso={todayIso}
+                  showPrev
+                  showNext={false}
+                />
+                <CalendarMonth
+                  year={rightYear}
+                  month={rightMonth}
+                  rangeStart={previewRange?.start ?? primaryRange.start}
+                  rangeEnd={previewRange?.end ?? primaryRange.end}
+                  hoverDate={hoverDate}
+                  pickStep={pickStep}
+                  interactive
+                  onDateClick={handleComparisonDateClick}
+                  onDateHover={setHoverDate}
+                  onPrevMonth={() => setLeftMonthDate((current) => addMonths(current, -1))}
+                  onNextMonth={() => setLeftMonthDate((current) => addMonths(current, 1))}
+                  todayIso={todayIso}
+                  showPrev={false}
+                  showNext
+                />
+              </div>
+            ) : (
+              <div className="rounded-[16px] border border-slate-200 bg-white/90 px-3 py-2.5 text-xs text-slate-600 shadow-[0_8px_20px_rgba(15,23,42,0.05)]">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">Selected Comparison</div>
+                <div className="mt-1 font-medium text-slate-900">{active.label}</div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-end gap-2 border-t border-slate-200/80 bg-white/92 px-3 py-2.5">
         <button
           type="button"
           onClick={onCancel}
-          className="rounded-md px-4 py-1.5 text-sm text-muted-foreground hover:bg-accent transition-colors"
+          className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50"
         >
           Cancel
         </button>
         <button
           type="button"
           onClick={onApply}
-          className="rounded-md bg-foreground px-4 py-1.5 text-sm font-medium text-background hover:opacity-80 transition-opacity"
+          className="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white shadow-[0_10px_18px_rgba(15,23,42,0.18)] transition-opacity hover:opacity-90"
         >
           Apply
         </button>
@@ -514,8 +930,6 @@ function Panel({
     </div>
   );
 }
-
-// ── DateRangePicker (main export) ─────────────────────────────────────────────
 
 export interface DateRangePickerProps {
   value: DateRangeValue;
@@ -542,25 +956,33 @@ export function DateRangePicker({
 }: DateRangePickerProps) {
   const [openMode, setOpenMode] = useState<"range" | "comparison" | null>(null);
   const [draft, setDraft] = useState<DateRangeValue>(value);
-  const availableRangePresets =
-    rangePresets && rangePresets.length > 0
-      ? RANGE_PRESETS.filter((preset) => rangePresets.includes(preset.value))
-      : RANGE_PRESETS;
-  const availableComparisonPresets =
-    comparisonPresets && comparisonPresets.length > 0
-      ? COMPARISON_PRESETS.filter((preset) => comparisonPresets.includes(preset.value))
-      : COMPARISON_PRESETS;
 
-  function getResolvedDraftFromValue(nextValue: DateRangeValue): DateRangeValue {
-    if (!referenceDate || nextValue.rangePreset === "custom") {
-      return { ...nextValue };
-    }
+  const availableRangePresets = useMemo(
+    () =>
+      rangePresets && rangePresets.length > 0
+        ? RANGE_PRESETS.filter((preset) => rangePresets.includes(preset.value))
+        : RANGE_PRESETS,
+    [rangePresets]
+  );
+
+  const availableComparisonPresets = useMemo(
+    () =>
+      comparisonPresets && comparisonPresets.length > 0
+        ? COMPARISON_PRESETS.filter((preset) => comparisonPresets.includes(preset.value))
+        : COMPARISON_PRESETS,
+    [comparisonPresets]
+  );
+
+  function resolveDraft(nextValue: DateRangeValue): DateRangeValue {
+    if (!referenceDate || nextValue.rangePreset === "custom") return { ...nextValue };
+
     const resolved = getPresetDatesForReferenceDate(
       nextValue.rangePreset,
       referenceDate,
       nextValue.customStart,
       nextValue.customEnd
     );
+
     return {
       ...nextValue,
       customStart: resolved.start,
@@ -569,7 +991,7 @@ export function DateRangePicker({
   }
 
   function openPanel(mode: "range" | "comparison") {
-    setDraft(getResolvedDraftFromValue(value));
+    setDraft(resolveDraft(value));
     setOpenMode(mode);
   }
 
@@ -579,21 +1001,27 @@ export function DateRangePicker({
   }
 
   function handleCancel() {
-    setDraft(getResolvedDraftFromValue(value));
+    setDraft(resolveDraft(value));
     setOpenMode(null);
   }
 
   const rangeLabel = getTriggerLabelForReferenceDate(value, availableRangePresets, referenceDate);
-  const compLabel =
+  const comparisonLabel =
     value.comparisonPreset === "none"
       ? comparisonPlaceholderLabel
-      : availableComparisonPresets.find((preset) => preset.value === value.comparisonPreset)?.label ??
-        comparisonPlaceholderLabel;
-  const hasComparison = value.comparisonPreset !== "none";
+      : value.comparisonPreset === "custom" && value.comparisonStart && value.comparisonEnd
+        ? formatDateRange(value.comparisonStart, value.comparisonEnd)
+      : availableComparisonPresets.find((preset) => preset.value === value.comparisonPreset)?.label ?? comparisonPlaceholderLabel;
+  const resolvedRange =
+    referenceDate && value.rangePreset !== "custom"
+      ? getPresetDatesForReferenceDate(value.rangePreset, referenceDate, value.customStart, value.customEnd)
+      : getPresetDates(value.rangePreset, value.customStart, value.customEnd);
+  const rangeMetaLabel = `${getRangeDays(resolvedRange.start, resolvedRange.end)} day${
+    getRangeDays(resolvedRange.start, resolvedRange.end) === 1 ? "" : "s"
+  }`;
 
   return (
-    <div className={cn("flex items-center gap-1.5", className)}>
-      {/* Main range trigger */}
+    <div className={cn("flex flex-wrap items-center gap-1.5", className)}>
       <Popover.Root
         open={openMode === "range"}
         onOpenChange={(open) => {
@@ -604,22 +1032,30 @@ export function DateRangePicker({
         <Popover.Trigger asChild>
           <button
             type="button"
-            className="inline-flex h-9 items-center gap-2 rounded-lg border bg-background px-3 text-sm hover:bg-accent transition-colors"
+            className="group inline-flex min-h-8 items-center gap-2.5 rounded-[14px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] px-2.5 py-2 text-left shadow-[0_8px_18px_rgba(15,23,42,0.05)] transition-all hover:border-slate-300 hover:shadow-[0_10px_20px_rgba(15,23,42,0.08)]"
           >
-            <CalendarIcon className="h-4 w-4 text-muted-foreground shrink-0" />
-            <span className="font-medium">{rangeLabel}</span>
-            <ChevronDownIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-white">
+              <CalendarIcon className="h-3.5 w-3.5" />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Date range</span>
+              <span className="block truncate text-xs font-semibold text-slate-900">{rangeLabel}</span>
+            </span>
+            <span className="hidden rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600 sm:inline-flex">
+              {rangeMetaLabel}
+            </span>
+            <ChevronDownIcon className="h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform group-data-[state=open]:rotate-180" />
           </button>
         </Popover.Trigger>
         <Popover.Portal>
           <Popover.Content
-            sideOffset={6}
+            sideOffset={10}
             align="start"
-            className="z-50 overflow-hidden rounded-xl border bg-popover shadow-xl"
+            collisionPadding={12}
+            className="z-50 overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_26px_72px_rgba(15,23,42,0.22)]"
             onInteractOutside={handleCancel}
           >
-            <Panel
-              mode="range"
+            <RangePanel
               draft={draft}
               onDraftChange={setDraft}
               onApply={handleApply}
@@ -644,31 +1080,35 @@ export function DateRangePicker({
             <button
               type="button"
               className={cn(
-                "inline-flex h-9 items-center gap-1.5 rounded-lg border bg-background px-3 text-sm transition-colors",
-                hasComparison
-                  ? "border-foreground/40 font-medium"
-                  : "text-muted-foreground hover:bg-accent"
+                "group inline-flex min-h-8 items-center gap-2 rounded-[14px] border px-2.5 py-2 text-left shadow-[0_8px_18px_rgba(15,23,42,0.05)] transition-all",
+                value.comparisonPreset === "none"
+                  ? "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                  : "border-blue-200 bg-blue-50 text-blue-800 hover:border-blue-300"
               )}
             >
-              <span>{compLabel}</span>
-              <ChevronDownIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <span className="block">
+                <span className="block text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Compare</span>
+                <span className="block text-xs font-semibold">{comparisonLabel}</span>
+              </span>
+              <ChevronDownIcon className="h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform group-data-[state=open]:rotate-180" />
             </button>
           </Popover.Trigger>
           <Popover.Portal>
             <Popover.Content
-              sideOffset={6}
+              sideOffset={10}
               align="start"
-              className="z-50 overflow-hidden rounded-xl border bg-popover shadow-xl"
+              collisionPadding={12}
+              className="z-50 overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_26px_72px_rgba(15,23,42,0.22)]"
               onInteractOutside={handleCancel}
             >
-              <Panel
-                mode="comparison"
+              <ComparisonPanel
                 draft={draft}
                 onDraftChange={setDraft}
-              onApply={handleApply}
-              onCancel={handleCancel}
-              comparisonPresets={availableComparisonPresets}
-            />
+                onApply={handleApply}
+                onCancel={handleCancel}
+                comparisonPresets={availableComparisonPresets}
+                referenceDate={referenceDate}
+              />
             </Popover.Content>
           </Popover.Portal>
         </Popover.Root>
