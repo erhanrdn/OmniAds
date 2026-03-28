@@ -102,12 +102,15 @@ export type GoogleMutateActionType =
   | "add_negative_keyword"
   | "pause_asset"
   | "pause_ad"
-  | "adjust_campaign_budget";
+  | "adjust_campaign_budget"
+  | "adjust_shared_budget";
 export type GoogleRollbackActionType =
   | "remove_negative_keyword"
   | "enable_asset"
   | "enable_ad"
-  | "restore_campaign_budget";
+  | "restore_campaign_budget"
+  | "restore_shared_budget";
+export type GoogleRollbackSafetyState = "safe" | "caution" | "blocked";
 export type GoogleExecutionStatus =
   | "not_started"
   | "pending"
@@ -116,12 +119,97 @@ export type GoogleExecutionStatus =
   | "rolled_back"
   | "partially_applied";
 export type GoogleCompletionMode = "full" | "partial" | "unknown";
-export type GoogleExecutionTrustBand = "low" | "medium" | "high";
+export type GoogleExecutionTrustBand = "low" | "medium" | "high" | "insufficient_data";
 export type GoogleDependencyReadiness =
   | "not_ready"
   | "done_unverified"
   | "done_trusted"
   | "done_degraded";
+export type GoogleExecutionTrustSource = "observed_pattern" | "insufficient_data_fallback";
+export type GoogleBatchStatus = "pending" | "applied" | "partially_applied" | "failed" | "rolled_back";
+export type GoogleSharedStateGovernanceType =
+  | "standalone"
+  | "shared_budget"
+  | "portfolio_bid_strategy"
+  | "shared_budget_and_portfolio"
+  | "unknown";
+export type GoogleSharedStateAwarenessStatus = "known" | "not_ingested";
+export type GooglePortfolioGovernanceStatus =
+  | "none"
+  | "present"
+  | "mixed_governance"
+  | "dominant"
+  | "unknown";
+export type GooglePortfolioCouplingStrength = "low" | "medium" | "high";
+export type GooglePortfolioStrategyStatus = "stable" | "learning" | "limited" | "misconfigured" | "unknown";
+export type GooglePortfolioContaminationSource =
+  | "none"
+  | "shared_budget_contamination"
+  | "portfolio_strategy_contamination"
+  | "mixed_allocator_contamination";
+export type GooglePortfolioContaminationSeverity = "low" | "medium" | "high" | "critical";
+export type GooglePortfolioCascadeRiskBand = "contained" | "moderate" | "broad" | "unknown";
+export type GoogleClusterReadiness =
+  | "blocked"
+  | "staging"
+  | "ready_unverified"
+  | "ready_trusted"
+  | "degraded"
+  | "partially_executable";
+export type GoogleClusterStatus =
+  | "new"
+  | "blocked"
+  | "ready"
+  | "executing"
+  | "partially_completed"
+  | "completed"
+  | "rolled_back"
+  | "degraded";
+export type GoogleClusterExecutionStatus =
+  | "not_started"
+  | "pending"
+  | "applied"
+  | "partially_applied"
+  | "failed"
+  | "rolled_back"
+  | "partially_rolled_back"
+  | "rollback_failed";
+export type GoogleClusterOutcomeState = "unvalidated" | "resolved" | "stabilizing" | "degraded" | "mixed";
+export type GoogleClusterMoveValidity =
+  | "valid"
+  | "partially_effective"
+  | "compromised"
+  | "failed"
+  | "reverted"
+  | "inconclusive";
+export type GoogleClusterRecoveryState =
+  | "recoverable_retry"
+  | "manual_recovery_required"
+  | "accepted_partial_revert"
+  | "unrecoverable_but_stable";
+export type GoogleActionClusterType =
+  | "cleanup_only"
+  | "cleanup_then_scale"
+  | "cleanup_then_reallocate"
+  | "pure_reallocation"
+  | "overlap_resolution"
+  | "asset_cleanup";
+export type GoogleActionClusterBucket = "now" | "next" | "blocked";
+export type GoogleActionClusterStepType = "batch_mutate" | "mutate" | "handoff";
+export type GoogleActionClusterStepCriticality =
+  | "critical"
+  | "supporting"
+  | "validation"
+  | "optional"
+  | "rollback_sensitive";
+export type GoogleActionClusterStepFailureBoundary =
+  | "invalidate_move"
+  | "degrade_move"
+  | "continue_with_caution";
+export type GoogleActionClusterStepValidationRole =
+  | "unlock_gate"
+  | "outcome_check"
+  | "supporting_signal";
 
 export interface GoogleAiCommentary {
   commentaryType: "explanation" | "brief" | "qa_response" | "scenario";
@@ -167,6 +255,125 @@ export interface GoogleRecommendationCommerceSignals {
   stockState: GoogleStockState;
   discountState: GoogleDiscountState;
   heroSku: boolean | null;
+}
+
+export interface GoogleActionClusterStep {
+  stepId: string;
+  title: string;
+  stepType: GoogleActionClusterStepType;
+  required: boolean;
+  stepCriticality: GoogleActionClusterStepCriticality;
+  stepFailureBoundary: GoogleActionClusterStepFailureBoundary;
+  stepValidationRole: GoogleActionClusterStepValidationRole;
+  executionMode: GoogleExecutionMode | "handoff";
+  mutateActionType?: GoogleMutateActionType | null;
+  recommendationIds: string[];
+  recommendationFingerprints: string[];
+  batchGroupKey?: string | null;
+  executionTrustBand?: GoogleExecutionTrustBand | null;
+  dependencyReadiness?: GoogleDependencyReadiness | null;
+  stabilizationHoldUntil?: string | null;
+  transactionIds?: string[];
+  batchItems?: Array<{
+    recommendationFingerprint: string;
+    mutateActionType: "add_negative_keyword" | "pause_asset";
+    mutatePayloadPreview: Record<string, unknown>;
+    rollbackActionType?: "remove_negative_keyword" | "enable_asset" | null;
+    rollbackPayloadPreview?: Record<string, unknown> | null;
+    executionTrustBand?: GoogleExecutionTrustBand | null;
+    batchGroupKey?: string | null;
+  }> | null;
+  mutateItem?: {
+    recommendationFingerprint: string;
+    mutateActionType: GoogleMutateActionType;
+    mutatePayloadPreview: Record<string, unknown>;
+    rollbackActionType?: GoogleRollbackActionType | null;
+    rollbackPayloadPreview?: Record<string, unknown> | null;
+    executionTrustBand?: GoogleExecutionTrustBand | null;
+    dependencyReadiness?: GoogleDependencyReadiness | null;
+    stabilizationHoldUntil?: string | null;
+  } | null;
+}
+
+export interface GoogleActionCluster {
+  clusterId: string;
+  clusterType: GoogleActionClusterType;
+  clusterObjective: string;
+  clusterBucket: GoogleActionClusterBucket;
+  memberRecommendationIds: string[];
+  memberRecommendationFingerprints: string[];
+  clusterReadiness: GoogleClusterReadiness;
+  clusterTrustBand: GoogleExecutionTrustBand | null;
+  clusterRankScore: number;
+  clusterRankReason: string;
+  clusterStatus: GoogleClusterStatus;
+  clusterMoveValidity: GoogleClusterMoveValidity;
+  clusterMoveValidityReason: string;
+  clusterMoveConfidence: GoogleOutcomeConfidence | null;
+  sharedStateGovernanceType?: GoogleSharedStateGovernanceType | null;
+  sharedStateAwarenessStatus?: GoogleSharedStateAwarenessStatus | null;
+  allocatorCoupled?: boolean | null;
+  allocatorCouplingConfidence?: GoogleOutcomeConfidence | null;
+  governedEntityCount?: number | null;
+  sharedBudgetResourceName?: string | null;
+  portfolioBidStrategyType?: string | null;
+  portfolioBidStrategyResourceName?: string | null;
+  portfolioBidStrategyStatus?: GooglePortfolioStrategyStatus | null;
+  portfolioTargetType?: string | null;
+  portfolioTargetValue?: number | null;
+  portfolioGovernanceStatus?: GooglePortfolioGovernanceStatus | null;
+  portfolioCouplingStrength?: GooglePortfolioCouplingStrength | null;
+  portfolioCampaignShare?: number | null;
+  portfolioDominance?: GoogleOutcomeConfidence | null;
+  portfolioContaminationSource?: GooglePortfolioContaminationSource | null;
+  portfolioContaminationSeverity?: GooglePortfolioContaminationSeverity | null;
+  portfolioCascadeRiskBand?: GooglePortfolioCascadeRiskBand | null;
+  portfolioAttributionWindowDays?: number | null;
+  portfolioBlockedReason?: string | null;
+  portfolioCautionReason?: string | null;
+  portfolioUnlockGuidance?: string | null;
+  coupledCampaignIds?: string[];
+  coupledCampaignNames?: string[];
+  sharedStateMutateBlockedReason?: string | null;
+  sharedStateContaminationFlag?: boolean | null;
+  dependsOnClusterIds: string[];
+  unlocksClusterIds: string[];
+  conflictsWithClusterIds: string[];
+  recoveryState?: GoogleClusterRecoveryState | null;
+  recoveryRecommendedAction?: string | null;
+  recoveryFailedChildStepIds?: string[];
+  rollbackRecoveryAvailable?: boolean | null;
+  executionSummary: {
+    clusterExecutionId: string | null;
+    clusterExecutionStatus: GoogleClusterExecutionStatus;
+    childExecutionOrder: string[];
+    childTransactionIds: string[];
+    completedChildStepIds: string[];
+    failedChildStepIds: string[];
+    currentStepId: string | null;
+    stopReason: string | null;
+    retryEligibleFailedChildStepIds?: string[];
+    manualRecoveryInstructions?: string[];
+  };
+  validationPlan: string[];
+  outcomeState: {
+    verdict: GoogleClusterOutcomeState;
+    confidence: GoogleOutcomeConfidence | null;
+    failReason: string | null;
+    lastValidationCheckAt: string | null;
+    reason: string | null;
+    contaminationFlags?: string[];
+    reallocationNetImpact?: {
+      sourceDelta: number | null;
+      destinationDelta: number | null;
+      netDelta: number | null;
+    } | null;
+  };
+  steps: GoogleActionClusterStep[];
+  firstSeenAt?: string | null;
+  lastSeenAt?: string | null;
+  lastExecutedAt?: string | null;
+  lastRolledBackAt?: string | null;
 }
 
 export interface GoogleRecommendation {
@@ -259,13 +466,67 @@ export interface GoogleRecommendation {
     proposedAmount: number;
     deltaPercent: number;
   } | null;
+  sharedBudgetAdjustmentPreview?: {
+    sharedBudgetResourceName: string;
+    previousAmount: number;
+    proposedAmount: number;
+    deltaPercent: number;
+    governedCampaigns: Array<{ id: string; name: string }>;
+    zeroSumNote: string | null;
+    boundedDelta: boolean;
+  } | null;
+  rollbackSafetyState?: GoogleRollbackSafetyState | null;
+  rollbackAvailableUntil?: string | null;
   executionTrustScore?: number | null;
   executionTrustBand?: GoogleExecutionTrustBand | null;
+  executionTrustSource?: GoogleExecutionTrustSource | null;
   executionPolicyReason?: string | null;
   dependencyReadiness?: GoogleDependencyReadiness | null;
   stabilizationHoldUntil?: string | null;
   batchEligible?: boolean;
   batchGroupKey?: string | null;
+  transactionId?: string | null;
+  batchStatus?: GoogleBatchStatus | null;
+  batchSize?: number | null;
+  batchRollbackAvailable?: boolean | null;
+  clusterId?: string | null;
+  clusterExecutionId?: string | null;
+  clusterStepId?: string | null;
+  clusterMoveValidity?: GoogleClusterMoveValidity | null;
+  recoveryState?: GoogleClusterRecoveryState | null;
+  recoveryRecommendedAction?: string | null;
+  rollbackRecoveryAvailable?: boolean | null;
+  sharedStateGovernanceType?: GoogleSharedStateGovernanceType | null;
+  sharedStateAwarenessStatus?: GoogleSharedStateAwarenessStatus | null;
+  allocatorCoupled?: boolean | null;
+  allocatorCouplingConfidence?: GoogleOutcomeConfidence | null;
+  governedEntityCount?: number | null;
+  sharedBudgetResourceName?: string | null;
+  portfolioBidStrategyType?: string | null;
+  portfolioBidStrategyResourceName?: string | null;
+  portfolioBidStrategyStatus?: GooglePortfolioStrategyStatus | null;
+  portfolioTargetType?: string | null;
+  portfolioTargetValue?: number | null;
+  portfolioGovernanceStatus?: GooglePortfolioGovernanceStatus | null;
+  portfolioCouplingStrength?: GooglePortfolioCouplingStrength | null;
+  portfolioCampaignShare?: number | null;
+  portfolioDominance?: GoogleOutcomeConfidence | null;
+  portfolioContaminationSource?: GooglePortfolioContaminationSource | null;
+  portfolioContaminationSeverity?: GooglePortfolioContaminationSeverity | null;
+  portfolioCascadeRiskBand?: GooglePortfolioCascadeRiskBand | null;
+  portfolioAttributionWindowDays?: number | null;
+  portfolioBlockedReason?: string | null;
+  portfolioCautionReason?: string | null;
+  portfolioUnlockGuidance?: string | null;
+  coupledCampaignIds?: string[];
+  coupledCampaignNames?: string[];
+  sharedStateMutateBlockedReason?: string | null;
+  sharedStateContaminationFlag?: boolean | null;
+  reallocationPreview?: {
+    sourceCampaigns: Array<{ id: string; previousAmount: number; proposedAmount: number }>;
+    destinationCampaigns: Array<{ id: string; previousAmount: number; proposedAmount: number }>;
+    netDelta: number;
+  } | null;
   baselineSnapshot?: Record<string, unknown> | null;
   overlapType?: GoogleOverlapType | null;
   overlapEntities?: string[];
@@ -351,4 +612,5 @@ export interface GoogleAdvisorResponse {
   summary: GoogleDecisionSummary;
   recommendations: GoogleRecommendation[];
   sections: GoogleRecommendationSection[];
+  clusters: GoogleActionCluster[];
 }

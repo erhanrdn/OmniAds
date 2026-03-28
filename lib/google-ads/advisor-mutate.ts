@@ -21,7 +21,7 @@ export interface PauseAdPayload {
   adId: string;
 }
 
-export interface AdjustCampaignBudgetPayload {
+export interface CampaignBudgetMutationOperation {
   campaignId: string;
   campaignBudgetResourceName: string;
   previousAmount: number;
@@ -29,11 +29,16 @@ export interface AdjustCampaignBudgetPayload {
   deltaPercent: number;
 }
 
+export interface AdjustCampaignBudgetPayload extends CampaignBudgetMutationOperation {
+  operations?: CampaignBudgetMutationOperation[];
+}
+
 export type AdvisorMutatePayload =
   | { actionType: "add_negative_keyword"; payload: AddNegativeKeywordPayload }
   | { actionType: "pause_asset"; payload: PauseAssetPayload }
   | { actionType: "pause_ad"; payload: PauseAdPayload }
-  | { actionType: "adjust_campaign_budget"; payload: AdjustCampaignBudgetPayload };
+  | { actionType: "adjust_campaign_budget"; payload: AdjustCampaignBudgetPayload }
+  | { actionType: "adjust_shared_budget"; payload: AdjustCampaignBudgetPayload };
 
 export interface AdvisorMutationResult {
   actionType: AdvisorMutatePayload["actionType"];
@@ -89,6 +94,7 @@ async function googleAdsMutateRequest(input: {
   accountId: string;
   path: string;
   body: Record<string, unknown>;
+  validateOnly?: boolean;
 }) {
   const accessToken = await resolveGoogleAccessToken(input.businessId);
   const accountId = normalizeCustomerId(input.accountId);
@@ -117,10 +123,212 @@ async function googleAdsMutateRequest(input: {
         payload?.error && typeof payload.error === "object"
           ? (payload.error as Record<string, unknown>).message ?? response.statusText
           : response.statusText
-      ) || "Google Ads mutate request failed.";
+      ) || (input.validateOnly ? "Google Ads validate-only request failed." : "Google Ads mutate request failed.");
   }
 
-  throw new Error(lastError ?? "Google Ads mutate request failed.");
+  throw new Error(lastError ?? (input.validateOnly ? "Google Ads validate-only request failed." : "Google Ads mutate request failed."));
+}
+
+async function googleAdsSearchRequest(input: {
+  businessId: string;
+  accountId: string;
+  query: string;
+}) {
+  const accessToken = await resolveGoogleAccessToken(input.businessId);
+  const accountId = normalizeCustomerId(input.accountId);
+  const url = `${GOOGLE_CONFIG.adsApiBase}/customers/${accountId}/googleAds:search`;
+  let lastError: string | null = null;
+
+  for (const loginCustomerId of await loginCustomerIdCandidates(input.businessId, accountId)) {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "developer-token": GOOGLE_CONFIG.developerToken,
+        "content-type": "application/json",
+        Accept: "application/json",
+        ...(loginCustomerId ? { "login-customer-id": loginCustomerId } : {}),
+      },
+      body: JSON.stringify({ query: input.query }),
+      cache: "no-store",
+    });
+    const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+    if (response.ok && payload) {
+      return payload;
+    }
+    lastError =
+      String(
+        payload?.error && typeof payload.error === "object"
+          ? (payload.error as Record<string, unknown>).message ?? response.statusText
+          : response.statusText
+      ) || "Google Ads search request failed.";
+  }
+
+  throw new Error(lastError ?? "Google Ads search request failed.");
+}
+
+function escapeGaqlLiteral(value: string) {
+  return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+}
+
+function budgetOperationsFromPayload(payload: AdjustCampaignBudgetPayload) {
+  const operations = Array.isArray(payload.operations) && payload.operations.length > 0
+    ? payload.operations
+    : [payload];
+  return operations.filter(
+    (entry) =>
+      Boolean(entry.campaignBudgetResourceName) &&
+      Number.isFinite(Number(entry.previousAmount)) &&
+      Number.isFinite(Number(entry.proposedAmount))
+  );
+}
+
+export async function validateAdvisorMutation(input: {
+  businessId: string;
+  accountId: string;
+  action: AdvisorMutatePayload;
+}) {
+  switch (input.action.actionType) {
+    case "add_negative_keyword": {
+      const actionPayload = input.action.payload;
+      await googleAdsMutateRequest({
+        businessId: input.businessId,
+        accountId: input.accountId,
+        path: "campaignCriteria:mutate",
+        validateOnly: true,
+        body: {
+          validateOnly: true,
+          operations: actionPayload.negativeKeywords.map((keyword) => ({
+            create: {
+              campaign: `customers/${normalizeCustomerId(input.accountId)}/campaigns/${actionPayload.campaignId}`,
+              negative: true,
+              keyword: {
+                text: keyword,
+                matchType: actionPayload.matchType,
+              },
+            },
+          })),
+        },
+      });
+      return;
+    }
+    case "pause_asset": {
+      const actionPayload = input.action.payload;
+      const resourceName = `customers/${normalizeCustomerId(input.accountId)}/assetGroupAssets/${actionPayload.assetGroupId}~${actionPayload.assetId}~${actionPayload.fieldType}`;
+      await googleAdsMutateRequest({
+        businessId: input.businessId,
+        accountId: input.accountId,
+        path: "assetGroupAssets:mutate",
+        validateOnly: true,
+        body: {
+          validateOnly: true,
+          operations: [
+            {
+              update: {
+                resourceName,
+                status: "PAUSED",
+              },
+              updateMask: "status",
+            },
+          ],
+        },
+      });
+      return;
+    }
+    case "pause_ad":
+      throw new Error("Pause ad mutate is not enabled in Wave 10.");
+    case "adjust_campaign_budget":
+    case "adjust_shared_budget": {
+      const operations = budgetOperationsFromPayload(input.action.payload);
+      await googleAdsMutateRequest({
+        businessId: input.businessId,
+        accountId: input.accountId,
+        path: "campaignBudgets:mutate",
+        validateOnly: true,
+        body: {
+          validateOnly: true,
+          operations: operations.map((operation) => ({
+            update: {
+              resourceName: operation.campaignBudgetResourceName,
+              amountMicros: Math.round(operation.proposedAmount * 1_000_000),
+            },
+            updateMask: "amount_micros",
+          })),
+        },
+      });
+      return;
+    }
+  }
+}
+
+export async function preflightAdvisorMutation(input: {
+  businessId: string;
+  accountId: string;
+  action: AdvisorMutatePayload;
+}) {
+  await validateAdvisorMutation(input);
+
+  switch (input.action.actionType) {
+    case "add_negative_keyword":
+      return { ok: true as const };
+    case "pause_asset": {
+      const actionPayload = input.action.payload;
+      const resourceName = `customers/${normalizeCustomerId(input.accountId)}/assetGroupAssets/${actionPayload.assetGroupId}~${actionPayload.assetId}~${actionPayload.fieldType}`;
+      const response = await googleAdsSearchRequest({
+        businessId: input.businessId,
+        accountId: input.accountId,
+        query: `SELECT asset_group_asset.resource_name, asset_group_asset.status FROM asset_group_asset WHERE asset_group_asset.resource_name = '${escapeGaqlLiteral(resourceName)}' LIMIT 1`,
+      });
+      const row = Array.isArray(response.results) ? response.results[0] : null;
+      const assetGroupAsset =
+        row && typeof row === "object" && row !== null
+          ? (row as Record<string, unknown>).assetGroupAsset ?? (row as Record<string, unknown>).asset_group_asset
+          : null;
+      const status =
+        assetGroupAsset && typeof assetGroupAsset === "object"
+          ? String((assetGroupAsset as Record<string, unknown>).status ?? "")
+          : "";
+      if (!status) {
+        throw new Error("preflight_drift: asset state could not be verified before mutate.");
+      }
+      if (status === "PAUSED") {
+        throw new Error("preflight_drift: asset is already paused.");
+      }
+      return { ok: true as const };
+    }
+    case "pause_ad":
+      throw new Error("Pause ad mutate is not enabled in Wave 10.");
+    case "adjust_campaign_budget":
+    case "adjust_shared_budget": {
+      const operations = budgetOperationsFromPayload(input.action.payload);
+      for (const operation of operations) {
+        const response = await googleAdsSearchRequest({
+          businessId: input.businessId,
+          accountId: input.accountId,
+          query: `SELECT campaign_budget.resource_name, campaign_budget.amount_micros FROM campaign_budget WHERE campaign_budget.resource_name = '${escapeGaqlLiteral(operation.campaignBudgetResourceName)}' LIMIT 1`,
+        });
+        const row = Array.isArray(response.results) ? response.results[0] : null;
+        const campaignBudget =
+          row && typeof row === "object" && row !== null
+            ? (row as Record<string, unknown>).campaignBudget ?? (row as Record<string, unknown>).campaign_budget
+            : null;
+        const amountMicros =
+          campaignBudget && typeof campaignBudget === "object"
+            ? Number((campaignBudget as Record<string, unknown>).amountMicros ?? (campaignBudget as Record<string, unknown>).amount_micros ?? NaN)
+            : NaN;
+        const currentAmount = amountMicros / 1_000_000;
+        if (!Number.isFinite(currentAmount)) {
+          throw new Error("preflight_drift: current budget amount could not be verified before mutate.");
+        }
+        if (Math.abs(currentAmount - Number(operation.previousAmount)) > 0.009) {
+          throw new Error(
+            `preflight_drift: current budget ${currentAmount.toFixed(2)} no longer matches expected baseline ${Number(operation.previousAmount).toFixed(2)}.`
+          );
+        }
+      }
+      return { ok: true as const };
+    }
+  }
 }
 
 export async function executeAdvisorMutation(input: {
@@ -188,28 +396,27 @@ export async function executeAdvisorMutation(input: {
       } satisfies AdvisorMutationResult;
     }
     case "pause_ad":
-      throw new Error("Pause ad mutate is not enabled in Wave 6.");
-    case "adjust_campaign_budget": {
-      const actionPayload = input.action.payload;
+      throw new Error("Pause ad mutate is not enabled in Wave 10.");
+    case "adjust_campaign_budget":
+    case "adjust_shared_budget": {
+      const operations = budgetOperationsFromPayload(input.action.payload);
       const payload = await googleAdsMutateRequest({
         businessId: input.businessId,
         accountId: input.accountId,
         path: "campaignBudgets:mutate",
         body: {
-          operations: [
-            {
-              update: {
-                resourceName: actionPayload.campaignBudgetResourceName,
-                amountMicros: Math.round(actionPayload.proposedAmount * 1_000_000),
-              },
-              updateMask: "amount_micros",
+          operations: operations.map((operation) => ({
+            update: {
+              resourceName: operation.campaignBudgetResourceName,
+              amountMicros: Math.round(operation.proposedAmount * 1_000_000),
             },
-          ],
+            updateMask: "amount_micros",
+          })),
         },
       });
       return {
         actionType: input.action.actionType,
-        resourceNames: [actionPayload.campaignBudgetResourceName],
+        resourceNames: operations.map((operation) => operation.campaignBudgetResourceName),
         rawResponse: payload,
       } satisfies AdvisorMutationResult;
     }
@@ -219,7 +426,7 @@ export async function executeAdvisorMutation(input: {
 export async function rollbackAdvisorMutation(input: {
   businessId: string;
   accountId: string;
-  actionType: "remove_negative_keyword" | "enable_asset" | "enable_ad" | "restore_campaign_budget";
+  actionType: "remove_negative_keyword" | "enable_asset" | "enable_ad" | "restore_campaign_budget" | "restore_shared_budget";
   payload: Record<string, unknown>;
 }) {
   switch (input.actionType) {
@@ -243,8 +450,12 @@ export async function rollbackAdvisorMutation(input: {
       return payload;
     }
     case "enable_asset": {
-      const resourceName = String(input.payload.resourceName ?? "");
-      if (!resourceName) {
+      const resourceNames = Array.isArray(input.payload.resourceNames)
+        ? input.payload.resourceNames.map((value) => String(value)).filter(Boolean)
+        : [];
+      const singleResourceName = String(input.payload.resourceName ?? "");
+      const targets = resourceNames.length > 0 ? resourceNames : singleResourceName ? [singleResourceName] : [];
+      if (targets.length === 0) {
         throw new Error("No asset resource name was recorded for rollback.");
       }
       const payload = await googleAdsMutateRequest({
@@ -252,25 +463,44 @@ export async function rollbackAdvisorMutation(input: {
         accountId: input.accountId,
         path: "assetGroupAssets:mutate",
         body: {
-          operations: [
-            {
-              update: {
-                resourceName,
-                status: "ENABLED",
-              },
-              updateMask: "status",
+          operations: targets.map((resourceName) => ({
+            update: {
+              resourceName,
+              status: "ENABLED",
             },
-          ],
+            updateMask: "status",
+          })),
         },
       });
       return payload;
     }
     case "enable_ad":
-      throw new Error("Enable ad rollback is not enabled in Wave 6.");
-    case "restore_campaign_budget": {
-      const resourceName = String(input.payload.campaignBudgetResourceName ?? "");
-      const previousAmount = Number(input.payload.previousAmount ?? NaN);
-      if (!resourceName || !Number.isFinite(previousAmount)) {
+      throw new Error("Enable ad rollback is not enabled in Wave 10.");
+    case "restore_campaign_budget":
+    case "restore_shared_budget": {
+      const budgetOperations = Array.isArray(input.payload.operations)
+        ? input.payload.operations
+            .map((entry) => {
+              const record = entry as Record<string, unknown>;
+              return {
+                campaignBudgetResourceName: String(record.campaignBudgetResourceName ?? ""),
+                previousAmount: Number(record.previousAmount ?? NaN),
+              };
+            })
+            .filter(
+              (entry) =>
+                Boolean(entry.campaignBudgetResourceName) && Number.isFinite(entry.previousAmount)
+            )
+        : [];
+      const singleResourceName = String(input.payload.campaignBudgetResourceName ?? "");
+      const singlePreviousAmount = Number(input.payload.previousAmount ?? NaN);
+      const operations =
+        budgetOperations.length > 0
+          ? budgetOperations
+          : singleResourceName && Number.isFinite(singlePreviousAmount)
+            ? [{ campaignBudgetResourceName: singleResourceName, previousAmount: singlePreviousAmount }]
+            : [];
+      if (operations.length === 0) {
         throw new Error("Budget rollback requires the original campaign budget resource and amount.");
       }
       const payload = await googleAdsMutateRequest({
@@ -278,15 +508,13 @@ export async function rollbackAdvisorMutation(input: {
         accountId: input.accountId,
         path: "campaignBudgets:mutate",
         body: {
-          operations: [
-            {
-              update: {
-                resourceName,
-                amountMicros: Math.round(previousAmount * 1_000_000),
-              },
-              updateMask: "amount_micros",
+          operations: operations.map((operation) => ({
+            update: {
+              resourceName: operation.campaignBudgetResourceName,
+              amountMicros: Math.round(operation.previousAmount * 1_000_000),
             },
-          ],
+            updateMask: "amount_micros",
+          })),
         },
       });
       return payload;

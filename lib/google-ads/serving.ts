@@ -7,9 +7,11 @@ import { buildGoogleAdsAdvisorWindows } from "@/lib/google-ads/advisor-windows";
 import { getCampaignBadges, generateOverviewInsights, type GadsCampaignRow } from "@/lib/google-ads-intelligence";
 import { buildGoogleGrowthAdvisor } from "@/lib/google-ads/growth-advisor";
 import { decorateAdvisorRecommendationsForExecution } from "@/lib/google-ads/advisor-handoff";
+import { buildActionClusters } from "@/lib/google-ads/action-clusters";
 import { annotateAdvisorMemory, getAdvisorExecutionCalibration } from "@/lib/google-ads/advisor-memory";
 import { buildGoogleAdsOpportunityEngine, type GoogleAdsOpportunity } from "@/lib/google-ads/opportunity-engine";
 import { buildCrossEntityIntelligence } from "@/lib/google-ads/cross-entity-intelligence";
+import type { GoogleRecommendation } from "@/lib/google-ads/growth-advisor-types";
 import {
   analyzeAssetGroups,
   analyzeAssets,
@@ -992,16 +994,20 @@ export async function getGoogleAdsAdvisorReport(
         .filter(Boolean),
     }))
     .filter((section) => section.recommendations.length > 0);
+  const clusters = buildActionClusters({ recommendations: recommendations as GoogleRecommendation[] });
+  const topCluster = clusters[0] ?? null;
 
   return {
     ...advisor,
     summary: {
       ...advisor.summary,
-      headline: recommendations[0]?.title ?? advisor.summary.headline,
-      topPriority: recommendations[0]?.recommendedAction ?? advisor.summary.topPriority,
+      headline: topCluster?.clusterObjective ?? recommendations[0]?.title ?? advisor.summary.headline,
+      topPriority: topCluster?.clusterObjective ?? recommendations[0]?.recommendedAction ?? advisor.summary.topPriority,
       operatorNote:
-        recommendations.length > 0
-          ? `${recommendations.length} actionable Google recommendations are live. Highest priority: ${recommendations[0].title}.`
+        clusters.length > 0
+          ? `${clusters.length} operator moves are live. Highest priority: ${topCluster?.clusterObjective ?? recommendations[0]?.title ?? "Review current recommendations."}`
+          : recommendations.length > 0
+            ? `${recommendations.length} actionable Google recommendations are live. Highest priority: ${recommendations[0].title}.`
           : advisor.summary.operatorNote,
       watchouts: recommendations
         .filter(
@@ -1015,6 +1021,7 @@ export async function getGoogleAdsAdvisorReport(
     },
     recommendations,
     sections,
+    clusters,
     meta: {
       selectedCampaigns: selectedCampaigns.rows.length,
       selectedSearchTerms: selectedSearch.rows.length,

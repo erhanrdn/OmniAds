@@ -117,11 +117,53 @@ function safeSnapshot(recommendation: GoogleRecommendation) {
     coreStepIds: recommendation.coreStepIds ?? [],
     executionTrustScore: recommendation.executionTrustScore ?? null,
     executionTrustBand: recommendation.executionTrustBand ?? null,
+    executionTrustSource: recommendation.executionTrustSource ?? null,
     executionPolicyReason: recommendation.executionPolicyReason ?? null,
+    sharedBudgetAdjustmentPreview: recommendation.sharedBudgetAdjustmentPreview ?? null,
+    rollbackSafetyState: recommendation.rollbackSafetyState ?? null,
+    rollbackAvailableUntil: recommendation.rollbackAvailableUntil ?? null,
     dependencyReadiness: recommendation.dependencyReadiness ?? null,
     stabilizationHoldUntil: recommendation.stabilizationHoldUntil ?? null,
     batchEligible: recommendation.batchEligible ?? false,
     batchGroupKey: recommendation.batchGroupKey ?? null,
+    transactionId: recommendation.transactionId ?? null,
+    batchStatus: recommendation.batchStatus ?? null,
+    batchSize: recommendation.batchSize ?? null,
+    batchRollbackAvailable: recommendation.batchRollbackAvailable ?? null,
+    clusterId: recommendation.clusterId ?? null,
+    clusterExecutionId: recommendation.clusterExecutionId ?? null,
+    clusterStepId: recommendation.clusterStepId ?? null,
+    clusterMoveValidity: recommendation.clusterMoveValidity ?? null,
+    recoveryState: recommendation.recoveryState ?? null,
+    recoveryRecommendedAction: recommendation.recoveryRecommendedAction ?? null,
+    rollbackRecoveryAvailable: recommendation.rollbackRecoveryAvailable ?? null,
+    sharedStateGovernanceType: recommendation.sharedStateGovernanceType ?? null,
+    sharedStateAwarenessStatus: recommendation.sharedStateAwarenessStatus ?? null,
+    allocatorCoupled: recommendation.allocatorCoupled ?? null,
+    allocatorCouplingConfidence: recommendation.allocatorCouplingConfidence ?? null,
+    governedEntityCount: recommendation.governedEntityCount ?? null,
+    sharedBudgetResourceName: recommendation.sharedBudgetResourceName ?? null,
+    portfolioBidStrategyType: recommendation.portfolioBidStrategyType ?? null,
+    portfolioBidStrategyResourceName: recommendation.portfolioBidStrategyResourceName ?? null,
+    portfolioBidStrategyStatus: recommendation.portfolioBidStrategyStatus ?? null,
+    portfolioTargetType: recommendation.portfolioTargetType ?? null,
+    portfolioTargetValue: recommendation.portfolioTargetValue ?? null,
+    portfolioGovernanceStatus: recommendation.portfolioGovernanceStatus ?? null,
+    portfolioCouplingStrength: recommendation.portfolioCouplingStrength ?? null,
+    portfolioCampaignShare: recommendation.portfolioCampaignShare ?? null,
+    portfolioDominance: recommendation.portfolioDominance ?? null,
+    portfolioContaminationSource: recommendation.portfolioContaminationSource ?? null,
+    portfolioContaminationSeverity: recommendation.portfolioContaminationSeverity ?? null,
+    portfolioCascadeRiskBand: recommendation.portfolioCascadeRiskBand ?? null,
+    portfolioAttributionWindowDays: recommendation.portfolioAttributionWindowDays ?? null,
+    portfolioBlockedReason: recommendation.portfolioBlockedReason ?? null,
+    portfolioCautionReason: recommendation.portfolioCautionReason ?? null,
+    portfolioUnlockGuidance: recommendation.portfolioUnlockGuidance ?? null,
+    coupledCampaignIds: recommendation.coupledCampaignIds ?? [],
+    coupledCampaignNames: recommendation.coupledCampaignNames ?? [],
+    sharedStateMutateBlockedReason: recommendation.sharedStateMutateBlockedReason ?? null,
+    sharedStateContaminationFlag: recommendation.sharedStateContaminationFlag ?? null,
+    reallocationPreview: recommendation.reallocationPreview ?? null,
   };
 }
 
@@ -346,12 +388,91 @@ function annotateAdvisorMemoryFallback(input: {
       executionError: row.execution_error,
       rollbackAvailable: row.rollback_available,
       rollbackExecutedAt: row.rollback_executed_at,
+      sharedBudgetAdjustmentPreview: row.execution_metadata?.sharedBudgetAdjustmentPreview as GoogleRecommendation["sharedBudgetAdjustmentPreview"],
+      rollbackSafetyState:
+        (String(row.execution_metadata?.rollbackSafetyState ?? "") || null) as GoogleRecommendation["rollbackSafetyState"],
+      rollbackAvailableUntil: String(row.execution_metadata?.rollbackAvailableUntil ?? "") || null,
       completionMode: row.completion_mode,
       completedStepCount: row.completed_step_count,
       totalStepCount: row.total_step_count,
       completedStepIds: row.completed_step_ids ?? undefined,
       skippedStepIds: row.skipped_step_ids ?? undefined,
       coreStepIds: row.core_step_ids ?? recommendation.coreStepIds ?? undefined,
+      transactionId: String(row.execution_metadata?.transactionId ?? "") || null,
+      batchStatus: (String(row.execution_metadata?.batchStatus ?? "") || null) as GoogleRecommendation["batchStatus"],
+      batchSize: Number.isFinite(Number(row.execution_metadata?.batchSize ?? NaN))
+        ? Number(row.execution_metadata?.batchSize)
+        : null,
+      batchRollbackAvailable:
+        typeof row.execution_metadata?.batchRollbackAvailable === "boolean"
+          ? Boolean(row.execution_metadata?.batchRollbackAvailable)
+          : null,
+      clusterId: String(row.execution_metadata?.clusterId ?? "") || null,
+      clusterExecutionId: String(row.execution_metadata?.clusterExecutionId ?? "") || null,
+      clusterStepId: String(row.execution_metadata?.clusterStepId ?? "") || null,
+      clusterMoveValidity:
+        (String(row.execution_metadata?.clusterMoveValidity ?? "") || null) as GoogleRecommendation["clusterMoveValidity"],
+      recoveryState:
+        (String(row.execution_metadata?.recoveryState ?? "") || null) as GoogleRecommendation["recoveryState"],
+      recoveryRecommendedAction: String(row.execution_metadata?.recoveryRecommendedAction ?? "") || null,
+      rollbackRecoveryAvailable:
+        typeof row.execution_metadata?.rollbackRecoveryAvailable === "boolean"
+          ? Boolean(row.execution_metadata?.rollbackRecoveryAvailable)
+          : null,
+      sharedStateGovernanceType:
+        (String(row.execution_metadata?.sharedStateGovernanceType ?? "") || null) as GoogleRecommendation["sharedStateGovernanceType"],
+      sharedStateAwarenessStatus:
+        (String(row.execution_metadata?.sharedStateAwarenessStatus ?? "") || null) as GoogleRecommendation["sharedStateAwarenessStatus"],
+      allocatorCoupled:
+        typeof row.execution_metadata?.allocatorCoupled === "boolean"
+          ? Boolean(row.execution_metadata?.allocatorCoupled)
+          : null,
+      allocatorCouplingConfidence:
+        (String(row.execution_metadata?.allocatorCouplingConfidence ?? "") || null) as GoogleRecommendation["allocatorCouplingConfidence"],
+      governedEntityCount: Number.isFinite(Number(row.execution_metadata?.governedEntityCount ?? NaN))
+        ? Number(row.execution_metadata?.governedEntityCount)
+        : null,
+      sharedBudgetResourceName: String(row.execution_metadata?.sharedBudgetResourceName ?? "") || null,
+      portfolioBidStrategyType: String(row.execution_metadata?.portfolioBidStrategyType ?? "") || null,
+      portfolioBidStrategyResourceName: String(row.execution_metadata?.portfolioBidStrategyResourceName ?? "") || null,
+      portfolioBidStrategyStatus:
+        (String(row.execution_metadata?.portfolioBidStrategyStatus ?? "") || null) as GoogleRecommendation["portfolioBidStrategyStatus"],
+      portfolioTargetType: String(row.execution_metadata?.portfolioTargetType ?? "") || null,
+      portfolioTargetValue: Number.isFinite(Number(row.execution_metadata?.portfolioTargetValue ?? NaN))
+        ? Number(row.execution_metadata?.portfolioTargetValue)
+        : null,
+      portfolioGovernanceStatus:
+        (String(row.execution_metadata?.portfolioGovernanceStatus ?? "") || null) as GoogleRecommendation["portfolioGovernanceStatus"],
+      portfolioCouplingStrength:
+        (String(row.execution_metadata?.portfolioCouplingStrength ?? "") || null) as GoogleRecommendation["portfolioCouplingStrength"],
+      portfolioCampaignShare: Number.isFinite(Number(row.execution_metadata?.portfolioCampaignShare ?? NaN))
+        ? Number(row.execution_metadata?.portfolioCampaignShare)
+        : null,
+      portfolioDominance:
+        (String(row.execution_metadata?.portfolioDominance ?? "") || null) as GoogleRecommendation["portfolioDominance"],
+      portfolioContaminationSource:
+        (String(row.execution_metadata?.portfolioContaminationSource ?? "") || null) as GoogleRecommendation["portfolioContaminationSource"],
+      portfolioContaminationSeverity:
+        (String(row.execution_metadata?.portfolioContaminationSeverity ?? "") || null) as GoogleRecommendation["portfolioContaminationSeverity"],
+      portfolioCascadeRiskBand:
+        (String(row.execution_metadata?.portfolioCascadeRiskBand ?? "") || null) as GoogleRecommendation["portfolioCascadeRiskBand"],
+      portfolioAttributionWindowDays: Number.isFinite(Number(row.execution_metadata?.portfolioAttributionWindowDays ?? NaN))
+        ? Number(row.execution_metadata?.portfolioAttributionWindowDays)
+        : null,
+      portfolioBlockedReason: String(row.execution_metadata?.portfolioBlockedReason ?? "") || null,
+      portfolioCautionReason: String(row.execution_metadata?.portfolioCautionReason ?? "") || null,
+      portfolioUnlockGuidance: String(row.execution_metadata?.portfolioUnlockGuidance ?? "") || null,
+      coupledCampaignIds: Array.isArray(row.execution_metadata?.coupledCampaignIds)
+        ? row.execution_metadata?.coupledCampaignIds.filter((value): value is string => typeof value === "string")
+        : undefined,
+      coupledCampaignNames: Array.isArray(row.execution_metadata?.coupledCampaignNames)
+        ? row.execution_metadata?.coupledCampaignNames.filter((value): value is string => typeof value === "string")
+        : undefined,
+      sharedStateMutateBlockedReason: String(row.execution_metadata?.sharedStateMutateBlockedReason ?? "") || null,
+      sharedStateContaminationFlag:
+        typeof row.execution_metadata?.sharedStateContaminationFlag === "boolean"
+          ? Boolean(row.execution_metadata?.sharedStateContaminationFlag)
+          : null,
       baselineSnapshot: row.applied_snapshot,
     });
   }
@@ -682,12 +803,91 @@ export async function annotateAdvisorMemory(input: {
       executionError: row.execution_error,
       rollbackAvailable: row.rollback_available,
       rollbackExecutedAt: row.rollback_executed_at,
+      sharedBudgetAdjustmentPreview: row.execution_metadata?.sharedBudgetAdjustmentPreview as GoogleRecommendation["sharedBudgetAdjustmentPreview"],
+      rollbackSafetyState:
+        (String(row.execution_metadata?.rollbackSafetyState ?? "") || null) as GoogleRecommendation["rollbackSafetyState"],
+      rollbackAvailableUntil: String(row.execution_metadata?.rollbackAvailableUntil ?? "") || null,
       completionMode: row.completion_mode,
       completedStepCount: row.completed_step_count,
       totalStepCount: row.total_step_count,
       completedStepIds: row.completed_step_ids ?? undefined,
       skippedStepIds: row.skipped_step_ids ?? undefined,
       coreStepIds: row.core_step_ids ?? recommendation.coreStepIds ?? undefined,
+      transactionId: String(row.execution_metadata?.transactionId ?? "") || null,
+      batchStatus: (String(row.execution_metadata?.batchStatus ?? "") || null) as GoogleRecommendation["batchStatus"],
+      batchSize: Number.isFinite(Number(row.execution_metadata?.batchSize ?? NaN))
+        ? Number(row.execution_metadata?.batchSize)
+        : null,
+      batchRollbackAvailable:
+        typeof row.execution_metadata?.batchRollbackAvailable === "boolean"
+          ? Boolean(row.execution_metadata?.batchRollbackAvailable)
+          : null,
+      clusterId: String(row.execution_metadata?.clusterId ?? "") || null,
+      clusterExecutionId: String(row.execution_metadata?.clusterExecutionId ?? "") || null,
+      clusterStepId: String(row.execution_metadata?.clusterStepId ?? "") || null,
+      clusterMoveValidity:
+        (String(row.execution_metadata?.clusterMoveValidity ?? "") || null) as GoogleRecommendation["clusterMoveValidity"],
+      recoveryState:
+        (String(row.execution_metadata?.recoveryState ?? "") || null) as GoogleRecommendation["recoveryState"],
+      recoveryRecommendedAction: String(row.execution_metadata?.recoveryRecommendedAction ?? "") || null,
+      rollbackRecoveryAvailable:
+        typeof row.execution_metadata?.rollbackRecoveryAvailable === "boolean"
+          ? Boolean(row.execution_metadata?.rollbackRecoveryAvailable)
+          : null,
+      sharedStateGovernanceType:
+        (String(row.execution_metadata?.sharedStateGovernanceType ?? "") || null) as GoogleRecommendation["sharedStateGovernanceType"],
+      sharedStateAwarenessStatus:
+        (String(row.execution_metadata?.sharedStateAwarenessStatus ?? "") || null) as GoogleRecommendation["sharedStateAwarenessStatus"],
+      allocatorCoupled:
+        typeof row.execution_metadata?.allocatorCoupled === "boolean"
+          ? Boolean(row.execution_metadata?.allocatorCoupled)
+          : null,
+      allocatorCouplingConfidence:
+        (String(row.execution_metadata?.allocatorCouplingConfidence ?? "") || null) as GoogleRecommendation["allocatorCouplingConfidence"],
+      governedEntityCount: Number.isFinite(Number(row.execution_metadata?.governedEntityCount ?? NaN))
+        ? Number(row.execution_metadata?.governedEntityCount)
+        : null,
+      sharedBudgetResourceName: String(row.execution_metadata?.sharedBudgetResourceName ?? "") || null,
+      portfolioBidStrategyType: String(row.execution_metadata?.portfolioBidStrategyType ?? "") || null,
+      portfolioBidStrategyResourceName: String(row.execution_metadata?.portfolioBidStrategyResourceName ?? "") || null,
+      portfolioBidStrategyStatus:
+        (String(row.execution_metadata?.portfolioBidStrategyStatus ?? "") || null) as GoogleRecommendation["portfolioBidStrategyStatus"],
+      portfolioTargetType: String(row.execution_metadata?.portfolioTargetType ?? "") || null,
+      portfolioTargetValue: Number.isFinite(Number(row.execution_metadata?.portfolioTargetValue ?? NaN))
+        ? Number(row.execution_metadata?.portfolioTargetValue)
+        : null,
+      portfolioGovernanceStatus:
+        (String(row.execution_metadata?.portfolioGovernanceStatus ?? "") || null) as GoogleRecommendation["portfolioGovernanceStatus"],
+      portfolioCouplingStrength:
+        (String(row.execution_metadata?.portfolioCouplingStrength ?? "") || null) as GoogleRecommendation["portfolioCouplingStrength"],
+      portfolioCampaignShare: Number.isFinite(Number(row.execution_metadata?.portfolioCampaignShare ?? NaN))
+        ? Number(row.execution_metadata?.portfolioCampaignShare)
+        : null,
+      portfolioDominance:
+        (String(row.execution_metadata?.portfolioDominance ?? "") || null) as GoogleRecommendation["portfolioDominance"],
+      portfolioContaminationSource:
+        (String(row.execution_metadata?.portfolioContaminationSource ?? "") || null) as GoogleRecommendation["portfolioContaminationSource"],
+      portfolioContaminationSeverity:
+        (String(row.execution_metadata?.portfolioContaminationSeverity ?? "") || null) as GoogleRecommendation["portfolioContaminationSeverity"],
+      portfolioCascadeRiskBand:
+        (String(row.execution_metadata?.portfolioCascadeRiskBand ?? "") || null) as GoogleRecommendation["portfolioCascadeRiskBand"],
+      portfolioAttributionWindowDays: Number.isFinite(Number(row.execution_metadata?.portfolioAttributionWindowDays ?? NaN))
+        ? Number(row.execution_metadata?.portfolioAttributionWindowDays)
+        : null,
+      portfolioBlockedReason: String(row.execution_metadata?.portfolioBlockedReason ?? "") || null,
+      portfolioCautionReason: String(row.execution_metadata?.portfolioCautionReason ?? "") || null,
+      portfolioUnlockGuidance: String(row.execution_metadata?.portfolioUnlockGuidance ?? "") || null,
+      coupledCampaignIds: Array.isArray(row.execution_metadata?.coupledCampaignIds)
+        ? row.execution_metadata?.coupledCampaignIds.filter((value): value is string => typeof value === "string")
+        : undefined,
+      coupledCampaignNames: Array.isArray(row.execution_metadata?.coupledCampaignNames)
+        ? row.execution_metadata?.coupledCampaignNames.filter((value): value is string => typeof value === "string")
+        : undefined,
+      sharedStateMutateBlockedReason: String(row.execution_metadata?.sharedStateMutateBlockedReason ?? "") || null,
+      sharedStateContaminationFlag:
+        typeof row.execution_metadata?.sharedStateContaminationFlag === "boolean"
+          ? Boolean(row.execution_metadata?.sharedStateContaminationFlag)
+          : null,
       baselineSnapshot: row.applied_snapshot,
     });
   }
@@ -970,6 +1170,7 @@ export async function getAdvisorExecutionCalibration(input: {
   const sql = getDb();
   const rows = (await sql`
     SELECT recommendation_type, outcome_verdict, outcome_verdict_fail_reason, execution_status, rollback_executed_at, completion_mode, execution_metadata, execution_error
+         , recommendation_snapshot, applied_snapshot
     FROM google_ads_advisor_memory
     WHERE business_id = ${input.businessId}
       AND (${input.accountId ?? null}::text IS NULL OR account_id = ${input.accountId ?? null})
@@ -982,6 +1183,8 @@ export async function getAdvisorExecutionCalibration(input: {
     completion_mode: GoogleCompletionMode | null;
     execution_metadata: Record<string, unknown> | null;
     execution_error: string | null;
+    recommendation_snapshot: Record<string, unknown> | null;
+    applied_snapshot: Record<string, unknown> | null;
   }>;
   return buildExecutionCalibration(rows);
 }
@@ -996,6 +1199,8 @@ function buildExecutionCalibration(
     completion_mode?: GoogleCompletionMode | null;
     execution_metadata?: Record<string, unknown> | null;
     execution_error?: string | null;
+    recommendation_snapshot?: Record<string, unknown> | null;
+    applied_snapshot?: Record<string, unknown> | null;
   }>
 ) {
   const byFamily = new Map<string, { total: number; degraded: number; unknown: number }>();
@@ -1031,6 +1236,12 @@ function buildExecutionCalibration(
     }
     const patternKey = String(row.execution_metadata?.policyPatternKey ?? "");
     if (patternKey) {
+      const snapshotMoveValidity =
+        String(
+          row.recommendation_snapshot?.clusterMoveValidity ??
+            row.applied_snapshot?.clusterMoveValidity ??
+            ""
+        ) || null;
       const current = byPattern.get(patternKey) ?? {
         success: 0,
         rollback: 0,
@@ -1042,6 +1253,10 @@ function buildExecutionCalibration(
       if (row.execution_status === "failed") current.failure += 1;
       if (row.rollback_executed_at) current.rollback += 1;
       if (row.outcome_verdict === "degraded") current.degraded += 1;
+      if (snapshotMoveValidity === "valid") current.success += 1;
+      if (snapshotMoveValidity === "partially_effective" || snapshotMoveValidity === "compromised") current.degraded += 1;
+      if (snapshotMoveValidity === "failed") current.failure += 1;
+      if (snapshotMoveValidity === "reverted") current.rollback += 1;
       current.lastTrustBand = String(row.execution_metadata?.executionTrustBand ?? current.lastTrustBand ?? "") || null;
       byPattern.set(patternKey, current);
     }
@@ -1050,6 +1265,8 @@ function buildExecutionCalibration(
       const bucket =
         message.includes("shared_budget_blocked") || message.includes("shared budget")
           ? "shared_budget_blocked"
+          : message.includes("portfolio_strategy") || message.includes("portfolio")
+            ? "portfolio_strategy_blocked"
           : message.includes("intent_uncertain") || message.includes("intent")
             ? "intent_uncertainty"
             : message.includes("commerce_blocked") || message.includes("stock") || message.includes("out-of-stock")

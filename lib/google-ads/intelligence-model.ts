@@ -28,6 +28,11 @@ export interface CampaignPerformanceRow
   campaignBudgetResourceName?: string | null;
   budgetDeliveryMethod: string | null;
   budgetExplicitlyShared: boolean | null;
+  portfolioBidStrategyType?: string | null;
+  portfolioBidStrategyResourceName?: string | null;
+  portfolioBidStrategyStatus?: string | null;
+  portfolioTargetType?: string | null;
+  portfolioTargetValue?: number | null;
   impressionShare: number | null;
   lostIsBudget: number | null;
   lostIsRank: number | null;

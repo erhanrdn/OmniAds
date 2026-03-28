@@ -1,6 +1,11 @@
+import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { isDemoBusiness } from "@/lib/business-mode.server";
+import {
+  executeActionCluster,
+  rollbackActionCluster,
+} from "@/lib/google-ads/action-clusters";
 import {
   getAdvisorExecutionCalibration,
   logAdvisorExecutionEvent,
@@ -8,45 +13,562 @@ import {
   updateAdvisorExecutionState,
   updateAdvisorMemoryAction,
 } from "@/lib/google-ads/advisor-memory";
-import { executeAdvisorMutation, rollbackAdvisorMutation } from "@/lib/google-ads/advisor-mutate";
+import {
+  executeAdvisorMutation,
+  preflightAdvisorMutation,
+  rollbackAdvisorMutation,
+} from "@/lib/google-ads/advisor-mutate";
+import type {
+  GoogleActionCluster,
+  GoogleActionClusterStep,
+  GoogleDependencyReadiness,
+  GoogleExecutionTrustBand,
+} from "@/lib/google-ads/growth-advisor-types";
+
+type BatchActionType = "add_negative_keyword" | "pause_asset";
+
+type RequestBody =
+  | {
+      businessId?: string;
+      accountId?: string;
+      recommendationFingerprint?: string;
+      action?: "dismissed" | "ignored" | "applied" | "unsuppress";
+      executionAction?:
+        | "apply_mutate"
+        | "rollback_mutate"
+        | "rollback_batch_mutate"
+        | "execute_cluster"
+        | "rollback_cluster"
+        | "mark_completion";
+      batchExecutionAction?: "apply_batch_mutate";
+      mutateActionType?:
+        | "add_negative_keyword"
+        | "pause_asset"
+        | "pause_ad"
+        | "adjust_campaign_budget"
+        | "adjust_shared_budget"
+        | null;
+      mutatePayloadPreview?: Record<string, unknown> | null;
+      rollbackActionType?:
+        | "remove_negative_keyword"
+        | "enable_asset"
+        | "enable_ad"
+        | "restore_campaign_budget"
+        | "restore_shared_budget"
+        | null;
+      rollbackPayloadPreview?: Record<string, unknown> | null;
+      executionTrustBand?: GoogleExecutionTrustBand | null;
+      dependencyReadiness?: GoogleDependencyReadiness | null;
+      stabilizationHoldUntil?: string | null;
+      completionMode?: "full" | "partial" | "unknown";
+      completedStepCount?: number | null;
+      totalStepCount?: number | null;
+      completedStepIds?: string[] | null;
+      skippedStepIds?: string[] | null;
+      coreStepIds?: string[] | null;
+      batchItems?: Array<{
+        recommendationFingerprint: string;
+        accountId: string;
+        mutateActionType: BatchActionType;
+        mutatePayloadPreview: Record<string, unknown>;
+        rollbackActionType?: "remove_negative_keyword" | "enable_asset" | null;
+        rollbackPayloadPreview?: Record<string, unknown> | null;
+        executionTrustBand?: GoogleExecutionTrustBand | null;
+        batchGroupKey?: string | null;
+      }> | null;
+      cluster?: GoogleActionCluster | null;
+      transactionId?: string | null;
+      dismissReason?: string | null;
+      suppressUntil?: string | null;
+    }
+  | null;
+
+function trustBlocked(band?: GoogleExecutionTrustBand | null) {
+  return band === "low" || band === "insufficient_data";
+}
+
+function dependencyBlocked(readiness?: GoogleDependencyReadiness | null) {
+  return readiness === "not_ready" || readiness === "done_degraded" || readiness === "done_unverified";
+}
+
+function batchStatusFromResults(results: Array<{ ok: boolean }>) {
+  if (results.every((entry) => entry.ok)) return "applied" as const;
+  if (results.some((entry) => entry.ok)) return "partially_applied" as const;
+  return "failed" as const;
+}
+
+function retryableRollbackError(message: string | null | undefined) {
+  const normalized = String(message ?? "").toLowerCase();
+  return (
+    normalized.includes("timeout") ||
+    normalized.includes("temporar") ||
+    normalized.includes("unavailable") ||
+    normalized.includes("throttle")
+  );
+}
+
+async function applyBatchMutateInternal(input: {
+  businessId: string;
+  items: NonNullable<NonNullable<RequestBody>["batchItems"]>;
+  transactionId?: string | null;
+  extraMetadata?: Record<string, unknown>;
+}) {
+  const items = input.items;
+  if (items.length === 0) {
+    throw new Error("batchItems must contain at least one item");
+  }
+  if (items.length > 250) {
+    throw new Error("batchItems exceeds the Wave 11 safety ceiling of 250 items");
+  }
+  const actionTypes = new Set(items.map((item) => item.mutateActionType));
+  const batchGroups = new Set(items.map((item) => String(item.batchGroupKey ?? "")));
+  if (actionTypes.size !== 1 || batchGroups.size !== 1) {
+    throw new Error("Batch mutate only supports same action type and same batch group.");
+  }
+  const batchActionType = items[0]?.mutateActionType;
+  if (!batchActionType || (batchActionType !== "add_negative_keyword" && batchActionType !== "pause_asset")) {
+    throw new Error("Wave 11 batch mutate only supports add_negative_keyword and pause_asset.");
+  }
+  if (items.some((item) => trustBlocked(item.executionTrustBand))) {
+    throw new Error("One or more batch items failed the execution trust gate.");
+  }
+
+  const transactionId = input.transactionId ?? randomUUID();
+  const results: Array<{
+    recommendationFingerprint: string;
+    accountId: string;
+    ok: boolean;
+    error?: string | null;
+    rollbackPayloadPreview?: Record<string, unknown> | null;
+  }> = [];
+
+  for (const item of items) {
+    await updateAdvisorExecutionState({
+      businessId: input.businessId,
+      accountId: item.accountId,
+      recommendationFingerprint: item.recommendationFingerprint,
+      executionStatus: "pending",
+      executionError: null,
+      executionMetadata: {
+        transactionId,
+        batchStatus: "pending",
+        batchGroupKey: item.batchGroupKey ?? null,
+        mutateActionType: item.mutateActionType,
+        ...input.extraMetadata,
+      },
+    });
+    await logAdvisorExecutionEvent({
+      businessId: input.businessId,
+      accountId: item.accountId,
+      recommendationFingerprint: item.recommendationFingerprint,
+      mutateActionType: item.mutateActionType,
+      operation: "apply",
+      status: "pending",
+      payload: {
+        ...item.mutatePayloadPreview,
+        transactionId,
+        batchGroupKey: item.batchGroupKey ?? null,
+        ...input.extraMetadata,
+      },
+    });
+    try {
+      await preflightAdvisorMutation({
+        businessId: input.businessId,
+        accountId: item.accountId,
+        action: {
+          actionType: item.mutateActionType,
+          payload: item.mutatePayloadPreview as never,
+        },
+      });
+      const result = await executeAdvisorMutation({
+        businessId: input.businessId,
+        accountId: item.accountId,
+        action: {
+          actionType: item.mutateActionType,
+          payload: item.mutatePayloadPreview as never,
+        },
+      });
+      const rollbackPayloadPreview =
+        item.rollbackActionType === "remove_negative_keyword"
+          ? { resourceNames: result.resourceNames }
+          : item.rollbackActionType === "enable_asset"
+            ? { resourceNames: result.resourceNames }
+            : item.rollbackPayloadPreview ?? null;
+      await updateAdvisorExecutionState({
+        businessId: input.businessId,
+        accountId: item.accountId,
+        recommendationFingerprint: item.recommendationFingerprint,
+        executionStatus: "applied",
+        rollbackAvailable: Boolean(item.rollbackActionType),
+        executionMetadata: {
+          mutateActionType: item.mutateActionType,
+          rollbackActionType: item.rollbackActionType ?? null,
+          rollbackPayloadPreview,
+          resourceNames: result.resourceNames,
+          policyPatternKey: item.mutatePayloadPreview?.policyPatternKey ?? null,
+          executionTrustBand: item.executionTrustBand ?? null,
+          batchGroupKey: item.batchGroupKey ?? null,
+          transactionId,
+          batchStatus: "applied",
+          batchSize: items.length,
+          batchRollbackAvailable: Boolean(item.rollbackActionType),
+          ...input.extraMetadata,
+        },
+      });
+      await updateAdvisorMemoryAction({
+        businessId: input.businessId,
+        accountId: item.accountId,
+        recommendationFingerprint: item.recommendationFingerprint,
+        action: "applied",
+      });
+      await updateAdvisorCompletionState({
+        businessId: input.businessId,
+        accountId: item.accountId,
+        recommendationFingerprint: item.recommendationFingerprint,
+        completionMode: "full",
+        completedStepCount: 1,
+        totalStepCount: 1,
+        completedStepIds: ["execute_mutate"],
+        skippedStepIds: [],
+        coreStepIds: ["execute_mutate"],
+      });
+      await logAdvisorExecutionEvent({
+        businessId: input.businessId,
+        accountId: item.accountId,
+        recommendationFingerprint: item.recommendationFingerprint,
+        mutateActionType: item.mutateActionType,
+        operation: "apply",
+        status: "applied",
+        payload: item.mutatePayloadPreview,
+        response: {
+          resourceNames: result.resourceNames,
+          batchGroupKey: item.batchGroupKey ?? null,
+          transactionId,
+          ...input.extraMetadata,
+        },
+      });
+      results.push({
+        recommendationFingerprint: item.recommendationFingerprint,
+        accountId: item.accountId,
+        ok: true,
+        rollbackPayloadPreview,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Batch mutate failed.";
+      await updateAdvisorExecutionState({
+        businessId: input.businessId,
+        accountId: item.accountId,
+        recommendationFingerprint: item.recommendationFingerprint,
+        executionStatus: "failed",
+        executionError: message,
+        executionMetadata: {
+          transactionId,
+          batchStatus: "failed",
+          batchGroupKey: item.batchGroupKey ?? null,
+          mutateActionType: item.mutateActionType,
+          ...input.extraMetadata,
+        },
+      });
+      await logAdvisorExecutionEvent({
+        businessId: input.businessId,
+        accountId: item.accountId,
+        recommendationFingerprint: item.recommendationFingerprint,
+        mutateActionType: item.mutateActionType,
+        operation: "apply",
+        status: "failed",
+        payload: item.mutatePayloadPreview,
+        errorMessage: message,
+      });
+      results.push({
+        recommendationFingerprint: item.recommendationFingerprint,
+        accountId: item.accountId,
+        ok: false,
+        error: message,
+      });
+    }
+  }
+
+  const batchStatus = batchStatusFromResults(results);
+  if (batchStatus === "partially_applied") {
+    for (const result of results.filter((entry) => entry.ok)) {
+      await updateAdvisorExecutionState({
+        businessId: input.businessId,
+        accountId: result.accountId,
+        recommendationFingerprint: result.recommendationFingerprint,
+        executionStatus: "partially_applied",
+        executionMetadata: {
+          transactionId,
+          batchStatus,
+          batchSize: items.length,
+          batchRollbackAvailable: true,
+          ...input.extraMetadata,
+        },
+      });
+    }
+  }
+
+  return {
+    transactionId,
+    batchStatus,
+    batchSize: items.length,
+    batchRollbackAvailable: results.some((entry) => entry.ok),
+    results,
+  };
+}
+
+async function rollbackBatchMutateInternal(input: {
+  businessId: string;
+  transactionId: string;
+  items: NonNullable<NonNullable<RequestBody>["batchItems"]>;
+  extraMetadata?: Record<string, unknown>;
+}) {
+  const results: Array<{ recommendationFingerprint: string; ok: boolean; error?: string | null }> = [];
+  for (const item of input.items) {
+    try {
+      if (!item.rollbackActionType || !item.rollbackPayloadPreview) {
+        throw new Error("Rollback payload is missing for this batch item.");
+      }
+      const response = await rollbackAdvisorMutation({
+        businessId: input.businessId,
+        accountId: item.accountId,
+        actionType: item.rollbackActionType,
+        payload: item.rollbackPayloadPreview,
+      });
+      await updateAdvisorExecutionState({
+        businessId: input.businessId,
+        accountId: item.accountId,
+        recommendationFingerprint: item.recommendationFingerprint,
+        executionStatus: "rolled_back",
+        rollbackAvailable: false,
+        rollbackExecutedAt: new Date().toISOString(),
+        executionMetadata: {
+          transactionId: input.transactionId,
+          batchStatus: "rolled_back",
+          rolledBack: true,
+          ...input.extraMetadata,
+        },
+      });
+      await logAdvisorExecutionEvent({
+        businessId: input.businessId,
+        accountId: item.accountId,
+        recommendationFingerprint: item.recommendationFingerprint,
+        mutateActionType: item.rollbackActionType,
+        operation: "rollback",
+        status: "rolled_back",
+        payload: item.rollbackPayloadPreview,
+        response: { ...(typeof response === "object" && response ? response : {}), transactionId: input.transactionId, ...input.extraMetadata },
+      });
+      results.push({ recommendationFingerprint: item.recommendationFingerprint, ok: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Batch rollback failed.";
+      await updateAdvisorExecutionState({
+        businessId: input.businessId,
+        accountId: item.accountId,
+        recommendationFingerprint: item.recommendationFingerprint,
+        executionStatus: "failed",
+        executionError: message,
+        executionMetadata: {
+          transactionId: input.transactionId,
+          batchStatus: "partially_applied",
+          rollbackFailed: true,
+          ...input.extraMetadata,
+        },
+      });
+      results.push({ recommendationFingerprint: item.recommendationFingerprint, ok: false, error: message });
+    }
+  }
+  return {
+    transactionId: input.transactionId,
+    batchStatus: results.every((entry) => entry.ok) ? "rolled_back" : "partially_applied",
+    results,
+    retryable: results.some((entry) => !entry.ok && retryableRollbackError(entry.error)),
+  };
+}
+
+async function applySingleMutateInternal(input: {
+  businessId: string;
+  accountId: string;
+  recommendationFingerprint: string;
+  mutateActionType: NonNullable<NonNullable<RequestBody>["mutateActionType"]>;
+  mutatePayloadPreview: Record<string, unknown>;
+  rollbackActionType?: NonNullable<NonNullable<RequestBody>["rollbackActionType"]>;
+  rollbackPayloadPreview?: Record<string, unknown> | null;
+  executionTrustBand?: GoogleExecutionTrustBand | null;
+  dependencyReadiness?: GoogleDependencyReadiness | null;
+  stabilizationHoldUntil?: string | null;
+  transactionId?: string | null;
+  extraMetadata?: Record<string, unknown>;
+}) {
+  if (trustBlocked(input.executionTrustBand)) {
+    throw new Error("Execution policy trust is too low for native mutate.");
+  }
+  if (dependencyBlocked(input.dependencyReadiness)) {
+    throw new Error("Prerequisite execution state is no longer valid for native mutate.");
+  }
+  if (input.stabilizationHoldUntil && new Date(input.stabilizationHoldUntil).getTime() > Date.now()) {
+    throw new Error(`This mutate remains in stabilization hold until ${input.stabilizationHoldUntil}.`);
+  }
+
+  const transactionId = input.transactionId ?? randomUUID();
+  await updateAdvisorExecutionState({
+    businessId: input.businessId,
+    accountId: input.accountId,
+    recommendationFingerprint: input.recommendationFingerprint,
+    executionStatus: "pending",
+    executionError: null,
+    executionMetadata: {
+      transactionId,
+      batchStatus: "pending",
+      ...input.extraMetadata,
+    },
+  });
+  await logAdvisorExecutionEvent({
+    businessId: input.businessId,
+    accountId: input.accountId,
+    recommendationFingerprint: input.recommendationFingerprint,
+    mutateActionType: input.mutateActionType,
+    operation: "apply",
+    status: "pending",
+    payload: { ...input.mutatePayloadPreview, transactionId, ...input.extraMetadata },
+  });
+
+  await preflightAdvisorMutation({
+    businessId: input.businessId,
+    accountId: input.accountId,
+    action: {
+      actionType: input.mutateActionType,
+      payload: input.mutatePayloadPreview as never,
+    },
+  });
+  const result = await executeAdvisorMutation({
+    businessId: input.businessId,
+    accountId: input.accountId,
+    action: {
+      actionType: input.mutateActionType,
+      payload: input.mutatePayloadPreview as never,
+    },
+  });
+  const budgetOperations = Array.isArray(input.mutatePayloadPreview?.operations)
+    ? input.mutatePayloadPreview.operations
+    : [];
+  const rollbackPayloadPreview =
+    input.rollbackActionType === "remove_negative_keyword"
+      ? { resourceNames: result.resourceNames }
+        : input.rollbackActionType === "enable_asset"
+          ? { resourceNames: result.resourceNames }
+          : input.rollbackActionType === "restore_campaign_budget" || input.rollbackActionType === "restore_shared_budget"
+          ? budgetOperations.length > 0
+            ? {
+                operations: budgetOperations.map((operation) => ({
+                  campaignBudgetResourceName: operation?.campaignBudgetResourceName ?? null,
+                  previousAmount: operation?.previousAmount ?? null,
+                })),
+              }
+            : {
+                campaignBudgetResourceName:
+                  input.rollbackPayloadPreview?.campaignBudgetResourceName ??
+                  result.resourceNames[0] ??
+                  null,
+                previousAmount: input.rollbackPayloadPreview?.previousAmount ?? null,
+              }
+          : input.rollbackPayloadPreview ?? null;
+  await updateAdvisorExecutionState({
+    businessId: input.businessId,
+    accountId: input.accountId,
+    recommendationFingerprint: input.recommendationFingerprint,
+    executionStatus: "applied",
+    rollbackAvailable: Boolean(input.rollbackActionType),
+    executionMetadata: {
+      mutateActionType: input.mutateActionType,
+      rollbackActionType: input.rollbackActionType ?? null,
+      rollbackPayloadPreview,
+      resourceNames: result.resourceNames,
+      policyPatternKey: input.mutatePayloadPreview?.policyPatternKey ?? null,
+      executionTrustBand: input.executionTrustBand ?? null,
+      dependencyReadiness: input.dependencyReadiness ?? null,
+      transactionId,
+      batchStatus: "applied",
+      batchSize: Array.isArray(input.mutatePayloadPreview?.operations)
+        ? input.mutatePayloadPreview.operations.length
+        : null,
+      batchRollbackAvailable: Boolean(input.rollbackActionType),
+      ...input.extraMetadata,
+    },
+  });
+  await updateAdvisorMemoryAction({
+    businessId: input.businessId,
+    accountId: input.accountId,
+    recommendationFingerprint: input.recommendationFingerprint,
+    action: "applied",
+  });
+  await updateAdvisorCompletionState({
+    businessId: input.businessId,
+    accountId: input.accountId,
+    recommendationFingerprint: input.recommendationFingerprint,
+    completionMode: "full",
+    completedStepCount: 1,
+    totalStepCount: 1,
+    completedStepIds: ["execute_mutate"],
+    skippedStepIds: [],
+    coreStepIds: ["execute_mutate"],
+  });
+  await logAdvisorExecutionEvent({
+    businessId: input.businessId,
+    accountId: input.accountId,
+    recommendationFingerprint: input.recommendationFingerprint,
+    mutateActionType: input.mutateActionType,
+    operation: "apply",
+    status: "applied",
+    payload: input.mutatePayloadPreview,
+    response: { resourceNames: result.resourceNames, transactionId, ...input.extraMetadata },
+  });
+  return { transactionId, executionStatus: "applied" as const, rollbackPayloadPreview };
+}
+
+async function rollbackSingleMutateInternal(input: {
+  businessId: string;
+  accountId: string;
+  recommendationFingerprint: string;
+  rollbackActionType: NonNullable<NonNullable<RequestBody>["rollbackActionType"]>;
+  rollbackPayloadPreview: Record<string, unknown>;
+  transactionId?: string | null;
+  extraMetadata?: Record<string, unknown>;
+}) {
+  const response = await rollbackAdvisorMutation({
+    businessId: input.businessId,
+    accountId: input.accountId,
+    actionType: input.rollbackActionType,
+    payload: input.rollbackPayloadPreview,
+  });
+  await updateAdvisorExecutionState({
+    businessId: input.businessId,
+    accountId: input.accountId,
+    recommendationFingerprint: input.recommendationFingerprint,
+    executionStatus: "rolled_back",
+    rollbackAvailable: false,
+    rollbackExecutedAt: new Date().toISOString(),
+    executionMetadata: {
+      rolledBack: true,
+      transactionId: input.transactionId ?? null,
+      batchStatus: "rolled_back",
+      ...input.extraMetadata,
+    },
+  });
+  await logAdvisorExecutionEvent({
+    businessId: input.businessId,
+    accountId: input.accountId,
+    recommendationFingerprint: input.recommendationFingerprint,
+    mutateActionType: input.rollbackActionType,
+    operation: "rollback",
+    status: "rolled_back",
+    payload: input.rollbackPayloadPreview,
+    response,
+  });
+  return { ok: true as const, executionStatus: "rolled_back" as const, retryable: false as const };
+}
 
 export async function POST(request: NextRequest) {
-  const body = (await request.json().catch(() => null)) as
-    | {
-        businessId?: string;
-        accountId?: string;
-        recommendationFingerprint?: string;
-        action?: "dismissed" | "ignored" | "applied" | "unsuppress";
-        executionAction?: "apply_mutate" | "rollback_mutate" | "mark_completion";
-        batchExecutionAction?: "apply_batch_mutate";
-        mutateActionType?: "add_negative_keyword" | "pause_asset" | "pause_ad" | "adjust_campaign_budget" | null;
-        mutatePayloadPreview?: Record<string, unknown> | null;
-        rollbackActionType?: "remove_negative_keyword" | "enable_asset" | "enable_ad" | "restore_campaign_budget" | null;
-        rollbackPayloadPreview?: Record<string, unknown> | null;
-        executionTrustBand?: "low" | "medium" | "high" | null;
-        dependencyReadiness?: "not_ready" | "done_unverified" | "done_trusted" | "done_degraded" | null;
-        stabilizationHoldUntil?: string | null;
-        completionMode?: "full" | "partial" | "unknown";
-        completedStepCount?: number | null;
-        totalStepCount?: number | null;
-        completedStepIds?: string[] | null;
-        skippedStepIds?: string[] | null;
-        coreStepIds?: string[] | null;
-        batchItems?: Array<{
-          recommendationFingerprint: string;
-          accountId: string;
-          mutateActionType: "add_negative_keyword" | "pause_asset";
-          mutatePayloadPreview: Record<string, unknown>;
-          rollbackActionType?: "remove_negative_keyword" | "enable_asset" | null;
-          rollbackPayloadPreview?: Record<string, unknown> | null;
-          executionTrustBand?: "low" | "medium" | "high" | null;
-          batchGroupKey?: string | null;
-        }> | null;
-        dismissReason?: string | null;
-        suppressUntil?: string | null;
-      }
-    | null;
-
+  const body = (await request.json().catch(() => null)) as RequestBody;
   const businessId = body?.businessId ?? null;
   if (!businessId) {
     return NextResponse.json({ error: "businessId is required" }, { status: 400 });
@@ -59,298 +581,216 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, demo: true });
   }
 
-  if (!body?.recommendationFingerprint) {
-    return NextResponse.json(
-      { error: "recommendationFingerprint is required" },
-      { status: 400 }
-    );
+  const topLevelAccountId = body?.accountId ?? "all";
+
+  if (body?.executionAction === "execute_cluster") {
+    if (!body.cluster || !body.accountId || body.accountId === "all") {
+      return NextResponse.json({ error: "accountId and cluster are required for cluster execution." }, { status: 400 });
+    }
+    const clusterExecutionId = `cluster-exec-${randomUUID()}`;
+    const clusterExecution = await executeActionCluster({
+      cluster: body.cluster,
+      clusterExecutionId,
+      applyBatchStep: async (step: GoogleActionClusterStep) => {
+        const batchItems = step.batchItems ?? [];
+        const result = await applyBatchMutateInternal({
+          businessId,
+          items: batchItems.map((item) => ({ ...item, accountId: body.accountId! })),
+          extraMetadata: {
+            clusterId: body.cluster?.clusterId,
+            clusterExecutionId,
+            clusterStepId: step.stepId,
+          },
+        });
+        return { transactionId: result.transactionId, ok: result.batchStatus !== "failed" };
+      },
+      applyMutateStep: async (step: GoogleActionClusterStep) => {
+        if (!step.mutateItem) {
+          throw new Error("Missing mutate payload for cluster step.");
+        }
+        const result = await applySingleMutateInternal({
+          businessId,
+          accountId: body.accountId!,
+          recommendationFingerprint: step.mutateItem.recommendationFingerprint,
+          mutateActionType: step.mutateItem.mutateActionType,
+          mutatePayloadPreview: step.mutateItem.mutatePayloadPreview,
+          rollbackActionType: step.mutateItem.rollbackActionType ?? undefined,
+          rollbackPayloadPreview: step.mutateItem.rollbackPayloadPreview ?? undefined,
+          executionTrustBand: step.mutateItem.executionTrustBand ?? null,
+          dependencyReadiness: step.mutateItem.dependencyReadiness ?? null,
+          stabilizationHoldUntil: step.mutateItem.stabilizationHoldUntil ?? null,
+          extraMetadata: {
+            clusterId: body.cluster?.clusterId,
+            clusterExecutionId,
+            clusterStepId: step.stepId,
+          },
+        });
+        return { transactionId: result.transactionId, ok: true };
+      },
+    });
+
+    await logAdvisorExecutionEvent({
+      businessId,
+      accountId: body.accountId,
+      recommendationFingerprint: `cluster:${body.cluster.clusterId}`,
+      mutateActionType: "cluster_execute",
+      operation: "apply",
+      status: clusterExecution.clusterExecutionStatus,
+      payload: {
+        clusterId: body.cluster.clusterId,
+        childExecutionOrder: body.cluster.executionSummary.childExecutionOrder,
+      },
+      response: clusterExecution,
+    });
+
+    return NextResponse.json({ ok: true, ...clusterExecution });
   }
 
-  const accountId = body.accountId ?? "all";
+  if (body?.executionAction === "rollback_cluster") {
+    if (!body.cluster || !body.accountId || body.accountId === "all") {
+      return NextResponse.json({ error: "accountId and cluster are required for cluster rollback." }, { status: 400 });
+    }
+    const clusterRollbackId = `cluster-rollback-${randomUUID()}`;
+    const rollback = await rollbackActionCluster({
+      cluster: body.cluster,
+      rollbackBatchStep: async (step: GoogleActionClusterStep) => {
+        const batchItems = (step.batchItems ?? []).map((item) => ({ ...item, accountId: body.accountId! }));
+        const transactionId = step.transactionIds?.[0] ?? randomUUID();
+        const result = await rollbackBatchMutateInternal({
+          businessId,
+          transactionId,
+          items: batchItems,
+          extraMetadata: {
+            clusterId: body.cluster?.clusterId,
+            clusterRollbackId,
+            clusterStepId: step.stepId,
+          },
+        });
+        return {
+          ok: result.batchStatus === "rolled_back",
+          errorMessage: result.results.find((entry) => !entry.ok)?.error ?? null,
+          retryable: result.retryable,
+        };
+      },
+      rollbackMutateStep: async (step: GoogleActionClusterStep) => {
+        if (!step.mutateItem?.rollbackActionType || !step.mutateItem.rollbackPayloadPreview) {
+          return { ok: false, errorMessage: "Rollback payload is missing for this cluster step.", retryable: false };
+        }
+        try {
+          const result = await rollbackSingleMutateInternal({
+            businessId,
+            accountId: body.accountId!,
+            recommendationFingerprint: step.mutateItem.recommendationFingerprint,
+            rollbackActionType: step.mutateItem.rollbackActionType,
+            rollbackPayloadPreview: step.mutateItem.rollbackPayloadPreview,
+            transactionId: step.transactionIds?.[0] ?? null,
+            extraMetadata: {
+              clusterId: body.cluster?.clusterId,
+              clusterRollbackId,
+              clusterStepId: step.stepId,
+            },
+          });
+          return { ok: result.ok, errorMessage: null, retryable: result.retryable };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Rollback failed.";
+          return { ok: false, errorMessage: message, retryable: retryableRollbackError(message) };
+        }
+      },
+    });
 
-  if (body.batchExecutionAction === "apply_batch_mutate") {
+    await logAdvisorExecutionEvent({
+      businessId,
+      accountId: body.accountId,
+      recommendationFingerprint: `cluster:${body.cluster.clusterId}`,
+      mutateActionType: "cluster_rollback",
+      operation: "rollback",
+      status: rollback.clusterExecutionStatus,
+      payload: {
+        clusterId: body.cluster.clusterId,
+        childExecutionOrder: body.cluster.executionSummary.childExecutionOrder,
+      },
+      response: rollback,
+    });
+    return NextResponse.json({ ...rollback, ok: true });
+  }
+
+  if (body?.batchExecutionAction === "apply_batch_mutate") {
+    try {
+      const result = await applyBatchMutateInternal({
+        businessId,
+        items: Array.isArray(body.batchItems) ? body.batchItems : [],
+        transactionId: body.transactionId,
+      });
+      return NextResponse.json({ ...result, ok: true });
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : "Batch mutate failed." }, { status: 400 });
+    }
+  }
+
+  if (body?.executionAction === "rollback_batch_mutate") {
+    const transactionId = body.transactionId ?? null;
     const items = Array.isArray(body.batchItems) ? body.batchItems : [];
-    if (items.length === 0 || items.length > 5) {
-      return NextResponse.json({ error: "batchItems must contain between 1 and 5 items" }, { status: 400 });
+    if (!transactionId || items.length === 0) {
+      return NextResponse.json({ error: "transactionId and batchItems are required for batch rollback." }, { status: 400 });
     }
-    const actionTypes = new Set(items.map((item) => item.mutateActionType));
-    const batchGroups = new Set(items.map((item) => String(item.batchGroupKey ?? "")));
-    if (actionTypes.size !== 1 || batchGroups.size !== 1) {
-      return NextResponse.json({ error: "Batch mutate only supports same action type and same batch group." }, { status: 400 });
-    }
-    const unsupported = items.some((item) => item.mutateActionType !== "add_negative_keyword");
-    if (unsupported) {
-      return NextResponse.json({ error: "Wave 9 batch mutate only supports add_negative_keyword." }, { status: 400 });
-    }
-    const results: Array<{ recommendationFingerprint: string; ok: boolean; error?: string | null }> = [];
-    for (const item of items) {
-      await updateAdvisorExecutionState({
-        businessId,
-        accountId: item.accountId,
-        recommendationFingerprint: item.recommendationFingerprint,
-        executionStatus: "pending",
-        executionError: null,
-      });
-      await logAdvisorExecutionEvent({
-        businessId,
-        accountId: item.accountId,
-        recommendationFingerprint: item.recommendationFingerprint,
-        mutateActionType: item.mutateActionType,
-        operation: "apply",
-        status: "pending",
-        payload: item.mutatePayloadPreview,
-      });
-      try {
-        const result = await executeAdvisorMutation({
-          businessId,
-          accountId: item.accountId,
-          action: {
-            actionType: item.mutateActionType,
-            payload: item.mutatePayloadPreview as never,
-          },
-        });
-        const rollbackPayloadPreview =
-          item.rollbackActionType === "remove_negative_keyword"
-            ? { resourceNames: result.resourceNames }
-            : item.rollbackPayloadPreview ?? null;
-        await updateAdvisorExecutionState({
-          businessId,
-          accountId: item.accountId,
-          recommendationFingerprint: item.recommendationFingerprint,
-          executionStatus: "applied",
-          rollbackAvailable: Boolean(item.rollbackActionType),
-          executionMetadata: {
-            mutateActionType: item.mutateActionType,
-            rollbackActionType: item.rollbackActionType ?? null,
-            rollbackPayloadPreview,
-            resourceNames: result.resourceNames,
-            policyPatternKey: item.mutatePayloadPreview?.policyPatternKey ?? null,
-            executionTrustBand: item.executionTrustBand ?? null,
-            batchGroupKey: item.batchGroupKey ?? null,
-          },
-        });
-        await updateAdvisorMemoryAction({
-          businessId,
-          accountId: item.accountId,
-          recommendationFingerprint: item.recommendationFingerprint,
-          action: "applied",
-        });
-        await updateAdvisorCompletionState({
-          businessId,
-          accountId: item.accountId,
-          recommendationFingerprint: item.recommendationFingerprint,
-          completionMode: "full",
-          completedStepCount: 1,
-          totalStepCount: 1,
-          completedStepIds: ["execute_mutate"],
-          skippedStepIds: [],
-          coreStepIds: ["execute_mutate"],
-        });
-        await logAdvisorExecutionEvent({
-          businessId,
-          accountId: item.accountId,
-          recommendationFingerprint: item.recommendationFingerprint,
-          mutateActionType: item.mutateActionType,
-          operation: "apply",
-          status: "applied",
-          payload: item.mutatePayloadPreview,
-          response: { resourceNames: result.resourceNames, batchGroupKey: item.batchGroupKey ?? null },
-        });
-        results.push({ recommendationFingerprint: item.recommendationFingerprint, ok: true });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Batch mutate failed.";
-        await updateAdvisorExecutionState({
-          businessId,
-          accountId: item.accountId,
-          recommendationFingerprint: item.recommendationFingerprint,
-          executionStatus: "failed",
-          executionError: message,
-        });
-        await logAdvisorExecutionEvent({
-          businessId,
-          accountId: item.accountId,
-          recommendationFingerprint: item.recommendationFingerprint,
-          mutateActionType: item.mutateActionType,
-          operation: "apply",
-          status: "failed",
-          payload: item.mutatePayloadPreview,
-          errorMessage: message,
-        });
-        results.push({ recommendationFingerprint: item.recommendationFingerprint, ok: false, error: message });
-      }
-    }
-    return NextResponse.json({ ok: true, results });
+    const result = await rollbackBatchMutateInternal({
+      businessId,
+      transactionId,
+      items,
+    });
+    return NextResponse.json({ ...result, ok: true });
   }
 
-  if (body.executionAction === "apply_mutate") {
+  if (body?.executionAction === "apply_mutate") {
     if (!body.mutateActionType || !body.mutatePayloadPreview || !body.accountId || body.accountId === "all") {
       return NextResponse.json({ error: "accountId, mutateActionType and mutatePayloadPreview are required" }, { status: 400 });
     }
-    if (body.executionTrustBand === "low") {
-      return NextResponse.json({ error: "Execution policy trust is too low for native mutate." }, { status: 400 });
-    }
-    if (body.dependencyReadiness === "not_ready" || body.dependencyReadiness === "done_degraded") {
-      return NextResponse.json({ error: "Prerequisite execution state is no longer valid for native mutate." }, { status: 400 });
-    }
-    if (body.stabilizationHoldUntil && new Date(body.stabilizationHoldUntil).getTime() > Date.now()) {
-      return NextResponse.json({ error: `This mutate remains in stabilization hold until ${body.stabilizationHoldUntil}.` }, { status: 400 });
-    }
-    await updateAdvisorExecutionState({
-      businessId,
-      accountId,
-      recommendationFingerprint: body.recommendationFingerprint,
-      executionStatus: "pending",
-      executionError: null,
-    });
-    await logAdvisorExecutionEvent({
-      businessId,
-      accountId,
-      recommendationFingerprint: body.recommendationFingerprint,
-      mutateActionType: body.mutateActionType,
-      operation: "apply",
-      status: "pending",
-      payload: body.mutatePayloadPreview,
-    });
     try {
-      const result = await executeAdvisorMutation({
+      const result = await applySingleMutateInternal({
         businessId,
-        accountId,
-        action: {
-          actionType: body.mutateActionType,
-          payload: body.mutatePayloadPreview as never,
-        },
-      });
-      const rollbackPayloadPreview =
-        body.rollbackActionType === "remove_negative_keyword"
-          ? { resourceNames: result.resourceNames }
-          : body.rollbackActionType === "enable_asset"
-            ? { resourceName: result.resourceNames[0] ?? body.rollbackPayloadPreview?.resourceName ?? null }
-            : body.rollbackActionType === "restore_campaign_budget"
-              ? {
-                  campaignBudgetResourceName:
-                    body.rollbackPayloadPreview?.campaignBudgetResourceName ??
-                    result.resourceNames[0] ??
-                    null,
-                  previousAmount: body.rollbackPayloadPreview?.previousAmount ?? null,
-                }
-            : body.rollbackPayloadPreview ?? null;
-      await updateAdvisorExecutionState({
-        businessId,
-        accountId,
-        recommendationFingerprint: body.recommendationFingerprint,
-        executionStatus: "applied",
-        rollbackAvailable: Boolean(body.rollbackActionType),
-        executionMetadata: {
-          mutateActionType: body.mutateActionType,
-          rollbackActionType: body.rollbackActionType ?? null,
-          rollbackPayloadPreview,
-          resourceNames: result.resourceNames,
-          policyPatternKey: body.mutatePayloadPreview?.policyPatternKey ?? null,
-          executionTrustBand: body.executionTrustBand ?? null,
-          dependencyReadiness: body.dependencyReadiness ?? null,
-        },
-      });
-      await updateAdvisorMemoryAction({
-        businessId,
-        accountId,
-        recommendationFingerprint: body.recommendationFingerprint,
-        action: "applied",
-      });
-      await updateAdvisorCompletionState({
-        businessId,
-        accountId,
-        recommendationFingerprint: body.recommendationFingerprint,
-        completionMode: "full",
-        completedStepCount: 1,
-        totalStepCount: 1,
-        completedStepIds: body.completedStepIds ?? ["execute_mutate"],
-        skippedStepIds: body.skippedStepIds ?? [],
-        coreStepIds: body.coreStepIds ?? ["execute_mutate"],
-      });
-      await logAdvisorExecutionEvent({
-        businessId,
-        accountId,
-        recommendationFingerprint: body.recommendationFingerprint,
+        accountId: body.accountId,
+        recommendationFingerprint: body.recommendationFingerprint ?? "",
         mutateActionType: body.mutateActionType,
-        operation: "apply",
-        status: "applied",
-        payload: body.mutatePayloadPreview,
-        response: { resourceNames: result.resourceNames },
+        mutatePayloadPreview: body.mutatePayloadPreview,
+        rollbackActionType: body.rollbackActionType ?? undefined,
+        rollbackPayloadPreview: body.rollbackPayloadPreview ?? undefined,
+        executionTrustBand: body.executionTrustBand ?? null,
+        dependencyReadiness: body.dependencyReadiness ?? null,
+        stabilizationHoldUntil: body.stabilizationHoldUntil ?? null,
+        transactionId: body.transactionId ?? null,
       });
-      return NextResponse.json({ ok: true, executionStatus: "applied", rollbackPayloadPreview });
+      return NextResponse.json({ ...result, ok: true });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Mutate failed.";
-      await updateAdvisorExecutionState({
-        businessId,
-        accountId,
-        recommendationFingerprint: body.recommendationFingerprint,
-        executionStatus: "failed",
-        executionError: message,
-      });
-      await logAdvisorExecutionEvent({
-        businessId,
-        accountId,
-        recommendationFingerprint: body.recommendationFingerprint,
-        mutateActionType: body.mutateActionType,
-        operation: "apply",
-        status: "failed",
-        payload: body.mutatePayloadPreview,
-        errorMessage: message,
-      });
-      return NextResponse.json({ error: message }, { status: 400 });
+      return NextResponse.json({ error: error instanceof Error ? error.message : "Mutate failed." }, { status: 400 });
     }
   }
 
-  if (body.executionAction === "rollback_mutate") {
+  if (body?.executionAction === "rollback_mutate") {
     if (!body.rollbackActionType || !body.rollbackPayloadPreview || !body.accountId || body.accountId === "all") {
       return NextResponse.json({ error: "accountId, rollbackActionType and rollbackPayloadPreview are required" }, { status: 400 });
     }
     try {
-      const response = await rollbackAdvisorMutation({
+      const result = await rollbackSingleMutateInternal({
         businessId,
-        accountId,
-        actionType: body.rollbackActionType,
-        payload: body.rollbackPayloadPreview,
+        accountId: body.accountId,
+        recommendationFingerprint: body.recommendationFingerprint ?? "",
+        rollbackActionType: body.rollbackActionType,
+        rollbackPayloadPreview: body.rollbackPayloadPreview,
+        transactionId: body.transactionId ?? null,
       });
-      await updateAdvisorExecutionState({
-        businessId,
-        accountId,
-        recommendationFingerprint: body.recommendationFingerprint,
-        executionStatus: "rolled_back",
-        rollbackAvailable: false,
-        rollbackExecutedAt: new Date().toISOString(),
-        executionMetadata: {
-          rolledBack: true,
-        },
-      });
-      await logAdvisorExecutionEvent({
-        businessId,
-        accountId,
-        recommendationFingerprint: body.recommendationFingerprint,
-        mutateActionType: body.rollbackActionType,
-        operation: "rollback",
-        status: "rolled_back",
-        payload: body.rollbackPayloadPreview,
-        response,
-      });
-      return NextResponse.json({ ok: true, executionStatus: "rolled_back" });
+      return NextResponse.json({ ...result, ok: true });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Rollback failed.";
-      await updateAdvisorExecutionState({
-        businessId,
-        accountId,
-        recommendationFingerprint: body.recommendationFingerprint,
-        executionStatus: "failed",
-        executionError: message,
-      });
-      return NextResponse.json({ error: message }, { status: 400 });
+      return NextResponse.json({ error: error instanceof Error ? error.message : "Rollback failed." }, { status: 400 });
     }
   }
 
-  if (body.executionAction === "mark_completion") {
+  if (body?.executionAction === "mark_completion") {
+    if (!body.recommendationFingerprint) {
+      return NextResponse.json({ error: "recommendationFingerprint is required" }, { status: 400 });
+    }
     await updateAdvisorCompletionState({
       businessId,
-      accountId,
+      accountId: topLevelAccountId,
       recommendationFingerprint: body.recommendationFingerprint,
       completionMode: body.completionMode ?? "unknown",
       completedStepCount: body.completedStepCount ?? null,
@@ -362,7 +802,7 @@ export async function POST(request: NextRequest) {
     if (body.completionMode === "full" || body.completionMode === "partial") {
       await updateAdvisorMemoryAction({
         businessId,
-        accountId,
+        accountId: topLevelAccountId,
         recommendationFingerprint: body.recommendationFingerprint,
         action: "applied",
       });
@@ -370,16 +810,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
+  if (!body?.recommendationFingerprint) {
+    return NextResponse.json({ error: "recommendationFingerprint is required" }, { status: 400 });
+  }
   if (!body?.action) {
-    return NextResponse.json(
-      { error: "action or executionAction is required" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "action or executionAction is required" }, { status: 400 });
   }
 
   await updateAdvisorMemoryAction({
     businessId,
-    accountId,
+    accountId: topLevelAccountId,
     recommendationFingerprint: body.recommendationFingerprint,
     action: body.action,
     dismissReason: body.dismissReason ?? null,

@@ -2644,6 +2644,7 @@ export function buildGoogleGrowthAdvisor(
     },
     recommendations,
     sections,
+    clusters: [],
   };
 }
 function assetMeta(row: AssetPerformanceRow) {
