@@ -16,6 +16,7 @@ const PUBLIC_PAGE_PREFIXES = [
   "/pricing",
   "/demo",
   "/select-language",
+  "/shopify/connect",
 ];
 const PUBLIC_API_PREFIXES = [
   "/api/auth/login",
@@ -29,6 +30,9 @@ const PUBLIC_API_PREFIXES = [
   "/api/ai/cron",
   "/api/oauth/sign-with-google",
   "/api/oauth/sign-with-facebook",
+  "/api/oauth/shopify/callback",
+  "/api/oauth/shopify/context",
+  "/api/oauth/shopify/start",
 ];
 
 function isPublicPage(pathname: string): boolean {

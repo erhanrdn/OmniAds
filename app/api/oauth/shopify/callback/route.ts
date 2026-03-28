@@ -5,17 +5,20 @@ import { upsertIntegration } from "@/lib/integrations";
 import { updateBusinessCurrency } from "@/lib/account-store";
 import { requireBusinessAccess } from "@/lib/access";
 import { resolveRequestLanguage } from "@/lib/request-language";
+import { createShopifyInstallContext } from "@/lib/shopify/install-context";
+import { getSessionFromRequest } from "@/lib/auth";
+import { sanitizeNextPath } from "@/lib/auth-routing";
 
 /**
  * GET /api/oauth/shopify/callback?code=...&shop=...&state=...&hmac=...&timestamp=...
  *
  * Handles the OAuth redirect from Shopify:
  *   1. Validates the HMAC signature
- *   2. Validates the state parameter against the cookie
+ *   2. Validates the state parameter against the cookie when present
  *   3. Exchanges the authorization code for a permanent access token
  *   4. Fetches shop metadata
- *   5. Upserts the integration record in the DB
- *   6. Redirects to the frontend callback page with status
+ *   5. Either upserts the integration directly or stores a pending install context
+ *   6. Redirects to onboarding / callback UI with status
  */
 export async function GET(request: NextRequest) {
   const language = await resolveRequestLanguage(request);
@@ -27,7 +30,7 @@ export async function GET(request: NextRequest) {
   const hmac = searchParams.get("hmac");
   const timestamp = searchParams.get("timestamp");
 
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  const baseUrl = SHOPIFY_CONFIG.appUrl;
 
   function errorRedirect(msg: string, businessId?: string) {
     const url = new URL("/integrations/callback/shopify", baseUrl);
@@ -38,7 +41,7 @@ export async function GET(request: NextRequest) {
   }
 
   // ── Validate required params ───────────────────────────────
-  if (!code || !shop || !state || !hmac || !timestamp) {
+  if (!code || !shop || !hmac || !timestamp) {
     return errorRedirect(tr("Missing required Shopify callback parameters.", "Gerekli Shopify callback parametreleri eksik."));
   }
 
@@ -60,7 +63,12 @@ export async function GET(request: NextRequest) {
     .update(message)
     .digest("hex");
 
-  if (!crypto.timingSafeEqual(Buffer.from(hmac), Buffer.from(expectedHmac))) {
+  const expectedBuffer = Buffer.from(expectedHmac);
+  const receivedBuffer = Buffer.from(hmac);
+  if (
+    expectedBuffer.length !== receivedBuffer.length ||
+    !crypto.timingSafeEqual(receivedBuffer, expectedBuffer)
+  ) {
     console.error("[shopify-oauth-callback] HMAC verification failed", {
       shop,
       expected: expectedHmac,
@@ -69,33 +77,24 @@ export async function GET(request: NextRequest) {
     return errorRedirect(tr("HMAC verification failed. Request may be tampered.", "HMAC doğrulamasi başarısız. Istekle oynanmis olabilir."));
   }
 
-  // ── Validate state against cookie ──────────────────────────
+  let stateBusinessId: string | null = null;
+  let stateReturnTo: string | null = null;
+  if (state) {
+    try {
+      const payload = JSON.parse(Buffer.from(state, "base64url").toString()) as {
+        businessId?: string;
+        returnTo?: string;
+      };
+      stateBusinessId = typeof payload.businessId === "string" ? payload.businessId : null;
+      stateReturnTo = sanitizeNextPath(payload.returnTo) ?? null;
+    } catch {
+      console.warn("[shopify-oauth-callback] Ignoring malformed state payload");
+    }
+  }
+
   const cookieState = request.cookies.get("shopify_oauth_state")?.value;
-  if (!cookieState || cookieState !== state) {
-    return errorRedirect(tr("Invalid OAuth state. Please try again.", "OAuth state geçersiz. Lütfen tekrar deneyin."));
-  }
-
-  // Decode businessId from state
-  let businessId: string;
-  try {
-    const payload = JSON.parse(Buffer.from(state, "base64url").toString());
-    businessId = payload.businessId;
-    if (!businessId) throw new Error("No businessId in state payload");
-  } catch {
-    return errorRedirect(tr("Malformed OAuth state.", "OAuth state bozuk."));
-  }
-
-  const access = await requireBusinessAccess({
-    request,
-    businessId,
-    minRole: "collaborator",
-  });
-  if ("error" in access) {
-    return errorRedirect(
-      tr("You do not have permission to connect integrations for this business.", "Bu business için integration bağlama yetkiniz yok."),
-      businessId,
-    );
-  }
+  const hasVerifiedState = Boolean(state && cookieState && cookieState === state);
+  const session = await getSessionFromRequest(request);
 
   try {
     // ── Exchange code for permanent access token ───────────────
@@ -147,43 +146,88 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // ── Save to DB ──────────────────────────────────────────────
-    // Shopify permanent tokens do not expire, so no token_expires_at.
-    const integration = await upsertIntegration({
-      businessId,
-      provider: "shopify",
-      status: "connected",
-      providerAccountId: shop, // Shop domain as the unique account identifier
-      providerAccountName: shopName, // Human-readable shop name
-      accessToken,
-      scopes: grantedScopes,
-      metadata: shopCurrency ? { currency: shopCurrency } : undefined,
-    });
+    const metadata = shopCurrency ? { currency: shopCurrency } : undefined;
 
-    // Sync the shop's currency to the business record so the app uses it everywhere
-    if (shopCurrency) {
-      try {
-        await updateBusinessCurrency(businessId, shopCurrency);
-      } catch (currencyErr) {
-        console.warn("[shopify-oauth-callback] Failed to sync shop currency (non-fatal):", currencyErr);
+    if (hasVerifiedState && stateBusinessId) {
+      const access = await requireBusinessAccess({
+        request,
+        businessId: stateBusinessId,
+        minRole: "collaborator",
+      });
+
+      if (!("error" in access)) {
+        const integration = await upsertIntegration({
+          businessId: stateBusinessId,
+          provider: "shopify",
+          status: "connected",
+          providerAccountId: shop,
+          providerAccountName: shopName,
+          accessToken,
+          scopes: grantedScopes,
+          metadata,
+        });
+
+        if (shopCurrency) {
+          try {
+            await updateBusinessCurrency(stateBusinessId, shopCurrency);
+          } catch (currencyErr) {
+            console.warn("[shopify-oauth-callback] Failed to sync shop currency (non-fatal):", currencyErr);
+          }
+        }
+
+        console.log("[shopify-oauth-callback] integration upserted", {
+          businessId: stateBusinessId,
+          integrationId: integration.id,
+          shop,
+          shopName,
+        });
+
+        const redirectUrl = new URL("/integrations/callback/shopify", baseUrl);
+        redirectUrl.searchParams.set("status", "success");
+        redirectUrl.searchParams.set("businessId", stateBusinessId);
+        redirectUrl.searchParams.set("integrationId", integration.id);
+        if (stateReturnTo) {
+          redirectUrl.searchParams.set("returnTo", stateReturnTo);
+        }
+
+        const response = NextResponse.redirect(redirectUrl.toString());
+        response.cookies.set("shopify_oauth_state", "", {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
+          maxAge: 0,
+          path: "/",
+        });
+        return response;
       }
     }
 
-    console.log("[shopify-oauth-callback] integration upserted", {
-      businessId,
-      integrationId: integration.id,
-      shop,
+    const context = await createShopifyInstallContext({
+      shopDomain: shop,
       shopName,
+      accessToken,
+      scopes: grantedScopes,
+      metadata,
+      returnTo: stateReturnTo,
+      sessionId: session?.sessionId ?? null,
+      userId: session?.user.id ?? null,
+      preferredBusinessId: stateBusinessId,
     });
 
-    // ── Redirect to frontend callback with success ──────────────
-    const redirectUrl = new URL("/integrations/callback/shopify", baseUrl);
-    redirectUrl.searchParams.set("status", "success");
-    redirectUrl.searchParams.set("businessId", businessId);
-    redirectUrl.searchParams.set("integrationId", integration.id);
+    console.log("[shopify-oauth-callback] pending install context created", {
+      contextId: context.id,
+      shop,
+      shopName,
+      userId: session?.user.id ?? null,
+      preferredBusinessId: stateBusinessId,
+    });
 
-    const response = NextResponse.redirect(redirectUrl.toString());
-    // Clear the state cookie
+    const onboardingUrl = new URL("/shopify/connect", baseUrl);
+    onboardingUrl.searchParams.set("context", context.token);
+    if (stateReturnTo) {
+      onboardingUrl.searchParams.set("returnTo", stateReturnTo);
+    }
+    const response = NextResponse.redirect(onboardingUrl.toString());
     response.cookies.set("shopify_oauth_state", "", {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
@@ -198,10 +242,10 @@ export async function GET(request: NextRequest) {
         ? err.message
         : "Unknown error during Shopify OAuth.";
     console.error("[shopify-oauth-callback] error", {
-      businessId,
+      businessId: stateBusinessId,
       shop,
       message,
     });
-    return errorRedirect(message, businessId);
+    return errorRedirect(message, stateBusinessId ?? undefined);
   }
 }

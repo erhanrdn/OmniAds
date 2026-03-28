@@ -439,6 +439,21 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
           amount_off  NUMERIC(10,2) NOT NULL,
           redeemed_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )`,
+        sql`CREATE TABLE IF NOT EXISTS shopify_install_contexts (
+          id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          token                 TEXT NOT NULL UNIQUE,
+          shop_domain           TEXT NOT NULL,
+          shop_name             TEXT,
+          access_token          TEXT NOT NULL,
+          scopes                TEXT,
+          metadata              JSONB NOT NULL DEFAULT '{}'::jsonb,
+          return_to             TEXT,
+          session_id            UUID REFERENCES sessions(id) ON DELETE SET NULL,
+          user_id               UUID REFERENCES users(id) ON DELETE SET NULL,
+          preferred_business_id UUID REFERENCES businesses(id) ON DELETE SET NULL,
+          created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+          expires_at            TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '30 minutes')
+        )`,
         sql`ALTER TABLE invites ADD COLUMN IF NOT EXISTS invited_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL`,
         sql`ALTER TABLE invites ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '7 days')`,
         sql`ALTER TABLE invites ADD COLUMN IF NOT EXISTS accepted_at TIMESTAMPTZ`,
@@ -454,6 +469,9 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
         sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_discount_codes_code ON discount_codes (lower(code))`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_subscriptions_business_id ON shopify_subscriptions (business_id)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_subscriptions_user_id ON shopify_subscriptions (user_id)`.catch(() => {}),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_shopify_install_contexts_token ON shopify_install_contexts (token)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_install_contexts_expires_at ON shopify_install_contexts (expires_at)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_install_contexts_user_id ON shopify_install_contexts (user_id)`.catch(() => {}),
       ]);
 
       // Phase 4b: discount_redemptions indexes (after table created above)

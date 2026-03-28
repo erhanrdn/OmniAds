@@ -68,7 +68,40 @@ function IntegrationCallbackPageClient() {
       const integrationId = searchParams.get("integrationId") ?? undefined;
 
       if (statusParam === "success") {
-        setConnected(businessId, provider, integrationId);
+        const integrationResponse = await fetch(
+          `/api/integrations?businessId=${encodeURIComponent(businessId)}&provider=${encodeURIComponent(provider)}`,
+          { cache: "no-store", headers: { "Cache-Control": "no-store" } }
+        ).catch(() => null);
+        const integrationPayload = (await integrationResponse?.json().catch(() => null)) as
+          | {
+              integration?: {
+                id?: string;
+                status?: string;
+                connected_at?: string | null;
+                updated_at?: string | null;
+                provider_account_id?: string | null;
+                provider_account_name?: string | null;
+              } | null;
+            }
+          | null;
+        const integration = integrationPayload?.integration;
+        if (!integrationResponse?.ok || integration?.status !== "connected") {
+          const message = `${providerLabel} connection could not be verified. Please refresh and try again.`;
+          setError(businessId, provider, message);
+          setToast({
+            type: "error",
+            message,
+          });
+          timeoutId = setTimeout(() => router.replace(returnTo), 1200);
+          return;
+        }
+
+        setConnected(businessId, provider, integration.id ?? integrationId, {
+          connectedAt: integration.connected_at ?? undefined,
+          lastSyncAt: integration.updated_at ?? undefined,
+          providerAccountId: integration.provider_account_id ?? null,
+          providerAccountName: integration.provider_account_name ?? null,
+        });
         setToast({
           type: "success",
           message: `${providerLabel} connected successfully.`,

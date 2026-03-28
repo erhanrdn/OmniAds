@@ -2,8 +2,8 @@ import { neon } from "@neondatabase/serverless";
 import { logStartupEvent } from "@/lib/startup-diagnostics";
 
 const DEFAULT_DB_TIMEOUT_MS = 8_000;
-const DEFAULT_DB_RETRY_ATTEMPTS = 2;
-const DB_RETRY_DELAY_MS = 250;
+const DEFAULT_DB_RETRY_ATTEMPTS = 4;
+const DB_RETRY_DELAY_MS = 400;
 
 function getDbTimeoutMs() {
   const raw = process.env.DB_QUERY_TIMEOUT_MS?.trim();
@@ -35,9 +35,12 @@ function isRetryableDbError(error: unknown) {
     code === "XX000" ||
     code === "08001" ||
     code === "08006" ||
+    message.includes("Too many connections attempts") ||
     message.includes("server_login_retry") ||
     message.includes("partial pkt in login phase") ||
-    message.includes("server login has been failing")
+    message.includes("server login has been failing") ||
+    message.includes("connection closed") ||
+    message.includes("server conn crashed")
   );
 }
 

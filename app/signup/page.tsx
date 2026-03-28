@@ -47,6 +47,7 @@ function SignupPageClient() {
   const searchParams = useSearchParams();
   const inviteToken = searchParams.get("invite") ?? "";
   const inviteEmail = searchParams.get("email") ?? "";
+  const nextParam = searchParams.get("next");
   const [name, setName] = useState("");
   const [email, setEmail] = useState(inviteEmail);
   const [password, setPassword] = useState("");
@@ -242,7 +243,10 @@ function SignupPageClient() {
             variant="outline"
             className="w-full gap-2"
             onClick={() => {
-              window.location.href = "/api/oauth/sign-with-google/start";
+              const href = nextParam
+                ? `/api/oauth/sign-with-google/start?next=${encodeURIComponent(nextParam)}`
+                : "/api/oauth/sign-with-google/start";
+              window.location.href = href;
             }}
             disabled={loading}
           >
@@ -271,7 +275,10 @@ function SignupPageClient() {
             variant="outline"
             className="w-full gap-2"
             onClick={() => {
-              window.location.href = "/api/oauth/sign-with-facebook/start";
+              const href = nextParam
+                ? `/api/oauth/sign-with-facebook/start?next=${encodeURIComponent(nextParam)}`
+                : "/api/oauth/sign-with-facebook/start";
+              window.location.href = href;
             }}
             disabled={loading}
           >
@@ -288,7 +295,7 @@ function SignupPageClient() {
         <p className="text-center text-xs text-muted-foreground">
           {t.alreadyHaveAccount}{" "}
           <Link
-            href="/login"
+            href={nextParam ? `/login?next=${encodeURIComponent(nextParam)}` : "/login"}
             className="text-foreground underline underline-offset-2"
           >
             {t.signIn}

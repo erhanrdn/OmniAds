@@ -1,3 +1,45 @@
+import { logStartupEvent } from "@/lib/startup-diagnostics";
+
+let hasLoggedShopifyConfig = false;
+
+function logShopifyConfigDiagnostics(appUrl: string, redirectUri: string) {
+  if (hasLoggedShopifyConfig) return;
+  hasLoggedShopifyConfig = true;
+
+  try {
+    const app = new URL(appUrl);
+    const redirect = new URL(redirectUri);
+    logStartupEvent("shopify_config_resolved", {
+      appUrl: app.toString(),
+      redirectUri: redirect.toString(),
+    });
+
+    if (process.env.NODE_ENV === "production" && app.hostname === "localhost") {
+      logStartupEvent("shopify_config_warning_localhost_app_url", {
+        appUrl: app.toString(),
+      });
+    }
+
+    if (redirect.pathname !== "/api/oauth/shopify/callback") {
+      logStartupEvent("shopify_config_warning_unexpected_callback_path", {
+        redirectUri: redirect.toString(),
+      });
+    }
+
+    if (redirect.origin !== app.origin) {
+      logStartupEvent("shopify_config_warning_origin_mismatch", {
+        appUrl: app.toString(),
+        redirectUri: redirect.toString(),
+      });
+    }
+  } catch {
+    logStartupEvent("shopify_config_warning_invalid_url", {
+      appUrl,
+      redirectUri,
+    });
+  }
+}
+
 /**
  * Shopify OAuth configuration.
  *
@@ -29,9 +71,18 @@ export const SHOPIFY_CONFIG = {
       throw new Error("SHOPIFY_SCOPES is not set in environment variables.");
     return v;
   },
+  get appUrl() {
+    const v =
+      process.env.SHOPIFY_APP_URL?.trim() ||
+      process.env.NEXT_PUBLIC_APP_URL?.trim() ||
+      "http://localhost:3000";
+    return v;
+  },
   get redirectUri() {
-    const base = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
-    return `${base}/api/oauth/shopify/callback`;
+    const v = process.env.SHOPIFY_REDIRECT_URI?.trim();
+    const redirectUri = v || `${this.appUrl}/api/oauth/shopify/callback`;
+    logShopifyConfigDiagnostics(this.appUrl, redirectUri);
+    return redirectUri;
   },
   /**
    * Build the authorization URL for a given shop domain.
@@ -54,45 +105,5 @@ export const SHOPIFY_CONFIG = {
   shopInfoUrl(shop: string) {
     return `https://${shop}/admin/api/2024-10/shop.json`;
   },
+  appStoreUrl: "https://apps.shopify.com/adsecute",
 } as const;
-
-/**
- * Normalize a user-entered shop value to a valid `*.myshopify.com` hostname.
- * Accepts:
- *   - "mystore"
- *   - "mystore.myshopify.com"
- *   - "https://mystore.myshopify.com"
- *   - "https://mystore.myshopify.com/admin"
- * Returns null if the input cannot be normalized.
- */
-export function normalizeShopDomain(raw: string): string | null {
-  const trimmed = raw.trim().toLowerCase();
-  if (!trimmed) return null;
-
-  // If it looks like a URL, extract the hostname
-  let hostname = trimmed;
-  if (hostname.startsWith("http://") || hostname.startsWith("https://")) {
-    try {
-      hostname = new URL(hostname).hostname;
-    } catch {
-      return null;
-    }
-  }
-
-  // Remove any path after the hostname
-  hostname = hostname.split("/")[0];
-
-  // If bare name (no dots), append .myshopify.com
-  if (!hostname.includes(".")) {
-    hostname = `${hostname}.myshopify.com`;
-  }
-
-  // Basic validation: must end with .myshopify.com
-  if (!hostname.endsWith(".myshopify.com")) return null;
-
-  // Must have at least one character before the suffix
-  const prefix = hostname.replace(".myshopify.com", "");
-  if (!prefix || !/^[a-z0-9][a-z0-9-]*$/.test(prefix)) return null;
-
-  return hostname;
-}

@@ -8,7 +8,7 @@ import {
   OAUTH_PERMISSIONS,
 } from "@/components/integrations/oauth";
 import { IntegrationProvider } from "@/store/integrations-store";
-import { ExternalLink, X } from "lucide-react";
+import { X } from "lucide-react";
 
 interface ConnectModalProps {
   provider: IntegrationProvider | null;
@@ -41,7 +41,9 @@ export function ConnectModal({
       : `${pathname}${currentSearch ? `?${currentSearch}` : ""}`;
 
   function handleContinue() {
-    const startUrl = getOAuthStartUrl(activeProvider, businessId, returnTo);
+    const startUrl = isShopify
+      ? "https://apps.shopify.com/adsecute"
+      : getOAuthStartUrl(activeProvider, businessId, returnTo);
     onContinue(activeProvider);
     window.location.href = startUrl;
   }
@@ -54,7 +56,7 @@ export function ConnectModal({
             <h3 className="text-lg font-semibold">Connect {providerLabel}</h3>
             <p className="text-sm text-muted-foreground">
               {isShopify
-                ? "Install Adsecute from the Shopify App Store to connect your store."
+                ? "Shopify installation starts on a Shopify-owned surface. After install, Adsecute will bring the merchant back to finalize workspace selection."
                 : `You will be redirected to ${providerLabel} to authorize your account.`}
             </p>
           </div>
@@ -72,19 +74,8 @@ export function ConnectModal({
           <div className="mb-4 rounded-lg border bg-muted/25 p-4">
             <p className="text-sm font-medium">How to connect Shopify</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              Shopify connections must be initiated from the Shopify App Store.
-              Click the button below to open the Adsecute listing, then click{" "}
-              <strong>Install</strong> in Shopify to complete the connection.
+              This opens the Shopify App Store listing. Shopify handles install first, then Adsecute completes the workspace association after the callback returns.
             </p>
-            <a
-              href="https://apps.shopify.com/adsecute"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background hover:opacity-90 transition-opacity"
-            >
-              Open Shopify App Store
-              <ExternalLink className="h-3.5 w-3.5" />
-            </a>
           </div>
         ) : (
           <div className="rounded-lg border bg-muted/25 p-3">
@@ -103,9 +94,7 @@ export function ConnectModal({
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          {!isShopify && (
-            <Button onClick={handleContinue}>Continue</Button>
-          )}
+          <Button onClick={handleContinue}>Continue</Button>
         </div>
       </div>
     </div>

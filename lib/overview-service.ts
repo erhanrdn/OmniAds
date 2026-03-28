@@ -126,10 +126,18 @@ interface DailyTrendsBundle {
   providerTrends: Partial<Record<"meta" | "google", TrendPoint[]>>;
 }
 
+interface MetaAccessContext {
+  assignedAccountIds: string[];
+  connected: boolean;
+}
+
 const META_OVERVIEW_CACHE_TTL_MINUTES = 15;
 const GA4_FALLBACK_CACHE_TTL_MINUTES = 15;
 const GA4_FALLBACK_ERROR_COOLDOWN_MS = 10 * 60 * 1000;
 const ga4FallbackFailureUntilByBusiness = new Map<string, number>();
+const DAILY_TREND_BATCH_SIZE = Number(process.env.OVERVIEW_DAILY_TREND_BATCH_SIZE ?? 3);
+const META_ACCESS_CACHE_TTL_MS = 30 * 1000;
+const metaAccessCache = new Map<string, { expiresAt: number; value: Promise<MetaAccessContext> }>();
 
 async function getGa4EcommerceFallback(
   businessId: string,
@@ -206,53 +214,70 @@ async function getGa4EcommerceFallback(
   }
 }
 
+async function getMetaAccessContext(businessId: string): Promise<MetaAccessContext> {
+  const cached = metaAccessCache.get(businessId);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.value;
+  }
+
+  const value = (async () => {
+    let assignedAccountIds: string[] = [];
+    try {
+      const row = await getProviderAccountAssignments(businessId, "meta");
+      assignedAccountIds = row?.account_ids ?? [];
+    } catch (firstError: unknown) {
+      const message = firstError instanceof Error ? firstError.message : String(firstError);
+      const isMissingTable = message.includes("does not exist") || message.includes("relation");
+
+      if (isMissingTable) {
+        try {
+          await runMigrations();
+          const row = await getProviderAccountAssignments(businessId, "meta");
+          assignedAccountIds = row?.account_ids ?? [];
+        } catch (retryError: unknown) {
+          const retryMessage =
+            retryError instanceof Error ? retryError.message : String(retryError);
+          console.error("[overview] assignment read failed after migration", {
+            businessId,
+            message: retryMessage,
+          });
+        }
+      } else {
+        console.error("[overview] assignment read failed", {
+          businessId,
+          message,
+        });
+      }
+    }
+
+    let connected = false;
+    try {
+      const integration = await getIntegration(businessId, "meta");
+      connected = Boolean(integration?.status === "connected" && integration?.access_token);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn("[overview] integration read failed", {
+        businessId,
+        message,
+      });
+    }
+
+    return { assignedAccountIds, connected };
+  })();
+
+  metaAccessCache.set(businessId, {
+    expiresAt: Date.now() + META_ACCESS_CACHE_TTL_MS,
+    value,
+  });
+  return value;
+}
+
 async function getMetaOverviewFragment(input: {
   businessId: string;
   startDate: string;
   endDate: string;
 }): Promise<MetaOverviewFragment> {
-  let assignedAccountIds: string[] = [];
-  try {
-    const row = await getProviderAccountAssignments(input.businessId, "meta");
-    assignedAccountIds = row?.account_ids ?? [];
-  } catch (firstError: unknown) {
-    const message = firstError instanceof Error ? firstError.message : String(firstError);
-    const isMissingTable = message.includes("does not exist") || message.includes("relation");
-
-    if (isMissingTable) {
-      try {
-        await runMigrations();
-        const row = await getProviderAccountAssignments(input.businessId, "meta");
-        assignedAccountIds = row?.account_ids ?? [];
-      } catch (retryError: unknown) {
-        const retryMessage =
-          retryError instanceof Error ? retryError.message : String(retryError);
-        console.error("[overview] assignment read failed after migration", {
-          businessId: input.businessId,
-          message: retryMessage,
-        });
-        assignedAccountIds = [];
-      }
-    } else {
-      console.error("[overview] assignment read failed", {
-        businessId: input.businessId,
-        message,
-      });
-      assignedAccountIds = [];
-    }
-  }
-
-  let connected = false;
-  try {
-    const integration = await getIntegration(input.businessId, "meta");
-    connected = Boolean(integration?.status === "connected" && integration?.access_token);
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.warn("[overview] integration read failed", {
-      businessId: input.businessId,
-      message,
-    });
-  }
+  const { assignedAccountIds, connected } = await getMetaAccessContext(input.businessId);
 
   if (!connected || assignedAccountIds.length === 0) {
     return { spend: 0, revenue: 0, purchases: 0, rows: [] };
@@ -341,9 +366,6 @@ async function getGoogleOverviewFragment(input: {
 
   return payload;
 }
-
-// Cap concurrent per-day fetches to avoid overwhelming upstream providers.
-const DAILY_TREND_BATCH_SIZE = 7;
 
 async function fetchDaySnapshot(businessId: string, date: string) {
   const [metaResult, googleResult, ga4Result] = await Promise.allSettled([
@@ -445,7 +467,10 @@ export async function getOverviewData(params: {
     return getDemoOverview() as unknown as OverviewResponse;
   }
 
-  await getIntegration(businessId, "shopify");
+  await getIntegration(businessId, "shopify").catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn("[overview] shopify integration warmup failed", { businessId, message });
+  });
 
   let totalSpend = 0;
   let totalRevenue = 0;

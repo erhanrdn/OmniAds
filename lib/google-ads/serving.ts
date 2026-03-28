@@ -32,6 +32,19 @@ import type { BaseReportParams, ComparativeReportParams, ReportResult, OverviewR
 type WarehouseMeta = GoogleAdsReportMeta & GoogleAdsWarehouseFreshness;
 
 type GenericRow = Record<string, unknown>;
+type WarehouseContextCacheEntry = {
+  expiresAt: number;
+  value: Promise<{
+    integration: Awaited<ReturnType<typeof getIntegration>> | null;
+    providerAccountIds: string[];
+    startDate: string;
+    endDate: string;
+    dataState: GoogleAdsWarehouseFreshness["dataState"];
+  }>;
+};
+
+const warehouseContextCache = new Map<string, WarehouseContextCacheEntry>();
+const WAREHOUSE_CONTEXT_CACHE_TTL_MS = 30 * 1000;
 
 function toNumber(value: unknown) {
   const parsed = typeof value === "number" ? value : Number(value ?? 0);
@@ -66,30 +79,51 @@ async function resolveWarehouseContext(input: {
   customStart?: string | null;
   customEnd?: string | null;
 }) {
-  const [integration, assignment] = await Promise.all([
-    getIntegration(input.businessId, "google").catch(() => null),
-    getProviderAccountAssignments(input.businessId, "google").catch(() => null),
-  ]);
-  const providerAccountIds = input.accountId && input.accountId !== "all"
-    ? [input.accountId]
-    : assignment?.account_ids ?? [];
-  const { startDate, endDate } = getDateRangeForQuery(
+  const cacheKey = [
+    input.businessId,
+    input.accountId ?? "all",
     input.dateRange,
-    input.customStart ?? undefined,
-    input.customEnd ?? undefined
-  );
+    input.customStart ?? "",
+    input.customEnd ?? "",
+  ].join(":");
+  const cached = warehouseContextCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.value;
+  }
 
-  let dataState: GoogleAdsWarehouseFreshness["dataState"] = "ready";
-  if (!integration?.access_token || integration.status !== "connected") dataState = "not_connected";
-  else if (providerAccountIds.length === 0) dataState = "connected_no_assignment";
+  const value = (async () => {
+    const [integration, assignment] = await Promise.all([
+      getIntegration(input.businessId, "google").catch(() => null),
+      getProviderAccountAssignments(input.businessId, "google").catch(() => null),
+    ]);
+    const providerAccountIds =
+      input.accountId && input.accountId !== "all"
+        ? [input.accountId]
+        : assignment?.account_ids ?? [];
+    const { startDate, endDate } = getDateRangeForQuery(
+      input.dateRange,
+      input.customStart ?? undefined,
+      input.customEnd ?? undefined
+    );
 
-  return {
-    integration,
-    providerAccountIds,
-    startDate,
-    endDate,
-    dataState,
-  };
+    let dataState: GoogleAdsWarehouseFreshness["dataState"] = "ready";
+    if (!integration?.access_token || integration.status !== "connected") dataState = "not_connected";
+    else if (providerAccountIds.length === 0) dataState = "connected_no_assignment";
+
+    return {
+      integration,
+      providerAccountIds,
+      startDate,
+      endDate,
+      dataState,
+    };
+  })();
+
+  warehouseContextCache.set(cacheKey, {
+    expiresAt: Date.now() + WAREHOUSE_CONTEXT_CACHE_TTL_MS,
+    value,
+  });
+  return value;
 }
 
 function buildMeta(input: {

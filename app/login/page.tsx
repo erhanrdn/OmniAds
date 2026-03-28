@@ -48,6 +48,7 @@ interface LoginResponse {
 function LoginPageClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const nextParam = searchParams.get("next");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(false);
@@ -300,7 +301,6 @@ function LoginPageClient() {
             variant="outline"
             className="w-full gap-2"
             onClick={() => {
-              const nextParam = searchParams.get("next");
               const url = nextParam
                 ? `/api/oauth/sign-with-google/start?next=${encodeURIComponent(nextParam)}`
                 : "/api/oauth/sign-with-google/start";
@@ -334,7 +334,7 @@ function LoginPageClient() {
         <p className="text-center text-xs text-muted-foreground">
           {t.noAccount}{" "}
           <Link
-            href="/signup"
+            href={nextParam ? `/signup?next=${encodeURIComponent(nextParam)}` : "/signup"}
             className="text-foreground underline underline-offset-2"
           >
             {t.createOne}
