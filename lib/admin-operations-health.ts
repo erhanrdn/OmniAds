@@ -1,4 +1,5 @@
 import { getDb } from "@/lib/db";
+import { getSyncWorkerHealthSummary } from "@/lib/sync/worker-health";
 
 type AuthProvider = "meta" | "google" | "search_console" | "ga4" | "shopify";
 type SyncProvider = "google_ads" | "meta" | "ga4" | "search_console";
@@ -55,8 +56,25 @@ export interface AdminSyncHealthPayload {
     metaLeasedPartitions?: number;
     metaDeadLetterPartitions?: number;
     metaOldestQueuedPartition?: string | null;
+    workerOnline?: boolean;
+    workerInstances?: number;
+    workerLastHeartbeatAt?: string | null;
   };
   issues: AdminSyncIssueRow[];
+  workerHealth?: {
+    onlineWorkers: number;
+    workerInstances: number;
+    lastHeartbeatAt: string | null;
+    workers: Array<{
+      workerId: string;
+      instanceType: string;
+      providerScope: string;
+      status: string;
+      lastHeartbeatAt: string | null;
+      lastBusinessId: string | null;
+      lastPartitionId: string | null;
+    }>;
+  };
   googleAdsBusinesses?: Array<{
     businessId: string;
     businessName: string;
@@ -68,6 +86,12 @@ export interface AdminSyncHealthPayload {
     campaignCompletedDays: number;
     searchTermCompletedDays: number;
     productCompletedDays: number;
+    latestCheckpointPhase?: string | null;
+    latestCheckpointUpdatedAt?: string | null;
+    checkpointLagMinutes?: number | null;
+    lastSuccessfulPageIndex?: number | null;
+    resumeCapable?: boolean;
+    checkpointFailures?: number;
   }>;
   metaBusinesses?: Array<{
     businessId: string;
@@ -86,6 +110,13 @@ export interface AdminSyncHealthPayload {
     accountCompletedDays: number;
     adsetCompletedDays: number;
     creativeCompletedDays: number;
+    latestCheckpointScope?: string | null;
+    latestCheckpointPhase?: string | null;
+    latestCheckpointUpdatedAt?: string | null;
+    checkpointLagMinutes?: number | null;
+    lastSuccessfulPageIndex?: number | null;
+    resumeCapable?: boolean;
+    checkpointFailures?: number;
   }>;
 }
 
@@ -174,6 +205,10 @@ interface RawGoogleAdsHealthRow {
   campaign_dead_letter_count: number | string | null;
   search_term_completed_days: number | string | null;
   product_completed_days: number | string | null;
+  latest_checkpoint_phase?: string | null;
+  latest_checkpoint_updated_at?: string | null;
+  last_successful_page_index?: number | string | null;
+  checkpoint_failures?: number | string | null;
 }
 
 interface RawMetaHealthRow {
@@ -188,6 +223,11 @@ interface RawMetaHealthRow {
   current_day_reference: string | null;
   oldest_queued_partition: string | null;
   latest_partition_activity_at: string | null;
+  latest_checkpoint_scope: string | null;
+  latest_checkpoint_phase: string | null;
+  latest_checkpoint_updated_at: string | null;
+  last_successful_page_index: number | string | null;
+  checkpoint_failures: number | string | null;
   today_account_rows: number | string;
   today_adset_rows: number | string;
   account_completed_days: number | string | null;
@@ -222,6 +262,13 @@ function getTopIssue(entries: string[]) {
     counts.set(entry, (counts.get(entry) ?? 0) + 1);
   }
   return Array.from(counts.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+}
+
+function computeLagMinutes(value: string | null) {
+  if (!value) return null;
+  const ms = new Date(value).getTime();
+  if (!Number.isFinite(ms)) return null;
+  return Math.max(0, Math.round((Date.now() - ms) / 60_000));
 }
 
 function parseScopes(value: string | null) {
@@ -349,6 +396,7 @@ export function buildAdminSyncHealth(input: {
   cooldowns: RawCooldownRow[];
   googleAdsHealth?: RawGoogleAdsHealthRow[];
   metaHealth?: RawMetaHealthRow[];
+  workerHealth?: Awaited<ReturnType<typeof getSyncWorkerHealthSummary>>;
 }): AdminSyncHealthPayload {
   const issues: AdminSyncIssueRow[] = [];
   const impactedBusinesses = new Set<string>();
@@ -445,6 +493,13 @@ export function buildAdminSyncHealth(input: {
       campaignCompletedDays,
       searchTermCompletedDays,
       productCompletedDays,
+      latestCheckpointPhase: row.latest_checkpoint_phase ?? null,
+      latestCheckpointUpdatedAt: row.latest_checkpoint_updated_at ?? null,
+      checkpointLagMinutes: computeLagMinutes(row.latest_checkpoint_updated_at ?? null),
+      lastSuccessfulPageIndex:
+        row.last_successful_page_index == null ? null : Number(row.last_successful_page_index),
+      resumeCapable: false,
+      checkpointFailures: Number(row.checkpoint_failures ?? 0),
     });
 
     googleAdsQueueDepth += queueDepth;
@@ -520,6 +575,14 @@ export function buildAdminSyncHealth(input: {
       accountCompletedDays,
       adsetCompletedDays,
       creativeCompletedDays,
+      latestCheckpointScope: row.latest_checkpoint_scope,
+      latestCheckpointPhase: row.latest_checkpoint_phase,
+      latestCheckpointUpdatedAt: row.latest_checkpoint_updated_at,
+      checkpointLagMinutes: computeLagMinutes(row.latest_checkpoint_updated_at),
+      lastSuccessfulPageIndex:
+        row.last_successful_page_index == null ? null : Number(row.last_successful_page_index),
+      resumeCapable: Boolean(row.latest_checkpoint_updated_at),
+      checkpointFailures: Number(row.checkpoint_failures ?? 0),
     });
 
     metaQueueDepth += queueDepth;
@@ -575,6 +638,21 @@ export function buildAdminSyncHealth(input: {
         status: "running",
         detail: `${staleLeasePartitions} Meta partitions look stuck in leased/running state and may need cleanup.`,
         triggeredAt: row.latest_partition_activity_at,
+        completedAt: row.oldest_queued_partition,
+      });
+    }
+
+    if (row.latest_checkpoint_updated_at && computeLagMinutes(row.latest_checkpoint_updated_at) != null && (computeLagMinutes(row.latest_checkpoint_updated_at) ?? 0) > 20) {
+      impactedBusinesses.add(row.business_id);
+      issueTypes.push("Meta stale checkpoints");
+      issues.push({
+        businessId: row.business_id,
+        businessName: row.business_name,
+        provider: "meta",
+        reportType: "stale_checkpoint",
+        status: leasedPartitions > 0 ? "running" : "failed",
+        detail: `Meta checkpoint progress has not moved recently. phase=${row.latest_checkpoint_phase ?? "unknown"}, lag=${computeLagMinutes(row.latest_checkpoint_updated_at)}m, page=${Number(row.last_successful_page_index ?? 0)}`,
+        triggeredAt: row.latest_checkpoint_updated_at,
         completedAt: row.oldest_queued_partition,
       });
     }
@@ -655,12 +733,16 @@ export function buildAdminSyncHealth(input: {
       metaLeasedPartitions,
       metaDeadLetterPartitions,
       metaOldestQueuedPartition,
+      workerOnline: (input.workerHealth?.onlineWorkers ?? 0) > 0,
+      workerInstances: input.workerHealth?.workerInstances ?? 0,
+      workerLastHeartbeatAt: input.workerHealth?.lastHeartbeatAt ?? null,
     },
     issues: issues.sort((a, b) => {
       const left = a.triggeredAt ? new Date(a.triggeredAt).getTime() : 0;
       const right = b.triggeredAt ? new Date(b.triggeredAt).getTime() : 0;
       return right - left;
     }),
+    workerHealth: input.workerHealth,
     googleAdsBusinesses: googleAdsBusinesses.sort((a, b) => {
       if (b.deadLetterPartitions !== a.deadLetterPartitions) {
         return b.deadLetterPartitions - a.deadLetterPartitions;
@@ -830,7 +912,11 @@ async function readGoogleAdsHealthRows() {
       MAX(state.completed_days) FILTER (WHERE state.scope = 'campaign_daily') AS campaign_completed_days,
       MAX(state.dead_letter_count) FILTER (WHERE state.scope = 'campaign_daily') AS campaign_dead_letter_count,
       MAX(state.completed_days) FILTER (WHERE state.scope = 'search_term_daily') AS search_term_completed_days,
-      MAX(state.completed_days) FILTER (WHERE state.scope = 'product_daily') AS product_completed_days
+      MAX(state.completed_days) FILTER (WHERE state.scope = 'product_daily') AS product_completed_days,
+      NULL::text AS latest_checkpoint_phase,
+      NULL::timestamptz AS latest_checkpoint_updated_at,
+      NULL::int AS last_successful_page_index,
+      0::int AS checkpoint_failures
     FROM google_ads_sync_partitions partition
     JOIN businesses b ON b.id::text = partition.business_id
     LEFT JOIN google_ads_sync_state state
@@ -859,6 +945,11 @@ async function readMetaHealthRows() {
       COUNT(DISTINCT CONCAT(state.provider_account_id, ':', state.scope)) AS state_row_count,
       MIN(partition.partition_date) FILTER (WHERE partition.status = 'queued') AS oldest_queued_partition,
       MAX(partition.updated_at) AS latest_partition_activity_at,
+      checkpoint.latest_checkpoint_scope,
+      checkpoint.latest_checkpoint_phase,
+      checkpoint.latest_checkpoint_updated_at,
+      checkpoint.last_successful_page_index,
+      checkpoint.checkpoint_failures,
       (
         SELECT MAX(today_partition.partition_date)
         FROM meta_sync_partitions today_partition
@@ -895,7 +986,31 @@ async function readMetaHealthRows() {
     LEFT JOIN meta_sync_state state
       ON state.business_id = partition.business_id
       AND state.provider_account_id = partition.provider_account_id
-    GROUP BY partition.business_id, b.name
+    LEFT JOIN LATERAL (
+      SELECT
+        latest.checkpoint_scope AS latest_checkpoint_scope,
+        latest.phase AS latest_checkpoint_phase,
+        latest.updated_at AS latest_checkpoint_updated_at,
+        latest.page_index AS last_successful_page_index,
+        (
+          SELECT COUNT(*)::int
+          FROM meta_sync_checkpoints failures
+          WHERE failures.business_id = partition.business_id
+            AND failures.status = 'failed'
+        ) AS checkpoint_failures
+      FROM meta_sync_checkpoints latest
+      WHERE latest.business_id = partition.business_id
+      ORDER BY latest.updated_at DESC
+      LIMIT 1
+    ) checkpoint ON TRUE
+    GROUP BY
+      partition.business_id,
+      b.name,
+      checkpoint.latest_checkpoint_scope,
+      checkpoint.latest_checkpoint_phase,
+      checkpoint.latest_checkpoint_updated_at,
+      checkpoint.last_successful_page_index,
+      checkpoint.checkpoint_failures
     HAVING COUNT(*) > 0
     ORDER BY dead_letter_partitions DESC, queue_depth DESC, latest_partition_activity_at DESC
   `) as RawMetaHealthRow[];
@@ -939,7 +1054,7 @@ async function readRevenueSubscriptions() {
 }
 
 export async function getAdminOperationsHealth() {
-  const [authRows, syncJobs, cooldowns, googleAdsHealth, metaHealth, revenueWorkspaces, revenueSubscriptions] =
+  const [authRows, syncJobs, cooldowns, googleAdsHealth, metaHealth, revenueWorkspaces, revenueSubscriptions, workerHealth] =
     await Promise.all([
       readAuthRows().catch(() => []),
       readSyncJobs().catch(() => []),
@@ -948,6 +1063,12 @@ export async function getAdminOperationsHealth() {
       readMetaHealthRows().catch(() => []),
       readRevenueWorkspaces().catch(() => []),
       readRevenueSubscriptions().catch(() => []),
+      getSyncWorkerHealthSummary().catch(() => ({
+        onlineWorkers: 0,
+        workerInstances: 0,
+        lastHeartbeatAt: null,
+        workers: [],
+      })),
     ]);
 
   const authHealth = buildAdminAuthHealth(authRows);
@@ -956,6 +1077,7 @@ export async function getAdminOperationsHealth() {
     cooldowns,
     googleAdsHealth,
     metaHealth,
+    workerHealth,
   });
   const revenueRisk = buildAdminRevenueRisk({
     workspaces: revenueWorkspaces,

@@ -193,13 +193,6 @@ export function AssetsTab({ ads, insights, isLoading }: AssetsTabProps) {
 
       <SimpleTable cols={cols} rows={filtered} defaultSort="spend" emptyText="No assets match this filter." />
 
-      {/* AI placeholder */}
-      <div className="rounded-xl border border-dashed bg-muted/20 p-5 text-center">
-        <p className="text-xs font-medium text-muted-foreground">AI Copy Suggestions</p>
-        <p className="text-xs text-muted-foreground mt-1">
-          Connect an AI model to get headline alternatives and copy recommendations for underperforming assets.
-        </p>
-      </div>
     </div>
   );
 }

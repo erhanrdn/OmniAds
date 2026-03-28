@@ -76,14 +76,13 @@ export interface ShopifyProductPerformance {
 
 /**
  * MOCK DATA REMOVED
- * All data is now fetched from real Google Ads API endpoints:
- * - /api/google/campaigns
- * - /api/google/ad-groups
- * - /api/google/ads
- * - /api/google/search-terms
- * - /api/google/products
- * - /api/google/assets
- * - /api/google/recommendations
+ * All data is now fetched from the Google Ads warehouse-backed endpoints:
+ * - /api/google-ads/campaigns
+ * - /api/google-ads/ads
+ * - /api/google-ads/search-terms
+ * - /api/google-ads/products
+ * - /api/google-ads/assets
+ * - /api/google-ads/opportunities
  */
 
 /**
@@ -95,7 +94,7 @@ export async function getGoogleRecommendations(params: {
   accountId?: string;
 }): Promise<GoogleRecommendation[]> {
   const url = new URL(
-    "/api/google/recommendations",
+    "/api/google-ads/opportunities",
     typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"
   );
   url.searchParams.set("businessId", params.businessId);
@@ -142,7 +141,7 @@ export async function getGoogleSearchTerms(params: {
   accountId?: string;
 }): Promise<GoogleSearchTermRow[]> {
   const url = new URL(
-    "/api/google/search-terms",
+    "/api/google-ads/search-terms",
     typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"
   );
   url.searchParams.set("businessId", params.businessId);
@@ -168,7 +167,7 @@ export async function getGoogleProducts(params: {
   accountId?: string;
 }): Promise<GoogleProductRow[]> {
   const url = new URL(
-    "/api/google/products",
+    "/api/google-ads/products",
     typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"
   );
   url.searchParams.set("businessId", params.businessId);
@@ -193,7 +192,7 @@ export async function getGoogleAssets(params: {
   accountId?: string;
 }): Promise<GoogleAssetRow[]> {
   const url = new URL(
-    "/api/google/assets",
+    "/api/google-ads/assets",
     typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"
   );
   url.searchParams.set("businessId", params.businessId);

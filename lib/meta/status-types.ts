@@ -1,3 +1,9 @@
+import type {
+  ProviderCheckpointHealth,
+  ProviderReadinessLevel,
+  ProviderSurfaceSummary,
+} from "@/lib/provider-readiness";
+
 export interface MetaSyncDetails {
   id?: string | null;
   status?: string;
@@ -28,6 +34,9 @@ export interface MetaStatusResponse {
     | "action_required"
     | "ready";
   connected: boolean;
+  readinessLevel?: ProviderReadinessLevel;
+  surfaces?: ProviderSurfaceSummary;
+  checkpointHealth?: ProviderCheckpointHealth | null;
   assignedAccountIds: string[];
   primaryAccountTimezone?: string | null;
   currentDateInTimezone?: string | null;
@@ -59,6 +68,11 @@ export interface MetaStatusResponse {
         deadLetterCount: number;
       }>;
       accountDaily?: {
+        completedDays: number;
+        totalDays: number;
+        readyThroughDate: string | null;
+      } | null;
+      campaignDaily?: {
         completedDays: number;
         totalDays: number;
         readyThroughDate: string | null;

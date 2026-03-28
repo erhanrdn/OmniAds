@@ -34,8 +34,25 @@ interface SyncHealthPayload {
     metaLeasedPartitions?: number;
     metaDeadLetterPartitions?: number;
     metaOldestQueuedPartition?: string | null;
+    workerOnline?: boolean;
+    workerInstances?: number;
+    workerLastHeartbeatAt?: string | null;
   };
   issues: SyncIssueRow[];
+  workerHealth?: {
+    onlineWorkers: number;
+    workerInstances: number;
+    lastHeartbeatAt: string | null;
+    workers: Array<{
+      workerId: string;
+      instanceType: string;
+      providerScope: string;
+      status: string;
+      lastHeartbeatAt: string | null;
+      lastBusinessId: string | null;
+      lastPartitionId: string | null;
+    }>;
+  };
   googleAdsBusinesses?: Array<{
     businessId: string;
     businessName: string;
@@ -47,6 +64,12 @@ interface SyncHealthPayload {
     campaignCompletedDays: number;
     searchTermCompletedDays: number;
     productCompletedDays: number;
+    latestCheckpointPhase?: string | null;
+    latestCheckpointUpdatedAt?: string | null;
+    checkpointLagMinutes?: number | null;
+    lastSuccessfulPageIndex?: number | null;
+    resumeCapable?: boolean;
+    checkpointFailures?: number;
   }>;
   metaBusinesses?: Array<{
     businessId: string;
@@ -65,6 +88,13 @@ interface SyncHealthPayload {
     accountCompletedDays: number;
     adsetCompletedDays: number;
     creativeCompletedDays: number;
+    latestCheckpointScope?: string | null;
+    latestCheckpointPhase?: string | null;
+    latestCheckpointUpdatedAt?: string | null;
+    checkpointLagMinutes?: number | null;
+    lastSuccessfulPageIndex?: number | null;
+    resumeCapable?: boolean;
+    checkpointFailures?: number;
   }>;
 }
 
@@ -85,6 +115,7 @@ function getMetaBusinessSignals(business: NonNullable<SyncHealthPayload["metaBus
   if (business.retryableFailedPartitions > 0) signals.push("Retryable failed backlog");
   if (business.queueDepth > 0 && business.leasedPartitions === 0) signals.push("Queue waiting for worker");
   if (business.staleLeasePartitions > 0) signals.push("Stale lease detected");
+  if ((business.checkpointLagMinutes ?? 0) > 20) signals.push("Stale checkpoint");
   if (business.todayAccountRows === 0 || business.todayAdsetRows === 0) signals.push("Current day missing");
   if (business.stateRowCount === 0 && (business.queueDepth > 0 || business.leasedPartitions > 0 || business.deadLetterPartitions > 0)) {
     signals.push("State missing");
@@ -100,6 +131,7 @@ function formatIssueType(issue: SyncIssueRow) {
   if (issue.reportType === "state_missing") return "state missing";
   if (issue.reportType === "current_day_missing") return "current day missing";
   if (issue.reportType === "retryable_failed_backlog") return "retryable failed backlog";
+  if (issue.reportType === "stale_checkpoint") return "stale checkpoint";
   return issue.reportType;
 }
 
@@ -186,6 +218,9 @@ export default function AdminSyncHealthPage() {
     metaLeasedPartitions: 0,
     metaDeadLetterPartitions: 0,
     metaOldestQueuedPartition: null,
+    workerOnline: false,
+    workerInstances: 0,
+    workerLastHeartbeatAt: null,
   };
   const issues = payload?.issues ?? [];
   const googleAdsBusinesses = payload?.googleAdsBusinesses ?? [];
@@ -271,6 +306,56 @@ export default function AdminSyncHealthPage() {
       </div>
 
       <div className="rounded-xl border border-gray-200 bg-white p-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-gray-900">Worker runtime</p>
+            <p className="mt-1 text-sm text-gray-500">
+              Durable worker heartbeat and queue ownership visibility for Meta and Google Ads.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <span
+              className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
+                summary.workerOnline
+                  ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
+                  : "border border-amber-200 bg-amber-50 text-amber-800"
+              }`}
+            >
+              {summary.workerOnline ? "Worker online" : "Worker offline"}
+            </span>
+            <MetricPill label="Instances" value={summary.workerInstances ?? 0} />
+          </div>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <p className="text-xs text-gray-500">
+            Last heartbeat <span className="font-medium text-gray-700">{formatDateTime(summary.workerLastHeartbeatAt ?? null)}</span>
+          </p>
+          <p className="text-xs text-gray-500">
+            Online workers <span className="font-medium text-gray-700">{payload?.workerHealth?.onlineWorkers ?? 0}</span>
+          </p>
+        </div>
+        {payload?.workerHealth?.workers?.length ? (
+          <div className="mt-4 space-y-2">
+            {payload.workerHealth.workers.slice(0, 4).map((worker) => (
+              <div
+                key={worker.workerId}
+                className="flex flex-col gap-1 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-xs text-gray-600 md:flex-row md:items-center md:justify-between"
+              >
+                <div>
+                  <span className="font-medium text-gray-800">{worker.workerId}</span>
+                  <span className="ml-2">{worker.providerScope}</span>
+                  <span className="ml-2">{worker.status}</span>
+                </div>
+                <div className="text-gray-500">
+                  Heartbeat {formatDateTime(worker.lastHeartbeatAt)} • Business {worker.lastBusinessId ?? "—"}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </div>
+
+      <div className="rounded-xl border border-gray-200 bg-white p-5">
         <p className="text-sm font-semibold text-gray-900">Özet</p>
         <div className="mt-3 space-y-3 text-sm text-gray-500">
           <p>
@@ -322,7 +407,10 @@ export default function AdminSyncHealthPage() {
                         Campaign {business.campaignCompletedDays} • Search terms {business.searchTermCompletedDays} • Products {business.productCompletedDays}
                       </p>
                       <p className="mt-1 text-xs text-gray-500">
-                        Oldest queued {formatDateTime(business.oldestQueuedPartition)} • Latest activity {formatDateTime(business.latestPartitionActivityAt)}
+                        Checkpoint {business.latestCheckpointPhase ?? "—"} • Last page {business.lastSuccessfulPageIndex ?? "—"} • Resume {business.resumeCapable ? "yes" : "no"}
+                      </p>
+                      <p className="mt-1 text-xs text-gray-500">
+                        Oldest queued {formatDateTime(business.oldestQueuedPartition)} • Latest activity {formatDateTime(business.latestPartitionActivityAt)} • Checkpoint {formatDateTime(business.latestCheckpointUpdatedAt ?? null)}
                       </p>
                       {actionState.businessId === business.businessId && actionState.message ? (
                         <p className="mt-2 text-xs text-emerald-700">{actionState.message}</p>
@@ -413,6 +501,9 @@ export default function AdminSyncHealthPage() {
                       </div>
                       <p className="mt-3 text-xs text-gray-500">
                         Oldest queued {formatDateTime(business.oldestQueuedPartition)} • Latest activity {formatDateTime(business.latestPartitionActivityAt)}
+                      </p>
+                      <p className="mt-1 text-xs text-gray-500">
+                        Checkpoint {business.latestCheckpointScope ?? "—"} / {business.latestCheckpointPhase ?? "—"} • Last page {business.lastSuccessfulPageIndex ?? "—"} • Updated {formatDateTime(business.latestCheckpointUpdatedAt ?? null)}
                       </p>
                       {actionState.businessId === business.businessId && actionState.message ? (
                         <p className="mt-2 text-xs text-emerald-700">{actionState.message}</p>

@@ -84,6 +84,11 @@ export function getMetaSyncTitle(
   status: MetaStatusResponse,
   language: MetaUiLanguage
 ) {
+  if (status.readinessLevel === "usable" && status.state !== "ready") {
+    return language === "tr"
+      ? "Meta dashboard kullanılabilir, derin senkron sürüyor"
+      : "Meta dashboard is usable while deep sync continues";
+  }
   if (status.latestSync?.phaseLabel) return status.latestSync.phaseLabel;
   if (status.state === "paused") {
     return language === "tr"
@@ -109,6 +114,11 @@ export function getMetaSyncDescription(
   status: MetaStatusResponse,
   language: MetaUiLanguage
 ) {
+  if (status.readinessLevel === "usable" && status.state !== "ready") {
+    return language === "tr"
+      ? "Özet ve kampanya görünümü hazır. Breakdown ve kreatif yüzeyleri arka planda tamamlanıyor."
+      : "Summary and campaign views are ready. Breakdown and creative surfaces are still completing in the background.";
+  }
   if (status.state === "paused") {
     return language === "tr"
       ? "Kuyruktaki işler korunur. Worker yeniden devreye girdiğinde senkron otomatik devam eder."

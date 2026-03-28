@@ -76,6 +76,26 @@ function tableNameForScope(scope: GoogleAdsWarehouseScope) {
   return GOOGLE_SCOPE_TABLES[scope];
 }
 
+function buildGoogleAdsScopeLeasePrioritySql() {
+  return `
+    CASE scope
+      WHEN 'search_term_daily' THEN 100
+      WHEN 'product_daily' THEN 95
+      WHEN 'asset_group_daily' THEN 90
+      WHEN 'asset_daily' THEN 85
+      WHEN 'geo_daily' THEN 80
+      WHEN 'device_daily' THEN 75
+      WHEN 'audience_daily' THEN 70
+      WHEN 'ad_daily' THEN 40
+      WHEN 'ad_group_daily' THEN 35
+      WHEN 'keyword_daily' THEN 30
+      WHEN 'campaign_daily' THEN 20
+      WHEN 'account_daily' THEN 10
+      ELSE 0
+    END
+  `;
+}
+
 function toNumber(value: unknown) {
   const parsed = typeof value === "number" ? value : Number(value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -442,49 +462,59 @@ export async function leaseGoogleAdsSyncPartitions(input: {
 }) {
   await runMigrations();
   const sql = getDb();
-  const rows = await sql`
-    WITH candidates AS (
-      SELECT id
-      FROM google_ads_sync_partitions
-      WHERE business_id = ${input.businessId}
-        AND (${input.lane ?? null}::text IS NULL OR lane = ${input.lane ?? null})
-        AND (
-          status = 'queued'
-          OR (status = 'failed' AND COALESCE(next_retry_at, now()) <= now())
-          OR (status = 'leased' AND COALESCE(lease_expires_at, now()) <= now())
-        )
-      ORDER BY priority DESC, partition_date DESC, updated_at ASC
-      LIMIT ${Math.max(1, input.limit)}
-      FOR UPDATE SKIP LOCKED
-    )
-    UPDATE google_ads_sync_partitions partition
-    SET
-      status = 'leased',
-      lease_owner = ${input.workerId},
-      lease_expires_at = now() + (${input.leaseMinutes ?? 5} || ' minutes')::interval,
-      updated_at = now()
-    FROM candidates
-    WHERE partition.id = candidates.id
-    RETURNING
-      partition.id,
-      partition.business_id,
-      partition.provider_account_id,
-      partition.lane,
-      partition.scope,
-      partition.partition_date,
-      partition.status,
-      partition.priority,
-      partition.source,
-      partition.lease_owner,
-      partition.lease_expires_at,
-      partition.attempt_count,
-      partition.next_retry_at,
-      partition.last_error,
-      partition.created_at,
-      partition.started_at,
-      partition.finished_at,
-      partition.updated_at
-  ` as Array<Record<string, unknown>>;
+  const scopePrioritySql = buildGoogleAdsScopeLeasePrioritySql();
+  const rows = await sql.query(
+    `
+      WITH candidates AS (
+        SELECT id
+        FROM google_ads_sync_partitions
+        WHERE business_id = $1
+          AND ($2::text IS NULL OR lane = $2)
+          AND (
+            status = 'queued'
+            OR (status = 'failed' AND COALESCE(next_retry_at, now()) <= now())
+            OR (status = 'leased' AND COALESCE(lease_expires_at, now()) <= now())
+          )
+        ORDER BY priority DESC, ${scopePrioritySql} DESC, partition_date DESC, updated_at ASC
+        LIMIT $3
+        FOR UPDATE SKIP LOCKED
+      )
+      UPDATE google_ads_sync_partitions partition
+      SET
+        status = 'leased',
+        lease_owner = $4,
+        lease_expires_at = now() + ($5 || ' minutes')::interval,
+        updated_at = now()
+      FROM candidates
+      WHERE partition.id = candidates.id
+      RETURNING
+        partition.id,
+        partition.business_id,
+        partition.provider_account_id,
+        partition.lane,
+        partition.scope,
+        partition.partition_date,
+        partition.status,
+        partition.priority,
+        partition.source,
+        partition.lease_owner,
+        partition.lease_expires_at,
+        partition.attempt_count,
+        partition.next_retry_at,
+        partition.last_error,
+        partition.created_at,
+        partition.started_at,
+        partition.finished_at,
+        partition.updated_at
+    `,
+    [
+      input.businessId,
+      input.lane ?? null,
+      Math.max(1, input.limit),
+      input.workerId,
+      String(input.leaseMinutes ?? 5),
+    ]
+  ) as Array<Record<string, unknown>>;
 
   return rows.map((row) => ({
     id: String(row.id),

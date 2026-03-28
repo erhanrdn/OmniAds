@@ -103,6 +103,10 @@ const GOOGLE_ADS_QUOTA_RETRY_BASE_MINUTES = envNumber(
 );
 const GOOGLE_ADS_PARTITION_MAX_ATTEMPTS = 6;
 
+function canUseInProcessBackgroundScheduling() {
+  return process.env.SYNC_WORKER_MODE !== "1";
+}
+
 const GOOGLE_ADS_EXTENDED_SCOPES: GoogleAdsWarehouseScope[] = [
   "search_term_daily",
   "product_daily",
@@ -553,6 +557,23 @@ async function enqueueMaintenancePartitions(businessId: string) {
   }
 }
 
+export async function enqueueGoogleAdsScheduledWork(businessId: string) {
+  await cleanupGoogleAdsObsoleteSyncJobs({ businessId }).catch(() => null);
+  await expireStaleGoogleAdsSyncJobs({ businessId }).catch(() => null);
+  const cleanup = await cleanupGoogleAdsPartitionOrchestration({ businessId }).catch(() => null);
+  await refreshGoogleAdsSyncStateForBusiness({ businessId }).catch(() => null);
+  const queuedCore = await enqueueHistoricalCorePartitions(businessId).catch(() => 0);
+  await enqueueMaintenancePartitions(businessId).catch(() => null);
+  const queueHealth = await getGoogleAdsQueueHealth({ businessId }).catch(() => null);
+  return {
+    businessId,
+    cleanup,
+    queuedCore,
+    queueDepth: queueHealth?.queueDepth ?? 0,
+    leasedPartitions: queueHealth?.leasedPartitions ?? 0,
+  };
+}
+
 export async function refreshGoogleAdsSyncStateForBusiness(input: {
   businessId: string;
   scopes?: GoogleAdsWarehouseScope[];
@@ -619,6 +640,7 @@ export function scheduleGoogleAdsBackgroundSync(input: {
   businessId: string;
   delayMs?: number;
 }) {
+  if (!canUseInProcessBackgroundScheduling()) return false;
   const timers = getBackgroundWorkerTimers();
   if (timers.has(input.businessId)) return false;
 

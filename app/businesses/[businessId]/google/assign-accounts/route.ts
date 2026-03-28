@@ -4,7 +4,7 @@ import { getIntegration } from "@/lib/integrations";
 import { upsertProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { runMigrations } from "@/lib/migrations";
 import { readProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
-import { scheduleGoogleAdsBackgroundSync } from "@/lib/sync/google-ads-sync";
+import { enqueueGoogleAdsScheduledWork } from "@/lib/sync/google-ads-sync";
 
 const GOOGLE_ACCOUNT_SNAPSHOT_FRESHNESS_MS = 60 * 60_000;
 
@@ -198,7 +198,7 @@ export async function POST(
     updatedAt: row!.updated_at,
   });
 
-  scheduleGoogleAdsBackgroundSync({ businessId, delayMs: 0 });
+  await enqueueGoogleAdsScheduledWork(businessId).catch(() => null);
 
   return NextResponse.json({
     success: true,

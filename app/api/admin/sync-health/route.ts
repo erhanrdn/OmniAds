@@ -5,10 +5,10 @@ import {
   replayGoogleAdsDeadLetterPartitions,
 } from "@/lib/google-ads/warehouse";
 import { getAdminOperationsHealth } from "@/lib/admin-operations-health";
-import { refreshGoogleAdsSyncStateForBusiness, scheduleGoogleAdsBackgroundSync, syncGoogleAdsReports } from "@/lib/sync/google-ads-sync";
+import { enqueueGoogleAdsScheduledWork, refreshGoogleAdsSyncStateForBusiness } from "@/lib/sync/google-ads-sync";
 import type { GoogleAdsWarehouseScope } from "@/lib/google-ads/warehouse-types";
 import { cleanupMetaPartitionOrchestration, replayMetaDeadLetterPartitions } from "@/lib/meta/warehouse";
-import { refreshMetaSyncStateForBusiness, syncMetaReports } from "@/lib/sync/meta-sync";
+import { enqueueMetaScheduledWork, refreshMetaSyncStateForBusiness } from "@/lib/sync/meta-sync";
 import type { MetaWarehouseScope } from "@/lib/meta/warehouse-types";
 
 const GOOGLE_ADS_RECOVERY_SCOPES: GoogleAdsWarehouseScope[] = [
@@ -94,14 +94,13 @@ export async function POST(request: NextRequest) {
           businessId: body.businessId,
           scope,
         });
-        const syncResult = await syncMetaReports(body.businessId);
         return NextResponse.json({
           ok: true,
           action: body.action,
           provider: body.provider,
           replayedCount: result.length,
           result,
-          syncResult,
+          scheduled: await enqueueMetaScheduledWork(body.businessId),
         });
       }
 
@@ -111,7 +110,7 @@ export async function POST(request: NextRequest) {
       }
 
       if (body.action === "reschedule") {
-        const result = await syncMetaReports(body.businessId);
+        const result = await enqueueMetaScheduledWork(body.businessId);
         return NextResponse.json({ ok: true, action: body.action, provider: body.provider, result });
       }
     }
@@ -138,6 +137,7 @@ export async function POST(request: NextRequest) {
         provider: body.provider,
         replayedCount: result.length,
         result,
+        scheduled: await enqueueGoogleAdsScheduledWork(body.businessId),
       });
     }
 
@@ -147,8 +147,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (body.action === "reschedule") {
-      scheduleGoogleAdsBackgroundSync({ businessId: body.businessId, delayMs: 0 });
-      const result = await syncGoogleAdsReports(body.businessId);
+      const result = await enqueueGoogleAdsScheduledWork(body.businessId);
       return NextResponse.json({ ok: true, action: body.action, provider: body.provider, result });
     }
 

@@ -54,6 +54,9 @@ function formatSyncCaption(status: GoogleAdsStatusResponse) {
 }
 
 function getTitle(status: GoogleAdsStatusResponse) {
+  if (status.readinessLevel === "usable" && status.state !== "ready") {
+    return "Google Ads dashboard is usable while deeper sync continues";
+  }
   if (status.state === "action_required") return "Google Ads sync needs attention";
   if (status.state === "paused") return "Google Ads historical sync is paused";
   if (status.priorityWindow?.isActive) return "Preparing selected dates";
@@ -65,6 +68,9 @@ function getTitle(status: GoogleAdsStatusResponse) {
 }
 
 function getDescription(status: GoogleAdsStatusResponse) {
+  if (status.readinessLevel === "usable" && status.state !== "ready") {
+    return "Overview and campaign surfaces are ready. Advisor and deeper entity coverage are still filling in.";
+  }
   if (status.state === "action_required") {
     return "Historical data paused. Existing warehouse data stays visible while sync is retried.";
   }

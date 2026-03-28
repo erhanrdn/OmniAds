@@ -5,9 +5,12 @@ import { getProviderAccountAssignments } from "@/lib/provider-account-assignment
 import {
   getLatestMetaSyncHealth,
   getMetaAccountDailyCoverage,
+  getMetaCampaignDailyCoverage,
   getMetaAccountDailyStats,
+  getMetaAdDailyCoverage,
   getMetaAdDailyPreviewCoverage,
   getMetaAdSetDailyCoverage,
+  getMetaCheckpointHealth,
   getMetaCreativeDailyCoverage,
   getMetaQueueHealth,
   getMetaRawSnapshotCoverageByEndpoint,
@@ -17,6 +20,10 @@ import {
 import { resolveMetaCredentials } from "@/lib/api/meta";
 import { META_WAREHOUSE_HISTORY_DAYS, dayCountInclusive } from "@/lib/meta/history";
 import { getMetaBreakdownSupportedStart, META_BREAKDOWN_MAX_HISTORY_DAYS } from "@/lib/meta/constraints";
+import {
+  buildProviderSurfaces,
+  decideProviderReadinessLevel,
+} from "@/lib/provider-readiness";
 
 const META_BREAKDOWN_ENDPOINTS = [
   "breakdown_age",
@@ -25,6 +32,9 @@ const META_BREAKDOWN_ENDPOINTS = [
 ] as const;
 
 const META_STATE_SCOPES = ["account_daily", "adset_daily", "creative_daily", "ad_daily"] as const;
+const META_CORE_REQUIRED_SURFACES = ["account_daily", "campaign_daily"] as const;
+const META_SECONDARY_SURFACES = ["adset_daily", "ad_daily"] as const;
+const META_DEEP_SURFACES = ["breakdowns", "creatives"] as const;
 
 function getTodayIsoForTimeZoneServer(timeZone: string): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -119,7 +129,7 @@ export async function GET(request: NextRequest) {
     dayCountInclusive(breakdownHistoricalStart, initialBackfillEnd)
   );
 
-  const [accountCoverage, adsetCoverage, creativeCoverage, creativePreviewCoverage, breakdownCoverageByEndpoint, queueHealth, ...stateRows] =
+  const [accountCoverage, campaignCoverage, adsetCoverage, adDailyCoverage, creativeCoverage, creativePreviewCoverage, breakdownCoverageByEndpoint, queueHealth, checkpointHealth, ...stateRows] =
     connected && accountIds.length > 0
       ? await Promise.all([
           getMetaAccountDailyCoverage({
@@ -128,7 +138,19 @@ export async function GET(request: NextRequest) {
             startDate: initialBackfillStart,
             endDate: initialBackfillEnd,
           }).catch(() => null),
+          getMetaCampaignDailyCoverage({
+            businessId: businessId!,
+            providerAccountId: null,
+            startDate: initialBackfillStart,
+            endDate: initialBackfillEnd,
+          }).catch(() => null),
           getMetaAdSetDailyCoverage({
+            businessId: businessId!,
+            providerAccountId: null,
+            startDate: initialBackfillStart,
+            endDate: initialBackfillEnd,
+          }).catch(() => null),
+          getMetaAdDailyCoverage({
             businessId: businessId!,
             providerAccountId: null,
             startDate: initialBackfillStart,
@@ -154,11 +176,12 @@ export async function GET(request: NextRequest) {
             endDate: initialBackfillEnd,
           }).catch(() => null),
           getMetaQueueHealth({ businessId: businessId! }).catch(() => null),
+          getMetaCheckpointHealth({ businessId: businessId! }).catch(() => null),
           ...META_STATE_SCOPES.map((scope) =>
             getMetaSyncState({ businessId: businessId!, scope }).catch(() => [])
           ),
         ])
-      : [null, null, null, null, null, null, ...META_STATE_SCOPES.map(() => [])];
+      : [null, null, null, null, null, null, null, null, null, ...META_STATE_SCOPES.map(() => [])];
 
   const statesByScope = Object.fromEntries(
     META_STATE_SCOPES.map((scope, index) => [scope, stateRows[index] ?? []])
@@ -221,12 +244,24 @@ export async function GET(request: NextRequest) {
           endDate: selectedEndDate,
         }).catch(() => null)
       : null;
+  const selectedRangeCampaignCoverage =
+    connected && accountIds.length > 0 && selectedStartDate && selectedEndDate
+      ? await getMetaCampaignDailyCoverage({
+          businessId: businessId!,
+          providerAccountId: null,
+          startDate: selectedStartDate,
+          endDate: selectedEndDate,
+        }).catch(() => null)
+      : null;
   const selectedRangeTotalDays =
     selectedStartDate && selectedEndDate ? dayCountInclusive(selectedStartDate, selectedEndDate) : null;
   const selectedRangeCompletedDays = selectedRangeCoverage?.completed_days ?? 0;
   const selectedRangeRequested = Boolean(selectedStartDate && selectedEndDate && selectedRangeTotalDays);
   const selectedRangeIncomplete =
     Boolean(selectedRangeTotalDays) && selectedRangeCompletedDays < (selectedRangeTotalDays ?? 0);
+  const selectedRangeCampaignIncomplete =
+    Boolean(selectedRangeTotalDays) &&
+    (selectedRangeCampaignCoverage?.completed_days ?? 0) < (selectedRangeTotalDays ?? 0);
   const selectedRangeIsToday =
     Boolean(selectedStartDate && selectedEndDate && currentDateInTimezone) &&
     selectedStartDate === selectedEndDate &&
@@ -373,9 +408,40 @@ export async function GET(request: NextRequest) {
                   ? "ready"
                   : "partial";
 
+  const availableSurfaces = [
+    (selectedRangeTotalDays == null || selectedRangeCompletedDays >= selectedRangeTotalDays) &&
+    (accountCoverage?.completed_days ?? 0) > 0
+      ? "account_daily"
+      : null,
+    (selectedRangeTotalDays == null || !selectedRangeCampaignIncomplete) &&
+    (campaignCoverage?.completed_days ?? 0) > 0
+      ? "campaign_daily"
+      : null,
+    (adsetCoverage?.completed_days ?? 0) >= effectiveHistoricalTotalDays ? "adset_daily" : null,
+    (adDailyCoverage?.completed_days ?? 0) >= effectiveHistoricalTotalDays ? "ad_daily" : null,
+    breakdownCoverageDays >= Math.min(historicalTotalDays, META_BREAKDOWN_MAX_HISTORY_DAYS) ? "breakdowns" : null,
+    (creativeCoverage?.completed_days ?? 0) >= historicalTotalDays &&
+    (((creativePreviewCoverage?.total_rows ?? 0) === 0) ||
+      ((creativePreviewCoverage?.preview_ready_rows ?? 0) >= (creativePreviewCoverage?.total_rows ?? 0)))
+      ? "creatives"
+      : null,
+  ].filter((value): value is string => Boolean(value));
+  const surfaces = buildProviderSurfaces({
+    required: [...META_CORE_REQUIRED_SURFACES, ...META_SECONDARY_SURFACES, ...META_DEEP_SURFACES],
+    available: availableSurfaces,
+  });
+  const readinessLevel = decideProviderReadinessLevel({
+    required: surfaces.required,
+    available: surfaces.available,
+    usable: [...META_CORE_REQUIRED_SURFACES],
+  });
+
   return NextResponse.json(
     {
       state,
+      readinessLevel,
+      surfaces,
+      checkpointHealth,
       connected,
       assignedAccountIds: accountIds,
       primaryAccountTimezone,
@@ -407,6 +473,11 @@ export async function GET(request: NextRequest) {
             completedDays: accountCoverage?.completed_days ?? 0,
             totalDays: historicalTotalDays,
             readyThroughDate: accountCoverage?.ready_through_date ?? null,
+          },
+          campaignDaily: {
+            completedDays: campaignCoverage?.completed_days ?? 0,
+            totalDays: historicalTotalDays,
+            readyThroughDate: campaignCoverage?.ready_through_date ?? null,
           },
           adsetDaily: {
             completedDays: adsetCoverage?.completed_days ?? 0,

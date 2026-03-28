@@ -6,7 +6,7 @@ import { requireBusinessAccess } from "@/lib/access";
 import { sanitizeNextPath } from "@/lib/auth-routing";
 import { scheduleProviderAccountSnapshotRefresh } from "@/lib/provider-account-snapshots";
 import { resolveRequestLanguage } from "@/lib/request-language";
-import { scheduleGoogleAdsBackgroundSync } from "@/lib/sync/google-ads-sync";
+import { enqueueGoogleAdsScheduledWork } from "@/lib/sync/google-ads-sync";
 
 /**
  * GET /api/oauth/google/callback?code=...&state=...
@@ -223,7 +223,7 @@ export async function GET(request: NextRequest) {
         },
       }).catch(() => null);
 
-      scheduleGoogleAdsBackgroundSync({ businessId, delayMs: 0 });
+      await enqueueGoogleAdsScheduledWork(businessId).catch(() => null);
     }
 
     let searchConsoleIntegrationId: string | null = null;

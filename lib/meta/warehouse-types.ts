@@ -138,6 +138,10 @@ export interface MetaRawSnapshotRecord {
   providerAccountId: string;
   endpointName: string;
   entityScope: string;
+  partitionId?: string | null;
+  checkpointId?: string | null;
+  pageIndex?: number | null;
+  providerCursor?: string | null;
   startDate: string;
   endDate: string;
   accountTimezone: string | null;
@@ -145,9 +149,49 @@ export interface MetaRawSnapshotRecord {
   payloadJson: unknown;
   payloadHash: string;
   requestContext: Record<string, unknown>;
+  responseHeaders?: Record<string, unknown>;
   providerHttpStatus: number | null;
   status: MetaRawSnapshotStatus;
   fetchedAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export type MetaSyncCheckpointPhase =
+  | "fetch_raw"
+  | "transform"
+  | "bulk_upsert"
+  | "finalize";
+
+export type MetaSyncCheckpointStatus =
+  | "pending"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "cancelled";
+
+export interface MetaSyncCheckpointRecord {
+  id?: string;
+  partitionId: string;
+  businessId: string;
+  providerAccountId: string;
+  checkpointScope: string;
+  phase: MetaSyncCheckpointPhase;
+  status: MetaSyncCheckpointStatus;
+  pageIndex: number;
+  nextPageUrl?: string | null;
+  providerCursor?: string | null;
+  rowsFetched?: number;
+  rowsWritten?: number;
+  lastSuccessfulEntityKey?: string | null;
+  lastResponseHeaders?: Record<string, unknown>;
+  checkpointHash?: string | null;
+  attemptCount: number;
+  retryAfterAt?: string | null;
+  leaseOwner?: string | null;
+  leaseExpiresAt?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }

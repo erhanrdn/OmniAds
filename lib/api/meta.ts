@@ -17,15 +17,26 @@ import {
 } from "@/lib/meta/config-snapshots";
 import { buildConfigSnapshotPayload } from "@/lib/meta/configuration";
 import {
+  buildMetaSyncCheckpointHash,
+  getMetaSyncCheckpoint,
+  heartbeatMetaPartitionLease,
+  listMetaRawSnapshotsForPartition,
   buildMetaRawSnapshotHash,
   createMetaSyncJob,
   persistMetaRawSnapshot,
+  upsertMetaSyncCheckpoint,
   updateMetaSyncJob,
   upsertMetaAccountDailyRows,
+  upsertMetaAdDailyRows,
   upsertMetaAdSetDailyRows,
   upsertMetaCampaignDailyRows,
 } from "@/lib/meta/warehouse";
-import type { MetaRawSnapshotStatus, MetaSyncType, MetaWarehouseScope } from "@/lib/meta/warehouse-types";
+import type {
+  MetaRawSnapshotStatus,
+  MetaSyncCheckpointRecord,
+  MetaSyncType,
+  MetaWarehouseScope,
+} from "@/lib/meta/warehouse-types";
 
 // ── Core metric interface ─────────────────────────────────────────────────────
 
@@ -171,6 +182,34 @@ interface RawAdSet {
   bid_constraints?: {
     roas_average_floor?: string;
   };
+}
+
+interface RawAdInsight {
+  campaign_id?: string;
+  campaign_name?: string;
+  adset_id?: string;
+  adset_name?: string;
+  ad_id?: string;
+  ad_name?: string;
+  reach?: string;
+  frequency?: string;
+  spend?: string;
+  ctr?: string;
+  cpm?: string;
+  impressions?: string;
+  clicks?: string;
+  actions?: MetaActionValue[];
+  action_values?: MetaActionValue[];
+  purchase_roas?: MetaActionValue[];
+}
+
+interface RawAd {
+  id: string;
+  name?: string;
+  effective_status?: string;
+  status?: string;
+  adset_id?: string;
+  campaign_id?: string;
 }
 
 interface RawBreakdownInsight {
@@ -417,12 +456,17 @@ async function recordMetaRawSnapshot(input: {
   accountId: string;
   endpointName: string;
   entityScope: string;
+  partitionId?: string | null;
+  checkpointId?: string | null;
+  pageIndex?: number | null;
+  providerCursor?: string | null;
   since: string;
   until: string;
   payload: unknown;
   status: MetaRawSnapshotStatus;
   providerHttpStatus?: number | null;
   requestContext?: Record<string, unknown>;
+  responseHeaders?: Record<string, unknown>;
 }) {
   const normalizedSince = normalizeMetaApiDate(input.since);
   const normalizedUntil = normalizeMetaApiDate(input.until);
@@ -430,8 +474,12 @@ async function recordMetaRawSnapshot(input: {
   return persistMetaRawSnapshot({
     businessId: input.credentials.businessId,
     providerAccountId: input.accountId,
+    partitionId: input.partitionId ?? null,
+    checkpointId: input.checkpointId ?? null,
     endpointName: input.endpointName,
     entityScope: input.entityScope,
+    pageIndex: input.pageIndex ?? null,
+    providerCursor: input.providerCursor ?? null,
     startDate: normalizedSince,
     endDate: normalizedUntil,
     accountTimezone: profile?.timezone ?? null,
@@ -446,6 +494,7 @@ async function recordMetaRawSnapshot(input: {
       payload: input.payload,
     }),
     requestContext: input.requestContext ?? {},
+    responseHeaders: input.responseHeaders ?? {},
     providerHttpStatus: input.providerHttpStatus ?? null,
     status: input.status,
   });
@@ -485,6 +534,706 @@ function buildMetrics(input: {
     impressions: Math.round(parseNum(input.impressions_str)),
     clicks: Math.round(parseNum(input.clicks_str)),
   };
+}
+
+export interface MetaBusinessUsageSummary {
+  raw: string | null;
+  maxPercent: number;
+}
+
+export interface MetaBulkCoreSyncResult {
+  accountRowsWritten: number;
+  campaignRowsWritten: number;
+  adsetRowsWritten: number;
+  adRowsWritten: number;
+  positiveSpendAdIds: string[];
+  pageCount: number;
+  restoredPageCount: number;
+  throttleCount: number;
+  lastUsagePercent: number;
+}
+
+const META_BULK_PAGE_LIMIT = 1000;
+const META_USAGE_THROTTLE_THRESHOLD = 85;
+const META_USAGE_THROTTLE_SLEEP_MS = 15_000;
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function parseUsageMaxPercent(value: unknown): number {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  if (Array.isArray(value)) return value.reduce((max, item) => Math.max(max, parseUsageMaxPercent(item)), 0);
+  if (value && typeof value === "object") {
+    return Object.values(value).reduce((max, item) => Math.max(max, parseUsageMaxPercent(item)), 0);
+  }
+  if (typeof value === "string") {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) return numeric;
+    try {
+      return parseUsageMaxPercent(JSON.parse(value));
+    } catch {
+      return 0;
+    }
+  }
+  return 0;
+}
+
+function parseMetaBusinessUsageHeader(headers: Headers): MetaBusinessUsageSummary {
+  const raw = headers.get("x-business-use-case-usage");
+  if (!raw) return { raw: null, maxPercent: 0 };
+  return {
+    raw,
+    maxPercent: parseUsageMaxPercent(raw),
+  };
+}
+
+function getMetaBulkCoreEndpointName() {
+  return "ad_insights_bulk";
+}
+
+function buildMetaBulkCoreInsightsUrl(input: {
+  accountId: string;
+  accessToken: string;
+  since: string;
+  until: string;
+}) {
+  const url = new URL(`https://graph.facebook.com/v25.0/${input.accountId}/insights`);
+  url.searchParams.set("level", "ad");
+  url.searchParams.set(
+    "fields",
+    "campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,reach,frequency,spend,ctr,cpm,impressions,clicks,actions,action_values,purchase_roas"
+  );
+  url.searchParams.set("time_range", JSON.stringify({ since: input.since, until: input.until }));
+  url.searchParams.set("limit", String(META_BULK_PAGE_LIMIT));
+  url.searchParams.set("access_token", input.accessToken);
+  return url.toString();
+}
+
+function buildMetaBreakdownInsightsUrl(input: {
+  accountId: string;
+  accessToken: string;
+  since: string;
+  until: string;
+  breakdowns: string;
+  positiveSpendAdIds: string[];
+}) {
+  const url = new URL(`https://graph.facebook.com/v25.0/${input.accountId}/insights`);
+  url.searchParams.set("level", "ad");
+  url.searchParams.set(
+    "fields",
+    "ad_id,ad_name,campaign_id,campaign_name,adset_id,adset_name,spend,ctr,cpm,impressions,clicks,actions,action_values,purchase_roas"
+  );
+  url.searchParams.set("breakdowns", input.breakdowns);
+  url.searchParams.set("time_range", JSON.stringify({ since: input.since, until: input.until }));
+  url.searchParams.set("limit", String(META_BULK_PAGE_LIMIT));
+  if (input.positiveSpendAdIds.length > 0 && input.positiveSpendAdIds.length <= 200) {
+    url.searchParams.set(
+      "filtering",
+      JSON.stringify([{ field: "ad.id", operator: "IN", value: input.positiveSpendAdIds }])
+    );
+  }
+  url.searchParams.set("access_token", input.accessToken);
+  return url.toString();
+}
+
+async function fetchMetaPagedJson<TItem>(url: string) {
+  const response = await fetch(url, { cache: "no-store" });
+  const json = (await response.json().catch(() => ({}))) as MetaGraphCollectionResponse<TItem> & {
+    error?: { message?: string };
+  };
+  if (!response.ok) {
+    throw new Error(json.error?.message ?? `Meta request failed with status ${response.status}`);
+  }
+  return {
+    response,
+    json,
+  } as {
+    response: Response;
+    json: MetaGraphCollectionResponse<TItem> & { error?: { message?: string } };
+  };
+}
+
+type MetaAggregateTotals = {
+  spend: number;
+  impressions: number;
+  clicks: number;
+  reach: number;
+  conversions: number;
+  revenue: number;
+};
+
+function createEmptyTotals(): MetaAggregateTotals {
+  return {
+    spend: 0,
+    impressions: 0,
+    clicks: 0,
+    reach: 0,
+    conversions: 0,
+    revenue: 0,
+  };
+}
+
+function accumulateAdInsight(
+  row: RawAdInsight,
+  target: MetaAggregateTotals & {
+    name?: string | null;
+    campaignId?: string | null;
+    adsetId?: string | null;
+    status?: string | null;
+    frequencySum?: number;
+    frequencyWeight?: number;
+    payloadJson?: unknown;
+  }
+) {
+  const metrics = buildMetrics({
+    spend_str: row.spend,
+    ctr_str: row.ctr,
+    cpm_str: row.cpm,
+    impressions_str: row.impressions,
+    clicks_str: row.clicks,
+    actions: row.actions,
+    action_values: row.action_values,
+    purchase_roas: row.purchase_roas,
+  });
+  target.spend = r2(target.spend + metrics.spend);
+  target.impressions += metrics.impressions;
+  target.clicks += metrics.clicks;
+  target.reach += Math.round(parseNum(row.reach ?? row.impressions));
+  target.conversions += metrics.purchases;
+  target.revenue = r2(target.revenue + metrics.revenue);
+  const frequency = parseNum(row.frequency);
+  if (frequency > 0 && metrics.impressions > 0) {
+    target.frequencySum = (target.frequencySum ?? 0) + frequency * metrics.impressions;
+    target.frequencyWeight = (target.frequencyWeight ?? 0) + metrics.impressions;
+  }
+}
+
+function deriveWarehouseMetrics(input: MetaAggregateTotals & { frequencySum?: number; frequencyWeight?: number }) {
+  const frequency =
+    (input.frequencyWeight ?? 0) > 0
+      ? r2((input.frequencySum ?? 0) / Math.max(1, input.frequencyWeight ?? 0))
+      : null;
+  const ctr = input.impressions > 0 ? r2((input.clicks / input.impressions) * 100) : null;
+  const cpc = input.clicks > 0 ? r2(input.spend / input.clicks) : null;
+  const cpa = input.conversions > 0 ? r2(input.spend / input.conversions) : null;
+  const roas = input.spend > 0 ? r2(input.revenue / input.spend) : 0;
+  return {
+    frequency,
+    ctr,
+    cpc,
+    cpa,
+    roas,
+  };
+}
+
+function applyAdInsightRowsToAggregates(
+  rows: RawAdInsight[],
+  aggregates: {
+    account: MetaAggregateTotals & { frequencySum?: number; frequencyWeight?: number };
+    campaigns: Map<string, MetaAggregateTotals & { name?: string | null; status?: string | null; frequencySum?: number; frequencyWeight?: number }>;
+    adsets: Map<string, MetaAggregateTotals & { campaignId?: string | null; name?: string | null; status?: string | null; frequencySum?: number; frequencyWeight?: number }>;
+    ads: Map<string, MetaAggregateTotals & { campaignId?: string | null; adsetId?: string | null; name?: string | null; status?: string | null; reach?: number; frequencySum?: number; frequencyWeight?: number; payloadJson?: unknown }>;
+  }
+) {
+  for (const row of rows) {
+    const campaignId = row.campaign_id ?? "";
+    const adsetId = row.adset_id ?? "";
+    const adId = row.ad_id ?? "";
+    accumulateAdInsight(row, aggregates.account);
+    if (campaignId) {
+      const target =
+        aggregates.campaigns.get(campaignId) ??
+        (createEmptyTotals() as MetaAggregateTotals & {
+          name?: string | null;
+          status?: string | null;
+          frequencySum?: number;
+          frequencyWeight?: number;
+        });
+      target.name = row.campaign_name ?? target.name ?? null;
+      accumulateAdInsight(row, target);
+      aggregates.campaigns.set(campaignId, target);
+    }
+    if (adsetId) {
+      const target =
+        aggregates.adsets.get(adsetId) ??
+        (createEmptyTotals() as MetaAggregateTotals & {
+          campaignId?: string | null;
+          name?: string | null;
+          status?: string | null;
+          frequencySum?: number;
+          frequencyWeight?: number;
+        });
+      target.name = row.adset_name ?? target.name ?? null;
+      target.campaignId = campaignId || target.campaignId || null;
+      accumulateAdInsight(row, target);
+      aggregates.adsets.set(adsetId, target);
+    }
+    if (adId) {
+      const target =
+        aggregates.ads.get(adId) ??
+        (createEmptyTotals() as MetaAggregateTotals & {
+          campaignId?: string | null;
+          adsetId?: string | null;
+          name?: string | null;
+          status?: string | null;
+          reach?: number;
+          frequencySum?: number;
+          frequencyWeight?: number;
+          payloadJson?: unknown;
+        });
+      target.name = row.ad_name ?? target.name ?? null;
+      target.campaignId = campaignId || target.campaignId || null;
+      target.adsetId = adsetId || target.adsetId || null;
+      target.payloadJson = row;
+      accumulateAdInsight(row, target);
+      aggregates.ads.set(adId, target);
+    }
+  }
+}
+
+export async function syncMetaAccountCoreWarehouseDay(input: {
+  credentials: MetaCredentials;
+  accountId: string;
+  day: string;
+  partitionId: string;
+  workerId: string;
+  attemptCount: number;
+  leaseMinutes?: number;
+}) : Promise<MetaBulkCoreSyncResult> {
+  const normalizedDay = normalizeMetaApiDate(input.day);
+  const profile = input.credentials.accountProfiles[input.accountId];
+  const checkpointScope = "core_ad_insights";
+  const endpointName = getMetaBulkCoreEndpointName();
+  const checkpoint = await getMetaSyncCheckpoint({
+    partitionId: input.partitionId,
+    checkpointScope,
+  });
+  const restoredPages = await listMetaRawSnapshotsForPartition({
+    partitionId: input.partitionId,
+    endpointName,
+  });
+  const aggregates = {
+    account: createEmptyTotals() as MetaAggregateTotals & { frequencySum?: number; frequencyWeight?: number },
+    campaigns: new Map<string, MetaAggregateTotals & { name?: string | null; status?: string | null; frequencySum?: number; frequencyWeight?: number }>(),
+    adsets: new Map<string, MetaAggregateTotals & { campaignId?: string | null; name?: string | null; status?: string | null; frequencySum?: number; frequencyWeight?: number }>(),
+    ads: new Map<string, MetaAggregateTotals & { campaignId?: string | null; adsetId?: string | null; name?: string | null; status?: string | null; reach?: number; frequencySum?: number; frequencyWeight?: number; payloadJson?: unknown }>(),
+  };
+
+  for (const rawPage of restoredPages) {
+    const payload = Array.isArray(rawPage.payload_json) ? (rawPage.payload_json as RawAdInsight[]) : [];
+    applyAdInsightRowsToAggregates(payload, aggregates);
+  }
+  let rowsFetchedTotal = restoredPages.reduce((sum, page) => {
+    const payload = Array.isArray(page.payload_json) ? page.payload_json.length : 0;
+    return sum + payload;
+  }, 0);
+  let latestSnapshotId = restoredPages.at(-1)?.id ?? null;
+
+  let nextPageUrl: string | null =
+    checkpoint?.nextPageUrl ??
+    buildMetaBulkCoreInsightsUrl({
+      accountId: input.accountId,
+      accessToken: input.credentials.accessToken,
+      since: normalizedDay,
+      until: normalizedDay,
+    });
+  let pageIndex = checkpoint?.pageIndex ?? restoredPages.length;
+  let throttleCount = 0;
+  let lastUsagePercent = 0;
+
+  await upsertMetaSyncCheckpoint({
+    partitionId: input.partitionId,
+    businessId: input.credentials.businessId,
+    providerAccountId: input.accountId,
+    checkpointScope,
+    phase: "fetch_raw",
+    status: "running",
+    pageIndex,
+    nextPageUrl,
+    providerCursor: checkpoint?.providerCursor ?? null,
+    rowsFetched: checkpoint?.rowsFetched ?? restoredPages.reduce((sum, page) => {
+      const payload = Array.isArray(page.payload_json) ? page.payload_json.length : 0;
+      return sum + payload;
+    }, 0),
+    rowsWritten: 0,
+    lastSuccessfulEntityKey: checkpoint?.lastSuccessfulEntityKey ?? null,
+    lastResponseHeaders: checkpoint?.lastResponseHeaders ?? {},
+    attemptCount: input.attemptCount,
+    leaseOwner: input.workerId,
+    leaseExpiresAt: null,
+    startedAt: checkpoint?.startedAt ?? new Date().toISOString(),
+  });
+
+  while (nextPageUrl) {
+    await heartbeatMetaPartitionLease({
+      partitionId: input.partitionId,
+      workerId: input.workerId,
+      leaseMinutes: input.leaseMinutes ?? 10,
+    });
+    const pageResult: {
+      response: Response;
+      json: MetaGraphCollectionResponse<RawAdInsight> & { error?: { message?: string } };
+    } = await fetchMetaPagedJson<RawAdInsight>(nextPageUrl);
+    const response = pageResult.response;
+    const json = pageResult.json;
+    const rows = json.data ?? [];
+    const usageSummary = parseMetaBusinessUsageHeader(response.headers);
+    lastUsagePercent = Math.max(lastUsagePercent, usageSummary.maxPercent);
+    const checkpointId = await upsertMetaSyncCheckpoint({
+      partitionId: input.partitionId,
+      businessId: input.credentials.businessId,
+      providerAccountId: input.accountId,
+      checkpointScope,
+      phase: "fetch_raw",
+      status: "running",
+      pageIndex,
+      nextPageUrl: json.paging?.next ?? null,
+      providerCursor: json.paging?.next ?? null,
+      rowsFetched: rowsFetchedTotal + rows.length,
+      rowsWritten: 0,
+      lastSuccessfulEntityKey:
+        rows.at(-1)?.ad_id ?? rows.at(-1)?.adset_id ?? rows.at(-1)?.campaign_id ?? null,
+      lastResponseHeaders: {
+        "x-business-use-case-usage": usageSummary.raw,
+      },
+      checkpointHash: buildMetaSyncCheckpointHash({
+        partitionId: input.partitionId,
+        checkpointScope,
+        phase: "fetch_raw",
+        pageIndex,
+        nextPageUrl: json.paging?.next ?? null,
+        providerCursor: json.paging?.next ?? null,
+      }),
+      attemptCount: input.attemptCount,
+      leaseOwner: input.workerId,
+      startedAt: checkpoint?.startedAt ?? new Date().toISOString(),
+    });
+    latestSnapshotId = await recordMetaRawSnapshot({
+      credentials: input.credentials,
+      accountId: input.accountId,
+      endpointName,
+      entityScope: "ad",
+      since: normalizedDay,
+      until: normalizedDay,
+      payload: rows,
+      status: "fetched",
+      providerHttpStatus: response.status,
+      requestContext: {
+        level: "ad",
+        source: "bulk_core_sync",
+        pageIndex,
+      },
+      partitionId: input.partitionId,
+      checkpointId,
+      pageIndex,
+      providerCursor: json.paging?.next ?? null,
+      responseHeaders: {
+        "x-business-use-case-usage": usageSummary.raw,
+      },
+    });
+    applyAdInsightRowsToAggregates(rows, aggregates);
+    rowsFetchedTotal += rows.length;
+    nextPageUrl = json.paging?.next ?? null;
+    pageIndex += 1;
+    if (usageSummary.maxPercent >= META_USAGE_THROTTLE_THRESHOLD && nextPageUrl) {
+      throttleCount += 1;
+      await sleep(META_USAGE_THROTTLE_SLEEP_MS);
+    }
+  }
+
+  const campaignStatuses = await fetchCampaignStatuses(
+    input.credentials,
+    input.accountId,
+    input.credentials.accessToken
+  ).catch(() => new Map<string, string>());
+  const accountMetrics = deriveWarehouseMetrics(aggregates.account);
+  const sourceSnapshotId = latestSnapshotId;
+  const campaignRows = Array.from(aggregates.campaigns.entries()).map(([campaignId, value]) => {
+    const metrics = deriveWarehouseMetrics(value);
+    return {
+      businessId: input.credentials.businessId,
+      providerAccountId: input.accountId,
+      date: normalizedDay,
+      campaignId,
+      campaignNameCurrent: value.name ?? null,
+      campaignNameHistorical: value.name ?? null,
+      campaignStatus: campaignStatuses.get(campaignId) ?? null,
+      objective: null,
+      buyingType: null,
+      accountTimezone: profile?.timezone ?? "UTC",
+      accountCurrency: profile?.currency ?? input.credentials.currency,
+      spend: value.spend,
+      impressions: value.impressions,
+      clicks: value.clicks,
+      reach: value.reach || value.impressions,
+      frequency: metrics.frequency,
+      conversions: value.conversions,
+      revenue: value.revenue,
+      roas: metrics.roas,
+      cpa: metrics.cpa,
+      ctr: metrics.ctr,
+      cpc: metrics.cpc,
+      sourceSnapshotId,
+    };
+  });
+  const adsetRows = Array.from(aggregates.adsets.entries()).map(([adsetId, value]) => {
+    const metrics = deriveWarehouseMetrics(value);
+    return {
+      businessId: input.credentials.businessId,
+      providerAccountId: input.accountId,
+      date: normalizedDay,
+      campaignId: value.campaignId ?? null,
+      adsetId,
+      adsetNameCurrent: value.name ?? null,
+      adsetNameHistorical: value.name ?? null,
+      adsetStatus: null,
+      accountTimezone: profile?.timezone ?? "UTC",
+      accountCurrency: profile?.currency ?? input.credentials.currency,
+      spend: value.spend,
+      impressions: value.impressions,
+      clicks: value.clicks,
+      reach: value.reach || value.impressions,
+      frequency: metrics.frequency,
+      conversions: value.conversions,
+      revenue: value.revenue,
+      roas: metrics.roas,
+      cpa: metrics.cpa,
+      ctr: metrics.ctr,
+      cpc: metrics.cpc,
+      sourceSnapshotId,
+    };
+  });
+  const adRows = Array.from(aggregates.ads.entries()).map(([adId, value]) => {
+    const metrics = deriveWarehouseMetrics(value);
+    return {
+      businessId: input.credentials.businessId,
+      providerAccountId: input.accountId,
+      date: normalizedDay,
+      campaignId: value.campaignId ?? null,
+      adsetId: value.adsetId ?? null,
+      adId,
+      adNameCurrent: value.name ?? null,
+      adNameHistorical: value.name ?? null,
+      adStatus: null,
+      accountTimezone: profile?.timezone ?? "UTC",
+      accountCurrency: profile?.currency ?? input.credentials.currency,
+      spend: value.spend,
+      impressions: value.impressions,
+      clicks: value.clicks,
+      reach: value.reach || value.impressions,
+      frequency: metrics.frequency,
+      conversions: value.conversions,
+      revenue: value.revenue,
+      roas: metrics.roas,
+      cpa: metrics.cpa,
+      ctr: metrics.ctr,
+      cpc: metrics.cpc,
+      sourceSnapshotId,
+      payloadJson: value.payloadJson ?? null,
+    };
+  });
+  const accountRows = [
+    {
+      businessId: input.credentials.businessId,
+      providerAccountId: input.accountId,
+      date: normalizedDay,
+      accountName: profile?.name ?? null,
+      accountTimezone: profile?.timezone ?? "UTC",
+      accountCurrency: profile?.currency ?? input.credentials.currency,
+      spend: aggregates.account.spend,
+      impressions: aggregates.account.impressions,
+      clicks: aggregates.account.clicks,
+      reach: aggregates.account.reach || aggregates.account.impressions,
+      frequency: accountMetrics.frequency,
+      conversions: aggregates.account.conversions,
+      revenue: aggregates.account.revenue,
+      roas: accountMetrics.roas,
+      cpa: accountMetrics.cpa,
+      ctr: accountMetrics.ctr,
+      cpc: accountMetrics.cpc,
+      sourceSnapshotId,
+    },
+  ];
+
+  await upsertMetaSyncCheckpoint({
+    partitionId: input.partitionId,
+    businessId: input.credentials.businessId,
+    providerAccountId: input.accountId,
+    checkpointScope,
+    phase: "bulk_upsert",
+    status: "running",
+    pageIndex,
+    nextPageUrl: null,
+    providerCursor: null,
+    rowsFetched: rowsFetchedTotal,
+    rowsWritten: 0,
+    lastSuccessfulEntityKey: adRows.at(-1)?.adId ?? adsetRows.at(-1)?.adsetId ?? campaignRows.at(-1)?.campaignId ?? null,
+    lastResponseHeaders: checkpoint?.lastResponseHeaders ?? {},
+    attemptCount: input.attemptCount,
+    leaseOwner: input.workerId,
+    startedAt: checkpoint?.startedAt ?? new Date().toISOString(),
+  });
+
+  await Promise.all([
+    upsertMetaAccountDailyRows(accountRows),
+    upsertMetaCampaignDailyRows(campaignRows),
+    upsertMetaAdSetDailyRows(adsetRows),
+    upsertMetaAdDailyRows(adRows),
+  ]);
+
+  const positiveSpendAdIds = adRows.filter((row) => row.spend > 0).map((row) => row.adId);
+
+  await upsertMetaSyncCheckpoint({
+    partitionId: input.partitionId,
+    businessId: input.credentials.businessId,
+    providerAccountId: input.accountId,
+    checkpointScope,
+    phase: "finalize",
+    status: "succeeded",
+    pageIndex,
+    nextPageUrl: null,
+    providerCursor: null,
+    rowsFetched: rowsFetchedTotal,
+    rowsWritten: accountRows.length + campaignRows.length + adsetRows.length + adRows.length,
+    lastSuccessfulEntityKey: positiveSpendAdIds.at(-1) ?? adRows.at(-1)?.adId ?? null,
+    lastResponseHeaders: checkpoint?.lastResponseHeaders ?? {},
+    attemptCount: input.attemptCount,
+    leaseOwner: input.workerId,
+    startedAt: checkpoint?.startedAt ?? new Date().toISOString(),
+    finishedAt: new Date().toISOString(),
+  });
+
+  return {
+    accountRowsWritten: accountRows.length,
+    campaignRowsWritten: campaignRows.length,
+    adsetRowsWritten: adsetRows.length,
+    adRowsWritten: adRows.length,
+    positiveSpendAdIds,
+    pageCount: pageIndex,
+    restoredPageCount: restoredPages.length,
+    throttleCount,
+    lastUsagePercent,
+  };
+}
+
+export async function syncMetaAccountBreakdownWarehouseDay(input: {
+  credentials: MetaCredentials;
+  accountId: string;
+  day: string;
+  partitionId: string;
+  workerId: string;
+  attemptCount: number;
+  breakdowns: string;
+  endpointName: string;
+  positiveSpendAdIds: string[];
+  leaseMinutes?: number;
+}) {
+  const normalizedDay = normalizeMetaApiDate(input.day);
+  const checkpointScope = `breakdown:${input.breakdowns}`;
+  const checkpoint = await getMetaSyncCheckpoint({
+    partitionId: input.partitionId,
+    checkpointScope,
+  });
+  let nextPageUrl: string | null =
+    checkpoint?.nextPageUrl ??
+    buildMetaBreakdownInsightsUrl({
+      accountId: input.accountId,
+      accessToken: input.credentials.accessToken,
+      since: normalizedDay,
+      until: normalizedDay,
+      breakdowns: input.breakdowns,
+      positiveSpendAdIds: input.positiveSpendAdIds,
+    });
+  let pageIndex = checkpoint?.pageIndex ?? 0;
+  let rowsFetchedTotal = checkpoint?.rowsFetched ?? 0;
+
+  while (nextPageUrl) {
+    await heartbeatMetaPartitionLease({
+      partitionId: input.partitionId,
+      workerId: input.workerId,
+      leaseMinutes: input.leaseMinutes ?? 15,
+    });
+    const pageResult: {
+      response: Response;
+      json: MetaGraphCollectionResponse<RawBreakdownInsight> & { error?: { message?: string } };
+    } = await fetchMetaPagedJson<RawBreakdownInsight>(nextPageUrl);
+    const response = pageResult.response;
+    const json = pageResult.json;
+    const usageSummary = parseMetaBusinessUsageHeader(response.headers);
+    const rows = json.data ?? [];
+    const checkpointId = await upsertMetaSyncCheckpoint({
+      partitionId: input.partitionId,
+      businessId: input.credentials.businessId,
+      providerAccountId: input.accountId,
+      checkpointScope,
+      phase: "fetch_raw",
+      status: "running",
+      pageIndex,
+      nextPageUrl: json.paging?.next ?? null,
+      providerCursor: json.paging?.next ?? null,
+      rowsFetched: rowsFetchedTotal + rows.length,
+      rowsWritten: 0,
+      lastSuccessfulEntityKey: null,
+      lastResponseHeaders: {
+        "x-business-use-case-usage": usageSummary.raw,
+      },
+      attemptCount: input.attemptCount,
+      leaseOwner: input.workerId,
+      startedAt: checkpoint?.startedAt ?? new Date().toISOString(),
+    });
+    await recordMetaRawSnapshot({
+      credentials: input.credentials,
+      accountId: input.accountId,
+      endpointName: input.endpointName,
+      entityScope: "ad_breakdown",
+      since: normalizedDay,
+      until: normalizedDay,
+      payload: rows,
+      status: "fetched",
+      providerHttpStatus: response.status,
+      requestContext: {
+        level: "ad",
+        breakdowns: input.breakdowns,
+        source: "bulk_breakdown_sync",
+        pageIndex,
+        filteredSpendAds: input.positiveSpendAdIds.length > 0 && input.positiveSpendAdIds.length <= 200,
+      },
+      partitionId: input.partitionId,
+      checkpointId,
+      pageIndex,
+      providerCursor: json.paging?.next ?? null,
+      responseHeaders: {
+        "x-business-use-case-usage": usageSummary.raw,
+      },
+    });
+    nextPageUrl = json.paging?.next ?? null;
+    rowsFetchedTotal += rows.length;
+    pageIndex += 1;
+    if (usageSummary.maxPercent >= META_USAGE_THROTTLE_THRESHOLD && nextPageUrl) {
+      await sleep(META_USAGE_THROTTLE_SLEEP_MS);
+    }
+  }
+
+  await upsertMetaSyncCheckpoint({
+    partitionId: input.partitionId,
+    businessId: input.credentials.businessId,
+    providerAccountId: input.accountId,
+    checkpointScope,
+    phase: "finalize",
+    status: "succeeded",
+    pageIndex,
+    nextPageUrl: null,
+    providerCursor: null,
+    rowsFetched: rowsFetchedTotal,
+    rowsWritten: 0,
+    lastSuccessfulEntityKey: null,
+    lastResponseHeaders: checkpoint?.lastResponseHeaders ?? {},
+    attemptCount: input.attemptCount,
+    leaseOwner: input.workerId,
+    startedAt: checkpoint?.startedAt ?? new Date().toISOString(),
+    finishedAt: new Date().toISOString(),
+  });
 }
 
 // ── Time breakdown (for reports) ──────────────────────────────────────────────

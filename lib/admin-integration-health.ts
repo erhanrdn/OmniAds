@@ -129,11 +129,19 @@ function getIssueType(row: RawAdminIntegrationHealthRow) {
     Date.now() - fetchedAtMs > 6 * 60 * 60_000;
   const isFailed = row.refresh_failed === true;
   const isMissing = !hasSnapshot || !Array.isArray(row.accounts_payload);
+  const classifiedFailure = isFailed ? classifyIntegrationIssue(row.last_error) : null;
 
   if (row.refresh_in_progress) return "Refresh in progress";
   if (isMissing) return "Missing snapshot";
+  if (
+    classifiedFailure &&
+    classifiedFailure !== "Provider/API error" &&
+    classifiedFailure !== "Refresh in progress"
+  ) {
+    return classifiedFailure;
+  }
   if (isStale && hasSnapshot && isFailed) return "Stale snapshot";
-  if (isFailed) return classifyIntegrationIssue(row.last_error);
+  if (isFailed) return classifiedFailure;
   return null;
 }
 
@@ -457,7 +465,12 @@ export function buildAdminIntegrationHealthPayload(
   ).size;
 
   const topIssue =
-    issueGroups.sort((a, b) => b.affectedWorkspaces - a.affectedWorkspaces)[0]?.issueType ?? null;
+    [...issueGroups].sort((a, b) => {
+      const criticalityScore = { critical: 3, warning: 2, healthy: 1 };
+      const diff = criticalityScore[b.criticality] - criticalityScore[a.criticality];
+      if (diff !== 0) return diff;
+      return b.affectedWorkspaces - a.affectedWorkspaces;
+    })[0]?.issueType ?? null;
 
   return {
     issueGroups,

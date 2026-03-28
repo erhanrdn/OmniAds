@@ -3,9 +3,9 @@ import { getDb } from "@/lib/db";
 import { runMigrations } from "@/lib/migrations";
 import { expireStaleMetaSyncJobs, hasBlockingMetaSyncJob } from "@/lib/meta/warehouse";
 import {
+  enqueueGoogleAdsScheduledWork,
   syncGoogleAdsInitial,
   syncGoogleAdsRecent,
-  syncGoogleAdsReports,
   syncGoogleAdsRepairRange,
   syncGoogleAdsToday,
 } from "@/lib/sync/google-ads-sync";
@@ -15,7 +15,13 @@ import {
   getGoogleAdsQueueHealth,
 } from "@/lib/google-ads/warehouse";
 import { syncGA4Reports } from "@/lib/sync/ga4-sync";
-import { syncMetaInitial, syncMetaRecent, syncMetaRepairRange, syncMetaReports, syncMetaToday } from "@/lib/sync/meta-sync";
+import {
+  enqueueMetaScheduledWork,
+  syncMetaInitial,
+  syncMetaRecent,
+  syncMetaRepairRange,
+  syncMetaToday,
+} from "@/lib/sync/meta-sync";
 import { syncSearchConsoleReports } from "@/lib/sync/search-console-sync";
 
 /**
@@ -115,8 +121,9 @@ async function runSyncForProvider(
           endDate: range.endDate,
         });
       }
-      else if (mode === "recent") await syncGoogleAdsReports(businessId);
+      else if (mode === "recent") await syncGoogleAdsRecent(businessId);
       else await syncGoogleAdsRecent(businessId);
+      await enqueueGoogleAdsScheduledWork(businessId);
       break;
     case "ga4":
       await syncGA4Reports(businessId);
@@ -124,21 +131,18 @@ async function runSyncForProvider(
     case "meta":
       if (mode === "today") {
         await syncMetaToday(businessId);
-        await syncMetaReports(businessId);
       } else if (mode === "initial") {
         await syncMetaInitial(businessId);
-        await syncMetaReports(businessId);
       } else if (mode === "repair" && range) {
         await syncMetaRepairRange({
           businessId,
           startDate: range.startDate,
           endDate: range.endDate,
         });
-        await syncMetaReports(businessId);
       } else {
         await syncMetaRecent(businessId);
-        await syncMetaReports(businessId);
       }
+      await enqueueMetaScheduledWork(businessId);
       break;
     case "search_console":
       await syncSearchConsoleReports(businessId);
@@ -195,31 +199,21 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, status: "already_running" }, { status: 202 });
   }
 
-  if (provider === "meta") {
-    await runSyncForProvider(
+  runSyncForProvider(
+    businessId,
+    provider,
+    mode ?? "recent",
+    startDate && endDate ? { startDate, endDate } : undefined
+  ).catch((err) => {
+    console.error("[sync-refresh] background_sync_failed", {
       businessId,
       provider,
-      mode ?? "recent",
-      startDate && endDate ? { startDate, endDate } : undefined
-    );
-  } else {
-    // Fire-and-forget: hemen 202 dön, arka planda sync başlat
-    runSyncForProvider(
-      businessId,
-      provider,
-      mode ?? "recent",
-      startDate && endDate ? { startDate, endDate } : undefined
-    ).catch((err) => {
-      console.error("[sync-refresh] background_sync_failed", {
-        businessId,
-        provider,
-        message: err instanceof Error ? err.message : String(err),
-      });
+      message: err instanceof Error ? err.message : String(err),
     });
-  }
+  });
 
   return NextResponse.json(
-    { ok: true, status: provider === "meta" ? "completed" : "started", mode: mode ?? "recent" },
-    { status: provider === "meta" ? 200 : 202 }
+    { ok: true, status: "started", mode: mode ?? "recent" },
+    { status: 202 }
   );
 }

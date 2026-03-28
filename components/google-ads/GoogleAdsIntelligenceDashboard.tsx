@@ -15,10 +15,9 @@ import { ErrorState } from "@/components/states/error-state";
 import { GoogleAdvisorPanel } from "@/components/google/google-advisor-panel";
 import {
   DateRangePicker,
-  DEFAULT_DATE_RANGE,
   getPresetDates,
-  type DateRangeValue,
 } from "@/components/date-range/DateRangePicker";
+import { usePersistentDateRange } from "@/hooks/use-persistent-date-range";
 import {
   ACTION_CONFIG,
   fmtCurrency,
@@ -201,12 +200,14 @@ function getAdvisorIdleState(
   }
   return {
     title: "Run analysis when historical support is ready",
-    description: "Advisor analysis becomes available when campaign, search term, and product history are ready for the selected dates.",
+    description:
+      status.advisor?.blockingMessage ??
+      "Advisor analysis becomes available when campaign, search term, and product history are ready for the selected dates.",
   };
 }
 
 export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: string }) {
-  const [dateRange, setDateRange] = useState<DateRangeValue>(DEFAULT_DATE_RANGE);
+  const [dateRange, setDateRange] = usePersistentDateRange();
   const [channelFilter, setChannelFilter] = useState<string>("all");
   const [selectedCampaignNames, setSelectedCampaignNames] = useState<string[]>([]);
   const [includeSpentInactive, setIncludeSpentInactive] = useState(false);
@@ -974,12 +975,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
               </DropdownMenu>
 
               <div className="ml-1 flex flex-wrap items-center gap-2">
-                <DateRangePicker
-                  value={dateRange}
-                  onChange={setDateRange}
-                  comparisonPlaceholderLabel="Compare to"
-                  rangePresets={["3d", "7d", "14d", "30d", "90d", "custom"]}
-                />
+                <DateRangePicker value={dateRange} onChange={setDateRange} />
                 <div className="flex flex-col gap-1">
                   <button
                     type="button"
@@ -1002,7 +998,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                   </button>
                   <p className="text-[11px] text-muted-foreground">
                     {!advisorReady
-                      ? "Waiting for historical advisor data"
+                      ? syncStatus?.advisor?.blockingMessage ?? "Waiting for historical advisor data"
                       : advisorIsStale
                         ? "Analysis is out of date for this range"
                         : lastAnalyzedLabel

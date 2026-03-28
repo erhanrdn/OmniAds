@@ -1,3 +1,9 @@
+import type {
+  ProviderCheckpointHealth,
+  ProviderReadinessLevel,
+  ProviderSurfaceSummary,
+} from "@/lib/provider-readiness";
+
 export interface GoogleAdsSyncDetails {
   id?: string | null;
   status?: string;
@@ -29,6 +35,9 @@ export interface GoogleAdsStatusResponse {
     | "action_required"
     | "ready";
   connected: boolean;
+  readinessLevel?: ProviderReadinessLevel;
+  surfaces?: ProviderSurfaceSummary;
+  checkpointHealth?: ProviderCheckpointHealth | null;
   assignedAccountIds: string[];
   primaryAccountTimezone?: string | null;
   currentDateInTimezone?: string | null;
@@ -79,6 +88,24 @@ export interface GoogleAdsStatusResponse {
     missingSurfaces: string[];
     readyRangeStart: string | null;
     readyRangeEnd: string | null;
+    blockingMessage?: string | null;
+    selectedWindow?: {
+      label: string;
+      ready: boolean;
+      startDate: string | null;
+      endDate: string | null;
+      totalDays: number | null;
+      missingSurfaces: string[];
+    } | null;
+    supportWindows?: Array<{
+      key: string;
+      label: string;
+      ready: boolean;
+      startDate: string;
+      endDate: string;
+      totalDays: number;
+      missingSurfaces: string[];
+    }> | null;
   } | null;
   jobHealth?: {
     runningJobs: number;

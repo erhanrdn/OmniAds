@@ -1,11 +1,8 @@
 import {
-  getAdSets,
-  getAgeBreakdown,
-  getCampaigns,
-  getLocationBreakdown,
-  getPlacementBreakdown,
   type MetaCredentials,
   resolveMetaCredentials,
+  syncMetaAccountBreakdownWarehouseDay,
+  syncMetaAccountCoreWarehouseDay,
 } from "@/lib/api/meta";
 import { syncMetaCreativesWarehouseDay } from "@/lib/meta/creatives-warehouse";
 import {
@@ -32,6 +29,7 @@ import {
   updateMetaSyncJob,
   updateMetaSyncRun,
   upsertMetaSyncState,
+  upsertMetaSyncCheckpoint,
 } from "@/lib/meta/warehouse";
 import type {
   MetaSyncLane,
@@ -80,6 +78,10 @@ const META_PARTITION_LEASE_MINUTES = envNumber("META_PARTITION_LEASE_MINUTES", 5
 const META_PARTITION_MAX_ATTEMPTS = envNumber("META_PARTITION_MAX_ATTEMPTS", 6);
 const META_ENQUEUE_BATCH_SIZE = envNumber("META_ENQUEUE_BATCH_SIZE", 25);
 const META_HISTORICAL_ENQUEUE_DAYS_PER_RUN = envNumber("META_HISTORICAL_ENQUEUE_DAYS_PER_RUN", 21);
+
+function canUseInProcessBackgroundScheduling() {
+  return process.env.SYNC_WORKER_MODE !== "1";
+}
 
 function getBackgroundSyncKeys() {
   if (!runtimeSyncStore.__metaBackgroundSyncKeys) {
@@ -318,6 +320,9 @@ async function syncMetaPartitionDay(input: {
   providerAccountId: string;
   day: string;
   scopes: MetaWarehouseScope[];
+  partitionId: string;
+  workerId: string;
+  attemptCount: number;
 }) {
   const normalizedDay = normalizeMetaPartitionDate(input.day);
   const credentials = input.credentials;
@@ -332,16 +337,72 @@ async function syncMetaPartitionDay(input: {
   const beforeCoverage = coverageState;
 
   if (input.scopes.some((scope) => META_CORE_SCOPES.includes(scope)) && !coverageState.reportingComplete) {
-    const campaignRows = await getCampaigns(credentials, normalizedDay, normalizedDay);
-    const campaignIds = Array.from(new Set(campaignRows.map((row) => row.id).filter(Boolean)));
-    for (const campaignId of campaignIds) {
-      await getAdSets(credentials, campaignId, normalizedDay, normalizedDay, input.businessId, false);
+    const bulkResult = await syncMetaAccountCoreWarehouseDay({
+      credentials,
+      accountId: input.providerAccountId,
+      day: normalizedDay,
+      partitionId: input.partitionId,
+      workerId: input.workerId,
+      attemptCount: input.attemptCount + 1,
+      leaseMinutes: 10,
+    });
+    const breakdownJobs = [
+      {
+        breakdowns: "age,gender",
+        endpointName: "breakdown_age",
+      },
+      {
+        breakdowns: "country",
+        endpointName: "breakdown_country",
+      },
+      {
+        breakdowns: "publisher_platform,platform_position,impression_device",
+        endpointName: "breakdown_publisher_platform,platform_position,impression_device",
+      },
+    ];
+    for (const breakdownJob of breakdownJobs) {
+      try {
+        await syncMetaAccountBreakdownWarehouseDay({
+          credentials,
+          accountId: input.providerAccountId,
+          day: normalizedDay,
+          partitionId: input.partitionId,
+          workerId: input.workerId,
+          attemptCount: input.attemptCount + 1,
+          breakdowns: breakdownJob.breakdowns,
+          endpointName: breakdownJob.endpointName,
+          positiveSpendAdIds: bulkResult.positiveSpendAdIds,
+          leaseMinutes: 15,
+        });
+      } catch (error) {
+        await upsertMetaSyncCheckpoint({
+          partitionId: input.partitionId,
+          businessId: input.businessId,
+          providerAccountId: input.providerAccountId,
+          checkpointScope: `breakdown:${breakdownJob.breakdowns}`,
+          phase: "fetch_raw",
+          status: "failed",
+          pageIndex: 0,
+          nextPageUrl: null,
+          providerCursor: null,
+          rowsFetched: 0,
+          rowsWritten: 0,
+          lastSuccessfulEntityKey: null,
+          lastResponseHeaders: {},
+          attemptCount: input.attemptCount + 1,
+          leaseOwner: input.workerId,
+          startedAt: new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+        }).catch(() => null);
+        console.warn("[meta-sync] breakdown_sync_failed_non_blocking", {
+          businessId: input.businessId,
+          providerAccountId: input.providerAccountId,
+          partitionDate: normalizedDay,
+          breakdowns: breakdownJob.breakdowns,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
-    await Promise.all([
-      getAgeBreakdown(credentials, normalizedDay, normalizedDay),
-      getLocationBreakdown(credentials, normalizedDay, normalizedDay),
-      getPlacementBreakdown(credentials, normalizedDay, normalizedDay),
-    ]);
   }
 
   if (input.scopes.some((scope) => META_EXTENDED_SCOPES.includes(scope))) {
@@ -483,6 +544,41 @@ async function enqueueMetaMaintenancePartitions(
   return queued;
 }
 
+export async function enqueueMetaScheduledWork(businessId: string) {
+  const credentials = await resolveMetaCredentials(businessId).catch(() => null);
+  const staleExpired = await expireStaleMetaSyncJobs({ businessId }).catch(() => 0);
+  const cleanup = await cleanupMetaPartitionOrchestration({ businessId }).catch(() => null);
+  let queuedCore = 0;
+  let queuedMaintenance = 0;
+
+  if (credentials?.accountIds?.length) {
+    const queueHealth = await getMetaQueueHealth({ businessId }).catch(() => null);
+    const hasCoreBacklog =
+      (queueHealth?.coreQueueDepth ?? 0) > 0 || (queueHealth?.coreLeasedPartitions ?? 0) > 0;
+    const hasMaintenanceBacklog =
+      (queueHealth?.maintenanceQueueDepth ?? 0) > 0 ||
+      (queueHealth?.maintenanceLeasedPartitions ?? 0) > 0;
+
+    await refreshMetaSyncStateForBusiness({ businessId, credentials }).catch(() => null);
+    if (!hasCoreBacklog) {
+      queuedCore = await enqueueMetaHistoricalCorePartitions(businessId, credentials).catch(() => 0);
+    }
+    if (!hasMaintenanceBacklog) {
+      queuedMaintenance = await enqueueMetaMaintenancePartitions(businessId, credentials).catch(
+        () => 0
+      );
+    }
+  }
+
+  return {
+    businessId,
+    staleExpired,
+    cleanup,
+    queuedCore,
+    queuedMaintenance,
+  };
+}
+
 async function enqueueMetaExtendedPartitionsForDate(input: {
   businessId: string;
   providerAccountId: string;
@@ -574,6 +670,7 @@ export function scheduleMetaBackgroundSync(input: {
   businessId: string;
   delayMs?: number;
 }) {
+  if (!canUseInProcessBackgroundScheduling()) return false;
   const backgroundSyncKeys = getBackgroundSyncKeys();
   const timers = getBackgroundWorkerTimers();
   const key = input.businessId;
@@ -638,6 +735,9 @@ async function processMetaPartition(input: {
       providerAccountId: input.partition.providerAccountId,
       day: input.partition.partitionDate,
       scopes,
+      partitionId,
+      workerId: input.workerId,
+      attemptCount: input.partition.attemptCount,
     });
     if (input.partition.lane === "core" || input.partition.lane === "maintenance") {
       await enqueueMetaExtendedPartitionsForDate({
@@ -980,30 +1080,11 @@ export async function ensureMetaWarehouseRangeFilled(input: {
 }
 
 export async function runMetaMaintenanceSync(businessId: string) {
-  const credentials = await resolveMetaCredentials(businessId).catch(() => null);
-  const staleExpired = await expireStaleMetaSyncJobs({ businessId }).catch(() => 0);
-  const cleanup = await cleanupMetaPartitionOrchestration({ businessId }).catch(() => null);
-  if (credentials?.accountIds?.length) {
-    const queueHealth = await getMetaQueueHealth({ businessId }).catch(() => null);
-    const hasCoreBacklog =
-      (queueHealth?.coreQueueDepth ?? 0) > 0 || (queueHealth?.coreLeasedPartitions ?? 0) > 0;
-    const hasMaintenanceBacklog =
-      (queueHealth?.maintenanceQueueDepth ?? 0) > 0 ||
-      (queueHealth?.maintenanceLeasedPartitions ?? 0) > 0;
-
-    if (!hasCoreBacklog) {
-      await enqueueMetaHistoricalCorePartitions(businessId, credentials).catch(() => 0);
-    }
-    if (!hasMaintenanceBacklog) {
-      await enqueueMetaMaintenancePartitions(businessId, credentials).catch(() => 0);
-    }
+  const result = await enqueueMetaScheduledWork(businessId);
+  if (canUseInProcessBackgroundScheduling()) {
+    scheduleMetaBackgroundSync({ businessId, delayMs: 0 });
   }
-  scheduleMetaBackgroundSync({ businessId, delayMs: 0 });
-  return {
-    businessId,
-    staleExpired,
-    cleanup,
-  };
+  return result;
 }
 
 export async function refreshMetaSyncStateAndQueue(businessId: string) {

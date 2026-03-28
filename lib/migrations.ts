@@ -635,6 +635,64 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_runs_partition ON meta_sync_runs (partition_id, created_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_runs_business ON meta_sync_runs (business_id, created_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS meta_sync_checkpoints (
+          id                        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          partition_id              UUID NOT NULL REFERENCES meta_sync_partitions(id) ON DELETE CASCADE,
+          business_id               TEXT NOT NULL,
+          provider_account_id       TEXT NOT NULL,
+          checkpoint_scope          TEXT NOT NULL,
+          phase                     TEXT NOT NULL
+                                    CHECK (phase IN ('fetch_raw', 'transform', 'bulk_upsert', 'finalize')),
+          status                    TEXT NOT NULL DEFAULT 'pending'
+                                    CHECK (status IN ('pending', 'running', 'succeeded', 'failed', 'cancelled')),
+          page_index                INTEGER NOT NULL DEFAULT 0,
+          next_page_url             TEXT,
+          provider_cursor           TEXT,
+          rows_fetched              INTEGER NOT NULL DEFAULT 0,
+          rows_written              INTEGER NOT NULL DEFAULT 0,
+          last_successful_entity_key TEXT,
+          last_response_headers     JSONB NOT NULL DEFAULT '{}'::jsonb,
+          checkpoint_hash           TEXT,
+          attempt_count             INTEGER NOT NULL DEFAULT 0,
+          retry_after_at            TIMESTAMPTZ,
+          lease_owner               TEXT,
+          lease_expires_at          TIMESTAMPTZ,
+          started_at                TIMESTAMPTZ,
+          finished_at               TIMESTAMPTZ,
+          created_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (partition_id, checkpoint_scope)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_checkpoints_partition
+          ON meta_sync_checkpoints (partition_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_checkpoints_scope
+          ON meta_sync_checkpoints (business_id, provider_account_id, checkpoint_scope, status, updated_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS sync_worker_heartbeats (
+          worker_id          TEXT PRIMARY KEY,
+          instance_type      TEXT NOT NULL,
+          provider_scope     TEXT NOT NULL,
+          status             TEXT NOT NULL DEFAULT 'starting'
+                             CHECK (status IN ('starting', 'idle', 'running', 'stopping', 'stopped')),
+          last_heartbeat_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+          last_business_id   TEXT,
+          last_partition_id  TEXT,
+          meta_json          JSONB NOT NULL DEFAULT '{}'::jsonb,
+          created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_sync_worker_heartbeats_status
+          ON sync_worker_heartbeats (status, last_heartbeat_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS sync_runner_leases (
+          business_id        TEXT NOT NULL,
+          provider_scope     TEXT NOT NULL,
+          lease_owner        TEXT NOT NULL,
+          lease_expires_at   TIMESTAMPTZ NOT NULL,
+          created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+          PRIMARY KEY (business_id, provider_scope)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_sync_runner_leases_expiry
+          ON sync_runner_leases (provider_scope, lease_expires_at, updated_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS meta_sync_state (
           business_id                   TEXT NOT NULL,
           provider_account_id           TEXT NOT NULL,
@@ -658,8 +716,12 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
           id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id          TEXT NOT NULL,
           provider_account_id  TEXT NOT NULL,
+          partition_id         UUID REFERENCES meta_sync_partitions(id) ON DELETE CASCADE,
+          checkpoint_id        UUID REFERENCES meta_sync_checkpoints(id) ON DELETE SET NULL,
           endpoint_name        TEXT NOT NULL,
           entity_scope         TEXT NOT NULL DEFAULT 'account',
+          page_index           INTEGER,
+          provider_cursor      TEXT,
           start_date           DATE NOT NULL,
           end_date             DATE NOT NULL,
           account_timezone     TEXT,
@@ -667,6 +729,7 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
           payload_json         JSONB NOT NULL DEFAULT '{}'::jsonb,
           payload_hash         TEXT NOT NULL,
           request_context      JSONB NOT NULL DEFAULT '{}'::jsonb,
+          response_headers     JSONB NOT NULL DEFAULT '{}'::jsonb,
           provider_http_status INTEGER,
           status               TEXT NOT NULL DEFAULT 'fetched'
                                CHECK (status IN ('fetched', 'partial', 'failed')),
@@ -678,6 +741,13 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
         sql`CREATE INDEX IF NOT EXISTS idx_meta_raw_snapshots_account ON meta_raw_snapshots (provider_account_id, fetched_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_raw_snapshots_window ON meta_raw_snapshots (business_id, provider_account_id, start_date, end_date)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_raw_snapshots_endpoint ON meta_raw_snapshots (endpoint_name, fetched_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_raw_snapshots_partition_endpoint
+          ON meta_raw_snapshots (partition_id, endpoint_name, page_index)`.catch(() => {}),
+        sql`ALTER TABLE meta_raw_snapshots ADD COLUMN IF NOT EXISTS partition_id UUID REFERENCES meta_sync_partitions(id) ON DELETE CASCADE`.catch(() => {}),
+        sql`ALTER TABLE meta_raw_snapshots ADD COLUMN IF NOT EXISTS checkpoint_id UUID REFERENCES meta_sync_checkpoints(id) ON DELETE SET NULL`.catch(() => {}),
+        sql`ALTER TABLE meta_raw_snapshots ADD COLUMN IF NOT EXISTS page_index INTEGER`.catch(() => {}),
+        sql`ALTER TABLE meta_raw_snapshots ADD COLUMN IF NOT EXISTS provider_cursor TEXT`.catch(() => {}),
+        sql`ALTER TABLE meta_raw_snapshots ADD COLUMN IF NOT EXISTS response_headers JSONB NOT NULL DEFAULT '{}'::jsonb`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS meta_account_daily (
           id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id          TEXT NOT NULL,

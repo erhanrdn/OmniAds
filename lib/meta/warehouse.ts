@@ -10,6 +10,7 @@ import type {
   MetaPartitionStatus,
   MetaRawSnapshotRecord,
   MetaSyncJobRecord,
+  MetaSyncCheckpointRecord,
   MetaSyncPartitionRecord,
   MetaSyncRunRecord,
   MetaSyncStateRecord,
@@ -40,6 +41,14 @@ function normalizeTimestamp(value: unknown) {
 function toNumber(value: unknown) {
   const parsed = typeof value === "number" ? value : Number(value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function chunkRows<T>(rows: T[], size = 250) {
+  const chunks: T[][] = [];
+  for (let index = 0; index < rows.length; index += size) {
+    chunks.push(rows.slice(index, index + size));
+  }
+  return chunks;
 }
 
 export function buildMetaRawSnapshotHash(input: {
@@ -558,6 +567,210 @@ export async function updateMetaSyncRun(input: {
   `;
 }
 
+export function buildMetaSyncCheckpointHash(input: {
+  partitionId: string;
+  checkpointScope: string;
+  phase: string;
+  pageIndex: number;
+  nextPageUrl?: string | null;
+  providerCursor?: string | null;
+}) {
+  return createHash("sha1")
+    .update(
+      JSON.stringify({
+        partitionId: input.partitionId,
+        checkpointScope: input.checkpointScope,
+        phase: input.phase,
+        pageIndex: input.pageIndex,
+        nextPageUrl: input.nextPageUrl ?? null,
+        providerCursor: input.providerCursor ?? null,
+      })
+    )
+    .digest("hex");
+}
+
+export async function upsertMetaSyncCheckpoint(input: MetaSyncCheckpointRecord) {
+  await runMigrations();
+  const sql = getDb();
+  const checkpointHash =
+    input.checkpointHash ??
+    buildMetaSyncCheckpointHash({
+      partitionId: input.partitionId,
+      checkpointScope: input.checkpointScope,
+      phase: input.phase,
+      pageIndex: input.pageIndex,
+      nextPageUrl: input.nextPageUrl ?? null,
+      providerCursor: input.providerCursor ?? null,
+    });
+  const rows = await sql`
+    INSERT INTO meta_sync_checkpoints (
+      partition_id,
+      business_id,
+      provider_account_id,
+      checkpoint_scope,
+      phase,
+      status,
+      page_index,
+      next_page_url,
+      provider_cursor,
+      rows_fetched,
+      rows_written,
+      last_successful_entity_key,
+      last_response_headers,
+      checkpoint_hash,
+      attempt_count,
+      retry_after_at,
+      lease_owner,
+      lease_expires_at,
+      started_at,
+      finished_at,
+      updated_at
+    )
+    VALUES (
+      ${input.partitionId},
+      ${input.businessId},
+      ${input.providerAccountId},
+      ${input.checkpointScope},
+      ${input.phase},
+      ${input.status},
+      ${input.pageIndex},
+      ${input.nextPageUrl ?? null},
+      ${input.providerCursor ?? null},
+      ${input.rowsFetched ?? 0},
+      ${input.rowsWritten ?? 0},
+      ${input.lastSuccessfulEntityKey ?? null},
+      ${JSON.stringify(input.lastResponseHeaders ?? {})}::jsonb,
+      ${checkpointHash},
+      ${input.attemptCount},
+      ${input.retryAfterAt ?? null},
+      ${input.leaseOwner ?? null},
+      ${input.leaseExpiresAt ?? null},
+      ${input.startedAt ?? null},
+      ${input.finishedAt ?? null},
+      now()
+    )
+    ON CONFLICT (partition_id, checkpoint_scope)
+    DO UPDATE SET
+      phase = EXCLUDED.phase,
+      status = EXCLUDED.status,
+      page_index = EXCLUDED.page_index,
+      next_page_url = EXCLUDED.next_page_url,
+      provider_cursor = EXCLUDED.provider_cursor,
+      rows_fetched = EXCLUDED.rows_fetched,
+      rows_written = EXCLUDED.rows_written,
+      last_successful_entity_key = EXCLUDED.last_successful_entity_key,
+      last_response_headers = EXCLUDED.last_response_headers,
+      checkpoint_hash = EXCLUDED.checkpoint_hash,
+      attempt_count = EXCLUDED.attempt_count,
+      retry_after_at = EXCLUDED.retry_after_at,
+      lease_owner = EXCLUDED.lease_owner,
+      lease_expires_at = EXCLUDED.lease_expires_at,
+      started_at = COALESCE(meta_sync_checkpoints.started_at, EXCLUDED.started_at, now()),
+      finished_at = EXCLUDED.finished_at,
+      updated_at = now()
+    RETURNING id
+  ` as Array<{ id: string }>;
+  return rows[0]?.id ?? null;
+}
+
+export async function getMetaSyncCheckpoint(input: {
+  partitionId: string;
+  checkpointScope: string;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = await sql`
+    SELECT *
+    FROM meta_sync_checkpoints
+    WHERE partition_id = ${input.partitionId}
+      AND checkpoint_scope = ${input.checkpointScope}
+    LIMIT 1
+  ` as Array<Record<string, unknown>>;
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    id: String(row.id),
+    partitionId: String(row.partition_id),
+    businessId: String(row.business_id),
+    providerAccountId: String(row.provider_account_id),
+    checkpointScope: String(row.checkpoint_scope),
+    phase: String(row.phase) as MetaSyncCheckpointRecord["phase"],
+    status: String(row.status) as MetaSyncCheckpointRecord["status"],
+    pageIndex: toNumber(row.page_index),
+    nextPageUrl: row.next_page_url ? String(row.next_page_url) : null,
+    providerCursor: row.provider_cursor ? String(row.provider_cursor) : null,
+    rowsFetched: toNumber(row.rows_fetched),
+    rowsWritten: toNumber(row.rows_written),
+    lastSuccessfulEntityKey: row.last_successful_entity_key
+      ? String(row.last_successful_entity_key)
+      : null,
+    lastResponseHeaders:
+      row.last_response_headers && typeof row.last_response_headers === "object"
+        ? (row.last_response_headers as Record<string, unknown>)
+        : {},
+    checkpointHash: row.checkpoint_hash ? String(row.checkpoint_hash) : null,
+    attemptCount: toNumber(row.attempt_count),
+    retryAfterAt: normalizeTimestamp(row.retry_after_at),
+    leaseOwner: row.lease_owner ? String(row.lease_owner) : null,
+    leaseExpiresAt: normalizeTimestamp(row.lease_expires_at),
+    startedAt: normalizeTimestamp(row.started_at),
+    finishedAt: normalizeTimestamp(row.finished_at),
+    createdAt: normalizeTimestamp(row.created_at) ?? undefined,
+    updatedAt: normalizeTimestamp(row.updated_at) ?? undefined,
+  } satisfies MetaSyncCheckpointRecord;
+}
+
+export async function listMetaRawSnapshotsForPartition(input: {
+  partitionId: string;
+  endpointName: string;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  return (sql`
+    SELECT
+      id,
+      page_index,
+      payload_json,
+      response_headers,
+      provider_cursor,
+      request_context,
+      provider_http_status,
+      status,
+      fetched_at
+    FROM meta_raw_snapshots
+    WHERE partition_id = ${input.partitionId}
+      AND endpoint_name = ${input.endpointName}
+    ORDER BY COALESCE(page_index, 0) ASC, fetched_at ASC
+  ` as unknown) as Array<{
+    id: string;
+    page_index: number | null;
+    payload_json: unknown;
+    response_headers: Record<string, unknown> | null;
+    provider_cursor: string | null;
+    request_context: Record<string, unknown> | null;
+    provider_http_status: number | null;
+    status: string;
+    fetched_at: string | null;
+  }>;
+}
+
+export async function heartbeatMetaPartitionLease(input: {
+  partitionId: string;
+  workerId: string;
+  leaseMinutes?: number;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  await sql`
+    UPDATE meta_sync_partitions
+    SET
+      lease_owner = ${input.workerId},
+      lease_expires_at = now() + (${input.leaseMinutes ?? 5} || ' minutes')::interval,
+      updated_at = now()
+    WHERE id = ${input.partitionId}
+  `;
+}
+
 export async function upsertMetaSyncState(input: MetaSyncStateRecord) {
   await runMigrations();
   const sql = getDb();
@@ -617,8 +830,12 @@ export async function persistMetaRawSnapshot(input: MetaRawSnapshotRecord) {
     INSERT INTO meta_raw_snapshots (
       business_id,
       provider_account_id,
+      partition_id,
+      checkpoint_id,
       endpoint_name,
       entity_scope,
+      page_index,
+      provider_cursor,
       start_date,
       end_date,
       account_timezone,
@@ -626,6 +843,7 @@ export async function persistMetaRawSnapshot(input: MetaRawSnapshotRecord) {
       payload_json,
       payload_hash,
       request_context,
+      response_headers,
       provider_http_status,
       status,
       fetched_at,
@@ -634,8 +852,12 @@ export async function persistMetaRawSnapshot(input: MetaRawSnapshotRecord) {
     VALUES (
       ${input.businessId},
       ${input.providerAccountId},
+      ${input.partitionId ?? null},
+      ${input.checkpointId ?? null},
       ${input.endpointName},
       ${input.entityScope},
+      ${input.pageIndex ?? null},
+      ${input.providerCursor ?? null},
       ${normalizeDate(input.startDate)},
       ${normalizeDate(input.endDate)},
       ${input.accountTimezone},
@@ -643,6 +865,7 @@ export async function persistMetaRawSnapshot(input: MetaRawSnapshotRecord) {
       ${JSON.stringify(input.payloadJson)}::jsonb,
       ${input.payloadHash},
       ${JSON.stringify(input.requestContext ?? {})}::jsonb,
+      ${JSON.stringify(input.responseHeaders ?? {})}::jsonb,
       ${input.providerHttpStatus},
       ${input.status},
       COALESCE(${input.fetchedAt ?? null}, now()),
@@ -1032,6 +1255,22 @@ export async function getMetaAccountDailyCoverage(input: {
   });
 }
 
+export async function getMetaCampaignDailyCoverage(input: {
+  businessId: string;
+  providerAccountId?: string | null;
+  startDate: string;
+  endDate: string;
+}) {
+  return getMetaCoverageForTable({
+    tableName: "meta_campaign_daily",
+    scope: "campaign_daily",
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    startDate: input.startDate,
+    endDate: input.endDate,
+  });
+}
+
 export async function getMetaAdSetDailyCoverage(input: {
   businessId: string;
   providerAccountId?: string | null;
@@ -1296,69 +1535,78 @@ export async function upsertMetaAccountDailyRows(rows: MetaAccountDailyRow[]) {
   if (rows.length === 0) return;
   await runMigrations();
   const sql = getDb();
-
-  for (const row of rows) {
-    await sql`
-      INSERT INTO meta_account_daily (
-        business_id,
-        provider_account_id,
-        date,
-        account_name,
-        account_timezone,
-        account_currency,
-        spend,
-        impressions,
-        clicks,
-        reach,
-        frequency,
-        conversions,
-        revenue,
-        roas,
-        cpa,
-        ctr,
-        cpc,
-        source_snapshot_id,
-        updated_at
-      )
-      VALUES (
-        ${row.businessId},
-        ${row.providerAccountId},
-        ${normalizeDate(row.date)},
-        ${row.accountName},
-        ${row.accountTimezone},
-        ${row.accountCurrency},
-        ${row.spend},
-        ${row.impressions},
-        ${row.clicks},
-        ${row.reach},
-        ${row.frequency},
-        ${row.conversions},
-        ${row.revenue},
-        ${row.roas},
-        ${row.cpa},
-        ${row.ctr},
-        ${row.cpc},
-        ${row.sourceSnapshotId},
-        now()
-      )
-      ON CONFLICT (business_id, provider_account_id, date) DO UPDATE SET
-        account_name = EXCLUDED.account_name,
-        account_timezone = EXCLUDED.account_timezone,
-        account_currency = EXCLUDED.account_currency,
-        spend = EXCLUDED.spend,
-        impressions = EXCLUDED.impressions,
-        clicks = EXCLUDED.clicks,
-        reach = EXCLUDED.reach,
-        frequency = EXCLUDED.frequency,
-        conversions = EXCLUDED.conversions,
-        revenue = EXCLUDED.revenue,
-        roas = EXCLUDED.roas,
-        cpa = EXCLUDED.cpa,
-        ctr = EXCLUDED.ctr,
-        cpc = EXCLUDED.cpc,
-        source_snapshot_id = EXCLUDED.source_snapshot_id,
-        updated_at = now()
-    `;
+  for (const chunk of chunkRows(rows)) {
+    const values: unknown[] = [];
+    const placeholders = chunk
+      .map((row, index) => {
+        const offset = index * 18;
+        values.push(
+          row.businessId,
+          row.providerAccountId,
+          normalizeDate(row.date),
+          row.accountName,
+          row.accountTimezone,
+          row.accountCurrency,
+          row.spend,
+          row.impressions,
+          row.clicks,
+          row.reach,
+          row.frequency,
+          row.conversions,
+          row.revenue,
+          row.roas,
+          row.cpa,
+          row.ctr,
+          row.cpc,
+          row.sourceSnapshotId
+        );
+        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},now())`;
+      })
+      .join(", ");
+    await sql.query(
+      `
+        INSERT INTO meta_account_daily (
+          business_id,
+          provider_account_id,
+          date,
+          account_name,
+          account_timezone,
+          account_currency,
+          spend,
+          impressions,
+          clicks,
+          reach,
+          frequency,
+          conversions,
+          revenue,
+          roas,
+          cpa,
+          ctr,
+          cpc,
+          source_snapshot_id,
+          updated_at
+        )
+        VALUES ${placeholders}
+        ON CONFLICT (business_id, provider_account_id, date) DO UPDATE SET
+          account_name = EXCLUDED.account_name,
+          account_timezone = EXCLUDED.account_timezone,
+          account_currency = EXCLUDED.account_currency,
+          spend = EXCLUDED.spend,
+          impressions = EXCLUDED.impressions,
+          clicks = EXCLUDED.clicks,
+          reach = EXCLUDED.reach,
+          frequency = EXCLUDED.frequency,
+          conversions = EXCLUDED.conversions,
+          revenue = EXCLUDED.revenue,
+          roas = EXCLUDED.roas,
+          cpa = EXCLUDED.cpa,
+          ctr = EXCLUDED.ctr,
+          cpc = EXCLUDED.cpc,
+          source_snapshot_id = EXCLUDED.source_snapshot_id,
+          updated_at = now()
+      `,
+      values
+    );
   }
 }
 
@@ -1366,9 +1614,41 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
   if (rows.length === 0) return;
   await runMigrations();
   const sql = getDb();
-
-  for (const row of rows) {
-    await sql`
+  for (const chunk of chunkRows(rows, 200)) {
+    const values: unknown[] = [];
+    const placeholders = chunk
+      .map((row, index) => {
+        const offset = index * 23;
+        values.push(
+          row.businessId,
+          row.providerAccountId,
+          normalizeDate(row.date),
+          row.campaignId,
+          row.campaignNameCurrent,
+          row.campaignNameHistorical,
+          row.campaignStatus,
+          row.objective,
+          row.buyingType,
+          row.accountTimezone,
+          row.accountCurrency,
+          row.spend,
+          row.impressions,
+          row.clicks,
+          row.reach,
+          row.frequency,
+          row.conversions,
+          row.revenue,
+          row.roas,
+          row.cpa,
+          row.ctr,
+          row.cpc,
+          row.sourceSnapshotId
+        );
+        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},now())`;
+      })
+      .join(", ");
+    await sql.query(
+      `
       INSERT INTO meta_campaign_daily (
         business_id,
         provider_account_id,
@@ -1395,32 +1675,7 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
         source_snapshot_id,
         updated_at
       )
-      VALUES (
-        ${row.businessId},
-        ${row.providerAccountId},
-        ${normalizeDate(row.date)},
-        ${row.campaignId},
-        ${row.campaignNameCurrent},
-        ${row.campaignNameHistorical},
-        ${row.campaignStatus},
-        ${row.objective},
-        ${row.buyingType},
-        ${row.accountTimezone},
-        ${row.accountCurrency},
-        ${row.spend},
-        ${row.impressions},
-        ${row.clicks},
-        ${row.reach},
-        ${row.frequency},
-        ${row.conversions},
-        ${row.revenue},
-        ${row.roas},
-        ${row.cpa},
-        ${row.ctr},
-        ${row.cpc},
-        ${row.sourceSnapshotId},
-        now()
-      )
+      VALUES ${placeholders}
       ON CONFLICT (business_id, provider_account_id, date, campaign_id) DO UPDATE SET
         campaign_name_current = EXCLUDED.campaign_name_current,
         campaign_name_historical = EXCLUDED.campaign_name_historical,
@@ -1442,7 +1697,9 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
         cpc = EXCLUDED.cpc,
         source_snapshot_id = EXCLUDED.source_snapshot_id,
         updated_at = now()
-    `;
+    `,
+      values
+    );
   }
 }
 
@@ -1450,9 +1707,40 @@ export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
   if (rows.length === 0) return;
   await runMigrations();
   const sql = getDb();
-
-  for (const row of rows) {
-    await sql`
+  for (const chunk of chunkRows(rows, 200)) {
+    const values: unknown[] = [];
+    const placeholders = chunk
+      .map((row, index) => {
+        const offset = index * 22;
+        values.push(
+          row.businessId,
+          row.providerAccountId,
+          normalizeDate(row.date),
+          row.campaignId,
+          row.adsetId,
+          row.adsetNameCurrent,
+          row.adsetNameHistorical,
+          row.adsetStatus,
+          row.accountTimezone,
+          row.accountCurrency,
+          row.spend,
+          row.impressions,
+          row.clicks,
+          row.reach,
+          row.frequency,
+          row.conversions,
+          row.revenue,
+          row.roas,
+          row.cpa,
+          row.ctr,
+          row.cpc,
+          row.sourceSnapshotId
+        );
+        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},now())`;
+      })
+      .join(", ");
+    await sql.query(
+      `
       INSERT INTO meta_adset_daily (
         business_id,
         provider_account_id,
@@ -1478,31 +1766,7 @@ export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
         source_snapshot_id,
         updated_at
       )
-      VALUES (
-        ${row.businessId},
-        ${row.providerAccountId},
-        ${normalizeDate(row.date)},
-        ${row.campaignId},
-        ${row.adsetId},
-        ${row.adsetNameCurrent},
-        ${row.adsetNameHistorical},
-        ${row.adsetStatus},
-        ${row.accountTimezone},
-        ${row.accountCurrency},
-        ${row.spend},
-        ${row.impressions},
-        ${row.clicks},
-        ${row.reach},
-        ${row.frequency},
-        ${row.conversions},
-        ${row.revenue},
-        ${row.roas},
-        ${row.cpa},
-        ${row.ctr},
-        ${row.cpc},
-        ${row.sourceSnapshotId},
-        now()
-      )
+      VALUES ${placeholders}
       ON CONFLICT (business_id, provider_account_id, date, adset_id) DO UPDATE SET
         campaign_id = EXCLUDED.campaign_id,
         adset_name_current = EXCLUDED.adset_name_current,
@@ -1523,7 +1787,9 @@ export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
         cpc = EXCLUDED.cpc,
         source_snapshot_id = EXCLUDED.source_snapshot_id,
         updated_at = now()
-    `;
+    `,
+      values
+    );
   }
 }
 
@@ -1531,9 +1797,42 @@ export async function upsertMetaAdDailyRows(rows: MetaAdDailyRow[]) {
   if (rows.length === 0) return;
   await runMigrations();
   const sql = getDb();
-
-  for (const row of rows) {
-    await sql`
+  for (const chunk of chunkRows(rows, 150)) {
+    const values: unknown[] = [];
+    const placeholders = chunk
+      .map((row, index) => {
+        const offset = index * 24;
+        values.push(
+          row.businessId,
+          row.providerAccountId,
+          normalizeDate(row.date),
+          row.campaignId,
+          row.adsetId,
+          row.adId,
+          row.adNameCurrent,
+          row.adNameHistorical,
+          row.adStatus,
+          row.accountTimezone,
+          row.accountCurrency,
+          row.spend,
+          row.impressions,
+          row.clicks,
+          row.reach,
+          row.frequency,
+          row.conversions,
+          row.revenue,
+          row.roas,
+          row.cpa,
+          row.ctr,
+          row.cpc,
+          row.sourceSnapshotId,
+          JSON.stringify(row.payloadJson ?? null)
+        );
+        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24}::jsonb,now())`;
+      })
+      .join(", ");
+    await sql.query(
+      `
       INSERT INTO meta_ad_daily (
         business_id,
         provider_account_id,
@@ -1561,33 +1860,7 @@ export async function upsertMetaAdDailyRows(rows: MetaAdDailyRow[]) {
         payload_json,
         updated_at
       )
-      VALUES (
-        ${row.businessId},
-        ${row.providerAccountId},
-        ${normalizeDate(row.date)},
-        ${row.campaignId},
-        ${row.adsetId},
-        ${row.adId},
-        ${row.adNameCurrent},
-        ${row.adNameHistorical},
-        ${row.adStatus},
-        ${row.accountTimezone},
-        ${row.accountCurrency},
-        ${row.spend},
-        ${row.impressions},
-        ${row.clicks},
-        ${row.reach},
-        ${row.frequency},
-        ${row.conversions},
-        ${row.revenue},
-        ${row.roas},
-        ${row.cpa},
-        ${row.ctr},
-        ${row.cpc},
-        ${row.sourceSnapshotId},
-        ${JSON.stringify(row.payloadJson ?? null)}::jsonb,
-        now()
-      )
+      VALUES ${placeholders}
       ON CONFLICT (business_id, provider_account_id, date, ad_id) DO UPDATE SET
         campaign_id = EXCLUDED.campaign_id,
         adset_id = EXCLUDED.adset_id,
@@ -1610,7 +1883,9 @@ export async function upsertMetaAdDailyRows(rows: MetaAdDailyRow[]) {
         source_snapshot_id = EXCLUDED.source_snapshot_id,
         payload_json = EXCLUDED.payload_json,
         updated_at = now()
-    `;
+    `,
+      values
+    );
   }
 }
 
@@ -1788,6 +2063,58 @@ export async function getMetaAccountDailyRange(input: {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }));
+}
+
+export async function getMetaCheckpointHealth(input: {
+  businessId: string;
+  providerAccountId?: string | null;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = await sql`
+    SELECT
+      checkpoint_scope,
+      phase,
+      status,
+      page_index,
+      updated_at,
+      COUNT(*) FILTER (WHERE status = 'failed') OVER ()::int AS checkpoint_failures
+    FROM meta_sync_checkpoints
+    WHERE business_id = ${input.businessId}
+      AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
+    ORDER BY updated_at DESC
+    LIMIT 1
+  ` as Array<Record<string, unknown>>;
+  const row = rows[0];
+  if (!row) {
+    return {
+      latestCheckpointScope: null,
+      latestCheckpointPhase: null,
+      latestCheckpointStatus: null,
+      latestCheckpointUpdatedAt: null,
+      checkpointLagMinutes: null,
+      lastSuccessfulPageIndex: null,
+      resumeCapable: false,
+      checkpointFailures: 0,
+    };
+  }
+  const updatedAt = normalizeTimestamp(row.updated_at);
+  const lagMinutes =
+    updatedAt && Number.isFinite(new Date(updatedAt).getTime())
+      ? Math.max(0, Math.round((Date.now() - new Date(updatedAt).getTime()) / 60_000))
+      : null;
+  return {
+    latestCheckpointScope: row.checkpoint_scope ? String(row.checkpoint_scope) : null,
+    latestCheckpointPhase: row.phase ? String(row.phase) : null,
+    latestCheckpointStatus: row.status ? String(row.status) : null,
+    latestCheckpointUpdatedAt: updatedAt,
+    checkpointLagMinutes: lagMinutes,
+    lastSuccessfulPageIndex: toNumber(row.page_index),
+    resumeCapable:
+      row.status != null &&
+      ["pending", "running", "failed"].includes(String(row.status)),
+    checkpointFailures: toNumber(row.checkpoint_failures),
+  };
 }
 
 export async function getMetaCampaignDailyRange(input: {
