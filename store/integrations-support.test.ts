@@ -74,6 +74,32 @@ describe("deriveProviderViewState", () => {
     expect(deriveProviderViewState("meta", domain).status).toBe("degraded");
   });
 
+  it("keeps Google ready when cached accounts are available during a quota cooldown", () => {
+    const domains = buildDefaultProviderDomains();
+    const domain = {
+      ...domains.google,
+      connection: {
+        ...domains.google.connection,
+        status: "connected" as const,
+      },
+      discovery: {
+        ...domains.google.discovery,
+        status: "stale" as const,
+        entities: [{ id: "123", name: "Main account" }],
+        stale: true,
+        refreshFailed: true,
+        failureClass: "quota" as const,
+        retryAfterAt: "2026-03-28T14:36:37.766Z",
+      },
+      assignment: {
+        ...domains.google.assignment,
+        selectedIds: ["123"],
+      },
+    };
+
+    expect(deriveProviderViewState("google", domain).status).toBe("ready");
+  });
+
   it("returns action_required when connected discovery fails with no snapshot", () => {
     const domains = buildDefaultProviderDomains();
     const domain = {

@@ -73,6 +73,8 @@ function buildDefaultDiscoveryState(): ProviderDiscoveryState {
     notice: null,
     stale: false,
     refreshFailed: false,
+    failureClass: null,
+    retryAfterAt: null,
   };
 }
 
@@ -226,6 +228,8 @@ export function normalizeBusinessProviderDomains(
           notice: null,
           stale: false,
           refreshFailed: false,
+          failureClass: null,
+          retryAfterAt: null,
           errorMessage: undefined,
         },
         assignment: existing?.assignment ?? {
@@ -353,6 +357,12 @@ export function deriveProviderViewState(
     status = "loading_data";
   } else if (domain.discovery.refreshFailed && !hasDiscoveryEntities && assignedCount === 0) {
     status = "action_required";
+  } else if (
+    provider === "google" &&
+    domain.discovery.refreshFailed &&
+    domain.discovery.failureClass === "quota"
+  ) {
+    status = "ready";
   } else if (domain.discovery.refreshFailed) {
     status = assignedCount > 0 || !providerSupportsAssignments ? "degraded" : "needs_assignment";
   } else if (providerSupportsAssignments && domain.discovery.status === "failed") {

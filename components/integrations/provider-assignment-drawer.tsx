@@ -39,6 +39,16 @@ interface ProviderAssignmentDrawerProps {
 
 type FetchState = "idle" | "loading" | "success" | "empty" | "error";
 
+function formatRetryAfter(value: string | null | undefined) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
 export function ProviderAssignmentDrawer({
   open,
   provider,
@@ -77,6 +87,14 @@ export function ProviderAssignmentDrawer({
       })),
     [domain]
   );
+  const quotaRetryAfterAt =
+    provider === "google" && domain?.discovery.failureClass === "quota"
+      ? domain.discovery.retryAfterAt ?? null
+      : null;
+  const quotaCooldownActive =
+    Boolean(quotaRetryAfterAt) &&
+    new Date(quotaRetryAfterAt as string).getTime() > Date.now();
+  const quotaRetryLabel = formatRetryAfter(quotaRetryAfterAt);
 
   useEffect(() => {
     latestAssignedAccountIdsRef.current = assignedAccountIds;
@@ -116,6 +134,8 @@ export function ProviderAssignmentDrawer({
         notice: snapshot.notice,
         stale: snapshot.meta?.stale ?? false,
         refreshFailed: snapshot.meta?.refreshFailed ?? false,
+        failureClass: snapshot.meta?.failureClass ?? null,
+        retryAfterAt: snapshot.meta?.retryAfterAt ?? null,
       });
       setProviderAssignmentState(businessId, provider, {
         status: serverAssignedIds.length > 0 ? "ready" : "empty",
@@ -171,6 +191,16 @@ export function ProviderAssignmentDrawer({
         mode: options?.preserveExisting ? "refresh" : "initial",
       });
 
+      if (options?.forceRefresh && quotaCooldownActive) {
+        setNoticeMessage(
+          quotaRetryLabel
+            ? `Google Ads account refresh is temporarily rate-limited. Using cached accounts until ${quotaRetryLabel}.`
+            : "Google Ads account refresh is temporarily rate-limited. Using cached accounts for now."
+        );
+        setIsRefreshing(false);
+        return;
+      }
+
       try {
         const snapshot = options?.forceRefresh
           ? await warmProviderAccountSnapshot(provider, businessId)
@@ -191,6 +221,8 @@ export function ProviderAssignmentDrawer({
           errorMessage: err instanceof Error ? err.message : String(err),
           notice: null,
           refreshFailed: true,
+          failureClass: domain?.discovery.failureClass ?? null,
+          retryAfterAt: domain?.discovery.retryAfterAt ?? null,
         });
         setProviderAssignmentState(businessId, provider, {
           status: "failed",
@@ -319,14 +351,19 @@ export function ProviderAssignmentDrawer({
                       forceRefresh: true,
                     })
                   }
-                  disabled={isRefreshing}
+                  disabled={isRefreshing || quotaCooldownActive}
+                  title={
+                    quotaCooldownActive && quotaRetryLabel
+                      ? `Retry available after ${quotaRetryLabel}`
+                      : undefined
+                  }
                 >
                   {isRefreshing ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
                     <RefreshCw className="h-4 w-4" />
                   )}
-                  Retry
+                  {quotaCooldownActive ? "Cooling down" : "Retry"}
                 </Button>
               </div>
             </div>
@@ -350,14 +387,19 @@ export function ProviderAssignmentDrawer({
                   onClick={() =>
                     void loadAccounts({ preserveExisting: true, forceRefresh: true })
                   }
-                  disabled={isRefreshing}
+                  disabled={isRefreshing || quotaCooldownActive}
+                  title={
+                    quotaCooldownActive && quotaRetryLabel
+                      ? `Refresh available after ${quotaRetryLabel}`
+                      : undefined
+                  }
                 >
                   {isRefreshing ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
                     <RefreshCw className="h-4 w-4" />
                   )}
-                  Refresh
+                  {quotaCooldownActive ? "Cooling down" : "Refresh"}
                 </Button>
               </div>
             </div>
@@ -391,9 +433,10 @@ export function ProviderAssignmentDrawer({
                 <Button
                   variant="outline"
                   onClick={() => void loadAccounts({ forceRefresh: true })}
+                  disabled={quotaCooldownActive}
                 >
                   <RefreshCw className="h-4 w-4" />
-                  Retry
+                  {quotaCooldownActive ? "Cooling down" : "Retry"}
                 </Button>
               </div>
             ) : null}

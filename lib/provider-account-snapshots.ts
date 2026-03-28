@@ -32,11 +32,13 @@ export interface ProviderAccountSnapshotMeta {
   fetchedAt: string | null;
   stale: boolean;
   refreshFailed: boolean;
+  failureClass: ProviderSnapshotFailureClass;
   lastError: string | null;
   lastKnownGoodAvailable: boolean;
   refreshRequestedAt: string | null;
   lastRefreshAttemptAt: string | null;
   nextRefreshAfter: string | null;
+  retryAfterAt: string | null;
   refreshInProgress: boolean;
   sourceReason: string | null;
 }
@@ -59,6 +61,14 @@ const DEFAULT_FRESHNESS_MS = 6 * 60 * 60_000;
 const FIRST_FAILURE_COOLDOWN_MS = 30 * 60_000;
 const SECOND_FAILURE_COOLDOWN_MS = 2 * 60 * 60_000;
 const MAX_FAILURE_COOLDOWN_MS = 6 * 60 * 60_000;
+
+export type ProviderSnapshotFailureClass =
+  | "quota"
+  | "auth"
+  | "scope"
+  | "permission"
+  | "unknown"
+  | null;
 
 export class ProviderAccountSnapshotRefreshError extends Error {
   readonly provider: string;
@@ -113,6 +123,43 @@ function getRetryAfterMs(row: ProviderAccountSnapshotRow | null) {
   if (!row?.next_refresh_after) return 0;
   const retryAfterMs = new Date(row.next_refresh_after).getTime() - Date.now();
   return Number.isFinite(retryAfterMs) && retryAfterMs > 0 ? retryAfterMs : 0;
+}
+
+export function classifyProviderSnapshotFailure(
+  lastError: string | null | undefined
+): ProviderSnapshotFailureClass {
+  const normalized = (lastError ?? "").toLowerCase();
+  if (!normalized) return null;
+  if (
+    normalized.includes("http 429") ||
+    normalized.includes("quota") ||
+    normalized.includes("resource_exhausted")
+  ) {
+    return "quota";
+  }
+  if (
+    normalized.includes("missing the google ads scope") ||
+    normalized.includes("scope")
+  ) {
+    return "scope";
+  }
+  if (
+    normalized.includes("permission denied") ||
+    normalized.includes("does not have permission") ||
+    normalized.includes("denied access")
+  ) {
+    return "permission";
+  }
+  if (
+    normalized.includes("oauth") ||
+    normalized.includes("access token") ||
+    normalized.includes("authentication_error") ||
+    normalized.includes("token has expired") ||
+    normalized.includes("401")
+  ) {
+    return "auth";
+  }
+  return "unknown";
 }
 
 function computeFailureCooldownMs(row: ProviderAccountSnapshotRow | null) {
@@ -284,16 +331,21 @@ function toSnapshotMeta(input: {
   snapshot: ProviderAccountSnapshotRow;
   freshnessMs: number;
 }): ProviderAccountSnapshotMeta {
+  const failureClass = input.snapshot.refresh_failed
+    ? classifyProviderSnapshotFailure(input.snapshot.last_error)
+    : null;
   return {
     source: "snapshot",
     fetchedAt: input.snapshot.fetched_at,
     stale: !isFresh(input.snapshot, input.freshnessMs),
     refreshFailed: input.snapshot.refresh_failed,
+    failureClass,
     lastError: input.snapshot.last_error,
     lastKnownGoodAvailable: (input.snapshot.accounts_payload ?? []).length > 0,
     refreshRequestedAt: input.snapshot.refresh_requested_at,
     lastRefreshAttemptAt: input.snapshot.last_refresh_attempt_at,
     nextRefreshAfter: input.snapshot.next_refresh_after,
+    retryAfterAt: input.snapshot.next_refresh_after,
     refreshInProgress: input.snapshot.refresh_in_progress,
     sourceReason: input.snapshot.source_reason,
   };
@@ -329,7 +381,11 @@ async function runSnapshotRefresh(input: ResolveProviderAccountSnapshotInput) {
   const refreshPromise = (async () => {
     const existingSnapshot = await getSnapshotRow(input.businessId, input.provider);
     const retryAfterMs = getRetryAfterMs(existingSnapshot);
-    if (retryAfterMs > 0 && !input.bypassCooldown) {
+    const failureClass = classifyProviderSnapshotFailure(existingSnapshot?.last_error);
+    if (
+      retryAfterMs > 0 &&
+      (!input.bypassCooldown || failureClass === "quota")
+    ) {
       throw new ProviderAccountSnapshotRefreshError({
         provider: input.provider,
         businessId: input.businessId,
@@ -486,8 +542,10 @@ export async function forceProviderAccountSnapshotRefresh(
       source: "live",
       stale: false,
       refreshFailed: false,
+      failureClass: null,
       lastError: null,
       refreshInProgress: false,
+      retryAfterAt: null,
     },
   };
 }

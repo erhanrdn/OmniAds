@@ -17,6 +17,24 @@ function getGoogleDiscoveryFailureMessage(hasSnapshot: boolean) {
   return "We couldn't load your Google Ads accounts right now. A background sync has been scheduled.";
 }
 
+function formatRetryAfter(value: string | null) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
+function getGoogleQuotaCooldownNotice(retryAfterAt: string | null) {
+  const formatted = formatRetryAfter(retryAfterAt);
+  if (!formatted) {
+    return "Google Ads account refresh is temporarily rate-limited. Using cached accounts for now.";
+  }
+  return `Google Ads account refresh is temporarily rate-limited. Using cached accounts until ${formatted}.`;
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const businessId = searchParams.get("businessId");
@@ -60,8 +78,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  try {
-    const payload = await resolveProviderDiscoveryPayload({
+  const discoveryInput = {
       businessId,
       provider: "google",
       refreshRequested,
@@ -69,6 +86,7 @@ export async function GET(request: NextRequest) {
       missingSnapshotNotice:
         "Showing your saved Google Ads assignments while the full account list is prepared.",
       degradedNotice: getGoogleDiscoveryFailureMessage(true),
+      quotaNotice: getGoogleQuotaCooldownNotice,
       unavailableNotice:
         "Google Ads accounts are being prepared in the background. You can keep using the page without waiting.",
       liveLoader: async () => {
@@ -135,7 +153,10 @@ export async function GET(request: NextRequest) {
           isManager: customer.isManager,
         }));
       },
-    });
+    } as const;
+
+  try {
+    const payload = await resolveProviderDiscoveryPayload(discoveryInput);
 
     return NextResponse.json({
       data: payload.data,
@@ -145,6 +166,20 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     if (error instanceof ProviderAccountSnapshotRefreshError) {
+      if (refreshRequested) {
+        const fallbackPayload = await resolveProviderDiscoveryPayload({
+          ...discoveryInput,
+          refreshRequested: false,
+        }).catch(() => null);
+        if (fallbackPayload?.meta.lastKnownGoodAvailable) {
+          return NextResponse.json({
+            data: fallbackPayload.data,
+            count: fallbackPayload.data.length,
+            meta: fallbackPayload.meta,
+            notice: fallbackPayload.notice,
+          });
+        }
+      }
       return NextResponse.json(
         {
           error: "google_ads_discovery_unavailable",

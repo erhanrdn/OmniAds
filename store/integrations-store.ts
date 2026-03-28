@@ -108,6 +108,8 @@ export interface ProviderDiscoveryState {
   notice?: string | null;
   stale: boolean;
   refreshFailed: boolean;
+  failureClass?: "quota" | "auth" | "scope" | "permission" | "unknown" | null;
+  retryAfterAt?: string | null;
 }
 
 export interface ProviderAssignmentState {
@@ -191,6 +193,8 @@ interface IntegrationsStore {
       notice?: string | null;
       stale?: boolean;
       refreshFailed?: boolean;
+      failureClass?: "quota" | "auth" | "scope" | "permission" | "unknown" | null;
+      retryAfterAt?: string | null;
     }
   ) => void;
   setProviderAssignmentState: (
@@ -429,6 +433,14 @@ export const useIntegrationsStore = create<IntegrationsStore>()(
                 refreshFailed:
                   payload.refreshFailed ??
                   currentDomains[provider].discovery.refreshFailed,
+                failureClass:
+                  payload.failureClass === undefined
+                    ? currentDomains[provider].discovery.failureClass
+                    : payload.failureClass,
+                retryAfterAt:
+                  payload.retryAfterAt === undefined
+                    ? currentDomains[provider].discovery.retryAfterAt
+                    : payload.retryAfterAt,
               },
             },
           }))

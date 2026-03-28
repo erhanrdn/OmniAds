@@ -4,6 +4,7 @@ import {
   readProviderAccountSnapshot,
   requestProviderAccountSnapshotRefresh,
   type ProviderAccountSnapshotItem,
+  type ProviderSnapshotFailureClass,
   type ProviderAccountSnapshotMeta,
   type ProviderAccountSnapshotResult,
 } from "@/lib/provider-account-snapshots";
@@ -26,11 +27,13 @@ function buildMeta(input: Partial<ProviderAccountSnapshotMeta>): ProviderAccount
     fetchedAt: input.fetchedAt ?? null,
     stale: input.stale ?? true,
     refreshFailed: input.refreshFailed ?? false,
+    failureClass: input.failureClass ?? null,
     lastError: input.lastError ?? null,
     lastKnownGoodAvailable: input.lastKnownGoodAvailable ?? false,
     refreshRequestedAt: input.refreshRequestedAt ?? null,
     lastRefreshAttemptAt: input.lastRefreshAttemptAt ?? null,
     nextRefreshAfter: input.nextRefreshAfter ?? null,
+    retryAfterAt: input.retryAfterAt ?? null,
     refreshInProgress: input.refreshInProgress ?? false,
     sourceReason: input.sourceReason ?? null,
   };
@@ -63,6 +66,7 @@ export async function resolveProviderDiscoveryPayload(input: {
   missingSnapshotNotice: string;
   degradedNotice: string;
   unavailableNotice: string;
+  quotaNotice?: (retryAfterAt: string | null) => string;
   freshnessMs?: number;
 }): Promise<ProviderDiscoveryPayload> {
   const freshnessMs = input.freshnessMs ?? DEFAULT_FRESHNESS_MS;
@@ -106,7 +110,11 @@ export async function resolveProviderDiscoveryPayload(input: {
     return {
       data: mergeAssignments(snapshot.accounts, assignedIds),
       meta: snapshot.meta,
-      notice: snapshot.meta.refreshFailed ? input.degradedNotice : null,
+      notice: snapshot.meta.refreshFailed
+        ? snapshot.meta.failureClass === "quota"
+          ? (input.quotaNotice?.(snapshot.meta.retryAfterAt) ?? input.degradedNotice)
+          : input.degradedNotice
+        : null,
     };
   }
 

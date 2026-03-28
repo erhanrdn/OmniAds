@@ -189,7 +189,7 @@ export function prewarmProviderAccountSnapshots(
       businessId,
       provider,
     });
-    void warmProviderAccountSnapshot(provider, businessId)
+    void fetchProviderAccountSnapshot(provider, businessId)
       .then((snapshot) => {
         logClientAuthEvent("provider_snapshot_prewarm_succeeded", {
           businessId,

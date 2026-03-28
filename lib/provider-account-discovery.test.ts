@@ -34,11 +34,13 @@ describe("resolveProviderDiscoveryPayload", () => {
         fetchedAt: "2026-03-21T10:00:00.000Z",
         stale: true,
         refreshFailed: false,
+        failureClass: null,
         lastError: null,
         lastKnownGoodAvailable: true,
         refreshRequestedAt: null,
         lastRefreshAttemptAt: null,
         nextRefreshAfter: null,
+        retryAfterAt: null,
         refreshInProgress: false,
         sourceReason: "stale_snapshot_refresh",
       },
@@ -76,11 +78,13 @@ describe("resolveProviderDiscoveryPayload", () => {
         fetchedAt: "2026-03-21T10:00:00.000Z",
         stale: true,
         refreshFailed: true,
-        lastError: "quota",
+        failureClass: "quota",
+        lastError: "Google Ads API quota exceeded. Account list will refresh automatically later today. (listAccessibleCustomers HTTP 429)",
         lastKnownGoodAvailable: true,
         refreshRequestedAt: null,
         lastRefreshAttemptAt: null,
-        nextRefreshAfter: null,
+        nextRefreshAfter: "2026-03-21T12:00:00.000Z",
+        retryAfterAt: "2026-03-21T12:00:00.000Z",
         refreshInProgress: false,
         sourceReason: "stale_snapshot_refresh",
       },
@@ -94,10 +98,11 @@ describe("resolveProviderDiscoveryPayload", () => {
       liveLoader: vi.fn(),
       missingSnapshotNotice: "missing",
       degradedNotice: "degraded",
+      quotaNotice: (retryAfterAt) => `quota:${retryAfterAt}`,
       unavailableNotice: "unavailable",
     });
 
-    expect(payload.notice).toBe("degraded");
+    expect(payload.notice).toBe("quota:2026-03-21T12:00:00.000Z");
     expect(snapshots.requestProviderAccountSnapshotRefresh).toHaveBeenCalledTimes(1);
   });
 
@@ -132,11 +137,13 @@ describe("resolveProviderDiscoveryPayload", () => {
         fetchedAt: "2026-03-21T10:00:00.000Z",
         stale: false,
         refreshFailed: false,
+        failureClass: null,
         lastError: null,
         lastKnownGoodAvailable: true,
         refreshRequestedAt: null,
         lastRefreshAttemptAt: null,
         nextRefreshAfter: null,
+        retryAfterAt: null,
         refreshInProgress: false,
         sourceReason: "manual_refresh",
       },
