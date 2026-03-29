@@ -22,10 +22,12 @@ import {
   openProviderGlobalCircuitBreaker,
   ProviderRequestCooldownError,
 } from "@/lib/provider-request-governance";
-import { getSyncWorkerHealthSummary, recordSyncReclaimEvents } from "@/lib/sync/worker-health";
+import {
+  getProviderWorkerHealthState,
+  recordSyncReclaimEvents,
+} from "@/lib/sync/worker-health";
 import type { ProviderReplayReasonCode } from "@/lib/sync/provider-orchestration";
 import {
-  acquireGoogleAdsRunnerLease,
   buildGoogleAdsRawSnapshotHash,
   compactGoogleAdsExtendedBacklog,
   cleanupGoogleAdsObsoleteSyncJobs,
@@ -39,13 +41,11 @@ import {
   getGoogleAdsPartitionHealth,
   getGoogleAdsPartitionDates,
   getGoogleAdsQueueHealth,
-  getGoogleAdsRunnerLeaseHealth,
   getGoogleAdsSyncCheckpoint,
   leaseGoogleAdsSyncPartitions,
   listGoogleAdsRawSnapshotsForPartition,
   persistGoogleAdsRawSnapshot,
   queueGoogleAdsSyncPartition,
-  releaseGoogleAdsRunnerLease,
   heartbeatGoogleAdsPartitionLease,
   upsertGoogleAdsSyncState,
   upsertGoogleAdsSyncCheckpoint,
@@ -176,6 +176,9 @@ const GOOGLE_ADS_EXTENDED_HISTORICAL_PRESSURE_LIMIT = Number(
 const GOOGLE_ADS_EXTENDED_REOPEN_GENERAL_ENABLED =
   process.env.GOOGLE_ADS_EXTENDED_GENERAL_REOPEN?.trim().toLowerCase() === "1" ||
   process.env.GOOGLE_ADS_EXTENDED_GENERAL_REOPEN?.trim().toLowerCase() === "true";
+const GOOGLE_ADS_IN_PROCESS_RUNTIME_ENABLED =
+  process.env.GOOGLE_ADS_ENABLE_IN_PROCESS_RUNTIME?.trim().toLowerCase() === "1" ||
+  process.env.GOOGLE_ADS_ENABLE_IN_PROCESS_RUNTIME?.trim().toLowerCase() === "true";
 
 function parseEnvList(name: string) {
   const raw = process.env[name];
@@ -191,7 +194,7 @@ const GOOGLE_ADS_EXTENDED_CANARY_BUSINESS_IDS = new Set(
 );
 
 function canUseInProcessBackgroundScheduling() {
-  return process.env.SYNC_WORKER_MODE !== "1";
+  return process.env.SYNC_WORKER_MODE === "1" && GOOGLE_ADS_IN_PROCESS_RUNTIME_ENABLED;
 }
 
 export function isGoogleAdsIncidentSafeModeEnabled() {
@@ -405,16 +408,7 @@ function extractSnapshotRows(payload: unknown): GenericRow[] {
 
 async function isGoogleAdsWorkerHealthyForScheduling() {
   if (process.env.SYNC_WORKER_MODE === "1") return true;
-  const health = await getSyncWorkerHealthSummary({
-    providerScopes: ["google_ads", "all"],
-    onlineWindowMinutes: Math.max(1, Math.floor(GOOGLE_ADS_WORKER_STALE_THRESHOLD_MS / 60_000)),
-  }).catch(() => null);
-  return evaluateGoogleAdsWorkerSchedulingState({
-    onlineWorkers: health?.onlineWorkers ?? 0,
-    lastHeartbeatAt: health?.lastHeartbeatAt ?? null,
-    runnerLeaseActive: false,
-    staleThresholdMs: GOOGLE_ADS_WORKER_STALE_THRESHOLD_MS,
-  }).healthy;
+  return false;
 }
 
 export function evaluateGoogleAdsWorkerSchedulingState(input: {
@@ -452,33 +446,19 @@ export async function getGoogleAdsWorkerSchedulingState(input: { businessId: str
       latestLeaseUpdatedAt: new Date().toISOString(),
     };
   }
-
-  const [health, runnerLease] = await Promise.all([
-    getSyncWorkerHealthSummary({
-      providerScopes: ["google_ads", "all"],
-      onlineWindowMinutes: Math.max(1, Math.floor(GOOGLE_ADS_WORKER_STALE_THRESHOLD_MS / 60_000)),
-    }).catch(() => null),
-    getGoogleAdsRunnerLeaseHealth({
-      businessId: input.businessId,
-      lanes: ["core", "maintenance", "extended"],
-    }).catch(() => null),
-  ]);
-
-  const lastHeartbeatAt = health?.lastHeartbeatAt ?? null;
-  const evaluated = evaluateGoogleAdsWorkerSchedulingState({
-    onlineWorkers: health?.onlineWorkers ?? 0,
-    lastHeartbeatAt,
-    runnerLeaseActive: Boolean(runnerLease?.hasActiveLease),
+  const state = await getProviderWorkerHealthState({
+    businessId: input.businessId,
+    providerScope: "google_ads",
     staleThresholdMs: GOOGLE_ADS_WORKER_STALE_THRESHOLD_MS,
-  });
-
+  }).catch(() => null);
   return {
-    healthy: evaluated.healthy,
-    heartbeatAgeMs: evaluated.heartbeatAgeMs,
-    hasFreshHeartbeat: evaluated.hasFreshHeartbeat,
-    runnerLeaseActive: evaluated.runnerLeaseActive,
-    lastHeartbeatAt,
-    latestLeaseUpdatedAt: runnerLease?.latestLeaseUpdatedAt ?? null,
+    healthy: state?.workerHealthy ?? false,
+    heartbeatAgeMs: state?.heartbeatAgeMs ?? null,
+    hasFreshHeartbeat: state?.hasFreshHeartbeat ?? false,
+    runnerLeaseActive: state?.runnerLeaseActive ?? false,
+    lastHeartbeatAt: state?.lastHeartbeatAt ?? null,
+    latestLeaseUpdatedAt: state?.latestLeaseUpdatedAt ?? null,
+    ownerWorkerId: state?.ownerWorkerId ?? null,
   };
 }
 
@@ -2576,6 +2556,7 @@ async function processGoogleAdsPartition(input: {
           errorMessage: "partition skipped because another worker already owns this date",
           durationMs: Date.now() - startedAt,
           finishedAt: new Date().toISOString(),
+          onlyIfCurrentStatus: "running",
         });
       }
       return false;
@@ -2635,6 +2616,7 @@ async function processGoogleAdsPartition(input: {
         status: "succeeded",
         durationMs: Date.now() - startedAt,
         finishedAt: new Date().toISOString(),
+        onlyIfCurrentStatus: "running",
       });
     }
     return true;
@@ -2736,6 +2718,7 @@ async function processGoogleAdsPartition(input: {
         errorMessage: message,
         durationMs: Date.now() - startedAt,
         finishedAt: new Date().toISOString(),
+        onlyIfCurrentStatus: "running",
       });
     }
     return false;
@@ -2835,12 +2818,14 @@ export async function ensureGoogleAdsWarehouseRangeFilled(input: {
   startDate: string;
   endDate: string;
 }) {
-  // Non-blocking legacy compatibility helper: keep background sync moving, but do not create
-  // request-time selected-range queue storms.
-  scheduleGoogleAdsBackgroundSync({ businessId: input.businessId, delayMs: 0 });
+  await enqueueGoogleAdsScheduledWork(input.businessId).catch(() => null);
 }
 
 export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAdsSyncResult> {
+  if (process.env.SYNC_WORKER_MODE !== "1") {
+    await enqueueGoogleAdsScheduledWork(businessId).catch(() => null);
+    return { businessId, attempted: 0, succeeded: 0, failed: 0, skipped: true };
+  }
   await cleanupGoogleAdsObsoleteSyncJobs({ businessId }).catch(() => null);
   await expireStaleGoogleAdsSyncJobs({ businessId }).catch(() => null);
   await cleanupGoogleAdsPartitionOrchestration({
@@ -2879,16 +2864,6 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
   backgroundSyncKeys.add(lockKey);
   const workerId = getGoogleAdsWorkerId();
   try {
-    const runnerLease = await acquireGoogleAdsRunnerLease({
-      businessId,
-      lane: "core",
-      leaseOwner: workerId,
-      leaseMinutes: GOOGLE_ADS_PARTITION_LEASE_MINUTES,
-    }).catch(() => null);
-    if (!runnerLease) {
-      return { businessId, attempted: 0, succeeded: 0, failed: 0, skipped: true };
-    }
-
     await refreshGoogleAdsSyncStateForBusiness({ businessId }).catch((error) => {
       console.warn("[google-ads-sync] state_refresh_before_run_failed", {
         businessId,
@@ -3090,11 +3065,6 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
       skipped: attempted === 0,
     };
   } finally {
-    await releaseGoogleAdsRunnerLease({
-      businessId,
-      lane: "core",
-      leaseOwner: workerId,
-    }).catch(() => null);
     backgroundSyncKeys.delete(lockKey);
   }
 }

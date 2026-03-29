@@ -79,9 +79,16 @@ const META_PARTITION_MAX_ATTEMPTS = envNumber("META_PARTITION_MAX_ATTEMPTS", 6);
 const META_ENQUEUE_BATCH_SIZE = envNumber("META_ENQUEUE_BATCH_SIZE", 25);
 const META_HISTORICAL_ENQUEUE_DAYS_PER_RUN = envNumber("META_HISTORICAL_ENQUEUE_DAYS_PER_RUN", 21);
 const META_RECENT_RECOVERY_DAYS = envNumber("META_RECENT_RECOVERY_DAYS", 14);
+const META_RUN_PROGRESS_GRACE_MINUTES = envNumber("META_RUN_PROGRESS_GRACE_MINUTES", 3);
+const META_STALE_RUN_CORE_MINUTES = envNumber("META_STALE_RUN_CORE_MINUTES", 12);
+const META_STALE_RUN_MAINTENANCE_MINUTES = envNumber("META_STALE_RUN_MAINTENANCE_MINUTES", 15);
+const META_STALE_RUN_EXTENDED_MINUTES = envNumber("META_STALE_RUN_EXTENDED_MINUTES", 25);
+const META_IN_PROCESS_RUNTIME_ENABLED =
+  process.env.META_ENABLE_IN_PROCESS_RUNTIME?.trim().toLowerCase() === "1" ||
+  process.env.META_ENABLE_IN_PROCESS_RUNTIME?.trim().toLowerCase() === "true";
 
 function canUseInProcessBackgroundScheduling() {
-  return process.env.SYNC_WORKER_MODE !== "1";
+  return process.env.SYNC_WORKER_MODE === "1" && META_IN_PROCESS_RUNTIME_ENABLED;
 }
 
 function getBackgroundSyncKeys() {
@@ -796,6 +803,7 @@ async function processMetaPartition(input: {
         status: "succeeded",
         durationMs: Date.now() - startedAt,
         finishedAt: new Date().toISOString(),
+        onlyIfCurrentStatus: "running",
       }).catch(() => null);
     }
     return true;
@@ -819,6 +827,7 @@ async function processMetaPartition(input: {
         errorClass: classified.errorClass,
         errorMessage: message,
         finishedAt: new Date().toISOString(),
+        onlyIfCurrentStatus: "running",
       }).catch(() => null);
     }
     console.warn("[meta-sync] partition_failed", {
@@ -835,12 +844,24 @@ async function processMetaPartition(input: {
 }
 
 export async function syncMetaReports(businessId: string): Promise<MetaSyncResult> {
+  if (process.env.SYNC_WORKER_MODE !== "1") {
+    await enqueueMetaScheduledWork(businessId).catch(() => null);
+    return { businessId, attempted: 0, succeeded: 0, failed: 0, skipped: true };
+  }
   const credentials = await resolveMetaCredentials(businessId).catch(() => null);
   if (!credentials?.accountIds?.length) {
     return { businessId, attempted: 0, succeeded: 0, failed: 0, skipped: true };
   }
   await expireStaleMetaSyncJobs({ businessId }).catch(() => null);
-  await cleanupMetaPartitionOrchestration({ businessId }).catch(() => null);
+  await cleanupMetaPartitionOrchestration({
+    businessId,
+    staleRunMinutesByLane: {
+      core: META_STALE_RUN_CORE_MINUTES,
+      maintenance: META_STALE_RUN_MAINTENANCE_MINUTES,
+      extended: META_STALE_RUN_EXTENDED_MINUTES,
+    },
+    runProgressGraceMinutes: META_RUN_PROGRESS_GRACE_MINUTES,
+  }).catch(() => null);
   await requeueMetaRetryableFailedPartitions({ businessId }).catch(() => []);
 
   const lockKey = `background:${businessId}`;

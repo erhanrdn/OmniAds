@@ -3,6 +3,7 @@ import {
   buildDefaultProviderDomains,
   deriveProviderViewState,
 } from "@/store/integrations-support";
+import { useIntegrationsStore } from "@/store/integrations-store";
 
 describe("deriveProviderViewState", () => {
   it("returns needs_assignment instead of loading when connected provider has no snapshot yet", () => {
@@ -121,5 +122,22 @@ describe("deriveProviderViewState", () => {
     };
 
     expect(deriveProviderViewState("google", domain).status).toBe("action_required");
+  });
+
+  it("keeps Google connected when the access token is expired but a refresh token exists", () => {
+    const businessId = "biz-google-refresh";
+    useIntegrationsStore.getState().clearAllState();
+    useIntegrationsStore.getState().setManifestConnections(businessId, [
+      {
+        provider: "google",
+        status: "connected",
+        id: "int_google",
+        token_expires_at: "2026-03-20T10:00:00.000Z",
+        refresh_token: "refresh-token",
+      },
+    ]);
+
+    const state = useIntegrationsStore.getState();
+    expect(state.domainsByBusinessId[businessId]?.google.connection.status).toBe("connected");
   });
 });

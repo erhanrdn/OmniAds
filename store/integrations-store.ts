@@ -170,6 +170,7 @@ interface ManifestConnectionRow {
   provider_account_name?: string | null;
   error_message?: string | null;
   token_expires_at?: string | null;
+  refresh_token?: string | null;
 }
 
 interface IntegrationsStore {
@@ -250,6 +251,14 @@ interface IntegrationsStore {
   getProviderViewState: (businessId: string, provider: IntegrationProvider) => ProviderViewState;
   setToast: (toast: IntegrationToast) => void;
   clearToast: () => void;
+}
+
+function providerCanAutoRefresh(
+  provider: IntegrationProvider,
+  refreshToken?: string | null
+) {
+  if (!refreshToken) return false;
+  return provider === "google" || provider === "ga4" || provider === "search_console";
 }
 
 function getDomainsForState(state: IntegrationsStore, businessId: string) {
@@ -372,7 +381,7 @@ export const useIntegrationsStore = create<IntegrationsStore>()(
               const nextStatus: ProviderConnectionStatus =
                 row.status === "error"
                   ? "error"
-                  : isExpired
+                  : isExpired && !providerCanAutoRefresh(provider, row.refresh_token)
                     ? "expired"
                     : row.status === "connected"
                       ? "connected"

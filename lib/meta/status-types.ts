@@ -118,6 +118,14 @@ export interface MetaStatusResponse {
     extendedHistoricalQueueDepth?: number;
     extendedHistoricalLeasedPartitions?: number;
   } | null;
+  operations?: {
+    workerHealthy?: boolean;
+    heartbeatAgeMs?: number | null;
+    runnerLeaseActive?: boolean;
+    ownerWorkerId?: string | null;
+    staleRunPressure?: number;
+    blockReason?: string | null;
+  } | null;
   extendedRecoveryState?: "core_only" | "extended_recovery" | "extended_normal" | null;
   recentExtendedReady?: boolean;
   historicalExtendedReady?: boolean;

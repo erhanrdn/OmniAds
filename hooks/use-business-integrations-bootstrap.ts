@@ -21,6 +21,7 @@ interface ManifestRow {
   provider_account_name?: string | null;
   error_message?: string | null;
   token_expires_at?: string | null;
+  refresh_token?: string | null;
   metadata?: Record<string, unknown> | null;
 }
 
@@ -104,6 +105,7 @@ export function useBusinessIntegrationsBootstrap(businessId: string | null) {
             provider_account_name: row.provider_account_name,
             error_message: row.error_message,
             token_expires_at: row.token_expires_at,
+            refresh_token: row.refresh_token,
           }))
         );
         logClientAuthEvent("integration_manifest_loaded", {

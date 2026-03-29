@@ -4,10 +4,6 @@ import { runMigrations } from "@/lib/migrations";
 import { expireStaleMetaSyncJobs, hasBlockingMetaSyncJob } from "@/lib/meta/warehouse";
 import {
   enqueueGoogleAdsScheduledWork,
-  syncGoogleAdsInitial,
-  syncGoogleAdsRecent,
-  syncGoogleAdsRepairRange,
-  syncGoogleAdsToday,
 } from "@/lib/sync/google-ads-sync";
 import {
   cleanupGoogleAdsObsoleteSyncJobs,
@@ -17,10 +13,6 @@ import {
 import { syncGA4Reports } from "@/lib/sync/ga4-sync";
 import {
   enqueueMetaScheduledWork,
-  syncMetaInitial,
-  syncMetaRecent,
-  syncMetaRepairRange,
-  syncMetaToday,
 } from "@/lib/sync/meta-sync";
 import { syncSearchConsoleReports } from "@/lib/sync/search-console-sync";
 
@@ -110,38 +102,16 @@ async function runSyncForProvider(
   mode: "recent" | "today" | "initial" | "repair" = "recent",
   range?: { startDate: string; endDate: string }
 ): Promise<void> {
+  void mode;
+  void range;
   switch (provider) {
     case "google_ads":
-      if (mode === "today") await syncGoogleAdsToday(businessId);
-      else if (mode === "initial") await syncGoogleAdsInitial(businessId);
-      else if (mode === "repair" && range) {
-        await syncGoogleAdsRepairRange({
-          businessId,
-          startDate: range.startDate,
-          endDate: range.endDate,
-        });
-      }
-      else if (mode === "recent") await syncGoogleAdsRecent(businessId);
-      else await syncGoogleAdsRecent(businessId);
       await enqueueGoogleAdsScheduledWork(businessId);
       break;
     case "ga4":
       await syncGA4Reports(businessId);
       break;
     case "meta":
-      if (mode === "today") {
-        await syncMetaToday(businessId);
-      } else if (mode === "initial") {
-        await syncMetaInitial(businessId);
-      } else if (mode === "repair" && range) {
-        await syncMetaRepairRange({
-          businessId,
-          startDate: range.startDate,
-          endDate: range.endDate,
-        });
-      } else {
-        await syncMetaRecent(businessId);
-      }
       await enqueueMetaScheduledWork(businessId);
       break;
     case "search_console":

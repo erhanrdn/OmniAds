@@ -733,9 +733,9 @@ export async function cleanupGoogleAdsPartitionOrchestration(input: {
       COALESCE(failures.same_phase_failures, 0) AS same_phase_failures,
       EXISTS (
         SELECT 1
-        FROM google_ads_runner_leases lease
+        FROM sync_runner_leases lease
         WHERE lease.business_id = partition.business_id
-          AND lease.lane = partition.lane
+          AND lease.provider_scope = 'google_ads'
           AND lease.lease_expires_at > now()
       ) AS has_active_runner_lease
     FROM google_ads_sync_partitions partition
@@ -990,9 +990,9 @@ export async function cleanupGoogleAdsPartitionOrchestration(input: {
           lease.lease_owner,
           lease.updated_at,
           lease.lease_expires_at
-        FROM google_ads_runner_leases lease
+        FROM sync_runner_leases lease
         WHERE lease.business_id = run.business_id
-          AND lease.lane = run.lane
+          AND lease.provider_scope = 'google_ads'
         ORDER BY lease.updated_at DESC
         LIMIT 1
       ) lease ON TRUE
@@ -1167,6 +1167,7 @@ export async function updateGoogleAdsSyncRun(input: {
   errorMessage?: string | null;
   metaJson?: Record<string, unknown>;
   finishedAt?: string | null;
+  onlyIfCurrentStatus?: GoogleAdsSyncRunRecord["status"] | null;
 }) {
   await runMigrations();
   const sql = getDb();
@@ -1176,12 +1177,19 @@ export async function updateGoogleAdsSyncRun(input: {
       status = ${input.status},
       row_count = COALESCE(${input.rowCount ?? null}, row_count),
       duration_ms = COALESCE(${input.durationMs ?? null}, duration_ms),
-      error_class = COALESCE(${input.errorClass ?? null}, error_class),
-      error_message = COALESCE(${input.errorMessage ?? null}, error_message),
+      error_class = CASE
+        WHEN ${input.status} = 'succeeded' THEN NULL
+        ELSE COALESCE(${input.errorClass ?? null}, error_class)
+      END,
+      error_message = CASE
+        WHEN ${input.status} = 'succeeded' THEN NULL
+        ELSE COALESCE(${input.errorMessage ?? null}, error_message)
+      END,
       meta_json = COALESCE(${input.metaJson ? JSON.stringify(input.metaJson) : null}::jsonb, meta_json),
       finished_at = COALESCE(${input.finishedAt ?? null}, finished_at),
       updated_at = now()
     WHERE id = ${input.id}
+      AND (${input.onlyIfCurrentStatus ?? null}::text IS NULL OR status = ${input.onlyIfCurrentStatus ?? null})
   `;
 }
 

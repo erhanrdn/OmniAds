@@ -30,12 +30,17 @@ export default function GoogleAdsPage() {
     "google",
     domains?.google ?? buildDefaultProviderDomains().google
   );
-  const isConnected = googleView.isConnected || isDemoBusiness;
+  const hasGoogleAccess =
+    isDemoBusiness ||
+    googleView.isConnected ||
+    googleView.status === "action_required" ||
+    googleView.status === "degraded" ||
+    googleView.status === "needs_assignment";
   const showBootstrapGuard =
     !isDemoBusiness &&
     (isBootstrapping ||
       googleView.status === "loading_data" ||
-      (bootstrapStatus !== "ready" && !googleView.isConnected));
+      (bootstrapStatus !== "ready" && !hasGoogleAccess));
 
   if (showBootstrapGuard) {
     return (
@@ -45,7 +50,7 @@ export default function GoogleAdsPage() {
     );
   }
 
-  if (!isConnected) {
+  if (!hasGoogleAccess) {
     return (
       <div className="p-6">
         <IntegrationEmptyState

@@ -103,6 +103,15 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
 
     const businesses = await getActiveBusinesses(maxBusinessesPerTick).catch(() => []);
     for (const adapter of options.adapters) {
+      await heartbeat({
+        providerScope: adapter.providerScope,
+        status: "idle",
+        metaJson: {
+          providerScope: adapter.providerScope,
+          globalDbConcurrency,
+        },
+        force: true,
+      }).catch(() => null);
       const concurrency = envNumber(
         adapter.providerScope === "meta"
           ? "META_WORKER_CONCURRENCY"

@@ -115,6 +115,33 @@ export async function releaseSyncRunnerLease(input: {
   `;
 }
 
+export async function getSyncRunnerLeaseHealth(input: {
+  businessId: string;
+  providerScope: string;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = await sql`
+    SELECT
+      COUNT(*) FILTER (WHERE lease_expires_at > now())::int AS active_leases,
+      MAX(lease_expires_at) AS latest_lease_expires_at,
+      MAX(updated_at) AS latest_lease_updated_at,
+      MAX(lease_owner) FILTER (WHERE lease_expires_at > now()) AS active_lease_owner,
+      BOOL_OR(lease_expires_at > now()) AS has_active_lease
+    FROM sync_runner_leases
+    WHERE business_id = ${input.businessId}
+      AND provider_scope = ${input.providerScope}
+  ` as Array<Record<string, unknown>>;
+  const row = rows[0] ?? {};
+  return {
+    activeLeases: Number(row.active_leases ?? 0),
+    hasActiveLease: Boolean(row.has_active_lease),
+    latestLeaseExpiresAt: normalizeTimestamp(row.latest_lease_expires_at),
+    latestLeaseUpdatedAt: normalizeTimestamp(row.latest_lease_updated_at),
+    activeLeaseOwner: row.active_lease_owner ? String(row.active_lease_owner) : null,
+  };
+}
+
 export async function getSyncWorkerHealthSummary(input?: {
   providerScopes?: string[];
   onlineWindowMinutes?: number;
@@ -172,6 +199,62 @@ export async function getSyncWorkerHealthSummary(input?: {
       lastBusinessId: row.last_business_id ? String(row.last_business_id) : null,
       lastPartitionId: row.last_partition_id ? String(row.last_partition_id) : null,
     })),
+  };
+}
+
+export function evaluateProviderWorkerHealth(input: {
+  onlineWorkers: number;
+  lastHeartbeatAt: string | null;
+  runnerLeaseActive: boolean;
+  staleThresholdMs: number;
+  nowMs?: number;
+}) {
+  const nowMs = input.nowMs ?? Date.now();
+  const heartbeatAgeMs =
+    input.lastHeartbeatAt != null
+      ? Math.max(0, nowMs - new Date(input.lastHeartbeatAt).getTime())
+      : null;
+  const hasFreshHeartbeat =
+    input.onlineWorkers > 0 ||
+    (heartbeatAgeMs != null && heartbeatAgeMs <= Math.max(1, input.staleThresholdMs));
+  return {
+    workerHealthy: hasFreshHeartbeat || input.runnerLeaseActive,
+    heartbeatAgeMs,
+    runnerLeaseActive: input.runnerLeaseActive,
+    hasFreshHeartbeat,
+  };
+}
+
+export async function getProviderWorkerHealthState(input: {
+  businessId: string;
+  providerScope: "google_ads" | "meta";
+  staleThresholdMs: number;
+}) {
+  const [health, leaseHealth] = await Promise.all([
+    getSyncWorkerHealthSummary({
+      providerScopes: [input.providerScope],
+      onlineWindowMinutes: Math.max(1, Math.floor(input.staleThresholdMs / 60_000)),
+    }).catch(() => null),
+    getSyncRunnerLeaseHealth({
+      businessId: input.businessId,
+      providerScope: input.providerScope,
+    }).catch(() => null),
+  ]);
+  const evaluated = evaluateProviderWorkerHealth({
+    onlineWorkers: health?.onlineWorkers ?? 0,
+    lastHeartbeatAt: health?.lastHeartbeatAt ?? null,
+    runnerLeaseActive: Boolean(leaseHealth?.hasActiveLease),
+    staleThresholdMs: input.staleThresholdMs,
+  });
+  return {
+    providerScope: input.providerScope,
+    workerHealthy: evaluated.workerHealthy,
+    heartbeatAgeMs: evaluated.heartbeatAgeMs,
+    runnerLeaseActive: evaluated.runnerLeaseActive,
+    hasFreshHeartbeat: evaluated.hasFreshHeartbeat,
+    ownerWorkerId: leaseHealth?.activeLeaseOwner ?? null,
+    lastHeartbeatAt: health?.lastHeartbeatAt ?? null,
+    latestLeaseUpdatedAt: leaseHealth?.latestLeaseUpdatedAt ?? null,
   };
 }
 
