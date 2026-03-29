@@ -320,6 +320,13 @@ export async function GET(request: NextRequest) {
     workerSchedulingState?.workerMeta?.workerStartedAt != null
       ? String(workerSchedulingState.workerMeta.workerStartedAt)
       : null;
+  const workerFreshnessState = workerSchedulingState?.workerFreshnessState ?? null;
+  const currentWorkerBusinessId = workerSchedulingState?.currentBusinessId ?? null;
+  const workerBatchBusinessIds = Array.isArray(workerSchedulingState?.batchBusinessIds)
+    ? workerSchedulingState.batchBusinessIds.map((value) => String(value))
+    : [];
+  const currentConsumeStage = workerSchedulingState?.consumeStage ?? null;
+  const lastConsumedBusinessId = workerSchedulingState?.lastConsumedBusinessId ?? null;
   const runtimeMismatchDetected =
     workerBuildId != null && workerBuildId !== currentRuntimeBuildId;
   const lastConsumeAttemptAt =
@@ -338,6 +345,7 @@ export async function GET(request: NextRequest) {
     workerSchedulingState?.workerMeta?.consumeFinishedAt != null
       ? String(workerSchedulingState.workerMeta.consumeFinishedAt)
       : null;
+  const lastConsumeFinishedAt = lastProgressAt;
   const lastFailureReason =
     workerSchedulingState?.workerMeta?.consumeReason != null
       ? String(workerSchedulingState.workerMeta.consumeReason)
@@ -1285,11 +1293,17 @@ export async function GET(request: NextRequest) {
       workerBuildId,
       workerStartedAt,
       lastWorkerHeartbeatAt: workerSchedulingState?.lastHeartbeatAt ?? null,
+      workerFreshnessState,
+      currentWorkerBusinessId,
+      workerBatchBusinessIds,
+      currentConsumeStage,
+      lastConsumedBusinessId,
       runtimeMismatchDetected,
       lastConsumeAttemptAt,
       lastConsumeOutcome,
       lastLeaseAcquiredAt,
       lastProgressAt,
+      lastConsumeFinishedAt,
       lastFailureReason,
       staleRunPressure,
       extendedSuppressionDecisionTrace,

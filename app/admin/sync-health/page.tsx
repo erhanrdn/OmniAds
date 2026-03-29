@@ -59,6 +59,9 @@ interface SyncHealthPayload {
       lastHeartbeatAt: string | null;
       lastBusinessId: string | null;
       lastPartitionId: string | null;
+      lastConsumedBusinessId?: string | null;
+      lastConsumeOutcome?: string | null;
+      lastConsumeFinishedAt?: string | null;
       metaJson?: Record<string, unknown> | null;
     }>;
   };
@@ -446,10 +449,10 @@ export default function AdminSyncHealthPage() {
                   <span className="ml-2">{worker.workerFreshnessState ?? "stale"}</span>
                 </div>
                 <div className="text-gray-500">
-                  Heartbeat {formatDateTime(worker.lastHeartbeatAt)} • Business {worker.lastBusinessId ?? "—"} • Outcome {typeof worker.metaJson?.consumeOutcome === "string" ? worker.metaJson.consumeOutcome : "—"}
+                  Heartbeat {formatDateTime(worker.lastHeartbeatAt)} • Current {typeof worker.metaJson?.currentBusinessId === "string" ? worker.metaJson.currentBusinessId : worker.lastConsumedBusinessId ?? worker.lastBusinessId ?? "—"} • Outcome {worker.lastConsumeOutcome ?? (typeof worker.metaJson?.consumeOutcome === "string" ? worker.metaJson.consumeOutcome : "—")}
                 </div>
                 <div className="text-gray-500">
-                  Stage {typeof worker.metaJson?.consumeStage === "string" ? worker.metaJson.consumeStage : "—"} • Lease {typeof worker.metaJson?.lastLeaseAcquiredAt === "string" ? formatDateTime(worker.metaJson.lastLeaseAcquiredAt) : "—"} • Finished {typeof worker.metaJson?.consumeFinishedAt === "string" ? formatDateTime(worker.metaJson.consumeFinishedAt) : "—"}
+                  Stage {typeof worker.metaJson?.consumeStage === "string" ? worker.metaJson.consumeStage : "—"} • Lease {typeof worker.metaJson?.lastLeaseAcquiredAt === "string" ? formatDateTime(worker.metaJson.lastLeaseAcquiredAt) : "—"} • Finished {formatDateTime(worker.lastConsumeFinishedAt ?? (typeof worker.metaJson?.consumeFinishedAt === "string" ? worker.metaJson.consumeFinishedAt : null))}
                 </div>
               </div>
             ))}

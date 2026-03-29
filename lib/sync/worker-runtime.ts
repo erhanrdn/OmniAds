@@ -22,6 +22,33 @@ export interface DurableWorkerRuntimeOptions {
   adapters: ProviderWorkerAdapter[];
 }
 
+function parseEnvList(name: string) {
+  const raw = process.env[name];
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function prioritizeBusinessesForAdapter(
+  providerScope: string,
+  businesses: Array<{ id: string; name: string }>
+) {
+  if (providerScope !== "google_ads") return businesses;
+  const prioritizedIds = parseEnvList("GOOGLE_ADS_DEBUG_PRIORITY_BUSINESS_IDS");
+  if (prioritizedIds.length === 0) return businesses;
+  const priorityRank = new Map(prioritizedIds.map((id, index) => [id, index]));
+  return [...businesses].sort((left, right) => {
+    const leftRank = priorityRank.get(left.id);
+    const rightRank = priorityRank.get(right.id);
+    if (leftRank == null && rightRank == null) return 0;
+    if (leftRank == null) return 1;
+    if (rightRank == null) return -1;
+    return leftRank - rightRank;
+  });
+}
+
 function getWorkerBuildFingerprint() {
   return (
     process.env.APP_BUILD_ID?.trim() ||
@@ -123,6 +150,7 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
       discoveredBusinesses.add(business.id);
     }
     for (const adapter of options.adapters) {
+      const adapterBusinesses = prioritizeBusinessesForAdapter(adapter.providerScope, businesses);
       await heartbeat({
         providerScope: adapter.providerScope,
         status: "idle",
@@ -131,7 +159,7 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
           workerStartedAt,
           providerScope: adapter.providerScope,
           tickStartedAt: new Date().toISOString(),
-          batchBusinessIds: businesses.map((business) => business.id),
+          batchBusinessIds: adapterBusinesses.map((business) => business.id),
           globalDbConcurrency,
         },
         force: true,
@@ -143,11 +171,12 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
         1
       );
       const effectiveConcurrency = Math.max(1, Math.min(concurrency, globalDbConcurrency));
-      for (let index = 0; index < businesses.length; index += effectiveConcurrency) {
-        const businessBatch = businesses.slice(index, index + effectiveConcurrency);
+      for (let index = 0; index < adapterBusinesses.length; index += effectiveConcurrency) {
+        const businessBatch = adapterBusinesses.slice(index, index + effectiveConcurrency);
         await Promise.all(
           businessBatch.map(async (business) => {
         const batchBusinessIds = businessBatch.map((entry) => entry.id);
+        const consumeStartedAt = new Date().toISOString();
         await heartbeat({
           providerScope: adapter.providerScope,
           status: "idle",
@@ -220,7 +249,7 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
               batchBusinessIds,
               currentBusinessId: business.id,
               consumeStage: "consume_started",
-              consumeStartedAt: new Date().toISOString(),
+              consumeStartedAt,
             },
             force: true,
           }).catch(() => null);
@@ -241,7 +270,7 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
               consumeStartedAt:
                 syncResult?.consumeStartedAt && typeof syncResult.consumeStartedAt === "string"
                   ? syncResult.consumeStartedAt
-                  : null,
+                  : consumeStartedAt,
               consumeFinishedAt: new Date().toISOString(),
               consumeOutcome:
                 syncResult?.outcome && typeof syncResult.outcome === "string"
@@ -284,7 +313,7 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
               batchBusinessIds,
               currentBusinessId: business.id,
               consumeStage: "consume_failed",
-              consumeStartedAt: new Date().toISOString(),
+              consumeStartedAt,
               consumeFinishedAt: new Date().toISOString(),
               consumeOutcome: "consume_failed",
               consumeReason: error instanceof Error ? error.message : String(error),

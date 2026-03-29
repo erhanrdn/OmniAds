@@ -14,6 +14,47 @@ function normalizeTimestamp(value: unknown) {
   return text;
 }
 
+function normalizeMetaJson(value: unknown) {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+}
+
+function getMetaBusinessIds(metaJson: Record<string, unknown> | null) {
+  const ids = new Set<string>();
+  const currentBusinessId = metaJson?.currentBusinessId;
+  if (typeof currentBusinessId === "string" && currentBusinessId.trim()) {
+    ids.add(currentBusinessId.trim());
+  }
+  const batchBusinessIds = metaJson?.batchBusinessIds;
+  if (Array.isArray(batchBusinessIds)) {
+    for (const entry of batchBusinessIds) {
+      if (typeof entry === "string" && entry.trim()) ids.add(entry.trim());
+    }
+  }
+  return Array.from(ids);
+}
+
+export function selectProviderWorkerForBusiness(input: {
+  businessId: string;
+  activeLeaseOwner?: string | null;
+  workers?: Array<{
+    workerId: string;
+    workerFreshnessState?: "online" | "stale" | "stopped";
+    lastBusinessId: string | null;
+    lastConsumedBusinessId?: string | null;
+    metaJson?: Record<string, unknown> | null;
+  }>;
+}) {
+  const workers = input.workers ?? [];
+  return (
+    workers.find((worker) => worker.workerId === (input.activeLeaseOwner ?? "")) ??
+    workers.find((worker) => worker.lastConsumedBusinessId === input.businessId) ??
+    workers.find((worker) => worker.lastBusinessId === input.businessId) ??
+    workers.find((worker) => getMetaBusinessIds(worker.metaJson ?? null).includes(input.businessId)) ??
+    workers[0] ??
+    null
+  );
+}
+
 export async function heartbeatSyncWorker(input: {
   workerId: string;
   instanceType: string;
@@ -193,7 +234,9 @@ export async function getSyncWorkerHealthSummary(input?: {
     workerInstances: Number(summary.worker_instances ?? 0),
     lastHeartbeatAt: normalizeTimestamp(summary.last_heartbeat_at),
     lastProgressHeartbeatAt: null,
-    workers: workerRows.map((row) => ({
+    workers: workerRows.map((row) => {
+      const metaJson = normalizeMetaJson(row.meta_json);
+      return {
       workerFreshnessState:
         String(row.status) === "stopped"
           ? ("stopped" as const)
@@ -211,11 +254,22 @@ export async function getSyncWorkerHealthSummary(input?: {
       lastHeartbeatAt: normalizeTimestamp(row.last_heartbeat_at),
       lastBusinessId: row.last_business_id ? String(row.last_business_id) : null,
       lastPartitionId: row.last_partition_id ? String(row.last_partition_id) : null,
-      metaJson:
-        row.meta_json && typeof row.meta_json === "object"
-          ? (row.meta_json as Record<string, unknown>)
+      lastConsumedBusinessId:
+        typeof metaJson?.currentBusinessId === "string" &&
+        metaJson.currentBusinessId.trim().length > 0
+          ? metaJson.currentBusinessId.trim()
+          : row.last_business_id
+            ? String(row.last_business_id)
+            : null,
+      lastConsumeOutcome:
+        typeof metaJson?.consumeOutcome === "string" ? metaJson.consumeOutcome : null,
+      lastConsumeFinishedAt:
+        typeof metaJson?.consumeFinishedAt === "string"
+          ? metaJson.consumeFinishedAt
           : null,
-    })),
+      metaJson,
+    };
+    }),
   };
 }
 
@@ -263,6 +317,11 @@ export async function getProviderWorkerHealthState(input: {
     runnerLeaseActive: Boolean(leaseHealth?.hasActiveLease),
     staleThresholdMs: input.staleThresholdMs,
   });
+  const matchingWorker = selectProviderWorkerForBusiness({
+    businessId: input.businessId,
+    activeLeaseOwner: leaseHealth?.activeLeaseOwner ?? null,
+    workers: health?.workers,
+  });
   return {
     providerScope: input.providerScope,
     workerHealthy: evaluated.workerHealthy,
@@ -272,10 +331,18 @@ export async function getProviderWorkerHealthState(input: {
     ownerWorkerId: leaseHealth?.activeLeaseOwner ?? null,
     lastHeartbeatAt: health?.lastHeartbeatAt ?? null,
     latestLeaseUpdatedAt: leaseHealth?.latestLeaseUpdatedAt ?? null,
-    workerMeta:
-      health?.workers.find((worker) => worker.workerId === (leaseHealth?.activeLeaseOwner ?? ""))?.metaJson ??
-      health?.workers[0]?.metaJson ??
-      null,
+    workerFreshnessState: matchingWorker?.workerFreshnessState ?? null,
+    currentBusinessId:
+      matchingWorker?.metaJson && typeof matchingWorker.metaJson.currentBusinessId === "string"
+        ? matchingWorker.metaJson.currentBusinessId
+        : matchingWorker?.lastConsumedBusinessId ?? null,
+    lastConsumedBusinessId: matchingWorker?.lastConsumedBusinessId ?? null,
+    consumeStage:
+      matchingWorker?.metaJson && typeof matchingWorker.metaJson.consumeStage === "string"
+        ? matchingWorker.metaJson.consumeStage
+        : null,
+    batchBusinessIds: getMetaBusinessIds(matchingWorker?.metaJson ?? null),
+    workerMeta: matchingWorker?.metaJson ?? null,
   };
 }
 

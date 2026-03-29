@@ -496,6 +496,11 @@ export async function getGoogleAdsWorkerSchedulingState(input: { businessId: str
       lastHeartbeatAt: new Date().toISOString(),
       latestLeaseUpdatedAt: new Date().toISOString(),
       ownerWorkerId: process.env.WORKER_INSTANCE_ID?.trim() ?? null,
+      workerFreshnessState: "online" as const,
+      currentBusinessId: null,
+      lastConsumedBusinessId: null,
+      consumeStage: null,
+      batchBusinessIds: [] as string[],
       workerMeta: null,
     };
   }
@@ -512,6 +517,11 @@ export async function getGoogleAdsWorkerSchedulingState(input: { businessId: str
     lastHeartbeatAt: state?.lastHeartbeatAt ?? null,
     latestLeaseUpdatedAt: state?.latestLeaseUpdatedAt ?? null,
     ownerWorkerId: state?.ownerWorkerId ?? null,
+    workerFreshnessState: state?.workerFreshnessState ?? null,
+    currentBusinessId: state?.currentBusinessId ?? null,
+    lastConsumedBusinessId: state?.lastConsumedBusinessId ?? null,
+    consumeStage: state?.consumeStage ?? null,
+    batchBusinessIds: state?.batchBusinessIds ?? [],
     workerMeta: state?.workerMeta ?? null,
   };
 }
@@ -532,6 +542,11 @@ async function getGoogleAdsIncidentPolicy(input: {
       runnerLeaseActive: false,
       lastHeartbeatAt: null,
       latestLeaseUpdatedAt: null,
+      workerFreshnessState: null,
+      currentBusinessId: null,
+      lastConsumedBusinessId: null,
+      consumeStage: null,
+      batchBusinessIds: [] as string[],
     })),
     input.queueHealth
       ? Promise.resolve(input.queueHealth)
