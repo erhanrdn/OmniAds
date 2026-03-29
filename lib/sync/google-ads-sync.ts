@@ -158,6 +158,10 @@ const GOOGLE_ADS_EXTENDED_CANARY_BURST_WORKER_LIMIT = envNumber(
   "GOOGLE_ADS_EXTENDED_CANARY_BURST_WORKER_LIMIT",
   1
 );
+const GOOGLE_ADS_RECENT_REPAIR_WORKER_LIMIT = envNumber(
+  "GOOGLE_ADS_RECENT_REPAIR_WORKER_LIMIT",
+  1
+);
 const GOOGLE_ADS_RECENT_EXTENDED_RECOVERY_DAYS = envNumber(
   "GOOGLE_ADS_RECENT_EXTENDED_RECOVERY_DAYS",
   14
@@ -340,14 +344,14 @@ export function getGoogleAdsExtendedRecoveryBlockReason(input: {
     (input.queueHealth?.extendedRecentLeasedPartitions ?? 0) === 0 &&
     (input.queueHealth?.maintenanceLeasedPartitions ?? 0) > 0
   ) {
-    return "maintenance_backlog_blocking_recent_extended";
+    return "maintenance_replay_pressure";
   }
   if (
     (input.queueHealth?.extendedRecentQueueDepth ?? 0) > 0 &&
     (input.queueHealth?.extendedRecentLeasedPartitions ?? 0) === 0 &&
     (input.queueHealth?.coreLeasedPartitions ?? 0) > 0
   ) {
-    return "core_runner_busy";
+    return "core_starvation";
   }
   if (
     (input.queueHealth?.extendedQueueDepth ?? 0) > 0 &&
@@ -356,6 +360,37 @@ export function getGoogleAdsExtendedRecoveryBlockReason(input: {
     return "queue_exists_without_eligible_lease";
   }
   return null;
+}
+
+export function shouldLeaseGoogleAdsRecentRepair(input: {
+  policy: ReturnType<typeof buildGoogleAdsLaneAdmissionPolicy> | null | undefined;
+  queueHealth?: Awaited<ReturnType<typeof getGoogleAdsQueueHealth>> | null;
+}) {
+  if (!input.policy || input.policy.lanePolicy.extendedRecent === "suspended") return false;
+  if ((input.queueHealth?.extendedRecentQueueDepth ?? 0) <= 0) return false;
+  return true;
+}
+
+function getGoogleAdsRecentRepairLeaseLimit(input: {
+  policy: ReturnType<typeof buildGoogleAdsLaneAdmissionPolicy> | null | undefined;
+}) {
+  if (!input.policy) return 0;
+  const baseLimit =
+    input.policy.extendedCanaryEligible && !GOOGLE_ADS_EXTENDED_REOPEN_GENERAL_ENABLED
+      ? GOOGLE_ADS_EXTENDED_CANARY_BURST_WORKER_LIMIT
+      : GOOGLE_ADS_RECENT_REPAIR_WORKER_LIMIT;
+  return Math.max(1, baseLimit);
+}
+
+function getGoogleAdsHistoricalLeaseLimit(input: {
+  policy: ReturnType<typeof buildGoogleAdsLaneAdmissionPolicy> | null | undefined;
+}) {
+  if (!input.policy) return 0;
+  const baseLimit =
+    input.policy.extendedCanaryEligible && !GOOGLE_ADS_EXTENDED_REOPEN_GENERAL_ENABLED
+      ? GOOGLE_ADS_EXTENDED_CANARY_BURST_WORKER_LIMIT
+      : GOOGLE_ADS_EXTENDED_WORKER_LIMIT;
+  return Math.max(1, baseLimit);
 }
 
 function isGoogleAdsRecentExtendedSource(source: string | null | undefined) {
@@ -1532,7 +1567,7 @@ async function enqueueMaintenancePartitions(businessId: string) {
         scope: "campaign_daily",
         startDate: addDaysToIsoDate(yesterday, -(GOOGLE_ADS_RECENT_MAINTENANCE_DAYS - 1)),
         endDate: today,
-        statuses: ["queued", "leased", "running"],
+        statuses: ["queued", "leased", "running", "failed"],
       }).catch(() => [])
     );
     for (const date of recentDates) {
@@ -2946,14 +2981,14 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
     runProgressGraceMinutes: GOOGLE_ADS_RUN_PROGRESS_GRACE_MINUTES,
   }).catch(() => null);
   const initialQueueHealth = await getGoogleAdsQueueHealth({ businessId }).catch(() => null);
-  const incidentPolicy = await getGoogleAdsIncidentPolicy({
+  const initialIncidentPolicy = await getGoogleAdsIncidentPolicy({
     businessId,
     queueHealth: initialQueueHealth,
   }).catch(() => null);
-  if (incidentPolicy) {
+  if (initialIncidentPolicy) {
     await compactGoogleAdsIncidentBacklog({
       businessId,
-      policy: incidentPolicy,
+      policy: initialIncidentPolicy,
     }).catch(() => null);
   }
 
@@ -2979,10 +3014,15 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
         message: error instanceof Error ? error.message : String(error),
       });
     });
-    const recentRepairPlan = incidentPolicy
+    const queueHealthAfterPlanning = await getGoogleAdsQueueHealth({ businessId }).catch(() => null);
+    const policyBeforeRecentRepair = await getGoogleAdsIncidentPolicy({
+      businessId,
+      queueHealth: queueHealthAfterPlanning,
+    }).catch(() => null);
+    const recentRepairPlan = policyBeforeRecentRepair
       ? await enqueueGoogleAdsRecentRepairPartitions({
           businessId,
-          policy: incidentPolicy,
+          policy: policyBeforeRecentRepair,
         }).catch(() => ({
           queuedRecent: 0,
           gapCountsByScope: Object.fromEntries(
@@ -2996,10 +3036,15 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
           ) as Record<GoogleAdsWarehouseScope, number>,
         };
     void recentRepairPlan;
-    if (incidentPolicy) {
+    const queueHealthAfterRecentPlanning = await getGoogleAdsQueueHealth({ businessId }).catch(() => null);
+    const policyBeforeHistoricalRecovery = await getGoogleAdsIncidentPolicy({
+      businessId,
+      queueHealth: queueHealthAfterRecentPlanning,
+    }).catch(() => null);
+    if (policyBeforeHistoricalRecovery) {
       await enqueueExtendedRecoveryPartitions({
         businessId,
-        policy: incidentPolicy,
+        policy: policyBeforeHistoricalRecovery,
       }).catch(() => ({ queuedHistorical: 0 }));
     }
 
@@ -3010,8 +3055,36 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
       limit: GOOGLE_ADS_CORE_WORKER_LIMIT,
       leaseMinutes: GOOGLE_ADS_PARTITION_LEASE_MINUTES,
     }).catch(() => []);
+    const queueHealthAfterCore = await getGoogleAdsQueueHealth({ businessId }).catch(() => null);
+    const livePolicyAfterCore = await getGoogleAdsIncidentPolicy({
+      businessId,
+      queueHealth: queueHealthAfterCore,
+    }).catch(() => null);
+    let recentExtendedPartitions: typeof partitions = [];
+    if (
+      shouldLeaseGoogleAdsRecentRepair({
+        policy: livePolicyAfterCore,
+        queueHealth: queueHealthAfterCore,
+      })
+    ) {
+      recentExtendedPartitions = await leaseGoogleAdsSyncPartitions({
+        businessId,
+        lane: "extended",
+        workerId,
+        limit: getGoogleAdsRecentRepairLeaseLimit({ policy: livePolicyAfterCore }),
+        leaseMinutes: GOOGLE_ADS_PARTITION_LEASE_MINUTES,
+        sourceFilter: "recent_only",
+      }).catch(() => []);
+    }
+    partitions = [...partitions, ...recentExtendedPartitions];
+
+    const queueHealthAfterRecentLease = await getGoogleAdsQueueHealth({ businessId }).catch(() => null);
+    const livePolicyAfterRecentLease = await getGoogleAdsIncidentPolicy({
+      businessId,
+      queueHealth: queueHealthAfterRecentLease,
+    }).catch(() => null);
     let maintenancePartitions: typeof partitions = [];
-    if (incidentPolicy?.lanePolicy.maintenance !== "suspended") {
+    if (livePolicyAfterRecentLease?.lanePolicy.maintenance !== "suspended") {
       maintenancePartitions = await leaseGoogleAdsSyncPartitions({
         businessId,
         lane: "maintenance",
@@ -3026,39 +3099,7 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
       businessId,
       queueHealth: queueHealthAfterMaintenance,
     }).catch(() => null);
-    const canInterleaveExtended =
-      partitions.every((partition) => partition.lane !== "core") &&
-      !livePolicyAfterMaintenance?.suspendExtended &&
-      (queueHealthAfterMaintenance?.extendedQueueDepth ?? 0) > 0;
-    if (canInterleaveExtended) {
-      const interleavedExtendedPartitions = await leaseGoogleAdsSyncPartitions({
-        businessId,
-        lane: "extended",
-        workerId,
-        limit:
-          livePolicyAfterMaintenance?.extendedCanaryEligible &&
-          !GOOGLE_ADS_EXTENDED_REOPEN_GENERAL_ENABLED
-            ? GOOGLE_ADS_EXTENDED_CANARY_BURST_WORKER_LIMIT
-            : GOOGLE_ADS_EXTENDED_BURST_WORKER_LIMIT,
-        leaseMinutes: GOOGLE_ADS_PARTITION_LEASE_MINUTES,
-        sourceFilter:
-          livePolicyAfterMaintenance?.lanePolicy.extendedHistorical === "suspended"
-            ? "recent_only"
-            : "all",
-      }).catch(() => []);
-      partitions = [...partitions, ...interleavedExtendedPartitions];
-      if (
-        interleavedExtendedPartitions.length > 0 &&
-        livePolicyAfterMaintenance?.recoveryMode === "closed"
-      ) {
-        await enterProviderGlobalCircuitBreakerRecoveryState({
-          provider: "google",
-          businessId,
-          message: "Google Ads extended sync is reopening in canary half-open mode.",
-          cooldownMs: GOOGLE_ADS_CIRCUIT_BREAKER_BASE_MINUTES * 60_000,
-        }).catch(() => null);
-      }
-    }
+
     if (partitions.length === 0) {
       const queueHealth = queueHealthAfterMaintenance;
       const livePolicy = livePolicyAfterMaintenance;
@@ -3067,11 +3108,7 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
           businessId,
           lane: "extended",
           workerId,
-          limit:
-            livePolicy?.extendedCanaryEligible &&
-            !GOOGLE_ADS_EXTENDED_REOPEN_GENERAL_ENABLED
-              ? GOOGLE_ADS_EXTENDED_CANARY_BURST_WORKER_LIMIT
-              : GOOGLE_ADS_EXTENDED_WORKER_LIMIT,
+          limit: getGoogleAdsHistoricalLeaseLimit({ policy: livePolicy }),
           leaseMinutes: GOOGLE_ADS_PARTITION_LEASE_MINUTES,
           sourceFilter:
             livePolicy?.lanePolicy.extendedHistorical === "suspended"
@@ -3114,29 +3151,36 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
     }
 
     let postBatchQueueHealth = await getGoogleAdsQueueHealth({ businessId }).catch(() => null);
+    let livePolicyAfterBatch = await getGoogleAdsIncidentPolicy({
+      businessId,
+      queueHealth: postBatchQueueHealth,
+    }).catch(() => null);
     const shouldBurstExtended =
       partitions.every((partition) => partition.lane !== "extended") &&
       (postBatchQueueHealth?.extendedQueueDepth ?? 0) > 0 &&
       (postBatchQueueHealth?.coreQueueDepth ?? 0) <= GOOGLE_ADS_EXTENDED_CORE_BACKLOG_THRESHOLD &&
-      (postBatchQueueHealth?.coreLeasedPartitions ?? 0) === 0 &&
       (postBatchQueueHealth?.maintenanceLeasedPartitions ?? 0) === 0 &&
-      !incidentPolicy?.suspendExtended;
+      !livePolicyAfterBatch?.suspendExtended;
 
     if (shouldBurstExtended) {
+      const burstSourceFilter =
+        shouldLeaseGoogleAdsRecentRepair({
+          policy: livePolicyAfterBatch,
+          queueHealth: postBatchQueueHealth,
+        }) ||
+        livePolicyAfterBatch?.lanePolicy.extendedHistorical === "suspended"
+          ? "recent_only"
+          : "all";
       const extendedPartitions = await leaseGoogleAdsSyncPartitions({
         businessId,
         lane: "extended",
         workerId,
         limit:
-          incidentPolicy?.extendedCanaryEligible &&
-          !GOOGLE_ADS_EXTENDED_REOPEN_GENERAL_ENABLED
-            ? GOOGLE_ADS_EXTENDED_CANARY_BURST_WORKER_LIMIT
+          burstSourceFilter === "recent_only"
+            ? getGoogleAdsRecentRepairLeaseLimit({ policy: livePolicyAfterBatch })
             : GOOGLE_ADS_EXTENDED_BURST_WORKER_LIMIT,
         leaseMinutes: GOOGLE_ADS_PARTITION_LEASE_MINUTES,
-        sourceFilter:
-          incidentPolicy?.lanePolicy.extendedHistorical === "suspended"
-            ? "recent_only"
-            : "all",
+        sourceFilter: burstSourceFilter,
       }).catch(() => []);
 
       attempted += extendedPartitions.length;
@@ -3159,6 +3203,10 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
       }
 
       postBatchQueueHealth = await getGoogleAdsQueueHealth({ businessId }).catch(() => null);
+      livePolicyAfterBatch = await getGoogleAdsIncidentPolicy({
+        businessId,
+        queueHealth: postBatchQueueHealth,
+      }).catch(() => null);
     }
 
     await refreshGoogleAdsSyncStateForBusiness({ businessId }).catch((error) => {

@@ -4,6 +4,7 @@ import {
   getGoogleAdsExtendedRecoveryBlockReason,
   buildGoogleAdsWarehouseFetchPlan,
   evaluateGoogleAdsWorkerSchedulingState,
+  shouldLeaseGoogleAdsRecentRepair,
 } from "@/lib/sync/google-ads-sync";
 
 describe("buildGoogleAdsLaneAdmissionPolicy", () => {
@@ -246,6 +247,164 @@ describe("getGoogleAdsExtendedRecoveryBlockReason", () => {
     });
 
     expect(reason).toBe("queue_exists_without_eligible_lease");
+  });
+
+  it("surfaces core starvation when recent extended work is queued behind core leases", () => {
+    const policy = buildGoogleAdsLaneAdmissionPolicy({
+      safeModeEnabled: false,
+      workerHealthy: true,
+      workerCapacityAvailable: true,
+      breakerOpen: false,
+      queueDepth: 20,
+      extendedQueueDepth: 12,
+      extendedBudgetAllowed: true,
+      extendedCanaryEligible: true,
+      recoveryMode: "closed",
+    });
+
+    const reason = getGoogleAdsExtendedRecoveryBlockReason({
+      policy,
+      queueHealth: {
+        queueDepth: 20,
+        leasedPartitions: 1,
+        coreQueueDepth: 2,
+        coreLeasedPartitions: 1,
+        extendedQueueDepth: 12,
+        extendedLeasedPartitions: 0,
+        extendedRecentQueueDepth: 12,
+        extendedRecentLeasedPartitions: 0,
+        extendedHistoricalQueueDepth: 0,
+        extendedHistoricalLeasedPartitions: 0,
+        maintenanceQueueDepth: 0,
+        maintenanceLeasedPartitions: 0,
+        deadLetterPartitions: 0,
+        oldestQueuedPartition: "2026-03-20",
+        latestCoreActivityAt: null,
+        latestExtendedActivityAt: null,
+        latestMaintenanceActivityAt: null,
+      },
+    });
+
+    expect(reason).toBe("core_starvation");
+  });
+
+  it("surfaces maintenance replay pressure when recent extended work is queued behind maintenance leases", () => {
+    const policy = buildGoogleAdsLaneAdmissionPolicy({
+      safeModeEnabled: false,
+      workerHealthy: true,
+      workerCapacityAvailable: true,
+      breakerOpen: false,
+      queueDepth: 20,
+      extendedQueueDepth: 12,
+      extendedBudgetAllowed: true,
+      extendedCanaryEligible: true,
+      recoveryMode: "closed",
+    });
+
+    const reason = getGoogleAdsExtendedRecoveryBlockReason({
+      policy,
+      queueHealth: {
+        queueDepth: 20,
+        leasedPartitions: 1,
+        coreQueueDepth: 0,
+        coreLeasedPartitions: 0,
+        extendedQueueDepth: 12,
+        extendedLeasedPartitions: 0,
+        extendedRecentQueueDepth: 12,
+        extendedRecentLeasedPartitions: 0,
+        extendedHistoricalQueueDepth: 0,
+        extendedHistoricalLeasedPartitions: 0,
+        maintenanceQueueDepth: 4,
+        maintenanceLeasedPartitions: 1,
+        deadLetterPartitions: 0,
+        oldestQueuedPartition: "2026-03-20",
+        latestCoreActivityAt: null,
+        latestExtendedActivityAt: null,
+        latestMaintenanceActivityAt: null,
+      },
+    });
+
+    expect(reason).toBe("maintenance_replay_pressure");
+  });
+});
+
+describe("shouldLeaseGoogleAdsRecentRepair", () => {
+  it("allows bounded recent repair leasing even when core work still exists", () => {
+    const policy = buildGoogleAdsLaneAdmissionPolicy({
+      safeModeEnabled: false,
+      workerHealthy: true,
+      workerCapacityAvailable: true,
+      breakerOpen: false,
+      queueDepth: 25,
+      extendedQueueDepth: 8,
+      extendedBudgetAllowed: true,
+      extendedCanaryEligible: true,
+      recoveryMode: "closed",
+    });
+
+    expect(
+      shouldLeaseGoogleAdsRecentRepair({
+        policy,
+        queueHealth: {
+          queueDepth: 25,
+          leasedPartitions: 2,
+          coreQueueDepth: 4,
+          coreLeasedPartitions: 2,
+          extendedQueueDepth: 8,
+          extendedLeasedPartitions: 0,
+          extendedRecentQueueDepth: 8,
+          extendedRecentLeasedPartitions: 0,
+          extendedHistoricalQueueDepth: 0,
+          extendedHistoricalLeasedPartitions: 0,
+          maintenanceQueueDepth: 3,
+          maintenanceLeasedPartitions: 0,
+          deadLetterPartitions: 0,
+          oldestQueuedPartition: "2026-03-25",
+          latestCoreActivityAt: null,
+          latestExtendedActivityAt: null,
+          latestMaintenanceActivityAt: null,
+        },
+      })
+    ).toBe(true);
+  });
+
+  it("keeps recent repair blocked when extended recent is suspended", () => {
+    const policy = buildGoogleAdsLaneAdmissionPolicy({
+      safeModeEnabled: false,
+      workerHealthy: true,
+      workerCapacityAvailable: true,
+      breakerOpen: false,
+      queueDepth: 25,
+      extendedQueueDepth: 8,
+      extendedBudgetAllowed: false,
+      extendedCanaryEligible: true,
+      recoveryMode: "closed",
+    });
+
+    expect(
+      shouldLeaseGoogleAdsRecentRepair({
+        policy,
+        queueHealth: {
+          queueDepth: 25,
+          leasedPartitions: 0,
+          coreQueueDepth: 0,
+          coreLeasedPartitions: 0,
+          extendedQueueDepth: 8,
+          extendedLeasedPartitions: 0,
+          extendedRecentQueueDepth: 8,
+          extendedRecentLeasedPartitions: 0,
+          extendedHistoricalQueueDepth: 0,
+          extendedHistoricalLeasedPartitions: 0,
+          maintenanceQueueDepth: 0,
+          maintenanceLeasedPartitions: 0,
+          deadLetterPartitions: 0,
+          oldestQueuedPartition: "2026-03-25",
+          latestCoreActivityAt: null,
+          latestExtendedActivityAt: null,
+          latestMaintenanceActivityAt: null,
+        },
+      })
+    ).toBe(false);
   });
 });
 
