@@ -150,6 +150,10 @@ export interface GoogleAdsStatusResponse {
     coreLeasedPartitions?: number;
     extendedQueueDepth?: number;
     extendedLeasedPartitions?: number;
+    extendedRecentQueueDepth?: number;
+    extendedRecentLeasedPartitions?: number;
+    extendedHistoricalQueueDepth?: number;
+    extendedHistoricalLeasedPartitions?: number;
     maintenanceQueueDepth?: number;
     maintenanceLeasedPartitions?: number;
     deadLetterPartitions?: number;
@@ -167,6 +171,7 @@ export interface GoogleAdsStatusResponse {
     canaryEligible: boolean;
     quotaPressure: number;
     breakerState: "open" | "half_open" | "closed";
+    extendedRecoveryBlockReason?: string | null;
   } | null;
   panel?: {
     coreUsable: boolean;
@@ -179,6 +184,7 @@ export interface GoogleAdsStatusResponse {
   extendedRecoveryState?: "core_only" | "extended_recovery" | "extended_normal" | null;
   recentExtendedReady?: boolean;
   historicalExtendedReady?: boolean;
+  extendedRecentReadyThroughDate?: string | null;
   rangeCompletionBySurface?: Record<
     string,
     {

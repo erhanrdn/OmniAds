@@ -100,6 +100,12 @@ interface SyncHealthPayload {
     recentRangeTotalDays?: number;
     recentExtendedReady?: boolean;
     historicalExtendedReady?: boolean;
+    extendedRecentQueueDepth?: number;
+    extendedRecentLeasedPartitions?: number;
+    extendedHistoricalQueueDepth?: number;
+    extendedHistoricalLeasedPartitions?: number;
+    extendedRecoveryBlockReason?: string | null;
+    extendedRecentReadyThroughDate?: string | null;
   }>;
   metaBusinesses?: Array<{
     businessId: string;
@@ -176,6 +182,21 @@ function formatIssueType(issue: SyncIssueRow) {
   if (issue.reportType === "retryable_failed_backlog") return "retryable failed backlog";
   if (issue.reportType === "stale_checkpoint") return "stale checkpoint";
   return issue.reportType;
+}
+
+function getGoogleAdsBusinessSignals(
+  business: NonNullable<SyncHealthPayload["googleAdsBusinesses"]>[number]
+) {
+  const signals: string[] = [];
+  if (business.circuitBreakerOpen) signals.push("Circuit breaker open");
+  if ((business.extendedRecentQueueDepth ?? 0) > 0 && (business.extendedRecentLeasedPartitions ?? 0) === 0) {
+    signals.push("Recent extended not leasing");
+  }
+  if ((business.extendedHistoricalQueueDepth ?? 0) > 0 && business.recoveryMode !== "closed") {
+    signals.push("Historical recovery suspended");
+  }
+  if (business.extendedRecoveryBlockReason) signals.push(`Block: ${business.extendedRecoveryBlockReason}`);
+  return signals;
 }
 
 const SYNC_HELP: Record<string, string> = {
@@ -478,14 +499,32 @@ export default function AdminSyncHealthPage() {
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-gray-900">{business.businessName}</p>
+                      {getGoogleAdsBusinessSignals(business).length > 0 ? (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {getGoogleAdsBusinessSignals(business).map((signal) => (
+                            <span
+                              key={signal}
+                              className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-800"
+                            >
+                              {signal}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
                       <p className="mt-1 text-xs text-gray-500">
                         Queue {business.queueDepth} • Leased {business.leasedPartitions} • Dead-letter {business.deadLetterPartitions}
+                      </p>
+                      <p className="mt-1 text-xs text-gray-500">
+                        Extended recent queued {business.extendedRecentQueueDepth ?? 0} • leased {business.extendedRecentLeasedPartitions ?? 0} • historical queued {business.extendedHistoricalQueueDepth ?? 0} • leased {business.extendedHistoricalLeasedPartitions ?? 0}
                       </p>
                       <p className="mt-1 text-xs text-gray-500">
                         Campaign {business.campaignCompletedDays} • Search terms {business.searchTermCompletedDays} • Products {business.productCompletedDays} • Assets {business.assetCompletedDays ?? 0}
                       </p>
                       <p className="mt-1 text-xs text-gray-500">
                         Recent frontier: Search {business.recentSearchTermCompletedDays ?? 0}/{business.recentRangeTotalDays ?? 14} • Products {business.recentProductCompletedDays ?? 0}/{business.recentRangeTotalDays ?? 14} • Assets {business.recentAssetCompletedDays ?? 0}/{business.recentRangeTotalDays ?? 14}
+                      </p>
+                      <p className="mt-1 text-xs text-gray-500">
+                        Extended recent ready-through {formatDateTime(business.extendedRecentReadyThroughDate ?? null)} • Block reason {business.extendedRecoveryBlockReason ?? "—"}
                       </p>
                       <p className="mt-1 text-xs text-gray-500">
                         Checkpoint {business.latestCheckpointPhase ?? "—"} • Last page {business.lastSuccessfulPageIndex ?? "—"} • Resume {business.resumeCapable ? "yes" : "no"}

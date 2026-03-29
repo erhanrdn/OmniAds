@@ -34,7 +34,12 @@ import {
   getProviderCircuitBreakerRecoveryState,
   getProviderQuotaBudgetState,
 } from "@/lib/provider-request-governance";
-import { isGoogleAdsExtendedCanaryBusiness, isGoogleAdsIncidentSafeModeEnabled } from "@/lib/sync/google-ads-sync";
+import {
+  buildGoogleAdsLaneAdmissionPolicy,
+  getGoogleAdsExtendedRecoveryBlockReason,
+  isGoogleAdsExtendedCanaryBusiness,
+  isGoogleAdsIncidentSafeModeEnabled,
+} from "@/lib/sync/google-ads-sync";
 import type {
   GoogleAdsExtendedRangeCompletion,
   GoogleAdsPanelRecoveryMode,
@@ -897,6 +902,30 @@ export async function GET(request: NextRequest) {
       : historicalExtendedReady
         ? "extended_normal"
         : "extended_recovery";
+  const extendedRecentReadyThroughDate = Object.values(rangeCompletionBySurface)
+    .map((surface) => surface.recent.readyThroughDate)
+    .filter((value): value is string => Boolean(value))
+    .sort((a, b) => a.localeCompare(b))[0] ?? null;
+  const extendedRecoveryBlockReason = getGoogleAdsExtendedRecoveryBlockReason({
+    policy: buildGoogleAdsLaneAdmissionPolicy({
+      safeModeEnabled: currentMode === "safe_mode",
+      workerHealthy:
+        runningJobs > 0 ||
+        (queueHealth?.leasedPartitions ?? 0) > 0 ||
+        (queueHealth?.extendedRecentLeasedPartitions ?? 0) > 0,
+      workerCapacityAvailable: true,
+      breakerOpen: breakerState === "open",
+      queueDepth: queueHealth?.queueDepth ?? 0,
+      extendedQueueDepth: queueHealth?.extendedQueueDepth ?? 0,
+      maintenanceQueueDepth: queueHealth?.maintenanceQueueDepth ?? 0,
+      quotaPressure: quotaBudgetState?.pressure ?? 0,
+      maintenanceBudgetAllowed: quotaBudgetState?.maintenanceAllowed ?? true,
+      extendedBudgetAllowed: quotaBudgetState?.extendedAllowed ?? false,
+      extendedCanaryEligible: canaryEligible || currentMode === "general_reopen",
+      recoveryMode: breakerState,
+    }),
+    queueHealth,
+  });
 
   return NextResponse.json({
     state: decideGoogleAdsStatusState({
@@ -1003,6 +1032,10 @@ export async function GET(request: NextRequest) {
       coreLeasedPartitions: queueHealth?.coreLeasedPartitions ?? 0,
       extendedQueueDepth: queueHealth?.extendedQueueDepth ?? 0,
       extendedLeasedPartitions: queueHealth?.extendedLeasedPartitions ?? 0,
+      extendedRecentQueueDepth: queueHealth?.extendedRecentQueueDepth ?? 0,
+      extendedRecentLeasedPartitions: queueHealth?.extendedRecentLeasedPartitions ?? 0,
+      extendedHistoricalQueueDepth: queueHealth?.extendedHistoricalQueueDepth ?? 0,
+      extendedHistoricalLeasedPartitions: queueHealth?.extendedHistoricalLeasedPartitions ?? 0,
       maintenanceQueueDepth: queueHealth?.maintenanceQueueDepth ?? 0,
       maintenanceLeasedPartitions: queueHealth?.maintenanceLeasedPartitions ?? 0,
       deadLetterPartitions: queueHealth?.deadLetterPartitions ?? 0,
@@ -1014,6 +1047,7 @@ export async function GET(request: NextRequest) {
       canaryEligible,
       quotaPressure: quotaBudgetState?.pressure ?? 0,
       breakerState,
+      extendedRecoveryBlockReason,
     },
     panel: {
       coreUsable,
@@ -1026,6 +1060,7 @@ export async function GET(request: NextRequest) {
     extendedRecoveryState,
     recentExtendedReady,
     historicalExtendedReady,
+    extendedRecentReadyThroughDate,
     rangeCompletionBySurface,
     latestSync: effectiveLatestSync
       ? {

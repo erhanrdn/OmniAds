@@ -1967,6 +1967,26 @@ export async function getGoogleAdsQueueHealth(input: { businessId: string }) {
       COUNT(*) FILTER (WHERE lane = 'core' AND status IN ('leased', 'running')) AS core_leased_partitions,
       COUNT(*) FILTER (WHERE lane = 'extended' AND status = 'queued') AS extended_queue_depth,
       COUNT(*) FILTER (WHERE lane = 'extended' AND status IN ('leased', 'running')) AS extended_leased_partitions,
+      COUNT(*) FILTER (
+        WHERE lane = 'extended'
+          AND source IN ('selected_range', 'today', 'recent', 'core_success', 'recent_recovery')
+          AND status = 'queued'
+      ) AS extended_recent_queue_depth,
+      COUNT(*) FILTER (
+        WHERE lane = 'extended'
+          AND source IN ('selected_range', 'today', 'recent', 'core_success', 'recent_recovery')
+          AND status IN ('leased', 'running')
+      ) AS extended_recent_leased_partitions,
+      COUNT(*) FILTER (
+        WHERE lane = 'extended'
+          AND source IN ('historical', 'historical_recovery')
+          AND status = 'queued'
+      ) AS extended_historical_queue_depth,
+      COUNT(*) FILTER (
+        WHERE lane = 'extended'
+          AND source IN ('historical', 'historical_recovery')
+          AND status IN ('leased', 'running')
+      ) AS extended_historical_leased_partitions,
       COUNT(*) FILTER (WHERE lane = 'maintenance' AND status = 'queued') AS maintenance_queue_depth,
       COUNT(*) FILTER (WHERE lane = 'maintenance' AND status IN ('leased', 'running')) AS maintenance_leased_partitions,
       COUNT(*) FILTER (WHERE status = 'dead_letter') AS dead_letter_partitions,
@@ -1985,6 +2005,10 @@ export async function getGoogleAdsQueueHealth(input: { businessId: string }) {
     coreLeasedPartitions: toNumber(row.core_leased_partitions),
     extendedQueueDepth: toNumber(row.extended_queue_depth),
     extendedLeasedPartitions: toNumber(row.extended_leased_partitions),
+    extendedRecentQueueDepth: toNumber(row.extended_recent_queue_depth),
+    extendedRecentLeasedPartitions: toNumber(row.extended_recent_leased_partitions),
+    extendedHistoricalQueueDepth: toNumber(row.extended_historical_queue_depth),
+    extendedHistoricalLeasedPartitions: toNumber(row.extended_historical_leased_partitions),
     maintenanceQueueDepth: toNumber(row.maintenance_queue_depth),
     maintenanceLeasedPartitions: toNumber(row.maintenance_leased_partitions),
     deadLetterPartitions: toNumber(row.dead_letter_partitions),

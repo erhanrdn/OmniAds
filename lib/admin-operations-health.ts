@@ -124,6 +124,12 @@ export interface AdminSyncHealthPayload {
     recentRangeTotalDays?: number;
     recentExtendedReady?: boolean;
     historicalExtendedReady?: boolean;
+    extendedRecentQueueDepth?: number;
+    extendedRecentLeasedPartitions?: number;
+    extendedHistoricalQueueDepth?: number;
+    extendedHistoricalLeasedPartitions?: number;
+    extendedRecoveryBlockReason?: string | null;
+    extendedRecentReadyThroughDate?: string | null;
   }>;
   metaBusinesses?: Array<{
     businessId: string;
@@ -271,6 +277,11 @@ interface RawGoogleAdsHealthRow {
   recent_product_completed_days?: number | string | null;
   recent_asset_completed_days?: number | string | null;
   recent_range_total_days?: number | string | null;
+  extended_recent_queue_depth?: number | string | null;
+  extended_recent_leased_partitions?: number | string | null;
+  extended_historical_queue_depth?: number | string | null;
+  extended_historical_leased_partitions?: number | string | null;
+  extended_recent_ready_through_date?: string | null;
 }
 
 interface RawMetaHealthRow {
@@ -569,6 +580,10 @@ export function buildAdminSyncHealth(input: {
     const recentSearchTermCompletedDays = Number(row.recent_search_term_completed_days ?? 0);
     const recentProductCompletedDays = Number(row.recent_product_completed_days ?? 0);
     const recentAssetCompletedDays = Number(row.recent_asset_completed_days ?? 0);
+    const extendedRecentQueueDepth = Number(row.extended_recent_queue_depth ?? 0);
+    const extendedRecentLeasedPartitions = Number(row.extended_recent_leased_partitions ?? 0);
+    const extendedHistoricalQueueDepth = Number(row.extended_historical_queue_depth ?? 0);
+    const extendedHistoricalLeasedPartitions = Number(row.extended_historical_leased_partitions ?? 0);
     const recoveryMode =
       circuitBreakerOpen
         ? "open"
@@ -596,6 +611,14 @@ export function buildAdminSyncHealth(input: {
       assetCompletedDays >= 365;
     const googleProgressHeartbeat =
       row.latest_progress_heartbeat_at ?? row.latest_checkpoint_updated_at ?? null;
+    const extendedRecoveryBlockReason =
+      circuitBreakerOpen
+        ? "circuit_breaker_open"
+        : extendedRecentQueueDepth > 0 && extendedRecentLeasedPartitions === 0 && queueDepth > 0
+          ? "recent_extended_not_leasing"
+          : extendedHistoricalQueueDepth > 0 && recoveryMode !== "closed"
+            ? "historical_recovery_suspended"
+            : null;
 
     googleAdsBusinesses.push({
       businessId: row.business_id,
@@ -640,6 +663,12 @@ export function buildAdminSyncHealth(input: {
       recentRangeTotalDays,
       recentExtendedReady,
       historicalExtendedReady,
+      extendedRecentQueueDepth,
+      extendedRecentLeasedPartitions,
+      extendedHistoricalQueueDepth,
+      extendedHistoricalLeasedPartitions,
+      extendedRecoveryBlockReason,
+      extendedRecentReadyThroughDate: row.extended_recent_ready_through_date ?? null,
     });
 
     if (
@@ -1297,6 +1326,27 @@ async function readGoogleAdsHealthRows() {
       COALESCE(recent.recent_product_completed_days, 0) AS recent_product_completed_days,
       COALESCE(recent.recent_asset_completed_days, 0) AS recent_asset_completed_days,
       COALESCE(recent.recent_range_total_days, 14) AS recent_range_total_days,
+      COUNT(*) FILTER (
+        WHERE partition.lane = 'extended'
+          AND partition.source IN ('selected_range', 'today', 'recent', 'core_success', 'recent_recovery')
+          AND partition.status = 'queued'
+      ) AS extended_recent_queue_depth,
+      COUNT(*) FILTER (
+        WHERE partition.lane = 'extended'
+          AND partition.source IN ('selected_range', 'today', 'recent', 'core_success', 'recent_recovery')
+          AND partition.status IN ('leased', 'running')
+      ) AS extended_recent_leased_partitions,
+      COUNT(*) FILTER (
+        WHERE partition.lane = 'extended'
+          AND partition.source IN ('historical', 'historical_recovery')
+          AND partition.status = 'queued'
+      ) AS extended_historical_queue_depth,
+      COUNT(*) FILTER (
+        WHERE partition.lane = 'extended'
+          AND partition.source IN ('historical', 'historical_recovery')
+          AND partition.status IN ('leased', 'running')
+      ) AS extended_historical_leased_partitions,
+      recent.extended_recent_ready_through_date AS extended_recent_ready_through_date,
       reclaim.reclaim_candidate_count,
       reclaim.last_reclaim_reason
     FROM google_ads_sync_partitions partition
@@ -1358,6 +1408,9 @@ async function readGoogleAdsHealthRows() {
         COUNT(DISTINCT date) FILTER (WHERE scope = 'search_term_daily') AS recent_search_term_completed_days,
         COUNT(DISTINCT date) FILTER (WHERE scope = 'product_daily') AS recent_product_completed_days,
         COUNT(DISTINCT date) FILTER (WHERE scope = 'asset_daily') AS recent_asset_completed_days,
+        MIN(date) FILTER (
+          WHERE scope IN ('search_term_daily', 'product_daily', 'asset_daily')
+        )::text AS extended_recent_ready_through_date,
         14::int AS recent_range_total_days
       FROM (
         SELECT 'search_term_daily'::text AS scope, date
@@ -1408,6 +1461,7 @@ async function readGoogleAdsHealthRows() {
       , recent.recent_product_completed_days
       , recent.recent_asset_completed_days
       , recent.recent_range_total_days
+      , recent.extended_recent_ready_through_date
       , reclaim.reclaim_candidate_count
       , reclaim.last_reclaim_reason
     HAVING COUNT(*) > 0
