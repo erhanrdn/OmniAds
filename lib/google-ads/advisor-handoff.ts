@@ -92,10 +92,18 @@ export function decorateAdvisorRecommendationsForExecution(input: {
     String(value ?? "")
       .toLowerCase()
       .trim();
+  const labelForMutateActionType = (value: string | null | undefined) => {
+    if (value === "adjust_shared_budget") return "Adjust shared budget";
+    if (value === "adjust_campaign_budget") return "Adjust campaign budget";
+    if (value === "adjust_portfolio_target") return "Adjust portfolio target";
+    return String(value ?? "mutate");
+  };
   const stabilizationHoldMs = 48 * 60 * 60 * 1000;
   const minimumTrustObservations = (mutateActionType: string) =>
     mutateActionType === "adjust_campaign_budget"
       ? 6
+      : mutateActionType === "adjust_portfolio_target"
+        ? 6
       : mutateActionType === "pause_asset"
         ? 4
         : 3;
@@ -426,6 +434,29 @@ export function decorateAdvisorRecommendationsForExecution(input: {
       .reduce((sum, row) => sum + Number(row.clicks ?? 0), 0);
   };
 
+  const dependencyStabilizationWindowMs = (dependency: GoogleRecommendation) => {
+    if (dependency.type === "creative_asset_deployment") {
+      return 24 * 60 * 60 * 1000;
+    }
+    if (dependency.type === "query_governance") {
+      const dependencyCampaignIds = new Set(
+        [
+          ...(dependency.affectedCampaignIds ?? []),
+          dependency.level === "campaign" && dependency.entityId ? dependency.entityId : null,
+        ]
+          .filter(Boolean)
+          .map((value) => String(value))
+      );
+      const affectedImpressions = (input.selectedSearchTerms ?? [])
+        .filter((row) => dependencyCampaignIds.has(String(row.campaignId ?? "")))
+        .reduce((sum, row) => sum + Number(row.impressions ?? 0), 0);
+      if (affectedImpressions < 1000) return 24 * 60 * 60 * 1000;
+      if (affectedImpressions <= 5000) return 48 * 60 * 60 * 1000;
+      return 72 * 60 * 60 * 1000;
+    }
+    return stabilizationHoldMs;
+  };
+
   const dependencyState = (recommendation: GoogleRecommendation) => {
     const dependencies = (recommendation.dependsOnRecommendationIds ?? [])
       .map((dependencyId) => input.recommendations.find((entry) => entry.id === dependencyId))
@@ -449,7 +480,7 @@ export function decorateAdvisorRecommendationsForExecution(input: {
       if (
         dependency.outcomeVerdict === "degraded" &&
         dependency.executedAt &&
-        now - new Date(dependency.executedAt).getTime() >= stabilizationHoldMs
+        now - new Date(dependency.executedAt).getTime() >= dependencyStabilizationWindowMs(dependency)
       ) {
         readiness = "done_unverified";
         holdUntil = new Date(now + 24 * 60 * 60 * 1000).toISOString();
@@ -465,9 +496,10 @@ export function decorateAdvisorRecommendationsForExecution(input: {
       if (completedAt) {
         const completedTs = new Date(completedAt).getTime();
         const trafficReady = postDependencyTraffic(recommendation) >= 100;
-        if (Number.isFinite(completedTs) && (now - completedTs < stabilizationHoldMs || !trafficReady)) {
+        const dependencyWindowMs = dependencyStabilizationWindowMs(dependency);
+        if (Number.isFinite(completedTs) && (now - completedTs < dependencyWindowMs || !trafficReady)) {
           readiness = "done_unverified";
-          const nextHold = new Date(completedTs + stabilizationHoldMs).toISOString();
+          const nextHold = new Date(completedTs + dependencyWindowMs).toISOString();
           if (!holdUntil) {
             holdUntil = nextHold;
           } else if (Date.parse(nextHold) > Date.parse(holdUntil)) {
@@ -551,15 +583,27 @@ export function decorateAdvisorRecommendationsForExecution(input: {
   };
 
   const sharedBudgetRollbackWindowMs = 72 * 60 * 60 * 1000;
-  const maxGovernedSharedBudgetEntities = 5;
-  const maxDirectlyAdjustedCampaigns = 4;
+  const portfolioTargetRollbackWindowMs = 72 * 60 * 60 * 1000;
+  const maxGovernedSharedBudgetEntities = 10;
+  const maxSequentialSharedBudgetEntities = 7;
+  const maxDirectlyAdjustedCampaigns = 10;
   const maxSharedBudgetDeltaPercent = 15;
+  const maxMixedGovernanceSharedBudgetOverlapPercent = 30;
+  const maxSequentialSharedBudgetOverlapPercent = 20;
+  const maxGovernedPortfolioEntities = 10;
+  const maxPortfolioTargetDeltaPercent = 15;
+  const maxPortfolioSharedBudgetOverlapPercent = 20;
+  const maxJointAllocatorBudgetDeltaPercent = 10;
+  const maxJointAllocatorTargetDeltaPercent = 10;
+  const maxJointAllocatorCombinedShockPercent = 18;
 
   const sharedBudgetMutationPreview = (inputPreview: {
     sharedBudgetResourceName: string;
     currentAmount: number;
     proposedAmount: number;
     governedCampaigns: Array<CampaignPerformanceRow & Record<string, unknown>>;
+    deltaCapPercent: number;
+    mixedGovernance: boolean;
   }) => {
     const deltaPercent = Number(
       (((inputPreview.proposedAmount - inputPreview.currentAmount) / Math.max(inputPreview.currentAmount, 1)) * 100).toFixed(2)
@@ -569,14 +613,54 @@ export function decorateAdvisorRecommendationsForExecution(input: {
       previousAmount: inputPreview.currentAmount,
       proposedAmount: inputPreview.proposedAmount,
       deltaPercent,
+      deltaCapPercent: inputPreview.deltaCapPercent,
       governedCampaigns: inputPreview.governedCampaigns.map((campaign) => ({
         id: String(campaign.campaignId ?? ""),
         name: String(campaign.campaignName ?? "Campaign"),
       })),
       zeroSumNote: "Single shared-budget mutate changes one shared pool amount only; no multi-pool transfer is performed.",
-      boundedDelta: Math.abs(deltaPercent) <= maxSharedBudgetDeltaPercent,
+      boundedDelta: Math.abs(deltaPercent) <= inputPreview.deltaCapPercent,
+      mixedGovernance: inputPreview.mixedGovernance,
     };
   };
+
+  const sharedBudgetDeltaCap = (governedCount: number, mixedGovernance: boolean) => {
+    const baseCap =
+      governedCount <= 5 ? maxSharedBudgetDeltaPercent : governedCount <= 7 ? 10 : 8;
+    return Math.max(5, mixedGovernance ? baseCap - 2 : baseCap);
+  };
+
+  const jointAllocatorPreview = (inputPreview: {
+    budgetActionType: "adjust_campaign_budget" | "adjust_shared_budget";
+    budgetPreview: NonNullable<GoogleRecommendation["budgetAdjustmentPreview"]>;
+    portfolioPreview: NonNullable<GoogleRecommendation["portfolioTargetAdjustmentPreview"]>;
+  }) => ({
+    budgetActionType: inputPreview.budgetActionType,
+    budgetPreviousAmount: inputPreview.budgetPreview.previousAmount,
+    budgetProposedAmount: inputPreview.budgetPreview.proposedAmount,
+    budgetDeltaPercent: inputPreview.budgetPreview.deltaPercent,
+    portfolioTargetType: inputPreview.portfolioPreview.targetType as "tROAS" | "tCPA",
+    portfolioPreviousValue: inputPreview.portfolioPreview.previousValue,
+    portfolioProposedValue: inputPreview.portfolioPreview.proposedValue,
+    portfolioDeltaPercent: inputPreview.portfolioPreview.deltaPercent,
+    combinedShockPercent: Number(
+      (
+        Math.abs(inputPreview.budgetPreview.deltaPercent) +
+        Math.abs(inputPreview.portfolioPreview.deltaPercent)
+      ).toFixed(2)
+    ),
+    executionOrder: [
+      labelForMutateActionType(inputPreview.budgetActionType),
+      labelForMutateActionType("adjust_portfolio_target"),
+    ],
+    governedCampaigns: inputPreview.portfolioPreview.governedCampaigns,
+    boundedDelta:
+      Math.abs(inputPreview.budgetPreview.deltaPercent) <= maxJointAllocatorBudgetDeltaPercent &&
+      Math.abs(inputPreview.portfolioPreview.deltaPercent) <= maxJointAllocatorTargetDeltaPercent &&
+      Math.abs(inputPreview.budgetPreview.deltaPercent) + Math.abs(inputPreview.portfolioPreview.deltaPercent) <=
+        maxJointAllocatorCombinedShockPercent,
+    attributionWindowDays: inputPreview.portfolioPreview.attributionWindowDays,
+  });
 
   const buildSharedBudgetMutateFields = (inputFields: {
     recommendation: GoogleRecommendation;
@@ -585,6 +669,8 @@ export function decorateAdvisorRecommendationsForExecution(input: {
     policy: ReturnType<typeof executionPolicy>;
     dependency: ReturnType<typeof dependencyState>;
     policyReasonPrefix?: string;
+    sequentialMode?: boolean;
+    jointMode?: boolean;
   }) => {
     const sharedBudgetResourceName = String(inputFields.targetCampaign.campaignBudgetResourceName ?? "");
     const governedCampaigns = sharedBudgetGovernedCampaigns(sharedBudgetResourceName);
@@ -625,13 +711,15 @@ export function decorateAdvisorRecommendationsForExecution(input: {
         rollbackAvailableUntil: null,
       };
     }
-    if (governedCampaigns.length > maxGovernedSharedBudgetEntities) {
+    const sequentialMode = inputFields.sequentialMode === true;
+    const governedPoolCap = sequentialMode ? maxSequentialSharedBudgetEntities : maxGovernedSharedBudgetEntities;
+    if (governedCampaigns.length > governedPoolCap) {
       return {
         executionMode: "handoff" as const,
         mutateActionType: null,
         mutatePayloadPreview: null,
         mutateEligibilityReason:
-          `shared_budget_scope_too_large: this shared budget governs ${governedCampaigns.length} campaigns, above the Wave 14 safety cap of ${maxGovernedSharedBudgetEntities}.`,
+          `shared_budget_scope_too_large: this shared budget governs ${governedCampaigns.length} campaigns, above the current safety cap of ${governedPoolCap}.`,
         canRollback: false,
         rollbackActionType: null,
         rollbackPayloadPreview: null,
@@ -641,7 +729,7 @@ export function decorateAdvisorRecommendationsForExecution(input: {
         rollbackAvailableUntil: null,
       };
     }
-    if (governedCampaigns.length > maxDirectlyAdjustedCampaigns) {
+    if (!sequentialMode && governedCampaigns.length > maxDirectlyAdjustedCampaigns) {
       return {
         executionMode: "handoff" as const,
         mutateActionType: null,
@@ -680,13 +768,39 @@ export function decorateAdvisorRecommendationsForExecution(input: {
         rollbackAvailableUntil: null,
       };
     }
-    if (portfolioCoupledCampaigns.length > 0) {
+    const portfolioOverlapPercent =
+      governedCampaigns.length > 0 ? Number(((portfolioCoupledCampaigns.length / governedCampaigns.length) * 100).toFixed(2)) : 0;
+    const allowedPortfolioOverlapPercent = inputFields.jointMode
+      ? 101
+      : sequentialMode
+      ? maxSequentialSharedBudgetOverlapPercent
+      : maxMixedGovernanceSharedBudgetOverlapPercent;
+    if (portfolioCoupledCampaigns.length > 0 && portfolioOverlapPercent >= allowedPortfolioOverlapPercent) {
       return {
         executionMode: "handoff" as const,
         mutateActionType: null,
         mutatePayloadPreview: null,
         mutateEligibilityReason:
-          "shared_budget_portfolio_coupled: portfolio-governed campaigns are inside this shared budget, so Wave 15 native shared-budget mutate remains blocked until strategy-aware allocator truth is stronger.",
+          `shared_budget_expansion_overlap_blocked: portfolio overlap is ${portfolioOverlapPercent}%, above the allowed threshold of ${allowedPortfolioOverlapPercent}% for this shared-budget path.`,
+        canRollback: false,
+        rollbackActionType: null,
+        rollbackPayloadPreview: null,
+        budgetAdjustmentPreview: null,
+        sharedBudgetAdjustmentPreview: null,
+        rollbackSafetyState: "blocked" as const,
+        rollbackAvailableUntil: null,
+      };
+    }
+    const lowBaselineCampaigns = governedCampaigns.filter(
+      (campaign) => Number(campaign.impressions ?? 0) < 500 || Number(campaign.spend ?? 0) < 25
+    );
+    if (lowBaselineCampaigns.length > 0) {
+      return {
+        executionMode: "handoff" as const,
+        mutateActionType: null,
+        mutatePayloadPreview: null,
+        mutateEligibilityReason:
+          "shared_budget_expansion_baseline_unstable: at least one governed campaign lacks a stable enough baseline for expanded shared-budget mutate.",
         canRollback: false,
         rollbackActionType: null,
         rollbackPayloadPreview: null,
@@ -697,7 +811,12 @@ export function decorateAdvisorRecommendationsForExecution(input: {
       };
     }
     const currentAmount = currentBudgetValues[0] ?? NaN;
-    const proposedAmount = Number((currentAmount * (1 + inputFields.deltaPercent / 100)).toFixed(2));
+    const allowedDeltaCap = sharedBudgetDeltaCap(governedCampaigns.length, portfolioCoupledCampaigns.length > 0);
+    const normalizedDeltaPercent =
+      Math.abs(inputFields.deltaPercent) > allowedDeltaCap
+        ? Math.sign(inputFields.deltaPercent || 1) * allowedDeltaCap
+        : inputFields.deltaPercent;
+    const proposedAmount = Number((currentAmount * (1 + normalizedDeltaPercent / 100)).toFixed(2));
     if (!Number.isFinite(currentAmount) || currentAmount <= 0 || !Number.isFinite(proposedAmount) || proposedAmount <= 0) {
       return {
         executionMode: "handoff" as const,
@@ -713,28 +832,14 @@ export function decorateAdvisorRecommendationsForExecution(input: {
         rollbackAvailableUntil: null,
       };
     }
-    if (Math.abs(inputFields.deltaPercent) > maxSharedBudgetDeltaPercent) {
-      return {
-        executionMode: "handoff" as const,
-        mutateActionType: null,
-        mutatePayloadPreview: null,
-        mutateEligibilityReason:
-          `shared_budget_delta_too_large: proposed delta exceeds the Wave 14 bound of ${maxSharedBudgetDeltaPercent}%.`,
-        canRollback: false,
-        rollbackActionType: null,
-        rollbackPayloadPreview: null,
-        budgetAdjustmentPreview: null,
-        sharedBudgetAdjustmentPreview: null,
-        rollbackSafetyState: "blocked" as const,
-        rollbackAvailableUntil: null,
-      };
-    }
     const rollbackAvailableUntil = new Date(Date.now() + sharedBudgetRollbackWindowMs).toISOString();
     const sharedBudgetAdjustmentPreview = sharedBudgetMutationPreview({
       sharedBudgetResourceName,
       currentAmount,
       proposedAmount,
       governedCampaigns,
+      deltaCapPercent: allowedDeltaCap,
+      mixedGovernance: portfolioCoupledCampaigns.length > 0,
     });
     return {
       executionMode: "mutate_ready" as const,
@@ -744,7 +849,7 @@ export function decorateAdvisorRecommendationsForExecution(input: {
         sharedBudgetResourceName,
         previousAmount: currentAmount,
         proposedAmount,
-        deltaPercent: inputFields.deltaPercent,
+        deltaPercent: normalizedDeltaPercent,
         policyPatternKey: inputFields.policy.policyPatternKey,
         executionTrustBand: inputFields.policy.band,
         executionTrustSource: inputFields.policy.source,
@@ -765,7 +870,7 @@ export function decorateAdvisorRecommendationsForExecution(input: {
       budgetAdjustmentPreview: {
         previousAmount: currentAmount,
         proposedAmount,
-        deltaPercent: inputFields.deltaPercent,
+        deltaPercent: normalizedDeltaPercent,
       },
       sharedBudgetAdjustmentPreview,
       rollbackSafetyState: "safe" as const,
@@ -776,7 +881,9 @@ export function decorateAdvisorRecommendationsForExecution(input: {
       executionPolicyReason: [
         inputFields.policyReasonPrefix,
         inputFields.policy.reason,
-        "Shared-budget mutate is allowed because one governed pool is fully known, bounded, and free of portfolio coupling.",
+        portfolioCoupledCampaigns.length > 0
+          ? "Shared-budget mutate is allowed only because portfolio overlap stays below the stricter mixed-governance threshold."
+          : "Shared-budget mutate is allowed because one governed pool is fully known, bounded, and stable.",
       ]
         .filter(Boolean)
         .join(" "),
@@ -792,9 +899,521 @@ export function decorateAdvisorRecommendationsForExecution(input: {
     };
   };
 
+  const portfolioGovernedCampaigns = (portfolioBidStrategyResourceName: string) =>
+    uniqueByCampaignIds(portfolioGroups.get(portfolioBidStrategyResourceName) ?? []);
+
+  const portfolioTargetAdjustmentPreview = (inputPreview: {
+    portfolioBidStrategyResourceName: string;
+    portfolioBidStrategyType: string | null;
+    targetType: "tROAS" | "tCPA";
+    previousValue: number;
+    proposedValue: number;
+    governedCampaigns: Array<CampaignPerformanceRow & Record<string, unknown>>;
+    attributionWindowDays: number | null;
+  }) => ({
+    portfolioBidStrategyResourceName: inputPreview.portfolioBidStrategyResourceName,
+    portfolioBidStrategyType: inputPreview.portfolioBidStrategyType,
+    targetType: inputPreview.targetType,
+    previousValue: Number(inputPreview.previousValue.toFixed(2)),
+    proposedValue: Number(inputPreview.proposedValue.toFixed(2)),
+    deltaPercent: Number(
+      ((((inputPreview.proposedValue - inputPreview.previousValue) / Math.max(Math.abs(inputPreview.previousValue), 1)) * 100)).toFixed(2)
+    ),
+    governedCampaigns: inputPreview.governedCampaigns.map((campaign) => ({
+      id: String(campaign.campaignId ?? ""),
+      name: String(campaign.campaignName ?? "Campaign"),
+    })),
+    boundedDelta:
+      Math.abs(
+        (((inputPreview.proposedValue - inputPreview.previousValue) / Math.max(Math.abs(inputPreview.previousValue), 1)) * 100)
+      ) <= maxPortfolioTargetDeltaPercent,
+    attributionWindowDays: inputPreview.attributionWindowDays,
+  });
+
+  const buildPortfolioTargetMutateFields = (inputFields: {
+    recommendation: GoogleRecommendation;
+    targetCampaign: CampaignPerformanceRow & Record<string, unknown>;
+    deltaPercent: number;
+    policy: ReturnType<typeof executionPolicy>;
+    dependency: ReturnType<typeof dependencyState>;
+    policyReasonPrefix?: string;
+    jointMode?: boolean;
+  }) => {
+    const portfolioBidStrategyResourceName = String(
+      inputFields.targetCampaign.portfolioBidStrategyResourceName ?? ""
+    );
+    const portfolioTargetTypeRaw = String(inputFields.targetCampaign.portfolioTargetType ?? "").trim();
+    const portfolioTargetType =
+      portfolioTargetTypeRaw === "tROAS" || portfolioTargetTypeRaw === "tCPA" ? portfolioTargetTypeRaw : null;
+    const governedCampaigns = portfolioGovernedCampaigns(portfolioBidStrategyResourceName);
+    if (!portfolioBidStrategyResourceName || governedCampaigns.length === 0) {
+      return {
+        executionMode: "handoff" as const,
+        mutateActionType: null,
+        mutatePayloadPreview: null,
+        mutateEligibilityReason:
+          "portfolio_target_unresolved: the governed portfolio strategy could not be resolved safely.",
+        canRollback: false,
+        rollbackActionType: null,
+        rollbackPayloadPreview: null,
+        budgetAdjustmentPreview: null,
+        portfolioTargetAdjustmentPreview: null,
+        rollbackSafetyState: "blocked" as const,
+        rollbackAvailableUntil: null,
+      };
+    }
+    if (governedCampaigns.length > maxGovernedPortfolioEntities) {
+      return {
+        executionMode: "handoff" as const,
+        mutateActionType: null,
+        mutatePayloadPreview: null,
+        mutateEligibilityReason: `portfolio_target_scope_too_large: this portfolio governs ${governedCampaigns.length} campaigns, above the Wave 16 safety cap of ${maxGovernedPortfolioEntities}.`,
+        canRollback: false,
+        rollbackActionType: null,
+        rollbackPayloadPreview: null,
+        budgetAdjustmentPreview: null,
+        portfolioTargetAdjustmentPreview: null,
+        rollbackSafetyState: "blocked" as const,
+        rollbackAvailableUntil: null,
+      };
+    }
+    if (!portfolioTargetType) {
+      return {
+        executionMode: "handoff" as const,
+        mutateActionType: null,
+        mutatePayloadPreview: null,
+        mutateEligibilityReason:
+          "portfolio_target_unsupported: Wave 16 only supports native tROAS and tCPA portfolio target mutate.",
+        canRollback: false,
+        rollbackActionType: null,
+        rollbackPayloadPreview: null,
+        budgetAdjustmentPreview: null,
+        portfolioTargetAdjustmentPreview: null,
+        rollbackSafetyState: "blocked" as const,
+        rollbackAvailableUntil: null,
+      };
+    }
+    const currentTargetValues = unique(
+      governedCampaigns
+        .map((campaign) => Number(campaign.portfolioTargetValue ?? NaN))
+        .filter((value) => Number.isFinite(value))
+        .map((value) => Number(value.toFixed(2)))
+    );
+    if (currentTargetValues.length !== 1) {
+      return {
+        executionMode: "handoff" as const,
+        mutateActionType: null,
+        mutatePayloadPreview: null,
+        mutateEligibilityReason:
+          "portfolio_target_drifted: governed campaigns no longer reflect one stable portfolio target value.",
+        canRollback: false,
+        rollbackActionType: null,
+        rollbackPayloadPreview: null,
+        budgetAdjustmentPreview: null,
+        portfolioTargetAdjustmentPreview: null,
+        rollbackSafetyState: "blocked" as const,
+        rollbackAvailableUntil: null,
+      };
+    }
+    const strategyStatuses = unique(
+      governedCampaigns.map((campaign) => String(campaign.portfolioBidStrategyStatus ?? "").toLowerCase()).filter(Boolean)
+    );
+    const unstableStrategy =
+      strategyStatuses.length === 0 ||
+      strategyStatuses.some((status) => portfolioStatusIsUnstable(status)) ||
+      !strategyStatuses.some((status) => status.includes("enable") || status.includes("stable") || status === "active");
+    if (unstableStrategy) {
+      return {
+        executionMode: "handoff" as const,
+        mutateActionType: null,
+        mutatePayloadPreview: null,
+        mutateEligibilityReason:
+          "portfolio_target_strategy_unstable: the governing portfolio strategy is not stable enough for native target mutate.",
+        canRollback: false,
+        rollbackActionType: null,
+        rollbackPayloadPreview: null,
+        budgetAdjustmentPreview: null,
+        portfolioTargetAdjustmentPreview: null,
+        rollbackSafetyState: "blocked" as const,
+        rollbackAvailableUntil: null,
+      };
+    }
+    const sharedBudgetOverlapCount = governedCampaigns.filter((campaign) => campaign.budgetExplicitlyShared === true).length;
+    const sharedBudgetOverlapPercent =
+      governedCampaigns.length > 0 ? Number(((sharedBudgetOverlapCount / governedCampaigns.length) * 100).toFixed(2)) : 0;
+    if (!inputFields.jointMode && sharedBudgetOverlapPercent >= maxPortfolioSharedBudgetOverlapPercent) {
+      return {
+        executionMode: "handoff" as const,
+        mutateActionType: null,
+        mutatePayloadPreview: null,
+        mutateEligibilityReason: `portfolio_target_shared_budget_overlap: ${sharedBudgetOverlapPercent}% of this portfolio is also shared-budget governed, above the Wave 16 overlap threshold of ${maxPortfolioSharedBudgetOverlapPercent}%.`,
+        canRollback: false,
+        rollbackActionType: null,
+        rollbackPayloadPreview: null,
+        budgetAdjustmentPreview: null,
+        portfolioTargetAdjustmentPreview: null,
+        rollbackSafetyState: "blocked" as const,
+        rollbackAvailableUntil: null,
+      };
+    }
+    const currentTargetValue = currentTargetValues[0] ?? NaN;
+    const proposedTargetValue = Number((currentTargetValue * (1 + inputFields.deltaPercent / 100)).toFixed(2));
+    if (
+      !Number.isFinite(currentTargetValue) ||
+      currentTargetValue <= 0 ||
+      !Number.isFinite(proposedTargetValue) ||
+      proposedTargetValue <= 0
+    ) {
+      return {
+        executionMode: "handoff" as const,
+        mutateActionType: null,
+        mutatePayloadPreview: null,
+        mutateEligibilityReason:
+          "portfolio_target_amount_invalid: this portfolio target does not expose a safe mutable value.",
+        canRollback: false,
+        rollbackActionType: null,
+        rollbackPayloadPreview: null,
+        budgetAdjustmentPreview: null,
+        portfolioTargetAdjustmentPreview: null,
+        rollbackSafetyState: "blocked" as const,
+        rollbackAvailableUntil: null,
+      };
+    }
+    if (Math.abs(inputFields.deltaPercent) > maxPortfolioTargetDeltaPercent) {
+      return {
+        executionMode: "handoff" as const,
+        mutateActionType: null,
+        mutatePayloadPreview: null,
+        mutateEligibilityReason: `portfolio_target_delta_too_large: proposed delta exceeds the Wave 16 bound of ${maxPortfolioTargetDeltaPercent}%.`,
+        canRollback: false,
+        rollbackActionType: null,
+        rollbackPayloadPreview: null,
+        budgetAdjustmentPreview: null,
+        portfolioTargetAdjustmentPreview: null,
+        rollbackSafetyState: "blocked" as const,
+        rollbackAvailableUntil: null,
+      };
+    }
+    const sharedState = sharedStateContextForCampaignIds(
+      governedCampaigns.map((campaign) => String(campaign.campaignId ?? ""))
+    );
+    if (
+      sharedState.portfolioGovernanceStatus === "unknown" ||
+      sharedState.portfolioGovernanceStatus === "none" ||
+      sharedState.portfolioCascadeRiskBand === "unknown"
+    ) {
+      return {
+        executionMode: "handoff" as const,
+        mutateActionType: null,
+        mutatePayloadPreview: null,
+        mutateEligibilityReason:
+          "portfolio_target_cascade_risk_blocked: portfolio governance remains too dominant or weakly understood for narrow native target mutate.",
+        canRollback: false,
+        rollbackActionType: null,
+        rollbackPayloadPreview: null,
+        budgetAdjustmentPreview: null,
+        portfolioTargetAdjustmentPreview: null,
+        rollbackSafetyState: "blocked" as const,
+        rollbackAvailableUntil: null,
+      };
+    }
+    const rollbackAvailableUntil = new Date(Date.now() + portfolioTargetRollbackWindowMs).toISOString();
+    const attributionWindowDays = sharedState.portfolioAttributionWindowDays ?? 21;
+    const preview = portfolioTargetAdjustmentPreview({
+      portfolioBidStrategyResourceName,
+      portfolioBidStrategyType: String(inputFields.targetCampaign.portfolioBidStrategyType ?? "") || null,
+      targetType: portfolioTargetType,
+      previousValue: currentTargetValue,
+      proposedValue: proposedTargetValue,
+      governedCampaigns,
+      attributionWindowDays,
+    });
+    return {
+      executionMode: "mutate_ready" as const,
+      mutateActionType: "adjust_portfolio_target" as const,
+      mutatePayloadPreview: {
+        accountId: input.accountId,
+        portfolioBidStrategyResourceName,
+        portfolioTargetType,
+        previousValue: currentTargetValue,
+        proposedValue: proposedTargetValue,
+        deltaPercent: inputFields.deltaPercent,
+        policyPatternKey: inputFields.policy.policyPatternKey,
+        executionTrustBand: inputFields.policy.band,
+        executionTrustSource: inputFields.policy.source,
+        dependencyReadiness: inputFields.dependency.readiness,
+        stabilizationHoldUntil:
+          inputFields.dependency.holdUntil ??
+          new Date(Date.now() + attributionWindowDays * 24 * 60 * 60 * 1000).toISOString(),
+        governedCampaignIds: governedCampaigns.map((campaign) => String(campaign.campaignId ?? "")),
+        governedCampaignNames: governedCampaigns.map((campaign) => String(campaign.campaignName ?? "Campaign")),
+      },
+      mutateEligibilityReason: null,
+      canRollback: true,
+      rollbackActionType: "restore_portfolio_target" as const,
+      rollbackPayloadPreview: {
+        portfolioBidStrategyResourceName,
+        portfolioTargetType,
+        previousValue: currentTargetValue,
+        governedCampaignIds: governedCampaigns.map((campaign) => String(campaign.campaignId ?? "")),
+        governedCampaignNames: governedCampaigns.map((campaign) => String(campaign.campaignName ?? "Campaign")),
+      },
+      budgetAdjustmentPreview: null,
+      portfolioTargetAdjustmentPreview: preview,
+      rollbackSafetyState: "caution" as const,
+      rollbackAvailableUntil,
+      executionTrustScore: inputFields.policy.score,
+      executionTrustBand: inputFields.policy.band,
+      executionTrustSource: inputFields.policy.source,
+      executionPolicyReason: [
+        inputFields.policyReasonPrefix,
+        inputFields.policy.reason,
+        "Portfolio-target mutate is allowed only because one stable tROAS/tCPA surface is fully known, bounded, and below the shared-budget overlap threshold.",
+      ]
+        .filter(Boolean)
+        .join(" "),
+      dependencyReadiness: inputFields.dependency.readiness,
+      stabilizationHoldUntil:
+        inputFields.dependency.holdUntil ??
+        new Date(Date.now() + attributionWindowDays * 24 * 60 * 60 * 1000).toISOString(),
+      batchEligible: false,
+      batchGroupKey: null,
+      transactionId: null,
+      batchStatus: null,
+      batchSize: governedCampaigns.length,
+      batchRollbackAvailable: true,
+      reallocationPreview: null,
+    };
+  };
+
+  const toSequentialExecutionCandidate = (fields: {
+    mutateActionType: GoogleRecommendation["mutateActionType"];
+    mutatePayloadPreview: Record<string, unknown> | null;
+    rollbackActionType: GoogleRecommendation["rollbackActionType"];
+    rollbackPayloadPreview: Record<string, unknown> | null;
+    executionTrustBand?: GoogleRecommendation["executionTrustBand"];
+    dependencyReadiness?: GoogleRecommendation["dependencyReadiness"];
+    stabilizationHoldUntil?: GoogleRecommendation["stabilizationHoldUntil"];
+    waitReason?: string | null;
+  }) =>
+    fields.mutateActionType && fields.mutatePayloadPreview
+      ? {
+          mutateActionType: fields.mutateActionType,
+          mutatePayloadPreview: fields.mutatePayloadPreview,
+          rollbackActionType: fields.rollbackActionType ?? null,
+          rollbackPayloadPreview: fields.rollbackPayloadPreview ?? null,
+          executionTrustBand: fields.executionTrustBand ?? null,
+          dependencyReadiness: fields.dependencyReadiness ?? null,
+          stabilizationHoldUntil: fields.stabilizationHoldUntil ?? null,
+          waitReason: fields.waitReason ?? null,
+        }
+      : null;
+
+  const deferAllocatorStep = (inputFields: {
+    mutateFields: Record<string, unknown>;
+    reason: string;
+    dependency: ReturnType<typeof dependencyState>;
+  }) => ({
+    ...inputFields.mutateFields,
+    executionMode: "handoff" as const,
+    mutateActionType: null,
+    mutatePayloadPreview: null,
+    mutateEligibilityReason: inputFields.reason,
+    canRollback: false,
+    rollbackActionType: null,
+    rollbackPayloadPreview: null,
+    sequentialExecutionCandidate: toSequentialExecutionCandidate({
+      mutateActionType: inputFields.mutateFields.mutateActionType as GoogleRecommendation["mutateActionType"],
+      mutatePayloadPreview: inputFields.mutateFields.mutatePayloadPreview as Record<string, unknown> | null,
+      rollbackActionType: inputFields.mutateFields.rollbackActionType as GoogleRecommendation["rollbackActionType"],
+      rollbackPayloadPreview: inputFields.mutateFields.rollbackPayloadPreview as Record<string, unknown> | null,
+      executionTrustBand: inputFields.mutateFields.executionTrustBand as GoogleRecommendation["executionTrustBand"],
+      dependencyReadiness: inputFields.dependency.readiness,
+      stabilizationHoldUntil: inputFields.dependency.holdUntil,
+      waitReason:
+        inputFields.dependency.readiness === "not_ready"
+          ? "blocked_by_partial_cleanup: allocator step will wait until the cleanup step completes successfully."
+          : inputFields.dependency.readiness === "done_unverified"
+            ? `blocked_by_stabilization_hold: allocator step remains in stabilization hold until ${inputFields.dependency.holdUntil ?? "later"}.`
+            : null,
+    }),
+  });
+
+  const buildJointAllocatorMutateFields = (inputFields: {
+    budgetFields: Record<string, unknown>;
+    portfolioFields: Record<string, unknown>;
+    budgetActionType: "adjust_campaign_budget" | "adjust_shared_budget";
+    policyReasonPrefix: string;
+    cautionReason: string;
+  }) => {
+    if (
+      inputFields.budgetFields.executionMode !== "mutate_ready" ||
+      inputFields.portfolioFields.executionMode !== "mutate_ready"
+    ) {
+      return null;
+    }
+
+    const budgetPreview = inputFields.budgetFields.budgetAdjustmentPreview as GoogleRecommendation["budgetAdjustmentPreview"];
+    const sharedBudgetPreview =
+      inputFields.budgetFields.sharedBudgetAdjustmentPreview as GoogleRecommendation["sharedBudgetAdjustmentPreview"];
+    const portfolioPreview =
+      inputFields.portfolioFields.portfolioTargetAdjustmentPreview as GoogleRecommendation["portfolioTargetAdjustmentPreview"];
+    const budgetPayload = inputFields.budgetFields.mutatePayloadPreview as Record<string, unknown> | null;
+    const portfolioPayload = inputFields.portfolioFields.mutatePayloadPreview as Record<string, unknown> | null;
+    if (!budgetPreview || !portfolioPreview || !budgetPayload || !portfolioPayload) return null;
+
+    const budgetDeltaPercent = Math.abs(Number(budgetPreview.deltaPercent ?? 0));
+    const targetDeltaPercent = Math.abs(Number(portfolioPreview.deltaPercent ?? 0));
+    const combinedShockPercent = Number((budgetDeltaPercent + targetDeltaPercent).toFixed(2));
+    const boundedDelta =
+      budgetDeltaPercent <= maxJointAllocatorBudgetDeltaPercent &&
+      targetDeltaPercent <= maxJointAllocatorTargetDeltaPercent &&
+      combinedShockPercent <= maxJointAllocatorCombinedShockPercent;
+
+    const budgetGovernedIds = unique((sharedBudgetPreview?.governedCampaigns ?? []).map((campaign) => campaign.id));
+    const portfolioGovernedIds = unique((portfolioPreview.governedCampaigns ?? []).map((campaign) => campaign.id));
+    const exactSharedScope =
+      budgetGovernedIds.length > 0 &&
+      budgetGovernedIds.length === portfolioGovernedIds.length &&
+      budgetGovernedIds.every((campaignId) => portfolioGovernedIds.includes(campaignId));
+    const singleStandaloneScope =
+      inputFields.budgetActionType === "adjust_campaign_budget" &&
+      portfolioGovernedIds.length === 1 &&
+      String(budgetPayload.campaignId ?? "") === String(portfolioGovernedIds[0] ?? "");
+
+    if (!(exactSharedScope || singleStandaloneScope)) {
+      return {
+        executionMode: "handoff" as const,
+        mutateActionType: null,
+        mutatePayloadPreview: null,
+        mutateEligibilityReason:
+          "joint_allocator_scope_mismatch: budget and target surfaces do not resolve to one confirmed governed scope.",
+        jointAllocatorBlockedReason:
+          "Budget and target surfaces must resolve to one confirmed governed allocator scope.",
+        jointAllocatorCautionReason: null,
+        jointExecutionSequence: null,
+        jointAllocatorAdjustmentPreview: jointAllocatorPreview({
+          budgetActionType: inputFields.budgetActionType,
+          budgetPreview,
+          portfolioPreview,
+        }),
+      };
+    }
+
+    if (!boundedDelta) {
+      return {
+        executionMode: "handoff" as const,
+        mutateActionType: null,
+        mutatePayloadPreview: null,
+        mutateEligibilityReason:
+          `joint_allocator_shock_blocked: combined budget and target change exceeds the Wave 18 shock budget (${maxJointAllocatorCombinedShockPercent}% max combined).`,
+        jointAllocatorBlockedReason: `Combined allocator shock is too large (${combinedShockPercent}%).`,
+        jointAllocatorCautionReason: null,
+        jointExecutionSequence: null,
+        jointAllocatorAdjustmentPreview: jointAllocatorPreview({
+          budgetActionType: inputFields.budgetActionType,
+          budgetPreview,
+          portfolioPreview,
+        }),
+      };
+    }
+
+    const rollbackAvailableUntil = [
+      String(inputFields.budgetFields.rollbackAvailableUntil ?? ""),
+      String(inputFields.portfolioFields.rollbackAvailableUntil ?? ""),
+    ]
+      .filter(Boolean)
+      .sort()[0] ?? null;
+
+    return {
+      executionMode: "mutate_ready" as const,
+      mutateActionType: null,
+      mutatePayloadPreview: null,
+      mutateEligibilityReason: null,
+      jointExecutionSequence: [
+        {
+          stepKey: "allocator_budget",
+          title: labelForMutateActionType(inputFields.budgetActionType),
+          mutateActionType: inputFields.budgetActionType,
+          mutatePayloadPreview: budgetPayload,
+          rollbackActionType: inputFields.budgetFields.rollbackActionType as GoogleRecommendation["rollbackActionType"],
+          rollbackPayloadPreview: inputFields.budgetFields.rollbackPayloadPreview as Record<string, unknown> | null,
+          executionTrustBand: inputFields.budgetFields.executionTrustBand as GoogleRecommendation["executionTrustBand"],
+          dependencyReadiness: "done_trusted" as const,
+          stabilizationHoldUntil: null,
+          waitReason: null,
+          transactionIds: [],
+          executionStatus: "not_started" as const,
+        },
+        {
+          stepKey: "allocator_target",
+          title: labelForMutateActionType("adjust_portfolio_target"),
+          mutateActionType: "adjust_portfolio_target" as const,
+          mutatePayloadPreview: portfolioPayload,
+          rollbackActionType: inputFields.portfolioFields.rollbackActionType as GoogleRecommendation["rollbackActionType"],
+          rollbackPayloadPreview: inputFields.portfolioFields.rollbackPayloadPreview as Record<string, unknown> | null,
+          executionTrustBand: inputFields.portfolioFields.executionTrustBand as GoogleRecommendation["executionTrustBand"],
+          dependencyReadiness: "done_trusted" as const,
+          stabilizationHoldUntil: null,
+          waitReason: null,
+          transactionIds: [],
+          executionStatus: "not_started" as const,
+        },
+      ],
+      jointAllocatorAdjustmentPreview: jointAllocatorPreview({
+        budgetActionType: inputFields.budgetActionType,
+        budgetPreview,
+        portfolioPreview,
+      }),
+      jointAllocatorBlockedReason: null,
+      jointAllocatorCautionReason: inputFields.cautionReason,
+      canRollback: true,
+      rollbackActionType: null,
+      rollbackPayloadPreview: null,
+      rollbackSafetyState:
+        inputFields.budgetFields.rollbackSafetyState === "safe" &&
+        inputFields.portfolioFields.rollbackSafetyState === "safe"
+          ? ("safe" as const)
+          : ("caution" as const),
+      rollbackAvailableUntil,
+      executionTrustScore: Math.min(
+        Number(inputFields.budgetFields.executionTrustScore ?? 0) || 0,
+        Number(inputFields.portfolioFields.executionTrustScore ?? 0) || 0
+      ),
+      executionTrustBand:
+        inputFields.budgetFields.executionTrustBand === "medium" ||
+        inputFields.portfolioFields.executionTrustBand === "medium"
+          ? ("medium" as const)
+          : ("high" as const),
+      executionTrustSource: "observed_pattern" as const,
+      executionPolicyReason: [
+        inputFields.policyReasonPrefix,
+        inputFields.budgetFields.executionPolicyReason as string,
+        inputFields.portfolioFields.executionPolicyReason as string,
+      ]
+        .filter(Boolean)
+        .join(" "),
+      dependencyReadiness: "done_trusted" as const,
+      stabilizationHoldUntil: null,
+      batchEligible: false,
+      batchGroupKey: null,
+      transactionId: null,
+      batchStatus: null,
+      batchSize: 2,
+      batchRollbackAvailable: true,
+      budgetAdjustmentPreview: budgetPreview,
+      sharedBudgetAdjustmentPreview: sharedBudgetPreview ?? null,
+      portfolioTargetAdjustmentPreview: portfolioPreview,
+      reallocationPreview: null,
+    };
+  };
+
   const buildMutateFields = (recommendation: GoogleRecommendation) => {
     const dependency = dependencyState(recommendation);
     const dependenciesReady = dependency.readiness === "done_trusted";
+    const sequentialClusterCandidate =
+      (recommendation.type === "pmax_scaling_fit" || recommendation.type === "geo_device_adjustment") &&
+      (recommendation.dependsOnRecommendationIds?.length ?? 0) > 0;
     if (
       !input.accountId ||
       recommendation.integrityState === "blocked" ||
@@ -803,9 +1422,9 @@ export function decorateAdvisorRecommendationsForExecution(input: {
       (recommendation.conflictsWithRecommendationIds?.length ?? 0) > 0 ||
       recommendation.currentStatus === "suppressed" ||
       (recommendation.type === "pmax_scaling_fit" || recommendation.type === "geo_device_adjustment"
-        ? dependency.readiness === "not_ready" ||
-          dependency.readiness === "done_degraded" ||
-          dependency.readiness === "done_unverified"
+        ? dependency.readiness === "done_degraded" ||
+          (!sequentialClusterCandidate &&
+            (dependency.readiness === "not_ready" || dependency.readiness === "done_unverified"))
         : !dependenciesReady)
     ) {
       return {
@@ -839,8 +1458,8 @@ export function decorateAdvisorRecommendationsForExecution(input: {
         executionTrustBand: null,
         executionTrustSource: null,
         executionPolicyReason: null,
-        dependencyReadiness: dependency.readiness,
-        stabilizationHoldUntil: dependency.holdUntil,
+        dependencyReadiness: null,
+        stabilizationHoldUntil: null,
         batchEligible: false,
         batchGroupKey: null,
         transactionId: null,
@@ -871,8 +1490,8 @@ export function decorateAdvisorRecommendationsForExecution(input: {
         executionTrustBand: null,
         executionTrustSource: null,
         executionPolicyReason: null,
-        dependencyReadiness: dependency.readiness,
-        stabilizationHoldUntil: dependency.holdUntil,
+        dependencyReadiness: null,
+        stabilizationHoldUntil: null,
         batchEligible: false,
         batchGroupKey: null,
         transactionId: null,
@@ -1159,7 +1778,7 @@ export function decorateAdvisorRecommendationsForExecution(input: {
             reallocationPreview: null,
           };
         }
-        return buildSharedBudgetMutateFields({
+        const sharedBudgetFields = buildSharedBudgetMutateFields({
           recommendation,
           targetCampaign: target,
           deltaPercent: policy.band === "high" ? 15 : 10,
@@ -1167,7 +1786,23 @@ export function decorateAdvisorRecommendationsForExecution(input: {
           dependency,
           policyReasonPrefix:
             "Wave 14 shared-budget mutate is opening here because one PMax-governed shared budget object is fully known and bounded.",
+          sequentialMode: dependency.readiness !== "done_trusted",
         });
+        if (
+          sequentialClusterCandidate &&
+          dependency.readiness !== "done_trusted" &&
+          sharedBudgetFields.executionMode === "mutate_ready"
+        ) {
+          return deferAllocatorStep({
+            mutateFields: sharedBudgetFields,
+            dependency,
+            reason:
+              dependency.readiness === "not_ready"
+                ? "blocked_by_partial_cleanup: cleanup must complete before the shared-budget step can run."
+                : `blocked_by_stabilization_hold: shared-budget step remains in stabilization hold until ${dependency.holdUntil ?? "later"}.`,
+          });
+        }
+        return sharedBudgetFields;
       }
       if (sharedPmaxCandidates.length > 0 && sharedBudgetScope.length !== 1) {
         return {
@@ -1254,8 +1889,10 @@ export function decorateAdvisorRecommendationsForExecution(input: {
       const persistentDegraded = recommendation.outcomeVerdict === "degraded";
       const financialBleedOverride = outOfStockBlocked || bleedTerms.length > 0 || persistentDegraded;
       const currentBudget = Number(target.dailyBudget ?? 0);
+      const portfolioTargetAction =
+        String(target.portfolioTargetType ?? "") === "tROAS" || String(target.portfolioTargetType ?? "") === "tCPA";
       const policy = executionPolicy({
-        mutateActionType: "adjust_campaign_budget",
+        mutateActionType: portfolioTargetAction ? "adjust_portfolio_target" : "adjust_campaign_budget",
         recommendationType: recommendation.type,
         dominantIntent: dominantIntentClass(campaignTerms),
         overlapSeverity: recommendation.overlapSeverity ?? null,
@@ -1264,22 +1901,131 @@ export function decorateAdvisorRecommendationsForExecution(input: {
         sharedStateContext: policySharedStateContext([String(target.campaignId ?? "")]),
       });
       if (target.portfolioBidStrategyResourceName) {
+        if (policy.band !== "low" && policy.band !== "insufficient_data" && portfolioTargetAction) {
+          const financialBleedDelta =
+            String(target.portfolioTargetType ?? "") === "tROAS"
+              ? financialBleedOverride
+                ? 10
+                : policy.band === "high"
+                  ? -15
+                  : -10
+              : financialBleedOverride
+                ? -10
+                : policy.band === "high"
+                  ? 15
+                  : 10;
+          const portfolioTargetFields = buildPortfolioTargetMutateFields({
+            recommendation,
+            targetCampaign: target,
+            deltaPercent: financialBleedDelta,
+            policy,
+            dependency,
+            policyReasonPrefix:
+              "Wave 16 portfolio-target mutate is opening here because one strategy-governed tROAS/tCPA surface is stable, bounded, and fully known.",
+          });
+          if (
+            sequentialClusterCandidate &&
+            dependency.readiness !== "done_trusted" &&
+            portfolioTargetFields.executionMode === "mutate_ready"
+          ) {
+            return deferAllocatorStep({
+              mutateFields: portfolioTargetFields,
+              dependency,
+              reason:
+                dependency.readiness === "not_ready"
+                  ? "blocked_by_partial_cleanup: cleanup must complete before the portfolio-target step can run."
+                  : `blocked_by_stabilization_hold: portfolio-target step remains in stabilization hold until ${dependency.holdUntil ?? "later"}.`,
+            });
+          }
+          if (dependency.readiness === "done_trusted" && Number(target.dailyBudget ?? 0) > 0) {
+            const jointBudgetDelta = financialBleedOverride ? -8 : policy.band === "high" ? 8 : 5;
+            const jointTargetDelta =
+              String(target.portfolioTargetType ?? "") === "tROAS"
+                ? financialBleedOverride
+                  ? 8
+                  : policy.band === "high"
+                    ? -10
+                    : -8
+                : financialBleedOverride
+                  ? -8
+                  : policy.band === "high"
+                    ? 10
+                    : 8;
+            const currentBudgetAmount = Number(target.dailyBudget ?? 0);
+            const proposedBudgetAmount = Number((currentBudgetAmount * (1 + jointBudgetDelta / 100)).toFixed(2));
+            const budgetFields = {
+              executionMode: "mutate_ready" as const,
+              mutateActionType: "adjust_campaign_budget" as const,
+              mutatePayloadPreview: {
+                accountId: input.accountId,
+                campaignId: target.campaignId,
+                campaignBudgetResourceName: target.campaignBudgetResourceName,
+                previousAmount: currentBudgetAmount,
+                proposedAmount: proposedBudgetAmount,
+                deltaPercent: jointBudgetDelta,
+                policyPatternKey: `${policy.policyPatternKey}|joint_allocator_budget`,
+                executionTrustBand: policy.band,
+                executionTrustSource: policy.source,
+                dependencyReadiness: dependency.readiness,
+                stabilizationHoldUntil: null,
+              },
+              rollbackActionType: "restore_campaign_budget" as const,
+              rollbackPayloadPreview: {
+                campaignBudgetResourceName: target.campaignBudgetResourceName,
+                previousAmount: currentBudgetAmount,
+              },
+              budgetAdjustmentPreview: {
+                previousAmount: currentBudgetAmount,
+                proposedAmount: proposedBudgetAmount,
+                deltaPercent: jointBudgetDelta,
+              },
+              rollbackSafetyState: "safe" as const,
+              rollbackAvailableUntil: new Date(Date.now() + portfolioTargetRollbackWindowMs).toISOString(),
+              executionTrustScore: policy.score,
+              executionTrustBand: policy.band,
+              executionPolicyReason: `${policy.reason} Joint allocator orchestration keeps the campaign-budget delta tighter than standalone Wave 17 mutate.`,
+            };
+            const jointPortfolioFields = buildPortfolioTargetMutateFields({
+              recommendation,
+              targetCampaign: target,
+              deltaPercent: jointTargetDelta,
+              policy,
+              dependency,
+              policyReasonPrefix:
+                "Wave 18 opens a narrow joint allocator path because the budget and portfolio target surfaces resolve to one governed scope.",
+            });
+            const jointFields = buildJointAllocatorMutateFields({
+              budgetFields,
+              portfolioFields: jointPortfolioFields,
+              budgetActionType: "adjust_campaign_budget",
+              policyReasonPrefix:
+                "Wave 18 joint allocator orchestration is allowed here because one campaign budget and one portfolio target can move together under one bounded scope.",
+              cautionReason:
+                "Dual-allocator execution is more sensitive than single-surface mutate, so attribution stays conservative until the portfolio window matures.",
+            });
+            if (jointFields?.executionMode === "mutate_ready") {
+              return jointFields;
+            }
+          }
+          return portfolioTargetFields;
+        }
         return {
           executionMode: "handoff" as const,
           mutateActionType: null,
           mutatePayloadPreview: null,
           mutateEligibilityReason: portfolioStatusIsUnstable(target.portfolioBidStrategyStatus)
-            ? "portfolio_strategy_unstable: the governing portfolio strategy is still learning or otherwise unstable, so native budget mutate stays blocked."
-            : "portfolio_strategy_governed: this budget surface is governed by a portfolio strategy, so Wave 15 keeps native budget mutate manual.",
+            ? "portfolio_strategy_unstable: the governing portfolio strategy is still learning or otherwise unstable, so native portfolio target mutate stays blocked."
+            : "portfolio_target_blocked: this budget surface is portfolio-governed, but the target surface is not yet eligible for Wave 16 native mutate.",
           canRollback: false,
           rollbackActionType: null,
           rollbackPayloadPreview: null,
           budgetAdjustmentPreview: null,
+          portfolioTargetAdjustmentPreview: null,
           executionTrustScore: policy.score,
           executionTrustBand: policy.band,
           executionTrustSource: policy.source,
           executionPolicyReason:
-            "Portfolio-governed budget surfaces remain manual until strategy-aware allocator truth is stronger.",
+            "Portfolio-governed allocator surfaces stay manual unless the narrow Wave 16 target mutate gate passes.",
           dependencyReadiness: dependency.readiness,
           stabilizationHoldUntil:
             dependency.holdUntil ??
@@ -1456,7 +2202,7 @@ export function decorateAdvisorRecommendationsForExecution(input: {
           ? 15
           : 10;
       const proposedAmount = Number((currentBudget * (1 + deltaPercent / 100)).toFixed(2));
-      return {
+      const standaloneBudgetFields = {
         executionMode: "mutate_ready" as const,
         mutateActionType: "adjust_campaign_budget" as const,
         mutatePayloadPreview: {
@@ -1488,8 +2234,8 @@ export function decorateAdvisorRecommendationsForExecution(input: {
         executionTrustBand: policy.band,
         executionTrustSource: policy.source,
         executionPolicyReason: policy.reason,
-        dependencyReadiness: dependency.readiness,
-        stabilizationHoldUntil: dependency.holdUntil,
+        dependencyReadiness: null,
+        stabilizationHoldUntil: null,
         batchEligible: false,
         batchGroupKey: null,
         transactionId: null,
@@ -1498,6 +2244,20 @@ export function decorateAdvisorRecommendationsForExecution(input: {
         batchRollbackAvailable: true,
         reallocationPreview: null,
       };
+      if (
+        sequentialClusterCandidate &&
+        dependency.readiness !== "done_trusted"
+      ) {
+        return deferAllocatorStep({
+          mutateFields: standaloneBudgetFields,
+          dependency,
+          reason:
+            dependency.readiness === "not_ready"
+              ? "blocked_by_partial_cleanup: cleanup must complete before the standalone budget step can run."
+              : `blocked_by_stabilization_hold: standalone budget step remains in stabilization hold until ${dependency.holdUntil ?? "later"}.`,
+        });
+      }
+      return standaloneBudgetFields;
     }
 
     if (recommendation.type === "geo_device_adjustment" && recommendation.affectedCampaignIds?.length === 1) {
@@ -1519,8 +2279,58 @@ export function decorateAdvisorRecommendationsForExecution(input: {
           dependencyReadiness: dependency.readiness,
           sharedStateContext: policySharedStateContext(governedCampaigns.map((campaign) => String(campaign.campaignId ?? ""))),
         });
+        if (
+          dependency.readiness === "done_trusted" &&
+          sharedTarget.portfolioBidStrategyResourceName &&
+          (String(sharedTarget.portfolioTargetType ?? "") === "tROAS" || String(sharedTarget.portfolioTargetType ?? "") === "tCPA") &&
+          policy.band !== "low" &&
+          policy.band !== "insufficient_data" &&
+          !accountOverpacing
+        ) {
+          const jointBudgetDelta = policy.band === "high" ? 8 : 5;
+          const jointTargetDelta =
+            String(sharedTarget.portfolioTargetType ?? "") === "tCPA"
+              ? policy.band === "high"
+                ? 8
+                : 5
+              : policy.band === "high"
+                ? -8
+                : -5;
+          const geoJointSharedBudgetFields = buildSharedBudgetMutateFields({
+            recommendation,
+            targetCampaign: sharedTarget,
+            deltaPercent: jointBudgetDelta,
+            policy,
+            dependency,
+            policyReasonPrefix:
+              "Wave 18 joint allocator orchestration is opening here because one shared budget and one portfolio target resolve to the same governed pool.",
+            jointMode: true,
+          });
+          const geoJointPortfolioFields = buildPortfolioTargetMutateFields({
+            recommendation,
+            targetCampaign: sharedTarget,
+            deltaPercent: jointTargetDelta,
+            policy,
+            dependency,
+            policyReasonPrefix:
+              "Wave 18 joint allocator orchestration is opening here because one geo/device skewed portfolio target can move with its shared budget under one bounded scope.",
+            jointMode: true,
+          });
+          const jointFields = buildJointAllocatorMutateFields({
+            budgetFields: geoJointSharedBudgetFields,
+            portfolioFields: geoJointPortfolioFields,
+            budgetActionType: "adjust_shared_budget",
+            policyReasonPrefix:
+              "Wave 18 enables one shared-budget plus portfolio-target allocator move when both surfaces are individually safe and resolve to one confirmed pool.",
+            cautionReason:
+              "Shared-budget plus portfolio-target execution can trigger allocator turbulence, so early validation remains conservative.",
+          });
+          if (jointFields?.executionMode === "mutate_ready") {
+            return jointFields;
+          }
+        }
         if (policy.band !== "low" && policy.band !== "insufficient_data" && !accountOverpacing) {
-          return buildSharedBudgetMutateFields({
+          const geoSharedBudgetFields = buildSharedBudgetMutateFields({
             recommendation,
             targetCampaign: sharedTarget,
             deltaPercent: policy.band === "high" ? 10 : 5,
@@ -1528,7 +2338,23 @@ export function decorateAdvisorRecommendationsForExecution(input: {
             dependency,
             policyReasonPrefix:
               "Wave 14 shared-budget mutate is allowed here because exactly one shared budget object governs this geo/device move.",
+            sequentialMode: dependency.readiness !== "done_trusted",
           });
+          if (
+            sequentialClusterCandidate &&
+            dependency.readiness !== "done_trusted" &&
+            geoSharedBudgetFields.executionMode === "mutate_ready"
+          ) {
+            return deferAllocatorStep({
+              mutateFields: geoSharedBudgetFields,
+              dependency,
+              reason:
+                dependency.readiness === "not_ready"
+                  ? "blocked_by_partial_cleanup: cleanup must complete before the shared-budget step can run."
+                  : `blocked_by_stabilization_hold: shared-budget step remains in stabilization hold until ${dependency.holdUntil ?? "later"}.`,
+            });
+          }
+          return geoSharedBudgetFields;
         }
       }
       const target = (input.selectedCampaigns ?? []).find(
@@ -1540,7 +2366,10 @@ export function decorateAdvisorRecommendationsForExecution(input: {
       );
       if (target) {
         const policy = executionPolicy({
-          mutateActionType: "adjust_campaign_budget",
+          mutateActionType:
+            String(target.portfolioTargetType ?? "") === "tROAS" || String(target.portfolioTargetType ?? "") === "tCPA"
+              ? "adjust_portfolio_target"
+              : "adjust_campaign_budget",
           recommendationType: recommendation.type,
           dominantIntent: "geo_device_skew",
           overlapSeverity: recommendation.overlapSeverity ?? null,
@@ -1549,22 +2378,123 @@ export function decorateAdvisorRecommendationsForExecution(input: {
           sharedStateContext: policySharedStateContext([String(target.campaignId ?? "")]),
         });
         if (target.portfolioBidStrategyResourceName) {
+          if (policy.band !== "low" && policy.band !== "insufficient_data") {
+            const deltaPercent =
+              String(target.portfolioTargetType ?? "") === "tCPA"
+                ? policy.band === "high"
+                  ? 10
+                  : 5
+                : policy.band === "high"
+                  ? -10
+                  : -5;
+          const geoPortfolioTargetFields = buildPortfolioTargetMutateFields({
+            recommendation,
+            targetCampaign: target,
+            deltaPercent,
+            policy,
+            dependency,
+            policyReasonPrefix:
+              "Wave 16 portfolio-target mutate is allowed here because one geo/device skewed portfolio surface is stable enough for a bounded target adjustment.",
+          });
+          if (
+            sequentialClusterCandidate &&
+            dependency.readiness !== "done_trusted" &&
+            geoPortfolioTargetFields.executionMode === "mutate_ready"
+          ) {
+            return deferAllocatorStep({
+              mutateFields: geoPortfolioTargetFields,
+              dependency,
+              reason:
+                dependency.readiness === "not_ready"
+                  ? "blocked_by_partial_cleanup: cleanup must complete before the portfolio-target step can run."
+                  : `blocked_by_stabilization_hold: portfolio-target step remains in stabilization hold until ${dependency.holdUntil ?? "later"}.`,
+            });
+          }
+          if (dependency.readiness === "done_trusted") {
+            const jointBudgetDelta = policy.band === "high" ? 8 : 5;
+            const jointTargetDelta =
+              String(target.portfolioTargetType ?? "") === "tCPA"
+                ? policy.band === "high"
+                  ? 8
+                  : 5
+                : policy.band === "high"
+                  ? -8
+                  : -5;
+            const currentBudget = Number(target.dailyBudget ?? 0);
+            const proposedAmount = Number((currentBudget * (1 + jointBudgetDelta / 100)).toFixed(2));
+            const jointBudgetFields = {
+              executionMode: "mutate_ready" as const,
+              mutateActionType: "adjust_campaign_budget" as const,
+              mutatePayloadPreview: {
+                accountId: input.accountId,
+                campaignId: target.campaignId,
+                campaignBudgetResourceName: target.campaignBudgetResourceName,
+                previousAmount: currentBudget,
+                proposedAmount,
+                deltaPercent: jointBudgetDelta,
+                policyPatternKey: `${policy.policyPatternKey}|joint_allocator_budget`,
+                executionTrustBand: policy.band,
+                executionTrustSource: policy.source,
+                dependencyReadiness: dependency.readiness,
+                stabilizationHoldUntil: null,
+              },
+              rollbackActionType: "restore_campaign_budget" as const,
+              rollbackPayloadPreview: {
+                campaignBudgetResourceName: target.campaignBudgetResourceName,
+                previousAmount: currentBudget,
+              },
+              budgetAdjustmentPreview: {
+                previousAmount: currentBudget,
+                proposedAmount,
+                deltaPercent: jointBudgetDelta,
+              },
+              rollbackSafetyState: "safe" as const,
+              rollbackAvailableUntil: new Date(Date.now() + portfolioTargetRollbackWindowMs).toISOString(),
+              executionTrustScore: policy.score,
+              executionTrustBand: policy.band,
+              executionPolicyReason: `${policy.reason} Joint allocator orchestration keeps the campaign-budget delta tighter than standalone Wave 17 mutate.`,
+            };
+            const geoJointPortfolioFields = buildPortfolioTargetMutateFields({
+              recommendation,
+              targetCampaign: target,
+              deltaPercent: jointTargetDelta,
+              policy,
+              dependency,
+              policyReasonPrefix:
+                "Wave 18 opens a narrow joint allocator path because one campaign budget and one portfolio target can move together for this geo/device correction.",
+            });
+            const jointFields = buildJointAllocatorMutateFields({
+              budgetFields: jointBudgetFields,
+              portfolioFields: geoJointPortfolioFields,
+              budgetActionType: "adjust_campaign_budget",
+              policyReasonPrefix:
+                "Wave 18 enables one campaign-budget plus portfolio-target allocator move when both surfaces remain bounded and drift-free.",
+              cautionReason:
+                "Dual-allocator execution is intentionally narrower than single-surface mutate, so outcome learning stays conservative.",
+            });
+            if (jointFields?.executionMode === "mutate_ready") {
+              return jointFields;
+            }
+          }
+          return geoPortfolioTargetFields;
+        }
           return {
             executionMode: "handoff" as const,
             mutateActionType: null,
             mutatePayloadPreview: null,
             mutateEligibilityReason: portfolioStatusIsUnstable(target.portfolioBidStrategyStatus)
-              ? "portfolio_strategy_unstable: the governing portfolio strategy is still learning or otherwise unstable, so native budget mutate stays blocked."
-              : "portfolio_strategy_governed: this geo/device budget surface is governed by a portfolio strategy, so Wave 15 keeps native mutate manual.",
+              ? "portfolio_strategy_unstable: the governing portfolio strategy is still learning or otherwise unstable, so native portfolio target mutate stays blocked."
+              : "portfolio_target_blocked: this geo/device surface is portfolio-governed, but the target surface is not yet eligible for Wave 16 native mutate.",
             canRollback: false,
             rollbackActionType: null,
             rollbackPayloadPreview: null,
             budgetAdjustmentPreview: null,
+            portfolioTargetAdjustmentPreview: null,
             executionTrustScore: policy.score,
             executionTrustBand: policy.band,
             executionTrustSource: policy.source,
             executionPolicyReason:
-              "Portfolio-governed allocator state is shaping this campaign, so local budget mutate remains manual.",
+              "Portfolio-governed allocator state is shaping this campaign, so target mutate remains manual until the narrow Wave 16 gate passes.",
             dependencyReadiness: dependency.readiness,
             stabilizationHoldUntil:
               dependency.holdUntil ??
@@ -1584,7 +2514,7 @@ export function decorateAdvisorRecommendationsForExecution(input: {
           const currentBudget = Number(target.dailyBudget ?? 0);
           const deltaPercent = policy.band === "high" ? 10 : 5;
           const proposedAmount = Number((currentBudget * (1 + deltaPercent / 100)).toFixed(2));
-          return {
+          const geoBudgetFields = {
             executionMode: "mutate_ready" as const,
             mutateActionType: "adjust_campaign_budget" as const,
             mutatePayloadPreview: {
@@ -1626,6 +2556,20 @@ export function decorateAdvisorRecommendationsForExecution(input: {
             batchRollbackAvailable: true,
             reallocationPreview: null,
           };
+          if (
+            sequentialClusterCandidate &&
+            dependency.readiness !== "done_trusted"
+          ) {
+            return deferAllocatorStep({
+              mutateFields: geoBudgetFields,
+              dependency,
+              reason:
+                dependency.readiness === "not_ready"
+                  ? "blocked_by_partial_cleanup: cleanup must complete before the standalone budget step can run."
+                  : `blocked_by_stabilization_hold: standalone budget step remains in stabilization hold until ${dependency.holdUntil ?? "later"}.`,
+            });
+          }
+          return geoBudgetFields;
         }
       }
     }
@@ -1862,15 +2806,36 @@ export function decorateAdvisorRecommendationsForExecution(input: {
           : null;
       const groupedPlan = !campaignId && relatedEntities.length > 0 ? groupedHandoffPlan(recommendation) : null;
       const mutateFields = {
+        budgetAdjustmentPreview: null,
         sharedBudgetAdjustmentPreview: null,
+        portfolioTargetAdjustmentPreview: null,
+        sequentialExecutionCandidate: null,
+        jointExecutionSequence: null,
+        jointAllocatorAdjustmentPreview: null,
+        jointAllocatorBlockedReason: null,
+        jointAllocatorCautionReason: null,
         rollbackSafetyState: null,
         rollbackAvailableUntil: null,
+        executionTrustScore: null,
+        executionTrustBand: null,
+        executionTrustSource: null,
+        executionPolicyReason: null,
+        dependencyReadiness: null,
+        stabilizationHoldUntil: null,
+        batchEligible: false,
+        batchGroupKey: null,
+        transactionId: null,
+        batchStatus: null,
+        batchSize: null,
+        batchRollbackAvailable: false,
+        reallocationPreview: null,
         ...buildMutateFields(recommendation),
       };
       const sharedState = sharedStateContextForRecommendation(recommendation);
       const budgetMutateAction =
         mutateFields.mutateActionType === "adjust_campaign_budget" ||
-        mutateFields.mutateActionType === "adjust_shared_budget";
+        mutateFields.mutateActionType === "adjust_shared_budget" ||
+        mutateFields.mutateActionType === "adjust_portfolio_target";
       const effectivePortfolioBlockedReason =
         budgetMutateAction || mutateFields.executionMode === "handoff"
           ? sharedState.portfolioBlockedReason
@@ -1883,7 +2848,8 @@ export function decorateAdvisorRecommendationsForExecution(input: {
       const sharedStateBlockedReason =
         mutateFields.mutateEligibilityReason?.includes("shared_budget_blocked") ||
         mutateFields.mutateEligibilityReason?.includes("shared_state_allocator_coupled") ||
-        mutateFields.mutateEligibilityReason?.includes("portfolio_strategy")
+        mutateFields.mutateEligibilityReason?.includes("portfolio_strategy") ||
+        mutateFields.mutateEligibilityReason?.includes("portfolio_target")
           ? mutateFields.mutateEligibilityReason
           : effectivePortfolioBlockedReason
             ? sharedState.sharedStateMutateBlockedReason
@@ -1906,19 +2872,31 @@ export function decorateAdvisorRecommendationsForExecution(input: {
         mutateActionType: mutateFields.mutateActionType,
         mutatePayloadPreview: mutateFields.mutatePayloadPreview,
         mutateEligibilityReason: mutateFields.mutateEligibilityReason,
+        sequentialExecutionCandidate: mutateFields.sequentialExecutionCandidate ?? null,
+        jointExecutionSequence: mutateFields.jointExecutionSequence ?? null,
+        jointAllocatorAdjustmentPreview: mutateFields.jointAllocatorAdjustmentPreview ?? null,
+        jointAllocatorBlockedReason: mutateFields.jointAllocatorBlockedReason ?? null,
+        jointAllocatorCautionReason: mutateFields.jointAllocatorCautionReason ?? null,
         canRollback: mutateFields.canRollback,
         rollbackActionType: mutateFields.rollbackActionType,
         rollbackPayloadPreview: mutateFields.rollbackPayloadPreview,
         budgetAdjustmentPreview: mutateFields.budgetAdjustmentPreview,
         sharedBudgetAdjustmentPreview: mutateFields.sharedBudgetAdjustmentPreview ?? null,
+        portfolioTargetAdjustmentPreview: mutateFields.portfolioTargetAdjustmentPreview ?? null,
         rollbackSafetyState: mutateFields.rollbackSafetyState ?? null,
         rollbackAvailableUntil: mutateFields.rollbackAvailableUntil ?? null,
         executionTrustScore: mutateFields.executionTrustScore,
         executionTrustBand: mutateFields.executionTrustBand,
         executionTrustSource: mutateFields.executionTrustSource,
         executionPolicyReason: mutateFields.executionPolicyReason,
-        dependencyReadiness: mutateFields.dependencyReadiness,
-        stabilizationHoldUntil: mutateFields.stabilizationHoldUntil,
+        dependencyReadiness:
+          mutateFields.dependencyReadiness ??
+          mutateFields.sequentialExecutionCandidate?.dependencyReadiness ??
+          null,
+        stabilizationHoldUntil:
+          mutateFields.stabilizationHoldUntil ??
+          mutateFields.sequentialExecutionCandidate?.stabilizationHoldUntil ??
+          null,
         batchEligible: mutateFields.batchEligible,
         batchGroupKey: mutateFields.batchGroupKey,
         transactionId: mutateFields.transactionId,

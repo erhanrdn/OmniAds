@@ -103,13 +103,15 @@ export type GoogleMutateActionType =
   | "pause_asset"
   | "pause_ad"
   | "adjust_campaign_budget"
-  | "adjust_shared_budget";
+  | "adjust_shared_budget"
+  | "adjust_portfolio_target";
 export type GoogleRollbackActionType =
   | "remove_negative_keyword"
   | "enable_asset"
   | "enable_ad"
   | "restore_campaign_budget"
-  | "restore_shared_budget";
+  | "restore_shared_budget"
+  | "restore_portfolio_target";
 export type GoogleRollbackSafetyState = "safe" | "caution" | "blocked";
 export type GoogleExecutionStatus =
   | "not_started"
@@ -160,6 +162,7 @@ export type GoogleClusterStatus =
   | "new"
   | "blocked"
   | "ready"
+  | "stabilizing"
   | "executing"
   | "partially_completed"
   | "completed"
@@ -168,6 +171,7 @@ export type GoogleClusterStatus =
 export type GoogleClusterExecutionStatus =
   | "not_started"
   | "pending"
+  | "stabilizing"
   | "applied"
   | "partially_applied"
   | "failed"
@@ -273,6 +277,8 @@ export interface GoogleActionClusterStep {
   executionTrustBand?: GoogleExecutionTrustBand | null;
   dependencyReadiness?: GoogleDependencyReadiness | null;
   stabilizationHoldUntil?: string | null;
+  waitReason?: string | null;
+  sequenceKey?: string | null;
   transactionIds?: string[];
   batchItems?: Array<{
     recommendationFingerprint: string;
@@ -292,6 +298,8 @@ export interface GoogleActionClusterStep {
     executionTrustBand?: GoogleExecutionTrustBand | null;
     dependencyReadiness?: GoogleDependencyReadiness | null;
     stabilizationHoldUntil?: string | null;
+    waitReason?: string | null;
+    sequenceKey?: string | null;
   } | null;
 }
 
@@ -351,6 +359,8 @@ export interface GoogleActionCluster {
     completedChildStepIds: string[];
     failedChildStepIds: string[];
     currentStepId: string | null;
+    waitingChildStepId?: string | null;
+    nextEligibleAt?: string | null;
     stopReason: string | null;
     retryEligibleFailedChildStepIds?: string[];
     manualRecoveryInstructions?: string[];
@@ -458,6 +468,47 @@ export interface GoogleRecommendation {
   mutateActionType?: GoogleMutateActionType | null;
   mutatePayloadPreview?: Record<string, unknown> | null;
   mutateEligibilityReason?: string | null;
+  sequentialExecutionCandidate?: {
+    mutateActionType: GoogleMutateActionType;
+    mutatePayloadPreview: Record<string, unknown>;
+    rollbackActionType?: GoogleRollbackActionType | null;
+    rollbackPayloadPreview?: Record<string, unknown> | null;
+    executionTrustBand?: GoogleExecutionTrustBand | null;
+    dependencyReadiness?: GoogleDependencyReadiness | null;
+    stabilizationHoldUntil?: string | null;
+    waitReason?: string | null;
+  } | null;
+  jointExecutionSequence?: Array<{
+    stepKey: string;
+    title: string;
+    mutateActionType: GoogleMutateActionType;
+    mutatePayloadPreview: Record<string, unknown>;
+    rollbackActionType?: GoogleRollbackActionType | null;
+    rollbackPayloadPreview?: Record<string, unknown> | null;
+    executionTrustBand?: GoogleExecutionTrustBand | null;
+    dependencyReadiness?: GoogleDependencyReadiness | null;
+    stabilizationHoldUntil?: string | null;
+    waitReason?: string | null;
+    transactionIds?: string[];
+    executionStatus?: GoogleExecutionStatus | null;
+  }> | null;
+  jointAllocatorAdjustmentPreview?: {
+    budgetActionType: "adjust_campaign_budget" | "adjust_shared_budget";
+    budgetPreviousAmount: number;
+    budgetProposedAmount: number;
+    budgetDeltaPercent: number;
+    portfolioTargetType: "tROAS" | "tCPA";
+    portfolioPreviousValue: number;
+    portfolioProposedValue: number;
+    portfolioDeltaPercent: number;
+    combinedShockPercent: number;
+    executionOrder: string[];
+    governedCampaigns: Array<{ id: string; name: string }>;
+    boundedDelta: boolean;
+    attributionWindowDays: number | null;
+  } | null;
+  jointAllocatorBlockedReason?: string | null;
+  jointAllocatorCautionReason?: string | null;
   canRollback?: boolean;
   rollbackActionType?: GoogleRollbackActionType | null;
   rollbackPayloadPreview?: Record<string, unknown> | null;
@@ -471,9 +522,22 @@ export interface GoogleRecommendation {
     previousAmount: number;
     proposedAmount: number;
     deltaPercent: number;
+    deltaCapPercent?: number | null;
     governedCampaigns: Array<{ id: string; name: string }>;
     zeroSumNote: string | null;
     boundedDelta: boolean;
+    mixedGovernance?: boolean | null;
+  } | null;
+  portfolioTargetAdjustmentPreview?: {
+    portfolioBidStrategyResourceName: string;
+    portfolioBidStrategyType: string | null;
+    targetType: string;
+    previousValue: number;
+    proposedValue: number;
+    deltaPercent: number;
+    governedCampaigns: Array<{ id: string; name: string }>;
+    boundedDelta: boolean;
+    attributionWindowDays: number | null;
   } | null;
   rollbackSafetyState?: GoogleRollbackSafetyState | null;
   rollbackAvailableUntil?: string | null;

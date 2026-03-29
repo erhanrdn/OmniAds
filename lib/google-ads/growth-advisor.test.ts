@@ -1625,7 +1625,7 @@ describe("buildGoogleGrowthAdvisor", () => {
     expect(decorated[0].rollbackSafetyState).toBe("safe");
   });
 
-  it("blocks shared-budget mutate when the governed pool is too large", () => {
+  it("allows expanded shared-budget mutate up to ten governed campaigns with inverse delta caps", () => {
     const recommendation = {
       ...buildGoogleGrowthAdvisor({
         selectedLabel: "selected 14d",
@@ -1643,7 +1643,7 @@ describe("buildGoogleGrowthAdvisor", () => {
     const decorated = decorateAdvisorRecommendationsForExecution({
       accountId: "123-456-7890",
       recommendations: [recommendation],
-      selectedCampaigns: Array.from({ length: 6 }, (_, index) =>
+      selectedCampaigns: Array.from({ length: 8 }, (_, index) =>
         campaign({
           campaignId: `c-pool-${index + 1}`,
           campaignName: `Pool ${index + 1}`,
@@ -1675,11 +1675,13 @@ describe("buildGoogleGrowthAdvisor", () => {
       },
     });
 
-    expect(decorated[0].executionMode).toBe("handoff");
-    expect(decorated[0].mutateEligibilityReason).toContain("shared_budget_scope_too_large");
+    expect(decorated[0].executionMode).toBe("mutate_ready");
+    expect(decorated[0].mutateActionType).toBe("adjust_shared_budget");
+    expect(decorated[0].sharedBudgetAdjustmentPreview?.deltaCapPercent).toBe(8);
+    expect(Math.abs(decorated[0].sharedBudgetAdjustmentPreview?.deltaPercent ?? 0)).toBeLessThanOrEqual(8);
   });
 
-  it("blocks shared-budget mutate when portfolio-coupled campaigns exist in the governed set", () => {
+  it("blocks shared-budget mutate when portfolio overlap exceeds the mixed-governance threshold", () => {
     const recommendation = {
       ...buildGoogleGrowthAdvisor({
         selectedLabel: "selected 14d",
@@ -1741,7 +1743,7 @@ describe("buildGoogleGrowthAdvisor", () => {
     });
 
     expect(decorated[0].executionMode).toBe("handoff");
-    expect(decorated[0].mutateEligibilityReason).toContain("shared_budget_portfolio_coupled");
+    expect(decorated[0].mutateEligibilityReason).toContain("shared_budget_expansion_overlap_blocked");
     expect(decorated[0].portfolioGovernanceStatus).toBe("mixed_governance");
     expect(decorated[0].portfolioCouplingStrength).toBe("medium");
     expect(decorated[0].portfolioContaminationSource).toBe("mixed_allocator_contamination");
@@ -1817,6 +1819,484 @@ describe("buildGoogleGrowthAdvisor", () => {
     expect(decorated[0].portfolioBidStrategyStatus).toBe("learning");
     expect(decorated[0].portfolioAttributionWindowDays).toBe(21);
     expect(decorated[0].portfolioBlockedReason).toContain("governing portfolio strategy is unstable");
+  });
+
+  it("opens narrow portfolio tROAS mutate when one stable governed surface is fully known", () => {
+    const recommendation = buildGoogleGrowthAdvisor({
+      selectedLabel: "selected 14d",
+      selectedCampaigns: [campaign({ campaignId: "c-pmax", campaignName: "PMax Growth", channel: "PERFORMANCE_MAX" })],
+      selectedSearchTerms: [
+        searchTerm({
+          campaignId: "c-pmax",
+          campaignName: "PMax Growth",
+          searchTerm: "buy carry on backpack",
+          intentClass: "category_high_intent",
+          intentNeedsReview: false,
+        }),
+      ],
+      selectedProducts: [product()],
+      selectedAssets: [asset()],
+      selectedAssetGroups: [assetGroup()],
+      selectedGeos: [geo()],
+      selectedDevices: [device()],
+      windows: [],
+    }).recommendations.find((entry) => entry.type === "pmax_scaling_fit")!;
+
+    const decorated = decorateAdvisorRecommendationsForExecution({
+      accountId: "123-456-7890",
+      recommendations: [recommendation],
+      selectedCampaigns: [
+        campaign({
+          campaignId: "c-pmax",
+          campaignName: "PMax Growth",
+          channel: "PERFORMANCE_MAX",
+          scaleState: "scale",
+          dailyBudget: 150,
+          budgetExplicitlyShared: false,
+          campaignBudgetResourceName: "customers/1234567890/campaignBudgets/9009",
+          portfolioBidStrategyResourceName: "customers/1234567890/biddingStrategies/77",
+          portfolioBidStrategyType: "TARGET_ROAS",
+          portfolioBidStrategyStatus: "ENABLED",
+          portfolioTargetType: "tROAS",
+          portfolioTargetValue: 250,
+        }),
+        campaign({
+          campaignId: "c-pmax-2",
+          campaignName: "PMax Support",
+          channel: "PERFORMANCE_MAX",
+          scaleState: "monitor",
+          dailyBudget: 120,
+          budgetExplicitlyShared: false,
+          campaignBudgetResourceName: "customers/1234567890/campaignBudgets/9010",
+          portfolioBidStrategyResourceName: "customers/1234567890/biddingStrategies/77",
+          portfolioBidStrategyType: "TARGET_ROAS",
+          portfolioBidStrategyStatus: "ENABLED",
+          portfolioTargetType: "tROAS",
+          portfolioTargetValue: 250,
+        }),
+      ],
+      selectedSearchTerms: [
+        searchTerm({
+          campaignId: "c-pmax",
+          campaignName: "PMax Growth",
+          searchTerm: "buy carry on backpack",
+          intentClass: "category_high_intent",
+          intentNeedsReview: false,
+        }),
+      ],
+      executionCalibration: {
+        patterns: {
+          "adjust_portfolio_target|pmax_scaling_fit|category_high_intent|none|unknown|done_trusted|portfolio_bid_strategy:dominant:high": {
+            success: 9,
+            rollback: 0,
+            degraded: 0,
+            failure: 0,
+          },
+        },
+      },
+    });
+
+    expect(decorated[0].executionMode).toBe("mutate_ready");
+    expect(decorated[0].mutateActionType).toBe("adjust_portfolio_target");
+    expect(decorated[0].rollbackActionType).toBe("restore_portfolio_target");
+    expect(decorated[0].portfolioTargetAdjustmentPreview?.targetType).toBe("tROAS");
+    expect(decorated[0].portfolioTargetAdjustmentPreview?.previousValue).toBe(250);
+    expect(decorated[0].portfolioTargetAdjustmentPreview?.proposedValue).toBeLessThan(250);
+    expect(decorated[0].rollbackSafetyState).toBe("caution");
+  });
+
+  it("opens narrow portfolio tCPA mutate for safe geo-device skew moves", () => {
+    const recommendation = {
+      id: "geo-portfolio-safe",
+      level: "campaign",
+      entityId: "c-search",
+      entityName: "Search Growth",
+      type: "geo_device_adjustment",
+      strategyLayer: "Budget Moves",
+      decisionState: "act",
+      decisionFamily: "growth_unlock",
+      doBucket: "do_now",
+      priority: "high",
+      confidence: "high",
+      dataTrust: "high",
+      integrityState: "ready",
+      supportStrength: "strong",
+      actionability: "ready_now",
+      reversibility: "high",
+      title: "Lean into the winning geo/device skew",
+      summary: "Mobile demand is outperforming",
+      why: "A clear geo/device skew exists",
+      whyNow: "Spend can be routed more efficiently",
+      reasonCodes: [],
+      confidenceExplanation: "Skew is stable",
+      confidenceDegradationReasons: [],
+      recommendedAction: "Ease the portfolio target slightly to capture more winning geo/device demand.",
+      potentialContribution: { label: "Scale efficiently", impact: "medium", summary: "Capture more demand" },
+      impactBand: "medium",
+      effortScore: "low",
+      validationChecklist: ["Check portfolio efficiency after the attribution window"],
+      blockers: [],
+      rankScore: 72,
+      rankExplanation: "Geo/device skew is clear",
+      impactScore: 68,
+      recommendationFingerprint: "geo-portfolio-safe-fp",
+      evidence: [],
+      timeframeContext: {
+        coreVerdict: "stable",
+        selectedRangeNote: "last 14d",
+        historicalSupport: "stable",
+      },
+      affectedCampaignIds: ["c-search"],
+    } as unknown as ReturnType<typeof buildGoogleGrowthAdvisor>["recommendations"][number];
+
+    const decorated = decorateAdvisorRecommendationsForExecution({
+      accountId: "123-456-7890",
+      recommendations: [recommendation],
+      selectedCampaigns: [
+        campaign({
+          campaignId: "c-search",
+          campaignName: "Search Growth",
+          channel: "SEARCH",
+          scaleState: "scale",
+          dailyBudget: 100,
+          budgetExplicitlyShared: false,
+          campaignBudgetResourceName: "customers/1234567890/campaignBudgets/9002",
+          portfolioBidStrategyResourceName: "customers/1234567890/biddingStrategies/88",
+          portfolioBidStrategyType: "TARGET_CPA",
+          portfolioBidStrategyStatus: "ENABLED",
+          portfolioTargetType: "tCPA",
+          portfolioTargetValue: 42,
+        }),
+        campaign({
+          campaignId: "c-search-2",
+          campaignName: "Search Support",
+          channel: "SEARCH",
+          scaleState: "monitor",
+          dailyBudget: 80,
+          budgetExplicitlyShared: false,
+          campaignBudgetResourceName: "customers/1234567890/campaignBudgets/9003",
+          portfolioBidStrategyResourceName: "customers/1234567890/biddingStrategies/88",
+          portfolioBidStrategyType: "TARGET_CPA",
+          portfolioBidStrategyStatus: "ENABLED",
+          portfolioTargetType: "tCPA",
+          portfolioTargetValue: 42,
+        }),
+      ],
+      executionCalibration: {
+        patterns: {
+          "adjust_portfolio_target|geo_device_adjustment|geo_device_skew|none|none|done_trusted|portfolio_bid_strategy:dominant:high": {
+            success: 9,
+            rollback: 0,
+            degraded: 0,
+            failure: 0,
+          },
+        },
+      },
+    });
+
+    expect(decorated[0].executionMode).toBe("mutate_ready");
+    expect(decorated[0].mutateActionType).toBe("adjust_portfolio_target");
+    expect(decorated[0].portfolioTargetAdjustmentPreview?.targetType).toBe("tCPA");
+    expect(decorated[0].portfolioTargetAdjustmentPreview?.proposedValue).toBeGreaterThan(42);
+  });
+
+  it("opens a joint campaign-budget plus portfolio-target move when one governed scope is fully confirmed", () => {
+    const recommendation = buildGoogleGrowthAdvisor({
+      selectedLabel: "selected 14d",
+      selectedCampaigns: [campaign({ campaignId: "c-pmax", campaignName: "Solo PMax", channel: "PERFORMANCE_MAX" })],
+      selectedSearchTerms: [searchTerm({ campaignId: "c-pmax", campaignName: "Solo PMax", searchTerm: "buy weekender bag", intentClass: "category_high_intent", intentNeedsReview: false })],
+      selectedProducts: [product()],
+      selectedAssets: [asset()],
+      selectedAssetGroups: [assetGroup()],
+      selectedGeos: [geo()],
+      selectedDevices: [device()],
+      windows: [],
+    }).recommendations.find((entry) => entry.type === "pmax_scaling_fit")!;
+
+    const decorated = decorateAdvisorRecommendationsForExecution({
+      accountId: "123-456-7890",
+      recommendations: [recommendation],
+      selectedCampaigns: [
+        campaign({
+          campaignId: "c-pmax",
+          campaignName: "Solo PMax",
+          channel: "PERFORMANCE_MAX",
+          scaleState: "scale",
+          dailyBudget: 150,
+          budgetExplicitlyShared: false,
+          campaignBudgetResourceName: "customers/1234567890/campaignBudgets/9009",
+          portfolioBidStrategyResourceName: "customers/1234567890/biddingStrategies/77",
+          portfolioBidStrategyType: "TARGET_ROAS",
+          portfolioBidStrategyStatus: "ENABLED",
+          portfolioTargetType: "tROAS",
+          portfolioTargetValue: 250,
+        }),
+      ],
+      selectedSearchTerms: [
+        searchTerm({
+          campaignId: "c-pmax",
+          campaignName: "Solo PMax",
+          searchTerm: "buy weekender bag",
+          intentClass: "category_high_intent",
+          intentNeedsReview: false,
+        }),
+      ],
+      executionCalibration: {
+        patterns: {
+          "adjust_portfolio_target|pmax_scaling_fit|category_high_intent|none|unknown|done_trusted|portfolio_bid_strategy:dominant:high": {
+            success: 9,
+            rollback: 0,
+            degraded: 0,
+            failure: 0,
+          },
+          "adjust_campaign_budget|pmax_scaling_fit|category_high_intent|none|unknown|done_trusted|standalone:none:none": {
+            success: 9,
+            rollback: 0,
+            degraded: 0,
+            failure: 0,
+          },
+        },
+      },
+    });
+
+    expect(decorated[0].executionMode).toBe("mutate_ready");
+    expect(decorated[0].mutateActionType).toBeNull();
+    expect(decorated[0].jointExecutionSequence).toHaveLength(2);
+    expect(decorated[0].jointExecutionSequence?.[0]?.mutateActionType).toBe("adjust_campaign_budget");
+    expect(decorated[0].jointExecutionSequence?.[1]?.mutateActionType).toBe("adjust_portfolio_target");
+    expect(decorated[0].jointAllocatorAdjustmentPreview?.combinedShockPercent).toBeLessThanOrEqual(18);
+  });
+
+  it("opens a joint shared-budget plus portfolio-target move when one shared governed pool matches one portfolio scope", () => {
+    const recommendation = {
+      id: "geo-joint-safe",
+      level: "campaign",
+      entityId: "c-search",
+      entityName: "Search Growth",
+      type: "geo_device_adjustment",
+      strategyLayer: "Budget Moves",
+      decisionState: "act",
+      decisionFamily: "growth_unlock",
+      doBucket: "do_now",
+      priority: "high",
+      confidence: "high",
+      dataTrust: "high",
+      integrityState: "ready",
+      supportStrength: "strong",
+      actionability: "ready_now",
+      reversibility: "high",
+      title: "Lean into the winning geo/device skew",
+      summary: "Mobile demand is outperforming",
+      why: "A clear geo/device skew exists",
+      whyNow: "Spend can be routed more efficiently",
+      reasonCodes: [],
+      confidenceExplanation: "Skew is stable",
+      confidenceDegradationReasons: [],
+      recommendedAction: "Raise the shared budget slightly and ease the target to capture more winning traffic.",
+      potentialContribution: { label: "Scale efficiently", impact: "medium", summary: "Capture more demand" },
+      impactBand: "medium",
+      effortScore: "low",
+      validationChecklist: ["Check portfolio efficiency after the attribution window"],
+      blockers: [],
+      rankScore: 72,
+      rankExplanation: "Geo/device skew is clear",
+      impactScore: 68,
+      recommendationFingerprint: "geo-joint-safe-fp",
+      evidence: [],
+      timeframeContext: {
+        coreVerdict: "stable",
+        selectedRangeNote: "last 14d",
+        historicalSupport: "stable",
+      },
+      affectedCampaignIds: ["c-search"],
+    } as unknown as ReturnType<typeof buildGoogleGrowthAdvisor>["recommendations"][number];
+
+    const decorated = decorateAdvisorRecommendationsForExecution({
+      accountId: "123-456-7890",
+      recommendations: [recommendation],
+      selectedCampaigns: [
+        campaign({
+          campaignId: "c-search",
+          campaignName: "Search Growth",
+          channel: "SEARCH",
+          scaleState: "scale",
+          dailyBudget: 100,
+          budgetExplicitlyShared: true,
+          campaignBudgetResourceName: "customers/1234567890/campaignBudgets/9100",
+          portfolioBidStrategyResourceName: "customers/1234567890/biddingStrategies/88",
+          portfolioBidStrategyType: "TARGET_CPA",
+          portfolioBidStrategyStatus: "ENABLED",
+          portfolioTargetType: "tCPA",
+          portfolioTargetValue: 42,
+        }),
+        campaign({
+          campaignId: "c-search-2",
+          campaignName: "Search Support",
+          channel: "SEARCH",
+          scaleState: "monitor",
+          dailyBudget: 100,
+          budgetExplicitlyShared: true,
+          campaignBudgetResourceName: "customers/1234567890/campaignBudgets/9100",
+          portfolioBidStrategyResourceName: "customers/1234567890/biddingStrategies/88",
+          portfolioBidStrategyType: "TARGET_CPA",
+          portfolioBidStrategyStatus: "ENABLED",
+          portfolioTargetType: "tCPA",
+          portfolioTargetValue: 42,
+        }),
+      ],
+      executionCalibration: {
+        patterns: {
+          "adjust_shared_budget|geo_device_adjustment|geo_device_skew|none|none|done_trusted|shared_budget_and_portfolio:dominant:high": {
+            success: 9,
+            rollback: 0,
+            degraded: 0,
+            failure: 0,
+          },
+          "adjust_portfolio_target|geo_device_adjustment|geo_device_skew|none|none|done_trusted|shared_budget_and_portfolio:dominant:high": {
+            success: 9,
+            rollback: 0,
+            degraded: 0,
+            failure: 0,
+          },
+        },
+      },
+    });
+
+    expect(decorated[0].executionMode).toBe("mutate_ready");
+    expect(decorated[0].jointExecutionSequence).toHaveLength(2);
+    expect(decorated[0].jointExecutionSequence?.[0]?.mutateActionType).toBe("adjust_shared_budget");
+    expect(decorated[0].jointExecutionSequence?.[1]?.mutateActionType).toBe("adjust_portfolio_target");
+    expect(decorated[0].jointAllocatorAdjustmentPreview?.governedCampaigns).toHaveLength(2);
+  });
+
+  it("blocks portfolio-target mutate when shared-budget overlap is too high", () => {
+    const recommendation = buildGoogleGrowthAdvisor({
+      selectedLabel: "selected 14d",
+      selectedCampaigns: [campaign({ campaignId: "c-pmax", campaignName: "PMax Growth", channel: "PERFORMANCE_MAX" })],
+      selectedSearchTerms: [searchTerm({ campaignId: "c-pmax", campaignName: "PMax Growth", searchTerm: "buy carry on backpack", intentClass: "category_high_intent", intentNeedsReview: false })],
+      selectedProducts: [product()],
+      selectedAssets: [asset()],
+      selectedAssetGroups: [assetGroup()],
+      selectedGeos: [geo()],
+      selectedDevices: [device()],
+      windows: [],
+    }).recommendations.find((entry) => entry.type === "pmax_scaling_fit")!;
+
+    const decorated = decorateAdvisorRecommendationsForExecution({
+      accountId: "123-456-7890",
+      recommendations: [recommendation],
+      selectedCampaigns: [
+        campaign({
+          campaignId: "c-pmax",
+          campaignName: "PMax Growth",
+          channel: "PERFORMANCE_MAX",
+          scaleState: "scale",
+          dailyBudget: 150,
+          budgetExplicitlyShared: false,
+          campaignBudgetResourceName: "customers/1234567890/campaignBudgets/4000",
+          portfolioBidStrategyResourceName: "customers/1234567890/biddingStrategies/77",
+          portfolioBidStrategyType: "TARGET_ROAS",
+          portfolioBidStrategyStatus: "ENABLED",
+          portfolioTargetType: "tROAS",
+          portfolioTargetValue: 250,
+        }),
+        campaign({
+          campaignId: "c-pmax-2",
+          campaignName: "PMax Support",
+          channel: "PERFORMANCE_MAX",
+          scaleState: "monitor",
+          dailyBudget: 150,
+          budgetExplicitlyShared: true,
+          campaignBudgetResourceName: "customers/1234567890/campaignBudgets/4002",
+          portfolioBidStrategyResourceName: "customers/1234567890/biddingStrategies/77",
+          portfolioBidStrategyType: "TARGET_ROAS",
+          portfolioBidStrategyStatus: "ENABLED",
+          portfolioTargetType: "tROAS",
+          portfolioTargetValue: 250,
+        }),
+      ],
+      selectedSearchTerms: [
+        searchTerm({
+          campaignId: "c-pmax",
+          campaignName: "PMax Growth",
+          searchTerm: "buy carry on backpack",
+          intentClass: "category_high_intent",
+          intentNeedsReview: false,
+        }),
+      ],
+      executionCalibration: {
+        patterns: {
+          "adjust_portfolio_target|pmax_scaling_fit|category_high_intent|none|unknown|done_trusted|portfolio_bid_strategy:dominant:high": {
+            success: 9,
+            rollback: 0,
+            degraded: 0,
+            failure: 0,
+          },
+        },
+      },
+    });
+
+    expect(decorated[0].executionMode).toBe("handoff");
+    expect(decorated[0].mutateEligibilityReason).toContain("portfolio_target_shared_budget_overlap");
+  });
+
+  it("blocks portfolio-target mutate when the governed portfolio is too large", () => {
+    const recommendation = buildGoogleGrowthAdvisor({
+      selectedLabel: "selected 14d",
+      selectedCampaigns: [campaign({ campaignId: "c-pmax", campaignName: "PMax Growth", channel: "PERFORMANCE_MAX" })],
+      selectedSearchTerms: [searchTerm({ campaignId: "c-pmax", campaignName: "PMax Growth", searchTerm: "buy carry on backpack", intentClass: "category_high_intent", intentNeedsReview: false })],
+      selectedProducts: [product()],
+      selectedAssets: [asset()],
+      selectedAssetGroups: [assetGroup()],
+      selectedGeos: [geo()],
+      selectedDevices: [device()],
+      windows: [],
+    }).recommendations.find((entry) => entry.type === "pmax_scaling_fit")!;
+
+    const selectedCampaigns = Array.from({ length: 11 }, (_, index) =>
+      campaign({
+        campaignId: `c-pmax-${index}`,
+        campaignName: `PMax ${index}`,
+        channel: "PERFORMANCE_MAX",
+        scaleState: index === 0 ? "scale" : "monitor",
+        dailyBudget: 100 + index,
+        budgetExplicitlyShared: false,
+        campaignBudgetResourceName: `customers/1234567890/campaignBudgets/${5000 + index}`,
+        portfolioBidStrategyResourceName: "customers/1234567890/biddingStrategies/77",
+        portfolioBidStrategyType: "TARGET_ROAS",
+        portfolioBidStrategyStatus: "ENABLED",
+        portfolioTargetType: "tROAS",
+        portfolioTargetValue: 250,
+      })
+    );
+
+    const decorated = decorateAdvisorRecommendationsForExecution({
+      accountId: "123-456-7890",
+      recommendations: [recommendation],
+      selectedCampaigns,
+      selectedSearchTerms: [
+        searchTerm({
+          campaignId: "c-pmax-0",
+          campaignName: "PMax 0",
+          searchTerm: "buy carry on backpack",
+          intentClass: "category_high_intent",
+          intentNeedsReview: false,
+        }),
+      ],
+      executionCalibration: {
+        patterns: {
+          "adjust_portfolio_target|pmax_scaling_fit|category_high_intent|none|unknown|done_trusted|portfolio_bid_strategy:dominant:high": {
+            success: 9,
+            rollback: 0,
+            degraded: 0,
+            failure: 0,
+          },
+        },
+      },
+    });
+
+    expect(decorated[0].executionMode).toBe("handoff");
+    expect(decorated[0].mutateEligibilityReason).toContain("portfolio_target_scope_too_large");
   });
 
   it("adds portfolio caution metadata for cleanup moves without blocking native cleanup mutate", () => {
@@ -2121,12 +2601,23 @@ describe("buildGoogleGrowthAdvisor", () => {
       recommendations: [budgetRec, dependency],
       selectedCampaigns: [campaign({ campaignId: "c-pmax", campaignName: "Travel Gear Performance Max", channel: "PERFORMANCE_MAX", scaleState: "scale", dailyBudget: 100, campaignBudgetResourceName: "customers/1234567890/campaignBudgets/777" })],
       selectedSearchTerms: [searchTerm({ campaignId: "c-pmax", campaignName: "Travel Gear Performance Max", searchTerm: "buy carry on backpack", intentClass: "category_high_intent", intentNeedsReview: false })],
+      executionCalibration: {
+        patterns: {
+          "adjust_campaign_budget|pmax_scaling_fit|category_high_intent|none|unknown|done_unverified|standalone:none:none": {
+            success: 8,
+            rollback: 0,
+            degraded: 0,
+            failure: 0,
+          },
+        },
+      },
     });
 
     const mutateBlocked = decorated.find((entry) => entry.type === "pmax_scaling_fit")!;
     expect(mutateBlocked.executionMode).toBe("handoff");
     expect(mutateBlocked.dependencyReadiness).toBe("done_unverified");
     expect(mutateBlocked.stabilizationHoldUntil).toBeTruthy();
+    expect(mutateBlocked.sequentialExecutionCandidate?.mutateActionType).toBe("adjust_campaign_budget");
   });
 
   it("marks narrow negative-keyword batches as eligible only for identical action groups", () => {

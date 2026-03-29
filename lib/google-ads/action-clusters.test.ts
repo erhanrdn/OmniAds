@@ -106,6 +106,95 @@ describe("buildActionClusters", () => {
     expect(clusters[0]?.clusterBucket).toBe("next");
   });
 
+  it("synthesizes a deferred allocator step from a sequential execution candidate", () => {
+    const cleanup = recommendation({
+      id: "cleanup-seq",
+      title: "Cleanup",
+      type: "query_governance",
+      mutateActionType: "add_negative_keyword",
+      batchEligible: true,
+      batchGroupKey: "cleanup-seq",
+    });
+    const allocator = recommendation({
+      id: "allocator-seq",
+      title: "Increase budget",
+      type: "pmax_scaling_fit",
+      strategyLayer: "Budget Moves",
+      decisionFamily: "growth_unlock",
+      executionMode: "handoff",
+      mutateActionType: null,
+      mutatePayloadPreview: null,
+      mutateEligibilityReason: "blocked_by_partial_cleanup",
+      sequentialExecutionCandidate: {
+        mutateActionType: "adjust_campaign_budget",
+        mutatePayloadPreview: { campaignBudgetResourceName: "budget-1", proposedAmount: 120 },
+        rollbackActionType: "restore_campaign_budget",
+        rollbackPayloadPreview: { campaignBudgetResourceName: "budget-1", previousAmount: 100 },
+        executionTrustBand: "high",
+        dependencyReadiness: "not_ready",
+        stabilizationHoldUntil: null,
+        waitReason: "blocked_by_partial_cleanup: allocator step will wait until cleanup completes successfully.",
+      },
+      batchEligible: false,
+      batchGroupKey: null,
+      dependsOnRecommendationIds: ["cleanup-seq"],
+    });
+
+    const cluster = buildActionClusters({ recommendations: [cleanup, allocator] })[0]!;
+    expect(cluster.steps).toHaveLength(2);
+    expect(cluster.steps[1]?.executionMode).toBe("mutate_ready");
+    expect(cluster.steps[1]?.mutateActionType).toBe("adjust_campaign_budget");
+    expect(cluster.steps[1]?.waitReason).toContain("blocked_by_partial_cleanup");
+  });
+
+  it("expands a joint allocator recommendation into two ordered allocator steps", () => {
+    const allocator = recommendation({
+      id: "joint-allocator",
+      title: "Scale allocator surface",
+      type: "pmax_scaling_fit",
+      strategyLayer: "Budget Moves",
+      decisionFamily: "growth_unlock",
+      executionMode: "mutate_ready",
+      mutateActionType: null,
+      mutatePayloadPreview: null,
+      batchEligible: false,
+      batchGroupKey: null,
+      jointExecutionSequence: [
+        {
+          stepKey: "allocator_budget",
+          title: "Adjust shared budget",
+          mutateActionType: "adjust_shared_budget",
+          mutatePayloadPreview: { campaignBudgetResourceName: "budget-1", previousAmount: 100, proposedAmount: 108 },
+          rollbackActionType: "restore_shared_budget",
+          rollbackPayloadPreview: { campaignBudgetResourceName: "budget-1", previousAmount: 100 },
+          executionTrustBand: "high",
+          dependencyReadiness: "done_trusted",
+          transactionIds: [],
+          executionStatus: "not_started",
+        },
+        {
+          stepKey: "allocator_target",
+          title: "Adjust portfolio target",
+          mutateActionType: "adjust_portfolio_target",
+          mutatePayloadPreview: { portfolioBidStrategyResourceName: "bid-1", portfolioTargetType: "tROAS", previousValue: 250, proposedValue: 240 },
+          rollbackActionType: "restore_portfolio_target",
+          rollbackPayloadPreview: { portfolioBidStrategyResourceName: "bid-1", portfolioTargetType: "tROAS", previousValue: 250 },
+          executionTrustBand: "high",
+          dependencyReadiness: "done_trusted",
+          transactionIds: [],
+          executionStatus: "not_started",
+        },
+      ],
+    });
+
+    const cluster = buildActionClusters({ recommendations: [allocator] })[0]!;
+    expect(cluster.steps).toHaveLength(2);
+    expect(cluster.steps[0]?.mutateActionType).toBe("adjust_shared_budget");
+    expect(cluster.steps[0]?.sequenceKey).toBe("allocator_budget");
+    expect(cluster.steps[1]?.mutateActionType).toBe("adjust_portfolio_target");
+    expect(cluster.steps[1]?.sequenceKey).toBe("allocator_target");
+  });
+
   it("keeps unrelated recommendations in separate clusters", () => {
     const first = recommendation({
       id: "cleanup-1",
@@ -293,6 +382,80 @@ describe("buildActionClusters", () => {
     expect(cluster.clusterMoveConfidence).toBe("low");
     expect(cluster.clusterMoveValidity).toBe("inconclusive");
   });
+
+  it("treats portfolio-target mutate as a critical unlock gate", () => {
+    const portfolioTarget = recommendation({
+      id: "portfolio-target-1",
+      type: "pmax_scaling_fit",
+      strategyLayer: "Budget Moves",
+      decisionFamily: "growth_unlock",
+      mutateActionType: "adjust_portfolio_target",
+      rollbackActionType: "restore_portfolio_target",
+      mutatePayloadPreview: {
+        portfolioBidStrategyResourceName: "customers/123/biddingStrategies/4",
+        portfolioTargetType: "tROAS",
+        previousValue: 300,
+        proposedValue: 270,
+      },
+      rollbackPayloadPreview: {
+        portfolioBidStrategyResourceName: "customers/123/biddingStrategies/4",
+        portfolioTargetType: "tROAS",
+        previousValue: 300,
+      },
+      portfolioBidStrategyResourceName: "customers/123/biddingStrategies/4",
+      portfolioBidStrategyType: "TARGET_ROAS",
+      portfolioBidStrategyStatus: "stable",
+      portfolioGovernanceStatus: "present",
+      portfolioCouplingStrength: "low",
+      portfolioCascadeRiskBand: "contained",
+      portfolioAttributionWindowDays: 21,
+    });
+
+    const cluster = buildActionClusters({ recommendations: [portfolioTarget] })[0]!;
+    expect(cluster.steps[0]?.stepCriticality).toBe("critical");
+    expect(cluster.steps[0]?.stepValidationRole).toBe("unlock_gate");
+  });
+
+  it("keeps early portfolio-target outcomes conservative until the attribution window matures", () => {
+    const portfolioTarget = recommendation({
+      id: "portfolio-target-2",
+      type: "pmax_scaling_fit",
+      strategyLayer: "Budget Moves",
+      decisionFamily: "growth_unlock",
+      mutateActionType: "adjust_portfolio_target",
+      rollbackActionType: "restore_portfolio_target",
+      mutatePayloadPreview: {
+        portfolioBidStrategyResourceName: "customers/123/biddingStrategies/4",
+        portfolioTargetType: "tROAS",
+        previousValue: 300,
+        proposedValue: 270,
+      },
+      rollbackPayloadPreview: {
+        portfolioBidStrategyResourceName: "customers/123/biddingStrategies/4",
+        portfolioTargetType: "tROAS",
+        previousValue: 300,
+      },
+      executionStatus: "applied",
+      executedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+      outcomeVerdict: "improved",
+      outcomeDelta: -4,
+      portfolioBidStrategyResourceName: "customers/123/biddingStrategies/4",
+      portfolioBidStrategyType: "TARGET_ROAS",
+      portfolioBidStrategyStatus: "stable",
+      portfolioGovernanceStatus: "present",
+      portfolioCouplingStrength: "low",
+      portfolioContaminationSource: "portfolio_strategy_contamination",
+      portfolioContaminationSeverity: "medium",
+      portfolioCascadeRiskBand: "contained",
+      portfolioAttributionWindowDays: 21,
+      sharedStateContaminationFlag: true,
+    });
+
+    const cluster = buildActionClusters({ recommendations: [portfolioTarget] })[0]!;
+    expect(cluster.outcomeState.verdict).toBe("stabilizing");
+    expect(cluster.clusterMoveValidity).toBe("inconclusive");
+    expect(cluster.outcomeState.reason).toContain("early attribution window");
+  });
 });
 
 describe("cluster execution orchestration", () => {
@@ -358,6 +521,109 @@ describe("cluster execution orchestration", () => {
     expect(execution.clusterExecutionStatus).toBe("partially_applied");
     expect(execution.completedChildStepIds).toEqual([cluster.steps[0]!.stepId]);
     expect(execution.failedChildStepIds).toEqual([cluster.steps[1]!.stepId]);
+  });
+
+  it("stops after cleanup and enters stabilizing when the next allocator step is still waiting", async () => {
+    const cleanup = recommendation({
+      id: "cleanup-hold",
+      title: "Cleanup",
+      type: "query_governance",
+      mutateActionType: "add_negative_keyword",
+      batchEligible: true,
+      batchGroupKey: "cleanup-hold",
+    });
+    const allocator = recommendation({
+      id: "allocator-hold",
+      title: "Increase budget",
+      type: "pmax_scaling_fit",
+      strategyLayer: "Budget Moves",
+      decisionFamily: "growth_unlock",
+      executionMode: "handoff",
+      mutateActionType: null,
+      mutatePayloadPreview: null,
+      sequentialExecutionCandidate: {
+        mutateActionType: "adjust_campaign_budget",
+        mutatePayloadPreview: { campaignBudgetResourceName: "budget-1", proposedAmount: 120 },
+        rollbackActionType: "restore_campaign_budget",
+        rollbackPayloadPreview: { campaignBudgetResourceName: "budget-1", previousAmount: 100 },
+        executionTrustBand: "high",
+        dependencyReadiness: "done_unverified",
+        stabilizationHoldUntil: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        waitReason: "blocked_by_stabilization_hold: allocator step remains paused.",
+      },
+      batchEligible: false,
+      batchGroupKey: null,
+      dependsOnRecommendationIds: ["cleanup-hold"],
+    });
+
+    const cluster = buildActionClusters({ recommendations: [cleanup, allocator] })[0]!;
+    const execution = await executeActionCluster({
+      cluster,
+      clusterExecutionId: "cluster-exec-hold",
+      applyBatchStep: async (step) => ({ transactionId: `tx-${step.stepId}`, ok: true }),
+      applyMutateStep: async (step) => ({ transactionId: `tx-${step.stepId}`, ok: true }),
+    });
+
+    expect(execution.clusterExecutionStatus).toBe("stabilizing");
+    expect(execution.completedChildStepIds).toEqual([cluster.steps[0]!.stepId]);
+    expect(execution.waitingChildStepId).toBe(cluster.steps[1]!.stepId);
+    expect(execution.stopReason).toContain("blocked_by_stabilization_hold");
+  });
+
+  it("rolls back joint allocator child transactions in reverse order", async () => {
+    const cluster = buildActionClusters({
+      recommendations: [
+        recommendation({
+          id: "joint-rollback",
+          type: "pmax_scaling_fit",
+          strategyLayer: "Budget Moves",
+          decisionFamily: "growth_unlock",
+          executionMode: "mutate_ready",
+          mutateActionType: null,
+          mutatePayloadPreview: null,
+          batchEligible: false,
+          batchGroupKey: null,
+          jointExecutionSequence: [
+            {
+              stepKey: "allocator_budget",
+              title: "Adjust shared budget",
+              mutateActionType: "adjust_shared_budget",
+              mutatePayloadPreview: { campaignBudgetResourceName: "budget-1", previousAmount: 100, proposedAmount: 108 },
+              rollbackActionType: "restore_shared_budget",
+              rollbackPayloadPreview: { campaignBudgetResourceName: "budget-1", previousAmount: 100 },
+              executionTrustBand: "high",
+              dependencyReadiness: "done_trusted",
+              transactionIds: ["tx-budget"],
+              executionStatus: "applied",
+            },
+            {
+              stepKey: "allocator_target",
+              title: "Adjust portfolio target",
+              mutateActionType: "adjust_portfolio_target",
+              mutatePayloadPreview: { portfolioBidStrategyResourceName: "bid-1", portfolioTargetType: "tROAS", previousValue: 250, proposedValue: 240 },
+              rollbackActionType: "restore_portfolio_target",
+              rollbackPayloadPreview: { portfolioBidStrategyResourceName: "bid-1", portfolioTargetType: "tROAS", previousValue: 250 },
+              executionTrustBand: "high",
+              dependencyReadiness: "done_trusted",
+              transactionIds: ["tx-target"],
+              executionStatus: "applied",
+            },
+          ],
+        }),
+      ],
+    })[0]!;
+    const rollbackOrder: string[] = [];
+    const rollback = await rollbackActionCluster({
+      cluster,
+      rollbackBatchStep: async () => ({ ok: true }),
+      rollbackMutateStep: async (step) => {
+        rollbackOrder.push(step.sequenceKey ?? step.stepId);
+        return { ok: true };
+      },
+    });
+
+    expect(rollback.clusterExecutionStatus).toBe("rolled_back");
+    expect(rollbackOrder).toEqual(["allocator_target", "allocator_budget"]);
   });
 
   it("rolls back completed child transactions in reverse order", async () => {

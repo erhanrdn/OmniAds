@@ -33,12 +33,21 @@ export interface AdjustCampaignBudgetPayload extends CampaignBudgetMutationOpera
   operations?: CampaignBudgetMutationOperation[];
 }
 
+export interface AdjustPortfolioTargetPayload {
+  portfolioBidStrategyResourceName: string;
+  portfolioTargetType: "tROAS" | "tCPA";
+  previousValue: number;
+  proposedValue: number;
+  deltaPercent: number;
+}
+
 export type AdvisorMutatePayload =
   | { actionType: "add_negative_keyword"; payload: AddNegativeKeywordPayload }
   | { actionType: "pause_asset"; payload: PauseAssetPayload }
   | { actionType: "pause_ad"; payload: PauseAdPayload }
   | { actionType: "adjust_campaign_budget"; payload: AdjustCampaignBudgetPayload }
-  | { actionType: "adjust_shared_budget"; payload: AdjustCampaignBudgetPayload };
+  | { actionType: "adjust_shared_budget"; payload: AdjustCampaignBudgetPayload }
+  | { actionType: "adjust_portfolio_target"; payload: AdjustPortfolioTargetPayload };
 
 export interface AdvisorMutationResult {
   actionType: AdvisorMutatePayload["actionType"];
@@ -183,6 +192,29 @@ function budgetOperationsFromPayload(payload: AdjustCampaignBudgetPayload) {
   );
 }
 
+function portfolioTargetUpdate(input: AdjustPortfolioTargetPayload) {
+  if (input.portfolioTargetType === "tROAS") {
+    return {
+      update: {
+        resourceName: input.portfolioBidStrategyResourceName,
+        targetRoas: {
+          targetRoas: Number(input.proposedValue),
+        },
+      },
+      updateMask: "target_roas.target_roas",
+    };
+  }
+  return {
+    update: {
+      resourceName: input.portfolioBidStrategyResourceName,
+      targetCpa: {
+        targetCpaMicros: Math.round(Number(input.proposedValue) * 1_000_000),
+      },
+    },
+    updateMask: "target_cpa.target_cpa_micros",
+  };
+}
+
 export async function validateAdvisorMutation(input: {
   businessId: string;
   accountId: string;
@@ -258,6 +290,20 @@ export async function validateAdvisorMutation(input: {
       });
       return;
     }
+    case "adjust_portfolio_target": {
+      const actionPayload = input.action.payload;
+      await googleAdsMutateRequest({
+        businessId: input.businessId,
+        accountId: input.accountId,
+        path: "biddingStrategies:mutate",
+        validateOnly: true,
+        body: {
+          validateOnly: true,
+          operations: [portfolioTargetUpdate(actionPayload)],
+        },
+      });
+      return;
+    }
   }
 }
 
@@ -325,6 +371,52 @@ export async function preflightAdvisorMutation(input: {
             `preflight_drift: current budget ${currentAmount.toFixed(2)} no longer matches expected baseline ${Number(operation.previousAmount).toFixed(2)}.`
           );
         }
+      }
+      return { ok: true as const };
+    }
+    case "adjust_portfolio_target": {
+      const actionPayload = input.action.payload;
+      const response = await googleAdsSearchRequest({
+        businessId: input.businessId,
+        accountId: input.accountId,
+        query: `SELECT bidding_strategy.resource_name, bidding_strategy.type, bidding_strategy.status, bidding_strategy.target_roas.target_roas, bidding_strategy.target_cpa.target_cpa_micros FROM bidding_strategy WHERE bidding_strategy.resource_name = '${escapeGaqlLiteral(actionPayload.portfolioBidStrategyResourceName)}' LIMIT 1`,
+      });
+      const row = Array.isArray(response.results) ? response.results[0] : null;
+      const biddingStrategy =
+        row && typeof row === "object" && row !== null
+          ? (row as Record<string, unknown>).biddingStrategy ?? (row as Record<string, unknown>).bidding_strategy
+          : null;
+      const biddingStrategyRecord =
+        biddingStrategy && typeof biddingStrategy === "object"
+          ? (biddingStrategy as Record<string, unknown>)
+          : null;
+      const targetRoasRecord =
+        biddingStrategyRecord?.targetRoas && typeof biddingStrategyRecord.targetRoas === "object"
+          ? (biddingStrategyRecord.targetRoas as Record<string, unknown>)
+          : biddingStrategyRecord?.target_roas && typeof biddingStrategyRecord.target_roas === "object"
+            ? (biddingStrategyRecord.target_roas as Record<string, unknown>)
+            : null;
+      const targetCpaRecord =
+        biddingStrategyRecord?.targetCpa && typeof biddingStrategyRecord.targetCpa === "object"
+          ? (biddingStrategyRecord.targetCpa as Record<string, unknown>)
+          : biddingStrategyRecord?.target_cpa && typeof biddingStrategyRecord.target_cpa === "object"
+            ? (biddingStrategyRecord.target_cpa as Record<string, unknown>)
+            : null;
+      const targetRoas =
+        targetRoasRecord ? Number(targetRoasRecord.targetRoas ?? targetRoasRecord.target_roas ?? NaN) : NaN;
+      const targetCpaMicros =
+        targetCpaRecord ? Number(targetCpaRecord.targetCpaMicros ?? targetCpaRecord.target_cpa_micros ?? NaN) : NaN;
+      const currentValue =
+        actionPayload.portfolioTargetType === "tROAS"
+          ? targetRoas
+          : targetCpaMicros / 1_000_000;
+      if (!Number.isFinite(currentValue)) {
+        throw new Error("preflight_drift: current portfolio target could not be verified before mutate.");
+      }
+      if (Math.abs(currentValue - Number(actionPayload.previousValue)) > 0.009) {
+        throw new Error(
+          `preflight_drift: current portfolio target ${currentValue.toFixed(2)} no longer matches expected baseline ${Number(actionPayload.previousValue).toFixed(2)}.`
+        );
       }
       return { ok: true as const };
     }
@@ -420,13 +512,35 @@ export async function executeAdvisorMutation(input: {
         rawResponse: payload,
       } satisfies AdvisorMutationResult;
     }
+    case "adjust_portfolio_target": {
+      const actionPayload = input.action.payload;
+      const payload = await googleAdsMutateRequest({
+        businessId: input.businessId,
+        accountId: input.accountId,
+        path: "biddingStrategies:mutate",
+        body: {
+          operations: [portfolioTargetUpdate(actionPayload)],
+        },
+      });
+      return {
+        actionType: input.action.actionType,
+        resourceNames: [actionPayload.portfolioBidStrategyResourceName],
+        rawResponse: payload,
+      } satisfies AdvisorMutationResult;
+    }
   }
 }
 
 export async function rollbackAdvisorMutation(input: {
   businessId: string;
   accountId: string;
-  actionType: "remove_negative_keyword" | "enable_asset" | "enable_ad" | "restore_campaign_budget" | "restore_shared_budget";
+  actionType:
+    | "remove_negative_keyword"
+    | "enable_asset"
+    | "enable_ad"
+    | "restore_campaign_budget"
+    | "restore_shared_budget"
+    | "restore_portfolio_target";
   payload: Record<string, unknown>;
 }) {
   switch (input.actionType) {
@@ -515,6 +629,31 @@ export async function rollbackAdvisorMutation(input: {
             },
             updateMask: "amount_micros",
           })),
+        },
+      });
+      return payload;
+    }
+    case "restore_portfolio_target": {
+      const portfolioBidStrategyResourceName = String(input.payload.portfolioBidStrategyResourceName ?? "");
+      const portfolioTargetType = String(input.payload.portfolioTargetType ?? "");
+      const previousValue = Number(input.payload.previousValue ?? NaN);
+      if (!portfolioBidStrategyResourceName || !Number.isFinite(previousValue)) {
+        throw new Error("Portfolio rollback requires the original strategy resource and target value.");
+      }
+      const payload = await googleAdsMutateRequest({
+        businessId: input.businessId,
+        accountId: input.accountId,
+        path: "biddingStrategies:mutate",
+        body: {
+          operations: [
+            portfolioTargetUpdate({
+              portfolioBidStrategyResourceName,
+              portfolioTargetType: portfolioTargetType === "tCPA" ? "tCPA" : "tROAS",
+              previousValue,
+              proposedValue: previousValue,
+              deltaPercent: 0,
+            }),
+          ],
         },
       });
       return payload;

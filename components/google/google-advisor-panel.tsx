@@ -685,9 +685,17 @@ function GoogleDecisionCard({
               <div className="mt-1 text-xs text-slate-700">
                 This is shared-state mutate, not a local campaign budget change.
               </div>
+              {recommendation.sharedBudgetAdjustmentPreview.mixedGovernance ? (
+                <div className="mt-1 text-xs text-amber-700">
+                  Mixed-governance pool: tighter shared-budget guardrails are active here.
+                </div>
+              ) : null}
             </div>
             <div className="text-right text-xs text-slate-600">
               <div>Delta: {recommendation.sharedBudgetAdjustmentPreview.deltaPercent}%</div>
+              {recommendation.sharedBudgetAdjustmentPreview.deltaCapPercent ? (
+                <div className="mt-1">Cap: {recommendation.sharedBudgetAdjustmentPreview.deltaCapPercent}%</div>
+              ) : null}
               <div className="mt-1">
                 Rollback: {recommendation.rollbackSafetyState ? labelize(recommendation.rollbackSafetyState) : "safe"}
               </div>
@@ -705,6 +713,86 @@ function GoogleDecisionCard({
         </div>
       ) : null}
 
+      {recommendation.portfolioTargetAdjustmentPreview ? (
+        <div className="rounded-lg border border-fuchsia-200 bg-fuchsia-50/40 p-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-fuchsia-700">Portfolio Target Preview</div>
+              <div className="mt-1 text-sm font-medium">
+                {recommendation.portfolioTargetAdjustmentPreview.targetType}{" "}
+                {recommendation.portfolioTargetAdjustmentPreview.previousValue} →{" "}
+                {recommendation.portfolioTargetAdjustmentPreview.proposedValue}
+              </div>
+              <div className="mt-1 text-xs text-slate-700">
+                This is portfolio-target mutate, not a local campaign budget change.
+              </div>
+              <div className="mt-1 text-xs text-slate-600">
+                Allowed now because one governed portfolio target is stable, bounded, and below the shared-budget overlap threshold.
+              </div>
+            </div>
+            <div className="text-right text-xs text-slate-600">
+              <div>Delta: {recommendation.portfolioTargetAdjustmentPreview.deltaPercent}%</div>
+              <div className="mt-1">
+                Rollback: {recommendation.rollbackSafetyState ? labelize(recommendation.rollbackSafetyState) : "caution"}
+              </div>
+              {recommendation.rollbackAvailableUntil ? (
+                <div className="mt-1">Window: {recommendation.rollbackAvailableUntil.slice(0, 10)}</div>
+              ) : null}
+              {recommendation.portfolioTargetAdjustmentPreview.attributionWindowDays ? (
+                <div className="mt-1">Attribution: {recommendation.portfolioTargetAdjustmentPreview.attributionWindowDays}d</div>
+              ) : null}
+            </div>
+          </div>
+          <div className="mt-2 text-xs text-slate-700">
+            Governed campaigns: {recommendation.portfolioTargetAdjustmentPreview.governedCampaigns.map((campaign) => campaign.name).join(" · ")}
+          </div>
+          <div className="mt-1 text-xs text-slate-600">
+            Early outcome may remain inconclusive while the portfolio strategy stabilizes.
+          </div>
+        </div>
+      ) : null}
+
+      {recommendation.jointAllocatorAdjustmentPreview ? (
+        <div className="rounded-lg border border-indigo-200 bg-indigo-50/40 p-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-indigo-700">Joint Allocator Preview</div>
+              <div className="mt-1 text-sm font-medium">
+                {labelize(recommendation.jointAllocatorAdjustmentPreview.budgetActionType)} then adjust{" "}
+                {recommendation.jointAllocatorAdjustmentPreview.portfolioTargetType}
+              </div>
+              <div className="mt-1 text-xs text-slate-700">
+                Budget {recommendation.jointAllocatorAdjustmentPreview.budgetPreviousAmount} →{" "}
+                {recommendation.jointAllocatorAdjustmentPreview.budgetProposedAmount} · Target{" "}
+                {recommendation.jointAllocatorAdjustmentPreview.portfolioPreviousValue} →{" "}
+                {recommendation.jointAllocatorAdjustmentPreview.portfolioProposedValue}
+              </div>
+              <div className="mt-1 text-xs text-slate-600">
+                One bounded budget surface and one portfolio target surface will execute in this order:{" "}
+                {recommendation.jointAllocatorAdjustmentPreview.executionOrder.join(" -> ")}.
+              </div>
+              {recommendation.jointAllocatorCautionReason ? (
+                <div className="mt-1 text-xs text-amber-700">{recommendation.jointAllocatorCautionReason}</div>
+              ) : null}
+            </div>
+            <div className="text-right text-xs text-slate-600">
+              <div>Budget delta: {recommendation.jointAllocatorAdjustmentPreview.budgetDeltaPercent}%</div>
+              <div className="mt-1">Target delta: {recommendation.jointAllocatorAdjustmentPreview.portfolioDeltaPercent}%</div>
+              <div className="mt-1">Combined shock: {recommendation.jointAllocatorAdjustmentPreview.combinedShockPercent}%</div>
+              {recommendation.rollbackAvailableUntil ? (
+                <div className="mt-1">Rollback window: {recommendation.rollbackAvailableUntil.slice(0, 10)}</div>
+              ) : null}
+            </div>
+          </div>
+          <div className="mt-2 text-xs text-slate-700">
+            Governed scope: {recommendation.jointAllocatorAdjustmentPreview.governedCampaigns.map((campaign) => campaign.name).join(" · ")}
+          </div>
+          <div className="mt-1 text-xs text-slate-600">
+            Dual-allocator moves use stricter guardrails and more conservative attribution than single-surface mutate.
+          </div>
+        </div>
+      ) : null}
+
       <AiInterpretationCard recommendation={recommendation} />
 
       {onFocusEntity && recommendation.entityId ? (
@@ -713,6 +801,7 @@ function GoogleDecisionCard({
           accountId &&
           recommendation.executionMode === "mutate_ready" &&
           recommendation.mutateActionType !== "adjust_shared_budget" &&
+          recommendation.mutateActionType !== "adjust_portfolio_target" &&
           recommendation.mutateActionType &&
           recommendation.mutatePayloadPreview ? (
             <Button
@@ -775,6 +864,7 @@ function GoogleDecisionCard({
           accountId &&
           recommendation.executionMode === "mutate_ready" &&
           recommendation.mutateActionType !== "adjust_shared_budget" &&
+          recommendation.mutateActionType !== "adjust_portfolio_target" &&
           recommendation.mutateActionType &&
           recommendation.mutatePayloadPreview ? (
             <Button
@@ -1009,6 +1099,10 @@ function ActionClusterCard({
     Boolean(businessId) &&
     Boolean(accountId) &&
     accountId !== "all" &&
+    !(
+      cluster.executionSummary.nextEligibleAt &&
+      Date.parse(cluster.executionSummary.nextEligibleAt) > Date.now()
+    ) &&
     (cluster.clusterReadiness === "ready_trusted" || cluster.clusterReadiness === "ready_unverified" || cluster.clusterReadiness === "partially_executable");
   const canRollback =
     Boolean(businessId) &&
@@ -1094,6 +1188,16 @@ function ActionClusterCard({
               Current step: {cluster.executionSummary.currentStepId}
             </div>
           ) : null}
+          {cluster.executionSummary.waitingChildStepId ? (
+            <div className="mt-1 text-xs text-amber-700">
+              Waiting step: {cluster.executionSummary.waitingChildStepId}
+            </div>
+          ) : null}
+          {cluster.executionSummary.nextEligibleAt ? (
+            <div className="mt-1 text-xs text-muted-foreground">
+              Next eligible: {cluster.executionSummary.nextEligibleAt.slice(0, 16).replace("T", " ")}
+            </div>
+          ) : null}
           {cluster.lastExecutedAt ? (
             <div className="mt-1 text-xs text-muted-foreground">Last executed: {cluster.lastExecutedAt.slice(0, 10)}</div>
           ) : null}
@@ -1134,6 +1238,23 @@ function ActionClusterCard({
           ) : null}
         </div>
       </div>
+
+      {(cluster.executionSummary.clusterExecutionStatus === "stabilizing" || cluster.executionSummary.waitingChildStepId) ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-3">
+          <div className="text-[10px] uppercase tracking-wide text-amber-700">Stabilization Hold</div>
+          <div className="mt-1 text-sm font-medium">
+            Cleanup completed. The allocator step is waiting before execution.
+          </div>
+          {cluster.executionSummary.stopReason ? (
+            <div className="mt-1 text-xs text-slate-700">{cluster.executionSummary.stopReason}</div>
+          ) : null}
+          {cluster.executionSummary.nextEligibleAt ? (
+            <div className="mt-2 text-xs text-slate-700">
+              Next step becomes eligible at {cluster.executionSummary.nextEligibleAt.slice(0, 16).replace("T", " ")}.
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {cluster.sharedStateGovernanceType && cluster.sharedStateGovernanceType !== "unknown" ? (
         <div className="rounded-lg border border-amber-200 bg-amber-50/40 p-3">
@@ -1222,6 +1343,9 @@ function ActionClusterCard({
                   </div>
                   <div className="text-right text-xs text-slate-600">
                     <div>Delta: {recommendation.sharedBudgetAdjustmentPreview?.deltaPercent}%</div>
+                    {recommendation.sharedBudgetAdjustmentPreview?.deltaCapPercent ? (
+                      <div className="mt-1">Cap: {recommendation.sharedBudgetAdjustmentPreview.deltaCapPercent}%</div>
+                    ) : null}
                     {recommendation.rollbackSafetyState ? (
                       <div className="mt-1">Rollback: {labelize(recommendation.rollbackSafetyState)}</div>
                     ) : null}
@@ -1235,6 +1359,92 @@ function ActionClusterCard({
                     {recommendation.sharedBudgetAdjustmentPreview.zeroSumNote}
                   </div>
                 ) : null}
+                {recommendation.sharedBudgetAdjustmentPreview?.mixedGovernance ? (
+                  <div className="mt-1 text-xs text-amber-700">
+                    Mixed-governance pool: tighter shared-budget guardrails are active here.
+                  </div>
+                ) : null}
+              </div>
+            ))}
+        </div>
+      ) : null}
+
+      {recommendations.some((recommendation) => recommendation.portfolioTargetAdjustmentPreview) ? (
+        <div className="rounded-lg border border-fuchsia-200 bg-fuchsia-50/40 p-3">
+          <div className="text-[10px] uppercase tracking-wide text-fuchsia-700">Portfolio Blast Radius</div>
+          {recommendations
+            .filter((recommendation) => recommendation.portfolioTargetAdjustmentPreview)
+            .map((recommendation) => (
+              <div key={`${cluster.clusterId}-${recommendation.id}-portfolio-target`} className="mt-2 rounded-lg border bg-background/80 p-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-medium">
+                      {recommendation.portfolioTargetAdjustmentPreview?.targetType}{" "}
+                      {recommendation.portfolioTargetAdjustmentPreview?.previousValue} →{" "}
+                      {recommendation.portfolioTargetAdjustmentPreview?.proposedValue}
+                    </div>
+                    <div className="mt-1 text-xs text-slate-700">
+                      {recommendation.portfolioTargetAdjustmentPreview?.governedCampaigns.map((campaign) => campaign.name).join(" · ")}
+                    </div>
+                    <div className="mt-1 text-xs text-slate-600">
+                      This is portfolio-target mutate, not a local campaign budget change.
+                    </div>
+                  </div>
+                  <div className="text-right text-xs text-slate-600">
+                    <div>Delta: {recommendation.portfolioTargetAdjustmentPreview?.deltaPercent}%</div>
+                    {recommendation.rollbackSafetyState ? (
+                      <div className="mt-1">Rollback: {labelize(recommendation.rollbackSafetyState)}</div>
+                    ) : null}
+                    {recommendation.rollbackAvailableUntil ? (
+                      <div className="mt-1">Window: {recommendation.rollbackAvailableUntil.slice(0, 10)}</div>
+                    ) : null}
+                    {recommendation.portfolioTargetAdjustmentPreview?.attributionWindowDays ? (
+                      <div className="mt-1">Attribution: {recommendation.portfolioTargetAdjustmentPreview.attributionWindowDays}d</div>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="mt-2 text-xs text-slate-600">
+                  Early validation stays conservative until the full portfolio attribution window matures.
+                </div>
+              </div>
+            ))}
+        </div>
+      ) : null}
+
+      {recommendations.some((recommendation) => recommendation.jointAllocatorAdjustmentPreview) ? (
+        <div className="rounded-lg border border-indigo-200 bg-indigo-50/40 p-3">
+          <div className="text-[10px] uppercase tracking-wide text-indigo-700">Joint Allocator Blast Radius</div>
+          {recommendations
+            .filter((recommendation) => recommendation.jointAllocatorAdjustmentPreview)
+            .map((recommendation) => (
+              <div key={`${cluster.clusterId}-${recommendation.id}-joint-allocator`} className="mt-2 rounded-lg border bg-background/80 p-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-medium">
+                      {recommendation.jointAllocatorAdjustmentPreview?.executionOrder.join(" -> ")}
+                    </div>
+                    <div className="mt-1 text-xs text-slate-700">
+                      Budget {recommendation.jointAllocatorAdjustmentPreview?.budgetPreviousAmount} →{" "}
+                      {recommendation.jointAllocatorAdjustmentPreview?.budgetProposedAmount} · Target{" "}
+                      {recommendation.jointAllocatorAdjustmentPreview?.portfolioPreviousValue} →{" "}
+                      {recommendation.jointAllocatorAdjustmentPreview?.portfolioProposedValue}
+                    </div>
+                    <div className="mt-1 text-xs text-slate-700">
+                      {recommendation.jointAllocatorAdjustmentPreview?.governedCampaigns.map((campaign) => campaign.name).join(" · ")}
+                    </div>
+                    {recommendation.jointAllocatorCautionReason ? (
+                      <div className="mt-1 text-xs text-amber-700">{recommendation.jointAllocatorCautionReason}</div>
+                    ) : null}
+                  </div>
+                  <div className="text-right text-xs text-slate-600">
+                    <div>Budget: {recommendation.jointAllocatorAdjustmentPreview?.budgetDeltaPercent}%</div>
+                    <div className="mt-1">Target: {recommendation.jointAllocatorAdjustmentPreview?.portfolioDeltaPercent}%</div>
+                    <div className="mt-1">Combined shock: {recommendation.jointAllocatorAdjustmentPreview?.combinedShockPercent}%</div>
+                    {recommendation.rollbackAvailableUntil ? (
+                      <div className="mt-1">Window: {recommendation.rollbackAvailableUntil.slice(0, 10)}</div>
+                    ) : null}
+                  </div>
+                </div>
               </div>
             ))}
         </div>
@@ -1253,6 +1463,13 @@ function ActionClusterCard({
                   <Badge variant="outline">{stepTypeLabel(step.stepType)}</Badge>
                   <Badge variant="outline">{labelize(step.executionMode)}</Badge>
                   <Badge variant="outline">{labelize(step.stepCriticality)}</Badge>
+                  {cluster.executionSummary.completedChildStepIds.includes(step.stepId) ? (
+                    <Badge variant="outline">Completed</Badge>
+                  ) : cluster.executionSummary.failedChildStepIds.includes(step.stepId) ? (
+                    <Badge variant="destructive">Failed</Badge>
+                  ) : cluster.executionSummary.waitingChildStepId === step.stepId ? (
+                    <Badge variant="outline">Waiting</Badge>
+                  ) : null}
                   {step.executionTrustBand ? (
                     <Badge variant="outline">Trust: {labelize(step.executionTrustBand)}</Badge>
                   ) : null}
@@ -1264,6 +1481,9 @@ function ActionClusterCard({
                 {step.stabilizationHoldUntil ? ` · hold until ${step.stabilizationHoldUntil.slice(0, 10)}` : ""}
                 {` · ${labelize(step.stepFailureBoundary)}`}
               </div>
+              {step.waitReason ? (
+                <div className="mt-1 text-xs text-amber-700">{step.waitReason}</div>
+              ) : null}
             </div>
           ))}
         </div>
@@ -1299,6 +1519,16 @@ function ActionClusterCard({
               ))}
             </div>
           ) : null}
+          <div className="mt-2 flex flex-wrap gap-2">
+            {cluster.executionSummary.clusterExecutionStatus !== "rolled_back" && canRollback ? (
+              <Button size="sm" variant="outline" disabled={isExecuting} onClick={() => runClusterAction("rollback_cluster")}>
+                Reverse Successful Steps
+              </Button>
+            ) : null}
+            <Button size="sm" variant="secondary" disabled={isExecuting}>
+              Acknowledge Partial State
+            </Button>
+          </div>
         </div>
       ) : null}
 

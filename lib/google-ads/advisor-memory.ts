@@ -120,6 +120,11 @@ function safeSnapshot(recommendation: GoogleRecommendation) {
     executionTrustSource: recommendation.executionTrustSource ?? null,
     executionPolicyReason: recommendation.executionPolicyReason ?? null,
     sharedBudgetAdjustmentPreview: recommendation.sharedBudgetAdjustmentPreview ?? null,
+    portfolioTargetAdjustmentPreview: recommendation.portfolioTargetAdjustmentPreview ?? null,
+    jointExecutionSequence: recommendation.jointExecutionSequence ?? null,
+    jointAllocatorAdjustmentPreview: recommendation.jointAllocatorAdjustmentPreview ?? null,
+    jointAllocatorBlockedReason: recommendation.jointAllocatorBlockedReason ?? null,
+    jointAllocatorCautionReason: recommendation.jointAllocatorCautionReason ?? null,
     rollbackSafetyState: recommendation.rollbackSafetyState ?? null,
     rollbackAvailableUntil: recommendation.rollbackAvailableUntil ?? null,
     dependencyReadiness: recommendation.dependencyReadiness ?? null,
@@ -165,6 +170,35 @@ function safeSnapshot(recommendation: GoogleRecommendation) {
     sharedStateContaminationFlag: recommendation.sharedStateContaminationFlag ?? null,
     reallocationPreview: recommendation.reallocationPreview ?? null,
   };
+}
+
+function mergeJointExecutionSequence(
+  sequence: GoogleRecommendation["jointExecutionSequence"] | null | undefined,
+  state: unknown
+): GoogleRecommendation["jointExecutionSequence"] {
+  if (!Array.isArray(sequence) || sequence.length === 0) return sequence ?? null;
+  const stateByKey = new Map(
+    (Array.isArray(state) ? state : [])
+      .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object")
+      .map((entry) => [String(entry.stepKey ?? ""), entry])
+  );
+  return sequence.map((step) => {
+    const current = stateByKey.get(String(step.stepKey ?? ""));
+    return current
+      ? {
+          ...step,
+          rollbackPayloadPreview:
+            (current.rollbackPayloadPreview as Record<string, unknown> | null | undefined) ?? step.rollbackPayloadPreview ?? null,
+          transactionIds: Array.isArray(current.transactionIds)
+            ? current.transactionIds.filter((value): value is string => typeof value === "string")
+            : step.transactionIds ?? [],
+          executionStatus:
+            (String(current.executionStatus ?? "") || null) as NonNullable<
+              NonNullable<GoogleRecommendation["jointExecutionSequence"]>[number]["executionStatus"]
+            > | null,
+        }
+      : step;
+  });
 }
 
 function outcomeWindowDaysForRecommendationType(type: GoogleRecommendation["type"]) {
@@ -389,6 +423,24 @@ function annotateAdvisorMemoryFallback(input: {
       rollbackAvailable: row.rollback_available,
       rollbackExecutedAt: row.rollback_executed_at,
       sharedBudgetAdjustmentPreview: row.execution_metadata?.sharedBudgetAdjustmentPreview as GoogleRecommendation["sharedBudgetAdjustmentPreview"],
+      portfolioTargetAdjustmentPreview:
+        row.execution_metadata?.portfolioTargetAdjustmentPreview as GoogleRecommendation["portfolioTargetAdjustmentPreview"],
+      jointExecutionSequence: mergeJointExecutionSequence(
+        recommendation.jointExecutionSequence ?? null,
+        row.execution_metadata?.jointExecutionSequenceState
+      ),
+      jointAllocatorAdjustmentPreview:
+        (row.execution_metadata?.jointAllocatorAdjustmentPreview as GoogleRecommendation["jointAllocatorAdjustmentPreview"]) ??
+        recommendation.jointAllocatorAdjustmentPreview ??
+        null,
+      jointAllocatorBlockedReason:
+        String(row.execution_metadata?.jointAllocatorBlockedReason ?? "") ||
+        recommendation.jointAllocatorBlockedReason ||
+        null,
+      jointAllocatorCautionReason:
+        String(row.execution_metadata?.jointAllocatorCautionReason ?? "") ||
+        recommendation.jointAllocatorCautionReason ||
+        null,
       rollbackSafetyState:
         (String(row.execution_metadata?.rollbackSafetyState ?? "") || null) as GoogleRecommendation["rollbackSafetyState"],
       rollbackAvailableUntil: String(row.execution_metadata?.rollbackAvailableUntil ?? "") || null,
@@ -804,6 +856,24 @@ export async function annotateAdvisorMemory(input: {
       rollbackAvailable: row.rollback_available,
       rollbackExecutedAt: row.rollback_executed_at,
       sharedBudgetAdjustmentPreview: row.execution_metadata?.sharedBudgetAdjustmentPreview as GoogleRecommendation["sharedBudgetAdjustmentPreview"],
+      portfolioTargetAdjustmentPreview:
+        row.execution_metadata?.portfolioTargetAdjustmentPreview as GoogleRecommendation["portfolioTargetAdjustmentPreview"],
+      jointExecutionSequence: mergeJointExecutionSequence(
+        recommendation.jointExecutionSequence ?? null,
+        row.execution_metadata?.jointExecutionSequenceState
+      ),
+      jointAllocatorAdjustmentPreview:
+        (row.execution_metadata?.jointAllocatorAdjustmentPreview as GoogleRecommendation["jointAllocatorAdjustmentPreview"]) ??
+        recommendation.jointAllocatorAdjustmentPreview ??
+        null,
+      jointAllocatorBlockedReason:
+        String(row.execution_metadata?.jointAllocatorBlockedReason ?? "") ||
+        recommendation.jointAllocatorBlockedReason ||
+        null,
+      jointAllocatorCautionReason:
+        String(row.execution_metadata?.jointAllocatorCautionReason ?? "") ||
+        recommendation.jointAllocatorCautionReason ||
+        null,
       rollbackSafetyState:
         (String(row.execution_metadata?.rollbackSafetyState ?? "") || null) as GoogleRecommendation["rollbackSafetyState"],
       rollbackAvailableUntil: String(row.execution_metadata?.rollbackAvailableUntil ?? "") || null,

@@ -398,6 +398,17 @@ function clusterStatus(
   readiness: GoogleClusterReadiness
 ): GoogleActionCluster["clusterStatus"] {
   if (recommendations.some((entry) => entry.executionStatus === "pending")) return "executing";
+  if (
+    recommendations.some(
+      (entry) =>
+        entry.dependencyReadiness === "done_unverified" &&
+        entry.sequentialExecutionCandidate &&
+        entry.stabilizationHoldUntil &&
+        Date.parse(entry.stabilizationHoldUntil) > Date.now()
+    )
+  ) {
+    return "stabilizing";
+  }
   if (recommendations.some((entry) => entry.rollbackExecutedAt)) return "rolled_back";
   const appliedCount = recommendations.filter(
     (entry) => entry.executionStatus === "applied" || entry.executionStatus === "partially_applied"
@@ -474,7 +485,13 @@ function stepOrderWeight(recommendation: GoogleRecommendation) {
   ) {
     return 30;
   }
-  if (recommendation.mutateActionType === "adjust_campaign_budget" || recommendation.mutateActionType === "adjust_shared_budget") return 40;
+  if (
+    recommendation.mutateActionType === "adjust_campaign_budget" ||
+    recommendation.mutateActionType === "adjust_shared_budget" ||
+    recommendation.mutateActionType === "adjust_portfolio_target"
+  ) {
+    return 40;
+  }
   return 50;
 }
 
@@ -493,7 +510,8 @@ function stepCriticalityForRecommendation(
   if (
     recommendation.type === "budget_reallocation" ||
     recommendation.mutateActionType === "adjust_campaign_budget" ||
-    recommendation.mutateActionType === "adjust_shared_budget"
+    recommendation.mutateActionType === "adjust_shared_budget" ||
+    recommendation.mutateActionType === "adjust_portfolio_target"
   ) {
     return "critical";
   }
@@ -523,6 +541,7 @@ function validationRoleForRecommendation(
   if (
     recommendation.mutateActionType === "adjust_campaign_budget" ||
     recommendation.mutateActionType === "adjust_shared_budget" ||
+    recommendation.mutateActionType === "adjust_portfolio_target" ||
     recommendation.type === "budget_reallocation"
   ) {
     return "unlock_gate";
@@ -540,6 +559,45 @@ function buildSteps(recommendations: GoogleRecommendation[], clusterType: Google
 
   for (const recommendation of sorted) {
     if (consumedFingerprints.has(recommendation.recommendationFingerprint)) continue;
+    if ((recommendation.jointExecutionSequence?.length ?? 0) > 0) {
+      consumedFingerprints.add(recommendation.recommendationFingerprint);
+      for (const sequenceStep of recommendation.jointExecutionSequence ?? []) {
+        steps.push({
+          stepId: `step-${steps.length + 1}-${recommendation.id}-${sequenceStep.stepKey}`,
+          title: sequenceStep.title,
+          stepType: "mutate",
+          required: true,
+          stepCriticality: "critical",
+          stepFailureBoundary: "invalidate_move",
+          stepValidationRole: "unlock_gate",
+          executionMode: "mutate_ready",
+          mutateActionType: sequenceStep.mutateActionType,
+          recommendationIds: [recommendation.id],
+          recommendationFingerprints: [recommendation.recommendationFingerprint],
+          batchGroupKey: recommendation.batchGroupKey ?? null,
+          executionTrustBand: sequenceStep.executionTrustBand ?? recommendation.executionTrustBand ?? null,
+          dependencyReadiness: sequenceStep.dependencyReadiness ?? recommendation.dependencyReadiness ?? null,
+          stabilizationHoldUntil: sequenceStep.stabilizationHoldUntil ?? recommendation.stabilizationHoldUntil ?? null,
+          waitReason: sequenceStep.waitReason ?? null,
+          sequenceKey: sequenceStep.stepKey,
+          transactionIds: sequenceStep.transactionIds ?? [],
+          batchItems: null,
+          mutateItem: {
+            recommendationFingerprint: recommendation.recommendationFingerprint,
+            mutateActionType: sequenceStep.mutateActionType,
+            mutatePayloadPreview: sequenceStep.mutatePayloadPreview,
+            rollbackActionType: sequenceStep.rollbackActionType ?? null,
+            rollbackPayloadPreview: sequenceStep.rollbackPayloadPreview ?? null,
+            executionTrustBand: sequenceStep.executionTrustBand ?? recommendation.executionTrustBand ?? null,
+            dependencyReadiness: sequenceStep.dependencyReadiness ?? recommendation.dependencyReadiness ?? null,
+            stabilizationHoldUntil: sequenceStep.stabilizationHoldUntil ?? recommendation.stabilizationHoldUntil ?? null,
+            waitReason: sequenceStep.waitReason ?? null,
+            sequenceKey: sequenceStep.stepKey,
+          },
+        });
+      }
+      continue;
+    }
     if (
       recommendation.executionMode === "mutate_ready" &&
       recommendation.batchEligible &&
@@ -593,7 +651,13 @@ function buildSteps(recommendations: GoogleRecommendation[], clusterType: Google
     }
 
     consumedFingerprints.add(recommendation.recommendationFingerprint);
-    const stepType = recommendation.executionMode === "mutate_ready" ? "mutate" : "handoff";
+    const sequentialCandidate = recommendation.sequentialExecutionCandidate ?? null;
+    const resolvedMutateActionType =
+      recommendation.mutateActionType ?? sequentialCandidate?.mutateActionType ?? null;
+    const resolvedMutatePayloadPreview =
+      recommendation.mutatePayloadPreview ?? sequentialCandidate?.mutatePayloadPreview ?? null;
+    const stepType =
+      recommendation.executionMode === "mutate_ready" || sequentialCandidate ? "mutate" : "handoff";
     const stepCriticality = stepCriticalityForRecommendation(recommendation, clusterType);
     steps.push({
       stepId: `step-${steps.length + 1}-${recommendation.id}`,
@@ -603,29 +667,38 @@ function buildSteps(recommendations: GoogleRecommendation[], clusterType: Google
       stepCriticality,
       stepFailureBoundary: failureBoundaryForCriticality(stepCriticality),
       stepValidationRole: validationRoleForRecommendation(recommendation, stepCriticality),
-      executionMode: recommendation.executionMode ?? "handoff",
-      mutateActionType: recommendation.mutateActionType ?? null,
+      executionMode:
+        recommendation.executionMode === "mutate_ready" || sequentialCandidate ? "mutate_ready" : recommendation.executionMode ?? "handoff",
+      mutateActionType:
+        recommendation.mutateActionType ?? sequentialCandidate?.mutateActionType ?? null,
       recommendationIds: [recommendation.id],
       recommendationFingerprints: [recommendation.recommendationFingerprint],
       batchGroupKey: recommendation.batchGroupKey ?? null,
-      executionTrustBand: recommendation.executionTrustBand ?? null,
-      dependencyReadiness: recommendation.dependencyReadiness ?? null,
-      stabilizationHoldUntil: recommendation.stabilizationHoldUntil ?? null,
+      executionTrustBand: recommendation.executionTrustBand ?? sequentialCandidate?.executionTrustBand ?? null,
+      dependencyReadiness: recommendation.dependencyReadiness ?? sequentialCandidate?.dependencyReadiness ?? null,
+      stabilizationHoldUntil: recommendation.stabilizationHoldUntil ?? sequentialCandidate?.stabilizationHoldUntil ?? null,
+      waitReason: sequentialCandidate?.waitReason ?? null,
+      sequenceKey: null,
       transactionIds: recommendation.transactionId ? [recommendation.transactionId] : [],
       batchItems: null,
       mutateItem:
-        recommendation.executionMode === "mutate_ready" &&
-        recommendation.mutateActionType &&
-        recommendation.mutatePayloadPreview
+        resolvedMutateActionType && resolvedMutatePayloadPreview
           ? {
               recommendationFingerprint: recommendation.recommendationFingerprint,
-              mutateActionType: recommendation.mutateActionType,
-              mutatePayloadPreview: recommendation.mutatePayloadPreview,
-              rollbackActionType: recommendation.rollbackActionType ?? null,
-              rollbackPayloadPreview: recommendation.rollbackPayloadPreview ?? null,
-              executionTrustBand: recommendation.executionTrustBand ?? null,
-              dependencyReadiness: recommendation.dependencyReadiness ?? null,
-              stabilizationHoldUntil: recommendation.stabilizationHoldUntil ?? null,
+              mutateActionType: resolvedMutateActionType,
+              mutatePayloadPreview: resolvedMutatePayloadPreview,
+              rollbackActionType:
+                recommendation.rollbackActionType ?? sequentialCandidate?.rollbackActionType ?? null,
+              rollbackPayloadPreview:
+                recommendation.rollbackPayloadPreview ?? sequentialCandidate?.rollbackPayloadPreview ?? null,
+              executionTrustBand:
+                recommendation.executionTrustBand ?? sequentialCandidate?.executionTrustBand ?? null,
+              dependencyReadiness:
+                recommendation.dependencyReadiness ?? sequentialCandidate?.dependencyReadiness ?? null,
+              stabilizationHoldUntil:
+                recommendation.stabilizationHoldUntil ?? sequentialCandidate?.stabilizationHoldUntil ?? null,
+              waitReason: sequentialCandidate?.waitReason ?? null,
+              sequenceKey: null,
             }
           : null,
     });
@@ -842,9 +915,21 @@ export function buildActionClusters(input: {
         })
       )
       .map((step) => step.stepId);
+    const waitingStep =
+      steps.find(
+        (step) =>
+          step.executionMode !== "handoff" &&
+          !completedChildStepIds.includes(step.stepId) &&
+          !failedChildStepIds.includes(step.stepId) &&
+          ((step.stabilizationHoldUntil && Date.parse(step.stabilizationHoldUntil) > Date.now()) ||
+            step.dependencyReadiness === "not_ready" ||
+            step.dependencyReadiness === "done_unverified")
+      ) ?? null;
     const clusterExecutionStatus: GoogleClusterExecutionStatus =
       memberExecutionStatuses.some((value) => value === "pending")
         ? "pending"
+        : waitingStep && completedChildStepIds.length > 0
+          ? "stabilizing"
         : failedChildStepIds.length > 0 && completedChildStepIds.length > 0
           ? "partially_applied"
           : failedChildStepIds.length > 0
@@ -893,6 +978,9 @@ export function buildActionClusters(input: {
     const sharedBudgetMutateRecommendations = recommendations.filter(
       (entry) => entry.mutateActionType === "adjust_shared_budget"
     );
+    const portfolioTargetMutateRecommendations = recommendations.filter(
+      (entry) => entry.mutateActionType === "adjust_portfolio_target"
+    );
     const reallocationNetImpact =
       reallocationRecommendations.length > 0
         ? {
@@ -927,7 +1015,44 @@ export function buildActionClusters(input: {
               ? "Destination improvement must outweigh source degradation on a net basis."
               : "The move still needs structured validation before it can be trusted.";
     let derivedOutcomeVerdict = outcome.verdict;
-    if (sharedBudgetMutateRecommendations.length > 0) {
+    let portfolioTargetWindowStillMaturing = false;
+    if (portfolioTargetMutateRecommendations.length > 0) {
+      const attributionWindowDays = sharedState.portfolioAttributionWindowDays ?? 21;
+      const portfolioExecutedAt = portfolioTargetMutateRecommendations
+        .map((entry) => entry.executedAt)
+        .filter((value): value is string => Boolean(value))
+        .sort()
+        .slice(-1)[0] ?? null;
+      const daysSinceExecution =
+        portfolioExecutedAt ? (Date.now() - Date.parse(portfolioExecutedAt)) / (24 * 60 * 60 * 1000) : null;
+      const aggregatePortfolioDelta = Number(
+        portfolioTargetMutateRecommendations.reduce((sum, entry) => sum + Number(entry.outcomeDelta ?? 0), 0).toFixed(2)
+      );
+      outcomeReason =
+        "Portfolio-target mutate is judged at the governed portfolio level, not only on the triggering campaign.";
+      if (daysSinceExecution === null || daysSinceExecution < Math.min(14, attributionWindowDays)) {
+        portfolioTargetWindowStillMaturing = true;
+        derivedOutcomeVerdict = "stabilizing";
+        outcomeReason = `Portfolio-target mutate is still inside its early attribution window (${attributionWindowDays}d), so the move remains inconclusive while the strategy stabilizes.`;
+      } else if (daysSinceExecution < attributionWindowDays) {
+        portfolioTargetWindowStillMaturing = true;
+        derivedOutcomeVerdict = "stabilizing";
+        outcomeReason =
+          "Portfolio-target mutate is still inside its governed attribution window, so move truth stays conservative until the full window matures.";
+      } else if (aggregatePortfolioDelta < 0 && contaminationFlags.length === 0) {
+        derivedOutcomeVerdict = "resolved";
+        outcomeReason =
+          "Governed portfolio response is net positive across the attribution window, so the target adjustment validated at the portfolio level.";
+      } else if (aggregatePortfolioDelta > 0 && contaminationFlags.length === 0) {
+        derivedOutcomeVerdict = "degraded";
+        outcomeReason =
+          "Governed portfolio response is net negative across the attribution window, so the target adjustment remains degraded.";
+      } else {
+        derivedOutcomeVerdict = "stabilizing";
+        outcomeReason =
+          "Portfolio-target attribution remains contaminated, so the move stays inconclusive even after the initial stabilization window.";
+      }
+    } else if (sharedBudgetMutateRecommendations.length > 0) {
       const poolNetDelta = Number(
         sharedBudgetMutateRecommendations.reduce((sum, entry) => sum + Number(entry.outcomeDelta ?? 0), 0).toFixed(2)
       );
@@ -968,7 +1093,9 @@ export function buildActionClusters(input: {
     if (sharedState.portfolioContaminationSource === "mixed_allocator_contamination" && !contaminationFlags.includes("mixed_allocator_contamination")) {
       contaminationFlags.push("mixed_allocator_contamination");
     }
-    if (sharedState.portfolioGovernanceStatus === "dominant") {
+    if (portfolioTargetWindowStillMaturing) {
+      // Preserve the stricter portfolio-target attribution hold message during the early window.
+    } else if (sharedState.portfolioGovernanceStatus === "dominant") {
       outcomeReason =
         "Portfolio-governed allocation is dominant here, so local move attribution remains strategy-coupled until a longer validation window completes.";
       derivedOutcomeVerdict = "stabilizing";
@@ -1083,8 +1210,15 @@ export function buildActionClusters(input: {
               return recommendation?.executionStatus === "pending";
             })
           )?.stepId ?? null,
+        waitingChildStepId: waitingStep?.stepId ?? null,
+        nextEligibleAt: waitingStep?.stabilizationHoldUntil ?? null,
         stopReason:
-          failedChildStepIds.length > 0
+          clusterExecutionStatus === "stabilizing" && waitingStep
+            ? waitingStep.waitReason ??
+              (waitingStep.stabilizationHoldUntil
+                ? `blocked_by_stabilization_hold: next allocator step remains paused until ${waitingStep.stabilizationHoldUntil}.`
+                : "blocked_by_partial_cleanup: next allocator step is waiting on cleanup completion.")
+          : failedChildStepIds.length > 0
             ? `A ${steps.find((step) => failedChildStepIds.includes(step.stepId))?.stepCriticality ?? "required"} child transaction failed before the move fully completed.`
             : sharedState.sharedStateMutateBlockedReason
               ? sharedState.sharedStateMutateBlockedReason
@@ -1157,6 +1291,8 @@ export async function executeActionCluster(input: {
   const failedChildStepIds: string[] = [];
   const childTransactionIds: string[] = [];
   let currentStepId: string | null = null;
+  let waitingChildStepId: string | null = null;
+  let nextEligibleAt: string | null = null;
   let stopReason: string | null = null;
 
   for (const step of input.cluster.steps) {
@@ -1166,6 +1302,24 @@ export async function executeActionCluster(input: {
         break;
       }
       continue;
+    }
+    if (step.dependencyReadiness === "not_ready" || step.dependencyReadiness === "done_unverified") {
+      waitingChildStepId = step.stepId;
+      nextEligibleAt = step.stabilizationHoldUntil ?? null;
+      stopReason =
+        step.waitReason ??
+        (step.stabilizationHoldUntil
+          ? `blocked_by_stabilization_hold: next allocator step remains paused until ${step.stabilizationHoldUntil}.`
+          : "blocked_by_partial_cleanup: next allocator step is waiting for cleanup completion.");
+      break;
+    }
+    if (step.stabilizationHoldUntil && Date.parse(step.stabilizationHoldUntil) > Date.now()) {
+      waitingChildStepId = step.stepId;
+      nextEligibleAt = step.stabilizationHoldUntil;
+      stopReason =
+        step.waitReason ??
+        `blocked_by_stabilization_hold: next allocator step remains paused until ${step.stabilizationHoldUntil}.`;
+      break;
     }
     currentStepId = step.stepId;
     try {
@@ -1188,7 +1342,9 @@ export async function executeActionCluster(input: {
   }
 
   const clusterExecutionStatus: GoogleClusterExecutionStatus =
-    failedChildStepIds.length > 0 && completedChildStepIds.length > 0
+    waitingChildStepId && completedChildStepIds.length > 0
+      ? "stabilizing"
+      : failedChildStepIds.length > 0 && completedChildStepIds.length > 0
       ? "partially_applied"
       : failedChildStepIds.length > 0
         ? "failed"
@@ -1203,6 +1359,8 @@ export async function executeActionCluster(input: {
     completedChildStepIds,
     failedChildStepIds,
     currentStepId,
+    waitingChildStepId,
+    nextEligibleAt,
     stopReason,
   };
 }
@@ -1218,6 +1376,7 @@ export async function rollbackActionCluster(input: {
   const manualRecoveryInstructions: string[] = [];
 
   for (const step of [...input.cluster.steps].reverse()) {
+    if ((step.transactionIds?.length ?? 0) === 0) continue;
     const canRollback =
       step.stepType === "batch_mutate"
         ? (step.batchItems ?? []).every((item) => item.rollbackActionType && item.rollbackPayloadPreview)

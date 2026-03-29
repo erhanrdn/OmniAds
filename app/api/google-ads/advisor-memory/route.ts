@@ -47,6 +47,7 @@ type RequestBody =
         | "pause_ad"
         | "adjust_campaign_budget"
         | "adjust_shared_budget"
+        | "adjust_portfolio_target"
         | null;
       mutatePayloadPreview?: Record<string, unknown> | null;
       rollbackActionType?:
@@ -55,6 +56,7 @@ type RequestBody =
         | "enable_ad"
         | "restore_campaign_budget"
         | "restore_shared_budget"
+        | "restore_portfolio_target"
         | null;
       rollbackPayloadPreview?: Record<string, unknown> | null;
       executionTrustBand?: GoogleExecutionTrustBand | null;
@@ -471,6 +473,15 @@ async function applySingleMutateInternal(input: {
                   null,
                 previousAmount: input.rollbackPayloadPreview?.previousAmount ?? null,
               }
+          : input.rollbackActionType === "restore_portfolio_target"
+            ? {
+                portfolioBidStrategyResourceName:
+                  input.rollbackPayloadPreview?.portfolioBidStrategyResourceName ??
+                  result.resourceNames[0] ??
+                  null,
+                portfolioTargetType: input.rollbackPayloadPreview?.portfolioTargetType ?? null,
+                previousValue: input.rollbackPayloadPreview?.previousValue ?? null,
+              }
           : input.rollbackPayloadPreview ?? null;
   await updateAdvisorExecutionState({
     businessId: input.businessId,
@@ -588,6 +599,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "accountId and cluster are required for cluster execution." }, { status: 400 });
     }
     const clusterExecutionId = `cluster-exec-${randomUUID()}`;
+    const jointSequenceStateByFingerprint = new Map<string, Array<Record<string, unknown>>>();
+    for (const step of body.cluster.steps) {
+      if (!step.mutateItem?.sequenceKey) continue;
+      const fingerprint = step.mutateItem.recommendationFingerprint;
+      const current = jointSequenceStateByFingerprint.get(fingerprint) ?? [];
+      current.push({
+        stepKey: step.mutateItem.sequenceKey,
+        title: step.title,
+        mutateActionType: step.mutateItem.mutateActionType,
+        rollbackActionType: step.mutateItem.rollbackActionType ?? null,
+        rollbackPayloadPreview: step.mutateItem.rollbackPayloadPreview ?? null,
+        transactionIds: step.transactionIds ?? [],
+        executionStatus: (step.transactionIds?.length ?? 0) > 0 ? "applied" : "not_started",
+      });
+      jointSequenceStateByFingerprint.set(fingerprint, current);
+    }
     const clusterExecution = await executeActionCluster({
       cluster: body.cluster,
       clusterExecutionId,
@@ -625,6 +652,62 @@ export async function POST(request: NextRequest) {
             clusterStepId: step.stepId,
           },
         });
+        if (step.mutateItem.sequenceKey) {
+          const fingerprint = step.mutateItem.recommendationFingerprint;
+          const current = jointSequenceStateByFingerprint.get(fingerprint) ?? [];
+          const next = current.map((entry) =>
+            String(entry.stepKey ?? "") === step.mutateItem?.sequenceKey
+              ? {
+                  ...entry,
+                  rollbackPayloadPreview: result.rollbackPayloadPreview ?? entry.rollbackPayloadPreview ?? null,
+                  transactionIds: [result.transactionId],
+                  executionStatus: "applied",
+                }
+              : entry
+          );
+          jointSequenceStateByFingerprint.set(fingerprint, next);
+          const completedStepIds = next
+            .filter((entry) => String(entry.executionStatus ?? "") === "applied")
+            .map((entry) => String(entry.stepKey ?? ""))
+            .filter(Boolean);
+          const totalStepCount = next.length;
+          await updateAdvisorExecutionState({
+            businessId,
+            accountId: body.accountId!,
+            recommendationFingerprint: fingerprint,
+            executionStatus: "applied",
+            rollbackAvailable: true,
+            executionMetadata: {
+              mutateActionType: step.mutateItem.mutateActionType,
+              rollbackActionType: step.mutateItem.rollbackActionType ?? null,
+              rollbackPayloadPreview: result.rollbackPayloadPreview ?? step.mutateItem.rollbackPayloadPreview ?? null,
+              policyPatternKey:
+                typeof step.mutateItem.mutatePayloadPreview?.policyPatternKey === "string"
+                  ? `${step.mutateItem.mutatePayloadPreview.policyPatternKey}|joint_allocator`
+                  : null,
+              executionTrustBand: step.mutateItem.executionTrustBand ?? null,
+              transactionId: result.transactionId,
+              batchStatus: "applied",
+              batchSize: totalStepCount,
+              batchRollbackAvailable: true,
+              clusterId: body.cluster?.clusterId,
+              clusterExecutionId,
+              clusterStepId: step.stepId,
+              jointExecutionSequenceState: next,
+            },
+          });
+          await updateAdvisorCompletionState({
+            businessId,
+            accountId: body.accountId!,
+            recommendationFingerprint: fingerprint,
+            completionMode: completedStepIds.length === totalStepCount ? "full" : "partial",
+            completedStepCount: completedStepIds.length,
+            totalStepCount,
+            completedStepIds,
+            skippedStepIds: [],
+            coreStepIds: next.map((entry) => String(entry.stepKey ?? "")).filter(Boolean),
+          });
+        }
         return { transactionId: result.transactionId, ok: true };
       },
     });
@@ -651,6 +734,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "accountId and cluster are required for cluster rollback." }, { status: 400 });
     }
     const clusterRollbackId = `cluster-rollback-${randomUUID()}`;
+    const jointSequenceStateByFingerprint = new Map<string, Array<Record<string, unknown>>>();
+    for (const step of body.cluster.steps) {
+      if (!step.mutateItem?.sequenceKey) continue;
+      const fingerprint = step.mutateItem.recommendationFingerprint;
+      const current = jointSequenceStateByFingerprint.get(fingerprint) ?? [];
+      current.push({
+        stepKey: step.mutateItem.sequenceKey,
+        title: step.title,
+        mutateActionType: step.mutateItem.mutateActionType,
+        rollbackActionType: step.mutateItem.rollbackActionType ?? null,
+        rollbackPayloadPreview: step.mutateItem.rollbackPayloadPreview ?? null,
+        transactionIds: step.transactionIds ?? [],
+        executionStatus: (step.transactionIds?.length ?? 0) > 0 ? "applied" : "not_started",
+      });
+      jointSequenceStateByFingerprint.set(fingerprint, current);
+    }
     const rollback = await rollbackActionCluster({
       cluster: body.cluster,
       rollbackBatchStep: async (step: GoogleActionClusterStep) => {
@@ -690,6 +789,36 @@ export async function POST(request: NextRequest) {
               clusterStepId: step.stepId,
             },
           });
+          if (result.ok && step.mutateItem.sequenceKey) {
+            const fingerprint = step.mutateItem.recommendationFingerprint;
+            const current = jointSequenceStateByFingerprint.get(fingerprint) ?? [];
+            const next = current.map((entry) =>
+              String(entry.stepKey ?? "") === step.mutateItem?.sequenceKey
+                ? {
+                    ...entry,
+                    executionStatus: "rolled_back",
+                  }
+                : entry
+            );
+            jointSequenceStateByFingerprint.set(fingerprint, next);
+            await updateAdvisorExecutionState({
+              businessId,
+              accountId: body.accountId!,
+              recommendationFingerprint: fingerprint,
+              executionStatus: "rolled_back",
+              rollbackAvailable: false,
+              rollbackExecutedAt: new Date().toISOString(),
+              executionMetadata: {
+                rolledBack: true,
+                transactionId: step.transactionIds?.[0] ?? null,
+                batchStatus: "rolled_back",
+                clusterId: body.cluster?.clusterId,
+                clusterRollbackId,
+                clusterStepId: step.stepId,
+                jointExecutionSequenceState: next,
+              },
+            });
+          }
           return { ok: result.ok, errorMessage: null, retryable: result.retryable };
         } catch (error) {
           const message = error instanceof Error ? error.message : "Rollback failed.";
