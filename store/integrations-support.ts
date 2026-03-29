@@ -296,6 +296,7 @@ export function syncLegacyIntegrationsFromDomains(
 }
 
 function providerDetailLabel(provider: IntegrationProvider) {
+  if (provider === "shopify") return "Store";
   if (provider === "ga4") return "Property";
   if (provider === "search_console") return "Site";
   if (provider === "klaviyo") return "Workspace";
@@ -307,6 +308,9 @@ function providerActionLabel(
   assignedCount: number,
   hasSelectedProviderEntity: boolean
 ) {
+  if (provider === "shopify") {
+    return "Connected";
+  }
   if (provider === "ga4") {
     return hasSelectedProviderEntity ? "Change Property" : "Select Property";
   }
@@ -325,7 +329,12 @@ function providerMetaValue(
   const providerAccountName =
     domain.connection.providerAccountName ??
     domain.connection.providerAccountId;
-  if (provider === "ga4" || provider === "search_console" || provider === "klaviyo") {
+  if (
+    provider === "shopify" ||
+    provider === "ga4" ||
+    provider === "search_console" ||
+    provider === "klaviyo"
+  ) {
     return providerAccountName ?? "Not configured yet";
   }
   return assignedCount > 0
@@ -439,7 +448,9 @@ export function deriveProviderViewState(
         ? `${assignedCount} ${assignedCount === 1 ? "account" : "accounts"} assigned`
         : providerSupportsAssignments
           ? "No accounts assigned"
-          : "Configuration not selected yet",
+          : provider === "shopify"
+            ? "Store connection is complete"
+            : "Configuration not selected yet",
     connectedAt: domain.connection.connectedAt,
     errorMessage: domain.connection.errorMessage ?? domain.discovery.errorMessage,
     notice: domain.discovery.notice,

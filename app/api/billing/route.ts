@@ -4,7 +4,7 @@ import { isDemoBusiness } from "@/lib/business-mode.server";
 import { getDemoBillingState } from "@/lib/demo-business";
 import { getIntegration } from "@/lib/integrations";
 import { getCurrentPlan } from "@/lib/shopify/billing/checkSubscription";
-import { createSubscription } from "@/lib/shopify/billing/createSubscription";
+import { getManagedPricingUrl } from "@/lib/shopify/billing/managed-pricing";
 import { PRICING_PLANS, type PlanId } from "@/lib/pricing/plans";
 import { getDb } from "@/lib/db";
 
@@ -108,7 +108,7 @@ export async function GET(request: NextRequest) {
  * POST /api/billing
  * Body: { businessId: string; planId: PlanId }
  *
- * Initiates a plan change via Shopify billing.
+ * Redirects the merchant to Shopify's hosted managed pricing page.
  */
 export async function POST(request: NextRequest) {
   const auth = await requireAuthedRequest(request);
@@ -121,7 +121,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const { businessId, planId, interval } = body;
+  const { businessId, planId } = body;
   if (!businessId || !planId) {
     return NextResponse.json(
       { error: "businessId and planId are required." },
@@ -138,40 +138,31 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  const billingInterval = interval === "annual" ? "annual" : "monthly";
-
   const validPlanIds: PlanId[] = ["starter", "growth", "pro", "scale"];
   if (!validPlanIds.includes(planId as PlanId)) {
     return NextResponse.json({ error: "Invalid planId." }, { status: 400 });
   }
 
   const integration = await getIntegration(businessId, "shopify");
-  if (!integration || integration.status !== "connected" || !integration.provider_account_id || !integration.access_token) {
+  if (!integration || integration.status !== "connected" || !integration.provider_account_id) {
     return NextResponse.json(
       { error: "No active Shopify integration found for this workspace." },
       { status: 404 },
     );
   }
 
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
-  const returnUrl = `${baseUrl}/settings?billing=updated`;
-
-  try {
-    const result = await createSubscription({
-      shopId: integration.provider_account_id,
-      accessToken: integration.access_token,
-      planId: planId as PlanId,
-      returnUrl,
-      interval: billingInterval,
-    });
-
-    return NextResponse.json({
-      planId: result.planId,
-      status: result.status,
-      confirmationUrl: result.confirmationUrl,
-    });
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Subscription update failed.";
-    return NextResponse.json({ error: message }, { status: 500 });
+  const confirmationUrl = getManagedPricingUrl(integration.provider_account_id);
+  if (!confirmationUrl) {
+    return NextResponse.json(
+      { error: "Shopify store handle could not be resolved for managed pricing." },
+      { status: 500 },
+    );
   }
+
+  return NextResponse.json({
+    planId,
+    status: "redirect_required",
+    confirmationUrl,
+    managedPricing: true,
+  });
 }

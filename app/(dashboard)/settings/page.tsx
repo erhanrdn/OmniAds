@@ -488,8 +488,6 @@ export default function SettingsPage() {
     }
   }
 
-  const [billingInterval, setBillingInterval] = useState<"monthly" | "annual">("monthly");
-
   async function handlePlanChange(planId: PlanId) {
     if (!selectedBusinessId) return;
     if (isDemoBusinessId(selectedBusinessId)) {
@@ -501,7 +499,7 @@ export default function SettingsPage() {
       const response = await fetch("/api/billing", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ businessId: selectedBusinessId, planId, interval: billingInterval }),
+        body: JSON.stringify({ businessId: selectedBusinessId, planId }),
       });
       const data = await response.json().catch(() => null) as { confirmationUrl?: string; error?: string } | null;
       if (!response.ok) {
@@ -604,39 +602,16 @@ export default function SettingsPage() {
                     Demo workspace billing is fixture-backed. Plan changes are disabled here so the review flow stays stable.
                   </div>
                 ) : (
-                  <div className="mb-3 flex items-center justify-between">
-                    <p className="text-sm font-medium">Available plans</p>
-                    <div className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/30 p-0.5">
-                      <button
-                        onClick={() => setBillingInterval("monthly")}
-                        className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                          billingInterval === "monthly" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-                        }`}
-                      >
-                        Monthly
-                      </button>
-                      <button
-                        onClick={() => setBillingInterval("annual")}
-                        className={`flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                          billingInterval === "annual" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-                        }`}
-                      >
-                        Annual
-                        <span className="rounded-full bg-indigo-100 px-1 py-0.5 text-[10px] font-semibold text-indigo-700">−20%</span>
-                      </button>
-                    </div>
+                  <div className="mb-3 rounded-xl border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
+                    Plan changes are handled on Shopify&apos;s hosted pricing page. The buttons below open Shopify so the merchant can choose and approve the final plan there.
                   </div>
                 )}
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                   {PLAN_ORDER.map((planId) => {
                     const plan = PRICING_PLANS[planId];
                     const isCurrent = billing.planId === planId;
-                    const displayPrice = billingInterval === "annual" && plan.yearlyPrice
-                      ? `$${Math.round(plan.yearlyPrice / 12)}/mo`
-                      : plan.monthlyPrice === 0 ? "Free" : `$${plan.monthlyPrice}/mo`;
-                    const subPrice = billingInterval === "annual" && plan.yearlyPrice
-                      ? `$${plan.yearlyPrice}/yr`
-                      : null;
+                    const displayPrice = plan.monthlyPrice === 0 ? "Free" : `$${plan.monthlyPrice}/mo`;
+                    const subPrice = plan.yearlyPrice ? `$${plan.yearlyPrice}/yr` : null;
                     return (
                       <div
                         key={planId}
@@ -662,10 +637,8 @@ export default function SettingsPage() {
                               {isDemoWorkspace
                                 ? "Locked in demo"
                                 : billingChanging
-                                  ? "Updating..."
-                                  : plan.monthlyPrice > (billing.monthlyPrice ?? 0)
-                                    ? "Upgrade"
-                                    : "Downgrade"}
+                                  ? "Opening Shopify..."
+                                  : "Manage in Shopify"}
                             </Button>
                           )}
                         </div>
