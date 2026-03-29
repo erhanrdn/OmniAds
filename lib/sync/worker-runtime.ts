@@ -22,6 +22,17 @@ export interface DurableWorkerRuntimeOptions {
   adapters: ProviderWorkerAdapter[];
 }
 
+function getWorkerBuildFingerprint() {
+  return (
+    process.env.APP_BUILD_ID?.trim() ||
+    process.env.NEXT_BUILD_ID?.trim() ||
+    process.env.VERCEL_GIT_COMMIT_SHA?.trim() ||
+    process.env.RAILWAY_GIT_COMMIT_SHA?.trim() ||
+    process.env.RENDER_GIT_COMMIT?.trim() ||
+    "dev-build"
+  );
+}
+
 export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptions) {
   process.env.SYNC_WORKER_MODE = "1";
   const workerId =
@@ -33,6 +44,8 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
   const heartbeatIntervalMs = envNumber("WORKER_HEARTBEAT_INTERVAL_MS", 15_000);
   const globalDbConcurrency = envNumber("WORKER_GLOBAL_DB_CONCURRENCY", 4);
   const pruneIntervalMs = envNumber("WORKER_PRUNE_INTERVAL_MS", 6 * 60 * 60_000);
+  const workerStartedAt = new Date().toISOString();
+  const workerBuildId = getWorkerBuildFingerprint();
   let shuttingDown = false;
   let lastHeartbeatAt = 0;
   let lastPruneAt = 0;
@@ -95,6 +108,8 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
       providerScope: "all",
       status: "idle",
       metaJson: {
+        workerBuildId,
+        workerStartedAt,
         adapters: options.adapters.map((adapter) => adapter.providerScope),
         globalDbConcurrency,
       },
@@ -107,6 +122,8 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
         providerScope: adapter.providerScope,
         status: "idle",
         metaJson: {
+          workerBuildId,
+          workerStartedAt,
           providerScope: adapter.providerScope,
           globalDbConcurrency,
         },
@@ -137,6 +154,8 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
             status: "running",
             lastBusinessId: business.id,
             metaJson: {
+              workerBuildId,
+              workerStartedAt,
               providerScope: adapter.providerScope,
             },
           }).catch(() => null);

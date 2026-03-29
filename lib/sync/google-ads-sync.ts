@@ -495,6 +495,8 @@ export async function getGoogleAdsWorkerSchedulingState(input: { businessId: str
       runnerLeaseActive: true,
       lastHeartbeatAt: new Date().toISOString(),
       latestLeaseUpdatedAt: new Date().toISOString(),
+      ownerWorkerId: process.env.WORKER_INSTANCE_ID?.trim() ?? null,
+      workerMeta: null,
     };
   }
   const state = await getProviderWorkerHealthState({
@@ -510,6 +512,7 @@ export async function getGoogleAdsWorkerSchedulingState(input: { businessId: str
     lastHeartbeatAt: state?.lastHeartbeatAt ?? null,
     latestLeaseUpdatedAt: state?.latestLeaseUpdatedAt ?? null,
     ownerWorkerId: state?.ownerWorkerId ?? null,
+    workerMeta: state?.workerMeta ?? null,
   };
 }
 

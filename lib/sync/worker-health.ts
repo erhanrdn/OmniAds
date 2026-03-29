@@ -175,7 +175,8 @@ export async function getSyncWorkerHealthSummary(input?: {
         status,
         last_heartbeat_at,
         last_business_id,
-        last_partition_id
+        last_partition_id,
+        meta_json
       FROM sync_worker_heartbeats
       WHERE (
         COALESCE(array_length(${providerScopes}::text[], 1), 0) = 0
@@ -198,6 +199,10 @@ export async function getSyncWorkerHealthSummary(input?: {
       lastHeartbeatAt: normalizeTimestamp(row.last_heartbeat_at),
       lastBusinessId: row.last_business_id ? String(row.last_business_id) : null,
       lastPartitionId: row.last_partition_id ? String(row.last_partition_id) : null,
+      metaJson:
+        row.meta_json && typeof row.meta_json === "object"
+          ? (row.meta_json as Record<string, unknown>)
+          : null,
     })),
   };
 }
@@ -255,6 +260,10 @@ export async function getProviderWorkerHealthState(input: {
     ownerWorkerId: leaseHealth?.activeLeaseOwner ?? null,
     lastHeartbeatAt: health?.lastHeartbeatAt ?? null,
     latestLeaseUpdatedAt: leaseHealth?.latestLeaseUpdatedAt ?? null,
+    workerMeta:
+      health?.workers.find((worker) => worker.workerId === (leaseHealth?.activeLeaseOwner ?? ""))?.metaJson ??
+      health?.workers[0]?.metaJson ??
+      null,
   };
 }
 

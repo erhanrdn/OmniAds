@@ -191,9 +191,21 @@ export interface GoogleAdsStatusResponse {
       status: string | null;
       lastError: string | null;
     } | null;
+    lastAutoRepairOutcome?: "completed" | "failed" | "running" | "queued" | "unknown" | null;
+    lastAutoRepairTriggerSource?: string | null;
     recentGapCountByScope?: Record<string, number>;
     recentGapRepairingByScope?: Record<string, boolean>;
     recentGapLastAttemptAtByScope?: Record<string, string | null>;
+    recentGapQueuedByScope?: Record<string, number>;
+    recentGapLeasedByScope?: Record<string, number>;
+    recentGapSucceededByScope?: Record<string, number>;
+    recentGapFailedByScope?: Record<string, number>;
+    lastAutoRepairAttemptByScope?: Record<string, string | null>;
+    autoRepairExecutionStage?: "not_planned" | "planned_not_leased" | "leased_not_completed" | "completed_state_stale" | "completed" | "runtime_waiting" | "failed" | null;
+    workerBuildId?: string | null;
+    workerStartedAt?: string | null;
+    lastWorkerHeartbeatAt?: string | null;
+    runtimeMismatchDetected?: boolean;
   } | null;
   panel?: {
     coreUsable: boolean;

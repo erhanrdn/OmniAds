@@ -173,6 +173,17 @@ function getTodayIsoForTimeZoneServer(timeZone: string) {
   return `${year}-${month}-${day}`;
 }
 
+function getCurrentRuntimeBuildId() {
+  return (
+    process.env.APP_BUILD_ID?.trim() ||
+    process.env.NEXT_BUILD_ID?.trim() ||
+    process.env.VERCEL_GIT_COMMIT_SHA?.trim() ||
+    process.env.RAILWAY_GIT_COMMIT_SHA?.trim() ||
+    process.env.RENDER_GIT_COMMIT?.trim() ||
+    "dev-build"
+  );
+}
+
 function buildAdvisorBlockingMessage(input: {
   connected: boolean;
   assignedAccountCount: number;
@@ -220,7 +231,11 @@ export async function GET(request: NextRequest) {
     SELECT
       scope,
       COUNT(*) FILTER (WHERE status = 'queued')::int AS queued_count,
-      COUNT(*) FILTER (WHERE status IN ('leased', 'running'))::int AS active_count,
+      COUNT(*) FILTER (WHERE status = 'leased')::int AS leased_count,
+      COUNT(*) FILTER (WHERE status = 'running')::int AS running_count,
+      COUNT(*) FILTER (WHERE status = 'succeeded')::int AS succeeded_count,
+      COUNT(*) FILTER (WHERE status = 'failed')::int AS failed_count,
+      COUNT(*) FILTER (WHERE status = 'cancelled')::int AS cancelled_count,
       MAX(updated_at)::text AS latest_attempt_at
     FROM google_ads_sync_partitions
     WHERE business_id = ${businessId!}
@@ -231,11 +246,36 @@ export async function GET(request: NextRequest) {
   ` as Promise<Array<{
     scope?: string | null;
     queued_count?: number | string | null;
-    active_count?: number | string | null;
+    leased_count?: number | string | null;
+    running_count?: number | string | null;
+    succeeded_count?: number | string | null;
+    failed_count?: number | string | null;
+    cancelled_count?: number | string | null;
     latest_attempt_at?: string | null;
   }>>;
+  const recentRepairAttemptRowsPromise = sql`
+    SELECT DISTINCT ON (scope)
+      scope,
+      trigger_source,
+      status,
+      error_message,
+      finished_at,
+      updated_at
+    FROM google_ads_sync_runs
+    WHERE business_id = ${businessId!}
+      AND trigger_source LIKE 'auto_recent_repair:%'
+      AND scope IN ('search_term_daily', 'product_daily', 'asset_daily')
+    ORDER BY scope, updated_at DESC
+  ` as Promise<Array<{
+    scope?: string | null;
+    trigger_source?: string | null;
+    status?: string | null;
+    error_message?: string | null;
+    finished_at?: string | null;
+    updated_at?: string | null;
+  }>>;
 
-  const [integration, assignments, latestSync, checkpointHealth, workerSchedulingState, staleRunRows, recentRepairRows] =
+  const [integration, assignments, latestSync, checkpointHealth, workerSchedulingState, staleRunRows, recentRepairRows, recentRepairAttemptRows] =
     await Promise.all([
     getIntegration(businessId!, "google").catch(() => null),
     getProviderAccountAssignments(businessId!, "google").catch(() => null),
@@ -244,6 +284,7 @@ export async function GET(request: NextRequest) {
     getGoogleAdsWorkerSchedulingState({ businessId: businessId! }).catch(() => null),
     staleRunPressurePromise.catch(() => []),
     recentRepairRowsPromise.catch(() => []),
+    recentRepairAttemptRowsPromise.catch(() => []),
   ]);
   const currentMode = decidePanelRecoveryMode();
   const canaryEligible = isGoogleAdsExtendedCanaryBusiness(businessId!);
@@ -270,6 +311,17 @@ export async function GET(request: NextRequest) {
           lastError: effectiveLatestSync.last_error ? String(effectiveLatestSync.last_error) : null,
         }
       : null;
+  const currentRuntimeBuildId = getCurrentRuntimeBuildId();
+  const workerBuildId =
+    workerSchedulingState?.workerMeta?.workerBuildId != null
+      ? String(workerSchedulingState.workerMeta.workerBuildId)
+      : null;
+  const workerStartedAt =
+    workerSchedulingState?.workerMeta?.workerStartedAt != null
+      ? String(workerSchedulingState.workerMeta.workerStartedAt)
+      : null;
+  const runtimeMismatchDetected =
+    workerBuildId != null && workerBuildId !== currentRuntimeBuildId;
 
   const accountIds = assignments?.account_ids ?? [];
   const connected = Boolean(integration?.status === "connected" && integration?.access_token);
@@ -881,7 +933,8 @@ export async function GET(request: NextRequest) {
     Object.keys(rangeCompletionBySurface).map((scope) => [
       scope,
       Number(recentRepairRowsByScope.get(scope)?.queued_count ?? 0) > 0 ||
-        Number(recentRepairRowsByScope.get(scope)?.active_count ?? 0) > 0,
+        Number(recentRepairRowsByScope.get(scope)?.leased_count ?? 0) > 0 ||
+        Number(recentRepairRowsByScope.get(scope)?.running_count ?? 0) > 0,
     ])
   );
   const recentGapLastAttemptAtByScope = Object.fromEntries(
@@ -889,6 +942,43 @@ export async function GET(request: NextRequest) {
       scope,
       recentRepairRowsByScope.get(scope)?.latest_attempt_at
         ? String(recentRepairRowsByScope.get(scope)?.latest_attempt_at)
+        : null,
+    ])
+  );
+  const recentGapQueuedByScope = Object.fromEntries(
+    Object.keys(rangeCompletionBySurface).map((scope) => [
+      scope,
+      Number(recentRepairRowsByScope.get(scope)?.queued_count ?? 0),
+    ])
+  );
+  const recentGapLeasedByScope = Object.fromEntries(
+    Object.keys(rangeCompletionBySurface).map((scope) => [
+      scope,
+      Number(recentRepairRowsByScope.get(scope)?.leased_count ?? 0) +
+        Number(recentRepairRowsByScope.get(scope)?.running_count ?? 0),
+    ])
+  );
+  const recentGapSucceededByScope = Object.fromEntries(
+    Object.keys(rangeCompletionBySurface).map((scope) => [
+      scope,
+      Number(recentRepairRowsByScope.get(scope)?.succeeded_count ?? 0),
+    ])
+  );
+  const recentGapFailedByScope = Object.fromEntries(
+    Object.keys(rangeCompletionBySurface).map((scope) => [
+      scope,
+      Number(recentRepairRowsByScope.get(scope)?.failed_count ?? 0) +
+        Number(recentRepairRowsByScope.get(scope)?.cancelled_count ?? 0),
+    ])
+  );
+  const recentRepairAttemptsByScope = new Map(
+    recentRepairAttemptRows.map((row) => [String(row.scope ?? ""), row] as const)
+  );
+  const lastAutoRepairAttemptByScope = Object.fromEntries(
+    Object.keys(rangeCompletionBySurface).map((scope) => [
+      scope,
+      recentRepairAttemptsByScope.get(scope)?.updated_at
+        ? String(recentRepairAttemptsByScope.get(scope)?.updated_at)
         : null,
     ])
   );
@@ -1004,6 +1094,34 @@ export async function GET(request: NextRequest) {
     queueHealth,
   });
   const staleRunPressure = Number(staleRunRows[0]?.stale_run_pressure ?? 0);
+  const autoRepairExecutionStage = (() => {
+    if (runtimeMismatchDetected) return "runtime_waiting" as const;
+    const hasRecentGap = Object.values(recentGapCountByScope).some((count) => Number(count) > 0);
+    const hasQueued = Object.values(recentGapQueuedByScope).some((count) => Number(count) > 0);
+    const hasLeased = Object.values(recentGapLeasedByScope).some((count) => Number(count) > 0);
+    const hasFailed = Object.values(recentGapFailedByScope).some((count) => Number(count) > 0);
+    const hasSucceeded = Object.values(recentGapSucceededByScope).some((count) => Number(count) > 0);
+    const hasAttempt = Object.values(lastAutoRepairAttemptByScope).some(Boolean);
+    if (hasFailed && !hasQueued && !hasLeased && !hasRecentGap) return "failed" as const;
+    if (hasRecentGap && !hasAttempt && !hasQueued && !hasLeased) return "not_planned" as const;
+    if (hasQueued && !hasLeased) return "planned_not_leased" as const;
+    if (hasLeased) return "leased_not_completed" as const;
+    if (hasSucceeded && hasRecentGap) return "completed_state_stale" as const;
+    if (hasSucceeded) return "completed" as const;
+    return null;
+  })();
+  const lastAutoRepairOutcome =
+    autoRepairExecutionStage === "completed"
+      ? "completed"
+      : autoRepairExecutionStage === "failed"
+        ? "failed"
+        : autoRepairExecutionStage === "leased_not_completed"
+          ? "running"
+          : autoRepairExecutionStage === "planned_not_leased"
+            ? "queued"
+            : autoRepairExecutionStage === "completed_state_stale"
+              ? "completed"
+              : "unknown";
   const extendedSuppressionDecisionTrace =
     extendedRecoveryBlockReason === "worker_unhealthy"
       ? {
@@ -1144,13 +1262,25 @@ export async function GET(request: NextRequest) {
       googleWorkerHealthy: workerSchedulingState?.healthy ?? false,
       googleHeartbeatAgeMs: workerSchedulingState?.heartbeatAgeMs ?? null,
       googleRunnerLeaseActive: workerSchedulingState?.runnerLeaseActive ?? false,
+      workerBuildId,
+      workerStartedAt,
+      lastWorkerHeartbeatAt: workerSchedulingState?.lastHeartbeatAt ?? null,
+      runtimeMismatchDetected,
       staleRunPressure,
       extendedSuppressionDecisionTrace,
       lastTargetedRepair,
       lastAutoRepair,
+      lastAutoRepairOutcome,
+      lastAutoRepairTriggerSource: lastAutoRepair?.triggerSource ?? null,
       recentGapCountByScope,
       recentGapRepairingByScope,
       recentGapLastAttemptAtByScope,
+      recentGapQueuedByScope,
+      recentGapLeasedByScope,
+      recentGapSucceededByScope,
+      recentGapFailedByScope,
+      lastAutoRepairAttemptByScope,
+      autoRepairExecutionStage,
     },
     panel: {
       coreUsable,

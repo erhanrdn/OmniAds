@@ -52,6 +52,18 @@ function formatSyncCaption(status: GoogleAdsStatusResponse) {
       parts.push(`Recent recovery: ${recentParts.join(" • ")}`);
     }
   }
+  const autoRepairStage = status.operations?.autoRepairExecutionStage;
+  if (autoRepairStage === "runtime_waiting") {
+    parts.push("Automatic repair waiting for updated worker");
+  } else if (autoRepairStage === "planned_not_leased") {
+    parts.push("Automatic repair queued, waiting for lease");
+  } else if (autoRepairStage === "leased_not_completed") {
+    parts.push("Automatic repair running");
+  } else if (autoRepairStage === "completed_state_stale") {
+    parts.push("Automatic repair succeeded, refreshing state");
+  } else if (autoRepairStage === "failed") {
+    parts.push("Automatic repair failed");
+  }
   if (priorityWindow?.isActive) {
     parts.push(`${priorityWindow.completedDays}/${priorityWindow.totalDays} selected days ready`);
   }
@@ -88,6 +100,9 @@ function getTitle(status: GoogleAdsStatusResponse) {
 }
 
 function getDescription(status: GoogleAdsStatusResponse) {
+  if (status.operations?.autoRepairExecutionStage === "runtime_waiting") {
+    return "The latest Google Ads recovery logic is waiting for the durable worker to restart on the current build.";
+  }
   if (status.domainReadiness?.summary) {
     return status.domainReadiness.summary;
   }
