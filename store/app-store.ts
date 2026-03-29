@@ -21,6 +21,7 @@ interface AppState {
   workspaceOwnerId: string | null;
   hasHydrated: boolean;
   authBootstrapStatus: "idle" | "loading" | "ready";
+  workspaceResolved: boolean;
   toggleDesktopSidebar: () => void;
   setMobileSidebarOpen: (open: boolean) => void;
   createBusiness: (name: string, timezone: string, currency: string) => string;
@@ -34,6 +35,7 @@ interface AppState {
   clearWorkspaceState: () => void;
   setHasHydrated: (value: boolean) => void;
   setAuthBootstrapStatus: (value: "idle" | "loading" | "ready") => void;
+  setWorkspaceResolved: (value: boolean) => void;
 }
 
 export const useAppStore = create<AppState>()(
@@ -46,6 +48,7 @@ export const useAppStore = create<AppState>()(
       workspaceOwnerId: null,
       hasHydrated: false,
       authBootstrapStatus: "idle",
+      workspaceResolved: false,
       toggleDesktopSidebar: () =>
         set((state) => ({ desktopSidebarOpen: !state.desktopSidebarOpen })),
       setMobileSidebarOpen: (open) => set({ mobileSidebarOpen: open }),
@@ -89,14 +92,22 @@ export const useAppStore = create<AppState>()(
             selectedBusinessId && businesses.some((item) => item.id === selectedBusinessId)
               ? selectedBusinessId
               : businesses[0]?.id ?? null,
+          workspaceResolved: true,
         }),
       selectBusiness: (id) =>
         set((state) => ({
           selectedBusinessId: id && state.businesses.some((item) => item.id === id) ? id : null,
         })),
-      clearWorkspaceState: () => set({ businesses: [], selectedBusinessId: null, workspaceOwnerId: null }),
+      clearWorkspaceState: () =>
+        set({
+          businesses: [],
+          selectedBusinessId: null,
+          workspaceOwnerId: null,
+          workspaceResolved: false,
+        }),
       setHasHydrated: (value) => set({ hasHydrated: value }),
       setAuthBootstrapStatus: (value) => set({ authBootstrapStatus: value }),
+      setWorkspaceResolved: (value) => set({ workspaceResolved: value }),
     }),
     {
       name: APP_STORE_PERSIST_KEY,
@@ -109,6 +120,7 @@ export const useAppStore = create<AppState>()(
       }),
       onRehydrateStorage: () => (state) => {
         state?.setHasHydrated(true);
+        state?.setWorkspaceResolved(Boolean(state?.businesses.length));
       },
     }
   )

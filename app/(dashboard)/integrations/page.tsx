@@ -699,6 +699,9 @@ export default function IntegrationsPage() {
                     onCancel={(p) => cancel(p)}
                     onDisconnect={(p) => handleDisconnect(p)}
                     onOpenAssignments={(p) => {
+                      if (p === "shopify") {
+                        return;
+                      }
                       if (p === "ga4") {
                         setGa4PickerOpen(true);
                         return;

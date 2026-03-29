@@ -49,6 +49,7 @@ export async function GET(request: NextRequest) {
       shopId: null,
       storeName: null,
       source: "user_override",
+      managedPricingUrl: null,
     });
   }
 
@@ -61,6 +62,7 @@ export async function GET(request: NextRequest) {
   if (subByUser[0]) {
     const planId = subByUser[0].plan_id as PlanId;
     const plan = PRICING_PLANS[planId];
+    const managedPricingUrl = getManagedPricingUrl(subByUser[0].shop_id);
     return NextResponse.json({
       connected: true,
       planId,
@@ -70,6 +72,7 @@ export async function GET(request: NextRequest) {
       shopId: subByUser[0].shop_id,
       storeName: null,
       source: "user_subscription",
+      managedPricingUrl,
     });
   }
 
@@ -85,12 +88,14 @@ export async function GET(request: NextRequest) {
       shopId: null,
       storeName: null,
       source: "default",
+      managedPricingUrl: null,
     });
   }
 
   const shopId = integration.provider_account_id;
   const planId = await getCurrentPlan(shopId);
   const plan = PRICING_PLANS[planId];
+  const managedPricingUrl = getManagedPricingUrl(shopId);
 
   return NextResponse.json({
     connected: true,
@@ -101,6 +106,7 @@ export async function GET(request: NextRequest) {
     shopId,
     storeName: integration.provider_account_name ?? shopId,
     source: "shopify",
+    managedPricingUrl,
   });
 }
 

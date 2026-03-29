@@ -66,6 +66,7 @@ export function IntegrationsCard({
   const isReady = view.status === "ready";
   const isDegraded = view.status === "degraded";
   const isActionRequired = view.status === "action_required";
+  const isShopify = provider === "shopify";
   const logoSrc = getProviderLogo(provider);
   const shouldShowMetaProgress =
     provider === "meta" && shouldRenderMetaSyncProgress(metaSyncStatus);
@@ -187,6 +188,8 @@ export function IntegrationsCard({
               <Button
                 size="sm"
                 className="min-w-[126px]"
+                disabled={isShopify}
+                tabIndex={isShopify ? -1 : undefined}
                 onClick={() => onOpenAssignments(provider)}
               >
                 {view.primaryActionLabel}

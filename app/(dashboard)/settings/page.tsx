@@ -93,6 +93,7 @@ export default function SettingsPage() {
     monthlyPrice: number;
     status: string;
     storeName: string | null;
+    managedPricingUrl?: string | null;
     source?: string | null;
   } | null>(null);
   const [billingLoading, setBillingLoading] = useState(false);
@@ -518,6 +519,18 @@ export default function SettingsPage() {
     }
   }
 
+  function handleOpenShopifyBilling() {
+    if (!billing?.connected) return;
+    if (!billing.managedPricingUrl) {
+      setToast({
+        type: "error",
+        message: "Shopify billing URL is not available for this store yet.",
+      });
+      return;
+    }
+    window.location.href = billing.managedPricingUrl;
+  }
+
   const inviteRows = useMemo(
     () => invites.filter((invite) => invite.status === "pending"),
     [invites]
@@ -588,9 +601,21 @@ export default function SettingsPage() {
                     </p>
                   )}
                 </div>
-                <Badge variant="secondary" className="self-start sm:self-auto">
-                  {billing?.status === "active" ? "Active" : billing?.status ?? "Active"}
-                </Badge>
+                <div className="flex flex-col items-start gap-2 sm:items-end">
+                  <Badge variant="secondary" className="self-start sm:self-auto">
+                    {billing?.status === "active" ? "Active" : billing?.status ?? "Active"}
+                  </Badge>
+                  {billing?.connected ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleOpenShopifyBilling}
+                      disabled={billingChanging || !billing.managedPricingUrl}
+                    >
+                      {billingChanging ? "Opening Shopify..." : "Open Shopify billing"}
+                    </Button>
+                  ) : null}
+                </div>
               </div>
             </div>
 

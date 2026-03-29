@@ -8,6 +8,7 @@ import { useAppStore } from "@/store/app-store";
 export function BusinessGuard({ children }: { children: React.ReactNode }) {
   const hasHydrated = useAppStore((s) => s.hasHydrated);
   const authBootstrapStatus = useAppStore((s) => s.authBootstrapStatus);
+  const workspaceResolved = useAppStore((s) => s.workspaceResolved);
   const businesses = useAppStore((s) => s.businesses);
   const selectedBusinessId = useAppStore((s) => s.selectedBusinessId);
   const router = useRouter();
@@ -16,7 +17,7 @@ export function BusinessGuard({ children }: { children: React.ReactNode }) {
     pathname === "/select-business" || pathname === "/businesses/new";
   const hasSelectedBusiness = businesses.some((business) => business.id === selectedBusinessId);
   const hasBusinesses = businesses.length > 0;
-  const isReady = hasHydrated && authBootstrapStatus === "ready";
+  const isReady = hasHydrated && authBootstrapStatus === "ready" && workspaceResolved;
   const shouldGoToCreate = isReady && !hasBusinesses && pathname !== "/businesses/new";
   const shouldGoToSelect =
     isReady &&
@@ -45,7 +46,7 @@ export function BusinessGuard({ children }: { children: React.ReactNode }) {
     }
   }, [businesses.length, isReady, pathname, router, shouldGoToCreate, shouldGoToSelect]);
 
-  if (!hasHydrated || authBootstrapStatus !== "ready") {
+  if (!hasHydrated || authBootstrapStatus !== "ready" || !workspaceResolved) {
     return null;
   }
 

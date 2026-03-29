@@ -99,12 +99,19 @@ export function ProviderAssignmentDrawer({
     Boolean(quotaRetryAfterAt) &&
     new Date(quotaRetryAfterAt as string).getTime() > Date.now();
   const quotaRetryLabel = formatRetryAfter(quotaRetryAfterAt);
+  const shouldBlockDrawer = provider === "shopify";
   const discoveryTrustLabel =
     domain?.discovery.trustLevel === "risky"
       ? "Cached list is available, but freshness is risky."
       : domain?.discovery.trustLevel === "safe" && domain?.discovery.sourceHealth !== "fresh"
         ? "Cached list is available and safe to use."
         : null;
+
+  useEffect(() => {
+    if (open && shouldBlockDrawer) {
+      onClose();
+    }
+  }, [onClose, open, shouldBlockDrawer]);
 
   useEffect(() => {
     latestAssignedAccountIdsRef.current = assignedAccountIds;
@@ -303,6 +310,10 @@ export function ProviderAssignmentDrawer({
       return byName || byId;
     });
   }, [normalizedAccounts, searchQuery]);
+
+  if (shouldBlockDrawer) {
+    return null;
+  }
 
   function toggleAccount(accountId: string) {
     setDraftIds((prev) =>
