@@ -96,6 +96,92 @@ describe("buildAdminSyncHealth", () => {
     expect(payload.summary.impactedBusinesses).toBe(3);
     expect(payload.issues.some((issue) => issue.status === "cooldown")).toBe(true);
   });
+
+  it("surfaces google ads breaker and compacted partition signals", () => {
+    const payload = buildAdminSyncHealth({
+      jobs: [],
+      cooldowns: [],
+      googleAdsHealth: [
+        {
+          business_id: "biz-g",
+          business_name: "Grandmix",
+          queue_depth: 12,
+          leased_partitions: 0,
+          dead_letter_partitions: 0,
+          oldest_queued_partition: "2026-03-20",
+          latest_partition_activity_at: new Date().toISOString(),
+          campaign_completed_days: 10,
+          campaign_dead_letter_count: 0,
+          search_term_completed_days: 2,
+          product_completed_days: 1,
+          active_circuit_breakers: 1,
+          compacted_partitions: 44,
+        },
+      ],
+      workerHealth: {
+        onlineWorkers: 0,
+        workerInstances: 0,
+        lastHeartbeatAt: null,
+        lastProgressHeartbeatAt: null,
+        workers: [],
+      },
+    });
+
+    expect(payload.summary.googleAdsCircuitBreakerBusinesses).toBe(1);
+    expect(payload.summary.googleAdsCompactedPartitions).toBe(44);
+    expect(payload.summary.googleAdsBudgetPressureMax).toBe(0);
+    expect(payload.googleAdsBusinesses?.[0]?.circuitBreakerOpen).toBe(true);
+    expect(payload.googleAdsBusinesses?.[0]?.compactedPartitions).toBe(44);
+  });
+
+  it("surfaces quota pressure and half-open recovery signals", () => {
+    const payload = buildAdminSyncHealth({
+      jobs: [],
+      cooldowns: [],
+      googleAdsHealth: [
+        {
+          business_id: "biz-half",
+          business_name: "Half Open Co",
+          queue_depth: 2,
+          leased_partitions: 0,
+          dead_letter_partitions: 0,
+          oldest_queued_partition: "2026-03-20",
+          latest_partition_activity_at: new Date().toISOString(),
+          campaign_completed_days: 10,
+          campaign_dead_letter_count: 0,
+          search_term_completed_days: 2,
+          product_completed_days: 1,
+          asset_completed_days: 3,
+          active_circuit_breakers: 0,
+          compacted_partitions: 4,
+          quota_call_count: 3000,
+          quota_error_count: 12,
+          quota_budget: 5000,
+          quota_pressure: 0.6,
+          recovery_half_open: 1,
+          recent_search_term_completed_days: 14,
+          recent_product_completed_days: 14,
+          recent_asset_completed_days: 14,
+          recent_range_total_days: 14,
+        },
+      ],
+      workerHealth: {
+        onlineWorkers: 1,
+        workerInstances: 1,
+        lastHeartbeatAt: new Date().toISOString(),
+        lastProgressHeartbeatAt: new Date().toISOString(),
+        workers: [],
+      },
+    });
+
+    expect(payload.summary.googleAdsRecoveryBusinesses).toBe(1);
+    expect(payload.summary.googleAdsBudgetPressureMax).toBe(0.6);
+    expect(payload.googleAdsBusinesses?.[0]?.recoveryMode).toBe("half_open");
+    expect(payload.googleAdsBusinesses?.[0]?.quotaPressure).toBe(0.6);
+    expect(payload.googleAdsBusinesses?.[0]?.recentExtendedReady).toBe(true);
+    expect(payload.googleAdsBusinesses?.[0]?.historicalExtendedReady).toBe(false);
+    expect(payload.googleAdsBusinesses?.[0]?.effectiveMode).toBe("canary_reopen");
+  });
 });
 
 describe("buildAdminRevenueRisk", () => {

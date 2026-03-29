@@ -888,6 +888,7 @@ function buildSearchClusters(
 
 export async function getGoogleAdsSearchIntelligenceReport(params: BaseReportParams & {
   filter?: string;
+  executionMode?: "default" | "warehouse_sync";
 }): Promise<ReportResult<SearchTermPerformanceRow & Record<string, unknown>>> {
   const resolved = await resolveContext({
     businessId: params.businessId,
@@ -902,11 +903,26 @@ export async function getGoogleAdsSearchIntelligenceReport(params: BaseReportPar
 
   const { context, startDate, endDate } = resolved;
   const meta = createEmptyMeta(context.debug);
-  const [core, lookup, campaignSearchTerms] = await Promise.all([
-    runNamedQuery(context, buildSearchTermCoreQuery(startDate, endDate)),
-    runNamedQuery(context, buildKeywordLookupQuery()),
-    runNamedQuery(context, buildCampaignSearchTermCoreQuery(startDate, endDate)),
-  ]);
+  const warehouseSyncMode = params.executionMode === "warehouse_sync";
+  const [core, lookup, campaignSearchTerms] = warehouseSyncMode
+    ? await Promise.all([
+        runNamedQuery(context, buildSearchTermCoreQuery(startDate, endDate, 5000)),
+        Promise.resolve({
+          rows: [],
+          failures: [],
+          query: buildKeywordLookupQuery(),
+        }),
+        Promise.resolve({
+          rows: [],
+          failures: [],
+          query: buildCampaignSearchTermCoreQuery(startDate, endDate, 5000),
+        }),
+      ])
+    : await Promise.all([
+        runNamedQuery(context, buildSearchTermCoreQuery(startDate, endDate)),
+        runNamedQuery(context, buildKeywordLookupQuery()),
+        runNamedQuery(context, buildCampaignSearchTermCoreQuery(startDate, endDate)),
+      ]);
 
   mergeFailures(meta, core);
   mergeFailures(meta, lookup);
@@ -1039,6 +1055,7 @@ export async function getGoogleAdsSearchIntelligenceReport(params: BaseReportPar
 
   addDebugMeta(meta, "search-intelligence", context, {
     date_range: { startDate, endDate },
+    execution_mode: warehouseSyncMode ? "warehouse_sync" : "default",
   });
   finalizeMeta(meta);
 
@@ -1244,7 +1261,9 @@ function buildAssetPreview(params: {
 }
 
 export async function getGoogleAdsAssetsReport(
-  params: BaseReportParams
+  params: BaseReportParams & {
+    executionMode?: "default" | "warehouse_sync";
+  }
 ): Promise<ReportResult<AssetPerformanceRow & Record<string, unknown>>> {
   const resolved = await resolveContext({
     businessId: params.businessId,
@@ -1259,7 +1278,11 @@ export async function getGoogleAdsAssetsReport(
 
   const { context, startDate, endDate } = resolved;
   const meta = createEmptyMeta(context.debug);
-  const core = await runNamedQuery(context, buildAssetPerformanceCoreQuery(startDate, endDate));
+  const warehouseSyncMode = params.executionMode === "warehouse_sync";
+  const core = await runNamedQuery(
+    context,
+    buildAssetPerformanceCoreQuery(startDate, endDate, warehouseSyncMode ? 5000 : 2000)
+  );
   mergeFailures(meta, core);
 
   const rows = core.rows
@@ -1389,6 +1412,7 @@ export async function getGoogleAdsAssetsReport(
 
   addDebugMeta(meta, "assets", context, {
     date_range: { startDate, endDate },
+    execution_mode: warehouseSyncMode ? "warehouse_sync" : "default",
   });
 
   const assetAnalysis = analyzeAssets(enrichedRows);
@@ -2240,7 +2264,9 @@ export async function getGoogleAdsAssetGroupsReport(
 }
 
 export async function getGoogleAdsProductsReport(
-  params: BaseReportParams
+  params: BaseReportParams & {
+    executionMode?: "default" | "warehouse_sync";
+  }
 ): Promise<ReportResult<ProductPerformanceRow & Record<string, unknown>>> {
   const resolved = await resolveContext({
     businessId: params.businessId,
@@ -2255,10 +2281,23 @@ export async function getGoogleAdsProductsReport(
 
   const { context, startDate, endDate } = resolved;
   const meta = createEmptyMeta(context.debug);
-  const [productsPrimary, productsLegacy] = await Promise.all([
-    runNamedQuery(context, buildProductPerformanceQuery(startDate, endDate)),
-    runNamedQuery(context, buildProductPerformanceLegacyQuery(startDate, endDate)),
-  ]);
+  const warehouseSyncMode = params.executionMode === "warehouse_sync";
+  const productsPrimary = await runNamedQuery(
+    context,
+    buildProductPerformanceQuery(startDate, endDate, warehouseSyncMode ? 5000 : 1000)
+  );
+  const shouldFallbackToLegacy =
+    productsPrimary.rows.length === 0 || productsPrimary.failures.length > 0;
+  const productsLegacy = shouldFallbackToLegacy
+    ? await runNamedQuery(
+        context,
+        buildProductPerformanceLegacyQuery(startDate, endDate, warehouseSyncMode ? 5000 : 1000)
+      )
+    : {
+        rows: [],
+        failures: [],
+        query: buildProductPerformanceLegacyQuery(startDate, endDate, warehouseSyncMode ? 5000 : 1000),
+      };
   mergeFailures(meta, productsPrimary);
   mergeFailures(meta, productsLegacy);
 
@@ -2378,6 +2417,8 @@ export async function getGoogleAdsProductsReport(
 
   addDebugMeta(meta, "products", context, {
     date_range: { startDate, endDate },
+    execution_mode: warehouseSyncMode ? "warehouse_sync" : "default",
+    used_legacy_fallback: shouldFallbackToLegacy,
   });
   finalizeMeta(meta);
 

@@ -3,6 +3,7 @@ import { requireBusinessAccess } from "@/lib/access";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { getMetaPartialReason, getMetaRangePreparationContext } from "@/lib/meta/readiness";
 import { getMetaWarehouseTrends } from "@/lib/meta/serving";
+import { isDemoBusinessId, getDemoMetaTrends } from "@/lib/demo-business";
 
 export interface MetaTrendsRouteResponse extends Awaited<ReturnType<typeof getMetaWarehouseTrends>> {
   isPartial: boolean;
@@ -17,6 +18,10 @@ export async function GET(request: NextRequest) {
 
   const access = await requireBusinessAccess({ request, businessId });
   if ("error" in access) return access.error;
+
+  if (isDemoBusinessId(businessId)) {
+    return NextResponse.json({ ...getDemoMetaTrends(), isPartial: false, notReadyReason: null });
+  }
 
   if (!startDate || !endDate) {
     return NextResponse.json(

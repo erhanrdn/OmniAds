@@ -24,6 +24,7 @@ import {
   buildProviderSurfaces,
   decideProviderReadinessLevel,
 } from "@/lib/provider-readiness";
+import { isDemoBusinessId, getDemoMetaStatus } from "@/lib/demo-business";
 
 function buildMetaDomainReadiness(input: {
   availableSurfaces: string[];
@@ -114,6 +115,10 @@ export async function GET(request: NextRequest) {
 
   const access = await requireBusinessAccess({ request, businessId });
   if ("error" in access) return access.error;
+
+  if (isDemoBusinessId(businessId)) {
+    return NextResponse.json(getDemoMetaStatus(), { headers: { "Cache-Control": "no-store" } });
+  }
 
   const [integration, assignments, latestSync, accountStats, credentials, legacyJobHealth] =
     await Promise.all([

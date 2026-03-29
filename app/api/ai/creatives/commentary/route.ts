@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { getOpenAI } from "@/lib/openai";
+import { isDemoBusinessId, getDemoAiCreativeCommentary } from "@/lib/demo-business";
 import {
   getAiNarrativeLanguage,
   getNativeNarrativeStyleInstruction,
@@ -310,6 +311,11 @@ export async function POST(request: NextRequest) {
 
   const access = await requireBusinessAccess({ request, businessId });
   if ("error" in access) return access.error;
+
+  if (isDemoBusinessId(businessId)) {
+    return NextResponse.json({ ok: true, source: "ai", commentary: getDemoAiCreativeCommentary(), warning: null });
+  }
+
   const language = await resolveRequestLanguage(request);
 
   const report = payload?.report;

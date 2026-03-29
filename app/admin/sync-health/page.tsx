@@ -38,6 +38,12 @@ interface SyncHealthPayload {
     workerInstances?: number;
     workerLastHeartbeatAt?: string | null;
     workerLastProgressHeartbeatAt?: string | null;
+    googleAdsSafeModeActive?: boolean;
+    googleAdsCircuitBreakerBusinesses?: number;
+    googleAdsCompactedPartitions?: number;
+    googleAdsBudgetPressureMax?: number;
+    googleAdsRecoveryBusinesses?: number;
+    googleAdsCanaryBusinesses?: number;
   };
   issues: SyncIssueRow[];
   workerHealth?: {
@@ -65,6 +71,7 @@ interface SyncHealthPayload {
     campaignCompletedDays: number;
     searchTermCompletedDays: number;
     productCompletedDays: number;
+    assetCompletedDays?: number;
     latestCheckpointPhase?: string | null;
     latestCheckpointUpdatedAt?: string | null;
     lastProgressHeartbeatAt?: string | null;
@@ -77,6 +84,22 @@ interface SyncHealthPayload {
     lastReclaimReason?: string | null;
     latestPoisonReason?: string | null;
     latestPoisonedAt?: string | null;
+    safeModeActive?: boolean;
+    circuitBreakerOpen?: boolean;
+    compactedPartitions?: number;
+    quotaCallCount?: number;
+    quotaErrorCount?: number;
+    quotaBudget?: number;
+    quotaPressure?: number;
+    recoveryMode?: "open" | "half_open" | "closed";
+    canaryEnabled?: boolean;
+    effectiveMode?: "safe_mode" | "canary_reopen" | "general_reopen";
+    recentSearchTermCompletedDays?: number;
+    recentProductCompletedDays?: number;
+    recentAssetCompletedDays?: number;
+    recentRangeTotalDays?: number;
+    recentExtendedReady?: boolean;
+    historicalExtendedReady?: boolean;
   }>;
   metaBusinesses?: Array<{
     businessId: string;
@@ -233,6 +256,12 @@ export default function AdminSyncHealthPage() {
     workerInstances: 0,
     workerLastHeartbeatAt: null,
     workerLastProgressHeartbeatAt: null,
+    googleAdsSafeModeActive: false,
+    googleAdsCircuitBreakerBusinesses: 0,
+    googleAdsCompactedPartitions: 0,
+    googleAdsBudgetPressureMax: 0,
+    googleAdsRecoveryBusinesses: 0,
+    googleAdsCanaryBusinesses: 0,
   };
   const issues = payload?.issues ?? [];
   const googleAdsBusinesses = payload?.googleAdsBusinesses ?? [];
@@ -318,6 +347,10 @@ export default function AdminSyncHealthPage() {
         <MetricCard label="GAds Queue" value={summary.googleAdsQueueDepth ?? 0} help="Google Ads partition queue depth across all businesses." />
         <MetricCard label="GAds Leased" value={summary.googleAdsLeasedPartitions ?? 0} help="Google Ads partitions currently leased or running." />
         <MetricCard label="GAds Dead" value={summary.googleAdsDeadLetterPartitions ?? 0} help="Google Ads dead-letter partitions that require intervention." />
+        <MetricCard label="GAds Breaker" value={summary.googleAdsCircuitBreakerBusinesses ?? 0} help="Businesses currently blocked by the Google Ads circuit breaker." />
+        <MetricCard label="GAds Compact" value={summary.googleAdsCompactedPartitions ?? 0} help="Extended Google Ads partitions compacted or suppressed during incident containment." />
+        <MetricCard label="GAds Recovery" value={summary.googleAdsRecoveryBusinesses ?? 0} help="Businesses currently in Google Ads half-open recovery mode." />
+        <MetricCard label="GAds Canary" value={summary.googleAdsCanaryBusinesses ?? 0} help="Businesses currently eligible for controlled extended-lane canary reopen." />
         <MetricCard label="Meta Queue" value={summary.metaQueueDepth ?? 0} help="Meta partition queue depth across all businesses." />
         <MetricCard label="Meta Leased" value={summary.metaLeasedPartitions ?? 0} help="Meta partitions currently leased or running." />
         <MetricCard label="Meta Dead" value={summary.metaDeadLetterPartitions ?? 0} help="Meta dead-letter partitions that require intervention." />
@@ -341,6 +374,15 @@ export default function AdminSyncHealthPage() {
             >
               {summary.workerOnline ? "Worker online" : "Worker offline"}
             </span>
+            <span
+              className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
+                summary.googleAdsSafeModeActive
+                  ? "border border-amber-200 bg-amber-50 text-amber-800"
+                  : "border border-gray-200 bg-gray-50 text-gray-600"
+              }`}
+            >
+              {summary.googleAdsSafeModeActive ? "GAds safe mode active" : "GAds safe mode off"}
+            </span>
             <MetricPill label="Instances" value={summary.workerInstances ?? 0} />
           </div>
         </div>
@@ -353,6 +395,9 @@ export default function AdminSyncHealthPage() {
           </p>
           <p className="text-xs text-gray-500">
             Last progress heartbeat <span className="font-medium text-gray-700">{formatDateTime(summary.workerLastProgressHeartbeatAt ?? null)}</span>
+          </p>
+          <p className="text-xs text-gray-500">
+            Max GAds budget pressure <span className="font-medium text-gray-700">{`${Math.round((summary.googleAdsBudgetPressureMax ?? 0) * 100)}%`}</span>
           </p>
         </div>
         {payload?.workerHealth?.workers?.length ? (
@@ -409,6 +454,9 @@ export default function AdminSyncHealthPage() {
           <p className="mt-1 text-sm text-gray-500">
             Use these controls instead of manual SQL when a business queue is stuck.
           </p>
+          <p className="mt-2 text-xs text-gray-500">
+            Rollout standard: safe mode only during incidents, then 1-business canary, then small cohort, then general reopen only after recent frontier is draining cleanly with no breaker flapping.
+          </p>
         </div>
         {googleAdsBusinesses.length === 0 ? (
           <div className="px-5 py-10 text-sm text-gray-400">Google Ads queue verisi yok.</div>
@@ -425,7 +473,10 @@ export default function AdminSyncHealthPage() {
                         Queue {business.queueDepth} • Leased {business.leasedPartitions} • Dead-letter {business.deadLetterPartitions}
                       </p>
                       <p className="mt-1 text-xs text-gray-500">
-                        Campaign {business.campaignCompletedDays} • Search terms {business.searchTermCompletedDays} • Products {business.productCompletedDays}
+                        Campaign {business.campaignCompletedDays} • Search terms {business.searchTermCompletedDays} • Products {business.productCompletedDays} • Assets {business.assetCompletedDays ?? 0}
+                      </p>
+                      <p className="mt-1 text-xs text-gray-500">
+                        Recent frontier: Search {business.recentSearchTermCompletedDays ?? 0}/{business.recentRangeTotalDays ?? 14} • Products {business.recentProductCompletedDays ?? 0}/{business.recentRangeTotalDays ?? 14} • Assets {business.recentAssetCompletedDays ?? 0}/{business.recentRangeTotalDays ?? 14}
                       </p>
                       <p className="mt-1 text-xs text-gray-500">
                         Checkpoint {business.latestCheckpointPhase ?? "—"} • Last page {business.lastSuccessfulPageIndex ?? "—"} • Resume {business.resumeCapable ? "yes" : "no"}
@@ -435,6 +486,15 @@ export default function AdminSyncHealthPage() {
                       </p>
                       <p className="mt-1 text-xs text-gray-500">
                         Reclaim candidates {business.reclaimCandidateCount ?? 0} • Poison {business.poisonedCheckpointCount ?? 0} • Last reclaim reason {business.lastReclaimReason ?? "—"}
+                      </p>
+                      <p className="mt-1 text-xs text-gray-500">
+                        Mode {business.effectiveMode ?? "canary_reopen"} • Safe mode {business.safeModeActive ? "on" : "off"} • Breaker {business.circuitBreakerOpen ? "open" : "closed"} • Recovery {business.recoveryMode ?? "closed"} • Canary {business.canaryEnabled ? "yes" : "no"} • Compacted {business.compactedPartitions ?? 0}
+                      </p>
+                      <p className="mt-1 text-xs text-gray-500">
+                        Quota calls {business.quotaCallCount ?? 0} • Quota errors {business.quotaErrorCount ?? 0} • Budget {business.quotaBudget ?? 0} • Pressure {Math.round((business.quotaPressure ?? 0) * 100)}%
+                      </p>
+                      <p className="mt-1 text-xs text-gray-500">
+                        Recent ready {business.recentExtendedReady ? "yes" : "no"} • Historical ready {business.historicalExtendedReady ? "yes" : "no"}
                       </p>
                       {business.latestPoisonReason ? (
                         <p className="mt-1 text-xs text-amber-700">

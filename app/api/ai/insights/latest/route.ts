@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { getDb } from "@/lib/db";
 import { resolveRequestLanguage } from "@/lib/request-language";
+import { isDemoBusinessId, getDemoAiInsight } from "@/lib/demo-business";
 
 interface AiInsightRow {
   insight_date: string;
@@ -21,6 +22,21 @@ export async function GET(request: NextRequest) {
   const businessId = request.nextUrl.searchParams.get("businessId");
   const access = await requireBusinessAccess({ request, businessId });
   if ("error" in access) return access.error;
+
+  if (isDemoBusinessId(businessId)) {
+    const d = getDemoAiInsight();
+    return NextResponse.json({
+      insight: {
+        insightDate: d.insight_date,
+        summary: d.summary,
+        risks: d.risks,
+        opportunities: d.opportunities,
+        recommendations: d.recommendations,
+        createdAt: d.created_at,
+      },
+    });
+  }
+
   const locale = await resolveRequestLanguage(request);
 
   const sql = getDb();

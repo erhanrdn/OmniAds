@@ -24,6 +24,35 @@ export interface GoogleAdsSyncDetails {
   phaseLabel?: string | null;
 }
 
+export type GoogleAdsPanelRecoveryMode =
+  | "safe_mode"
+  | "canary_reopen"
+  | "general_reopen";
+
+export type GoogleAdsPanelSurfaceStateKind =
+  | "core_live"
+  | "extended_backfilling"
+  | "extended_limited"
+  | "ready";
+
+export interface GoogleAdsPanelSurfaceState {
+  scope: string;
+  label: string;
+  state: GoogleAdsPanelSurfaceStateKind;
+  completedDays: number;
+  totalDays: number;
+  readyThroughDate: string | null;
+  latestBackgroundActivityAt: string | null;
+  message: string;
+}
+
+export interface GoogleAdsExtendedRangeCompletion {
+  completedDays: number;
+  totalDays: number;
+  readyThroughDate: string | null;
+  ready: boolean;
+}
+
 export interface GoogleAdsStatusResponse {
   state:
     | "not_connected"
@@ -133,5 +162,29 @@ export interface GoogleAdsStatusResponse {
     totalDays: number;
     isActive: boolean;
   } | null;
+  operations?: {
+    currentMode: GoogleAdsPanelRecoveryMode;
+    canaryEligible: boolean;
+    quotaPressure: number;
+    breakerState: "open" | "half_open" | "closed";
+  } | null;
+  panel?: {
+    coreUsable: boolean;
+    extendedLimited: boolean;
+    recentExtendedUsable?: boolean;
+    headline: string;
+    detail: string;
+    surfaceStates: GoogleAdsPanelSurfaceState[];
+  } | null;
+  extendedRecoveryState?: "core_only" | "extended_recovery" | "extended_normal" | null;
+  recentExtendedReady?: boolean;
+  historicalExtendedReady?: boolean;
+  rangeCompletionBySurface?: Record<
+    string,
+    {
+      recent: GoogleAdsExtendedRangeCompletion;
+      historical: GoogleAdsExtendedRangeCompletion;
+    }
+  > | null;
   latestSync?: GoogleAdsSyncDetails | null;
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import { requireBusinessAccess } from "@/lib/access";
 import { getDb } from "@/lib/db";
+import { isDemoBusinessId, getDemoAiCreativeDecisions } from "@/lib/demo-business";
 import {
   buildHeuristicCreativeDecisions,
   CREATIVE_DECISION_ENGINE_VERSION,
@@ -238,6 +239,17 @@ export async function POST(request: NextRequest) {
 
   const access = await requireBusinessAccess({ request, businessId });
   if ("error" in access) return access.error;
+
+  if (isDemoBusinessId(businessId)) {
+    const creativeList = normalizeRows(payload?.creatives);
+    return NextResponse.json({
+      ok: true,
+      source: "ai",
+      decisions: getDemoAiCreativeDecisions(creativeList.map((c) => ({ creativeId: c.creativeId }))),
+      warning: null,
+      lastSyncedAt: new Date().toISOString(),
+    });
+  }
 
   const creatives = normalizeRows(payload?.creatives);
   const currency = payload?.currency ?? "USD";

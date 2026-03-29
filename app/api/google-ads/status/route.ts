@@ -30,6 +30,99 @@ import {
   buildProviderSurfaces,
   decideProviderReadinessLevel,
 } from "@/lib/provider-readiness";
+import {
+  getProviderCircuitBreakerRecoveryState,
+  getProviderQuotaBudgetState,
+} from "@/lib/provider-request-governance";
+import { isGoogleAdsExtendedCanaryBusiness, isGoogleAdsIncidentSafeModeEnabled } from "@/lib/sync/google-ads-sync";
+import type {
+  GoogleAdsExtendedRangeCompletion,
+  GoogleAdsPanelRecoveryMode,
+  GoogleAdsPanelSurfaceState,
+} from "@/lib/google-ads/status-types";
+
+function isGeneralReopenEnabled() {
+  const raw = process.env.GOOGLE_ADS_EXTENDED_GENERAL_REOPEN?.trim().toLowerCase();
+  return raw === "1" || raw === "true";
+}
+
+function decidePanelRecoveryMode(): GoogleAdsPanelRecoveryMode {
+  if (isGoogleAdsIncidentSafeModeEnabled()) return "safe_mode";
+  if (isGeneralReopenEnabled()) return "general_reopen";
+  return "canary_reopen";
+}
+
+function buildPanelSurfaceState(input: {
+  scope: string;
+  label: string;
+  completedDays: number;
+  totalDays: number;
+  readyThroughDate: string | null;
+  latestBackgroundActivityAt: string | null;
+  currentMode: GoogleAdsPanelRecoveryMode;
+  canaryEligible: boolean;
+}): GoogleAdsPanelSurfaceState {
+  const totalDays = Math.max(1, input.totalDays);
+  const completedDays = Math.max(0, Math.min(input.completedDays, totalDays));
+  if (completedDays >= totalDays) {
+    return {
+      scope: input.scope,
+      label: input.label,
+      state: "ready",
+      completedDays,
+      totalDays,
+      readyThroughDate: input.readyThroughDate,
+      latestBackgroundActivityAt: input.latestBackgroundActivityAt,
+      message: `${input.label} is fully available for this range.`,
+    };
+  }
+
+  const base = {
+    scope: input.scope,
+    label: input.label,
+    completedDays,
+    totalDays,
+    readyThroughDate: input.readyThroughDate,
+    latestBackgroundActivityAt: input.latestBackgroundActivityAt,
+  };
+  const coverageLabel = `${completedDays}/${totalDays} days`;
+  if (
+    input.currentMode === "safe_mode" ||
+    (input.currentMode === "canary_reopen" && !input.canaryEligible)
+  ) {
+    return {
+      ...base,
+      state: "extended_limited",
+      message:
+        input.currentMode === "safe_mode"
+          ? `${input.label} is limited while safe mode protects core metrics. Coverage: ${coverageLabel}.`
+          : `${input.label} is reopening gradually. This business is waiting for controlled extended rollout. Coverage: ${coverageLabel}.`,
+    };
+  }
+
+  return {
+    ...base,
+    state: "extended_backfilling",
+    message: input.readyThroughDate
+      ? `${input.label} is backfilling in the background. Ready through ${input.readyThroughDate}. Coverage: ${coverageLabel}.`
+      : `${input.label} is backfilling in the background. Coverage: ${coverageLabel}.`,
+  };
+}
+
+function toRangeCompletion(input: {
+  completedDays: number;
+  totalDays: number;
+  readyThroughDate: string | null;
+}): GoogleAdsExtendedRangeCompletion {
+  const totalDays = Math.max(0, input.totalDays);
+  const completedDays = Math.max(0, Math.min(input.completedDays, totalDays));
+  return {
+    completedDays,
+    totalDays,
+    readyThroughDate: input.readyThroughDate,
+    ready: totalDays > 0 && completedDays >= totalDays,
+  };
+}
 
 function buildGoogleDomainReadiness(input: {
   availableSurfaces: string[];
@@ -116,6 +209,8 @@ export async function GET(request: NextRequest) {
     getLatestGoogleAdsSyncHealth({ businessId: businessId!, providerAccountId: null }).catch(() => null),
     getGoogleAdsCheckpointHealth({ businessId: businessId!, providerAccountId: null }).catch(() => null),
   ]);
+  const currentMode = decidePanelRecoveryMode();
+  const canaryEligible = isGoogleAdsExtendedCanaryBusiness(businessId!);
 
   const accountIds = assignments?.account_ids ?? [];
   const connected = Boolean(integration?.status === "connected" && integration?.access_token);
@@ -155,6 +250,7 @@ export async function GET(request: NextRequest) {
     initialBackfillEnd,
     GOOGLE_ADS_WAREHOUSE_HISTORY_DAYS
   );
+  const recentExtendedStart = addDaysToIsoDate(initialBackfillEnd, -13);
   const totalDays = dayCountInclusive(initialBackfillStart, initialBackfillEnd);
 
   const [accountCoverage, campaignCoverage] =
@@ -238,6 +334,32 @@ export async function GET(request: NextRequest) {
           }).catch(() => null),
         ])
       : [null, null, null, null, null, null, null];
+  const [recentSearchTermCoverage, recentProductCoverage, recentAssetCoverage] =
+    connected && accountIds.length > 0
+      ? await Promise.all([
+          getGoogleAdsDailyCoverage({
+            scope: "search_term_daily",
+            businessId: businessId!,
+            providerAccountId: null,
+            startDate: recentExtendedStart,
+            endDate: initialBackfillEnd,
+          }).catch(() => null),
+          getGoogleAdsDailyCoverage({
+            scope: "product_daily",
+            businessId: businessId!,
+            providerAccountId: null,
+            startDate: recentExtendedStart,
+            endDate: initialBackfillEnd,
+          }).catch(() => null),
+          getGoogleAdsDailyCoverage({
+            scope: "asset_daily",
+            businessId: businessId!,
+            providerAccountId: null,
+            startDate: recentExtendedStart,
+            endDate: initialBackfillEnd,
+          }).catch(() => null),
+        ])
+      : [null, null, null];
   const allStateScopes = [
     "account_daily",
     "campaign_daily",
@@ -261,6 +383,16 @@ export async function GET(request: NextRequest) {
           ),
         ])
       : [null, ...allStateScopes.map(() => [])];
+  const [quotaBudgetState, breakerState] = await Promise.all([
+    getProviderQuotaBudgetState({
+      provider: "google",
+      businessId: businessId!,
+    }).catch(() => null),
+    getProviderCircuitBreakerRecoveryState({
+      provider: "google",
+      businessId: businessId!,
+    }).catch(() => "closed" as const),
+  ]);
   const statesByScope = Object.fromEntries(
     allStateScopes.map((scope, index) => [scope, scopeStates[index] ?? []])
   ) as Record<
@@ -617,6 +749,126 @@ export async function GET(request: NextRequest) {
     effectiveTotalDays > 0
       ? Math.min(100, Math.round(((effectiveCompletedDays ?? 0) / effectiveTotalDays) * 100))
       : progressPercent;
+  const coreUsable =
+    connected &&
+    accountIds.length > 0 &&
+    overallAccountCompletedDays > 0 &&
+    overallCompletedDays > 0;
+  const rangeCompletionBySurface = {
+    search_term_daily: {
+      recent: toRangeCompletion({
+        completedDays: recentSearchTermCoverage?.completed_days ?? 0,
+        totalDays: dayCountInclusive(recentExtendedStart, initialBackfillEnd),
+        readyThroughDate: recentSearchTermCoverage?.ready_through_date ?? null,
+      }),
+      historical: toRangeCompletion({
+        completedDays:
+          extendedScopeSummaries.find((summary) => summary.scope === "search_term_daily")
+            ?.completedDays ?? 0,
+        totalDays:
+          extendedScopeSummaries.find((summary) => summary.scope === "search_term_daily")
+            ?.totalDays ?? effectiveHistoricalTotalDays,
+        readyThroughDate:
+          extendedScopeSummaries.find((summary) => summary.scope === "search_term_daily")
+            ?.readyThroughDate ?? null,
+      }),
+    },
+    product_daily: {
+      recent: toRangeCompletion({
+        completedDays: recentProductCoverage?.completed_days ?? 0,
+        totalDays: dayCountInclusive(recentExtendedStart, initialBackfillEnd),
+        readyThroughDate: recentProductCoverage?.ready_through_date ?? null,
+      }),
+      historical: toRangeCompletion({
+        completedDays:
+          extendedScopeSummaries.find((summary) => summary.scope === "product_daily")
+            ?.completedDays ?? 0,
+        totalDays:
+          extendedScopeSummaries.find((summary) => summary.scope === "product_daily")
+            ?.totalDays ?? effectiveHistoricalTotalDays,
+        readyThroughDate:
+          extendedScopeSummaries.find((summary) => summary.scope === "product_daily")
+            ?.readyThroughDate ?? null,
+      }),
+    },
+    asset_daily: {
+      recent: toRangeCompletion({
+        completedDays: recentAssetCoverage?.completed_days ?? 0,
+        totalDays: dayCountInclusive(recentExtendedStart, initialBackfillEnd),
+        readyThroughDate: recentAssetCoverage?.ready_through_date ?? null,
+      }),
+      historical: toRangeCompletion({
+        completedDays:
+          extendedScopeSummaries.find((summary) => summary.scope === "asset_daily")
+            ?.completedDays ?? 0,
+        totalDays:
+          extendedScopeSummaries.find((summary) => summary.scope === "asset_daily")
+            ?.totalDays ?? effectiveHistoricalTotalDays,
+        readyThroughDate:
+          extendedScopeSummaries.find((summary) => summary.scope === "asset_daily")
+            ?.readyThroughDate ?? null,
+      }),
+    },
+  } as const;
+  const recentExtendedReady = Object.values(rangeCompletionBySurface).every(
+    (surface) => surface.recent.ready
+  );
+  const historicalExtendedReady = Object.values(rangeCompletionBySurface).every(
+    (surface) => surface.historical.ready
+  );
+  const majorSurfaceStates = [
+    buildPanelSurfaceState({
+      scope: "search_term_daily",
+      label: "Search intelligence",
+      completedDays: selectedSearchTermCoverage?.completed_days ?? extendedScopeSummaries.find((summary) => summary.scope === "search_term_daily")?.completedDays ?? 0,
+      totalDays: selectedRangeTotalDays ?? extendedScopeSummaries.find((summary) => summary.scope === "search_term_daily")?.totalDays ?? effectiveHistoricalTotalDays,
+      readyThroughDate: selectedSearchTermCoverage?.ready_through_date ?? extendedScopeSummaries.find((summary) => summary.scope === "search_term_daily")?.readyThroughDate ?? null,
+      latestBackgroundActivityAt: extendedScopeSummaries.find((summary) => summary.scope === "search_term_daily")?.latestBackgroundActivityAt ?? null,
+      currentMode,
+      canaryEligible,
+    }),
+    buildPanelSurfaceState({
+      scope: "product_daily",
+      label: "Product performance",
+      completedDays: selectedProductCoverage?.completed_days ?? extendedScopeSummaries.find((summary) => summary.scope === "product_daily")?.completedDays ?? 0,
+      totalDays: selectedRangeTotalDays ?? extendedScopeSummaries.find((summary) => summary.scope === "product_daily")?.totalDays ?? effectiveHistoricalTotalDays,
+      readyThroughDate: selectedProductCoverage?.ready_through_date ?? extendedScopeSummaries.find((summary) => summary.scope === "product_daily")?.readyThroughDate ?? null,
+      latestBackgroundActivityAt: extendedScopeSummaries.find((summary) => summary.scope === "product_daily")?.latestBackgroundActivityAt ?? null,
+      currentMode,
+      canaryEligible,
+    }),
+    buildPanelSurfaceState({
+      scope: "asset_daily",
+      label: "Asset performance",
+      completedDays: selectedAssetCoverage?.completed_days ?? extendedScopeSummaries.find((summary) => summary.scope === "asset_daily")?.completedDays ?? 0,
+      totalDays: selectedRangeTotalDays ?? extendedScopeSummaries.find((summary) => summary.scope === "asset_daily")?.totalDays ?? effectiveHistoricalTotalDays,
+      readyThroughDate: selectedAssetCoverage?.ready_through_date ?? extendedScopeSummaries.find((summary) => summary.scope === "asset_daily")?.readyThroughDate ?? null,
+      latestBackgroundActivityAt: extendedScopeSummaries.find((summary) => summary.scope === "asset_daily")?.latestBackgroundActivityAt ?? null,
+      currentMode,
+      canaryEligible,
+    }),
+  ];
+  const extendedLimited = majorSurfaceStates.some((surface) => surface.state !== "ready");
+  const panelHeadline =
+    coreUsable && extendedLimited
+      ? "Core metrics are live. Extended intelligence is backfilling."
+      : coreUsable
+        ? "Google Ads core metrics are live."
+        : connected
+          ? "Google Ads core metrics are still preparing."
+          : "Connect Google Ads to start loading panel data.";
+  const panelDetail =
+    coreUsable && extendedLimited
+      ? "Search, product, and asset insights may be partial while recovery is in progress."
+      : coreUsable
+        ? "Campaign and advisor surfaces are ready to use."
+        : "Core spend and campaign coverage must be ready before the full panel feels complete.";
+  const extendedRecoveryState =
+    currentMode === "safe_mode" || breakerState === "open"
+      ? "core_only"
+      : historicalExtendedReady
+        ? "extended_normal"
+        : "extended_recovery";
 
   return NextResponse.json({
     state: decideGoogleAdsStatusState({
@@ -729,6 +981,24 @@ export async function GET(request: NextRequest) {
       oldestQueuedPartition: queueHealth?.oldestQueuedPartition ?? null,
     },
     priorityWindow,
+    operations: {
+      currentMode,
+      canaryEligible,
+      quotaPressure: quotaBudgetState?.pressure ?? 0,
+      breakerState,
+    },
+    panel: {
+      coreUsable,
+      extendedLimited,
+      recentExtendedUsable: recentExtendedReady,
+      headline: panelHeadline,
+      detail: panelDetail,
+      surfaceStates: majorSurfaceStates,
+    },
+    extendedRecoveryState,
+    recentExtendedReady,
+    historicalExtendedReady,
+    rangeCompletionBySurface,
     latestSync: effectiveLatestSync
       ? {
           id: effectiveLatestSync.id ? String(effectiveLatestSync.id) : null,

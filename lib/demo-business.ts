@@ -62,8 +62,31 @@ export function getDemoOverview() {
       { platform: "Organic", spend: 0, revenue: 5390, roas: 0, purchases: 83, cpa: 0 },
     ],
     trends: {
-      "7d": [],
-      "14d": [],
+      "7d": [
+        { label: "Mar 05", spend: 1450, revenue: 4630, purchases: 53 },
+        { label: "Mar 06", spend: 1490, revenue: 4720, purchases: 54 },
+        { label: "Mar 07", spend: 1500, revenue: 4760, purchases: 54 },
+        { label: "Mar 08", spend: 1510, revenue: 4790, purchases: 55 },
+        { label: "Mar 09", spend: 1530, revenue: 4840, purchases: 55 },
+        { label: "Mar 10", spend: 1540, revenue: 4860, purchases: 56 },
+        { label: "Mar 11", spend: 1560, revenue: 4890, purchases: 56 },
+      ],
+      "14d": [
+        { label: "Feb 26", spend: 1340, revenue: 4310, purchases: 49 },
+        { label: "Feb 27", spend: 1360, revenue: 4380, purchases: 50 },
+        { label: "Feb 28", spend: 1380, revenue: 4420, purchases: 50 },
+        { label: "Mar 01", spend: 1410, revenue: 4510, purchases: 51 },
+        { label: "Mar 02", spend: 1420, revenue: 4540, purchases: 52 },
+        { label: "Mar 03", spend: 1440, revenue: 4600, purchases: 52 },
+        { label: "Mar 04", spend: 1460, revenue: 4650, purchases: 53 },
+        { label: "Mar 05", spend: 1450, revenue: 4630, purchases: 53 },
+        { label: "Mar 06", spend: 1490, revenue: 4720, purchases: 54 },
+        { label: "Mar 07", spend: 1500, revenue: 4760, purchases: 54 },
+        { label: "Mar 08", spend: 1510, revenue: 4790, purchases: 55 },
+        { label: "Mar 09", spend: 1530, revenue: 4840, purchases: 55 },
+        { label: "Mar 10", spend: 1540, revenue: 4860, purchases: 56 },
+        { label: "Mar 11", spend: 1560, revenue: 4890, purchases: 56 },
+      ],
       "30d": [
         { label: "Feb 10", spend: 980, revenue: 3140, purchases: 36 },
         { label: "Feb 15", spend: 1230, revenue: 3780, purchases: 44 },
@@ -73,7 +96,38 @@ export function getDemoOverview() {
         { label: "Mar 06", spend: 1490, revenue: 4720, purchases: 54 },
         { label: "Mar 11", spend: 1560, revenue: 4890, purchases: 56 },
       ],
-      custom: [],
+      custom: [
+        { label: "Feb 10", spend: 980, revenue: 3140, purchases: 36 },
+        { label: "Feb 11", spend: 1050, revenue: 3320, purchases: 38 },
+        { label: "Feb 12", spend: 1090, revenue: 3480, purchases: 40 },
+        { label: "Feb 13", spend: 1140, revenue: 3620, purchases: 42 },
+        { label: "Feb 14", spend: 1200, revenue: 3850, purchases: 44 },
+        { label: "Feb 15", spend: 1230, revenue: 3780, purchases: 44 },
+        { label: "Feb 16", spend: 1180, revenue: 3700, purchases: 43 },
+        { label: "Feb 17", spend: 1220, revenue: 3910, purchases: 45 },
+        { label: "Feb 18", spend: 1260, revenue: 3980, purchases: 46 },
+        { label: "Feb 19", spend: 1240, revenue: 3950, purchases: 45 },
+        { label: "Feb 20", spend: 1270, revenue: 4010, purchases: 45 },
+        { label: "Feb 21", spend: 1290, revenue: 4070, purchases: 46 },
+        { label: "Feb 22", spend: 1310, revenue: 4150, purchases: 47 },
+        { label: "Feb 23", spend: 1300, revenue: 4100, purchases: 47 },
+        { label: "Feb 24", spend: 1280, revenue: 4080, purchases: 46 },
+        { label: "Feb 25", spend: 1320, revenue: 4250, purchases: 48 },
+        { label: "Feb 26", spend: 1340, revenue: 4310, purchases: 49 },
+        { label: "Feb 27", spend: 1360, revenue: 4380, purchases: 50 },
+        { label: "Feb 28", spend: 1380, revenue: 4420, purchases: 50 },
+        { label: "Mar 01", spend: 1410, revenue: 4510, purchases: 51 },
+        { label: "Mar 02", spend: 1420, revenue: 4540, purchases: 52 },
+        { label: "Mar 03", spend: 1440, revenue: 4600, purchases: 52 },
+        { label: "Mar 04", spend: 1460, revenue: 4650, purchases: 53 },
+        { label: "Mar 05", spend: 1450, revenue: 4630, purchases: 53 },
+        { label: "Mar 06", spend: 1490, revenue: 4720, purchases: 54 },
+        { label: "Mar 07", spend: 1500, revenue: 4760, purchases: 54 },
+        { label: "Mar 08", spend: 1510, revenue: 4790, purchases: 55 },
+        { label: "Mar 09", spend: 1530, revenue: 4840, purchases: 55 },
+        { label: "Mar 10", spend: 1540, revenue: 4860, purchases: 56 },
+        { label: "Mar 11", spend: 1560, revenue: 4890, purchases: 56 },
+      ],
     },
   };
 }
@@ -1300,5 +1354,213 @@ export function getDemoMetaBreakdowns() {
     },
     audience: { available: true },
     products: { available: true },
+  };
+}
+
+export function getDemoMetaSummary() {
+  const now = new Date().toISOString();
+  return {
+    freshness: { state: "ready", updatedAt: now, lastSyncedAt: now },
+    historicalSync: {
+      progressPercent: 100,
+      completedDays: 90,
+      totalDays: 90,
+      readyThroughDate: "2026-03-27",
+      state: "ready",
+    },
+    isPartial: false,
+    totals: {
+      spend: 21420,
+      revenue: 72890,
+      conversions: 816,
+      roas: 3.4,
+      cpa: 26.25,
+      ctr: 2.81,
+      cpc: 0.44,
+      impressions: 1321400,
+      clicks: 48620,
+      reach: 910000,
+    },
+    accounts: [
+      {
+        providerAccountId: "act_210009998877",
+        accountName: "UrbanTrail DTC",
+        currency: "USD",
+        timezone: "America/Los_Angeles",
+        spend: 21420,
+        revenue: 72890,
+        conversions: 816,
+        roas: 3.4,
+      },
+    ],
+  };
+}
+
+export function getDemoMetaTrends() {
+  const now = new Date().toISOString();
+  const points = [
+    { date: "2026-02-10", spend: 549, revenue: 1821, conversions: 20, roas: 3.32, cpa: 27.45, ctr: 2.74, cpc: 0.43, impressions: 74100, clicks: 1276 },
+    { date: "2026-02-11", spend: 588, revenue: 1926, conversions: 22, roas: 3.27, cpa: 26.73, ctr: 2.79, cpc: 0.44, impressions: 76400, clicks: 1336 },
+    { date: "2026-02-12", spend: 611, revenue: 2019, conversions: 23, roas: 3.31, cpa: 26.57, ctr: 2.81, cpc: 0.44, impressions: 78200, clicks: 1387 },
+    { date: "2026-02-13", spend: 638, revenue: 2100, conversions: 24, roas: 3.29, cpa: 26.58, ctr: 2.83, cpc: 0.45, impressions: 79800, clicks: 1418 },
+    { date: "2026-02-14", spend: 672, revenue: 2233, conversions: 25, roas: 3.32, cpa: 26.88, ctr: 2.84, cpc: 0.45, impressions: 81300, clicks: 1493 },
+    { date: "2026-02-15", spend: 689, revenue: 2193, conversions: 25, roas: 3.18, cpa: 27.56, ctr: 2.79, cpc: 0.44, impressions: 82100, clicks: 1566 },
+    { date: "2026-02-16", spend: 661, revenue: 2146, conversions: 24, roas: 3.25, cpa: 27.54, ctr: 2.77, cpc: 0.44, impressions: 80900, clicks: 1503 },
+    { date: "2026-02-17", spend: 683, revenue: 2268, conversions: 26, roas: 3.32, cpa: 26.27, ctr: 2.81, cpc: 0.44, impressions: 81800, clicks: 1552 },
+    { date: "2026-02-18", spend: 706, revenue: 2309, conversions: 27, roas: 3.27, cpa: 26.15, ctr: 2.83, cpc: 0.45, impressions: 83200, clicks: 1570 },
+    { date: "2026-02-19", spend: 694, revenue: 2291, conversions: 26, roas: 3.3, cpa: 26.69, ctr: 2.82, cpc: 0.45, impressions: 82500, clicks: 1543 },
+    { date: "2026-02-20", spend: 711, revenue: 2326, conversions: 26, roas: 3.27, cpa: 27.35, ctr: 2.84, cpc: 0.45, impressions: 83700, clicks: 1580 },
+    { date: "2026-02-21", spend: 722, revenue: 2361, conversions: 27, roas: 3.27, cpa: 26.74, ctr: 2.85, cpc: 0.45, impressions: 84200, clicks: 1604 },
+    { date: "2026-02-22", spend: 734, revenue: 2407, conversions: 27, roas: 3.28, cpa: 27.19, ctr: 2.86, cpc: 0.45, impressions: 85000, clicks: 1631 },
+    { date: "2026-02-23", spend: 728, revenue: 2378, conversions: 27, roas: 3.27, cpa: 26.96, ctr: 2.85, cpc: 0.45, impressions: 84600, clicks: 1613 },
+    { date: "2026-02-24", spend: 717, revenue: 2366, conversions: 27, roas: 3.3, cpa: 26.56, ctr: 2.84, cpc: 0.45, impressions: 83900, clicks: 1595 },
+    { date: "2026-02-25", spend: 739, revenue: 2465, conversions: 28, roas: 3.33, cpa: 26.39, ctr: 2.86, cpc: 0.45, impressions: 85300, clicks: 1643 },
+    { date: "2026-02-26", spend: 750, revenue: 2499, conversions: 28, roas: 3.33, cpa: 26.79, ctr: 2.87, cpc: 0.45, impressions: 85900, clicks: 1667 },
+    { date: "2026-02-27", spend: 762, revenue: 2540, conversions: 29, roas: 3.33, cpa: 26.28, ctr: 2.88, cpc: 0.46, impressions: 86700, clicks: 1657 },
+    { date: "2026-02-28", spend: 773, revenue: 2564, conversions: 29, roas: 3.32, cpa: 26.66, ctr: 2.89, cpc: 0.46, impressions: 87200, clicks: 1680 },
+    { date: "2026-03-01", spend: 790, revenue: 2616, conversions: 30, roas: 3.31, cpa: 26.33, ctr: 2.9, cpc: 0.46, impressions: 88100, clicks: 1717 },
+    { date: "2026-03-02", spend: 795, revenue: 2634, conversions: 30, roas: 3.31, cpa: 26.5, ctr: 2.9, cpc: 0.46, impressions: 88400, clicks: 1728 },
+    { date: "2026-03-03", spend: 806, revenue: 2668, conversions: 30, roas: 3.31, cpa: 26.87, ctr: 2.91, cpc: 0.46, impressions: 89000, clicks: 1751 },
+    { date: "2026-03-04", spend: 818, revenue: 2699, conversions: 31, roas: 3.3, cpa: 26.39, ctr: 2.92, cpc: 0.46, impressions: 89700, clicks: 1769 },
+    { date: "2026-03-05", spend: 812, revenue: 2685, conversions: 31, roas: 3.31, cpa: 26.19, ctr: 2.91, cpc: 0.46, impressions: 89300, clicks: 1757 },
+    { date: "2026-03-06", spend: 834, revenue: 2738, conversions: 30, roas: 3.28, cpa: 27.8, ctr: 2.93, cpc: 0.46, impressions: 90200, clicks: 1807 },
+    { date: "2026-03-07", spend: 840, revenue: 2763, conversions: 31, roas: 3.29, cpa: 27.1, ctr: 2.93, cpc: 0.46, impressions: 90600, clicks: 1813 },
+    { date: "2026-03-08", spend: 846, revenue: 2781, conversions: 32, roas: 3.29, cpa: 26.44, ctr: 2.94, cpc: 0.46, impressions: 91000, clicks: 1826 },
+    { date: "2026-03-09", spend: 857, revenue: 2808, conversions: 32, roas: 3.28, cpa: 26.78, ctr: 2.95, cpc: 0.46, impressions: 91700, clicks: 1845 },
+    { date: "2026-03-10", spend: 862, revenue: 2821, conversions: 32, roas: 3.27, cpa: 26.94, ctr: 2.95, cpc: 0.46, impressions: 92100, clicks: 1874 },
+    { date: "2026-03-11", spend: 874, revenue: 2838, conversions: 33, roas: 3.25, cpa: 26.48, ctr: 2.96, cpc: 0.46, impressions: 92800, clicks: 1882 },
+  ];
+  return {
+    freshness: { state: "ready", updatedAt: now, lastSyncedAt: now },
+    isPartial: false,
+    points,
+  };
+}
+
+export function getDemoMetaStatus() {
+  const now = new Date().toISOString();
+  const totalDays = 90;
+  return {
+    state: "ready",
+    readinessLevel: "ready",
+    surfaces: {
+      required: ["account_daily", "campaign_daily", "adset_daily", "ad_daily", "breakdowns", "creatives"],
+      available: ["account_daily", "campaign_daily", "adset_daily", "ad_daily", "breakdowns", "creatives"],
+      missing: [],
+      usable: ["account_daily", "campaign_daily", "adset_daily", "ad_daily", "breakdowns", "creatives"],
+    },
+    checkpointHealth: null,
+    domainReadiness: {
+      coreSurfacesReady: ["account_daily", "campaign_daily"],
+      deepSurfacesPending: [],
+      blockingSurfaces: [],
+      summary: "Meta core and deep reporting surfaces are ready.",
+    },
+    connected: true,
+    assignedAccountIds: ["act_210009998877"],
+    primaryAccountTimezone: "America/Los_Angeles",
+    currentDateInTimezone: "2026-03-28",
+    needsBootstrap: false,
+    warehouse: {
+      rowCount: 2700,
+      firstDate: "2026-01-01",
+      lastDate: "2026-03-27",
+      coverage: {
+        historical: { completedDays: totalDays, totalDays, readyThroughDate: "2026-03-27" },
+        selectedRange: null,
+        scopes: [
+          { scope: "account_daily", completedDays: totalDays, totalDays, readyThroughDate: "2026-03-27", latestBackgroundActivityAt: now, deadLetterCount: 0 },
+          { scope: "adset_daily", completedDays: totalDays, totalDays, readyThroughDate: "2026-03-27", latestBackgroundActivityAt: now, deadLetterCount: 0 },
+          { scope: "creative_daily", completedDays: totalDays, totalDays, readyThroughDate: "2026-03-27", latestBackgroundActivityAt: now, deadLetterCount: 0 },
+          { scope: "ad_daily", completedDays: totalDays, totalDays, readyThroughDate: "2026-03-27", latestBackgroundActivityAt: now, deadLetterCount: 0 },
+        ],
+        accountDaily: { completedDays: totalDays, totalDays, readyThroughDate: "2026-03-27" },
+        campaignDaily: { completedDays: totalDays, totalDays, readyThroughDate: "2026-03-27" },
+        adsetDaily: { completedDays: totalDays, totalDays, readyThroughDate: "2026-03-27" },
+        breakdowns: { completedDays: 30, totalDays: 30, readyThroughDate: "2026-03-27" },
+        creatives: { completedDays: totalDays, totalDays, readyThroughDate: "2026-03-27", previewReadyRows: 38, totalRows: 38, previewReadyPercent: 100 },
+        pendingSurfaces: [],
+      },
+    },
+    jobHealth: {
+      runningJobs: 0,
+      staleRunningJobs: 0,
+      queueDepth: 0,
+      leasedPartitions: 0,
+      retryableFailedPartitions: 0,
+      deadLetterPartitions: 0,
+      oldestQueuedPartition: null,
+      latestCoreActivityAt: now,
+      latestExtendedActivityAt: now,
+      latestMaintenanceActivityAt: now,
+    },
+    priorityWindow: null,
+    latestSync: {
+      progressPercent: 100,
+      completedDays: totalDays,
+      totalDays,
+      readyThroughDate: "2026-03-27",
+      phaseLabel: null,
+    },
+  };
+}
+
+export function getDemoAiInsight() {
+  return {
+    insight_date: "2026-03-28",
+    summary: "UrbanTrail is performing above benchmark across Meta and Google Ads. Blended ROAS sits at 3.27x on $38.2K spend, with purchase volume up 8% week-over-week. Creative fatigue is emerging on two top Meta ad sets — rotation recommended within 5 days. Google Shopping campaigns continue to outperform Search in CPA efficiency.",
+    risks: [
+      "Top Meta creative (Explorer Backpack lifestyle video) showing CTR decline of 18% over last 7 days — risk of fatigue within the week.",
+      "Google Ads broad match keywords driving 34% of spend with below-average ROAS (2.1x) — budget allocation risk.",
+    ],
+    opportunities: [
+      "Lookalike 1% audience on Meta has lowest CPA ($22.10) with room to scale — budget increase recommended.",
+      "California and Texas regions driving 58% of revenue but only receiving 41% of ad budget — geo bid adjustment opportunity.",
+      "UrbanTrail Hiking Backpack Pro has 4.8★ rating and strong add-to-cart rate but limited ad exposure — consider dedicated campaign.",
+    ],
+    recommendations: [
+      "Rotate or refresh the Explorer Backpack lifestyle creative on Meta DTC ad set within 5 days.",
+      "Reduce broad match keyword spend by 20% and reallocate to exact match and Shopping campaigns.",
+      "Increase Lookalike 1% daily budget cap from $180 to $280.",
+      "Create a geo-targeted campaign for California with +15% bid adjustment.",
+    ],
+    created_at: new Date().toISOString(),
+  };
+}
+
+export function getDemoAiCreativeDecisions(creatives: Array<{ creativeId: string }>) {
+  const labels = ["Scale", "Maintain", "Watch", "Refresh"];
+  const reasons = [
+    "Strong ROAS and CTR above account average — allocate more budget.",
+    "Stable performance within benchmark range. Monitor weekly.",
+    "CTR declining over last 7 days. Consider creative refresh soon.",
+    "Below-average ROAS and high CPC. Recommend refreshing creative assets.",
+  ];
+  return creatives.map((c, i) => ({
+    creativeId: c.creativeId,
+    label: labels[i % labels.length],
+    reason: reasons[i % reasons.length],
+    score: Math.round(90 - (i % 4) * 18),
+    confidence: "high" as const,
+  }));
+}
+
+export function getDemoAiCreativeCommentary() {
+  return {
+    headline: "Strong creative mix with one fatigue risk",
+    summary: "Your top creatives are driving solid ROAS across Meta placements. The Explorer Backpack lifestyle video leads in spend efficiency, but shows early signs of audience fatigue. The product-focused static ads are punching above their weight in conversion rate.",
+    opportunities: [
+      "Lookalike audiences respond well to the travel-context creative format — expand to Prospecting ad set.",
+      "UGC-style creatives have 22% higher CTR than branded studio content in your account.",
+    ],
+    risks: [
+      "Explorer Backpack lifestyle video CTR has declined 18% in 7 days — rotate before fatigue accelerates.",
+      "Carousel format underperforming on Mobile Feed placements vs. single image.",
+    ],
+    nextActions: [
+      "Introduce a new hero creative for the Explorer Backpack within 5 days.",
+      "Test a UGC-style video for the Hiking Pro on Reels placement.",
+      "Pause the underperforming carousel variant on Mobile Feed.",
+    ],
   };
 }

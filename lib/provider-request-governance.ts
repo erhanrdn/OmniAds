@@ -17,11 +17,57 @@ interface FailureState {
   status?: number;
 }
 
+export interface ProviderQuotaBudgetState {
+  provider: string;
+  businessId: string;
+  quotaDate: string;
+  callCount: number;
+  errorCount: number;
+  dailyBudget: number;
+  maintenanceBudget: number;
+  extendedBudget: number;
+  pressure: number;
+  withinDailyBudget: boolean;
+  maintenanceAllowed: boolean;
+  extendedAllowed: boolean;
+}
+
 // Hata tipine göre farklı cooldown süreleri
 const COOLDOWN_QUOTA_MS = 5 * 60_000;       // 429 / RESOURCE_EXHAUSTED
 const COOLDOWN_AUTH_MS = 10 * 60_000;        // 401 / UNAUTHENTICATED
 const COOLDOWN_PERMISSION_MS = 30 * 60_000;  // 403 / PERMISSION_DENIED
 const DEFAULT_REQUEST_COOLDOWN_MS = 2 * 60_000;
+export const GLOBAL_CIRCUIT_BREAKER_REQUEST_TYPE = "__global_circuit_breaker__";
+export const GLOBAL_CIRCUIT_BREAKER_RECOVERY_REQUEST_TYPE =
+  "__global_circuit_breaker_recovery__";
+const DAILY_QUOTA_BUDGET_REQUEST_TYPE = "__daily_quota_budget__";
+
+function envNumber(name: string, fallback: number) {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+const GOOGLE_DAILY_REQUEST_BUDGET_PER_BUSINESS = envNumber(
+  "GOOGLE_ADS_DAILY_REQUEST_BUDGET_PER_BUSINESS",
+  5000
+);
+const GOOGLE_MAINTENANCE_REQUEST_SHARE = Math.min(
+  1,
+  Math.max(
+    0,
+    envNumber("GOOGLE_ADS_MAINTENANCE_REQUEST_SHARE_PERCENT", 85) / 100
+  )
+);
+const GOOGLE_EXTENDED_REQUEST_SHARE = Math.min(
+  1,
+  Math.max(
+    0,
+    envNumber("GOOGLE_ADS_EXTENDED_REQUEST_SHARE_PERCENT", 60) / 100
+  )
+);
+const GOOGLE_REQUESTS_PER_SECOND = envNumber("GOOGLE_ADS_REQUESTS_PER_SECOND", 4);
 
 export class ProviderRequestCooldownError extends Error {
   readonly provider: string;
@@ -76,6 +122,16 @@ function getDbHydratedStore() {
     globalStore.__omniadsProviderDbHydrated = new Set();
   }
   return globalStore.__omniadsProviderDbHydrated;
+}
+
+function getPacingStore() {
+  const globalStore = globalThis as typeof globalThis & {
+    __omniadsProviderPacingState?: Map<string, number>;
+  };
+  if (!globalStore.__omniadsProviderPacingState) {
+    globalStore.__omniadsProviderPacingState = new Map();
+  }
+  return globalStore.__omniadsProviderPacingState;
 }
 
 function getRequestKey(provider: string, businessId: string, requestType: string) {
@@ -219,6 +275,325 @@ function clearCooldownFromDb(provider: string, businessId: string, requestType: 
   }).catch(() => {});
 }
 
+async function upsertExplicitCooldownState(input: {
+  provider: string;
+  businessId: string;
+  requestType: string;
+  message: string;
+  status?: number;
+  failureCount?: number;
+  cooldownUntil: string;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  await sql`
+    INSERT INTO provider_cooldown_state (
+      business_id, provider, request_type,
+      failed_at, failure_count, error_message, http_status, cooldown_until, updated_at
+    ) VALUES (
+      ${input.businessId}, ${input.provider}, ${input.requestType},
+      now(), ${Math.max(1, input.failureCount ?? 1)}, ${input.message}, ${input.status ?? null},
+      ${input.cooldownUntil}, now()
+    )
+    ON CONFLICT (business_id, provider, request_type) DO UPDATE SET
+      failed_at = EXCLUDED.failed_at,
+      failure_count = GREATEST(provider_cooldown_state.failure_count, EXCLUDED.failure_count),
+      error_message = EXCLUDED.error_message,
+      http_status = EXCLUDED.http_status,
+      cooldown_until = EXCLUDED.cooldown_until,
+      updated_at = now()
+  `;
+}
+
+export async function getProviderGlobalCircuitBreaker(input: {
+  provider: string;
+  businessId: string;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = await sql`
+    SELECT error_message, http_status, failure_count, failed_at, cooldown_until
+    FROM provider_cooldown_state
+    WHERE business_id = ${input.businessId}
+      AND provider = ${input.provider}
+      AND request_type = ${GLOBAL_CIRCUIT_BREAKER_REQUEST_TYPE}
+      AND cooldown_until > now()
+    LIMIT 1
+  ` as Array<{
+    error_message: string | null;
+    http_status: number | null;
+    failure_count: number;
+    failed_at: string;
+    cooldown_until: string;
+  }>;
+
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    message: row.error_message ?? "Provider circuit breaker is active.",
+    status: row.http_status ?? undefined,
+    failureCount: row.failure_count,
+    failedAt: row.failed_at,
+    cooldownUntil: row.cooldown_until,
+    retryAfterMs: Math.max(0, new Date(row.cooldown_until).getTime() - Date.now()),
+  };
+}
+
+export async function getProviderCircuitBreakerRecoveryState(input: {
+  provider: string;
+  businessId: string;
+}): Promise<"open" | "half_open" | "closed"> {
+  const [breaker, recovery] = await Promise.all([
+    getProviderGlobalCircuitBreaker(input).catch(() => null),
+    (async () => {
+      await runMigrations();
+      const sql = getDb();
+      const rows = await sql`
+        SELECT cooldown_until
+        FROM provider_cooldown_state
+        WHERE business_id = ${input.businessId}
+          AND provider = ${input.provider}
+          AND request_type = ${GLOBAL_CIRCUIT_BREAKER_RECOVERY_REQUEST_TYPE}
+          AND cooldown_until > now()
+        LIMIT 1
+      ` as Array<{ cooldown_until: string }>;
+      return rows[0] ?? null;
+    })().catch(() => null),
+  ]);
+
+  if (breaker) return "open";
+  if (recovery) return "half_open";
+  return "closed";
+}
+
+export async function enterProviderGlobalCircuitBreakerRecoveryState(input: {
+  provider: string;
+  businessId: string;
+  message?: string;
+  cooldownMs?: number;
+}) {
+  const cooldownMs = Math.max(60_000, input.cooldownMs ?? 5 * 60_000);
+  const cooldownUntil = new Date(Date.now() + cooldownMs).toISOString();
+  await upsertExplicitCooldownState({
+    provider: input.provider,
+    businessId: input.businessId,
+    requestType: GLOBAL_CIRCUIT_BREAKER_RECOVERY_REQUEST_TYPE,
+    message: input.message ?? "Provider circuit breaker is in half-open recovery mode.",
+    status: 429,
+    cooldownUntil,
+  });
+  return {
+    state: "half_open" as const,
+    cooldownUntil,
+  };
+}
+
+export async function clearProviderGlobalCircuitBreakerRecoveryState(input: {
+  provider: string;
+  businessId: string;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  await sql`
+    DELETE FROM provider_cooldown_state
+    WHERE business_id = ${input.businessId}
+      AND provider = ${input.provider}
+      AND request_type = ${GLOBAL_CIRCUIT_BREAKER_RECOVERY_REQUEST_TYPE}
+  `;
+}
+
+export async function openProviderGlobalCircuitBreaker(input: {
+  provider: string;
+  businessId: string;
+  message: string;
+  status?: number;
+  cooldownMs: number;
+}) {
+  await clearProviderGlobalCircuitBreakerRecoveryState({
+    provider: input.provider,
+    businessId: input.businessId,
+  }).catch(() => null);
+  await runMigrations();
+  const sql = getDb();
+  const failureStore = getFailureStore();
+  const key = getRequestKey(
+    input.provider,
+    input.businessId,
+    GLOBAL_CIRCUIT_BREAKER_REQUEST_TYPE
+  );
+  const current = failureStore.get(key);
+  const nextCount = (current?.count ?? 0) + 1;
+  const failedAt = Date.now();
+  const cooldownUntil = new Date(failedAt + input.cooldownMs).toISOString();
+
+  failureStore.set(key, {
+    failedAt,
+    message: input.message,
+    count: nextCount,
+    status: input.status,
+  });
+  getDbHydratedStore().add(key);
+
+  await sql`
+    INSERT INTO provider_cooldown_state (
+      business_id, provider, request_type,
+      failed_at, failure_count, error_message, http_status, cooldown_until, updated_at
+    ) VALUES (
+      ${input.businessId}, ${input.provider}, ${GLOBAL_CIRCUIT_BREAKER_REQUEST_TYPE},
+      ${new Date(failedAt).toISOString()}, ${nextCount}, ${input.message}, ${input.status ?? null},
+      ${cooldownUntil}, now()
+    )
+    ON CONFLICT (business_id, provider, request_type) DO UPDATE SET
+      failed_at = EXCLUDED.failed_at,
+      failure_count = GREATEST(provider_cooldown_state.failure_count, EXCLUDED.failure_count),
+      error_message = EXCLUDED.error_message,
+      http_status = EXCLUDED.http_status,
+      cooldown_until = EXCLUDED.cooldown_until,
+      updated_at = now()
+  `;
+
+  return {
+    message: input.message,
+    status: input.status,
+    failureCount: nextCount,
+    failedAt: new Date(failedAt).toISOString(),
+    cooldownUntil,
+  };
+}
+
+export async function clearProviderGlobalCircuitBreaker(input: {
+  provider: string;
+  businessId: string;
+}) {
+  const key = getRequestKey(
+    input.provider,
+    input.businessId,
+    GLOBAL_CIRCUIT_BREAKER_REQUEST_TYPE
+  );
+  getFailureStore().delete(key);
+  getDbHydratedStore().add(key);
+  await runMigrations();
+  const sql = getDb();
+  await sql`
+    DELETE FROM provider_cooldown_state
+    WHERE business_id = ${input.businessId}
+      AND provider = ${input.provider}
+      AND request_type = ${GLOBAL_CIRCUIT_BREAKER_REQUEST_TYPE}
+  `;
+}
+
+export function buildProviderQuotaBudgetState(input: {
+  provider: string;
+  businessId: string;
+  quotaDate: string;
+  callCount: number;
+  errorCount: number;
+}) {
+  const normalizedProvider = input.provider.toLowerCase();
+  const dailyBudget =
+    normalizedProvider === "google"
+      ? GOOGLE_DAILY_REQUEST_BUDGET_PER_BUSINESS
+      : GOOGLE_DAILY_REQUEST_BUDGET_PER_BUSINESS;
+  const maintenanceBudget = Math.max(1, Math.floor(dailyBudget * GOOGLE_MAINTENANCE_REQUEST_SHARE));
+  const extendedBudget = Math.max(1, Math.floor(dailyBudget * GOOGLE_EXTENDED_REQUEST_SHARE));
+  const pressure = dailyBudget > 0 ? input.callCount / dailyBudget : 0;
+  return {
+    provider: input.provider,
+    businessId: input.businessId,
+    quotaDate: input.quotaDate,
+    callCount: input.callCount,
+    errorCount: input.errorCount,
+    dailyBudget,
+    maintenanceBudget,
+    extendedBudget,
+    pressure,
+    withinDailyBudget: input.callCount < dailyBudget,
+    maintenanceAllowed: input.callCount < maintenanceBudget,
+    extendedAllowed: input.callCount < extendedBudget,
+  } satisfies ProviderQuotaBudgetState;
+}
+
+export async function getProviderQuotaBudgetState(input: {
+  provider: string;
+  businessId: string;
+}): Promise<ProviderQuotaBudgetState> {
+  await runMigrations();
+  const sql = getDb();
+  const rows = await sql`
+    SELECT quota_date, call_count, error_count
+    FROM provider_quota_usage
+    WHERE business_id = ${input.businessId}
+      AND provider = ${input.provider}
+      AND quota_date = CURRENT_DATE
+    LIMIT 1
+  ` as Array<{
+    quota_date: string;
+    call_count: number;
+    error_count: number;
+  }>;
+
+  const row = rows[0];
+  return buildProviderQuotaBudgetState({
+    provider: input.provider,
+    businessId: input.businessId,
+    quotaDate: row?.quota_date ?? new Date().toISOString().slice(0, 10),
+    callCount: row?.call_count ?? 0,
+    errorCount: row?.error_count ?? 0,
+  });
+}
+
+async function enforceProviderPacing(provider: string) {
+  if (provider !== "google") return;
+  const store = getPacingStore();
+  const minIntervalMs = Math.max(50, Math.ceil(1000 / Math.max(1, GOOGLE_REQUESTS_PER_SECOND)));
+  const nextAllowedAt = store.get(provider) ?? 0;
+  const waitMs = nextAllowedAt - Date.now();
+  if (waitMs > 0) {
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+  }
+  store.set(provider, Date.now() + minIntervalMs);
+}
+
+async function enforceProviderQuotaBudget(input: {
+  provider: string;
+  businessId: string;
+}) {
+  if (input.provider !== "google") return;
+  const budgetState = await getProviderQuotaBudgetState(input).catch(() => null);
+  if (!budgetState || budgetState.withinDailyBudget) return;
+
+  const key = getRequestKey(input.provider, input.businessId, DAILY_QUOTA_BUDGET_REQUEST_TYPE);
+  const failureState: FailureState = {
+    failedAt: Date.now(),
+    message: `Daily Google Ads request budget reached for business ${input.businessId}.`,
+    count: Math.max(1, budgetState.errorCount),
+    status: 429,
+  };
+  getFailureStore().set(key, failureState);
+  getDbHydratedStore().add(key);
+  const tomorrow = new Date();
+  tomorrow.setUTCHours(24, 0, 0, 0);
+  const cooldownUntil = tomorrow.toISOString();
+  await upsertExplicitCooldownState({
+    provider: input.provider,
+    businessId: input.businessId,
+    requestType: DAILY_QUOTA_BUDGET_REQUEST_TYPE,
+    message: failureState.message,
+    status: 429,
+    failureCount: failureState.count,
+    cooldownUntil,
+  }).catch(() => null);
+
+  throw new ProviderRequestCooldownError({
+    provider: input.provider,
+    businessId: input.businessId,
+    requestType: DAILY_QUOTA_BUDGET_REQUEST_TYPE,
+    message: failureState.message,
+    retryAfterMs: Math.max(0, new Date(cooldownUntil).getTime() - Date.now()),
+    status: 429,
+  });
+}
+
 // Quota kullanımını logla (fire-and-forget)
 function logQuotaUsage(
   provider: string,
@@ -246,7 +621,49 @@ export async function runProviderRequestWithGovernance<T>(
   const inflight = getInFlightStore();
 
   // In-memory store boşsa DB'den hydrate et
+  if (input.requestType !== GLOBAL_CIRCUIT_BREAKER_REQUEST_TYPE) {
+    await hydrateFromDbIfNeeded(
+      input.provider,
+      input.businessId,
+      GLOBAL_CIRCUIT_BREAKER_REQUEST_TYPE
+    );
+  }
   await hydrateFromDbIfNeeded(input.provider, input.businessId, input.requestType);
+
+  if (input.requestType !== GLOBAL_CIRCUIT_BREAKER_REQUEST_TYPE) {
+    const globalKey = getRequestKey(
+      input.provider,
+      input.businessId,
+      GLOBAL_CIRCUIT_BREAKER_REQUEST_TYPE
+    );
+    const globalFailure = failures.get(globalKey);
+    if (globalFailure && !input.bypassCooldown) {
+      const retryAfterMs =
+        globalFailure.failedAt + DEFAULT_REQUEST_COOLDOWN_MS - Date.now();
+      const globalBreaker = await getProviderGlobalCircuitBreaker({
+        provider: input.provider,
+        businessId: input.businessId,
+      }).catch(() => null);
+      if (globalBreaker && globalBreaker.retryAfterMs > 0) {
+        throw new ProviderRequestCooldownError({
+          provider: input.provider,
+          businessId: input.businessId,
+          requestType: GLOBAL_CIRCUIT_BREAKER_REQUEST_TYPE,
+          message: globalBreaker.message,
+          retryAfterMs: globalBreaker.retryAfterMs,
+          status: globalBreaker.status,
+        });
+      }
+      if (retryAfterMs <= 0) {
+        failures.delete(globalKey);
+        clearCooldownFromDb(
+          input.provider,
+          input.businessId,
+          GLOBAL_CIRCUIT_BREAKER_REQUEST_TYPE
+        );
+      }
+    }
+  }
 
   const existingFailure = failures.get(key);
   if (existingFailure && !input.bypassCooldown) {
@@ -292,6 +709,12 @@ export async function runProviderRequestWithGovernance<T>(
     requestType: input.requestType,
     bypassCooldown: input.bypassCooldown === true,
   });
+
+  await enforceProviderQuotaBudget({
+    provider: input.provider,
+    businessId: input.businessId,
+  });
+  await enforceProviderPacing(input.provider);
 
   const requestPromise = input
     .execute()

@@ -175,7 +175,8 @@ export function buildCampaignBudgetQuery(
 
 export function buildSearchTermCoreQuery(
   startDate: string,
-  endDate: string
+  endDate: string,
+  limit = 1000
 ): GoogleAdsNamedQuery {
   return {
     name: "search_term_core",
@@ -208,7 +209,7 @@ export function buildSearchTermCoreQuery(
       from: "search_term_view",
       where: [buildDateWhereClause(startDate, endDate)],
       orderBy: ["metrics.cost_micros DESC"],
-      limit: 1000,
+      limit,
     }),
   };
 }
@@ -574,7 +575,8 @@ export function buildDeviceCoreQuery(
 
 export function buildCampaignSearchTermCoreQuery(
   startDate: string,
-  endDate: string
+  endDate: string,
+  limit = 1000
 ): GoogleAdsNamedQuery {
   return {
     name: "campaign_search_term_core",
@@ -609,14 +611,15 @@ export function buildCampaignSearchTermCoreQuery(
         "campaign.status != 'REMOVED'",
       ],
       orderBy: ["metrics.cost_micros DESC"],
-      limit: 1000,
+      limit,
     }),
   };
 }
 
 export function buildAssetPerformanceCoreQuery(
   startDate: string,
-  endDate: string
+  endDate: string,
+  limit = 2000
 ): GoogleAdsNamedQuery {
   return {
     name: "asset_performance_core",
@@ -658,7 +661,7 @@ export function buildAssetPerformanceCoreQuery(
         "asset_group_asset.status != 'REMOVED'",
       ],
       orderBy: ["metrics.cost_micros DESC"],
-      limit: 2000,
+      limit,
     }),
   };
 }
@@ -709,7 +712,8 @@ export function buildAssetGroupSignalQuery(): GoogleAdsNamedQuery {
 
 export function buildProductPerformanceQuery(
   startDate: string,
-  endDate: string
+  endDate: string,
+  limit = 1000
 ): GoogleAdsNamedQuery {
   return {
     name: "product_performance",
@@ -736,14 +740,15 @@ export function buildProductPerformanceQuery(
       from: "shopping_performance_view",
       where: [buildDateWhereClause(startDate, endDate)],
       orderBy: ["metrics.cost_micros DESC"],
-      limit: 1000,
+      limit,
     }),
   };
 }
 
 export function buildProductPerformanceLegacyQuery(
   startDate: string,
-  endDate: string
+  endDate: string,
+  limit = 1000
 ): GoogleAdsNamedQuery {
   return {
     name: "product_performance_legacy",
@@ -770,7 +775,7 @@ export function buildProductPerformanceLegacyQuery(
       from: "shopping_product_view",
       where: [buildDateWhereClause(startDate, endDate)],
       orderBy: ["metrics.cost_micros DESC"],
-      limit: 1000,
+      limit,
     }),
   };
 }

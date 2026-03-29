@@ -1,5 +1,6 @@
 import { getDb } from "@/lib/db";
 import { getSyncWorkerHealthSummary } from "@/lib/sync/worker-health";
+import { isGoogleAdsExtendedCanaryBusiness } from "@/lib/sync/google-ads-sync";
 
 type AuthProvider = "meta" | "google" | "search_console" | "ga4" | "shopify";
 type SyncProvider = "google_ads" | "meta" | "ga4" | "search_console";
@@ -60,6 +61,12 @@ export interface AdminSyncHealthPayload {
     workerInstances?: number;
     workerLastHeartbeatAt?: string | null;
     workerLastProgressHeartbeatAt?: string | null;
+    googleAdsSafeModeActive?: boolean;
+    googleAdsCircuitBreakerBusinesses?: number;
+    googleAdsCompactedPartitions?: number;
+    googleAdsBudgetPressureMax?: number;
+    googleAdsRecoveryBusinesses?: number;
+    googleAdsCanaryBusinesses?: number;
   };
   issues: AdminSyncIssueRow[];
   workerHealth?: {
@@ -88,6 +95,7 @@ export interface AdminSyncHealthPayload {
     campaignCompletedDays: number;
     searchTermCompletedDays: number;
     productCompletedDays: number;
+    assetCompletedDays?: number;
     latestCheckpointPhase?: string | null;
     latestCheckpointUpdatedAt?: string | null;
     lastProgressHeartbeatAt?: string | null;
@@ -100,6 +108,22 @@ export interface AdminSyncHealthPayload {
     lastReclaimReason?: string | null;
     latestPoisonReason?: string | null;
     latestPoisonedAt?: string | null;
+    safeModeActive?: boolean;
+    circuitBreakerOpen?: boolean;
+    compactedPartitions?: number;
+    quotaCallCount?: number;
+    quotaErrorCount?: number;
+    quotaBudget?: number;
+    quotaPressure?: number;
+    recoveryMode?: "open" | "half_open" | "closed";
+    canaryEnabled?: boolean;
+    effectiveMode?: "safe_mode" | "canary_reopen" | "general_reopen";
+    recentSearchTermCompletedDays?: number;
+    recentProductCompletedDays?: number;
+    recentAssetCompletedDays?: number;
+    recentRangeTotalDays?: number;
+    recentExtendedReady?: boolean;
+    historicalExtendedReady?: boolean;
   }>;
   metaBusinesses?: Array<{
     businessId: string;
@@ -216,6 +240,7 @@ interface RawGoogleAdsHealthRow {
   campaign_dead_letter_count: number | string | null;
   search_term_completed_days: number | string | null;
   product_completed_days: number | string | null;
+  asset_completed_days?: number | string | null;
   latest_checkpoint_phase?: string | null;
   latest_checkpoint_updated_at?: string | null;
   latest_progress_heartbeat_at?: string | null;
@@ -226,6 +251,18 @@ interface RawGoogleAdsHealthRow {
   last_reclaim_reason?: string | null;
   latest_poison_reason?: string | null;
   latest_poisoned_at?: string | null;
+  active_circuit_breakers?: number | string | null;
+  compacted_partitions?: number | string | null;
+  quota_call_count?: number | string | null;
+  quota_error_count?: number | string | null;
+  quota_budget?: number | string | null;
+  quota_pressure?: number | string | null;
+  recovery_half_open?: number | string | null;
+  canary_enabled?: boolean | null;
+  recent_search_term_completed_days?: number | string | null;
+  recent_product_completed_days?: number | string | null;
+  recent_asset_completed_days?: number | string | null;
+  recent_range_total_days?: number | string | null;
 }
 
 interface RawMetaHealthRow {
@@ -434,6 +471,11 @@ export function buildAdminSyncHealth(input: {
   let metaLeasedPartitions = 0;
   let metaDeadLetterPartitions = 0;
   let metaOldestQueuedPartition: string | null = null;
+  let googleAdsCircuitBreakerBusinesses = 0;
+  let googleAdsCompactedPartitions = 0;
+  let googleAdsBudgetPressureMax = 0;
+  let googleAdsRecoveryBusinesses = 0;
+  let googleAdsCanaryBusinesses = 0;
   const googleAdsBusinesses: NonNullable<AdminSyncHealthPayload["googleAdsBusinesses"]> = [];
   const metaBusinesses: NonNullable<AdminSyncHealthPayload["metaBusinesses"]> = [];
   let latestProgressHeartbeatAt: string | null = null;
@@ -502,6 +544,42 @@ export function buildAdminSyncHealth(input: {
     const campaignCompletedDays = Number(row.campaign_completed_days ?? 0);
     const searchTermCompletedDays = Number(row.search_term_completed_days ?? 0);
     const productCompletedDays = Number(row.product_completed_days ?? 0);
+    const assetCompletedDays = Number(row.asset_completed_days ?? 0);
+    const circuitBreakerOpen = Number(row.active_circuit_breakers ?? 0) > 0;
+    const compactedPartitions = Number(row.compacted_partitions ?? 0);
+    const quotaCallCount = Number(row.quota_call_count ?? 0);
+    const quotaErrorCount = Number(row.quota_error_count ?? 0);
+    const quotaBudget = Number(row.quota_budget ?? 0);
+    const quotaPressure = Number(row.quota_pressure ?? 0);
+    const recentRangeTotalDays = Math.max(1, Number(row.recent_range_total_days ?? 14));
+    const recentSearchTermCompletedDays = Number(row.recent_search_term_completed_days ?? 0);
+    const recentProductCompletedDays = Number(row.recent_product_completed_days ?? 0);
+    const recentAssetCompletedDays = Number(row.recent_asset_completed_days ?? 0);
+    const recoveryMode =
+      circuitBreakerOpen
+        ? "open"
+        : Number(row.recovery_half_open ?? 0) > 0
+        ? "half_open"
+        : "closed";
+    const canaryEnabled = isGoogleAdsExtendedCanaryBusiness(row.business_id);
+    const safeModeActive =
+      (process.env.GOOGLE_ADS_INCIDENT_SAFE_MODE?.trim().toLowerCase() ?? "") === "1" ||
+      (process.env.GOOGLE_ADS_INCIDENT_SAFE_MODE?.trim().toLowerCase() ?? "") === "true";
+    const effectiveMode =
+      safeModeActive
+        ? "safe_mode"
+        : process.env.GOOGLE_ADS_EXTENDED_GENERAL_REOPEN?.trim().toLowerCase() === "1" ||
+            process.env.GOOGLE_ADS_EXTENDED_GENERAL_REOPEN?.trim().toLowerCase() === "true"
+          ? "general_reopen"
+          : "canary_reopen";
+    const recentExtendedReady =
+      recentSearchTermCompletedDays >= recentRangeTotalDays &&
+      recentProductCompletedDays >= recentRangeTotalDays &&
+      recentAssetCompletedDays >= recentRangeTotalDays;
+    const historicalExtendedReady =
+      searchTermCompletedDays >= 365 &&
+      productCompletedDays >= 365 &&
+      assetCompletedDays >= 365;
     const googleProgressHeartbeat =
       row.latest_progress_heartbeat_at ?? row.latest_checkpoint_updated_at ?? null;
 
@@ -516,6 +594,7 @@ export function buildAdminSyncHealth(input: {
       campaignCompletedDays,
       searchTermCompletedDays,
       productCompletedDays,
+      assetCompletedDays,
       latestCheckpointPhase: row.latest_checkpoint_phase ?? null,
       latestCheckpointUpdatedAt: row.latest_checkpoint_updated_at ?? null,
       lastProgressHeartbeatAt: row.latest_progress_heartbeat_at ?? row.latest_checkpoint_updated_at ?? null,
@@ -531,6 +610,22 @@ export function buildAdminSyncHealth(input: {
       lastReclaimReason: row.last_reclaim_reason ?? null,
       latestPoisonReason: row.latest_poison_reason ?? null,
       latestPoisonedAt: row.latest_poisoned_at ?? null,
+      safeModeActive,
+      circuitBreakerOpen,
+      compactedPartitions,
+      quotaCallCount,
+      quotaErrorCount,
+      quotaBudget,
+      quotaPressure,
+      recoveryMode,
+      canaryEnabled,
+      effectiveMode,
+      recentSearchTermCompletedDays,
+      recentProductCompletedDays,
+      recentAssetCompletedDays,
+      recentRangeTotalDays,
+      recentExtendedReady,
+      historicalExtendedReady,
     });
 
     if (
@@ -547,6 +642,11 @@ export function buildAdminSyncHealth(input: {
     googleAdsQueueDepth += queueDepth;
     googleAdsLeasedPartitions += leasedPartitions;
     googleAdsDeadLetterPartitions += deadLetterPartitions;
+    googleAdsCompactedPartitions += compactedPartitions;
+    if (circuitBreakerOpen) googleAdsCircuitBreakerBusinesses += 1;
+    if (recoveryMode === "half_open") googleAdsRecoveryBusinesses += 1;
+    if (canaryEnabled) googleAdsCanaryBusinesses += 1;
+    googleAdsBudgetPressureMax = Math.max(googleAdsBudgetPressureMax, quotaPressure);
     if (
       row.oldest_queued_partition &&
       (!googleAdsOldestQueuedPartition ||
@@ -655,6 +755,20 @@ export function buildAdminSyncHealth(input: {
         detail: `Recent reclaim activity detected. Last reason: ${row.last_reclaim_reason ?? "unknown"}.`,
         triggeredAt: row.latest_checkpoint_updated_at ?? row.latest_partition_activity_at,
         completedAt: row.oldest_queued_partition,
+      });
+    }
+    if (circuitBreakerOpen) {
+      impactedBusinesses.add(row.business_id);
+      issueTypes.push("Google Ads circuit breaker");
+      issues.push({
+        businessId: row.business_id,
+        businessName: row.business_name,
+        provider: "google_ads",
+        reportType: "google_ads_circuit_breaker",
+        status: "cooldown",
+        detail: "Google Ads circuit breaker is open; extended sync is suppressed for this business.",
+        triggeredAt: row.latest_partition_activity_at,
+        completedAt: null,
       });
     }
   }
@@ -921,6 +1035,14 @@ export function buildAdminSyncHealth(input: {
       workerInstances: input.workerHealth?.workerInstances ?? 0,
       workerLastHeartbeatAt: input.workerHealth?.lastHeartbeatAt ?? null,
       workerLastProgressHeartbeatAt: latestProgressHeartbeatAt,
+      googleAdsSafeModeActive:
+        (process.env.GOOGLE_ADS_INCIDENT_SAFE_MODE?.trim().toLowerCase() ?? "") === "1" ||
+        (process.env.GOOGLE_ADS_INCIDENT_SAFE_MODE?.trim().toLowerCase() ?? "") === "true",
+      googleAdsCircuitBreakerBusinesses,
+      googleAdsCompactedPartitions,
+      googleAdsBudgetPressureMax,
+      googleAdsRecoveryBusinesses,
+      googleAdsCanaryBusinesses,
     },
     issues: issues.sort((a, b) => {
       const left = a.triggeredAt ? new Date(a.triggeredAt).getTime() : 0;
@@ -1066,14 +1188,14 @@ async function readActiveCooldowns() {
     SELECT
       c.business_id,
       b.name AS business_name,
-      c.provider,
+      CASE WHEN c.provider = 'google' THEN 'google_ads' ELSE c.provider END AS provider,
       c.request_type,
       c.error_message,
       c.cooldown_until,
       c.updated_at
     FROM provider_cooldown_state c
     JOIN businesses b ON b.id::text = c.business_id
-    WHERE c.provider IN ('google_ads', 'ga4', 'search_console')
+    WHERE c.provider IN ('google', 'google_ads', 'ga4', 'search_console')
       AND c.cooldown_until > now()
   `) as RawCooldownRow[];
 }
@@ -1098,6 +1220,7 @@ async function readGoogleAdsHealthRows() {
       MAX(state.dead_letter_count) FILTER (WHERE state.scope = 'campaign_daily') AS campaign_dead_letter_count,
       MAX(state.completed_days) FILTER (WHERE state.scope = 'search_term_daily') AS search_term_completed_days,
       MAX(state.completed_days) FILTER (WHERE state.scope = 'product_daily') AS product_completed_days,
+      MAX(state.completed_days) FILTER (WHERE state.scope = 'asset_daily') AS asset_completed_days,
       checkpoint.latest_checkpoint_phase,
       checkpoint.latest_checkpoint_updated_at,
       checkpoint.latest_progress_heartbeat_at,
@@ -1106,6 +1229,39 @@ async function readGoogleAdsHealthRows() {
       checkpoint.poisoned_checkpoint_count,
       checkpoint.latest_poison_reason,
       checkpoint.latest_poisoned_at,
+      (
+        SELECT COUNT(*)::int
+        FROM provider_cooldown_state breaker
+        WHERE breaker.business_id = partition.business_id
+          AND breaker.provider = 'google'
+          AND breaker.request_type = '__global_circuit_breaker__'
+          AND breaker.cooldown_until > now()
+      ) AS active_circuit_breakers,
+      (
+        SELECT COUNT(*)::int
+        FROM provider_cooldown_state recovery
+        WHERE recovery.business_id = partition.business_id
+          AND recovery.provider = 'google'
+          AND recovery.request_type = '__global_circuit_breaker_recovery__'
+          AND recovery.cooldown_until > now()
+      ) AS recovery_half_open,
+      COUNT(*) FILTER (
+        WHERE partition.lane = 'extended'
+          AND partition.status = 'cancelled'
+          AND partition.last_error LIKE 'google_ads_incident_suppressed:%'
+      ) AS compacted_partitions,
+      COALESCE(quota.call_count, 0) AS quota_call_count,
+      COALESCE(quota.error_count, 0) AS quota_error_count,
+      ${Math.max(1, Number(process.env.GOOGLE_ADS_DAILY_REQUEST_BUDGET_PER_BUSINESS) || 5000)}::int AS quota_budget,
+      CASE
+        WHEN ${Math.max(1, Number(process.env.GOOGLE_ADS_DAILY_REQUEST_BUDGET_PER_BUSINESS) || 5000)}::numeric > 0
+          THEN COALESCE(quota.call_count, 0)::numeric / ${Math.max(1, Number(process.env.GOOGLE_ADS_DAILY_REQUEST_BUDGET_PER_BUSINESS) || 5000)}::numeric
+        ELSE 0
+      END AS quota_pressure,
+      COALESCE(recent.recent_search_term_completed_days, 0) AS recent_search_term_completed_days,
+      COALESCE(recent.recent_product_completed_days, 0) AS recent_product_completed_days,
+      COALESCE(recent.recent_asset_completed_days, 0) AS recent_asset_completed_days,
+      COALESCE(recent.recent_range_total_days, 14) AS recent_range_total_days,
       reclaim.reclaim_candidate_count,
       reclaim.last_reclaim_reason
     FROM google_ads_sync_partitions partition
@@ -1154,6 +1310,39 @@ async function readGoogleAdsHealthRows() {
     ) checkpoint ON TRUE
     LEFT JOIN LATERAL (
       SELECT
+        usage.call_count,
+        usage.error_count
+      FROM provider_quota_usage usage
+      WHERE usage.business_id = partition.business_id
+        AND usage.provider = 'google'
+        AND usage.quota_date = CURRENT_DATE
+      LIMIT 1
+    ) quota ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT
+        COUNT(DISTINCT date) FILTER (WHERE scope = 'search_term_daily') AS recent_search_term_completed_days,
+        COUNT(DISTINCT date) FILTER (WHERE scope = 'product_daily') AS recent_product_completed_days,
+        COUNT(DISTINCT date) FILTER (WHERE scope = 'asset_daily') AS recent_asset_completed_days,
+        14::int AS recent_range_total_days
+      FROM (
+        SELECT 'search_term_daily'::text AS scope, date
+        FROM google_ads_search_term_daily
+        WHERE business_id = partition.business_id
+          AND date >= CURRENT_DATE - interval '13 days'
+        UNION ALL
+        SELECT 'product_daily'::text AS scope, date
+        FROM google_ads_product_daily
+        WHERE business_id = partition.business_id
+          AND date >= CURRENT_DATE - interval '13 days'
+        UNION ALL
+        SELECT 'asset_daily'::text AS scope, date
+        FROM google_ads_asset_daily
+        WHERE business_id = partition.business_id
+          AND date >= CURRENT_DATE - interval '13 days'
+      ) recent_rows
+    ) recent ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT
         (
           SELECT COUNT(*)::int
           FROM sync_reclaim_events reclaim_count
@@ -1180,6 +1369,10 @@ async function readGoogleAdsHealthRows() {
       , checkpoint.poisoned_checkpoint_count
       , checkpoint.latest_poison_reason
       , checkpoint.latest_poisoned_at
+      , recent.recent_search_term_completed_days
+      , recent.recent_product_completed_days
+      , recent.recent_asset_completed_days
+      , recent.recent_range_total_days
       , reclaim.reclaim_candidate_count
       , reclaim.last_reclaim_reason
     HAVING COUNT(*) > 0

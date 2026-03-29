@@ -103,6 +103,21 @@ function buildGoogleAdsScopeLeasePrioritySql() {
   `;
 }
 
+function buildGoogleAdsSourceLeasePrioritySql() {
+  return `
+    CASE source
+      WHEN 'selected_range' THEN 120
+      WHEN 'today' THEN 115
+      WHEN 'recent' THEN 110
+      WHEN 'core_success' THEN 105
+      WHEN 'recent_recovery' THEN 100
+      WHEN 'historical' THEN 20
+      WHEN 'historical_recovery' THEN 15
+      ELSE 0
+    END
+  `;
+}
+
 function toNumber(value: unknown) {
   const parsed = typeof value === "number" ? value : Number(value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -413,6 +428,7 @@ export async function releaseGoogleAdsRunnerLease(input: {
 export async function queueGoogleAdsSyncPartition(input: GoogleAdsSyncPartitionRecord) {
   await runMigrations();
   const sql = getDb();
+  const priorityResetSources = ["selected_range", "recent", "today", "recent_recovery", "core_success"];
   const rows = await sql`
     INSERT INTO google_ads_sync_partitions (
       business_id,
@@ -456,34 +472,35 @@ export async function queueGoogleAdsSyncPartition(input: GoogleAdsSyncPartitionR
       source = CASE
         WHEN google_ads_sync_partitions.source = 'selected_range' THEN google_ads_sync_partitions.source
         WHEN EXCLUDED.source = 'selected_range' THEN EXCLUDED.source
+        WHEN EXCLUDED.source = ANY(${priorityResetSources}::text[]) THEN EXCLUDED.source
         ELSE google_ads_sync_partitions.source
       END,
       status = CASE
-        WHEN EXCLUDED.source IN ('selected_range', 'recent', 'today')
+        WHEN EXCLUDED.source = ANY(${priorityResetSources}::text[])
           AND google_ads_sync_partitions.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
           THEN 'queued'
         ELSE google_ads_sync_partitions.status
       END,
       lease_owner = CASE
-        WHEN EXCLUDED.source IN ('selected_range', 'recent', 'today')
+        WHEN EXCLUDED.source = ANY(${priorityResetSources}::text[])
           AND google_ads_sync_partitions.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
           THEN NULL
         ELSE google_ads_sync_partitions.lease_owner
       END,
       lease_expires_at = CASE
-        WHEN EXCLUDED.source IN ('selected_range', 'recent', 'today')
+        WHEN EXCLUDED.source = ANY(${priorityResetSources}::text[])
           AND google_ads_sync_partitions.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
           THEN NULL
         ELSE google_ads_sync_partitions.lease_expires_at
       END,
       last_error = CASE
-        WHEN EXCLUDED.source IN ('selected_range', 'recent', 'today')
+        WHEN EXCLUDED.source = ANY(${priorityResetSources}::text[])
           AND google_ads_sync_partitions.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
           THEN NULL
         ELSE google_ads_sync_partitions.last_error
       END,
       next_retry_at = CASE
-        WHEN EXCLUDED.source IN ('selected_range', 'recent', 'today')
+        WHEN EXCLUDED.source = ANY(${priorityResetSources}::text[])
           AND google_ads_sync_partitions.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
           THEN now()
         WHEN google_ads_sync_partitions.status IN ('succeeded', 'running', 'leased')
@@ -502,10 +519,12 @@ export async function leaseGoogleAdsSyncPartitions(input: {
   workerId: string;
   limit: number;
   leaseMinutes?: number;
+  sourceFilter?: "all" | "recent_only";
 }) {
   await runMigrations();
   const sql = getDb();
   const scopePrioritySql = buildGoogleAdsScopeLeasePrioritySql();
+  const sourcePrioritySql = buildGoogleAdsSourceLeasePrioritySql();
   const rows = await sql.query(
     `
       WITH candidates AS (
@@ -514,11 +533,16 @@ export async function leaseGoogleAdsSyncPartitions(input: {
         WHERE business_id = $1
           AND ($2::text IS NULL OR lane = $2)
           AND (
+            $6::text IS NULL
+            OR $6::text = 'all'
+            OR ($6::text = 'recent_only' AND source IN ('selected_range', 'today', 'recent', 'core_success', 'recent_recovery'))
+          )
+          AND (
             status = 'queued'
             OR (status = 'failed' AND COALESCE(next_retry_at, now()) <= now())
             OR (status = 'leased' AND COALESCE(lease_expires_at, now()) <= now())
           )
-        ORDER BY priority DESC, ${scopePrioritySql} DESC, partition_date DESC, updated_at ASC
+        ORDER BY priority DESC, ${sourcePrioritySql} DESC, ${scopePrioritySql} DESC, partition_date DESC, updated_at ASC
         LIMIT $3
         FOR UPDATE SKIP LOCKED
       )
@@ -556,6 +580,7 @@ export async function leaseGoogleAdsSyncPartitions(input: {
       Math.max(1, input.limit),
       input.workerId,
       String(input.leaseMinutes ?? 5),
+      input.sourceFilter ?? "all",
     ]
   ) as Array<Record<string, unknown>>;
 
@@ -2111,6 +2136,10 @@ export async function releaseGoogleAdsPoisonedPartitions(input: {
     UPDATE google_ads_sync_partitions partition
     SET
       status = 'failed',
+      source = CASE
+        WHEN partition.lane = 'extended' THEN 'historical_recovery'
+        ELSE partition.source
+      END,
       lease_owner = NULL,
       lease_expires_at = NULL,
       next_retry_at = NULL,
@@ -2154,6 +2183,10 @@ export async function forceReplayGoogleAdsPoisonedPartitions(input: {
     UPDATE google_ads_sync_partitions partition
     SET
       status = 'queued',
+      source = CASE
+        WHEN partition.lane = 'extended' THEN 'historical_recovery'
+        ELSE partition.source
+      END,
       lease_owner = NULL,
       lease_expires_at = NULL,
       next_retry_at = NULL,
@@ -2451,6 +2484,51 @@ export async function cleanupGoogleAdsObsoleteSyncJobs(input: {
     failedStalePriorityCount: toNumber(rows[0]?.failed_stale_priority_count ?? 0),
     failedStaleBackgroundCount: toNumber(rows[0]?.failed_stale_background_count ?? 0),
     dedupedRunningCount: toNumber(rows[0]?.deduped_running_count ?? 0),
+  };
+}
+
+export async function compactGoogleAdsExtendedBacklog(input: {
+  businessId: string;
+  reason: string;
+  keepLatestPerScope?: number;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const keepLatestPerScope = Math.max(0, input.keepLatestPerScope ?? 0);
+  const rows = await sql`
+    WITH ranked AS (
+      SELECT
+        id,
+        ROW_NUMBER() OVER (
+          PARTITION BY provider_account_id, scope
+          ORDER BY partition_date DESC, updated_at DESC, id DESC
+        ) AS row_number
+      FROM google_ads_sync_partitions
+      WHERE business_id = ${input.businessId}
+        AND lane = 'extended'
+        AND status IN ('queued', 'failed', 'leased', 'running')
+    ),
+    compacted AS (
+      UPDATE google_ads_sync_partitions partition
+      SET
+        status = 'cancelled',
+        lease_owner = NULL,
+        lease_expires_at = NULL,
+        next_retry_at = NULL,
+        last_error = ${input.reason},
+        finished_at = now(),
+        updated_at = now()
+      FROM ranked
+      WHERE partition.id = ranked.id
+        AND ranked.row_number > ${keepLatestPerScope}
+      RETURNING partition.id
+    )
+    SELECT COUNT(*)::int AS compacted_count
+    FROM compacted
+  ` as Array<{ compacted_count?: number | string | null }>;
+
+  return {
+    compactedCount: toNumber(rows[0]?.compacted_count ?? 0),
   };
 }
 
