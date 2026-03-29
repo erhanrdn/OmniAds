@@ -106,3 +106,30 @@ export async function consumeShopifyInstallContext(
   await sql`DELETE FROM shopify_install_contexts WHERE token = ${token}`;
   return context;
 }
+
+export async function getLatestShopifyInstallContextForActor(input: {
+  sessionId?: string | null;
+  userId?: string | null;
+}): Promise<ShopifyInstallContextRow | null> {
+  const sessionId = sanitizeUuid(input.sessionId);
+  const userId = sanitizeUuid(input.userId);
+  if (!sessionId && !userId) return null;
+
+  await runMigrations({ reason: "shopify_install_context_lookup_actor" });
+  const sql = getDb();
+  await sql`DELETE FROM shopify_install_contexts WHERE expires_at <= now()`;
+
+  const rows = (await sql`
+    SELECT *
+    FROM shopify_install_contexts
+    WHERE expires_at > now()
+      AND (
+        (${sessionId}::uuid IS NOT NULL AND session_id = ${sessionId}::uuid)
+        OR (${userId}::uuid IS NOT NULL AND user_id = ${userId}::uuid)
+      )
+    ORDER BY created_at DESC
+    LIMIT 1
+  `) as ShopifyInstallContextRow[];
+
+  return rows[0] ?? null;
+}

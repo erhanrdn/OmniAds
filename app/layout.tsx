@@ -5,6 +5,7 @@ import "./globals.css";
 import { QueryProvider } from "@/providers/query-provider";
 import { getSessionFromCookies } from "@/lib/auth";
 import { getLanguageFromCookieValue, getPreferredLanguage, LANGUAGE_COOKIE_NAME } from "@/lib/i18n";
+import { logStartupError } from "@/lib/startup-diagnostics";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -42,7 +43,12 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const cookieStore = await cookies();
-  const session = await getSessionFromCookies();
+  let session = null;
+  try {
+    session = await getSessionFromCookies();
+  } catch (error: unknown) {
+    logStartupError("root_layout_session_lookup_failed", error);
+  }
   const language = getPreferredLanguage({
     userLanguage: session?.user.language,
     cookieLanguage: getLanguageFromCookieValue(cookieStore.get(LANGUAGE_COOKIE_NAME)?.value),

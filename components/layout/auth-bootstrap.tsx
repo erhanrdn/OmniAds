@@ -105,5 +105,38 @@ export function AuthBootstrap() {
     };
   }, [hasHydrated, pathname, setAuthBootstrapStatus, setLanguage]);
 
+  useEffect(() => {
+    if (!hasHydrated || authBootstrapStatus !== "ready") return;
+    if (pathname === "/shopify/connect") return;
+
+    let cancelled = false;
+    async function resumePendingShopifyInstall() {
+      const response = await fetch("/api/oauth/shopify/pending", {
+        cache: "no-store",
+        headers: { "Cache-Control": "no-store" },
+      }).catch(() => null);
+      if (!response?.ok) return;
+      const payload = (await response.json().catch(() => null)) as
+        | {
+            context?: { token: string; returnTo?: string | null };
+          }
+        | null;
+      const token = payload?.context?.token;
+      if (!token || cancelled) return;
+
+      const nextUrl = new URL("/shopify/connect", window.location.origin);
+      nextUrl.searchParams.set("context", token);
+      if (payload?.context?.returnTo) {
+        nextUrl.searchParams.set("returnTo", payload.context.returnTo);
+      }
+      window.location.replace(nextUrl.toString());
+    }
+
+    void resumePendingShopifyInstall();
+    return () => {
+      cancelled = true;
+    };
+  }, [authBootstrapStatus, hasHydrated, pathname]);
+
   return null;
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AuthBootstrap } from "@/components/layout/auth-bootstrap";
@@ -75,6 +75,7 @@ export function ShopifyConnectClientPage() {
   const [pendingBusinessId, setPendingBusinessId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const autoFinalizeBusinessIdRef = useRef<string | null>(null);
 
   const contextToken = searchParams.get("context") ?? "";
   const queryReturnTo = sanitizeNextPath(searchParams.get("returnTo")) ?? "/integrations";
@@ -82,6 +83,7 @@ export function ShopifyConnectClientPage() {
     const qs = searchParams.toString();
     return qs ? `/shopify/connect?${qs}` : "/shopify/connect";
   }, [searchParams]);
+  const context = contextPayload?.context;
 
   useEffect(() => {
     if (!hasHydrated) return;
@@ -157,6 +159,18 @@ export function ShopifyConnectClientPage() {
       cancelled = true;
     };
   }, [contextToken]);
+
+  useEffect(() => {
+    if (!context || !auth?.authenticated || busy) return;
+    if (businesses.length !== 1) return;
+
+    const onlyBusiness = businesses[0];
+    if (!onlyBusiness) return;
+    if (autoFinalizeBusinessIdRef.current === onlyBusiness.id) return;
+    autoFinalizeBusinessIdRef.current = onlyBusiness.id;
+    setPendingBusinessId(onlyBusiness.id);
+    void finalizeConnection(onlyBusiness.id);
+  }, [auth?.authenticated, businesses, busy, context]);
 
   async function refreshWorkspaceState() {
     const response = await fetch("/api/auth/me", { cache: "no-store" });
@@ -238,8 +252,6 @@ export function ShopifyConnectClientPage() {
     await refreshWorkspaceState();
     await finalizeConnection(payload.business.id);
   }
-
-  const context = contextPayload?.context;
 
   return (
     <>
