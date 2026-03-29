@@ -186,12 +186,24 @@ export async function getSyncWorkerHealthSummary(input?: {
     ` as Promise<Array<Record<string, unknown>>>,
   ]);
   const summary = summaryRows[0] ?? {};
+  const nowMs = Date.now();
+  const staleThresholdMs = onlineWindowMinutes * 60_000;
   return {
     onlineWorkers: Number(summary.online_workers ?? 0),
     workerInstances: Number(summary.worker_instances ?? 0),
     lastHeartbeatAt: normalizeTimestamp(summary.last_heartbeat_at),
     lastProgressHeartbeatAt: null,
     workers: workerRows.map((row) => ({
+      workerFreshnessState:
+        String(row.status) === "stopped"
+          ? ("stopped" as const)
+          : (() => {
+              const heartbeatAt = normalizeTimestamp(row.last_heartbeat_at);
+              if (!heartbeatAt) return "stale" as const;
+              return nowMs - new Date(heartbeatAt).getTime() <= staleThresholdMs
+                ? ("online" as const)
+                : ("stale" as const);
+            })(),
       workerId: String(row.worker_id),
       instanceType: String(row.instance_type),
       providerScope: String(row.provider_scope),

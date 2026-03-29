@@ -46,6 +46,7 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
   const pruneIntervalMs = envNumber("WORKER_PRUNE_INTERVAL_MS", 6 * 60 * 60_000);
   const workerStartedAt = new Date().toISOString();
   const workerBuildId = getWorkerBuildFingerprint();
+  const discoveredBusinesses = new Set<string>();
   let shuttingDown = false;
   let lastHeartbeatAt = 0;
   let lastPruneAt = 0;
@@ -110,6 +111,7 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
       metaJson: {
         workerBuildId,
         workerStartedAt,
+        tickStartedAt: new Date().toISOString(),
         adapters: options.adapters.map((adapter) => adapter.providerScope),
         globalDbConcurrency,
       },
@@ -117,6 +119,9 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
     }).catch(() => null);
 
     const businesses = await getActiveBusinesses(maxBusinessesPerTick).catch(() => []);
+    for (const business of businesses) {
+      discoveredBusinesses.add(business.id);
+    }
     for (const adapter of options.adapters) {
       await heartbeat({
         providerScope: adapter.providerScope,
@@ -125,6 +130,8 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
           workerBuildId,
           workerStartedAt,
           providerScope: adapter.providerScope,
+          tickStartedAt: new Date().toISOString(),
+          batchBusinessIds: businesses.map((business) => business.id),
           globalDbConcurrency,
         },
         force: true,
@@ -140,13 +147,66 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
         const businessBatch = businesses.slice(index, index + effectiveConcurrency);
         await Promise.all(
           businessBatch.map(async (business) => {
+        const batchBusinessIds = businessBatch.map((entry) => entry.id);
+        await heartbeat({
+          providerScope: adapter.providerScope,
+          status: "idle",
+          lastBusinessId: business.id,
+          metaJson: {
+            workerBuildId,
+            workerStartedAt,
+            providerScope: adapter.providerScope,
+            tickStartedAt: new Date().toISOString(),
+            batchBusinessIds,
+            currentBusinessId: business.id,
+            consumeStage: "discovered",
+            consumeOutcome: null,
+          },
+          force: true,
+        }).catch(() => null);
         const leased = await acquireSyncRunnerLease({
           businessId: business.id,
           providerScope: adapter.providerScope,
           leaseOwner: workerId,
           leaseMinutes,
         }).catch(() => false);
-        if (!leased) return;
+        if (!leased) {
+          await heartbeat({
+            providerScope: adapter.providerScope,
+            status: "idle",
+            lastBusinessId: business.id,
+            metaJson: {
+              workerBuildId,
+              workerStartedAt,
+              providerScope: adapter.providerScope,
+              batchBusinessIds,
+              currentBusinessId: business.id,
+              consumeStage: "lease_denied",
+              consumeOutcome: "lease_denied",
+              consumeReason: "lease_not_acquired",
+              consumeFinishedAt: new Date().toISOString(),
+            },
+            force: true,
+          }).catch(() => null);
+          return;
+        }
+
+        await heartbeat({
+          providerScope: adapter.providerScope,
+          status: "running",
+          lastBusinessId: business.id,
+          metaJson: {
+            workerBuildId,
+            workerStartedAt,
+            providerScope: adapter.providerScope,
+            batchBusinessIds,
+            currentBusinessId: business.id,
+            consumeStage: "lease_acquired",
+            consumeOutcome: null,
+            lastLeaseAcquiredAt: new Date().toISOString(),
+          },
+          force: true,
+        }).catch(() => null);
 
         try {
           await heartbeat({
@@ -157,15 +217,80 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
               workerBuildId,
               workerStartedAt,
               providerScope: adapter.providerScope,
+              batchBusinessIds,
+              currentBusinessId: business.id,
+              consumeStage: "consume_started",
+              consumeStartedAt: new Date().toISOString(),
             },
+            force: true,
           }).catch(() => null);
-          await adapter.consumeBusiness(business.id);
+          const result = await adapter.consumeBusiness(business.id);
+          const syncResult =
+            result && typeof result === "object" ? (result as Record<string, unknown>) : null;
+          await heartbeat({
+            providerScope: adapter.providerScope,
+            status: "idle",
+            lastBusinessId: business.id,
+            metaJson: {
+              workerBuildId,
+              workerStartedAt,
+              providerScope: adapter.providerScope,
+              batchBusinessIds,
+              currentBusinessId: business.id,
+              consumeStage: "consume_succeeded",
+              consumeStartedAt:
+                syncResult?.consumeStartedAt && typeof syncResult.consumeStartedAt === "string"
+                  ? syncResult.consumeStartedAt
+                  : null,
+              consumeFinishedAt: new Date().toISOString(),
+              consumeOutcome:
+                syncResult?.outcome && typeof syncResult.outcome === "string"
+                  ? syncResult.outcome
+                  : "consume_succeeded",
+              consumeReason:
+                syncResult?.failureReason && typeof syncResult.failureReason === "string"
+                  ? syncResult.failureReason
+                  : null,
+              consumeAttempted:
+                syncResult?.attempted && typeof syncResult.attempted === "number"
+                  ? syncResult.attempted
+                  : null,
+              consumeSucceeded:
+                syncResult?.succeeded && typeof syncResult.succeeded === "number"
+                  ? syncResult.succeeded
+                  : null,
+              consumeFailed:
+                syncResult?.failed && typeof syncResult.failed === "number"
+                  ? syncResult.failed
+                  : null,
+              discoveredBusinessCount: discoveredBusinesses.size,
+            },
+            force: true,
+          }).catch(() => null);
         } catch (error) {
           console.error("[durable-worker] consume_failed", {
             businessId: business.id,
             providerScope: adapter.providerScope,
             message: error instanceof Error ? error.message : String(error),
           });
+          await heartbeat({
+            providerScope: adapter.providerScope,
+            status: "idle",
+            lastBusinessId: business.id,
+            metaJson: {
+              workerBuildId,
+              workerStartedAt,
+              providerScope: adapter.providerScope,
+              batchBusinessIds,
+              currentBusinessId: business.id,
+              consumeStage: "consume_failed",
+              consumeStartedAt: new Date().toISOString(),
+              consumeFinishedAt: new Date().toISOString(),
+              consumeOutcome: "consume_failed",
+              consumeReason: error instanceof Error ? error.message : String(error),
+            },
+            force: true,
+          }).catch(() => null);
         } finally {
           await releaseSyncRunnerLease({
             businessId: business.id,

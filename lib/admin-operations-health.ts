@@ -78,10 +78,12 @@ export interface AdminSyncHealthPayload {
       workerId: string;
       instanceType: string;
       providerScope: string;
+      workerFreshnessState?: "online" | "stale" | "stopped";
       status: string;
       lastHeartbeatAt: string | null;
       lastBusinessId: string | null;
       lastPartitionId: string | null;
+      metaJson?: Record<string, unknown> | null;
     }>;
   };
   googleAdsBusinesses?: Array<{

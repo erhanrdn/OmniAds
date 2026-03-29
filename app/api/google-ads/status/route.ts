@@ -322,6 +322,26 @@ export async function GET(request: NextRequest) {
       : null;
   const runtimeMismatchDetected =
     workerBuildId != null && workerBuildId !== currentRuntimeBuildId;
+  const lastConsumeAttemptAt =
+    workerSchedulingState?.workerMeta?.consumeStartedAt != null
+      ? String(workerSchedulingState.workerMeta.consumeStartedAt)
+      : null;
+  const lastConsumeOutcome =
+    workerSchedulingState?.workerMeta?.consumeOutcome != null
+      ? String(workerSchedulingState.workerMeta.consumeOutcome)
+      : null;
+  const lastLeaseAcquiredAt =
+    workerSchedulingState?.workerMeta?.lastLeaseAcquiredAt != null
+      ? String(workerSchedulingState.workerMeta.lastLeaseAcquiredAt)
+      : null;
+  const lastProgressAt =
+    workerSchedulingState?.workerMeta?.consumeFinishedAt != null
+      ? String(workerSchedulingState.workerMeta.consumeFinishedAt)
+      : null;
+  const lastFailureReason =
+    workerSchedulingState?.workerMeta?.consumeReason != null
+      ? String(workerSchedulingState.workerMeta.consumeReason)
+      : null;
 
   const accountIds = assignments?.account_ids ?? [];
   const connected = Boolean(integration?.status === "connected" && integration?.access_token);
@@ -1266,6 +1286,11 @@ export async function GET(request: NextRequest) {
       workerStartedAt,
       lastWorkerHeartbeatAt: workerSchedulingState?.lastHeartbeatAt ?? null,
       runtimeMismatchDetected,
+      lastConsumeAttemptAt,
+      lastConsumeOutcome,
+      lastLeaseAcquiredAt,
+      lastProgressAt,
+      lastFailureReason,
       staleRunPressure,
       extendedSuppressionDecisionTrace,
       lastTargetedRepair,

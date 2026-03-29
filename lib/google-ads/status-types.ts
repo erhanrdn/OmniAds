@@ -206,6 +206,11 @@ export interface GoogleAdsStatusResponse {
     workerStartedAt?: string | null;
     lastWorkerHeartbeatAt?: string | null;
     runtimeMismatchDetected?: boolean;
+    lastConsumeAttemptAt?: string | null;
+    lastConsumeOutcome?: string | null;
+    lastLeaseAcquiredAt?: string | null;
+    lastProgressAt?: string | null;
+    lastFailureReason?: string | null;
   } | null;
   panel?: {
     coreUsable: boolean;

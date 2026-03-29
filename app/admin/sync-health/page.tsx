@@ -54,10 +54,12 @@ interface SyncHealthPayload {
       workerId: string;
       instanceType: string;
       providerScope: string;
+      workerFreshnessState?: "online" | "stale" | "stopped";
       status: string;
       lastHeartbeatAt: string | null;
       lastBusinessId: string | null;
       lastPartitionId: string | null;
+      metaJson?: Record<string, unknown> | null;
     }>;
   };
   googleAdsBusinesses?: Array<{
@@ -441,9 +443,13 @@ export default function AdminSyncHealthPage() {
                   <span className="font-medium text-gray-800">{worker.workerId}</span>
                   <span className="ml-2">{worker.providerScope}</span>
                   <span className="ml-2">{worker.status}</span>
+                  <span className="ml-2">{worker.workerFreshnessState ?? "stale"}</span>
                 </div>
                 <div className="text-gray-500">
-                  Heartbeat {formatDateTime(worker.lastHeartbeatAt)} • Business {worker.lastBusinessId ?? "—"}
+                  Heartbeat {formatDateTime(worker.lastHeartbeatAt)} • Business {worker.lastBusinessId ?? "—"} • Outcome {typeof worker.metaJson?.consumeOutcome === "string" ? worker.metaJson.consumeOutcome : "—"}
+                </div>
+                <div className="text-gray-500">
+                  Stage {typeof worker.metaJson?.consumeStage === "string" ? worker.metaJson.consumeStage : "—"} • Lease {typeof worker.metaJson?.lastLeaseAcquiredAt === "string" ? formatDateTime(worker.metaJson.lastLeaseAcquiredAt) : "—"} • Finished {typeof worker.metaJson?.consumeFinishedAt === "string" ? formatDateTime(worker.metaJson.consumeFinishedAt) : "—"}
                 </div>
               </div>
             ))}

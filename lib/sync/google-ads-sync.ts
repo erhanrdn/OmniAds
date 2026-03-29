@@ -2780,6 +2780,16 @@ export interface GoogleAdsSyncResult {
   succeeded: number;
   failed: number;
   skipped: boolean;
+  outcome?:
+    | "skipped_non_worker_mode"
+    | "skipped_existing_background_lock"
+    | "skipped_no_partitions"
+    | "skipped_worker_state_guard"
+    | "consume_failed_before_leasing"
+    | "consume_failed_after_leasing"
+    | "consume_completed_without_progress"
+    | "consume_completed_with_progress";
+  failureReason?: string | null;
 }
 
 export interface GoogleAdsTargetedRepairResult {
@@ -2970,7 +2980,15 @@ export async function ensureGoogleAdsWarehouseRangeFilled(input: {
 export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAdsSyncResult> {
   if (process.env.SYNC_WORKER_MODE !== "1") {
     await enqueueGoogleAdsScheduledWork(businessId).catch(() => null);
-    return { businessId, attempted: 0, succeeded: 0, failed: 0, skipped: true };
+    return {
+      businessId,
+      attempted: 0,
+      succeeded: 0,
+      failed: 0,
+      skipped: true,
+      outcome: "skipped_non_worker_mode",
+      failureReason: null,
+    };
   }
   await cleanupGoogleAdsObsoleteSyncJobs({ businessId }).catch(() => null);
   await expireStaleGoogleAdsSyncJobs({ businessId }).catch(() => null);
@@ -3000,15 +3018,32 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
   if (canUseInProcessBackgroundScheduling()) {
     const workerState = await getGoogleAdsWorkerSchedulingState({ businessId }).catch(() => null);
     if (workerState?.hasFreshHeartbeat && workerState.runnerLeaseActive) {
-      return { businessId, attempted: 0, succeeded: 0, failed: 0, skipped: true };
+      return {
+        businessId,
+        attempted: 0,
+        succeeded: 0,
+        failed: 0,
+        skipped: true,
+        outcome: "skipped_worker_state_guard",
+        failureReason: null,
+      };
     }
   }
   if (backgroundSyncKeys.has(lockKey)) {
-    return { businessId, attempted: 0, succeeded: 0, failed: 0, skipped: true };
+    return {
+      businessId,
+      attempted: 0,
+      succeeded: 0,
+      failed: 0,
+      skipped: true,
+      outcome: "skipped_existing_background_lock",
+      failureReason: null,
+    };
   }
 
   backgroundSyncKeys.add(lockKey);
   const workerId = getGoogleAdsWorkerId();
+  let hasReachedLeasing = false;
   try {
     await enqueueGoogleAdsScheduledWork(businessId).catch(() => null);
     await refreshGoogleAdsSyncStateForBusiness({ businessId }).catch((error) => {
@@ -3051,6 +3086,7 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
       }).catch(() => ({ queuedHistorical: 0 }));
     }
 
+    hasReachedLeasing = true;
     let partitions = await leaseGoogleAdsSyncPartitions({
       businessId,
       lane: "core",
@@ -3129,7 +3165,15 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
       }
     }
     if (partitions.length === 0) {
-      return { businessId, attempted: 0, succeeded: 0, failed: 0, skipped: true };
+      return {
+        businessId,
+        attempted: 0,
+        succeeded: 0,
+        failed: 0,
+        skipped: true,
+        outcome: "skipped_no_partitions",
+        failureReason: null,
+      };
     }
 
     let attempted = partitions.length;
@@ -3224,6 +3268,25 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
       succeeded,
       failed,
       skipped: attempted === 0,
+      outcome:
+        attempted === 0
+          ? "skipped_no_partitions"
+          : succeeded > 0
+            ? "consume_completed_with_progress"
+            : "consume_completed_without_progress",
+      failureReason: failed > 0 && succeeded === 0 ? "all_partition_attempts_failed" : null,
+    };
+  } catch (error) {
+    return {
+      businessId,
+      attempted: 0,
+      succeeded: 0,
+      failed: 1,
+      skipped: false,
+      outcome: hasReachedLeasing
+        ? "consume_failed_after_leasing"
+        : "consume_failed_before_leasing",
+      failureReason: error instanceof Error ? error.message : String(error),
     };
   } finally {
     backgroundSyncKeys.delete(lockKey);
