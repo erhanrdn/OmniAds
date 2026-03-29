@@ -130,6 +130,10 @@ export interface AdminSyncHealthPayload {
     extendedHistoricalLeasedPartitions?: number;
     extendedRecoveryBlockReason?: string | null;
     extendedRecentReadyThroughDate?: string | null;
+    googleWorkerHealthy?: boolean;
+    googleHeartbeatAgeMs?: number | null;
+    googleRunnerLeaseActive?: boolean;
+    staleRunPressure?: number;
   }>;
   metaBusinesses?: Array<{
     businessId: string;
@@ -282,6 +286,10 @@ interface RawGoogleAdsHealthRow {
   extended_historical_queue_depth?: number | string | null;
   extended_historical_leased_partitions?: number | string | null;
   extended_recent_ready_through_date?: string | null;
+  google_worker_healthy?: boolean | null;
+  google_heartbeat_age_ms?: number | string | null;
+  google_runner_lease_active?: boolean | null;
+  stale_run_pressure?: number | string | null;
 }
 
 interface RawMetaHealthRow {
@@ -584,6 +592,11 @@ export function buildAdminSyncHealth(input: {
     const extendedRecentLeasedPartitions = Number(row.extended_recent_leased_partitions ?? 0);
     const extendedHistoricalQueueDepth = Number(row.extended_historical_queue_depth ?? 0);
     const extendedHistoricalLeasedPartitions = Number(row.extended_historical_leased_partitions ?? 0);
+    const googleWorkerHealthy = Boolean(row.google_worker_healthy);
+    const googleHeartbeatAgeMs =
+      row.google_heartbeat_age_ms == null ? null : Number(row.google_heartbeat_age_ms);
+    const googleRunnerLeaseActive = Boolean(row.google_runner_lease_active);
+    const staleRunPressure = Number(row.stale_run_pressure ?? 0);
     const recoveryMode =
       circuitBreakerOpen
         ? "open"
@@ -669,6 +682,10 @@ export function buildAdminSyncHealth(input: {
       extendedHistoricalLeasedPartitions,
       extendedRecoveryBlockReason,
       extendedRecentReadyThroughDate: row.extended_recent_ready_through_date ?? null,
+      googleWorkerHealthy,
+      googleHeartbeatAgeMs,
+      googleRunnerLeaseActive,
+      staleRunPressure,
     });
 
     if (
@@ -1347,6 +1364,10 @@ async function readGoogleAdsHealthRows() {
           AND partition.status IN ('leased', 'running')
       ) AS extended_historical_leased_partitions,
       recent.extended_recent_ready_through_date AS extended_recent_ready_through_date,
+      worker.google_worker_healthy,
+      worker.google_heartbeat_age_ms,
+      worker.google_runner_lease_active,
+      stale_runs.stale_run_pressure,
       reclaim.reclaim_candidate_count,
       reclaim.last_reclaim_reason
     FROM google_ads_sync_partitions partition
@@ -1432,6 +1453,32 @@ async function readGoogleAdsHealthRows() {
     LEFT JOIN LATERAL (
       SELECT
         (
+          COUNT(*) FILTER (
+            WHERE worker.provider_scope IN ('google_ads', 'all')
+              AND worker.last_heartbeat_at > now() - interval '5 minutes'
+          ) > 0
+        ) AS google_worker_healthy,
+        MIN(
+          GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (now() - worker.last_heartbeat_at)) * 1000))::bigint
+        ) FILTER (WHERE worker.provider_scope IN ('google_ads', 'all')) AS google_heartbeat_age_ms,
+        EXISTS (
+          SELECT 1
+          FROM google_ads_runner_leases lease
+          WHERE lease.business_id = partition.business_id
+            AND lease.lease_expires_at > now()
+        ) AS google_runner_lease_active
+      FROM sync_worker_heartbeats worker
+    ) worker ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT COUNT(*)::int AS stale_run_pressure
+      FROM google_ads_sync_runs run
+      WHERE run.business_id = partition.business_id
+        AND run.error_class = 'stale_run'
+        AND run.updated_at > now() - interval '24 hours'
+    ) stale_runs ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT
+        (
           SELECT COUNT(*)::int
           FROM sync_reclaim_events reclaim_count
           WHERE reclaim_count.provider_scope = 'google_ads'
@@ -1462,6 +1509,10 @@ async function readGoogleAdsHealthRows() {
       , recent.recent_asset_completed_days
       , recent.recent_range_total_days
       , recent.extended_recent_ready_through_date
+      , worker.google_worker_healthy
+      , worker.google_heartbeat_age_ms
+      , worker.google_runner_lease_active
+      , stale_runs.stale_run_pressure
       , reclaim.reclaim_candidate_count
       , reclaim.last_reclaim_reason
     HAVING COUNT(*) > 0

@@ -115,16 +115,30 @@ export async function releaseSyncRunnerLease(input: {
   `;
 }
 
-export async function getSyncWorkerHealthSummary() {
+export async function getSyncWorkerHealthSummary(input?: {
+  providerScopes?: string[];
+  onlineWindowMinutes?: number;
+}) {
   await runMigrations();
   const sql = getDb();
+  const providerScopes =
+    input?.providerScopes
+      ?.map((scope) => String(scope).trim())
+      .filter(Boolean) ?? [];
+  const onlineWindowMinutes = Math.max(1, input?.onlineWindowMinutes ?? 2);
   const [summaryRows, workerRows] = await Promise.all([
     sql`
       SELECT
-        COUNT(*) FILTER (WHERE last_heartbeat_at > now() - interval '2 minutes')::int AS online_workers,
+        COUNT(*) FILTER (
+          WHERE last_heartbeat_at > now() - (${String(onlineWindowMinutes)} || ' minutes')::interval
+        )::int AS online_workers,
         COUNT(*)::int AS worker_instances,
         MAX(last_heartbeat_at) AS last_heartbeat_at
       FROM sync_worker_heartbeats
+      WHERE (
+        COALESCE(array_length(${providerScopes}::text[], 1), 0) = 0
+        OR provider_scope = ANY(${providerScopes}::text[])
+      )
     ` as Promise<Array<Record<string, unknown>>>,
     sql`
       SELECT
@@ -136,6 +150,10 @@ export async function getSyncWorkerHealthSummary() {
         last_business_id,
         last_partition_id
       FROM sync_worker_heartbeats
+      WHERE (
+        COALESCE(array_length(${providerScopes}::text[], 1), 0) = 0
+        OR provider_scope = ANY(${providerScopes}::text[])
+      )
       ORDER BY last_heartbeat_at DESC
     ` as Promise<Array<Record<string, unknown>>>,
   ]);

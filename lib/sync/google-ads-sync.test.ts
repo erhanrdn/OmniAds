@@ -3,6 +3,7 @@ import {
   buildGoogleAdsLaneAdmissionPolicy,
   getGoogleAdsExtendedRecoveryBlockReason,
   buildGoogleAdsWarehouseFetchPlan,
+  evaluateGoogleAdsWorkerSchedulingState,
 } from "@/lib/sync/google-ads-sync";
 
 describe("buildGoogleAdsLaneAdmissionPolicy", () => {
@@ -235,5 +236,50 @@ describe("getGoogleAdsExtendedRecoveryBlockReason", () => {
     });
 
     expect(reason).toBe("queue_exists_without_eligible_lease");
+  });
+});
+
+describe("evaluateGoogleAdsWorkerSchedulingState", () => {
+  it("does not treat a missing google heartbeat as healthy without a runner lease", () => {
+    const nowMs = new Date("2026-03-29T12:00:00.000Z").getTime();
+    const result = evaluateGoogleAdsWorkerSchedulingState({
+      onlineWorkers: 0,
+      lastHeartbeatAt: null,
+      runnerLeaseActive: false,
+      staleThresholdMs: 5 * 60_000,
+      nowMs,
+    });
+
+    expect(result.healthy).toBe(false);
+    expect(result.hasFreshHeartbeat).toBe(false);
+  });
+
+  it("treats a fresh runner lease as healthy even before heartbeat catches up", () => {
+    const nowMs = new Date("2026-03-29T12:00:00.000Z").getTime();
+    const result = evaluateGoogleAdsWorkerSchedulingState({
+      onlineWorkers: 0,
+      lastHeartbeatAt: null,
+      runnerLeaseActive: true,
+      staleThresholdMs: 5 * 60_000,
+      nowMs,
+    });
+
+    expect(result.healthy).toBe(true);
+    expect(result.runnerLeaseActive).toBe(true);
+  });
+
+  it("keeps worker health true for fresh provider-scoped heartbeats", () => {
+    const nowMs = new Date("2026-03-29T12:00:00.000Z").getTime();
+    const result = evaluateGoogleAdsWorkerSchedulingState({
+      onlineWorkers: 1,
+      lastHeartbeatAt: "2026-03-29T11:59:00.000Z",
+      runnerLeaseActive: false,
+      staleThresholdMs: 5 * 60_000,
+      nowMs,
+    });
+
+    expect(result.healthy).toBe(true);
+    expect(result.hasFreshHeartbeat).toBe(true);
+    expect(result.heartbeatAgeMs).toBe(60_000);
   });
 });

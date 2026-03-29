@@ -39,6 +39,7 @@ import {
   getGoogleAdsPartitionHealth,
   getGoogleAdsPartitionDates,
   getGoogleAdsQueueHealth,
+  getGoogleAdsRunnerLeaseHealth,
   getGoogleAdsSyncCheckpoint,
   leaseGoogleAdsSyncPartitions,
   listGoogleAdsRawSnapshotsForPartition,
@@ -131,6 +132,19 @@ const GOOGLE_ADS_CIRCUIT_BREAKER_REPEAT_MINUTES = envNumber(
 const GOOGLE_ADS_WORKER_STALE_THRESHOLD_MS = envNumber(
   "GOOGLE_ADS_WORKER_STALE_THRESHOLD_MS",
   5 * 60_000
+);
+const GOOGLE_ADS_RUN_PROGRESS_GRACE_MINUTES = envNumber(
+  "GOOGLE_ADS_RUN_PROGRESS_GRACE_MINUTES",
+  3
+);
+const GOOGLE_ADS_STALE_RUN_CORE_MINUTES = envNumber("GOOGLE_ADS_STALE_RUN_CORE_MINUTES", 12);
+const GOOGLE_ADS_STALE_RUN_MAINTENANCE_MINUTES = envNumber(
+  "GOOGLE_ADS_STALE_RUN_MAINTENANCE_MINUTES",
+  15
+);
+const GOOGLE_ADS_STALE_RUN_EXTENDED_MINUTES = envNumber(
+  "GOOGLE_ADS_STALE_RUN_EXTENDED_MINUTES",
+  25
 );
 const GOOGLE_ADS_EXTENDED_BACKLOG_HARD_LIMIT = envNumber(
   "GOOGLE_ADS_EXTENDED_BACKLOG_HARD_LIMIT",
@@ -391,23 +405,100 @@ function extractSnapshotRows(payload: unknown): GenericRow[] {
 
 async function isGoogleAdsWorkerHealthyForScheduling() {
   if (process.env.SYNC_WORKER_MODE === "1") return true;
-  const health = await getSyncWorkerHealthSummary().catch(() => null);
-  if (!health) return false;
-  if ((health.onlineWorkers ?? 0) > 0) return true;
-  if (!health.lastHeartbeatAt) return false;
-  return Date.now() - new Date(health.lastHeartbeatAt).getTime() <= GOOGLE_ADS_WORKER_STALE_THRESHOLD_MS;
+  const health = await getSyncWorkerHealthSummary({
+    providerScopes: ["google_ads", "all"],
+    onlineWindowMinutes: Math.max(1, Math.floor(GOOGLE_ADS_WORKER_STALE_THRESHOLD_MS / 60_000)),
+  }).catch(() => null);
+  return evaluateGoogleAdsWorkerSchedulingState({
+    onlineWorkers: health?.onlineWorkers ?? 0,
+    lastHeartbeatAt: health?.lastHeartbeatAt ?? null,
+    runnerLeaseActive: false,
+    staleThresholdMs: GOOGLE_ADS_WORKER_STALE_THRESHOLD_MS,
+  }).healthy;
+}
+
+export function evaluateGoogleAdsWorkerSchedulingState(input: {
+  onlineWorkers: number;
+  lastHeartbeatAt: string | null;
+  runnerLeaseActive: boolean;
+  staleThresholdMs?: number;
+  nowMs?: number;
+}) {
+  const staleThresholdMs = Math.max(1, input.staleThresholdMs ?? GOOGLE_ADS_WORKER_STALE_THRESHOLD_MS);
+  const nowMs = input.nowMs ?? Date.now();
+  const heartbeatAgeMs =
+    input.lastHeartbeatAt != null
+      ? Math.max(0, nowMs - new Date(input.lastHeartbeatAt).getTime())
+      : null;
+  const hasFreshHeartbeat =
+    input.onlineWorkers > 0 ||
+    (heartbeatAgeMs != null && heartbeatAgeMs <= staleThresholdMs);
+  return {
+    healthy: hasFreshHeartbeat || input.runnerLeaseActive,
+    heartbeatAgeMs,
+    hasFreshHeartbeat,
+    runnerLeaseActive: input.runnerLeaseActive,
+  };
+}
+
+export async function getGoogleAdsWorkerSchedulingState(input: { businessId: string }) {
+  if (process.env.SYNC_WORKER_MODE === "1") {
+    return {
+      healthy: true,
+      heartbeatAgeMs: 0,
+      hasFreshHeartbeat: true,
+      runnerLeaseActive: true,
+      lastHeartbeatAt: new Date().toISOString(),
+      latestLeaseUpdatedAt: new Date().toISOString(),
+    };
+  }
+
+  const [health, runnerLease] = await Promise.all([
+    getSyncWorkerHealthSummary({
+      providerScopes: ["google_ads", "all"],
+      onlineWindowMinutes: Math.max(1, Math.floor(GOOGLE_ADS_WORKER_STALE_THRESHOLD_MS / 60_000)),
+    }).catch(() => null),
+    getGoogleAdsRunnerLeaseHealth({
+      businessId: input.businessId,
+      lanes: ["core", "maintenance", "extended"],
+    }).catch(() => null),
+  ]);
+
+  const lastHeartbeatAt = health?.lastHeartbeatAt ?? null;
+  const evaluated = evaluateGoogleAdsWorkerSchedulingState({
+    onlineWorkers: health?.onlineWorkers ?? 0,
+    lastHeartbeatAt,
+    runnerLeaseActive: Boolean(runnerLease?.hasActiveLease),
+    staleThresholdMs: GOOGLE_ADS_WORKER_STALE_THRESHOLD_MS,
+  });
+
+  return {
+    healthy: evaluated.healthy,
+    heartbeatAgeMs: evaluated.heartbeatAgeMs,
+    hasFreshHeartbeat: evaluated.hasFreshHeartbeat,
+    runnerLeaseActive: evaluated.runnerLeaseActive,
+    lastHeartbeatAt,
+    latestLeaseUpdatedAt: runnerLease?.latestLeaseUpdatedAt ?? null,
+  };
 }
 
 async function getGoogleAdsIncidentPolicy(input: {
   businessId: string;
   queueHealth?: Awaited<ReturnType<typeof getGoogleAdsQueueHealth>> | null;
 }) {
-  const [breaker, workerHealthy, queueHealth, budgetState, recoveryMode] = await Promise.all([
+  const [breaker, workerState, queueHealth, budgetState, recoveryMode] = await Promise.all([
     getProviderGlobalCircuitBreaker({
       provider: "google",
       businessId: input.businessId,
     }).catch(() => null),
-    isGoogleAdsWorkerHealthyForScheduling().catch(() => false),
+    getGoogleAdsWorkerSchedulingState({ businessId: input.businessId }).catch(() => ({
+      healthy: false,
+      heartbeatAgeMs: null,
+      hasFreshHeartbeat: false,
+      runnerLeaseActive: false,
+      lastHeartbeatAt: null,
+      latestLeaseUpdatedAt: null,
+    })),
     input.queueHealth
       ? Promise.resolve(input.queueHealth)
       : getGoogleAdsQueueHealth({ businessId: input.businessId }).catch(() => null),
@@ -420,6 +511,7 @@ async function getGoogleAdsIncidentPolicy(input: {
       businessId: input.businessId,
     }).catch(() => "closed" as const),
   ]);
+  const workerHealthy = workerState.healthy;
   const workerCapacityAvailable =
     workerHealthy &&
     (queueHealth?.leasedPartitions ?? 0) <
@@ -450,6 +542,7 @@ async function getGoogleAdsIncidentPolicy(input: {
 
   return {
     ...policy,
+    workerHealthState: workerState,
     breaker,
     queueHealth,
     budgetState,
@@ -461,6 +554,17 @@ async function compactGoogleAdsIncidentBacklog(input: {
   businessId: string;
   policy: Awaited<ReturnType<typeof getGoogleAdsIncidentPolicy>>;
 }) {
+  if (
+    !input.policy.breakerOpen &&
+    !input.policy.safeModeEnabled &&
+    input.policy.workerHealthState?.hasFreshHeartbeat &&
+    input.policy.workerHealthState?.runnerLeaseActive &&
+    input.policy.extendedCanaryEligible
+  ) {
+    return {
+      compactedCount: 0,
+    };
+  }
   if (!input.policy.suspendExtended) {
     return {
       compactedCount: 0,
@@ -1414,7 +1518,15 @@ async function enqueueMaintenancePartitions(businessId: string) {
 export async function enqueueGoogleAdsScheduledWork(businessId: string) {
   await cleanupGoogleAdsObsoleteSyncJobs({ businessId }).catch(() => null);
   await expireStaleGoogleAdsSyncJobs({ businessId }).catch(() => null);
-  const cleanup = await cleanupGoogleAdsPartitionOrchestration({ businessId }).catch(() => null);
+  const cleanup = await cleanupGoogleAdsPartitionOrchestration({
+    businessId,
+    staleRunMinutesByLane: {
+      core: GOOGLE_ADS_STALE_RUN_CORE_MINUTES,
+      maintenance: GOOGLE_ADS_STALE_RUN_MAINTENANCE_MINUTES,
+      extended: GOOGLE_ADS_STALE_RUN_EXTENDED_MINUTES,
+    },
+    runProgressGraceMinutes: GOOGLE_ADS_RUN_PROGRESS_GRACE_MINUTES,
+  }).catch(() => null);
   const incidentPolicy = await getGoogleAdsIncidentPolicy({ businessId }).catch(() => null);
   const compaction = incidentPolicy
     ? await compactGoogleAdsIncidentBacklog({
@@ -1517,6 +1629,16 @@ export function scheduleGoogleAdsBackgroundSync(input: {
   const timer = setTimeout(async () => {
     timers.delete(input.businessId);
     try {
+      const workerState = await getGoogleAdsWorkerSchedulingState({
+        businessId: input.businessId,
+      }).catch(() => null);
+      if (
+        workerState?.hasFreshHeartbeat &&
+        workerState.runnerLeaseActive &&
+        process.env.SYNC_WORKER_MODE !== "1"
+      ) {
+        return;
+      }
       await syncGoogleAdsReports(input.businessId);
       const needsAnotherRun = await shouldContinueGoogleAdsBackgroundSync(input.businessId).catch(
         () => false
@@ -2721,7 +2843,15 @@ export async function ensureGoogleAdsWarehouseRangeFilled(input: {
 export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAdsSyncResult> {
   await cleanupGoogleAdsObsoleteSyncJobs({ businessId }).catch(() => null);
   await expireStaleGoogleAdsSyncJobs({ businessId }).catch(() => null);
-  await cleanupGoogleAdsPartitionOrchestration({ businessId }).catch(() => null);
+  await cleanupGoogleAdsPartitionOrchestration({
+    businessId,
+    staleRunMinutesByLane: {
+      core: GOOGLE_ADS_STALE_RUN_CORE_MINUTES,
+      maintenance: GOOGLE_ADS_STALE_RUN_MAINTENANCE_MINUTES,
+      extended: GOOGLE_ADS_STALE_RUN_EXTENDED_MINUTES,
+    },
+    runProgressGraceMinutes: GOOGLE_ADS_RUN_PROGRESS_GRACE_MINUTES,
+  }).catch(() => null);
   const initialQueueHealth = await getGoogleAdsQueueHealth({ businessId }).catch(() => null);
   const incidentPolicy = await getGoogleAdsIncidentPolicy({
     businessId,
@@ -2736,6 +2866,12 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
 
   const backgroundSyncKeys = getBackgroundSyncKeys();
   const lockKey = `background:${businessId}`;
+  if (canUseInProcessBackgroundScheduling()) {
+    const workerState = await getGoogleAdsWorkerSchedulingState({ businessId }).catch(() => null);
+    if (workerState?.hasFreshHeartbeat && workerState.runnerLeaseActive) {
+      return { businessId, attempted: 0, succeeded: 0, failed: 0, skipped: true };
+    }
+  }
   if (backgroundSyncKeys.has(lockKey)) {
     return { businessId, attempted: 0, succeeded: 0, failed: 0, skipped: true };
   }

@@ -425,6 +425,36 @@ export async function releaseGoogleAdsRunnerLease(input: {
   `;
 }
 
+export async function getGoogleAdsRunnerLeaseHealth(input: {
+  businessId: string;
+  lanes?: GoogleAdsSyncLane[];
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const lanes =
+    input.lanes?.map((lane) => String(lane).trim()).filter(Boolean) ?? [];
+  const rows = await sql`
+    SELECT
+      COUNT(*) FILTER (WHERE lease_expires_at > now())::int AS active_leases,
+      MAX(lease_expires_at) AS latest_lease_expires_at,
+      MAX(updated_at) AS latest_lease_updated_at,
+      BOOL_OR(lease_expires_at > now()) AS has_active_lease
+    FROM google_ads_runner_leases
+    WHERE business_id = ${input.businessId}
+      AND (
+        COALESCE(array_length(${lanes}::text[], 1), 0) = 0
+        OR lane = ANY(${lanes}::text[])
+      )
+  ` as Array<Record<string, unknown>>;
+  const row = rows[0] ?? {};
+  return {
+    activeLeases: toNumber(row.active_leases),
+    hasActiveLease: Boolean(row.has_active_lease),
+    latestLeaseExpiresAt: normalizeTimestamp(row.latest_lease_expires_at),
+    latestLeaseUpdatedAt: normalizeTimestamp(row.latest_lease_updated_at),
+  };
+}
+
 export async function queueGoogleAdsSyncPartition(input: GoogleAdsSyncPartitionRecord) {
   await runMigrations();
   const sql = getDb();
@@ -675,6 +705,8 @@ export async function cleanupGoogleAdsPartitionOrchestration(input: {
   businessId: string;
   staleLeaseMinutes?: number;
   staleRunMinutes?: number;
+  staleRunMinutesByLane?: Partial<Record<GoogleAdsSyncLane, number>>;
+  runProgressGraceMinutes?: number;
   staleLegacyMinutes?: number;
 }) {
   await runMigrations();
@@ -905,7 +937,68 @@ export async function cleanupGoogleAdsPartitionOrchestration(input: {
     RETURNING id
   ` as Array<Record<string, unknown>>;
 
+  const staleRunMinutesCore = Math.max(
+    1,
+    input.staleRunMinutesByLane?.core ?? input.staleRunMinutes ?? 12
+  );
+  const staleRunMinutesMaintenance = Math.max(
+    1,
+    input.staleRunMinutesByLane?.maintenance ?? Math.max(staleRunMinutesCore, 15)
+  );
+  const staleRunMinutesExtended = Math.max(
+    1,
+    input.staleRunMinutesByLane?.extended ?? Math.max(staleRunMinutesMaintenance, 25)
+  );
+  const runProgressGraceMinutes = Math.max(1, input.runProgressGraceMinutes ?? 3);
   const staleRunRows = await sql`
+    WITH stale_candidates AS (
+      SELECT
+        run.id,
+        run.partition_id,
+        run.worker_id,
+        run.lane,
+        COALESCE(run.started_at, run.created_at) AS started_at,
+        COALESCE(checkpoint.progress_heartbeat_at, checkpoint.updated_at) AS progress_updated_at,
+        checkpoint.phase AS checkpoint_phase,
+        lease.lease_owner AS active_lease_owner,
+        lease.updated_at AS lease_updated_at,
+        lease.lease_expires_at AS lease_expires_at,
+        CASE
+          WHEN run.lane = 'core' THEN ${String(staleRunMinutesCore)}
+          WHEN run.lane = 'maintenance' THEN ${String(staleRunMinutesMaintenance)}
+          ELSE ${String(staleRunMinutesExtended)}
+        END AS stale_threshold_minutes,
+        EXISTS (
+          SELECT 1
+          FROM google_ads_sync_partitions partition
+          WHERE partition.id = run.partition_id
+            AND partition.status NOT IN ('leased', 'running')
+        ) AS partition_state_invalid
+      FROM google_ads_sync_runs run
+      LEFT JOIN LATERAL (
+        SELECT
+          checkpoint.phase,
+          checkpoint.progress_heartbeat_at,
+          checkpoint.updated_at
+        FROM google_ads_sync_checkpoints checkpoint
+        WHERE checkpoint.partition_id = run.partition_id
+        ORDER BY checkpoint.updated_at DESC
+        LIMIT 1
+      ) checkpoint ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT
+          lease.lease_owner,
+          lease.updated_at,
+          lease.lease_expires_at
+        FROM google_ads_runner_leases lease
+        WHERE lease.business_id = run.business_id
+          AND lease.lane = run.lane
+        ORDER BY lease.updated_at DESC
+        LIMIT 1
+      ) lease ON TRUE
+      WHERE run.business_id = ${input.businessId}
+        AND run.status = 'running'
+    )
     UPDATE google_ads_sync_runs run
     SET
       status = 'failed',
@@ -914,19 +1007,44 @@ export async function cleanupGoogleAdsPartitionOrchestration(input: {
       finished_at = COALESCE(finished_at, now()),
       duration_ms = COALESCE(
         duration_ms,
-        GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (now() - COALESCE(started_at, created_at))) * 1000))::int
+        GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (now() - COALESCE(run.started_at, run.created_at))) * 1000))::int
+      ),
+      meta_json = COALESCE(run.meta_json, '{}'::jsonb) || jsonb_build_object(
+        'decisionCaller', 'cleanupGoogleAdsPartitionOrchestration',
+        'checkpointPhase', stale_candidates.checkpoint_phase,
+        'staleThresholdMs', stale_candidates.stale_threshold_minutes * 60000,
+        'runAgeMs', GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (now() - stale_candidates.started_at)) * 1000))::int,
+        'leaseAgeMs', CASE
+          WHEN stale_candidates.lease_updated_at IS NULL THEN NULL
+          ELSE GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (now() - stale_candidates.lease_updated_at)) * 1000))::int
+        END,
+        'heartbeatAgeMs', CASE
+          WHEN stale_candidates.progress_updated_at IS NULL THEN NULL
+          ELSE GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (now() - stale_candidates.progress_updated_at)) * 1000))::int
+        END,
+        'runnerLeaseSeen', COALESCE(stale_candidates.lease_expires_at > now(), false),
+        'callerReason', CASE
+          WHEN stale_candidates.partition_state_invalid THEN 'partition_state_invalid'
+          ELSE 'lane_stale_threshold_exceeded'
+        END
       ),
       updated_at = now()
-    WHERE run.business_id = ${input.businessId}
-      AND run.status = 'running'
+    FROM stale_candidates
+    WHERE run.id = stale_candidates.id
       AND (
-        COALESCE(run.started_at, run.created_at) < now() - (${input.staleRunMinutes ?? 12} || ' minutes')::interval
-        OR EXISTS (
-          SELECT 1
-          FROM google_ads_sync_partitions partition
-          WHERE partition.id = run.partition_id
-            AND partition.status NOT IN ('leased', 'running')
-        )
+        COALESCE(run.started_at, run.created_at) <
+          now() - ((stale_candidates.stale_threshold_minutes)::text || ' minutes')::interval
+        OR stale_candidates.partition_state_invalid
+      )
+      AND NOT (
+        stale_candidates.active_lease_owner IS NOT NULL
+        AND stale_candidates.active_lease_owner = run.worker_id
+        AND stale_candidates.lease_expires_at > now()
+      )
+      AND NOT (
+        stale_candidates.progress_updated_at IS NOT NULL
+        AND stale_candidates.progress_updated_at >
+          now() - (${String(runProgressGraceMinutes)} || ' minutes')::interval
       )
     RETURNING run.id
   ` as Array<Record<string, unknown>>;

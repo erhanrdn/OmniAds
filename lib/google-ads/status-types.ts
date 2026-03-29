@@ -172,6 +172,11 @@ export interface GoogleAdsStatusResponse {
     quotaPressure: number;
     breakerState: "open" | "half_open" | "closed";
     extendedRecoveryBlockReason?: string | null;
+    googleWorkerHealthy?: boolean;
+    googleHeartbeatAgeMs?: number | null;
+    googleRunnerLeaseActive?: boolean;
+    staleRunPressure?: number;
+    extendedSuppressionDecisionTrace?: Record<string, unknown> | null;
   } | null;
   panel?: {
     coreUsable: boolean;

@@ -37,6 +37,7 @@ import {
 import {
   buildGoogleAdsLaneAdmissionPolicy,
   getGoogleAdsExtendedRecoveryBlockReason,
+  getGoogleAdsWorkerSchedulingState,
   isGoogleAdsExtendedCanaryBusiness,
   isGoogleAdsIncidentSafeModeEnabled,
 } from "@/lib/sync/google-ads-sync";
@@ -208,11 +209,22 @@ export async function GET(request: NextRequest) {
   await runMigrations();
   const sql = getDb();
 
-  const [integration, assignments, latestSync, checkpointHealth] = await Promise.all([
+  const staleRunPressurePromise = sql`
+    SELECT COUNT(*)::int AS stale_run_pressure
+    FROM google_ads_sync_runs run
+    WHERE run.business_id = ${businessId!}
+      AND run.error_class = 'stale_run'
+      AND run.updated_at > now() - interval '24 hours'
+  ` as Promise<Array<{ stale_run_pressure?: number | string | null }>>;
+
+  const [integration, assignments, latestSync, checkpointHealth, workerSchedulingState, staleRunRows] =
+    await Promise.all([
     getIntegration(businessId!, "google").catch(() => null),
     getProviderAccountAssignments(businessId!, "google").catch(() => null),
     getLatestGoogleAdsSyncHealth({ businessId: businessId!, providerAccountId: null }).catch(() => null),
     getGoogleAdsCheckpointHealth({ businessId: businessId!, providerAccountId: null }).catch(() => null),
+    getGoogleAdsWorkerSchedulingState({ businessId: businessId! }).catch(() => null),
+    staleRunPressurePromise.catch(() => []),
   ]);
   const currentMode = decidePanelRecoveryMode();
   const canaryEligible = isGoogleAdsExtendedCanaryBusiness(businessId!);
@@ -926,6 +938,22 @@ export async function GET(request: NextRequest) {
     }),
     queueHealth,
   });
+  const staleRunPressure = Number(staleRunRows[0]?.stale_run_pressure ?? 0);
+  const extendedSuppressionDecisionTrace =
+    extendedRecoveryBlockReason === "worker_unhealthy"
+      ? {
+          decisionCaller: "compactGoogleAdsIncidentBacklog",
+          providerScopeSeen: "google_ads",
+          heartbeatAgeMs: workerSchedulingState?.heartbeatAgeMs ?? null,
+          runnerLeaseSeen: workerSchedulingState?.runnerLeaseActive ?? false,
+          breakerState,
+          recoveryMode: breakerState,
+          canaryEligible,
+          quotaPressure: quotaBudgetState?.pressure ?? 0,
+          queueDepthSnapshot: queueHealth?.queueDepth ?? 0,
+          extendedQueueDepthSnapshot: queueHealth?.extendedQueueDepth ?? 0,
+        }
+      : null;
 
   return NextResponse.json({
     state: decideGoogleAdsStatusState({
@@ -1048,6 +1076,11 @@ export async function GET(request: NextRequest) {
       quotaPressure: quotaBudgetState?.pressure ?? 0,
       breakerState,
       extendedRecoveryBlockReason,
+      googleWorkerHealthy: workerSchedulingState?.healthy ?? false,
+      googleHeartbeatAgeMs: workerSchedulingState?.heartbeatAgeMs ?? null,
+      googleRunnerLeaseActive: workerSchedulingState?.runnerLeaseActive ?? false,
+      staleRunPressure,
+      extendedSuppressionDecisionTrace,
     },
     panel: {
       coreUsable,
