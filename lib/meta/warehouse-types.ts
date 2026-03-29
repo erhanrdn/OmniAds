@@ -15,6 +15,17 @@ export type MetaSyncStatus =
 
 export type MetaSyncLane = "core" | "extended" | "maintenance";
 
+export type MetaSyncPartitionSource =
+  | "historical"
+  | "historical_recovery"
+  | "recent"
+  | "recent_recovery"
+  | "today"
+  | "priority_window"
+  | "request_runtime"
+  | "initial_connect"
+  | "manual_refresh";
+
 export type MetaPartitionStatus =
   | "queued"
   | "leased"
@@ -205,7 +216,7 @@ export interface MetaSyncPartitionRecord {
   partitionDate: string;
   status: MetaPartitionStatus;
   priority: number;
-  source: string;
+  source: MetaSyncPartitionSource | string;
   leaseOwner?: string | null;
   leaseExpiresAt?: string | null;
   attemptCount: number;

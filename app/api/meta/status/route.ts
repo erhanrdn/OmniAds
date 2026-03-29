@@ -65,6 +65,10 @@ const META_STATE_SCOPES = ["account_daily", "adset_daily", "creative_daily", "ad
 const META_CORE_REQUIRED_SURFACES = ["account_daily", "campaign_daily"] as const;
 const META_SECONDARY_SURFACES = ["adset_daily", "ad_daily"] as const;
 const META_DEEP_SURFACES = ["breakdowns", "creatives"] as const;
+const META_RECENT_RECOVERY_DAYS = Math.max(
+  1,
+  Number(process.env.META_RECENT_RECOVERY_DAYS ?? 14) || 14
+);
 
 function getTodayIsoForTimeZoneServer(timeZone: string): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -162,8 +166,18 @@ export async function GET(request: NextRequest) {
     historicalTotalDays,
     dayCountInclusive(breakdownHistoricalStart, initialBackfillEnd)
   );
+  const recentWindowStart = addDays(
+    new Date(`${initialBackfillEnd}T00:00:00Z`),
+    -(Math.min(META_RECENT_RECOVERY_DAYS, historicalTotalDays) - 1)
+  )
+    .toISOString()
+    .slice(0, 10);
+  const recentWindowTotalDays = Math.min(
+    META_RECENT_RECOVERY_DAYS,
+    dayCountInclusive(recentWindowStart, initialBackfillEnd)
+  );
 
-  const [accountCoverage, campaignCoverage, adsetCoverage, adDailyCoverage, creativeCoverage, creativePreviewCoverage, breakdownCoverageByEndpoint, queueHealth, checkpointHealth, ...stateRows] =
+  const [accountCoverage, campaignCoverage, adsetCoverage, adDailyCoverage, creativeCoverage, creativePreviewCoverage, breakdownCoverageByEndpoint, queueHealth, checkpointHealth, recentAccountCoverage, recentAdsetCoverage, recentCreativeCoverage, recentAdCoverage, ...stateRows] =
     connected && accountIds.length > 0
       ? await Promise.all([
           getMetaAccountDailyCoverage({
@@ -211,11 +225,35 @@ export async function GET(request: NextRequest) {
           }).catch(() => null),
           getMetaQueueHealth({ businessId: businessId! }).catch(() => null),
           getMetaCheckpointHealth({ businessId: businessId! }).catch(() => null),
+          getMetaAccountDailyCoverage({
+            businessId: businessId!,
+            providerAccountId: null,
+            startDate: recentWindowStart,
+            endDate: initialBackfillEnd,
+          }).catch(() => null),
+          getMetaAdSetDailyCoverage({
+            businessId: businessId!,
+            providerAccountId: null,
+            startDate: recentWindowStart,
+            endDate: initialBackfillEnd,
+          }).catch(() => null),
+          getMetaCreativeDailyCoverage({
+            businessId: businessId!,
+            providerAccountId: null,
+            startDate: recentWindowStart,
+            endDate: initialBackfillEnd,
+          }).catch(() => null),
+          getMetaAdDailyCoverage({
+            businessId: businessId!,
+            providerAccountId: null,
+            startDate: recentWindowStart,
+            endDate: initialBackfillEnd,
+          }).catch(() => null),
           ...META_STATE_SCOPES.map((scope) =>
             getMetaSyncState({ businessId: businessId!, scope }).catch(() => [])
           ),
         ])
-      : [null, null, null, null, null, null, null, null, null, ...META_STATE_SCOPES.map(() => [])];
+      : [null, null, null, null, null, null, null, null, null, null, null, null, null, ...META_STATE_SCOPES.map(() => [])];
 
   const statesByScope = Object.fromEntries(
     META_STATE_SCOPES.map((scope, index) => [scope, stateRows[index] ?? []])
@@ -323,8 +361,8 @@ export async function GET(request: NextRequest) {
     {
       scope: "ad_daily",
       states: adDailyStates,
-      fallbackCompletedDays: 0,
-      fallbackReadyThroughDate: null,
+      fallbackCompletedDays: adDailyCoverage?.completed_days ?? 0,
+      fallbackReadyThroughDate: adDailyCoverage?.ready_through_date ?? null,
     },
   ].map((entry) => ({
     scope: entry.scope,
@@ -474,6 +512,50 @@ export async function GET(request: NextRequest) {
     missingSurfaces: surfaces.missing,
   });
 
+  const rangeCompletionBySurface = {
+    account_daily: {
+      recentCompletedDays: Math.min(recentWindowTotalDays, recentAccountCoverage?.completed_days ?? 0),
+      recentTotalDays: recentWindowTotalDays,
+      historicalCompletedDays: Math.min(historicalTotalDays, accountCoverage?.completed_days ?? 0),
+      historicalTotalDays,
+      readyThroughDate: accountCoverage?.ready_through_date ?? null,
+    },
+    adset_daily: {
+      recentCompletedDays: Math.min(recentWindowTotalDays, recentAdsetCoverage?.completed_days ?? 0),
+      recentTotalDays: recentWindowTotalDays,
+      historicalCompletedDays: Math.min(historicalTotalDays, adsetCoverage?.completed_days ?? 0),
+      historicalTotalDays,
+      readyThroughDate: adsetCoverage?.ready_through_date ?? null,
+    },
+    creative_daily: {
+      recentCompletedDays: Math.min(recentWindowTotalDays, recentCreativeCoverage?.completed_days ?? 0),
+      recentTotalDays: recentWindowTotalDays,
+      historicalCompletedDays: Math.min(historicalTotalDays, creativeCoverage?.completed_days ?? 0),
+      historicalTotalDays,
+      readyThroughDate: creativeCoverage?.ready_through_date ?? null,
+    },
+    ad_daily: {
+      recentCompletedDays: Math.min(recentWindowTotalDays, recentAdCoverage?.completed_days ?? 0),
+      recentTotalDays: recentWindowTotalDays,
+      historicalCompletedDays: Math.min(historicalTotalDays, adDailyCoverage?.completed_days ?? 0),
+      historicalTotalDays,
+      readyThroughDate: adDailyCoverage?.ready_through_date ?? null,
+    },
+  } as const;
+
+  const recentExtendedReady =
+    rangeCompletionBySurface.creative_daily.recentCompletedDays >= recentWindowTotalDays &&
+    rangeCompletionBySurface.ad_daily.recentCompletedDays >= recentWindowTotalDays;
+  const historicalExtendedReady =
+    rangeCompletionBySurface.creative_daily.historicalCompletedDays >= historicalTotalDays &&
+    rangeCompletionBySurface.ad_daily.historicalCompletedDays >= historicalTotalDays;
+  const extendedRecoveryState =
+    !recentExtendedReady
+      ? "core_only"
+      : historicalExtendedReady
+        ? "extended_normal"
+        : "extended_recovery";
+
   return NextResponse.json(
     {
       state,
@@ -559,7 +641,18 @@ export async function GET(request: NextRequest) {
         latestCoreActivityAt: queueHealth?.latestCoreActivityAt ?? null,
         latestExtendedActivityAt: queueHealth?.latestExtendedActivityAt ?? null,
         latestMaintenanceActivityAt: queueHealth?.latestMaintenanceActivityAt ?? null,
+        historicalCoreQueueDepth: queueHealth?.historicalCoreQueueDepth ?? 0,
+        historicalCoreLeasedPartitions: queueHealth?.historicalCoreLeasedPartitions ?? 0,
+        extendedRecentQueueDepth: queueHealth?.extendedRecentQueueDepth ?? 0,
+        extendedRecentLeasedPartitions: queueHealth?.extendedRecentLeasedPartitions ?? 0,
+        extendedHistoricalQueueDepth: queueHealth?.extendedHistoricalQueueDepth ?? 0,
+        extendedHistoricalLeasedPartitions: queueHealth?.extendedHistoricalLeasedPartitions ?? 0,
       },
+      extendedRecoveryState,
+      recentExtendedReady,
+      historicalExtendedReady,
+      recentExtendedUsable: recentExtendedReady,
+      rangeCompletionBySurface,
       priorityWindow:
         selectedStartDate && selectedEndDate && selectedRangeTotalDays
           ? {

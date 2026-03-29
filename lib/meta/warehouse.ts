@@ -25,6 +25,22 @@ import type {
   MetaWarehouseScope,
 } from "@/lib/meta/warehouse-types";
 
+const META_SOURCE_PRIORITY_SQL = `
+  CASE partition.source
+    WHEN 'priority_window' THEN 700
+    WHEN 'today' THEN 650
+    WHEN 'request_runtime' THEN 625
+    WHEN 'recent' THEN 600
+    WHEN 'recent_recovery' THEN 550
+    WHEN 'manual_refresh' THEN 525
+    WHEN 'core_success' THEN 500
+    WHEN 'initial_connect' THEN 250
+    WHEN 'historical_recovery' THEN 200
+    WHEN 'historical' THEN 150
+    ELSE 100
+  END
+`;
+
 function normalizeDate(value: unknown) {
   if (value instanceof Date) return value.toISOString().slice(0, 10);
   const text = String(value ?? "").trim();
@@ -265,34 +281,42 @@ export async function queueMetaSyncPartition(input: MetaSyncPartitionRecord) {
       source = CASE
         WHEN meta_sync_partitions.source = 'priority_window' THEN meta_sync_partitions.source
         WHEN EXCLUDED.source = 'priority_window' THEN EXCLUDED.source
+        WHEN meta_sync_partitions.source = 'today' THEN meta_sync_partitions.source
+        WHEN EXCLUDED.source = 'today' THEN EXCLUDED.source
+        WHEN meta_sync_partitions.source = 'request_runtime' THEN meta_sync_partitions.source
+        WHEN EXCLUDED.source = 'request_runtime' THEN EXCLUDED.source
+        WHEN meta_sync_partitions.source = 'recent' THEN meta_sync_partitions.source
+        WHEN EXCLUDED.source = 'recent' THEN EXCLUDED.source
+        WHEN meta_sync_partitions.source = 'recent_recovery' THEN meta_sync_partitions.source
+        WHEN EXCLUDED.source = 'recent_recovery' THEN EXCLUDED.source
         ELSE meta_sync_partitions.source
       END,
       status = CASE
-        WHEN EXCLUDED.source IN ('priority_window', 'recent', 'today', 'request_runtime')
+        WHEN EXCLUDED.source IN ('priority_window', 'recent', 'recent_recovery', 'today', 'request_runtime')
           AND meta_sync_partitions.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
           THEN 'queued'
         ELSE meta_sync_partitions.status
       END,
       lease_owner = CASE
-        WHEN EXCLUDED.source IN ('priority_window', 'recent', 'today', 'request_runtime')
+        WHEN EXCLUDED.source IN ('priority_window', 'recent', 'recent_recovery', 'today', 'request_runtime')
           AND meta_sync_partitions.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
           THEN NULL
         ELSE meta_sync_partitions.lease_owner
       END,
       lease_expires_at = CASE
-        WHEN EXCLUDED.source IN ('priority_window', 'recent', 'today', 'request_runtime')
+        WHEN EXCLUDED.source IN ('priority_window', 'recent', 'recent_recovery', 'today', 'request_runtime')
           AND meta_sync_partitions.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
           THEN NULL
         ELSE meta_sync_partitions.lease_expires_at
       END,
       last_error = CASE
-        WHEN EXCLUDED.source IN ('priority_window', 'recent', 'today', 'request_runtime')
+        WHEN EXCLUDED.source IN ('priority_window', 'recent', 'recent_recovery', 'today', 'request_runtime')
           AND meta_sync_partitions.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
           THEN NULL
         ELSE meta_sync_partitions.last_error
       END,
       next_retry_at = CASE
-        WHEN EXCLUDED.source IN ('priority_window', 'recent', 'today', 'request_runtime')
+        WHEN EXCLUDED.source IN ('priority_window', 'recent', 'recent_recovery', 'today', 'request_runtime')
           AND meta_sync_partitions.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
           THEN now()
         WHEN meta_sync_partitions.status IN ('succeeded', 'running', 'leased')
@@ -308,6 +332,7 @@ export async function queueMetaSyncPartition(input: MetaSyncPartitionRecord) {
 export async function leaseMetaSyncPartitions(input: {
   businessId: string;
   lane?: "core" | "extended" | "maintenance";
+  sources?: string[] | null;
   workerId: string;
   limit: number;
   leaseMinutes?: number;
@@ -321,11 +346,19 @@ export async function leaseMetaSyncPartitions(input: {
       WHERE business_id = ${input.businessId}
         AND (${input.lane ?? null}::text IS NULL OR lane = ${input.lane ?? null})
         AND (
+          ${input.sources ?? null}::text[] IS NULL
+          OR source = ANY(${input.sources ?? null}::text[])
+        )
+        AND (
           status = 'queued'
           OR (status = 'failed' AND COALESCE(next_retry_at, now()) <= now())
           OR (status = 'leased' AND COALESCE(lease_expires_at, now()) <= now())
         )
-      ORDER BY priority DESC, partition_date DESC, updated_at ASC
+      ORDER BY
+        priority DESC,
+        ${sql.unsafe(META_SOURCE_PRIORITY_SQL)} DESC,
+        partition_date DESC,
+        updated_at ASC
       LIMIT ${Math.max(1, input.limit)}
       FOR UPDATE SKIP LOCKED
     )
@@ -1184,8 +1217,38 @@ export async function getMetaQueueHealth(input: { businessId: string }) {
       COUNT(*) FILTER (WHERE status IN ('leased', 'running')) AS leased_partitions,
       COUNT(*) FILTER (WHERE lane = 'core' AND status = 'queued') AS core_queue_depth,
       COUNT(*) FILTER (WHERE lane = 'core' AND status IN ('leased', 'running')) AS core_leased_partitions,
+      COUNT(*) FILTER (
+        WHERE lane = 'core'
+          AND source IN ('historical', 'historical_recovery', 'initial_connect')
+          AND status = 'queued'
+      ) AS historical_core_queue_depth,
+      COUNT(*) FILTER (
+        WHERE lane = 'core'
+          AND source IN ('historical', 'historical_recovery', 'initial_connect')
+          AND status IN ('leased', 'running')
+      ) AS historical_core_leased_partitions,
       COUNT(*) FILTER (WHERE lane = 'extended' AND status = 'queued') AS extended_queue_depth,
       COUNT(*) FILTER (WHERE lane = 'extended' AND status IN ('leased', 'running')) AS extended_leased_partitions,
+      COUNT(*) FILTER (
+        WHERE lane = 'extended'
+          AND source IN ('recent', 'recent_recovery', 'today', 'priority_window', 'request_runtime', 'manual_refresh')
+          AND status = 'queued'
+      ) AS extended_recent_queue_depth,
+      COUNT(*) FILTER (
+        WHERE lane = 'extended'
+          AND source IN ('recent', 'recent_recovery', 'today', 'priority_window', 'request_runtime', 'manual_refresh')
+          AND status IN ('leased', 'running')
+      ) AS extended_recent_leased_partitions,
+      COUNT(*) FILTER (
+        WHERE lane = 'extended'
+          AND source IN ('historical', 'historical_recovery', 'initial_connect')
+          AND status = 'queued'
+      ) AS extended_historical_queue_depth,
+      COUNT(*) FILTER (
+        WHERE lane = 'extended'
+          AND source IN ('historical', 'historical_recovery', 'initial_connect')
+          AND status IN ('leased', 'running')
+      ) AS extended_historical_leased_partitions,
       COUNT(*) FILTER (WHERE lane = 'maintenance' AND status = 'queued') AS maintenance_queue_depth,
       COUNT(*) FILTER (WHERE lane = 'maintenance' AND status IN ('leased', 'running')) AS maintenance_leased_partitions,
       COUNT(*) FILTER (WHERE status = 'failed') AS retryable_failed_partitions,
@@ -1203,8 +1266,14 @@ export async function getMetaQueueHealth(input: { businessId: string }) {
     leasedPartitions: toNumber(row.leased_partitions),
     coreQueueDepth: toNumber(row.core_queue_depth),
     coreLeasedPartitions: toNumber(row.core_leased_partitions),
+    historicalCoreQueueDepth: toNumber(row.historical_core_queue_depth),
+    historicalCoreLeasedPartitions: toNumber(row.historical_core_leased_partitions),
     extendedQueueDepth: toNumber(row.extended_queue_depth),
     extendedLeasedPartitions: toNumber(row.extended_leased_partitions),
+    extendedRecentQueueDepth: toNumber(row.extended_recent_queue_depth),
+    extendedRecentLeasedPartitions: toNumber(row.extended_recent_leased_partitions),
+    extendedHistoricalQueueDepth: toNumber(row.extended_historical_queue_depth),
+    extendedHistoricalLeasedPartitions: toNumber(row.extended_historical_leased_partitions),
     maintenanceQueueDepth: toNumber(row.maintenance_queue_depth),
     maintenanceLeasedPartitions: toNumber(row.maintenance_leased_partitions),
     retryableFailedPartitions: toNumber(row.retryable_failed_partitions),
@@ -1262,7 +1331,10 @@ export async function requeueMetaRetryableFailedPartitions(input: {
       WHERE business_id = ${input.businessId}
         AND status = 'failed'
         AND COALESCE(next_retry_at, now()) <= now()
-      ORDER BY partition_date DESC, updated_at ASC
+      ORDER BY
+        ${sql.unsafe(META_SOURCE_PRIORITY_SQL)} DESC,
+        partition_date DESC,
+        updated_at ASC
       LIMIT ${Math.max(1, input.limit ?? 500)}
       FOR UPDATE SKIP LOCKED
     )
@@ -1525,6 +1597,10 @@ export async function replayMetaDeadLetterPartitions(input: {
       lease_owner = NULL,
       lease_expires_at = NULL,
       next_retry_at = NULL,
+      source = CASE
+        WHEN lane = 'extended' THEN 'historical_recovery'
+        ELSE source
+      END,
       last_error = NULL,
       updated_at = now()
     WHERE business_id = ${input.businessId}

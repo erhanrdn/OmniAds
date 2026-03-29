@@ -182,6 +182,58 @@ describe("buildAdminSyncHealth", () => {
     expect(payload.googleAdsBusinesses?.[0]?.historicalExtendedReady).toBe(false);
     expect(payload.googleAdsBusinesses?.[0]?.effectiveMode).toBe("canary_reopen");
   });
+
+  it("surfaces meta recent frontier readiness separately from historical coverage", () => {
+    const payload = buildAdminSyncHealth({
+      jobs: [],
+      cooldowns: [],
+      metaHealth: [
+        {
+          business_id: "biz-meta",
+          business_name: "IwaStore",
+          queue_depth: 18,
+          leased_partitions: 2,
+          retryable_failed_partitions: 0,
+          stale_lease_partitions: 0,
+          dead_letter_partitions: 0,
+          state_row_count: 4,
+          current_day_reference: "2026-03-28",
+          oldest_queued_partition: "2025-01-01",
+          latest_partition_activity_at: new Date().toISOString(),
+          latest_checkpoint_scope: "creative_daily",
+          latest_checkpoint_phase: "transform",
+          latest_checkpoint_updated_at: new Date().toISOString(),
+          latest_progress_heartbeat_at: new Date().toISOString(),
+          last_successful_page_index: 3,
+          checkpoint_failures: 0,
+          reclaim_candidate_count: 0,
+          last_reclaim_reason: null,
+          today_account_rows: 12,
+          today_adset_rows: 21,
+          account_completed_days: 400,
+          adset_completed_days: 400,
+          creative_completed_days: 120,
+          ad_completed_days: 90,
+          recent_account_completed_days: 14,
+          recent_adset_completed_days: 14,
+          recent_creative_completed_days: 14,
+          recent_ad_completed_days: 14,
+          recent_range_total_days: 14,
+        },
+      ],
+      workerHealth: {
+        onlineWorkers: 1,
+        workerInstances: 1,
+        lastHeartbeatAt: new Date().toISOString(),
+        lastProgressHeartbeatAt: new Date().toISOString(),
+        workers: [],
+      },
+    });
+
+    expect(payload.metaBusinesses?.[0]?.recentExtendedReady).toBe(true);
+    expect(payload.metaBusinesses?.[0]?.historicalExtendedReady).toBe(false);
+    expect(payload.metaBusinesses?.[0]?.effectiveMode).toBe("extended_recovery");
+  });
 });
 
 describe("buildAdminRevenueRisk", () => {

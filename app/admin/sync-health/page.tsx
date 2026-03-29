@@ -128,6 +128,14 @@ interface SyncHealthPayload {
     checkpointFailures?: number;
     reclaimCandidateCount?: number;
     lastReclaimReason?: string | null;
+    effectiveMode?: "core_only" | "extended_recovery" | "extended_normal";
+    recentAccountCompletedDays?: number;
+    recentAdsetCompletedDays?: number;
+    recentCreativeCompletedDays?: number;
+    recentAdCompletedDays?: number;
+    recentRangeTotalDays?: number;
+    recentExtendedReady?: boolean;
+    historicalExtendedReady?: boolean;
   }>;
 }
 
@@ -151,6 +159,7 @@ function getMetaBusinessSignals(business: NonNullable<SyncHealthPayload["metaBus
   if ((business.reclaimCandidateCount ?? 0) > 0) signals.push("Recent reclaim activity");
   if ((business.checkpointLagMinutes ?? 0) > 20) signals.push("Stale checkpoint");
   if (business.todayAccountRows === 0 || business.todayAdsetRows === 0) signals.push("Current day missing");
+  if (!business.recentExtendedReady) signals.push("Recent extended backfilling");
   if (business.stateRowCount === 0 && (business.queueDepth > 0 || business.leasedPartitions > 0 || business.deadLetterPartitions > 0)) {
     signals.push("State missing");
   }
@@ -602,6 +611,12 @@ export default function AdminSyncHealthPage() {
                         <MetricPill label="Adset days" value={business.adsetCompletedDays} />
                         <MetricPill label="Creative days" value={business.creativeCompletedDays} />
                       </div>
+                      <p className="mt-3 text-xs text-gray-500">
+                        Recovery {business.effectiveMode ?? "core_only"} • Recent ready {business.recentExtendedReady ? "yes" : "no"} • Historical ready {business.historicalExtendedReady ? "yes" : "no"}
+                      </p>
+                      <p className="mt-1 text-xs text-gray-500">
+                        Recent window {business.recentRangeTotalDays ?? 14}d • Account {business.recentAccountCompletedDays ?? 0} • Adset {business.recentAdsetCompletedDays ?? 0} • Creative {business.recentCreativeCompletedDays ?? 0} • Ad {business.recentAdCompletedDays ?? 0}
+                      </p>
                       <p className="mt-3 text-xs text-gray-500">
                         Oldest queued {formatDateTime(business.oldestQueuedPartition)} • Latest activity {formatDateTime(business.latestPartitionActivityAt)}
                       </p>

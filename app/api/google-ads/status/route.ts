@@ -816,6 +816,34 @@ export async function GET(request: NextRequest) {
   const historicalExtendedReady = Object.values(rangeCompletionBySurface).every(
     (surface) => surface.historical.ready
   );
+  const averageRecentCompletionRatio =
+    Object.values(rangeCompletionBySurface).reduce((sum, surface) => {
+      const ratio =
+        surface.recent.totalDays > 0
+          ? surface.recent.completedDays / surface.recent.totalDays
+          : 0;
+      return sum + Math.min(1, ratio);
+    }, 0) / Math.max(1, Object.values(rangeCompletionBySurface).length);
+  const averageHistoricalCompletionRatio =
+    Object.values(rangeCompletionBySurface).reduce((sum, surface) => {
+      const ratio =
+        surface.historical.totalDays > 0
+          ? surface.historical.completedDays / surface.historical.totalDays
+          : 0;
+      return sum + Math.min(1, ratio);
+    }, 0) / Math.max(1, Object.values(rangeCompletionBySurface).length);
+  const stagedRecoveryProgressPercent = coreUsable
+    ? Math.min(
+        99,
+        Math.round(60 + averageRecentCompletionRatio * 25 + averageHistoricalCompletionRatio * 15)
+      )
+    : effectiveProgressPercent;
+  const displayProgressPercent =
+    selectedRangeIncomplete
+      ? progressPercent
+      : advisorNotReady
+        ? stagedRecoveryProgressPercent
+        : effectiveProgressPercent;
   const majorSurfaceStates = [
     buildPanelSurfaceState({
       scope: "search_term_daily",
@@ -1012,7 +1040,7 @@ export async function GET(request: NextRequest) {
           startedAt: effectiveLatestSync.started_at ? String(effectiveLatestSync.started_at) : null,
           finishedAt: effectiveLatestSync.finished_at ? String(effectiveLatestSync.finished_at) : null,
           lastError: latestError,
-          progressPercent: effectiveProgressPercent,
+          progressPercent: displayProgressPercent,
           completedDays: effectiveCompletedDays,
           totalDays: effectiveTotalDays,
           readyThroughDate: effectiveReadyThroughDate,
@@ -1026,7 +1054,7 @@ export async function GET(request: NextRequest) {
                 : phaseLabel,
         }
       : {
-          progressPercent: effectiveProgressPercent,
+          progressPercent: displayProgressPercent,
           completedDays: effectiveCompletedDays,
           totalDays: effectiveTotalDays,
           readyThroughDate: effectiveReadyThroughDate,

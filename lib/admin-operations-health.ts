@@ -152,6 +152,14 @@ export interface AdminSyncHealthPayload {
     checkpointFailures?: number;
     reclaimCandidateCount?: number;
     lastReclaimReason?: string | null;
+    effectiveMode?: "core_only" | "extended_recovery" | "extended_normal";
+    recentAccountCompletedDays?: number;
+    recentAdsetCompletedDays?: number;
+    recentCreativeCompletedDays?: number;
+    recentAdCompletedDays?: number;
+    recentRangeTotalDays?: number;
+    recentExtendedReady?: boolean;
+    historicalExtendedReady?: boolean;
   }>;
 }
 
@@ -290,6 +298,12 @@ interface RawMetaHealthRow {
   account_completed_days: number | string | null;
   adset_completed_days: number | string | null;
   creative_completed_days: number | string | null;
+  ad_completed_days?: number | string | null;
+  recent_account_completed_days?: number | string | null;
+  recent_adset_completed_days?: number | string | null;
+  recent_creative_completed_days?: number | string | null;
+  recent_ad_completed_days?: number | string | null;
+  recent_range_total_days?: number | string | null;
 }
 
 interface RawRevenueWorkspaceRow {
@@ -785,8 +799,21 @@ export function buildAdminSyncHealth(input: {
     const accountCompletedDays = Number(row.account_completed_days ?? 0);
     const adsetCompletedDays = Number(row.adset_completed_days ?? 0);
     const creativeCompletedDays = Number(row.creative_completed_days ?? 0);
+    const adCompletedDays = Number(row.ad_completed_days ?? 0);
+    const recentRangeTotalDays = Math.max(1, Number(row.recent_range_total_days ?? 14));
+    const recentAccountCompletedDays = Number(row.recent_account_completed_days ?? 0);
+    const recentAdsetCompletedDays = Number(row.recent_adset_completed_days ?? 0);
+    const recentCreativeCompletedDays = Number(row.recent_creative_completed_days ?? 0);
+    const recentAdCompletedDays = Number(row.recent_ad_completed_days ?? 0);
+    const recentExtendedReady =
+      recentCreativeCompletedDays >= recentRangeTotalDays &&
+      recentAdCompletedDays >= recentRangeTotalDays;
+    const historicalExtendedReady =
+      creativeCompletedDays >= 365 && adCompletedDays >= 365;
     const metaProgressHeartbeat =
       row.latest_progress_heartbeat_at ?? row.latest_checkpoint_updated_at ?? null;
+    const effectiveMode =
+      !recentExtendedReady ? "core_only" : historicalExtendedReady ? "extended_normal" : "extended_recovery";
 
     metaBusinesses.push({
       businessId: row.business_id,
@@ -805,6 +832,7 @@ export function buildAdminSyncHealth(input: {
       accountCompletedDays,
       adsetCompletedDays,
       creativeCompletedDays,
+      effectiveMode,
       latestCheckpointScope: row.latest_checkpoint_scope,
       latestCheckpointPhase: row.latest_checkpoint_phase,
       latestCheckpointUpdatedAt: row.latest_checkpoint_updated_at,
@@ -816,6 +844,13 @@ export function buildAdminSyncHealth(input: {
       checkpointFailures: Number(row.checkpoint_failures ?? 0),
       reclaimCandidateCount: Number(row.reclaim_candidate_count ?? 0),
       lastReclaimReason: row.last_reclaim_reason ?? null,
+      recentAccountCompletedDays,
+      recentAdsetCompletedDays,
+      recentCreativeCompletedDays,
+      recentAdCompletedDays,
+      recentRangeTotalDays,
+      recentExtendedReady,
+      historicalExtendedReady,
     });
 
     if (
@@ -1435,7 +1470,13 @@ async function readMetaHealthRows() {
       ) AS today_adset_rows,
       MAX(state.completed_days) FILTER (WHERE state.scope = 'account_daily') AS account_completed_days,
       MAX(state.completed_days) FILTER (WHERE state.scope = 'adset_daily') AS adset_completed_days,
-      MAX(state.completed_days) FILTER (WHERE state.scope = 'creative_daily') AS creative_completed_days
+      MAX(state.completed_days) FILTER (WHERE state.scope = 'creative_daily') AS creative_completed_days,
+      MAX(state.completed_days) FILTER (WHERE state.scope = 'ad_daily') AS ad_completed_days,
+      COALESCE(recent.recent_account_completed_days, 0) AS recent_account_completed_days,
+      COALESCE(recent.recent_adset_completed_days, 0) AS recent_adset_completed_days,
+      COALESCE(recent.recent_creative_completed_days, 0) AS recent_creative_completed_days,
+      COALESCE(recent.recent_ad_completed_days, 0) AS recent_ad_completed_days,
+      COALESCE(recent.recent_range_total_days, 14) AS recent_range_total_days
     FROM meta_sync_partitions partition
     JOIN businesses b ON b.id::text = partition.business_id
     LEFT JOIN meta_sync_state state
@@ -1459,6 +1500,35 @@ async function readMetaHealthRows() {
       ORDER BY latest.updated_at DESC
       LIMIT 1
     ) checkpoint ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT
+        COUNT(DISTINCT date) FILTER (WHERE scope = 'account_daily') AS recent_account_completed_days,
+        COUNT(DISTINCT date) FILTER (WHERE scope = 'adset_daily') AS recent_adset_completed_days,
+        COUNT(DISTINCT date) FILTER (WHERE scope = 'creative_daily') AS recent_creative_completed_days,
+        COUNT(DISTINCT date) FILTER (WHERE scope = 'ad_daily') AS recent_ad_completed_days,
+        14::int AS recent_range_total_days
+      FROM (
+        SELECT 'account_daily'::text AS scope, date
+        FROM meta_account_daily
+        WHERE business_id = partition.business_id
+          AND date >= CURRENT_DATE - interval '13 days'
+        UNION ALL
+        SELECT 'adset_daily'::text AS scope, date
+        FROM meta_adset_daily
+        WHERE business_id = partition.business_id
+          AND date >= CURRENT_DATE - interval '13 days'
+        UNION ALL
+        SELECT 'creative_daily'::text AS scope, date
+        FROM meta_creative_daily
+        WHERE business_id = partition.business_id
+          AND date >= CURRENT_DATE - interval '13 days'
+        UNION ALL
+        SELECT 'ad_daily'::text AS scope, date
+        FROM meta_ad_daily
+        WHERE business_id = partition.business_id
+          AND date >= CURRENT_DATE - interval '13 days'
+      ) recent_rows
+    ) recent ON TRUE
     LEFT JOIN LATERAL (
       SELECT
         (
@@ -1488,7 +1558,12 @@ async function readMetaHealthRows() {
       checkpoint.last_successful_page_index,
       checkpoint.checkpoint_failures,
       reclaim.reclaim_candidate_count,
-      reclaim.last_reclaim_reason
+      reclaim.last_reclaim_reason,
+      recent.recent_account_completed_days,
+      recent.recent_adset_completed_days,
+      recent.recent_creative_completed_days,
+      recent.recent_ad_completed_days,
+      recent.recent_range_total_days
     HAVING COUNT(*) > 0
     ORDER BY dead_letter_partitions DESC, queue_depth DESC, latest_partition_activity_at DESC
   `) as RawMetaHealthRow[];

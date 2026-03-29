@@ -78,6 +78,7 @@ const META_PARTITION_LEASE_MINUTES = envNumber("META_PARTITION_LEASE_MINUTES", 5
 const META_PARTITION_MAX_ATTEMPTS = envNumber("META_PARTITION_MAX_ATTEMPTS", 6);
 const META_ENQUEUE_BATCH_SIZE = envNumber("META_ENQUEUE_BATCH_SIZE", 25);
 const META_HISTORICAL_ENQUEUE_DAYS_PER_RUN = envNumber("META_HISTORICAL_ENQUEUE_DAYS_PER_RUN", 21);
+const META_RECENT_RECOVERY_DAYS = envNumber("META_RECENT_RECOVERY_DAYS", 14);
 
 function canUseInProcessBackgroundScheduling() {
   return process.env.SYNC_WORKER_MODE !== "1";
@@ -127,6 +128,30 @@ function addDays(date: Date, days: number) {
   const next = new Date(date);
   next.setUTCDate(next.getUTCDate() + days);
   return next;
+}
+
+const META_RECENT_SOURCE_SET = new Set([
+  "priority_window",
+  "today",
+  "request_runtime",
+  "recent",
+  "recent_recovery",
+  "manual_refresh",
+  "core_success",
+]);
+
+const META_HISTORICAL_SOURCE_SET = new Set([
+  "historical",
+  "historical_recovery",
+  "initial_connect",
+]);
+
+function isRecentMetaSource(source: string | null | undefined) {
+  return META_RECENT_SOURCE_SET.has(String(source ?? ""));
+}
+
+function isHistoricalMetaSource(source: string | null | undefined) {
+  return META_HISTORICAL_SOURCE_SET.has(String(source ?? ""));
 }
 
 function enumerateDays(startDate: string, endDate: string, recentFirst = false) {
@@ -506,13 +531,17 @@ async function enqueueMetaHistoricalCorePartitions(
 ) {
   if (!credentials?.accountIds?.length) return 0;
   const { startDate, endDate } = getMetaHistoricalWindow(credentials);
+  const historicalReplayEnd = toIsoDate(
+    addDays(new Date(`${endDate}T00:00:00Z`), -(META_RECENT_RECOVERY_DAYS))
+  );
+  if (historicalReplayEnd < startDate) return 0;
   const completion = await getMetaWarehouseWindowCompletion({
     businessId,
     startDate,
-    endDate,
+    endDate: historicalReplayEnd,
   }).catch(() => null);
   if (completion?.complete) return 0;
-  const dates = enumerateDays(startDate, endDate, true).slice(0, Math.max(1, maxDates));
+  const dates = enumerateDays(startDate, historicalReplayEnd, true).slice(0, Math.max(1, maxDates));
   return enqueueMetaDates({
     businessId,
     accountIds: credentials.accountIds,
@@ -530,7 +559,7 @@ async function enqueueMetaMaintenancePartitions(
 ) {
   if (!credentials?.accountIds?.length) return 0;
   const { endDate, today } = getMetaHistoricalWindow(credentials);
-  const recentStart = addDays(new Date(`${endDate}T00:00:00Z`), -6);
+  const recentStart = addDays(new Date(`${endDate}T00:00:00Z`), -(META_RECENT_RECOVERY_DAYS - 1));
   const recentDates = enumerateDays(toIsoDate(recentStart), endDate, true);
   let queued = 0;
   queued += await enqueueMetaDates({
@@ -595,6 +624,9 @@ async function enqueueMetaExtendedPartitionsForDate(input: {
   date: string;
   source: string;
 }) {
+  const normalizedSource = isHistoricalMetaSource(input.source)
+    ? "historical_recovery"
+    : "recent_recovery";
   for (const scope of META_EXTENDED_SCOPES) {
     await queueMetaSyncPartition({
       businessId: input.businessId,
@@ -603,8 +635,8 @@ async function enqueueMetaExtendedPartitionsForDate(input: {
       scope,
       partitionDate: input.date,
       status: "queued",
-      priority: input.source === "priority_window" ? 90 : 30,
-      source: input.source,
+      priority: normalizedSource === "recent_recovery" ? 55 : 15,
+      source: normalizedSource,
       attemptCount: 0,
     }).catch(() => null);
   }
@@ -836,13 +868,6 @@ export async function syncMetaReports(businessId: string): Promise<MetaSyncResul
       await enqueueMetaMaintenancePartitions(businessId, credentials).catch(() => 0);
     }
 
-    const leasedCorePartitions = await leaseMetaSyncPartitions({
-      businessId,
-      lane: "core",
-      workerId,
-      limit: META_CORE_WORKER_LIMIT,
-      leaseMinutes: META_PARTITION_LEASE_MINUTES,
-    }).catch(() => []);
     const leasedMaintenancePartitions = await leaseMetaSyncPartitions({
       businessId,
       lane: "maintenance",
@@ -850,24 +875,60 @@ export async function syncMetaReports(businessId: string): Promise<MetaSyncResul
       limit: META_MAINTENANCE_WORKER_LIMIT,
       leaseMinutes: META_PARTITION_LEASE_MINUTES,
     }).catch(() => []);
-    let partitions = [...leasedCorePartitions, ...leasedMaintenancePartitions];
-    if (partitions.length === 0) {
-      const queueHealth = await getMetaQueueHealth({ businessId }).catch(() => null);
-      const hasPriorityBacklog =
-        (queueHealth?.coreQueueDepth ?? 0) > 0 ||
-        (queueHealth?.coreLeasedPartitions ?? 0) > 0 ||
-        (queueHealth?.maintenanceQueueDepth ?? 0) > 0 ||
-        (queueHealth?.maintenanceLeasedPartitions ?? 0) > 0;
-      if (!hasPriorityBacklog) {
-        partitions = await leaseMetaSyncPartitions({
-          businessId,
-          lane: "extended",
-          workerId,
-          limit: META_EXTENDED_WORKER_LIMIT,
-          leaseMinutes: META_PARTITION_LEASE_MINUTES,
-        }).catch(() => []);
-      }
-    }
+    const queueHealthAfterPriorityLeases = await getMetaQueueHealth({ businessId }).catch(() => null);
+    const hasMaintenanceBacklogAfterLeasing =
+      (queueHealthAfterPriorityLeases?.maintenanceQueueDepth ?? 0) > 0 ||
+      (queueHealthAfterPriorityLeases?.maintenanceLeasedPartitions ?? 0) > 0;
+    const hasExtendedRecentBacklog =
+      (queueHealthAfterPriorityLeases?.extendedRecentQueueDepth ?? 0) > 0 ||
+      (queueHealthAfterPriorityLeases?.extendedRecentLeasedPartitions ?? 0) > 0;
+    const hasHistoricalCoreBacklog =
+      (queueHealthAfterPriorityLeases?.historicalCoreQueueDepth ?? 0) > 0 ||
+      (queueHealthAfterPriorityLeases?.historicalCoreLeasedPartitions ?? 0) > 0;
+
+    const leasedExtendedRecentPartitions =
+      !hasMaintenanceBacklogAfterLeasing
+        ? await leaseMetaSyncPartitions({
+            businessId,
+            lane: "extended",
+            sources: ["recent", "recent_recovery", "today", "priority_window", "request_runtime", "manual_refresh"],
+            workerId,
+            limit: META_EXTENDED_WORKER_LIMIT,
+            leaseMinutes: META_PARTITION_LEASE_MINUTES,
+          }).catch(() => [])
+        : [];
+
+    const leasedHistoricalCorePartitions =
+      !hasMaintenanceBacklogAfterLeasing && (!hasExtendedRecentBacklog || leasedExtendedRecentPartitions.length === 0)
+        ? await leaseMetaSyncPartitions({
+            businessId,
+            lane: "core",
+            workerId,
+            limit: META_CORE_WORKER_LIMIT,
+            leaseMinutes: META_PARTITION_LEASE_MINUTES,
+          }).catch(() => [])
+        : [];
+
+    const leasedExtendedHistoricalPartitions =
+      !hasMaintenanceBacklogAfterLeasing &&
+      !hasExtendedRecentBacklog &&
+      !hasHistoricalCoreBacklog
+        ? await leaseMetaSyncPartitions({
+            businessId,
+            lane: "extended",
+            sources: ["historical", "historical_recovery", "initial_connect"],
+            workerId,
+            limit: META_EXTENDED_WORKER_LIMIT,
+            leaseMinutes: META_PARTITION_LEASE_MINUTES,
+          }).catch(() => [])
+        : [];
+
+    let partitions = [
+      ...leasedMaintenancePartitions,
+      ...leasedExtendedRecentPartitions,
+      ...leasedHistoricalCorePartitions,
+      ...leasedExtendedHistoricalPartitions,
+    ];
     if (partitions.length === 0) {
       const queueHealth = await getMetaQueueHealth({ businessId }).catch(() => null);
       if ((queueHealth?.queueDepth ?? 0) > 0 || (queueHealth?.leasedPartitions ?? 0) > 0) {

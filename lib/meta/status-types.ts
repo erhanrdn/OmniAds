@@ -111,7 +111,27 @@ export interface MetaStatusResponse {
     latestCoreActivityAt?: string | null;
     latestExtendedActivityAt?: string | null;
     latestMaintenanceActivityAt?: string | null;
+    historicalCoreQueueDepth?: number;
+    historicalCoreLeasedPartitions?: number;
+    extendedRecentQueueDepth?: number;
+    extendedRecentLeasedPartitions?: number;
+    extendedHistoricalQueueDepth?: number;
+    extendedHistoricalLeasedPartitions?: number;
   } | null;
+  extendedRecoveryState?: "core_only" | "extended_recovery" | "extended_normal" | null;
+  recentExtendedReady?: boolean;
+  historicalExtendedReady?: boolean;
+  recentExtendedUsable?: boolean;
+  rangeCompletionBySurface?: Record<
+    "account_daily" | "adset_daily" | "creative_daily" | "ad_daily",
+    {
+      recentCompletedDays: number;
+      recentTotalDays: number;
+      historicalCompletedDays: number;
+      historicalTotalDays: number;
+      readyThroughDate: string | null;
+    }
+  >;
   priorityWindow?: {
     startDate: string;
     endDate: string;

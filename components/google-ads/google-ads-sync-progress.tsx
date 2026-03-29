@@ -44,6 +44,14 @@ function formatSyncCaption(status: GoogleAdsStatusResponse) {
   } else if (latestSync?.phaseLabel) {
     parts.push(latestSync.phaseLabel);
   }
+  if (status.extendedRecoveryState === "extended_recovery" && status.rangeCompletionBySurface) {
+    const recentParts = Object.entries(status.rangeCompletionBySurface).map(
+      ([scope, completion]) => `${scope.replace("_daily", "")} ${completion.recent.completedDays}/${completion.recent.totalDays}`
+    );
+    if (recentParts.length > 0) {
+      parts.push(`Recent recovery: ${recentParts.join(" • ")}`);
+    }
+  }
   if (priorityWindow?.isActive) {
     parts.push(`${priorityWindow.completedDays}/${priorityWindow.totalDays} selected days ready`);
   }
