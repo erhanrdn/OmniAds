@@ -2397,6 +2397,64 @@ export async function getGoogleAdsProductsReport(
     })
     .sort((a, b) => b.revenue - a.revenue);
 
+  if (warehouseSyncMode) {
+    const typedWarehouseRows: Array<Record<string, unknown>> = rows.map((row) => ({
+      ...row,
+      productItemId: row.productId,
+      productTitle: row.productTitle,
+      itemId: row.productId,
+      title: row.productTitle,
+      scaleState: row.statusLabel === "scale" ? "scale" : "monitor",
+      underperformingState: row.statusLabel === "reduce" ? "underperforming" : "healthy",
+      hiddenWinnerState: "visible",
+      classification:
+        row.statusLabel === "scale"
+          ? "scale_product"
+          : row.statusLabel === "reduce"
+          ? "underperforming_product"
+          : "stable_product",
+    }));
+
+    addDebugMeta(meta, "products", context, {
+      date_range: { startDate, endDate },
+      execution_mode: "warehouse_sync",
+      used_legacy_fallback: shouldFallbackToLegacy,
+      warehouse_sync_short_circuit: true,
+    });
+    finalizeMeta(meta);
+
+    const totalSpend = rows.reduce((sum, row) => sum + row.spend, 0);
+    const totalRevenue = rows.reduce((sum, row) => sum + row.revenue, 0);
+
+    return {
+      rows: typedWarehouseRows as unknown as Array<ProductPerformanceRow & Record<string, unknown>>,
+      summary: {
+        totalSpend: Number(totalSpend.toFixed(2)),
+        totalRevenue: Number(totalRevenue.toFixed(2)),
+        accountAverageRoas: totalSpend > 0 ? Number((totalRevenue / totalSpend).toFixed(2)) : 0,
+        scaleCandidates: typedWarehouseRows.filter((row) => row.scaleState === "scale").length,
+        reduceCandidates: typedWarehouseRows.filter(
+          (row) => row.underperformingState === "underperforming"
+        ).length,
+        hiddenWinnerCount: 0,
+        spendConcentrationTop3: Number(
+          rows
+            .slice(0, 3)
+            .reduce((sum, row) => sum + (totalSpend > 0 ? row.spend / totalSpend : 0), 0)
+            .toFixed(2)
+        ),
+      },
+      insights: {
+        topRevenueProducts: [],
+        lowReturnProducts: [],
+        scaleCandidates: [],
+        hiddenWinners: [],
+        spendWithoutReturn: [],
+      },
+      meta,
+    };
+  }
+
   const productAnalysis = analyzeProducts(rows);
   const typedProductRows: Array<Record<string, unknown>> = productAnalysis.rows.map((row) => ({
     ...row,

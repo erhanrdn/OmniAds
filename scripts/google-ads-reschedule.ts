@@ -1,5 +1,8 @@
 import { loadEnvConfig } from "@next/env";
-import { scheduleGoogleAdsBackgroundSync, syncGoogleAdsReports } from "@/lib/sync/google-ads-sync";
+import {
+  enqueueGoogleAdsScheduledWork,
+  refreshGoogleAdsSyncStateForBusiness,
+} from "@/lib/sync/google-ads-sync";
 
 loadEnvConfig(process.cwd());
 
@@ -10,8 +13,8 @@ async function main() {
     process.exit(1);
   }
 
-  scheduleGoogleAdsBackgroundSync({ businessId, delayMs: 0 });
-  const result = await syncGoogleAdsReports(businessId);
+  const result = await enqueueGoogleAdsScheduledWork(businessId);
+  await refreshGoogleAdsSyncStateForBusiness({ businessId }).catch(() => null);
   console.log(JSON.stringify({ businessId, result }, null, 2));
 }
 

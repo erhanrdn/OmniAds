@@ -177,6 +177,23 @@ export interface GoogleAdsStatusResponse {
     googleRunnerLeaseActive?: boolean;
     staleRunPressure?: number;
     extendedSuppressionDecisionTrace?: Record<string, unknown> | null;
+    lastTargetedRepair?: {
+      scope: string | null;
+      triggerSource: string | null;
+      finishedAt: string | null;
+      status: string | null;
+      lastError: string | null;
+    } | null;
+    lastAutoRepair?: {
+      scope: string | null;
+      triggerSource: string | null;
+      finishedAt: string | null;
+      status: string | null;
+      lastError: string | null;
+    } | null;
+    recentGapCountByScope?: Record<string, number>;
+    recentGapRepairingByScope?: Record<string, boolean>;
+    recentGapLastAttemptAtByScope?: Record<string, string | null>;
   } | null;
   panel?: {
     coreUsable: boolean;

@@ -231,6 +231,24 @@ export async function createGoogleAdsSyncJob(input: GoogleAdsSyncJobRecord) {
   // Legacy-only: retained for reset/debug visibility. Queue/status truth must not depend on this table.
   await runMigrations();
   const sql = getDb();
+  if (input.triggerSource.startsWith("manual_targeted_repair:")) {
+    await sql`
+      UPDATE google_ads_sync_jobs
+      SET
+        status = 'cancelled',
+        last_error = COALESCE(last_error, 'manual targeted repair superseded a stale running job'),
+        finished_at = now(),
+        updated_at = now()
+      WHERE business_id = ${input.businessId}
+        AND provider_account_id = ${input.providerAccountId}
+        AND sync_type = ${input.syncType}
+        AND scope = ${input.scope}
+        AND start_date = ${normalizeDate(input.startDate)}
+        AND end_date = ${normalizeDate(input.endDate)}
+        AND trigger_source = ${input.triggerSource}
+        AND status = 'running'
+    `;
+  }
   const insertedRows = await sql`
     INSERT INTO google_ads_sync_jobs (
       business_id,
@@ -1503,8 +1521,45 @@ export async function upsertGoogleAdsDailyRows(
   await runMigrations();
   const sql = getDb();
   const table = tableNameForScope(scope);
+  const batchSize = 100;
 
-  for (const row of rows) {
+  for (let batchStart = 0; batchStart < rows.length; batchStart += batchSize) {
+    const batch = rows.slice(batchStart, batchStart + batchSize);
+    const values: unknown[] = [];
+    const tuples = batch.map((row, index) => {
+      const offset = index * 27;
+      values.push(
+        row.businessId,
+        row.providerAccountId,
+        normalizeDate(row.date),
+        row.accountTimezone,
+        row.accountCurrency,
+        row.entityKey,
+        row.entityLabel,
+        row.campaignId,
+        row.campaignName,
+        row.adGroupId,
+        row.adGroupName,
+        row.status,
+        row.channel,
+        row.classification,
+        JSON.stringify(row.payloadJson ?? {}),
+        row.spend,
+        row.revenue,
+        row.conversions,
+        row.impressions,
+        row.clicks,
+        row.ctr,
+        row.cpc,
+        row.cpa,
+        row.roas,
+        row.conversionRate,
+        row.interactionRate,
+        row.sourceSnapshotId
+      );
+      return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15}::jsonb,$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},now())`;
+    });
+
     await sql.query(
       `
         INSERT INTO ${table} (
@@ -1537,9 +1592,7 @@ export async function upsertGoogleAdsDailyRows(
           source_snapshot_id,
           updated_at
         )
-        VALUES (
-          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,now()
-        )
+        VALUES ${tuples.join(",")}
         ON CONFLICT (business_id, provider_account_id, date, entity_key) DO UPDATE SET
           entity_label = EXCLUDED.entity_label,
           campaign_id = EXCLUDED.campaign_id,
@@ -1564,35 +1617,7 @@ export async function upsertGoogleAdsDailyRows(
           source_snapshot_id = EXCLUDED.source_snapshot_id,
           updated_at = now()
       `,
-      [
-        row.businessId,
-        row.providerAccountId,
-        normalizeDate(row.date),
-        row.accountTimezone,
-        row.accountCurrency,
-        row.entityKey,
-        row.entityLabel,
-        row.campaignId,
-        row.campaignName,
-        row.adGroupId,
-        row.adGroupName,
-        row.status,
-        row.channel,
-        row.classification,
-        JSON.stringify(row.payloadJson ?? {}),
-        row.spend,
-        row.revenue,
-        row.conversions,
-        row.impressions,
-        row.clicks,
-        row.ctr,
-        row.cpc,
-        row.cpa,
-        row.roas,
-        row.conversionRate,
-        row.interactionRate,
-        row.sourceSnapshotId,
-      ]
+      values
     );
   }
 }

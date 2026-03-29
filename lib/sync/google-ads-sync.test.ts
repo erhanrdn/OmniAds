@@ -157,6 +157,16 @@ describe("buildGoogleAdsWarehouseFetchPlan", () => {
     expect(assetPlan.campaigns).toBe(false);
     expect(assetPlan.products).toBe(false);
   });
+
+  it("does not require account or campaign as the primary sync scope for product and asset repairs", () => {
+    const productPlan = buildGoogleAdsWarehouseFetchPlan(["product_daily"]);
+    const assetPlan = buildGoogleAdsWarehouseFetchPlan(["asset_daily"]);
+
+    expect(productPlan.products).toBe(true);
+    expect(productPlan.campaigns).toBe(false);
+    expect(assetPlan.assets).toBe(true);
+    expect(assetPlan.campaigns).toBe(false);
+  });
 });
 
 describe("getGoogleAdsExtendedRecoveryBlockReason", () => {

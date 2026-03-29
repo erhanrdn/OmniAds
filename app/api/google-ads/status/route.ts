@@ -216,8 +216,26 @@ export async function GET(request: NextRequest) {
       AND run.error_class = 'stale_run'
       AND run.updated_at > now() - interval '24 hours'
   ` as Promise<Array<{ stale_run_pressure?: number | string | null }>>;
+  const recentRepairRowsPromise = sql`
+    SELECT
+      scope,
+      COUNT(*) FILTER (WHERE status = 'queued')::int AS queued_count,
+      COUNT(*) FILTER (WHERE status IN ('leased', 'running'))::int AS active_count,
+      MAX(updated_at)::text AS latest_attempt_at
+    FROM google_ads_sync_partitions
+    WHERE business_id = ${businessId!}
+      AND lane = 'extended'
+      AND source = 'recent_recovery'
+      AND scope IN ('search_term_daily', 'product_daily', 'asset_daily')
+    GROUP BY scope
+  ` as Promise<Array<{
+    scope?: string | null;
+    queued_count?: number | string | null;
+    active_count?: number | string | null;
+    latest_attempt_at?: string | null;
+  }>>;
 
-  const [integration, assignments, latestSync, checkpointHealth, workerSchedulingState, staleRunRows] =
+  const [integration, assignments, latestSync, checkpointHealth, workerSchedulingState, staleRunRows, recentRepairRows] =
     await Promise.all([
     getIntegration(businessId!, "google").catch(() => null),
     getProviderAccountAssignments(businessId!, "google").catch(() => null),
@@ -225,9 +243,33 @@ export async function GET(request: NextRequest) {
     getGoogleAdsCheckpointHealth({ businessId: businessId!, providerAccountId: null }).catch(() => null),
     getGoogleAdsWorkerSchedulingState({ businessId: businessId! }).catch(() => null),
     staleRunPressurePromise.catch(() => []),
+    recentRepairRowsPromise.catch(() => []),
   ]);
   const currentMode = decidePanelRecoveryMode();
   const canaryEligible = isGoogleAdsExtendedCanaryBusiness(businessId!);
+  const effectiveLatestSync = latestSync;
+  const lastTargetedRepair =
+    effectiveLatestSync?.trigger_source &&
+    String(effectiveLatestSync.trigger_source).startsWith("manual_targeted_repair:")
+      ? {
+          scope: effectiveLatestSync.scope ? String(effectiveLatestSync.scope) : null,
+          triggerSource: String(effectiveLatestSync.trigger_source),
+          finishedAt: effectiveLatestSync.finished_at ? String(effectiveLatestSync.finished_at) : null,
+          status: effectiveLatestSync.status ? String(effectiveLatestSync.status) : null,
+          lastError: effectiveLatestSync.last_error ? String(effectiveLatestSync.last_error) : null,
+        }
+      : null;
+  const lastAutoRepair =
+    effectiveLatestSync?.trigger_source &&
+    String(effectiveLatestSync.trigger_source).startsWith("auto_recent_repair:")
+      ? {
+          scope: effectiveLatestSync.scope ? String(effectiveLatestSync.scope) : null,
+          triggerSource: String(effectiveLatestSync.trigger_source),
+          finishedAt: effectiveLatestSync.finished_at ? String(effectiveLatestSync.finished_at) : null,
+          status: effectiveLatestSync.status ? String(effectiveLatestSync.status) : null,
+          lastError: effectiveLatestSync.last_error ? String(effectiveLatestSync.last_error) : null,
+        }
+      : null;
 
   const accountIds = assignments?.account_ids ?? [];
   const connected = Boolean(integration?.status === "connected" && integration?.access_token);
@@ -244,7 +286,6 @@ export async function GET(request: NextRequest) {
         AND (${accountIds.length > 0 ? accountIds : null}::text[] IS NULL OR provider_account_id = ANY(${accountIds.length > 0 ? accountIds : null}::text[]))
     `,
   ])) as [Array<Record<string, unknown>>];
-  const effectiveLatestSync = latestSync;
   const warehouseStats = warehouseStatsRows[0] as
     | {
         row_count?: string | number | null;
@@ -827,6 +868,30 @@ export async function GET(request: NextRequest) {
       }),
     },
   } as const;
+  const recentGapCountByScope = Object.fromEntries(
+    Object.entries(rangeCompletionBySurface).map(([scope, surface]) => [
+      scope,
+      Math.max(0, surface.recent.totalDays - surface.recent.completedDays),
+    ])
+  );
+  const recentRepairRowsByScope = new Map(
+    recentRepairRows.map((row) => [String(row.scope ?? ""), row] as const)
+  );
+  const recentGapRepairingByScope = Object.fromEntries(
+    Object.keys(rangeCompletionBySurface).map((scope) => [
+      scope,
+      Number(recentRepairRowsByScope.get(scope)?.queued_count ?? 0) > 0 ||
+        Number(recentRepairRowsByScope.get(scope)?.active_count ?? 0) > 0,
+    ])
+  );
+  const recentGapLastAttemptAtByScope = Object.fromEntries(
+    Object.keys(rangeCompletionBySurface).map((scope) => [
+      scope,
+      recentRepairRowsByScope.get(scope)?.latest_attempt_at
+        ? String(recentRepairRowsByScope.get(scope)?.latest_attempt_at)
+        : null,
+    ])
+  );
   const recentExtendedReady = Object.values(rangeCompletionBySurface).every(
     (surface) => surface.recent.ready
   );
@@ -1081,6 +1146,11 @@ export async function GET(request: NextRequest) {
       googleRunnerLeaseActive: workerSchedulingState?.runnerLeaseActive ?? false,
       staleRunPressure,
       extendedSuppressionDecisionTrace,
+      lastTargetedRepair,
+      lastAutoRepair,
+      recentGapCountByScope,
+      recentGapRepairingByScope,
+      recentGapLastAttemptAtByScope,
     },
     panel: {
       coreUsable,

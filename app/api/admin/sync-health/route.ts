@@ -7,7 +7,11 @@ import {
   replayGoogleAdsDeadLetterPartitions,
 } from "@/lib/google-ads/warehouse";
 import { getAdminOperationsHealth } from "@/lib/admin-operations-health";
-import { enqueueGoogleAdsScheduledWork, refreshGoogleAdsSyncStateForBusiness } from "@/lib/sync/google-ads-sync";
+import {
+  enqueueGoogleAdsScheduledWork,
+  refreshGoogleAdsSyncStateForBusiness,
+  runGoogleAdsTargetedRepair,
+} from "@/lib/sync/google-ads-sync";
 import type { GoogleAdsWarehouseScope } from "@/lib/google-ads/warehouse-types";
 import { cleanupMetaPartitionOrchestration, replayMetaDeadLetterPartitions } from "@/lib/meta/warehouse";
 import { enqueueMetaScheduledWork, refreshMetaSyncStateForBusiness } from "@/lib/sync/meta-sync";
@@ -65,9 +69,12 @@ export async function POST(request: NextRequest) {
             | "reschedule"
             | "refresh_state"
             | "release_quarantine"
-            | "force_manual_replay";
+            | "force_manual_replay"
+            | "targeted_repair";
           businessId?: string;
           scope?: string | null;
+          startDate?: string | null;
+          endDate?: string | null;
         }
       | null;
 
@@ -196,6 +203,32 @@ export async function POST(request: NextRequest) {
     if (body.action === "reschedule") {
       const result = await enqueueGoogleAdsScheduledWork(body.businessId);
       return NextResponse.json({ ok: true, action: body.action, provider: body.provider, result });
+    }
+
+    if (body.action === "targeted_repair") {
+      const scope =
+        body.scope && GOOGLE_ADS_RECOVERY_SCOPES.includes(body.scope as GoogleAdsWarehouseScope)
+          ? (body.scope as GoogleAdsWarehouseScope)
+          : null;
+      if (!scope || !body.startDate || !body.endDate) {
+        return NextResponse.json(
+          { error: "scope, startDate and endDate are required for targeted_repair." },
+          { status: 400 }
+        );
+      }
+
+      const result = await runGoogleAdsTargetedRepair({
+        businessId: body.businessId,
+        scope,
+        startDate: body.startDate,
+        endDate: body.endDate,
+      });
+      return NextResponse.json({
+        ok: true,
+        action: body.action,
+        provider: body.provider,
+        result,
+      });
     }
 
     return NextResponse.json({ error: "Unsupported action." }, { status: 400 });
