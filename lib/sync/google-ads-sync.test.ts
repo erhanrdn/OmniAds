@@ -159,6 +159,45 @@ describe("buildGoogleAdsWarehouseFetchPlan", () => {
 });
 
 describe("getGoogleAdsExtendedRecoveryBlockReason", () => {
+  it("does not blame queued maintenance when maintenance is not actively leased", () => {
+    const policy = buildGoogleAdsLaneAdmissionPolicy({
+      safeModeEnabled: false,
+      workerHealthy: true,
+      workerCapacityAvailable: true,
+      breakerOpen: false,
+      queueDepth: 20,
+      extendedQueueDepth: 12,
+      extendedBudgetAllowed: true,
+      extendedCanaryEligible: true,
+      recoveryMode: "closed",
+    });
+
+    const reason = getGoogleAdsExtendedRecoveryBlockReason({
+      policy,
+      queueHealth: {
+        queueDepth: 20,
+        leasedPartitions: 0,
+        coreQueueDepth: 0,
+        coreLeasedPartitions: 0,
+        extendedQueueDepth: 12,
+        extendedLeasedPartitions: 0,
+        extendedRecentQueueDepth: 12,
+        extendedRecentLeasedPartitions: 0,
+        extendedHistoricalQueueDepth: 0,
+        extendedHistoricalLeasedPartitions: 0,
+        maintenanceQueueDepth: 4,
+        maintenanceLeasedPartitions: 0,
+        deadLetterPartitions: 0,
+        oldestQueuedPartition: "2026-03-20",
+        latestCoreActivityAt: null,
+        latestExtendedActivityAt: null,
+        latestMaintenanceActivityAt: null,
+      },
+    });
+
+    expect(reason).toBe("queue_exists_without_eligible_lease");
+  });
+
   it("explains when recent extended queue exists but is not leasing", () => {
     const policy = buildGoogleAdsLaneAdmissionPolicy({
       safeModeEnabled: false,

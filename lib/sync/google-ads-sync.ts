@@ -311,7 +311,7 @@ export function getGoogleAdsExtendedRecoveryBlockReason(input: {
   if (
     (input.queueHealth?.extendedRecentQueueDepth ?? 0) > 0 &&
     (input.queueHealth?.extendedRecentLeasedPartitions ?? 0) === 0 &&
-    (input.queueHealth?.maintenanceQueueDepth ?? 0) > 0
+    (input.queueHealth?.maintenanceLeasedPartitions ?? 0) > 0
   ) {
     return "maintenance_backlog_blocking_recent_extended";
   }
@@ -390,6 +390,7 @@ function extractSnapshotRows(payload: unknown): GenericRow[] {
 }
 
 async function isGoogleAdsWorkerHealthyForScheduling() {
+  if (process.env.SYNC_WORKER_MODE === "1") return true;
   const health = await getSyncWorkerHealthSummary().catch(() => null);
   if (!health) return false;
   if ((health.onlineWorkers ?? 0) > 0) return true;
@@ -2760,6 +2761,12 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
     });
     await enqueueHistoricalCorePartitions(businessId).catch(() => 0);
     await enqueueMaintenancePartitions(businessId).catch(() => null);
+    if (incidentPolicy) {
+      await enqueueExtendedRecoveryPartitions({
+        businessId,
+        policy: incidentPolicy,
+      }).catch(() => ({ queuedRecent: 0, queuedHistorical: 0 }));
+    }
 
     let partitions = await leaseGoogleAdsSyncPartitions({
       businessId,
@@ -2779,12 +2786,47 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
       }).catch(() => []);
     }
     partitions = [...partitions, ...maintenancePartitions];
-    if (partitions.length === 0) {
-      const queueHealth = await getGoogleAdsQueueHealth({ businessId }).catch(() => null);
-      const livePolicy = await getGoogleAdsIncidentPolicy({
+    const queueHealthAfterMaintenance = await getGoogleAdsQueueHealth({ businessId }).catch(() => null);
+    const livePolicyAfterMaintenance = await getGoogleAdsIncidentPolicy({
+      businessId,
+      queueHealth: queueHealthAfterMaintenance,
+    }).catch(() => null);
+    const canInterleaveExtended =
+      partitions.every((partition) => partition.lane !== "core") &&
+      !livePolicyAfterMaintenance?.suspendExtended &&
+      (queueHealthAfterMaintenance?.extendedQueueDepth ?? 0) > 0;
+    if (canInterleaveExtended) {
+      const interleavedExtendedPartitions = await leaseGoogleAdsSyncPartitions({
         businessId,
-        queueHealth,
-      }).catch(() => null);
+        lane: "extended",
+        workerId,
+        limit:
+          livePolicyAfterMaintenance?.extendedCanaryEligible &&
+          !GOOGLE_ADS_EXTENDED_REOPEN_GENERAL_ENABLED
+            ? GOOGLE_ADS_EXTENDED_CANARY_BURST_WORKER_LIMIT
+            : GOOGLE_ADS_EXTENDED_BURST_WORKER_LIMIT,
+        leaseMinutes: GOOGLE_ADS_PARTITION_LEASE_MINUTES,
+        sourceFilter:
+          livePolicyAfterMaintenance?.lanePolicy.extendedHistorical === "suspended"
+            ? "recent_only"
+            : "all",
+      }).catch(() => []);
+      partitions = [...partitions, ...interleavedExtendedPartitions];
+      if (
+        interleavedExtendedPartitions.length > 0 &&
+        livePolicyAfterMaintenance?.recoveryMode === "closed"
+      ) {
+        await enterProviderGlobalCircuitBreakerRecoveryState({
+          provider: "google",
+          businessId,
+          message: "Google Ads extended sync is reopening in canary half-open mode.",
+          cooldownMs: GOOGLE_ADS_CIRCUIT_BREAKER_BASE_MINUTES * 60_000,
+        }).catch(() => null);
+      }
+    }
+    if (partitions.length === 0) {
+      const queueHealth = queueHealthAfterMaintenance;
+      const livePolicy = livePolicyAfterMaintenance;
       if (!livePolicy?.suspendExtended) {
         partitions = await leaseGoogleAdsSyncPartitions({
           businessId,
@@ -2846,7 +2888,6 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
       (postBatchQueueHealth?.extendedQueueDepth ?? 0) > 0 &&
       (postBatchQueueHealth?.coreQueueDepth ?? 0) <= GOOGLE_ADS_EXTENDED_CORE_BACKLOG_THRESHOLD &&
       (postBatchQueueHealth?.coreLeasedPartitions ?? 0) === 0 &&
-      (postBatchQueueHealth?.maintenanceQueueDepth ?? 0) === 0 &&
       (postBatchQueueHealth?.maintenanceLeasedPartitions ?? 0) === 0 &&
       !incidentPolicy?.suspendExtended;
 
