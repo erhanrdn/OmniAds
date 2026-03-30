@@ -126,6 +126,12 @@ export interface MetaStatusResponse {
     consumeStage?: string | null;
     staleRunPressure?: number;
     blockReason?: string | null;
+    queueSummary?: {
+      historicalCoreQueued: number;
+      maintenanceQueued: number;
+      extendedRecentQueued: number;
+      extendedHistoricalQueued: number;
+    } | null;
   } | null;
   extendedRecoveryState?: "core_only" | "extended_recovery" | "extended_normal" | null;
   recentExtendedReady?: boolean;

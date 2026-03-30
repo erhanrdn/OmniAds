@@ -19,6 +19,7 @@ import {
 } from "@/lib/google-ads/warehouse";
 import {
   decideGoogleAdsAdvisorReadiness,
+  decideGoogleAdsFullSyncPriority,
   decideGoogleAdsStatusState,
 } from "@/lib/google-ads/status-machine";
 import {
@@ -833,6 +834,10 @@ export async function GET(request: NextRequest) {
   });
   const advisorReady = advisorDecision.ready;
   const advisorNotReady = advisorDecision.notReady;
+  const fullSyncPriority = decideGoogleAdsFullSyncPriority({
+    advisorReady,
+    advisorMissingSurfaces,
+  });
   const availableSurfaces = [
     overallAccountCompletedDays >= effectiveHistoricalTotalDays ? "account_daily" : null,
     overallCompletedDays >= effectiveHistoricalTotalDays ? "campaign_daily" : null,
@@ -1237,13 +1242,15 @@ export async function GET(request: NextRequest) {
       missingSurfaces: advisorMissingSurfaces,
       readyRangeStart: advisorReady ? selectedStartDate : null,
       readyRangeEnd: advisorReady ? selectedEndDate : null,
-      blockingMessage: buildAdvisorBlockingMessage({
-        connected,
-        assignedAccountCount: accountIds.length,
-        deadLetterPartitions: queueHealth?.deadLetterPartitions ?? 0,
-        selectedWindowMissingSurfaces: advisorMissingSurfaces,
-        firstSupportWindowWithMissingSurfaces,
-      }),
+      blockingMessage:
+        fullSyncPriority.reason ??
+        buildAdvisorBlockingMessage({
+          connected,
+          assignedAccountCount: accountIds.length,
+          deadLetterPartitions: queueHealth?.deadLetterPartitions ?? 0,
+          selectedWindowMissingSurfaces: advisorMissingSurfaces,
+          firstSupportWindowWithMissingSurfaces,
+        }),
       selectedWindow:
         advisorWindowSet && selectedStartDate && selectedEndDate
           ? {
@@ -1288,6 +1295,8 @@ export async function GET(request: NextRequest) {
       googleWorkerHealthy: workerSchedulingState?.healthy ?? false,
       googleHeartbeatAgeMs: workerSchedulingState?.heartbeatAgeMs ?? null,
       googleRunnerLeaseActive: workerSchedulingState?.runnerLeaseActive ?? false,
+      fullSyncPriorityRequired: fullSyncPriority.required,
+      fullSyncPriorityReason: fullSyncPriority.reason,
       workerBuildId,
       workerStartedAt,
       lastWorkerHeartbeatAt: workerSchedulingState?.lastHeartbeatAt ?? null,

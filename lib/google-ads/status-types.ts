@@ -175,6 +175,8 @@ export interface GoogleAdsStatusResponse {
     googleWorkerHealthy?: boolean;
     googleHeartbeatAgeMs?: number | null;
     googleRunnerLeaseActive?: boolean;
+    fullSyncPriorityRequired?: boolean;
+    fullSyncPriorityReason?: string | null;
     staleRunPressure?: number;
     extendedSuppressionDecisionTrace?: Record<string, unknown> | null;
     lastTargetedRepair?: {

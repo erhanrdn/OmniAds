@@ -499,17 +499,39 @@ function MetaStatusBanner({
       );
     }
 
+    const queueSummary = status.operations?.queueSummary;
+    const hasHistoricalBackfillPressure =
+      (queueSummary?.historicalCoreQueued ?? 0) > 0 ||
+      (queueSummary?.extendedHistoricalQueued ?? 0) > 0;
+    const hasMaintenancePressure = (queueSummary?.maintenanceQueued ?? 0) > 0;
+
     return (
       <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
         <p className="text-sm font-semibold text-amber-900">
-          {language === "tr"
-            ? "Meta senkronu gecikmeli ilerliyor."
-            : "Meta sync is progressing with delays."}
+          {hasHistoricalBackfillPressure
+            ? language === "tr"
+              ? "Meta geçmiş backfill kuyruğu hâlâ boşaltılıyor."
+              : "Historical Meta backfill is still draining."
+            : hasMaintenancePressure
+              ? language === "tr"
+                ? "Meta yakın dönem bakım senkronu aktif."
+                : "Recent Meta maintenance sync is active."
+              : language === "tr"
+                ? "Meta senkronu gecikmeli ilerliyor."
+                : "Meta sync is progressing with delays."}
         </p>
         <p className="mt-1.5 text-sm text-amber-800">
-          {language === "tr"
-            ? "Kuyruktaki işler korunuyor. Worker kuyruğu işlerken senkron kademeli olarak ilerleyecek."
-            : "Queued work is safe. Sync will continue as the worker drains the backlog."}
+          {hasHistoricalBackfillPressure
+            ? language === "tr"
+              ? "Kuyruktaki tarihsel işler güvenli. Worker core ve extended geçmiş günü kapattıkça kapsam kademeli olarak artacak."
+              : "Historical queued work is safe. Coverage will expand as the worker closes core and extended backfill days."
+            : hasMaintenancePressure
+              ? language === "tr"
+                ? "Kuyruktaki işler güvenli. Worker yakın dönem düzeltme ve bakım işlerini tamamladıkça güncel görünüm toparlanacak."
+                : "Queued work is safe. The current view will improve as the worker completes recent maintenance and recovery work."
+              : language === "tr"
+                ? "Kuyruktaki işler korunuyor. Worker kuyruğu işlerken senkron kademeli olarak ilerleyecek."
+                : "Queued work is safe. Sync will continue as the worker drains the backlog."}
         </p>
         {status.latestSync?.lastError ? (
           <p className="mt-2 text-xs text-amber-800/80">{status.latestSync.lastError}</p>

@@ -1388,6 +1388,121 @@ export async function getMetaQueueHealth(input: { businessId: string }) {
   };
 }
 
+export interface MetaQueueCompositionSummary {
+  historicalCoreQueued: number;
+  maintenanceQueued: number;
+  extendedRecentQueued: number;
+  extendedHistoricalQueued: number;
+}
+
+export interface MetaQueueComposition {
+  summary: MetaQueueCompositionSummary;
+  statusCounts: Record<string, number>;
+  laneSourceStatusCounts: Array<{
+    lane: string;
+    source: string;
+    status: string;
+    count: number;
+  }>;
+}
+
+export async function getMetaQueueComposition(input: { businessId: string }): Promise<MetaQueueComposition> {
+  await runMigrations();
+  const sql = getDb();
+  const [statusRows, breakdownRows] = (await Promise.all([
+    sql`
+      SELECT status, COUNT(*)::int AS count
+      FROM meta_sync_partitions
+      WHERE business_id = ${input.businessId}
+      GROUP BY status
+      ORDER BY status
+    `,
+    sql`
+      SELECT lane, source, status, COUNT(*)::int AS count
+      FROM meta_sync_partitions
+      WHERE business_id = ${input.businessId}
+      GROUP BY lane, source, status
+      ORDER BY lane, source, status
+    `,
+  ])) as [Array<Record<string, unknown>>, Array<Record<string, unknown>>];
+
+  const normalizedBreakdown = breakdownRows.map((row) => ({
+    lane: String(row.lane ?? ""),
+    source: String(row.source ?? ""),
+    status: String(row.status ?? ""),
+    count: toNumber(row.count),
+  }));
+
+  return {
+    summary: {
+      historicalCoreQueued: normalizedBreakdown
+        .filter(
+          (row) =>
+            row.lane === "core" &&
+            row.status === "queued" &&
+            ["historical", "historical_recovery", "initial_connect"].includes(row.source)
+        )
+        .reduce((sum, row) => sum + row.count, 0),
+      maintenanceQueued: normalizedBreakdown
+        .filter((row) => row.lane === "maintenance" && row.status === "queued")
+        .reduce((sum, row) => sum + row.count, 0),
+      extendedRecentQueued: normalizedBreakdown
+        .filter(
+          (row) =>
+            row.lane === "extended" &&
+            row.status === "queued" &&
+            ["recent", "recent_recovery", "today", "priority_window", "request_runtime", "manual_refresh"].includes(
+              row.source
+            )
+        )
+        .reduce((sum, row) => sum + row.count, 0),
+      extendedHistoricalQueued: normalizedBreakdown
+        .filter(
+          (row) =>
+            row.lane === "extended" &&
+            row.status === "queued" &&
+            ["historical", "historical_recovery", "initial_connect"].includes(row.source)
+        )
+        .reduce((sum, row) => sum + row.count, 0),
+    },
+    statusCounts: Object.fromEntries(
+      statusRows.map((row) => [String(row.status ?? "unknown"), toNumber(row.count)])
+    ),
+    laneSourceStatusCounts: normalizedBreakdown,
+  };
+}
+
+export async function getMetaPartitionStatesForDate(input: {
+  businessId: string;
+  providerAccountId: string;
+  lane: MetaSyncLane;
+  partitionDate: string;
+  scopes: MetaWarehouseScope[];
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = await sql`
+    SELECT scope, status, source, finished_at
+    FROM meta_sync_partitions
+    WHERE business_id = ${input.businessId}
+      AND provider_account_id = ${input.providerAccountId}
+      AND lane = ${input.lane}
+      AND partition_date = ${normalizeDate(input.partitionDate)}
+      AND scope = ANY(${input.scopes}::text[])
+  ` as Array<Record<string, unknown>>;
+
+  return new Map(
+    rows.map((row) => [
+      String(row.scope ?? ""),
+      {
+        status: String(row.status ?? ""),
+        source: String(row.source ?? ""),
+        finishedAt: normalizeTimestamp(row.finished_at),
+      },
+    ])
+  );
+}
+
 export async function getMetaPartitionHealth(input: {
   businessId: string;
   providerAccountId?: string | null;

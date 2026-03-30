@@ -302,6 +302,14 @@ function getAdvisorIdleState(
       description: "Advisor analysis is available on demand for this date range.",
     };
   }
+  if (status.operations?.fullSyncPriorityRequired) {
+    return {
+      title: "Full sync is prioritized before advisor analysis",
+      description:
+        status.operations.fullSyncPriorityReason ??
+        "Advisor analysis will unlock automatically after the required historical support finishes backfilling.",
+    };
+  }
   return {
     title: "Run analysis when historical support is ready",
     description:
@@ -1128,7 +1136,9 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                   </button>
                   <p className="text-[11px] text-muted-foreground">
                     {!advisorReady
-                      ? syncStatus?.advisor?.blockingMessage ?? "Waiting for historical advisor data"
+                      ? syncStatus?.operations?.fullSyncPriorityReason ??
+                        syncStatus?.advisor?.blockingMessage ??
+                        "Waiting for historical advisor data"
                       : advisorIsStale
                         ? "Analysis is out of date for this range"
                         : lastAnalyzedLabel

@@ -476,7 +476,14 @@ export async function getGoogleAdsRunnerLeaseHealth(input: {
 export async function queueGoogleAdsSyncPartition(input: GoogleAdsSyncPartitionRecord) {
   await runMigrations();
   const sql = getDb();
-  const priorityResetSources = ["selected_range", "recent", "today", "recent_recovery", "core_success"];
+  const priorityResetSources = [
+    "selected_range",
+    "recent",
+    "today",
+    "recent_recovery",
+    "historical_recovery",
+    "core_success",
+  ];
   const rows = await sql`
     INSERT INTO google_ads_sync_partitions (
       business_id,
@@ -567,7 +574,8 @@ export async function leaseGoogleAdsSyncPartitions(input: {
   workerId: string;
   limit: number;
   leaseMinutes?: number;
-  sourceFilter?: "all" | "recent_only";
+  sourceFilter?: "all" | "recent_only" | "historical_only";
+  scopeFilter?: GoogleAdsWarehouseScope[];
 }) {
   await runMigrations();
   const sql = getDb();
@@ -581,9 +589,14 @@ export async function leaseGoogleAdsSyncPartitions(input: {
         WHERE business_id = $1
           AND ($2::text IS NULL OR lane = $2)
           AND (
+            COALESCE(array_length($7::text[], 1), 0) = 0
+            OR scope = ANY($7::text[])
+          )
+          AND (
             $6::text IS NULL
             OR $6::text = 'all'
             OR ($6::text = 'recent_only' AND source IN ('selected_range', 'today', 'recent', 'core_success', 'recent_recovery'))
+            OR ($6::text = 'historical_only' AND source IN ('historical', 'historical_recovery'))
           )
           AND (
             status = 'queued'
@@ -629,6 +642,7 @@ export async function leaseGoogleAdsSyncPartitions(input: {
       input.workerId,
       String(input.leaseMinutes ?? 5),
       input.sourceFilter ?? "all",
+      input.scopeFilter ?? [],
     ]
   ) as Array<Record<string, unknown>>;
 

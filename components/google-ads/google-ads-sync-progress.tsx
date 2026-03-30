@@ -99,7 +99,11 @@ function getTitle(status: GoogleAdsStatusResponse) {
   if (status.state === "action_required") return "Google Ads sync needs attention";
   if (status.state === "paused") return "Google Ads historical sync is paused";
   if (status.priorityWindow?.isActive) return "Preparing selected dates";
-  if (status.state === "advisor_not_ready") return "Advisor support is still preparing";
+  if (status.state === "advisor_not_ready") {
+    return status.operations?.fullSyncPriorityRequired
+      ? "Full advisor support is being backfilled"
+      : "Advisor support is still preparing";
+  }
   if (status.state === "stale") return "Google Ads sync is catching up";
   if (status.state === "partial") return "Google Ads data is partially ready";
   if (status.state === "syncing") return "Google Ads historical data is syncing";
@@ -126,6 +130,12 @@ function getDescription(status: GoogleAdsStatusResponse) {
     return "The selected date range is being written first so this screen can fill in sooner.";
   }
   if (status.state === "advisor_not_ready") {
+    if (status.operations?.fullSyncPriorityRequired) {
+      return (
+        status.operations.fullSyncPriorityReason ??
+        "Core Google Ads history is live. Full advisor support is being backfilled before analysis is enabled."
+      );
+    }
     return "Core Google Ads history is ready. Search term and product history are still filling in for advisor analysis.";
   }
   if (status.state === "partial" || status.state === "syncing" || status.state === "stale") {

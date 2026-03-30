@@ -57,6 +57,7 @@ import {
 import {
   GOOGLE_ADS_WAREHOUSE_HISTORY_DAYS,
   addDaysToIsoDate,
+  dayCountInclusive,
   enumerateDays,
   getHistoricalWindowStart,
 } from "@/lib/google-ads/history";
@@ -105,6 +106,10 @@ const GOOGLE_ADS_EXTENDED_WORKER_LIMIT = envNumber("GOOGLE_ADS_EXTENDED_WORKER_L
 const GOOGLE_ADS_EXTENDED_BURST_WORKER_LIMIT = envNumber(
   "GOOGLE_ADS_EXTENDED_BURST_WORKER_LIMIT",
   3
+);
+const GOOGLE_ADS_EXTENDED_FULL_SYNC_PRIORITY_LIMIT = envNumber(
+  "GOOGLE_ADS_EXTENDED_FULL_SYNC_PRIORITY_LIMIT",
+  2
 );
 const GOOGLE_ADS_EXTENDED_CORE_BACKLOG_THRESHOLD = envNumber(
   "GOOGLE_ADS_EXTENDED_CORE_BACKLOG_THRESHOLD",
@@ -230,6 +235,15 @@ const GOOGLE_ADS_EXTENDED_SCOPES: GoogleAdsWarehouseScope[] = [
 const GOOGLE_ADS_RECENT_SELF_HEAL_SCOPES: GoogleAdsWarehouseScope[] = [
   "search_term_daily",
   "product_daily",
+  "asset_daily",
+];
+
+const GOOGLE_ADS_ADVISOR_PRIMARY_PRIORITY_SCOPES: GoogleAdsWarehouseScope[] = [
+  "search_term_daily",
+  "product_daily",
+];
+
+const GOOGLE_ADS_ADVISOR_SUPPORTIVE_PRIORITY_SCOPES: GoogleAdsWarehouseScope[] = [
   "asset_daily",
 ];
 
@@ -391,6 +405,34 @@ function getGoogleAdsHistoricalLeaseLimit(input: {
       ? GOOGLE_ADS_EXTENDED_CANARY_BURST_WORKER_LIMIT
       : GOOGLE_ADS_EXTENDED_WORKER_LIMIT;
   return Math.max(1, baseLimit);
+}
+
+function applyGoogleAdsFullSyncPriorityPolicyOverride(input: {
+  policy: Awaited<ReturnType<typeof getGoogleAdsIncidentPolicy>> | null;
+  fullSyncPriorityRequired: boolean;
+}) {
+  const policy = input.policy;
+  if (
+    !policy ||
+    !input.fullSyncPriorityRequired ||
+    policy.safeModeEnabled ||
+    policy.breakerOpen
+  ) {
+    return policy;
+  }
+
+  return {
+    ...policy,
+    lanePolicy: {
+      ...policy.lanePolicy,
+      extended: "admit" as const,
+      extendedHistorical: "admit" as const,
+    },
+    suspendExtended: false,
+    suspendExtendedHistorical: false,
+    executionMode:
+      policy.executionMode === "core_only" ? ("extended_recovery" as const) : policy.executionMode,
+  };
 }
 
 function isGoogleAdsRecentExtendedSource(source: string | null | undefined) {
@@ -637,6 +679,7 @@ async function compactGoogleAdsIncidentBacklog(input: {
 async function enqueueExtendedRecoveryPartitions(input: {
   businessId: string;
   policy: Awaited<ReturnType<typeof getGoogleAdsIncidentPolicy>>;
+  scopes?: GoogleAdsWarehouseScope[];
 }) {
   if (input.policy.lanePolicy.extendedHistorical === "suspended") {
     return {
@@ -658,9 +701,13 @@ async function enqueueExtendedRecoveryPartitions(input: {
   );
   const historicalReplayEnd = addDaysToIsoDate(recentStart, -1);
   let queuedHistorical = 0;
+  const scopes =
+    input.scopes?.length
+      ? input.scopes
+      : GOOGLE_ADS_EXTENDED_SCOPES;
 
   for (const providerAccountId of accountIds) {
-    for (const scope of GOOGLE_ADS_EXTENDED_SCOPES) {
+    for (const scope of scopes) {
       if (historicalReplayEnd >= historicalStart) {
         const [coveredDates, activeDates] = await Promise.all([
           getGoogleAdsCoveredDates({
@@ -704,6 +751,38 @@ async function enqueueExtendedRecoveryPartitions(input: {
 
   return {
     queuedHistorical,
+  };
+}
+
+async function getGoogleAdsFullSyncPriorityState(input: { businessId: string }) {
+  const { historicalStart, yesterday } = await computeHistoricalTargets(input.businessId);
+  const totalDays = dayCountInclusive(historicalStart, yesterday);
+  const coverageRows = await Promise.all(
+    [...GOOGLE_ADS_ADVISOR_PRIMARY_PRIORITY_SCOPES, ...GOOGLE_ADS_ADVISOR_SUPPORTIVE_PRIORITY_SCOPES].map(
+      async (scope) => ({
+        scope,
+        coverage: await getGoogleAdsDailyCoverage({
+          scope,
+          businessId: input.businessId,
+          providerAccountId: null,
+          startDate: historicalStart,
+          endDate: yesterday,
+        }).catch(() => null),
+      })
+    )
+  );
+  const targetScopes = coverageRows
+    .filter((entry) => Number(entry.coverage?.completed_days ?? 0) < totalDays)
+    .map((entry) => entry.scope);
+  const required = targetScopes.some((scope) =>
+    GOOGLE_ADS_ADVISOR_PRIMARY_PRIORITY_SCOPES.includes(scope)
+  );
+  return {
+    required,
+    targetScopes,
+    totalDays,
+    historicalStart,
+    yesterday,
   };
 }
 
@@ -3016,15 +3095,26 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
     },
     runProgressGraceMinutes: GOOGLE_ADS_RUN_PROGRESS_GRACE_MINUTES,
   }).catch(() => null);
+  const fullSyncPriority = await getGoogleAdsFullSyncPriorityState({ businessId }).catch(() => ({
+    required: false,
+    targetScopes: [] as GoogleAdsWarehouseScope[],
+    totalDays: 0,
+    historicalStart: null,
+    yesterday: null,
+  }));
   const initialQueueHealth = await getGoogleAdsQueueHealth({ businessId }).catch(() => null);
   const initialIncidentPolicy = await getGoogleAdsIncidentPolicy({
     businessId,
     queueHealth: initialQueueHealth,
   }).catch(() => null);
-  if (initialIncidentPolicy) {
+  const effectiveInitialIncidentPolicy = applyGoogleAdsFullSyncPriorityPolicyOverride({
+    policy: initialIncidentPolicy,
+    fullSyncPriorityRequired: fullSyncPriority.required,
+  });
+  if (effectiveInitialIncidentPolicy) {
     await compactGoogleAdsIncidentBacklog({
       businessId,
-      policy: initialIncidentPolicy,
+      policy: effectiveInitialIncidentPolicy,
     }).catch(() => null);
   }
 
@@ -3072,10 +3162,14 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
       businessId,
       queueHealth: queueHealthAfterPlanning,
     }).catch(() => null);
+    const effectivePolicyBeforeRecentRepair = applyGoogleAdsFullSyncPriorityPolicyOverride({
+      policy: policyBeforeRecentRepair,
+      fullSyncPriorityRequired: fullSyncPriority.required,
+    });
     const recentRepairPlan = policyBeforeRecentRepair
       ? await enqueueGoogleAdsRecentRepairPartitions({
           businessId,
-          policy: policyBeforeRecentRepair,
+          policy: effectivePolicyBeforeRecentRepair ?? policyBeforeRecentRepair,
         }).catch(() => ({
           queuedRecent: 0,
           gapCountsByScope: Object.fromEntries(
@@ -3094,10 +3188,15 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
       businessId,
       queueHealth: queueHealthAfterRecentPlanning,
     }).catch(() => null);
-    if (policyBeforeHistoricalRecovery) {
+    const effectivePolicyBeforeHistoricalRecovery = applyGoogleAdsFullSyncPriorityPolicyOverride({
+      policy: policyBeforeHistoricalRecovery,
+      fullSyncPriorityRequired: fullSyncPriority.required,
+    });
+    if (effectivePolicyBeforeHistoricalRecovery) {
       await enqueueExtendedRecoveryPartitions({
         businessId,
-        policy: policyBeforeHistoricalRecovery,
+        policy: effectivePolicyBeforeHistoricalRecovery,
+        scopes: fullSyncPriority.required ? fullSyncPriority.targetScopes : undefined,
       }).catch(() => ({ queuedHistorical: 0 }));
     }
 
@@ -3114,10 +3213,14 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
       businessId,
       queueHealth: queueHealthAfterCore,
     }).catch(() => null);
+    const effectiveLivePolicyAfterCore = applyGoogleAdsFullSyncPriorityPolicyOverride({
+      policy: livePolicyAfterCore,
+      fullSyncPriorityRequired: fullSyncPriority.required,
+    });
     let recentExtendedPartitions: typeof partitions = [];
     if (
       shouldLeaseGoogleAdsRecentRepair({
-        policy: livePolicyAfterCore,
+        policy: effectiveLivePolicyAfterCore,
         queueHealth: queueHealthAfterCore,
       })
     ) {
@@ -3125,25 +3228,59 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
         businessId,
         lane: "extended",
         workerId,
-        limit: getGoogleAdsRecentRepairLeaseLimit({ policy: livePolicyAfterCore }),
+        limit: getGoogleAdsRecentRepairLeaseLimit({ policy: effectiveLivePolicyAfterCore }),
         leaseMinutes: GOOGLE_ADS_PARTITION_LEASE_MINUTES,
         sourceFilter: "recent_only",
       }).catch(() => []);
     }
     partitions = [...partitions, ...recentExtendedPartitions];
 
+    let fullSyncPriorityPartitions: typeof partitions = [];
+    if (
+      fullSyncPriority.required &&
+      fullSyncPriority.targetScopes.length > 0 &&
+      effectiveLivePolicyAfterCore?.lanePolicy.extendedHistorical !== "suspended"
+    ) {
+      fullSyncPriorityPartitions = await leaseGoogleAdsSyncPartitions({
+        businessId,
+        lane: "extended",
+        workerId,
+        limit: Math.max(
+          1,
+          Math.min(
+            GOOGLE_ADS_EXTENDED_FULL_SYNC_PRIORITY_LIMIT,
+            getGoogleAdsHistoricalLeaseLimit({ policy: effectiveLivePolicyAfterCore })
+          )
+        ),
+        leaseMinutes: GOOGLE_ADS_PARTITION_LEASE_MINUTES,
+        sourceFilter: "historical_only",
+        scopeFilter: fullSyncPriority.targetScopes,
+      }).catch(() => []);
+    }
+    partitions = [...partitions, ...fullSyncPriorityPartitions];
+
     const queueHealthAfterRecentLease = await getGoogleAdsQueueHealth({ businessId }).catch(() => null);
     const livePolicyAfterRecentLease = await getGoogleAdsIncidentPolicy({
       businessId,
       queueHealth: queueHealthAfterRecentLease,
     }).catch(() => null);
+    const effectiveLivePolicyAfterRecentLease = applyGoogleAdsFullSyncPriorityPolicyOverride({
+      policy: livePolicyAfterRecentLease,
+      fullSyncPriorityRequired: fullSyncPriority.required,
+    });
     let maintenancePartitions: typeof partitions = [];
-    if (livePolicyAfterRecentLease?.lanePolicy.maintenance !== "suspended") {
+    const maintenanceLimit = fullSyncPriority.required
+      ? Math.min(1, GOOGLE_ADS_MAINTENANCE_WORKER_LIMIT)
+      : GOOGLE_ADS_MAINTENANCE_WORKER_LIMIT;
+    if (
+      maintenanceLimit > 0 &&
+      effectiveLivePolicyAfterRecentLease?.lanePolicy.maintenance !== "suspended"
+    ) {
       maintenancePartitions = await leaseGoogleAdsSyncPartitions({
         businessId,
         lane: "maintenance",
         workerId,
-        limit: GOOGLE_ADS_MAINTENANCE_WORKER_LIMIT,
+        limit: maintenanceLimit,
         leaseMinutes: GOOGLE_ADS_PARTITION_LEASE_MINUTES,
       }).catch(() => []);
     }
@@ -3153,10 +3290,14 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
       businessId,
       queueHealth: queueHealthAfterMaintenance,
     }).catch(() => null);
+    const effectiveLivePolicyAfterMaintenance = applyGoogleAdsFullSyncPriorityPolicyOverride({
+      policy: livePolicyAfterMaintenance,
+      fullSyncPriorityRequired: fullSyncPriority.required,
+    });
 
     if (partitions.length === 0) {
       const queueHealth = queueHealthAfterMaintenance;
-      const livePolicy = livePolicyAfterMaintenance;
+      const livePolicy = effectiveLivePolicyAfterMaintenance;
       if (!livePolicy?.suspendExtended) {
         partitions = await leaseGoogleAdsSyncPartitions({
           businessId,
@@ -3165,9 +3306,12 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
           limit: getGoogleAdsHistoricalLeaseLimit({ policy: livePolicy }),
           leaseMinutes: GOOGLE_ADS_PARTITION_LEASE_MINUTES,
           sourceFilter:
-            livePolicy?.lanePolicy.extendedHistorical === "suspended"
+            fullSyncPriority.required
+              ? "historical_only"
+              : livePolicy?.lanePolicy.extendedHistorical === "suspended"
               ? "recent_only"
               : "all",
+          scopeFilter: fullSyncPriority.required ? fullSyncPriority.targetScopes : undefined,
         }).catch(() => []);
         if (partitions.length > 0 && livePolicy?.recoveryMode === "closed") {
           await enterProviderGlobalCircuitBreakerRecoveryState({
@@ -3217,6 +3361,10 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
       businessId,
       queueHealth: postBatchQueueHealth,
     }).catch(() => null);
+    livePolicyAfterBatch = applyGoogleAdsFullSyncPriorityPolicyOverride({
+      policy: livePolicyAfterBatch,
+      fullSyncPriorityRequired: fullSyncPriority.required,
+    });
     const shouldBurstExtended =
       partitions.every((partition) => partition.lane !== "extended") &&
       (postBatchQueueHealth?.extendedQueueDepth ?? 0) > 0 &&
@@ -3238,11 +3386,20 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
         lane: "extended",
         workerId,
         limit:
-          burstSourceFilter === "recent_only"
+          fullSyncPriority.required
+            ? Math.max(
+                1,
+                Math.min(
+                  GOOGLE_ADS_EXTENDED_FULL_SYNC_PRIORITY_LIMIT,
+                  getGoogleAdsHistoricalLeaseLimit({ policy: livePolicyAfterBatch })
+                )
+              )
+            : burstSourceFilter === "recent_only"
             ? getGoogleAdsRecentRepairLeaseLimit({ policy: livePolicyAfterBatch })
             : GOOGLE_ADS_EXTENDED_BURST_WORKER_LIMIT,
         leaseMinutes: GOOGLE_ADS_PARTITION_LEASE_MINUTES,
-        sourceFilter: burstSourceFilter,
+        sourceFilter: fullSyncPriority.required ? "historical_only" : burstSourceFilter,
+        scopeFilter: fullSyncPriority.required ? fullSyncPriority.targetScopes : undefined,
       }).catch(() => []);
 
       attempted += extendedPartitions.length;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   decideGoogleAdsAdvisorReadiness,
+  decideGoogleAdsFullSyncPriority,
   decideGoogleAdsStatusState,
 } from "@/lib/google-ads/status-machine";
 
@@ -108,5 +109,44 @@ describe("decideGoogleAdsStatusState", () => {
         deadLetterPartitions: 1,
       })
     ).toBe("action_required");
+  });
+});
+
+describe("decideGoogleAdsFullSyncPriority", () => {
+  it("requires full sync when advisor is blocked by search term or product history", () => {
+    expect(
+      decideGoogleAdsFullSyncPriority({
+        advisorReady: false,
+        advisorMissingSurfaces: ["search_term_daily", "asset_daily"],
+      })
+    ).toEqual({
+      required: true,
+      reason: "Advisor blocked by missing extended historical support; prioritizing full sync.",
+      targetScopes: ["search_term_daily", "asset_daily"],
+    });
+
+    expect(
+      decideGoogleAdsFullSyncPriority({
+        advisorReady: false,
+        advisorMissingSurfaces: ["product_daily"],
+      })
+    ).toEqual({
+      required: true,
+      reason: "Advisor blocked by missing extended historical support; prioritizing full sync.",
+      targetScopes: ["product_daily"],
+    });
+  });
+
+  it("does not require full sync when only non-primary advisor support surfaces are missing", () => {
+    expect(
+      decideGoogleAdsFullSyncPriority({
+        advisorReady: false,
+        advisorMissingSurfaces: ["asset_daily"],
+      })
+    ).toEqual({
+      required: false,
+      reason: null,
+      targetScopes: ["asset_daily"],
+    });
   });
 });

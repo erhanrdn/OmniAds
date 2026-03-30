@@ -31,9 +31,24 @@ describe("deriveMetaOperationsBlockReason", () => {
         leasedPartitions: 0,
         heartbeatAgeMs: 60_000,
         latestActivityAt: "2026-03-30T16:00:00.000Z",
+        historicalCoreQueued: 6,
         nowMs: new Date("2026-03-30T17:00:00.000Z").getTime(),
       })
     ).toBe("queue_backlogged");
+  });
+
+  it("does not report queue_backlogged for maintenance-only pressure", () => {
+    expect(
+      deriveMetaOperationsBlockReason({
+        workerHealthy: true,
+        queueDepth: 12,
+        leasedPartitions: 0,
+        heartbeatAgeMs: 60_000,
+        latestActivityAt: "2026-03-30T16:00:00.000Z",
+        maintenanceQueued: 12,
+        nowMs: new Date("2026-03-30T17:00:00.000Z").getTime(),
+      })
+    ).toBeNull();
   });
 
   it("returns null when queue is actively leased", () => {

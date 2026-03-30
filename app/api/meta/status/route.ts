@@ -12,6 +12,7 @@ import {
   getMetaAdSetDailyCoverage,
   getMetaCheckpointHealth,
   getMetaCreativeDailyCoverage,
+  getMetaQueueComposition,
   getMetaQueueHealth,
   getMetaRawSnapshotCoverageByEndpoint,
   getMetaSyncJobHealth,
@@ -184,7 +185,7 @@ export async function GET(request: NextRequest) {
     dayCountInclusive(recentWindowStart, initialBackfillEnd)
   );
 
-  const [accountCoverage, campaignCoverage, adsetCoverage, adDailyCoverage, creativeCoverage, creativePreviewCoverage, breakdownCoverageByEndpoint, queueHealth, checkpointHealth, recentAccountCoverage, recentAdsetCoverage, recentCreativeCoverage, recentAdCoverage, ...stateRows] =
+  const [accountCoverage, campaignCoverage, adsetCoverage, adDailyCoverage, creativeCoverage, creativePreviewCoverage, breakdownCoverageByEndpoint, queueHealth, queueComposition, checkpointHealth, recentAccountCoverage, recentAdsetCoverage, recentCreativeCoverage, recentAdCoverage, ...stateRows] =
     connected && accountIds.length > 0
       ? await Promise.all([
           getMetaAccountDailyCoverage({
@@ -231,6 +232,7 @@ export async function GET(request: NextRequest) {
             endDate: initialBackfillEnd,
           }).catch(() => null),
           getMetaQueueHealth({ businessId: businessId! }).catch(() => null),
+          getMetaQueueComposition({ businessId: businessId! }).catch(() => null),
           getMetaCheckpointHealth({ businessId: businessId! }).catch(() => null),
           getMetaAccountDailyCoverage({
             businessId: businessId!,
@@ -260,7 +262,7 @@ export async function GET(request: NextRequest) {
             getMetaSyncState({ businessId: businessId!, scope }).catch(() => [])
           ),
         ])
-      : [null, null, null, null, null, null, null, null, null, null, null, null, null, ...META_STATE_SCOPES.map(() => [])];
+      : [null, null, null, null, null, null, null, null, null, null, null, null, null, null, ...META_STATE_SCOPES.map(() => [])];
 
   const statesByScope = Object.fromEntries(
     META_STATE_SCOPES.map((scope, index) => [scope, stateRows[index] ?? []])
@@ -279,6 +281,9 @@ export async function GET(request: NextRequest) {
         consumeStage: workerHealth.consumeStage,
         heartbeatAgeMs: workerHealth.heartbeatAgeMs,
         latestActivityAt: latestMetaQueueActivityAt,
+        historicalCoreQueued: queueComposition?.summary.historicalCoreQueued ?? 0,
+        extendedHistoricalQueued: queueComposition?.summary.extendedHistoricalQueued ?? 0,
+        maintenanceQueued: queueComposition?.summary.maintenanceQueued ?? 0,
       })
     : null;
 
@@ -679,6 +684,7 @@ export async function GET(request: NextRequest) {
             ownerWorkerId: workerHealth.ownerWorkerId,
             consumeStage: workerHealth.consumeStage,
             blockReason: operationsBlockReason,
+            queueSummary: queueComposition?.summary ?? null,
           }
         : null,
       extendedRecoveryState,

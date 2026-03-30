@@ -16,12 +16,20 @@ export function deriveMetaOperationsBlockReason(input: {
   consumeStage?: string | null;
   heartbeatAgeMs?: number | null;
   latestActivityAt?: string | null;
+  historicalCoreQueued?: number;
+  extendedHistoricalQueued?: number;
+  maintenanceQueued?: number;
   nowMs?: number;
 }): MetaOperationsBlockReason | null {
   if (input.queueDepth <= 0) return null;
   if (!input.workerHealthy) return "worker_offline";
   if (input.consumeStage === "lease_denied") return "lease_denied";
   if (input.leasedPartitions > 0) return null;
+
+  const historicalBacklog =
+    (input.historicalCoreQueued ?? 0) > 0 || (input.extendedHistoricalQueued ?? 0) > 0;
+  const maintenanceOnlyBacklog =
+    !historicalBacklog && (input.maintenanceQueued ?? 0) > 0;
 
   const nowMs = input.nowMs ?? Date.now();
   const latestActivityMs = parseTimestampMs(input.latestActivityAt);
@@ -32,8 +40,12 @@ export function deriveMetaOperationsBlockReason(input: {
   const hasFreshWorkerHeartbeat =
     heartbeatAgeMs != null && heartbeatAgeMs <= 3 * 60_000;
 
-  if (hasStaleActivity || hasFreshWorkerHeartbeat) {
+  if (historicalBacklog && (hasStaleActivity || hasFreshWorkerHeartbeat)) {
     return "queue_backlogged";
+  }
+
+  if (!historicalBacklog && maintenanceOnlyBacklog) {
+    return null;
   }
 
   return null;

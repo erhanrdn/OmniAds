@@ -17,6 +17,8 @@ import {
   getMetaAdSetDailyCoverage,
   getMetaAccountDailyCoverage,
   getMetaCreativeDailyCoverage,
+  getMetaPartitionStatesForDate,
+  getMetaQueueComposition,
   getMetaPartitionHealth,
   getMetaQueueHealth,
   getMetaRawSnapshotCoverageByEndpoint,
@@ -74,6 +76,10 @@ const META_BACKGROUND_LOOP_DELAY_MS = envNumber("META_BACKGROUND_LOOP_DELAY_MS",
 const META_CORE_WORKER_LIMIT = envNumber("META_CORE_WORKER_LIMIT", 4);
 const META_CORE_FAIRNESS_WORKER_LIMIT = envNumber("META_CORE_FAIRNESS_WORKER_LIMIT", 1);
 const META_EXTENDED_WORKER_LIMIT = envNumber("META_EXTENDED_WORKER_LIMIT", 2);
+const META_EXTENDED_HISTORICAL_FAIRNESS_WORKER_LIMIT = envNumber(
+  "META_EXTENDED_HISTORICAL_FAIRNESS_WORKER_LIMIT",
+  1
+);
 const META_MAINTENANCE_WORKER_LIMIT = envNumber("META_MAINTENANCE_WORKER_LIMIT", 2);
 const META_PARTITION_LEASE_MINUTES = envNumber("META_PARTITION_LEASE_MINUTES", 5);
 const META_PARTITION_MAX_ATTEMPTS = envNumber("META_PARTITION_MAX_ATTEMPTS", 6);
@@ -598,14 +604,15 @@ export async function enqueueMetaScheduledWork(businessId: string) {
 
   if (credentials?.accountIds?.length) {
     const queueHealth = await getMetaQueueHealth({ businessId }).catch(() => null);
-    const hasCoreBacklog =
-      (queueHealth?.coreQueueDepth ?? 0) > 0 || (queueHealth?.coreLeasedPartitions ?? 0) > 0;
+    const hasHistoricalCoreBacklog =
+      (queueHealth?.historicalCoreQueueDepth ?? 0) > 0 ||
+      (queueHealth?.historicalCoreLeasedPartitions ?? 0) > 0;
     const hasMaintenanceBacklog =
       (queueHealth?.maintenanceQueueDepth ?? 0) > 0 ||
       (queueHealth?.maintenanceLeasedPartitions ?? 0) > 0;
 
     await refreshMetaSyncStateForBusiness({ businessId, credentials }).catch(() => null);
-    if (!hasCoreBacklog) {
+    if (!hasHistoricalCoreBacklog) {
       queuedCore = await enqueueMetaHistoricalCorePartitions(businessId, credentials).catch(() => 0);
     }
     if (!hasMaintenanceBacklog) {
@@ -631,7 +638,24 @@ async function enqueueMetaExtendedPartitionsForDate(input: {
   const normalizedSource = isHistoricalMetaSource(input.source)
     ? "historical_recovery"
     : "recent_recovery";
+  const existingPartitions = await getMetaPartitionStatesForDate({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    lane: "extended",
+    partitionDate: input.date,
+    scopes: META_EXTENDED_SCOPES,
+  }).catch(() => new Map());
   for (const scope of META_EXTENDED_SCOPES) {
+    const existing = existingPartitions.get(scope);
+    if (
+      existing &&
+      (["queued", "leased", "running", "succeeded"].includes(existing.status) ||
+        (normalizedSource === "recent_recovery" &&
+          ["failed", "dead_letter", "cancelled"].includes(existing.status) &&
+          isRecentMetaSource(existing.source)))
+    ) {
+      continue;
+    }
     await queueMetaSyncPartition({
       businessId: input.businessId,
       providerAccountId: input.providerAccountId,
@@ -873,6 +897,9 @@ export async function consumeMetaQueuedWork(businessId: string): Promise<MetaSyn
   try {
     await refreshMetaSyncStateForBusiness({ businessId, credentials }).catch(() => null);
     const queueHealthBeforeEnqueue = await getMetaQueueHealth({ businessId }).catch(() => null);
+    const queueCompositionBeforeEnqueue = await getMetaQueueComposition({ businessId }).catch(
+      () => null
+    );
     console.info("[meta-sync] meta_consume_queue_health", {
       businessId,
       queueDepth: queueHealthBeforeEnqueue?.queueDepth ?? 0,
@@ -880,15 +907,18 @@ export async function consumeMetaQueuedWork(businessId: string): Promise<MetaSyn
       coreQueueDepth: queueHealthBeforeEnqueue?.coreQueueDepth ?? 0,
       maintenanceQueueDepth: queueHealthBeforeEnqueue?.maintenanceQueueDepth ?? 0,
       extendedQueueDepth: queueHealthBeforeEnqueue?.extendedQueueDepth ?? 0,
+      historicalCoreQueued: queueCompositionBeforeEnqueue?.summary.historicalCoreQueued ?? 0,
+      extendedRecentQueued: queueCompositionBeforeEnqueue?.summary.extendedRecentQueued ?? 0,
+      extendedHistoricalQueued: queueCompositionBeforeEnqueue?.summary.extendedHistoricalQueued ?? 0,
     });
-    const hasCoreBacklog =
-      (queueHealthBeforeEnqueue?.coreQueueDepth ?? 0) > 0 ||
-      (queueHealthBeforeEnqueue?.coreLeasedPartitions ?? 0) > 0;
+    const hasHistoricalCoreBacklogBeforeEnqueue =
+      (queueHealthBeforeEnqueue?.historicalCoreQueueDepth ?? 0) > 0 ||
+      (queueHealthBeforeEnqueue?.historicalCoreLeasedPartitions ?? 0) > 0;
     const hasMaintenanceBacklog =
       (queueHealthBeforeEnqueue?.maintenanceQueueDepth ?? 0) > 0 ||
       (queueHealthBeforeEnqueue?.maintenanceLeasedPartitions ?? 0) > 0;
 
-    if (!hasCoreBacklog) {
+    if (!hasHistoricalCoreBacklogBeforeEnqueue) {
       await enqueueMetaHistoricalCorePartitions(businessId, credentials).catch(() => 0);
     }
     if (!hasMaintenanceBacklog) {
@@ -912,6 +942,9 @@ export async function consumeMetaQueuedWork(businessId: string): Promise<MetaSyn
     const hasHistoricalCoreBacklog =
       (queueHealthAfterPriorityLeases?.historicalCoreQueueDepth ?? 0) > 0 ||
       (queueHealthAfterPriorityLeases?.historicalCoreLeasedPartitions ?? 0) > 0;
+    const hasExtendedHistoricalBacklog =
+      (queueHealthAfterPriorityLeases?.extendedHistoricalQueueDepth ?? 0) > 0 ||
+      (queueHealthAfterPriorityLeases?.extendedHistoricalLeasedPartitions ?? 0) > 0;
 
     // Keep historical core moving even while maintenance/recent work is draining.
     const leasedCoreFairnessPartitions =
@@ -925,14 +958,34 @@ export async function consumeMetaQueuedWork(businessId: string): Promise<MetaSyn
           })
         : [];
 
+    const leasedExtendedHistoricalFairnessPartitions =
+      hasExtendedHistoricalBacklog
+        ? await leaseMetaSyncPartitions({
+            businessId,
+            lane: "extended",
+            sources: ["historical", "historical_recovery", "initial_connect"],
+            workerId,
+            limit: Math.min(
+              META_EXTENDED_WORKER_LIMIT,
+              META_EXTENDED_HISTORICAL_FAIRNESS_WORKER_LIMIT
+            ),
+            leaseMinutes: META_PARTITION_LEASE_MINUTES,
+          })
+        : [];
+
+    const remainingExtendedCapacity = Math.max(
+      0,
+      META_EXTENDED_WORKER_LIMIT - leasedExtendedHistoricalFairnessPartitions.length
+    );
+
     const leasedExtendedRecentPartitions =
-      !hasMaintenanceBacklogAfterLeasing
+      !hasMaintenanceBacklogAfterLeasing && remainingExtendedCapacity > 0
         ? await leaseMetaSyncPartitions({
             businessId,
             lane: "extended",
             sources: ["recent", "recent_recovery", "today", "priority_window", "request_runtime", "manual_refresh"],
             workerId,
-            limit: META_EXTENDED_WORKER_LIMIT,
+            limit: remainingExtendedCapacity,
             leaseMinutes: META_PARTITION_LEASE_MINUTES,
           })
         : [];
@@ -953,13 +1006,13 @@ export async function consumeMetaQueuedWork(businessId: string): Promise<MetaSyn
     const leasedExtendedHistoricalPartitions =
       !hasMaintenanceBacklogAfterLeasing &&
       !hasExtendedRecentBacklog &&
-      !hasHistoricalCoreBacklog
+      Math.max(0, remainingExtendedCapacity - leasedExtendedRecentPartitions.length) > 0
         ? await leaseMetaSyncPartitions({
             businessId,
             lane: "extended",
             sources: ["historical", "historical_recovery", "initial_connect"],
             workerId,
-            limit: META_EXTENDED_WORKER_LIMIT,
+            limit: Math.max(0, remainingExtendedCapacity - leasedExtendedRecentPartitions.length),
             leaseMinutes: META_PARTITION_LEASE_MINUTES,
           })
         : [];
@@ -967,6 +1020,7 @@ export async function consumeMetaQueuedWork(businessId: string): Promise<MetaSyn
     let partitions = [
       ...leasedMaintenancePartitions,
       ...leasedCoreFairnessPartitions,
+      ...leasedExtendedHistoricalFairnessPartitions,
       ...leasedExtendedRecentPartitions,
       ...leasedHistoricalCorePartitions,
       ...leasedExtendedHistoricalPartitions,
@@ -975,6 +1029,7 @@ export async function consumeMetaQueuedWork(businessId: string): Promise<MetaSyn
       businessId,
       maintenanceLeased: leasedMaintenancePartitions.length,
       coreFairnessLeased: leasedCoreFairnessPartitions.length,
+      extendedHistoricalFairnessLeased: leasedExtendedHistoricalFairnessPartitions.length,
       extendedRecentLeased: leasedExtendedRecentPartitions.length,
       historicalCoreLeased: leasedHistoricalCorePartitions.length,
       extendedHistoricalLeased: leasedExtendedHistoricalPartitions.length,

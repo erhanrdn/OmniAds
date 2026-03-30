@@ -1,6 +1,7 @@
 import { loadEnvConfig } from "@next/env";
 import { getDb } from "@/lib/db";
 import { runMigrations } from "@/lib/migrations";
+import { getMetaQueueComposition } from "@/lib/meta/warehouse";
 
 loadEnvConfig(process.cwd());
 
@@ -29,54 +30,68 @@ async function main() {
 
   await runMigrations();
   const sql = getDb();
-  const results = await Promise.all(
-    SCOPES.map(async (scope) => {
-      const [stateRows, partitionRows] = (await Promise.all([
-        sql`
-          SELECT provider_account_id, completed_days, ready_through_date, latest_background_activity_at
-          FROM meta_sync_state
-          WHERE business_id = ${businessId}
-            AND scope = ${scope}
-          ORDER BY provider_account_id
-        `,
-        sql`
-          SELECT
-            provider_account_id,
-            COUNT(*) FILTER (WHERE status = 'dead_letter')::int AS dead_letter_count,
-            COUNT(*) FILTER (WHERE status IN ('queued', 'leased', 'running'))::int AS active_partition_count,
-            MAX(updated_at) AS latest_partition_activity_at
-          FROM meta_sync_partitions
-          WHERE business_id = ${businessId}
-            AND scope = ${scope}
-          GROUP BY provider_account_id
-          ORDER BY provider_account_id
-        `,
-      ])) as [Array<Record<string, unknown>>, Array<Record<string, unknown>>];
+  const [queueComposition, results] = await Promise.all([
+    getMetaQueueComposition({ businessId }).catch(() => null),
+    Promise.all(
+      SCOPES.map(async (scope) => {
+        const [stateRows, partitionRows] = (await Promise.all([
+          sql`
+            SELECT provider_account_id, completed_days, ready_through_date, latest_background_activity_at
+            FROM meta_sync_state
+            WHERE business_id = ${businessId}
+              AND scope = ${scope}
+            ORDER BY provider_account_id
+          `,
+          sql`
+            SELECT
+              provider_account_id,
+              COUNT(*) FILTER (WHERE status = 'dead_letter')::int AS dead_letter_count,
+              COUNT(*) FILTER (WHERE status IN ('queued', 'leased', 'running'))::int AS active_partition_count,
+              MAX(updated_at) AS latest_partition_activity_at
+            FROM meta_sync_partitions
+            WHERE business_id = ${businessId}
+              AND scope = ${scope}
+            GROUP BY provider_account_id
+            ORDER BY provider_account_id
+          `,
+        ])) as [Array<Record<string, unknown>>, Array<Record<string, unknown>>];
 
-      const partitionsByAccount = new Map(
-        partitionRows.map((row) => [String(row.provider_account_id), row])
-      );
+        const partitionsByAccount = new Map(
+          partitionRows.map((row) => [String(row.provider_account_id), row])
+        );
 
-      return {
-        scope,
-        accounts: stateRows.map((stateRow) => {
-          const accountId = String(stateRow.provider_account_id);
-          const partitionRow = partitionsByAccount.get(accountId);
-          return {
-            providerAccountId: accountId,
-            completedDays: Number(stateRow.completed_days ?? 0),
-            readyThroughDate: normalizeDateValue(stateRow.ready_through_date),
-            latestBackgroundActivityAt: normalizeTimestampValue(stateRow.latest_background_activity_at),
-            activePartitionCount: Number(partitionRow?.active_partition_count ?? 0),
-            deadLetterCount: Number(partitionRow?.dead_letter_count ?? 0),
-            latestPartitionActivityAt: normalizeTimestampValue(partitionRow?.latest_partition_activity_at),
-          };
-        }),
-      };
-    })
+        return {
+          scope,
+          accounts: stateRows.map((stateRow) => {
+            const accountId = String(stateRow.provider_account_id);
+            const partitionRow = partitionsByAccount.get(accountId);
+            return {
+              providerAccountId: accountId,
+              completedDays: Number(stateRow.completed_days ?? 0),
+              readyThroughDate: normalizeDateValue(stateRow.ready_through_date),
+              latestBackgroundActivityAt: normalizeTimestampValue(stateRow.latest_background_activity_at),
+              activePartitionCount: Number(partitionRow?.active_partition_count ?? 0),
+              deadLetterCount: Number(partitionRow?.dead_letter_count ?? 0),
+              latestPartitionActivityAt: normalizeTimestampValue(partitionRow?.latest_partition_activity_at),
+            };
+          }),
+        };
+      })
+    ),
+  ]);
+
+  console.log(
+    JSON.stringify(
+      {
+        businessId,
+        capturedAt: new Date().toISOString(),
+        queueComposition,
+        results,
+      },
+      null,
+      2
+    )
   );
-
-  console.log(JSON.stringify({ businessId, capturedAt: new Date().toISOString(), results }, null, 2));
 }
 
 main().catch((error) => {

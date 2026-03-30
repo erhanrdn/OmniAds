@@ -22,6 +22,12 @@ export interface GoogleAdsAdvisorDecision {
   notReady: boolean;
 }
 
+export interface GoogleAdsFullSyncPriorityDecision {
+  required: boolean;
+  reason: string | null;
+  targetScopes: string[];
+}
+
 export function decideGoogleAdsAdvisorReadiness(
   input: Pick<
     GoogleAdsStatusDecisionInput,
@@ -55,6 +61,27 @@ export function decideGoogleAdsAdvisorReadiness(
   return {
     ready,
     notReady,
+  };
+}
+
+export function decideGoogleAdsFullSyncPriority(input: {
+  advisorReady: boolean;
+  advisorMissingSurfaces: string[];
+}) : GoogleAdsFullSyncPriorityDecision {
+  const targetScopes = input.advisorMissingSurfaces.filter((scope) =>
+    ["search_term_daily", "product_daily", "asset_daily"].includes(scope)
+  );
+  const primaryBlocker = targetScopes.some(
+    (scope) => scope === "search_term_daily" || scope === "product_daily"
+  );
+  const required = !input.advisorReady && primaryBlocker;
+
+  return {
+    required,
+    reason: required
+      ? "Advisor blocked by missing extended historical support; prioritizing full sync."
+      : null,
+    targetScopes,
   };
 }
 
