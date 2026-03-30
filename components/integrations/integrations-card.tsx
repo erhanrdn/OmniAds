@@ -281,7 +281,7 @@ function getProviderLogo(provider: IntegrationProvider): string | null {
     case "google": return "/platform-logos/googleAds.svg";
     case "ga4": return "/platform-logos/GA4.svg";
     case "search_console": return "/platform-logos/searchconsole.svg";
-    case "shopify": return "/platform-logos/shopify.svg";
+    case "shopify": return "/platform-logos/shopify_glyph.svg";
     case "tiktok": return "/platform-logos/tiktok.svg";
     case "pinterest": return "/platform-logos/Pinterest.svg";
     case "snapchat": return "/platform-logos/snapchat.svg";

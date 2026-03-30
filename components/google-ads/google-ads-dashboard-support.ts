@@ -89,6 +89,8 @@ export interface AssetRow {
   campaignId?: string | null;
   campaign?: string;
   assetGroup?: string;
+  assetGroupName?: string | null;
+  assetName?: string | null;
   type: string;
   performanceLabel?: "top" | "average" | "underperforming";
   spend: number;

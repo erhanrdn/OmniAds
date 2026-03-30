@@ -44,7 +44,14 @@ function formatSyncCaption(status: GoogleAdsStatusResponse) {
   } else if (latestSync?.phaseLabel) {
     parts.push(latestSync.phaseLabel);
   }
-  if (status.extendedRecoveryState === "extended_recovery" && status.rangeCompletionBySurface) {
+  const hasRecentGap = Object.values(status.operations?.recentGapCountByScope ?? {}).some(
+    (count) => Number(count) > 0
+  );
+  if (
+    status.extendedRecoveryState === "extended_recovery" &&
+    status.rangeCompletionBySurface &&
+    hasRecentGap
+  ) {
     const recentParts = Object.entries(status.rangeCompletionBySurface).map(
       ([scope, completion]) => `${scope.replace("_daily", "")} ${completion.recent.completedDays}/${completion.recent.totalDays}`
     );
@@ -61,7 +68,7 @@ function formatSyncCaption(status: GoogleAdsStatusResponse) {
     parts.push("Automatic repair running");
   } else if (autoRepairStage === "completed_state_stale") {
     parts.push("Automatic repair succeeded, refreshing state");
-  } else if (autoRepairStage === "failed") {
+  } else if (autoRepairStage === "failed" && hasRecentGap) {
     parts.push("Automatic repair failed");
   }
   if (priorityWindow?.isActive) {
@@ -151,14 +158,14 @@ export function GoogleAdsSyncProgress({
     return (
       <div
         className={cn(
-          "inline-flex min-w-[220px] items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800",
+          "inline-flex min-w-[170px] max-w-[320px] items-center gap-2 rounded-lg border border-sky-200/90 bg-sky-50/90 px-2.5 py-1.5 text-[11px] text-sky-800",
           className
         )}
       >
-        <span className="shrink-0 font-semibold tabular-nums">{progress}%</span>
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-[11px]">{caption ?? description}</div>
-          <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-sky-100">
+        <span className="shrink-0 text-[11px] font-semibold tabular-nums">{progress}%</span>
+        <div className="min-w-0 flex-1 overflow-hidden">
+          <div className="truncate leading-none">{caption ?? description}</div>
+          <div className="mt-1 h-1 overflow-hidden rounded-full bg-sky-100">
             <div
               className="h-full rounded-full bg-sky-500 transition-[width] duration-300"
               style={{ width: `${progress}%` }}

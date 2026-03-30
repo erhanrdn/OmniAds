@@ -517,7 +517,7 @@ export const REPORT_PLATFORM_CATALOG: Record<CustomReportPlatform, ReportPlatfor
   shopify: {
     id: "shopify",
     label: "Shopify",
-    logoSrc: "/platform-logos/shopify.svg",
+    logoSrc: "/platform-logos/shopify_glyph.svg",
     supported: true,
     accountScoped: false,
     widgets: {

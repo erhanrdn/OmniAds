@@ -685,9 +685,7 @@ export async function GET(request: NextRequest) {
                 Date.now() - new Date(String(latestPriorityActivityAt)).getTime() < 10 * 60 * 1000)),
         }
       : null;
-  const phaseLabel = selectedRangeIncomplete
-    ? "Preparing selected dates"
-    : historicalQueuePaused
+  const phaseLabel = historicalQueuePaused
       ? "Historical sync is paused"
     : overallCompletedDays < effectiveHistoricalTotalDays
       ? "Backfilling historical data"
@@ -695,9 +693,7 @@ export async function GET(request: NextRequest) {
           effectiveLatestSync?.sync_type === "today_refresh"
         ? "Syncing recent history"
         : "Ready";
-  const progressPercent = selectedRangeIncomplete
-    ? selectedRangeProgressPercent ?? historicalProgressPercent
-    : historicalProgressPercent;
+  const progressPercent = historicalProgressPercent;
   const latestError = effectiveLatestSync?.last_error ? String(effectiveLatestSync.last_error) : null;
 
   const advisorRequiredSurfaces = [
@@ -868,21 +864,11 @@ export async function GET(request: NextRequest) {
     missingSurfaces: surfaces.missing,
     advisorMissingSurfaces,
   });
-  const effectiveCompletedDays = selectedRangeIncomplete
-    ? selectedRangeCompletedDays
-    : advisorNotReady
-      ? advisorCompletedDays ?? overallCompletedDays
-      : overallCompletedDays;
-  const effectiveTotalDays = selectedRangeIncomplete
-    ? selectedRangeTotalDays ?? effectiveHistoricalTotalDays
-    : advisorNotReady
-      ? selectedRangeTotalDays ?? effectiveHistoricalTotalDays
-      : effectiveHistoricalTotalDays;
-  const effectiveReadyThroughDate = selectedRangeIncomplete
-    ? selectedRangeCoverage?.ready_through_date ?? null
-    : advisorNotReady
-      ? advisorReadyThroughDate
-      : historicalReadyThroughDate;
+  const effectiveCompletedDays = advisorNotReady
+    ? advisorCompletedDays ?? overallCompletedDays
+    : overallCompletedDays;
+  const effectiveTotalDays = effectiveHistoricalTotalDays;
+  const effectiveReadyThroughDate = historicalReadyThroughDate;
   const effectiveProgressPercent =
     effectiveTotalDays > 0
       ? Math.min(100, Math.round(((effectiveCompletedDays ?? 0) / effectiveTotalDays) * 100))
@@ -999,6 +985,19 @@ export async function GET(request: NextRequest) {
         Number(recentRepairRowsByScope.get(scope)?.cancelled_count ?? 0),
     ])
   );
+  const hasRecentGap = Object.values(recentGapCountByScope).some((count) => Number(count) > 0);
+  const hasRecentRepairQueued = Object.values(recentGapQueuedByScope).some(
+    (count) => Number(count) > 0
+  );
+  const hasRecentRepairLeased = Object.values(recentGapLeasedByScope).some(
+    (count) => Number(count) > 0
+  );
+  const hasRecentRepairSucceeded = Object.values(recentGapSucceededByScope).some(
+    (count) => Number(count) > 0
+  );
+  const hasRecentRepairFailed = Object.values(recentGapFailedByScope).some(
+    (count) => Number(count) > 0
+  );
   const recentRepairAttemptsByScope = new Map(
     recentRepairAttemptRows.map((row) => [String(row.scope ?? ""), row] as const)
   );
@@ -1038,12 +1037,9 @@ export async function GET(request: NextRequest) {
         Math.round(60 + averageRecentCompletionRatio * 25 + averageHistoricalCompletionRatio * 15)
       )
     : effectiveProgressPercent;
-  const displayProgressPercent =
-    selectedRangeIncomplete
-      ? progressPercent
-      : advisorNotReady
-        ? stagedRecoveryProgressPercent
-        : effectiveProgressPercent;
+  const displayProgressPercent = advisorNotReady
+    ? stagedRecoveryProgressPercent
+    : effectiveProgressPercent;
   const majorSurfaceStates = [
     buildPanelSurfaceState({
       scope: "search_term_daily",
@@ -1123,19 +1119,21 @@ export async function GET(request: NextRequest) {
   });
   const staleRunPressure = Number(staleRunRows[0]?.stale_run_pressure ?? 0);
   const autoRepairExecutionStage = (() => {
-    if (runtimeMismatchDetected) return "runtime_waiting" as const;
-    const hasRecentGap = Object.values(recentGapCountByScope).some((count) => Number(count) > 0);
-    const hasQueued = Object.values(recentGapQueuedByScope).some((count) => Number(count) > 0);
-    const hasLeased = Object.values(recentGapLeasedByScope).some((count) => Number(count) > 0);
-    const hasFailed = Object.values(recentGapFailedByScope).some((count) => Number(count) > 0);
-    const hasSucceeded = Object.values(recentGapSucceededByScope).some((count) => Number(count) > 0);
+    if (runtimeMismatchDetected && hasRecentGap) return "runtime_waiting" as const;
+    if (!hasRecentGap && !hasRecentRepairQueued && !hasRecentRepairLeased) {
+      return hasRecentRepairSucceeded ? ("completed" as const) : null;
+    }
     const hasAttempt = Object.values(lastAutoRepairAttemptByScope).some(Boolean);
-    if (hasFailed && !hasQueued && !hasLeased && !hasRecentGap) return "failed" as const;
-    if (hasRecentGap && !hasAttempt && !hasQueued && !hasLeased) return "not_planned" as const;
-    if (hasQueued && !hasLeased) return "planned_not_leased" as const;
-    if (hasLeased) return "leased_not_completed" as const;
-    if (hasSucceeded && hasRecentGap) return "completed_state_stale" as const;
-    if (hasSucceeded) return "completed" as const;
+    if (hasRecentRepairFailed && !hasRecentRepairQueued && !hasRecentRepairLeased && hasRecentGap) {
+      return "failed" as const;
+    }
+    if (hasRecentGap && !hasAttempt && !hasRecentRepairQueued && !hasRecentRepairLeased) {
+      return "not_planned" as const;
+    }
+    if (hasRecentRepairQueued && !hasRecentRepairLeased) return "planned_not_leased" as const;
+    if (hasRecentRepairLeased) return "leased_not_completed" as const;
+    if (hasRecentRepairSucceeded && hasRecentGap) return "completed_state_stale" as const;
+    if (hasRecentRepairSucceeded) return "completed" as const;
     return null;
   })();
   const lastAutoRepairOutcome =
@@ -1351,21 +1349,14 @@ export async function GET(request: NextRequest) {
           completedDays: effectiveCompletedDays,
           totalDays: effectiveTotalDays,
           readyThroughDate: effectiveReadyThroughDate,
-          phaseLabel:
-            advisorNotReady
-              ? "Preparing advisor support"
-              : phaseLabel === "Ready"
-              ? null
-              : selectedRangeIncomplete
-                ? phaseLabel
-                : phaseLabel,
+          phaseLabel: phaseLabel === "Ready" ? null : phaseLabel,
         }
       : {
           progressPercent: displayProgressPercent,
           completedDays: effectiveCompletedDays,
           totalDays: effectiveTotalDays,
           readyThroughDate: effectiveReadyThroughDate,
-          phaseLabel: advisorNotReady ? "Preparing advisor support" : phaseLabel,
+          phaseLabel: phaseLabel === "Ready" ? null : phaseLabel,
         },
   });
 }

@@ -550,7 +550,6 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
   const advisorCurrent = advisorAnalysisKey === currentAdvisorKey ? advisorData : undefined;
   const advisorIsStale = advisorAnalysisKey != null && advisorAnalysisKey !== currentAdvisorKey;
   const advisorIdleState = getAdvisorIdleState(syncStatus);
-
   useEffect(() => {
     if (!advisorReady && advisorAnalysisKey === currentAdvisorKey) {
       setAdvisorData(undefined);
@@ -789,6 +788,13 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
     }
     return grouped;
   }, [underperformingAssets]);
+
+  const getAssetDisplayLabel = (asset: AssetRow) =>
+    asset.assetName ??
+    asset.preview ??
+    asset.assetText ??
+    asset.assetGroupName ??
+    "Unnamed asset";
 
   const productRows = useMemo(() => {
     const rawRows = [...(productsData?.rows ?? [])].map((row) => ({
@@ -1651,18 +1657,18 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                                 focusedAssets.some(
                                   (name) =>
                                     name.toLowerCase().trim() ===
-                                    (asset.preview ?? asset.assetText ?? "Unnamed asset")
+                                    getAssetDisplayLabel(asset)
                                       .toLowerCase()
                                       .trim()
                                 ) && "border-rose-300 bg-rose-50/40"
                               )}
                             >
-                              <p className="line-clamp-1 text-[11px] font-medium">{asset.preview ?? asset.assetText ?? "Unnamed asset"}</p>
+                              <p className="line-clamp-1 text-[11px] font-medium">{getAssetDisplayLabel(asset)}</p>
                               <p className="mt-0.5 text-[10px] text-muted-foreground">Spend {fmtCurrency(asset.spend)} · ROAS {fmtRoas(asset.roas)} · Conv {asset.conversions.toFixed(0)}</p>
                               {focusedAssets.some(
                                 (name) =>
                                   name.toLowerCase().trim() ===
-                                  (asset.preview ?? asset.assetText ?? "Unnamed asset")
+                                  getAssetDisplayLabel(asset)
                                     .toLowerCase()
                                     .trim()
                               ) ? (
