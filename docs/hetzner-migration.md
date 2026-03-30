@@ -106,6 +106,30 @@ Check:
 - cron logs
 - Shopify and other webhooks
 
+## 8. Optional: auto-deploy from GitHub
+
+This repo includes a GitHub Actions workflow at `.github/workflows/deploy-hetzner.yml`.
+
+Add these repository secrets in GitHub:
+
+- `HETZNER_HOST`: your server IP, for example `178.156.222.119`
+- `HETZNER_USER`: SSH user, for example `root`
+- `HETZNER_PORT`: optional, default `22`
+- `HETZNER_SSH_KEY`: the private SSH key GitHub Actions should use to reach the server
+- `HETZNER_KNOWN_HOSTS`: output of `ssh-keyscan -H your-domain-or-ip`
+
+Example for `HETZNER_KNOWN_HOSTS`:
+
+```bash
+ssh-keyscan -H 178.156.222.119
+```
+
+Important:
+
+- The server itself still needs GitHub read access so `git fetch` works on the box.
+- The workflow does a `git reset --hard origin/main`, so only use it if the server worktree should always match GitHub.
+- Pushes to `main` will trigger a deploy automatically.
+
 ## Notes specific to this repo
 
 - The worker is important. If `npm run worker:start` is not running, sync jobs can silently stall.
