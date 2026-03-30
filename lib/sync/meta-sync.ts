@@ -72,6 +72,7 @@ function envNumber(name: string, fallback: number) {
 
 const META_BACKGROUND_LOOP_DELAY_MS = envNumber("META_BACKGROUND_LOOP_DELAY_MS", 5_000);
 const META_CORE_WORKER_LIMIT = envNumber("META_CORE_WORKER_LIMIT", 4);
+const META_CORE_FAIRNESS_WORKER_LIMIT = envNumber("META_CORE_FAIRNESS_WORKER_LIMIT", 1);
 const META_EXTENDED_WORKER_LIMIT = envNumber("META_EXTENDED_WORKER_LIMIT", 2);
 const META_MAINTENANCE_WORKER_LIMIT = envNumber("META_MAINTENANCE_WORKER_LIMIT", 2);
 const META_PARTITION_LEASE_MINUTES = envNumber("META_PARTITION_LEASE_MINUTES", 5);
@@ -912,6 +913,18 @@ export async function consumeMetaQueuedWork(businessId: string): Promise<MetaSyn
       (queueHealthAfterPriorityLeases?.historicalCoreQueueDepth ?? 0) > 0 ||
       (queueHealthAfterPriorityLeases?.historicalCoreLeasedPartitions ?? 0) > 0;
 
+    // Keep historical core moving even while maintenance/recent work is draining.
+    const leasedCoreFairnessPartitions =
+      hasHistoricalCoreBacklog
+        ? await leaseMetaSyncPartitions({
+            businessId,
+            lane: "core",
+            workerId,
+            limit: Math.min(META_CORE_WORKER_LIMIT, META_CORE_FAIRNESS_WORKER_LIMIT),
+            leaseMinutes: META_PARTITION_LEASE_MINUTES,
+          })
+        : [];
+
     const leasedExtendedRecentPartitions =
       !hasMaintenanceBacklogAfterLeasing
         ? await leaseMetaSyncPartitions({
@@ -925,12 +938,14 @@ export async function consumeMetaQueuedWork(businessId: string): Promise<MetaSyn
         : [];
 
     const leasedHistoricalCorePartitions =
-      !hasMaintenanceBacklogAfterLeasing && (!hasExtendedRecentBacklog || leasedExtendedRecentPartitions.length === 0)
+      !hasMaintenanceBacklogAfterLeasing &&
+      (!hasExtendedRecentBacklog || leasedExtendedRecentPartitions.length === 0) &&
+      leasedCoreFairnessPartitions.length < META_CORE_WORKER_LIMIT
         ? await leaseMetaSyncPartitions({
             businessId,
             lane: "core",
             workerId,
-            limit: META_CORE_WORKER_LIMIT,
+            limit: META_CORE_WORKER_LIMIT - leasedCoreFairnessPartitions.length,
             leaseMinutes: META_PARTITION_LEASE_MINUTES,
           })
         : [];
@@ -951,6 +966,7 @@ export async function consumeMetaQueuedWork(businessId: string): Promise<MetaSyn
 
     let partitions = [
       ...leasedMaintenancePartitions,
+      ...leasedCoreFairnessPartitions,
       ...leasedExtendedRecentPartitions,
       ...leasedHistoricalCorePartitions,
       ...leasedExtendedHistoricalPartitions,
@@ -958,6 +974,7 @@ export async function consumeMetaQueuedWork(businessId: string): Promise<MetaSyn
     console.info("[meta-sync] meta_consume_leased_partitions", {
       businessId,
       maintenanceLeased: leasedMaintenancePartitions.length,
+      coreFairnessLeased: leasedCoreFairnessPartitions.length,
       extendedRecentLeased: leasedExtendedRecentPartitions.length,
       historicalCoreLeased: leasedHistoricalCorePartitions.length,
       extendedHistoricalLeased: leasedExtendedHistoricalPartitions.length,
