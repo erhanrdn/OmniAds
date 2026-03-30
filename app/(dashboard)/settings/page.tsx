@@ -595,6 +595,10 @@ export default function SettingsPage() {
                     <p className="mt-0.5 text-xs text-muted-foreground">
                       Billed via Shopify store: {billing.storeName}
                     </p>
+                  ) : billing?.managedPricingUrl ? (
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Billing is available in Shopify for this connected workspace.
+                    </p>
                   ) : (
                     <p className="mt-0.5 text-xs text-muted-foreground">
                       Connect your Shopify store to manage billing.
@@ -605,12 +609,12 @@ export default function SettingsPage() {
                   <Badge variant="secondary" className="self-start sm:self-auto">
                     {billing?.status === "active" ? "Active" : billing?.status ?? "Active"}
                   </Badge>
-                  {billing?.connected ? (
+                  {billing?.managedPricingUrl ? (
                     <Button
                       size="sm"
                       variant="outline"
                       onClick={handleOpenShopifyBilling}
-                      disabled={billingChanging || !billing.managedPricingUrl}
+                      disabled={billingChanging}
                     >
                       {billingChanging ? "Opening Shopify..." : "Open Shopify billing"}
                     </Button>
@@ -620,7 +624,7 @@ export default function SettingsPage() {
             </div>
 
             {/* Plan comparison */}
-            {billing?.connected ? (
+            {billing?.managedPricingUrl ? (
               <div>
                 {isDemoWorkspace ? (
                   <div className="mb-3 rounded-xl border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">

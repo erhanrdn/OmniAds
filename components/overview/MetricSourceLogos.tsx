@@ -88,7 +88,7 @@ const LOGO_ASSET_BY_SOURCE: Partial<Record<SupportedSource, string>> = {
   google_ads: "/platform-logos/googleAds.svg",
   tiktok_ads: "/platform-logos/tiktok.svg",
   pinterest: "/platform-logos/Pinterest.svg",
-  shopify: "/platform-logos/shopify.svg",
+  shopify: "/platform-logos/shopify_glyph.svg",
   ga4: "/platform-logos/GA4.svg",
   klaviyo: "/platform-logos/Klaviyo.svg",
 };
@@ -234,7 +234,15 @@ function resolveMetricSources({
     sources.push(source);
   };
 
-  push(mapSourceKey(sourceKey, adSources));
+  const mappedSourceKey = mapSourceKey(sourceKey, adSources);
+  if (mappedSourceKey) {
+    if (Array.isArray(mappedSourceKey)) {
+      mappedSourceKey.forEach(push);
+    } else {
+      push(mappedSourceKey);
+    }
+    return sources;
+  }
 
   if (combined.includes("shopify")) push("shopify");
   if (combined.includes("ga4") || combined.includes("google analytics")) push("ga4");
@@ -264,7 +272,8 @@ function mapSourceKey(sourceKey: string | null | undefined, adSources: Supported
   if (normalized === "klaviyo") return "klaviyo";
   if (normalized === "stripe") return "stripe";
   if (normalized === "manual_cost_model") return "cost_model";
-  if (normalized === "ad_platforms") return adSources[0] ?? "meta";
+  if (normalized === "ad_platforms") return adSources;
+  if (normalized === "unavailable") return [];
   return null;
 }
 

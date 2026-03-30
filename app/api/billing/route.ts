@@ -32,6 +32,17 @@ export async function GET(request: NextRequest) {
 
   const sql = getDb();
   const userId = auth.session.user.id;
+  const integration = await getIntegration(businessId, "shopify");
+  const connectedShopId =
+    integration && integration.status === "connected" && integration.provider_account_id
+      ? integration.provider_account_id
+      : null;
+  const connectedStoreName = connectedShopId
+    ? integration?.provider_account_name ?? connectedShopId
+    : null;
+  const connectedManagedPricingUrl = connectedShopId
+    ? getManagedPricingUrl(connectedShopId)
+    : null;
 
   // 1. Check user-level plan_override (set by admin)
   const userRows = (await sql`
@@ -41,15 +52,15 @@ export async function GET(request: NextRequest) {
   if (userPlanOverride) {
     const plan = PRICING_PLANS[userPlanOverride];
     return NextResponse.json({
-      connected: false,
+      connected: Boolean(connectedShopId),
       planId: userPlanOverride,
       planName: plan?.name ?? userPlanOverride,
       monthlyPrice: plan?.monthlyPrice ?? 0,
       status: "active",
-      shopId: null,
-      storeName: null,
+      shopId: connectedShopId,
+      storeName: connectedStoreName,
       source: "user_override",
-      managedPricingUrl: null,
+      managedPricingUrl: connectedManagedPricingUrl,
     });
   }
 
@@ -62,23 +73,23 @@ export async function GET(request: NextRequest) {
   if (subByUser[0]) {
     const planId = subByUser[0].plan_id as PlanId;
     const plan = PRICING_PLANS[planId];
-    const managedPricingUrl = getManagedPricingUrl(subByUser[0].shop_id);
+    const shopId = connectedShopId ?? subByUser[0].shop_id;
+    const managedPricingUrl = shopId ? getManagedPricingUrl(shopId) : null;
     return NextResponse.json({
-      connected: true,
+      connected: Boolean(shopId),
       planId,
       planName: plan?.name ?? planId,
       monthlyPrice: plan?.monthlyPrice ?? 0,
       status: subByUser[0].status,
-      shopId: subByUser[0].shop_id,
-      storeName: null,
+      shopId,
+      storeName: connectedStoreName ?? subByUser[0].shop_id,
       source: "user_subscription",
       managedPricingUrl,
     });
   }
 
   // 3. Fall back to Shopify integration on the workspace
-  const integration = await getIntegration(businessId, "shopify");
-  if (!integration || integration.status !== "connected" || !integration.provider_account_id) {
+  if (!connectedShopId) {
     return NextResponse.json({
       connected: false,
       planId: "starter",
@@ -92,7 +103,7 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  const shopId = integration.provider_account_id;
+  const shopId = connectedShopId;
   const planId = await getCurrentPlan(shopId);
   const plan = PRICING_PLANS[planId];
   const managedPricingUrl = getManagedPricingUrl(shopId);
@@ -104,7 +115,7 @@ export async function GET(request: NextRequest) {
     monthlyPrice: plan.monthlyPrice,
     status: "active",
     shopId,
-    storeName: integration.provider_account_name ?? shopId,
+    storeName: connectedStoreName,
     source: "shopify",
     managedPricingUrl,
   });

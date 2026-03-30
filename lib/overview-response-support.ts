@@ -16,6 +16,12 @@ interface Ga4EcommerceFallback {
   averageOrderValue: number | null;
 }
 
+interface ShopifyEcommerceAggregate {
+  revenue: number;
+  purchases: number;
+  averageOrderValue: number | null;
+}
+
 export function buildEmptyOverview(
   businessId: string,
   startDate: string,
@@ -56,8 +62,40 @@ export function buildEmptyOverview(
 
 export function applyEcommerceSourcePriority(
   overview: OverviewResponse,
-  ga4Fallback: Ga4EcommerceFallback | null
+  input: {
+    shopify: ShopifyEcommerceAggregate | null;
+    ga4Fallback: Ga4EcommerceFallback | null;
+  }
 ) {
+  if (input.shopify) {
+    const revenue = round2(input.shopify.revenue);
+    const purchases = Math.round(input.shopify.purchases);
+    const aov =
+      input.shopify.averageOrderValue !== null
+        ? round2(input.shopify.averageOrderValue)
+        : purchases > 0
+          ? round2(input.shopify.revenue / input.shopify.purchases)
+          : 0;
+    const roas = overview.kpis.spend > 0 ? round2(input.shopify.revenue / overview.kpis.spend) : 0;
+
+    overview.kpis.revenue = revenue;
+    overview.kpis.purchases = purchases;
+    overview.kpis.aov = aov;
+    overview.kpis.roas = roas;
+
+    overview.totals.revenue = revenue;
+    overview.totals.purchases = purchases;
+    overview.totals.conversions = purchases;
+    overview.totals.roas = roas;
+
+    overview.kpiSources.revenue = { source: "shopify", label: "Shopify" };
+    overview.kpiSources.purchases = { source: "shopify", label: "Shopify" };
+    overview.kpiSources.aov = { source: "shopify", label: "Shopify" };
+    overview.kpiSources.roas = { source: "shopify", label: "Shopify" };
+    return;
+  }
+
+  const ga4Fallback = input.ga4Fallback;
   if (ga4Fallback) {
     const revenue = round2(ga4Fallback.revenue);
     const purchases = Math.round(ga4Fallback.purchases);

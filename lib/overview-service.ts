@@ -25,6 +25,7 @@ import {
   setCachedReport,
 } from "@/lib/reporting-cache";
 import { getMetaWarehouseSummary } from "@/lib/meta/serving";
+import { getShopifyOverviewAggregate } from "@/lib/shopify/overview";
 
 interface TrendPoint {
   date: string;
@@ -362,9 +363,10 @@ async function getGoogleOverviewFragment(input: {
 }
 
 async function fetchDaySnapshot(businessId: string, date: string) {
-  const [metaResult, googleResult, ga4Result] = await Promise.allSettled([
+  const [metaResult, googleResult, shopifyResult, ga4Result] = await Promise.allSettled([
     getMetaOverviewFragment({ businessId, startDate: date, endDate: date }),
     getGoogleOverviewFragment({ businessId, startDate: date, endDate: date }),
+    getShopifyOverviewAggregate({ businessId, startDate: date, endDate: date }),
     getGa4EcommerceFallback(businessId, date, date),
   ]);
 
@@ -383,14 +385,26 @@ async function fetchDaySnapshot(businessId: string, date: string) {
     googleResult.status === "fulfilled" ? Number(googleResult.value.purchases ?? 0) : 0;
 
   const spend = metaSpend + googleSpend;
+  const shopifyRevenue =
+    shopifyResult.status === "fulfilled" && shopifyResult.value
+      ? Number(shopifyResult.value.revenue ?? 0)
+      : 0;
+  const shopifyPurchases =
+    shopifyResult.status === "fulfilled" && shopifyResult.value
+      ? Number(shopifyResult.value.purchases ?? 0)
+      : 0;
 
   const revenue =
-    ga4Result.status === "fulfilled" && ga4Result.value
+    shopifyRevenue > 0 || shopifyPurchases > 0
+      ? shopifyRevenue
+      : ga4Result.status === "fulfilled" && ga4Result.value
       ? Number(ga4Result.value.revenue ?? 0)
       : metaRevenue + googleRevenue;
 
   const purchases =
-    ga4Result.status === "fulfilled" && ga4Result.value
+    shopifyRevenue > 0 || shopifyPurchases > 0
+      ? shopifyPurchases
+      : ga4Result.status === "fulfilled" && ga4Result.value
       ? Number(ga4Result.value.purchases ?? 0)
       : metaPurchases + googlePurchases;
 
@@ -406,6 +420,14 @@ async function buildDailyTrends(params: {
   startDate: string;
   endDate: string;
 }): Promise<DailyTrendsBundle> {
+  const shopifyAggregate = await getShopifyOverviewAggregate(params).catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn("[overview] shopify daily trends unavailable", {
+      businessId: params.businessId,
+      message,
+    });
+    return null;
+  });
   const dates = enumerateDays(params.startDate, params.endDate);
 
   const snapshots: Awaited<ReturnType<typeof fetchDaySnapshot>>[] = [];
@@ -418,7 +440,15 @@ async function buildDailyTrends(params: {
   }
 
   return {
-    combined: snapshots.map((s) => s.combined),
+    combined: snapshots.map((s) => {
+      const shopifyDay = shopifyAggregate?.dailyTrends.find((entry) => entry.date === s.combined.date);
+      return {
+        date: s.combined.date,
+        spend: s.combined.spend,
+        revenue: round2(shopifyDay?.revenue ?? s.combined.revenue),
+        purchases: Math.round(shopifyDay?.purchases ?? s.combined.purchases),
+      };
+    }),
     providerTrends: {
       meta: snapshots.map((s) => s.meta),
       google: snapshots.map((s) => s.google),
@@ -473,13 +503,18 @@ export async function getOverviewData(params: {
   let totalImpressions = 0;
   const platformEfficiency: PlatformEfficiencyRow[] = [];
 
-  const [metaResult, googleResult] = await Promise.allSettled([
+  const [metaResult, googleResult, shopifyResult] = await Promise.allSettled([
     getMetaOverviewFragment({
       businessId,
       startDate: resolvedStart,
       endDate: resolvedEnd,
     }),
     getGoogleOverviewFragment({
+      businessId,
+      startDate: resolvedStart,
+      endDate: resolvedEnd,
+    }),
+    getShopifyOverviewAggregate({
       businessId,
       startDate: resolvedStart,
       endDate: resolvedEnd,
@@ -516,6 +551,15 @@ export async function getOverviewData(params: {
     console.warn("[overview] google ads overview unavailable", { businessId, message });
   }
 
+  const shopifyAggregate = shopifyResult.status === "fulfilled" ? shopifyResult.value : null;
+  if (shopifyResult.status === "rejected") {
+    const message =
+      shopifyResult.reason instanceof Error
+        ? shopifyResult.reason.message
+        : String(shopifyResult.reason);
+    console.warn("[overview] shopify overview unavailable", { businessId, message });
+  }
+
   const roas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
   const cpa = totalPurchases > 0 ? totalSpend / totalPurchases : 0;
   const aov = totalPurchases > 0 ? totalRevenue / totalPurchases : 0;
@@ -538,13 +582,18 @@ export async function getOverviewData(params: {
   const skipTrends = params.includeTrends === false;
 
   const [ga4Fallback, dailyTrends] = await Promise.all([
-    getGa4EcommerceFallback(businessId, resolvedStart, resolvedEnd),
+    shopifyAggregate
+      ? Promise.resolve(null)
+      : getGa4EcommerceFallback(businessId, resolvedStart, resolvedEnd),
     skipTrends
       ? Promise.resolve(null)
       : buildDailyTrends({ businessId, startDate: resolvedStart, endDate: resolvedEnd }),
   ]);
 
-  applyEcommerceSourcePriority(overview, ga4Fallback);
+  applyEcommerceSourcePriority(overview, {
+    shopify: shopifyAggregate,
+    ga4Fallback,
+  });
 
   if (dailyTrends) {
     overview.providerTrends = dailyTrends.providerTrends;
@@ -554,7 +603,7 @@ export async function getOverviewData(params: {
     overview.trends["30d"] = dailyTrends.combined.slice(-30);
   }
 
-  if (overview.status === "no_data" && ga4Fallback) {
+  if (overview.status === "no_data" && (ga4Fallback || shopifyAggregate)) {
     delete overview.status;
   }
 
