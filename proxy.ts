@@ -28,6 +28,7 @@ const PUBLIC_API_PREFIXES = [
   "/api/creatives/share",
   "/api/webhooks/shopify",
   "/api/ai/cron",
+  "/api/sync/cron",
   "/api/oauth/sign-with-google",
   "/api/oauth/sign-with-facebook",
   "/api/oauth/shopify/callback",

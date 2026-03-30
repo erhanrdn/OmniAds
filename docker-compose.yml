@@ -1,0 +1,31 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: adsecute:latest
+    command: npm run start -- --hostname 0.0.0.0 --port 3000
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+    ports:
+      - "127.0.0.1:3000:3000"
+
+  worker:
+    image: adsecute:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: npm run worker:start
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      NODE_ENV: production
+      SYNC_WORKER_MODE: "1"
+    depends_on:
+      - web
