@@ -27,7 +27,7 @@ import type {
 } from "@/lib/meta/warehouse-types";
 
 const META_SOURCE_PRIORITY_SQL = `
-  CASE partition.source
+  CASE source
     WHEN 'priority_window' THEN 700
     WHEN 'today' THEN 650
     WHEN 'request_runtime' THEN 625
@@ -357,7 +357,19 @@ export async function leaseMetaSyncPartitions(input: {
         )
       ORDER BY
         priority DESC,
-        ${sql.unsafe(META_SOURCE_PRIORITY_SQL)} DESC,
+        CASE source
+          WHEN 'priority_window' THEN 700
+          WHEN 'today' THEN 650
+          WHEN 'request_runtime' THEN 625
+          WHEN 'recent' THEN 600
+          WHEN 'recent_recovery' THEN 550
+          WHEN 'manual_refresh' THEN 525
+          WHEN 'core_success' THEN 500
+          WHEN 'initial_connect' THEN 250
+          WHEN 'historical_recovery' THEN 200
+          WHEN 'historical' THEN 150
+          ELSE 100
+        END DESC,
         partition_date DESC,
         updated_at ASC
       LIMIT ${Math.max(1, input.limit)}
@@ -1423,7 +1435,19 @@ export async function requeueMetaRetryableFailedPartitions(input: {
         AND status = 'failed'
         AND COALESCE(next_retry_at, now()) <= now()
       ORDER BY
-        ${sql.unsafe(META_SOURCE_PRIORITY_SQL)} DESC,
+        CASE source
+          WHEN 'priority_window' THEN 700
+          WHEN 'today' THEN 650
+          WHEN 'request_runtime' THEN 625
+          WHEN 'recent' THEN 600
+          WHEN 'recent_recovery' THEN 550
+          WHEN 'manual_refresh' THEN 525
+          WHEN 'core_success' THEN 500
+          WHEN 'initial_connect' THEN 250
+          WHEN 'historical_recovery' THEN 200
+          WHEN 'historical' THEN 150
+          ELSE 100
+        END DESC,
         partition_date DESC,
         updated_at ASC
       LIMIT ${Math.max(1, input.limit ?? 500)}

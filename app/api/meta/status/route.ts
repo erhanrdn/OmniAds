@@ -25,6 +25,7 @@ import {
   decideProviderReadinessLevel,
 } from "@/lib/provider-readiness";
 import { isDemoBusinessId, getDemoMetaStatus } from "@/lib/demo-business";
+import { getProviderWorkerHealthState } from "@/lib/sync/worker-health";
 
 function buildMetaDomainReadiness(input: {
   availableSurfaces: string[];
@@ -124,7 +125,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(getDemoMetaStatus(), { headers: { "Cache-Control": "no-store" } });
   }
 
-  const [integration, assignments, latestSync, accountStats, credentials, legacyJobHealth] =
+  const [integration, assignments, latestSync, accountStats, credentials, legacyJobHealth, workerHealth] =
     await Promise.all([
       getIntegration(businessId!, "meta").catch(() => null),
       getProviderAccountAssignments(businessId!, "meta").catch(() => null),
@@ -132,6 +133,11 @@ export async function GET(request: NextRequest) {
       getMetaAccountDailyStats({ businessId: businessId!, providerAccountId: null }).catch(() => null),
       resolveMetaCredentials(businessId!).catch(() => null),
       getMetaSyncJobHealth({ businessId: businessId! }).catch(() => null),
+      getProviderWorkerHealthState({
+        businessId: businessId!,
+        providerScope: "meta",
+        staleThresholdMs: 3 * 60_000,
+      }).catch(() => null),
     ]);
 
   const accountIds = assignments?.account_ids ?? [];
@@ -648,6 +654,16 @@ export async function GET(request: NextRequest) {
         extendedHistoricalQueueDepth: queueHealth?.extendedHistoricalQueueDepth ?? 0,
         extendedHistoricalLeasedPartitions: queueHealth?.extendedHistoricalLeasedPartitions ?? 0,
       },
+      operations: workerHealth
+        ? {
+            workerHealthy: workerHealth.workerHealthy,
+            heartbeatAgeMs: workerHealth.heartbeatAgeMs,
+            runnerLeaseActive: workerHealth.runnerLeaseActive,
+            ownerWorkerId: workerHealth.ownerWorkerId,
+            consumeStage: workerHealth.consumeStage,
+            blockReason: null,
+          }
+        : null,
       extendedRecoveryState,
       recentExtendedReady,
       historicalExtendedReady,

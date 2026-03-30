@@ -592,8 +592,6 @@ async function enqueueMetaMaintenancePartitions(
 
 export async function enqueueMetaScheduledWork(businessId: string) {
   const credentials = await resolveMetaCredentials(businessId).catch(() => null);
-  const staleExpired = await expireStaleMetaSyncJobs({ businessId }).catch(() => 0);
-  const cleanup = await cleanupMetaPartitionOrchestration({ businessId }).catch(() => null);
   let queuedCore = 0;
   let queuedMaintenance = 0;
 
@@ -618,8 +616,6 @@ export async function enqueueMetaScheduledWork(businessId: string) {
 
   return {
     businessId,
-    staleExpired,
-    cleanup,
     queuedCore,
     queuedMaintenance,
   };
@@ -843,15 +839,16 @@ async function processMetaPartition(input: {
   }
 }
 
-export async function syncMetaReports(businessId: string): Promise<MetaSyncResult> {
-  if (process.env.SYNC_WORKER_MODE !== "1") {
-    await enqueueMetaScheduledWork(businessId).catch(() => null);
-    return { businessId, attempted: 0, succeeded: 0, failed: 0, skipped: true };
-  }
+export async function consumeMetaQueuedWork(businessId: string): Promise<MetaSyncResult> {
   const credentials = await resolveMetaCredentials(businessId).catch(() => null);
   if (!credentials?.accountIds?.length) {
+    console.info("[meta-sync] meta_consume_skipped_no_credentials", { businessId });
     return { businessId, attempted: 0, succeeded: 0, failed: 0, skipped: true };
   }
+  console.info("[meta-sync] meta_consume_started", {
+    businessId,
+    accountIds: credentials.accountIds,
+  });
   await expireStaleMetaSyncJobs({ businessId }).catch(() => null);
   await cleanupMetaPartitionOrchestration({
     businessId,
@@ -862,7 +859,7 @@ export async function syncMetaReports(businessId: string): Promise<MetaSyncResul
     },
     runProgressGraceMinutes: META_RUN_PROGRESS_GRACE_MINUTES,
   }).catch(() => null);
-  await requeueMetaRetryableFailedPartitions({ businessId }).catch(() => []);
+  await requeueMetaRetryableFailedPartitions({ businessId });
 
   const lockKey = `background:${businessId}`;
   const backgroundSyncKeys = getBackgroundSyncKeys();
@@ -875,6 +872,14 @@ export async function syncMetaReports(businessId: string): Promise<MetaSyncResul
   try {
     await refreshMetaSyncStateForBusiness({ businessId, credentials }).catch(() => null);
     const queueHealthBeforeEnqueue = await getMetaQueueHealth({ businessId }).catch(() => null);
+    console.info("[meta-sync] meta_consume_queue_health", {
+      businessId,
+      queueDepth: queueHealthBeforeEnqueue?.queueDepth ?? 0,
+      leasedPartitions: queueHealthBeforeEnqueue?.leasedPartitions ?? 0,
+      coreQueueDepth: queueHealthBeforeEnqueue?.coreQueueDepth ?? 0,
+      maintenanceQueueDepth: queueHealthBeforeEnqueue?.maintenanceQueueDepth ?? 0,
+      extendedQueueDepth: queueHealthBeforeEnqueue?.extendedQueueDepth ?? 0,
+    });
     const hasCoreBacklog =
       (queueHealthBeforeEnqueue?.coreQueueDepth ?? 0) > 0 ||
       (queueHealthBeforeEnqueue?.coreLeasedPartitions ?? 0) > 0;
@@ -895,7 +900,7 @@ export async function syncMetaReports(businessId: string): Promise<MetaSyncResul
       workerId,
       limit: META_MAINTENANCE_WORKER_LIMIT,
       leaseMinutes: META_PARTITION_LEASE_MINUTES,
-    }).catch(() => []);
+    });
     const queueHealthAfterPriorityLeases = await getMetaQueueHealth({ businessId }).catch(() => null);
     const hasMaintenanceBacklogAfterLeasing =
       (queueHealthAfterPriorityLeases?.maintenanceQueueDepth ?? 0) > 0 ||
@@ -916,7 +921,7 @@ export async function syncMetaReports(businessId: string): Promise<MetaSyncResul
             workerId,
             limit: META_EXTENDED_WORKER_LIMIT,
             leaseMinutes: META_PARTITION_LEASE_MINUTES,
-          }).catch(() => [])
+          })
         : [];
 
     const leasedHistoricalCorePartitions =
@@ -927,7 +932,7 @@ export async function syncMetaReports(businessId: string): Promise<MetaSyncResul
             workerId,
             limit: META_CORE_WORKER_LIMIT,
             leaseMinutes: META_PARTITION_LEASE_MINUTES,
-          }).catch(() => [])
+          })
         : [];
 
     const leasedExtendedHistoricalPartitions =
@@ -941,7 +946,7 @@ export async function syncMetaReports(businessId: string): Promise<MetaSyncResul
             workerId,
             limit: META_EXTENDED_WORKER_LIMIT,
             leaseMinutes: META_PARTITION_LEASE_MINUTES,
-          }).catch(() => [])
+          })
         : [];
 
     let partitions = [
@@ -950,8 +955,21 @@ export async function syncMetaReports(businessId: string): Promise<MetaSyncResul
       ...leasedHistoricalCorePartitions,
       ...leasedExtendedHistoricalPartitions,
     ];
+    console.info("[meta-sync] meta_consume_leased_partitions", {
+      businessId,
+      maintenanceLeased: leasedMaintenancePartitions.length,
+      extendedRecentLeased: leasedExtendedRecentPartitions.length,
+      historicalCoreLeased: leasedHistoricalCorePartitions.length,
+      extendedHistoricalLeased: leasedExtendedHistoricalPartitions.length,
+      totalLeased: partitions.length,
+    });
     if (partitions.length === 0) {
       const queueHealth = await getMetaQueueHealth({ businessId }).catch(() => null);
+      console.info("[meta-sync] meta_consume_no_partitions", {
+        businessId,
+        queueDepth: queueHealth?.queueDepth ?? 0,
+        leasedPartitions: queueHealth?.leasedPartitions ?? 0,
+      });
       if ((queueHealth?.queueDepth ?? 0) > 0 || (queueHealth?.leasedPartitions ?? 0) > 0) {
         console.warn("[meta-sync] queue_idle_without_lease", {
           businessId,
@@ -961,7 +979,6 @@ export async function syncMetaReports(businessId: string): Promise<MetaSyncResul
           latestMaintenanceActivityAt: queueHealth?.latestMaintenanceActivityAt ?? null,
           latestExtendedActivityAt: queueHealth?.latestExtendedActivityAt ?? null,
         });
-        scheduleMetaBackgroundSync({ businessId, delayMs: META_BACKGROUND_LOOP_DELAY_MS });
       }
       return { businessId, attempted: 0, succeeded: 0, failed: 0, skipped: true };
     }
@@ -989,10 +1006,12 @@ export async function syncMetaReports(businessId: string): Promise<MetaSyncResul
     }
 
     await refreshMetaSyncStateForBusiness({ businessId, credentials }).catch(() => null);
-    const queueHealth = await getMetaQueueHealth({ businessId }).catch(() => null);
-    if ((queueHealth?.queueDepth ?? 0) > 0 || (queueHealth?.leasedPartitions ?? 0) > 0) {
-      scheduleMetaBackgroundSync({ businessId, delayMs: META_BACKGROUND_LOOP_DELAY_MS });
-    }
+    console.info("[meta-sync] meta_consume_finished", {
+      businessId,
+      attempted,
+      succeeded,
+      failed,
+    });
     return {
       businessId,
       attempted,
@@ -1003,6 +1022,14 @@ export async function syncMetaReports(businessId: string): Promise<MetaSyncResul
   } finally {
     backgroundSyncKeys.delete(lockKey);
   }
+}
+
+export async function syncMetaReports(businessId: string): Promise<MetaSyncResult> {
+  if (process.env.SYNC_WORKER_MODE !== "1") {
+    await enqueueMetaScheduledWork(businessId).catch(() => null);
+    return { businessId, attempted: 0, succeeded: 0, failed: 0, skipped: true };
+  }
+  return consumeMetaQueuedWork(businessId);
 }
 
 async function enqueueMetaRangeJob(input: {

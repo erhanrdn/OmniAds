@@ -4,7 +4,7 @@ import type {
   ProviderSyncPartitionIdentity,
 } from "@/lib/sync/provider-orchestration";
 import { syncGoogleAdsReports } from "@/lib/sync/google-ads-sync";
-import { syncMetaReports } from "@/lib/sync/meta-sync";
+import { consumeMetaQueuedWork } from "@/lib/sync/meta-sync";
 
 export interface ProviderWorkerAdapter
   extends ProviderSyncAdapter<
@@ -36,7 +36,7 @@ export const metaWorkerAdapter: ProviderWorkerAdapter = {
     return error instanceof Error ? error.message : String(error);
   },
   async consumeBusiness(businessId: string) {
-    return syncMetaReports(businessId);
+    return consumeMetaQueuedWork(businessId);
   },
 };
 

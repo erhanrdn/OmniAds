@@ -199,7 +199,13 @@ export function AuthBootstrap() {
     return () => {
       mounted = false;
       if (!controller.signal.aborted) {
-        controller.abort();
+        try {
+          controller.abort(new DOMException("auth-bootstrap cleanup", "AbortError"));
+        } catch (error: unknown) {
+          if (!(error instanceof DOMException && error.name === "AbortError")) {
+            throw error;
+          }
+        }
       }
     };
   }, [hasHydrated, pathname, setAuthBootstrapStatus, setLanguage, setWorkspaceResolved]);

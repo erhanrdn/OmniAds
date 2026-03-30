@@ -123,6 +123,7 @@ export interface MetaStatusResponse {
     heartbeatAgeMs?: number | null;
     runnerLeaseActive?: boolean;
     ownerWorkerId?: string | null;
+    consumeStage?: string | null;
     staleRunPressure?: number;
     blockReason?: string | null;
   } | null;

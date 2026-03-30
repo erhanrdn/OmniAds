@@ -35,8 +35,13 @@ function prioritizeBusinessesForAdapter(
   providerScope: string,
   businesses: Array<{ id: string; name: string }>
 ) {
-  if (providerScope !== "google_ads") return businesses;
-  const prioritizedIds = parseEnvList("GOOGLE_ADS_DEBUG_PRIORITY_BUSINESS_IDS");
+  const prioritizedIds = parseEnvList(
+    providerScope === "google_ads"
+      ? "GOOGLE_ADS_DEBUG_PRIORITY_BUSINESS_IDS"
+      : providerScope === "meta"
+        ? "META_DEBUG_PRIORITY_BUSINESS_IDS"
+        : ""
+  );
   if (prioritizedIds.length === 0) return businesses;
   const priorityRank = new Map(prioritizedIds.map((id, index) => [id, index]));
   return [...businesses].sort((left, right) => {
@@ -78,6 +83,10 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
   let lastHeartbeatAt = 0;
   let lastPruneAt = 0;
 
+  function getHeartbeatWorkerId(providerScope: string) {
+    return providerScope === "all" ? workerId : `${workerId}:${providerScope}`;
+  }
+
   async function heartbeat(input: {
     providerScope: string;
     status: "starting" | "idle" | "running" | "stopping" | "stopped";
@@ -90,7 +99,7 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
     if (!input.force && now - lastHeartbeatAt < heartbeatIntervalMs) return;
     lastHeartbeatAt = now;
     await heartbeatSyncWorker({
-      workerId,
+      workerId: getHeartbeatWorkerId(input.providerScope),
       instanceType: "durable_sync_worker",
       providerScope: input.providerScope,
       status: input.status,
