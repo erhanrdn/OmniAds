@@ -31,7 +31,7 @@ function parseEnvList(name: string) {
     .filter(Boolean);
 }
 
-function prioritizeBusinessesForAdapter(
+export function prioritizeBusinessesForAdapter(
   providerScope: string,
   businesses: Array<{ id: string; name: string }>
 ) {
@@ -52,6 +52,10 @@ function prioritizeBusinessesForAdapter(
     if (rightRank == null) return -1;
     return leftRank - rightRank;
   });
+}
+
+export function buildProviderHeartbeatWorkerId(workerId: string, providerScope: string) {
+  return providerScope === "all" ? workerId : `${workerId}:${providerScope}`;
 }
 
 function getWorkerBuildFingerprint() {
@@ -83,10 +87,6 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
   let lastHeartbeatAt = 0;
   let lastPruneAt = 0;
 
-  function getHeartbeatWorkerId(providerScope: string) {
-    return providerScope === "all" ? workerId : `${workerId}:${providerScope}`;
-  }
-
   async function heartbeat(input: {
     providerScope: string;
     status: "starting" | "idle" | "running" | "stopping" | "stopped";
@@ -99,7 +99,7 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
     if (!input.force && now - lastHeartbeatAt < heartbeatIntervalMs) return;
     lastHeartbeatAt = now;
     await heartbeatSyncWorker({
-      workerId: getHeartbeatWorkerId(input.providerScope),
+      workerId: buildProviderHeartbeatWorkerId(workerId, input.providerScope),
       instanceType: "durable_sync_worker",
       providerScope: input.providerScope,
       status: input.status,

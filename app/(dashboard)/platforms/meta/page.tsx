@@ -459,6 +459,46 @@ function MetaStatusBanner({
   }
 
   if (status.state === "paused" || status.state === "stale") {
+    if (status.operations?.blockReason === "worker_offline") {
+      return (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+          <p className="text-sm font-semibold text-amber-900">
+            {language === "tr"
+              ? "Meta worker şu anda çevrimdışı görünüyor."
+              : "The Meta worker appears to be offline right now."}
+          </p>
+          <p className="mt-1.5 text-sm text-amber-800">
+            {language === "tr"
+              ? "Kuyruktaki işler korunuyor, ancak arka plan worker tekrar çalışmadan senkron ilerlemez."
+              : "Queued work is safe, but sync will not progress until the background worker is running again."}
+          </p>
+          {status.latestSync?.lastError ? (
+            <p className="mt-2 text-xs text-amber-800/80">{status.latestSync.lastError}</p>
+          ) : null}
+        </div>
+      );
+    }
+
+    if (status.operations?.blockReason === "lease_denied") {
+      return (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+          <p className="text-sm font-semibold text-amber-900">
+            {language === "tr"
+              ? "Meta senkronu şu anda başka bir worker tarafından tutuluyor."
+              : "Meta sync is currently owned by another worker."}
+          </p>
+          <p className="mt-1.5 text-sm text-amber-800">
+            {language === "tr"
+              ? "Kuyruktaki işler korunuyor. Lease serbest kalınca bu workspace tekrar işlenecek."
+              : "Queued work is safe. This workspace will resume once the active lease is released."}
+          </p>
+          {status.latestSync?.lastError ? (
+            <p className="mt-2 text-xs text-amber-800/80">{status.latestSync.lastError}</p>
+          ) : null}
+        </div>
+      );
+    }
+
     return (
       <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
         <p className="text-sm font-semibold text-amber-900">
@@ -468,8 +508,8 @@ function MetaStatusBanner({
         </p>
         <p className="mt-1.5 text-sm text-amber-800">
           {language === "tr"
-            ? "Kuyruktaki işler korunuyor. Worker yeniden hizalandığında senkron devam edecek."
-            : "Queued work is safe. Sync will continue once the worker catches up again."}
+            ? "Kuyruktaki işler korunuyor. Worker kuyruğu işlerken senkron kademeli olarak ilerleyecek."
+            : "Queued work is safe. Sync will continue as the worker drains the backlog."}
         </p>
         {status.latestSync?.lastError ? (
           <p className="mt-2 text-xs text-amber-800/80">{status.latestSync.lastError}</p>

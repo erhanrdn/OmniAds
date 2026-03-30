@@ -26,6 +26,7 @@ import {
 } from "@/lib/provider-readiness";
 import { isDemoBusinessId, getDemoMetaStatus } from "@/lib/demo-business";
 import { getProviderWorkerHealthState } from "@/lib/sync/worker-health";
+import { deriveMetaOperationsBlockReason } from "@/lib/meta/status-operations";
 
 function buildMetaDomainReadiness(input: {
   availableSurfaces: string[];
@@ -264,6 +265,22 @@ export async function GET(request: NextRequest) {
   const statesByScope = Object.fromEntries(
     META_STATE_SCOPES.map((scope, index) => [scope, stateRows[index] ?? []])
   ) as Record<(typeof META_STATE_SCOPES)[number], Awaited<ReturnType<typeof getMetaSyncState>>>;
+
+  const latestMetaQueueActivityAt =
+    queueHealth?.latestMaintenanceActivityAt ??
+    queueHealth?.latestExtendedActivityAt ??
+    queueHealth?.latestCoreActivityAt ??
+    null;
+  const operationsBlockReason = workerHealth
+    ? deriveMetaOperationsBlockReason({
+        workerHealthy: workerHealth.workerHealthy,
+        queueDepth: queueHealth?.queueDepth ?? 0,
+        leasedPartitions: queueHealth?.leasedPartitions ?? 0,
+        consumeStage: workerHealth.consumeStage,
+        heartbeatAgeMs: workerHealth.heartbeatAgeMs,
+        latestActivityAt: latestMetaQueueActivityAt,
+      })
+    : null;
 
   const relevantStates = (scope: (typeof META_STATE_SCOPES)[number]) =>
     (statesByScope[scope] ?? []).filter((row) =>
@@ -661,7 +678,7 @@ export async function GET(request: NextRequest) {
             runnerLeaseActive: workerHealth.runnerLeaseActive,
             ownerWorkerId: workerHealth.ownerWorkerId,
             consumeStage: workerHealth.consumeStage,
-            blockReason: null,
+            blockReason: operationsBlockReason,
           }
         : null,
       extendedRecoveryState,

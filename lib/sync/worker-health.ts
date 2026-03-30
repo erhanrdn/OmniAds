@@ -46,7 +46,11 @@ export function selectProviderWorkerForBusiness(input: {
 }) {
   const workers = input.workers ?? [];
   return (
-    workers.find((worker) => worker.workerId === (input.activeLeaseOwner ?? "")) ??
+    workers.find(
+      (worker) =>
+        worker.workerId === (input.activeLeaseOwner ?? "") ||
+        worker.workerId.startsWith(`${input.activeLeaseOwner ?? ""}:`)
+    ) ??
     workers.find((worker) => worker.lastConsumedBusinessId === input.businessId) ??
     workers.find((worker) => worker.lastBusinessId === input.businessId) ??
     workers.find((worker) => getMetaBusinessIds(worker.metaJson ?? null).includes(input.businessId)) ??
