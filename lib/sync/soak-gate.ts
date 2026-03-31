@@ -1,4 +1,4 @@
-import type { AdminSyncHealthPayload } from "@/lib/admin-operations-health";
+import { getAdminOperationsHealth, type AdminSyncHealthPayload } from "@/lib/admin-operations-health";
 import { getSyncRunbook } from "@/lib/sync/runbooks";
 
 export interface SyncSoakThresholds {
@@ -22,10 +22,13 @@ export interface SyncSoakEvaluation {
   checkedAt: string;
   thresholds: SyncSoakThresholds;
   checks: SyncSoakCheckResult[];
+  blockingChecks: SyncSoakCheckResult[];
   issueCount: number;
   criticalIssueCount: number;
   unresolvedRunbookKeys: string[];
   topIssue: string | null;
+  releaseReadiness: "publishable" | "blocked";
+  summary: string;
 }
 
 export function readSyncSoakThresholds(env: NodeJS.ProcessEnv = process.env): SyncSoakThresholds {
@@ -115,14 +118,36 @@ export function evaluateSyncSoakHealth(
     },
   ];
 
+  const blockingChecks = checks.filter((check) => !check.ok);
+  const outcome = blockingChecks.length === 0 ? "pass" : "fail";
+
   return {
-    outcome: checks.every((check) => check.ok) ? "pass" : "fail",
+    outcome,
     checkedAt: new Date().toISOString(),
     thresholds,
     checks,
+    blockingChecks,
     issueCount: sync.issues.length,
     criticalIssueCount: criticalIssues.length,
     unresolvedRunbookKeys: unresolvedRunbooks,
     topIssue: summary.topIssue ?? null,
+    releaseReadiness: outcome === "pass" ? "publishable" : "blocked",
+    summary:
+      outcome === "pass"
+        ? "Sync soak gate passed."
+        : `Sync soak gate failed: ${blockingChecks.map((check) => check.key).join(", ")}`,
+  };
+}
+
+export async function runSyncSoakGate(
+  thresholds: SyncSoakThresholds = readSyncSoakThresholds()
+): Promise<{
+  health: Awaited<ReturnType<typeof getAdminOperationsHealth>>;
+  result: SyncSoakEvaluation;
+}> {
+  const health = await getAdminOperationsHealth();
+  return {
+    health,
+    result: evaluateSyncSoakHealth(health.syncHealth, thresholds),
   };
 }

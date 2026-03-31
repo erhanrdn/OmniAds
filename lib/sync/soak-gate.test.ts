@@ -61,6 +61,11 @@ describe("evaluateSyncSoakHealth", () => {
     );
 
     expect(result.outcome).toBe("fail");
+    expect(result.releaseReadiness).toBe("blocked");
+    expect(result.blockingChecks.map((check) => check.key)).toEqual([
+      "critical_issue_count",
+      "runbook_resolution",
+    ]);
     expect(result.checks.find((check) => check.key === "critical_issue_count")?.ok).toBe(false);
     expect(result.checks.find((check) => check.key === "runbook_resolution")?.ok).toBe(false);
     expect(result.unresolvedRunbookKeys).toEqual(["meta:missing_runbook"]);
@@ -100,5 +105,7 @@ describe("evaluateSyncSoakHealth", () => {
     );
 
     expect(result.outcome).toBe("pass");
+    expect(result.releaseReadiness).toBe("publishable");
+    expect(result.blockingChecks).toEqual([]);
   });
 });

@@ -5,12 +5,12 @@ vi.mock("@/lib/internal-sync-auth", () => ({
   requireInternalOrAdminSyncAccess: vi.fn(),
 }));
 
-vi.mock("@/lib/admin-operations-health", () => ({
-  getAdminOperationsHealth: vi.fn(),
+vi.mock("@/lib/sync/soak-gate", () => ({
+  runSyncSoakGate: vi.fn(),
 }));
 
 const internalAuth = await import("@/lib/internal-sync-auth");
-const adminHealth = await import("@/lib/admin-operations-health");
+const soakGate = await import("@/lib/sync/soak-gate");
 const { GET } = await import("@/app/api/sync/soak/route");
 
 describe("GET /api/sync/soak", () => {
@@ -32,40 +32,27 @@ describe("GET /api/sync/soak", () => {
     vi.mocked(internalAuth.requireInternalOrAdminSyncAccess).mockResolvedValue({
       kind: "internal",
     });
-    vi.mocked(adminHealth.getAdminOperationsHealth).mockResolvedValue({
-      syncHealth: {
-        summary: {
-          impactedBusinesses: 1,
-          runningJobs: 0,
-          stuckJobs: 0,
-          failedJobs24h: 0,
-          activeCooldowns: 0,
-          successJobs24h: 0,
-          topIssue: "critical",
-          workerOnline: true,
-          googleAdsQueueDepth: 0,
-          metaQueueDepth: 0,
-          googleAdsDeadLetterPartitions: 0,
-          metaDeadLetterPartitions: 0,
-          googleAdsLeaseConflictRuns24h: 1,
-          metaStaleRunCount24h: 0,
-          googleAdsSkippedActiveLeaseRecoveries: 0,
-          metaSkippedActiveLeaseRecoveries: 0,
+    vi.mocked(soakGate.runSyncSoakGate).mockResolvedValue({
+      health: {} as never,
+      result: {
+        outcome: "fail",
+        checkedAt: "2026-04-01T00:00:00.000Z",
+        thresholds: {
+          maxStaleRuns24h: 0,
+          maxLeaseConflicts24h: 0,
+          maxSkippedActiveLeaseRecoveries24h: 5,
+          maxQueueDepth: 25,
+          maxDeadLetters: 0,
+          maxCriticalIssues: 0,
         },
-        issues: [
-          {
-            businessId: "biz",
-            businessName: "Biz",
-            provider: "google_ads",
-            reportType: "lease_conflict_runs",
-            severity: "critical",
-            runbookKey: "google_ads:lease_conflict",
-            status: "failed",
-            detail: "critical",
-            triggeredAt: null,
-            completedAt: null,
-          },
-        ],
+        checks: [],
+        blockingChecks: [{ key: "critical_issue_count", ok: false, actual: 1, threshold: 0 }],
+        issueCount: 1,
+        criticalIssueCount: 1,
+        unresolvedRunbookKeys: [],
+        topIssue: "critical",
+        releaseReadiness: "blocked",
+        summary: "Sync soak gate failed: critical_issue_count",
       },
     } as never);
 
@@ -81,27 +68,27 @@ describe("GET /api/sync/soak", () => {
       kind: "admin",
       session: { user: { id: "admin_1" } } as never,
     });
-    vi.mocked(adminHealth.getAdminOperationsHealth).mockResolvedValue({
-      syncHealth: {
-        summary: {
-          impactedBusinesses: 0,
-          runningJobs: 0,
-          stuckJobs: 0,
-          failedJobs24h: 0,
-          activeCooldowns: 0,
-          successJobs24h: 0,
-          topIssue: null,
-          workerOnline: true,
-          googleAdsQueueDepth: 0,
-          metaQueueDepth: 0,
-          googleAdsDeadLetterPartitions: 0,
-          metaDeadLetterPartitions: 0,
-          googleAdsLeaseConflictRuns24h: 0,
-          metaStaleRunCount24h: 0,
-          googleAdsSkippedActiveLeaseRecoveries: 0,
-          metaSkippedActiveLeaseRecoveries: 0,
+    vi.mocked(soakGate.runSyncSoakGate).mockResolvedValue({
+      health: {} as never,
+      result: {
+        outcome: "pass",
+        checkedAt: "2026-04-01T00:00:00.000Z",
+        thresholds: {
+          maxStaleRuns24h: 0,
+          maxLeaseConflicts24h: 0,
+          maxSkippedActiveLeaseRecoveries24h: 5,
+          maxQueueDepth: 25,
+          maxDeadLetters: 0,
+          maxCriticalIssues: 0,
         },
-        issues: [],
+        checks: [],
+        blockingChecks: [],
+        issueCount: 0,
+        criticalIssueCount: 0,
+        unresolvedRunbookKeys: [],
+        topIssue: null,
+        releaseReadiness: "publishable",
+        summary: "Sync soak gate passed.",
       },
     } as never);
 

@@ -1,15 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAdminOperationsHealth } from "@/lib/admin-operations-health";
 import { requireInternalOrAdminSyncAccess } from "@/lib/internal-sync-auth";
-import { evaluateSyncSoakHealth } from "@/lib/sync/soak-gate";
+import { runSyncSoakGate } from "@/lib/sync/soak-gate";
 
 export async function GET(request: NextRequest) {
   const access = await requireInternalOrAdminSyncAccess(request);
   if (access.error) return access.error;
 
   try {
-    const snapshot = await getAdminOperationsHealth();
-    const result = evaluateSyncSoakHealth(snapshot.syncHealth);
+    const { result } = await runSyncSoakGate();
     return NextResponse.json(result, {
       status: result.outcome === "pass" ? 200 : 503,
     });

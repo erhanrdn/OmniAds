@@ -1,15 +1,18 @@
 import { loadEnvConfig } from "@next/env";
-import { getAdminOperationsHealth } from "@/lib/admin-operations-health";
-import { evaluateSyncSoakHealth } from "@/lib/sync/soak-gate";
+import { runSyncSoakGate } from "@/lib/sync/soak-gate";
 
 loadEnvConfig(process.cwd());
 
 async function main() {
-  const snapshot = await getAdminOperationsHealth();
-  const output = evaluateSyncSoakHealth(snapshot.syncHealth);
+  const { result: output } = await runSyncSoakGate();
 
   console.log(JSON.stringify(output, null, 2));
   if (output.outcome !== "pass") {
+    console.error("[sync-soak-report] gate_failed", {
+      releaseReadiness: output.releaseReadiness,
+      blockingChecks: output.blockingChecks.map((check) => check.key),
+      topIssue: output.topIssue,
+    });
     process.exitCode = 1;
   }
 }

@@ -4,6 +4,7 @@ import { enqueueMetaScheduledWork } from "@/lib/sync/meta-sync";
 import { enqueueGoogleAdsScheduledWork } from "@/lib/sync/google-ads-sync";
 import { syncGA4Reports } from "@/lib/sync/ga4-sync";
 import { syncSearchConsoleReports } from "@/lib/sync/search-console-sync";
+import { runSyncSoakGate } from "@/lib/sync/soak-gate";
 
 /**
  * POST /api/sync/cron
@@ -62,10 +63,48 @@ export async function POST(request: NextRequest) {
     r.status === "fulfilled" ? r.value : { error: String(r.reason) }
   );
 
+  const shouldEnforceSoakGate =
+    process.env.SYNC_CRON_ENFORCE_SOAK_GATE?.trim() === "true";
+  let soakGate: Awaited<ReturnType<typeof runSyncSoakGate>>["result"] | null = null;
+
+  if (shouldEnforceSoakGate) {
+    try {
+      const soakRun = await runSyncSoakGate();
+      soakGate = soakRun.result;
+      if (soakGate.outcome !== "pass") {
+        console.error("[sync-cron] soak_gate_failed", {
+          releaseReadiness: soakGate.releaseReadiness,
+          blockingChecks: soakGate.blockingChecks.map((check) => check.key),
+          topIssue: soakGate.topIssue,
+        });
+      }
+    } catch (error) {
+      console.error("[sync-cron] soak_gate_error", error);
+      return NextResponse.json(
+        {
+          ok: false,
+          synced: businesses.length,
+          results: summary,
+          soakGate: {
+            outcome: "fail",
+            releaseReadiness: "blocked",
+            summary: "Sync soak gate execution failed.",
+            error: String(error),
+          },
+        },
+        { status: 500 }
+      );
+    }
+  }
+
   console.log("[sync-cron] completed", {
     businessCount: businesses.length,
     succeeded: results.filter((r) => r.status === "fulfilled").length,
     failed: results.filter((r) => r.status === "rejected").length,
+    soakGateOutcome: soakGate?.outcome ?? null,
   });
-  return NextResponse.json({ ok: true, synced: businesses.length, results: summary });
+  return NextResponse.json(
+    { ok: true, synced: businesses.length, results: summary, ...(soakGate ? { soakGate } : {}) },
+    { status: soakGate?.outcome === "fail" ? 503 : 200 }
+  );
 }
