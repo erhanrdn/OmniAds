@@ -13,6 +13,7 @@ import {
   getOverviewData,
   type OverviewResponse as OverviewAggregateData,
 } from "@/lib/overview-service";
+import { getShopifyOverviewAggregate } from "@/lib/shopify/overview";
 import {
   buildAttributionRows,
   buildMetricCard,
@@ -78,6 +79,8 @@ export async function GET(request: NextRequest) {
     previousOverviewResult,
     currentAnalyticsResult,
     previousAnalyticsResult,
+    currentShopifyResult,
+    previousShopifyResult,
     integrationsStatusResult,
     costModelResult,
   ] = await Promise.allSettled([
@@ -104,6 +107,18 @@ export async function GET(request: NextRequest) {
       : Promise.resolve(null),
     canReadAnalytics && previousWindow.startDate && previousWindow.endDate
       ? getAnalyticsOverviewData({
+          businessId,
+          startDate: previousWindow.startDate,
+          endDate: previousWindow.endDate,
+        })
+      : Promise.resolve(null),
+    getShopifyOverviewAggregate({
+      businessId,
+      startDate: resolvedStart,
+      endDate: resolvedEnd,
+    }),
+    compareMode === "previous_period" && previousWindow.startDate && previousWindow.endDate
+      ? getShopifyOverviewAggregate({
           businessId,
           startDate: previousWindow.startDate,
           endDate: previousWindow.endDate,
@@ -142,6 +157,10 @@ export async function GET(request: NextRequest) {
       : previousAnalyticsResult.reason instanceof GA4AuthError
         ? null
         : null;
+  const currentShopify =
+    currentShopifyResult.status === "fulfilled" ? currentShopifyResult.value : null;
+  const previousShopify =
+    previousShopifyResult.status === "fulfilled" ? previousShopifyResult.value : null;
   const integrationsStatus =
     integrationsStatusResult.status === "fulfilled"
       ? integrationsStatusResult.value
@@ -179,6 +198,18 @@ export async function GET(request: NextRequest) {
     (point) => point.revenue,
     (point) => point.purchases
   );
+  const shopifyConversionRateSeries = toSparklineSeries(
+    currentShopify?.dailyTrends ?? [],
+    (point) => point.conversionRate ?? 0
+  );
+  const shopifyNewCustomersSeries = toSparklineSeries(
+    currentShopify?.dailyTrends ?? [],
+    (point) => point.newCustomers ?? 0
+  );
+  const shopifyReturningCustomersSeries = toSparklineSeries(
+    currentShopify?.dailyTrends ?? [],
+    (point) => point.returningCustomers ?? 0
+  );
   const ga4ConversionRateSeries = toPercentSparklineSeries(
     ga4DailyTrends,
     (point) => point.purchases,
@@ -211,9 +242,8 @@ export async function GET(request: NextRequest) {
     (point) => Math.max(point.totalPurchasers - point.firstTimePurchasers, 0),
     (point) => point.totalPurchasers
   );
+  const tr = (english: string, turkish: string) => (language === "tr" ? turkish : english);
 
-  const conversionRateCurrent = currentAnalytics?.kpis?.purchaseCvr ?? null;
-  const conversionRatePrevious = previousAnalytics?.kpis?.purchaseCvr ?? null;
   const sessionsCurrent = currentAnalytics?.kpis?.sessions ?? null;
   const sessionsPrevious = previousAnalytics?.kpis?.sessions ?? null;
   const engagementRateCurrent = currentAnalytics?.kpis?.engagementRate ?? null;
@@ -222,18 +252,57 @@ export async function GET(request: NextRequest) {
   const avgSessionDurationPrevious = previousAnalytics?.kpis?.avgSessionDuration ?? null;
   const averageOrderValueCurrent = currentAnalytics?.kpis?.averageOrderValue ?? null;
   const averageOrderValuePrevious = previousAnalytics?.kpis?.averageOrderValue ?? null;
-  const firstTimePurchasersCurrent = currentAnalytics?.kpis?.firstTimePurchasers ?? null;
-  const firstTimePurchasersPrevious = previousAnalytics?.kpis?.firstTimePurchasers ?? null;
   const totalPurchasersCurrent = currentAnalytics?.kpis?.totalPurchasers ?? null;
   const totalPurchasersPrevious = previousAnalytics?.kpis?.totalPurchasers ?? null;
+  const conversionRateCurrent =
+    currentShopify?.conversionRate !== null && currentShopify?.conversionRate !== undefined
+      ? currentShopify.conversionRate / 100
+      : currentAnalytics?.kpis?.purchaseCvr ?? null;
+  const conversionRatePrevious =
+    previousShopify?.conversionRate !== null && previousShopify?.conversionRate !== undefined
+      ? previousShopify.conversionRate / 100
+      : previousAnalytics?.kpis?.purchaseCvr ?? null;
+  const firstTimePurchasersCurrent =
+    currentShopify?.newCustomers !== null && currentShopify?.newCustomers !== undefined
+      ? currentShopify.newCustomers
+      : currentAnalytics?.kpis?.firstTimePurchasers ?? null;
+  const firstTimePurchasersPrevious =
+    previousShopify?.newCustomers !== null && previousShopify?.newCustomers !== undefined
+      ? previousShopify.newCustomers
+      : previousAnalytics?.kpis?.firstTimePurchasers ?? null;
   const returningPurchasersCurrent =
-    totalPurchasersCurrent !== null && firstTimePurchasersCurrent !== null
-      ? Math.max(totalPurchasersCurrent - firstTimePurchasersCurrent, 0)
-      : currentAnalytics?.newVsReturning?.returning?.purchases ?? null;
+    currentShopify?.returningCustomers !== null &&
+    currentShopify?.returningCustomers !== undefined
+      ? currentShopify.returningCustomers
+      : totalPurchasersCurrent !== null && firstTimePurchasersCurrent !== null
+        ? Math.max(totalPurchasersCurrent - firstTimePurchasersCurrent, 0)
+        : currentAnalytics?.newVsReturning?.returning?.purchases ?? null;
   const returningPurchasersPrevious =
-    totalPurchasersPrevious !== null && firstTimePurchasersPrevious !== null
-      ? Math.max(totalPurchasersPrevious - firstTimePurchasersPrevious, 0)
-      : previousAnalytics?.newVsReturning?.returning?.purchases ?? null;
+    previousShopify?.returningCustomers !== null &&
+    previousShopify?.returningCustomers !== undefined
+      ? previousShopify.returningCustomers
+      : totalPurchasersPrevious !== null && firstTimePurchasersPrevious !== null
+        ? Math.max(totalPurchasersPrevious - firstTimePurchasersPrevious, 0)
+        : previousAnalytics?.newVsReturning?.returning?.purchases ?? null;
+  const storeConversionSource =
+    currentShopify?.conversionRate !== null && currentShopify?.conversionRate !== undefined
+      ? { key: "shopify", label: "Shopify" }
+      : analyticsConnected
+        ? { key: "ga4", label: "GA4" }
+        : { key: "unavailable", label: tr("Unavailable", "Kullanılamıyor") };
+  const storeNewCustomersSource =
+    currentShopify?.newCustomers !== null && currentShopify?.newCustomers !== undefined
+      ? { key: "shopify", label: "Shopify" }
+      : analyticsConnected
+        ? { key: "ga4", label: "GA4" }
+        : { key: "unavailable", label: tr("Unavailable", "Kullanılamıyor") };
+  const storeReturningCustomersSource =
+    currentShopify?.returningCustomers !== null &&
+    currentShopify?.returningCustomers !== undefined
+      ? { key: "shopify", label: "Shopify" }
+      : analyticsConnected
+        ? { key: "ga4", label: "GA4" }
+        : { key: "unavailable", label: tr("Unavailable", "Kullanılamıyor") };
   const [currentGa4Ltv, previousGa4Ltv] = await Promise.all([
     analyticsConnected
       ? getGa4LtvSnapshot({
@@ -252,8 +321,6 @@ export async function GET(request: NextRequest) {
         })
       : Promise.resolve(null),
   ]);
-  const tr = (english: string, turkish: string) => (language === "tr" ? turkish : english);
-
   const pins: OverviewMetricCardData[] = [
     buildMetricCard({
       id: "pins-revenue",
@@ -324,10 +391,16 @@ export async function GET(request: NextRequest) {
       value: conversionRateCurrent !== null ? conversionRateCurrent * 100 : null,
       previousValue: conversionRatePrevious !== null ? conversionRatePrevious * 100 : null,
       unit: "percent",
-      sourceKey: analyticsConnected ? "ga4" : "unavailable",
-      sourceLabel: analyticsConnected ? "GA4" : tr("Unavailable", "Kullanılamıyor"),
-      helperText: analyticsConnected ? undefined : tr("Connect GA4", "GA4 bağlayın"),
-      sparklineData: ga4ConversionRateSeries,
+      sourceKey: storeConversionSource.key,
+      sourceLabel: storeConversionSource.label,
+      helperText:
+        storeConversionSource.key === "unavailable"
+          ? tr("Connect Shopify or GA4", "Shopify veya GA4 bağlayın")
+          : undefined,
+      sparklineData:
+        storeConversionSource.key === "shopify"
+          ? shopifyConversionRateSeries
+          : ga4ConversionRateSeries,
       compareMode,
       icon: "target",
     }),
@@ -355,17 +428,20 @@ export async function GET(request: NextRequest) {
       id: "store-aov",
       title: "AOV",
       subtitle: tr("Average order value", "Ortalama siparis degeri"),
-      value: averageOrderValueCurrent ?? currentOverview.kpis.aov ?? null,
-      previousValue: averageOrderValuePrevious ?? previousOverview?.kpis.aov ?? null,
+      value: currentOverview.kpis.aov ?? averageOrderValueCurrent ?? null,
+      previousValue: previousOverview?.kpis.aov ?? averageOrderValuePrevious ?? null,
       unit: "currency",
       sourceKey: aovSource?.source ?? "unavailable",
-      sourceLabel: aovSource?.label ?? "GA4",
+      sourceLabel: aovSource?.label ?? tr("Unavailable", "Kullanılamıyor"),
       helperText: aovSource?.source === "unavailable" ? tr("Connect Shopify or GA4", "Shopify veya GA4 bağlayın") : undefined,
-      sparklineData: ga4AovSeries.length > 0 ? ga4AovSeries : toRatioSparklineSeries(
-        currentOverview.trends.custom,
-        (point) => point.revenue,
-        (point) => point.purchases
-      ),
+      sparklineData:
+        aovSource?.source === "shopify" || ga4AovSeries.length === 0
+          ? toRatioSparklineSeries(
+              currentOverview.trends.custom,
+              (point) => point.revenue,
+              (point) => point.purchases
+            )
+          : ga4AovSeries,
       compareMode,
       icon: "receipt",
     }),
@@ -375,10 +451,16 @@ export async function GET(request: NextRequest) {
       value: conversionRateCurrent !== null ? conversionRateCurrent * 100 : null,
       previousValue: conversionRatePrevious !== null ? conversionRatePrevious * 100 : null,
       unit: "percent",
-      sourceKey: analyticsConnected ? "ga4" : "unavailable",
-      sourceLabel: analyticsConnected ? "GA4" : tr("Unavailable", "Kullanılamıyor"),
-      helperText: analyticsConnected ? undefined : tr("Connect GA4", "GA4 bağlayın"),
-      sparklineData: ga4ConversionRateSeries,
+      sourceKey: storeConversionSource.key,
+      sourceLabel: storeConversionSource.label,
+      helperText:
+        storeConversionSource.key === "unavailable"
+          ? tr("Connect Shopify or GA4", "Shopify veya GA4 bağlayın")
+          : undefined,
+      sparklineData:
+        storeConversionSource.key === "shopify"
+          ? shopifyConversionRateSeries
+          : ga4ConversionRateSeries,
       compareMode,
       icon: "percent",
     }),
@@ -388,10 +470,16 @@ export async function GET(request: NextRequest) {
       value: firstTimePurchasersCurrent,
       previousValue: firstTimePurchasersPrevious,
       unit: "count",
-      sourceKey: analyticsConnected ? "ga4" : "unavailable",
-      sourceLabel: analyticsConnected ? "GA4" : tr("Unavailable", "Kullanılamıyor"),
-      helperText: analyticsConnected ? undefined : tr("Connect GA4", "GA4 bağlayın"),
-      sparklineData: ga4NewCustomersSeries,
+      sourceKey: storeNewCustomersSource.key,
+      sourceLabel: storeNewCustomersSource.label,
+      helperText:
+        storeNewCustomersSource.key === "unavailable"
+          ? tr("Connect Shopify or GA4", "Shopify veya GA4 bağlayın")
+          : undefined,
+      sparklineData:
+        storeNewCustomersSource.key === "shopify"
+          ? shopifyNewCustomersSeries
+          : ga4NewCustomersSeries,
       compareMode,
     }),
     buildMetricCard({
@@ -400,10 +488,16 @@ export async function GET(request: NextRequest) {
       value: returningPurchasersCurrent,
       previousValue: returningPurchasersPrevious,
       unit: "count",
-      sourceKey: analyticsConnected ? "ga4" : "unavailable",
-      sourceLabel: analyticsConnected ? "GA4" : tr("Unavailable", "Kullanılamıyor"),
-      helperText: analyticsConnected ? undefined : tr("Connect GA4", "GA4 bağlayın"),
-      sparklineData: ga4ReturningCustomersSeries,
+      sourceKey: storeReturningCustomersSource.key,
+      sourceLabel: storeReturningCustomersSource.label,
+      helperText:
+        storeReturningCustomersSource.key === "unavailable"
+          ? tr("Connect Shopify or GA4", "Shopify veya GA4 bağlayın")
+          : undefined,
+      sparklineData:
+        storeReturningCustomersSource.key === "shopify"
+          ? shopifyReturningCustomersSeries
+          : ga4ReturningCustomersSeries,
       compareMode,
     }),
   ];
