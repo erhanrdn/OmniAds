@@ -516,8 +516,7 @@ export async function GET(request: NextRequest) {
   const totalDays = dayCountInclusive(initialBackfillStart, initialBackfillEnd);
 
   const [accountCoverage, campaignCoverage] =
-    connected && accountIds.length > 0
-      ? await Promise.all([
+      await Promise.all([
           readGoogleAdsStatusCoverage({
             scope: "account_daily",
             businessId: businessId!,
@@ -534,8 +533,7 @@ export async function GET(request: NextRequest) {
             endDate: initialBackfillEnd,
             timeoutMs: 30_000,
           }),
-        ])
-      : [null, null];
+        ]);
   const [
     selectedSearchTermCoverage,
     selectedProductCoverage,
@@ -545,7 +543,7 @@ export async function GET(request: NextRequest) {
     selectedDeviceCoverage,
     selectedAudienceCoverage,
   ] =
-    connected && accountIds.length > 0 && selectedStartDate && selectedEndDate
+    selectedStartDate && selectedEndDate
       ? await Promise.all([
           readGoogleAdsStatusCoverage({
             scope: "search_term_daily",
@@ -606,8 +604,7 @@ export async function GET(request: NextRequest) {
         ])
       : [null, null, null, null, null, null, null];
   const [recentSearchTermCoverage, recentProductCoverage, recentAssetCoverage] =
-    connected && accountIds.length > 0
-      ? await Promise.all([
+      await Promise.all([
           readGoogleAdsStatusCoverage({
             scope: "search_term_daily",
             businessId: businessId!,
@@ -632,8 +629,7 @@ export async function GET(request: NextRequest) {
             endDate: initialBackfillEnd,
             timeoutMs: 30_000,
           }),
-        ])
-      : [null, null, null];
+        ]);
   const allStateScopes = [
     "account_daily",
     "campaign_daily",
@@ -646,8 +642,7 @@ export async function GET(request: NextRequest) {
     "audience_daily",
   ] as const;
   const [queueHealth, ...scopeStates] =
-    connected && accountIds.length > 0
-      ? await Promise.all([
+      await Promise.all([
           captureOptional(
             "queue_health",
             getGoogleAdsQueueHealth({ businessId: businessId! }),
@@ -663,8 +658,7 @@ export async function GET(request: NextRequest) {
               []
             )
           ),
-        ])
-      : [null, ...allStateScopes.map(() => [])];
+        ]);
   const [quotaBudgetState, breakerState] = await Promise.all([
     captureOptional(
       "quota_budget_state",
@@ -693,8 +687,7 @@ export async function GET(request: NextRequest) {
     (scope) => scope !== "account_daily" && scope !== "campaign_daily"
   );
   const extendedCoverageRows =
-    connected && accountIds.length > 0
-      ? await Promise.all(
+      await Promise.all(
           extendedStateScopes.map(async (scope) => ({
             scope,
             coverage: await readGoogleAdsStatusCoverage({
@@ -706,13 +699,12 @@ export async function GET(request: NextRequest) {
               timeoutMs: 30_000,
             }),
           }))
-        )
-      : [];
+        );
   const extendedCoverageByScope = new Map(
     extendedCoverageRows.map((entry) => [entry.scope, entry.coverage] as const)
   );
   const selectedRangeCoverage =
-    connected && accountIds.length > 0 && selectedStartDate && selectedEndDate
+    selectedStartDate && selectedEndDate
       ? await readGoogleAdsStatusCoverage({
           scope: "campaign_daily",
           businessId: businessId!,
@@ -850,8 +842,7 @@ export async function GET(request: NextRequest) {
 
   const recent90Start = addDaysToIsoDate(initialBackfillEnd, -89);
   const [recent90CampaignCoverage, recent90SearchTermCoverage, recent90ProductCoverage, latestAdvisorSnapshot, advisorQueueHealth] =
-    connected && accountIds.length > 0
-      ? await Promise.all([
+      await Promise.all([
           readGoogleAdsStatusCoverage({
             scope: "campaign_daily",
             businessId: businessId!,
@@ -893,8 +884,7 @@ export async function GET(request: NextRequest) {
             }),
             null
           ),
-        ])
-      : [null, null, null, null, null];
+        ]);
   const advisorRequiredSurfaces = [
     {
       name: "campaign_daily",
