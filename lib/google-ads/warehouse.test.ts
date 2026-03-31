@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { dedupeGoogleAdsWarehouseRows } from "@/lib/google-ads/warehouse";
 import type { GoogleAdsWarehouseDailyRow } from "@/lib/google-ads/warehouse-types";
 
@@ -37,6 +37,20 @@ function buildRow(
   };
 }
 
+vi.mock("@/lib/db", () => ({
+  getDb: vi.fn(),
+  getDbWithTimeout: vi.fn(),
+}));
+
+vi.mock("@/lib/migrations", () => ({
+  runMigrations: vi.fn(),
+}));
+
+const db = await import("@/lib/db");
+const { replayGoogleAdsDeadLetterPartitions, upsertGoogleAdsSyncCheckpoint } = await import(
+  "@/lib/google-ads/warehouse"
+);
+
 describe("dedupeGoogleAdsWarehouseRows", () => {
   it("keeps the last conflicting row for a warehouse conflict key", () => {
     const rows = [
@@ -66,5 +80,46 @@ describe("dedupeGoogleAdsWarehouseRows", () => {
     expect(result.rows.find((row) => row.entityKey === "entity_1")?.payloadJson).toEqual({
       source: "last",
     });
+  });
+});
+
+describe("google ads warehouse ownership safety", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it("returns null when checkpoint upsert loses partition ownership", async () => {
+    const sql = vi.fn().mockResolvedValue([]);
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const checkpointId = await upsertGoogleAdsSyncCheckpoint({
+      partitionId: "partition-1",
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      checkpointScope: "campaign_daily",
+      phase: "bulk_upsert",
+      status: "running",
+      pageIndex: 0,
+      attemptCount: 1,
+      leaseOwner: "worker-1",
+    });
+
+    expect(checkpointId).toBeNull();
+  });
+
+  it("keeps active leased dead-letter partitions out of replay", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      queries.push(strings.join(" "));
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await replayGoogleAdsDeadLetterPartitions({
+      businessId: "biz-1",
+      scope: "campaign_daily",
+    });
+
+    expect(queries[0]).toContain("COALESCE(lease_expires_at, now() - interval '1 second') <= now()");
   });
 });

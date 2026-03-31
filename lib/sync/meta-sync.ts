@@ -34,6 +34,7 @@ import {
   upsertMetaSyncCheckpoint,
 } from "@/lib/meta/warehouse";
 import type {
+  MetaSyncCheckpointRecord,
   MetaSyncLane,
   MetaSyncPartitionRecord,
   MetaSyncType,
@@ -44,12 +45,21 @@ import {
   META_WAREHOUSE_HISTORY_DAYS,
   dayCountInclusive,
 } from "@/lib/meta/history";
+import type { RunnerLeaseGuard } from "@/lib/sync/worker-runtime";
 
 const META_BREAKDOWN_ENDPOINTS = [
   "breakdown_age",
   "breakdown_country",
   "breakdown_publisher_platform,platform_position,impression_device",
 ] as const;
+
+async function upsertMetaCheckpointOrThrow(input: MetaSyncCheckpointRecord) {
+  const checkpointId = await upsertMetaSyncCheckpoint(input);
+  if (input.leaseOwner && !checkpointId) {
+    throw new Error("lease_conflict:checkpoint_write_rejected");
+  }
+  return checkpointId;
+}
 
 const META_CORE_SCOPES: MetaWarehouseScope[] = ["account_daily", "adset_daily"];
 const META_EXTENDED_SCOPES: MetaWarehouseScope[] = ["creative_daily", "ad_daily"];
@@ -248,6 +258,8 @@ export interface MetaSyncResult {
   succeeded: number;
   failed: number;
   skipped: boolean;
+  outcome?: "consume_failed_before_leasing" | "consume_failed_after_leasing";
+  failureReason?: string | null;
 }
 
 async function getMetaWarehouseWindowCompletion(input: {
@@ -424,7 +436,7 @@ async function syncMetaPartitionDay(input: {
           leaseMinutes: 15,
         });
       } catch (error) {
-        await upsertMetaSyncCheckpoint({
+        await upsertMetaCheckpointOrThrow({
           partitionId: input.partitionId,
           businessId: input.businessId,
           providerAccountId: input.providerAccountId,
@@ -902,7 +914,12 @@ async function processMetaPartition(input: {
   }
 }
 
-export async function consumeMetaQueuedWork(businessId: string): Promise<MetaSyncResult> {
+export async function consumeMetaQueuedWork(
+  businessId: string,
+  input?: {
+    runtimeLeaseGuard?: RunnerLeaseGuard;
+  }
+): Promise<MetaSyncResult> {
   const credentials = await resolveMetaCredentials(businessId).catch(() => null);
   if (!credentials?.accountIds?.length) {
     console.info("[meta-sync] meta_consume_skipped_no_credentials", { businessId });
@@ -933,6 +950,9 @@ export async function consumeMetaQueuedWork(businessId: string): Promise<MetaSyn
   backgroundSyncKeys.add(lockKey);
   const workerId = getMetaWorkerId();
   try {
+    const leaseConflictReason = () =>
+      input?.runtimeLeaseGuard?.getLeaseLossReason() ?? "runner_lease_conflict";
+    const hasLeaseConflict = () => input?.runtimeLeaseGuard?.isLeaseLost() ?? false;
     await refreshMetaSyncStateForBusiness({ businessId, credentials }).catch(() => null);
     const queueHealthBeforeEnqueue = await getMetaQueueHealth({ businessId }).catch(() => null);
     const queueCompositionBeforeEnqueue = await getMetaQueueComposition({ businessId }).catch(
@@ -961,6 +981,18 @@ export async function consumeMetaQueuedWork(businessId: string): Promise<MetaSyn
     }
     if (!hasMaintenanceBacklog) {
       await enqueueMetaMaintenancePartitions(businessId, credentials).catch(() => 0);
+    }
+
+    if (hasLeaseConflict()) {
+      return {
+        businessId,
+        attempted: 0,
+        succeeded: 0,
+        failed: 1,
+        skipped: false,
+        outcome: "consume_failed_before_leasing",
+        failureReason: leaseConflictReason(),
+      };
     }
 
     const leasedMaintenancePartitions = await leaseMetaSyncPartitions({
@@ -1097,6 +1129,10 @@ export async function consumeMetaQueuedWork(businessId: string): Promise<MetaSyn
     let succeeded = 0;
     let failed = 0;
     for (const partition of partitions) {
+      if (hasLeaseConflict()) {
+        failed += 1;
+        break;
+      }
       const ok = await processMetaPartition({
         credentials,
         partition: {
@@ -1128,6 +1164,8 @@ export async function consumeMetaQueuedWork(businessId: string): Promise<MetaSyn
       succeeded,
       failed,
       skipped: attempted === 0,
+      outcome: failed > 0 && succeeded === 0 ? "consume_failed_after_leasing" : undefined,
+      failureReason: failed > 0 && succeeded === 0 ? leaseConflictReason() : null,
     };
   } finally {
     backgroundSyncKeys.delete(lockKey);

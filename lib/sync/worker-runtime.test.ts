@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildProviderHeartbeatWorkerId,
+  createRunnerLeaseGuard,
   prioritizeBusinessesForAdapter,
 } from "@/lib/sync/worker-runtime";
 
@@ -33,5 +34,20 @@ describe("buildProviderHeartbeatWorkerId", () => {
   it("suffixes provider-specific heartbeats", () => {
     expect(buildProviderHeartbeatWorkerId("worker-1", "meta")).toBe("worker-1:meta");
     expect(buildProviderHeartbeatWorkerId("worker-1", "google_ads")).toBe("worker-1:google_ads");
+  });
+});
+
+describe("createRunnerLeaseGuard", () => {
+  it("tracks the first lease-loss reason and stays sticky", () => {
+    const guard = createRunnerLeaseGuard();
+
+    expect(guard.isLeaseLost()).toBe(false);
+    expect(guard.getLeaseLossReason()).toBeNull();
+
+    guard.markLeaseLost("runner_lease_conflict");
+    guard.markLeaseLost("ignored_second_reason");
+
+    expect(guard.isLeaseLost()).toBe(true);
+    expect(guard.getLeaseLossReason()).toBe("runner_lease_conflict");
   });
 });

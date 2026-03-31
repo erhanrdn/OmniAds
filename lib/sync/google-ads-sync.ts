@@ -26,6 +26,7 @@ import {
   getProviderWorkerHealthState,
   recordSyncReclaimEvents,
 } from "@/lib/sync/worker-health";
+import type { RunnerLeaseGuard } from "@/lib/sync/worker-runtime";
 import type { ProviderReplayReasonCode } from "@/lib/sync/provider-orchestration";
 import {
   buildGoogleAdsRawSnapshotHash,
@@ -63,6 +64,7 @@ import {
   getHistoricalWindowStart,
 } from "@/lib/google-ads/history";
 import type {
+  GoogleAdsSyncCheckpointRecord,
   GoogleAdsSyncLane,
   GoogleAdsSyncType,
   GoogleAdsWarehouseDailyRow,
@@ -197,6 +199,14 @@ function parseEnvList(name: string) {
     .split(",")
     .map((part) => part.trim())
     .filter(Boolean);
+}
+
+async function upsertGoogleAdsCheckpointOrThrow(input: GoogleAdsSyncCheckpointRecord) {
+  const checkpointId = await upsertGoogleAdsSyncCheckpoint(input);
+  if (input.leaseOwner && !checkpointId) {
+    throw new Error("lease_conflict:checkpoint_write_rejected");
+  }
+  return checkpointId;
 }
 
 const GOOGLE_ADS_EXTENDED_CANARY_BUSINESS_IDS = new Set(
@@ -1280,7 +1290,7 @@ async function persistScopeRows(input: {
       }
     }
 
-    const checkpointId = await upsertGoogleAdsSyncCheckpoint({
+    const checkpointId = await upsertGoogleAdsCheckpointOrThrow({
       partitionId: input.partitionId,
       businessId: input.businessId,
       providerAccountId: input.providerAccountId,
@@ -1357,7 +1367,7 @@ async function persistScopeRows(input: {
 
     rowsFetched += replayingPersistedChunk ? 0 : sourceChunk.length;
 
-    await upsertGoogleAdsSyncCheckpoint({
+    await upsertGoogleAdsCheckpointOrThrow({
       partitionId: input.partitionId,
       businessId: input.businessId,
       providerAccountId: input.providerAccountId,
@@ -1386,7 +1396,7 @@ async function persistScopeRows(input: {
       .map((row) => input.mapRow(row, latestSnapshotId))
       .filter((row): row is GoogleAdsWarehouseDailyRow => Boolean(row));
 
-    await upsertGoogleAdsSyncCheckpoint({
+    await upsertGoogleAdsCheckpointOrThrow({
       partitionId: input.partitionId,
       businessId: input.businessId,
       providerAccountId: input.providerAccountId,
@@ -1441,7 +1451,7 @@ async function persistScopeRows(input: {
     ]
       .filter(Boolean)
       .join("; ");
-    await upsertGoogleAdsSyncCheckpoint({
+    await upsertGoogleAdsCheckpointOrThrow({
       partitionId: input.partitionId,
       businessId: input.businessId,
       providerAccountId: input.providerAccountId,
@@ -1466,7 +1476,7 @@ async function persistScopeRows(input: {
     throw new Error(`Google Ads finalize guard failed for ${input.scope}: ${replayDetail}`);
   }
 
-  await upsertGoogleAdsSyncCheckpoint({
+  await upsertGoogleAdsCheckpointOrThrow({
     partitionId: input.partitionId,
     businessId: input.businessId,
     providerAccountId: input.providerAccountId,
@@ -2316,7 +2326,7 @@ async function syncGoogleAdsAccountDay(input: {
               leaseMinutes: GOOGLE_ADS_PARTITION_LEASE_MINUTES,
             });
           }
-          await upsertGoogleAdsSyncCheckpoint({
+          await upsertGoogleAdsCheckpointOrThrow({
             partitionId: input.partitionId,
             businessId: input.businessId,
             providerAccountId: input.providerAccountId,
@@ -2344,7 +2354,7 @@ async function syncGoogleAdsAccountDay(input: {
           await upsertGoogleAdsDailyRows("ad_group_daily", chunks[pageIndex] ?? []);
           rowsWritten += (chunks[pageIndex] ?? []).length;
         }
-        await upsertGoogleAdsSyncCheckpoint({
+        await upsertGoogleAdsCheckpointOrThrow({
           partitionId: input.partitionId,
           businessId: input.businessId,
           providerAccountId: input.providerAccountId,
@@ -2920,7 +2930,7 @@ async function processGoogleAdsPartition(input: {
       poisonCandidate || nextAttempt >= GOOGLE_ADS_PARTITION_MAX_ATTEMPTS
         ? "dead_letter"
         : "failed";
-    await upsertGoogleAdsSyncCheckpoint({
+    await upsertGoogleAdsCheckpointOrThrow({
       partitionId,
       businessId: input.partition.businessId,
       providerAccountId: input.partition.providerAccountId,
@@ -3197,7 +3207,12 @@ export async function ensureGoogleAdsWarehouseRangeFilled(input: {
   await enqueueGoogleAdsScheduledWork(input.businessId).catch(() => null);
 }
 
-export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAdsSyncResult> {
+export async function syncGoogleAdsReports(
+  businessId: string,
+  input?: {
+    runtimeLeaseGuard?: RunnerLeaseGuard;
+  }
+): Promise<GoogleAdsSyncResult> {
   if (process.env.SYNC_WORKER_MODE !== "1") {
     await enqueueGoogleAdsScheduledWork(businessId).catch(() => null);
     return {
@@ -3293,6 +3308,9 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
   const workerId = getGoogleAdsWorkerId();
   let hasReachedLeasing = false;
   try {
+    const leaseConflictReason = () =>
+      input?.runtimeLeaseGuard?.getLeaseLossReason() ?? "runner_lease_conflict";
+    const hasLeaseConflict = () => input?.runtimeLeaseGuard?.isLeaseLost() ?? false;
     await enqueueGoogleAdsScheduledWork(businessId).catch(() => null);
     await refreshGoogleAdsSyncStateForBusiness({ businessId }).catch((error) => {
       console.warn("[google-ads-sync] state_refresh_before_run_failed", {
@@ -3345,6 +3363,18 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
     }
 
     hasReachedLeasing = true;
+    if (hasLeaseConflict()) {
+      return {
+        businessId,
+        attempted: 0,
+        succeeded: 0,
+        failed: 1,
+        skipped: false,
+        outcome: "consume_failed_before_leasing",
+        failureReason: leaseConflictReason(),
+      };
+    }
+
     let partitions = await leaseGoogleAdsSyncPartitions({
       businessId,
       lane: "core",
@@ -3506,6 +3536,10 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
     let succeeded = 0;
     let failed = 0;
     for (const partition of partitions) {
+      if (hasLeaseConflict()) {
+        failed += 1;
+        break;
+      }
       const ok = await processGoogleAdsPartition({
         partition: {
           id: partition.id,
@@ -3533,6 +3567,7 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
       fullSyncPriorityRequired: fullSyncPriority.required,
     });
     const shouldBurstExtended =
+      !hasLeaseConflict() &&
       partitions.every((partition) => partition.lane !== "extended") &&
       (postBatchQueueHealth?.extendedQueueDepth ?? 0) > 0 &&
       (postBatchQueueHealth?.coreQueueDepth ?? 0) <= GOOGLE_ADS_EXTENDED_CORE_BACKLOG_THRESHOLD &&
@@ -3590,6 +3625,10 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
 
       attempted += extendedPartitions.length;
       for (const partition of extendedPartitions) {
+        if (hasLeaseConflict()) {
+          failed += 1;
+          break;
+        }
         const ok = await processGoogleAdsPartition({
           partition: {
             id: partition.id,
@@ -3629,10 +3668,17 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
       outcome:
         attempted === 0
           ? "skipped_no_partitions"
-          : succeeded > 0
+          : hasLeaseConflict() && succeeded === 0
+            ? "consume_failed_after_leasing"
+            : succeeded > 0
             ? "consume_completed_with_progress"
             : "consume_completed_without_progress",
-      failureReason: failed > 0 && succeeded === 0 ? "all_partition_attempts_failed" : null,
+      failureReason:
+        hasLeaseConflict() && succeeded === 0
+          ? leaseConflictReason()
+          : failed > 0 && succeeded === 0
+            ? "all_partition_attempts_failed"
+            : null,
     };
   } catch (error) {
     return {

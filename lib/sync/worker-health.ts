@@ -151,7 +151,20 @@ export async function renewSyncRunnerLease(input: {
   leaseOwner: string;
   leaseMinutes: number;
 }) {
-  return acquireSyncRunnerLease(input);
+  await runMigrations();
+  const sql = getDb();
+  const rows = await sql`
+    UPDATE sync_runner_leases
+    SET
+      lease_expires_at = now() + (${Math.max(1, input.leaseMinutes)} || ' minutes')::interval,
+      updated_at = now()
+    WHERE business_id = ${input.businessId}
+      AND provider_scope = ${input.providerScope}
+      AND lease_owner = ${input.leaseOwner}
+      AND lease_expires_at > now()
+    RETURNING lease_owner
+  ` as Array<{ lease_owner: string }>;
+  return rows[0]?.lease_owner === input.leaseOwner;
 }
 
 export async function releaseSyncRunnerLease(input: {

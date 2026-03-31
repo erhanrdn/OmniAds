@@ -860,6 +860,18 @@ export async function upsertMetaSyncCheckpoint(input: MetaSyncCheckpointRecord) 
       providerCursor: input.providerCursor ?? null,
     });
   const rows = await sql`
+    WITH owner_guard AS (
+      SELECT id
+      FROM meta_sync_partitions
+      WHERE id = ${input.partitionId}
+        AND (
+          ${input.leaseOwner ?? null}::text IS NULL
+          OR (
+            lease_owner = ${input.leaseOwner ?? null}
+            AND COALESCE(lease_expires_at, now() - interval '1 second') > now()
+          )
+        )
+    )
     INSERT INTO meta_sync_checkpoints (
       partition_id,
       business_id,
@@ -883,7 +895,7 @@ export async function upsertMetaSyncCheckpoint(input: MetaSyncCheckpointRecord) 
       finished_at,
       updated_at
     )
-    VALUES (
+    SELECT
       ${input.partitionId},
       ${input.businessId},
       ${input.providerAccountId},
@@ -905,7 +917,7 @@ export async function upsertMetaSyncCheckpoint(input: MetaSyncCheckpointRecord) 
       ${input.startedAt ?? null},
       ${input.finishedAt ?? null},
       now()
-    )
+    FROM owner_guard
     ON CONFLICT (partition_id, checkpoint_scope)
     DO UPDATE SET
       phase = EXCLUDED.phase,
@@ -925,6 +937,7 @@ export async function upsertMetaSyncCheckpoint(input: MetaSyncCheckpointRecord) 
       started_at = COALESCE(meta_sync_checkpoints.started_at, EXCLUDED.started_at, now()),
       finished_at = EXCLUDED.finished_at,
       updated_at = now()
+    WHERE EXISTS (SELECT 1 FROM owner_guard)
     RETURNING id
   ` as Array<{ id: string }>;
   return rows[0]?.id ?? null;
@@ -1848,6 +1861,7 @@ export async function replayMetaDeadLetterPartitions(input: {
       updated_at = now()
     WHERE business_id = ${input.businessId}
       AND status = 'dead_letter'
+      AND COALESCE(lease_expires_at, now() - interval '1 second') <= now()
       AND (${input.scope ?? null}::text IS NULL OR scope = ${input.scope ?? null})
     RETURNING id, lane, scope, partition_date
   ` as Array<Record<string, unknown>>;

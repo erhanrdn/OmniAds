@@ -1410,6 +1410,18 @@ export async function upsertGoogleAdsSyncCheckpoint(input: GoogleAdsSyncCheckpoi
       providerCursor: input.providerCursor ?? null,
     });
   const rows = await sql`
+    WITH owner_guard AS (
+      SELECT id
+      FROM google_ads_sync_partitions
+      WHERE id = ${input.partitionId}
+        AND (
+          ${input.leaseOwner ?? null}::text IS NULL
+          OR (
+            lease_owner = ${input.leaseOwner ?? null}
+            AND COALESCE(lease_expires_at, now() - interval '1 second') > now()
+          )
+        )
+    )
     INSERT INTO google_ads_sync_checkpoints (
       partition_id,
       business_id,
@@ -1440,7 +1452,7 @@ export async function upsertGoogleAdsSyncCheckpoint(input: GoogleAdsSyncCheckpoi
       finished_at,
       updated_at
     )
-    VALUES (
+    SELECT
       ${input.partitionId},
       ${input.businessId},
       ${input.providerAccountId},
@@ -1469,7 +1481,7 @@ export async function upsertGoogleAdsSyncCheckpoint(input: GoogleAdsSyncCheckpoi
       ${input.startedAt ?? null},
       ${input.finishedAt ?? null},
       now()
-    )
+    FROM owner_guard
     ON CONFLICT (partition_id, checkpoint_scope)
     DO UPDATE SET
       is_paginated = EXCLUDED.is_paginated,
@@ -1496,6 +1508,7 @@ export async function upsertGoogleAdsSyncCheckpoint(input: GoogleAdsSyncCheckpoi
       started_at = COALESCE(google_ads_sync_checkpoints.started_at, EXCLUDED.started_at, now()),
       finished_at = EXCLUDED.finished_at,
       updated_at = now()
+    WHERE EXISTS (SELECT 1 FROM owner_guard)
     RETURNING id
   ` as Array<{ id: string }>;
   return rows[0]?.id ?? null;
@@ -2569,6 +2582,7 @@ export async function replayGoogleAdsDeadLetterPartitions(input: {
       updated_at = now()
     WHERE business_id = ${input.businessId}
       AND status = 'dead_letter'
+      AND COALESCE(lease_expires_at, now() - interval '1 second') <= now()
       AND (${input.scope ?? null}::text IS NULL OR scope = ${input.scope ?? null})
       AND (${input.startDate ?? null}::date IS NULL OR partition_date >= ${input.startDate ?? null}::date)
       AND (${input.endDate ?? null}::date IS NULL OR partition_date <= ${input.endDate ?? null}::date)
@@ -2601,6 +2615,7 @@ export async function releaseGoogleAdsPoisonedPartitions(input: {
       WHERE checkpoint.partition_id = partition.id
         AND partition.business_id = ${input.businessId}
         AND partition.status = 'dead_letter'
+        AND COALESCE(partition.lease_expires_at, now() - interval '1 second') <= now()
         AND checkpoint.poisoned_at IS NOT NULL
         AND (${input.scope ?? null}::text IS NULL OR partition.scope = ${input.scope ?? null})
       RETURNING checkpoint.partition_id
@@ -2650,6 +2665,7 @@ export async function forceReplayGoogleAdsPoisonedPartitions(input: {
       WHERE checkpoint.partition_id = partition.id
         AND partition.business_id = ${input.businessId}
         AND partition.status = 'dead_letter'
+        AND COALESCE(partition.lease_expires_at, now() - interval '1 second') <= now()
         AND checkpoint.poisoned_at IS NOT NULL
         AND (${input.scope ?? null}::text IS NULL OR partition.scope = ${input.scope ?? null})
         AND (${input.startDate ?? null}::date IS NULL OR partition.partition_date >= ${input.startDate ?? null}::date)
