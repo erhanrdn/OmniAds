@@ -60,6 +60,39 @@ describe("google ads sync progress ux", () => {
     });
   });
 
+  it("shows historical progress even when advisor snapshot is still unavailable", () => {
+    const status: GoogleAdsStatusResponse = {
+      ...baseStatus,
+      state: "syncing",
+      advisor: {
+        ready: false,
+        requiredSurfaces: ["campaign_daily", "search_term_daily", "product_daily"],
+        availableSurfaces: ["campaign_daily", "search_term_daily", "product_daily"],
+        missingSurfaces: [],
+        readyRangeStart: "2025-12-30",
+        readyRangeEnd: "2026-03-29",
+      },
+      advisorProgress: {
+        percent: 99,
+        visible: false,
+        summary: "Finalizing growth analysis.",
+      },
+      historicalProgress: {
+        percent: 61,
+        visible: true,
+        summary: "Historical sync continues in the background.",
+      },
+    };
+
+    expect(resolveGoogleAdsSyncProgress(status, "inline")).toEqual({
+      kind: "historical",
+      percent: 61,
+      title: "Historical sync continues",
+      description: "Historical sync continues in the background.",
+      tone: "secondary",
+    });
+  });
+
   it("hides the progress surface when neither phase is visible", () => {
     const status: GoogleAdsStatusResponse = {
       ...baseStatus,

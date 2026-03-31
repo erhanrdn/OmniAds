@@ -1331,7 +1331,7 @@ export async function GET(request: NextRequest) {
     rangeCompletionBySurface,
     advisorProgress: {
       percent: advisorPreparationPercent,
-      visible: connected && accountIds.length > 0 && !advisorReady,
+      visible: connected && accountIds.length > 0 && !recentExtendedReady,
       summary: advisorProgressSummary,
     },
     historicalProgress: {
@@ -1339,7 +1339,7 @@ export async function GET(request: NextRequest) {
       visible:
         connected &&
         accountIds.length > 0 &&
-        advisorReady &&
+        recentExtendedReady &&
         !historicalExtendedReady,
       summary: historicalProgressSummary,
     },
