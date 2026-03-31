@@ -5,6 +5,7 @@ import Link from "next/link";
 import { RefreshCw } from "lucide-react";
 import { InlineHelp } from "@/components/admin/inline-help";
 import { formatMetaDateTime } from "@/lib/meta/ui";
+import { getSyncRunbook } from "@/lib/sync/runbooks";
 
 interface SyncIssueRow {
   businessId: string;
@@ -745,7 +746,7 @@ export default function AdminSyncHealthPage() {
                       {issue.severity ? <IssueSeverityBadge severity={issue.severity} /> : null}
                       {issue.runbookKey ? (
                         <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-700">
-                          {issue.runbookKey}
+                          {getSyncRunbook(issue.runbookKey)?.title ?? issue.runbookKey}
                         </span>
                       ) : null}
                     </div>

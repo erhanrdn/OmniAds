@@ -1,5 +1,6 @@
 import { loadEnvConfig } from "@next/env";
 import { getAdminOperationsHealth } from "@/lib/admin-operations-health";
+import { getSyncRunbook } from "@/lib/sync/runbooks";
 
 loadEnvConfig(process.cwd());
 
@@ -24,7 +25,13 @@ async function main() {
     ),
     maxQueueDepth: readThreshold("SYNC_SOAK_MAX_QUEUE_DEPTH", 25),
     maxDeadLetters: readThreshold("SYNC_SOAK_MAX_DEAD_LETTERS", 0),
+    maxCriticalIssues: readThreshold("SYNC_SOAK_MAX_CRITICAL_ISSUES", 0),
   };
+
+  const criticalIssues = sync.issues.filter((issue) => issue.severity === "critical");
+  const unresolvedRunbooks = sync.issues
+    .filter((issue) => issue.runbookKey)
+    .filter((issue) => !getSyncRunbook(issue.runbookKey));
 
   const checks = [
     {
@@ -73,6 +80,18 @@ async function main() {
         (summary.googleAdsDeadLetterPartitions ?? 0) + (summary.metaDeadLetterPartitions ?? 0),
       threshold: thresholds.maxDeadLetters,
     },
+    {
+      key: "critical_issue_count",
+      ok: criticalIssues.length <= thresholds.maxCriticalIssues,
+      actual: criticalIssues.length,
+      threshold: thresholds.maxCriticalIssues,
+    },
+    {
+      key: "runbook_resolution",
+      ok: unresolvedRunbooks.length === 0,
+      actual: unresolvedRunbooks.length,
+      threshold: 0,
+    },
   ];
 
   const failedChecks = checks.filter((check) => !check.ok);
@@ -82,6 +101,8 @@ async function main() {
     thresholds,
     checks,
     issueCount: sync.issues.length,
+    criticalIssueCount: criticalIssues.length,
+    unresolvedRunbookKeys: unresolvedRunbooks.map((issue) => issue.runbookKey),
     topIssue: summary.topIssue ?? null,
   };
 
