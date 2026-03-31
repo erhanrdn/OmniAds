@@ -630,11 +630,16 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
           status         TEXT NOT NULL DEFAULT 'pending',
           triggered_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
           started_at     TIMESTAMPTZ,
+          lock_owner     TEXT,
+          lock_expires_at TIMESTAMPTZ,
           completed_at   TIMESTAMPTZ,
           error_message  TEXT
         )`.catch(() => {}),
+        sql`ALTER TABLE provider_sync_jobs ADD COLUMN IF NOT EXISTS lock_owner TEXT`.catch(() => {}),
+        sql`ALTER TABLE provider_sync_jobs ADD COLUMN IF NOT EXISTS lock_expires_at TIMESTAMPTZ`.catch(() => {}),
         sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_sync_jobs_key ON provider_sync_jobs (business_id, provider, report_type, date_range_key)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_provider_sync_jobs_status ON provider_sync_jobs (status, triggered_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_provider_sync_jobs_lock_expiry ON provider_sync_jobs (lock_expires_at)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS provider_quota_usage (
           id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id    TEXT NOT NULL,

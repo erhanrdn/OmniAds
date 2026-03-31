@@ -39,6 +39,7 @@ function getRefreshKey(businessId: string, provider: string) {
 
 const DURABLE_REFRESH_REPORT_TYPE = "scheduled_refresh";
 const DURABLE_REFRESH_RANGE_KEY = "full";
+const DURABLE_REFRESH_LOCK_MINUTES = 5;
 
 async function isJobAlreadyRunning(
   businessId: string,
@@ -95,7 +96,8 @@ async function hasMetaQueueConsumerRunning(
 async function acquireDurableRefreshLock(input: {
   businessId: string;
   provider: string;
-}): Promise<boolean> {
+  ownerToken: string;
+}): Promise<{ acquired: boolean; error: boolean }> {
   try {
     await runMigrations();
     const sql = getDb();
@@ -108,6 +110,7 @@ async function acquireDurableRefreshLock(input: {
           AND report_type = ${DURABLE_REFRESH_REPORT_TYPE}
           AND date_range_key = ${DURABLE_REFRESH_RANGE_KEY}
           AND status = 'running'
+          AND COALESCE(lock_expires_at, started_at + (${DURABLE_REFRESH_LOCK_MINUTES} || ' minutes')::interval) > now()
         LIMIT 1
       ),
       upserted AS (
@@ -119,6 +122,8 @@ async function acquireDurableRefreshLock(input: {
           status,
           triggered_at,
           started_at,
+          lock_owner,
+          lock_expires_at,
           completed_at,
           error_message
         )
@@ -130,6 +135,8 @@ async function acquireDurableRefreshLock(input: {
           'running',
           now(),
           now(),
+          ${input.ownerToken},
+          now() + (${DURABLE_REFRESH_LOCK_MINUTES} || ' minutes')::interval,
           NULL,
           NULL
         )
@@ -138,9 +145,12 @@ async function acquireDurableRefreshLock(input: {
           status = 'running',
           triggered_at = now(),
           started_at = now(),
+          lock_owner = ${input.ownerToken},
+          lock_expires_at = now() + (${DURABLE_REFRESH_LOCK_MINUTES} || ' minutes')::interval,
           completed_at = NULL,
           error_message = NULL
         WHERE provider_sync_jobs.status <> 'running'
+           OR COALESCE(provider_sync_jobs.lock_expires_at, provider_sync_jobs.started_at + (${DURABLE_REFRESH_LOCK_MINUTES} || ' minutes')::interval) <= now()
         RETURNING id
       )
       SELECT
@@ -148,16 +158,17 @@ async function acquireDurableRefreshLock(input: {
         EXISTS(SELECT 1 FROM upserted) AS acquired
     ` as Array<{ already_running: boolean; acquired: boolean }>;
 
-    if (rows[0]?.already_running) return false;
-    return Boolean(rows[0]?.acquired);
+    if (rows[0]?.already_running) return { acquired: false, error: false };
+    return { acquired: Boolean(rows[0]?.acquired), error: false };
   } catch {
-    return true;
+    return { acquired: false, error: true };
   }
 }
 
 async function releaseDurableRefreshLock(input: {
   businessId: string;
   provider: string;
+  ownerToken: string;
   status: "done" | "failed";
   errorMessage?: string | null;
 }) {
@@ -169,11 +180,13 @@ async function releaseDurableRefreshLock(input: {
       SET
         status = ${input.status},
         completed_at = now(),
+        lock_expires_at = now(),
         error_message = ${input.errorMessage ?? null}
       WHERE business_id = ${input.businessId}
         AND provider = ${input.provider}
         AND report_type = ${DURABLE_REFRESH_REPORT_TYPE}
         AND date_range_key = ${DURABLE_REFRESH_RANGE_KEY}
+        AND lock_owner = ${input.ownerToken}
     `;
   } catch {
     // best effort lock release
@@ -305,8 +318,32 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, status: "already_running" }, { status: 202 });
   }
 
-  const durableLockAcquired = await acquireDurableRefreshLock({ businessId, provider });
-  if (!durableLockAcquired) {
+  const durableLockOwner = crypto.randomUUID();
+  const durableLock = await acquireDurableRefreshLock({
+    businessId,
+    provider,
+    ownerToken: durableLockOwner,
+  });
+  if (durableLock.error) {
+    if (access.kind === "admin") {
+      await logAdminAction({
+        adminId: access.session.user.id,
+        action: "sync.refresh",
+        targetType: "business",
+        targetId: businessId,
+        meta: {
+          provider,
+          outcome: "failed",
+          error: "durable_refresh_lock_acquisition_failed",
+        },
+      });
+    }
+    return NextResponse.json(
+      { error: "refresh_lock_unavailable", message: "Could not acquire durable refresh lock." },
+      { status: 503 }
+    );
+  }
+  if (!durableLock.acquired) {
     if (access.kind === "admin") {
       await logAdminAction({
         adminId: access.session.user.id,
@@ -349,6 +386,7 @@ export async function POST(request: NextRequest) {
     await releaseDurableRefreshLock({
       businessId,
       provider,
+      ownerToken: durableLockOwner,
       status: "failed",
       errorMessage: err instanceof Error ? err.message : String(err),
     });
@@ -370,7 +408,12 @@ export async function POST(request: NextRequest) {
         meta: { provider, outcome: "already_running", result: syncResult.result },
       });
     }
-    await releaseDurableRefreshLock({ businessId, provider, status: "done" });
+    await releaseDurableRefreshLock({
+      businessId,
+      provider,
+      ownerToken: durableLockOwner,
+      status: "done",
+    });
 
     return NextResponse.json(
       { ok: true, status: "already_running", provider: syncResult.provider, result: syncResult.result },
@@ -387,7 +430,12 @@ export async function POST(request: NextRequest) {
       meta: { provider, outcome: "started", result: syncResult.result },
     });
   }
-  await releaseDurableRefreshLock({ businessId, provider, status: "done" });
+  await releaseDurableRefreshLock({
+    businessId,
+    provider,
+    ownerToken: durableLockOwner,
+    status: "done",
+  });
 
   return NextResponse.json(
     { ok: true, status: "started", provider: syncResult.provider, result: syncResult.result },

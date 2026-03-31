@@ -77,6 +77,9 @@ describe("POST /api/sync/refresh", () => {
     delete (globalThis as typeof globalThis & { __syncRefreshInFlightKeys?: Set<string> })
       .__syncRefreshInFlightKeys;
     vi.mocked(internalAuth.businessExists).mockResolvedValue(true);
+    vi.mocked(db.getDb).mockReturnValue(
+      vi.fn().mockResolvedValue([{ already_running: false, acquired: true }]) as never
+    );
   });
 
   it("rejects unauthorized callers", async () => {
@@ -305,6 +308,31 @@ describe("POST /api/sync/refresh", () => {
       expect.objectContaining({
         action: "sync.refresh",
         meta: expect.objectContaining({ duplicateReason: "durable_refresh_lock" }),
+      })
+    );
+  });
+
+  it("fails closed when durable refresh lock acquisition errors", async () => {
+    vi.mocked(internalAuth.requireInternalOrAdminSyncAccess).mockResolvedValue({
+      kind: "admin",
+      session: { user: { id: "admin_1" } } as never,
+    });
+    vi.mocked(db.getDb).mockReturnValue(
+      vi.fn().mockRejectedValue(new Error("db unavailable")) as never
+    );
+
+    const response = await POST(buildRequest({ businessId: "biz", provider: "google_ads" }));
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      error: "refresh_lock_unavailable",
+      message: "Could not acquire durable refresh lock.",
+    });
+    expect(googleAdsSync.enqueueGoogleAdsScheduledWork).not.toHaveBeenCalled();
+    expect(adminLogger.logAdminAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "sync.refresh",
+        meta: expect.objectContaining({ error: "durable_refresh_lock_acquisition_failed" }),
       })
     );
   });
