@@ -1,173 +1,18 @@
 "use client";
 
 import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
+import {
+  resolveGoogleAdsSyncProgress,
+  shouldRenderGoogleAdsSyncProgress,
+  type GoogleAdsSyncProgressVariant,
+} from "@/lib/google-ads/sync-progress-ux";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 
-export function shouldRenderGoogleAdsSyncProgress(
-  status: GoogleAdsStatusResponse | undefined | null
-) {
-  if (!status || !status.connected) return false;
-  const hasAssignment = (status.assignedAccountIds?.length ?? 0) > 0;
-  if (!hasAssignment) return false;
-  const progress = status.latestSync?.progressPercent;
-  const warehouseRowCount = status.warehouse?.rowCount ?? 0;
-  const pendingSurfaces = status.warehouse?.coverage?.pendingSurfaces ?? [];
-  const hasStartedWarehouseBootstrap =
-    warehouseRowCount === 0 ||
-    pendingSurfaces.length > 0 ||
-    status.state === "syncing" ||
-    status.state === "paused" ||
-    status.state === "partial" ||
-    status.state === "advisor_not_ready" ||
-    status.state === "stale" ||
-    status.latestSync?.status === "pending" ||
-    status.latestSync?.status === "running" ||
-    status.needsBootstrap;
+export { shouldRenderGoogleAdsSyncProgress } from "@/lib/google-ads/sync-progress-ux";
 
-  return Boolean(
-    hasStartedWarehouseBootstrap ||
-      (typeof progress === "number" && progress < 100)
-  );
-}
-
-function formatSyncCaption(status: GoogleAdsStatusResponse) {
-  const latestSync = status.latestSync;
-  const priorityWindow = status.priorityWindow;
-  if (!latestSync && !priorityWindow) return null;
-
-  const parts: string[] = [];
-  if (status.domainReadiness?.summary) {
-    parts.push(status.domainReadiness.summary);
-  }
-  if (priorityWindow?.isActive) {
-    parts.push("Selected dates are being prepared first");
-  } else if (latestSync?.phaseLabel) {
-    parts.push(latestSync.phaseLabel);
-  }
-  const hasRecentGap = Object.values(status.operations?.recentGapCountByScope ?? {}).some(
-    (count) => Number(count) > 0
-  );
-  if (
-    status.extendedRecoveryState === "extended_recovery" &&
-    status.rangeCompletionBySurface &&
-    hasRecentGap
-  ) {
-    const recentParts = Object.entries(status.rangeCompletionBySurface).map(
-      ([scope, completion]) => `${scope.replace("_daily", "")} ${completion.recent.completedDays}/${completion.recent.totalDays}`
-    );
-    if (recentParts.length > 0) {
-      parts.push(`Recent recovery: ${recentParts.join(" • ")}`);
-    }
-  }
-  const autoRepairStage = status.operations?.autoRepairExecutionStage;
-  if (autoRepairStage === "runtime_waiting") {
-    parts.push("Automatic repair waiting for updated worker");
-  } else if (autoRepairStage === "planned_not_leased") {
-    parts.push("Automatic repair queued, waiting for lease");
-  } else if (autoRepairStage === "leased_not_completed") {
-    parts.push("Automatic repair running");
-  } else if (autoRepairStage === "completed_state_stale") {
-    parts.push("Automatic repair succeeded, refreshing state");
-  } else if (autoRepairStage === "failed" && hasRecentGap) {
-    parts.push("Automatic repair failed");
-  }
-  if (priorityWindow?.isActive) {
-    parts.push(`${priorityWindow.completedDays}/${priorityWindow.totalDays} selected days ready`);
-  }
-  if (
-    typeof latestSync?.completedDays === "number" &&
-    typeof latestSync?.totalDays === "number" &&
-    latestSync.totalDays > 0
-  ) {
-    parts.push(`${latestSync.completedDays}/${latestSync.totalDays} days`);
-  }
-  if (latestSync?.readyThroughDate) {
-    parts.push(`Ready through ${latestSync.readyThroughDate}`);
-  }
-  if (status.warehouse?.firstDate && status.state !== "ready") {
-    parts.push(`Oldest stored date: ${status.warehouse.firstDate}`);
-  }
-  if (
-    status.checkpointHealth?.resumeCapable &&
-    status.checkpointHealth.latestCheckpointPhase &&
-    status.checkpointHealth.lastSuccessfulPageIndex != null
-  ) {
-    parts.push(
-      `Checkpoint ${status.checkpointHealth.latestCheckpointPhase} • Chunk ${status.checkpointHealth.lastSuccessfulPageIndex + 1}`
-    );
-  }
-  if (status.jobHealth?.legacyRuntimeJobs) {
-    parts.push("Background sync is stabilizing");
-  }
-  return parts.join(" • ");
-}
-
-function getTitle(status: GoogleAdsStatusResponse) {
-  if (status.readinessLevel === "usable" && status.state !== "ready") {
-    return "Google Ads dashboard is usable while deeper sync continues";
-  }
-  if (status.state === "action_required") return "Google Ads sync needs attention";
-  if (status.state === "paused") return "Google Ads historical sync is paused";
-  if (status.priorityWindow?.isActive) return "Preparing selected dates";
-  if (status.state === "advisor_not_ready") {
-    return status.operations?.fullSyncPriorityRequired
-      ? "Full advisor support is being backfilled"
-      : "Advisor support is still preparing";
-  }
-  if (status.state === "stale") return "Google Ads sync is catching up";
-  if (status.state === "partial") return "Google Ads data is partially ready";
-  if (status.state === "syncing") return "Google Ads historical data is syncing";
-  return status.latestSync?.phaseLabel ?? "Google Ads data is ready";
-}
-
-function getDescription(status: GoogleAdsStatusResponse) {
-  if (status.operations?.autoRepairExecutionStage === "runtime_waiting") {
-    return "The latest Google Ads recovery logic is waiting for the durable worker to restart on the current build.";
-  }
-  if (status.domainReadiness?.summary) {
-    return status.domainReadiness.summary;
-  }
-  if (status.readinessLevel === "usable" && status.state !== "ready") {
-    return "Overview and campaign surfaces are ready. Advisor and deeper entity coverage are still filling in.";
-  }
-  if (status.state === "action_required") {
-    return "Historical data paused. Existing warehouse data stays visible while sync is retried.";
-  }
-  if (status.state === "paused") {
-    return "Historical backfill stopped progressing. Existing warehouse data stays visible until the worker resumes.";
-  }
-  if (status.priorityWindow?.isActive) {
-    return "The selected date range is being written first so this screen can fill in sooner.";
-  }
-  if (status.state === "advisor_not_ready") {
-    if (status.operations?.fullSyncPriorityRequired) {
-      return (
-        status.operations.fullSyncPriorityReason ??
-        "Core Google Ads history is live. Full advisor support is being backfilled before analysis is enabled."
-      );
-    }
-    return "Core Google Ads history is ready. Search term and product history are still filling in for advisor analysis.";
-  }
-  if (status.state === "partial" || status.state === "syncing" || status.state === "stale") {
-    return "Ready sections will appear progressively as warehouse coverage expands.";
-  }
-  return "Warehouse coverage is up to date.";
-}
-
-function getTone(status: GoogleAdsStatusResponse) {
-  if (status.state === "action_required") {
-    return {
-      border: "border-amber-200",
-      bg: "bg-amber-50",
-      track: "bg-amber-100",
-      fill: "bg-amber-500",
-      text: "text-amber-950",
-      subtext: "text-amber-800/85",
-      detail: "text-amber-900/90",
-    };
-  }
-  if (status.state === "paused") {
+function getTone(kind: "advisor" | "historical") {
+  if (kind === "historical") {
     return {
       border: "border-slate-200",
       bg: "bg-slate-50",
@@ -178,25 +23,15 @@ function getTone(status: GoogleAdsStatusResponse) {
       detail: "text-slate-800/90",
     };
   }
-  if (status.state === "advisor_not_ready" || status.state === "partial") {
-    return {
-      border: "border-blue-200",
-      bg: "bg-blue-50",
-      track: "bg-blue-100",
-      fill: "bg-blue-500",
-      text: "text-blue-950",
-      subtext: "text-blue-800/85",
-      detail: "text-blue-900/90",
-    };
-  }
+
   return {
-    border: "border-sky-200",
-    bg: "bg-sky-50",
-    track: "bg-sky-100",
-    fill: "bg-sky-500",
-    text: "text-sky-950",
-    subtext: "text-sky-800/85",
-    detail: "text-sky-900/90",
+    border: "border-blue-200",
+    bg: "bg-blue-50",
+    track: "bg-blue-100",
+    fill: "bg-blue-500",
+    text: "text-blue-950",
+    subtext: "text-blue-800/85",
+    detail: "text-blue-900/90",
   };
 }
 
@@ -274,26 +109,24 @@ export function GoogleAdsSyncProgress({
   className,
 }: {
   status: GoogleAdsStatusResponse | undefined | null;
-  variant?: "default" | "compact" | "inline";
+  variant?: GoogleAdsSyncProgressVariant;
   className?: string;
 }) {
-  if (!shouldRenderGoogleAdsSyncProgress(status)) return null;
-  const activeStatus = status as GoogleAdsStatusResponse;
+  const resolved = resolveGoogleAdsSyncProgress(status, variant);
+  if (!resolved) return null;
 
-  const progress = Math.max(
-    0,
-    Math.min(100, Math.round(activeStatus.latestSync?.progressPercent ?? 0))
-  );
-  const title = getTitle(activeStatus);
-  const description = getDescription(activeStatus);
-  const caption = formatSyncCaption(activeStatus);
-  const tone = getTone(activeStatus);
+  const tone = getTone(resolved.kind);
+  const progress = resolved.percent;
+  const title = resolved.title;
+  const description = resolved.description;
 
   if (variant === "inline") {
     return (
       <div
         className={cn(
-          "inline-flex min-w-[170px] max-w-[320px] items-center gap-2 rounded-lg border px-2.5 py-1.5 text-[11px]",
+          resolved.kind === "historical"
+            ? "inline-flex min-w-[150px] max-w-[250px] items-center gap-2 rounded-lg border px-2.5 py-1.5 text-[11px]"
+            : "inline-flex min-w-[170px] max-w-[320px] items-center gap-2 rounded-lg border px-2.5 py-1.5 text-[11px]",
           tone.border,
           tone.bg,
           tone.detail,
@@ -302,7 +135,7 @@ export function GoogleAdsSyncProgress({
       >
         <span className="shrink-0 text-[11px] font-semibold tabular-nums">{progress}%</span>
         <div className="min-w-0 flex-1 overflow-hidden">
-          <div className="truncate leading-none">{caption ?? description}</div>
+          <div className="truncate leading-none">{description}</div>
           <div className={cn("mt-1 h-1 overflow-hidden rounded-full", tone.track)}>
             <div
               className={cn("h-full rounded-full transition-[width] duration-300", tone.fill)}
@@ -330,7 +163,7 @@ export function GoogleAdsSyncProgress({
           <div className="min-w-0">
             <p className="truncate text-xs font-semibold">{title}</p>
             <p className={cn("mt-1 line-clamp-2 text-[11px] leading-4", tone.subtext)}>
-              {caption ?? description}
+              {description}
             </p>
           </div>
           <p className="shrink-0 text-xs font-semibold tabular-nums">{progress}%</p>
@@ -370,14 +203,7 @@ export function GoogleAdsSyncProgress({
           style={{ width: `${progress}%` }}
         />
       </div>
-      {caption ? <p className={cn("mt-2 text-xs", tone.subtext)}>{caption}</p> : null}
-      {activeStatus.latestSync?.lastError &&
-      (activeStatus.state === "partial" ||
-        activeStatus.state === "paused" ||
-        activeStatus.state === "stale" ||
-        activeStatus.state === "action_required") ? (
-        <p className={cn("mt-2 text-xs", tone.subtext)}>{activeStatus.latestSync.lastError}</p>
-      ) : null}
+      <p className={cn("mt-2 text-xs", tone.subtext)}>{description}</p>
     </div>
   );
 }

@@ -5,6 +5,7 @@ import {
   getGoogleAdsExtendedRecoveryBlockReason,
   buildGoogleAdsWarehouseFetchPlan,
   evaluateGoogleAdsWorkerSchedulingState,
+  shouldBlockGoogleAdsHistoricalExtendedWork,
   shouldLeaseGoogleAdsRecentRepair,
 } from "@/lib/sync/google-ads-sync";
 
@@ -188,6 +189,22 @@ describe("decideGoogleAdsHistoricalFrontier", () => {
         recent90Complete: true,
       })
     ).toBe("2024-01-01");
+  });
+});
+
+describe("shouldBlockGoogleAdsHistoricalExtendedWork", () => {
+  it("blocks historical extended work until the recent 90-day frontier is complete", () => {
+    expect(
+      shouldBlockGoogleAdsHistoricalExtendedWork({
+        recent90Complete: false,
+      })
+    ).toBe(true);
+
+    expect(
+      shouldBlockGoogleAdsHistoricalExtendedWork({
+        recent90Complete: true,
+      })
+    ).toBe(false);
   });
 });
 

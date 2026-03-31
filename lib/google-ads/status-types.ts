@@ -53,6 +53,12 @@ export interface GoogleAdsExtendedRangeCompletion {
   ready: boolean;
 }
 
+export interface GoogleAdsProgressState {
+  percent: number;
+  visible: boolean;
+  summary: string;
+}
+
 export interface GoogleAdsStatusResponse {
   state:
     | "not_connected"
@@ -247,5 +253,7 @@ export interface GoogleAdsStatusResponse {
       historical: GoogleAdsExtendedRangeCompletion;
     }
   > | null;
+  advisorProgress?: GoogleAdsProgressState | null;
+  historicalProgress?: GoogleAdsProgressState | null;
   latestSync?: GoogleAdsSyncDetails | null;
 }

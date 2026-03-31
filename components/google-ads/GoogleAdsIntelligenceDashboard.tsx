@@ -1101,7 +1101,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                     })}
                   </p>
                 </div>
-                {shouldRenderGoogleAdsSyncProgress(syncStatus) ? (
+                {shouldRenderGoogleAdsSyncProgress(syncStatus, "inline") ? (
                   <GoogleAdsSyncProgress
                     status={syncStatus}
                     variant="inline"

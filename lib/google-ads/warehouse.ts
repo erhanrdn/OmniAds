@@ -722,6 +722,40 @@ export async function completeGoogleAdsPartition(input: {
   `;
 }
 
+export async function cancelGoogleAdsPartitionsBySource(input: {
+  businessId: string;
+  lane?: GoogleAdsSyncLane | null;
+  sources: string[];
+  statuses: Array<Extract<GoogleAdsPartitionStatus, "queued" | "leased" | "running">>;
+  scopeFilter?: GoogleAdsWarehouseScope[];
+  lastError?: string | null;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = await sql`
+    UPDATE google_ads_sync_partitions
+    SET
+      status = 'cancelled',
+      lease_owner = NULL,
+      lease_expires_at = NULL,
+      next_retry_at = NULL,
+      last_error = ${input.lastError ?? "cancelled while recent-90 advisor frontier is still incomplete"},
+      finished_at = now(),
+      updated_at = now()
+    WHERE business_id = ${input.businessId}
+      AND (${input.lane ?? null}::text IS NULL OR lane = ${input.lane ?? null})
+      AND source = ANY(${input.sources}::text[])
+      AND status = ANY(${input.statuses}::text[])
+      AND (
+        COALESCE(array_length(${input.scopeFilter ?? []}::text[], 1), 0) = 0
+        OR scope = ANY(${input.scopeFilter ?? []}::text[])
+      )
+    RETURNING id
+  ` as Array<{ id: string }>;
+
+  return rows.length;
+}
+
 export async function heartbeatGoogleAdsPartitionLease(input: {
   partitionId: string;
   workerId: string;

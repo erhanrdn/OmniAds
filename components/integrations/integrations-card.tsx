@@ -72,7 +72,7 @@ export function IntegrationsCard({
   const shouldShowMetaProgress =
     provider === "meta" && shouldRenderMetaSyncProgress(metaSyncStatus);
   const shouldShowGoogleProgress =
-    provider === "google" && shouldRenderGoogleAdsSyncProgress(googleSyncStatus);
+    provider === "google" && shouldRenderGoogleAdsSyncProgress(googleSyncStatus, "compact");
   const syncNoticeClasses =
     syncNoticeTone === "warning"
       ? "border-amber-300/40 bg-amber-50 text-amber-800"

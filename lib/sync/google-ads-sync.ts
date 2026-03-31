@@ -32,6 +32,7 @@ import {
   compactGoogleAdsExtendedBacklog,
   cleanupGoogleAdsObsoleteSyncJobs,
   cleanupGoogleAdsPartitionOrchestration,
+  cancelGoogleAdsPartitionsBySource,
   completeGoogleAdsPartition,
   createGoogleAdsSyncJob,
   createGoogleAdsSyncRun,
@@ -686,8 +687,14 @@ async function enqueueExtendedRecoveryPartitions(input: {
   businessId: string;
   policy: Awaited<ReturnType<typeof getGoogleAdsIncidentPolicy>>;
   scopes?: GoogleAdsWarehouseScope[];
+  recent90Complete?: boolean;
 }) {
-  if (input.policy.lanePolicy.extendedHistorical === "suspended") {
+  if (
+    input.policy.lanePolicy.extendedHistorical === "suspended" ||
+    shouldBlockGoogleAdsHistoricalExtendedWork({
+      recent90Complete: input.recent90Complete ?? true,
+    })
+  ) {
     return {
       queuedHistorical: 0,
     };
@@ -766,6 +773,24 @@ async function enqueueExtendedRecoveryPartitions(input: {
   return {
     queuedHistorical,
   };
+}
+
+async function cancelHistoricalExtendedBacklog(input: {
+  businessId: string;
+  recent90Complete: boolean;
+  scopeFilter?: GoogleAdsWarehouseScope[];
+}) {
+  if (!shouldBlockGoogleAdsHistoricalExtendedWork({ recent90Complete: input.recent90Complete })) {
+    return 0;
+  }
+
+  return cancelGoogleAdsPartitionsBySource({
+    businessId: input.businessId,
+    lane: "extended",
+    sources: ["historical", "historical_recovery"],
+    statuses: ["queued", "leased", "running"],
+    scopeFilter: input.scopeFilter,
+  }).catch(() => 0);
 }
 
 async function getGoogleAdsFullSyncPriorityState(input: { businessId: string }) {
@@ -1619,6 +1644,12 @@ export function decideGoogleAdsHistoricalFrontier(input: {
   recent90Complete: boolean;
 }) {
   return input.recent90Complete ? input.historicalStart : input.recent90Start;
+}
+
+export function shouldBlockGoogleAdsHistoricalExtendedWork(input: {
+  recent90Complete: boolean;
+}) {
+  return !input.recent90Complete;
 }
 
 async function getGoogleAdsRecent90CompletionState(input: { businessId: string }) {
@@ -3179,12 +3210,20 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
     policy: initialIncidentPolicy,
     fullSyncPriorityRequired: fullSyncPriority.required,
   });
+  const blockHistoricalExtendedWork = shouldBlockGoogleAdsHistoricalExtendedWork({
+    recent90Complete: recent90State?.complete ?? true,
+  });
   if (effectiveInitialIncidentPolicy) {
     await compactGoogleAdsIncidentBacklog({
       businessId,
       policy: effectiveInitialIncidentPolicy,
     }).catch(() => null);
   }
+  await cancelHistoricalExtendedBacklog({
+    businessId,
+    recent90Complete: recent90State?.complete ?? true,
+    scopeFilter: fullSyncPriority.required ? fullSyncPriority.targetScopes : undefined,
+  }).catch(() => 0);
 
   const backgroundSyncKeys = getBackgroundSyncKeys();
   const lockKey = `background:${businessId}`;
@@ -3264,6 +3303,7 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
       await enqueueExtendedRecoveryPartitions({
         businessId,
         policy: effectivePolicyBeforeHistoricalRecovery,
+        recent90Complete: recent90State?.complete ?? true,
         scopes: fullSyncPriority.required ? fullSyncPriority.targetScopes : undefined,
       }).catch(() => ({ queuedHistorical: 0 }));
     }
@@ -3309,6 +3349,7 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
     if (
       fullSyncPriority.required &&
       fullSyncPriority.targetScopes.length > 0 &&
+      !blockHistoricalExtendedWork &&
       effectiveLivePolicyAfterCore?.lanePolicy.extendedHistorical !== "suspended"
     ) {
       fullSyncPriorityPartitions = await leaseGoogleAdsSyncPartitions({
@@ -3371,25 +3412,35 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
       const queueHealth = queueHealthAfterMaintenance;
       const livePolicy = effectiveLivePolicyAfterMaintenance;
       if (!livePolicy?.suspendExtended) {
+        const fallbackSourceFilter = blockHistoricalExtendedWork
+          ? "recent_only"
+          : fullSyncPriority.required
+            ? "historical_only"
+            : livePolicy?.lanePolicy.extendedHistorical === "suspended"
+              ? "recent_only"
+              : "all";
         partitions = await leaseGoogleAdsSyncPartitions({
           businessId,
           lane: "extended",
           workerId,
-          limit: getGoogleAdsHistoricalLeaseLimit({ policy: livePolicy }),
+          limit:
+            fallbackSourceFilter === "recent_only"
+              ? getGoogleAdsRecentRepairLeaseLimit({ policy: livePolicy })
+              : getGoogleAdsHistoricalLeaseLimit({ policy: livePolicy }),
           leaseMinutes: GOOGLE_ADS_PARTITION_LEASE_MINUTES,
-          sourceFilter:
-            fullSyncPriority.required
-              ? "historical_only"
-              : livePolicy?.lanePolicy.extendedHistorical === "suspended"
-              ? "recent_only"
-              : "all",
-          scopeFilter: fullSyncPriority.required ? fullSyncPriority.targetScopes : undefined,
+          sourceFilter: fallbackSourceFilter,
+          scopeFilter:
+            fullSyncPriority.required && !blockHistoricalExtendedWork
+              ? fullSyncPriority.targetScopes
+              : undefined,
           startDate:
-            fullSyncPriority.required || livePolicy?.lanePolicy.extendedHistorical !== "suspended"
+            !blockHistoricalExtendedWork &&
+            (fullSyncPriority.required || livePolicy?.lanePolicy.extendedHistorical !== "suspended")
               ? historicalLeaseStartDate
               : null,
           endDate:
-            fullSyncPriority.required || livePolicy?.lanePolicy.extendedHistorical !== "suspended"
+            !blockHistoricalExtendedWork &&
+            (fullSyncPriority.required || livePolicy?.lanePolicy.extendedHistorical !== "suspended")
               ? fullSyncPriority.yesterday
               : null,
         }).catch(() => []);
@@ -3454,6 +3505,7 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
 
     if (shouldBurstExtended) {
       const burstSourceFilter =
+        blockHistoricalExtendedWork ||
         shouldLeaseGoogleAdsRecentRepair({
           policy: livePolicyAfterBatch,
           queueHealth: postBatchQueueHealth,
@@ -3466,7 +3518,7 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
         lane: "extended",
         workerId,
         limit:
-          fullSyncPriority.required
+          fullSyncPriority.required && !blockHistoricalExtendedWork
             ? Math.max(
                 1,
                 Math.min(
@@ -3478,14 +3530,24 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
             ? getGoogleAdsRecentRepairLeaseLimit({ policy: livePolicyAfterBatch })
             : GOOGLE_ADS_EXTENDED_BURST_WORKER_LIMIT,
         leaseMinutes: GOOGLE_ADS_PARTITION_LEASE_MINUTES,
-        sourceFilter: fullSyncPriority.required ? "historical_only" : burstSourceFilter,
-        scopeFilter: fullSyncPriority.required ? fullSyncPriority.targetScopes : undefined,
+        sourceFilter:
+          blockHistoricalExtendedWork
+            ? "recent_only"
+            : fullSyncPriority.required
+              ? "historical_only"
+              : burstSourceFilter,
+        scopeFilter:
+          fullSyncPriority.required && !blockHistoricalExtendedWork
+            ? fullSyncPriority.targetScopes
+            : undefined,
         startDate:
-          fullSyncPriority.required || burstSourceFilter !== "recent_only"
+          !blockHistoricalExtendedWork &&
+          (fullSyncPriority.required || burstSourceFilter !== "recent_only")
             ? historicalLeaseStartDate
             : null,
         endDate:
-          fullSyncPriority.required || burstSourceFilter !== "recent_only"
+          !blockHistoricalExtendedWork &&
+          (fullSyncPriority.required || burstSourceFilter !== "recent_only")
             ? fullSyncPriority.yesterday
             : null,
       }).catch(() => []);

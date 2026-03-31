@@ -695,7 +695,6 @@ export async function GET(request: NextRequest) {
           effectiveLatestSync?.sync_type === "today_refresh"
         ? "Syncing recent history"
         : "Ready";
-  const progressPercent = historicalProgressPercent;
   const latestError = effectiveLatestSync?.last_error ? String(effectiveLatestSync.last_error) : null;
 
   const recent90Start = addDaysToIsoDate(initialBackfillEnd, -89);
@@ -782,14 +781,6 @@ export async function GET(request: NextRequest) {
     .map((entry) => entry.name);
   const snapshotAvailable = Boolean(latestAdvisorSnapshot);
   const snapshotFresh = isGoogleAdsAdvisorSnapshotFresh(latestAdvisorSnapshot);
-  const advisorCompletedDays = Math.min(
-    ...advisorRequiredSurfaces.map((entry) => Number(entry.coverage?.completed_days ?? 0))
-  );
-  const advisorReadyThroughDate =
-    advisorRequiredSurfaces
-      .map((entry) => entry.coverage?.ready_through_date)
-      .filter((value): value is string => Boolean(value))
-      .sort((a, b) => a.localeCompare(b))[0] ?? null;
   const advisorDecision = decideGoogleAdsAdvisorReadiness({
     connected,
     assignedAccountCount: accountIds.length,
@@ -842,15 +833,6 @@ export async function GET(request: NextRequest) {
     missingSurfaces: surfaces.missing,
     advisorMissingSurfaces,
   });
-  const effectiveCompletedDays = advisorNotReady
-    ? advisorCompletedDays ?? overallCompletedDays
-    : overallCompletedDays;
-  const effectiveTotalDays = effectiveHistoricalTotalDays;
-  const effectiveReadyThroughDate = historicalReadyThroughDate;
-  const effectiveProgressPercent =
-    effectiveTotalDays > 0
-      ? Math.min(100, Math.round(((effectiveCompletedDays ?? 0) / effectiveTotalDays) * 100))
-      : progressPercent;
   const coreUsable =
     connected &&
     accountIds.length > 0 &&
@@ -1009,15 +991,23 @@ export async function GET(request: NextRequest) {
           : 0;
       return sum + Math.min(1, ratio);
     }, 0) / Math.max(1, Object.values(rangeCompletionBySurface).length);
-  const stagedRecoveryProgressPercent = coreUsable
-    ? Math.min(
-        99,
-        Math.round(60 + averageRecentCompletionRatio * 25 + averageHistoricalCompletionRatio * 15)
-      )
-    : effectiveProgressPercent;
-  const displayProgressPercent = advisorNotReady
-    ? stagedRecoveryProgressPercent
-    : effectiveProgressPercent;
+  const advisorPreparationPercent = advisorReady
+    ? 100
+    : recentExtendedReady
+      ? 99
+      : Math.max(
+          coreUsable ? 10 : 0,
+          Math.min(99, Math.round(averageRecentCompletionRatio * 100))
+        );
+  const historicalBackfillPercent = historicalExtendedReady
+    ? 100
+    : Math.max(0, Math.min(99, Math.round(averageHistoricalCompletionRatio * 100)));
+  const advisorProgressSummary = !coreUsable
+    ? "Campaign history is still being prepared for analysis."
+    : recentExtendedReady
+      ? "Finalizing growth analysis."
+      : "Search term, product, and asset history are still being prepared for analysis.";
+  const historicalProgressSummary = "Historical sync continues in the background.";
   const majorSurfaceStates = [
     buildPanelSurfaceState({
       scope: "search_term_daily",
@@ -1339,6 +1329,20 @@ export async function GET(request: NextRequest) {
     historicalExtendedReady,
     extendedRecentReadyThroughDate,
     rangeCompletionBySurface,
+    advisorProgress: {
+      percent: advisorPreparationPercent,
+      visible: connected && accountIds.length > 0 && !advisorReady,
+      summary: advisorProgressSummary,
+    },
+    historicalProgress: {
+      percent: historicalBackfillPercent,
+      visible:
+        connected &&
+        accountIds.length > 0 &&
+        advisorReady &&
+        !historicalExtendedReady,
+      summary: historicalProgressSummary,
+    },
     latestSync: effectiveLatestSync
       ? {
           id: effectiveLatestSync.id ? String(effectiveLatestSync.id) : null,
@@ -1352,17 +1356,17 @@ export async function GET(request: NextRequest) {
           startedAt: effectiveLatestSync.started_at ? String(effectiveLatestSync.started_at) : null,
           finishedAt: effectiveLatestSync.finished_at ? String(effectiveLatestSync.finished_at) : null,
           lastError: latestError,
-          progressPercent: displayProgressPercent,
-          completedDays: effectiveCompletedDays,
-          totalDays: effectiveTotalDays,
-          readyThroughDate: effectiveReadyThroughDate,
+          progressPercent: historicalProgressPercent,
+          completedDays: overallCompletedDays,
+          totalDays: effectiveHistoricalTotalDays,
+          readyThroughDate: historicalReadyThroughDate,
           phaseLabel: phaseLabel === "Ready" ? null : phaseLabel,
         }
       : {
-          progressPercent: displayProgressPercent,
-          completedDays: effectiveCompletedDays,
-          totalDays: effectiveTotalDays,
-          readyThroughDate: effectiveReadyThroughDate,
+          progressPercent: historicalProgressPercent,
+          completedDays: overallCompletedDays,
+          totalDays: effectiveHistoricalTotalDays,
+          readyThroughDate: historicalReadyThroughDate,
           phaseLabel: phaseLabel === "Ready" ? null : phaseLabel,
         },
   });
