@@ -1628,6 +1628,12 @@ export function GoogleAdvisorPanel({
   const doNow = advisor.recommendations.filter((recommendation) => recommendation.doBucket === "do_now");
   const doNext = advisor.recommendations.filter((recommendation) => recommendation.doBucket === "do_next");
   const doLater = advisor.recommendations.filter((recommendation) => recommendation.doBucket === "do_later");
+  const selectedRangeContext =
+    advisor.metadata?.selectedRangeContext &&
+    advisor.metadata.selectedRangeContext.eligible &&
+    advisor.metadata.selectedRangeContext.state !== "hidden"
+      ? advisor.metadata.selectedRangeContext
+      : null;
 
   return (
     <div className="space-y-4">
@@ -1636,6 +1642,14 @@ export function GoogleAdvisorPanel({
           <p className="text-xs uppercase tracking-wide text-muted-foreground">Decision Strip</p>
           <h2 className="text-lg font-semibold">{advisor.summary.headline}</h2>
           <p className="text-sm text-muted-foreground">{advisor.summary.operatorNote}</p>
+          {selectedRangeContext ? (
+            <div className="rounded-lg border border-sky-200 bg-sky-50/60 px-3 py-2">
+              <p className="text-[10px] uppercase tracking-wide text-sky-700">
+                Selected-Range Context
+              </p>
+              <p className="mt-1 text-xs text-slate-700">{selectedRangeContext.summary}</p>
+            </div>
+          ) : null}
         </div>
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <div className="rounded-lg border bg-muted/15 p-3">

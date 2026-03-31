@@ -259,6 +259,12 @@ const GOOGLE_ADS_STATE_SCOPES: GoogleAdsWarehouseScope[] = [
   "audience_daily",
 ];
 
+const GOOGLE_ADS_RECENT_90_FRONTIER_SCOPES: GoogleAdsWarehouseScope[] = [
+  "account_daily",
+  "campaign_daily",
+  ...GOOGLE_ADS_EXTENDED_SCOPES,
+];
+
 export function buildGoogleAdsLaneAdmissionPolicy(input: {
   safeModeEnabled: boolean;
   workerHealthy: boolean;
@@ -695,6 +701,14 @@ async function enqueueExtendedRecoveryPartitions(input: {
   }
 
   const { historicalStart, yesterday } = await computeHistoricalTargets(input.businessId);
+  const recent90State = await getGoogleAdsRecent90CompletionState({
+    businessId: input.businessId,
+  }).catch(() => null);
+  const frontierStart = decideGoogleAdsHistoricalFrontier({
+    historicalStart,
+    recent90Start: recent90State?.recent90Start ?? historicalStart,
+    recent90Complete: recent90State?.complete ?? true,
+  });
   const recentStart = addDaysToIsoDate(
     yesterday,
     -(GOOGLE_ADS_RECENT_EXTENDED_RECOVERY_DAYS - 1)
@@ -708,13 +722,13 @@ async function enqueueExtendedRecoveryPartitions(input: {
 
   for (const providerAccountId of accountIds) {
     for (const scope of scopes) {
-      if (historicalReplayEnd >= historicalStart) {
+      if (historicalReplayEnd >= frontierStart) {
         const [coveredDates, activeDates] = await Promise.all([
           getGoogleAdsCoveredDates({
             scope,
             businessId: input.businessId,
             providerAccountId,
-            startDate: historicalStart,
+            startDate: frontierStart,
             endDate: historicalReplayEnd,
           }).catch(() => []),
           getGoogleAdsPartitionDates({
@@ -722,13 +736,13 @@ async function enqueueExtendedRecoveryPartitions(input: {
             providerAccountId,
             lane: "extended",
             scope,
-            startDate: historicalStart,
+            startDate: frontierStart,
             endDate: historicalReplayEnd,
             statuses: ["queued", "leased", "running", "failed", "dead_letter"],
           }).catch(() => []),
         ]);
         const blocked = new Set([...coveredDates, ...activeDates]);
-        const dates = enumerateDays(historicalStart, historicalReplayEnd, true)
+        const dates = enumerateDays(frontierStart, historicalReplayEnd, true)
           .filter((date) => !blocked.has(date))
           .slice(0, GOOGLE_ADS_EXTENDED_HISTORICAL_BATCH_DAYS);
         for (const date of dates) {
@@ -1599,10 +1613,55 @@ async function computeHistoricalTargets(businessId: string) {
   };
 }
 
+export function decideGoogleAdsHistoricalFrontier(input: {
+  historicalStart: string;
+  recent90Start: string;
+  recent90Complete: boolean;
+}) {
+  return input.recent90Complete ? input.historicalStart : input.recent90Start;
+}
+
+async function getGoogleAdsRecent90CompletionState(input: { businessId: string }) {
+  const { historicalStart, yesterday } = await computeHistoricalTargets(input.businessId);
+  const recent90Start = addDaysToIsoDate(yesterday, -89);
+  const frontierStart = recent90Start > historicalStart ? recent90Start : historicalStart;
+  const totalDays = dayCountInclusive(frontierStart, yesterday);
+  const coverageRows = await Promise.all(
+    GOOGLE_ADS_RECENT_90_FRONTIER_SCOPES.map(async (scope) => ({
+      scope,
+      coverage: await getGoogleAdsDailyCoverage({
+        scope,
+        businessId: input.businessId,
+        providerAccountId: null,
+        startDate: frontierStart,
+        endDate: yesterday,
+      }).catch(() => null),
+    }))
+  );
+
+  const incompleteScopes = coverageRows
+    .filter((entry) => Number(entry.coverage?.completed_days ?? 0) < totalDays)
+    .map((entry) => entry.scope);
+
+  return {
+    recent90Start: frontierStart,
+    yesterday,
+    totalDays,
+    complete: incompleteScopes.length === 0,
+    incompleteScopes,
+  };
+}
+
 async function enqueueHistoricalCorePartitions(businessId: string) {
   const accountIds = await getAssignedGoogleAccounts(businessId).catch(() => []);
   if (accountIds.length === 0) return 0;
   const { historicalStart, yesterday } = await computeHistoricalTargets(businessId);
+  const recent90State = await getGoogleAdsRecent90CompletionState({ businessId }).catch(() => null);
+  const targetStart = decideGoogleAdsHistoricalFrontier({
+    historicalStart,
+    recent90Start: recent90State?.recent90Start ?? historicalStart,
+    recent90Complete: recent90State?.complete ?? true,
+  });
   let queued = 0;
   for (const providerAccountId of accountIds) {
     const [coveredDates, activePartitionDates] = await Promise.all([
@@ -1610,7 +1669,7 @@ async function enqueueHistoricalCorePartitions(businessId: string) {
         scope: "campaign_daily",
         businessId,
         providerAccountId,
-        startDate: historicalStart,
+        startDate: targetStart,
         endDate: yesterday,
       }).catch(() => []),
       getGoogleAdsPartitionDates({
@@ -1618,13 +1677,13 @@ async function enqueueHistoricalCorePartitions(businessId: string) {
         providerAccountId,
         lane: "core",
         scope: "campaign_daily",
-        startDate: historicalStart,
+        startDate: targetStart,
         endDate: yesterday,
         statuses: ["queued", "leased", "running", "failed", "dead_letter"],
       }).catch(() => []),
     ]);
     const blockedDates = new Set([...coveredDates, ...activePartitionDates]);
-    const dates = enumerateDays(historicalStart, yesterday, true)
+    const dates = enumerateDays(targetStart, yesterday, true)
       .filter((date) => !blockedDates.has(date))
       .slice(0, GOOGLE_ADS_BOOTSTRAP_BATCH_DAYS);
 
@@ -3102,6 +3161,15 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
     historicalStart: null,
     yesterday: null,
   }));
+  const recent90State = await getGoogleAdsRecent90CompletionState({ businessId }).catch(() => null);
+  const historicalLeaseStartDate =
+    fullSyncPriority.historicalStart && recent90State
+      ? decideGoogleAdsHistoricalFrontier({
+          historicalStart: fullSyncPriority.historicalStart,
+          recent90Start: recent90State.recent90Start,
+          recent90Complete: recent90State.complete,
+        })
+      : null;
   const initialQueueHealth = await getGoogleAdsQueueHealth({ businessId }).catch(() => null);
   const initialIncidentPolicy = await getGoogleAdsIncidentPolicy({
     businessId,
@@ -3207,6 +3275,8 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
       workerId,
       limit: GOOGLE_ADS_CORE_WORKER_LIMIT,
       leaseMinutes: GOOGLE_ADS_PARTITION_LEASE_MINUTES,
+      startDate: historicalLeaseStartDate,
+      endDate: fullSyncPriority.yesterday,
     }).catch(() => []);
     const queueHealthAfterCore = await getGoogleAdsQueueHealth({ businessId }).catch(() => null);
     const livePolicyAfterCore = await getGoogleAdsIncidentPolicy({
@@ -3255,6 +3325,8 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
         leaseMinutes: GOOGLE_ADS_PARTITION_LEASE_MINUTES,
         sourceFilter: "historical_only",
         scopeFilter: fullSyncPriority.targetScopes,
+        startDate: historicalLeaseStartDate,
+        endDate: fullSyncPriority.yesterday,
       }).catch(() => []);
     }
     partitions = [...partitions, ...fullSyncPriorityPartitions];
@@ -3312,6 +3384,14 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
               ? "recent_only"
               : "all",
           scopeFilter: fullSyncPriority.required ? fullSyncPriority.targetScopes : undefined,
+          startDate:
+            fullSyncPriority.required || livePolicy?.lanePolicy.extendedHistorical !== "suspended"
+              ? historicalLeaseStartDate
+              : null,
+          endDate:
+            fullSyncPriority.required || livePolicy?.lanePolicy.extendedHistorical !== "suspended"
+              ? fullSyncPriority.yesterday
+              : null,
         }).catch(() => []);
         if (partitions.length > 0 && livePolicy?.recoveryMode === "closed") {
           await enterProviderGlobalCircuitBreakerRecoveryState({
@@ -3400,6 +3480,14 @@ export async function syncGoogleAdsReports(businessId: string): Promise<GoogleAd
         leaseMinutes: GOOGLE_ADS_PARTITION_LEASE_MINUTES,
         sourceFilter: fullSyncPriority.required ? "historical_only" : burstSourceFilter,
         scopeFilter: fullSyncPriority.required ? fullSyncPriority.targetScopes : undefined,
+        startDate:
+          fullSyncPriority.required || burstSourceFilter !== "recent_only"
+            ? historicalLeaseStartDate
+            : null,
+        endDate:
+          fullSyncPriority.required || burstSourceFilter !== "recent_only"
+            ? fullSyncPriority.yesterday
+            : null,
       }).catch(() => []);
 
       attempted += extendedPartitions.length;

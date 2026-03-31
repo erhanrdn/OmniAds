@@ -22,10 +22,11 @@ import {
   decideGoogleAdsFullSyncPriority,
   decideGoogleAdsStatusState,
 } from "@/lib/google-ads/status-machine";
+import { countInclusiveDays } from "@/lib/google-ads/advisor-windows";
 import {
-  buildGoogleAdsAdvisorWindows,
-  countInclusiveDays,
-} from "@/lib/google-ads/advisor-windows";
+  getLatestGoogleAdsAdvisorSnapshot,
+  isGoogleAdsAdvisorSnapshotFresh,
+} from "@/lib/google-ads/advisor-snapshots";
 import { runMigrations } from "@/lib/migrations";
 import {
   buildProviderSurfaces,
@@ -189,24 +190,24 @@ function buildAdvisorBlockingMessage(input: {
   connected: boolean;
   assignedAccountCount: number;
   deadLetterPartitions: number;
-  selectedWindowMissingSurfaces: string[];
-  firstSupportWindowWithMissingSurfaces:
-    | {
-        label: string;
-        missingSurfaces: string[];
-      }
-    | undefined;
+  recent90MissingSurfaces: string[];
+  snapshotAvailable: boolean;
+  snapshotFresh: boolean;
 }) {
   if (!input.connected) return "Connect a Google Ads account to enable advisor analysis.";
   if (input.assignedAccountCount === 0) return "Assign a Google Ads account to prepare advisor inputs.";
-  if (input.deadLetterPartitions > 0) return "Resolve Google Ads dead-letter partitions before running advisor analysis.";
-  if (input.selectedWindowMissingSurfaces.length > 0) {
-    return `Waiting for ${input.selectedWindowMissingSurfaces.join(", ")} history for the selected range.`;
+  if (input.snapshotAvailable) {
+    return input.snapshotFresh
+      ? "Advisor snapshot is ready."
+      : "Advisor snapshot is available but waiting for its next backend refresh.";
   }
-  if (input.firstSupportWindowWithMissingSurfaces) {
-    return `Waiting for ${input.firstSupportWindowWithMissingSurfaces.label} advisor support: ${input.firstSupportWindowWithMissingSurfaces.missingSurfaces.join(", ")}.`;
+  if (input.deadLetterPartitions > 0) {
+    return "Resolve Google Ads dead-letter partitions before generating the advisor snapshot.";
   }
-  return "Advisor analysis is available on demand for this date range.";
+  if (input.recent90MissingSurfaces.length > 0) {
+    return `Waiting for recent 90-day coverage in ${input.recent90MissingSurfaces.join(", ")} before generating the advisor snapshot.`;
+  }
+  return "Advisor snapshot can be generated as soon as you request a refresh.";
 }
 
 export async function GET(request: NextRequest) {
@@ -697,18 +698,49 @@ export async function GET(request: NextRequest) {
   const progressPercent = historicalProgressPercent;
   const latestError = effectiveLatestSync?.last_error ? String(effectiveLatestSync.last_error) : null;
 
+  const recent90Start = addDaysToIsoDate(initialBackfillEnd, -89);
+  const [recent90CampaignCoverage, recent90SearchTermCoverage, recent90ProductCoverage, latestAdvisorSnapshot] =
+    connected && accountIds.length > 0
+      ? await Promise.all([
+          getGoogleAdsDailyCoverage({
+            scope: "campaign_daily",
+            businessId: businessId!,
+            providerAccountId: null,
+            startDate: recent90Start,
+            endDate: initialBackfillEnd,
+          }).catch(() => null),
+          getGoogleAdsDailyCoverage({
+            scope: "search_term_daily",
+            businessId: businessId!,
+            providerAccountId: null,
+            startDate: recent90Start,
+            endDate: initialBackfillEnd,
+          }).catch(() => null),
+          getGoogleAdsDailyCoverage({
+            scope: "product_daily",
+            businessId: businessId!,
+            providerAccountId: null,
+            startDate: recent90Start,
+            endDate: initialBackfillEnd,
+          }).catch(() => null),
+          getLatestGoogleAdsAdvisorSnapshot({
+            businessId: businessId!,
+            accountId: accountIds.length === 1 ? accountIds[0] : null,
+          }).catch(() => null),
+        ])
+      : [null, null, null, null];
   const advisorRequiredSurfaces = [
     {
       name: "campaign_daily",
-      coverage: selectedRangeCoverage,
+      coverage: recent90CampaignCoverage,
     },
     {
       name: "search_term_daily",
-      coverage: selectedSearchTermCoverage,
+      coverage: recent90SearchTermCoverage,
     },
     {
       name: "product_daily",
-      coverage: selectedProductCoverage,
+      coverage: recent90ProductCoverage,
     },
   ];
   const advisorOptionalSurfaces = [
@@ -739,84 +771,20 @@ export async function GET(request: NextRequest) {
   ]
     .filter(
       (entry) =>
-        selectedRangeTotalDays != null &&
-        (entry.coverage?.completed_days ?? 0) >= selectedRangeTotalDays
+        (entry.coverage?.completed_days ?? 0) >= 90
     )
     .map((entry) => entry.name);
   const advisorMissingSurfaces = advisorRequiredSurfaces
     .filter(
       (entry) =>
-        selectedRangeTotalDays != null &&
-        (entry.coverage?.completed_days ?? 0) < selectedRangeTotalDays
+        (entry.coverage?.completed_days ?? 0) < 90
     )
     .map((entry) => entry.name);
-  const advisorWindowSet =
-    selectedStartDate && selectedEndDate
-      ? buildGoogleAdsAdvisorWindows({
-          dateRange: "custom",
-          customStart: selectedStartDate,
-          customEnd: selectedEndDate,
-        })
-      : null;
-  const supportWindowCoverages =
-    connected && accountIds.length > 0 && advisorWindowSet
-      ? await Promise.all(
-          advisorWindowSet.supportWindows.map(async (window) => {
-            const [campaignCoverage, searchCoverage, productCoverage] = await Promise.all([
-              getGoogleAdsDailyCoverage({
-                scope: "campaign_daily",
-                businessId: businessId!,
-                providerAccountId: null,
-                startDate: window.customStart,
-                endDate: window.customEnd,
-              }).catch(() => null),
-              getGoogleAdsDailyCoverage({
-                scope: "search_term_daily",
-                businessId: businessId!,
-                providerAccountId: null,
-                startDate: window.customStart,
-                endDate: window.customEnd,
-              }).catch(() => null),
-              getGoogleAdsDailyCoverage({
-                scope: "product_daily",
-                businessId: businessId!,
-                providerAccountId: null,
-                startDate: window.customStart,
-                endDate: window.customEnd,
-              }).catch(() => null),
-            ]);
-
-            const surfaceCoverages = [
-              { name: "campaign_daily", completedDays: campaignCoverage?.completed_days ?? 0 },
-              { name: "search_term_daily", completedDays: searchCoverage?.completed_days ?? 0 },
-              { name: "product_daily", completedDays: productCoverage?.completed_days ?? 0 },
-            ];
-            const missingSurfaces = surfaceCoverages
-              .filter((surface) => surface.completedDays < window.days)
-              .map((surface) => surface.name);
-
-            return {
-              key: window.key,
-              label: window.label,
-              ready: missingSurfaces.length === 0,
-              startDate: window.customStart,
-              endDate: window.customEnd,
-              totalDays: window.days,
-              missingSurfaces,
-            };
-          })
-        )
-      : [];
-  const supportWindowMissingCount = supportWindowCoverages.filter((window) => !window.ready).length;
-  const firstSupportWindowWithMissingSurfaces = supportWindowCoverages.find(
-    (window) => window.missingSurfaces.length > 0
+  const snapshotAvailable = Boolean(latestAdvisorSnapshot);
+  const snapshotFresh = isGoogleAdsAdvisorSnapshotFresh(latestAdvisorSnapshot);
+  const advisorCompletedDays = Math.min(
+    ...advisorRequiredSurfaces.map((entry) => Number(entry.coverage?.completed_days ?? 0))
   );
-  const advisorCompletedDays =
-    selectedRangeTotalDays != null
-      ? Math.min(
-          ...advisorRequiredSurfaces.map((entry) => entry.coverage?.completed_days ?? 0)
-        )
-      : null;
   const advisorReadyThroughDate =
     advisorRequiredSurfaces
       .map((entry) => entry.coverage?.ready_through_date)
@@ -825,15 +793,20 @@ export async function GET(request: NextRequest) {
   const advisorDecision = decideGoogleAdsAdvisorReadiness({
     connected,
     assignedAccountCount: accountIds.length,
-    selectedRangeTotalDays,
-    advisorMissingSurfaces,
-    supportWindowMissingCount,
     deadLetterPartitions: queueHealth?.deadLetterPartitions ?? 0,
-    historicalProgressPercent,
-    selectedRangeIncomplete,
+    recent90Ready: advisorMissingSurfaces.length === 0,
+    snapshotAvailable,
   });
   const advisorReady = advisorDecision.ready;
   const advisorNotReady = advisorDecision.notReady;
+  const advisorSnapshotBlockedReason =
+    snapshotAvailable
+      ? null
+      : queueHealth?.deadLetterPartitions
+        ? "dead_letter_partitions"
+        : advisorMissingSurfaces.length > 0
+          ? "recent90_incomplete"
+          : "snapshot_missing";
   const fullSyncPriority = decideGoogleAdsFullSyncPriority({
     advisorReady,
     advisorMissingSurfaces,
@@ -1184,7 +1157,6 @@ export async function GET(request: NextRequest) {
       productPendingSurfaces,
       selectedRangeTotalDays,
       advisorMissingSurfaces,
-      supportWindowMissingCount,
       advisorNotReady,
     }),
     connected,
@@ -1237,32 +1209,54 @@ export async function GET(request: NextRequest) {
     },
     advisor: {
       ready: advisorReady,
+      snapshotReady: snapshotAvailable,
+      snapshotAsOfDate: latestAdvisorSnapshot?.asOfDate ?? null,
+      snapshotFresh,
+      snapshotBlockedReason: advisorSnapshotBlockedReason,
       requiredSurfaces: advisorRequiredSurfaces.map((entry) => entry.name),
       availableSurfaces: advisorAvailableSurfaces,
       missingSurfaces: advisorMissingSurfaces,
-      readyRangeStart: advisorReady ? selectedStartDate : null,
-      readyRangeEnd: advisorReady ? selectedEndDate : null,
+      readyRangeStart: advisorReady ? recent90Start : null,
+      readyRangeEnd: advisorReady ? initialBackfillEnd : null,
       blockingMessage:
         fullSyncPriority.reason ??
         buildAdvisorBlockingMessage({
           connected,
           assignedAccountCount: accountIds.length,
           deadLetterPartitions: queueHealth?.deadLetterPartitions ?? 0,
-          selectedWindowMissingSurfaces: advisorMissingSurfaces,
-          firstSupportWindowWithMissingSurfaces,
+          recent90MissingSurfaces: advisorMissingSurfaces,
+          snapshotAvailable,
+          snapshotFresh,
         }),
       selectedWindow:
-        advisorWindowSet && selectedStartDate && selectedEndDate
+        selectedStartDate && selectedEndDate
           ? {
-              label: advisorWindowSet.selectedWindow.label,
-              ready: advisorMissingSurfaces.length === 0,
+              label: `selected ${countInclusiveDays(selectedStartDate, selectedEndDate)}d`,
+              ready:
+                selectedRangeTotalDays != null &&
+                [
+                  selectedRangeCoverage,
+                  selectedSearchTermCoverage,
+                  selectedProductCoverage,
+                ].every(
+                  (coverage) => Number(coverage?.completed_days ?? 0) >= selectedRangeTotalDays
+                ),
               startDate: selectedStartDate,
               endDate: selectedEndDate,
               totalDays: countInclusiveDays(selectedStartDate, selectedEndDate),
-              missingSurfaces: advisorMissingSurfaces,
+              missingSurfaces:
+                selectedRangeTotalDays != null
+                  ? [
+                      { name: "campaign_daily", coverage: selectedRangeCoverage },
+                      { name: "search_term_daily", coverage: selectedSearchTermCoverage },
+                      { name: "product_daily", coverage: selectedProductCoverage },
+                    ]
+                      .filter((entry) => Number(entry.coverage?.completed_days ?? 0) < selectedRangeTotalDays)
+                      .map((entry) => entry.name)
+                  : [],
             }
           : null,
-      supportWindows: supportWindowCoverages,
+      supportWindows: null,
     },
     jobHealth: {
       runningJobs,
@@ -1297,6 +1291,10 @@ export async function GET(request: NextRequest) {
       googleRunnerLeaseActive: workerSchedulingState?.runnerLeaseActive ?? false,
       fullSyncPriorityRequired: fullSyncPriority.required,
       fullSyncPriorityReason: fullSyncPriority.reason,
+      advisorSnapshotReady: snapshotAvailable,
+      advisorSnapshotAsOfDate: latestAdvisorSnapshot?.asOfDate ?? null,
+      advisorSnapshotFresh: snapshotFresh,
+      advisorSnapshotBlockedReason,
       workerBuildId,
       workerStartedAt,
       lastWorkerHeartbeatAt: workerSchedulingState?.lastHeartbeatAt ?? null,

@@ -672,9 +672,58 @@ export interface GoogleDecisionSummary {
   campaignRoles: GoogleCampaignRoleRow[];
 }
 
+export interface GoogleAdvisorHistoricalSupport {
+  source: "platform_aggregate" | "warehouse_aggregate";
+  available: boolean;
+  coverageDays: number;
+  campaigns: {
+    entityCount: number;
+    spend: number;
+    revenue: number;
+    conversions: number;
+  };
+  searchTerms: {
+    entityCount: number;
+    spend: number;
+    revenue: number;
+    conversions: number;
+  };
+  products: {
+    entityCount: number;
+    spend: number;
+    revenue: number;
+    conversions: number;
+  };
+}
+
+export interface GoogleAdvisorMetadata {
+  analysisMode: "snapshot" | "debug_custom";
+  asOfDate: string;
+  selectedWindowKey: "last90" | "custom";
+  historicalSupportAvailable: boolean;
+  historicalSupport?: GoogleAdvisorHistoricalSupport | null;
+  canonicalWindowTotals?: {
+    spend: number;
+    revenue: number;
+    conversions: number;
+    roas: number;
+  } | null;
+  selectedRangeContext?: {
+    eligible: boolean;
+    state: "aligned" | "stronger" | "softer" | "volatile" | "hidden";
+    label: string;
+    summary: string;
+    selectedRangeStart: string;
+    selectedRangeEnd: string;
+    deltaPercent?: number | null;
+    metricKey?: "roas" | "cpa" | "revenue" | "conversions" | null;
+  } | null;
+}
+
 export interface GoogleAdvisorResponse {
   summary: GoogleDecisionSummary;
   recommendations: GoogleRecommendation[];
   sections: GoogleRecommendationSection[];
   clusters: GoogleActionCluster[];
+  metadata?: GoogleAdvisorMetadata;
 }

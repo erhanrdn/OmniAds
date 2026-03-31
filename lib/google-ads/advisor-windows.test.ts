@@ -57,5 +57,7 @@ describe("buildGoogleAdsAdvisorWindows", () => {
       customEnd: "2026-03-27",
       days: 3,
     });
+    expect(windows.supportWindows.some((window) => window.key === "last90")).toBe(true);
+    expect(windows.supportWindows.some((window) => window.label === "all history")).toBe(false);
   });
 });

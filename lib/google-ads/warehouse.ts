@@ -576,6 +576,8 @@ export async function leaseGoogleAdsSyncPartitions(input: {
   leaseMinutes?: number;
   sourceFilter?: "all" | "recent_only" | "historical_only";
   scopeFilter?: GoogleAdsWarehouseScope[];
+  startDate?: string | null;
+  endDate?: string | null;
 }) {
   await runMigrations();
   const sql = getDb();
@@ -598,6 +600,8 @@ export async function leaseGoogleAdsSyncPartitions(input: {
             OR ($6::text = 'recent_only' AND source IN ('selected_range', 'today', 'recent', 'core_success', 'recent_recovery'))
             OR ($6::text = 'historical_only' AND source IN ('historical', 'historical_recovery'))
           )
+          AND ($8::date IS NULL OR partition_date >= $8::date)
+          AND ($9::date IS NULL OR partition_date <= $9::date)
           AND (
             status = 'queued'
             OR (status = 'failed' AND COALESCE(next_retry_at, now()) <= now())
@@ -643,6 +647,8 @@ export async function leaseGoogleAdsSyncPartitions(input: {
       String(input.leaseMinutes ?? 5),
       input.sourceFilter ?? "all",
       input.scopeFilter ?? [],
+      input.startDate ? normalizeDate(input.startDate) : null,
+      input.endDate ? normalizeDate(input.endDate) : null,
     ]
   ) as Array<Record<string, unknown>>;
 

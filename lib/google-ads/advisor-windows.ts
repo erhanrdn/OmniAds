@@ -9,7 +9,7 @@ export interface GoogleAdsAdvisorSelectedWindow {
 }
 
 export interface GoogleAdsAdvisorSupportWindow {
-  key: "last3" | "last7" | "last14" | "last30" | "last90" | "all_history";
+  key: "last3" | "last7" | "last14" | "last30" | "last90";
   label: string;
   customStart: string;
   customEnd: string;
@@ -84,7 +84,6 @@ export function buildGoogleAdsAdvisorWindows(input: {
     { key: "last14", label: "last 14d", ...buildAdvisorWindowFromDays(endDate, 14) },
     { key: "last30", label: "last 30d", ...buildAdvisorWindowFromDays(endDate, 30) },
     { key: "last90", label: "last 90d", ...buildAdvisorWindowFromDays(endDate, 90) },
-    { key: "all_history", label: "all history", ...buildAdvisorWindowFromDays(endDate, 365) },
   ];
 
   return {

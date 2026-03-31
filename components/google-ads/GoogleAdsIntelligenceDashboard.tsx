@@ -260,18 +260,16 @@ function filterAdvisorByTypes(
 
 function buildAdvisorQueryParams(input: {
   businessId: string;
-  apiDateRange: string;
-  startDate: string;
-  endDate: string;
+  apiDateRange?: string;
+  startDate?: string;
+  endDate?: string;
+  refresh?: boolean;
 }) {
-  const params = new URLSearchParams({
-    businessId: input.businessId,
-    dateRange: input.apiDateRange,
-  });
-  if (input.apiDateRange === "custom") {
-    params.set("customStart", input.startDate);
-    params.set("customEnd", input.endDate);
-  }
+  const params = new URLSearchParams({ businessId: input.businessId });
+  if (input.apiDateRange) params.set("dateRange", input.apiDateRange);
+  if (input.startDate) params.set("customStart", input.startDate);
+  if (input.endDate) params.set("customEnd", input.endDate);
+  if (input.refresh) params.set("refresh", "1");
   return params;
 }
 
@@ -298,8 +296,11 @@ function getAdvisorIdleState(
   }
   if (status.advisor?.ready) {
     return {
-      title: "Run analysis when ready",
-      description: "Advisor analysis is available on demand for this date range.",
+      title: "Advisor snapshot is ready",
+      description:
+        status.operations?.advisorSnapshotFresh === false
+          ? "The current advisor snapshot is available, and a backend refresh can update it."
+          : "The canonical 90-day advisor snapshot is ready.",
     };
   }
   if (status.operations?.fullSyncPriorityRequired) {
@@ -311,10 +312,10 @@ function getAdvisorIdleState(
     };
   }
   return {
-    title: "Run analysis when historical support is ready",
+    title: "Advisor snapshot is waiting on recent coverage",
     description:
       status.advisor?.blockingMessage ??
-      "Advisor analysis becomes available when campaign, search term, and product history are ready for the selected dates.",
+      "Advisor snapshot becomes available after the last 90 days are fully prepared.",
   };
 }
 
@@ -351,7 +352,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
   const needsProductsData = activePanel === "products";
   const needsAssetsData = activePanel === "assets";
   const needsInsightsData = activePanel === "insights";
-  const currentAdvisorKey = `${businessId}:${startDate}:${endDate}:${apiDateRange}`;
+  const currentAdvisorKey = businessId;
 
   const { data, isLoading, isError } = useQuery<CampaignsResponse>({
     queryKey: ["gads-campaigns", businessId, startDate, endDate, compareMode],
@@ -383,6 +384,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
         apiDateRange,
         startDate,
         endDate,
+        refresh: true,
       });
       const res = await fetch(`/api/google-ads/advisor?${params}`);
       if (!res.ok) throw new Error("advisor fetch failed");
@@ -391,13 +393,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
     onSuccess: (payload) => {
       setAdvisorData(payload);
       setAdvisorAnalysisKey(currentAdvisorKey);
-      setLastAnalyzedLabel(new Date().toLocaleString("en-GB", {
-        year: "numeric",
-        month: "short",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-      }));
+      setLastAnalyzedLabel(payload.metadata?.asOfDate ?? new Date().toISOString().slice(0, 10));
     },
   });
 
@@ -551,6 +547,11 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
     },
   });
   const advisorReady = Boolean(syncStatus?.advisor?.ready);
+  const advisorCanOpen =
+    Boolean(syncStatus?.connected) &&
+    Boolean((syncStatus?.assignedAccountIds?.length ?? 0) > 0) &&
+    (syncStatus?.operations?.advisorSnapshotBlockedReason == null ||
+      syncStatus?.operations?.advisorSnapshotReady === true);
   const advisorExecutionAccountId =
     (syncStatus?.assignedAccountIds?.length ?? 0) === 1
       ? syncStatus?.assignedAccountIds?.[0] ?? null
@@ -559,12 +560,12 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
   const advisorIsStale = advisorAnalysisKey != null && advisorAnalysisKey !== currentAdvisorKey;
   const advisorIdleState = getAdvisorIdleState(syncStatus);
   useEffect(() => {
-    if (!advisorReady && advisorAnalysisKey === currentAdvisorKey) {
+    if (!advisorReady && !advisorCanOpen && advisorAnalysisKey === currentAdvisorKey) {
       setAdvisorData(undefined);
       setAdvisorAnalysisKey(null);
       setLastAnalyzedLabel(null);
     }
-  }, [advisorReady, advisorAnalysisKey, currentAdvisorKey]);
+  }, [advisorReady, advisorCanOpen, advisorAnalysisKey, currentAdvisorKey]);
 
   const rows = data?.rows ?? [];
   const scopedRows = rows.filter((r) => isCampaignActive(r.status) || (includeSpentInactive && r.spend > 0));
@@ -1118,10 +1119,10 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                   <button
                     type="button"
                     onClick={() => runAdvisorAnalysis()}
-                    disabled={!advisorReady || isAdvisorLoading}
+                    disabled={!advisorCanOpen || isAdvisorLoading}
                     className={cn(
                       "inline-flex h-9 items-center rounded-md border px-3 text-xs font-semibold transition-colors",
-                      !advisorReady || isAdvisorLoading
+                      !advisorCanOpen || isAdvisorLoading
                         ? "cursor-not-allowed border-border bg-muted text-muted-foreground"
                         : advisorCurrent
                           ? "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
@@ -1129,21 +1130,22 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                     )}
                   >
                     {isAdvisorLoading
-                      ? "Running analysis..."
+                      ? "Refreshing advisor..."
                       : advisorCurrent
-                        ? "Re-run Advisor Analysis"
-                        : "Run Advisor Analysis"}
+                        ? "Refresh Advisor Snapshot"
+                        : "Open Advisor Snapshot"}
                   </button>
                   <p className="text-[11px] text-muted-foreground">
-                    {!advisorReady
+                    {!advisorCanOpen
                       ? syncStatus?.operations?.fullSyncPriorityReason ??
+                        syncStatus?.operations?.advisorSnapshotBlockedReason ??
                         syncStatus?.advisor?.blockingMessage ??
-                        "Waiting for historical advisor data"
+                        "Waiting for the canonical advisor snapshot"
                       : advisorIsStale
-                        ? "Analysis is out of date for this range"
+                        ? "Snapshot changed in the background"
                         : lastAnalyzedLabel
-                          ? `Last analyzed ${lastAnalyzedLabel}`
-                          : "Run on demand when you need advisor output"}
+                          ? `Snapshot as of ${lastAnalyzedLabel}`
+                          : "Uses the canonical 90-day advisor snapshot; the date picker only changes dashboard context"}
                   </p>
                 </div>
                 {shouldRenderGoogleAdsSyncProgress(syncStatus) ? (

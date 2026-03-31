@@ -6,17 +6,14 @@ import {
 } from "@/lib/google-ads/status-machine";
 
 describe("decideGoogleAdsAdvisorReadiness", () => {
-  it("requires full selected-range coverage and zero dead letters", () => {
+  it("treats the persisted snapshot as the readiness truth", () => {
     expect(
       decideGoogleAdsAdvisorReadiness({
         connected: true,
         assignedAccountCount: 1,
-        selectedRangeTotalDays: 28,
-        advisorMissingSurfaces: [],
-        supportWindowMissingCount: 0,
         deadLetterPartitions: 0,
-        historicalProgressPercent: 100,
-        selectedRangeIncomplete: false,
+        recent90Ready: true,
+        snapshotAvailable: true,
       })
     ).toEqual({ ready: true, notReady: false });
 
@@ -24,29 +21,23 @@ describe("decideGoogleAdsAdvisorReadiness", () => {
       decideGoogleAdsAdvisorReadiness({
         connected: true,
         assignedAccountCount: 1,
-        selectedRangeTotalDays: 28,
-        advisorMissingSurfaces: [],
-        supportWindowMissingCount: 0,
         deadLetterPartitions: 2,
-        historicalProgressPercent: 100,
-        selectedRangeIncomplete: false,
+        recent90Ready: true,
+        snapshotAvailable: false,
       })
     ).toEqual({ ready: false, notReady: true });
   });
 
-  it("stays blocked when support windows are still missing required surfaces", () => {
+  it("does not enter advisor_not_ready before the recent 90-day frontier is complete", () => {
     expect(
       decideGoogleAdsAdvisorReadiness({
         connected: true,
         assignedAccountCount: 1,
-        selectedRangeTotalDays: 1,
-        advisorMissingSurfaces: [],
-        supportWindowMissingCount: 2,
         deadLetterPartitions: 0,
-        historicalProgressPercent: 100,
-        selectedRangeIncomplete: false,
+        recent90Ready: false,
+        snapshotAvailable: false,
       })
-    ).toEqual({ ready: false, notReady: true });
+    ).toEqual({ ready: false, notReady: false });
   });
 });
 

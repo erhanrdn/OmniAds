@@ -33,29 +33,21 @@ export function decideGoogleAdsAdvisorReadiness(
     GoogleAdsStatusDecisionInput,
     | "connected"
     | "assignedAccountCount"
-    | "selectedRangeTotalDays"
-    | "advisorMissingSurfaces"
     | "deadLetterPartitions"
-    | "supportWindowMissingCount"
   > & {
-    historicalProgressPercent: number;
-    selectedRangeIncomplete: boolean;
+    recent90Ready: boolean;
+    snapshotAvailable: boolean;
   }
 ): GoogleAdsAdvisorDecision {
   const ready =
     input.connected &&
     input.assignedAccountCount > 0 &&
-    input.selectedRangeTotalDays != null &&
-    input.advisorMissingSurfaces.length === 0 &&
-    (input.supportWindowMissingCount ?? 0) === 0 &&
-    input.deadLetterPartitions === 0;
+    input.snapshotAvailable;
 
   const notReady =
     input.connected &&
     input.assignedAccountCount > 0 &&
-    input.selectedRangeTotalDays != null &&
-    !input.selectedRangeIncomplete &&
-    input.historicalProgressPercent >= 100 &&
+    input.recent90Ready &&
     !ready;
 
   return {

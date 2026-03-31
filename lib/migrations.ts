@@ -342,6 +342,23 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
           error_message              TEXT,
           created_at                 TIMESTAMPTZ NOT NULL DEFAULT now()
         )`,
+        sql`CREATE TABLE IF NOT EXISTS google_ads_advisor_snapshots (
+          id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id           TEXT NOT NULL,
+          account_id            TEXT,
+          analysis_version      TEXT NOT NULL DEFAULT 'v1',
+          analysis_mode         TEXT NOT NULL DEFAULT 'snapshot',
+          as_of_date            DATE NOT NULL,
+          selected_window_key   TEXT NOT NULL DEFAULT 'last90',
+          advisor_payload       JSONB NOT NULL DEFAULT '{}'::jsonb,
+          historical_support_json JSONB,
+          source_max_updated_at TIMESTAMPTZ,
+          status                TEXT NOT NULL DEFAULT 'success',
+          error_message         TEXT,
+          generated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, account_id, as_of_date, analysis_version)
+        )`,
       ]);
 
       // ── PHASE 2: businesses (deps: users) + alter phase-1 tables ──────────
@@ -401,6 +418,8 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_advisor_memory_status ON google_ads_advisor_memory (current_status, updated_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_advisor_memory_outcome_check ON google_ads_advisor_memory (outcome_check_at)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_advisor_execution_logs_scope ON google_ads_advisor_execution_logs (business_id, account_id, created_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_advisor_snapshots_scope ON google_ads_advisor_snapshots (business_id, account_id, generated_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_advisor_snapshots_status ON google_ads_advisor_snapshots (status, updated_at DESC)`.catch(() => {}),
         sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_id ON users (google_id) WHERE google_id IS NOT NULL`.catch(() => {}),
         sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_facebook_id ON users (facebook_id) WHERE facebook_id IS NOT NULL`.catch(() => {}),
       ]);

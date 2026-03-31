@@ -10,6 +10,7 @@ import type {
 import type { BusinessCostModel } from "@/lib/business-cost-model";
 import type {
   GoogleAdvisorResponse,
+  GoogleAdvisorHistoricalSupport,
   GoogleActionability,
   GoogleCommerceConfidence,
   GoogleDataTrust,
@@ -45,6 +46,12 @@ interface WindowInput {
 
 interface BuildGoogleGrowthAdvisorInput {
   selectedLabel: string;
+  analysisMetadata?: {
+    analysisMode: "snapshot" | "debug_custom";
+    asOfDate: string;
+    selectedWindowKey: "last90" | "custom";
+  };
+  historicalSupport?: GoogleAdvisorHistoricalSupport | null;
   commerceContext?: {
     costModel?: BusinessCostModel | null;
     commerceSources?: Array<{
@@ -136,7 +143,6 @@ const WINDOW_WEIGHTS: Array<{ key: WindowInput["key"]; weight: number }> = [
   { key: "last14", weight: 0.18 },
   { key: "last30", weight: 0.16 },
   { key: "last90", weight: 0.12 },
-  { key: "all_history", weight: 0.06 },
 ];
 
 const SEARCH_TOKEN_STOPWORDS = new Set([
@@ -2645,6 +2651,20 @@ export function buildGoogleGrowthAdvisor(
     recommendations,
     sections,
     clusters: [],
+    metadata: {
+      analysisMode: input.analysisMetadata?.analysisMode ?? "debug_custom",
+      asOfDate: input.analysisMetadata?.asOfDate ?? new Date().toISOString().slice(0, 10),
+      selectedWindowKey: input.analysisMetadata?.selectedWindowKey ?? "custom",
+      historicalSupportAvailable: input.historicalSupport?.available ?? false,
+      historicalSupport: input.historicalSupport ?? null,
+      canonicalWindowTotals: {
+        spend: selectedTotals.spend,
+        revenue: selectedTotals.revenue,
+        conversions: selectedTotals.conversions,
+        roas: selectedTotals.roas,
+      },
+      selectedRangeContext: null,
+    },
   };
 }
 function assetMeta(row: AssetPerformanceRow) {

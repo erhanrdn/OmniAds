@@ -114,6 +114,10 @@ export interface GoogleAdsStatusResponse {
   } | null;
   advisor?: {
     ready: boolean;
+    snapshotReady?: boolean;
+    snapshotAsOfDate?: string | null;
+    snapshotFresh?: boolean;
+    snapshotBlockedReason?: string | null;
     requiredSurfaces: string[];
     availableSurfaces: string[];
     missingSurfaces: string[];
@@ -177,6 +181,10 @@ export interface GoogleAdsStatusResponse {
     googleRunnerLeaseActive?: boolean;
     fullSyncPriorityRequired?: boolean;
     fullSyncPriorityReason?: string | null;
+    advisorSnapshotReady?: boolean;
+    advisorSnapshotAsOfDate?: string | null;
+    advisorSnapshotFresh?: boolean;
+    advisorSnapshotBlockedReason?: string | null;
     staleRunPressure?: number;
     extendedSuppressionDecisionTrace?: Record<string, unknown> | null;
     lastTargetedRepair?: {

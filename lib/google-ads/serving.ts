@@ -2,6 +2,7 @@ import { getIntegration } from "@/lib/integrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { getBusinessCostModel } from "@/lib/business-cost-model";
 import { getDateRangeForQuery } from "@/lib/google-ads-gaql";
+import { addDaysToIsoDate, getHistoricalWindowStart } from "@/lib/google-ads/history";
 import { getComparisonWindow, pctDelta } from "@/lib/google-ads/reporting-support";
 import { buildGoogleAdsAdvisorWindows } from "@/lib/google-ads/advisor-windows";
 import { getCampaignBadges, generateOverviewInsights, type GadsCampaignRow } from "@/lib/google-ads-intelligence";
@@ -11,7 +12,12 @@ import { buildActionClusters } from "@/lib/google-ads/action-clusters";
 import { annotateAdvisorMemory, getAdvisorExecutionCalibration } from "@/lib/google-ads/advisor-memory";
 import { buildGoogleAdsOpportunityEngine, type GoogleAdsOpportunity } from "@/lib/google-ads/opportunity-engine";
 import { buildCrossEntityIntelligence } from "@/lib/google-ads/cross-entity-intelligence";
-import type { GoogleRecommendation } from "@/lib/google-ads/growth-advisor-types";
+import type {
+  GoogleAdvisorHistoricalSupport,
+  GoogleAdvisorMetadata,
+  GoogleAdvisorResponse,
+  GoogleRecommendation,
+} from "@/lib/google-ads/growth-advisor-types";
 import {
   analyzeAssetGroups,
   analyzeAssets,
@@ -259,6 +265,176 @@ function aggregateWarehouseRows(rows: GoogleAdsWarehouseDailyRow[]) {
       conversionRate: clicks > 0 ? Number(((conversions / clicks) * 100).toFixed(2)) : null,
     };
   });
+}
+
+function aggregateCampaignLikeTotals(rows: Array<Record<string, unknown>>) {
+  const spend = rows.reduce((sum, row) => sum + toNumber(row.spend), 0);
+  const revenue = rows.reduce((sum, row) => sum + toNumber(row.revenue), 0);
+  const conversions = rows.reduce((sum, row) => sum + toNumber(row.conversions), 0);
+  const roas = spend > 0 ? Number((revenue / spend).toFixed(2)) : 0;
+  return { spend, revenue, conversions, roas };
+}
+
+function countRangeDays(startDate: string, endDate: string) {
+  const start = new Date(`${startDate}T00:00:00Z`).getTime();
+  const end = new Date(`${endDate}T00:00:00Z`).getTime();
+  return Math.max(1, Math.floor((end - start) / 86_400_000) + 1);
+}
+
+export function buildGoogleAdsSelectedRangeContext(input: {
+  canonicalAsOfDate: string;
+  canonicalTotals?: GoogleAdvisorMetadata["canonicalWindowTotals"] | null;
+  selectedRangeStart: string;
+  selectedRangeEnd: string;
+  selectedTotals: {
+    spend: number;
+    revenue: number;
+    conversions: number;
+    roas: number;
+  };
+}) {
+  const canonicalStart = addDaysToIsoDate(input.canonicalAsOfDate, -89);
+  const insideCanonicalWindow =
+    input.selectedRangeStart >= canonicalStart &&
+    input.selectedRangeEnd <= input.canonicalAsOfDate;
+
+  if (!insideCanonicalWindow || !input.canonicalTotals) {
+    return {
+      eligible: false,
+      state: "hidden" as const,
+      label: "",
+      summary: "",
+      selectedRangeStart: input.selectedRangeStart,
+      selectedRangeEnd: input.selectedRangeEnd,
+      deltaPercent: null,
+      metricKey: null,
+    };
+  }
+
+  const canonicalRoas = Number(input.canonicalTotals.roas ?? 0);
+  const selectedRoas = Number(input.selectedTotals.roas ?? 0);
+  const conversions = Number(input.selectedTotals.conversions ?? 0);
+  if (canonicalRoas <= 0 || input.selectedTotals.spend <= 0) {
+    return {
+      eligible: false,
+      state: "hidden" as const,
+      label: "",
+      summary: "",
+      selectedRangeStart: input.selectedRangeStart,
+      selectedRangeEnd: input.selectedRangeEnd,
+      deltaPercent: null,
+      metricKey: null,
+    };
+  }
+
+  const deltaPercent = Number((((selectedRoas - canonicalRoas) / canonicalRoas) * 100).toFixed(1));
+  if (Math.abs(deltaPercent) <= 10) {
+    return {
+      eligible: true,
+      state: "aligned" as const,
+      label: "Selected range aligned",
+      summary: `Selected ${countRangeDays(input.selectedRangeStart, input.selectedRangeEnd)}-day view is broadly aligned with the canonical 90-day advisor.`,
+      selectedRangeStart: input.selectedRangeStart,
+      selectedRangeEnd: input.selectedRangeEnd,
+      deltaPercent,
+      metricKey: "roas" as const,
+    };
+  }
+
+  if (conversions < 5) {
+    return {
+      eligible: true,
+      state: "volatile" as const,
+      label: "Selected range volatile",
+      summary: `Selected ${countRangeDays(input.selectedRangeStart, input.selectedRangeEnd)}-day view diverges from the canonical 90-day advisor, but conversion depth is still thin.`,
+      selectedRangeStart: input.selectedRangeStart,
+      selectedRangeEnd: input.selectedRangeEnd,
+      deltaPercent,
+      metricKey: "roas" as const,
+    };
+  }
+
+  return {
+    eligible: true,
+    state: deltaPercent > 10 ? ("stronger" as const) : ("softer" as const),
+    label: deltaPercent > 10 ? "Selected range stronger" : "Selected range softer",
+    summary:
+      deltaPercent > 10
+        ? `Selected ${countRangeDays(input.selectedRangeStart, input.selectedRangeEnd)}-day view is stronger than the canonical 90-day snapshot.`
+        : `Selected ${countRangeDays(input.selectedRangeStart, input.selectedRangeEnd)}-day view is softer than the canonical 90-day snapshot.`,
+    selectedRangeStart: input.selectedRangeStart,
+    selectedRangeEnd: input.selectedRangeEnd,
+    deltaPercent,
+    metricKey: "roas" as const,
+  };
+}
+
+function summarizeAdvisorAggregateRows(rows: Array<Record<string, unknown>>) {
+  return rows.reduce<{
+    entityCount: number;
+    spend: number;
+    revenue: number;
+    conversions: number;
+  }>(
+    (acc, row) => {
+      acc.entityCount += 1;
+      acc.spend += toNumber(row.spend);
+      acc.revenue += toNumber(row.revenue);
+      acc.conversions += toNumber(row.conversions);
+      return acc;
+    },
+    { entityCount: 0, spend: 0, revenue: 0, conversions: 0 }
+  );
+}
+
+async function buildGoogleAdsHistoricalSupport(input: {
+  businessId: string;
+  accountId?: string | null;
+  asOfDate: string;
+}) : Promise<GoogleAdvisorHistoricalSupport> {
+  const historicalStart = getHistoricalWindowStart(input.asOfDate);
+  const providerAccountIds =
+    input.accountId && input.accountId !== "all" ? [input.accountId] : null;
+
+  const [campaigns, searchTerms, products] = await Promise.all([
+    readGoogleAdsAggregatedRange({
+      scope: "campaign_daily",
+      businessId: input.businessId,
+      providerAccountIds,
+      startDate: historicalStart,
+      endDate: input.asOfDate,
+    }).catch(() => []),
+    readGoogleAdsAggregatedRange({
+      scope: "search_term_daily",
+      businessId: input.businessId,
+      providerAccountIds,
+      startDate: historicalStart,
+      endDate: input.asOfDate,
+    }).catch(() => []),
+    readGoogleAdsAggregatedRange({
+      scope: "product_daily",
+      businessId: input.businessId,
+      providerAccountIds,
+      startDate: historicalStart,
+      endDate: input.asOfDate,
+    }).catch(() => []),
+  ]);
+
+  return {
+    source: "warehouse_aggregate",
+    available: campaigns.length > 0 || searchTerms.length > 0 || products.length > 0,
+    coverageDays: Math.max(
+      0,
+      Math.round(
+        Math.abs(new Date(input.asOfDate).getTime() - new Date(historicalStart).getTime()) /
+          86_400_000 +
+          1
+      )
+    ),
+    campaigns: summarizeAdvisorAggregateRows(campaigns as Array<Record<string, unknown>>),
+    searchTerms: summarizeAdvisorAggregateRows(searchTerms as Array<Record<string, unknown>>),
+    products: summarizeAdvisorAggregateRows(products as Array<Record<string, unknown>>),
+  };
 }
 
 async function runWithConcurrencyLimit<T>(
@@ -841,93 +1017,55 @@ export async function getGoogleAdsDiagnosticsReport(
   };
 }
 
-export async function getGoogleAdsAdvisorReport(
-  params: BaseReportParams
-) {
+async function finalizeGoogleAdsAdvisorReport(input: {
+  params: BaseReportParams;
+  selectedLabel: string;
+  selectedWindowKey: "last90" | "custom";
+  selectedCampaigns: Awaited<ReturnType<typeof getGoogleAdsCampaignsReport>>;
+  selectedSearch: Awaited<ReturnType<typeof getGoogleAdsSearchIntelligenceReport>>;
+  selectedProducts: Awaited<ReturnType<typeof getGoogleAdsProductsReport>>;
+  selectedAssets: Awaited<ReturnType<typeof getGoogleAdsAssetsReport>>;
+  selectedAssetGroups: Awaited<ReturnType<typeof getGoogleAdsAssetGroupsReport>>;
+  selectedGeos: Awaited<ReturnType<typeof getGoogleAdsGeoReport>>;
+  selectedDevices: Awaited<ReturnType<typeof getGoogleAdsDevicesReport>>;
+  windows: Array<{
+    key: "last3" | "last7" | "last14" | "last30" | "last90";
+    label: string;
+    campaigns: Array<Record<string, unknown>>;
+    searchTerms: Array<Record<string, unknown>>;
+    products: Array<Record<string, unknown>>;
+  }>;
+  historicalSupport: GoogleAdvisorHistoricalSupport | null;
+  analysisMode: "snapshot" | "debug_custom";
+  asOfDate: string;
+}) {
   const advisorContext = await resolveWarehouseContext({
-    businessId: params.businessId,
-    accountId: params.accountId,
-    dateRange: params.dateRange,
-    customStart: params.customStart,
-    customEnd: params.customEnd,
+    businessId: input.params.businessId,
+    accountId: input.params.accountId,
+    dateRange: input.params.dateRange,
+    customStart: input.params.customStart,
+    customEnd: input.params.customEnd,
   });
   const resolvedAccountId =
-    params.accountId && params.accountId !== "all"
-      ? params.accountId
+    input.params.accountId && input.params.accountId !== "all"
+      ? input.params.accountId
       : advisorContext.providerAccountIds.length === 1
         ? advisorContext.providerAccountIds[0]
         : null;
-  const { requestedDays, selectedWindow, supportWindows } = buildGoogleAdsAdvisorWindows({
-    dateRange: params.dateRange,
-    customStart: params.customStart,
-    customEnd: params.customEnd,
-  });
-  const [last3, last7, last14, last30, last90, allHistory] = supportWindows;
 
-  const costModel = await getBusinessCostModel(params.businessId);
-
-  const [
-    selectedCampaigns,
-    selectedSearch,
-    selectedProducts,
-    selectedAssets,
-    selectedAssetGroups,
-    selectedGeos,
-    selectedDevices,
-    last3Campaigns,
-    last3Search,
-    last3Products,
-    last7Campaigns,
-    last7Search,
-    last7Products,
-    last14Campaigns,
-    last14Search,
-    last14Products,
-    last30Campaigns,
-    last30Search,
-    last30Products,
-    last90Campaigns,
-    last90Search,
-    last90Products,
-    allCampaigns,
-    allSearch,
-    allProducts,
-  ] = await runWithConcurrencyLimit(
-    [
-      () => getGoogleAdsCampaignsReport({ ...params, dateRange: "custom", customStart: selectedWindow.customStart, customEnd: selectedWindow.customEnd, compareMode: "none" }),
-      () => getGoogleAdsSearchIntelligenceReport({ ...params, dateRange: "custom", customStart: selectedWindow.customStart, customEnd: selectedWindow.customEnd }),
-      () => getGoogleAdsProductsReport({ ...params, dateRange: "custom", customStart: selectedWindow.customStart, customEnd: selectedWindow.customEnd }),
-      () => getGoogleAdsAssetsReport({ ...params, dateRange: "custom", customStart: selectedWindow.customStart, customEnd: selectedWindow.customEnd }),
-      () => getGoogleAdsAssetGroupsReport({ ...params, dateRange: "custom", customStart: selectedWindow.customStart, customEnd: selectedWindow.customEnd }),
-      () => getGoogleAdsGeoReport({ ...params, dateRange: "custom", customStart: selectedWindow.customStart, customEnd: selectedWindow.customEnd }),
-      () => getGoogleAdsDevicesReport({ ...params, dateRange: "custom", customStart: selectedWindow.customStart, customEnd: selectedWindow.customEnd }),
-      () => getGoogleAdsCampaignsReport({ ...params, dateRange: "custom", customStart: last3.customStart, customEnd: last3.customEnd, compareMode: "none" }),
-      () => getGoogleAdsSearchIntelligenceReport({ ...params, dateRange: "custom", customStart: last3.customStart, customEnd: last3.customEnd }),
-      () => getGoogleAdsProductsReport({ ...params, dateRange: "custom", customStart: last3.customStart, customEnd: last3.customEnd }),
-      () => getGoogleAdsCampaignsReport({ ...params, dateRange: "custom", customStart: last7.customStart, customEnd: last7.customEnd, compareMode: "none" }),
-      () => getGoogleAdsSearchIntelligenceReport({ ...params, dateRange: "custom", customStart: last7.customStart, customEnd: last7.customEnd }),
-      () => getGoogleAdsProductsReport({ ...params, dateRange: "custom", customStart: last7.customStart, customEnd: last7.customEnd }),
-      () => getGoogleAdsCampaignsReport({ ...params, dateRange: "custom", customStart: last14.customStart, customEnd: last14.customEnd, compareMode: "none" }),
-      () => getGoogleAdsSearchIntelligenceReport({ ...params, dateRange: "custom", customStart: last14.customStart, customEnd: last14.customEnd }),
-      () => getGoogleAdsProductsReport({ ...params, dateRange: "custom", customStart: last14.customStart, customEnd: last14.customEnd }),
-      () => getGoogleAdsCampaignsReport({ ...params, dateRange: "custom", customStart: last30.customStart, customEnd: last30.customEnd, compareMode: "none" }),
-      () => getGoogleAdsSearchIntelligenceReport({ ...params, dateRange: "custom", customStart: last30.customStart, customEnd: last30.customEnd }),
-      () => getGoogleAdsProductsReport({ ...params, dateRange: "custom", customStart: last30.customStart, customEnd: last30.customEnd }),
-      () => getGoogleAdsCampaignsReport({ ...params, dateRange: "custom", customStart: last90.customStart, customEnd: last90.customEnd, compareMode: "none" }),
-      () => getGoogleAdsSearchIntelligenceReport({ ...params, dateRange: "custom", customStart: last90.customStart, customEnd: last90.customEnd }),
-      () => getGoogleAdsProductsReport({ ...params, dateRange: "custom", customStart: last90.customStart, customEnd: last90.customEnd }),
-      () => getGoogleAdsCampaignsReport({ ...params, dateRange: "custom", customStart: allHistory.customStart, customEnd: allHistory.customEnd, compareMode: "none" }),
-      () => getGoogleAdsSearchIntelligenceReport({ ...params, dateRange: "custom", customStart: allHistory.customStart, customEnd: allHistory.customEnd }),
-      () => getGoogleAdsProductsReport({ ...params, dateRange: "custom", customStart: allHistory.customStart, customEnd: allHistory.customEnd }),
-    ],
-    4
-  );
+  const costModel = await getBusinessCostModel(input.params.businessId);
 
   const advisor = buildGoogleGrowthAdvisor({
-    selectedLabel: selectedWindow.label,
+    selectedLabel: input.selectedLabel,
+    analysisMetadata: {
+      analysisMode: input.analysisMode,
+      asOfDate: input.asOfDate,
+      selectedWindowKey: input.selectedWindowKey,
+    },
+    historicalSupport: input.historicalSupport,
     commerceContext: {
       costModel,
-      commerceSources: (selectedProducts.rows as Array<Record<string, unknown>>).map((row) => ({
+      commerceSources: (input.selectedProducts.rows as Array<Record<string, unknown>>).map((row) => ({
         productItemId: String(row.productItemId ?? row.itemId ?? "") || null,
         productTitle: String(row.productTitle ?? row.title ?? ""),
         inventory:
@@ -950,38 +1088,31 @@ export async function getGoogleAdsAdvisorReport(
               : null,
       })),
     },
-    selectedCampaigns: selectedCampaigns.rows as never[],
-    selectedSearchTerms: selectedSearch.rows as never[],
-    selectedProducts: selectedProducts.rows as never[],
-    selectedAssets: selectedAssets.rows as never[],
-    selectedAssetGroups: selectedAssetGroups.rows as never[],
-    selectedGeos: selectedGeos.rows as never[],
-    selectedDevices: selectedDevices.rows as never[],
-    windows: [
-      { key: last3.key, label: last3.label, campaigns: last3Campaigns.rows as never[], searchTerms: last3Search.rows as never[], products: last3Products.rows as never[] },
-      { key: last7.key, label: last7.label, campaigns: last7Campaigns.rows as never[], searchTerms: last7Search.rows as never[], products: last7Products.rows as never[] },
-      { key: last14.key, label: last14.label, campaigns: last14Campaigns.rows as never[], searchTerms: last14Search.rows as never[], products: last14Products.rows as never[] },
-      { key: last30.key, label: last30.label, campaigns: last30Campaigns.rows as never[], searchTerms: last30Search.rows as never[], products: last30Products.rows as never[] },
-      { key: last90.key, label: last90.label, campaigns: last90Campaigns.rows as never[], searchTerms: last90Search.rows as never[], products: last90Products.rows as never[] },
-      { key: allHistory.key, label: allHistory.label, campaigns: allCampaigns.rows as never[], searchTerms: allSearch.rows as never[], products: allProducts.rows as never[] },
-    ],
+    selectedCampaigns: input.selectedCampaigns.rows as never[],
+    selectedSearchTerms: input.selectedSearch.rows as never[],
+    selectedProducts: input.selectedProducts.rows as never[],
+    selectedAssets: input.selectedAssets.rows as never[],
+    selectedAssetGroups: input.selectedAssetGroups.rows as never[],
+    selectedGeos: input.selectedGeos.rows as never[],
+    selectedDevices: input.selectedDevices.rows as never[],
+    windows: input.windows as never[],
   });
 
   const executionCalibration = await getAdvisorExecutionCalibration({
-    businessId: params.businessId,
-    accountId: params.accountId ?? "all",
+    businessId: input.params.businessId,
+    accountId: input.params.accountId ?? "all",
   });
 
   const recommendations = decorateAdvisorRecommendationsForExecution({
     accountId: resolvedAccountId,
-    selectedCampaigns: selectedCampaigns.rows as never[],
-    selectedSearchTerms: selectedSearch.rows as never[],
-    selectedProducts: selectedProducts.rows as never[],
-    selectedAssets: selectedAssets.rows as never[],
+    selectedCampaigns: input.selectedCampaigns.rows as never[],
+    selectedSearchTerms: input.selectedSearch.rows as never[],
+    selectedProducts: input.selectedProducts.rows as never[],
+    selectedAssets: input.selectedAssets.rows as never[],
     executionCalibration,
     recommendations: await annotateAdvisorMemory({
-    businessId: params.businessId,
-    accountId: params.accountId ?? "all",
+    businessId: input.params.businessId,
+    accountId: input.params.accountId ?? "all",
     recommendations: advisor.recommendations,
     }),
   });
@@ -1023,11 +1154,194 @@ export async function getGoogleAdsAdvisorReport(
     sections,
     clusters,
     meta: {
-      selectedCampaigns: selectedCampaigns.rows.length,
-      selectedSearchTerms: selectedSearch.rows.length,
-      selectedProducts: selectedProducts.rows.length,
-      selectedAssets: selectedAssets.rows.length,
-      freshness: selectedCampaigns.meta,
+      selectedCampaigns: input.selectedCampaigns.rows.length,
+      selectedSearchTerms: input.selectedSearch.rows.length,
+      selectedProducts: input.selectedProducts.rows.length,
+      selectedAssets: input.selectedAssets.rows.length,
+      freshness: input.selectedCampaigns.meta,
     },
   };
+}
+
+export async function buildCanonicalGoogleAdsAdvisorReport(params: BaseReportParams) {
+  const advisorContext = await resolveWarehouseContext({
+    businessId: params.businessId,
+    accountId: params.accountId,
+    dateRange: "90",
+    customStart: null,
+    customEnd: null,
+  });
+  const asOfDate = addDaysToIsoDate(advisorContext.endDate, -1);
+  const last90Start = addDaysToIsoDate(asOfDate, -89);
+  const supportWindows = buildGoogleAdsAdvisorWindows({
+    dateRange: "90",
+    customStart: last90Start,
+    customEnd: asOfDate,
+  }).supportWindows;
+  const [last3, last7, last14, last30, last90] = supportWindows;
+  const costHistoricalSupport = await buildGoogleAdsHistoricalSupport({
+    businessId: params.businessId,
+    accountId: params.accountId ?? null,
+    asOfDate,
+  });
+
+  const [
+    selectedCampaigns,
+    selectedSearch,
+    selectedProducts,
+    selectedAssets,
+    selectedAssetGroups,
+    selectedGeos,
+    selectedDevices,
+    last3Campaigns,
+    last3Search,
+    last3Products,
+    last7Campaigns,
+    last7Search,
+    last7Products,
+    last14Campaigns,
+    last14Search,
+    last14Products,
+    last30Campaigns,
+    last30Search,
+    last30Products,
+    last90Campaigns,
+    last90Search,
+    last90Products,
+  ] = await runWithConcurrencyLimit(
+    [
+      () => getGoogleAdsCampaignsReport({ ...params, dateRange: "custom", customStart: last90Start, customEnd: asOfDate, compareMode: "none" }),
+      () => getGoogleAdsSearchIntelligenceReport({ ...params, dateRange: "custom", customStart: last90Start, customEnd: asOfDate }),
+      () => getGoogleAdsProductsReport({ ...params, dateRange: "custom", customStart: last90Start, customEnd: asOfDate }),
+      () => getGoogleAdsAssetsReport({ ...params, dateRange: "custom", customStart: last90Start, customEnd: asOfDate }),
+      () => getGoogleAdsAssetGroupsReport({ ...params, dateRange: "custom", customStart: last90Start, customEnd: asOfDate }),
+      () => getGoogleAdsGeoReport({ ...params, dateRange: "custom", customStart: last90Start, customEnd: asOfDate }),
+      () => getGoogleAdsDevicesReport({ ...params, dateRange: "custom", customStart: last90Start, customEnd: asOfDate }),
+      () => getGoogleAdsCampaignsReport({ ...params, dateRange: "custom", customStart: last3.customStart, customEnd: last3.customEnd, compareMode: "none" }),
+      () => getGoogleAdsSearchIntelligenceReport({ ...params, dateRange: "custom", customStart: last3.customStart, customEnd: last3.customEnd }),
+      () => getGoogleAdsProductsReport({ ...params, dateRange: "custom", customStart: last3.customStart, customEnd: last3.customEnd }),
+      () => getGoogleAdsCampaignsReport({ ...params, dateRange: "custom", customStart: last7.customStart, customEnd: last7.customEnd, compareMode: "none" }),
+      () => getGoogleAdsSearchIntelligenceReport({ ...params, dateRange: "custom", customStart: last7.customStart, customEnd: last7.customEnd }),
+      () => getGoogleAdsProductsReport({ ...params, dateRange: "custom", customStart: last7.customStart, customEnd: last7.customEnd }),
+      () => getGoogleAdsCampaignsReport({ ...params, dateRange: "custom", customStart: last14.customStart, customEnd: last14.customEnd, compareMode: "none" }),
+      () => getGoogleAdsSearchIntelligenceReport({ ...params, dateRange: "custom", customStart: last14.customStart, customEnd: last14.customEnd }),
+      () => getGoogleAdsProductsReport({ ...params, dateRange: "custom", customStart: last14.customStart, customEnd: last14.customEnd }),
+      () => getGoogleAdsCampaignsReport({ ...params, dateRange: "custom", customStart: last30.customStart, customEnd: last30.customEnd, compareMode: "none" }),
+      () => getGoogleAdsSearchIntelligenceReport({ ...params, dateRange: "custom", customStart: last30.customStart, customEnd: last30.customEnd }),
+      () => getGoogleAdsProductsReport({ ...params, dateRange: "custom", customStart: last30.customStart, customEnd: last30.customEnd }),
+      () => getGoogleAdsCampaignsReport({ ...params, dateRange: "custom", customStart: last90.customStart, customEnd: last90.customEnd, compareMode: "none" }),
+      () => getGoogleAdsSearchIntelligenceReport({ ...params, dateRange: "custom", customStart: last90.customStart, customEnd: last90.customEnd }),
+      () => getGoogleAdsProductsReport({ ...params, dateRange: "custom", customStart: last90.customStart, customEnd: last90.customEnd }),
+    ],
+    4
+  );
+
+  return finalizeGoogleAdsAdvisorReport({
+    params: { ...params, dateRange: "90", customStart: last90Start, customEnd: asOfDate },
+    selectedLabel: "canonical last 90d",
+    selectedWindowKey: "last90",
+    selectedCampaigns,
+    selectedSearch,
+    selectedProducts,
+    selectedAssets,
+    selectedAssetGroups,
+    selectedGeos,
+    selectedDevices,
+    windows: [
+      { key: last3.key, label: last3.label, campaigns: last3Campaigns.rows as never[], searchTerms: last3Search.rows as never[], products: last3Products.rows as never[] },
+      { key: last7.key, label: last7.label, campaigns: last7Campaigns.rows as never[], searchTerms: last7Search.rows as never[], products: last7Products.rows as never[] },
+      { key: last14.key, label: last14.label, campaigns: last14Campaigns.rows as never[], searchTerms: last14Search.rows as never[], products: last14Products.rows as never[] },
+      { key: last30.key, label: last30.label, campaigns: last30Campaigns.rows as never[], searchTerms: last30Search.rows as never[], products: last30Products.rows as never[] },
+      { key: last90.key, label: last90.label, campaigns: last90Campaigns.rows as never[], searchTerms: last90Search.rows as never[], products: last90Products.rows as never[] },
+    ],
+    historicalSupport: costHistoricalSupport,
+    analysisMode: "snapshot",
+    asOfDate,
+  });
+}
+
+export async function getGoogleAdsAdvisorReport(
+  params: BaseReportParams
+) {
+  const { selectedWindow, supportWindows } = buildGoogleAdsAdvisorWindows({
+    dateRange: params.dateRange,
+    customStart: params.customStart,
+    customEnd: params.customEnd,
+  });
+  const [last3, last7, last14, last30, last90] = supportWindows;
+  const asOfDate = selectedWindow.customEnd;
+
+  const [
+    selectedCampaigns,
+    selectedSearch,
+    selectedProducts,
+    selectedAssets,
+    selectedAssetGroups,
+    selectedGeos,
+    selectedDevices,
+    last3Campaigns,
+    last3Search,
+    last3Products,
+    last7Campaigns,
+    last7Search,
+    last7Products,
+    last14Campaigns,
+    last14Search,
+    last14Products,
+    last30Campaigns,
+    last30Search,
+    last30Products,
+    last90Campaigns,
+    last90Search,
+    last90Products,
+  ] = await runWithConcurrencyLimit(
+    [
+      () => getGoogleAdsCampaignsReport({ ...params, dateRange: "custom", customStart: selectedWindow.customStart, customEnd: selectedWindow.customEnd, compareMode: "none" }),
+      () => getGoogleAdsSearchIntelligenceReport({ ...params, dateRange: "custom", customStart: selectedWindow.customStart, customEnd: selectedWindow.customEnd }),
+      () => getGoogleAdsProductsReport({ ...params, dateRange: "custom", customStart: selectedWindow.customStart, customEnd: selectedWindow.customEnd }),
+      () => getGoogleAdsAssetsReport({ ...params, dateRange: "custom", customStart: selectedWindow.customStart, customEnd: selectedWindow.customEnd }),
+      () => getGoogleAdsAssetGroupsReport({ ...params, dateRange: "custom", customStart: selectedWindow.customStart, customEnd: selectedWindow.customEnd }),
+      () => getGoogleAdsGeoReport({ ...params, dateRange: "custom", customStart: selectedWindow.customStart, customEnd: selectedWindow.customEnd }),
+      () => getGoogleAdsDevicesReport({ ...params, dateRange: "custom", customStart: selectedWindow.customStart, customEnd: selectedWindow.customEnd }),
+      () => getGoogleAdsCampaignsReport({ ...params, dateRange: "custom", customStart: last3.customStart, customEnd: last3.customEnd, compareMode: "none" }),
+      () => getGoogleAdsSearchIntelligenceReport({ ...params, dateRange: "custom", customStart: last3.customStart, customEnd: last3.customEnd }),
+      () => getGoogleAdsProductsReport({ ...params, dateRange: "custom", customStart: last3.customStart, customEnd: last3.customEnd }),
+      () => getGoogleAdsCampaignsReport({ ...params, dateRange: "custom", customStart: last7.customStart, customEnd: last7.customEnd, compareMode: "none" }),
+      () => getGoogleAdsSearchIntelligenceReport({ ...params, dateRange: "custom", customStart: last7.customStart, customEnd: last7.customEnd }),
+      () => getGoogleAdsProductsReport({ ...params, dateRange: "custom", customStart: last7.customStart, customEnd: last7.customEnd }),
+      () => getGoogleAdsCampaignsReport({ ...params, dateRange: "custom", customStart: last14.customStart, customEnd: last14.customEnd, compareMode: "none" }),
+      () => getGoogleAdsSearchIntelligenceReport({ ...params, dateRange: "custom", customStart: last14.customStart, customEnd: last14.customEnd }),
+      () => getGoogleAdsProductsReport({ ...params, dateRange: "custom", customStart: last14.customStart, customEnd: last14.customEnd }),
+      () => getGoogleAdsCampaignsReport({ ...params, dateRange: "custom", customStart: last30.customStart, customEnd: last30.customEnd, compareMode: "none" }),
+      () => getGoogleAdsSearchIntelligenceReport({ ...params, dateRange: "custom", customStart: last30.customStart, customEnd: last30.customEnd }),
+      () => getGoogleAdsProductsReport({ ...params, dateRange: "custom", customStart: last30.customStart, customEnd: last30.customEnd }),
+      () => getGoogleAdsCampaignsReport({ ...params, dateRange: "custom", customStart: last90.customStart, customEnd: last90.customEnd, compareMode: "none" }),
+      () => getGoogleAdsSearchIntelligenceReport({ ...params, dateRange: "custom", customStart: last90.customStart, customEnd: last90.customEnd }),
+      () => getGoogleAdsProductsReport({ ...params, dateRange: "custom", customStart: last90.customStart, customEnd: last90.customEnd }),
+    ],
+    4
+  );
+
+  return finalizeGoogleAdsAdvisorReport({
+    params,
+    selectedLabel: selectedWindow.label,
+    selectedWindowKey: "custom",
+    selectedCampaigns,
+    selectedSearch,
+    selectedProducts,
+    selectedAssets,
+    selectedAssetGroups,
+    selectedGeos,
+    selectedDevices,
+    windows: [
+      { key: last3.key, label: last3.label, campaigns: last3Campaigns.rows as never[], searchTerms: last3Search.rows as never[], products: last3Products.rows as never[] },
+      { key: last7.key, label: last7.label, campaigns: last7Campaigns.rows as never[], searchTerms: last7Search.rows as never[], products: last7Products.rows as never[] },
+      { key: last14.key, label: last14.label, campaigns: last14Campaigns.rows as never[], searchTerms: last14Search.rows as never[], products: last14Products.rows as never[] },
+      { key: last30.key, label: last30.label, campaigns: last30Campaigns.rows as never[], searchTerms: last30Search.rows as never[], products: last30Products.rows as never[] },
+      { key: last90.key, label: last90.label, campaigns: last90Campaigns.rows as never[], searchTerms: last90Search.rows as never[], products: last90Products.rows as never[] },
+    ],
+    historicalSupport: null,
+    analysisMode: "debug_custom",
+    asOfDate,
+  });
 }

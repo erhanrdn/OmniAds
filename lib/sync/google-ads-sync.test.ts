@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildGoogleAdsLaneAdmissionPolicy,
+  decideGoogleAdsHistoricalFrontier,
   getGoogleAdsExtendedRecoveryBlockReason,
   buildGoogleAdsWarehouseFetchPlan,
   evaluateGoogleAdsWorkerSchedulingState,
@@ -167,6 +168,26 @@ describe("buildGoogleAdsWarehouseFetchPlan", () => {
     expect(productPlan.campaigns).toBe(false);
     expect(assetPlan.assets).toBe(true);
     expect(assetPlan.campaigns).toBe(false);
+  });
+});
+
+describe("decideGoogleAdsHistoricalFrontier", () => {
+  it("holds older-than-90 daily history until the recent frontier is complete", () => {
+    expect(
+      decideGoogleAdsHistoricalFrontier({
+        historicalStart: "2024-01-01",
+        recent90Start: "2025-12-02",
+        recent90Complete: false,
+      })
+    ).toBe("2025-12-02");
+
+    expect(
+      decideGoogleAdsHistoricalFrontier({
+        historicalStart: "2024-01-01",
+        recent90Start: "2025-12-02",
+        recent90Complete: true,
+      })
+    ).toBe("2024-01-01");
   });
 });
 
