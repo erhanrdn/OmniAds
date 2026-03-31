@@ -253,7 +253,7 @@ async function getMetaAccessContext(businessId: string): Promise<MetaAccessConte
     let connected = false;
     try {
       const integration = await getIntegration(businessId, "meta");
-      connected = Boolean(integration?.status === "connected" && integration?.access_token);
+      connected = Boolean(integration?.status === "connected");
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       console.warn("[overview] integration read failed", {

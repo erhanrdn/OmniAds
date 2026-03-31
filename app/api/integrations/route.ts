@@ -8,6 +8,16 @@ import {
 import type { IntegrationProviderType } from "@/lib/integrations";
 import { requireBusinessAccess } from "@/lib/access";
 import { getDemoIntegrations } from "@/lib/demo-business";
+import type { IntegrationRow } from "@/lib/integrations";
+
+function sanitizeIntegration(integration: IntegrationRow | null) {
+  if (!integration) return null;
+  return {
+    ...integration,
+    access_token: null,
+    refresh_token: null,
+  };
+}
 
 /**
  * GET /api/integrations?businessId=...&provider=...
@@ -42,7 +52,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ integration });
     }
     const integration = await getIntegration(businessId, provider);
-    return NextResponse.json({ integration });
+    return NextResponse.json({ integration: sanitizeIntegration(integration) });
   }
 
   if (await isDemoBusiness(businessId)) {
@@ -50,7 +60,7 @@ export async function GET(request: NextRequest) {
   }
 
   const integrations = await getIntegrationsByBusiness(businessId);
-  return NextResponse.json({ integrations });
+  return NextResponse.json({ integrations: integrations.map(sanitizeIntegration) });
 }
 
 /**

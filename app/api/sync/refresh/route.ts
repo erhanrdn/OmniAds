@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { runMigrations } from "@/lib/migrations";
 import { expireStaleMetaSyncJobs, hasBlockingMetaSyncJob } from "@/lib/meta/warehouse";
+import { requireInternalOrAdminSyncAccess, businessExists } from "@/lib/internal-sync-auth";
+import { logAdminAction } from "@/lib/admin-logger";
 import {
   enqueueGoogleAdsScheduledWork,
 } from "@/lib/sync/google-ads-sync";
@@ -19,8 +21,8 @@ import { syncSearchConsoleReports } from "@/lib/sync/search-console-sync";
 /**
  * POST /api/sync/refresh
  *
- * Triggers a background cache refresh for a specific business and provider.
- * Used by the stale-while-revalidate pattern in route-report-cache.ts.
+ * Triggers a background sync refresh for a specific business and provider.
+ * Restricted to admin sessions or internal signed requests.
  * Returns 202 immediately and runs the sync asynchronously.
  *
  * Body: { businessId: string, provider: "google_ads" | "ga4" | "search_console" }
@@ -123,6 +125,9 @@ async function runSyncForProvider(
 }
 
 export async function POST(request: NextRequest) {
+  const access = await requireInternalOrAdminSyncAccess(request);
+  if (access.error) return access.error;
+
   let body: {
     businessId?: string;
     provider?: string;
@@ -141,6 +146,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { error: "businessId and provider are required." },
       { status: 400 },
+    );
+  }
+
+  if (!(await businessExists(businessId).catch(() => false))) {
+    return NextResponse.json(
+      { error: "Unknown businessId." },
+      { status: 404 },
     );
   }
 
@@ -166,6 +178,15 @@ export async function POST(request: NextRequest) {
       ? await hasMetaQueueConsumerRunning(businessId, mode).catch(() => false)
       : false;
   if (alreadyRunning || metaConsumerRunning) {
+    if (access.kind === "admin") {
+      await logAdminAction({
+        adminId: access.session.user.id,
+        action: "sync.refresh",
+        targetType: "business",
+        targetId: businessId,
+        meta: { provider, mode: mode ?? "recent", outcome: "already_running" },
+      });
+    }
     return NextResponse.json({ ok: true, status: "already_running" }, { status: 202 });
   }
 
@@ -181,6 +202,16 @@ export async function POST(request: NextRequest) {
       message: err instanceof Error ? err.message : String(err),
     });
   });
+
+  if (access.kind === "admin") {
+    await logAdminAction({
+      adminId: access.session.user.id,
+      action: "sync.refresh",
+      targetType: "business",
+      targetId: businessId,
+      meta: { provider, mode: mode ?? "recent", outcome: "started" },
+    });
+  }
 
   return NextResponse.json(
     { ok: true, status: "started", mode: mode ?? "recent" },

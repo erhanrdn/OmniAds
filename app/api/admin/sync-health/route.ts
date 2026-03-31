@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
+import { logAdminAction } from "@/lib/admin-logger";
 import {
   cleanupGoogleAdsPartitionOrchestration,
   forceReplayGoogleAdsPoisonedPartitions,
@@ -43,6 +44,7 @@ export async function GET(request: NextRequest) {
   try {
     const auth = await requireAdmin(request);
     if (auth.error) return auth.error;
+    const adminSession = auth.session;
 
     const data = await getAdminOperationsHealth();
     return NextResponse.json(data.syncHealth);
@@ -59,6 +61,7 @@ export async function POST(request: NextRequest) {
   try {
     const auth = await requireAdmin(request);
     if (auth.error) return auth.error;
+    const adminSession = auth.session;
 
     const body = (await request.json().catch(() => null)) as
       | {
@@ -85,6 +88,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    async function logRecovery(outcome: "completed" | "rejected", meta?: Record<string, unknown>) {
+      await logAdminAction({
+        adminId: adminSession!.user.id,
+        action: "sync.recovery",
+        targetType: "business",
+        targetId: body!.businessId,
+        meta: {
+          provider: body!.provider,
+          requestedAction: body!.action,
+          outcome,
+          ...meta,
+        },
+      });
+    }
+
     if (body.provider !== "google_ads" && body.provider !== "meta") {
       return NextResponse.json(
         { error: "Only google_ads and meta recovery actions are supported in this endpoint." },
@@ -97,6 +115,7 @@ export async function POST(request: NextRequest) {
         const result = await cleanupMetaPartitionOrchestration({
           businessId: body.businessId,
         });
+        await logRecovery("completed", { result });
         return NextResponse.json({ ok: true, action: body.action, provider: body.provider, result });
       }
 
@@ -109,23 +128,31 @@ export async function POST(request: NextRequest) {
           businessId: body.businessId,
           scope,
         });
+        const scheduled = await enqueueMetaScheduledWork(body.businessId);
+        await logRecovery("completed", {
+          scope,
+          replayedCount: result.length,
+          scheduled,
+        });
         return NextResponse.json({
           ok: true,
           action: body.action,
           provider: body.provider,
           replayedCount: result.length,
           result,
-          scheduled: await enqueueMetaScheduledWork(body.businessId),
+          scheduled,
         });
       }
 
       if (body.action === "refresh_state") {
         await refreshMetaSyncStateForBusiness({ businessId: body.businessId });
+        await logRecovery("completed");
         return NextResponse.json({ ok: true, action: body.action, provider: body.provider });
       }
 
       if (body.action === "reschedule") {
         const result = await enqueueMetaScheduledWork(body.businessId);
+        await logRecovery("completed", { result });
         return NextResponse.json({ ok: true, action: body.action, provider: body.provider, result });
       }
     }
@@ -134,6 +161,7 @@ export async function POST(request: NextRequest) {
       const result = await cleanupGoogleAdsPartitionOrchestration({
         businessId: body.businessId,
       });
+      await logRecovery("completed", { result });
       return NextResponse.json({ ok: true, action: body.action, provider: body.provider, result });
     }
 
@@ -146,18 +174,25 @@ export async function POST(request: NextRequest) {
         businessId: body.businessId,
         scope,
       });
+      const scheduled = await enqueueGoogleAdsScheduledWork(body.businessId);
+      await logRecovery("completed", {
+        scope,
+        replayedCount: result.length,
+        scheduled,
+      });
       return NextResponse.json({
         ok: true,
         action: body.action,
         provider: body.provider,
         replayedCount: result.length,
         result,
-        scheduled: await enqueueGoogleAdsScheduledWork(body.businessId),
+        scheduled,
       });
     }
 
     if (body.action === "refresh_state") {
       await refreshGoogleAdsSyncStateForBusiness({ businessId: body.businessId });
+      await logRecovery("completed");
       return NextResponse.json({ ok: true, action: body.action, provider: body.provider });
     }
 
@@ -169,6 +204,10 @@ export async function POST(request: NextRequest) {
       const result = await releaseGoogleAdsPoisonedPartitions({
         businessId: body.businessId,
         scope,
+      });
+      await logRecovery("completed", {
+        scope,
+        releasedCount: result.length,
       });
       return NextResponse.json({
         ok: true,
@@ -189,6 +228,12 @@ export async function POST(request: NextRequest) {
         businessId: body.businessId,
         scope,
       });
+      const scheduled = await enqueueGoogleAdsScheduledWork(body.businessId);
+      await logRecovery("completed", {
+        scope,
+        replayedCount: result.length,
+        scheduled,
+      });
       return NextResponse.json({
         ok: true,
         action: body.action,
@@ -196,12 +241,13 @@ export async function POST(request: NextRequest) {
         replayedCount: result.length,
         result,
         outcome: "manual replay queued",
-        scheduled: await enqueueGoogleAdsScheduledWork(body.businessId),
+        scheduled,
       });
     }
 
     if (body.action === "reschedule") {
       const result = await enqueueGoogleAdsScheduledWork(body.businessId);
+      await logRecovery("completed", { result });
       return NextResponse.json({ ok: true, action: body.action, provider: body.provider, result });
     }
 
@@ -223,6 +269,12 @@ export async function POST(request: NextRequest) {
         startDate: body.startDate,
         endDate: body.endDate,
       });
+      await logRecovery("completed", {
+        scope,
+        startDate: body.startDate,
+        endDate: body.endDate,
+        result,
+      });
       return NextResponse.json({
         ok: true,
         action: body.action,
@@ -231,6 +283,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    await logRecovery("rejected");
     return NextResponse.json({ error: "Unsupported action." }, { status: 400 });
   } catch (err) {
     console.error("[admin/sync-health POST]", err);

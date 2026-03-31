@@ -11,6 +11,8 @@ export type AuditAction =
   | "business.delete"
   | "business.plan_override"
   | "business.remove_member"
+  | "sync.refresh"
+  | "sync.recovery"
   | "discount.create"
   | "discount.delete"
   | "discount.toggle";

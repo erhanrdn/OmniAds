@@ -104,7 +104,7 @@ export interface MetaCampaignRow {
 }
 
 export interface MetaCampaignsResponse {
-  status?: "ok" | "no_accounts_assigned" | "account_not_assigned" | "no_access_token";
+  status?: "ok" | "no_accounts_assigned" | "account_not_assigned" | "not_connected";
   rows: MetaCampaignRow[];
   isPartial?: boolean;
   notReadyReason?: string | null;
@@ -196,14 +196,7 @@ export async function GET(request: NextRequest) {
   }
 
   const integration = await getIntegration(businessId, "meta").catch(() => null);
-  if (!integration?.access_token) {
-    return NextResponse.json({
-      status: "no_access_token",
-      rows: [],
-      isPartial: false,
-      notReadyReason: "Meta access token is missing for this workspace.",
-    } satisfies MetaCampaignsResponse);
-  }
+  const connected = integration?.status === "connected";
 
   const rangeContext = await getMetaRangePreparationContext({
     businessId,
@@ -233,12 +226,14 @@ export async function GET(request: NextRequest) {
     isPartial: rows.length === 0,
     notReadyReason:
       rows.length === 0
-        ? getMetaPartialReason({
-            isSelectedCurrentDay: rangeContext.isSelectedCurrentDay,
-            currentDateInTimezone: rangeContext.currentDateInTimezone,
-            primaryAccountTimezone: rangeContext.primaryAccountTimezone,
-            defaultReason: "Campaign warehouse data is still being prepared for the requested range.",
-          })
+        ? connected
+          ? getMetaPartialReason({
+              isSelectedCurrentDay: rangeContext.isSelectedCurrentDay,
+              currentDateInTimezone: rangeContext.currentDateInTimezone,
+              primaryAccountTimezone: rangeContext.primaryAccountTimezone,
+              defaultReason: "Campaign warehouse data is still being prepared for the requested range.",
+            })
+          : "Meta integration is not connected. Historical warehouse data will appear here once available."
         : null,
   } satisfies MetaCampaignsResponse);
 }

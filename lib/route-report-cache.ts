@@ -8,20 +8,6 @@ const DEFAULT_ROUTE_CACHE_TTL_MINUTES = 15;
 // Stale cache bu süreden daha yeni ise servis edilebilir (arka planda refresh tetiklenir)
 const STALE_SERVE_MAX_MINUTES = 120;
 
-/**
- * Arka planda bir provider'ın cache'ini yenileme isteği gönderir (fire-and-forget).
- * Sunucu tarafında çalışır, /api/sync/refresh endpoint'ini çağırır.
- */
-function triggerBackgroundRefresh(businessId: string, provider: string): void {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
-  if (!appUrl) return;
-  fetch(`${appUrl}/api/sync/refresh`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ businessId, provider }),
-  }).catch(() => {});
-}
-
 function hasPermissionDeniedMarker(value: unknown): boolean {
   if (!value || typeof value !== "object") return false;
 
@@ -98,7 +84,7 @@ export async function getCachedRouteReport<TPayload>(input: {
     });
 
     if (ageMinutes < STALE_SERVE_MAX_MINUTES) {
-      // Stale data var: arka planda refresh tetikle ve stale'i döndür
+      // Stale data var: stale snapshot'ı döndür. Refresh worker/cron üzerinden ilerler.
       const stalePayload = await getCachedReport<TPayload>({
         businessId: input.businessId,
         provider: input.provider,
@@ -114,7 +100,6 @@ export async function getCachedRouteReport<TPayload>(input: {
           reportType: input.reportType,
           ageMinutes: Math.round(ageMinutes),
         });
-        triggerBackgroundRefresh(input.businessId, input.provider);
         return stalePayload;
       }
     }

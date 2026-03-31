@@ -213,7 +213,7 @@ async function resolveWarehouseContext(input: {
     );
 
     let dataState: GoogleAdsWarehouseFreshness["dataState"] = "ready";
-    if (!integration?.access_token || integration.status !== "connected") dataState = "not_connected";
+    if (integration?.status !== "connected") dataState = "not_connected";
     else if (providerAccountIds.length === 0) dataState = "connected_no_assignment";
 
     return {

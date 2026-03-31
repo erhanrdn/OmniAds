@@ -1,4 +1,9 @@
 import { getDb } from "@/lib/db";
+import {
+  decryptIntegrationSecret,
+  encryptIntegrationSecret,
+  isEncryptedIntegrationSecret,
+} from "@/lib/integration-secrets";
 
 export type IntegrationProviderType =
   | "shopify"
@@ -30,6 +35,14 @@ export interface IntegrationRow {
   updated_at: string;
 }
 
+function hydrateIntegrationRow(row: IntegrationRow): IntegrationRow {
+  return {
+    ...row,
+    access_token: decryptIntegrationSecret(row.access_token),
+    refresh_token: decryptIntegrationSecret(row.refresh_token),
+  };
+}
+
 // ── Queries ────────────────────────────────────────────────────────
 
 /** Get all integrations for a business */
@@ -42,7 +55,7 @@ export async function getIntegrationsByBusiness(
     WHERE business_id = ${businessId}
     ORDER BY provider
   `;
-  return rows as IntegrationRow[];
+  return (rows as IntegrationRow[]).map(hydrateIntegrationRow);
 }
 
 /** Get a specific integration by business + provider */
@@ -56,7 +69,7 @@ export async function getIntegration(
     WHERE business_id = ${businessId} AND provider = ${provider}
     LIMIT 1
   `) as IntegrationRow[];
-  return rows[0] ?? null;
+  return rows[0] ? hydrateIntegrationRow(rows[0]) : null;
 }
 
 /** Upsert an integration record after successful OAuth */
@@ -76,6 +89,8 @@ export async function upsertIntegration(params: {
   const sql = getDb();
   const now = new Date().toISOString();
   const metadataJson = JSON.stringify(params.metadata ?? {});
+  const accessToken = encryptIntegrationSecret(params.accessToken ?? null);
+  const refreshToken = encryptIntegrationSecret(params.refreshToken ?? null);
 
   const rows = (await sql`
     INSERT INTO integrations (
@@ -89,8 +104,8 @@ export async function upsertIntegration(params: {
       ${params.status},
       ${params.providerAccountId ?? null},
       ${params.providerAccountName ?? null},
-      ${params.accessToken ?? null},
-      ${params.refreshToken ?? null},
+      ${accessToken},
+      ${refreshToken},
       ${params.tokenExpiresAt?.toISOString() ?? null},
       ${params.scopes ?? null},
       ${params.errorMessage ?? null},
@@ -115,7 +130,7 @@ export async function upsertIntegration(params: {
       updated_at          = EXCLUDED.updated_at
     RETURNING *
   `) as IntegrationRow[];
-  return rows[0] as IntegrationRow;
+  return hydrateIntegrationRow(rows[0] as IntegrationRow);
 }
 
 /** Mark an integration as disconnected */
@@ -170,4 +185,56 @@ export async function setIntegrationError(
       updated_at    = now()
     WHERE business_id = ${businessId} AND provider = ${provider}
   `;
+}
+
+export async function backfillIntegrationSecretsEncryption(input?: {
+  batchSize?: number;
+}): Promise<{ scanned: number; updated: number }> {
+  const sql = getDb();
+  const batchSize = Math.max(1, Math.min(input?.batchSize ?? 100, 1000));
+  const rows = (await sql`
+    SELECT id, access_token, refresh_token
+    FROM integrations
+    WHERE access_token IS NOT NULL OR refresh_token IS NOT NULL
+    ORDER BY updated_at ASC
+    LIMIT ${batchSize}
+  `) as Array<{
+    id: string;
+    access_token: string | null;
+    refresh_token: string | null;
+  }>;
+
+  let updated = 0;
+  for (const row of rows) {
+    const nextAccessToken =
+      row.access_token && !isEncryptedIntegrationSecret(row.access_token)
+        ? encryptIntegrationSecret(row.access_token)
+        : row.access_token;
+    const nextRefreshToken =
+      row.refresh_token && !isEncryptedIntegrationSecret(row.refresh_token)
+        ? encryptIntegrationSecret(row.refresh_token)
+        : row.refresh_token;
+
+    if (
+      nextAccessToken === row.access_token &&
+      nextRefreshToken === row.refresh_token
+    ) {
+      continue;
+    }
+
+    await sql`
+      UPDATE integrations
+      SET
+        access_token = ${nextAccessToken},
+        refresh_token = ${nextRefreshToken},
+        updated_at = now()
+      WHERE id = ${row.id}
+    `;
+    updated += 1;
+  }
+
+  return {
+    scanned: rows.length,
+    updated,
+  };
 }
