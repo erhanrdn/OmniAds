@@ -1341,7 +1341,10 @@ export async function GET(request: NextRequest) {
     credentialState: connected ? "connected" : "not_connected",
     hasAssignedAccounts: accountIds.length > 0,
     warehouseRowCount: Number(warehouseStats?.row_count ?? 0),
-    warehousePartial: overallState !== "ready",
+    warehousePartial:
+      selectedRangeTotalDays != null
+        ? Boolean(selectedRangeIncomplete)
+        : overallCompletedDays < effectiveHistoricalTotalDays,
     syncState: overallState,
     selectedCurrentDay: false,
     notReadyReason: summarizeStatusDegradedReason(statusDegradedReasons),
@@ -1350,6 +1353,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     state: overallState,
     credentialState: providerState.credentialState,
+    assignmentState: providerState.assignmentState,
     warehouseState: providerState.warehouseState,
     syncState: providerState.syncState,
     servingMode: providerState.servingMode,

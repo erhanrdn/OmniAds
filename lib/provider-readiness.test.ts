@@ -51,4 +51,22 @@ describe("buildProviderStateContract", () => {
       isPartial: true,
     });
   });
+
+  it("keeps warehouse state ready even when sync state is stale", () => {
+    expect(
+      buildProviderStateContract({
+        credentialState: "connected",
+        hasAssignedAccounts: true,
+        warehouseRowCount: 25,
+        warehousePartial: false,
+        syncState: "stale",
+        selectedCurrentDay: false,
+      })
+    ).toMatchObject({
+      warehouseState: "ready",
+      syncState: "stale",
+      servingMode: "warehouse_only",
+      isPartial: false,
+    });
+  });
 });

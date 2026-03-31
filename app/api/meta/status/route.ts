@@ -512,7 +512,9 @@ export async function GET(request: NextRequest) {
     credentialState: connected ? "connected" : "not_connected",
     hasAssignedAccounts: accountIds.length > 0,
     warehouseRowCount: Number(accountStats?.row_count ?? 0),
-    warehousePartial: state !== "ready",
+    warehousePartial: selectedRangeRequested
+      ? Boolean(selectedRangeIncomplete || selectedRangeCampaignIncomplete)
+      : overallCompletedDays < historicalTotalDays,
     syncState: state,
     selectedCurrentDay: selectedRangeIsToday,
     notReadyReason: phaseLabel === "Ready" ? null : phaseLabel,
@@ -598,6 +600,7 @@ export async function GET(request: NextRequest) {
     {
       state,
       credentialState: providerState.credentialState,
+      assignmentState: providerState.assignmentState,
       warehouseState: providerState.warehouseState,
       syncState: providerState.syncState,
       servingMode: providerState.servingMode,

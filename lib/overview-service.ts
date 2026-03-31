@@ -277,9 +277,9 @@ async function getMetaOverviewFragment(input: {
   startDate: string;
   endDate: string;
 }): Promise<MetaOverviewFragment> {
-  const { assignedAccountIds, connected } = await getMetaAccessContext(input.businessId);
+  const { assignedAccountIds } = await getMetaAccessContext(input.businessId);
 
-  if (!connected || assignedAccountIds.length === 0) {
+  if (assignedAccountIds.length === 0) {
     return { spend: 0, revenue: 0, purchases: 0, rows: [] };
   }
 
