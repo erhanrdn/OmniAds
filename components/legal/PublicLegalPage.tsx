@@ -11,6 +11,7 @@ interface PublicLegalPageProps {
 const LEGAL_LINKS = [
   { href: "/privacy", label: "Privacy Policy" },
   { href: "/terms", label: "Terms of Service" },
+  { href: "/ai-transparency", label: "AI Transparency" },
   { href: "/contact", label: "Contact" },
   { href: "/security", label: "Security" },
 ];

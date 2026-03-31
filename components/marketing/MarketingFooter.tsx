@@ -67,6 +67,11 @@ export function MarketingFooter() {
                 </Link>
               </li>
               <li>
+                <Link href="/ai-transparency" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                  AI Transparency
+                </Link>
+              </li>
+              <li>
                 <Link href="/security" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
                   Security
                 </Link>
@@ -76,6 +81,14 @@ export function MarketingFooter() {
         </div>
 
         <div className="mt-12 pt-8 border-t border-border">
+          <p className="max-w-3xl text-sm text-muted-foreground">
+            Adsecute uses OpenAI services for selected AI-powered features, including marketing
+            insights, recommendation support, and analytical summaries.{" "}
+            <Link href="/ai-transparency" className="underline underline-offset-4 hover:text-foreground transition-colors">
+              Learn more
+            </Link>
+            .
+          </p>
           <p className="text-sm text-muted-foreground">
             © {new Date().getFullYear()} Adsecute. All rights reserved.
           </p>
