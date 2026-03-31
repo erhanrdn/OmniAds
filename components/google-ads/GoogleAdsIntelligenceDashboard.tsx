@@ -54,6 +54,12 @@ import type {
   GoogleAdsStatusResponse,
 } from "@/lib/google-ads/status-types";
 import {
+  getGoogleAdsAdvisorButtonLabel,
+  getGoogleAdsAdvisorCtaState,
+  getGoogleAdsAdvisorHelperText,
+  getGoogleAdsAdvisorIdleState,
+} from "@/lib/google-ads/advisor-ux";
+import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
@@ -271,52 +277,6 @@ function buildAdvisorQueryParams(input: {
   if (input.endDate) params.set("customEnd", input.endDate);
   if (input.refresh) params.set("refresh", "1");
   return params;
-}
-
-function getAdvisorIdleState(
-  status: GoogleAdsStatusResponse | undefined
-) {
-  if (!status) {
-    return {
-      title: "Advisor analysis is unavailable",
-      description: "Warehouse readiness is being checked before analysis can start.",
-    };
-  }
-  if (!status.connected) {
-    return {
-      title: "Advisor analysis is unavailable",
-      description: "Connect a Google Ads account to enable advisor analysis.",
-    };
-  }
-  if ((status.assignedAccountIds?.length ?? 0) === 0) {
-    return {
-      title: "Advisor analysis is unavailable",
-      description: "Assign a Google Ads account to prepare advisor inputs.",
-    };
-  }
-  if (status.advisor?.ready) {
-    return {
-      title: "Advisor snapshot is ready",
-      description:
-        status.operations?.advisorSnapshotFresh === false
-          ? "The current advisor snapshot is available, and a backend refresh can update it."
-          : "The canonical 90-day advisor snapshot is ready.",
-    };
-  }
-  if (status.operations?.fullSyncPriorityRequired) {
-    return {
-      title: "Full sync is prioritized before advisor analysis",
-      description:
-        status.operations.fullSyncPriorityReason ??
-        "Advisor analysis will unlock automatically after the required historical support finishes backfilling.",
-    };
-  }
-  return {
-    title: "Advisor snapshot is waiting on recent coverage",
-    description:
-      status.advisor?.blockingMessage ??
-      "Advisor snapshot becomes available after the last 90 days are fully prepared.",
-  };
 }
 
 export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: string }) {
@@ -558,7 +518,12 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
       : null;
   const advisorCurrent = advisorAnalysisKey === currentAdvisorKey ? advisorData : undefined;
   const advisorIsStale = advisorAnalysisKey != null && advisorAnalysisKey !== currentAdvisorKey;
-  const advisorIdleState = getAdvisorIdleState(syncStatus);
+  const advisorCtaState = getGoogleAdsAdvisorCtaState({
+    status: syncStatus,
+    canOpen: advisorCanOpen,
+    hasCurrentAnalysis: Boolean(advisorCurrent),
+  });
+  const advisorIdleState = getGoogleAdsAdvisorIdleState(syncStatus);
   useEffect(() => {
     if (!advisorReady && !advisorCanOpen && advisorAnalysisKey === currentAdvisorKey) {
       setAdvisorData(undefined);
@@ -1129,23 +1094,18 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                           : "border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100"
                     )}
                   >
-                    {isAdvisorLoading
-                      ? "Refreshing advisor..."
-                      : advisorCurrent
-                        ? "Refresh Advisor Snapshot"
-                        : "Open Advisor Snapshot"}
+                    {getGoogleAdsAdvisorButtonLabel({
+                      isLoading: isAdvisorLoading,
+                      ctaState: advisorCtaState,
+                    })}
                   </button>
                   <p className="text-[11px] text-muted-foreground">
-                    {!advisorCanOpen
-                      ? syncStatus?.operations?.fullSyncPriorityReason ??
-                        syncStatus?.operations?.advisorSnapshotBlockedReason ??
-                        syncStatus?.advisor?.blockingMessage ??
-                        "Waiting for the canonical advisor snapshot"
-                      : advisorIsStale
-                        ? "Snapshot changed in the background"
-                        : lastAnalyzedLabel
-                          ? `Snapshot as of ${lastAnalyzedLabel}`
-                          : "Uses the canonical 90-day advisor snapshot; the date picker only changes dashboard context"}
+                    {getGoogleAdsAdvisorHelperText({
+                      status: syncStatus,
+                      ctaState: advisorCtaState,
+                      advisorIsStale,
+                      lastAnalyzedLabel,
+                    })}
                   </p>
                 </div>
                 {shouldRenderGoogleAdsSyncProgress(syncStatus) ? (
