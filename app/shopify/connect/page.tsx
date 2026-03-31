@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { sanitizeNextPath } from "@/lib/auth-routing";
 import { ShopifyConnectClientPage } from "@/components/shopify/shopify-connect-client-page";
+import { SHOPIFY_CONFIG } from "@/lib/oauth/shopify-config";
 
 interface ShopifyConnectPageProps {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -32,14 +33,14 @@ export default async function ShopifyConnectPage({
   // App Store installs first land on the app URL with signed shop context.
   // Redirect straight into OAuth so merchants never interact with the UI pre-auth.
   if (shop && hmac && timestamp) {
-    const startUrl = new URL("/api/oauth/shopify/start", "http://localhost");
+    const startUrl = new URL("/api/oauth/shopify/start", SHOPIFY_CONFIG.appUrl);
     startUrl.searchParams.set("shop", shop);
     startUrl.searchParams.set("hmac", hmac);
     startUrl.searchParams.set("timestamp", timestamp);
     if (host) startUrl.searchParams.set("host", host);
     if (embedded) startUrl.searchParams.set("embedded", embedded);
     if (returnTo) startUrl.searchParams.set("returnTo", returnTo);
-    redirect(`${startUrl.pathname}?${startUrl.searchParams.toString()}`);
+    redirect(startUrl.toString());
   }
 
   return <ShopifyConnectClientPage />;
