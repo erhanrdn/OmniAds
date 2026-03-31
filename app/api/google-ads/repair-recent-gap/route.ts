@@ -192,15 +192,15 @@ export async function POST(request: NextRequest) {
       scope: chosenGap.scope,
       startDate: date,
       endDate: date,
-    }).catch(() => []);
+    }).catch(() => ({ partitions: [] }));
     const replayedRows = await replayGoogleAdsDeadLetterPartitions({
       businessId: resolvedBusinessId,
       scope: chosenGap.scope,
       startDate: date,
       endDate: date,
-    }).catch(() => []);
-    replayedDeadLetterRows.push(...replayedPoisonedRows);
-    replayedDeadLetterRows.push(...replayedRows);
+    }).catch(() => ({ partitions: [] }));
+    replayedDeadLetterRows.push(...replayedPoisonedRows.partitions);
+    replayedDeadLetterRows.push(...replayedRows.partitions);
 
     const result = await runGoogleAdsTargetedRepair({
       businessId: resolvedBusinessId,

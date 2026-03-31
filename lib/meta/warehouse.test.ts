@@ -45,11 +45,32 @@ describe("meta warehouse ownership safety", () => {
     });
     vi.mocked(db.getDb).mockReturnValue(sql as never);
 
-    await replayMetaDeadLetterPartitions({
+    const result = await replayMetaDeadLetterPartitions({
       businessId: "biz-1",
       scope: "ad_daily",
     });
 
-    expect(queries[0]).toContain("COALESCE(lease_expires_at, now() - interval '1 second') <= now()");
+    expect(result.outcome).toBe("no_matching_partitions");
+    expect(queries.some((query) => query.includes("COALESCE(lease_expires_at, now() - interval '1 second') > now()"))).toBe(true);
+    expect(queries.some((query) => query.includes("COALESCE(lease_expires_at, now() - interval '1 second') <= now()"))).toBe(true);
+  });
+
+  it("returns skipped_active_lease when only actively leased partitions match replay", async () => {
+    const sql = vi
+      .fn()
+      .mockResolvedValueOnce([{ id: "partition-1" }])
+      .mockResolvedValueOnce([{ id: "partition-1" }])
+      .mockResolvedValueOnce([]);
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const result = await replayMetaDeadLetterPartitions({
+      businessId: "biz-1",
+      scope: "ad_daily",
+    });
+
+    expect(result.outcome).toBe("skipped_active_lease");
+    expect(result.matchedCount).toBe(1);
+    expect(result.changedCount).toBe(0);
+    expect(result.skippedActiveLeaseCount).toBe(1);
   });
 });

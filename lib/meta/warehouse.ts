@@ -1840,12 +1840,42 @@ export async function getMetaRawSnapshotCoverageByEndpoint(input: {
   return map;
 }
 
+export type MetaRecoveryOutcome = "replayed" | "skipped_active_lease" | "no_matching_partitions";
+
+export interface MetaRecoveryActionResult {
+  outcome: MetaRecoveryOutcome;
+  partitions: Array<{
+    id: string;
+    lane: string;
+    scope: string;
+    partitionDate: string;
+  }>;
+  matchedCount: number;
+  changedCount: number;
+  skippedActiveLeaseCount: number;
+}
+
 export async function replayMetaDeadLetterPartitions(input: {
   businessId: string;
   scope?: MetaWarehouseScope | null;
-}) {
+}): Promise<MetaRecoveryActionResult> {
   await runMigrations();
   const sql = getDb();
+  const matchedRows = await sql`
+    SELECT id
+    FROM meta_sync_partitions
+    WHERE business_id = ${input.businessId}
+      AND status = 'dead_letter'
+      AND (${input.scope ?? null}::text IS NULL OR scope = ${input.scope ?? null})
+  ` as Array<{ id: string }>;
+  const skippedActiveLeaseRows = await sql`
+    SELECT id
+    FROM meta_sync_partitions
+    WHERE business_id = ${input.businessId}
+      AND status = 'dead_letter'
+      AND COALESCE(lease_expires_at, now() - interval '1 second') > now()
+      AND (${input.scope ?? null}::text IS NULL OR scope = ${input.scope ?? null})
+  ` as Array<{ id: string }>;
   const rows = await sql`
     UPDATE meta_sync_partitions
     SET
@@ -1865,12 +1895,33 @@ export async function replayMetaDeadLetterPartitions(input: {
       AND (${input.scope ?? null}::text IS NULL OR scope = ${input.scope ?? null})
     RETURNING id, lane, scope, partition_date
   ` as Array<Record<string, unknown>>;
-  return rows.map((row) => ({
+  const partitions = rows.map((row) => ({
     id: String(row.id),
     lane: String(row.lane),
     scope: String(row.scope),
     partitionDate: normalizeDate(row.partition_date),
   }));
+  if (skippedActiveLeaseRows.length > 0) {
+    await recordSyncReclaimEvents({
+      providerScope: "meta",
+      businessId: input.businessId,
+      partitionIds: skippedActiveLeaseRows.map((row) => row.id),
+      eventType: "skipped_active_lease",
+      detail: "Replay skipped because the partition still has an active lease.",
+    }).catch(() => null);
+  }
+  return {
+    outcome:
+      partitions.length > 0
+        ? "replayed"
+        : matchedRows.length > 0
+          ? "skipped_active_lease"
+          : "no_matching_partitions",
+    partitions,
+    matchedCount: matchedRows.length,
+    changedCount: partitions.length,
+    skippedActiveLeaseCount: skippedActiveLeaseRows.length,
+  };
 }
 
 export async function getMetaSyncState(input: {

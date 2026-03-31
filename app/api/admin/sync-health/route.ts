@@ -133,15 +133,21 @@ export async function POST(request: NextRequest) {
         const scheduled = await enqueueMetaScheduledWork(body.businessId);
         await logRecovery("completed", {
           scope,
-          replayedCount: result.length,
+          outcome: result.outcome,
+          replayedCount: result.changedCount,
+          matchedCount: result.matchedCount,
+          skippedActiveLeaseCount: result.skippedActiveLeaseCount,
           scheduled,
         });
         return NextResponse.json({
           ok: true,
           action: body.action,
           provider: body.provider,
-          replayedCount: result.length,
-          result,
+          replayedCount: result.changedCount,
+          matchedCount: result.matchedCount,
+          skippedActiveLeaseCount: result.skippedActiveLeaseCount,
+          result: result.partitions,
+          outcome: result.outcome,
           scheduled,
         });
       }
@@ -179,15 +185,21 @@ export async function POST(request: NextRequest) {
       const scheduled = await enqueueGoogleAdsScheduledWork(body.businessId);
       await logRecovery("completed", {
         scope,
-        replayedCount: result.length,
+        outcome: result.outcome,
+        replayedCount: result.changedCount,
+        matchedCount: result.matchedCount,
+        skippedActiveLeaseCount: result.skippedActiveLeaseCount,
         scheduled,
       });
       return NextResponse.json({
         ok: true,
         action: body.action,
         provider: body.provider,
-        replayedCount: result.length,
-        result,
+        replayedCount: result.changedCount,
+        matchedCount: result.matchedCount,
+        skippedActiveLeaseCount: result.skippedActiveLeaseCount,
+        result: result.partitions,
+        outcome: result.outcome,
         scheduled,
       });
     }
@@ -209,15 +221,20 @@ export async function POST(request: NextRequest) {
       });
       await logRecovery("completed", {
         scope,
-        releasedCount: result.length,
+        outcome: result.outcome,
+        releasedCount: result.changedCount,
+        matchedCount: result.matchedCount,
+        skippedActiveLeaseCount: result.skippedActiveLeaseCount,
       });
       return NextResponse.json({
         ok: true,
         action: body.action,
         provider: body.provider,
-        releasedCount: result.length,
-        result,
-        outcome: "quarantine released",
+        releasedCount: result.changedCount,
+        matchedCount: result.matchedCount,
+        skippedActiveLeaseCount: result.skippedActiveLeaseCount,
+        result: result.partitions,
+        outcome: result.outcome,
       });
     }
 
@@ -233,16 +250,21 @@ export async function POST(request: NextRequest) {
       const scheduled = await enqueueGoogleAdsScheduledWork(body.businessId);
       await logRecovery("completed", {
         scope,
-        replayedCount: result.length,
+        outcome: result.outcome,
+        replayedCount: result.changedCount,
+        matchedCount: result.matchedCount,
+        skippedActiveLeaseCount: result.skippedActiveLeaseCount,
         scheduled,
       });
       return NextResponse.json({
         ok: true,
         action: body.action,
         provider: body.provider,
-        replayedCount: result.length,
-        result,
-        outcome: "manual replay queued",
+        replayedCount: result.changedCount,
+        matchedCount: result.matchedCount,
+        skippedActiveLeaseCount: result.skippedActiveLeaseCount,
+        result: result.partitions,
+        outcome: result.outcome,
         scheduled,
       });
     }

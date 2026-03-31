@@ -292,6 +292,7 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
               });
             })
             .catch((error) => {
+              leaseGuard.markLeaseLost("runner_lease_renewal_failed");
               console.warn("[durable-worker] runner_lease_renewal_failed", {
                 businessId: business.id,
                 providerScope: adapter.providerScope,

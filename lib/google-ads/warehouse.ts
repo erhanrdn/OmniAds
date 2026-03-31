@@ -2563,14 +2563,53 @@ export async function getGoogleAdsCheckpointHealth(input: {
   };
 }
 
+export type GoogleAdsRecoveryOutcome =
+  | "replayed"
+  | "quarantine_released"
+  | "manual_replay_queued"
+  | "skipped_active_lease"
+  | "no_matching_partitions";
+
+export interface GoogleAdsRecoveryActionResult {
+  outcome: GoogleAdsRecoveryOutcome;
+  partitions: Array<{
+    id: string;
+    lane: string;
+    scope: string;
+    partitionDate: string;
+  }>;
+  matchedCount: number;
+  changedCount: number;
+  skippedActiveLeaseCount: number;
+}
+
 export async function replayGoogleAdsDeadLetterPartitions(input: {
   businessId: string;
   scope?: GoogleAdsWarehouseScope | null;
   startDate?: string | null;
   endDate?: string | null;
-}) {
+}): Promise<GoogleAdsRecoveryActionResult> {
   await runMigrations();
   const sql = getDb();
+  const matchedRows = await sql`
+    SELECT id
+    FROM google_ads_sync_partitions
+    WHERE business_id = ${input.businessId}
+      AND status = 'dead_letter'
+      AND (${input.scope ?? null}::text IS NULL OR scope = ${input.scope ?? null})
+      AND (${input.startDate ?? null}::date IS NULL OR partition_date >= ${input.startDate ?? null}::date)
+      AND (${input.endDate ?? null}::date IS NULL OR partition_date <= ${input.endDate ?? null}::date)
+  ` as Array<{ id: string }>;
+  const skippedActiveLeaseRows = await sql`
+    SELECT id
+    FROM google_ads_sync_partitions
+    WHERE business_id = ${input.businessId}
+      AND status = 'dead_letter'
+      AND COALESCE(lease_expires_at, now() - interval '1 second') > now()
+      AND (${input.scope ?? null}::text IS NULL OR scope = ${input.scope ?? null})
+      AND (${input.startDate ?? null}::date IS NULL OR partition_date >= ${input.startDate ?? null}::date)
+      AND (${input.endDate ?? null}::date IS NULL OR partition_date <= ${input.endDate ?? null}::date)
+  ` as Array<{ id: string }>;
   const rows = await sql`
     UPDATE google_ads_sync_partitions
     SET
@@ -2588,20 +2627,60 @@ export async function replayGoogleAdsDeadLetterPartitions(input: {
       AND (${input.endDate ?? null}::date IS NULL OR partition_date <= ${input.endDate ?? null}::date)
     RETURNING id, lane, scope, partition_date
   ` as Array<Record<string, unknown>>;
-  return rows.map((row) => ({
+  const partitions = rows.map((row) => ({
     id: String(row.id),
     lane: String(row.lane),
     scope: String(row.scope),
     partitionDate: normalizeDate(row.partition_date),
   }));
+  if (skippedActiveLeaseRows.length > 0) {
+    await recordSyncReclaimEvents({
+      providerScope: "google_ads",
+      businessId: input.businessId,
+      partitionIds: skippedActiveLeaseRows.map((row) => row.id),
+      eventType: "skipped_active_lease",
+      detail: "Replay skipped because the partition still has an active lease.",
+    }).catch(() => null);
+  }
+  return {
+    outcome:
+      partitions.length > 0
+        ? "replayed"
+        : matchedRows.length > 0
+          ? "skipped_active_lease"
+          : "no_matching_partitions",
+    partitions,
+    matchedCount: matchedRows.length,
+    changedCount: partitions.length,
+    skippedActiveLeaseCount: skippedActiveLeaseRows.length,
+  };
 }
 
 export async function releaseGoogleAdsPoisonedPartitions(input: {
   businessId: string;
   scope?: GoogleAdsWarehouseScope | null;
-}) {
+}): Promise<GoogleAdsRecoveryActionResult> {
   await runMigrations();
   const sql = getDb();
+  const matchedRows = await sql`
+    SELECT partition.id
+    FROM google_ads_sync_partitions partition
+    JOIN google_ads_sync_checkpoints checkpoint ON checkpoint.partition_id = partition.id
+    WHERE partition.business_id = ${input.businessId}
+      AND partition.status = 'dead_letter'
+      AND checkpoint.poisoned_at IS NOT NULL
+      AND (${input.scope ?? null}::text IS NULL OR partition.scope = ${input.scope ?? null})
+  ` as Array<{ id: string }>;
+  const skippedActiveLeaseRows = await sql`
+    SELECT partition.id
+    FROM google_ads_sync_partitions partition
+    JOIN google_ads_sync_checkpoints checkpoint ON checkpoint.partition_id = partition.id
+    WHERE partition.business_id = ${input.businessId}
+      AND partition.status = 'dead_letter'
+      AND checkpoint.poisoned_at IS NOT NULL
+      AND COALESCE(partition.lease_expires_at, now() - interval '1 second') > now()
+      AND (${input.scope ?? null}::text IS NULL OR partition.scope = ${input.scope ?? null})
+  ` as Array<{ id: string }>;
   const partitions = await sql`
     WITH released_checkpoints AS (
       UPDATE google_ads_sync_checkpoints checkpoint
@@ -2636,12 +2715,33 @@ export async function releaseGoogleAdsPoisonedPartitions(input: {
     RETURNING partition.id, partition.lane, partition.scope, partition.partition_date
   ` as Array<Record<string, unknown>>;
 
-  return partitions.map((row) => ({
+  const changedPartitions = partitions.map((row) => ({
     id: String(row.id),
     lane: String(row.lane),
     scope: String(row.scope),
     partitionDate: normalizeDate(row.partition_date),
   }));
+  if (skippedActiveLeaseRows.length > 0) {
+    await recordSyncReclaimEvents({
+      providerScope: "google_ads",
+      businessId: input.businessId,
+      partitionIds: skippedActiveLeaseRows.map((row) => row.id),
+      eventType: "skipped_active_lease",
+      detail: "Quarantine release skipped because the partition still has an active lease.",
+    }).catch(() => null);
+  }
+  return {
+    outcome:
+      changedPartitions.length > 0
+        ? "quarantine_released"
+        : matchedRows.length > 0
+          ? "skipped_active_lease"
+          : "no_matching_partitions",
+    partitions: changedPartitions,
+    matchedCount: matchedRows.length,
+    changedCount: changedPartitions.length,
+    skippedActiveLeaseCount: skippedActiveLeaseRows.length,
+  };
 }
 
 export async function forceReplayGoogleAdsPoisonedPartitions(input: {
@@ -2649,9 +2749,32 @@ export async function forceReplayGoogleAdsPoisonedPartitions(input: {
   scope?: GoogleAdsWarehouseScope | null;
   startDate?: string | null;
   endDate?: string | null;
-}) {
+}): Promise<GoogleAdsRecoveryActionResult> {
   await runMigrations();
   const sql = getDb();
+  const matchedRows = await sql`
+    SELECT partition.id
+    FROM google_ads_sync_partitions partition
+    JOIN google_ads_sync_checkpoints checkpoint ON checkpoint.partition_id = partition.id
+    WHERE partition.business_id = ${input.businessId}
+      AND partition.status = 'dead_letter'
+      AND checkpoint.poisoned_at IS NOT NULL
+      AND (${input.scope ?? null}::text IS NULL OR partition.scope = ${input.scope ?? null})
+      AND (${input.startDate ?? null}::date IS NULL OR partition.partition_date >= ${input.startDate ?? null}::date)
+      AND (${input.endDate ?? null}::date IS NULL OR partition.partition_date <= ${input.endDate ?? null}::date)
+  ` as Array<{ id: string }>;
+  const skippedActiveLeaseRows = await sql`
+    SELECT partition.id
+    FROM google_ads_sync_partitions partition
+    JOIN google_ads_sync_checkpoints checkpoint ON checkpoint.partition_id = partition.id
+    WHERE partition.business_id = ${input.businessId}
+      AND partition.status = 'dead_letter'
+      AND checkpoint.poisoned_at IS NOT NULL
+      AND COALESCE(partition.lease_expires_at, now() - interval '1 second') > now()
+      AND (${input.scope ?? null}::text IS NULL OR partition.scope = ${input.scope ?? null})
+      AND (${input.startDate ?? null}::date IS NULL OR partition.partition_date >= ${input.startDate ?? null}::date)
+      AND (${input.endDate ?? null}::date IS NULL OR partition.partition_date <= ${input.endDate ?? null}::date)
+  ` as Array<{ id: string }>;
   const partitions = await sql`
     WITH released_checkpoints AS (
       UPDATE google_ads_sync_checkpoints checkpoint
@@ -2688,12 +2811,33 @@ export async function forceReplayGoogleAdsPoisonedPartitions(input: {
     RETURNING partition.id, partition.lane, partition.scope, partition.partition_date
   ` as Array<Record<string, unknown>>;
 
-  return partitions.map((row) => ({
+  const changedPartitions = partitions.map((row) => ({
     id: String(row.id),
     lane: String(row.lane),
     scope: String(row.scope),
     partitionDate: normalizeDate(row.partition_date),
   }));
+  if (skippedActiveLeaseRows.length > 0) {
+    await recordSyncReclaimEvents({
+      providerScope: "google_ads",
+      businessId: input.businessId,
+      partitionIds: skippedActiveLeaseRows.map((row) => row.id),
+      eventType: "skipped_active_lease",
+      detail: "Manual replay skipped because the partition still has an active lease.",
+    }).catch(() => null);
+  }
+  return {
+    outcome:
+      changedPartitions.length > 0
+        ? "manual_replay_queued"
+        : matchedRows.length > 0
+          ? "skipped_active_lease"
+          : "no_matching_partitions",
+    partitions: changedPartitions,
+    matchedCount: matchedRows.length,
+    changedCount: changedPartitions.length,
+    skippedActiveLeaseCount: skippedActiveLeaseRows.length,
+  };
 }
 
 export async function getGoogleAdsSyncState(input: {

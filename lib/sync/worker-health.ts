@@ -377,7 +377,7 @@ export async function recordSyncReclaimEvents(input: {
   businessId: string;
   partitionIds: string[];
   checkpointScope?: string | null;
-  eventType: "reclaimed" | "poisoned";
+  eventType: "reclaimed" | "poisoned" | "skipped_active_lease";
   disposition?: ProviderReclaimDisposition | null;
   reasonCode?: ProviderReclaimReasonCode | null;
   detail?: string | null;
