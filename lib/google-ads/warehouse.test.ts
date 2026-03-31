@@ -47,7 +47,11 @@ vi.mock("@/lib/migrations", () => ({
 }));
 
 const db = await import("@/lib/db");
-const { replayGoogleAdsDeadLetterPartitions, upsertGoogleAdsSyncCheckpoint } = await import(
+const {
+  cleanupGoogleAdsPartitionOrchestration,
+  replayGoogleAdsDeadLetterPartitions,
+  upsertGoogleAdsSyncCheckpoint,
+} = await import(
   "@/lib/google-ads/warehouse"
 );
 
@@ -142,5 +146,46 @@ describe("google ads warehouse ownership safety", () => {
     expect(result.matchedCount).toBe(1);
     expect(result.changedCount).toBe(0);
     expect(result.skippedActiveLeaseCount).toBe(1);
+  });
+
+  it("keeps recently progressing partitions leased during cleanup", async () => {
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      if (query.includes("FROM google_ads_sync_partitions partition") && query.includes("same_phase_failures")) {
+        return [
+          {
+            id: "partition-1",
+            scope: "campaign_daily",
+            lane: "core",
+            status: "leased",
+            attempt_count: 1,
+            updated_at: new Date().toISOString(),
+            started_at: new Date().toISOString(),
+            lease_expires_at: new Date(Date.now() + 60_000).toISOString(),
+            checkpoint_scope: "campaign_daily",
+            phase: "bulk_upsert",
+            page_index: 0,
+            checkpoint_attempt_count: 1,
+            checkpoint_status: "running",
+            progress_updated_at: new Date().toISOString(),
+            poisoned_at: null,
+            poison_reason: null,
+            same_phase_failures: 0,
+            has_active_runner_lease: true,
+          },
+        ];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const result = await cleanupGoogleAdsPartitionOrchestration({
+      businessId: "biz-1",
+      staleLeaseMinutes: 8,
+    });
+
+    expect(result.stalePartitionCount).toBe(0);
+    expect(result.aliveSlowCount).toBe(1);
+    expect(result.reclaimReasons.stalledReclaimable).toEqual([]);
   });
 });

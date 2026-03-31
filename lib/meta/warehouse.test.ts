@@ -9,7 +9,7 @@ vi.mock("@/lib/migrations", () => ({
 }));
 
 const db = await import("@/lib/db");
-const { replayMetaDeadLetterPartitions, upsertMetaSyncCheckpoint } = await import(
+const { cleanupMetaPartitionOrchestration, replayMetaDeadLetterPartitions, upsertMetaSyncCheckpoint } = await import(
   "@/lib/meta/warehouse"
 );
 
@@ -72,5 +72,39 @@ describe("meta warehouse ownership safety", () => {
     expect(result.matchedCount).toBe(1);
     expect(result.changedCount).toBe(0);
     expect(result.skippedActiveLeaseCount).toBe(1);
+  });
+
+  it("keeps recently progressing partitions leased during cleanup", async () => {
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      if (query.includes("FROM meta_sync_partitions partition") && query.includes("partition.status IN ('leased', 'running')")) {
+        return [
+          {
+            id: "partition-1",
+            lane: "core",
+            scope: "account_daily",
+            updated_at: new Date().toISOString(),
+            started_at: new Date().toISOString(),
+            lease_expires_at: new Date(Date.now() + 60_000).toISOString(),
+            checkpoint_scope: "account_daily",
+            phase: "fetch_raw",
+            page_index: 0,
+            checkpoint_updated_at: new Date().toISOString(),
+            has_active_runner_lease: true,
+          },
+        ];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const result = await cleanupMetaPartitionOrchestration({
+      businessId: "biz-1",
+      staleLeaseMinutes: 8,
+    });
+
+    expect(result.stalePartitionCount).toBe(0);
+    expect(result.aliveSlowCount).toBe(1);
+    expect(result.reclaimReasons.stalledReclaimable).toEqual([]);
   });
 });
