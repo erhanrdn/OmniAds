@@ -22,6 +22,21 @@ import * as googleAdsWarehouse from "@/lib/google-ads/warehouse";
  * Body: { businessId: string, provider: "google_ads" | "meta" }
  */
 
+const runtimeSyncRefreshStore = globalThis as typeof globalThis & {
+  __syncRefreshInFlightKeys?: Set<string>;
+};
+
+function getInFlightRefreshKeys() {
+  if (!runtimeSyncRefreshStore.__syncRefreshInFlightKeys) {
+    runtimeSyncRefreshStore.__syncRefreshInFlightKeys = new Set<string>();
+  }
+  return runtimeSyncRefreshStore.__syncRefreshInFlightKeys;
+}
+
+function getRefreshKey(businessId: string, provider: string) {
+  return `${businessId}:${provider}`;
+}
+
 async function isJobAlreadyRunning(
   businessId: string,
   provider: string,
@@ -179,20 +194,28 @@ export async function POST(request: NextRequest) {
     provider === "meta"
       ? await hasMetaQueueConsumerRunning(businessId).catch(() => false)
       : false;
-  if (alreadyRunning || metaConsumerRunning) {
+  const inFlightRefreshKeys = getInFlightRefreshKeys();
+  const refreshKey = getRefreshKey(businessId, provider);
+  const refreshAlreadyInFlight = inFlightRefreshKeys.has(refreshKey);
+  if (alreadyRunning || metaConsumerRunning || refreshAlreadyInFlight) {
     if (access.kind === "admin") {
       await logAdminAction({
         adminId: access.session.user.id,
         action: "sync.refresh",
         targetType: "business",
         targetId: businessId,
-        meta: { provider, outcome: "already_running" },
+        meta: {
+          provider,
+          outcome: "already_running",
+          duplicateReason: refreshAlreadyInFlight ? "in_process_refresh" : "existing_backlog",
+        },
       });
     }
     return NextResponse.json({ ok: true, status: "already_running" }, { status: 202 });
   }
 
   let syncResult: Awaited<ReturnType<typeof runSyncForProvider>>;
+  inFlightRefreshKeys.add(refreshKey);
   try {
     syncResult = await runSyncForProvider(businessId, provider);
   } catch (err) {
@@ -218,6 +241,8 @@ export async function POST(request: NextRequest) {
       { error: "internal_error", message: "Could not enqueue sync refresh." },
       { status: 500 }
     );
+  } finally {
+    inFlightRefreshKeys.delete(refreshKey);
   }
 
   if (isBacklogOnlySyncResult(provider, syncResult.result)) {

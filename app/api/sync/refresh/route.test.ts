@@ -61,6 +61,16 @@ function buildRequest(body: Record<string, unknown>) {
   });
 }
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 describe("POST /api/sync/refresh", () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -238,5 +248,37 @@ describe("POST /api/sync/refresh", () => {
         meta: expect.objectContaining({ outcome: "failed" }),
       })
     );
+  });
+
+  it("returns already_running for overlapping in-process refresh requests", async () => {
+    vi.mocked(internalAuth.requireInternalOrAdminSyncAccess).mockResolvedValue({
+      kind: "internal",
+    });
+    const pending = deferred<{
+      businessId: string;
+      queuedCore: number;
+      queueDepth: number;
+      leasedPartitions: number;
+    }>();
+    vi.mocked(googleAdsSync.enqueueGoogleAdsScheduledWork).mockReturnValue(pending.promise as never);
+
+    const firstResponsePromise = POST(buildRequest({ businessId: "biz", provider: "google_ads" }));
+    await Promise.resolve();
+    const secondResponse = await POST(buildRequest({ businessId: "biz", provider: "google_ads" }));
+
+    expect(secondResponse.status).toBe(202);
+    expect(await secondResponse.json()).toEqual({ ok: true, status: "already_running" });
+    expect(googleAdsSync.enqueueGoogleAdsScheduledWork).toHaveBeenCalledTimes(1);
+
+    pending.resolve({
+      businessId: "biz",
+      queuedCore: 1,
+      queueDepth: 1,
+      leasedPartitions: 0,
+    });
+
+    const firstResponse = await firstResponsePromise;
+    expect(firstResponse.status).toBe(202);
+    await firstResponse.json();
   });
 });
