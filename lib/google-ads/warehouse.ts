@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { getDb } from "@/lib/db";
+import { getDb, getDbWithTimeout } from "@/lib/db";
 import { runMigrations } from "@/lib/migrations";
 import { recordSyncReclaimEvents } from "@/lib/sync/worker-health";
 import type {
@@ -22,6 +22,7 @@ import type {
   GoogleAdsWarehouseMetricSet,
   GoogleAdsWarehouseScope,
 } from "@/lib/google-ads/warehouse-types";
+import { mergeGoogleAdsSyncStateWrite } from "@/lib/google-ads/sync-state-write";
 import { computeCheckpointLagMinutes } from "@/lib/provider-readiness";
 
 const GOOGLE_SCOPE_TABLES: Record<GoogleAdsWarehouseScope, string> = {
@@ -1268,6 +1269,18 @@ export async function updateGoogleAdsSyncRun(input: {
 export async function upsertGoogleAdsSyncState(input: GoogleAdsSyncStateRecord) {
   await runMigrations();
   const sql = getDb();
+  const existing =
+    (
+      await getGoogleAdsSyncState({
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        scope: input.scope,
+      })
+    )[0] ?? null;
+  const next = mergeGoogleAdsSyncStateWrite({
+    existing,
+    next: input,
+  });
   await sql`
     INSERT INTO google_ads_sync_state (
       business_id,
@@ -1286,19 +1299,19 @@ export async function upsertGoogleAdsSyncState(input: GoogleAdsSyncStateRecord) 
       updated_at
     )
     VALUES (
-      ${input.businessId},
-      ${input.providerAccountId},
-      ${input.scope},
-      ${normalizeDate(input.historicalTargetStart)},
-      ${normalizeDate(input.historicalTargetEnd)},
-      ${normalizeDate(input.effectiveTargetStart)},
-      ${normalizeDate(input.effectiveTargetEnd)},
-      ${input.readyThroughDate ? normalizeDate(input.readyThroughDate) : null},
-      ${input.lastSuccessfulPartitionDate ? normalizeDate(input.lastSuccessfulPartitionDate) : null},
-      ${input.latestBackgroundActivityAt ?? null},
-      ${input.latestSuccessfulSyncAt ?? null},
-      ${input.completedDays},
-      ${input.deadLetterCount},
+      ${next.businessId},
+      ${next.providerAccountId},
+      ${next.scope},
+      ${normalizeDate(next.historicalTargetStart)},
+      ${normalizeDate(next.historicalTargetEnd)},
+      ${normalizeDate(next.effectiveTargetStart)},
+      ${normalizeDate(next.effectiveTargetEnd)},
+      ${next.readyThroughDate ? normalizeDate(next.readyThroughDate) : null},
+      ${next.lastSuccessfulPartitionDate ? normalizeDate(next.lastSuccessfulPartitionDate) : null},
+      ${next.latestBackgroundActivityAt ?? null},
+      ${next.latestSuccessfulSyncAt ?? null},
+      ${next.completedDays},
+      ${next.deadLetterCount},
       now()
     )
     ON CONFLICT (business_id, provider_account_id, scope)
@@ -1567,6 +1580,37 @@ export async function listGoogleAdsRawSnapshotsForPartition(input: {
   }>;
 }
 
+export function dedupeGoogleAdsWarehouseRows(rows: GoogleAdsWarehouseDailyRow[]) {
+  const dedupedRows: GoogleAdsWarehouseDailyRow[] = [];
+  const seenKeys = new Set<string>();
+  const duplicateExamples: string[] = [];
+  let duplicateCount = 0;
+
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index]!;
+    const key = [
+      row.businessId,
+      row.providerAccountId,
+      normalizeDate(row.date),
+      row.entityKey,
+    ].join("::");
+    if (seenKeys.has(key)) {
+      duplicateCount += 1;
+      if (duplicateExamples.length < 5) duplicateExamples.push(key);
+      continue;
+    }
+    seenKeys.add(key);
+    dedupedRows.push(row);
+  }
+
+  dedupedRows.reverse();
+  return {
+    rows: dedupedRows,
+    duplicateCount,
+    duplicateExamples,
+  };
+}
+
 export async function upsertGoogleAdsDailyRows(
   scope: GoogleAdsWarehouseScope,
   rows: GoogleAdsWarehouseDailyRow[]
@@ -1579,8 +1623,21 @@ export async function upsertGoogleAdsDailyRows(
 
   for (let batchStart = 0; batchStart < rows.length; batchStart += batchSize) {
     const batch = rows.slice(batchStart, batchStart + batchSize);
+    const { rows: dedupedBatch, duplicateCount, duplicateExamples } =
+      dedupeGoogleAdsWarehouseRows(batch);
+
+    if (duplicateCount > 0) {
+      console.warn("[google-ads-warehouse] deduped-conflicting-batch-rows", {
+        scope,
+        batchStart,
+        batchSize: batch.length,
+        dedupedSize: dedupedBatch.length,
+        duplicateCount,
+        duplicateExamples,
+      });
+    }
     const values: unknown[] = [];
-    const tuples = batch.map((row, index) => {
+    const tuples = dedupedBatch.map((row, index) => {
       const offset = index * 27;
       values.push(
         row.businessId,
@@ -1682,9 +1739,10 @@ export async function readGoogleAdsDailyRange(input: {
   providerAccountIds?: string[] | null;
   startDate: string;
   endDate: string;
+  timeoutMs?: number;
 }) {
   await runMigrations();
-  const sql = getDb();
+  const sql = input.timeoutMs ? getDbWithTimeout(input.timeoutMs) : getDb();
   const table = tableNameForScope(input.scope);
   const rows = await sql.query(
     `
@@ -1772,9 +1830,10 @@ export async function readGoogleAdsAggregatedRange(input: {
   providerAccountIds?: string[] | null;
   startDate: string;
   endDate: string;
+  timeoutMs?: number;
 }) {
   await runMigrations();
-  const sql = getDb();
+  const sql = input.timeoutMs ? getDbWithTimeout(input.timeoutMs) : getDb();
   const table = tableNameForScope(input.scope);
   const payloadProjection = payloadProjectionSqlForScope(input.scope);
   const aggregateRows = await sql.query(
@@ -2043,56 +2102,145 @@ export async function getGoogleAdsDailyCoverage(input: {
   providerAccountId?: string | null;
   startDate: string;
   endDate: string;
+  timeoutMs?: number;
+  includeMetadata?: boolean;
 }) {
   await runMigrations();
-  const sql = getDb();
+  const sql = input.timeoutMs ? getDbWithTimeout(input.timeoutMs) : getDb();
   const table = tableNameForScope(input.scope);
-  const [rows, partitionRows] = await Promise.all([
-    sql.query(
-      `
-        SELECT
-          COUNT(DISTINCT date) AS completed_days,
-          COALESCE(MAX(date), NULL) AS ready_through_date,
-          COALESCE(MAX(updated_at), NULL) AS latest_updated_at,
-          COUNT(*) AS total_rows
-        FROM ${table}
-        WHERE business_id = $1
-          AND date >= $2
-          AND date <= $3
-          AND ($4::text IS NULL OR provider_account_id = $4)
-      `,
-      [
-        input.businessId,
-        normalizeDate(input.startDate),
-        normalizeDate(input.endDate),
-        input.providerAccountId ?? null,
-      ]
-    ) as Promise<Array<Record<string, unknown>>>,
-    sql.query(
-      `
-        SELECT
-          COUNT(DISTINCT partition_date) AS completed_days,
-          COALESCE(MAX(partition_date), NULL) AS ready_through_date,
-          COALESCE(MAX(updated_at), NULL) AS latest_updated_at
-        FROM google_ads_sync_partitions
-        WHERE business_id = $1
-          AND scope = $2
-          AND partition_date >= $3
-          AND partition_date <= $4
-          AND status = 'succeeded'
-          AND ($5::text IS NULL OR provider_account_id = $5)
-      `,
-      [
-        input.businessId,
-        input.scope,
-        normalizeDate(input.startDate),
-        normalizeDate(input.endDate),
-        input.providerAccountId ?? null,
-      ]
-    ) as Promise<Array<Record<string, unknown>>>,
+  const normalizedStartDate = normalizeDate(input.startDate);
+  const normalizedEndDate = normalizeDate(input.endDate);
+  const providerAccountId = input.providerAccountId ?? null;
+  const [rows, partitionRows, metadataRows, partitionMetadataRows] = await Promise.all([
+    (providerAccountId == null
+      ? sql.query(
+          `
+            SELECT
+              COUNT(DISTINCT date) AS completed_days,
+              COALESCE(MAX(date), NULL) AS ready_through_date
+            FROM ${table}
+            WHERE business_id = $1
+              AND date >= $2
+              AND date <= $3
+          `,
+          [input.businessId, normalizedStartDate, normalizedEndDate]
+        )
+      : sql.query(
+          `
+            SELECT
+              COUNT(DISTINCT date) AS completed_days,
+              COALESCE(MAX(date), NULL) AS ready_through_date
+            FROM ${table}
+            WHERE business_id = $1
+              AND provider_account_id = $2
+              AND date >= $3
+              AND date <= $4
+          `,
+          [input.businessId, providerAccountId, normalizedStartDate, normalizedEndDate]
+        )) as Promise<Array<Record<string, unknown>>>,
+    (providerAccountId == null
+      ? sql.query(
+          `
+            SELECT
+              COUNT(DISTINCT partition_date) AS completed_days,
+              COALESCE(MAX(partition_date), NULL) AS ready_through_date
+            FROM google_ads_sync_partitions
+            WHERE business_id = $1
+              AND scope = $2
+              AND partition_date >= $3
+              AND partition_date <= $4
+              AND status = 'succeeded'
+          `,
+          [input.businessId, input.scope, normalizedStartDate, normalizedEndDate]
+        )
+      : sql.query(
+          `
+            SELECT
+              COUNT(DISTINCT partition_date) AS completed_days,
+              COALESCE(MAX(partition_date), NULL) AS ready_through_date
+            FROM google_ads_sync_partitions
+            WHERE business_id = $1
+              AND scope = $2
+              AND provider_account_id = $3
+              AND partition_date >= $4
+              AND partition_date <= $5
+              AND status = 'succeeded'
+          `,
+          [
+            input.businessId,
+            input.scope,
+            providerAccountId,
+            normalizedStartDate,
+            normalizedEndDate,
+          ]
+        )) as Promise<Array<Record<string, unknown>>>,
+    input.includeMetadata
+      ? ((providerAccountId == null
+          ? sql.query(
+              `
+                SELECT
+                  COUNT(*) AS total_rows
+                FROM ${table}
+                WHERE business_id = $1
+                  AND date >= $2
+                  AND date <= $3
+              `,
+              [input.businessId, normalizedStartDate, normalizedEndDate]
+            )
+          : sql.query(
+              `
+                SELECT
+                  COUNT(*) AS total_rows
+                FROM ${table}
+                WHERE business_id = $1
+                  AND provider_account_id = $2
+                  AND date >= $3
+                  AND date <= $4
+              `,
+              [input.businessId, providerAccountId, normalizedStartDate, normalizedEndDate]
+            )) as Promise<Array<Record<string, unknown>>>)
+      : Promise.resolve([] as Array<Record<string, unknown>>),
+    input.includeMetadata
+      ? ((providerAccountId == null
+          ? sql.query(
+              `
+                SELECT
+                  COALESCE(MAX(updated_at), NULL) AS latest_updated_at
+                FROM google_ads_sync_partitions
+                WHERE business_id = $1
+                  AND scope = $2
+                  AND partition_date >= $3
+                  AND partition_date <= $4
+                  AND status = 'succeeded'
+              `,
+              [input.businessId, input.scope, normalizedStartDate, normalizedEndDate]
+            )
+          : sql.query(
+              `
+                SELECT
+                  COALESCE(MAX(updated_at), NULL) AS latest_updated_at
+                FROM google_ads_sync_partitions
+                WHERE business_id = $1
+                  AND scope = $2
+                  AND provider_account_id = $3
+                  AND partition_date >= $4
+                  AND partition_date <= $5
+                  AND status = 'succeeded'
+              `,
+              [
+                input.businessId,
+                input.scope,
+                providerAccountId,
+                normalizedStartDate,
+                normalizedEndDate,
+              ]
+            )) as Promise<Array<Record<string, unknown>>>)
+      : Promise.resolve([] as Array<Record<string, unknown>>),
   ]);
   const row = rows[0] ?? {};
   const partitionRow = partitionRows[0] ?? {};
+  const metadataRow = metadataRows[0] ?? {};
+  const partitionMetadataRow = partitionMetadataRows[0] ?? {};
   return {
     completed_days: Math.max(toNumber(row.completed_days), toNumber(partitionRow.completed_days)),
     ready_through_date:
@@ -2100,10 +2248,12 @@ export async function getGoogleAdsDailyCoverage(input: {
         ? normalizeDate(partitionRow.ready_through_date ?? row.ready_through_date)
         : null,
     latest_updated_at:
-      partitionRow.latest_updated_at || row.latest_updated_at
-        ? normalizeTimestamp(partitionRow.latest_updated_at ?? row.latest_updated_at)
+      partitionMetadataRow.latest_updated_at
+        ? normalizeTimestamp(
+            partitionMetadataRow.latest_updated_at
+          )
         : null,
-    total_rows: toNumber(row.total_rows),
+    total_rows: toNumber(metadataRow.total_rows),
   };
 }
 
@@ -2113,47 +2263,71 @@ export async function getGoogleAdsCoveredDates(input: {
   providerAccountId?: string | null;
   startDate: string;
   endDate: string;
+  timeoutMs?: number;
 }) {
   await runMigrations();
-  const sql = getDb();
+  const sql = input.timeoutMs ? getDbWithTimeout(input.timeoutMs) : getDb();
   const table = tableNameForScope(input.scope);
+  const normalizedStartDate = normalizeDate(input.startDate);
+  const normalizedEndDate = normalizeDate(input.endDate);
+  const providerAccountId = input.providerAccountId ?? null;
   const [rows, partitionRows] = await Promise.all([
-    sql.query(
-      `
-        SELECT DISTINCT date
-        FROM ${table}
-        WHERE business_id = $1
-          AND date >= $2
-          AND date <= $3
-          AND ($4::text IS NULL OR provider_account_id = $4)
-        ORDER BY date DESC
-      `,
-      [
-        input.businessId,
-        normalizeDate(input.startDate),
-        normalizeDate(input.endDate),
-        input.providerAccountId ?? null,
-      ]
-    ) as Promise<Array<Record<string, unknown>>>,
-    sql.query(
-      `
-        SELECT DISTINCT partition_date AS date
-        FROM google_ads_sync_partitions
-        WHERE business_id = $1
-          AND scope = $2
-          AND partition_date >= $3
-          AND partition_date <= $4
-          AND status = 'succeeded'
-          AND ($5::text IS NULL OR provider_account_id = $5)
-      `,
-      [
-        input.businessId,
-        input.scope,
-        normalizeDate(input.startDate),
-        normalizeDate(input.endDate),
-        input.providerAccountId ?? null,
-      ]
-    ) as Promise<Array<Record<string, unknown>>>,
+    (providerAccountId == null
+      ? sql.query(
+          `
+            SELECT DISTINCT date
+            FROM ${table}
+            WHERE business_id = $1
+              AND date >= $2
+              AND date <= $3
+            ORDER BY date DESC
+          `,
+          [input.businessId, normalizedStartDate, normalizedEndDate]
+        )
+      : sql.query(
+          `
+            SELECT DISTINCT date
+            FROM ${table}
+            WHERE business_id = $1
+              AND provider_account_id = $2
+              AND date >= $3
+              AND date <= $4
+            ORDER BY date DESC
+          `,
+          [input.businessId, providerAccountId, normalizedStartDate, normalizedEndDate]
+        )) as Promise<Array<Record<string, unknown>>>,
+    (providerAccountId == null
+      ? sql.query(
+          `
+            SELECT DISTINCT partition_date AS date
+            FROM google_ads_sync_partitions
+            WHERE business_id = $1
+              AND scope = $2
+              AND partition_date >= $3
+              AND partition_date <= $4
+              AND status = 'succeeded'
+          `,
+          [input.businessId, input.scope, normalizedStartDate, normalizedEndDate]
+        )
+      : sql.query(
+          `
+            SELECT DISTINCT partition_date AS date
+            FROM google_ads_sync_partitions
+            WHERE business_id = $1
+              AND scope = $2
+              AND provider_account_id = $3
+              AND partition_date >= $4
+              AND partition_date <= $5
+              AND status = 'succeeded'
+          `,
+          [
+            input.businessId,
+            input.scope,
+            providerAccountId,
+            normalizedStartDate,
+            normalizedEndDate,
+          ]
+        )) as Promise<Array<Record<string, unknown>>>,
   ]);
 
   return [...rows, ...partitionRows]
@@ -2223,6 +2397,58 @@ export async function getGoogleAdsQueueHealth(input: { businessId: string }) {
     latestCoreActivityAt: normalizeTimestamp(row.latest_core_activity_at),
     latestExtendedActivityAt: normalizeTimestamp(row.latest_extended_activity_at),
     latestMaintenanceActivityAt: normalizeTimestamp(row.latest_maintenance_activity_at),
+  };
+}
+
+export async function getGoogleAdsAdvisorQueueHealth(input: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = await sql`
+    SELECT
+      COUNT(*) FILTER (
+        WHERE scope IN ('campaign_daily', 'search_term_daily', 'product_daily')
+          AND partition_date BETWEEN ${input.startDate}::date AND ${input.endDate}::date
+          AND status = 'dead_letter'
+      ) AS advisor_relevant_dead_letter_partitions,
+      COUNT(*) FILTER (
+        WHERE scope IN ('campaign_daily', 'search_term_daily', 'product_daily')
+          AND partition_date BETWEEN ${input.startDate}::date AND ${input.endDate}::date
+          AND status = 'failed'
+      ) AS advisor_relevant_failed_partitions,
+      COUNT(*) FILTER (
+        WHERE scope IN ('campaign_daily', 'search_term_daily', 'product_daily')
+          AND partition_date BETWEEN ${input.startDate}::date AND ${input.endDate}::date
+          AND status IN ('leased', 'running')
+      ) AS advisor_relevant_leased_partitions,
+      COUNT(*) FILTER (
+        WHERE status = 'dead_letter'
+          AND (
+            scope NOT IN ('campaign_daily', 'search_term_daily', 'product_daily')
+            OR partition_date < ${input.startDate}::date
+            OR partition_date > ${input.endDate}::date
+          )
+      ) AS historical_dead_letter_partitions
+    FROM google_ads_sync_partitions
+    WHERE business_id = ${input.businessId}
+  ` as Array<Record<string, unknown>>;
+  const row = rows[0] ?? {};
+  return {
+    advisorRelevantDeadLetterPartitions: toNumber(
+      row.advisor_relevant_dead_letter_partitions
+    ),
+    advisorRelevantFailedPartitions: toNumber(
+      row.advisor_relevant_failed_partitions
+    ),
+    advisorRelevantLeasedPartitions: toNumber(
+      row.advisor_relevant_leased_partitions
+    ),
+    historicalDeadLetterPartitions: toNumber(
+      row.historical_dead_letter_partitions
+    ),
   };
 }
 
@@ -2314,6 +2540,8 @@ export async function getGoogleAdsCheckpointHealth(input: {
 export async function replayGoogleAdsDeadLetterPartitions(input: {
   businessId: string;
   scope?: GoogleAdsWarehouseScope | null;
+  startDate?: string | null;
+  endDate?: string | null;
 }) {
   await runMigrations();
   const sql = getDb();
@@ -2329,6 +2557,8 @@ export async function replayGoogleAdsDeadLetterPartitions(input: {
     WHERE business_id = ${input.businessId}
       AND status = 'dead_letter'
       AND (${input.scope ?? null}::text IS NULL OR scope = ${input.scope ?? null})
+      AND (${input.startDate ?? null}::date IS NULL OR partition_date >= ${input.startDate ?? null}::date)
+      AND (${input.endDate ?? null}::date IS NULL OR partition_date <= ${input.endDate ?? null}::date)
     RETURNING id, lane, scope, partition_date
   ` as Array<Record<string, unknown>>;
   return rows.map((row) => ({
@@ -2389,6 +2619,8 @@ export async function releaseGoogleAdsPoisonedPartitions(input: {
 export async function forceReplayGoogleAdsPoisonedPartitions(input: {
   businessId: string;
   scope?: GoogleAdsWarehouseScope | null;
+  startDate?: string | null;
+  endDate?: string | null;
 }) {
   await runMigrations();
   const sql = getDb();
@@ -2407,6 +2639,8 @@ export async function forceReplayGoogleAdsPoisonedPartitions(input: {
         AND partition.status = 'dead_letter'
         AND checkpoint.poisoned_at IS NOT NULL
         AND (${input.scope ?? null}::text IS NULL OR partition.scope = ${input.scope ?? null})
+        AND (${input.startDate ?? null}::date IS NULL OR partition.partition_date >= ${input.startDate ?? null}::date)
+        AND (${input.endDate ?? null}::date IS NULL OR partition.partition_date <= ${input.endDate ?? null}::date)
       RETURNING checkpoint.partition_id
     )
     UPDATE google_ads_sync_partitions partition

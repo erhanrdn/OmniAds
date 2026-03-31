@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { getDb } from "@/lib/db";
-import { getGoogleAdsCoveredDates } from "@/lib/google-ads/warehouse";
+import {
+  forceReplayGoogleAdsPoisonedPartitions,
+  getGoogleAdsCoveredDates,
+  replayGoogleAdsDeadLetterPartitions,
+} from "@/lib/google-ads/warehouse";
 import type { GoogleAdsWarehouseScope } from "@/lib/google-ads/warehouse-types";
 import { addDaysToIsoDate, enumerateDays } from "@/lib/google-ads/history";
 import { runMigrations } from "@/lib/migrations";
@@ -12,8 +16,8 @@ import {
 
 const REPAIR_SCOPE_PRIORITY: GoogleAdsWarehouseScope[] = [
   "product_daily",
-  "asset_daily",
   "search_term_daily",
+  "campaign_daily",
 ];
 const MAX_REPAIR_DATE_ATTEMPTS = 2;
 
@@ -174,9 +178,30 @@ export async function POST(request: NextRequest) {
     | "no_data"
     | "failed" = "no_data";
   let chosenDate: string | null = null;
+  const replayedDeadLetterRows: Array<{
+    id: string;
+    lane: string;
+    scope: string;
+    partitionDate: string;
+  }> = [];
 
   for (const date of attemptedDates) {
     chosenDate = date;
+    const replayedPoisonedRows = await forceReplayGoogleAdsPoisonedPartitions({
+      businessId: resolvedBusinessId,
+      scope: chosenGap.scope,
+      startDate: date,
+      endDate: date,
+    }).catch(() => []);
+    const replayedRows = await replayGoogleAdsDeadLetterPartitions({
+      businessId: resolvedBusinessId,
+      scope: chosenGap.scope,
+      startDate: date,
+      endDate: date,
+    }).catch(() => []);
+    replayedDeadLetterRows.push(...replayedPoisonedRows);
+    replayedDeadLetterRows.push(...replayedRows);
+
     const result = await runGoogleAdsTargetedRepair({
       businessId: resolvedBusinessId,
       scope: chosenGap.scope,
@@ -210,6 +235,8 @@ export async function POST(request: NextRequest) {
     chosenStartDate: chosenDate,
     chosenEndDate: chosenDate,
     chosenDate,
+    replayedRecentDeadLetterCount: replayedDeadLetterRows.length,
+    replayedRecentDeadLetters: replayedDeadLetterRows,
     reason: chosenGap.reason,
     runningJob: null,
     result: finalResult,

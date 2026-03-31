@@ -10,9 +10,12 @@ import {
   dayCountInclusive,
   getHistoricalWindowStart,
 } from "@/lib/google-ads/history";
+import { buildGoogleAdsCoreReadiness } from "@/lib/google-ads/core-readiness";
 import {
   getGoogleAdsCheckpointHealth,
+  getGoogleAdsCoveredDates,
   getGoogleAdsDailyCoverage,
+  getGoogleAdsAdvisorQueueHealth,
   getGoogleAdsQueueHealth,
   getGoogleAdsSyncState,
   getLatestGoogleAdsSyncHealth,
@@ -27,6 +30,7 @@ import {
   getLatestGoogleAdsAdvisorSnapshot,
   isGoogleAdsAdvisorSnapshotFresh,
 } from "@/lib/google-ads/advisor-snapshots";
+import { buildGoogleAdsAdvisorProgress } from "@/lib/google-ads/advisor-progress";
 import { runMigrations } from "@/lib/migrations";
 import {
   buildProviderSurfaces,
@@ -132,6 +136,74 @@ function toRangeCompletion(input: {
   };
 }
 
+async function readGoogleAdsStatusCoverage(input: {
+  businessId: string;
+  scope: string;
+  providerAccountId?: string | null;
+  startDate: string;
+  endDate: string;
+  timeoutMs?: number;
+}) {
+  const queryStartedAt = Date.now();
+  try {
+    return await getGoogleAdsDailyCoverage({
+      scope: input.scope as Parameters<typeof getGoogleAdsDailyCoverage>[0]["scope"],
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId ?? null,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      timeoutMs: input.timeoutMs,
+    });
+  } catch (error) {
+    const primaryMessage = error instanceof Error ? error.message : String(error);
+    console.warn("[google-ads-status] coverage-primary-failed", {
+      scope: input.scope,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      durationMs: Date.now() - queryStartedAt,
+      error: primaryMessage,
+    });
+
+    const fallbackStartedAt = Date.now();
+    try {
+      const dates = await getGoogleAdsCoveredDates({
+        scope: input.scope as Parameters<typeof getGoogleAdsCoveredDates>[0]["scope"],
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId ?? null,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        timeoutMs: input.timeoutMs,
+      });
+      const lastReadyDate = [...dates].sort((a, b) => a.localeCompare(b)).at(-1) ?? null;
+      console.warn("[google-ads-status] coverage-fallback-succeeded", {
+        scope: input.scope,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        durationMs: Date.now() - fallbackStartedAt,
+        completedDays: dates.length,
+        primaryError: primaryMessage,
+      });
+      return {
+        completed_days: dates.length,
+        ready_through_date: lastReadyDate,
+        latest_updated_at: null,
+        total_rows: 0,
+      };
+    } catch (fallbackError) {
+      console.warn("[google-ads-status] coverage-fallback-failed", {
+        scope: input.scope,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        durationMs: Date.now() - fallbackStartedAt,
+        primaryError: primaryMessage,
+        fallbackError:
+          fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+      });
+      return null;
+    }
+  }
+}
+
 function buildGoogleDomainReadiness(input: {
   availableSurfaces: string[];
   missingSurfaces: string[];
@@ -186,10 +258,18 @@ function getCurrentRuntimeBuildId() {
   );
 }
 
+function summarizeStatusDegradedReason(reasons: string[]) {
+  if (reasons.length === 0) return null;
+  if (reasons.length === 1) return `Analysis status is degraded: ${reasons[0]}.`;
+  return `Analysis status is degraded: ${reasons.slice(0, 2).join("; ")}.`;
+}
+
 function buildAdvisorBlockingMessage(input: {
   connected: boolean;
   assignedAccountCount: number;
-  deadLetterPartitions: number;
+  advisorRelevantDeadLetterPartitions: number;
+  advisorRelevantFailedPartitions: number;
+  advisorRelevantUnhealthyLeases: number;
   recent90MissingSurfaces: string[];
   snapshotAvailable: boolean;
   snapshotFresh: boolean;
@@ -201,8 +281,14 @@ function buildAdvisorBlockingMessage(input: {
       ? "Advisor snapshot is ready."
       : "Advisor snapshot is available but waiting for its next backend refresh.";
   }
-  if (input.deadLetterPartitions > 0) {
+  if (
+    input.advisorRelevantDeadLetterPartitions > 0 ||
+    input.advisorRelevantFailedPartitions > 0
+  ) {
     return "Resolve Google Ads dead-letter partitions before generating the advisor snapshot.";
+  }
+  if (input.advisorRelevantUnhealthyLeases > 0) {
+    return "Recent Google Ads recovery work is still active. Analysis will unlock automatically once it settles.";
   }
   if (input.recent90MissingSurfaces.length > 0) {
     return `Waiting for recent 90-day coverage in ${input.recent90MissingSurfaces.join(", ")} before generating the advisor snapshot.`;
@@ -221,6 +307,21 @@ export async function GET(request: NextRequest) {
 
   await runMigrations();
   const sql = getDb();
+  const statusDegradedReasons: string[] = [];
+  const captureOptional = async <T,>(
+    label: string,
+    promise: Promise<T>,
+    fallback: T
+  ): Promise<T> => {
+    try {
+      return await promise;
+    } catch (error) {
+      statusDegradedReasons.push(
+        `${label}: ${error instanceof Error ? error.message : String(error)}`
+      );
+      return fallback;
+    }
+  };
 
   const staleRunPressurePromise = sql`
     SELECT COUNT(*)::int AS stale_run_pressure
@@ -279,11 +380,27 @@ export async function GET(request: NextRequest) {
 
   const [integration, assignments, latestSync, checkpointHealth, workerSchedulingState, staleRunRows, recentRepairRows, recentRepairAttemptRows] =
     await Promise.all([
-    getIntegration(businessId!, "google").catch(() => null),
-    getProviderAccountAssignments(businessId!, "google").catch(() => null),
-    getLatestGoogleAdsSyncHealth({ businessId: businessId!, providerAccountId: null }).catch(() => null),
-    getGoogleAdsCheckpointHealth({ businessId: businessId!, providerAccountId: null }).catch(() => null),
-    getGoogleAdsWorkerSchedulingState({ businessId: businessId! }).catch(() => null),
+    captureOptional("integration", getIntegration(businessId!, "google"), null),
+    captureOptional(
+      "provider_account_assignments",
+      getProviderAccountAssignments(businessId!, "google"),
+      null
+    ),
+    captureOptional(
+      "latest_sync_health",
+      getLatestGoogleAdsSyncHealth({ businessId: businessId!, providerAccountId: null }),
+      null
+    ),
+    captureOptional(
+      "checkpoint_health",
+      getGoogleAdsCheckpointHealth({ businessId: businessId!, providerAccountId: null }),
+      null
+    ),
+    captureOptional(
+      "worker_scheduling_state",
+      getGoogleAdsWorkerSchedulingState({ businessId: businessId! }),
+      null
+    ),
     staleRunPressurePromise.catch(() => []),
     recentRepairRowsPromise.catch(() => []),
     recentRepairAttemptRowsPromise.catch(() => []),
@@ -376,10 +493,14 @@ export async function GET(request: NextRequest) {
         primary_account_timezone?: string | null;
       }
     | undefined;
-  const snapshot = await readProviderAccountSnapshot({
-    businessId: businessId!,
-    provider: "google",
-  }).catch(() => null);
+  const snapshot = await captureOptional(
+    "provider_account_snapshot",
+    readProviderAccountSnapshot({
+      businessId: businessId!,
+      provider: "google",
+    }),
+    null
+  );
   const primaryAccountTimezone =
     snapshot?.accounts.find((account) => account.id === accountIds[0])?.timezone ??
     warehouseStats?.primary_account_timezone ??
@@ -396,20 +517,22 @@ export async function GET(request: NextRequest) {
   const [accountCoverage, campaignCoverage] =
     connected && accountIds.length > 0
       ? await Promise.all([
-          getGoogleAdsDailyCoverage({
+          readGoogleAdsStatusCoverage({
             scope: "account_daily",
             businessId: businessId!,
             providerAccountId: null,
             startDate: initialBackfillStart,
             endDate: initialBackfillEnd,
-          }).catch(() => null),
-          getGoogleAdsDailyCoverage({
+            timeoutMs: 30_000,
+          }),
+          readGoogleAdsStatusCoverage({
             scope: "campaign_daily",
             businessId: businessId!,
             providerAccountId: null,
             startDate: initialBackfillStart,
             endDate: initialBackfillEnd,
-          }).catch(() => null),
+            timeoutMs: 30_000,
+          }),
         ])
       : [null, null];
   const [
@@ -423,81 +546,91 @@ export async function GET(request: NextRequest) {
   ] =
     connected && accountIds.length > 0 && selectedStartDate && selectedEndDate
       ? await Promise.all([
-          getGoogleAdsDailyCoverage({
+          readGoogleAdsStatusCoverage({
             scope: "search_term_daily",
             businessId: businessId!,
             providerAccountId: null,
             startDate: selectedStartDate,
             endDate: selectedEndDate,
-          }).catch(() => null),
-          getGoogleAdsDailyCoverage({
+            timeoutMs: 30_000,
+          }),
+          readGoogleAdsStatusCoverage({
             scope: "product_daily",
             businessId: businessId!,
             providerAccountId: null,
             startDate: selectedStartDate,
             endDate: selectedEndDate,
-          }).catch(() => null),
-          getGoogleAdsDailyCoverage({
+            timeoutMs: 30_000,
+          }),
+          readGoogleAdsStatusCoverage({
             scope: "asset_daily",
             businessId: businessId!,
             providerAccountId: null,
             startDate: selectedStartDate,
             endDate: selectedEndDate,
-          }).catch(() => null),
-          getGoogleAdsDailyCoverage({
+            timeoutMs: 30_000,
+          }),
+          readGoogleAdsStatusCoverage({
             scope: "asset_group_daily",
             businessId: businessId!,
             providerAccountId: null,
             startDate: selectedStartDate,
             endDate: selectedEndDate,
-          }).catch(() => null),
-          getGoogleAdsDailyCoverage({
+            timeoutMs: 30_000,
+          }),
+          readGoogleAdsStatusCoverage({
             scope: "geo_daily",
             businessId: businessId!,
             providerAccountId: null,
             startDate: selectedStartDate,
             endDate: selectedEndDate,
-          }).catch(() => null),
-          getGoogleAdsDailyCoverage({
+            timeoutMs: 30_000,
+          }),
+          readGoogleAdsStatusCoverage({
             scope: "device_daily",
             businessId: businessId!,
             providerAccountId: null,
             startDate: selectedStartDate,
             endDate: selectedEndDate,
-          }).catch(() => null),
-          getGoogleAdsDailyCoverage({
+            timeoutMs: 30_000,
+          }),
+          readGoogleAdsStatusCoverage({
             scope: "audience_daily",
             businessId: businessId!,
             providerAccountId: null,
             startDate: selectedStartDate,
             endDate: selectedEndDate,
-          }).catch(() => null),
+            timeoutMs: 30_000,
+          }),
         ])
       : [null, null, null, null, null, null, null];
   const [recentSearchTermCoverage, recentProductCoverage, recentAssetCoverage] =
     connected && accountIds.length > 0
       ? await Promise.all([
-          getGoogleAdsDailyCoverage({
+          readGoogleAdsStatusCoverage({
             scope: "search_term_daily",
             businessId: businessId!,
             providerAccountId: null,
             startDate: recentExtendedStart,
             endDate: initialBackfillEnd,
-          }).catch(() => null),
-          getGoogleAdsDailyCoverage({
+            timeoutMs: 30_000,
+          }),
+          readGoogleAdsStatusCoverage({
             scope: "product_daily",
             businessId: businessId!,
             providerAccountId: null,
             startDate: recentExtendedStart,
             endDate: initialBackfillEnd,
-          }).catch(() => null),
-          getGoogleAdsDailyCoverage({
+            timeoutMs: 30_000,
+          }),
+          readGoogleAdsStatusCoverage({
             scope: "asset_daily",
             businessId: businessId!,
             providerAccountId: null,
             startDate: recentExtendedStart,
             endDate: initialBackfillEnd,
-          }).catch(() => null),
+            timeoutMs: 30_000,
+          }),
         ])
       : [null, null, null];
   const allStateScopes = [
@@ -514,24 +647,40 @@ export async function GET(request: NextRequest) {
   const [queueHealth, ...scopeStates] =
     connected && accountIds.length > 0
       ? await Promise.all([
-          getGoogleAdsQueueHealth({ businessId: businessId! }).catch(() => null),
+          captureOptional(
+            "queue_health",
+            getGoogleAdsQueueHealth({ businessId: businessId! }),
+            null
+          ),
           ...allStateScopes.map((scope) =>
-            getGoogleAdsSyncState({
-              businessId: businessId!,
-              scope,
-            }).catch(() => [])
+            captureOptional(
+              `sync_state:${scope}`,
+              getGoogleAdsSyncState({
+                businessId: businessId!,
+                scope,
+              }),
+              []
+            )
           ),
         ])
       : [null, ...allStateScopes.map(() => [])];
   const [quotaBudgetState, breakerState] = await Promise.all([
-    getProviderQuotaBudgetState({
-      provider: "google",
-      businessId: businessId!,
-    }).catch(() => null),
-    getProviderCircuitBreakerRecoveryState({
-      provider: "google",
-      businessId: businessId!,
-    }).catch(() => "closed" as const),
+    captureOptional(
+      "quota_budget_state",
+      getProviderQuotaBudgetState({
+        provider: "google",
+        businessId: businessId!,
+      }),
+      null
+    ),
+    captureOptional(
+      "circuit_breaker_state",
+      getProviderCircuitBreakerRecoveryState({
+        provider: "google",
+        businessId: businessId!,
+      }),
+      "closed" as const
+    ),
   ]);
   const statesByScope = Object.fromEntries(
     allStateScopes.map((scope, index) => [scope, scopeStates[index] ?? []])
@@ -539,57 +688,64 @@ export async function GET(request: NextRequest) {
     typeof allStateScopes[number],
     Awaited<ReturnType<typeof getGoogleAdsSyncState>>
   >;
+  const extendedStateScopes = allStateScopes.filter(
+    (scope) => scope !== "account_daily" && scope !== "campaign_daily"
+  );
+  const extendedCoverageRows =
+    connected && accountIds.length > 0
+      ? await Promise.all(
+          extendedStateScopes.map(async (scope) => ({
+            scope,
+            coverage: await readGoogleAdsStatusCoverage({
+              scope,
+              businessId: businessId!,
+              providerAccountId: null,
+              startDate: initialBackfillStart,
+              endDate: initialBackfillEnd,
+              timeoutMs: 30_000,
+            }),
+          }))
+        )
+      : [];
+  const extendedCoverageByScope = new Map(
+    extendedCoverageRows.map((entry) => [entry.scope, entry.coverage] as const)
+  );
   const selectedRangeCoverage =
     connected && accountIds.length > 0 && selectedStartDate && selectedEndDate
-      ? await getGoogleAdsDailyCoverage({
+      ? await readGoogleAdsStatusCoverage({
           scope: "campaign_daily",
           businessId: businessId!,
           providerAccountId: null,
           startDate: selectedStartDate,
           endDate: selectedEndDate,
-        }).catch(() => null)
+          timeoutMs: 30_000,
+        })
       : null;
 
   const accountCoverageDays = accountCoverage?.completed_days ?? 0;
   const campaignCoverageDays = campaignCoverage?.completed_days ?? 0;
-  const relevantCampaignStates = statesByScope.campaign_daily.filter((row) =>
-    accountIds.length === 0 ? true : accountIds.includes(row.providerAccountId)
-  );
   const relevantAccountStates = statesByScope.account_daily.filter((row) =>
     accountIds.length === 0 ? true : accountIds.includes(row.providerAccountId)
   );
-  const effectiveHistoricalTotalDays =
-    relevantCampaignStates.length > 0
-      ? Math.max(
-          1,
-          Math.min(
-            ...relevantCampaignStates.map((row) =>
-              dayCountInclusive(row.effectiveTargetStart, row.effectiveTargetEnd)
-            )
-          )
-        )
-      : totalDays;
-  const overallCompletedDays =
-    relevantCampaignStates.length > 0
-      ? Math.min(...relevantCampaignStates.map((row) => row.completedDays))
-      : campaignCoverageDays;
-  const overallAccountCompletedDays =
-    relevantAccountStates.length > 0
-      ? Math.min(...relevantAccountStates.map((row) => row.completedDays))
-      : accountCoverageDays;
-  const historicalReadyThroughDate =
-    relevantCampaignStates.length > 0
-      ? relevantCampaignStates
-          .map((row) => row.readyThroughDate)
-          .filter((value): value is string => Boolean(value))
-          .sort((a, b) => a.localeCompare(b))[0] ?? campaignCoverage?.ready_through_date ?? null
-      : campaignCoverage?.ready_through_date ?? null;
+  const coreReadiness = buildGoogleAdsCoreReadiness({
+    connected,
+    assignedAccountCount: accountIds.length,
+    totalDays,
+    accountCoverageDays,
+    campaignCoverageDays,
+    campaignReadyThroughDate: campaignCoverage?.ready_through_date ?? null,
+  });
+  const effectiveHistoricalTotalDays = coreReadiness.effectiveHistoricalTotalDays;
+  const overallCompletedDays = coreReadiness.overallCompletedDays;
+  const overallAccountCompletedDays = coreReadiness.overallAccountCompletedDays;
+  const historicalReadyThroughDate = coreReadiness.historicalReadyThroughDate;
   const extendedScopeSummaries = allStateScopes
     .filter((scope) => scope !== "account_daily" && scope !== "campaign_daily")
     .map((scope) => {
       const relevantStates = statesByScope[scope].filter((row) =>
         accountIds.length === 0 ? true : accountIds.includes(row.providerAccountId)
       );
+      const warehouseCoverage = extendedCoverageByScope.get(scope);
       const totalDaysForScope =
         relevantStates.length > 0
           ? Math.max(
@@ -603,16 +759,19 @@ export async function GET(request: NextRequest) {
           : effectiveHistoricalTotalDays;
       return {
         scope,
-        completedDays:
-          relevantStates.length > 0
-            ? Math.min(...relevantStates.map((row) => row.completedDays))
-            : 0,
+        completedDays: Number(
+          warehouseCoverage?.completed_days ??
+            (relevantStates.length > 0
+              ? Math.min(...relevantStates.map((row) => row.completedDays))
+              : 0)
+        ),
         totalDays: totalDaysForScope,
-        readyThroughDate:
-          relevantStates
-            .map((row) => row.readyThroughDate)
-            .filter((value): value is string => Boolean(value))
-            .sort((a, b) => a.localeCompare(b))[0] ?? null,
+        readyThroughDate: warehouseCoverage?.ready_through_date
+          ? String(warehouseCoverage.ready_through_date).slice(0, 10)
+          : relevantStates
+              .map((row) => row.readyThroughDate)
+              .filter((value): value is string => Boolean(value))
+              .sort((a, b) => a.localeCompare(b))[0] ?? null,
         latestBackgroundActivityAt:
           relevantStates
             .map((row) => row.latestBackgroundActivityAt)
@@ -627,18 +786,9 @@ export async function GET(request: NextRequest) {
   const extendedPendingSurfaces = extendedScopeSummaries
     .filter((summary) => summary.completedDays < summary.totalDays)
     .map((summary) => summary.scope);
-  const productPendingSurfaces = [
-    overallAccountCompletedDays < effectiveHistoricalTotalDays ? "account_daily" : null,
-    overallCompletedDays < effectiveHistoricalTotalDays ? "campaign_daily" : null,
-  ].filter((value): value is string => Boolean(value));
-  const needsBootstrap =
-    connected &&
-    accountIds.length > 0 &&
-    overallCompletedDays < effectiveHistoricalTotalDays;
-  const historicalProgressPercent =
-    effectiveHistoricalTotalDays > 0
-      ? Math.min(100, Math.round((overallCompletedDays / effectiveHistoricalTotalDays) * 100))
-      : 0;
+  const productPendingSurfaces = coreReadiness.productPendingSurfaces;
+  const needsBootstrap = coreReadiness.needsBootstrap;
+  const historicalProgressPercent = coreReadiness.historicalProgressPercent;
   const selectedRangeTotalDays =
     selectedStartDate && selectedEndDate
       ? dayCountInclusive(selectedStartDate, selectedEndDate)
@@ -698,36 +848,52 @@ export async function GET(request: NextRequest) {
   const latestError = effectiveLatestSync?.last_error ? String(effectiveLatestSync.last_error) : null;
 
   const recent90Start = addDaysToIsoDate(initialBackfillEnd, -89);
-  const [recent90CampaignCoverage, recent90SearchTermCoverage, recent90ProductCoverage, latestAdvisorSnapshot] =
+  const [recent90CampaignCoverage, recent90SearchTermCoverage, recent90ProductCoverage, latestAdvisorSnapshot, advisorQueueHealth] =
     connected && accountIds.length > 0
       ? await Promise.all([
-          getGoogleAdsDailyCoverage({
+          readGoogleAdsStatusCoverage({
             scope: "campaign_daily",
             businessId: businessId!,
             providerAccountId: null,
             startDate: recent90Start,
             endDate: initialBackfillEnd,
-          }).catch(() => null),
-          getGoogleAdsDailyCoverage({
+            timeoutMs: 30_000,
+          }),
+          readGoogleAdsStatusCoverage({
             scope: "search_term_daily",
             businessId: businessId!,
             providerAccountId: null,
             startDate: recent90Start,
             endDate: initialBackfillEnd,
-          }).catch(() => null),
-          getGoogleAdsDailyCoverage({
+            timeoutMs: 30_000,
+          }),
+          readGoogleAdsStatusCoverage({
             scope: "product_daily",
             businessId: businessId!,
             providerAccountId: null,
             startDate: recent90Start,
             endDate: initialBackfillEnd,
-          }).catch(() => null),
-          getLatestGoogleAdsAdvisorSnapshot({
-            businessId: businessId!,
-            accountId: accountIds.length === 1 ? accountIds[0] : null,
-          }).catch(() => null),
+            timeoutMs: 30_000,
+          }),
+          captureOptional(
+            "latest_advisor_snapshot",
+            getLatestGoogleAdsAdvisorSnapshot({
+              businessId: businessId!,
+              accountId: accountIds.length === 1 ? accountIds[0] : null,
+            }),
+            null
+          ),
+          captureOptional(
+            "advisor_queue_health",
+            getGoogleAdsAdvisorQueueHealth({
+              businessId: businessId!,
+              startDate: recent90Start,
+              endDate: initialBackfillEnd,
+            }),
+            null
+          ),
         ])
-      : [null, null, null, null];
+      : [null, null, null, null, null];
   const advisorRequiredSurfaces = [
     {
       name: "campaign_daily",
@@ -779,13 +945,31 @@ export async function GET(request: NextRequest) {
         (entry.coverage?.completed_days ?? 0) < 90
     )
     .map((entry) => entry.name);
+  const advisorCoverageUnavailableCount = advisorRequiredSurfaces.filter(
+    (entry) => entry.coverage == null
+  ).length;
   const snapshotAvailable = Boolean(latestAdvisorSnapshot);
   const snapshotFresh = isGoogleAdsAdvisorSnapshotFresh(latestAdvisorSnapshot);
+  const advisorRelevantDeadLetterPartitions =
+    advisorQueueHealth?.advisorRelevantDeadLetterPartitions ?? 0;
+  const advisorRelevantFailedPartitions =
+    advisorQueueHealth?.advisorRelevantFailedPartitions ?? 0;
+  const advisorRelevantLeasedPartitions =
+    advisorQueueHealth?.advisorRelevantLeasedPartitions ?? 0;
+  const historicalDeadLetterPartitions =
+    advisorQueueHealth?.historicalDeadLetterPartitions ??
+    Math.max(
+      0,
+      (queueHealth?.deadLetterPartitions ?? 0) - advisorRelevantDeadLetterPartitions
+    );
+  const advisorRelevantUnhealthyLeases =
+    (workerSchedulingState?.healthy ?? false) ? 0 : advisorRelevantLeasedPartitions;
   const advisorDecision = decideGoogleAdsAdvisorReadiness({
     connected,
     assignedAccountCount: accountIds.length,
     deadLetterPartitions: queueHealth?.deadLetterPartitions ?? 0,
-    recent90Ready: advisorMissingSurfaces.length === 0,
+    recent90Ready:
+      advisorMissingSurfaces.length === 0 && advisorCoverageUnavailableCount === 0,
     snapshotAvailable,
   });
   const advisorReady = advisorDecision.ready;
@@ -793,11 +977,27 @@ export async function GET(request: NextRequest) {
   const advisorSnapshotBlockedReason =
     snapshotAvailable
       ? null
-      : queueHealth?.deadLetterPartitions
-        ? "dead_letter_partitions"
-        : advisorMissingSurfaces.length > 0
-          ? "recent90_incomplete"
-          : "snapshot_missing";
+      : advisorMissingSurfaces.length > 0
+        ? "missing_recent_required_surfaces"
+        : advisorRelevantDeadLetterPartitions > 0
+          ? "recent_required_dead_letter_partitions"
+          : advisorRelevantFailedPartitions > 0
+            ? "recent_required_failed_partitions"
+            : advisorRelevantUnhealthyLeases > 0
+              ? "recent_required_unhealthy_leases"
+              : null;
+  console.info("[google-ads-status] advisor-snapshot-gate", {
+    businessId: businessId!,
+    advisorWindowStart: recent90Start,
+    advisorWindowEnd: initialBackfillEnd,
+    recent90MissingSurfaces: advisorMissingSurfaces,
+    advisorRelevantDeadLetterPartitions,
+    advisorRelevantFailedPartitions,
+    advisorRelevantUnhealthyLeases,
+    historicalDeadLetterPartitions,
+    snapshotAvailable,
+    snapshotBlockedReason: advisorSnapshotBlockedReason,
+  });
   const fullSyncPriority = decideGoogleAdsFullSyncPriority({
     advisorReady,
     advisorMissingSurfaces,
@@ -833,11 +1033,7 @@ export async function GET(request: NextRequest) {
     missingSurfaces: surfaces.missing,
     advisorMissingSurfaces,
   });
-  const coreUsable =
-    connected &&
-    accountIds.length > 0 &&
-    overallAccountCompletedDays > 0 &&
-    overallCompletedDays > 0;
+  const coreUsable = coreReadiness.coreUsable;
   const rangeCompletionBySurface = {
     search_term_daily: {
       recent: toRangeCompletion({
@@ -975,11 +1171,6 @@ export async function GET(request: NextRequest) {
   const historicalExtendedReady = Object.values(rangeCompletionBySurface).every(
     (surface) => surface.historical.ready
   );
-  const advisorRecentCoverageRatio =
-    advisorRequiredSurfaces.reduce((sum, entry) => {
-      const completedDays = Math.max(0, Math.min(90, Number(entry.coverage?.completed_days ?? 0)));
-      return sum + completedDays / 90;
-    }, 0) / Math.max(1, advisorRequiredSurfaces.length);
   const averageHistoricalCompletionRatio =
     Object.values(rangeCompletionBySurface).reduce((sum, surface) => {
       const ratio =
@@ -988,22 +1179,19 @@ export async function GET(request: NextRequest) {
           : 0;
       return sum + Math.min(1, ratio);
     }, 0) / Math.max(1, Object.values(rangeCompletionBySurface).length);
-  const advisorPreparationPercent = advisorReady
-    ? 100
-    : advisorMissingSurfaces.length === 0
-      ? 99
-      : Math.max(
-          coreUsable ? 10 : 0,
-          Math.min(99, Math.round(advisorRecentCoverageRatio * 100))
-        );
+  const advisorProgress = buildGoogleAdsAdvisorProgress({
+    connected,
+    assignedAccountCount: accountIds.length,
+    coreUsable,
+    advisorReady,
+    coverages: advisorRequiredSurfaces.map((surface) => ({
+      completedDays: surface.coverage?.completed_days ?? null,
+    })),
+    coverageUnavailableCount: advisorCoverageUnavailableCount,
+  });
   const historicalBackfillPercent = historicalExtendedReady
     ? 100
     : Math.max(0, Math.min(99, Math.round(averageHistoricalCompletionRatio * 100)));
-  const advisorProgressSummary = !coreUsable
-    ? "Campaign history is still being prepared for analysis."
-    : advisorMissingSurfaces.length === 0
-      ? "Finalizing growth analysis."
-      : "Campaign, search term, and product history are still being prepared for analysis.";
   const historicalProgressSummary = "Historical sync continues in the background.";
   const majorSurfaceStates = [
     buildPanelSurfaceState({
@@ -1135,6 +1323,9 @@ export async function GET(request: NextRequest) {
       assignedAccountCount: accountIds.length,
       historicalQueuePaused,
       deadLetterPartitions: queueHealth?.deadLetterPartitions ?? 0,
+      advisorRelevantDeadLetterPartitions,
+      advisorRelevantFailedPartitions,
+      advisorRelevantUnhealthyLeases,
       latestSyncStatus: effectiveLatestSync?.status ? String(effectiveLatestSync.status) : null,
       runningJobs,
       staleRunningJobs,
@@ -1210,7 +1401,9 @@ export async function GET(request: NextRequest) {
         buildAdvisorBlockingMessage({
           connected,
           assignedAccountCount: accountIds.length,
-          deadLetterPartitions: queueHealth?.deadLetterPartitions ?? 0,
+          advisorRelevantDeadLetterPartitions,
+          advisorRelevantFailedPartitions,
+          advisorRelevantUnhealthyLeases,
           recent90MissingSurfaces: advisorMissingSurfaces,
           snapshotAvailable,
           snapshotFresh,
@@ -1264,6 +1457,10 @@ export async function GET(request: NextRequest) {
       maintenanceQueueDepth: queueHealth?.maintenanceQueueDepth ?? 0,
       maintenanceLeasedPartitions: queueHealth?.maintenanceLeasedPartitions ?? 0,
       deadLetterPartitions: queueHealth?.deadLetterPartitions ?? 0,
+      advisorRelevantDeadLetterPartitions,
+      historicalDeadLetterPartitions,
+      advisorRelevantFailedPartitions,
+      advisorRelevantLeasedPartitions,
       oldestQueuedPartition: queueHealth?.oldestQueuedPartition ?? null,
     },
     priorityWindow,
@@ -1272,6 +1469,8 @@ export async function GET(request: NextRequest) {
       canaryEligible,
       quotaPressure: quotaBudgetState?.pressure ?? 0,
       breakerState,
+      statusDegraded: statusDegradedReasons.length > 0,
+      statusDegradedReason: summarizeStatusDegradedReason(statusDegradedReasons),
       extendedRecoveryBlockReason,
       googleWorkerHealthy: workerSchedulingState?.healthy ?? false,
       googleHeartbeatAgeMs: workerSchedulingState?.heartbeatAgeMs ?? null,
@@ -1326,11 +1525,7 @@ export async function GET(request: NextRequest) {
     historicalExtendedReady,
     extendedRecentReadyThroughDate,
     rangeCompletionBySurface,
-    advisorProgress: {
-      percent: advisorPreparationPercent,
-      visible: connected && accountIds.length > 0 && advisorMissingSurfaces.length > 0,
-      summary: advisorProgressSummary,
-    },
+    advisorProgress,
     historicalProgress: {
       percent: historicalBackfillPercent,
       visible:

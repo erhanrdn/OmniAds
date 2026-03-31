@@ -1,4 +1,4 @@
-import { getDb } from "@/lib/db";
+import { getDb, getDbWithTimeout } from "@/lib/db";
 import { getSyncWorkerHealthSummary } from "@/lib/sync/worker-health";
 import { isGoogleAdsExtendedCanaryBusiness } from "@/lib/sync/google-ads-sync";
 
@@ -41,6 +41,8 @@ export interface AdminSyncIssueRow {
 }
 
 export interface AdminSyncHealthPayload {
+  googleAdsHealthStatus?: "ok" | "degraded" | "failed";
+  googleAdsHealthError?: string | null;
   summary: {
     impactedBusinesses: number;
     runningJobs: number;
@@ -173,6 +175,13 @@ export interface AdminSyncHealthPayload {
     recentExtendedReady?: boolean;
     historicalExtendedReady?: boolean;
   }>;
+}
+
+interface GoogleAdsHealthSummaryRow {
+  queueDepth: number;
+  leasedPartitions: number;
+  deadLetterPartitions: number;
+  oldestQueuedPartition: string | null;
 }
 
 export interface AdminRevenueRiskWorkspaceRow {
@@ -487,6 +496,9 @@ export function buildAdminSyncHealth(input: {
   jobs: RawSyncJobRow[];
   cooldowns: RawCooldownRow[];
   googleAdsHealth?: RawGoogleAdsHealthRow[];
+  googleAdsHealthStatus?: "ok" | "degraded" | "failed";
+  googleAdsHealthError?: string | null;
+  googleAdsHealthSummary?: GoogleAdsHealthSummaryRow | null;
   metaHealth?: RawMetaHealthRow[];
   workerHealth?: Awaited<ReturnType<typeof getSyncWorkerHealthSummary>>;
 }): AdminSyncHealthPayload {
@@ -835,6 +847,20 @@ export function buildAdminSyncHealth(input: {
     }
   }
 
+  if ((input.googleAdsHealthStatus ?? "ok") !== "ok") {
+    issueTypes.push("Google Ads health unavailable");
+    if ((input.googleAdsHealth?.length ?? 0) === 0) {
+      googleAdsQueueDepth =
+        input.googleAdsHealthSummary?.queueDepth ?? googleAdsQueueDepth;
+      googleAdsLeasedPartitions =
+        input.googleAdsHealthSummary?.leasedPartitions ?? googleAdsLeasedPartitions;
+      googleAdsDeadLetterPartitions =
+        input.googleAdsHealthSummary?.deadLetterPartitions ?? googleAdsDeadLetterPartitions;
+      googleAdsOldestQueuedPartition =
+        input.googleAdsHealthSummary?.oldestQueuedPartition ?? googleAdsOldestQueuedPartition;
+    }
+  }
+
   for (const row of input.metaHealth ?? []) {
     const queueDepth = Number(row.queue_depth ?? 0);
     const leasedPartitions = Number(row.leased_partitions ?? 0);
@@ -1098,6 +1124,8 @@ export function buildAdminSyncHealth(input: {
   }
 
   return {
+    googleAdsHealthStatus: input.googleAdsHealthStatus ?? "ok",
+    googleAdsHealthError: input.googleAdsHealthError ?? null,
     summary: {
       impactedBusinesses: impactedBusinesses.size,
       runningJobs,
@@ -1284,242 +1312,281 @@ async function readActiveCooldowns() {
 }
 
 async function readGoogleAdsHealthRows() {
-  const sql = getDb();
+  const sql = getDbWithTimeout(30_000);
   return (await sql`
-    SELECT
-      partition.business_id,
-      b.name AS business_name,
-      COUNT(*) FILTER (WHERE partition.status = 'queued') AS queue_depth,
-      COUNT(*) FILTER (WHERE partition.status IN ('leased', 'running')) AS leased_partitions,
-      COUNT(*) FILTER (
-        WHERE partition.status IN ('leased', 'running')
-          AND partition.updated_at < now() - interval '15 minutes'
-      ) AS stale_lease_partitions,
-      COUNT(*) FILTER (WHERE partition.status = 'dead_letter') AS dead_letter_partitions,
-      COUNT(DISTINCT CONCAT(state.provider_account_id, ':', state.scope)) AS state_row_count,
-      MIN(partition.partition_date) FILTER (WHERE partition.status = 'queued') AS oldest_queued_partition,
-      MAX(partition.updated_at) AS latest_partition_activity_at,
-      MAX(state.completed_days) FILTER (WHERE state.scope = 'campaign_daily') AS campaign_completed_days,
-      MAX(state.dead_letter_count) FILTER (WHERE state.scope = 'campaign_daily') AS campaign_dead_letter_count,
-      MAX(state.completed_days) FILTER (WHERE state.scope = 'search_term_daily') AS search_term_completed_days,
-      MAX(state.completed_days) FILTER (WHERE state.scope = 'product_daily') AS product_completed_days,
-      MAX(state.completed_days) FILTER (WHERE state.scope = 'asset_daily') AS asset_completed_days,
-      checkpoint.latest_checkpoint_phase,
-      checkpoint.latest_checkpoint_updated_at,
-      checkpoint.latest_progress_heartbeat_at,
-      checkpoint.last_successful_page_index,
-      checkpoint.checkpoint_failures,
-      checkpoint.poisoned_checkpoint_count,
-      checkpoint.latest_poison_reason,
-      checkpoint.latest_poisoned_at,
-      (
-        SELECT COUNT(*)::int
-        FROM provider_cooldown_state breaker
-        WHERE breaker.business_id = partition.business_id
-          AND breaker.provider = 'google'
-          AND breaker.request_type = '__global_circuit_breaker__'
-          AND breaker.cooldown_until > now()
-      ) AS active_circuit_breakers,
-      (
-        SELECT COUNT(*)::int
-        FROM provider_cooldown_state recovery
-        WHERE recovery.business_id = partition.business_id
-          AND recovery.provider = 'google'
-          AND recovery.request_type = '__global_circuit_breaker_recovery__'
-          AND recovery.cooldown_until > now()
-      ) AS recovery_half_open,
-      COUNT(*) FILTER (
-        WHERE partition.lane = 'extended'
-          AND partition.status = 'cancelled'
-          AND partition.last_error LIKE 'google_ads_incident_suppressed:%'
-      ) AS compacted_partitions,
-      COALESCE(quota.call_count, 0) AS quota_call_count,
-      COALESCE(quota.error_count, 0) AS quota_error_count,
-      ${Math.max(1, Number(process.env.GOOGLE_ADS_DAILY_REQUEST_BUDGET_PER_BUSINESS) || 5000)}::int AS quota_budget,
-      CASE
-        WHEN ${Math.max(1, Number(process.env.GOOGLE_ADS_DAILY_REQUEST_BUDGET_PER_BUSINESS) || 5000)}::numeric > 0
-          THEN COALESCE(quota.call_count, 0)::numeric / ${Math.max(1, Number(process.env.GOOGLE_ADS_DAILY_REQUEST_BUDGET_PER_BUSINESS) || 5000)}::numeric
-        ELSE 0
-      END AS quota_pressure,
-      COALESCE(recent.recent_search_term_completed_days, 0) AS recent_search_term_completed_days,
-      COALESCE(recent.recent_product_completed_days, 0) AS recent_product_completed_days,
-      COALESCE(recent.recent_asset_completed_days, 0) AS recent_asset_completed_days,
-      COALESCE(recent.recent_range_total_days, 14) AS recent_range_total_days,
-      COUNT(*) FILTER (
-        WHERE partition.lane = 'extended'
-          AND partition.source IN ('selected_range', 'today', 'recent', 'core_success', 'recent_recovery')
-          AND partition.status = 'queued'
-      ) AS extended_recent_queue_depth,
-      COUNT(*) FILTER (
-        WHERE partition.lane = 'extended'
-          AND partition.source IN ('selected_range', 'today', 'recent', 'core_success', 'recent_recovery')
-          AND partition.status IN ('leased', 'running')
-      ) AS extended_recent_leased_partitions,
-      COUNT(*) FILTER (
-        WHERE partition.lane = 'extended'
-          AND partition.source IN ('historical', 'historical_recovery')
-          AND partition.status = 'queued'
-      ) AS extended_historical_queue_depth,
-      COUNT(*) FILTER (
-        WHERE partition.lane = 'extended'
-          AND partition.source IN ('historical', 'historical_recovery')
-          AND partition.status IN ('leased', 'running')
-      ) AS extended_historical_leased_partitions,
-      recent.extended_recent_ready_through_date AS extended_recent_ready_through_date,
-      worker.google_worker_healthy,
-      worker.google_heartbeat_age_ms,
-      worker.google_runner_lease_active,
-      stale_runs.stale_run_pressure,
-      reclaim.reclaim_candidate_count,
-      reclaim.last_reclaim_reason
-    FROM google_ads_sync_partitions partition
-    JOIN businesses b ON b.id::text = partition.business_id
-    LEFT JOIN google_ads_sync_state state
-      ON state.business_id = partition.business_id
-      AND state.provider_account_id = partition.provider_account_id
-    LEFT JOIN LATERAL (
+    WITH partition_stats AS (
       SELECT
-        latest.phase AS latest_checkpoint_phase,
-        COALESCE(latest.progress_heartbeat_at, latest.updated_at) AS latest_checkpoint_updated_at,
-        COALESCE(latest.progress_heartbeat_at, latest.updated_at) AS latest_progress_heartbeat_at,
-        latest.page_index AS last_successful_page_index,
-        (
-          SELECT COUNT(*)::int
-          FROM google_ads_sync_checkpoints failures
-          WHERE failures.business_id = partition.business_id
-            AND failures.status = 'failed'
-        ) AS checkpoint_failures,
-        (
-          SELECT COUNT(*)::int
-          FROM google_ads_sync_checkpoints poisoned
-          WHERE poisoned.business_id = partition.business_id
-            AND poisoned.poisoned_at IS NOT NULL
-        ) AS poisoned_checkpoint_count,
-        (
-          SELECT poisoned.poison_reason
-          FROM google_ads_sync_checkpoints poisoned
-          WHERE poisoned.business_id = partition.business_id
-            AND poisoned.poisoned_at IS NOT NULL
-          ORDER BY poisoned.poisoned_at DESC
-          LIMIT 1
-        ) AS latest_poison_reason,
-        (
-          SELECT poisoned.poisoned_at
-          FROM google_ads_sync_checkpoints poisoned
-          WHERE poisoned.business_id = partition.business_id
-            AND poisoned.poisoned_at IS NOT NULL
-          ORDER BY poisoned.poisoned_at DESC
-          LIMIT 1
-        ) AS latest_poisoned_at
-      FROM google_ads_sync_checkpoints latest
-      WHERE latest.business_id = partition.business_id
-      ORDER BY latest.updated_at DESC
-      LIMIT 1
-    ) checkpoint ON TRUE
-    LEFT JOIN LATERAL (
+        business_id,
+        COUNT(*) FILTER (WHERE status = 'queued') AS queue_depth,
+        COUNT(*) FILTER (WHERE status IN ('leased', 'running')) AS leased_partitions,
+        COUNT(*) FILTER (
+          WHERE status IN ('leased', 'running')
+            AND updated_at < now() - interval '15 minutes'
+        ) AS stale_lease_partitions,
+        COUNT(*) FILTER (WHERE status = 'dead_letter') AS dead_letter_partitions,
+        MIN(partition_date) FILTER (WHERE status = 'queued') AS oldest_queued_partition,
+        MAX(updated_at) AS latest_partition_activity_at,
+        COUNT(*) FILTER (
+          WHERE lane = 'extended'
+            AND status = 'cancelled'
+            AND last_error LIKE 'google_ads_incident_suppressed:%'
+        ) AS compacted_partitions,
+        COUNT(*) FILTER (
+          WHERE lane = 'extended'
+            AND source IN ('selected_range', 'today', 'recent', 'core_success', 'recent_recovery')
+            AND status = 'queued'
+        ) AS extended_recent_queue_depth,
+        COUNT(*) FILTER (
+          WHERE lane = 'extended'
+            AND source IN ('selected_range', 'today', 'recent', 'core_success', 'recent_recovery')
+            AND status IN ('leased', 'running')
+        ) AS extended_recent_leased_partitions,
+        COUNT(*) FILTER (
+          WHERE lane = 'extended'
+            AND source IN ('historical', 'historical_recovery')
+            AND status = 'queued'
+        ) AS extended_historical_queue_depth,
+        COUNT(*) FILTER (
+          WHERE lane = 'extended'
+            AND source IN ('historical', 'historical_recovery')
+            AND status IN ('leased', 'running')
+        ) AS extended_historical_leased_partitions
+      FROM google_ads_sync_partitions
+      GROUP BY business_id
+    ),
+    state_stats AS (
       SELECT
-        usage.call_count,
-        usage.error_count
-      FROM provider_quota_usage usage
-      WHERE usage.business_id = partition.business_id
-        AND usage.provider = 'google'
-        AND usage.quota_date = CURRENT_DATE
-      LIMIT 1
-    ) quota ON TRUE
-    LEFT JOIN LATERAL (
-      SELECT
-        COUNT(DISTINCT date) FILTER (WHERE scope = 'search_term_daily') AS recent_search_term_completed_days,
-        COUNT(DISTINCT date) FILTER (WHERE scope = 'product_daily') AS recent_product_completed_days,
-        COUNT(DISTINCT date) FILTER (WHERE scope = 'asset_daily') AS recent_asset_completed_days,
-        MIN(date) FILTER (
-          WHERE scope IN ('search_term_daily', 'product_daily', 'asset_daily')
-        )::text AS extended_recent_ready_through_date,
-        14::int AS recent_range_total_days
+        business_id,
+        COUNT(DISTINCT CONCAT(provider_account_id, ':', scope)) AS state_row_count,
+        MAX(completed_days) FILTER (WHERE scope = 'campaign_daily') AS campaign_completed_days,
+        MAX(dead_letter_count) FILTER (WHERE scope = 'campaign_daily') AS campaign_dead_letter_count,
+        MAX(completed_days) FILTER (WHERE scope = 'search_term_daily') AS search_term_completed_days,
+        MAX(completed_days) FILTER (WHERE scope = 'product_daily') AS product_completed_days,
+        MAX(completed_days) FILTER (WHERE scope = 'asset_daily') AS asset_completed_days
+      FROM google_ads_sync_state
+      GROUP BY business_id
+    ),
+    recent_search AS (
+      SELECT business_id, COUNT(DISTINCT date) AS recent_search_term_completed_days
+      FROM google_ads_search_term_daily
+      WHERE date >= CURRENT_DATE - interval '13 days'
+      GROUP BY business_id
+    ),
+    recent_product AS (
+      SELECT business_id, COUNT(DISTINCT date) AS recent_product_completed_days
+      FROM google_ads_product_daily
+      WHERE date >= CURRENT_DATE - interval '13 days'
+      GROUP BY business_id
+    ),
+    recent_asset AS (
+      SELECT business_id, COUNT(DISTINCT date) AS recent_asset_completed_days
+      FROM google_ads_asset_daily
+      WHERE date >= CURRENT_DATE - interval '13 days'
+      GROUP BY business_id
+    ),
+    recent_ready AS (
+      SELECT business_id, MIN(date)::text AS extended_recent_ready_through_date
       FROM (
-        SELECT 'search_term_daily'::text AS scope, date
+        SELECT business_id, date
         FROM google_ads_search_term_daily
-        WHERE business_id = partition.business_id
-          AND date >= CURRENT_DATE - interval '13 days'
+        WHERE date >= CURRENT_DATE - interval '13 days'
         UNION ALL
-        SELECT 'product_daily'::text AS scope, date
+        SELECT business_id, date
         FROM google_ads_product_daily
-        WHERE business_id = partition.business_id
-          AND date >= CURRENT_DATE - interval '13 days'
+        WHERE date >= CURRENT_DATE - interval '13 days'
         UNION ALL
-        SELECT 'asset_daily'::text AS scope, date
+        SELECT business_id, date
         FROM google_ads_asset_daily
-        WHERE business_id = partition.business_id
-          AND date >= CURRENT_DATE - interval '13 days'
+        WHERE date >= CURRENT_DATE - interval '13 days'
       ) recent_rows
-    ) recent ON TRUE
-    LEFT JOIN LATERAL (
+      GROUP BY business_id
+    ),
+    checkpoint_latest AS (
+      SELECT DISTINCT ON (business_id)
+        business_id,
+        phase AS latest_checkpoint_phase,
+        COALESCE(progress_heartbeat_at, updated_at) AS latest_checkpoint_updated_at,
+        COALESCE(progress_heartbeat_at, updated_at) AS latest_progress_heartbeat_at,
+        page_index AS last_successful_page_index
+      FROM google_ads_sync_checkpoints
+      ORDER BY business_id, updated_at DESC
+    ),
+    checkpoint_rollup AS (
+      SELECT
+        business_id,
+        COUNT(*) FILTER (WHERE status = 'failed') AS checkpoint_failures,
+        COUNT(*) FILTER (WHERE poisoned_at IS NOT NULL) AS poisoned_checkpoint_count
+      FROM google_ads_sync_checkpoints
+      GROUP BY business_id
+    ),
+    checkpoint_poison AS (
+      SELECT DISTINCT ON (business_id)
+        business_id,
+        poison_reason AS latest_poison_reason,
+        poisoned_at AS latest_poisoned_at
+      FROM google_ads_sync_checkpoints
+      WHERE poisoned_at IS NOT NULL
+      ORDER BY business_id, poisoned_at DESC
+    ),
+    breaker_stats AS (
+      SELECT
+        business_id,
+        COUNT(*) FILTER (
+          WHERE provider = 'google'
+            AND request_type = '__global_circuit_breaker__'
+            AND cooldown_until > now()
+        ) AS active_circuit_breakers,
+        COUNT(*) FILTER (
+          WHERE provider = 'google'
+            AND request_type = '__global_circuit_breaker_recovery__'
+            AND cooldown_until > now()
+        ) AS recovery_half_open
+      FROM provider_cooldown_state
+      GROUP BY business_id
+    ),
+    quota_stats AS (
+      SELECT business_id, call_count, error_count
+      FROM provider_quota_usage
+      WHERE provider = 'google'
+        AND quota_date = CURRENT_DATE
+    ),
+    runner_lease_stats AS (
+      SELECT business_id, TRUE AS google_runner_lease_active
+      FROM google_ads_runner_leases
+      WHERE lease_expires_at > now()
+      GROUP BY business_id
+    ),
+    stale_run_stats AS (
+      SELECT business_id, COUNT(*) AS stale_run_pressure
+      FROM google_ads_sync_runs
+      WHERE error_class = 'stale_run'
+        AND updated_at > now() - interval '24 hours'
+      GROUP BY business_id
+    ),
+    reclaim_stats AS (
+      SELECT
+        business_id,
+        COUNT(*) FILTER (
+          WHERE event_type = 'reclaimed'
+            AND created_at > now() - interval '24 hours'
+        ) AS reclaim_candidate_count
+      FROM sync_reclaim_events
+      WHERE provider_scope = 'google_ads'
+      GROUP BY business_id
+    ),
+    reclaim_reason AS (
+      SELECT DISTINCT ON (business_id)
+        business_id,
+        reason_code AS last_reclaim_reason
+      FROM sync_reclaim_events
+      WHERE provider_scope = 'google_ads'
+      ORDER BY business_id, created_at DESC
+    ),
+    worker_stats AS (
       SELECT
         (
           COUNT(*) FILTER (
-            WHERE worker.provider_scope IN ('google_ads', 'all')
-              AND worker.last_heartbeat_at > now() - interval '5 minutes'
+            WHERE provider_scope IN ('google_ads', 'all')
+              AND last_heartbeat_at > now() - interval '5 minutes'
           ) > 0
         ) AS google_worker_healthy,
         MIN(
-          GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (now() - worker.last_heartbeat_at)) * 1000))::bigint
-        ) FILTER (WHERE worker.provider_scope IN ('google_ads', 'all')) AS google_heartbeat_age_ms,
-        EXISTS (
-          SELECT 1
-          FROM google_ads_runner_leases lease
-          WHERE lease.business_id = partition.business_id
-            AND lease.lease_expires_at > now()
-        ) AS google_runner_lease_active
-      FROM sync_worker_heartbeats worker
-    ) worker ON TRUE
-    LEFT JOIN LATERAL (
-      SELECT COUNT(*)::int AS stale_run_pressure
-      FROM google_ads_sync_runs run
-      WHERE run.business_id = partition.business_id
-        AND run.error_class = 'stale_run'
-        AND run.updated_at > now() - interval '24 hours'
-    ) stale_runs ON TRUE
-    LEFT JOIN LATERAL (
-      SELECT
-        (
-          SELECT COUNT(*)::int
-          FROM sync_reclaim_events reclaim_count
-          WHERE reclaim_count.provider_scope = 'google_ads'
-            AND reclaim_count.business_id = partition.business_id
-            AND reclaim_count.event_type = 'reclaimed'
-            AND reclaim_count.created_at > now() - interval '24 hours'
-        ) AS reclaim_candidate_count,
-        (
-          SELECT latest_reclaim.reason_code
-          FROM sync_reclaim_events latest_reclaim
-          WHERE latest_reclaim.provider_scope = 'google_ads'
-            AND latest_reclaim.business_id = partition.business_id
-          ORDER BY latest_reclaim.created_at DESC
-          LIMIT 1
-        ) AS last_reclaim_reason
-    ) reclaim ON TRUE
-    GROUP BY partition.business_id, b.name
-      , checkpoint.latest_checkpoint_phase
-      , checkpoint.latest_checkpoint_updated_at
-      , checkpoint.latest_progress_heartbeat_at
-      , checkpoint.last_successful_page_index
-      , checkpoint.checkpoint_failures
-      , checkpoint.poisoned_checkpoint_count
-      , checkpoint.latest_poison_reason
-      , checkpoint.latest_poisoned_at
-      , recent.recent_search_term_completed_days
-      , recent.recent_product_completed_days
-      , recent.recent_asset_completed_days
-      , recent.recent_range_total_days
-      , recent.extended_recent_ready_through_date
-      , worker.google_worker_healthy
-      , worker.google_heartbeat_age_ms
-      , worker.google_runner_lease_active
-      , stale_runs.stale_run_pressure
-      , reclaim.reclaim_candidate_count
-      , reclaim.last_reclaim_reason
-    HAVING COUNT(*) > 0
-    ORDER BY dead_letter_partitions DESC, queue_depth DESC, latest_partition_activity_at DESC
+          GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (now() - last_heartbeat_at)) * 1000))::bigint
+        ) FILTER (WHERE provider_scope IN ('google_ads', 'all')) AS google_heartbeat_age_ms
+      FROM sync_worker_heartbeats
+    )
+    SELECT
+      partition.business_id,
+      b.name AS business_name,
+      partition.queue_depth,
+      partition.leased_partitions,
+      partition.stale_lease_partitions,
+      partition.dead_letter_partitions,
+      COALESCE(state.state_row_count, 0) AS state_row_count,
+      partition.oldest_queued_partition,
+      partition.latest_partition_activity_at,
+      COALESCE(state.campaign_completed_days, 0) AS campaign_completed_days,
+      COALESCE(state.campaign_dead_letter_count, 0) AS campaign_dead_letter_count,
+      COALESCE(state.search_term_completed_days, 0) AS search_term_completed_days,
+      COALESCE(state.product_completed_days, 0) AS product_completed_days,
+      COALESCE(state.asset_completed_days, 0) AS asset_completed_days,
+      checkpoint_latest.latest_checkpoint_phase,
+      checkpoint_latest.latest_checkpoint_updated_at,
+      checkpoint_latest.latest_progress_heartbeat_at,
+      checkpoint_latest.last_successful_page_index,
+      COALESCE(checkpoint_rollup.checkpoint_failures, 0) AS checkpoint_failures,
+      COALESCE(checkpoint_rollup.poisoned_checkpoint_count, 0) AS poisoned_checkpoint_count,
+      checkpoint_poison.latest_poison_reason,
+      checkpoint_poison.latest_poisoned_at,
+      COALESCE(breaker_stats.active_circuit_breakers, 0) AS active_circuit_breakers,
+      COALESCE(breaker_stats.recovery_half_open, 0) AS recovery_half_open,
+      partition.compacted_partitions,
+      COALESCE(quota_stats.call_count, 0) AS quota_call_count,
+      COALESCE(quota_stats.error_count, 0) AS quota_error_count,
+      ${Math.max(1, Number(process.env.GOOGLE_ADS_DAILY_REQUEST_BUDGET_PER_BUSINESS) || 5000)}::int AS quota_budget,
+      CASE
+        WHEN ${Math.max(1, Number(process.env.GOOGLE_ADS_DAILY_REQUEST_BUDGET_PER_BUSINESS) || 5000)}::numeric > 0
+          THEN COALESCE(quota_stats.call_count, 0)::numeric / ${Math.max(1, Number(process.env.GOOGLE_ADS_DAILY_REQUEST_BUDGET_PER_BUSINESS) || 5000)}::numeric
+        ELSE 0
+      END AS quota_pressure,
+      COALESCE(recent_search.recent_search_term_completed_days, 0) AS recent_search_term_completed_days,
+      COALESCE(recent_product.recent_product_completed_days, 0) AS recent_product_completed_days,
+      COALESCE(recent_asset.recent_asset_completed_days, 0) AS recent_asset_completed_days,
+      14::int AS recent_range_total_days,
+      partition.extended_recent_queue_depth,
+      partition.extended_recent_leased_partitions,
+      partition.extended_historical_queue_depth,
+      partition.extended_historical_leased_partitions,
+      recent_ready.extended_recent_ready_through_date,
+      worker_stats.google_worker_healthy,
+      worker_stats.google_heartbeat_age_ms,
+      COALESCE(runner_lease_stats.google_runner_lease_active, FALSE) AS google_runner_lease_active,
+      COALESCE(stale_run_stats.stale_run_pressure, 0) AS stale_run_pressure,
+      COALESCE(reclaim_stats.reclaim_candidate_count, 0) AS reclaim_candidate_count,
+      reclaim_reason.last_reclaim_reason
+    FROM partition_stats partition
+    JOIN businesses b ON b.id::text = partition.business_id
+    LEFT JOIN state_stats state ON state.business_id = partition.business_id
+    LEFT JOIN recent_search ON recent_search.business_id = partition.business_id
+    LEFT JOIN recent_product ON recent_product.business_id = partition.business_id
+    LEFT JOIN recent_asset ON recent_asset.business_id = partition.business_id
+    LEFT JOIN recent_ready ON recent_ready.business_id = partition.business_id
+    LEFT JOIN checkpoint_latest ON checkpoint_latest.business_id = partition.business_id
+    LEFT JOIN checkpoint_rollup ON checkpoint_rollup.business_id = partition.business_id
+    LEFT JOIN checkpoint_poison ON checkpoint_poison.business_id = partition.business_id
+    LEFT JOIN breaker_stats ON breaker_stats.business_id = partition.business_id
+    LEFT JOIN quota_stats ON quota_stats.business_id = partition.business_id
+    LEFT JOIN runner_lease_stats ON runner_lease_stats.business_id = partition.business_id
+    LEFT JOIN stale_run_stats ON stale_run_stats.business_id = partition.business_id
+    LEFT JOIN reclaim_stats ON reclaim_stats.business_id = partition.business_id
+    LEFT JOIN reclaim_reason ON reclaim_reason.business_id = partition.business_id
+    CROSS JOIN worker_stats
+    ORDER BY partition.dead_letter_partitions DESC, partition.queue_depth DESC, partition.latest_partition_activity_at DESC
   `) as RawGoogleAdsHealthRow[];
+}
+
+async function readGoogleAdsHealthSummaryRow() {
+  const sql = getDb();
+  const rows = (await sql`
+    SELECT
+      COUNT(*) FILTER (WHERE status = 'queued') AS queue_depth,
+      COUNT(*) FILTER (WHERE status IN ('leased', 'running')) AS leased_partitions,
+      COUNT(*) FILTER (WHERE status = 'dead_letter') AS dead_letter_partitions,
+      MIN(partition_date) FILTER (WHERE status = 'queued') AS oldest_queued_partition
+    FROM google_ads_sync_partitions
+  `) as Array<Record<string, unknown>>;
+  const row = rows[0] ?? {};
+  return {
+    queueDepth: Number(row.queue_depth ?? 0),
+    leasedPartitions: Number(row.leased_partitions ?? 0),
+    deadLetterPartitions: Number(row.dead_letter_partitions ?? 0),
+    oldestQueuedPartition:
+      typeof row.oldest_queued_partition === "string"
+        ? row.oldest_queued_partition
+        : row.oldest_queued_partition instanceof Date
+          ? row.oldest_queued_partition.toISOString()
+          : null,
+  } satisfies GoogleAdsHealthSummaryRow;
 }
 
 async function readMetaHealthRows() {
@@ -1714,12 +1781,31 @@ async function readRevenueSubscriptions() {
 }
 
 export async function getAdminOperationsHealth() {
-  const [authRows, syncJobs, cooldowns, googleAdsHealth, metaHealth, revenueWorkspaces, revenueSubscriptions, workerHealth] =
+  const [authRows, syncJobs, cooldowns, googleAdsHealthResult, metaHealth, revenueWorkspaces, revenueSubscriptions, workerHealth] =
     await Promise.all([
       readAuthRows().catch(() => []),
       readSyncJobs().catch(() => []),
       readActiveCooldowns().catch(() => []),
-      readGoogleAdsHealthRows().catch(() => []),
+      (async () => {
+        try {
+          const rows = await readGoogleAdsHealthRows();
+          return {
+            status: "ok" as const,
+            error: null,
+            rows,
+            summary: null,
+          };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          const summary = await readGoogleAdsHealthSummaryRow().catch(() => null);
+          return {
+            status: summary ? ("degraded" as const) : ("failed" as const),
+            error: message,
+            rows: [] as RawGoogleAdsHealthRow[],
+            summary,
+          };
+        }
+      })(),
       readMetaHealthRows().catch(() => []),
       readRevenueWorkspaces().catch(() => []),
       readRevenueSubscriptions().catch(() => []),
@@ -1736,7 +1822,10 @@ export async function getAdminOperationsHealth() {
   const syncHealth = buildAdminSyncHealth({
     jobs: syncJobs,
     cooldowns,
-    googleAdsHealth,
+    googleAdsHealth: googleAdsHealthResult.rows,
+    googleAdsHealthStatus: googleAdsHealthResult.status,
+    googleAdsHealthError: googleAdsHealthResult.error,
+    googleAdsHealthSummary: googleAdsHealthResult.summary,
     metaHealth,
     workerHealth,
   });

@@ -5,6 +5,9 @@ export interface GoogleAdsStatusDecisionInput {
   assignedAccountCount: number;
   historicalQueuePaused: boolean;
   deadLetterPartitions: number;
+  advisorRelevantDeadLetterPartitions?: number;
+  advisorRelevantUnhealthyLeases?: number;
+  advisorRelevantFailedPartitions?: number;
   latestSyncStatus?: string | null;
   runningJobs: number;
   staleRunningJobs: number;
@@ -85,7 +88,9 @@ export function decideGoogleAdsStatusState(
   if (!input.connected) return "not_connected";
   if (input.assignedAccountCount === 0) return "connected_no_assignment";
   if (input.historicalQueuePaused) return "paused";
-  if (input.deadLetterPartitions > 0) return "action_required";
+  if ((input.advisorRelevantDeadLetterPartitions ?? 0) > 0) return "action_required";
+  if ((input.advisorRelevantFailedPartitions ?? 0) > 0) return "action_required";
+  if ((input.advisorRelevantUnhealthyLeases ?? 0) > 0) return "action_required";
   if (input.latestSyncStatus === "failed" && input.runningJobs === 0) return "action_required";
   if (input.staleRunningJobs > 0) return "stale";
   if (input.advisorNotReady) return "advisor_not_ready";

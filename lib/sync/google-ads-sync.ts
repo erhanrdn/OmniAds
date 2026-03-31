@@ -2680,6 +2680,7 @@ async function refreshGoogleAdsSyncStateForPartition(input: {
       providerAccountId: input.providerAccountId,
       startDate: historicalStart,
       endDate: yesterday,
+      includeMetadata: true,
     }).catch(() => null),
     getGoogleAdsPartitionHealth({
       businessId: input.businessId,

@@ -167,6 +167,10 @@ export interface GoogleAdsStatusResponse {
     maintenanceQueueDepth?: number;
     maintenanceLeasedPartitions?: number;
     deadLetterPartitions?: number;
+    advisorRelevantDeadLetterPartitions?: number;
+    historicalDeadLetterPartitions?: number;
+    advisorRelevantFailedPartitions?: number;
+    advisorRelevantLeasedPartitions?: number;
     oldestQueuedPartition?: string | null;
   } | null;
   priorityWindow?: {
@@ -181,6 +185,8 @@ export interface GoogleAdsStatusResponse {
     canaryEligible: boolean;
     quotaPressure: number;
     breakerState: "open" | "half_open" | "closed";
+    statusDegraded?: boolean;
+    statusDegradedReason?: string | null;
     extendedRecoveryBlockReason?: string | null;
     googleWorkerHealthy?: boolean;
     googleHeartbeatAgeMs?: number | null;

@@ -30,6 +30,7 @@ import type { GoogleAdsReportMeta } from "@/lib/google-ads/normalizers";
 import {
   createGoogleAdsWarehouseFreshness,
   readGoogleAdsAggregatedRange,
+  readGoogleAdsDailyRange,
   getGoogleAdsCoveredDates,
   getGoogleAdsDailyCoverage,
   getLatestGoogleAdsSyncHealth,
@@ -71,6 +72,99 @@ function asObject(value: unknown) {
 
 function normalizeDate(value: string) {
   return value.slice(0, 10);
+}
+
+function isWarehouseAggregationOom(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  const message = error.message.toLowerCase();
+  const code = "code" in error ? String((error as { code?: unknown }).code ?? "") : "";
+  return code === "53200" || message.includes("out of memory");
+}
+
+function aggregateDailyRowsLocally(dailyRows: GoogleAdsWarehouseDailyRow[]) {
+  const byEntityKey = new Map<
+    string,
+    {
+      latest: GoogleAdsWarehouseDailyRow;
+      spend: number;
+      revenue: number;
+      conversions: number;
+      impressions: number;
+      clicks: number;
+      updatedAt: string | null;
+    }
+  >();
+
+  for (const row of dailyRows) {
+    const existing = byEntityKey.get(row.entityKey);
+    const nextUpdatedAt = row.updatedAt ?? null;
+    if (!existing) {
+      byEntityKey.set(row.entityKey, {
+        latest: row,
+        spend: row.spend,
+        revenue: row.revenue,
+        conversions: row.conversions,
+        impressions: row.impressions,
+        clicks: row.clicks,
+        updatedAt: nextUpdatedAt,
+      });
+      continue;
+    }
+
+    existing.spend += row.spend;
+    existing.revenue += row.revenue;
+    existing.conversions += row.conversions;
+    existing.impressions += row.impressions;
+    existing.clicks += row.clicks;
+    if (
+      nextUpdatedAt &&
+      (!existing.updatedAt || nextUpdatedAt.localeCompare(existing.updatedAt) > 0)
+    ) {
+      existing.latest = row;
+      existing.updatedAt = nextUpdatedAt;
+    }
+  }
+
+  return Array.from(byEntityKey.values())
+    .map((entry) => {
+      const latest = entry.latest;
+      const payload = asObject(latest.payloadJson);
+      const spend = entry.spend;
+      const revenue = entry.revenue;
+      const conversions = entry.conversions;
+      const impressions = entry.impressions;
+      const clicks = entry.clicks;
+      return {
+        ...payload,
+        id: String(payload.id ?? latest.entityKey),
+        name: String(payload.name ?? latest.entityLabel ?? latest.entityKey),
+        entityKey: latest.entityKey,
+        entityLabel: latest.entityLabel,
+        campaignId: latest.campaignId,
+        campaignName: latest.campaignName,
+        adGroupId: latest.adGroupId,
+        adGroupName: latest.adGroupName,
+        status: latest.status,
+        channel: latest.channel,
+        classification: latest.classification,
+        spend,
+        revenue,
+        conversions,
+        impressions,
+        clicks,
+        roas: spend > 0 ? Number((revenue / spend).toFixed(2)) : 0,
+        cpa: conversions > 0 ? Number((spend / conversions).toFixed(2)) : 0,
+        ctr: impressions > 0 ? Number(((clicks / impressions) * 100).toFixed(2)) : 0,
+        cpc: clicks > 0 ? Number((spend / clicks).toFixed(2)) : null,
+        conversionRate: clicks > 0 ? Number(((conversions / clicks) * 100).toFixed(2)) : null,
+        updatedAt: latest.updatedAt ?? null,
+      } as Record<string, unknown>;
+    })
+    .sort(
+      (left, right) =>
+        toNumber(right.spend) - toNumber(left.spend) ||
+        String(right.updatedAt ?? "").localeCompare(String(left.updatedAt ?? ""))
+    );
 }
 
 function enumerateDays(startDate: string, endDate: string) {
@@ -171,6 +265,7 @@ async function buildFreshness(input: {
     providerAccountId: input.providerAccountIds.length === 1 ? input.providerAccountIds[0] : null,
     startDate: input.startDate,
     endDate: input.endDate,
+    includeMetadata: true,
   }).catch(() => null);
   const coveredDates = new Set(
     await getGoogleAdsCoveredDates({
@@ -465,17 +560,41 @@ async function readAggregatedScope(input: {
   startDate: string;
   endDate: string;
 }) {
-  const rows = await readGoogleAdsAggregatedRange({
-    scope: input.scope,
-    businessId: input.businessId,
-    providerAccountIds: input.providerAccountIds,
-    startDate: input.startDate,
-    endDate: input.endDate,
-  });
-  return {
-    dailyRows: [] as GoogleAdsWarehouseDailyRow[],
-    rows,
-  };
+  try {
+    const rows = await readGoogleAdsAggregatedRange({
+      scope: input.scope,
+      businessId: input.businessId,
+      providerAccountIds: input.providerAccountIds,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      timeoutMs: 30_000,
+    });
+    return {
+      dailyRows: [] as GoogleAdsWarehouseDailyRow[],
+      rows,
+    };
+  } catch (error) {
+    if (!isWarehouseAggregationOom(error)) throw error;
+    console.warn("[google-ads-serving] aggregation-fallback-to-daily", {
+      scope: input.scope,
+      businessId: input.businessId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    const dailyRows = await readGoogleAdsDailyRange({
+      scope: input.scope,
+      businessId: input.businessId,
+      providerAccountIds: input.providerAccountIds,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      timeoutMs: 30_000,
+    });
+    return {
+      dailyRows,
+      rows: aggregateDailyRowsLocally(dailyRows),
+    };
+  }
 }
 
 function toCampaignRows(
@@ -1233,7 +1352,7 @@ export async function buildCanonicalGoogleAdsAdvisorReport(params: BaseReportPar
       () => getGoogleAdsSearchIntelligenceReport({ ...params, dateRange: "custom", customStart: last90.customStart, customEnd: last90.customEnd }),
       () => getGoogleAdsProductsReport({ ...params, dateRange: "custom", customStart: last90.customStart, customEnd: last90.customEnd }),
     ],
-    4
+    2
   );
 
   return finalizeGoogleAdsAdvisorReport({
@@ -1319,7 +1438,7 @@ export async function getGoogleAdsAdvisorReport(
       () => getGoogleAdsSearchIntelligenceReport({ ...params, dateRange: "custom", customStart: last90.customStart, customEnd: last90.customEnd }),
       () => getGoogleAdsProductsReport({ ...params, dateRange: "custom", customStart: last90.customStart, customEnd: last90.customEnd }),
     ],
-    4
+    2
   );
 
   return finalizeGoogleAdsAdvisorReport({

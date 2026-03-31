@@ -486,12 +486,21 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
     enabled: needsTrendData,
   });
 
-  const { data: syncStatus } = useQuery<GoogleAdsStatusResponse>({
+  const {
+    data: syncStatus,
+    isLoading: isSyncStatusLoading,
+    isError: isSyncStatusError,
+  } = useQuery<GoogleAdsStatusResponse>({
     queryKey: ["gads-status", businessId, startDate, endDate],
     queryFn: async () => {
       const params = new URLSearchParams({ businessId, startDate, endDate });
       const res = await fetch(`/api/google-ads/status?${params}`);
-      if (!res.ok) throw new Error("status fetch failed");
+      if (!res.ok) {
+        const payload = (await res.json().catch(() => null)) as
+          | { message?: string; error?: string }
+          | null;
+        throw new Error(payload?.message ?? payload?.error ?? "status fetch failed");
+      }
       return res.json();
     },
     staleTime: 30 * 1000,
@@ -522,7 +531,10 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
     canOpen: advisorCanOpen,
     hasCurrentAnalysis: Boolean(advisorCurrent),
   });
-  const advisorIdleState = getGoogleAdsAdvisorIdleState(syncStatus);
+  const advisorIdleState = getGoogleAdsAdvisorIdleState(syncStatus, {
+    isStatusLoading: isSyncStatusLoading,
+    isStatusError: isSyncStatusError,
+  });
   useEffect(() => {
     if (!advisorReady && !advisorCanOpen && advisorAnalysisKey === currentAdvisorKey) {
       setAdvisorData(undefined);
@@ -1098,6 +1110,8 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                       ctaState: advisorCtaState,
                       advisorIsStale,
                       lastAnalyzedLabel,
+                      isStatusLoading: isSyncStatusLoading,
+                      isStatusError: isSyncStatusError,
                     })}
                   </p>
                 </div>
@@ -1148,6 +1162,30 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
           </div>
           <p className="mt-2 text-sm font-medium">{syncStatus.panel.headline}</p>
           <p className="mt-1 text-xs text-muted-foreground">{syncStatus.panel.detail}</p>
+        </div>
+      ) : isSyncStatusLoading ? (
+        <div className="rounded-xl border border-border/70 bg-card p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-medium text-slate-700">
+              Status loading
+            </span>
+          </div>
+          <p className="mt-2 text-sm font-medium">Analysis readiness is being checked</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Google Ads sync status is still loading for this account.
+          </p>
+        </div>
+      ) : isSyncStatusError ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full border border-amber-200 bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-900">
+              Status unavailable
+            </span>
+          </div>
+          <p className="mt-2 text-sm font-medium">Analysis status could not be loaded</p>
+          <p className="mt-1 text-xs text-amber-900/80">
+            Retry the sync status check. Campaign metrics can still render while the advisor status request is degraded.
+          </p>
         </div>
       ) : null}
 

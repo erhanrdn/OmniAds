@@ -103,3 +103,42 @@ export function getDb() {
   logStartupEvent("db_client_initialized", { timeoutMs });
   return wrapped;
 }
+
+export function getDbWithTimeout(timeoutMs: number) {
+  const globalStore = globalThis as typeof globalThis & {
+    __omniadsDb?: ReturnType<typeof neon>;
+    __omniadsDbWrappedByTimeout?: Map<number, ReturnType<typeof neon>>;
+  };
+  const url = process.env.DATABASE_URL;
+  if (!url) {
+    throw new Error(
+      "DATABASE_URL is not set. Make sure your Neon database env vars are in .env.local",
+    );
+  }
+  if (!globalStore.__omniadsDb) {
+    globalStore.__omniadsDb = neon(url) as ReturnType<typeof neon>;
+  }
+  if (!globalStore.__omniadsDbWrappedByTimeout) {
+    globalStore.__omniadsDbWrappedByTimeout = new Map();
+  }
+  const existing = globalStore.__omniadsDbWrappedByTimeout.get(timeoutMs);
+  if (existing) return existing;
+
+  const client = globalStore.__omniadsDb;
+  const wrapped = Object.assign(
+    ((strings: TemplateStringsArray, ...values: unknown[]) =>
+      withDbRetries(() =>
+        withTimeout(client(strings, ...values), timeoutMs, "Database query")
+      )) as ReturnType<typeof neon>,
+    {
+      query: ((...args: Parameters<typeof client.query>) =>
+        withDbRetries(() =>
+          withTimeout(client.query(...args), timeoutMs, "Database query")
+        )) as typeof client.query,
+    }
+  );
+
+  globalStore.__omniadsDbWrappedByTimeout.set(timeoutMs, wrapped);
+  logStartupEvent("db_client_initialized", { timeoutMs });
+  return wrapped;
+}

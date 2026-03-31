@@ -86,13 +86,50 @@ describe("google ads advisor ux helpers", () => {
     expect(
       getGoogleAdsAdvisorHelperText({
         status: buildStatus({
-          operations: { advisorSnapshotBlockedReason: "dead_letter_partitions" },
+          operations: {
+            advisorSnapshotBlockedReason: "recent_required_dead_letter_partitions",
+          },
         }),
         ctaState: "blocked",
         advisorIsStale: false,
         lastAnalyzedLabel: null,
       })
     ).toBe("Some analysis inputs need recovery before insights can open.");
+  });
+
+  it("surfaces status loading and error states explicitly", () => {
+    expect(
+      getGoogleAdsAdvisorHelperText({
+        status: undefined,
+        ctaState: "blocked",
+        advisorIsStale: false,
+        lastAnalyzedLabel: null,
+      })
+    ).toBe("Analysis readiness is still being checked.");
+
+    expect(
+      getGoogleAdsAdvisorHelperText({
+        status: undefined,
+        ctaState: "blocked",
+        advisorIsStale: false,
+        lastAnalyzedLabel: null,
+        isStatusError: true,
+      })
+    ).toBe("Analysis status could not be loaded. Retry the sync status check.");
+
+    expect(
+      getGoogleAdsAdvisorIdleState(
+        buildStatus({
+          operations: {
+            statusDegraded: true,
+            statusDegradedReason: "Analysis status is degraded: queue_health timed out.",
+          },
+        })
+      )
+    ).toEqual({
+      title: "Analysis status is degraded",
+      description: "Analysis status is degraded: queue_health timed out.",
+    });
   });
 
   it("keeps full-sync blocker copy user-facing", () => {

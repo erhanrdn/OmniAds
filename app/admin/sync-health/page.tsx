@@ -18,6 +18,8 @@ interface SyncIssueRow {
 }
 
 interface SyncHealthPayload {
+  googleAdsHealthStatus?: "ok" | "degraded" | "failed";
+  googleAdsHealthError?: string | null;
   summary: {
     impactedBusinesses: number;
     runningJobs: number;
@@ -279,9 +281,9 @@ export default function AdminSyncHealthPage() {
     activeCooldowns: 0,
     successJobs24h: 0,
     topIssue: null,
-    googleAdsQueueDepth: 0,
-    googleAdsLeasedPartitions: 0,
-    googleAdsDeadLetterPartitions: 0,
+    googleAdsQueueDepth: undefined,
+    googleAdsLeasedPartitions: undefined,
+    googleAdsDeadLetterPartitions: undefined,
     googleAdsOldestQueuedPartition: null,
     metaQueueDepth: 0,
     metaLeasedPartitions: 0,
@@ -291,16 +293,18 @@ export default function AdminSyncHealthPage() {
     workerInstances: 0,
     workerLastHeartbeatAt: null,
     workerLastProgressHeartbeatAt: null,
-    googleAdsSafeModeActive: false,
-    googleAdsCircuitBreakerBusinesses: 0,
-    googleAdsCompactedPartitions: 0,
-    googleAdsBudgetPressureMax: 0,
-    googleAdsRecoveryBusinesses: 0,
-    googleAdsCanaryBusinesses: 0,
+    googleAdsSafeModeActive: undefined,
+    googleAdsCircuitBreakerBusinesses: undefined,
+    googleAdsCompactedPartitions: undefined,
+    googleAdsBudgetPressureMax: undefined,
+    googleAdsRecoveryBusinesses: undefined,
+    googleAdsCanaryBusinesses: undefined,
   };
   const issues = payload?.issues ?? [];
   const googleAdsBusinesses = payload?.googleAdsBusinesses ?? [];
   const metaBusinesses = payload?.metaBusinesses ?? [];
+  const googleAdsHealthStatus = payload?.googleAdsHealthStatus ?? "ok";
+  const googleAdsHealthError = payload?.googleAdsHealthError ?? null;
 
   async function runProviderAction(
     businessId: string,
@@ -379,17 +383,37 @@ export default function AdminSyncHealthPage() {
         <MetricCard label="Stuck" value={summary.stuckJobs} help={SYNC_HELP.Stuck} />
         <MetricCard label="Running" value={summary.runningJobs} help={SYNC_HELP.Running} />
         <MetricCard label="Cooldowns" value={summary.activeCooldowns} help={SYNC_HELP.Cooldowns} />
-        <MetricCard label="GAds Queue" value={summary.googleAdsQueueDepth ?? 0} help="Google Ads partition queue depth across all businesses." />
-        <MetricCard label="GAds Leased" value={summary.googleAdsLeasedPartitions ?? 0} help="Google Ads partitions currently leased or running." />
-        <MetricCard label="GAds Dead" value={summary.googleAdsDeadLetterPartitions ?? 0} help="Google Ads dead-letter partitions that require intervention." />
-        <MetricCard label="GAds Breaker" value={summary.googleAdsCircuitBreakerBusinesses ?? 0} help="Businesses currently blocked by the Google Ads circuit breaker." />
-        <MetricCard label="GAds Compact" value={summary.googleAdsCompactedPartitions ?? 0} help="Extended Google Ads partitions compacted or suppressed during incident containment." />
-        <MetricCard label="GAds Recovery" value={summary.googleAdsRecoveryBusinesses ?? 0} help="Businesses currently in Google Ads half-open recovery mode." />
-        <MetricCard label="GAds Canary" value={summary.googleAdsCanaryBusinesses ?? 0} help="Businesses currently eligible for controlled extended-lane canary reopen." />
+        <MetricCard label="GAds Queue" value={summary.googleAdsQueueDepth} help="Google Ads partition queue depth across all businesses." />
+        <MetricCard label="GAds Leased" value={summary.googleAdsLeasedPartitions} help="Google Ads partitions currently leased or running." />
+        <MetricCard label="GAds Dead" value={summary.googleAdsDeadLetterPartitions} help="Google Ads dead-letter partitions that require intervention." />
+        <MetricCard label="GAds Breaker" value={summary.googleAdsCircuitBreakerBusinesses} help="Businesses currently blocked by the Google Ads circuit breaker." />
+        <MetricCard label="GAds Compact" value={summary.googleAdsCompactedPartitions} help="Extended Google Ads partitions compacted or suppressed during incident containment." />
+        <MetricCard label="GAds Recovery" value={summary.googleAdsRecoveryBusinesses} help="Businesses currently in Google Ads half-open recovery mode." />
+        <MetricCard label="GAds Canary" value={summary.googleAdsCanaryBusinesses} help="Businesses currently eligible for controlled extended-lane canary reopen." />
         <MetricCard label="Meta Queue" value={summary.metaQueueDepth ?? 0} help="Meta partition queue depth across all businesses." />
         <MetricCard label="Meta Leased" value={summary.metaLeasedPartitions ?? 0} help="Meta partitions currently leased or running." />
         <MetricCard label="Meta Dead" value={summary.metaDeadLetterPartitions ?? 0} help="Meta dead-letter partitions that require intervention." />
       </div>
+
+      {googleAdsHealthStatus !== "ok" ? (
+        <div
+          className={`rounded-xl border px-5 py-4 text-sm ${
+            googleAdsHealthStatus === "failed"
+              ? "border-red-200 bg-red-50 text-red-700"
+              : "border-amber-200 bg-amber-50 text-amber-800"
+          }`}
+        >
+          <p className="font-medium">
+            {googleAdsHealthStatus === "failed"
+              ? "Google Ads Sync Health is currently unavailable."
+              : "Google Ads Sync Health is degraded."}
+          </p>
+          <p className="mt-1">
+            {googleAdsHealthError ??
+              "Google Ads queue details could not be loaded, but lightweight summary counts are still shown where available."}
+          </p>
+        </div>
+      ) : null}
 
       <div className="rounded-xl border border-gray-200 bg-white p-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -498,7 +522,11 @@ export default function AdminSyncHealthPage() {
           </p>
         </div>
         {googleAdsBusinesses.length === 0 ? (
-          <div className="px-5 py-10 text-sm text-gray-400">Google Ads queue verisi yok.</div>
+          <div className="px-5 py-10 text-sm text-gray-400">
+            {googleAdsHealthStatus === "ok"
+              ? "Google Ads queue verisi yok."
+              : "Google Ads queue detaylari simdilik kullanilamiyor."}
+          </div>
         ) : (
           <div className="divide-y divide-gray-100">
             {googleAdsBusinesses.map((business) => {
@@ -747,7 +775,7 @@ function MetricCard({
   help,
 }: {
   label: string;
-  value: number;
+  value: number | string | null | undefined;
   help?: string;
 }) {
   return (
@@ -756,7 +784,9 @@ function MetricCard({
         <p className="text-xs font-medium uppercase tracking-wide text-gray-400">{label}</p>
         {help ? <InlineHelp text={help} /> : null}
       </div>
-      <p className="text-3xl font-bold text-gray-900 mt-2">{value}</p>
+      <p className="text-3xl font-bold text-gray-900 mt-2">
+        {value == null ? "—" : value}
+      </p>
     </div>
   );
 }

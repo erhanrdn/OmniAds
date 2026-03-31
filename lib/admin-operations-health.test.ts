@@ -234,6 +234,37 @@ describe("buildAdminSyncHealth", () => {
     expect(payload.metaBusinesses?.[0]?.historicalExtendedReady).toBe(false);
     expect(payload.metaBusinesses?.[0]?.effectiveMode).toBe("extended_recovery");
   });
+
+  it("keeps lightweight google ads summary when detailed health is degraded", () => {
+    const payload = buildAdminSyncHealth({
+      jobs: [],
+      cooldowns: [],
+      googleAdsHealth: [],
+      googleAdsHealthStatus: "degraded",
+      googleAdsHealthError: "Database query timed out",
+      googleAdsHealthSummary: {
+        queueDepth: 12,
+        leasedPartitions: 3,
+        deadLetterPartitions: 8,
+        oldestQueuedPartition: "2026-03-20",
+      },
+      workerHealth: {
+        onlineWorkers: 1,
+        workerInstances: 1,
+        lastHeartbeatAt: new Date().toISOString(),
+        lastProgressHeartbeatAt: new Date().toISOString(),
+        workers: [],
+      },
+    });
+
+    expect(payload.googleAdsHealthStatus).toBe("degraded");
+    expect(payload.googleAdsHealthError).toBe("Database query timed out");
+    expect(payload.summary.googleAdsQueueDepth).toBe(12);
+    expect(payload.summary.googleAdsLeasedPartitions).toBe(3);
+    expect(payload.summary.googleAdsDeadLetterPartitions).toBe(8);
+    expect(payload.summary.googleAdsOldestQueuedPartition).toBe("2026-03-20");
+    expect(payload.summary.topIssue).toBe("Google Ads health unavailable");
+  });
 });
 
 describe("buildAdminRevenueRisk", () => {

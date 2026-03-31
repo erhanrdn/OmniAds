@@ -47,6 +47,9 @@ describe("decideGoogleAdsStatusState", () => {
     assignedAccountCount: 1,
     historicalQueuePaused: false,
     deadLetterPartitions: 0,
+    advisorRelevantDeadLetterPartitions: 0,
+    advisorRelevantFailedPartitions: 0,
+    advisorRelevantUnhealthyLeases: 0,
     latestSyncStatus: null,
     runningJobs: 0,
     staleRunningJobs: 0,
@@ -93,13 +96,23 @@ describe("decideGoogleAdsStatusState", () => {
     ).toBe("paused");
   });
 
-  it("returns action_required when dead letters exist", () => {
+  it("returns action_required when advisor-relevant dead letters exist", () => {
     expect(
       decideGoogleAdsStatusState({
         ...baseInput,
-        deadLetterPartitions: 1,
+        deadLetterPartitions: 12,
+        advisorRelevantDeadLetterPartitions: 1,
       })
     ).toBe("action_required");
+  });
+
+  it("does not return action_required when only historical dead letters exist", () => {
+    expect(
+      decideGoogleAdsStatusState({
+        ...baseInput,
+        deadLetterPartitions: 12,
+      })
+    ).toBe("ready");
   });
 });
 

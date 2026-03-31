@@ -22,9 +22,11 @@ const GOOGLE_ADS_SCOPES: GoogleAdsWarehouseScope[] = [
 async function main() {
   const businessId = process.argv[2];
   const requestedScope = process.argv[3] ?? null;
+  const startDate = process.argv[4] ?? null;
+  const endDate = process.argv[5] ?? startDate;
   if (!businessId) {
     console.error(
-      "usage: node --import tsx scripts/google-ads-replay-dead-letter.ts <businessId> [scope]"
+      "usage: node --import tsx scripts/google-ads-replay-dead-letter.ts <businessId> [scope] [startDate] [endDate]"
     );
     process.exit(1);
   }
@@ -35,6 +37,8 @@ async function main() {
       requestedScope && GOOGLE_ADS_SCOPES.includes(requestedScope as GoogleAdsWarehouseScope)
         ? (requestedScope as GoogleAdsWarehouseScope)
         : null,
+    startDate,
+    endDate,
   });
 
   console.log(
@@ -42,6 +46,8 @@ async function main() {
       {
         businessId,
         scope: requestedScope,
+        startDate,
+        endDate,
         replayedCount: rows.length,
         rows,
       },

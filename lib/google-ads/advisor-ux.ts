@@ -3,10 +3,25 @@ import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
 export type GoogleAdsAdvisorCtaState = "ready" | "refreshable" | "blocked";
 
 function getAdvisorBlockedCopy(
-  status: GoogleAdsStatusResponse | undefined
+  status: GoogleAdsStatusResponse | undefined,
+  options?: {
+    isStatusLoading?: boolean;
+    isStatusError?: boolean;
+  }
 ): string {
+  if (options?.isStatusError) {
+    return "Analysis status could not be loaded. Retry the sync status check.";
+  }
+
   if (!status) {
     return "Analysis readiness is still being checked.";
+  }
+
+  if (status.operations?.statusDegraded) {
+    return (
+      status.operations.statusDegradedReason ??
+      "Analysis status is temporarily degraded. Retry the sync status check."
+    );
   }
 
   if (!status.connected) {
@@ -23,8 +38,12 @@ function getAdvisorBlockedCopy(
 
   switch (status.operations?.advisorSnapshotBlockedReason) {
     case "recent90_incomplete":
+    case "missing_recent_required_surfaces":
       return "Search term and product history are still being prepared. Analysis will unlock automatically.";
     case "dead_letter_partitions":
+    case "recent_required_dead_letter_partitions":
+    case "recent_required_failed_partitions":
+    case "recent_required_unhealthy_leases":
       return "Some analysis inputs need recovery before insights can open.";
     case "snapshot_missing":
       return "Analysis is being prepared for this account.";
@@ -66,9 +85,14 @@ export function getGoogleAdsAdvisorHelperText(input: {
   ctaState: GoogleAdsAdvisorCtaState;
   advisorIsStale: boolean;
   lastAnalyzedLabel: string | null;
+  isStatusLoading?: boolean;
+  isStatusError?: boolean;
 }): string {
   if (input.ctaState === "blocked") {
-    return getAdvisorBlockedCopy(input.status);
+    return getAdvisorBlockedCopy(input.status, {
+      isStatusLoading: input.isStatusLoading,
+      isStatusError: input.isStatusError,
+    });
   }
 
   if (input.advisorIsStale) {
@@ -83,15 +107,33 @@ export function getGoogleAdsAdvisorHelperText(input: {
 }
 
 export function getGoogleAdsAdvisorIdleState(
-  status: GoogleAdsStatusResponse | undefined
+  status: GoogleAdsStatusResponse | undefined,
+  options?: {
+    isStatusLoading?: boolean;
+    isStatusError?: boolean;
+  }
 ): {
   title: string;
   description: string;
 } {
+  if (options?.isStatusError) {
+    return {
+      title: "Analysis status is unavailable",
+      description: "Analysis status could not be loaded. Retry the sync status check.",
+    };
+  }
   if (!status) {
     return {
       title: "Analysis is preparing",
       description: "Analysis readiness is still being checked.",
+    };
+  }
+  if (status.operations?.statusDegraded) {
+    return {
+      title: "Analysis status is degraded",
+      description:
+        status.operations.statusDegradedReason ??
+        "Analysis status is temporarily degraded. Retry the sync status check.",
     };
   }
   if (!status.connected) {
@@ -124,6 +166,6 @@ export function getGoogleAdsAdvisorIdleState(
   }
   return {
     title: "Analysis is preparing",
-    description: getAdvisorBlockedCopy(status),
+    description: getAdvisorBlockedCopy(status, options),
   };
 }
