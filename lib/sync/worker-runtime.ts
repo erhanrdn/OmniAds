@@ -3,6 +3,7 @@ import type { ProviderWorkerAdapter } from "@/lib/sync/provider-worker-adapters"
 import {
   acquireSyncRunnerLease,
   heartbeatSyncWorker,
+  renewSyncRunnerLease,
   releaseSyncRunnerLease,
 } from "@/lib/sync/worker-health";
 import { pruneSyncLifecycleData } from "@/lib/sync/retention";
@@ -246,6 +247,25 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
           force: true,
         }).catch(() => null);
 
+        let leaseRenewalStopped = false;
+        const leaseRenewalIntervalMs = Math.max(10_000, Math.floor((leaseMinutes * 60_000) / 2));
+        const leaseRenewalTimer = setInterval(() => {
+          if (leaseRenewalStopped) return;
+          renewSyncRunnerLease({
+            businessId: business.id,
+            providerScope: adapter.providerScope,
+            leaseOwner: workerId,
+            leaseMinutes,
+          }).catch((error) => {
+            console.warn("[durable-worker] runner_lease_renewal_failed", {
+              businessId: business.id,
+              providerScope: adapter.providerScope,
+              workerId,
+              message: error instanceof Error ? error.message : String(error),
+            });
+          });
+        }, leaseRenewalIntervalMs);
+
         try {
           await heartbeat({
             providerScope: adapter.providerScope,
@@ -330,6 +350,8 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
             force: true,
           }).catch(() => null);
         } finally {
+          leaseRenewalStopped = true;
+          clearInterval(leaseRenewalTimer);
           await releaseSyncRunnerLease({
             businessId: business.id,
             providerScope: adapter.providerScope,

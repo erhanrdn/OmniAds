@@ -145,6 +145,15 @@ export async function acquireSyncRunnerLease(input: {
   return rows[0]?.lease_owner === input.leaseOwner;
 }
 
+export async function renewSyncRunnerLease(input: {
+  businessId: string;
+  providerScope: string;
+  leaseOwner: string;
+  leaseMinutes: number;
+}) {
+  return acquireSyncRunnerLease(input);
+}
+
 export async function releaseSyncRunnerLease(input: {
   businessId: string;
   providerScope: string;

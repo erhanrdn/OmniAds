@@ -432,7 +432,7 @@ export async function markMetaPartitionRunning(input: {
 }) {
   await runMigrations();
   const sql = getDb();
-  await sql`
+  const rows = await sql`
     UPDATE meta_sync_partitions
     SET
       status = 'running',
@@ -442,18 +442,23 @@ export async function markMetaPartitionRunning(input: {
       attempt_count = attempt_count + 1,
       updated_at = now()
     WHERE id = ${input.partitionId}
-  `;
+      AND lease_owner = ${input.workerId}
+      AND COALESCE(lease_expires_at, now()) > now()
+    RETURNING id
+  ` as Array<{ id: string }>;
+  return rows.length > 0;
 }
 
 export async function completeMetaPartition(input: {
   partitionId: string;
+  workerId: string;
   status: Extract<MetaPartitionStatus, "succeeded" | "failed" | "dead_letter" | "cancelled">;
   lastError?: string | null;
   retryDelayMinutes?: number;
 }) {
   await runMigrations();
   const sql = getDb();
-  await sql`
+  const rows = await sql`
     UPDATE meta_sync_partitions
     SET
       status = ${input.status},
@@ -471,7 +476,11 @@ export async function completeMetaPartition(input: {
       END,
       updated_at = now()
     WHERE id = ${input.partitionId}
-  `;
+      AND lease_owner = ${input.workerId}
+      AND COALESCE(lease_expires_at, now()) > now()
+    RETURNING id
+  ` as Array<{ id: string }>;
+  return rows.length > 0;
 }
 
 export async function cleanupMetaPartitionOrchestration(input: {
@@ -1009,14 +1018,18 @@ export async function heartbeatMetaPartitionLease(input: {
 }) {
   await runMigrations();
   const sql = getDb();
-  await sql`
+  const rows = await sql`
     UPDATE meta_sync_partitions
     SET
       lease_owner = ${input.workerId},
       lease_expires_at = now() + (${input.leaseMinutes ?? 5} || ' minutes')::interval,
       updated_at = now()
     WHERE id = ${input.partitionId}
-  `;
+      AND lease_owner = ${input.workerId}
+      AND COALESCE(lease_expires_at, now()) > now()
+    RETURNING id
+  ` as Array<{ id: string }>;
+  return rows.length > 0;
 }
 
 export async function upsertMetaSyncState(input: MetaSyncStateRecord) {

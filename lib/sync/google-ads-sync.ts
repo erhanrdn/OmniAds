@@ -1270,11 +1270,14 @@ async function persistScopeRows(input: {
   for (let pageIndex = startChunkIndex; pageIndex < rowChunks.length; pageIndex += 1) {
     const checkpointChunk = rowChunks[pageIndex] ?? [];
     if (input.workerId) {
-      await heartbeatGoogleAdsPartitionLease({
+      const leaseHealthy = await heartbeatGoogleAdsPartitionLease({
         partitionId: input.partitionId,
         workerId: input.workerId,
         leaseMinutes: GOOGLE_ADS_PARTITION_LEASE_MINUTES,
-      });
+      }).catch(() => false);
+      if (!leaseHealthy) {
+        throw new Error("lease_conflict:partition_lease_heartbeat_rejected");
+      }
     }
 
     const checkpointId = await upsertGoogleAdsSyncCheckpoint({
@@ -2728,7 +2731,20 @@ async function processGoogleAdsPartition(input: {
 }) {
   const partitionId = input.partition.id;
   if (!partitionId) return false;
-  await markGoogleAdsPartitionRunning({ partitionId, workerId: input.workerId });
+  const markRunningOk = await markGoogleAdsPartitionRunning({
+    partitionId,
+    workerId: input.workerId,
+  }).catch(() => false);
+  if (!markRunningOk) {
+    console.warn("[google-ads-sync] partition_lost_ownership_before_run", {
+      businessId: input.partition.businessId,
+      partitionId,
+      workerId: input.workerId,
+      scope: input.partition.scope,
+      partitionDate: input.partition.partitionDate,
+    });
+    return false;
+  }
   const runId = await createGoogleAdsSyncRun({
     partitionId,
     businessId: input.partition.businessId,
@@ -2776,18 +2792,21 @@ async function processGoogleAdsPartition(input: {
     });
 
     if (!synced) {
-      await completeGoogleAdsPartition({
+      const completed = await completeGoogleAdsPartition({
         partitionId,
+        workerId: input.workerId,
         status: "failed",
         lastError: "partition skipped because another worker already owns this date",
         retryDelayMinutes: 5,
-      });
+      }).catch(() => false);
       if (runId) {
         await updateGoogleAdsSyncRun({
           id: runId,
           status: "failed",
           errorClass: "lease_conflict",
-          errorMessage: "partition skipped because another worker already owns this date",
+          errorMessage: completed
+            ? "partition skipped because another worker already owns this date"
+            : "partition lost ownership before failure completion",
           durationMs: Date.now() - startedAt,
           finishedAt: new Date().toISOString(),
           onlyIfCurrentStatus: "running",
@@ -2839,11 +2858,26 @@ async function processGoogleAdsPartition(input: {
       }).catch(() => null);
     }
 
-    await completeGoogleAdsPartition({
+    const completed = await completeGoogleAdsPartition({
       partitionId,
+      workerId: input.workerId,
       status: "succeeded",
       lastError: null,
-    });
+    }).catch(() => false);
+    if (!completed) {
+      if (runId) {
+        await updateGoogleAdsSyncRun({
+          id: runId,
+          status: "failed",
+          errorClass: "lease_conflict",
+          errorMessage: "partition lost ownership before success completion",
+          durationMs: Date.now() - startedAt,
+          finishedAt: new Date().toISOString(),
+          onlyIfCurrentStatus: "running",
+        });
+      }
+      return false;
+    }
     if (runId) {
       await updateGoogleAdsSyncRun({
         id: runId,
@@ -2938,18 +2972,19 @@ async function processGoogleAdsPartition(input: {
         detail: `Repeated failure on phase ${activeCheckpoint?.phase ?? "unknown"} page ${activeCheckpoint?.pageIndex ?? 0}: ${message}`,
       }).catch(() => null);
     }
-    await completeGoogleAdsPartition({
+    const completed = await completeGoogleAdsPartition({
       partitionId,
+      workerId: input.workerId,
       status,
       lastError: message,
       retryDelayMinutes: computePartitionRetryDelayMinutes(nextAttempt, errorClass),
-    });
+    }).catch(() => false);
     if (runId) {
       await updateGoogleAdsSyncRun({
         id: runId,
         status: "failed",
-        errorClass,
-        errorMessage: message,
+        errorClass: completed ? errorClass : "lease_conflict",
+        errorMessage: completed ? message : "partition lost ownership before failure completion",
         durationMs: Date.now() - startedAt,
         finishedAt: new Date().toISOString(),
         onlyIfCurrentStatus: "running",

@@ -785,7 +785,20 @@ async function processMetaPartition(input: {
 }) {
   const partitionId = input.partition.id;
   if (!partitionId) return false;
-  await markMetaPartitionRunning({ partitionId, workerId: input.workerId });
+  const markRunningOk = await markMetaPartitionRunning({
+    partitionId,
+    workerId: input.workerId,
+  }).catch(() => false);
+  if (!markRunningOk) {
+    console.warn("[meta-sync] partition_lost_ownership_before_run", {
+      businessId: input.partition.businessId,
+      partitionId,
+      workerId: input.workerId,
+      scope: input.partition.scope,
+      partitionDate: input.partition.partitionDate,
+    });
+    return false;
+  }
   const startedAt = Date.now();
   const runId = await createMetaSyncRun({
     partitionId,
@@ -823,7 +836,25 @@ async function processMetaPartition(input: {
         source: input.partition.source,
       });
     }
-    await completeMetaPartition({ partitionId, status: "succeeded" });
+    const completed = await completeMetaPartition({
+      partitionId,
+      workerId: input.workerId,
+      status: "succeeded",
+    }).catch(() => false);
+    if (!completed) {
+      if (runId) {
+        await updateMetaSyncRun({
+          id: runId,
+          status: "failed",
+          durationMs: Date.now() - startedAt,
+          errorClass: "lease_conflict",
+          errorMessage: "partition lost ownership before success completion",
+          finishedAt: new Date().toISOString(),
+          onlyIfCurrentStatus: "running",
+        }).catch(() => null);
+      }
+      return false;
+    }
     if (runId) {
       await updateMetaSyncRun({
         id: runId,
@@ -838,8 +869,9 @@ async function processMetaPartition(input: {
     const classified = classifyMetaError(error);
     const message = error instanceof Error ? error.message : String(error);
     const shouldDeadLetter = classified.terminal || input.partition.attemptCount + 1 >= META_PARTITION_MAX_ATTEMPTS;
-    await completeMetaPartition({
+    const completed = await completeMetaPartition({
       partitionId,
+      workerId: input.workerId,
       status: shouldDeadLetter ? "dead_letter" : "failed",
       lastError: message,
       retryDelayMinutes: shouldDeadLetter
@@ -851,8 +883,8 @@ async function processMetaPartition(input: {
         id: runId,
         status: "failed",
         durationMs: Date.now() - startedAt,
-        errorClass: classified.errorClass,
-        errorMessage: message,
+        errorClass: completed ? classified.errorClass : "lease_conflict",
+        errorMessage: completed ? message : "partition lost ownership before failure completion",
         finishedAt: new Date().toISOString(),
         onlyIfCurrentStatus: "running",
       }).catch(() => null);
