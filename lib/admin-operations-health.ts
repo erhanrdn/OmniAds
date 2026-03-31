@@ -34,6 +34,8 @@ export interface AdminSyncIssueRow {
   businessName: string;
   provider: SyncProvider;
   reportType: string;
+  severity?: "critical" | "high" | "medium";
+  runbookKey?: string | null;
   status: "failed" | "running" | "cooldown";
   detail: string;
   triggeredAt: string | null;
@@ -375,6 +377,53 @@ function getTopIssue(entries: string[]) {
     counts.set(entry, (counts.get(entry) ?? 0) + 1);
   }
   return Array.from(counts.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+}
+
+function getSyncIssueSeverity(issue: Pick<AdminSyncIssueRow, "reportType" | "status">) {
+  if (
+    issue.reportType === "worker_offline_with_leased_partitions" ||
+    issue.reportType === "queue_dead_letter" ||
+    issue.reportType === "lease_conflict_runs" ||
+    issue.reportType === "stale_runs"
+  ) {
+    return "critical" as const;
+  }
+  if (
+    issue.reportType === "stale_checkpoint" ||
+    issue.reportType === "stalled_reclaimable" ||
+    issue.reportType === "stale_lease" ||
+    issue.reportType === "queue_waiting_worker" ||
+    issue.reportType === "state_missing" ||
+    issue.reportType === "poisoned_checkpoint"
+  ) {
+    return "high" as const;
+  }
+  return "medium" as const;
+}
+
+function getSyncIssueRunbookKey(issue: Pick<AdminSyncIssueRow, "provider" | "reportType">) {
+  switch (issue.reportType) {
+    case "queue_dead_letter":
+      return `${issue.provider}:dead_letter_recovery`;
+    case "stale_checkpoint":
+      return `${issue.provider}:checkpoint_stall`;
+    case "stalled_reclaimable":
+      return `${issue.provider}:stale_reclaim`;
+    case "skipped_active_lease":
+      return `${issue.provider}:active_lease_recovery_skip`;
+    case "lease_conflict_runs":
+      return "google_ads:lease_conflict";
+    case "stale_runs":
+      return "meta:stale_run";
+    case "worker_offline_with_leased_partitions":
+      return `${issue.provider}:worker_recovery`;
+    case "queue_waiting_worker":
+      return `${issue.provider}:worker_backlog`;
+    case "stale_lease":
+      return "meta:stale_lease";
+    default:
+      return null;
+  }
 }
 
 function computeLagMinutes(value: string | null) {
@@ -1208,6 +1257,21 @@ export function buildAdminSyncHealth(input: {
     }
   }
 
+  const normalizedIssues = issues
+    .map((issue) => ({
+      ...issue,
+      severity: getSyncIssueSeverity(issue),
+      runbookKey: getSyncIssueRunbookKey(issue),
+    }))
+    .sort((a, b) => {
+      const severityRank = { critical: 3, high: 2, medium: 1 } as const;
+      const severityDiff = severityRank[b.severity] - severityRank[a.severity];
+      if (severityDiff !== 0) return severityDiff;
+      const left = a.triggeredAt ? new Date(a.triggeredAt).getTime() : 0;
+      const right = b.triggeredAt ? new Date(b.triggeredAt).getTime() : 0;
+      return right - left;
+    });
+
   return {
     googleAdsHealthStatus: input.googleAdsHealthStatus ?? "ok",
     googleAdsHealthError: input.googleAdsHealthError ?? null,
@@ -1244,11 +1308,7 @@ export function buildAdminSyncHealth(input: {
       metaSkippedActiveLeaseRecoveries,
       metaStaleRunCount24h,
     },
-    issues: issues.sort((a, b) => {
-      const left = a.triggeredAt ? new Date(a.triggeredAt).getTime() : 0;
-      const right = b.triggeredAt ? new Date(b.triggeredAt).getTime() : 0;
-      return right - left;
-    }),
+    issues: normalizedIssues,
     workerHealth: input.workerHealth,
     googleAdsBusinesses: googleAdsBusinesses.sort((a, b) => {
       if (b.deadLetterPartitions !== a.deadLetterPartitions) {

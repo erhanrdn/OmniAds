@@ -211,6 +211,12 @@ describe("buildAdminSyncHealth", () => {
     expect(payload.summary.googleAdsLeaseConflictRuns24h).toBe(2);
     expect(payload.issues.some((issue) => issue.reportType === "skipped_active_lease")).toBe(true);
     expect(payload.issues.some((issue) => issue.reportType === "lease_conflict_runs")).toBe(true);
+    expect(
+      payload.issues.find((issue) => issue.reportType === "lease_conflict_runs")?.severity
+    ).toBe("critical");
+    expect(
+      payload.issues.find((issue) => issue.reportType === "lease_conflict_runs")?.runbookKey
+    ).toBe("google_ads:lease_conflict");
   });
 
   it("surfaces meta recent frontier readiness separately from historical coverage", () => {
@@ -299,6 +305,12 @@ describe("buildAdminSyncHealth", () => {
     expect(payload.summary.metaStaleRunCount24h).toBe(2);
     expect(payload.issues.some((issue) => issue.reportType === "skipped_active_lease")).toBe(true);
     expect(payload.issues.some((issue) => issue.reportType === "stale_runs")).toBe(true);
+    expect(payload.issues.find((issue) => issue.reportType === "stale_runs")?.severity).toBe(
+      "critical"
+    );
+    expect(payload.issues.find((issue) => issue.reportType === "stale_runs")?.runbookKey).toBe(
+      "meta:stale_run"
+    );
   });
 
   it("keeps lightweight google ads summary when detailed health is degraded", () => {
