@@ -975,14 +975,11 @@ export async function GET(request: NextRequest) {
   const historicalExtendedReady = Object.values(rangeCompletionBySurface).every(
     (surface) => surface.historical.ready
   );
-  const averageRecentCompletionRatio =
-    Object.values(rangeCompletionBySurface).reduce((sum, surface) => {
-      const ratio =
-        surface.recent.totalDays > 0
-          ? surface.recent.completedDays / surface.recent.totalDays
-          : 0;
-      return sum + Math.min(1, ratio);
-    }, 0) / Math.max(1, Object.values(rangeCompletionBySurface).length);
+  const advisorRecentCoverageRatio =
+    advisorRequiredSurfaces.reduce((sum, entry) => {
+      const completedDays = Math.max(0, Math.min(90, Number(entry.coverage?.completed_days ?? 0)));
+      return sum + completedDays / 90;
+    }, 0) / Math.max(1, advisorRequiredSurfaces.length);
   const averageHistoricalCompletionRatio =
     Object.values(rangeCompletionBySurface).reduce((sum, surface) => {
       const ratio =
@@ -993,20 +990,20 @@ export async function GET(request: NextRequest) {
     }, 0) / Math.max(1, Object.values(rangeCompletionBySurface).length);
   const advisorPreparationPercent = advisorReady
     ? 100
-    : recentExtendedReady
+    : advisorMissingSurfaces.length === 0
       ? 99
       : Math.max(
           coreUsable ? 10 : 0,
-          Math.min(99, Math.round(averageRecentCompletionRatio * 100))
+          Math.min(99, Math.round(advisorRecentCoverageRatio * 100))
         );
   const historicalBackfillPercent = historicalExtendedReady
     ? 100
     : Math.max(0, Math.min(99, Math.round(averageHistoricalCompletionRatio * 100)));
   const advisorProgressSummary = !coreUsable
     ? "Campaign history is still being prepared for analysis."
-    : recentExtendedReady
+    : advisorMissingSurfaces.length === 0
       ? "Finalizing growth analysis."
-      : "Search term, product, and asset history are still being prepared for analysis.";
+      : "Campaign, search term, and product history are still being prepared for analysis.";
   const historicalProgressSummary = "Historical sync continues in the background.";
   const majorSurfaceStates = [
     buildPanelSurfaceState({
@@ -1331,7 +1328,7 @@ export async function GET(request: NextRequest) {
     rangeCompletionBySurface,
     advisorProgress: {
       percent: advisorPreparationPercent,
-      visible: connected && accountIds.length > 0 && !recentExtendedReady,
+      visible: connected && accountIds.length > 0 && advisorMissingSurfaces.length > 0,
       summary: advisorProgressSummary,
     },
     historicalProgress: {
@@ -1339,7 +1336,7 @@ export async function GET(request: NextRequest) {
       visible:
         connected &&
         accountIds.length > 0 &&
-        recentExtendedReady &&
+        advisorMissingSurfaces.length === 0 &&
         !historicalExtendedReady,
       summary: historicalProgressSummary,
     },
