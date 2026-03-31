@@ -74,6 +74,8 @@ function deferred<T>() {
 describe("POST /api/sync/refresh", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    delete (globalThis as typeof globalThis & { __syncRefreshInFlightKeys?: Set<string> })
+      .__syncRefreshInFlightKeys;
     vi.mocked(internalAuth.businessExists).mockResolvedValue(true);
   });
 
@@ -254,6 +256,9 @@ describe("POST /api/sync/refresh", () => {
     vi.mocked(internalAuth.requireInternalOrAdminSyncAccess).mockResolvedValue({
       kind: "internal",
     });
+    vi.mocked(db.getDb).mockReturnValue(
+      vi.fn().mockResolvedValue([{ already_running: false, acquired: true }]) as never
+    );
     const pending = deferred<{
       businessId: string;
       queuedCore: number;
@@ -263,7 +268,7 @@ describe("POST /api/sync/refresh", () => {
     vi.mocked(googleAdsSync.enqueueGoogleAdsScheduledWork).mockReturnValue(pending.promise as never);
 
     const firstResponsePromise = POST(buildRequest({ businessId: "biz", provider: "google_ads" }));
-    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
     const secondResponse = await POST(buildRequest({ businessId: "biz", provider: "google_ads" }));
 
     expect(secondResponse.status).toBe(202);
@@ -280,5 +285,27 @@ describe("POST /api/sync/refresh", () => {
     const firstResponse = await firstResponsePromise;
     expect(firstResponse.status).toBe(202);
     await firstResponse.json();
+  });
+
+  it("returns already_running when the durable refresh lock is already held", async () => {
+    vi.mocked(internalAuth.requireInternalOrAdminSyncAccess).mockResolvedValue({
+      kind: "admin",
+      session: { user: { id: "admin_1" } } as never,
+    });
+    vi.mocked(db.getDb).mockReturnValue(
+      vi.fn().mockResolvedValue([{ already_running: true, acquired: false }]) as never
+    );
+
+    const response = await POST(buildRequest({ businessId: "biz", provider: "google_ads" }));
+
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({ ok: true, status: "already_running" });
+    expect(googleAdsSync.enqueueGoogleAdsScheduledWork).not.toHaveBeenCalled();
+    expect(adminLogger.logAdminAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "sync.refresh",
+        meta: expect.objectContaining({ duplicateReason: "durable_refresh_lock" }),
+      })
+    );
   });
 });
