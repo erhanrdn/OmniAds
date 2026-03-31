@@ -5,7 +5,7 @@ import {
   resolveGa4AnalyticsContext,
   runGA4Report,
 } from "@/lib/google-analytics-reporting";
-import { getIntegration } from "@/lib/integrations";
+import { getIntegration, getIntegrationMetadata } from "@/lib/integrations";
 import { runMigrations } from "@/lib/migrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import {
@@ -252,7 +252,7 @@ async function getMetaAccessContext(businessId: string): Promise<MetaAccessConte
 
     let connected = false;
     try {
-      const integration = await getIntegration(businessId, "meta");
+      const integration = await getIntegrationMetadata(businessId, "meta");
       connected = Boolean(integration?.status === "connected");
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);

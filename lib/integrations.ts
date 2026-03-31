@@ -271,8 +271,11 @@ export async function backfillIntegrationSecretsEncryption(input?: {
     const rows = (await sql`
       SELECT id, access_token, refresh_token
       FROM integrations
-      WHERE access_token IS NOT NULL OR refresh_token IS NOT NULL
-      ORDER BY updated_at ASC
+      WHERE
+        (access_token IS NOT NULL AND access_token NOT LIKE 'enc:v1:%')
+        OR
+        (refresh_token IS NOT NULL AND refresh_token NOT LIKE 'enc:v1:%')
+      ORDER BY id ASC
       LIMIT ${batchSize}
     `) as Array<{
       id: string;
@@ -281,7 +284,6 @@ export async function backfillIntegrationSecretsEncryption(input?: {
     }>;
 
     if (rows.length === 0) break;
-    let batchUpdated = 0;
     scanned += rows.length;
 
     for (const row of rows) {
@@ -310,10 +312,9 @@ export async function backfillIntegrationSecretsEncryption(input?: {
         WHERE id = ${row.id}
       `;
       updated += 1;
-      batchUpdated += 1;
     }
 
-    if (rows.length < batchSize || batchUpdated === 0) break;
+    if (rows.length < batchSize) break;
   }
 
   return { scanned, updated };

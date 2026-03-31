@@ -1,4 +1,21 @@
 export type ProviderReadinessLevel = "usable" | "partial" | "ready";
+export type ProviderCredentialState = "connected" | "not_connected";
+export type ProviderAssignmentState = "assigned" | "unassigned";
+export type ProviderWarehouseState = "ready" | "partial" | "empty";
+export type ProviderServingMode =
+  | "warehouse_only"
+  | "warehouse_with_live_overlay"
+  | "unavailable";
+
+export interface ProviderStateContract {
+  credentialState: ProviderCredentialState;
+  assignmentState: ProviderAssignmentState;
+  warehouseState: ProviderWarehouseState;
+  syncState: string;
+  servingMode: ProviderServingMode;
+  isPartial: boolean;
+  notReadyReason: string | null;
+}
 
 export interface ProviderSurfaceSummary {
   required: string[];
@@ -57,4 +74,42 @@ export function computeCheckpointLagMinutes(updatedAt: string | null) {
   const updatedMs = new Date(updatedAt).getTime();
   if (!Number.isFinite(updatedMs)) return null;
   return Math.max(0, Math.round((Date.now() - updatedMs) / 60_000));
+}
+
+export function buildProviderStateContract(input: {
+  credentialState: ProviderCredentialState;
+  hasAssignedAccounts: boolean;
+  warehouseRowCount: number;
+  warehousePartial: boolean;
+  syncState: string;
+  selectedCurrentDay?: boolean;
+  notReadyReason?: string | null;
+}): ProviderStateContract {
+  const assignmentState: ProviderAssignmentState = input.hasAssignedAccounts
+    ? "assigned"
+    : "unassigned";
+  const warehouseState: ProviderWarehouseState =
+    input.warehouseRowCount <= 0
+      ? "empty"
+      : input.warehousePartial
+        ? "partial"
+        : "ready";
+  const servingMode: ProviderServingMode =
+    warehouseState === "empty" && assignmentState === "unassigned"
+      ? "unavailable"
+      : input.selectedCurrentDay && input.credentialState === "connected"
+        ? "warehouse_with_live_overlay"
+        : warehouseState === "empty" && input.credentialState === "not_connected"
+          ? "unavailable"
+          : "warehouse_only";
+
+  return {
+    credentialState: input.credentialState,
+    assignmentState,
+    warehouseState,
+    syncState: input.syncState,
+    servingMode,
+    isPartial: warehouseState !== "ready",
+    notReadyReason: input.notReadyReason ?? null,
+  };
 }
