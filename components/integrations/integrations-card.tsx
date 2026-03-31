@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { getProviderLabel } from "@/components/integrations/oauth";
 import {
   GoogleAdsSyncProgress,
+  GoogleAdsSyncProgressSkeleton,
   shouldRenderGoogleAdsSyncProgress,
 } from "@/components/google-ads/google-ads-sync-progress";
 import {
@@ -142,9 +143,9 @@ export function IntegrationsCard({
           <GoogleAdsSyncProgress status={googleSyncStatus} variant="compact" />
         </div>
       ) : provider === "google" && googleSyncLoading ? (
-        <p className="mt-2 rounded-lg border border-sky-300/30 bg-sky-50 px-2.5 py-2 text-[11px] leading-4 text-sky-800">
-          Loading sync status...
-        </p>
+        <div className="mt-2">
+          <GoogleAdsSyncProgressSkeleton variant="compact" />
+        </div>
       ) : syncNotice ? (
         <p className={cn("mt-2 rounded-lg px-2.5 py-2 text-[11px] leading-4", syncNoticeClasses)}>
           {syncNotice}
