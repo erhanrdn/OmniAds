@@ -1,20 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { runMigrations } from "@/lib/migrations";
-import { expireStaleMetaSyncJobs } from "@/lib/meta/warehouse";
 import { requireInternalOrAdminSyncAccess, businessExists } from "@/lib/internal-sync-auth";
 import { logAdminAction } from "@/lib/admin-logger";
 import {
   enqueueGoogleAdsScheduledWork,
 } from "@/lib/sync/google-ads-sync";
 import {
-  cleanupGoogleAdsObsoleteSyncJobs,
-  expireStaleGoogleAdsSyncJobs,
-  getGoogleAdsQueueHealth,
-} from "@/lib/google-ads/warehouse";
-import {
   enqueueMetaScheduledWork,
 } from "@/lib/sync/meta-sync";
+import * as metaWarehouse from "@/lib/meta/warehouse";
+import * as googleAdsWarehouse from "@/lib/google-ads/warehouse";
 
 /**
  * POST /api/sync/refresh
@@ -34,15 +30,17 @@ async function isJobAlreadyRunning(
     await runMigrations();
     const sql = getDb();
     if (provider === "meta") {
-      await expireStaleMetaSyncJobs({ businessId }).catch(() => null);
-      return false;
+      await metaWarehouse.expireStaleMetaSyncJobs({ businessId }).catch(() => null);
+      const queueHealth = await metaWarehouse.getMetaQueueHealth({ businessId }).catch(() => null);
+      if (!queueHealth) return false;
+      return (queueHealth.queueDepth ?? 0) > 0 || (queueHealth.leasedPartitions ?? 0) > 0;
     }
     if (provider === "google_ads") {
-      await cleanupGoogleAdsObsoleteSyncJobs({ businessId }).catch(() => null);
-      await expireStaleGoogleAdsSyncJobs({ businessId }).catch(() => null);
-      const queueHealth = await getGoogleAdsQueueHealth({ businessId }).catch(() => null);
+      await googleAdsWarehouse.cleanupGoogleAdsObsoleteSyncJobs({ businessId }).catch(() => null);
+      await googleAdsWarehouse.expireStaleGoogleAdsSyncJobs({ businessId }).catch(() => null);
+      const queueHealth = await googleAdsWarehouse.getGoogleAdsQueueHealth({ businessId }).catch(() => null);
       if (!queueHealth) return false;
-      return (queueHealth.leasedPartitions ?? 0) > 0;
+      return (queueHealth.queueDepth ?? 0) > 0 || (queueHealth.leasedPartitions ?? 0) > 0;
     }
     const rows = await sql`
       SELECT id FROM provider_sync_jobs
@@ -94,6 +92,38 @@ async function runSyncForProvider(
     default:
       throw new Error(`unsupported_provider_for_refresh:${provider}`);
   }
+}
+
+function isBacklogOnlySyncResult(provider: string, result: unknown): boolean {
+  if (!result || typeof result !== "object") return false;
+
+  if (provider === "google_ads") {
+    const value = result as {
+      queuedCore?: number;
+      queueDepth?: number;
+      leasedPartitions?: number;
+    };
+    return (
+      (value.queuedCore ?? 0) <= 0 &&
+      (((value.queueDepth ?? 0) > 0) || ((value.leasedPartitions ?? 0) > 0))
+    );
+  }
+
+  if (provider === "meta") {
+    const value = result as {
+      queuedCore?: number;
+      queuedMaintenance?: number;
+      queueDepth?: number;
+      leasedPartitions?: number;
+    };
+    return (
+      (value.queuedCore ?? 0) <= 0 &&
+      (value.queuedMaintenance ?? 0) <= 0 &&
+      (((value.queueDepth ?? 0) > 0) || ((value.leasedPartitions ?? 0) > 0))
+    );
+  }
+
+  return false;
 }
 
 export async function POST(request: NextRequest) {
@@ -187,6 +217,23 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { error: "internal_error", message: "Could not enqueue sync refresh." },
       { status: 500 }
+    );
+  }
+
+  if (isBacklogOnlySyncResult(provider, syncResult.result)) {
+    if (access.kind === "admin") {
+      await logAdminAction({
+        adminId: access.session.user.id,
+        action: "sync.refresh",
+        targetType: "business",
+        targetId: businessId,
+        meta: { provider, outcome: "already_running", result: syncResult.result },
+      });
+    }
+
+    return NextResponse.json(
+      { ok: true, status: "already_running", provider: syncResult.provider, result: syncResult.result },
+      { status: 202 }
     );
   }
 

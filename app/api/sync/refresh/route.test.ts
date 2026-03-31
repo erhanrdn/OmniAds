@@ -1,6 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { NextRequest, NextResponse } from "next/server";
-import { POST } from "@/app/api/sync/refresh/route";
 
 vi.mock("@/lib/db", () => ({
   getDb: vi.fn(),
@@ -13,6 +12,7 @@ vi.mock("@/lib/internal-sync-auth", () => ({
 
 vi.mock("@/lib/meta/warehouse", () => ({
   expireStaleMetaSyncJobs: vi.fn(),
+  getMetaQueueHealth: vi.fn(),
   hasBlockingMetaSyncJob: vi.fn(),
 }));
 
@@ -51,6 +51,7 @@ const googleAdsSync = await import("@/lib/sync/google-ads-sync");
 const metaSync = await import("@/lib/sync/meta-sync");
 const adminLogger = await import("@/lib/admin-logger");
 const db = await import("@/lib/db");
+const { POST } = await import("@/app/api/sync/refresh/route");
 
 function buildRequest(body: Record<string, unknown>) {
   return new NextRequest("http://localhost/api/sync/refresh", {
@@ -62,7 +63,7 @@ function buildRequest(body: Record<string, unknown>) {
 
 describe("POST /api/sync/refresh", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     vi.mocked(internalAuth.businessExists).mockResolvedValue(true);
   });
 
@@ -159,6 +160,62 @@ describe("POST /api/sync/refresh", () => {
     expect(response.status).toBe(202);
     expect(await response.json()).toEqual({ ok: true, status: "already_running" });
     expect(adminLogger.logAdminAction).toHaveBeenCalled();
+  });
+
+  it("returns already_running when meta enqueue finds existing backlog without new work", async () => {
+    vi.mocked(internalAuth.requireInternalOrAdminSyncAccess).mockResolvedValue({
+      kind: "internal",
+    });
+    vi.mocked(metaSync.enqueueMetaScheduledWork).mockResolvedValue({
+      businessId: "biz",
+      queuedCore: 0,
+      queuedMaintenance: 0,
+      queueDepth: 2,
+      leasedPartitions: 0,
+    } as never);
+
+    const response = await POST(buildRequest({ businessId: "biz", provider: "meta" }));
+
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({
+      ok: true,
+      status: "already_running",
+      provider: "meta",
+      result: {
+        businessId: "biz",
+        queuedCore: 0,
+        queuedMaintenance: 0,
+        queueDepth: 2,
+        leasedPartitions: 0,
+      },
+    });
+  });
+
+  it("returns already_running when Google Ads enqueue finds existing backlog without new work", async () => {
+    vi.mocked(internalAuth.requireInternalOrAdminSyncAccess).mockResolvedValue({
+      kind: "internal",
+    });
+    vi.mocked(googleAdsSync.enqueueGoogleAdsScheduledWork).mockResolvedValue({
+      businessId: "biz",
+      queuedCore: 0,
+      queueDepth: 3,
+      leasedPartitions: 0,
+    } as never);
+
+    const response = await POST(buildRequest({ businessId: "biz", provider: "google_ads" }));
+
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({
+      ok: true,
+      status: "already_running",
+      provider: "google_ads",
+      result: {
+        businessId: "biz",
+        queuedCore: 0,
+        queueDepth: 3,
+        leasedPartitions: 0,
+      },
+    });
   });
 
   it("returns 500 and logs failed audits when enqueue throws", async () => {

@@ -601,9 +601,13 @@ export async function enqueueMetaScheduledWork(businessId: string) {
   const credentials = await resolveMetaCredentials(businessId).catch(() => null);
   let queuedCore = 0;
   let queuedMaintenance = 0;
+  let queueDepth = 0;
+  let leasedPartitions = 0;
 
   if (credentials?.accountIds?.length) {
     const queueHealth = await getMetaQueueHealth({ businessId }).catch(() => null);
+    queueDepth = queueHealth?.queueDepth ?? 0;
+    leasedPartitions = queueHealth?.leasedPartitions ?? 0;
     const hasHistoricalCoreBacklog =
       (queueHealth?.historicalCoreQueueDepth ?? 0) > 0 ||
       (queueHealth?.historicalCoreLeasedPartitions ?? 0) > 0;
@@ -626,6 +630,8 @@ export async function enqueueMetaScheduledWork(businessId: string) {
     businessId,
     queuedCore,
     queuedMaintenance,
+    queueDepth,
+    leasedPartitions,
   };
 }
 
