@@ -36,7 +36,13 @@ export async function logAdminAction(input: {
         ${JSON.stringify(input.meta ?? {})}
       )
     `;
-  } catch {
+  } catch (error) {
+    console.warn("[admin-audit] write_failed", {
+      action: input.action,
+      targetType: input.targetType,
+      targetId: input.targetId ?? null,
+      message: error instanceof Error ? error.message : String(error),
+    });
     // Audit log failure should never block the main operation
   }
 }

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { runMigrations } from "@/lib/migrations";
-import { expireStaleMetaSyncJobs, hasBlockingMetaSyncJob } from "@/lib/meta/warehouse";
+import { expireStaleMetaSyncJobs } from "@/lib/meta/warehouse";
 import { requireInternalOrAdminSyncAccess, businessExists } from "@/lib/internal-sync-auth";
 import { logAdminAction } from "@/lib/admin-logger";
 import {
@@ -12,33 +12,29 @@ import {
   expireStaleGoogleAdsSyncJobs,
   getGoogleAdsQueueHealth,
 } from "@/lib/google-ads/warehouse";
-import { syncGA4Reports } from "@/lib/sync/ga4-sync";
 import {
   enqueueMetaScheduledWork,
 } from "@/lib/sync/meta-sync";
-import { syncSearchConsoleReports } from "@/lib/sync/search-console-sync";
 
 /**
  * POST /api/sync/refresh
  *
  * Triggers a background sync refresh for a specific business and provider.
  * Restricted to admin sessions or internal signed requests.
- * Returns 202 immediately and runs the sync asynchronously.
+ * Returns 202 only after durable enqueue succeeds.
  *
- * Body: { businessId: string, provider: "google_ads" | "ga4" | "search_console" }
+ * Body: { businessId: string, provider: "google_ads" | "meta" }
  */
 
 async function isJobAlreadyRunning(
   businessId: string,
   provider: string,
-  mode?: "recent" | "today" | "initial" | "repair",
 ): Promise<boolean> {
   try {
     await runMigrations();
     const sql = getDb();
     if (provider === "meta") {
       await expireStaleMetaSyncJobs({ businessId }).catch(() => null);
-      if (mode === "today") return false;
       return false;
     }
     if (provider === "google_ads") {
@@ -46,18 +42,6 @@ async function isJobAlreadyRunning(
       await expireStaleGoogleAdsSyncJobs({ businessId }).catch(() => null);
       const queueHealth = await getGoogleAdsQueueHealth({ businessId }).catch(() => null);
       if (!queueHealth) return false;
-      if (mode === "today") {
-        return (queueHealth.maintenanceLeasedPartitions ?? 0) > 0;
-      }
-      if (mode === "recent") {
-        return (
-          (queueHealth.coreLeasedPartitions ?? 0) > 0 ||
-          (queueHealth.maintenanceLeasedPartitions ?? 0) > 0
-        );
-      }
-      if (mode === "initial" || mode === "repair") {
-        return (queueHealth.coreLeasedPartitions ?? 0) > 0;
-      }
       return (queueHealth.leasedPartitions ?? 0) > 0;
     }
     const rows = await sql`
@@ -76,7 +60,6 @@ async function isJobAlreadyRunning(
 
 async function hasMetaQueueConsumerRunning(
   businessId: string,
-  mode?: "recent" | "today" | "initial" | "repair",
 ): Promise<boolean> {
   try {
     await runMigrations();
@@ -86,11 +69,6 @@ async function hasMetaQueueConsumerRunning(
       FROM meta_sync_partitions
       WHERE business_id = ${businessId}
         AND status IN ('leased', 'running')
-        AND (
-          ${mode ?? null}::text IS NULL
-          OR ${mode ?? null} <> 'today'
-          OR lane = 'maintenance'
-        )
     ` as Array<{ leased_count: number }>;
     return Number(rows[0]?.leased_count ?? 0) > 0;
   } catch {
@@ -101,26 +79,20 @@ async function hasMetaQueueConsumerRunning(
 async function runSyncForProvider(
   businessId: string,
   provider: string,
-  mode: "recent" | "today" | "initial" | "repair" = "recent",
-  range?: { startDate: string; endDate: string }
-): Promise<void> {
-  void mode;
-  void range;
+): Promise<{ provider: string; result: unknown }> {
   switch (provider) {
     case "google_ads":
-      await enqueueGoogleAdsScheduledWork(businessId);
-      break;
-    case "ga4":
-      await syncGA4Reports(businessId);
-      break;
+      return {
+        provider,
+        result: await enqueueGoogleAdsScheduledWork(businessId),
+      };
     case "meta":
-      await enqueueMetaScheduledWork(businessId);
-      break;
-    case "search_console":
-      await syncSearchConsoleReports(businessId);
-      break;
+      return {
+        provider,
+        result: await enqueueMetaScheduledWork(businessId),
+      };
     default:
-      console.warn("[sync-refresh] unknown_provider", { businessId, provider });
+      throw new Error(`unsupported_provider_for_refresh:${provider}`);
   }
 }
 
@@ -131,9 +103,9 @@ export async function POST(request: NextRequest) {
   let body: {
     businessId?: string;
     provider?: string;
-    mode?: "recent" | "today" | "initial" | "repair";
     startDate?: string;
     endDate?: string;
+    mode?: string;
   };
   try {
     body = await request.json();
@@ -156,26 +128,26 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const validProviders = ["google_ads", "ga4", "meta", "search_console"];
+  const validProviders = ["google_ads", "meta"];
   if (!validProviders.includes(provider)) {
     return NextResponse.json(
-      { error: `Invalid provider. Must be one of: ${validProviders.join(", ")}` },
+      { error: "unsupported_provider_for_refresh", supportedProviders: validProviders },
       { status: 400 },
     );
   }
 
-  if (provider === "meta" && mode === "repair" && (!startDate || !endDate)) {
+  if (mode != null || startDate != null || endDate != null) {
     return NextResponse.json(
-      { error: "startDate and endDate are required for meta repair sync." },
+      { error: "mode, startDate and endDate are no longer supported by this endpoint." },
       { status: 400 },
     );
   }
 
   // Zaten çalışan bir job varsa tekrar başlatma
-  const alreadyRunning = await isJobAlreadyRunning(businessId, provider, mode);
+  const alreadyRunning = await isJobAlreadyRunning(businessId, provider);
   const metaConsumerRunning =
     provider === "meta"
-      ? await hasMetaQueueConsumerRunning(businessId, mode).catch(() => false)
+      ? await hasMetaQueueConsumerRunning(businessId).catch(() => false)
       : false;
   if (alreadyRunning || metaConsumerRunning) {
     if (access.kind === "admin") {
@@ -184,24 +156,39 @@ export async function POST(request: NextRequest) {
         action: "sync.refresh",
         targetType: "business",
         targetId: businessId,
-        meta: { provider, mode: mode ?? "recent", outcome: "already_running" },
+        meta: { provider, outcome: "already_running" },
       });
     }
     return NextResponse.json({ ok: true, status: "already_running" }, { status: 202 });
   }
 
-  runSyncForProvider(
-    businessId,
-    provider,
-    mode ?? "recent",
-    startDate && endDate ? { startDate, endDate } : undefined
-  ).catch((err) => {
+  let syncResult: Awaited<ReturnType<typeof runSyncForProvider>>;
+  try {
+    syncResult = await runSyncForProvider(businessId, provider);
+  } catch (err) {
     console.error("[sync-refresh] background_sync_failed", {
       businessId,
       provider,
       message: err instanceof Error ? err.message : String(err),
     });
-  });
+    if (access.kind === "admin") {
+      await logAdminAction({
+        adminId: access.session.user.id,
+        action: "sync.refresh",
+        targetType: "business",
+        targetId: businessId,
+        meta: {
+          provider,
+          outcome: "failed",
+          error: err instanceof Error ? err.message : String(err),
+        },
+      });
+    }
+    return NextResponse.json(
+      { error: "internal_error", message: "Could not enqueue sync refresh." },
+      { status: 500 }
+    );
+  }
 
   if (access.kind === "admin") {
     await logAdminAction({
@@ -209,12 +196,12 @@ export async function POST(request: NextRequest) {
       action: "sync.refresh",
       targetType: "business",
       targetId: businessId,
-      meta: { provider, mode: mode ?? "recent", outcome: "started" },
+      meta: { provider, outcome: "started", result: syncResult.result },
     });
   }
 
   return NextResponse.json(
-    { ok: true, status: "started", mode: mode ?? "recent" },
+    { ok: true, status: "started", provider: syncResult.provider, result: syncResult.result },
     { status: 202 }
   );
 }

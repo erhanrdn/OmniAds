@@ -40,6 +40,22 @@ const META_RECOVERY_SCOPES: MetaWarehouseScope[] = [
   "ad_daily",
 ];
 
+type SyncRecoveryRequestBody = {
+  provider?: string;
+  action?:
+    | "cleanup"
+    | "replay_dead_letter"
+    | "reschedule"
+    | "refresh_state"
+    | "release_quarantine"
+    | "force_manual_replay"
+    | "targeted_repair";
+  businessId?: string;
+  scope?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+};
+
 export async function GET(request: NextRequest) {
   try {
     const auth = await requireAdmin(request);
@@ -58,28 +74,14 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  let adminSession: Awaited<ReturnType<typeof requireAdmin>>["session"] | null = null;
+  let body: SyncRecoveryRequestBody | null = null;
   try {
     const auth = await requireAdmin(request);
     if (auth.error) return auth.error;
-    const adminSession = auth.session;
+    adminSession = auth.session;
 
-    const body = (await request.json().catch(() => null)) as
-      | {
-          provider?: string;
-          action?:
-            | "cleanup"
-            | "replay_dead_letter"
-            | "reschedule"
-            | "refresh_state"
-            | "release_quarantine"
-            | "force_manual_replay"
-            | "targeted_repair";
-          businessId?: string;
-          scope?: string | null;
-          startDate?: string | null;
-          endDate?: string | null;
-        }
-      | null;
+    body = (await request.json().catch(() => null)) as SyncRecoveryRequestBody | null;
 
     if (!body?.provider || !body?.action || !body?.businessId) {
       return NextResponse.json(
@@ -286,6 +288,20 @@ export async function POST(request: NextRequest) {
     await logRecovery("rejected");
     return NextResponse.json({ error: "Unsupported action." }, { status: 400 });
   } catch (err) {
+    if (adminSession?.user.id && body?.provider && body?.action && body?.businessId) {
+      await logAdminAction({
+        adminId: adminSession.user.id,
+        action: "sync.recovery",
+        targetType: "business",
+        targetId: body.businessId,
+        meta: {
+          provider: body.provider,
+          requestedAction: body.action,
+          outcome: "failed",
+          error: err instanceof Error ? err.message : String(err),
+        },
+      }).catch(() => null);
+    }
     console.error("[admin/sync-health POST]", err);
     return NextResponse.json(
       { error: "internal_error", message: String(err) },

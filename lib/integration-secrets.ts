@@ -9,6 +9,16 @@ function getDerivedKey() {
   return createHash("sha256").update(raw, "utf8").digest();
 }
 
+export function requireIntegrationSecretKey() {
+  const key = getDerivedKey();
+  if (!key) {
+    throw new Error(
+      "INTEGRATION_TOKEN_ENCRYPTION_KEY is required before persisting integration secrets."
+    );
+  }
+  return key;
+}
+
 export function isEncryptedIntegrationSecret(value: string | null | undefined) {
   return typeof value === "string" && value.startsWith(`${SECRET_PREFIX}:`);
 }
@@ -17,8 +27,7 @@ export function encryptIntegrationSecret(value: string | null | undefined) {
   if (!value) return null;
   if (isEncryptedIntegrationSecret(value)) return value;
 
-  const key = getDerivedKey();
-  if (!key) return value;
+  const key = requireIntegrationSecretKey();
 
   const iv = randomBytes(IV_BYTES);
   const cipher = createCipheriv("aes-256-gcm", key, iv, { authTagLength: 16 });

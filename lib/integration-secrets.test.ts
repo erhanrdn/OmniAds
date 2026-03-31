@@ -27,9 +27,25 @@ describe("integration secret crypto", () => {
     expect(isEncryptedIntegrationSecret("legacy-plaintext")).toBe(false);
   });
 
-  it("does not encrypt when the master key is absent", () => {
+  it("throws when the master key is absent during writes", () => {
     vi.unstubAllEnvs();
 
-    expect(encryptIntegrationSecret("legacy-plaintext")).toBe("legacy-plaintext");
+    expect(() => encryptIntegrationSecret("legacy-plaintext")).toThrow(
+      /INTEGRATION_TOKEN_ENCRYPTION_KEY/
+    );
+  });
+
+  it("throws for malformed ciphertext", () => {
+    vi.stubEnv("INTEGRATION_TOKEN_ENCRYPTION_KEY", "test-master-key");
+
+    expect(() => decryptIntegrationSecret("enc:v1:not-valid")).toThrow(/Malformed/);
+  });
+
+  it("throws when decrypting with the wrong key", () => {
+    vi.stubEnv("INTEGRATION_TOKEN_ENCRYPTION_KEY", "test-master-key");
+    const encrypted = encryptIntegrationSecret("super-secret-token");
+
+    vi.stubEnv("INTEGRATION_TOKEN_ENCRYPTION_KEY", "different-master-key");
+    expect(() => decryptIntegrationSecret(encrypted)).toThrow();
   });
 });

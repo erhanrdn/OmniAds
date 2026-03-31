@@ -35,11 +35,26 @@ export interface IntegrationRow {
   updated_at: string;
 }
 
+export type IntegrationMetadataRow = Omit<IntegrationRow, "access_token" | "refresh_token"> & {
+  access_token: null;
+  refresh_token: null;
+};
+
 function hydrateIntegrationRow(row: IntegrationRow): IntegrationRow {
   return {
     ...row,
     access_token: decryptIntegrationSecret(row.access_token),
     refresh_token: decryptIntegrationSecret(row.refresh_token),
+  };
+}
+
+function hydrateIntegrationMetadataRow(
+  row: Omit<IntegrationRow, "access_token" | "refresh_token">,
+): IntegrationMetadataRow {
+  return {
+    ...row,
+    access_token: null,
+    refresh_token: null,
   };
 }
 
@@ -70,6 +85,63 @@ export async function getIntegration(
     LIMIT 1
   `) as IntegrationRow[];
   return rows[0] ? hydrateIntegrationRow(rows[0]) : null;
+}
+
+export async function getIntegrationsMetadataByBusiness(
+  businessId: string,
+): Promise<IntegrationMetadataRow[]> {
+  const sql = getDb();
+  const rows = await sql`
+    SELECT
+      id,
+      business_id,
+      provider,
+      status,
+      provider_account_id,
+      provider_account_name,
+      token_expires_at,
+      scopes,
+      error_message,
+      metadata,
+      connected_at,
+      disconnected_at,
+      created_at,
+      updated_at
+    FROM integrations
+    WHERE business_id = ${businessId}
+    ORDER BY provider
+  `;
+  return (rows as Array<Omit<IntegrationRow, "access_token" | "refresh_token">>).map(
+    hydrateIntegrationMetadataRow
+  );
+}
+
+export async function getIntegrationMetadata(
+  businessId: string,
+  provider: IntegrationProviderType,
+): Promise<IntegrationMetadataRow | null> {
+  const sql = getDb();
+  const rows = (await sql`
+    SELECT
+      id,
+      business_id,
+      provider,
+      status,
+      provider_account_id,
+      provider_account_name,
+      token_expires_at,
+      scopes,
+      error_message,
+      metadata,
+      connected_at,
+      disconnected_at,
+      created_at,
+      updated_at
+    FROM integrations
+    WHERE business_id = ${businessId} AND provider = ${provider}
+    LIMIT 1
+  `) as Array<Omit<IntegrationRow, "access_token" | "refresh_token">>;
+  return rows[0] ? hydrateIntegrationMetadataRow(rows[0]) : null;
 }
 
 /** Upsert an integration record after successful OAuth */
@@ -192,49 +264,57 @@ export async function backfillIntegrationSecretsEncryption(input?: {
 }): Promise<{ scanned: number; updated: number }> {
   const sql = getDb();
   const batchSize = Math.max(1, Math.min(input?.batchSize ?? 100, 1000));
-  const rows = (await sql`
-    SELECT id, access_token, refresh_token
-    FROM integrations
-    WHERE access_token IS NOT NULL OR refresh_token IS NOT NULL
-    ORDER BY updated_at ASC
-    LIMIT ${batchSize}
-  `) as Array<{
-    id: string;
-    access_token: string | null;
-    refresh_token: string | null;
-  }>;
-
+  let scanned = 0;
   let updated = 0;
-  for (const row of rows) {
-    const nextAccessToken =
-      row.access_token && !isEncryptedIntegrationSecret(row.access_token)
-        ? encryptIntegrationSecret(row.access_token)
-        : row.access_token;
-    const nextRefreshToken =
-      row.refresh_token && !isEncryptedIntegrationSecret(row.refresh_token)
-        ? encryptIntegrationSecret(row.refresh_token)
-        : row.refresh_token;
 
-    if (
-      nextAccessToken === row.access_token &&
-      nextRefreshToken === row.refresh_token
-    ) {
-      continue;
+  while (true) {
+    const rows = (await sql`
+      SELECT id, access_token, refresh_token
+      FROM integrations
+      WHERE access_token IS NOT NULL OR refresh_token IS NOT NULL
+      ORDER BY updated_at ASC
+      LIMIT ${batchSize}
+    `) as Array<{
+      id: string;
+      access_token: string | null;
+      refresh_token: string | null;
+    }>;
+
+    if (rows.length === 0) break;
+    let batchUpdated = 0;
+    scanned += rows.length;
+
+    for (const row of rows) {
+      const nextAccessToken =
+        row.access_token && !isEncryptedIntegrationSecret(row.access_token)
+          ? encryptIntegrationSecret(row.access_token)
+          : row.access_token;
+      const nextRefreshToken =
+        row.refresh_token && !isEncryptedIntegrationSecret(row.refresh_token)
+          ? encryptIntegrationSecret(row.refresh_token)
+          : row.refresh_token;
+
+      if (
+        nextAccessToken === row.access_token &&
+        nextRefreshToken === row.refresh_token
+      ) {
+        continue;
+      }
+
+      await sql`
+        UPDATE integrations
+        SET
+          access_token = ${nextAccessToken},
+          refresh_token = ${nextRefreshToken},
+          updated_at = now()
+        WHERE id = ${row.id}
+      `;
+      updated += 1;
+      batchUpdated += 1;
     }
 
-    await sql`
-      UPDATE integrations
-      SET
-        access_token = ${nextAccessToken},
-        refresh_token = ${nextRefreshToken},
-        updated_at = now()
-      WHERE id = ${row.id}
-    `;
-    updated += 1;
+    if (rows.length < batchSize || batchUpdated === 0) break;
   }
 
-  return {
-    scanned: rows.length,
-    updated,
-  };
+  return { scanned, updated };
 }
