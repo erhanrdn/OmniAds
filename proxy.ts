@@ -10,6 +10,7 @@ const PUBLIC_PAGE_PREFIXES = [
   "/share",
   "/privacy",
   "/terms",
+  "/ai-transparency",
   "/contact",
   "/security",
   "/product",
