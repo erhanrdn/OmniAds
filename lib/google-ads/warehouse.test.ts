@@ -46,7 +46,12 @@ vi.mock("@/lib/migrations", () => ({
   runMigrations: vi.fn(),
 }));
 
+vi.mock("@/lib/sync/worker-health", () => ({
+  recordSyncReclaimEvents: vi.fn().mockResolvedValue(undefined),
+}));
+
 const db = await import("@/lib/db");
+const workerHealth = await import("@/lib/sync/worker-health");
 const {
   cleanupGoogleAdsPartitionOrchestration,
   replayGoogleAdsDeadLetterPartitions,
@@ -90,6 +95,7 @@ describe("dedupeGoogleAdsWarehouseRows", () => {
 describe("google ads warehouse ownership safety", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    vi.mocked(workerHealth.recordSyncReclaimEvents).mockResolvedValue(undefined);
   });
 
   it("returns null when checkpoint upsert loses partition ownership", async () => {
@@ -187,5 +193,46 @@ describe("google ads warehouse ownership safety", () => {
     expect(result.stalePartitionCount).toBe(0);
     expect(result.aliveSlowCount).toBe(1);
     expect(result.reclaimReasons.stalledReclaimable).toEqual([]);
+  });
+
+  it("reclaims expired partitions when progress is stale and no runner lease remains", async () => {
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      if (query.includes("FROM google_ads_sync_partitions partition") && query.includes("same_phase_failures")) {
+        return [
+          {
+            id: "partition-1",
+            scope: "campaign_daily",
+            lane: "core",
+            status: "leased",
+            attempt_count: 1,
+            updated_at: new Date(Date.now() - 10 * 60_000).toISOString(),
+            started_at: new Date(Date.now() - 10 * 60_000).toISOString(),
+            lease_expires_at: new Date(Date.now() - 2 * 60_000).toISOString(),
+            checkpoint_scope: "campaign_daily",
+            phase: "bulk_upsert",
+            page_index: 0,
+            checkpoint_attempt_count: 1,
+            checkpoint_status: "running",
+            progress_updated_at: new Date(Date.now() - 10 * 60_000).toISOString(),
+            poisoned_at: null,
+            poison_reason: null,
+            same_phase_failures: 0,
+            has_active_runner_lease: false,
+          },
+        ];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const result = await cleanupGoogleAdsPartitionOrchestration({
+      businessId: "biz-1",
+      staleLeaseMinutes: 8,
+    });
+
+    expect(result.stalePartitionCount).toBe(1);
+    expect(result.aliveSlowCount).toBe(0);
+    expect(result.reclaimReasons.stalledReclaimable).toEqual(["worker_offline_no_progress"]);
   });
 });

@@ -183,6 +183,36 @@ describe("buildAdminSyncHealth", () => {
     expect(payload.googleAdsBusinesses?.[0]?.effectiveMode).toBe("canary_reopen");
   });
 
+  it("surfaces lease-conflict and skipped-active-lease counters as actionable issues", () => {
+    const payload = buildAdminSyncHealth({
+      jobs: [],
+      cooldowns: [],
+      googleAdsHealth: [
+        {
+          business_id: "biz-g",
+          business_name: "Grandmix",
+          queue_depth: 1,
+          leased_partitions: 0,
+          dead_letter_partitions: 0,
+          oldest_queued_partition: "2026-03-20",
+          latest_partition_activity_at: new Date().toISOString(),
+          latest_checkpoint_updated_at: new Date().toISOString(),
+          campaign_completed_days: 10,
+          campaign_dead_letter_count: 0,
+          search_term_completed_days: 2,
+          product_completed_days: 1,
+          skipped_active_lease_recoveries: 3,
+          lease_conflict_runs_24h: 2,
+        },
+      ],
+    });
+
+    expect(payload.summary.googleAdsSkippedActiveLeaseRecoveries).toBe(3);
+    expect(payload.summary.googleAdsLeaseConflictRuns24h).toBe(2);
+    expect(payload.issues.some((issue) => issue.reportType === "skipped_active_lease")).toBe(true);
+    expect(payload.issues.some((issue) => issue.reportType === "lease_conflict_runs")).toBe(true);
+  });
+
   it("surfaces meta recent frontier readiness separately from historical coverage", () => {
     const payload = buildAdminSyncHealth({
       jobs: [],
@@ -233,6 +263,42 @@ describe("buildAdminSyncHealth", () => {
     expect(payload.metaBusinesses?.[0]?.recentExtendedReady).toBe(true);
     expect(payload.metaBusinesses?.[0]?.historicalExtendedReady).toBe(false);
     expect(payload.metaBusinesses?.[0]?.effectiveMode).toBe("extended_recovery");
+  });
+
+  it("surfaces meta stale-run and skipped-active-lease counters as actionable issues", () => {
+    const payload = buildAdminSyncHealth({
+      jobs: [],
+      cooldowns: [],
+      metaHealth: [
+        {
+          business_id: "biz-meta",
+          business_name: "IwaStore",
+          queue_depth: 3,
+          leased_partitions: 0,
+          retryable_failed_partitions: 0,
+          stale_lease_partitions: 0,
+          dead_letter_partitions: 0,
+          state_row_count: 2,
+          current_day_reference: "2026-03-28",
+          oldest_queued_partition: "2026-03-20",
+          latest_partition_activity_at: new Date().toISOString(),
+          latest_checkpoint_updated_at: new Date().toISOString(),
+          today_account_rows: 12,
+          today_adset_rows: 21,
+          account_completed_days: 30,
+          adset_completed_days: 30,
+          creative_completed_days: 10,
+          ad_completed_days: 8,
+          skipped_active_lease_recoveries: 4,
+          stale_run_count_24h: 2,
+        },
+      ],
+    });
+
+    expect(payload.summary.metaSkippedActiveLeaseRecoveries).toBe(4);
+    expect(payload.summary.metaStaleRunCount24h).toBe(2);
+    expect(payload.issues.some((issue) => issue.reportType === "skipped_active_lease")).toBe(true);
+    expect(payload.issues.some((issue) => issue.reportType === "stale_runs")).toBe(true);
   });
 
   it("keeps lightweight google ads summary when detailed health is degraded", () => {

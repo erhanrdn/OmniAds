@@ -8,7 +8,12 @@ vi.mock("@/lib/migrations", () => ({
   runMigrations: vi.fn(),
 }));
 
+vi.mock("@/lib/sync/worker-health", () => ({
+  recordSyncReclaimEvents: vi.fn().mockResolvedValue(undefined),
+}));
+
 const db = await import("@/lib/db");
+const workerHealth = await import("@/lib/sync/worker-health");
 const { cleanupMetaPartitionOrchestration, replayMetaDeadLetterPartitions, upsertMetaSyncCheckpoint } = await import(
   "@/lib/meta/warehouse"
 );
@@ -16,6 +21,7 @@ const { cleanupMetaPartitionOrchestration, replayMetaDeadLetterPartitions, upser
 describe("meta warehouse ownership safety", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    vi.mocked(workerHealth.recordSyncReclaimEvents).mockResolvedValue(undefined);
   });
 
   it("returns null when checkpoint upsert loses partition ownership", async () => {
@@ -106,5 +112,39 @@ describe("meta warehouse ownership safety", () => {
     expect(result.stalePartitionCount).toBe(0);
     expect(result.aliveSlowCount).toBe(1);
     expect(result.reclaimReasons.stalledReclaimable).toEqual([]);
+  });
+
+  it("reclaims expired partitions when progress is stale and no runner lease remains", async () => {
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      if (query.includes("FROM meta_sync_partitions partition") && query.includes("partition.status IN ('leased', 'running')")) {
+        return [
+          {
+            id: "partition-1",
+            lane: "core",
+            scope: "account_daily",
+            updated_at: new Date(Date.now() - 10 * 60_000).toISOString(),
+            started_at: new Date(Date.now() - 10 * 60_000).toISOString(),
+            lease_expires_at: new Date(Date.now() - 2 * 60_000).toISOString(),
+            checkpoint_scope: "account_daily",
+            phase: "fetch_raw",
+            page_index: 0,
+            checkpoint_updated_at: new Date(Date.now() - 10 * 60_000).toISOString(),
+            has_active_runner_lease: false,
+          },
+        ];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const result = await cleanupMetaPartitionOrchestration({
+      businessId: "biz-1",
+      staleLeaseMinutes: 8,
+    });
+
+    expect(result.stalePartitionCount).toBe(1);
+    expect(result.aliveSlowCount).toBe(0);
+    expect(result.reclaimReasons.stalledReclaimable).toEqual(["lease_expired_no_progress"]);
   });
 });

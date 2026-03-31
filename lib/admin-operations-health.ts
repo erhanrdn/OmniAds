@@ -851,6 +851,37 @@ export function buildAdminSyncHealth(input: {
         completedAt: row.oldest_queued_partition,
       });
     }
+
+    if (Number(row.skipped_active_lease_recoveries ?? 0) > 0) {
+      impactedBusinesses.add(row.business_id);
+      issueTypes.push("Google Ads active-lease recovery skips");
+      issues.push({
+        businessId: row.business_id,
+        businessName: row.business_name,
+        provider: "google_ads",
+        reportType: "skipped_active_lease",
+        status: "running",
+        detail: `${Number(row.skipped_active_lease_recoveries ?? 0)} Google Ads recovery attempts were skipped because work was still actively leased in the last 24 hours.`,
+        triggeredAt: row.latest_partition_activity_at ?? row.latest_checkpoint_updated_at ?? null,
+        completedAt: row.oldest_queued_partition,
+      });
+    }
+
+    if (Number(row.lease_conflict_runs_24h ?? 0) > 0) {
+      impactedBusinesses.add(row.business_id);
+      issueTypes.push("Google Ads lease conflicts");
+      issues.push({
+        businessId: row.business_id,
+        businessName: row.business_name,
+        provider: "google_ads",
+        reportType: "lease_conflict_runs",
+        status: "failed",
+        detail: `${Number(row.lease_conflict_runs_24h ?? 0)} Google Ads runs lost partition ownership in the last 24 hours.`,
+        triggeredAt: row.latest_partition_activity_at ?? row.latest_checkpoint_updated_at ?? null,
+        completedAt: row.oldest_queued_partition,
+      });
+    }
+
     if (circuitBreakerOpen) {
       impactedBusinesses.add(row.business_id);
       issueTypes.push("Google Ads circuit breaker");
@@ -1123,6 +1154,36 @@ export function buildAdminSyncHealth(input: {
         status: "failed",
         detail: `Recent reclaim activity detected. Last reason: ${row.last_reclaim_reason ?? "unknown"}.`,
         triggeredAt: row.latest_checkpoint_updated_at ?? row.latest_partition_activity_at,
+        completedAt: row.oldest_queued_partition,
+      });
+    }
+
+    if (Number(row.skipped_active_lease_recoveries ?? 0) > 0) {
+      impactedBusinesses.add(row.business_id);
+      issueTypes.push("Meta active-lease recovery skips");
+      issues.push({
+        businessId: row.business_id,
+        businessName: row.business_name,
+        provider: "meta",
+        reportType: "skipped_active_lease",
+        status: "running",
+        detail: `${Number(row.skipped_active_lease_recoveries ?? 0)} Meta recovery attempts were skipped because work was still actively leased in the last 24 hours.`,
+        triggeredAt: row.latest_partition_activity_at ?? row.latest_checkpoint_updated_at ?? null,
+        completedAt: row.oldest_queued_partition,
+      });
+    }
+
+    if (Number(row.stale_run_count_24h ?? 0) > 0) {
+      impactedBusinesses.add(row.business_id);
+      issueTypes.push("Meta stale runs");
+      issues.push({
+        businessId: row.business_id,
+        businessName: row.business_name,
+        provider: "meta",
+        reportType: "stale_runs",
+        status: "failed",
+        detail: `${Number(row.stale_run_count_24h ?? 0)} Meta runs were auto-closed as stale in the last 24 hours.`,
+        triggeredAt: row.latest_partition_activity_at ?? row.latest_checkpoint_updated_at ?? null,
         completedAt: row.oldest_queued_partition,
       });
     }
