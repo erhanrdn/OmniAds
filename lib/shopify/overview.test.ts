@@ -54,18 +54,21 @@ describe("getShopifyOverviewAggregate", () => {
               {
                 node: {
                   createdAt: "2026-03-01T10:00:00Z",
+                  processedAt: "2026-03-01T10:05:00Z",
                   currentTotalPriceSet: { shopMoney: { amount: "100.00" } },
                 },
               },
               {
                 node: {
                   createdAt: "2026-03-02T10:00:00Z",
+                  processedAt: "2026-03-02T10:05:00Z",
                   currentTotalPriceSet: { shopMoney: { amount: "120.00" } },
                 },
               },
               {
                 node: {
                   createdAt: "2026-03-02T11:00:00Z",
+                  processedAt: "2026-03-02T11:10:00Z",
                   currentTotalPriceSet: { shopMoney: { amount: "80.00" } },
                 },
               },
@@ -158,12 +161,14 @@ describe("getShopifyOverviewAggregate", () => {
               {
                 node: {
                   createdAt: "2026-03-01T10:00:00Z",
+                  processedAt: "2026-03-01T10:05:00Z",
                   currentTotalPriceSet: { shopMoney: { amount: "100.00" } },
                 },
               },
               {
                 node: {
                   createdAt: "2026-03-02T10:00:00Z",
+                  processedAt: "2026-03-02T10:05:00Z",
                   currentTotalPriceSet: { shopMoney: { amount: "200.00" } },
                 },
               },
@@ -230,7 +235,7 @@ describe("getShopifyOverviewAggregate", () => {
     expect(reportingCache.setCachedReport).toHaveBeenCalledTimes(1);
   });
 
-  it("uses shop-local timezone boundaries when building the orders filter", async () => {
+  it("uses processed_at shop-local boundaries and excludes test orders", async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockResolvedValueOnce({
       ok: true,
@@ -258,11 +263,12 @@ describe("getShopifyOverviewAggregate", () => {
       variables?: { query?: string };
     };
 
-    expect(body.variables?.query).toContain("created_at:>=2026-03-01T05:00:00.000Z");
-    expect(body.variables?.query).toContain("created_at:<=2026-03-02T04:59:59.000Z");
+    expect(body.variables?.query).toContain("processed_at:>=2026-03-01T05:00:00.000Z");
+    expect(body.variables?.query).toContain("processed_at:<=2026-03-02T04:59:59.000Z");
+    expect(body.variables?.query).toContain("test:false");
   });
 
-  it("buckets orders by shop-local date instead of raw UTC date", async () => {
+  it("buckets orders by processedAt shop-local date instead of raw UTC createdAt date", async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockResolvedValueOnce({
       ok: true,
@@ -276,7 +282,8 @@ describe("getShopifyOverviewAggregate", () => {
             edges: [
               {
                 node: {
-                  createdAt: "2026-03-02T04:30:00Z",
+                  createdAt: "2026-03-01T23:30:00Z",
+                  processedAt: "2026-03-02T04:30:00Z",
                   currentTotalPriceSet: { shopMoney: { amount: "100.00" } },
                 },
               },
@@ -312,6 +319,54 @@ describe("getShopifyOverviewAggregate", () => {
         },
       ],
     });
+  });
+
+  it("logs a semantic delta when current totals diverge from gross minus refunds", async () => {
+    const fetchMock = vi.mocked(fetch);
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: {
+          orders: {
+            pageInfo: {
+              hasNextPage: false,
+              endCursor: null,
+            },
+            edges: [
+              {
+                node: {
+                  createdAt: "2026-03-01T10:00:00Z",
+                  processedAt: "2026-03-01T10:10:00Z",
+                  currentTotalPriceSet: { shopMoney: { amount: "80.00" } },
+                  totalPriceSet: { shopMoney: { amount: "100.00" } },
+                  totalRefundedSet: { shopMoney: { amount: "10.00" } },
+                  cancelledAt: null,
+                  test: false,
+                },
+              },
+            ],
+          },
+        },
+      }),
+    } as Response);
+
+    await getShopifyOverviewAggregate({
+      businessId: "biz_1",
+      startDate: "2026-03-01",
+      endDate: "2026-03-01",
+    });
+
+    expect(infoSpy).toHaveBeenCalledWith(
+      "[shopify-overview] revenue_semantic_delta",
+      expect.objectContaining({
+        currentRevenue: 80,
+        grossMinusRefundsRevenue: 90,
+        delta: -10,
+        refundedOrders: 1,
+      })
+    );
+    infoSpy.mockRestore();
   });
 
   it("keeps Shopify aggregate on zero-order windows when the query succeeds", async () => {
