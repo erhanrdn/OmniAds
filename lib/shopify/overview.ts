@@ -4,7 +4,7 @@ import { getCachedReport, getReportingDateRangeKey, setCachedReport } from "@/li
 
 const SHOPIFY_OVERVIEW_CACHE_TTL_MINUTES = 15;
 const SHOPIFY_ANALYTICS_API_VERSION = process.env.SHOPIFY_ANALYTICS_API_VERSION ?? "2025-10";
-const SHOPIFY_OVERVIEW_REPORT_TYPE = "overview_shopify_orders_aggregate_v4";
+const SHOPIFY_OVERVIEW_REPORT_TYPE = "overview_shopify_orders_aggregate_v5";
 const SHOPIFY_ORDER_PAGE_SIZE = 250;
 const SHOPIFY_ORDER_PAGE_LIMIT = 40;
 
@@ -235,7 +235,7 @@ async function getShopifyOrderCommerceMetrics(input: {
 }) {
   const query = `
     query ShopifyOverviewCommerceOrders($query: String!, $cursor: String) {
-      orders(first: ${SHOPIFY_ORDER_PAGE_SIZE}, after: $cursor, sortKey: PROCESSED_AT, query: $query) {
+      orders(first: ${SHOPIFY_ORDER_PAGE_SIZE}, after: $cursor, sortKey: CREATED_AT, query: $query) {
         pageInfo {
           hasNextPage
           endCursor
@@ -285,7 +285,7 @@ async function getShopifyOrderCommerceMetrics(input: {
     endDate: input.endDate,
     timeZone: input.timeZone,
   });
-  const ordersQuery = `processed_at:>=${orderWindow.startIso} processed_at:<=${orderWindow.endIso} status:any test:false`;
+  const ordersQuery = `created_at:>=${orderWindow.startIso} created_at:<=${orderWindow.endIso} status:any test:false`;
   let cursor: string | null = null;
   let pageCount = 0;
 
@@ -309,6 +309,7 @@ async function getShopifyOrderCommerceMetrics(input: {
       if ((toNumber(node?.totalRefundedSet?.shopMoney?.amount) ?? 0) > 0) refundedOrders += 1;
 
       const currentTotalRevenue = toNumber(node?.currentTotalPriceSet?.shopMoney?.amount);
+      const preReturnRevenue = toNumber(node?.totalPriceSet?.shopMoney?.amount);
       const grossMinusRefundsRevenue = round2(
         toNumber(node?.totalPriceSet?.shopMoney?.amount) -
           toNumber(node?.totalRefundedSet?.shopMoney?.amount)
@@ -317,16 +318,16 @@ async function getShopifyOrderCommerceMetrics(input: {
       totalGrossMinusRefundsRevenue += grossMinusRefundsRevenue;
 
       const date =
-        typeof node?.processedAt === "string"
-          ? toTimeZoneIsoDate(node.processedAt, input.timeZone)
-          : typeof node?.createdAt === "string"
-            ? toTimeZoneIsoDate(node.createdAt, input.timeZone)
+        typeof node?.createdAt === "string"
+          ? toTimeZoneIsoDate(node.createdAt, input.timeZone)
+          : typeof node?.processedAt === "string"
+            ? toTimeZoneIsoDate(node.processedAt, input.timeZone)
           : null;
       if (!date || !dailyRevenue.has(date) || !dailyPurchases.has(date)) continue;
 
       dailyRevenue.set(
         date,
-        round2((dailyRevenue.get(date) ?? 0) + currentTotalRevenue)
+        round2((dailyRevenue.get(date) ?? 0) + preReturnRevenue)
       );
       dailyPurchases.set(date, (dailyPurchases.get(date) ?? 0) + 1);
     }
@@ -369,15 +370,21 @@ async function getShopifyOrderCommerceMetrics(input: {
   }
 
   const currentRevenueRounded = round2(totalCurrentRevenue);
+  const preReturnRevenueRounded = round2(revenue);
   const grossMinusRefundsRounded = round2(totalGrossMinusRefundsRevenue);
-  if (Math.abs(currentRevenueRounded - grossMinusRefundsRounded) >= 0.01) {
+  if (
+    Math.abs(currentRevenueRounded - preReturnRevenueRounded) >= 0.01 ||
+    Math.abs(preReturnRevenueRounded - grossMinusRefundsRounded) >= 0.01
+  ) {
     console.info("[shopify-overview] revenue_semantic_delta", {
       shopId: input.shopId,
       startDate: input.startDate,
       endDate: input.endDate,
       currentRevenue: currentRevenueRounded,
+      preReturnRevenue: preReturnRevenueRounded,
       grossMinusRefundsRevenue: grossMinusRefundsRounded,
-      delta: round2(currentRevenueRounded - grossMinusRefundsRounded),
+      currentVsPreReturnDelta: round2(currentRevenueRounded - preReturnRevenueRounded),
+      preReturnVsGrossMinusRefundsDelta: round2(preReturnRevenueRounded - grossMinusRefundsRounded),
       cancelledOrders,
       refundedOrders,
       testOrders,

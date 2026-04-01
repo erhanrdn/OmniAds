@@ -55,6 +55,7 @@ describe("getShopifyOverviewAggregate", () => {
                 node: {
                   createdAt: "2026-03-01T10:00:00Z",
                   processedAt: "2026-03-01T10:05:00Z",
+                  totalPriceSet: { shopMoney: { amount: "100.00" } },
                   currentTotalPriceSet: { shopMoney: { amount: "100.00" } },
                 },
               },
@@ -62,6 +63,7 @@ describe("getShopifyOverviewAggregate", () => {
                 node: {
                   createdAt: "2026-03-02T10:00:00Z",
                   processedAt: "2026-03-02T10:05:00Z",
+                  totalPriceSet: { shopMoney: { amount: "120.00" } },
                   currentTotalPriceSet: { shopMoney: { amount: "120.00" } },
                 },
               },
@@ -69,6 +71,7 @@ describe("getShopifyOverviewAggregate", () => {
                 node: {
                   createdAt: "2026-03-02T11:00:00Z",
                   processedAt: "2026-03-02T11:10:00Z",
+                  totalPriceSet: { shopMoney: { amount: "80.00" } },
                   currentTotalPriceSet: { shopMoney: { amount: "80.00" } },
                 },
               },
@@ -162,6 +165,7 @@ describe("getShopifyOverviewAggregate", () => {
                 node: {
                   createdAt: "2026-03-01T10:00:00Z",
                   processedAt: "2026-03-01T10:05:00Z",
+                  totalPriceSet: { shopMoney: { amount: "100.00" } },
                   currentTotalPriceSet: { shopMoney: { amount: "100.00" } },
                 },
               },
@@ -169,6 +173,7 @@ describe("getShopifyOverviewAggregate", () => {
                 node: {
                   createdAt: "2026-03-02T10:00:00Z",
                   processedAt: "2026-03-02T10:05:00Z",
+                  totalPriceSet: { shopMoney: { amount: "200.00" } },
                   currentTotalPriceSet: { shopMoney: { amount: "200.00" } },
                 },
               },
@@ -235,7 +240,7 @@ describe("getShopifyOverviewAggregate", () => {
     expect(reportingCache.setCachedReport).toHaveBeenCalledTimes(1);
   });
 
-  it("uses processed_at shop-local boundaries and excludes test orders", async () => {
+  it("uses created_at shop-local boundaries and excludes test orders", async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockResolvedValueOnce({
       ok: true,
@@ -263,12 +268,12 @@ describe("getShopifyOverviewAggregate", () => {
       variables?: { query?: string };
     };
 
-    expect(body.variables?.query).toContain("processed_at:>=2026-03-01T05:00:00.000Z");
-    expect(body.variables?.query).toContain("processed_at:<=2026-03-02T04:59:59.000Z");
+    expect(body.variables?.query).toContain("created_at:>=2026-03-01T05:00:00.000Z");
+    expect(body.variables?.query).toContain("created_at:<=2026-03-02T04:59:59.000Z");
     expect(body.variables?.query).toContain("test:false");
   });
 
-  it("buckets orders by processedAt shop-local date instead of raw UTC createdAt date", async () => {
+  it("buckets and sums revenue by createdAt using pre-return totals", async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockResolvedValueOnce({
       ok: true,
@@ -282,8 +287,9 @@ describe("getShopifyOverviewAggregate", () => {
             edges: [
               {
                 node: {
-                  createdAt: "2026-03-01T23:30:00Z",
+                  createdAt: "2026-03-02T04:30:00Z",
                   processedAt: "2026-03-02T04:30:00Z",
+                  totalPriceSet: { shopMoney: { amount: "120.00" } },
                   currentTotalPriceSet: { shopMoney: { amount: "100.00" } },
                 },
               },
@@ -300,9 +306,9 @@ describe("getShopifyOverviewAggregate", () => {
     });
 
     expect(aggregate).toEqual({
-      revenue: 100,
+      revenue: 120,
       purchases: 1,
-      averageOrderValue: 100,
+      averageOrderValue: 120,
       sessions: null,
       conversionRate: null,
       newCustomers: null,
@@ -310,7 +316,7 @@ describe("getShopifyOverviewAggregate", () => {
       dailyTrends: [
         {
           date: "2026-03-01",
-          revenue: 100,
+          revenue: 120,
           purchases: 1,
           sessions: null,
           conversionRate: null,
@@ -361,8 +367,10 @@ describe("getShopifyOverviewAggregate", () => {
       "[shopify-overview] revenue_semantic_delta",
       expect.objectContaining({
         currentRevenue: 80,
+        preReturnRevenue: 100,
         grossMinusRefundsRevenue: 90,
-        delta: -10,
+        currentVsPreReturnDelta: -20,
+        preReturnVsGrossMinusRefundsDelta: 10,
         refundedOrders: 1,
       })
     );
