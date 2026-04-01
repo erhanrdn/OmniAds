@@ -20,6 +20,9 @@ vi.mock("@/lib/oauth/shopify-config", () => ({
   },
 }));
 
+const SHOPIFY_GRANTED_SCOPES =
+  "read_all_orders,read_analytics,read_price_rules,read_inventory,read_marketing_events,read_markets,read_online_store_pages,read_orders,read_product_listings,read_products,read_reports";
+
 vi.mock("@/lib/auth", () => ({
   getSessionFromRequest: vi.fn().mockResolvedValue(null),
 }));
@@ -75,7 +78,7 @@ describe("GET /api/oauth/shopify/callback", () => {
       shop_domain: "test-shop.myshopify.com",
       shop_name: "Test Shop",
       access_token: "permanent_token",
-      scopes: "read_orders",
+      scopes: SHOPIFY_GRANTED_SCOPES,
       metadata: { currency: "USD" },
       return_to: "/integrations",
       session_id: null,
@@ -89,7 +92,7 @@ describe("GET /api/oauth/shopify/callback", () => {
         ok: true,
         json: async () => ({
           access_token: "permanent_token",
-          scope: "read_orders",
+          scope: SHOPIFY_GRANTED_SCOPES,
         }),
       })
       .mockResolvedValueOnce({
@@ -139,7 +142,7 @@ describe("GET /api/oauth/shopify/callback", () => {
         ok: true,
         json: async () => ({
           access_token: "permanent_token",
-          scope: "read_orders",
+          scope: SHOPIFY_GRANTED_SCOPES,
         }),
       })
       .mockResolvedValueOnce({
