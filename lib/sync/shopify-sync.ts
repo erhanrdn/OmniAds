@@ -206,6 +206,7 @@ export async function syncShopifyCommerceReports(
         businessId,
         startDate: window.startDate,
         endDate: window.endDate,
+        queryField: "updated_at",
       }),
       syncShopifyReturnsWindow({
         businessId,
@@ -340,6 +341,7 @@ export async function syncShopifyCommerceReports(
             businessId,
             startDate: ordersChunk.startDate,
             endDate: ordersChunk.endDate,
+            queryField: "created_at",
           }),
           syncShopifyReturnsWindow({
             businessId,
@@ -356,7 +358,8 @@ export async function syncShopifyCommerceReports(
             historicalTargetStart: historical.targetStartDate,
             historicalTargetEnd: historical.targetEndDate,
             readyThroughDate: ordersChunk.endDate,
-            cursorTimestamp: `${ordersChunk.endDate}T23:59:59.000Z`,
+            cursorTimestamp:
+              historicalOrdersResult.maxUpdatedAt ?? `${ordersChunk.endDate}T23:59:59.000Z`,
             cursorValue: ordersChunk.endDate,
             latestSuccessfulSyncAt: new Date().toISOString(),
             latestSyncStatus:
@@ -437,8 +440,8 @@ export async function syncShopifyCommerceReports(
       historicalTargetStart: existingOrdersState?.historicalTargetStart ?? window.startDate,
       historicalTargetEnd: existingOrdersState?.historicalTargetEnd ?? window.endDate,
       readyThroughDate: window.endDate,
-      cursorTimestamp: `${window.endDate}T23:59:59.000Z`,
-      cursorValue: window.endDate,
+      cursorTimestamp: ordersResult.maxUpdatedAt ?? `${window.endDate}T23:59:59.000Z`,
+      cursorValue: ordersResult.maxUpdatedAt ?? window.endDate,
       latestSyncStartedAt: new Date().toISOString(),
       latestSuccessfulSyncAt: new Date().toISOString(),
       latestSyncStatus: "succeeded",

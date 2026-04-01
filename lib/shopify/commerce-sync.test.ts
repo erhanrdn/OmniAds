@@ -16,6 +16,7 @@ describe("shopify commerce sync mapping", () => {
         id: "gid://shopify/Order/1001",
         name: "#1001",
         createdAt: "2026-03-29T13:00:00Z",
+        updatedAt: "2026-03-30T02:00:00Z",
         processedAt: "2026-03-29T13:05:00Z",
         displayFinancialStatus: "PAID",
         displayFulfillmentStatus: "FULFILLED",
@@ -93,6 +94,7 @@ describe("shopify commerce sync mapping", () => {
         customerId: "99",
         totalPrice: 135,
         totalRefunded: 15,
+        orderUpdatedAt: "2026-03-30T02:00:00Z",
         sourceSnapshotId: "snap_1",
       })
     );

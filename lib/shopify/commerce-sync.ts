@@ -36,6 +36,7 @@ interface ShopifyGraphqlOrderNode {
   id?: string | null;
   name?: string | null;
   createdAt?: string | null;
+  updatedAt?: string | null;
   processedAt?: string | null;
   cancelledAt?: string | null;
   closedAt?: string | null;
@@ -133,7 +134,7 @@ interface ShopifyReturnsPagePayload {
 
 const ORDERS_QUERY = `
   query ShopifyCommerceOrders($query: String!, $cursor: String) {
-    orders(first: 100, after: $cursor, sortKey: CREATED_AT, query: $query) {
+    orders(first: 100, after: $cursor, sortKey: UPDATED_AT, query: $query) {
       pageInfo {
         hasNextPage
         endCursor
@@ -143,6 +144,7 @@ const ORDERS_QUERY = `
           id
           name
           createdAt
+          updatedAt
           processedAt
           cancelledAt
           closedAt
@@ -273,6 +275,7 @@ export function mapShopifyOrderNodeToWarehouseRows(input: {
     currencyCode,
     shopCurrencyCode: currencyCode,
     orderCreatedAt: input.node.createdAt,
+    orderUpdatedAt: input.node.updatedAt ?? null,
     orderProcessedAt: input.node.processedAt ?? null,
     orderCancelledAt: input.node.cancelledAt ?? null,
     orderClosedAt: input.node.closedAt ?? null,
@@ -404,6 +407,7 @@ export async function syncShopifyOrdersWindow(input: {
   businessId: string;
   startDate: string;
   endDate: string;
+  queryField?: "created_at" | "updated_at";
 }) {
   const credentials = await resolveShopifyAdminCredentials(input.businessId);
   if (!credentials) {
@@ -439,7 +443,9 @@ export async function syncShopifyOrdersWindow(input: {
   let orderLinesWritten = 0;
   let refundsWritten = 0;
   let transactionsWritten = 0;
-  const query = `created_at:>=${input.startDate}T00:00:00Z created_at:<=${input.endDate}T23:59:59Z status:any test:false`;
+  let maxUpdatedAt: string | null = null;
+  const queryField = input.queryField ?? "created_at";
+  const query = `${queryField}:>=${input.startDate}T00:00:00Z ${queryField}:<=${input.endDate}T23:59:59Z status:any test:false`;
 
   while (pageCount < 20) {
     pageCount += 1;
@@ -490,6 +496,13 @@ export async function syncShopifyOrdersWindow(input: {
         })
       );
 
+    for (const mappedRow of mapped) {
+      const candidate = mappedRow.order.orderUpdatedAt ?? mappedRow.order.orderCreatedAt;
+      if (candidate && (!maxUpdatedAt || candidate > maxUpdatedAt)) {
+        maxUpdatedAt = candidate;
+      }
+    }
+
     ordersWritten += await upsertShopifyOrders(mapped.map((row) => row.order));
     orderLinesWritten += await upsertShopifyOrderLines(mapped.flatMap((row) => row.orderLines));
     refundsWritten += await upsertShopifyRefunds(mapped.flatMap((row) => row.refunds));
@@ -511,6 +524,7 @@ export async function syncShopifyOrdersWindow(input: {
     refunds: refundsWritten,
     transactions: transactionsWritten,
     pages: pageCount,
+    maxUpdatedAt,
   };
 }
 

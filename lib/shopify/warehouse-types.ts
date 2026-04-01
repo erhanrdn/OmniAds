@@ -35,6 +35,7 @@ export interface ShopifyOrderWarehouseRow {
   currencyCode?: string | null;
   shopCurrencyCode?: string | null;
   orderCreatedAt: string;
+  orderUpdatedAt?: string | null;
   orderProcessedAt?: string | null;
   orderCancelledAt?: string | null;
   orderClosedAt?: string | null;

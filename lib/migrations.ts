@@ -1306,6 +1306,7 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
           currency_code            TEXT,
           shop_currency_code       TEXT,
           order_created_at         TIMESTAMPTZ NOT NULL,
+          order_updated_at         TIMESTAMPTZ,
           order_processed_at       TIMESTAMPTZ,
           order_cancelled_at       TIMESTAMPTZ,
           order_closed_at          TIMESTAMPTZ,
@@ -1326,8 +1327,12 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
           updated_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
           UNIQUE (business_id, provider_account_id, shop_id, order_id)
         )`.catch(() => {}),
+        sql`ALTER TABLE shopify_orders
+          ADD COLUMN IF NOT EXISTS order_updated_at TIMESTAMPTZ`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_orders_business_created
           ON shopify_orders (business_id, order_created_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_orders_business_updated
+          ON shopify_orders (business_id, order_updated_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_orders_shop_created
           ON shopify_orders (shop_id, order_created_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_orders_customer
