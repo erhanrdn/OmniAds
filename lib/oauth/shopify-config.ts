@@ -1,21 +1,67 @@
-import { logStartupEvent } from "@/lib/startup-diagnostics";
+import { logStartupError, logStartupEvent } from "@/lib/startup-diagnostics";
 
 let hasLoggedShopifyConfig = false;
+
+function isUnsafePublicHostname(hostname: string) {
+  const normalized = hostname.trim().toLowerCase();
+  return (
+    normalized === "localhost" ||
+    normalized === "127.0.0.1" ||
+    normalized === "0.0.0.0"
+  );
+}
+
+function validatePublicShopifyUrl(input: {
+  label: string;
+  value: string;
+  allowLocalhostInDevelopment?: boolean;
+}) {
+  const allowLocalhostInDevelopment =
+    input.allowLocalhostInDevelopment !== false &&
+    process.env.NODE_ENV !== "production";
+
+  try {
+    const url = new URL(input.value);
+    if (isUnsafePublicHostname(url.hostname) && !allowLocalhostInDevelopment) {
+      throw new Error(
+        `${input.label} resolved to unsafe public hostname: ${url.hostname}`,
+      );
+    }
+    return url;
+  } catch (error) {
+    logStartupError("shopify_config_invalid_public_url", error, {
+      label: input.label,
+      value: input.value,
+      nodeEnv: process.env.NODE_ENV ?? "unknown",
+    });
+    throw error;
+  }
+}
 
 function logShopifyConfigDiagnostics(appUrl: string, redirectUri: string) {
   if (hasLoggedShopifyConfig) return;
   hasLoggedShopifyConfig = true;
 
   try {
-    const app = new URL(appUrl);
-    const redirect = new URL(redirectUri);
+    const app = validatePublicShopifyUrl({
+      label: "SHOPIFY_APP_URL",
+      value: appUrl,
+    });
+    const redirect = validatePublicShopifyUrl({
+      label: "SHOPIFY_REDIRECT_URI",
+      value: redirectUri,
+      allowLocalhostInDevelopment: false,
+    });
     logStartupEvent("shopify_config_resolved", {
       appUrl: app.toString(),
       redirectUri: redirect.toString(),
+      nextPublicAppUrl: process.env.NEXT_PUBLIC_APP_URL?.trim() ?? null,
+      shopifyAppUrl: process.env.SHOPIFY_APP_URL?.trim() ?? null,
+      shopifyRedirectUri: process.env.SHOPIFY_REDIRECT_URI?.trim() ?? null,
     });
 
-    if (process.env.NODE_ENV === "production" && app.hostname === "localhost") {
-      logStartupEvent("shopify_config_warning_localhost_app_url", {
+    if (process.env.NODE_ENV === "production" && isUnsafePublicHostname(app.hostname)) {
+      logStartupEvent("shopify_config_warning_unsafe_public_app_url", {
         appUrl: app.toString(),
       });
     }
@@ -83,6 +129,16 @@ export const SHOPIFY_CONFIG = {
     const redirectUri = v || `${this.appUrl}/api/oauth/shopify/callback`;
     logShopifyConfigDiagnostics(this.appUrl, redirectUri);
     return redirectUri;
+  },
+  get validatedAppUrl() {
+    const url = validatePublicShopifyUrl({
+      label: "SHOPIFY_APP_URL",
+      value: this.appUrl,
+    });
+    return url.toString();
+  },
+  get validatedAppOrigin() {
+    return new URL(this.validatedAppUrl).origin;
   },
   /**
    * Build the authorization URL for a given shop domain.

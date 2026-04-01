@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import crypto from "crypto";
 import { SHOPIFY_CONFIG } from "@/lib/oauth/shopify-config";
 import { upsertIntegration } from "@/lib/integrations";
 import { updateBusinessCurrency } from "@/lib/account-store";
@@ -31,7 +30,7 @@ export async function GET(request: NextRequest) {
   const hmac = searchParams.get("hmac");
   const timestamp = searchParams.get("timestamp");
 
-  const baseUrl = SHOPIFY_CONFIG.appUrl;
+  const baseUrl = SHOPIFY_CONFIG.validatedAppUrl;
 
   function errorRedirect(msg: string, businessId?: string) {
     const url = new URL("/integrations/callback/shopify", baseUrl);
