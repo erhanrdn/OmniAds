@@ -164,10 +164,26 @@ interface ShopifyAdminGraphqlOrderEdge {
         amount?: string | null;
       } | null;
     } | null;
+    originalTotalPriceSet?: {
+      shopMoney?: {
+        amount?: string | null;
+      } | null;
+    } | null;
     currentTotalPriceSet?: {
       shopMoney?: {
         amount?: string | null;
       } | null;
+    } | null;
+    refunds?: {
+      nodes?: Array<{
+        createdAt?: string | null;
+        updatedAt?: string | null;
+        totalRefundedSet?: {
+          shopMoney?: {
+            amount?: string | null;
+          } | null;
+        } | null;
+      }> | null;
     } | null;
   } | null;
 }
@@ -254,6 +270,11 @@ async function getShopifyOrderCommerceMetrics(input: {
                 amount
               }
             }
+            originalTotalPriceSet {
+              shopMoney {
+                amount
+              }
+            }
             totalRefundedSet {
               shopMoney {
                 amount
@@ -262,6 +283,17 @@ async function getShopifyOrderCommerceMetrics(input: {
             currentTotalPriceSet {
               shopMoney {
                 amount
+              }
+            }
+            refunds(first: 50) {
+              nodes {
+                createdAt
+                updatedAt
+                totalRefundedSet {
+                  shopMoney {
+                    amount
+                  }
+                }
               }
             }
           }
@@ -280,6 +312,9 @@ async function getShopifyOrderCommerceMetrics(input: {
   const diagnosticProcessedShopRevenue = new Map<string, number>();
   let totalCurrentRevenue = 0;
   let totalGrossMinusRefundsRevenue = 0;
+  let totalLedgerRevenue = 0;
+  let totalGrossSalesRevenue = 0;
+  let totalRefundEventsRevenue = 0;
   let cancelledOrders = 0;
   let refundedOrders = 0;
   let testOrders = 0;
@@ -323,12 +358,16 @@ async function getShopifyOrderCommerceMetrics(input: {
 
       const currentTotalRevenue = toNumber(node?.currentTotalPriceSet?.shopMoney?.amount);
       const preReturnRevenue = toNumber(node?.totalPriceSet?.shopMoney?.amount);
+      const originalPlacedRevenue = toNumber(
+        node?.originalTotalPriceSet?.shopMoney?.amount ?? node?.totalPriceSet?.shopMoney?.amount
+      );
       const grossMinusRefundsRevenue = round2(
         toNumber(node?.totalPriceSet?.shopMoney?.amount) -
           toNumber(node?.totalRefundedSet?.shopMoney?.amount)
       );
       totalCurrentRevenue += currentTotalRevenue;
       totalGrossMinusRefundsRevenue += grossMinusRefundsRevenue;
+      totalGrossSalesRevenue += originalPlacedRevenue;
 
       const createdShopDate =
         typeof node?.createdAt === "string"
@@ -362,13 +401,34 @@ async function getShopifyOrderCommerceMetrics(input: {
         );
       }
 
-      if (!createdShopDate || !dailyRevenue.has(createdShopDate) || !dailyPurchases.has(createdShopDate)) continue;
+      if (createdShopDate && dailyRevenue.has(createdShopDate) && dailyPurchases.has(createdShopDate)) {
+        dailyRevenue.set(
+          createdShopDate,
+          round2((dailyRevenue.get(createdShopDate) ?? 0) + originalPlacedRevenue)
+        );
+        dailyPurchases.set(createdShopDate, (dailyPurchases.get(createdShopDate) ?? 0) + 1);
+      }
 
-      dailyRevenue.set(
-        createdShopDate,
-        round2((dailyRevenue.get(createdShopDate) ?? 0) + preReturnRevenue)
-      );
-      dailyPurchases.set(createdShopDate, (dailyPurchases.get(createdShopDate) ?? 0) + 1);
+      const refunds = Array.isArray(node?.refunds?.nodes) ? node.refunds.nodes : [];
+      for (const refund of refunds) {
+        const refundAmount = toNumber(refund?.totalRefundedSet?.shopMoney?.amount);
+        if (refundAmount <= 0) continue;
+        totalRefundEventsRevenue += refundAmount;
+        const refundDateValue =
+          typeof refund?.updatedAt === "string"
+            ? refund.updatedAt
+            : typeof refund?.createdAt === "string"
+              ? refund.createdAt
+              : null;
+        const refundShopDate = refundDateValue
+          ? toTimeZoneIsoDate(refundDateValue, input.timeZone)
+          : null;
+        if (!refundShopDate || !dailyRevenue.has(refundShopDate)) continue;
+        dailyRevenue.set(
+          refundShopDate,
+          round2((dailyRevenue.get(refundShopDate) ?? 0) - refundAmount)
+        );
+      }
     }
 
     const pageInfo = payload.orders?.pageInfo;
@@ -407,10 +467,12 @@ async function getShopifyOrderCommerceMetrics(input: {
       purchases: dayPurchases,
     });
   }
+  totalLedgerRevenue = round2(revenue);
 
   const currentRevenueRounded = round2(totalCurrentRevenue);
-  const preReturnRevenueRounded = round2(revenue);
+  const preReturnRevenueRounded = round2(totalGrossSalesRevenue);
   const grossMinusRefundsRounded = round2(totalGrossMinusRefundsRevenue);
+  const refundEventsRounded = round2(totalRefundEventsRevenue);
   const shopDateBasis = input.timeZone ?? "UTC";
   const businessDateBasis = input.businessTimeZone ?? "UTC";
   const leakageDiagnostic = diagnosticDates.map((date) => ({
@@ -436,8 +498,11 @@ async function getShopifyOrderCommerceMetrics(input: {
       currentRevenue: currentRevenueRounded,
       preReturnRevenue: preReturnRevenueRounded,
       grossMinusRefundsRevenue: grossMinusRefundsRounded,
+      ledgerRevenue: totalLedgerRevenue,
+      refundEventsRevenue: refundEventsRounded,
       currentVsPreReturnDelta: round2(currentRevenueRounded - preReturnRevenueRounded),
       preReturnVsGrossMinusRefundsDelta: round2(preReturnRevenueRounded - grossMinusRefundsRounded),
+      preReturnVsLedgerDelta: round2(preReturnRevenueRounded - totalLedgerRevenue),
       cancelledOrders,
       refundedOrders,
       testOrders,
