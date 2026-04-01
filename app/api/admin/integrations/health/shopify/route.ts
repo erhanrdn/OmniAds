@@ -15,6 +15,7 @@ import {
   upsertShopifyServingOverride,
 } from "@/lib/shopify/warehouse";
 import { getShopifyRevenueLedgerAggregate } from "@/lib/shopify/revenue-ledger";
+import { compareShopifyWarehouseAndLedger } from "@/lib/shopify/divergence";
 import { getShopifyWarehouseOverviewAggregate } from "@/lib/shopify/warehouse-overview";
 
 export async function GET(request: NextRequest) {
@@ -110,6 +111,13 @@ export async function GET(request: NextRequest) {
             }).catch(() => null),
           ])
         : [null, null];
+    const ledgerConsistency =
+      warehouseAggregate && ledgerAggregate
+        ? compareShopifyWarehouseAndLedger({
+            warehouse: warehouseAggregate,
+            ledger: ledgerAggregate,
+          })
+        : null;
 
     return NextResponse.json({
       businessId,
@@ -130,6 +138,7 @@ export async function GET(request: NextRequest) {
       reconciliationHistory,
       warehouseAggregate,
       ledgerAggregate,
+      ledgerConsistency,
     });
   } catch (err) {
     console.error("[admin/integrations/health/shopify GET]", err);

@@ -69,4 +69,37 @@ describe("POST /api/webhooks/shopify/sync", () => {
     expect(shopifySync.syncShopifyCommerceReports).toHaveBeenCalledWith("biz_1");
     expect(warehouse.upsertShopifyWebhookDelivery).toHaveBeenCalled();
   });
+
+  it("ignores unsupported webhook topics without triggering sync", async () => {
+    vi.mocked(verification.verifyShopifyWebhook).mockResolvedValue({
+      valid: true,
+      body: JSON.stringify({ id: "order_2" }),
+    } as never);
+    vi.mocked(db.getDb).mockReturnValue(
+      vi.fn().mockResolvedValue([
+        {
+          business_id: "biz_1",
+          provider_account_id: "test-shop.myshopify.com",
+        },
+      ]) as never
+    );
+    vi.mocked(warehouse.upsertShopifyWebhookDelivery).mockResolvedValue(undefined);
+
+    const request = new NextRequest("http://localhost:3000/api/webhooks/shopify/sync", {
+      method: "POST",
+      headers: {
+        "x-shopify-topic": "PRODUCTS_UPDATE",
+        "x-shopify-shop-domain": "test-shop.myshopify.com",
+        "x-shopify-webhook-id": "wh_2",
+      },
+      body: JSON.stringify({ id: "order_2" }),
+    });
+
+    const response = await POST(request as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.ignored).toBe(true);
+    expect(shopifySync.syncShopifyCommerceReports).not.toHaveBeenCalled();
+  });
 });

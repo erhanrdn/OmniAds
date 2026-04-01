@@ -1,5 +1,5 @@
 import { getShopifyOverviewAggregate } from "@/lib/shopify/overview";
-import { compareShopifyAggregates } from "@/lib/shopify/divergence";
+import { compareShopifyAggregates, compareShopifyWarehouseAndLedger } from "@/lib/shopify/divergence";
 import {
   buildShopifyOverviewCanaryKey,
   buildShopifyOverviewOverrideKey,
@@ -80,6 +80,13 @@ export async function getShopifyOverviewReadCandidate(input: {
           warehouse,
         })
       : null;
+  const ledgerConsistency =
+    warehouse && ledger
+      ? compareShopifyWarehouseAndLedger({
+          warehouse,
+          ledger,
+        })
+      : null;
 
   const decisionReasons: string[] = [];
   const canaryEnabled = warehouseReadCanaryEnabled();
@@ -106,6 +113,9 @@ export async function getShopifyOverviewReadCandidate(input: {
   if (live && warehouse && divergence?.withinThreshold !== true) {
     decisionReasons.push("divergence_above_threshold");
   }
+  if (warehouse && ledger && ledgerConsistency?.withinThreshold !== true) {
+    decisionReasons.push("ledger_semantics_above_threshold");
+  }
 
   const forcedLive = override?.mode === "force_live";
   const forcedWarehouse = override?.mode === "force_warehouse";
@@ -123,7 +133,8 @@ export async function getShopifyOverviewReadCandidate(input: {
         canaryEnabled &&
         (previewAllowed || defaultCutoverEligible) &&
         status.state === "ready" &&
-        divergence?.withinThreshold === true;
+        divergence?.withinThreshold === true &&
+        (ledgerConsistency === null || ledgerConsistency.withinThreshold === true);
 
   const preferredSource = canServeWarehouse
     ? "warehouse"
@@ -173,6 +184,7 @@ export async function getShopifyOverviewReadCandidate(input: {
     divergence: divergence
       ? {
           ...divergence,
+          ledgerConsistency,
           ledgerRevenue: ledger?.revenue ?? null,
           ledgerGrossRevenue: ledger?.grossRevenue ?? null,
           ledgerRefundedRevenue: ledger?.refundedRevenue ?? null,
@@ -197,7 +209,13 @@ export async function getShopifyOverviewReadCandidate(input: {
     endDate: input.endDate,
     preferredSource,
     canServeWarehouse,
-    divergence: divergence ? { ...divergence } : null,
+    divergence:
+      divergence || ledgerConsistency
+        ? {
+            ...(divergence ? { ...divergence } : {}),
+            ...(ledgerConsistency ? { ledgerConsistency } : {}),
+          }
+        : null,
     warehouseAggregate: warehouse ? { ...warehouse } : null,
     ledgerAggregate: ledger ? { ...ledger } : null,
     liveAggregate: live ? { ...live } : null,
@@ -211,6 +229,7 @@ export async function getShopifyOverviewReadCandidate(input: {
     ledger,
     override,
     divergence,
+    ledgerConsistency,
     decisionReasons,
     canaryEnabled,
     preferredSource,

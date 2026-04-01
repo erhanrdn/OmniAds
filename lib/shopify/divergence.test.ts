@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { compareShopifyAggregates } from "@/lib/shopify/divergence";
+import { compareShopifyAggregates, compareShopifyWarehouseAndLedger } from "@/lib/shopify/divergence";
 
 describe("compareShopifyAggregates", () => {
   it("marks aggregates within threshold when revenue and orders are close", () => {
@@ -103,5 +103,34 @@ describe("compareShopifyAggregates", () => {
     expect(result.revenueDeltaPercent).toBe(30);
     expect(result.purchaseDelta).toBe(-6);
     expect(result.maxDailyPurchaseDelta).toBe(6);
+  });
+
+  it("flags ledger consistency drift when warehouse and ledger semantics diverge too far", () => {
+    const result = compareShopifyWarehouseAndLedger({
+      warehouse: {
+        revenue: 1000,
+        grossRevenue: 1100,
+        refundedRevenue: 100,
+        purchases: 10,
+        returnEvents: 1,
+        averageOrderValue: 110,
+        daily: [],
+      },
+      ledger: {
+        revenue: 930,
+        grossRevenue: 1100,
+        refundedRevenue: 170,
+        purchases: 7,
+        returnEvents: 1,
+        averageOrderValue: 157.14,
+        daily: [],
+        ledgerRows: 3,
+      },
+    });
+
+    expect(result.withinThreshold).toBe(false);
+    expect(result.revenueDeltaPercent).toBe(7);
+    expect(result.purchaseDelta).toBe(-3);
+    expect(result.refundedRevenueDelta).toBe(70);
   });
 });

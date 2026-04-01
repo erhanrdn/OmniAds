@@ -21,6 +21,20 @@ export interface ShopifyAggregateDivergence {
   withinThreshold: boolean;
 }
 
+export interface ShopifyLedgerConsistency {
+  warehouseRevenue: number;
+  ledgerRevenue: number;
+  revenueDelta: number;
+  revenueDeltaPercent: number | null;
+  warehousePurchases: number;
+  ledgerPurchases: number;
+  purchaseDelta: number;
+  warehouseRefundedRevenue: number;
+  ledgerRefundedRevenue: number;
+  refundedRevenueDelta: number;
+  withinThreshold: boolean;
+}
+
 export function compareShopifyAggregates(input: {
   live: ShopifyOverviewAggregate;
   warehouse: ShopifyWarehouseOverviewAggregate;
@@ -98,4 +112,42 @@ export function compareShopifyAggregates(input: {
       (observedMaxDailyPurchaseDelta === null ||
         observedMaxDailyPurchaseDelta <= maxDailyPurchaseDelta),
   } satisfies ShopifyAggregateDivergence;
+}
+
+export function compareShopifyWarehouseAndLedger(input: {
+  warehouse: ShopifyWarehouseOverviewAggregate;
+  ledger: ShopifyWarehouseOverviewAggregate & { ledgerRows?: number };
+  maxRevenueDeltaPercent?: number;
+  maxPurchaseDelta?: number;
+  maxRefundedRevenueDelta?: number;
+}) {
+  const revenueDelta = round2(input.ledger.revenue - input.warehouse.revenue);
+  const revenueDeltaPercent =
+    Math.abs(input.warehouse.revenue) > 0
+      ? round2((Math.abs(revenueDelta) / Math.abs(input.warehouse.revenue)) * 100)
+      : null;
+  const purchaseDelta = input.ledger.purchases - input.warehouse.purchases;
+  const refundedRevenueDelta = round2(
+    input.ledger.refundedRevenue - input.warehouse.refundedRevenue
+  );
+  const maxRevenueDeltaPercent = input.maxRevenueDeltaPercent ?? 2;
+  const maxPurchaseDelta = input.maxPurchaseDelta ?? 2;
+  const maxRefundedRevenueDelta = input.maxRefundedRevenueDelta ?? 25;
+
+  return {
+    warehouseRevenue: round2(input.warehouse.revenue),
+    ledgerRevenue: round2(input.ledger.revenue),
+    revenueDelta,
+    revenueDeltaPercent,
+    warehousePurchases: input.warehouse.purchases,
+    ledgerPurchases: input.ledger.purchases,
+    purchaseDelta,
+    warehouseRefundedRevenue: round2(input.warehouse.refundedRevenue),
+    ledgerRefundedRevenue: round2(input.ledger.refundedRevenue),
+    refundedRevenueDelta,
+    withinThreshold:
+      (revenueDeltaPercent === null || revenueDeltaPercent <= maxRevenueDeltaPercent) &&
+      Math.abs(purchaseDelta) <= maxPurchaseDelta &&
+      Math.abs(refundedRevenueDelta) <= maxRefundedRevenueDelta,
+  } satisfies ShopifyLedgerConsistency;
 }

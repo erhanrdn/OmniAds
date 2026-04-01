@@ -89,6 +89,7 @@ describe("GET /api/admin/integrations/health/shopify", () => {
     expect(payload.serving?.decisionReasons).toEqual(["divergence_above_threshold"]);
     expect(payload.history).toHaveLength(1);
     expect(payload.reconciliationHistory).toEqual([]);
+    expect(payload.ledgerConsistency).toBeNull();
   });
 
   it("updates a Shopify serving override", async () => {

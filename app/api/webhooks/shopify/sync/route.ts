@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { runMigrations } from "@/lib/migrations";
 import { syncShopifyCommerceReports } from "@/lib/sync/shopify-sync";
-import { buildShopifyWebhookPayloadHash } from "@/lib/shopify/webhooks";
+import {
+  buildShopifyWebhookPayloadHash,
+  classifyShopifySyncWebhookTopic,
+} from "@/lib/shopify/webhooks";
 import { upsertShopifyWebhookDelivery } from "@/lib/shopify/warehouse";
 import { verifyShopifyWebhook } from "@/lib/shopify/webhook-verification";
 
@@ -26,6 +29,7 @@ export async function POST(request: NextRequest) {
     shopDomain: shopDomain ?? "unknown",
     body: result.body,
   });
+  const topicMeta = classifyShopifySyncWebhookTopic(topic);
 
   await runMigrations();
   const sql = getDb();
@@ -51,7 +55,14 @@ export async function POST(request: NextRequest) {
     payloadJson: payload,
     receivedAt: new Date().toISOString(),
     processingState: match ? "received" : "ignored",
-    resultSummary: match ? { matchedBusiness: match.business_id } : { ignored: true },
+    resultSummary: match
+      ? {
+          matchedBusiness: match.business_id,
+          supportedTopic: topicMeta.supported,
+          entity: topicMeta.entity,
+          action: topicMeta.action,
+        }
+      : { ignored: true, supportedTopic: topicMeta.supported, entity: topicMeta.entity },
   }).catch(() => null);
 
   console.log("[shopify-webhook] sync received", {
@@ -61,6 +72,26 @@ export async function POST(request: NextRequest) {
   });
 
   if (!match) {
+    return NextResponse.json({ received: true, ignored: true }, { status: 200 });
+  }
+  if (!topicMeta.shouldTriggerSync) {
+    await upsertShopifyWebhookDelivery({
+      businessId: match.business_id,
+      providerAccountId: match.provider_account_id,
+      topic: topic ?? "unknown",
+      shopDomain: shopDomain ?? "unknown",
+      webhookId,
+      payloadHash,
+      payloadJson: payload,
+      processedAt: new Date().toISOString(),
+      processingState: "ignored",
+      resultSummary: {
+        ignored: true,
+        reason: "unsupported_topic",
+        entity: topicMeta.entity,
+        action: topicMeta.action,
+      },
+    }).catch(() => null);
     return NextResponse.json({ received: true, ignored: true }, { status: 200 });
   }
 
@@ -78,8 +109,13 @@ export async function POST(request: NextRequest) {
       processingState: "processed",
       resultSummary:
         syncResult && typeof syncResult === "object"
-          ? (syncResult as Record<string, unknown>)
-          : { ok: true },
+          ? {
+              topic,
+              entity: topicMeta.entity,
+              action: topicMeta.action,
+              ...(syncResult as Record<string, unknown>),
+            }
+          : { ok: true, topic, entity: topicMeta.entity, action: topicMeta.action },
     }).catch(() => null);
   } catch (error) {
     await upsertShopifyWebhookDelivery({
@@ -92,6 +128,11 @@ export async function POST(request: NextRequest) {
       payloadJson: payload,
       processedAt: new Date().toISOString(),
       processingState: "failed",
+      resultSummary: {
+        topic,
+        entity: topicMeta.entity,
+        action: topicMeta.action,
+      },
       errorMessage: error instanceof Error ? error.message : String(error),
     }).catch(() => null);
   }

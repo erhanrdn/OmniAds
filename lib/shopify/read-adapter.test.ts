@@ -322,4 +322,61 @@ describe("getShopifyOverviewReadCandidate", () => {
     expect(result.decisionReasons).not.toContain("preview_canary_not_allowed_for_business");
     expect(result.decisionReasons).not.toContain("default_cutover_gate_not_met");
   });
+
+  it("blocks warehouse when ledger consistency is above threshold", async () => {
+    process.env.SHOPIFY_WAREHOUSE_READ_CANARY = "true";
+    vi.mocked(status.getShopifyStatus).mockResolvedValue({
+      state: "ready",
+      connected: true,
+      shopId: "shop",
+      warehouse: null,
+      sync: {
+        ordersRecent: null,
+        returnsRecent: null,
+        ordersHistorical: null,
+        returnsHistorical: null,
+      },
+      serving: null,
+      reconciliation: null,
+      issues: [],
+    } as never);
+    vi.mocked(overview.getShopifyOverviewAggregate).mockResolvedValue({
+      revenue: 1000,
+      purchases: 10,
+      averageOrderValue: 100,
+      sessions: null,
+      conversionRate: null,
+      newCustomers: null,
+      returningCustomers: null,
+      dailyTrends: [],
+    } as never);
+    vi.mocked(warehouse.getShopifyWarehouseOverviewAggregate).mockResolvedValue({
+      revenue: 1000,
+      grossRevenue: 1100,
+      refundedRevenue: 100,
+      purchases: 10,
+      returnEvents: 1,
+      averageOrderValue: 110,
+      daily: [],
+    } as never);
+    vi.mocked(revenueLedger.getShopifyRevenueLedgerAggregate).mockResolvedValue({
+      revenue: 930,
+      grossRevenue: 1100,
+      refundedRevenue: 170,
+      purchases: 7,
+      returnEvents: 1,
+      averageOrderValue: 157.14,
+      daily: [],
+      ledgerRows: 3,
+    } as never);
+
+    const result = await getShopifyOverviewReadCandidate({
+      businessId: "biz_1",
+      startDate: "2026-03-01",
+      endDate: "2026-03-31",
+    });
+
+    expect(result.canServeWarehouse).toBe(false);
+    expect(result.decisionReasons).toContain("ledger_semantics_above_threshold");
+  });
 });

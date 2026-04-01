@@ -8,6 +8,48 @@ export const SHOPIFY_SYNC_WEBHOOK_TOPICS = [
   "REFUNDS_CREATE",
 ] as const;
 
+export type ShopifySyncWebhookTopic = (typeof SHOPIFY_SYNC_WEBHOOK_TOPICS)[number];
+
+export function classifyShopifySyncWebhookTopic(topic: string | null | undefined) {
+  switch (topic) {
+    case "ORDERS_CREATE":
+      return {
+        supported: true,
+        entity: "orders" as const,
+        action: "create" as const,
+        shouldTriggerSync: true,
+      };
+    case "ORDERS_UPDATED":
+      return {
+        supported: true,
+        entity: "orders" as const,
+        action: "update" as const,
+        shouldTriggerSync: true,
+      };
+    case "ORDERS_CANCELLED":
+      return {
+        supported: true,
+        entity: "orders" as const,
+        action: "cancel" as const,
+        shouldTriggerSync: true,
+      };
+    case "REFUNDS_CREATE":
+      return {
+        supported: true,
+        entity: "refunds" as const,
+        action: "create" as const,
+        shouldTriggerSync: true,
+      };
+    default:
+      return {
+        supported: false,
+        entity: "unknown" as const,
+        action: "ignore" as const,
+        shouldTriggerSync: false,
+      };
+  }
+}
+
 function getShopifyWebhookBaseUrl() {
   const base =
     process.env.SHOPIFY_APP_URL?.trim() ||
