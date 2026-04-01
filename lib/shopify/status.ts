@@ -88,6 +88,23 @@ function hasMatchingServingTrustSyncBasis(input: {
   return matches;
 }
 
+function hasMatchingServingTrustHistoricalBasis(input: {
+  serving: Awaited<ReturnType<typeof getShopifyServingState>> | null;
+  ordersHistorical: Awaited<ReturnType<typeof getShopifySyncState>>;
+  returnsHistorical: Awaited<ReturnType<typeof getShopifySyncState>>;
+}) {
+  const { serving, ordersHistorical, returnsHistorical } = input;
+  if (!serving?.canaryEnabled) return true;
+  const matches =
+    serving.ordersHistoricalSyncedAt === (ordersHistorical?.latestSuccessfulSyncAt ?? null) &&
+    serving.ordersHistoricalReadyThroughDate === (ordersHistorical?.readyThroughDate ?? null) &&
+    serving.ordersHistoricalTargetEnd === (ordersHistorical?.historicalTargetEnd ?? null) &&
+    serving.returnsHistoricalSyncedAt === (returnsHistorical?.latestSuccessfulSyncAt ?? null) &&
+    serving.returnsHistoricalReadyThroughDate === (returnsHistorical?.readyThroughDate ?? null) &&
+    serving.returnsHistoricalTargetEnd === (returnsHistorical?.historicalTargetEnd ?? null);
+  return matches;
+}
+
 export async function getShopifyStatus(
   input:
     | string
@@ -208,6 +225,11 @@ export async function getShopifyStatus(
     ordersRecent,
     returnsRecent,
   });
+  const servingTrustMatchesHistoricalBasis = hasMatchingServingTrustHistoricalBasis({
+    serving,
+    ordersHistorical,
+    returnsHistorical,
+  });
 
   if (!ordersRecent || !returnsRecent) {
     issues.push("Recent Shopify sync has not produced state yet.");
@@ -236,11 +258,19 @@ export async function getShopifyStatus(
   if (!ignoreServingTrust && serving?.canaryEnabled && !servingTrustMatchesSyncBasis) {
     issues.push("Shopify warehouse canary trust no longer matches the latest sync watermark state.");
   }
+  if (!ignoreServingTrust && serving?.canaryEnabled && !servingTrustMatchesHistoricalBasis) {
+    issues.push("Shopify warehouse canary trust no longer matches the latest historical backfill state.");
+  }
 
   const servingTrustReady =
     ignoreServingTrust ||
     !serving?.canaryEnabled ||
-    (serving.canServeWarehouse !== false && servingTrustFresh && servingTrustMatchesSyncBasis);
+    (
+      serving.canServeWarehouse !== false &&
+      servingTrustFresh &&
+      servingTrustMatchesSyncBasis &&
+      servingTrustMatchesHistoricalBasis
+    );
 
   const state: ShopifyStatusResponse["state"] =
     warehouse.orderRowCount <= 0

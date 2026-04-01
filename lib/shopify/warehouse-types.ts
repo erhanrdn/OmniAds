@@ -142,6 +142,12 @@ export interface ShopifyServingStateRecord {
   returnsRecentSyncedAt?: string | null;
   returnsRecentCursorTimestamp?: string | null;
   returnsRecentCursorValue?: string | null;
+  ordersHistoricalSyncedAt?: string | null;
+  ordersHistoricalReadyThroughDate?: string | null;
+  ordersHistoricalTargetEnd?: string | null;
+  returnsHistoricalSyncedAt?: string | null;
+  returnsHistoricalReadyThroughDate?: string | null;
+  returnsHistoricalTargetEnd?: string | null;
 }
 
 export interface ShopifyServingStateHistoryRecord extends ShopifyServingStateRecord {

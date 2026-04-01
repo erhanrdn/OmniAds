@@ -182,6 +182,12 @@ describe("getShopifyOverviewReadCandidate", () => {
         returnsRecentSyncedAt: "2026-04-02T10:00:00.000Z",
         returnsRecentCursorTimestamp: "2026-04-02T09:58:00.000Z",
         returnsRecentCursorValue: "returns_cursor",
+        ordersHistoricalSyncedAt: null,
+        ordersHistoricalReadyThroughDate: null,
+        ordersHistoricalTargetEnd: null,
+        returnsHistoricalSyncedAt: null,
+        returnsHistoricalReadyThroughDate: null,
+        returnsHistoricalTargetEnd: null,
         canServeWarehouse: true,
       })
     );
