@@ -20,6 +20,7 @@ vi.mock("@/lib/shopify/revenue-ledger", () => ({
 
 vi.mock("@/lib/shopify/warehouse", () => ({
   getShopifyServingOverride: vi.fn(),
+  insertShopifyReconciliationRun: vi.fn(),
   upsertShopifyServingState: vi.fn(),
 }));
 
@@ -34,7 +35,9 @@ describe("getShopifyOverviewReadCandidate", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     delete process.env.SHOPIFY_WAREHOUSE_READ_CANARY;
+    delete process.env.SHOPIFY_WAREHOUSE_PREVIEW_CANARY_BUSINESSES;
     vi.mocked(warehouseState.upsertShopifyServingState).mockResolvedValue(undefined);
+    vi.mocked(warehouseState.insertShopifyReconciliationRun).mockResolvedValue(undefined);
     vi.mocked(warehouseState.getShopifyServingOverride).mockResolvedValue(null as never);
     vi.mocked(revenueLedger.getShopifyRevenueLedgerAggregate).mockResolvedValue({
       revenue: 1001,
@@ -102,6 +105,7 @@ describe("getShopifyOverviewReadCandidate", () => {
     expect(result.divergence?.withinThreshold).toBe(true);
     expect(result.decisionReasons).toContain("warehouse_read_canary_disabled");
     expect(warehouseState.upsertShopifyServingState).toHaveBeenCalled();
+    expect(warehouseState.insertShopifyReconciliationRun).toHaveBeenCalled();
     expect(status.getShopifyStatus).toHaveBeenCalledWith({
       businessId: "biz_1",
       startDate: "2026-03-01",
@@ -208,5 +212,52 @@ describe("getShopifyOverviewReadCandidate", () => {
         canServeWarehouse: true,
       })
     );
+  });
+
+  it("blocks warehouse canary when preview allowlist excludes the business", async () => {
+    process.env.SHOPIFY_WAREHOUSE_READ_CANARY = "true";
+    process.env.SHOPIFY_WAREHOUSE_PREVIEW_CANARY_BUSINESSES = "biz_other";
+    vi.mocked(status.getShopifyStatus).mockResolvedValue({
+      state: "ready",
+      connected: true,
+      shopId: "shop",
+      warehouse: null,
+      sync: {
+        ordersRecent: null,
+        returnsRecent: null,
+        ordersHistorical: null,
+        returnsHistorical: null,
+      },
+      serving: null,
+      issues: [],
+    } as never);
+    vi.mocked(overview.getShopifyOverviewAggregate).mockResolvedValue({
+      revenue: 1000,
+      purchases: 10,
+      averageOrderValue: 100,
+      sessions: null,
+      conversionRate: null,
+      newCustomers: null,
+      returningCustomers: null,
+      dailyTrends: [],
+    } as never);
+    vi.mocked(warehouse.getShopifyWarehouseOverviewAggregate).mockResolvedValue({
+      revenue: 1001,
+      grossRevenue: 1020,
+      refundedRevenue: 19,
+      purchases: 10,
+      returnEvents: 0,
+      averageOrderValue: 100.1,
+      daily: [],
+    } as never);
+
+    const result = await getShopifyOverviewReadCandidate({
+      businessId: "biz_1",
+      startDate: "2026-03-01",
+      endDate: "2026-03-31",
+    });
+
+    expect(result.canServeWarehouse).toBe(false);
+    expect(result.decisionReasons).toContain("preview_canary_not_allowed_for_business");
   });
 });

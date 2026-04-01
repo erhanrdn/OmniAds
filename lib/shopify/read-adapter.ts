@@ -8,11 +8,27 @@ import {
 import { getShopifyStatus } from "@/lib/shopify/status";
 import { getShopifyRevenueLedgerAggregate } from "@/lib/shopify/revenue-ledger";
 import { getShopifyWarehouseOverviewAggregate } from "@/lib/shopify/warehouse-overview";
-import { getShopifyServingOverride, upsertShopifyServingState } from "@/lib/shopify/warehouse";
+import {
+  getShopifyServingOverride,
+  insertShopifyReconciliationRun,
+  upsertShopifyServingState,
+} from "@/lib/shopify/warehouse";
 
 function warehouseReadCanaryEnabled() {
   const raw = process.env.SHOPIFY_WAREHOUSE_READ_CANARY?.trim().toLowerCase();
   return raw === "1" || raw === "true";
+}
+
+function isPreviewCanaryBusiness(businessId: string) {
+  const raw = process.env.SHOPIFY_WAREHOUSE_PREVIEW_CANARY_BUSINESSES?.trim();
+  if (!raw) return true;
+  const set = new Set(
+    raw
+      .split(/[,\s]+/)
+      .map((value) => value.trim())
+      .filter(Boolean)
+  );
+  return set.has(businessId);
 }
 
 export async function getShopifyOverviewReadCandidate(input: {
@@ -65,6 +81,9 @@ export async function getShopifyOverviewReadCandidate(input: {
   if (!canaryEnabled) {
     decisionReasons.push("warehouse_read_canary_disabled");
   }
+  if (!isPreviewCanaryBusiness(input.businessId)) {
+    decisionReasons.push("preview_canary_not_allowed_for_business");
+  }
   if (status.state !== "ready") {
     decisionReasons.push(`status_${status.state}`);
   }
@@ -92,6 +111,7 @@ export async function getShopifyOverviewReadCandidate(input: {
       ? Boolean(warehouse)
       : !forcedLive &&
         canaryEnabled &&
+        isPreviewCanaryBusiness(input.businessId) &&
         status.state === "ready" &&
         divergence?.withinThreshold === true;
 
@@ -158,6 +178,20 @@ export async function getShopifyOverviewReadCandidate(input: {
             ledgerRows: ledger.ledgerRows,
           }
         : null,
+  }).catch(() => null);
+  await insertShopifyReconciliationRun({
+    businessId: input.businessId,
+    providerAccountId: status.shopId ?? "unknown",
+    reconciliationKey: canaryKey,
+    startDate: input.startDate,
+    endDate: input.endDate,
+    preferredSource,
+    canServeWarehouse,
+    divergence: divergence ? { ...divergence } : null,
+    warehouseAggregate: warehouse ? { ...warehouse } : null,
+    ledgerAggregate: ledger ? { ...ledger } : null,
+    liveAggregate: live ? { ...live } : null,
+    recordedAt: new Date().toISOString(),
   }).catch(() => null);
 
   return {

@@ -1525,6 +1525,24 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_webhook_deliveries_business
           ON shopify_webhook_deliveries (business_id, received_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS shopify_reconciliation_runs (
+          id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id          TEXT NOT NULL,
+          provider_account_id  TEXT NOT NULL,
+          reconciliation_key   TEXT NOT NULL,
+          start_date           DATE,
+          end_date             DATE,
+          preferred_source     TEXT,
+          can_serve_warehouse  BOOLEAN NOT NULL DEFAULT FALSE,
+          divergence           JSONB,
+          warehouse_aggregate  JSONB,
+          ledger_aggregate     JSONB,
+          live_aggregate       JSONB,
+          recorded_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+          created_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_reconciliation_runs_business_recorded
+          ON shopify_reconciliation_runs (business_id, recorded_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS shopify_serving_state (
           business_id          TEXT NOT NULL,
           provider_account_id  TEXT NOT NULL,

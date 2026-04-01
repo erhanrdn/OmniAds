@@ -9,6 +9,7 @@ import type {
   ShopifyOrderWarehouseRow,
   ShopifyRawSnapshotRecord,
   ShopifyRefundWarehouseRow,
+  ShopifyReconciliationRunRecord,
   ShopifyReturnWarehouseRow,
   ShopifySalesEventWarehouseRow,
   ShopifyServingStateRecord,
@@ -641,6 +642,41 @@ export async function upsertShopifyWebhookDelivery(input: ShopifyWebhookDelivery
       result_summary = COALESCE(EXCLUDED.result_summary, shopify_webhook_deliveries.result_summary),
       error_message = EXCLUDED.error_message,
       updated_at = now()
+  `;
+}
+
+export async function insertShopifyReconciliationRun(input: ShopifyReconciliationRunRecord) {
+  await runMigrations();
+  const sql = getDb();
+  await sql`
+    INSERT INTO shopify_reconciliation_runs (
+      business_id,
+      provider_account_id,
+      reconciliation_key,
+      start_date,
+      end_date,
+      preferred_source,
+      can_serve_warehouse,
+      divergence,
+      warehouse_aggregate,
+      ledger_aggregate,
+      live_aggregate,
+      recorded_at
+    )
+    VALUES (
+      ${input.businessId},
+      ${input.providerAccountId},
+      ${input.reconciliationKey},
+      ${normalizeDate(input.startDate)},
+      ${normalizeDate(input.endDate)},
+      ${input.preferredSource ?? null},
+      ${Boolean(input.canServeWarehouse)},
+      ${JSON.stringify(input.divergence ?? null)}::jsonb,
+      ${JSON.stringify(input.warehouseAggregate ?? null)}::jsonb,
+      ${JSON.stringify(input.ledgerAggregate ?? null)}::jsonb,
+      ${JSON.stringify(input.liveAggregate ?? null)}::jsonb,
+      COALESCE(${normalizeTimestamp(input.recordedAt)}, now())
+    )
   `;
 }
 

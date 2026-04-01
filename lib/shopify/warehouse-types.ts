@@ -203,6 +203,21 @@ export interface ShopifySalesEventWarehouseRow {
   sourceSnapshotId?: string | null;
 }
 
+export interface ShopifyReconciliationRunRecord {
+  businessId: string;
+  providerAccountId: string;
+  reconciliationKey: string;
+  startDate?: string | null;
+  endDate?: string | null;
+  preferredSource?: string | null;
+  canServeWarehouse?: boolean;
+  divergence?: Record<string, unknown> | null;
+  warehouseAggregate?: Record<string, unknown> | null;
+  ledgerAggregate?: Record<string, unknown> | null;
+  liveAggregate?: Record<string, unknown> | null;
+  recordedAt?: string | null;
+}
+
 export interface ShopifyCustomerEventWarehouseRow {
   businessId: string;
   providerAccountId: string;
