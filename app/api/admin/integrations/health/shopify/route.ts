@@ -10,6 +10,7 @@ import { getShopifyStatus } from "@/lib/shopify/status";
 import {
   getShopifyServingOverride,
   getShopifyServingState,
+  listShopifyReconciliationRuns,
   listShopifyServingStateHistory,
   upsertShopifyServingOverride,
 } from "@/lib/shopify/warehouse";
@@ -77,6 +78,21 @@ export async function GET(request: NextRequest) {
             limit: 5,
           }).catch(() => [])
         : [];
+    const reconciliationHistory =
+      status.shopId && startDate && endDate
+        ? await listShopifyReconciliationRuns({
+            businessId,
+            providerAccountId: status.shopId,
+            reconciliationKey: buildShopifyOverviewCanaryKey({
+              startDate,
+              endDate,
+              timeZoneBasis: SHOPIFY_OVERVIEW_CANARY_TIMEZONE_BASIS,
+            }),
+            startDate,
+            endDate,
+            limit: 10,
+          }).catch(() => [])
+        : [];
     const [warehouseAggregate, ledgerAggregate] =
       status.shopId && startDate && endDate
         ? await Promise.all([
@@ -111,6 +127,7 @@ export async function GET(request: NextRequest) {
       serving,
       override,
       history,
+      reconciliationHistory,
       warehouseAggregate,
       ledgerAggregate,
     });

@@ -13,6 +13,7 @@ vi.mock("@/lib/db", () => ({
 }));
 
 vi.mock("@/lib/shopify/warehouse", () => ({
+  listShopifyReconciliationRuns: vi.fn(),
   getShopifyServingState: vi.fn(),
 }));
 
@@ -43,6 +44,7 @@ describe("getShopifyStatus", () => {
       warehouse: null,
       sync: null,
       serving: null,
+      reconciliation: null,
       issues: [],
     });
   });
@@ -72,6 +74,7 @@ describe("getShopifyStatus", () => {
         historicalTargetEnd: "2026-03-31",
       } as never);
     vi.mocked(warehouse.getShopifyServingState).mockResolvedValue(null as never);
+    vi.mocked(warehouse.listShopifyReconciliationRuns).mockResolvedValue([] as never);
     const sql = vi
       .fn()
       .mockResolvedValueOnce([{ row_count: "10", first_date: "2026-03-01", last_date: "2026-03-31" }])
@@ -121,6 +124,7 @@ describe("getShopifyStatus", () => {
       preferredSource: "live",
       decisionReasons: ["divergence_above_threshold"],
     } as never);
+    vi.mocked(warehouse.listShopifyReconciliationRuns).mockResolvedValue([] as never);
     const sql = vi
       .fn()
       .mockResolvedValueOnce([{ row_count: "10", first_date: "2026-03-01", last_date: "2026-03-31" }])
@@ -170,6 +174,7 @@ describe("getShopifyStatus", () => {
       preferredSource: "warehouse",
       decisionReasons: [],
     } as never);
+    vi.mocked(warehouse.listShopifyReconciliationRuns).mockResolvedValue([] as never);
     const sql = vi
       .fn()
       .mockResolvedValueOnce([{ row_count: "10", first_date: "2026-03-01", last_date: "2026-03-31" }])
@@ -219,6 +224,7 @@ describe("getShopifyStatus", () => {
       preferredSource: "live",
       decisionReasons: ["divergence_above_threshold"],
     } as never);
+    vi.mocked(warehouse.listShopifyReconciliationRuns).mockResolvedValue([] as never);
     const sql = vi
       .fn()
       .mockResolvedValueOnce([{ row_count: "10", first_date: "2026-03-01", last_date: "2026-03-31" }])
@@ -280,6 +286,7 @@ describe("getShopifyStatus", () => {
       returnsRecentCursorValue: "returns_cursor_old",
       decisionReasons: [],
     } as never);
+    vi.mocked(warehouse.listShopifyReconciliationRuns).mockResolvedValue([] as never);
     const sql = vi
       .fn()
       .mockResolvedValueOnce([{ row_count: "10", first_date: "2026-03-01", last_date: "2026-03-31" }])
@@ -349,6 +356,7 @@ describe("getShopifyStatus", () => {
       returnsHistoricalTargetEnd: "2026-03-31",
       decisionReasons: [],
     } as never);
+    vi.mocked(warehouse.listShopifyReconciliationRuns).mockResolvedValue([] as never);
     const sql = vi
       .fn()
       .mockResolvedValueOnce([{ row_count: "10", first_date: "2026-03-01", last_date: "2026-03-31" }])
@@ -366,5 +374,65 @@ describe("getShopifyStatus", () => {
     expect(status.issues).toContain(
       "Shopify warehouse canary trust no longer matches the latest historical backfill state."
     );
+  });
+
+  it("marks status partial when default cutover is enabled but reconciliation history is not yet stable", async () => {
+    process.env.SHOPIFY_WAREHOUSE_DEFAULT_CUTOVER = "true";
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      status: "connected",
+      provider_account_id: "test-shop.myshopify.com",
+    } as never);
+    const now = new Date().toISOString();
+    vi.mocked(syncState.getShopifySyncState)
+      .mockResolvedValueOnce({
+        latestSyncStatus: "succeeded",
+        latestSuccessfulSyncAt: now,
+        cursorTimestamp: now,
+        cursorValue: "orders_cursor",
+      } as never)
+      .mockResolvedValueOnce({
+        latestSyncStatus: "succeeded",
+        latestSuccessfulSyncAt: now,
+        cursorTimestamp: now,
+        cursorValue: "returns_cursor",
+      } as never)
+      .mockResolvedValueOnce({
+        latestSyncStatus: "ready",
+        latestSuccessfulSyncAt: now,
+        readyThroughDate: "2026-03-31",
+        historicalTargetEnd: "2026-03-31",
+      } as never)
+      .mockResolvedValueOnce({
+        latestSyncStatus: "ready",
+        latestSuccessfulSyncAt: now,
+        readyThroughDate: "2026-03-31",
+        historicalTargetEnd: "2026-03-31",
+      } as never);
+    vi.mocked(warehouse.getShopifyServingState).mockResolvedValue(null as never);
+    vi.mocked(warehouse.listShopifyReconciliationRuns).mockResolvedValue([
+      {
+        recordedAt: now,
+        canServeWarehouse: false,
+        preferredSource: "live",
+        divergence: { withinThreshold: false },
+      },
+    ] as never);
+    const sql = vi
+      .fn()
+      .mockResolvedValueOnce([{ row_count: "10", first_date: "2026-03-01", last_date: "2026-03-31" }])
+      .mockResolvedValueOnce([{ row_count: "2" }])
+      .mockResolvedValueOnce([{ row_count: "1" }]);
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const result = await getShopifyStatus({
+      businessId: "biz_1",
+      startDate: "2026-03-01",
+      endDate: "2026-03-31",
+    });
+
+    expect(result.state).toBe("partial");
+    expect(result.reconciliation?.defaultCutoverEligible).toBe(false);
+    expect(result.issues).toContain("Shopify warehouse default cutover gate has not been satisfied yet.");
+    delete process.env.SHOPIFY_WAREHOUSE_DEFAULT_CUTOVER;
   });
 });

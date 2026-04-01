@@ -2,7 +2,8 @@ import { getDb } from "@/lib/db";
 import { getIntegrationMetadata } from "@/lib/integrations";
 import { buildShopifyOverviewCanaryKey, SHOPIFY_OVERVIEW_CANARY_TIMEZONE_BASIS } from "@/lib/shopify/serving";
 import { getShopifySyncState } from "@/lib/shopify/sync-state";
-import { getShopifyServingState } from "@/lib/shopify/warehouse";
+import { getShopifyServingState, listShopifyReconciliationRuns } from "@/lib/shopify/warehouse";
+import type { ShopifyReconciliationSummary } from "@/lib/shopify/warehouse-types";
 
 export interface ShopifyStatusResponse {
   state:
@@ -28,6 +29,7 @@ export interface ShopifyStatusResponse {
     returnsHistorical: Awaited<ReturnType<typeof getShopifySyncState>>;
   } | null;
   serving: Awaited<ReturnType<typeof getShopifyServingState>> | null;
+  reconciliation: ShopifyReconciliationSummary | null;
   issues: string[];
 }
 
@@ -51,6 +53,62 @@ function isFreshTimestampMinutes(value: string | null | undefined, maxAgeMinutes
 function timestampMs(value: string | null | undefined) {
   if (!value) return Number.NaN;
   return new Date(value).getTime();
+}
+
+function defaultCutoverEnabled() {
+  const raw = process.env.SHOPIFY_WAREHOUSE_DEFAULT_CUTOVER?.trim().toLowerCase();
+  return raw === "1" || raw === "true";
+}
+
+function defaultCutoverMinStableRuns() {
+  const parsed = Number(process.env.SHOPIFY_WAREHOUSE_DEFAULT_CUTOVER_MIN_STABLE_RUNS ?? "5");
+  return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : 5;
+}
+
+function defaultCutoverMaxAgeMinutes() {
+  const parsed = Number(process.env.SHOPIFY_WAREHOUSE_DEFAULT_CUTOVER_MAX_AGE_MINUTES ?? "180");
+  return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : 180;
+}
+
+function summarizeReconciliationRuns(
+  runs: Array<{
+    recordedAt?: string | null;
+    canServeWarehouse?: boolean;
+    preferredSource?: string | null;
+    divergence?: Record<string, unknown> | null;
+  }>
+): ShopifyReconciliationSummary {
+  const latestRecordedAt = runs[0]?.recordedAt ?? null;
+  let stableRunCount = 0;
+  let unstableRunCount = 0;
+
+  for (const run of runs) {
+    const withinThreshold = run.divergence?.withinThreshold === true;
+    const stable =
+      run.canServeWarehouse === true &&
+      run.preferredSource === "warehouse" &&
+      withinThreshold;
+    if (stable) {
+      stableRunCount += 1;
+      continue;
+    }
+    unstableRunCount += 1;
+    break;
+  }
+
+  const latestFresh =
+    latestRecordedAt !== null &&
+    isFreshTimestampMinutes(latestRecordedAt, defaultCutoverMaxAgeMinutes());
+
+  return {
+    latestRecordedAt,
+    stableRunCount,
+    unstableRunCount,
+    defaultCutoverEligible:
+      defaultCutoverEnabled() &&
+      latestFresh &&
+      stableRunCount >= defaultCutoverMinStableRuns(),
+  };
 }
 
 function hasFreshServingTrust(input: {
@@ -129,6 +187,7 @@ export async function getShopifyStatus(
       warehouse: null,
       sync: null,
       serving: null,
+      reconciliation: null,
       issues: [],
     };
   }
@@ -167,6 +226,23 @@ export async function getShopifyStatus(
             timeZoneBasis: SHOPIFY_OVERVIEW_CANARY_TIMEZONE_BASIS,
           }),
         }).catch(() => null);
+  const reconciliation =
+    typeof input === "string" || !input.startDate || !input.endDate
+      ? null
+      : summarizeReconciliationRuns(
+          await listShopifyReconciliationRuns({
+            businessId,
+            providerAccountId: integration.provider_account_id,
+            reconciliationKey: buildShopifyOverviewCanaryKey({
+              startDate: input.startDate,
+              endDate: input.endDate,
+              timeZoneBasis: SHOPIFY_OVERVIEW_CANARY_TIMEZONE_BASIS,
+            }),
+            startDate: input.startDate,
+            endDate: input.endDate,
+            limit: defaultCutoverMinStableRuns(),
+          }).catch(() => [])
+        );
 
   const sql = getDb();
   const [orderStatsRow] = (await sql`
@@ -261,6 +337,9 @@ export async function getShopifyStatus(
   if (!ignoreServingTrust && serving?.canaryEnabled && !servingTrustMatchesHistoricalBasis) {
     issues.push("Shopify warehouse canary trust no longer matches the latest historical backfill state.");
   }
+  if (!ignoreServingTrust && defaultCutoverEnabled() && reconciliation && !reconciliation.defaultCutoverEligible) {
+    issues.push("Shopify warehouse default cutover gate has not been satisfied yet.");
+  }
 
   const servingTrustReady =
     ignoreServingTrust ||
@@ -271,11 +350,15 @@ export async function getShopifyStatus(
       servingTrustMatchesSyncBasis &&
       servingTrustMatchesHistoricalBasis
     );
+  const defaultCutoverReady =
+    !defaultCutoverEnabled() ||
+    ignoreServingTrust ||
+    reconciliation?.defaultCutoverEligible === true;
 
   const state: ShopifyStatusResponse["state"] =
     warehouse.orderRowCount <= 0
       ? "syncing"
-      : recentHealthy && historicalReady && servingTrustReady
+      : recentHealthy && historicalReady && servingTrustReady && defaultCutoverReady
         ? "ready"
         : recentHealthy
           ? "partial"
@@ -290,6 +373,7 @@ export async function getShopifyStatus(
     warehouse,
     sync,
     serving,
+    reconciliation,
     issues,
   };
 }

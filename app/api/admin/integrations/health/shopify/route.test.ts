@@ -18,6 +18,7 @@ vi.mock("@/lib/shopify/revenue-ledger", () => ({
 }));
 
 vi.mock("@/lib/shopify/warehouse", () => ({
+  listShopifyReconciliationRuns: vi.fn(),
   getShopifyServingOverride: vi.fn(),
   getShopifyServingState: vi.fn(),
   listShopifyServingStateHistory: vi.fn(),
@@ -38,6 +39,7 @@ describe("GET /api/admin/integrations/health/shopify", () => {
       session: { user: { id: "admin_1", role: "admin" } },
     } as never);
     vi.mocked(shopifyWarehouse.getShopifyServingOverride).mockResolvedValue(null as never);
+    vi.mocked(shopifyWarehouse.listShopifyReconciliationRuns).mockResolvedValue([] as never);
     vi.mocked(warehouseOverview.getShopifyWarehouseOverviewAggregate).mockResolvedValue(null as never);
     vi.mocked(revenueLedger.getShopifyRevenueLedgerAggregate).mockResolvedValue(null as never);
   });
@@ -50,6 +52,7 @@ describe("GET /api/admin/integrations/health/shopify", () => {
       warehouse: null,
       sync: null,
       serving: null,
+      reconciliation: null,
       issues: ["Shopify warehouse canary is blocked by trust checks."],
     } as never);
     vi.mocked(shopifyWarehouse.getShopifyServingState).mockResolvedValue({
@@ -85,6 +88,7 @@ describe("GET /api/admin/integrations/health/shopify", () => {
     expect(payload.canaryKey).toBe("overview_shopify:2026-03-01:2026-03-31:shop_local");
     expect(payload.serving?.decisionReasons).toEqual(["divergence_above_threshold"]);
     expect(payload.history).toHaveLength(1);
+    expect(payload.reconciliationHistory).toEqual([]);
   });
 
   it("updates a Shopify serving override", async () => {

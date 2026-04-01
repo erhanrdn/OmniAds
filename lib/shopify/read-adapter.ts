@@ -31,6 +31,11 @@ function isPreviewCanaryBusiness(businessId: string) {
   return set.has(businessId);
 }
 
+function defaultCutoverEnabled() {
+  const raw = process.env.SHOPIFY_WAREHOUSE_DEFAULT_CUTOVER?.trim().toLowerCase();
+  return raw === "1" || raw === "true";
+}
+
 export async function getShopifyOverviewReadCandidate(input: {
   businessId: string;
   startDate: string;
@@ -78,11 +83,16 @@ export async function getShopifyOverviewReadCandidate(input: {
 
   const decisionReasons: string[] = [];
   const canaryEnabled = warehouseReadCanaryEnabled();
+  const previewAllowed = isPreviewCanaryBusiness(input.businessId);
+  const defaultCutoverEligible = status.reconciliation?.defaultCutoverEligible === true;
   if (!canaryEnabled) {
     decisionReasons.push("warehouse_read_canary_disabled");
   }
-  if (!isPreviewCanaryBusiness(input.businessId)) {
+  if (!previewAllowed && !defaultCutoverEligible) {
     decisionReasons.push("preview_canary_not_allowed_for_business");
+  }
+  if (defaultCutoverEnabled() && !defaultCutoverEligible && !previewAllowed) {
+    decisionReasons.push("default_cutover_gate_not_met");
   }
   if (status.state !== "ready") {
     decisionReasons.push(`status_${status.state}`);
@@ -111,7 +121,7 @@ export async function getShopifyOverviewReadCandidate(input: {
       ? Boolean(warehouse)
       : !forcedLive &&
         canaryEnabled &&
-        isPreviewCanaryBusiness(input.businessId) &&
+        (previewAllowed || defaultCutoverEligible) &&
         status.state === "ready" &&
         divergence?.withinThreshold === true;
 

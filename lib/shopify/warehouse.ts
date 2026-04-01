@@ -680,6 +680,58 @@ export async function insertShopifyReconciliationRun(input: ShopifyReconciliatio
   `;
 }
 
+export async function listShopifyReconciliationRuns(input: {
+  businessId: string;
+  providerAccountId: string;
+  reconciliationKey?: string;
+  startDate?: string | null;
+  endDate?: string | null;
+  limit?: number;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const limit = Math.max(1, Math.min(100, Math.trunc(input.limit ?? 10)));
+  const rows = (await sql`
+    SELECT *
+    FROM shopify_reconciliation_runs
+    WHERE business_id = ${input.businessId}
+      AND provider_account_id = ${input.providerAccountId}
+      AND (${input.reconciliationKey ?? null}::text IS NULL OR reconciliation_key = ${input.reconciliationKey ?? null})
+      AND (${normalizeDate(input.startDate) ?? null}::date IS NULL OR start_date = ${normalizeDate(input.startDate) ?? null})
+      AND (${normalizeDate(input.endDate) ?? null}::date IS NULL OR end_date = ${normalizeDate(input.endDate) ?? null})
+    ORDER BY recorded_at DESC NULLS LAST, created_at DESC
+    LIMIT ${limit}
+  `) as Array<Record<string, unknown>>;
+  return rows.map((row) => ({
+    id: String(row.id),
+    businessId: String(row.business_id),
+    providerAccountId: String(row.provider_account_id),
+    reconciliationKey: String(row.reconciliation_key),
+    startDate: normalizeDate(row.start_date),
+    endDate: normalizeDate(row.end_date),
+    preferredSource: row.preferred_source ? String(row.preferred_source) : null,
+    canServeWarehouse: Boolean(row.can_serve_warehouse),
+    divergence:
+      row.divergence && typeof row.divergence === "object"
+        ? (row.divergence as Record<string, unknown>)
+        : null,
+    warehouseAggregate:
+      row.warehouse_aggregate && typeof row.warehouse_aggregate === "object"
+        ? (row.warehouse_aggregate as Record<string, unknown>)
+        : null,
+    ledgerAggregate:
+      row.ledger_aggregate && typeof row.ledger_aggregate === "object"
+        ? (row.ledger_aggregate as Record<string, unknown>)
+        : null,
+    liveAggregate:
+      row.live_aggregate && typeof row.live_aggregate === "object"
+        ? (row.live_aggregate as Record<string, unknown>)
+        : null,
+    recordedAt: normalizeTimestamp(row.recorded_at),
+    createdAt: normalizeTimestamp(row.created_at),
+  })) satisfies ShopifyReconciliationRunRecord[];
+}
+
 export async function upsertShopifyCustomerEvents(rows: ShopifyCustomerEventWarehouseRow[]) {
   if (rows.length <= 0) return 0;
   await runMigrations();

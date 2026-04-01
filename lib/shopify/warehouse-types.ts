@@ -204,6 +204,7 @@ export interface ShopifySalesEventWarehouseRow {
 }
 
 export interface ShopifyReconciliationRunRecord {
+  id?: string;
   businessId: string;
   providerAccountId: string;
   reconciliationKey: string;
@@ -216,6 +217,14 @@ export interface ShopifyReconciliationRunRecord {
   ledgerAggregate?: Record<string, unknown> | null;
   liveAggregate?: Record<string, unknown> | null;
   recordedAt?: string | null;
+  createdAt?: string | null;
+}
+
+export interface ShopifyReconciliationSummary {
+  latestRecordedAt: string | null;
+  stableRunCount: number;
+  unstableRunCount: number;
+  defaultCutoverEligible: boolean;
 }
 
 export interface ShopifyCustomerEventWarehouseRow {
