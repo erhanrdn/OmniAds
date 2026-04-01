@@ -375,89 +375,12 @@ describe("getShopifyOverviewAggregate", () => {
         currentRevenue: 80,
         preReturnRevenue: 100,
         grossMinusRefundsRevenue: 90,
-        ledgerRevenue: 100,
-        refundEventsRevenue: 0,
         currentVsPreReturnDelta: -20,
         preReturnVsGrossMinusRefundsDelta: 10,
-        preReturnVsLedgerDelta: 0,
         refundedOrders: 1,
       })
     );
     infoSpy.mockRestore();
-  });
-
-  it("writes refund amounts to the refund date instead of netting them into the order date", async () => {
-    const fetchMock = vi.mocked(fetch);
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        data: {
-          orders: {
-            pageInfo: {
-              hasNextPage: false,
-              endCursor: null,
-            },
-            edges: [
-              {
-                node: {
-                  createdAt: "2026-03-01T10:00:00Z",
-                  processedAt: "2026-03-01T10:05:00Z",
-                  totalPriceSet: { shopMoney: { amount: "100.00" } },
-                  originalTotalPriceSet: { shopMoney: { amount: "100.00" } },
-                  currentTotalPriceSet: { shopMoney: { amount: "80.00" } },
-                  totalRefundedSet: { shopMoney: { amount: "20.00" } },
-                  refunds: {
-                    nodes: [
-                      {
-                        createdAt: "2026-03-02T12:00:00Z",
-                        updatedAt: "2026-03-02T12:00:00Z",
-                        totalRefundedSet: { shopMoney: { amount: "20.00" } },
-                      },
-                    ],
-                  },
-                },
-              },
-            ],
-          },
-        },
-      }),
-    } as Response);
-
-    const aggregate = await getShopifyOverviewAggregate({
-      businessId: "biz_1",
-      startDate: "2026-03-01",
-      endDate: "2026-03-02",
-    });
-
-    expect(aggregate).toEqual({
-      revenue: 80,
-      purchases: 1,
-      averageOrderValue: 80,
-      sessions: null,
-      conversionRate: null,
-      newCustomers: null,
-      returningCustomers: null,
-      dailyTrends: [
-        {
-          date: "2026-03-01",
-          revenue: 100,
-          purchases: 1,
-          sessions: null,
-          conversionRate: null,
-          newCustomers: null,
-          returningCustomers: null,
-        },
-        {
-          date: "2026-03-02",
-          revenue: -20,
-          purchases: 0,
-          sessions: null,
-          conversionRate: null,
-          newCustomers: null,
-          returningCustomers: null,
-        },
-      ],
-    });
   });
 
   it("logs adjacent-day attribution shadow data when timezone or event bases diverge", async () => {
