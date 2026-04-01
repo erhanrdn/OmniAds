@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
-import { getIntegration } from "@/lib/integrations";
+import { getIntegrationMetadata } from "@/lib/integrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
+import { readProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
 import {
   getLatestMetaSyncHealth,
   getMetaAccountDailyCoverage,
@@ -18,10 +19,10 @@ import {
   getMetaSyncJobHealth,
   getMetaSyncState,
 } from "@/lib/meta/warehouse";
-import { resolveMetaCredentials } from "@/lib/api/meta";
 import { META_WAREHOUSE_HISTORY_DAYS, dayCountInclusive } from "@/lib/meta/history";
 import { getMetaBreakdownSupportedStart, META_BREAKDOWN_MAX_HISTORY_DAYS } from "@/lib/meta/constraints";
 import {
+  buildProviderStateContract,
   buildProviderSurfaces,
   decideProviderReadinessLevel,
 } from "@/lib/provider-readiness";
@@ -127,13 +128,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(getDemoMetaStatus(), { headers: { "Cache-Control": "no-store" } });
   }
 
-  const [integration, assignments, latestSync, accountStats, credentials, legacyJobHealth, workerHealth] =
+  const [integration, assignments, latestSync, accountStats, accountSnapshot, legacyJobHealth, workerHealth] =
     await Promise.all([
-      getIntegration(businessId!, "meta").catch(() => null),
+      getIntegrationMetadata(businessId!, "meta").catch(() => null),
       getProviderAccountAssignments(businessId!, "meta").catch(() => null),
       getLatestMetaSyncHealth({ businessId: businessId!, providerAccountId: null }).catch(() => null),
       getMetaAccountDailyStats({ businessId: businessId!, providerAccountId: null }).catch(() => null),
-      resolveMetaCredentials(businessId!).catch(() => null),
+      readProviderAccountSnapshot({ businessId: businessId!, provider: "meta" }).catch(() => null),
       getMetaSyncJobHealth({ businessId: businessId! }).catch(() => null),
       getProviderWorkerHealthState({
         businessId: businessId!,
@@ -143,15 +144,13 @@ export async function GET(request: NextRequest) {
     ]);
 
   const accountIds = assignments?.account_ids ?? [];
-  const connected = Boolean(integration?.status === "connected" && integration?.access_token);
+  const connected = Boolean(integration?.status === "connected");
   const primaryAccountId = accountIds[0] ?? null;
   const primaryAccountTimezone =
-    primaryAccountId && credentials?.accountProfiles?.[primaryAccountId]?.timezone
-      ? credentials.accountProfiles[primaryAccountId].timezone
-      : null;
-  const currentDateInTimezone = primaryAccountTimezone
-    ? getTodayIsoForTimeZoneServer(primaryAccountTimezone)
-    : null;
+    accountSnapshot?.accounts.find((account) => account.id === primaryAccountId)?.timezone ??
+    accountSnapshot?.accounts[0]?.timezone ??
+    "UTC";
+  const currentDateInTimezone = getTodayIsoForTimeZoneServer(primaryAccountTimezone);
 
   const initialBackfillEnd = addDays(
     new Date(`${currentDateInTimezone ?? new Date().toISOString().slice(0, 10)}T00:00:00Z`),
@@ -186,8 +185,7 @@ export async function GET(request: NextRequest) {
   );
 
   const [accountCoverage, campaignCoverage, adsetCoverage, adDailyCoverage, creativeCoverage, creativePreviewCoverage, breakdownCoverageByEndpoint, queueHealth, queueComposition, checkpointHealth, recentAccountCoverage, recentAdsetCoverage, recentCreativeCoverage, recentAdCoverage, ...stateRows] =
-    connected && accountIds.length > 0
-      ? await Promise.all([
+      await Promise.all([
           getMetaAccountDailyCoverage({
             businessId: businessId!,
             providerAccountId: null,
@@ -261,8 +259,7 @@ export async function GET(request: NextRequest) {
           ...META_STATE_SCOPES.map((scope) =>
             getMetaSyncState({ businessId: businessId!, scope }).catch(() => [])
           ),
-        ])
-      : [null, null, null, null, null, null, null, null, null, null, null, null, null, null, ...META_STATE_SCOPES.map(() => [])];
+        ]);
 
   const statesByScope = Object.fromEntries(
     META_STATE_SCOPES.map((scope, index) => [scope, stateRows[index] ?? []])
@@ -336,7 +333,7 @@ export async function GET(request: NextRequest) {
       .sort((a, b) => a.localeCompare(b))[0] ?? null;
 
   const selectedRangeCoverage =
-    connected && accountIds.length > 0 && selectedStartDate && selectedEndDate
+    selectedStartDate && selectedEndDate
       ? await getMetaAccountDailyCoverage({
           businessId: businessId!,
           providerAccountId: null,
@@ -345,7 +342,7 @@ export async function GET(request: NextRequest) {
         }).catch(() => null)
       : null;
   const selectedRangeCampaignCoverage =
-    connected && accountIds.length > 0 && selectedStartDate && selectedEndDate
+    selectedStartDate && selectedEndDate
       ? await getMetaCampaignDailyCoverage({
           businessId: businessId!,
           providerAccountId: null,
@@ -507,6 +504,17 @@ export async function GET(request: NextRequest) {
                 : !selectedRangeIncomplete && historicalProgressPercent >= 100
                   ? "ready"
                   : "partial";
+  const providerState = buildProviderStateContract({
+    credentialState: connected ? "connected" : "not_connected",
+    hasAssignedAccounts: accountIds.length > 0,
+    warehouseRowCount: Number(accountStats?.row_count ?? 0),
+    warehousePartial: selectedRangeRequested
+      ? Boolean(selectedRangeIncomplete || selectedRangeCampaignIncomplete)
+      : overallCompletedDays < historicalTotalDays,
+    syncState: state,
+    selectedCurrentDay: selectedRangeIsToday,
+    notReadyReason: phaseLabel === "Ready" ? null : phaseLabel,
+  });
 
   const availableSurfaces = [
     (selectedRangeTotalDays == null || selectedRangeCompletedDays >= selectedRangeTotalDays) &&
@@ -587,6 +595,13 @@ export async function GET(request: NextRequest) {
   return NextResponse.json(
     {
       state,
+      credentialState: providerState.credentialState,
+      assignmentState: providerState.assignmentState,
+      warehouseState: providerState.warehouseState,
+      syncState: providerState.syncState,
+      servingMode: providerState.servingMode,
+      isPartial: providerState.isPartial,
+      notReadyReason: providerState.notReadyReason,
       readinessLevel,
       surfaces,
       checkpointHealth,

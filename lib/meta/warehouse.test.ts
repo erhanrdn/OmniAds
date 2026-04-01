@@ -1,45 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { dedupeGoogleAdsWarehouseRows } from "@/lib/google-ads/warehouse";
-import type { GoogleAdsWarehouseDailyRow } from "@/lib/google-ads/warehouse-types";
-
-function buildRow(
-  overrides: Partial<GoogleAdsWarehouseDailyRow> = {}
-): GoogleAdsWarehouseDailyRow {
-  return {
-    businessId: "biz_1",
-    providerAccountId: "acct_1",
-    date: "2026-03-30",
-    accountTimezone: "UTC",
-    accountCurrency: "USD",
-    entityKey: "entity_1",
-    entityLabel: "Entity",
-    campaignId: "cmp_1",
-    campaignName: "Campaign",
-    adGroupId: null,
-    adGroupName: null,
-    status: "enabled",
-    channel: "search",
-    classification: "brand",
-    payloadJson: { source: "first" },
-    spend: 1,
-    revenue: 2,
-    conversions: 3,
-    impressions: 4,
-    clicks: 5,
-    ctr: 6,
-    cpc: 7,
-    cpa: 8,
-    roas: 9,
-    conversionRate: 10,
-    interactionRate: 11,
-    sourceSnapshotId: "snap_1",
-    ...overrides,
-  };
-}
 
 vi.mock("@/lib/db", () => ({
   getDb: vi.fn(),
-  getDbWithTimeout: vi.fn(),
 }));
 
 vi.mock("@/lib/migrations", () => ({
@@ -52,47 +14,11 @@ vi.mock("@/lib/sync/worker-health", () => ({
 
 const db = await import("@/lib/db");
 const workerHealth = await import("@/lib/sync/worker-health");
-const {
-  cleanupGoogleAdsPartitionOrchestration,
-  replayGoogleAdsDeadLetterPartitions,
-  upsertGoogleAdsSyncCheckpoint,
-} = await import(
-  "@/lib/google-ads/warehouse"
+const { cleanupMetaPartitionOrchestration, replayMetaDeadLetterPartitions, upsertMetaSyncCheckpoint } = await import(
+  "@/lib/meta/warehouse"
 );
 
-describe("dedupeGoogleAdsWarehouseRows", () => {
-  it("keeps the last conflicting row for a warehouse conflict key", () => {
-    const rows = [
-      buildRow({
-        entityKey: "entity_1",
-        payloadJson: { source: "first" },
-        spend: 1,
-      }),
-      buildRow({
-        entityKey: "entity_2",
-        payloadJson: { source: "middle" },
-        spend: 2,
-      }),
-      buildRow({
-        entityKey: "entity_1",
-        payloadJson: { source: "last" },
-        spend: 99,
-      }),
-    ];
-
-    const result = dedupeGoogleAdsWarehouseRows(rows);
-
-    expect(result.duplicateCount).toBe(1);
-    expect(result.rows).toHaveLength(2);
-    expect(result.rows.map((row) => row.entityKey)).toEqual(["entity_2", "entity_1"]);
-    expect(result.rows.find((row) => row.entityKey === "entity_1")?.spend).toBe(99);
-    expect(result.rows.find((row) => row.entityKey === "entity_1")?.payloadJson).toEqual({
-      source: "last",
-    });
-  });
-});
-
-describe("google ads warehouse ownership safety", () => {
+describe("meta warehouse ownership safety", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     vi.mocked(workerHealth.recordSyncReclaimEvents).mockResolvedValue(undefined);
@@ -102,12 +28,12 @@ describe("google ads warehouse ownership safety", () => {
     const sql = vi.fn().mockResolvedValue([]);
     vi.mocked(db.getDb).mockReturnValue(sql as never);
 
-    const checkpointId = await upsertGoogleAdsSyncCheckpoint({
+    const checkpointId = await upsertMetaSyncCheckpoint({
       partitionId: "partition-1",
       businessId: "biz-1",
       providerAccountId: "acct-1",
-      checkpointScope: "campaign_daily",
-      phase: "bulk_upsert",
+      checkpointScope: "breakdown:age",
+      phase: "fetch_raw",
       status: "running",
       pageIndex: 0,
       attemptCount: 1,
@@ -125,9 +51,9 @@ describe("google ads warehouse ownership safety", () => {
     });
     vi.mocked(db.getDb).mockReturnValue(sql as never);
 
-    const result = await replayGoogleAdsDeadLetterPartitions({
+    const result = await replayMetaDeadLetterPartitions({
       businessId: "biz-1",
-      scope: "campaign_daily",
+      scope: "ad_daily",
     });
 
     expect(result.outcome).toBe("no_matching_partitions");
@@ -143,9 +69,9 @@ describe("google ads warehouse ownership safety", () => {
       .mockResolvedValueOnce([]);
     vi.mocked(db.getDb).mockReturnValue(sql as never);
 
-    const result = await replayGoogleAdsDeadLetterPartitions({
+    const result = await replayMetaDeadLetterPartitions({
       businessId: "biz-1",
-      scope: "campaign_daily",
+      scope: "ad_daily",
     });
 
     expect(result.outcome).toBe("skipped_active_lease");
@@ -157,26 +83,19 @@ describe("google ads warehouse ownership safety", () => {
   it("keeps recently progressing partitions leased during cleanup", async () => {
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       const query = strings.join(" ");
-      if (query.includes("FROM google_ads_sync_partitions partition") && query.includes("same_phase_failures")) {
+      if (query.includes("FROM meta_sync_partitions partition") && query.includes("partition.status IN ('leased', 'running')")) {
         return [
           {
             id: "partition-1",
-            scope: "campaign_daily",
             lane: "core",
-            status: "leased",
-            attempt_count: 1,
+            scope: "account_daily",
             updated_at: new Date().toISOString(),
             started_at: new Date().toISOString(),
             lease_expires_at: new Date(Date.now() + 60_000).toISOString(),
-            checkpoint_scope: "campaign_daily",
-            phase: "bulk_upsert",
+            checkpoint_scope: "account_daily",
+            phase: "fetch_raw",
             page_index: 0,
-            checkpoint_attempt_count: 1,
-            checkpoint_status: "running",
-            progress_updated_at: new Date().toISOString(),
-            poisoned_at: null,
-            poison_reason: null,
-            same_phase_failures: 0,
+            checkpoint_updated_at: new Date().toISOString(),
             has_active_runner_lease: true,
           },
         ];
@@ -185,7 +104,7 @@ describe("google ads warehouse ownership safety", () => {
     });
     vi.mocked(db.getDb).mockReturnValue(sql as never);
 
-    const result = await cleanupGoogleAdsPartitionOrchestration({
+    const result = await cleanupMetaPartitionOrchestration({
       businessId: "biz-1",
       staleLeaseMinutes: 8,
     });
@@ -198,26 +117,19 @@ describe("google ads warehouse ownership safety", () => {
   it("reclaims expired partitions when progress is stale and no runner lease remains", async () => {
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       const query = strings.join(" ");
-      if (query.includes("FROM google_ads_sync_partitions partition") && query.includes("same_phase_failures")) {
+      if (query.includes("FROM meta_sync_partitions partition") && query.includes("partition.status IN ('leased', 'running')")) {
         return [
           {
             id: "partition-1",
-            scope: "campaign_daily",
             lane: "core",
-            status: "leased",
-            attempt_count: 1,
+            scope: "account_daily",
             updated_at: new Date(Date.now() - 10 * 60_000).toISOString(),
             started_at: new Date(Date.now() - 10 * 60_000).toISOString(),
             lease_expires_at: new Date(Date.now() - 2 * 60_000).toISOString(),
-            checkpoint_scope: "campaign_daily",
-            phase: "bulk_upsert",
+            checkpoint_scope: "account_daily",
+            phase: "fetch_raw",
             page_index: 0,
-            checkpoint_attempt_count: 1,
-            checkpoint_status: "running",
-            progress_updated_at: new Date(Date.now() - 10 * 60_000).toISOString(),
-            poisoned_at: null,
-            poison_reason: null,
-            same_phase_failures: 0,
+            checkpoint_updated_at: new Date(Date.now() - 10 * 60_000).toISOString(),
             has_active_runner_lease: false,
           },
         ];
@@ -226,13 +138,13 @@ describe("google ads warehouse ownership safety", () => {
     });
     vi.mocked(db.getDb).mockReturnValue(sql as never);
 
-    const result = await cleanupGoogleAdsPartitionOrchestration({
+    const result = await cleanupMetaPartitionOrchestration({
       businessId: "biz-1",
       staleLeaseMinutes: 8,
     });
 
     expect(result.stalePartitionCount).toBe(1);
     expect(result.aliveSlowCount).toBe(0);
-    expect(result.reclaimReasons.stalledReclaimable).toEqual(["worker_offline_no_progress"]);
+    expect(result.reclaimReasons.stalledReclaimable).toEqual(["lease_expired_no_progress"]);
   });
 });

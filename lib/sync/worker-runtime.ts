@@ -3,6 +3,7 @@ import type { ProviderWorkerAdapter } from "@/lib/sync/provider-worker-adapters"
 import {
   acquireSyncRunnerLease,
   heartbeatSyncWorker,
+  renewSyncRunnerLease,
   releaseSyncRunnerLease,
 } from "@/lib/sync/worker-health";
 import { pruneSyncLifecycleData } from "@/lib/sync/retention";
@@ -20,6 +21,29 @@ function sleep(ms: number) {
 
 export interface DurableWorkerRuntimeOptions {
   adapters: ProviderWorkerAdapter[];
+}
+
+export interface RunnerLeaseGuard {
+  isLeaseLost(): boolean;
+  getLeaseLossReason(): string | null;
+}
+
+export function createRunnerLeaseGuard() {
+  let leaseLost = false;
+  let leaseLossReason: string | null = null;
+  return {
+    markLeaseLost(reason: string) {
+      if (leaseLost) return;
+      leaseLost = true;
+      leaseLossReason = reason;
+    },
+    isLeaseLost() {
+      return leaseLost;
+    },
+    getLeaseLossReason() {
+      return leaseLossReason;
+    },
+  };
 }
 
 function parseEnvList(name: string) {
@@ -246,6 +270,38 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
           force: true,
         }).catch(() => null);
 
+        const leaseGuard = createRunnerLeaseGuard();
+        let leaseRenewalStopped = false;
+        let leaseRenewalInFlight: Promise<void> | null = null;
+        const leaseRenewalIntervalMs = Math.max(10_000, Math.floor((leaseMinutes * 60_000) / 2));
+        const leaseRenewalTimer = setInterval(() => {
+          if (leaseRenewalStopped) return;
+          leaseRenewalInFlight = renewSyncRunnerLease({
+            businessId: business.id,
+            providerScope: adapter.providerScope,
+            leaseOwner: workerId,
+            leaseMinutes,
+          })
+            .then((renewed) => {
+              if (renewed) return;
+              leaseGuard.markLeaseLost("runner_lease_conflict");
+              console.warn("[durable-worker] runner_lease_lost", {
+                businessId: business.id,
+                providerScope: adapter.providerScope,
+                workerId,
+              });
+            })
+            .catch((error) => {
+              leaseGuard.markLeaseLost("runner_lease_renewal_failed");
+              console.warn("[durable-worker] runner_lease_renewal_failed", {
+                businessId: business.id,
+                providerScope: adapter.providerScope,
+                workerId,
+                message: error instanceof Error ? error.message : String(error),
+              });
+            });
+        }, leaseRenewalIntervalMs);
+
         try {
           await heartbeat({
             providerScope: adapter.providerScope,
@@ -262,7 +318,9 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
             },
             force: true,
           }).catch(() => null);
-          const result = await adapter.consumeBusiness(business.id);
+          const result = await adapter.consumeBusiness(business.id, {
+            runtimeLeaseGuard: leaseGuard,
+          });
           const syncResult =
             result && typeof result === "object" ? (result as Record<string, unknown>) : null;
           await heartbeat({
@@ -330,6 +388,12 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
             force: true,
           }).catch(() => null);
         } finally {
+          leaseRenewalStopped = true;
+          clearInterval(leaseRenewalTimer);
+          if (leaseRenewalInFlight) {
+            const renewalPromise: Promise<void> = leaseRenewalInFlight;
+            await renewalPromise.catch(() => null);
+          }
           await releaseSyncRunnerLease({
             businessId: business.id,
             providerScope: adapter.providerScope,

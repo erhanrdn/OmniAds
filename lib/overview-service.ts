@@ -5,7 +5,7 @@ import {
   resolveGa4AnalyticsContext,
   runGA4Report,
 } from "@/lib/google-analytics-reporting";
-import { getIntegration } from "@/lib/integrations";
+import { getIntegration, getIntegrationMetadata } from "@/lib/integrations";
 import { runMigrations } from "@/lib/migrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import {
@@ -252,8 +252,8 @@ async function getMetaAccessContext(businessId: string): Promise<MetaAccessConte
 
     let connected = false;
     try {
-      const integration = await getIntegration(businessId, "meta");
-      connected = Boolean(integration?.status === "connected" && integration?.access_token);
+      const integration = await getIntegrationMetadata(businessId, "meta");
+      connected = Boolean(integration?.status === "connected");
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       console.warn("[overview] integration read failed", {
@@ -277,9 +277,9 @@ async function getMetaOverviewFragment(input: {
   startDate: string;
   endDate: string;
 }): Promise<MetaOverviewFragment> {
-  const { assignedAccountIds, connected } = await getMetaAccessContext(input.businessId);
+  const { assignedAccountIds } = await getMetaAccessContext(input.businessId);
 
-  if (!connected || assignedAccountIds.length === 0) {
+  if (assignedAccountIds.length === 0) {
     return { spend: 0, revenue: 0, purchases: 0, rows: [] };
   }
 

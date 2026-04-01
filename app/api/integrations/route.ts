@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isDemoBusiness } from "@/lib/business-mode.server";
 import {
-  getIntegrationsByBusiness,
-  getIntegration,
+  getIntegrationsMetadataByBusiness,
+  getIntegrationMetadata,
   disconnectIntegration,
 } from "@/lib/integrations";
 import type { IntegrationProviderType } from "@/lib/integrations";
@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
       const integration = getDemoIntegrations().find((item) => item.provider === provider) ?? null;
       return NextResponse.json({ integration });
     }
-    const integration = await getIntegration(businessId, provider);
+    const integration = await getIntegrationMetadata(businessId, provider);
     return NextResponse.json({ integration });
   }
 
@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ integrations: getDemoIntegrations() });
   }
 
-  const integrations = await getIntegrationsByBusiness(businessId);
+  const integrations = await getIntegrationsMetadataByBusiness(businessId);
   return NextResponse.json({ integrations });
 }
 

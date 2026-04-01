@@ -1,62 +1,65 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { runMigrations } from "@/lib/migrations";
-import { expireStaleMetaSyncJobs, hasBlockingMetaSyncJob } from "@/lib/meta/warehouse";
+import { requireInternalOrAdminSyncAccess, businessExists } from "@/lib/internal-sync-auth";
+import { logAdminAction } from "@/lib/admin-logger";
 import {
   enqueueGoogleAdsScheduledWork,
 } from "@/lib/sync/google-ads-sync";
 import {
-  cleanupGoogleAdsObsoleteSyncJobs,
-  expireStaleGoogleAdsSyncJobs,
-  getGoogleAdsQueueHealth,
-} from "@/lib/google-ads/warehouse";
-import { syncGA4Reports } from "@/lib/sync/ga4-sync";
-import {
   enqueueMetaScheduledWork,
 } from "@/lib/sync/meta-sync";
-import { syncSearchConsoleReports } from "@/lib/sync/search-console-sync";
+import * as metaWarehouse from "@/lib/meta/warehouse";
+import * as googleAdsWarehouse from "@/lib/google-ads/warehouse";
 
 /**
  * POST /api/sync/refresh
  *
- * Triggers a background cache refresh for a specific business and provider.
- * Used by the stale-while-revalidate pattern in route-report-cache.ts.
- * Returns 202 immediately and runs the sync asynchronously.
+ * Triggers a background sync refresh for a specific business and provider.
+ * Restricted to admin sessions or internal signed requests.
+ * Returns 202 only after durable enqueue succeeds.
  *
- * Body: { businessId: string, provider: "google_ads" | "ga4" | "search_console" }
+ * Body: { businessId: string, provider: "google_ads" | "meta" }
  */
+
+const runtimeSyncRefreshStore = globalThis as typeof globalThis & {
+  __syncRefreshInFlightKeys?: Set<string>;
+};
+
+function getInFlightRefreshKeys() {
+  if (!runtimeSyncRefreshStore.__syncRefreshInFlightKeys) {
+    runtimeSyncRefreshStore.__syncRefreshInFlightKeys = new Set<string>();
+  }
+  return runtimeSyncRefreshStore.__syncRefreshInFlightKeys;
+}
+
+function getRefreshKey(businessId: string, provider: string) {
+  return `${businessId}:${provider}`;
+}
+
+const DURABLE_REFRESH_REPORT_TYPE = "scheduled_refresh";
+const DURABLE_REFRESH_RANGE_KEY = "full";
+const DURABLE_REFRESH_LOCK_MINUTES = 5;
 
 async function isJobAlreadyRunning(
   businessId: string,
   provider: string,
-  mode?: "recent" | "today" | "initial" | "repair",
 ): Promise<boolean> {
   try {
     await runMigrations();
     const sql = getDb();
     if (provider === "meta") {
-      await expireStaleMetaSyncJobs({ businessId }).catch(() => null);
-      if (mode === "today") return false;
-      return false;
+      await metaWarehouse.expireStaleMetaSyncJobs({ businessId }).catch(() => null);
+      const queueHealth = await metaWarehouse.getMetaQueueHealth({ businessId }).catch(() => null);
+      if (!queueHealth) return false;
+      return (queueHealth.queueDepth ?? 0) > 0 || (queueHealth.leasedPartitions ?? 0) > 0;
     }
     if (provider === "google_ads") {
-      await cleanupGoogleAdsObsoleteSyncJobs({ businessId }).catch(() => null);
-      await expireStaleGoogleAdsSyncJobs({ businessId }).catch(() => null);
-      const queueHealth = await getGoogleAdsQueueHealth({ businessId }).catch(() => null);
+      await googleAdsWarehouse.cleanupGoogleAdsObsoleteSyncJobs({ businessId }).catch(() => null);
+      await googleAdsWarehouse.expireStaleGoogleAdsSyncJobs({ businessId }).catch(() => null);
+      const queueHealth = await googleAdsWarehouse.getGoogleAdsQueueHealth({ businessId }).catch(() => null);
       if (!queueHealth) return false;
-      if (mode === "today") {
-        return (queueHealth.maintenanceLeasedPartitions ?? 0) > 0;
-      }
-      if (mode === "recent") {
-        return (
-          (queueHealth.coreLeasedPartitions ?? 0) > 0 ||
-          (queueHealth.maintenanceLeasedPartitions ?? 0) > 0
-        );
-      }
-      if (mode === "initial" || mode === "repair") {
-        return (queueHealth.coreLeasedPartitions ?? 0) > 0;
-      }
-      return (queueHealth.leasedPartitions ?? 0) > 0;
+      return (queueHealth.queueDepth ?? 0) > 0 || (queueHealth.leasedPartitions ?? 0) > 0;
     }
     const rows = await sql`
       SELECT id FROM provider_sync_jobs
@@ -74,7 +77,6 @@ async function isJobAlreadyRunning(
 
 async function hasMetaQueueConsumerRunning(
   businessId: string,
-  mode?: "recent" | "today" | "initial" | "repair",
 ): Promise<boolean> {
   try {
     await runMigrations();
@@ -84,11 +86,6 @@ async function hasMetaQueueConsumerRunning(
       FROM meta_sync_partitions
       WHERE business_id = ${businessId}
         AND status IN ('leased', 'running')
-        AND (
-          ${mode ?? null}::text IS NULL
-          OR ${mode ?? null} <> 'today'
-          OR lane = 'maintenance'
-        )
     ` as Array<{ leased_count: number }>;
     return Number(rows[0]?.leased_count ?? 0) > 0;
   } catch {
@@ -96,39 +93,168 @@ async function hasMetaQueueConsumerRunning(
   }
 }
 
-async function runSyncForProvider(
-  businessId: string,
-  provider: string,
-  mode: "recent" | "today" | "initial" | "repair" = "recent",
-  range?: { startDate: string; endDate: string }
-): Promise<void> {
-  void mode;
-  void range;
-  switch (provider) {
-    case "google_ads":
-      await enqueueGoogleAdsScheduledWork(businessId);
-      break;
-    case "ga4":
-      await syncGA4Reports(businessId);
-      break;
-    case "meta":
-      await enqueueMetaScheduledWork(businessId);
-      break;
-    case "search_console":
-      await syncSearchConsoleReports(businessId);
-      break;
-    default:
-      console.warn("[sync-refresh] unknown_provider", { businessId, provider });
+async function acquireDurableRefreshLock(input: {
+  businessId: string;
+  provider: string;
+  ownerToken: string;
+}): Promise<{ acquired: boolean; error: boolean }> {
+  try {
+    await runMigrations();
+    const sql = getDb();
+    const rows = await sql`
+      WITH active AS (
+        SELECT id
+        FROM provider_sync_jobs
+        WHERE business_id = ${input.businessId}
+          AND provider = ${input.provider}
+          AND report_type = ${DURABLE_REFRESH_REPORT_TYPE}
+          AND date_range_key = ${DURABLE_REFRESH_RANGE_KEY}
+          AND status = 'running'
+          AND COALESCE(lock_expires_at, started_at + (${DURABLE_REFRESH_LOCK_MINUTES} || ' minutes')::interval) > now()
+        LIMIT 1
+      ),
+      upserted AS (
+        INSERT INTO provider_sync_jobs (
+          business_id,
+          provider,
+          report_type,
+          date_range_key,
+          status,
+          triggered_at,
+          started_at,
+          lock_owner,
+          lock_expires_at,
+          completed_at,
+          error_message
+        )
+        VALUES (
+          ${input.businessId},
+          ${input.provider},
+          ${DURABLE_REFRESH_REPORT_TYPE},
+          ${DURABLE_REFRESH_RANGE_KEY},
+          'running',
+          now(),
+          now(),
+          ${input.ownerToken},
+          now() + (${DURABLE_REFRESH_LOCK_MINUTES} || ' minutes')::interval,
+          NULL,
+          NULL
+        )
+        ON CONFLICT (business_id, provider, report_type, date_range_key)
+        DO UPDATE SET
+          status = 'running',
+          triggered_at = now(),
+          started_at = now(),
+          lock_owner = ${input.ownerToken},
+          lock_expires_at = now() + (${DURABLE_REFRESH_LOCK_MINUTES} || ' minutes')::interval,
+          completed_at = NULL,
+          error_message = NULL
+        WHERE provider_sync_jobs.status <> 'running'
+           OR COALESCE(provider_sync_jobs.lock_expires_at, provider_sync_jobs.started_at + (${DURABLE_REFRESH_LOCK_MINUTES} || ' minutes')::interval) <= now()
+        RETURNING id
+      )
+      SELECT
+        EXISTS(SELECT 1 FROM active) AS already_running,
+        EXISTS(SELECT 1 FROM upserted) AS acquired
+    ` as Array<{ already_running: boolean; acquired: boolean }>;
+
+    if (rows[0]?.already_running) return { acquired: false, error: false };
+    return { acquired: Boolean(rows[0]?.acquired), error: false };
+  } catch {
+    return { acquired: false, error: true };
   }
 }
 
+async function releaseDurableRefreshLock(input: {
+  businessId: string;
+  provider: string;
+  ownerToken: string;
+  status: "done" | "failed";
+  errorMessage?: string | null;
+}) {
+  try {
+    await runMigrations();
+    const sql = getDb();
+    await sql`
+      UPDATE provider_sync_jobs
+      SET
+        status = ${input.status},
+        completed_at = now(),
+        lock_expires_at = now(),
+        error_message = ${input.errorMessage ?? null}
+      WHERE business_id = ${input.businessId}
+        AND provider = ${input.provider}
+        AND report_type = ${DURABLE_REFRESH_REPORT_TYPE}
+        AND date_range_key = ${DURABLE_REFRESH_RANGE_KEY}
+        AND lock_owner = ${input.ownerToken}
+    `;
+  } catch {
+    // best effort lock release
+  }
+}
+
+async function runSyncForProvider(
+  businessId: string,
+  provider: string,
+): Promise<{ provider: string; result: unknown }> {
+  switch (provider) {
+    case "google_ads":
+      return {
+        provider,
+        result: await enqueueGoogleAdsScheduledWork(businessId),
+      };
+    case "meta":
+      return {
+        provider,
+        result: await enqueueMetaScheduledWork(businessId),
+      };
+    default:
+      throw new Error(`unsupported_provider_for_refresh:${provider}`);
+  }
+}
+
+function isBacklogOnlySyncResult(provider: string, result: unknown): boolean {
+  if (!result || typeof result !== "object") return false;
+
+  if (provider === "google_ads") {
+    const value = result as {
+      queuedCore?: number;
+      queueDepth?: number;
+      leasedPartitions?: number;
+    };
+    return (
+      (value.queuedCore ?? 0) <= 0 &&
+      (((value.queueDepth ?? 0) > 0) || ((value.leasedPartitions ?? 0) > 0))
+    );
+  }
+
+  if (provider === "meta") {
+    const value = result as {
+      queuedCore?: number;
+      queuedMaintenance?: number;
+      queueDepth?: number;
+      leasedPartitions?: number;
+    };
+    return (
+      (value.queuedCore ?? 0) <= 0 &&
+      (value.queuedMaintenance ?? 0) <= 0 &&
+      (((value.queueDepth ?? 0) > 0) || ((value.leasedPartitions ?? 0) > 0))
+    );
+  }
+
+  return false;
+}
+
 export async function POST(request: NextRequest) {
+  const access = await requireInternalOrAdminSyncAccess(request);
+  if (access.error) return access.error;
+
   let body: {
     businessId?: string;
     provider?: string;
-    mode?: "recent" | "today" | "initial" | "repair";
     startDate?: string;
     endDate?: string;
+    mode?: string;
   };
   try {
     body = await request.json();
@@ -144,46 +270,175 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const validProviders = ["google_ads", "ga4", "meta", "search_console"];
+  if (!(await businessExists(businessId).catch(() => false))) {
+    return NextResponse.json(
+      { error: "Unknown businessId." },
+      { status: 404 },
+    );
+  }
+
+  const validProviders = ["google_ads", "meta"];
   if (!validProviders.includes(provider)) {
     return NextResponse.json(
-      { error: `Invalid provider. Must be one of: ${validProviders.join(", ")}` },
+      { error: "unsupported_provider_for_refresh", supportedProviders: validProviders },
       { status: 400 },
     );
   }
 
-  if (provider === "meta" && mode === "repair" && (!startDate || !endDate)) {
+  if (mode != null || startDate != null || endDate != null) {
     return NextResponse.json(
-      { error: "startDate and endDate are required for meta repair sync." },
+      { error: "mode, startDate and endDate are no longer supported by this endpoint." },
       { status: 400 },
     );
   }
 
   // Zaten çalışan bir job varsa tekrar başlatma
-  const alreadyRunning = await isJobAlreadyRunning(businessId, provider, mode);
+  const alreadyRunning = await isJobAlreadyRunning(businessId, provider);
   const metaConsumerRunning =
     provider === "meta"
-      ? await hasMetaQueueConsumerRunning(businessId, mode).catch(() => false)
+      ? await hasMetaQueueConsumerRunning(businessId).catch(() => false)
       : false;
-  if (alreadyRunning || metaConsumerRunning) {
+  const inFlightRefreshKeys = getInFlightRefreshKeys();
+  const refreshKey = getRefreshKey(businessId, provider);
+  const refreshAlreadyInFlight = inFlightRefreshKeys.has(refreshKey);
+  if (alreadyRunning || metaConsumerRunning || refreshAlreadyInFlight) {
+    if (access.kind === "admin") {
+      await logAdminAction({
+        adminId: access.session.user.id,
+        action: "sync.refresh",
+        targetType: "business",
+        targetId: businessId,
+        meta: {
+          provider,
+          outcome: "already_running",
+          duplicateReason: refreshAlreadyInFlight ? "in_process_refresh" : "existing_backlog",
+        },
+      });
+    }
     return NextResponse.json({ ok: true, status: "already_running" }, { status: 202 });
   }
 
-  runSyncForProvider(
+  const durableLockOwner = crypto.randomUUID();
+  const durableLock = await acquireDurableRefreshLock({
     businessId,
     provider,
-    mode ?? "recent",
-    startDate && endDate ? { startDate, endDate } : undefined
-  ).catch((err) => {
+    ownerToken: durableLockOwner,
+  });
+  if (durableLock.error) {
+    if (access.kind === "admin") {
+      await logAdminAction({
+        adminId: access.session.user.id,
+        action: "sync.refresh",
+        targetType: "business",
+        targetId: businessId,
+        meta: {
+          provider,
+          outcome: "failed",
+          error: "durable_refresh_lock_acquisition_failed",
+        },
+      });
+    }
+    return NextResponse.json(
+      { error: "refresh_lock_unavailable", message: "Could not acquire durable refresh lock." },
+      { status: 503 }
+    );
+  }
+  if (!durableLock.acquired) {
+    if (access.kind === "admin") {
+      await logAdminAction({
+        adminId: access.session.user.id,
+        action: "sync.refresh",
+        targetType: "business",
+        targetId: businessId,
+        meta: {
+          provider,
+          outcome: "already_running",
+          duplicateReason: "durable_refresh_lock",
+        },
+      });
+    }
+    return NextResponse.json({ ok: true, status: "already_running" }, { status: 202 });
+  }
+
+  let syncResult: Awaited<ReturnType<typeof runSyncForProvider>>;
+  inFlightRefreshKeys.add(refreshKey);
+  try {
+    syncResult = await runSyncForProvider(businessId, provider);
+  } catch (err) {
     console.error("[sync-refresh] background_sync_failed", {
       businessId,
       provider,
       message: err instanceof Error ? err.message : String(err),
     });
+    if (access.kind === "admin") {
+      await logAdminAction({
+        adminId: access.session.user.id,
+        action: "sync.refresh",
+        targetType: "business",
+        targetId: businessId,
+        meta: {
+          provider,
+          outcome: "failed",
+          error: err instanceof Error ? err.message : String(err),
+        },
+      });
+    }
+    await releaseDurableRefreshLock({
+      businessId,
+      provider,
+      ownerToken: durableLockOwner,
+      status: "failed",
+      errorMessage: err instanceof Error ? err.message : String(err),
+    });
+    return NextResponse.json(
+      { error: "internal_error", message: "Could not enqueue sync refresh." },
+      { status: 500 }
+    );
+  } finally {
+    inFlightRefreshKeys.delete(refreshKey);
+  }
+
+  if (isBacklogOnlySyncResult(provider, syncResult.result)) {
+    if (access.kind === "admin") {
+      await logAdminAction({
+        adminId: access.session.user.id,
+        action: "sync.refresh",
+        targetType: "business",
+        targetId: businessId,
+        meta: { provider, outcome: "already_running", result: syncResult.result },
+      });
+    }
+    await releaseDurableRefreshLock({
+      businessId,
+      provider,
+      ownerToken: durableLockOwner,
+      status: "done",
+    });
+
+    return NextResponse.json(
+      { ok: true, status: "already_running", provider: syncResult.provider, result: syncResult.result },
+      { status: 202 }
+    );
+  }
+
+  if (access.kind === "admin") {
+    await logAdminAction({
+      adminId: access.session.user.id,
+      action: "sync.refresh",
+      targetType: "business",
+      targetId: businessId,
+      meta: { provider, outcome: "started", result: syncResult.result },
+    });
+  }
+  await releaseDurableRefreshLock({
+    businessId,
+    provider,
+    ownerToken: durableLockOwner,
+    status: "done",
   });
 
   return NextResponse.json(
-    { ok: true, status: "started", mode: mode ?? "recent" },
+    { ok: true, status: "started", provider: syncResult.provider, result: syncResult.result },
     { status: 202 }
   );
 }

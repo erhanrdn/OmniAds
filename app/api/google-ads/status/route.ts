@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { getDb } from "@/lib/db";
-import { getIntegration } from "@/lib/integrations";
+import { getIntegrationMetadata } from "@/lib/integrations";
 import { readProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import {
@@ -33,6 +33,7 @@ import {
 import { buildGoogleAdsAdvisorProgress } from "@/lib/google-ads/advisor-progress";
 import { runMigrations } from "@/lib/migrations";
 import {
+  buildProviderStateContract,
   buildProviderSurfaces,
   decideProviderReadinessLevel,
 } from "@/lib/provider-readiness";
@@ -380,7 +381,7 @@ export async function GET(request: NextRequest) {
 
   const [integration, assignments, latestSync, checkpointHealth, workerSchedulingState, staleRunRows, recentRepairRows, recentRepairAttemptRows] =
     await Promise.all([
-    captureOptional("integration", getIntegration(businessId!, "google"), null),
+    captureOptional("integration", getIntegrationMetadata(businessId!, "google"), null),
     captureOptional(
       "provider_account_assignments",
       getProviderAccountAssignments(businessId!, "google"),
@@ -471,7 +472,7 @@ export async function GET(request: NextRequest) {
       : null;
 
   const accountIds = assignments?.account_ids ?? [];
-  const connected = Boolean(integration?.status === "connected" && integration?.access_token);
+  const connected = Boolean(integration?.status === "connected");
 
   const [warehouseStatsRows] = (await Promise.all([
     sql`
@@ -515,8 +516,7 @@ export async function GET(request: NextRequest) {
   const totalDays = dayCountInclusive(initialBackfillStart, initialBackfillEnd);
 
   const [accountCoverage, campaignCoverage] =
-    connected && accountIds.length > 0
-      ? await Promise.all([
+      await Promise.all([
           readGoogleAdsStatusCoverage({
             scope: "account_daily",
             businessId: businessId!,
@@ -533,8 +533,7 @@ export async function GET(request: NextRequest) {
             endDate: initialBackfillEnd,
             timeoutMs: 30_000,
           }),
-        ])
-      : [null, null];
+        ]);
   const [
     selectedSearchTermCoverage,
     selectedProductCoverage,
@@ -544,7 +543,7 @@ export async function GET(request: NextRequest) {
     selectedDeviceCoverage,
     selectedAudienceCoverage,
   ] =
-    connected && accountIds.length > 0 && selectedStartDate && selectedEndDate
+    selectedStartDate && selectedEndDate
       ? await Promise.all([
           readGoogleAdsStatusCoverage({
             scope: "search_term_daily",
@@ -605,8 +604,7 @@ export async function GET(request: NextRequest) {
         ])
       : [null, null, null, null, null, null, null];
   const [recentSearchTermCoverage, recentProductCoverage, recentAssetCoverage] =
-    connected && accountIds.length > 0
-      ? await Promise.all([
+      await Promise.all([
           readGoogleAdsStatusCoverage({
             scope: "search_term_daily",
             businessId: businessId!,
@@ -631,8 +629,7 @@ export async function GET(request: NextRequest) {
             endDate: initialBackfillEnd,
             timeoutMs: 30_000,
           }),
-        ])
-      : [null, null, null];
+        ]);
   const allStateScopes = [
     "account_daily",
     "campaign_daily",
@@ -645,8 +642,7 @@ export async function GET(request: NextRequest) {
     "audience_daily",
   ] as const;
   const [queueHealth, ...scopeStates] =
-    connected && accountIds.length > 0
-      ? await Promise.all([
+      await Promise.all([
           captureOptional(
             "queue_health",
             getGoogleAdsQueueHealth({ businessId: businessId! }),
@@ -662,8 +658,7 @@ export async function GET(request: NextRequest) {
               []
             )
           ),
-        ])
-      : [null, ...allStateScopes.map(() => [])];
+        ]);
   const [quotaBudgetState, breakerState] = await Promise.all([
     captureOptional(
       "quota_budget_state",
@@ -692,8 +687,7 @@ export async function GET(request: NextRequest) {
     (scope) => scope !== "account_daily" && scope !== "campaign_daily"
   );
   const extendedCoverageRows =
-    connected && accountIds.length > 0
-      ? await Promise.all(
+      await Promise.all(
           extendedStateScopes.map(async (scope) => ({
             scope,
             coverage: await readGoogleAdsStatusCoverage({
@@ -705,13 +699,12 @@ export async function GET(request: NextRequest) {
               timeoutMs: 30_000,
             }),
           }))
-        )
-      : [];
+        );
   const extendedCoverageByScope = new Map(
     extendedCoverageRows.map((entry) => [entry.scope, entry.coverage] as const)
   );
   const selectedRangeCoverage =
-    connected && accountIds.length > 0 && selectedStartDate && selectedEndDate
+    selectedStartDate && selectedEndDate
       ? await readGoogleAdsStatusCoverage({
           scope: "campaign_daily",
           businessId: businessId!,
@@ -849,8 +842,7 @@ export async function GET(request: NextRequest) {
 
   const recent90Start = addDaysToIsoDate(initialBackfillEnd, -89);
   const [recent90CampaignCoverage, recent90SearchTermCoverage, recent90ProductCoverage, latestAdvisorSnapshot, advisorQueueHealth] =
-    connected && accountIds.length > 0
-      ? await Promise.all([
+      await Promise.all([
           readGoogleAdsStatusCoverage({
             scope: "campaign_daily",
             businessId: businessId!,
@@ -892,8 +884,7 @@ export async function GET(request: NextRequest) {
             }),
             null
           ),
-        ])
-      : [null, null, null, null, null];
+        ]);
   const advisorRequiredSurfaces = [
     {
       name: "campaign_daily",
@@ -1317,8 +1308,7 @@ export async function GET(request: NextRequest) {
         }
       : null;
 
-  return NextResponse.json({
-    state: decideGoogleAdsStatusState({
+  const overallState = decideGoogleAdsStatusState({
       connected,
       assignedAccountCount: accountIds.length,
       historicalQueuePaused,
@@ -1336,7 +1326,29 @@ export async function GET(request: NextRequest) {
       selectedRangeTotalDays,
       advisorMissingSurfaces,
       advisorNotReady,
-    }),
+    });
+  const providerState = buildProviderStateContract({
+    credentialState: connected ? "connected" : "not_connected",
+    hasAssignedAccounts: accountIds.length > 0,
+    warehouseRowCount: Number(warehouseStats?.row_count ?? 0),
+    warehousePartial:
+      selectedRangeTotalDays != null
+        ? Boolean(selectedRangeIncomplete)
+        : overallCompletedDays < effectiveHistoricalTotalDays,
+    syncState: overallState,
+    selectedCurrentDay: false,
+    notReadyReason: summarizeStatusDegradedReason(statusDegradedReasons),
+  });
+
+  return NextResponse.json({
+    state: overallState,
+    credentialState: providerState.credentialState,
+    assignmentState: providerState.assignmentState,
+    warehouseState: providerState.warehouseState,
+    syncState: providerState.syncState,
+    servingMode: providerState.servingMode,
+    isPartial: providerState.isPartial,
+    notReadyReason: providerState.notReadyReason,
     connected,
     readinessLevel,
     surfaces,

@@ -1,4 +1,4 @@
-import { getIntegration } from "@/lib/integrations";
+import { getIntegrationMetadata } from "@/lib/integrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { getBusinessCostModel } from "@/lib/business-cost-model";
 import { getDateRangeForQuery } from "@/lib/google-ads-gaql";
@@ -36,11 +36,13 @@ import {
   getLatestGoogleAdsSyncHealth,
 } from "@/lib/google-ads/warehouse";
 import type {
+  GoogleAdsWarehouseDataState,
   GoogleAdsWarehouseDailyRow,
   GoogleAdsWarehouseFreshness,
   GoogleAdsWarehouseScope,
 } from "@/lib/google-ads/warehouse-types";
 import type { BaseReportParams, ComparativeReportParams, ReportResult, OverviewReportResult } from "@/lib/google-ads/reporting-core";
+import { buildProviderStateContract } from "@/lib/provider-readiness";
 
 type WarehouseMeta = GoogleAdsReportMeta & GoogleAdsWarehouseFreshness;
 
@@ -48,11 +50,12 @@ type GenericRow = Record<string, unknown>;
 type WarehouseContextCacheEntry = {
   expiresAt: number;
   value: Promise<{
-    integration: Awaited<ReturnType<typeof getIntegration>> | null;
+    integration: Awaited<ReturnType<typeof getIntegrationMetadata>> | null;
     providerAccountIds: string[];
     startDate: string;
     endDate: string;
     dataState: GoogleAdsWarehouseFreshness["dataState"];
+    providerState: ReturnType<typeof buildProviderStateContract>;
   }>;
 };
 
@@ -199,7 +202,7 @@ async function resolveWarehouseContext(input: {
 
   const value = (async () => {
     const [integration, assignment] = await Promise.all([
-      getIntegration(input.businessId, "google").catch(() => null),
+      getIntegrationMetadata(input.businessId, "google").catch(() => null),
       getProviderAccountAssignments(input.businessId, "google").catch(() => null),
     ]);
     const providerAccountIds =
@@ -212,9 +215,24 @@ async function resolveWarehouseContext(input: {
       input.customEnd ?? undefined
     );
 
-    let dataState: GoogleAdsWarehouseFreshness["dataState"] = "ready";
-    if (!integration?.access_token || integration.status !== "connected") dataState = "not_connected";
-    else if (providerAccountIds.length === 0) dataState = "connected_no_assignment";
+    const providerState = buildProviderStateContract({
+      credentialState: integration?.status === "connected" ? "connected" : "not_connected",
+      hasAssignedAccounts: providerAccountIds.length > 0,
+      warehouseRowCount: 0,
+      warehousePartial: false,
+      syncState:
+        integration?.status !== "connected"
+          ? "not_connected"
+          : providerAccountIds.length === 0
+            ? "connected_no_assignment"
+            : "ready",
+      selectedCurrentDay: endDate >= new Date().toISOString().slice(0, 10),
+    });
+
+    const dataState: GoogleAdsWarehouseDataState =
+      providerState.assignmentState === "unassigned"
+        ? "connected_no_assignment"
+        : "ready";
 
     return {
       integration,
@@ -222,6 +240,7 @@ async function resolveWarehouseContext(input: {
       startDate,
       endDate,
       dataState,
+      providerState,
     };
   })();
 
@@ -669,13 +688,10 @@ async function buildScopeResponse(input: {
   scope: GoogleAdsWarehouseScope;
 }) {
   const context = await resolveWarehouseContext(input.params);
-  if (context.dataState === "not_connected" || context.dataState === "connected_no_assignment") {
+  if (context.dataState === "connected_no_assignment") {
     const freshness = createGoogleAdsWarehouseFreshness({
       dataState: context.dataState,
-      warnings:
-        context.dataState === "not_connected"
-          ? ["Google Ads integration is not connected."]
-          : ["No Google Ads account is assigned to this business."],
+      warnings: ["No Google Ads account is assigned to this business."],
     });
     return { context, freshness, rows: [], dailyRows: [] as GoogleAdsWarehouseDailyRow[] };
   }
@@ -694,6 +710,14 @@ async function buildScopeResponse(input: {
     endDate: context.endDate,
     rows: dailyRows,
   });
+  if (context.providerState.credentialState === "not_connected") {
+    freshness.warnings = Array.from(
+      new Set([...freshness.warnings, "Google Ads integration is not connected."])
+    );
+    if (freshness.dataState === "ready") {
+      freshness.dataState = freshness.isPartial ? "partial" : "ready";
+    }
+  }
   return { context, freshness, rows, dailyRows };
 }
 

@@ -145,6 +145,28 @@ export async function acquireSyncRunnerLease(input: {
   return rows[0]?.lease_owner === input.leaseOwner;
 }
 
+export async function renewSyncRunnerLease(input: {
+  businessId: string;
+  providerScope: string;
+  leaseOwner: string;
+  leaseMinutes: number;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = await sql`
+    UPDATE sync_runner_leases
+    SET
+      lease_expires_at = now() + (${Math.max(1, input.leaseMinutes)} || ' minutes')::interval,
+      updated_at = now()
+    WHERE business_id = ${input.businessId}
+      AND provider_scope = ${input.providerScope}
+      AND lease_owner = ${input.leaseOwner}
+      AND lease_expires_at > now()
+    RETURNING lease_owner
+  ` as Array<{ lease_owner: string }>;
+  return rows[0]?.lease_owner === input.leaseOwner;
+}
+
 export async function releaseSyncRunnerLease(input: {
   businessId: string;
   providerScope: string;
@@ -355,7 +377,7 @@ export async function recordSyncReclaimEvents(input: {
   businessId: string;
   partitionIds: string[];
   checkpointScope?: string | null;
-  eventType: "reclaimed" | "poisoned";
+  eventType: "reclaimed" | "poisoned" | "skipped_active_lease";
   disposition?: ProviderReclaimDisposition | null;
   reasonCode?: ProviderReclaimReasonCode | null;
   detail?: string | null;

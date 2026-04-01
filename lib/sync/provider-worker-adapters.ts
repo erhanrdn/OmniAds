@@ -1,3 +1,4 @@
+import type { RunnerLeaseGuard } from "@/lib/sync/worker-runtime";
 import type {
   ProviderSyncAdapter,
   ProviderSyncCheckpointState,
@@ -14,7 +15,12 @@ export interface ProviderWorkerAdapter
     string
   > {
   providerScope: "meta" | "google_ads";
-  consumeBusiness(businessId: string): Promise<unknown>;
+  consumeBusiness(
+    businessId: string,
+    input?: {
+      runtimeLeaseGuard?: RunnerLeaseGuard;
+    }
+  ): Promise<unknown>;
 }
 
 const unsupported = async () => {
@@ -35,8 +41,8 @@ export const metaWorkerAdapter: ProviderWorkerAdapter = {
   classifyFailure(error) {
     return error instanceof Error ? error.message : String(error);
   },
-  async consumeBusiness(businessId: string) {
-    return consumeMetaQueuedWork(businessId);
+  async consumeBusiness(businessId: string, input) {
+    return consumeMetaQueuedWork(businessId, input);
   },
 };
 
@@ -54,8 +60,8 @@ export const googleAdsWorkerAdapter: ProviderWorkerAdapter = {
   classifyFailure(error) {
     return error instanceof Error ? error.message : String(error);
   },
-  async consumeBusiness(businessId: string) {
-    return syncGoogleAdsReports(businessId);
+  async consumeBusiness(businessId: string, input) {
+    return syncGoogleAdsReports(businessId, input);
   },
 };
 

@@ -31,7 +31,7 @@ async function main() {
     process.exit(1);
   }
 
-  const rows = await replayGoogleAdsDeadLetterPartitions({
+  const result = await replayGoogleAdsDeadLetterPartitions({
     businessId,
     scope:
       requestedScope && GOOGLE_ADS_SCOPES.includes(requestedScope as GoogleAdsWarehouseScope)
@@ -48,8 +48,11 @@ async function main() {
         scope: requestedScope,
         startDate,
         endDate,
-        replayedCount: rows.length,
-        rows,
+        outcome: result.outcome,
+        replayedCount: result.changedCount,
+        matchedCount: result.matchedCount,
+        skippedActiveLeaseCount: result.skippedActiveLeaseCount,
+        rows: result.partitions,
       },
       null,
       2

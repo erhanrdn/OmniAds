@@ -87,7 +87,7 @@ function getDemoAdSets(campaignId: string): MetaAdSetData[] {
 // ── Route ─────────────────────────────────────────────────────────────────────
 
 export interface MetaAdSetsResponse {
-  status?: "ok" | "no_credentials" | "no_campaign_id";
+  status?: "ok" | "not_connected" | "no_campaign_id";
   rows: MetaAdSetData[];
   isPartial?: boolean;
   notReadyReason?: string | null;
@@ -130,14 +130,7 @@ export async function GET(request: NextRequest) {
     endDate ?? new Date().toISOString().slice(0, 10);
 
   const integration = await getIntegration(businessId!, "meta").catch(() => null);
-  if (!integration?.access_token) {
-    return NextResponse.json({
-      status: "no_credentials",
-      rows: [],
-      isPartial: false,
-      notReadyReason: "Meta access token is missing for this workspace.",
-    } satisfies MetaAdSetsResponse);
-  }
+  const connected = integration?.status === "connected";
 
   const assignment = await getProviderAccountAssignments(businessId!, "meta").catch(() => null);
   const providerAccountIds = assignment?.account_ids ?? [];
@@ -174,11 +167,13 @@ export async function GET(request: NextRequest) {
     status: "ok",
     rows: [],
     isPartial: true,
-    notReadyReason: getMetaPartialReason({
-      isSelectedCurrentDay: rangeContext.isSelectedCurrentDay,
-      currentDateInTimezone: rangeContext.currentDateInTimezone,
-      primaryAccountTimezone: rangeContext.primaryAccountTimezone,
-      defaultReason: "Ad set warehouse data is still being prepared for the requested range.",
-    }),
+    notReadyReason: connected
+      ? getMetaPartialReason({
+          isSelectedCurrentDay: rangeContext.isSelectedCurrentDay,
+          currentDateInTimezone: rangeContext.currentDateInTimezone,
+          primaryAccountTimezone: rangeContext.primaryAccountTimezone,
+          defaultReason: "Ad set warehouse data is still being prepared for the requested range.",
+        })
+      : "Meta integration is not connected. Historical warehouse data will appear here once available.",
   } satisfies MetaAdSetsResponse);
 }

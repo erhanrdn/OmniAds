@@ -432,7 +432,7 @@ export async function markMetaPartitionRunning(input: {
 }) {
   await runMigrations();
   const sql = getDb();
-  await sql`
+  const rows = await sql`
     UPDATE meta_sync_partitions
     SET
       status = 'running',
@@ -442,18 +442,23 @@ export async function markMetaPartitionRunning(input: {
       attempt_count = attempt_count + 1,
       updated_at = now()
     WHERE id = ${input.partitionId}
-  `;
+      AND lease_owner = ${input.workerId}
+      AND COALESCE(lease_expires_at, now()) > now()
+    RETURNING id
+  ` as Array<{ id: string }>;
+  return rows.length > 0;
 }
 
 export async function completeMetaPartition(input: {
   partitionId: string;
+  workerId: string;
   status: Extract<MetaPartitionStatus, "succeeded" | "failed" | "dead_letter" | "cancelled">;
   lastError?: string | null;
   retryDelayMinutes?: number;
 }) {
   await runMigrations();
   const sql = getDb();
-  await sql`
+  const rows = await sql`
     UPDATE meta_sync_partitions
     SET
       status = ${input.status},
@@ -471,7 +476,11 @@ export async function completeMetaPartition(input: {
       END,
       updated_at = now()
     WHERE id = ${input.partitionId}
-  `;
+      AND lease_owner = ${input.workerId}
+      AND COALESCE(lease_expires_at, now()) > now()
+    RETURNING id
+  ` as Array<{ id: string }>;
+  return rows.length > 0;
 }
 
 export async function cleanupMetaPartitionOrchestration(input: {
@@ -851,6 +860,18 @@ export async function upsertMetaSyncCheckpoint(input: MetaSyncCheckpointRecord) 
       providerCursor: input.providerCursor ?? null,
     });
   const rows = await sql`
+    WITH owner_guard AS (
+      SELECT id
+      FROM meta_sync_partitions
+      WHERE id = ${input.partitionId}
+        AND (
+          ${input.leaseOwner ?? null}::text IS NULL
+          OR (
+            lease_owner = ${input.leaseOwner ?? null}
+            AND COALESCE(lease_expires_at, now() - interval '1 second') > now()
+          )
+        )
+    )
     INSERT INTO meta_sync_checkpoints (
       partition_id,
       business_id,
@@ -874,7 +895,7 @@ export async function upsertMetaSyncCheckpoint(input: MetaSyncCheckpointRecord) 
       finished_at,
       updated_at
     )
-    VALUES (
+    SELECT
       ${input.partitionId},
       ${input.businessId},
       ${input.providerAccountId},
@@ -896,7 +917,7 @@ export async function upsertMetaSyncCheckpoint(input: MetaSyncCheckpointRecord) 
       ${input.startedAt ?? null},
       ${input.finishedAt ?? null},
       now()
-    )
+    FROM owner_guard
     ON CONFLICT (partition_id, checkpoint_scope)
     DO UPDATE SET
       phase = EXCLUDED.phase,
@@ -916,6 +937,7 @@ export async function upsertMetaSyncCheckpoint(input: MetaSyncCheckpointRecord) 
       started_at = COALESCE(meta_sync_checkpoints.started_at, EXCLUDED.started_at, now()),
       finished_at = EXCLUDED.finished_at,
       updated_at = now()
+    WHERE EXISTS (SELECT 1 FROM owner_guard)
     RETURNING id
   ` as Array<{ id: string }>;
   return rows[0]?.id ?? null;
@@ -1009,14 +1031,18 @@ export async function heartbeatMetaPartitionLease(input: {
 }) {
   await runMigrations();
   const sql = getDb();
-  await sql`
+  const rows = await sql`
     UPDATE meta_sync_partitions
     SET
       lease_owner = ${input.workerId},
       lease_expires_at = now() + (${input.leaseMinutes ?? 5} || ' minutes')::interval,
       updated_at = now()
     WHERE id = ${input.partitionId}
-  `;
+      AND lease_owner = ${input.workerId}
+      AND COALESCE(lease_expires_at, now()) > now()
+    RETURNING id
+  ` as Array<{ id: string }>;
+  return rows.length > 0;
 }
 
 export async function upsertMetaSyncState(input: MetaSyncStateRecord) {
@@ -1814,12 +1840,42 @@ export async function getMetaRawSnapshotCoverageByEndpoint(input: {
   return map;
 }
 
+export type MetaRecoveryOutcome = "replayed" | "skipped_active_lease" | "no_matching_partitions";
+
+export interface MetaRecoveryActionResult {
+  outcome: MetaRecoveryOutcome;
+  partitions: Array<{
+    id: string;
+    lane: string;
+    scope: string;
+    partitionDate: string;
+  }>;
+  matchedCount: number;
+  changedCount: number;
+  skippedActiveLeaseCount: number;
+}
+
 export async function replayMetaDeadLetterPartitions(input: {
   businessId: string;
   scope?: MetaWarehouseScope | null;
-}) {
+}): Promise<MetaRecoveryActionResult> {
   await runMigrations();
   const sql = getDb();
+  const matchedRows = await sql`
+    SELECT id
+    FROM meta_sync_partitions
+    WHERE business_id = ${input.businessId}
+      AND status = 'dead_letter'
+      AND (${input.scope ?? null}::text IS NULL OR scope = ${input.scope ?? null})
+  ` as Array<{ id: string }>;
+  const skippedActiveLeaseRows = await sql`
+    SELECT id
+    FROM meta_sync_partitions
+    WHERE business_id = ${input.businessId}
+      AND status = 'dead_letter'
+      AND COALESCE(lease_expires_at, now() - interval '1 second') > now()
+      AND (${input.scope ?? null}::text IS NULL OR scope = ${input.scope ?? null})
+  ` as Array<{ id: string }>;
   const rows = await sql`
     UPDATE meta_sync_partitions
     SET
@@ -1835,15 +1891,37 @@ export async function replayMetaDeadLetterPartitions(input: {
       updated_at = now()
     WHERE business_id = ${input.businessId}
       AND status = 'dead_letter'
+      AND COALESCE(lease_expires_at, now() - interval '1 second') <= now()
       AND (${input.scope ?? null}::text IS NULL OR scope = ${input.scope ?? null})
     RETURNING id, lane, scope, partition_date
   ` as Array<Record<string, unknown>>;
-  return rows.map((row) => ({
+  const partitions = rows.map((row) => ({
     id: String(row.id),
     lane: String(row.lane),
     scope: String(row.scope),
     partitionDate: normalizeDate(row.partition_date),
   }));
+  if (skippedActiveLeaseRows.length > 0) {
+    await recordSyncReclaimEvents({
+      providerScope: "meta",
+      businessId: input.businessId,
+      partitionIds: skippedActiveLeaseRows.map((row) => row.id),
+      eventType: "skipped_active_lease",
+      detail: "Replay skipped because the partition still has an active lease.",
+    }).catch(() => null);
+  }
+  return {
+    outcome:
+      partitions.length > 0
+        ? "replayed"
+        : matchedRows.length > 0
+          ? "skipped_active_lease"
+          : "no_matching_partitions",
+    partitions,
+    matchedCount: matchedRows.length,
+    changedCount: partitions.length,
+    skippedActiveLeaseCount: skippedActiveLeaseRows.length,
+  };
 }
 
 export async function getMetaSyncState(input: {

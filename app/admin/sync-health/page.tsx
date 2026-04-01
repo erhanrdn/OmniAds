@@ -5,12 +5,15 @@ import Link from "next/link";
 import { RefreshCw } from "lucide-react";
 import { InlineHelp } from "@/components/admin/inline-help";
 import { formatMetaDateTime } from "@/lib/meta/ui";
+import { getSyncRunbook } from "@/lib/sync/runbooks";
 
 interface SyncIssueRow {
   businessId: string;
   businessName: string;
   provider: "google_ads" | "meta" | "ga4" | "search_console";
   reportType: string;
+  severity?: "critical" | "high" | "medium";
+  runbookKey?: string | null;
   status: "failed" | "running" | "cooldown";
   detail: string;
   triggeredAt: string | null;
@@ -739,6 +742,14 @@ export default function AdminSyncHealthPage() {
                     <p className="text-xs text-gray-500 mt-1">
                       {providerLabel(issue.provider)} • {formatIssueType(issue)} • {issue.status}
                     </p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {issue.severity ? <IssueSeverityBadge severity={issue.severity} /> : null}
+                      {issue.runbookKey ? (
+                        <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-700">
+                          {getSyncRunbook(issue.runbookKey)?.title ?? issue.runbookKey}
+                        </span>
+                      ) : null}
+                    </div>
                     <p className="text-sm text-gray-600 mt-3">{issue.detail}</p>
                   </div>
                   <div className="text-right text-xs text-gray-400">
@@ -752,6 +763,27 @@ export default function AdminSyncHealthPage() {
         )}
       </div>
     </div>
+  );
+}
+
+function IssueSeverityBadge({
+  severity,
+}: {
+  severity: NonNullable<SyncIssueRow["severity"]>;
+}) {
+  const className =
+    severity === "critical"
+      ? "border-red-200 bg-red-50 text-red-700"
+      : severity === "high"
+        ? "border-amber-200 bg-amber-50 text-amber-700"
+        : "border-sky-200 bg-sky-50 text-sky-700";
+
+  return (
+    <span
+      className={`rounded-full border px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide ${className}`}
+    >
+      {severity}
+    </span>
   );
 }
 

@@ -10,7 +10,21 @@ async function main() {
   }
   const result = await replayMetaDeadLetterPartitions({ businessId, scope: scope as never });
   const syncResult = await syncMetaReports(businessId);
-  console.log(JSON.stringify({ businessId, replayedCount: result.length, result, syncResult }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        businessId,
+        outcome: result.outcome,
+        replayedCount: result.changedCount,
+        matchedCount: result.matchedCount,
+        skippedActiveLeaseCount: result.skippedActiveLeaseCount,
+        result: result.partitions,
+        syncResult,
+      },
+      null,
+      2
+    )
+  );
 }
 
 main().catch((error) => {
