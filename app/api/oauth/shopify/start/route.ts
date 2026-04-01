@@ -3,7 +3,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { SHOPIFY_CONFIG } from "@/lib/oauth/shopify-config";
 import { sanitizeNextPath } from "@/lib/auth-routing";
 import { getSessionFromRequest } from "@/lib/auth";
-import { verifyShopifyQueryHmac } from "@/lib/shopify/oauth-hmac";
 
 const SHOP_DOMAIN_PATTERN =
   /^[a-z0-9][a-z0-9-]*\.myshopify\.com$/i;
@@ -13,10 +12,30 @@ function isValidShopDomain(value: string): boolean {
 }
 
 function hasValidInstallSignature(request: NextRequest): boolean {
-  return verifyShopifyQueryHmac({
-    url: request.nextUrl,
-    clientSecret: SHOPIFY_CONFIG.clientSecret,
-  });
+  const hmac = request.nextUrl.searchParams.get("hmac")?.trim() ?? "";
+  if (!hmac) return false;
+
+  const params = new URLSearchParams();
+  for (const [key, value] of request.nextUrl.searchParams.entries()) {
+    if (key !== "hmac") {
+      params.set(key, value);
+    }
+  }
+  const sortedParams = new URLSearchParams(
+    [...params.entries()].sort(([a], [b]) => a.localeCompare(b)),
+  );
+  const message = sortedParams.toString();
+  const expectedHmac = crypto
+    .createHmac("sha256", SHOPIFY_CONFIG.clientSecret)
+    .update(message)
+    .digest("hex");
+
+  const expectedBuffer = Buffer.from(expectedHmac);
+  const receivedBuffer = Buffer.from(hmac);
+  return (
+    expectedBuffer.length === receivedBuffer.length &&
+    crypto.timingSafeEqual(receivedBuffer, expectedBuffer)
+  );
 }
 
 export async function GET(request: NextRequest) {
