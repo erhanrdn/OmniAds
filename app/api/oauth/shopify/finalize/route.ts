@@ -5,6 +5,7 @@ import { upsertIntegration } from "@/lib/integrations";
 import { updateBusinessCurrency } from "@/lib/account-store";
 import { setSessionActiveBusiness } from "@/lib/auth";
 import { sanitizeNextPath } from "@/lib/auth-routing";
+import { registerShopifySyncWebhooks } from "@/lib/shopify/webhooks";
 
 interface FinalizeBody {
   token?: string;
@@ -56,6 +57,17 @@ export async function POST(request: NextRequest) {
   if (currency) {
     await updateBusinessCurrency(businessId, currency).catch(() => {});
   }
+
+  await registerShopifySyncWebhooks({
+    shopId: context.shop_domain,
+    accessToken: context.access_token,
+  }).catch((error) => {
+    console.warn("[shopify-finalize] webhook_registration_failed", {
+      businessId,
+      shopId: context.shop_domain,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  });
 
   await setSessionActiveBusiness(access.session.sessionId, businessId);
 
