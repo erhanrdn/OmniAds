@@ -4,12 +4,17 @@ vi.mock("@/lib/integrations", () => ({
   getIntegration: vi.fn(),
 }));
 
+vi.mock("@/lib/account-store", () => ({
+  getBusinessTimezone: vi.fn(),
+}));
+
 vi.mock("@/lib/reporting-cache", () => ({
   getCachedReport: vi.fn(),
   getReportingDateRangeKey: vi.fn(() => "range-key"),
   setCachedReport: vi.fn(),
 }));
 
+const accountStore = await import("@/lib/account-store");
 const integrations = await import("@/lib/integrations");
 const reportingCache = await import("@/lib/reporting-cache");
 const { getShopifyOverviewAggregate } = await import("@/lib/shopify/overview");
@@ -19,6 +24,7 @@ describe("getShopifyOverviewAggregate", () => {
     vi.clearAllMocks();
     vi.stubGlobal("fetch", vi.fn());
     vi.mocked(reportingCache.getCachedReport).mockResolvedValue(null);
+    vi.mocked(accountStore.getBusinessTimezone).mockResolvedValue("Europe/Istanbul");
     vi.mocked(integrations.getIntegration).mockResolvedValue({
       id: "int_shopify",
       business_id: "biz_1",
@@ -268,8 +274,8 @@ describe("getShopifyOverviewAggregate", () => {
       variables?: { query?: string };
     };
 
-    expect(body.variables?.query).toContain("created_at:>=2026-03-01T05:00:00.000Z");
-    expect(body.variables?.query).toContain("created_at:<=2026-03-02T04:59:59.000Z");
+    expect(body.variables?.query).toContain("created_at:>=2026-02-28T05:00:00.000Z");
+    expect(body.variables?.query).toContain("created_at:<=2026-03-03T04:59:59.000Z");
     expect(body.variables?.query).toContain("test:false");
   });
 
@@ -372,6 +378,67 @@ describe("getShopifyOverviewAggregate", () => {
         currentVsPreReturnDelta: -20,
         preReturnVsGrossMinusRefundsDelta: 10,
         refundedOrders: 1,
+      })
+    );
+    infoSpy.mockRestore();
+  });
+
+  it("logs adjacent-day attribution shadow data when timezone or event bases diverge", async () => {
+    const fetchMock = vi.mocked(fetch);
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: {
+          orders: {
+            pageInfo: {
+              hasNextPage: false,
+              endCursor: null,
+            },
+            edges: [
+              {
+                node: {
+                  createdAt: "2026-03-02T03:30:00Z",
+                  processedAt: "2026-03-02T05:30:00Z",
+                  totalPriceSet: { shopMoney: { amount: "100.00" } },
+                  currentTotalPriceSet: { shopMoney: { amount: "100.00" } },
+                  totalRefundedSet: { shopMoney: { amount: "0.00" } },
+                  cancelledAt: null,
+                  test: false,
+                },
+              },
+            ],
+          },
+        },
+      }),
+    } as Response);
+
+    await getShopifyOverviewAggregate({
+      businessId: "biz_1",
+      startDate: "2026-03-01",
+      endDate: "2026-03-01",
+    });
+
+    expect(infoSpy).toHaveBeenCalledWith(
+      "[shopify-overview] daily_attribution_shadow",
+      expect.objectContaining({
+        publicRevenueBasis: "created_at",
+        publicTimezoneBasis: "America/New_York",
+        businessTimezoneBasis: "Europe/Istanbul",
+        days: expect.arrayContaining([
+          expect.objectContaining({
+            date: "2026-03-01",
+            createdShopRevenue: 100,
+            createdBusinessRevenue: 0,
+            processedShopRevenue: 0,
+          }),
+          expect.objectContaining({
+            date: "2026-03-02",
+            createdShopRevenue: 0,
+            createdBusinessRevenue: 100,
+            processedShopRevenue: 100,
+          }),
+        ]),
       })
     );
     infoSpy.mockRestore();
