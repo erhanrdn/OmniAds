@@ -8,6 +8,7 @@ import { resolveRequestLanguage } from "@/lib/request-language";
 import { createShopifyInstallContext } from "@/lib/shopify/install-context";
 import { getSessionFromRequest } from "@/lib/auth";
 import { sanitizeNextPath } from "@/lib/auth-routing";
+import { getPreferredBusinessIdForShopifyShop } from "@/lib/shopify/preferred-business";
 
 /**
  * GET /api/oauth/shopify/callback?code=...&shop=...&state=...&hmac=...&timestamp=...
@@ -95,6 +96,8 @@ export async function GET(request: NextRequest) {
   const cookieState = request.cookies.get("shopify_oauth_state")?.value;
   const hasVerifiedState = Boolean(state && cookieState && cookieState === state);
   const session = await getSessionFromRequest(request);
+  const preferredBusinessId =
+    stateBusinessId ?? getPreferredBusinessIdForShopifyShop(shop);
 
   try {
     // ── Exchange code for permanent access token ───────────────
@@ -148,16 +151,16 @@ export async function GET(request: NextRequest) {
 
     const metadata = shopCurrency ? { currency: shopCurrency } : undefined;
 
-    if (hasVerifiedState && stateBusinessId) {
+    if (hasVerifiedState && preferredBusinessId) {
       const access = await requireBusinessAccess({
         request,
-        businessId: stateBusinessId,
+        businessId: preferredBusinessId,
         minRole: "collaborator",
       });
 
       if (!("error" in access)) {
         const integration = await upsertIntegration({
-          businessId: stateBusinessId,
+          businessId: preferredBusinessId,
           provider: "shopify",
           status: "connected",
           providerAccountId: shop,
@@ -169,14 +172,14 @@ export async function GET(request: NextRequest) {
 
         if (shopCurrency) {
           try {
-            await updateBusinessCurrency(stateBusinessId, shopCurrency);
+            await updateBusinessCurrency(preferredBusinessId, shopCurrency);
           } catch (currencyErr) {
             console.warn("[shopify-oauth-callback] Failed to sync shop currency (non-fatal):", currencyErr);
           }
         }
 
         console.log("[shopify-oauth-callback] integration upserted", {
-          businessId: stateBusinessId,
+          businessId: preferredBusinessId,
           integrationId: integration.id,
           shop,
           shopName,
@@ -184,7 +187,7 @@ export async function GET(request: NextRequest) {
 
         const redirectUrl = new URL("/integrations/callback/shopify", baseUrl);
         redirectUrl.searchParams.set("status", "success");
-        redirectUrl.searchParams.set("businessId", stateBusinessId);
+        redirectUrl.searchParams.set("businessId", preferredBusinessId);
         redirectUrl.searchParams.set("integrationId", integration.id);
         if (stateReturnTo) {
           redirectUrl.searchParams.set("returnTo", stateReturnTo);
@@ -211,7 +214,7 @@ export async function GET(request: NextRequest) {
       returnTo: stateReturnTo,
       sessionId: session?.sessionId ?? null,
       userId: session?.user.id ?? null,
-      preferredBusinessId: stateBusinessId,
+      preferredBusinessId,
     });
 
     console.log("[shopify-oauth-callback] pending install context created", {
@@ -219,7 +222,7 @@ export async function GET(request: NextRequest) {
       shop,
       shopName,
       userId: session?.user.id ?? null,
-      preferredBusinessId: stateBusinessId,
+      preferredBusinessId,
     });
 
     const onboardingUrl = new URL("/shopify/connect", baseUrl);
