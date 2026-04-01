@@ -21,9 +21,14 @@ vi.mock("@/lib/shopify/sync-state", () => ({
   upsertShopifySyncState: vi.fn(),
 }));
 
+vi.mock("@/lib/shopify/warehouse-overview", () => ({
+  getShopifyWarehouseOverviewAggregate: vi.fn(),
+}));
+
 const admin = await import("@/lib/shopify/admin");
 const commerceSync = await import("@/lib/shopify/commerce-sync");
 const syncState = await import("@/lib/shopify/sync-state");
+const warehouseOverview = await import("@/lib/shopify/warehouse-overview");
 const { syncShopifyCommerceReports } = await import("@/lib/sync/shopify-sync");
 
 describe("syncShopifyCommerceReports", () => {
@@ -39,6 +44,14 @@ describe("syncShopifyCommerceReports", () => {
     });
     vi.mocked(syncState.getShopifySyncState).mockResolvedValue(null);
     vi.mocked(syncState.upsertShopifySyncState).mockResolvedValue(undefined);
+    vi.mocked(warehouseOverview.getShopifyWarehouseOverviewAggregate).mockResolvedValue({
+      revenue: 999,
+      grossRevenue: 1100,
+      refundedRevenue: 101,
+      purchases: 4,
+      averageOrderValue: 275,
+      daily: [],
+    } as never);
     vi.mocked(commerceSync.syncShopifyOrdersWindow).mockResolvedValue({
       success: true,
       reason: "ok",
@@ -67,6 +80,17 @@ describe("syncShopifyCommerceReports", () => {
         refunds: 1,
         returns: 2,
         historical: null,
+      })
+    );
+    expect(syncState.upsertShopifySyncState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        syncTarget: "commerce_orders_recent",
+        lastResultSummary: expect.objectContaining({
+          warehouseShadow: expect.objectContaining({
+            revenue: 999,
+            purchases: 4,
+          }),
+        }),
       })
     );
     expect(commerceSync.syncShopifyOrdersWindow).toHaveBeenCalledWith(

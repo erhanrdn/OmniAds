@@ -1,5 +1,6 @@
 import { hasShopifyScope, resolveShopifyAdminCredentials } from "@/lib/shopify/admin";
 import { syncShopifyOrdersWindow, syncShopifyReturnsWindow } from "@/lib/shopify/commerce-sync";
+import { getShopifyWarehouseOverviewAggregate } from "@/lib/shopify/warehouse-overview";
 import { getShopifySyncState, upsertShopifySyncState } from "@/lib/shopify/sync-state";
 import type { RunnerLeaseGuard } from "@/lib/sync/worker-runtime";
 
@@ -247,6 +248,13 @@ export async function syncShopifyCommerceReports(
       };
     }
 
+    const warehouseShadow = await getShopifyWarehouseOverviewAggregate({
+      businessId,
+      providerAccountId: credentials.shopId,
+      startDate: window.startDate,
+      endDate: window.endDate,
+    }).catch(() => null);
+
     const result = {
       success: true as const,
       reason: "ok" as const,
@@ -264,6 +272,14 @@ export async function syncShopifyCommerceReports(
         returnRows: returnsResult.returns,
         orderPages: ordersResult.pages,
         returnPages: returnsResult.pages,
+        warehouseShadow: warehouseShadow
+          ? {
+              revenue: warehouseShadow.revenue,
+              grossRevenue: warehouseShadow.grossRevenue,
+              refundedRevenue: warehouseShadow.refundedRevenue,
+              purchases: warehouseShadow.purchases,
+            }
+          : null,
       },
     };
 
