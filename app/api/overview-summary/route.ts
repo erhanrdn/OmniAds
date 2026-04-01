@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { getBusinessCostModel } from "@/lib/business-cost-model";
+import { getBusinessTimezone } from "@/lib/account-store";
 import {
   GA4AuthError,
   getAnalyticsOverviewData,
@@ -38,6 +39,26 @@ import type {
   OverviewSummaryData,
 } from "@/src/types/models";
 
+function getTodayIsoForTimeZone(timeZone?: string | null): string {
+  if (!timeZone) return new Date().toISOString().slice(0, 10);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const year = parts.find((part) => part.type === "year")?.value ?? "1970";
+  const month = parts.find((part) => part.type === "month")?.value ?? "01";
+  const day = parts.find((part) => part.type === "day")?.value ?? "01";
+  return `${year}-${month}-${day}`;
+}
+
+function shiftIsoDate(date: string, dayDelta: number): string {
+  const value = new Date(`${date}T00:00:00.000Z`);
+  value.setUTCDate(value.getUTCDate() + dayDelta);
+  return value.toISOString().slice(0, 10);
+}
+
 export async function GET(request: NextRequest) {
   const language = await resolveRequestLanguage(request);
   const businessId = request.nextUrl.searchParams.get("businessId");
@@ -60,8 +81,15 @@ export async function GET(request: NextRequest) {
   });
   if ("error" in access) return access.error;
 
-  const resolvedStart = toIsoDate(parseIsoDate(startDate, new Date(Date.now() - 29 * 86_400_000)));
-  const resolvedEnd = toIsoDate(parseIsoDate(endDate, new Date()));
+  const businessTimeZone = await getBusinessTimezone(businessId);
+  const fallbackEndDate = getTodayIsoForTimeZone(businessTimeZone);
+  const fallbackStartDate = shiftIsoDate(fallbackEndDate, -29);
+  const resolvedStart = startDate
+    ? toIsoDate(parseIsoDate(startDate, new Date(`${fallbackStartDate}T00:00:00.000Z`)))
+    : fallbackStartDate;
+  const resolvedEnd = endDate
+    ? toIsoDate(parseIsoDate(endDate, new Date(`${fallbackEndDate}T00:00:00.000Z`)))
+    : fallbackEndDate;
   const previousWindow =
     compareMode === "previous_period"
       ? getPreviousWindow(resolvedStart, resolvedEnd)

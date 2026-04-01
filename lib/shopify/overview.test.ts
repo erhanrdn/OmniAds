@@ -261,4 +261,101 @@ describe("getShopifyOverviewAggregate", () => {
     expect(body.variables?.query).toContain("created_at:>=2026-03-01T05:00:00.000Z");
     expect(body.variables?.query).toContain("created_at:<=2026-03-02T04:59:59.000Z");
   });
+
+  it("buckets orders by shop-local date instead of raw UTC date", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: {
+          orders: {
+            pageInfo: {
+              hasNextPage: false,
+              endCursor: null,
+            },
+            edges: [
+              {
+                node: {
+                  createdAt: "2026-03-02T04:30:00Z",
+                  currentTotalPriceSet: { shopMoney: { amount: "100.00" } },
+                },
+              },
+            ],
+          },
+        },
+      }),
+    } as Response);
+
+    const aggregate = await getShopifyOverviewAggregate({
+      businessId: "biz_1",
+      startDate: "2026-03-01",
+      endDate: "2026-03-01",
+    });
+
+    expect(aggregate).toEqual({
+      revenue: 100,
+      purchases: 1,
+      averageOrderValue: 100,
+      sessions: null,
+      conversionRate: null,
+      newCustomers: null,
+      returningCustomers: null,
+      dailyTrends: [
+        {
+          date: "2026-03-01",
+          revenue: 100,
+          purchases: 1,
+          sessions: null,
+          conversionRate: null,
+          newCustomers: null,
+          returningCustomers: null,
+        },
+      ],
+    });
+  });
+
+  it("keeps Shopify aggregate on zero-order windows when the query succeeds", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: {
+          orders: {
+            pageInfo: {
+              hasNextPage: false,
+              endCursor: null,
+            },
+            edges: [],
+          },
+        },
+      }),
+    } as Response);
+
+    const aggregate = await getShopifyOverviewAggregate({
+      businessId: "biz_1",
+      startDate: "2026-03-01",
+      endDate: "2026-03-01",
+    });
+
+    expect(aggregate).toEqual({
+      revenue: 0,
+      purchases: 0,
+      averageOrderValue: null,
+      sessions: null,
+      conversionRate: null,
+      newCustomers: null,
+      returningCustomers: null,
+      dailyTrends: [
+        {
+          date: "2026-03-01",
+          revenue: 0,
+          purchases: 0,
+          sessions: null,
+          conversionRate: null,
+          newCustomers: null,
+          returningCustomers: null,
+        },
+      ],
+    });
+  });
 });

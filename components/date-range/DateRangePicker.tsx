@@ -156,9 +156,13 @@ export function getPresetDates(
   customStart?: string,
   customEnd?: string
 ): { start: string; end: string } {
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
-  return getPresetDatesForReferenceDate(preset, toISO(now), customStart, customEnd);
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  return getPresetDatesForReferenceDate(
+    preset,
+    getTodayIsoForTimeZone(timeZone),
+    customStart,
+    customEnd
+  );
 }
 
 export function resolveRangePresetSelection(

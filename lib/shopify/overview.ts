@@ -41,6 +41,22 @@ function normalizeDate(value: unknown) {
   return match?.[0] ?? null;
 }
 
+function toTimeZoneIsoDate(value: string, timeZone?: string | null) {
+  if (!timeZone) return normalizeDate(value);
+  const instant = new Date(value);
+  if (Number.isNaN(instant.getTime())) return normalizeDate(value);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(instant);
+  const year = parts.find((part) => part.type === "year")?.value ?? "1970";
+  const month = parts.find((part) => part.type === "month")?.value ?? "01";
+  const day = parts.find((part) => part.type === "day")?.value ?? "01";
+  return `${year}-${month}-${day}`;
+}
+
 function parseTimeZoneOffsetMinutes(value: string) {
   const match = value.match(/^GMT([+-])(\d{1,2})(?::?(\d{2}))?$/);
   if (!match) return null;
@@ -255,7 +271,10 @@ async function getShopifyOrderCommerceMetrics(input: {
     const edges = Array.isArray(payload.orders?.edges) ? payload.orders.edges : [];
     for (const edge of edges) {
       const node = edge.node;
-      const date = normalizeDate(node?.createdAt);
+      const date =
+        typeof node?.createdAt === "string"
+          ? toTimeZoneIsoDate(node.createdAt, input.timeZone)
+          : null;
       if (!date || !dailyRevenue.has(date) || !dailyPurchases.has(date)) continue;
 
       dailyRevenue.set(
@@ -280,6 +299,7 @@ async function getShopifyOrderCommerceMetrics(input: {
       pageLimit: SHOPIFY_ORDER_PAGE_LIMIT,
     });
     return {
+      success: false,
       revenue: null,
       purchases: null,
       byDate: new Map<string, { revenue: number | null; purchases: number | null }>(),
@@ -302,6 +322,7 @@ async function getShopifyOrderCommerceMetrics(input: {
   }
 
   return {
+    success: true,
     revenue: round2(revenue),
     purchases: Math.round(purchases),
     byDate,
@@ -370,6 +391,7 @@ export async function getShopifyOverviewAggregate(params: {
   let sessions: number | null = null;
   let newCustomers: number | null = null;
   let returningCustomers: number | null = null;
+  let hasCommerceMetrics = false;
   try {
     const commerceMetrics = await getShopifyOrderCommerceMetrics({
       shopId: integration.provider_account_id,
@@ -382,7 +404,8 @@ export async function getShopifyOverviewAggregate(params: {
           ? integration.metadata.iana_timezone
           : null,
     });
-    if (commerceMetrics.revenue !== null && commerceMetrics.purchases !== null) {
+    if (commerceMetrics.success && commerceMetrics.revenue !== null && commerceMetrics.purchases !== null) {
+      hasCommerceMetrics = true;
       revenue = commerceMetrics.revenue;
       purchases = commerceMetrics.purchases;
     }
@@ -403,7 +426,7 @@ export async function getShopifyOverviewAggregate(params: {
     });
   }
 
-  if (revenue <= 0 && purchases <= 0) {
+  if (!hasCommerceMetrics) {
     return null;
   }
 

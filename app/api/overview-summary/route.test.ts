@@ -9,6 +9,10 @@ vi.mock("@/lib/business-cost-model", () => ({
   getBusinessCostModel: vi.fn().mockResolvedValue(null),
 }));
 
+vi.mock("@/lib/account-store", () => ({
+  getBusinessTimezone: vi.fn().mockResolvedValue("Europe/Istanbul"),
+}));
+
 vi.mock("@/lib/analytics-overview", () => ({
   GA4AuthError: class GA4AuthError extends Error {},
   getAnalyticsOverviewData: vi.fn().mockResolvedValue(null),
@@ -62,6 +66,7 @@ vi.mock("@/lib/overview-summary-support", () => ({
 
 const overviewService = await import("@/lib/overview-service");
 const shopifyOverview = await import("@/lib/shopify/overview");
+const accountStore = await import("@/lib/account-store");
 const { GET } = await import("@/app/api/overview-summary/route");
 
 describe("GET /api/overview-summary", () => {
@@ -131,5 +136,28 @@ describe("GET /api/overview-summary", () => {
     expect(pins.find((card) => card.id === "pins-mer")?.dataSource.label).toBe("Shopify + ad platforms");
     expect(pins.find((card) => card.id === "pins-blended-roas")?.helperText).toBeUndefined();
     expect(storeMetrics.find((card) => card.id === "store-aov")?.helperText).toBeUndefined();
+  });
+
+  it("uses the business timezone when overview dates are omitted", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-31T21:30:00.000Z"));
+    vi.mocked(accountStore.getBusinessTimezone).mockResolvedValueOnce("Europe/Istanbul");
+
+    const request = new NextRequest(
+      "http://localhost:3000/api/overview-summary?businessId=biz&compareMode=none"
+    );
+
+    await GET(request);
+
+    expect(overviewService.getOverviewData).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz",
+        startDate: "2026-03-03",
+        endDate: "2026-04-01",
+        includeTrends: false,
+      })
+    );
+
+    vi.useRealTimers();
   });
 });

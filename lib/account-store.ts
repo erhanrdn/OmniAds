@@ -219,6 +219,18 @@ export async function updateBusinessCurrency(
   `;
 }
 
+export async function getBusinessTimezone(businessId: string): Promise<string | null> {
+  await runMigrations();
+  const sql = getDb();
+  const rows = (await sql`
+    SELECT timezone
+    FROM businesses
+    WHERE id = ${businessId}
+    LIMIT 1
+  `) as Array<{ timezone: string | null }>;
+  return typeof rows[0]?.timezone === "string" ? rows[0].timezone : null;
+}
+
 export async function updateBusinessSettings(input: {
   businessId: string;
   name: string;
