@@ -31,8 +31,26 @@ export async function getShopifyOverviewReadCandidate(input: {
         })
       : null;
 
+  const decisionReasons: string[] = [];
+  const canaryEnabled = warehouseReadCanaryEnabled();
+  if (!canaryEnabled) {
+    decisionReasons.push("warehouse_read_canary_disabled");
+  }
+  if (status.state !== "ready") {
+    decisionReasons.push(`status_${status.state}`);
+  }
+  if (!warehouse) {
+    decisionReasons.push("warehouse_aggregate_unavailable");
+  }
+  if (!live) {
+    decisionReasons.push("live_aggregate_unavailable");
+  }
+  if (live && warehouse && divergence?.withinThreshold !== true) {
+    decisionReasons.push("divergence_above_threshold");
+  }
+
   const canServeWarehouse =
-    warehouseReadCanaryEnabled() &&
+    canaryEnabled &&
     status.state === "ready" &&
     divergence?.withinThreshold === true;
 
@@ -41,6 +59,8 @@ export async function getShopifyOverviewReadCandidate(input: {
     live,
     warehouse,
     divergence,
+    decisionReasons,
+    canaryEnabled,
     preferredSource: canServeWarehouse ? "warehouse" : live ? "live" : warehouse ? "warehouse_shadow" : "none",
     canServeWarehouse,
   } as const;

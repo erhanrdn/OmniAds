@@ -29,6 +29,7 @@ describe("shopify warehouse overview", () => {
         refundedRevenue: 111.97,
         netRevenue: 0,
         orders: 18,
+        returnEvents: 1,
       },
       {
         date: "2026-03-30",
@@ -36,6 +37,7 @@ describe("shopify warehouse overview", () => {
         refundedRevenue: 93.63,
         netRevenue: 0,
         orders: 11,
+        returnEvents: 0,
       },
     ]);
 
@@ -44,6 +46,7 @@ describe("shopify warehouse overview", () => {
       grossRevenue: 7175.33,
       refundedRevenue: 205.6,
       purchases: 29,
+      returnEvents: 1,
       averageOrderValue: 247.43,
       daily: [
         {
@@ -52,6 +55,7 @@ describe("shopify warehouse overview", () => {
           refundedRevenue: 111.97,
           netRevenue: 4610.11,
           orders: 18,
+          returnEvents: 1,
         },
         {
           date: "2026-03-30",
@@ -59,6 +63,7 @@ describe("shopify warehouse overview", () => {
           refundedRevenue: 93.63,
           netRevenue: 2359.62,
           orders: 11,
+          returnEvents: 0,
         },
       ],
     });
@@ -75,6 +80,7 @@ describe("shopify warehouse overview", () => {
         { date: "2026-03-29", refunded_revenue: "111.97" },
         { date: "2026-03-30", refunded_revenue: "93.63" },
       ]);
+    sql.mockResolvedValueOnce([{ date: "2026-03-29", return_events: "1" }]);
     vi.mocked(db.getDb).mockReturnValue(sql as never);
 
     const aggregate = await getShopifyWarehouseOverviewAggregate({
@@ -84,8 +90,9 @@ describe("shopify warehouse overview", () => {
       endDate: "2026-03-30",
     });
 
-    expect(sql).toHaveBeenCalledTimes(2);
+    expect(sql).toHaveBeenCalledTimes(3);
     expect(aggregate.revenue).toBe(6969.73);
+    expect(aggregate.returnEvents).toBe(1);
     expect(aggregate.daily.map((row) => ({ date: row.date, netRevenue: row.netRevenue }))).toEqual([
       { date: "2026-03-29", netRevenue: 4610.11 },
       { date: "2026-03-30", netRevenue: 2359.62 },
@@ -106,6 +113,7 @@ describe("shopify warehouse overview", () => {
         refundedRevenue: 111.97,
         netRevenue: 0,
         orders: 18,
+        returnEvents: 0,
       },
       {
         date: "2026-03-30",
@@ -113,6 +121,7 @@ describe("shopify warehouse overview", () => {
         refundedRevenue: 93.63,
         netRevenue: 0,
         orders: 11,
+        returnEvents: 0,
       },
     ]);
 

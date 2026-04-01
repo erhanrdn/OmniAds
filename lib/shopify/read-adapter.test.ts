@@ -47,6 +47,7 @@ describe("getShopifyOverviewReadCandidate", () => {
       grossRevenue: 1020,
       refundedRevenue: 19,
       purchases: 10,
+      returnEvents: 0,
       averageOrderValue: 100.1,
       daily: [],
     } as never);
@@ -60,6 +61,7 @@ describe("getShopifyOverviewReadCandidate", () => {
     expect(result.preferredSource).toBe("live");
     expect(result.canServeWarehouse).toBe(false);
     expect(result.divergence?.withinThreshold).toBe(true);
+    expect(result.decisionReasons).toContain("warehouse_read_canary_disabled");
   });
 
   it("allows warehouse canary when status is ready and divergence is within threshold", async () => {
@@ -80,15 +82,35 @@ describe("getShopifyOverviewReadCandidate", () => {
       conversionRate: null,
       newCustomers: null,
       returningCustomers: null,
-      dailyTrends: [],
+      dailyTrends: [
+        {
+          date: "2026-03-01",
+          revenue: 1000,
+          purchases: 10,
+          sessions: null,
+          conversionRate: null,
+          newCustomers: null,
+          returningCustomers: null,
+        },
+      ],
     } as never);
     vi.mocked(warehouse.getShopifyWarehouseOverviewAggregate).mockResolvedValue({
       revenue: 1005,
       grossRevenue: 1030,
       refundedRevenue: 25,
       purchases: 10,
+      returnEvents: 0,
       averageOrderValue: 100.5,
-      daily: [],
+      daily: [
+        {
+          date: "2026-03-01",
+          orderRevenue: 1030,
+          refundedRevenue: 25,
+          netRevenue: 1005,
+          orders: 10,
+          returnEvents: 0,
+        },
+      ],
     } as never);
 
     const result = await getShopifyOverviewReadCandidate({
@@ -99,5 +121,6 @@ describe("getShopifyOverviewReadCandidate", () => {
 
     expect(result.preferredSource).toBe("warehouse");
     expect(result.canServeWarehouse).toBe(true);
+    expect(result.decisionReasons).toEqual([]);
   });
 });

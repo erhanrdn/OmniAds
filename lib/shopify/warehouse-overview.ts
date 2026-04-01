@@ -16,6 +16,7 @@ export interface ShopifyWarehouseDailyAggregate {
   refundedRevenue: number;
   netRevenue: number;
   orders: number;
+  returnEvents: number;
 }
 
 export interface ShopifyWarehouseOverviewAggregate {
@@ -23,6 +24,7 @@ export interface ShopifyWarehouseOverviewAggregate {
   grossRevenue: number;
   refundedRevenue: number;
   purchases: number;
+  returnEvents: number;
   averageOrderValue: number | null;
   daily: ShopifyWarehouseDailyAggregate[];
 }
@@ -31,12 +33,14 @@ export function summarizeShopifyWarehouseDailyRows(rows: ShopifyWarehouseDailyAg
   const totalGrossRevenue = round2(rows.reduce((sum, row) => sum + row.orderRevenue, 0));
   const totalRefundedRevenue = round2(rows.reduce((sum, row) => sum + row.refundedRevenue, 0));
   const purchases = rows.reduce((sum, row) => sum + row.orders, 0);
+  const returnEvents = rows.reduce((sum, row) => sum + row.returnEvents, 0);
   const revenue = round2(totalGrossRevenue - totalRefundedRevenue);
   return {
     revenue,
     grossRevenue: totalGrossRevenue,
     refundedRevenue: totalRefundedRevenue,
     purchases,
+    returnEvents,
     averageOrderValue: purchases > 0 ? round2(totalGrossRevenue / purchases) : null,
     daily: rows.map((row) => ({
       ...row,
@@ -72,12 +76,24 @@ export async function getShopifyWarehouseOverviewAggregate(input: {
   const refundRows = (await sql`
     SELECT
       refunded_at::date::text AS date,
-      COALESCE(SUM(total_refunded), 0) AS refunded_revenue
+      COALESCE(SUM(refunded_sales + refunded_shipping + refunded_taxes), 0) AS refunded_revenue
     FROM shopify_refunds
     WHERE business_id = ${input.businessId}
       AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
       AND refunded_at::date >= ${input.startDate}::date
       AND refunded_at::date <= ${input.endDate}::date
+    GROUP BY 1
+    ORDER BY 1 ASC
+  `) as Array<Record<string, unknown>>;
+  const returnRows = (await sql`
+    SELECT
+      created_at_provider::date::text AS date,
+      COUNT(*) AS return_events
+    FROM shopify_returns
+    WHERE business_id = ${input.businessId}
+      AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
+      AND created_at_provider::date >= ${input.startDate}::date
+      AND created_at_provider::date <= ${input.endDate}::date
     GROUP BY 1
     ORDER BY 1 ASC
   `) as Array<Record<string, unknown>>;
@@ -92,6 +108,7 @@ export async function getShopifyWarehouseOverviewAggregate(input: {
       refundedRevenue: 0,
       netRevenue: 0,
       orders: Math.trunc(toNumber(row.orders)),
+      returnEvents: 0,
     });
   }
 
@@ -104,8 +121,24 @@ export async function getShopifyWarehouseOverviewAggregate(input: {
       refundedRevenue: 0,
       netRevenue: 0,
       orders: 0,
+      returnEvents: 0,
     };
     existing.refundedRevenue = toNumber(row.refunded_revenue);
+    byDate.set(date, existing);
+  }
+
+  for (const row of returnRows) {
+    const date = String(row.date ?? "");
+    if (!date) continue;
+    const existing = byDate.get(date) ?? {
+      date,
+      orderRevenue: 0,
+      refundedRevenue: 0,
+      netRevenue: 0,
+      orders: 0,
+      returnEvents: 0,
+    };
+    existing.returnEvents = Math.trunc(toNumber(row.return_events));
     byDate.set(date, existing);
   }
 

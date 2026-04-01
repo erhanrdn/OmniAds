@@ -16,6 +16,8 @@ export interface ShopifyAggregateDivergence {
   liveAov: number | null;
   warehouseAov: number | null;
   aovDelta: number | null;
+  maxDailyRevenueDeltaPercent: number | null;
+  maxDailyPurchaseDelta: number | null;
   withinThreshold: boolean;
 }
 
@@ -24,6 +26,9 @@ export function compareShopifyAggregates(input: {
   warehouse: ShopifyWarehouseOverviewAggregate;
   maxRevenueDeltaPercent?: number;
   maxPurchaseDelta?: number;
+  maxAovDelta?: number;
+  maxDailyRevenueDeltaPercent?: number;
+  maxDailyPurchaseDelta?: number;
 }) {
   const revenueDelta = round2(input.warehouse.revenue - input.live.revenue);
   const revenueDeltaPercent =
@@ -37,6 +42,39 @@ export function compareShopifyAggregates(input: {
       : null;
   const maxRevenueDeltaPercent = input.maxRevenueDeltaPercent ?? 3;
   const maxPurchaseDelta = input.maxPurchaseDelta ?? 3;
+  const maxAovDelta = input.maxAovDelta ?? 10;
+  const maxDailyRevenueDeltaPercent = input.maxDailyRevenueDeltaPercent ?? 10;
+  const maxDailyPurchaseDelta = input.maxDailyPurchaseDelta ?? 2;
+
+  const dailyByDate = new Map(
+    input.warehouse.daily.map((row) => [row.date, row])
+  );
+  let observedMaxDailyRevenueDeltaPercent: number | null = null;
+  let observedMaxDailyPurchaseDelta: number | null = null;
+
+  for (const liveRow of input.live.dailyTrends) {
+    const warehouseRow = dailyByDate.get(liveRow.date);
+    if (!warehouseRow) continue;
+    const revenueBase = Math.abs(liveRow.revenue);
+    const revenueDeltaForDay = Math.abs(round2(warehouseRow.netRevenue - liveRow.revenue));
+    const revenueDeltaPercentForDay =
+      revenueBase > 0 ? round2((revenueDeltaForDay / revenueBase) * 100) : null;
+    if (
+      revenueDeltaPercentForDay !== null &&
+      (observedMaxDailyRevenueDeltaPercent === null ||
+        revenueDeltaPercentForDay > observedMaxDailyRevenueDeltaPercent)
+    ) {
+      observedMaxDailyRevenueDeltaPercent = revenueDeltaPercentForDay;
+    }
+
+    const purchaseDeltaForDay = Math.abs(warehouseRow.orders - liveRow.purchases);
+    if (
+      observedMaxDailyPurchaseDelta === null ||
+      purchaseDeltaForDay > observedMaxDailyPurchaseDelta
+    ) {
+      observedMaxDailyPurchaseDelta = purchaseDeltaForDay;
+    }
+  }
 
   return {
     liveRevenue: round2(input.live.revenue),
@@ -49,8 +87,15 @@ export function compareShopifyAggregates(input: {
     liveAov: input.live.averageOrderValue,
     warehouseAov: input.warehouse.averageOrderValue,
     aovDelta,
+    maxDailyRevenueDeltaPercent: observedMaxDailyRevenueDeltaPercent,
+    maxDailyPurchaseDelta: observedMaxDailyPurchaseDelta,
     withinThreshold:
       (revenueDeltaPercent === null || revenueDeltaPercent <= maxRevenueDeltaPercent) &&
-      Math.abs(purchaseDelta) <= maxPurchaseDelta,
+      Math.abs(purchaseDelta) <= maxPurchaseDelta &&
+      (aovDelta === null || Math.abs(aovDelta) <= maxAovDelta) &&
+      (observedMaxDailyRevenueDeltaPercent === null ||
+        observedMaxDailyRevenueDeltaPercent <= maxDailyRevenueDeltaPercent) &&
+      (observedMaxDailyPurchaseDelta === null ||
+        observedMaxDailyPurchaseDelta <= maxDailyPurchaseDelta),
   } satisfies ShopifyAggregateDivergence;
 }

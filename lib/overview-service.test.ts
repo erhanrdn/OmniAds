@@ -80,6 +80,8 @@ describe("getOverviewData", () => {
       live: null,
       warehouse: null,
       divergence: null,
+      decisionReasons: ["warehouse_read_canary_disabled"],
+      canaryEnabled: false,
       preferredSource: "none",
       canServeWarehouse: false,
     });
@@ -172,6 +174,8 @@ describe("getOverviewData", () => {
       },
       warehouse: null,
       divergence: null,
+      decisionReasons: ["warehouse_aggregate_unavailable"],
+      canaryEnabled: false,
       preferredSource: "live",
       canServeWarehouse: false,
     });
@@ -218,6 +222,7 @@ describe("getOverviewData", () => {
         grossRevenue: 900,
         refundedRevenue: 60,
         purchases: 8,
+        returnEvents: 1,
         averageOrderValue: 105,
         daily: [
           {
@@ -226,6 +231,7 @@ describe("getOverviewData", () => {
             refundedRevenue: 60,
             netRevenue: 840,
             orders: 8,
+            returnEvents: 1,
           },
         ],
       },
@@ -240,8 +246,12 @@ describe("getOverviewData", () => {
         liveAov: 100,
         warehouseAov: 105,
         aovDelta: 5,
+        maxDailyRevenueDeltaPercent: 6.67,
+        maxDailyPurchaseDelta: 1,
         withinThreshold: true,
       },
+      decisionReasons: [],
+      canaryEnabled: true,
       preferredSource: "warehouse",
       canServeWarehouse: true,
     });

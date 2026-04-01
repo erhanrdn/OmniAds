@@ -279,6 +279,7 @@ export async function syncShopifyCommerceReports(
               grossRevenue: warehouseShadow.grossRevenue,
               refundedRevenue: warehouseShadow.refundedRevenue,
               purchases: warehouseShadow.purchases,
+              returnEvents: warehouseShadow.returnEvents,
             }
           : null,
       },

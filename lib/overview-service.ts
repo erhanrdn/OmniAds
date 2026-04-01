@@ -452,6 +452,21 @@ async function resolveShopifyOverviewAggregateForRead(input: {
     };
   }
 
+  if (candidate.canaryEnabled) {
+    console.info("[overview] shopify warehouse read canary blocked", {
+      businessId: input.businessId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      status: candidate.status.state,
+      preferredSource: candidate.preferredSource,
+      reasons: candidate.decisionReasons,
+      revenueDeltaPercent: candidate.divergence?.revenueDeltaPercent ?? null,
+      maxDailyRevenueDeltaPercent: candidate.divergence?.maxDailyRevenueDeltaPercent ?? null,
+      purchaseDelta: candidate.divergence?.purchaseDelta ?? null,
+      maxDailyPurchaseDelta: candidate.divergence?.maxDailyPurchaseDelta ?? null,
+    });
+  }
+
   return candidate.live;
 }
 

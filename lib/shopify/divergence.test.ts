@@ -13,15 +13,35 @@ describe("compareShopifyAggregates", () => {
         conversionRate: null,
         newCustomers: null,
         returningCustomers: null,
-        dailyTrends: [],
+        dailyTrends: [
+          {
+            date: "2026-03-01",
+            revenue: 1000,
+            purchases: 10,
+            sessions: null,
+            conversionRate: null,
+            newCustomers: null,
+            returningCustomers: null,
+          },
+        ],
       },
       warehouse: {
         revenue: 1018,
         grossRevenue: 1050,
         refundedRevenue: 32,
         purchases: 11,
+        returnEvents: 0,
         averageOrderValue: 95.45,
-        daily: [],
+        daily: [
+          {
+            date: "2026-03-01",
+            orderRevenue: 1050,
+            refundedRevenue: 32,
+            netRevenue: 1018,
+            orders: 11,
+            returnEvents: 0,
+          },
+        ],
       },
     });
 
@@ -30,6 +50,8 @@ describe("compareShopifyAggregates", () => {
         revenueDelta: 18,
         revenueDeltaPercent: 1.8,
         purchaseDelta: 1,
+        maxDailyRevenueDeltaPercent: 1.8,
+        maxDailyPurchaseDelta: 1,
         withinThreshold: true,
       })
     );
@@ -45,20 +67,41 @@ describe("compareShopifyAggregates", () => {
         conversionRate: null,
         newCustomers: null,
         returningCustomers: null,
-        dailyTrends: [],
+        dailyTrends: [
+          {
+            date: "2026-03-01",
+            revenue: 1000,
+            purchases: 10,
+            sessions: null,
+            conversionRate: null,
+            newCustomers: null,
+            returningCustomers: null,
+          },
+        ],
       },
       warehouse: {
         revenue: 700,
         grossRevenue: 800,
         refundedRevenue: 100,
         purchases: 4,
+        returnEvents: 1,
         averageOrderValue: 175,
-        daily: [],
+        daily: [
+          {
+            date: "2026-03-01",
+            orderRevenue: 800,
+            refundedRevenue: 100,
+            netRevenue: 700,
+            orders: 4,
+            returnEvents: 1,
+          },
+        ],
       },
     });
 
     expect(result.withinThreshold).toBe(false);
     expect(result.revenueDeltaPercent).toBe(30);
     expect(result.purchaseDelta).toBe(-6);
+    expect(result.maxDailyPurchaseDelta).toBe(6);
   });
 });
