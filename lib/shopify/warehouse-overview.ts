@@ -61,39 +61,39 @@ export async function getShopifyWarehouseOverviewAggregate(input: {
   const sql = getDb();
   const orderRows = (await sql`
     SELECT
-      order_created_at::date::text AS date,
+      COALESCE(order_created_date_local, order_created_at::date)::text AS date,
       COALESCE(SUM(total_price), 0) AS order_revenue,
       COUNT(*) AS orders
     FROM shopify_orders
     WHERE business_id = ${input.businessId}
       AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
-      AND order_created_at::date >= ${input.startDate}::date
-      AND order_created_at::date <= ${input.endDate}::date
+      AND COALESCE(order_created_date_local, order_created_at::date) >= ${input.startDate}::date
+      AND COALESCE(order_created_date_local, order_created_at::date) <= ${input.endDate}::date
     GROUP BY 1
     ORDER BY 1 ASC
   `) as Array<Record<string, unknown>>;
 
   const refundRows = (await sql`
     SELECT
-      refunded_at::date::text AS date,
+      COALESCE(refunded_date_local, refunded_at::date)::text AS date,
       COALESCE(SUM(refunded_sales + refunded_shipping + refunded_taxes), 0) AS refunded_revenue
     FROM shopify_refunds
     WHERE business_id = ${input.businessId}
       AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
-      AND refunded_at::date >= ${input.startDate}::date
-      AND refunded_at::date <= ${input.endDate}::date
+      AND COALESCE(refunded_date_local, refunded_at::date) >= ${input.startDate}::date
+      AND COALESCE(refunded_date_local, refunded_at::date) <= ${input.endDate}::date
     GROUP BY 1
     ORDER BY 1 ASC
   `) as Array<Record<string, unknown>>;
   const returnRows = (await sql`
     SELECT
-      created_at_provider::date::text AS date,
+      COALESCE(created_date_local, created_at_provider::date)::text AS date,
       COUNT(*) AS return_events
     FROM shopify_returns
     WHERE business_id = ${input.businessId}
       AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
-      AND created_at_provider::date >= ${input.startDate}::date
-      AND created_at_provider::date <= ${input.endDate}::date
+      AND COALESCE(created_date_local, created_at_provider::date) >= ${input.startDate}::date
+      AND COALESCE(created_date_local, created_at_provider::date) <= ${input.endDate}::date
     GROUP BY 1
     ORDER BY 1 ASC
   `) as Array<Record<string, unknown>>;

@@ -2,6 +2,7 @@ import { getShopifyOverviewAggregate } from "@/lib/shopify/overview";
 import { compareShopifyAggregates } from "@/lib/shopify/divergence";
 import { getShopifyStatus } from "@/lib/shopify/status";
 import { getShopifyWarehouseOverviewAggregate } from "@/lib/shopify/warehouse-overview";
+import { upsertShopifyServingState } from "@/lib/shopify/warehouse";
 
 function warehouseReadCanaryEnabled() {
   const raw = process.env.SHOPIFY_WAREHOUSE_READ_CANARY?.trim().toLowerCase();
@@ -54,6 +55,27 @@ export async function getShopifyOverviewReadCandidate(input: {
     status.state === "ready" &&
     divergence?.withinThreshold === true;
 
+  const preferredSource = canServeWarehouse
+    ? "warehouse"
+    : live
+      ? "live"
+      : warehouse
+        ? "warehouse_shadow"
+        : "none";
+
+  await upsertShopifyServingState({
+    businessId: input.businessId,
+    providerAccountId: status.shopId ?? "unknown",
+    canaryKey: "overview_shopify",
+    assessedAt: new Date().toISOString(),
+    statusState: status.state,
+    preferredSource,
+    canServeWarehouse,
+    canaryEnabled,
+    decisionReasons,
+    divergence: divergence ? { ...divergence } : null,
+  }).catch(() => null);
+
   return {
     status,
     live,
@@ -61,7 +83,7 @@ export async function getShopifyOverviewReadCandidate(input: {
     divergence,
     decisionReasons,
     canaryEnabled,
-    preferredSource: canServeWarehouse ? "warehouse" : live ? "live" : warehouse ? "warehouse_shadow" : "none",
+    preferredSource,
     canServeWarehouse,
   } as const;
 }

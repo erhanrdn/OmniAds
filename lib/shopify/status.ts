@@ -1,6 +1,7 @@
 import { getDb } from "@/lib/db";
 import { getIntegrationMetadata } from "@/lib/integrations";
 import { getShopifySyncState } from "@/lib/shopify/sync-state";
+import { getShopifyServingState } from "@/lib/shopify/warehouse";
 
 export interface ShopifyStatusResponse {
   state:
@@ -25,6 +26,7 @@ export interface ShopifyStatusResponse {
     ordersHistorical: Awaited<ReturnType<typeof getShopifySyncState>>;
     returnsHistorical: Awaited<ReturnType<typeof getShopifySyncState>>;
   } | null;
+  serving: Awaited<ReturnType<typeof getShopifyServingState>> | null;
   issues: string[];
 }
 
@@ -47,6 +49,7 @@ export async function getShopifyStatus(businessId: string): Promise<ShopifyStatu
       shopId: null,
       warehouse: null,
       sync: null,
+      serving: null,
       issues: [],
     };
   }
@@ -73,6 +76,11 @@ export async function getShopifyStatus(businessId: string): Promise<ShopifyStatu
       syncTarget: "commerce_returns_historical",
     }).catch(() => null),
   ]);
+  const serving = await getShopifyServingState({
+    businessId,
+    providerAccountId: integration.provider_account_id,
+    canaryKey: "overview_shopify",
+  }).catch(() => null);
 
   const sql = getDb();
   const [orderStatsRow] = (await sql`
@@ -138,13 +146,16 @@ export async function getShopifyStatus(businessId: string): Promise<ShopifyStatu
   if (!historicalReady) {
     issues.push("Historical Shopify backfill is not complete yet.");
   }
+  if (serving?.canaryEnabled && serving.canServeWarehouse === false) {
+    issues.push("Shopify warehouse canary is blocked by trust checks.");
+  }
 
   const state: ShopifyStatusResponse["state"] =
     warehouse.orderRowCount <= 0
       ? "syncing"
-      : recentHealthy && historicalReady
+      : recentHealthy && historicalReady && (!serving?.canaryEnabled || serving.canServeWarehouse !== false)
         ? "ready"
-        : recentHealthy
+      : recentHealthy
           ? "partial"
           : issues.some((issue) => issue.toLowerCase().includes("error"))
             ? "action_required"
@@ -156,6 +167,7 @@ export async function getShopifyStatus(businessId: string): Promise<ShopifyStatu
     shopId: integration.provider_account_id,
     warehouse,
     sync,
+    serving,
     issues,
   };
 }

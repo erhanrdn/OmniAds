@@ -1306,7 +1306,9 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
           currency_code            TEXT,
           shop_currency_code       TEXT,
           order_created_at         TIMESTAMPTZ NOT NULL,
+          order_created_date_local DATE,
           order_updated_at         TIMESTAMPTZ,
+          order_updated_date_local DATE,
           order_processed_at       TIMESTAMPTZ,
           order_cancelled_at       TIMESTAMPTZ,
           order_closed_at          TIMESTAMPTZ,
@@ -1328,9 +1330,15 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
           UNIQUE (business_id, provider_account_id, shop_id, order_id)
         )`.catch(() => {}),
         sql`ALTER TABLE shopify_orders
+          ADD COLUMN IF NOT EXISTS order_created_date_local DATE`.catch(() => {}),
+        sql`ALTER TABLE shopify_orders
           ADD COLUMN IF NOT EXISTS order_updated_at TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE shopify_orders
+          ADD COLUMN IF NOT EXISTS order_updated_date_local DATE`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_orders_business_created
           ON shopify_orders (business_id, order_created_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_orders_business_created_local
+          ON shopify_orders (business_id, order_created_date_local DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_orders_business_updated
           ON shopify_orders (business_id, order_updated_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_orders_shop_created
@@ -1369,6 +1377,7 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
           order_id             TEXT NOT NULL,
           refund_id            TEXT NOT NULL,
           refunded_at          TIMESTAMPTZ NOT NULL,
+          refunded_date_local  DATE,
           refunded_sales       NUMERIC(18, 4) NOT NULL DEFAULT 0,
           refunded_shipping    NUMERIC(18, 4) NOT NULL DEFAULT 0,
           refunded_taxes       NUMERIC(18, 4) NOT NULL DEFAULT 0,
@@ -1381,6 +1390,10 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_refunds_business_refunded
           ON shopify_refunds (business_id, refunded_at DESC)`.catch(() => {}),
+        sql`ALTER TABLE shopify_refunds
+          ADD COLUMN IF NOT EXISTS refunded_date_local DATE`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_refunds_business_refunded_local
+          ON shopify_refunds (business_id, refunded_date_local DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS shopify_order_transactions (
           id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id          TEXT NOT NULL,
@@ -1411,7 +1424,9 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
           return_id            TEXT NOT NULL,
           status               TEXT,
           created_at_provider  TIMESTAMPTZ NOT NULL,
+          created_date_local   DATE,
           updated_at_provider  TIMESTAMPTZ,
+          updated_date_local   DATE,
           payload_json         JSONB NOT NULL DEFAULT '{}'::jsonb,
           source_snapshot_id   UUID REFERENCES shopify_raw_snapshots(id) ON DELETE SET NULL,
           created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -1420,6 +1435,12 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_returns_business_created
           ON shopify_returns (business_id, created_at_provider DESC)`.catch(() => {}),
+        sql`ALTER TABLE shopify_returns
+          ADD COLUMN IF NOT EXISTS created_date_local DATE`.catch(() => {}),
+        sql`ALTER TABLE shopify_returns
+          ADD COLUMN IF NOT EXISTS updated_date_local DATE`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_returns_business_created_local
+          ON shopify_returns (business_id, created_date_local DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS shopify_customer_events (
           id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id          TEXT NOT NULL,
@@ -1442,6 +1463,23 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
           ON shopify_customer_events (business_id, occurred_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_customer_events_session
           ON shopify_customer_events (business_id, session_id, occurred_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS shopify_serving_state (
+          business_id          TEXT NOT NULL,
+          provider_account_id  TEXT NOT NULL,
+          canary_key           TEXT NOT NULL,
+          assessed_at          TIMESTAMPTZ,
+          status_state         TEXT,
+          preferred_source     TEXT,
+          can_serve_warehouse  BOOLEAN NOT NULL DEFAULT FALSE,
+          canary_enabled       BOOLEAN NOT NULL DEFAULT FALSE,
+          decision_reasons     JSONB NOT NULL DEFAULT '[]'::jsonb,
+          divergence           JSONB,
+          created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          PRIMARY KEY (business_id, provider_account_id, canary_key)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_serving_state_business_updated
+          ON shopify_serving_state (business_id, updated_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS shopify_sync_state (
           business_id              TEXT NOT NULL,
           provider_account_id      TEXT NOT NULL,

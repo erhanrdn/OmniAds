@@ -12,6 +12,7 @@ describe("shopify commerce sync mapping", () => {
       providerAccountId: "test-shop.myshopify.com",
       shopId: "test-shop.myshopify.com",
       sourceSnapshotId: "snap_1",
+      timeZone: "America/New_York",
       node: {
         id: "gid://shopify/Order/1001",
         name: "#1001",
@@ -94,7 +95,9 @@ describe("shopify commerce sync mapping", () => {
         customerId: "99",
         totalPrice: 135,
         totalRefunded: 15,
+        orderCreatedDateLocal: "2026-03-29",
         orderUpdatedAt: "2026-03-30T02:00:00Z",
+        orderUpdatedDateLocal: "2026-03-29",
         sourceSnapshotId: "snap_1",
       })
     );
@@ -115,6 +118,7 @@ describe("shopify commerce sync mapping", () => {
         refundedShipping: 3,
         refundedTaxes: 2.5,
         totalRefunded: 15,
+        refundedDateLocal: "2026-03-30",
       })
     );
     expect(mapped.transactions).toHaveLength(1);
@@ -133,6 +137,7 @@ describe("shopify commerce sync mapping", () => {
       providerAccountId: "test-shop.myshopify.com",
       shopId: "test-shop.myshopify.com",
       sourceSnapshotId: "snap_2",
+      timeZone: "America/New_York",
       node: {
         id: "gid://shopify/Return/2001",
         status: "OPEN",
@@ -148,7 +153,9 @@ describe("shopify commerce sync mapping", () => {
         orderId: "1001",
         status: "OPEN",
         createdAt: "2026-03-31T12:00:00Z",
+        createdDateLocal: "2026-03-31",
         updatedAt: "2026-03-31T13:00:00Z",
+        updatedDateLocal: "2026-03-31",
         sourceSnapshotId: "snap_2",
       })
     );

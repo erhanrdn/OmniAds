@@ -248,12 +248,30 @@ function trimGid(value: string | null | undefined) {
   return value ? value.split("/").pop() ?? value : null;
 }
 
+function toTimeZoneIsoDate(value: string | null | undefined, timeZone?: string | null) {
+  if (!value) return null;
+  if (!timeZone) return value.slice(0, 10);
+  const instant = new Date(value);
+  if (Number.isNaN(instant.getTime())) return value.slice(0, 10);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(instant);
+  const year = parts.find((part) => part.type === "year")?.value ?? "1970";
+  const month = parts.find((part) => part.type === "month")?.value ?? "01";
+  const day = parts.find((part) => part.type === "day")?.value ?? "01";
+  return `${year}-${month}-${day}`;
+}
+
 export function mapShopifyOrderNodeToWarehouseRows(input: {
   businessId: string;
   providerAccountId: string;
   shopId: string;
   node: ShopifyGraphqlOrderNode;
   sourceSnapshotId?: string | null;
+  timeZone?: string | null;
 }) {
   const currencyCode =
     moneyCurrency(input.node.totalPriceSet) ??
@@ -275,7 +293,9 @@ export function mapShopifyOrderNodeToWarehouseRows(input: {
     currencyCode,
     shopCurrencyCode: currencyCode,
     orderCreatedAt: input.node.createdAt,
+    orderCreatedDateLocal: toTimeZoneIsoDate(input.node.createdAt, input.timeZone),
     orderUpdatedAt: input.node.updatedAt ?? null,
+    orderUpdatedDateLocal: toTimeZoneIsoDate(input.node.updatedAt ?? input.node.createdAt, input.timeZone),
     orderProcessedAt: input.node.processedAt ?? null,
     orderCancelledAt: input.node.cancelledAt ?? null,
     orderClosedAt: input.node.closedAt ?? null,
@@ -324,6 +344,7 @@ export function mapShopifyOrderNodeToWarehouseRows(input: {
       orderId,
       refundId: trimGid(row.id)!,
       refundedAt: row.updatedAt ?? row.createdAt!,
+      refundedDateLocal: toTimeZoneIsoDate(row.updatedAt ?? row.createdAt, input.timeZone),
       refundedSales: round2(
         (row.refundLineItems?.nodes ?? []).reduce(
           (sum, line) => sum + moneyAmount(line?.subtotalSet),
@@ -382,6 +403,7 @@ export function mapShopifyReturnNodeToWarehouseRow(input: {
   shopId: string;
   node: ShopifyGraphqlReturnNode;
   sourceSnapshotId?: string | null;
+  timeZone?: string | null;
 }) {
   const returnId = trimGid(input.node.id);
   const createdAt = input.node.createdAt ?? input.node.updatedAt;
@@ -397,7 +419,9 @@ export function mapShopifyReturnNodeToWarehouseRow(input: {
     returnId,
     status: input.node.status ?? null,
     createdAt,
+    createdDateLocal: toTimeZoneIsoDate(createdAt, input.timeZone),
     updatedAt: input.node.updatedAt ?? null,
+    updatedDateLocal: toTimeZoneIsoDate(input.node.updatedAt ?? createdAt, input.timeZone),
     payloadJson: input.node,
     sourceSnapshotId: input.sourceSnapshotId ?? null,
   } satisfies ShopifyReturnWarehouseRow;
@@ -444,6 +468,10 @@ export async function syncShopifyOrdersWindow(input: {
   let refundsWritten = 0;
   let transactionsWritten = 0;
   let maxUpdatedAt: string | null = null;
+  const timeZone =
+    typeof credentials.metadata?.iana_timezone === "string"
+      ? credentials.metadata.iana_timezone
+      : null;
   const queryField = input.queryField ?? "created_at";
   const query = `${queryField}:>=${input.startDate}T00:00:00Z ${queryField}:<=${input.endDate}T23:59:59Z status:any test:false`;
 
@@ -493,6 +521,7 @@ export async function syncShopifyOrdersWindow(input: {
           shopId: credentials.shopId,
           node,
           sourceSnapshotId: snapshotId,
+          timeZone,
         })
       );
 
@@ -558,6 +587,10 @@ export async function syncShopifyReturnsWindow(input: {
   let pageCount = 0;
   let returnsWritten = 0;
   let maxUpdatedAt: string | null = null;
+  const timeZone =
+    typeof credentials.metadata?.iana_timezone === "string"
+      ? credentials.metadata.iana_timezone
+      : null;
   const query = `updated_at:>=${input.startDate}T00:00:00Z updated_at:<=${input.endDate}T23:59:59Z`;
 
   while (pageCount < 20) {
@@ -605,6 +638,7 @@ export async function syncShopifyReturnsWindow(input: {
           shopId: credentials.shopId,
           node,
           sourceSnapshotId: snapshotId,
+          timeZone,
         })
       );
 

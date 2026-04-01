@@ -10,6 +10,7 @@ import type {
   ShopifyRawSnapshotRecord,
   ShopifyRefundWarehouseRow,
   ShopifyReturnWarehouseRow,
+  ShopifyServingStateRecord,
 } from "@/lib/shopify/warehouse-types";
 
 function normalizeDate(value: unknown) {
@@ -124,7 +125,9 @@ export async function upsertShopifyOrders(rows: ShopifyOrderWarehouseRow[]) {
           currency_code,
           shop_currency_code,
           order_created_at,
+          order_created_date_local,
           order_updated_at,
+          order_updated_date_local,
           order_processed_at,
           order_cancelled_at,
           order_closed_at,
@@ -153,7 +156,9 @@ export async function upsertShopifyOrders(rows: ShopifyOrderWarehouseRow[]) {
           ${row.currencyCode ?? null},
           ${row.shopCurrencyCode ?? null},
           ${normalizeTimestamp(row.orderCreatedAt)},
+          ${normalizeDate(row.orderCreatedDateLocal)},
           ${normalizeTimestamp(row.orderUpdatedAt)},
+          ${normalizeDate(row.orderUpdatedDateLocal)},
           ${normalizeTimestamp(row.orderProcessedAt)},
           ${normalizeTimestamp(row.orderCancelledAt)},
           ${normalizeTimestamp(row.orderClosedAt)},
@@ -179,7 +184,9 @@ export async function upsertShopifyOrders(rows: ShopifyOrderWarehouseRow[]) {
           currency_code = EXCLUDED.currency_code,
           shop_currency_code = EXCLUDED.shop_currency_code,
           order_created_at = EXCLUDED.order_created_at,
+          order_created_date_local = EXCLUDED.order_created_date_local,
           order_updated_at = EXCLUDED.order_updated_at,
+          order_updated_date_local = EXCLUDED.order_updated_date_local,
           order_processed_at = EXCLUDED.order_processed_at,
           order_cancelled_at = EXCLUDED.order_cancelled_at,
           order_closed_at = EXCLUDED.order_closed_at,
@@ -289,6 +296,7 @@ export async function upsertShopifyRefunds(rows: ShopifyRefundWarehouseRow[]) {
         order_id,
         refund_id,
         refunded_at,
+        refunded_date_local,
         refunded_sales,
         refunded_shipping,
         refunded_taxes,
@@ -304,6 +312,7 @@ export async function upsertShopifyRefunds(rows: ShopifyRefundWarehouseRow[]) {
         ${row.orderId},
         ${row.refundId},
         ${normalizeTimestamp(row.refundedAt)},
+        ${normalizeDate(row.refundedDateLocal)},
         ${toNumber(row.refundedSales)},
         ${toNumber(row.refundedShipping)},
         ${toNumber(row.refundedTaxes)},
@@ -316,6 +325,7 @@ export async function upsertShopifyRefunds(rows: ShopifyRefundWarehouseRow[]) {
       DO UPDATE SET
         order_id = EXCLUDED.order_id,
         refunded_at = EXCLUDED.refunded_at,
+        refunded_date_local = EXCLUDED.refunded_date_local,
         refunded_sales = EXCLUDED.refunded_sales,
         refunded_shipping = EXCLUDED.refunded_shipping,
         refunded_taxes = EXCLUDED.refunded_taxes,
@@ -405,7 +415,9 @@ export async function upsertShopifyReturns(rows: ShopifyReturnWarehouseRow[]) {
         return_id,
         status,
         created_at_provider,
+        created_date_local,
         updated_at_provider,
+        updated_date_local,
         payload_json,
         source_snapshot_id,
         updated_at
@@ -418,7 +430,9 @@ export async function upsertShopifyReturns(rows: ShopifyReturnWarehouseRow[]) {
         ${row.returnId},
         ${row.status ?? null},
         ${normalizeTimestamp(row.createdAt)},
+        ${normalizeDate(row.createdDateLocal)},
         ${normalizeTimestamp(row.updatedAt)},
+        ${normalizeDate(row.updatedDateLocal)},
         ${JSON.stringify(row.payloadJson ?? {})}::jsonb,
         ${row.sourceSnapshotId ?? null},
         now()
@@ -428,7 +442,9 @@ export async function upsertShopifyReturns(rows: ShopifyReturnWarehouseRow[]) {
         order_id = EXCLUDED.order_id,
         status = EXCLUDED.status,
         created_at_provider = EXCLUDED.created_at_provider,
+        created_date_local = EXCLUDED.created_date_local,
         updated_at_provider = EXCLUDED.updated_at_provider,
+        updated_date_local = EXCLUDED.updated_date_local,
         payload_json = EXCLUDED.payload_json,
         source_snapshot_id = EXCLUDED.source_snapshot_id,
         updated_at = now()
@@ -493,4 +509,83 @@ export async function upsertShopifyCustomerEvents(rows: ShopifyCustomerEventWare
   }
 
   return written;
+}
+
+export async function getShopifyServingState(input: {
+  businessId: string;
+  providerAccountId: string;
+  canaryKey: string;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = (await sql`
+    SELECT *
+    FROM shopify_serving_state
+    WHERE business_id = ${input.businessId}
+      AND provider_account_id = ${input.providerAccountId}
+      AND canary_key = ${input.canaryKey}
+    LIMIT 1
+  `) as Array<Record<string, unknown>>;
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    businessId: String(row.business_id),
+    providerAccountId: String(row.provider_account_id),
+    canaryKey: String(row.canary_key),
+    assessedAt: normalizeTimestamp(row.assessed_at),
+    statusState: row.status_state ? String(row.status_state) : null,
+    preferredSource: row.preferred_source ? String(row.preferred_source) : null,
+    canServeWarehouse: Boolean(row.can_serve_warehouse),
+    canaryEnabled: Boolean(row.canary_enabled),
+    decisionReasons: Array.isArray(row.decision_reasons)
+      ? row.decision_reasons.map((value) => String(value))
+      : [],
+    divergence:
+      row.divergence && typeof row.divergence === "object"
+        ? (row.divergence as Record<string, unknown>)
+        : null,
+  } satisfies ShopifyServingStateRecord;
+}
+
+export async function upsertShopifyServingState(input: ShopifyServingStateRecord) {
+  await runMigrations();
+  const sql = getDb();
+  await sql`
+    INSERT INTO shopify_serving_state (
+      business_id,
+      provider_account_id,
+      canary_key,
+      assessed_at,
+      status_state,
+      preferred_source,
+      can_serve_warehouse,
+      canary_enabled,
+      decision_reasons,
+      divergence,
+      updated_at
+    )
+    VALUES (
+      ${input.businessId},
+      ${input.providerAccountId},
+      ${input.canaryKey},
+      COALESCE(${normalizeTimestamp(input.assessedAt)}, now()),
+      ${input.statusState ?? null},
+      ${input.preferredSource ?? null},
+      ${Boolean(input.canServeWarehouse)},
+      ${Boolean(input.canaryEnabled)},
+      ${JSON.stringify(input.decisionReasons ?? [])}::jsonb,
+      ${JSON.stringify(input.divergence ?? null)}::jsonb,
+      now()
+    )
+    ON CONFLICT (business_id, provider_account_id, canary_key)
+    DO UPDATE SET
+      assessed_at = EXCLUDED.assessed_at,
+      status_state = EXCLUDED.status_state,
+      preferred_source = EXCLUDED.preferred_source,
+      can_serve_warehouse = EXCLUDED.can_serve_warehouse,
+      canary_enabled = EXCLUDED.canary_enabled,
+      decision_reasons = EXCLUDED.decision_reasons,
+      divergence = EXCLUDED.divergence,
+      updated_at = now()
+  `;
 }

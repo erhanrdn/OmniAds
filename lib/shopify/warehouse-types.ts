@@ -35,7 +35,9 @@ export interface ShopifyOrderWarehouseRow {
   currencyCode?: string | null;
   shopCurrencyCode?: string | null;
   orderCreatedAt: string;
+  orderCreatedDateLocal?: string | null;
   orderUpdatedAt?: string | null;
+  orderUpdatedDateLocal?: string | null;
   orderProcessedAt?: string | null;
   orderCancelledAt?: string | null;
   orderClosedAt?: string | null;
@@ -80,6 +82,7 @@ export interface ShopifyRefundWarehouseRow {
   orderId: string;
   refundId: string;
   refundedAt: string;
+  refundedDateLocal?: string | null;
   refundedSales?: number;
   refundedShipping?: number;
   refundedTaxes?: number;
@@ -112,9 +115,24 @@ export interface ShopifyReturnWarehouseRow {
   returnId: string;
   status?: string | null;
   createdAt: string;
+  createdDateLocal?: string | null;
   updatedAt?: string | null;
+  updatedDateLocal?: string | null;
   payloadJson?: unknown;
   sourceSnapshotId?: string | null;
+}
+
+export interface ShopifyServingStateRecord {
+  businessId: string;
+  providerAccountId: string;
+  canaryKey: string;
+  assessedAt?: string | null;
+  statusState?: string | null;
+  preferredSource?: string | null;
+  canServeWarehouse?: boolean;
+  canaryEnabled?: boolean;
+  decisionReasons?: string[] | null;
+  divergence?: Record<string, unknown> | null;
 }
 
 export interface ShopifyCustomerEventWarehouseRow {
