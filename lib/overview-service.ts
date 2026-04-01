@@ -26,6 +26,7 @@ import {
 } from "@/lib/reporting-cache";
 import { getMetaWarehouseSummary } from "@/lib/meta/serving";
 import { getShopifyOverviewAggregate } from "@/lib/shopify/overview";
+import { getShopifyOverviewReadCandidate } from "@/lib/shopify/read-adapter";
 
 interface TrendPoint {
   date: string;
@@ -415,12 +416,51 @@ async function fetchDaySnapshot(businessId: string, date: string) {
   };
 }
 
+async function resolveShopifyOverviewAggregateForRead(input: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+}) {
+  const candidate = await getShopifyOverviewReadCandidate(input);
+
+  if (candidate.preferredSource === "warehouse" && candidate.warehouse) {
+    console.info("[overview] shopify warehouse read canary selected", {
+      businessId: input.businessId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      revenueDeltaPercent: candidate.divergence?.revenueDeltaPercent ?? null,
+      purchaseDelta: candidate.divergence?.purchaseDelta ?? null,
+    });
+
+    return {
+      revenue: candidate.warehouse.revenue,
+      purchases: candidate.warehouse.purchases,
+      averageOrderValue: candidate.warehouse.averageOrderValue,
+      sessions: null,
+      conversionRate: null,
+      newCustomers: null,
+      returningCustomers: null,
+      dailyTrends: candidate.warehouse.daily.map((row) => ({
+        date: row.date,
+        revenue: row.netRevenue,
+        purchases: row.orders,
+        sessions: null,
+        conversionRate: null,
+        newCustomers: null,
+        returningCustomers: null,
+      })),
+    };
+  }
+
+  return candidate.live;
+}
+
 async function buildDailyTrends(params: {
   businessId: string;
   startDate: string;
   endDate: string;
 }): Promise<DailyTrendsBundle> {
-  const shopifyAggregate = await getShopifyOverviewAggregate(params).catch((error: unknown) => {
+  const shopifyAggregate = await resolveShopifyOverviewAggregateForRead(params).catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
     console.warn("[overview] shopify daily trends unavailable", {
       businessId: params.businessId,
@@ -514,7 +554,7 @@ export async function getOverviewData(params: {
       startDate: resolvedStart,
       endDate: resolvedEnd,
     }),
-    getShopifyOverviewAggregate({
+    resolveShopifyOverviewAggregateForRead({
       businessId,
       startDate: resolvedStart,
       endDate: resolvedEnd,
