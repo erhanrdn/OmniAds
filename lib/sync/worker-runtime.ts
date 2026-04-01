@@ -200,6 +200,8 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
       const concurrency = envNumber(
         adapter.providerScope === "meta"
           ? "META_WORKER_CONCURRENCY"
+          : adapter.providerScope === "shopify"
+            ? "SHOPIFY_WORKER_CONCURRENCY"
           : "GOOGLE_ADS_WORKER_CONCURRENCY",
         1
       );

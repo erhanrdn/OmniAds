@@ -21,6 +21,10 @@ vi.mock("@/lib/sync/search-console-sync", () => ({
   syncSearchConsoleReports: vi.fn(),
 }));
 
+vi.mock("@/lib/sync/shopify-sync", () => ({
+  syncShopifyCommerceReports: vi.fn(),
+}));
+
 vi.mock("@/lib/sync/soak-gate", () => ({
   runSyncSoakGate: vi.fn(),
 }));
@@ -30,6 +34,7 @@ const metaSync = await import("@/lib/sync/meta-sync");
 const googleSync = await import("@/lib/sync/google-ads-sync");
 const ga4Sync = await import("@/lib/sync/ga4-sync");
 const searchConsoleSync = await import("@/lib/sync/search-console-sync");
+const shopifySync = await import("@/lib/sync/shopify-sync");
 const soakGate = await import("@/lib/sync/soak-gate");
 const { POST } = await import("@/app/api/sync/cron/route");
 
@@ -38,6 +43,7 @@ describe("POST /api/sync/cron", () => {
     vi.resetAllMocks();
     process.env.CRON_SECRET = "secret";
     delete process.env.SYNC_CRON_ENFORCE_SOAK_GATE;
+    delete process.env.SHOPIFY_SYNC_ENABLED;
     vi.mocked(activeBusinesses.getActiveBusinesses).mockResolvedValue([
       { id: "biz_1", name: "Biz 1" },
     ] as never);
@@ -45,6 +51,7 @@ describe("POST /api/sync/cron", () => {
     vi.mocked(googleSync.enqueueGoogleAdsScheduledWork).mockResolvedValue({ queued: 1 } as never);
     vi.mocked(ga4Sync.syncGA4Reports).mockResolvedValue({ synced: true } as never);
     vi.mocked(searchConsoleSync.syncSearchConsoleReports).mockResolvedValue({ synced: true } as never);
+    vi.mocked(shopifySync.syncShopifyCommerceReports).mockResolvedValue({ success: true } as never);
   });
 
   it("returns 503 when soak enforcement is enabled and the gate fails", async () => {
@@ -96,5 +103,21 @@ describe("POST /api/sync/cron", () => {
     expect(response.status).toBe(200);
     expect(payload.soakGate).toBeUndefined();
     expect(soakGate.runSyncSoakGate).not.toHaveBeenCalled();
+    expect(payload.results[0].shopify).toEqual({ skipped: true, reason: "disabled" });
+  });
+
+  it("runs Shopify sync when enabled", async () => {
+    process.env.SHOPIFY_SYNC_ENABLED = "true";
+
+    const request = new NextRequest("http://localhost/api/sync/cron", {
+      method: "POST",
+      headers: { authorization: "Bearer secret" },
+    });
+    const response = await POST(request);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(shopifySync.syncShopifyCommerceReports).toHaveBeenCalledWith("biz_1");
+    expect(payload.results[0].shopify).toEqual({ success: true });
   });
 });

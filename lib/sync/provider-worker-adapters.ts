@@ -6,6 +6,7 @@ import type {
 } from "@/lib/sync/provider-orchestration";
 import { syncGoogleAdsReports } from "@/lib/sync/google-ads-sync";
 import { consumeMetaQueuedWork } from "@/lib/sync/meta-sync";
+import { syncShopifyCommerceReports } from "@/lib/sync/shopify-sync";
 
 export interface ProviderWorkerAdapter
   extends ProviderSyncAdapter<
@@ -14,7 +15,7 @@ export interface ProviderWorkerAdapter
     unknown,
     string
   > {
-  providerScope: "meta" | "google_ads";
+  providerScope: "meta" | "google_ads" | "shopify";
   consumeBusiness(
     businessId: string,
     input?: {
@@ -65,4 +66,23 @@ export const googleAdsWorkerAdapter: ProviderWorkerAdapter = {
   },
 };
 
-export const durableWorkerAdapters = [metaWorkerAdapter, googleAdsWorkerAdapter];
+export const shopifyWorkerAdapter: ProviderWorkerAdapter = {
+  providerScope: "shopify",
+  planPartitions: unsupported,
+  leasePartitions: unsupported,
+  getCheckpoint: unsupported,
+  fetchChunk: unsupported,
+  persistChunk: unsupported,
+  transformChunk: unsupported,
+  writeFacts: unsupported,
+  advanceCheckpoint: unsupported,
+  completePartition: unsupported,
+  classifyFailure(error) {
+    return error instanceof Error ? error.message : String(error);
+  },
+  async consumeBusiness(businessId: string, input) {
+    return syncShopifyCommerceReports(businessId, input);
+  },
+};
+
+export const durableWorkerAdapters = [metaWorkerAdapter, googleAdsWorkerAdapter, shopifyWorkerAdapter];

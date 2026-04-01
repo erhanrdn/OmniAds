@@ -1437,6 +1437,24 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
           ON shopify_customer_events (business_id, occurred_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_customer_events_session
           ON shopify_customer_events (business_id, session_id, occurred_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS shopify_sync_state (
+          business_id              TEXT NOT NULL,
+          provider_account_id      TEXT NOT NULL,
+          sync_target              TEXT NOT NULL,
+          historical_target_start  DATE,
+          historical_target_end    DATE,
+          ready_through_date       DATE,
+          latest_sync_started_at   TIMESTAMPTZ,
+          latest_successful_sync_at TIMESTAMPTZ,
+          latest_sync_status       TEXT,
+          latest_sync_window_start DATE,
+          latest_sync_window_end   DATE,
+          last_error               TEXT,
+          updated_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
+          PRIMARY KEY (business_id, provider_account_id, sync_target)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_sync_state_business
+          ON shopify_sync_state (business_id, updated_at DESC)`.catch(() => {}),
       ]);
 
       // ── Seed superadmin ───────────────────────────────────────────────────
