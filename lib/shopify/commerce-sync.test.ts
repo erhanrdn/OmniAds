@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { mapShopifyOrderNodeToWarehouseRows } from "@/lib/shopify/commerce-sync";
+import {
+  mapShopifyOrderNodeToWarehouseRows,
+  mapShopifyReturnNodeToWarehouseRow,
+} from "@/lib/shopify/commerce-sync";
 
 describe("shopify commerce sync mapping", () => {
   it("maps order, line items, refunds, and transactions into warehouse rows", () => {
@@ -118,6 +121,33 @@ describe("shopify commerce sync mapping", () => {
         transactionId: "700",
         amount: 135,
         gateway: "shopify_payments",
+      })
+    );
+  });
+
+  it("maps returns into warehouse rows", () => {
+    const mapped = mapShopifyReturnNodeToWarehouseRow({
+      businessId: "biz_1",
+      providerAccountId: "test-shop.myshopify.com",
+      shopId: "test-shop.myshopify.com",
+      sourceSnapshotId: "snap_2",
+      node: {
+        id: "gid://shopify/Return/2001",
+        status: "OPEN",
+        createdAt: "2026-03-31T12:00:00Z",
+        updatedAt: "2026-03-31T13:00:00Z",
+        order: { id: "gid://shopify/Order/1001" },
+      },
+    });
+
+    expect(mapped).toEqual(
+      expect.objectContaining({
+        returnId: "2001",
+        orderId: "1001",
+        status: "OPEN",
+        createdAt: "2026-03-31T12:00:00Z",
+        updatedAt: "2026-03-31T13:00:00Z",
+        sourceSnapshotId: "snap_2",
       })
     );
   });

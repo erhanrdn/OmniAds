@@ -1444,15 +1444,24 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
           historical_target_start  DATE,
           historical_target_end    DATE,
           ready_through_date       DATE,
+          cursor_timestamp         TIMESTAMPTZ,
+          cursor_value             TEXT,
           latest_sync_started_at   TIMESTAMPTZ,
           latest_successful_sync_at TIMESTAMPTZ,
           latest_sync_status       TEXT,
           latest_sync_window_start DATE,
           latest_sync_window_end   DATE,
           last_error               TEXT,
+          last_result_summary      JSONB,
           updated_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
           PRIMARY KEY (business_id, provider_account_id, sync_target)
         )`.catch(() => {}),
+        sql`ALTER TABLE shopify_sync_state
+          ADD COLUMN IF NOT EXISTS cursor_timestamp TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE shopify_sync_state
+          ADD COLUMN IF NOT EXISTS cursor_value TEXT`.catch(() => {}),
+        sql`ALTER TABLE shopify_sync_state
+          ADD COLUMN IF NOT EXISTS last_result_summary JSONB`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_sync_state_business
           ON shopify_sync_state (business_id, updated_at DESC)`.catch(() => {}),
       ]);

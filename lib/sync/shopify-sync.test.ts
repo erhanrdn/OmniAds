@@ -6,6 +6,7 @@ vi.mock("@/lib/shopify/admin", () => ({
 
 vi.mock("@/lib/shopify/commerce-sync", () => ({
   syncShopifyOrdersWindow: vi.fn(),
+  syncShopifyReturnsWindow: vi.fn(),
 }));
 
 vi.mock("@/lib/shopify/sync-state", () => ({
@@ -39,6 +40,13 @@ describe("syncShopifyCommerceReports", () => {
       transactions: 4,
       pages: 1,
     } as never);
+    vi.mocked(commerceSync.syncShopifyReturnsWindow).mockResolvedValue({
+      success: true,
+      reason: "ok",
+      returns: 2,
+      pages: 1,
+      maxUpdatedAt: "2026-03-31T22:00:00Z",
+    } as never);
   });
 
   it("runs a bounded commerce sync and records sync state", async () => {
@@ -49,6 +57,7 @@ describe("syncShopifyCommerceReports", () => {
         success: true,
         orders: 4,
         refunds: 1,
+        returns: 2,
       })
     );
     expect(commerceSync.syncShopifyOrdersWindow).toHaveBeenCalledWith(
@@ -60,7 +69,7 @@ describe("syncShopifyCommerceReports", () => {
       expect.objectContaining({
         businessId: "biz_1",
         providerAccountId: "test-shop.myshopify.com",
-        syncTarget: "commerce_recent",
+        syncTarget: "commerce_orders_recent",
         latestSyncStatus: "running",
       })
     );
@@ -68,7 +77,23 @@ describe("syncShopifyCommerceReports", () => {
       expect.objectContaining({
         businessId: "biz_1",
         providerAccountId: "test-shop.myshopify.com",
-        syncTarget: "commerce_recent",
+        syncTarget: "commerce_returns_recent",
+        latestSyncStatus: "running",
+      })
+    );
+    expect(syncState.upsertShopifySyncState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz_1",
+        providerAccountId: "test-shop.myshopify.com",
+        syncTarget: "commerce_orders_recent",
+        latestSyncStatus: "succeeded",
+      })
+    );
+    expect(syncState.upsertShopifySyncState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz_1",
+        providerAccountId: "test-shop.myshopify.com",
+        syncTarget: "commerce_returns_recent",
         latestSyncStatus: "succeeded",
       })
     );

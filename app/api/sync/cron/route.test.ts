@@ -51,7 +51,10 @@ describe("POST /api/sync/cron", () => {
     vi.mocked(googleSync.enqueueGoogleAdsScheduledWork).mockResolvedValue({ queued: 1 } as never);
     vi.mocked(ga4Sync.syncGA4Reports).mockResolvedValue({ synced: true } as never);
     vi.mocked(searchConsoleSync.syncSearchConsoleReports).mockResolvedValue({ synced: true } as never);
-    vi.mocked(shopifySync.syncShopifyCommerceReports).mockResolvedValue({ success: true } as never);
+    vi.mocked(shopifySync.syncShopifyCommerceReports).mockResolvedValue({
+      success: true,
+      returns: 2,
+    } as never);
   });
 
   it("returns 503 when soak enforcement is enabled and the gate fails", async () => {
@@ -118,6 +121,6 @@ describe("POST /api/sync/cron", () => {
 
     expect(response.status).toBe(200);
     expect(shopifySync.syncShopifyCommerceReports).toHaveBeenCalledWith("biz_1");
-    expect(payload.results[0].shopify).toEqual({ success: true });
+    expect(payload.results[0].shopify).toEqual(expect.objectContaining({ success: true, returns: 2 }));
   });
 });

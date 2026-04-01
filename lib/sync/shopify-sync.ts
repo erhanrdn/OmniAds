@@ -1,5 +1,5 @@
 import { resolveShopifyAdminCredentials } from "@/lib/shopify/admin";
-import { syncShopifyOrdersWindow } from "@/lib/shopify/commerce-sync";
+import { syncShopifyOrdersWindow, syncShopifyReturnsWindow } from "@/lib/shopify/commerce-sync";
 import { getShopifySyncState, upsertShopifySyncState } from "@/lib/shopify/sync-state";
 import type { RunnerLeaseGuard } from "@/lib/sync/worker-runtime";
 
@@ -65,23 +65,42 @@ export async function syncShopifyCommerceReports(
       orderLines: 0,
       refunds: 0,
       transactions: 0,
+      returns: 0,
       pages: 0,
+      returnPages: 0,
     };
   }
 
   const window = classifyShopifySyncWindow(credentials);
-  const existingState = await getShopifySyncState({
+  const existingOrdersState = await getShopifySyncState({
     businessId,
     providerAccountId: credentials.shopId,
-    syncTarget: "commerce_recent",
+    syncTarget: "commerce_orders_recent",
+  }).catch(() => null);
+  const existingReturnsState = await getShopifySyncState({
+    businessId,
+    providerAccountId: credentials.shopId,
+    syncTarget: "commerce_returns_recent",
   }).catch(() => null);
 
   await upsertShopifySyncState({
     businessId,
     providerAccountId: credentials.shopId,
-    syncTarget: "commerce_recent",
-    historicalTargetStart: existingState?.historicalTargetStart ?? window.startDate,
-    historicalTargetEnd: existingState?.historicalTargetEnd ?? window.endDate,
+    syncTarget: "commerce_orders_recent",
+    historicalTargetStart: existingOrdersState?.historicalTargetStart ?? window.startDate,
+    historicalTargetEnd: existingOrdersState?.historicalTargetEnd ?? window.endDate,
+    latestSyncStartedAt: new Date().toISOString(),
+    latestSyncStatus: "running",
+    latestSyncWindowStart: window.startDate,
+    latestSyncWindowEnd: window.endDate,
+    lastError: null,
+  });
+  await upsertShopifySyncState({
+    businessId,
+    providerAccountId: credentials.shopId,
+    syncTarget: "commerce_returns_recent",
+    historicalTargetStart: existingReturnsState?.historicalTargetStart ?? window.startDate,
+    historicalTargetEnd: existingReturnsState?.historicalTargetEnd ?? window.endDate,
     latestSyncStartedAt: new Date().toISOString(),
     latestSyncStatus: "running",
     latestSyncWindowStart: window.startDate,
@@ -93,7 +112,16 @@ export async function syncShopifyCommerceReports(
     await upsertShopifySyncState({
       businessId,
       providerAccountId: credentials.shopId,
-      syncTarget: "commerce_recent",
+      syncTarget: "commerce_orders_recent",
+      latestSyncStatus: "cancelled",
+      latestSyncWindowStart: window.startDate,
+      latestSyncWindowEnd: window.endDate,
+      lastError: input.runtimeLeaseGuard.getLeaseLossReason(),
+    });
+    await upsertShopifySyncState({
+      businessId,
+      providerAccountId: credentials.shopId,
+      syncTarget: "commerce_returns_recent",
       latestSyncStatus: "cancelled",
       latestSyncWindowStart: window.startDate,
       latestSyncWindowEnd: window.endDate,
@@ -106,42 +134,113 @@ export async function syncShopifyCommerceReports(
       orderLines: 0,
       refunds: 0,
       transactions: 0,
+      returns: 0,
       pages: 0,
+      returnPages: 0,
     };
   }
 
   try {
-    const result = await syncShopifyOrdersWindow({
-      businessId,
-      startDate: window.startDate,
-      endDate: window.endDate,
-    });
-    if (!result.success) {
+    const [ordersResult, returnsResult] = await Promise.all([
+      syncShopifyOrdersWindow({
+        businessId,
+        startDate: window.startDate,
+        endDate: window.endDate,
+      }),
+      syncShopifyReturnsWindow({
+        businessId,
+        startDate: window.startDate,
+        endDate: window.endDate,
+      }),
+    ]);
+    if (!ordersResult.success) {
       await upsertShopifySyncState({
         businessId,
         providerAccountId: credentials.shopId,
-        syncTarget: "commerce_recent",
-        latestSyncStatus: result.reason,
+        syncTarget: "commerce_orders_recent",
+        latestSyncStatus: ordersResult.reason,
         latestSyncWindowStart: window.startDate,
         latestSyncWindowEnd: window.endDate,
-        lastError: result.reason,
+        lastError: ordersResult.reason,
       });
-      return result;
+      return ordersResult;
     }
+    if (!returnsResult.success) {
+      await upsertShopifySyncState({
+        businessId,
+        providerAccountId: credentials.shopId,
+        syncTarget: "commerce_returns_recent",
+        latestSyncStatus: returnsResult.reason,
+        latestSyncWindowStart: window.startDate,
+        latestSyncWindowEnd: window.endDate,
+        lastError: returnsResult.reason,
+      });
+      return {
+        success: false,
+        reason: returnsResult.reason,
+        orders: ordersResult.orders,
+        orderLines: ordersResult.orderLines,
+        refunds: ordersResult.refunds,
+        transactions: ordersResult.transactions,
+        returns: 0,
+        pages: ordersResult.pages,
+        returnPages: 0,
+      };
+    }
+
+    const result = {
+      success: true as const,
+      reason: "ok" as const,
+      orders: ordersResult.orders,
+      orderLines: ordersResult.orderLines,
+      refunds: ordersResult.refunds,
+      transactions: ordersResult.transactions,
+      returns: returnsResult.returns,
+      pages: ordersResult.pages,
+      returnPages: returnsResult.pages,
+      reconciliation: {
+        orderRows: ordersResult.orders,
+        refundRows: ordersResult.refunds,
+        transactionRows: ordersResult.transactions,
+        returnRows: returnsResult.returns,
+        orderPages: ordersResult.pages,
+        returnPages: returnsResult.pages,
+      },
+    };
 
     await upsertShopifySyncState({
       businessId,
       providerAccountId: credentials.shopId,
-      syncTarget: "commerce_recent",
-      historicalTargetStart: existingState?.historicalTargetStart ?? window.startDate,
-      historicalTargetEnd: existingState?.historicalTargetEnd ?? window.endDate,
+      syncTarget: "commerce_orders_recent",
+      historicalTargetStart: existingOrdersState?.historicalTargetStart ?? window.startDate,
+      historicalTargetEnd: existingOrdersState?.historicalTargetEnd ?? window.endDate,
       readyThroughDate: window.endDate,
+      cursorTimestamp: `${window.endDate}T23:59:59.000Z`,
+      cursorValue: window.endDate,
       latestSyncStartedAt: new Date().toISOString(),
       latestSuccessfulSyncAt: new Date().toISOString(),
       latestSyncStatus: "succeeded",
       latestSyncWindowStart: window.startDate,
       latestSyncWindowEnd: window.endDate,
       lastError: null,
+      lastResultSummary: result.reconciliation,
+    });
+    await upsertShopifySyncState({
+      businessId,
+      providerAccountId: credentials.shopId,
+      syncTarget: "commerce_returns_recent",
+      historicalTargetStart: existingReturnsState?.historicalTargetStart ?? window.startDate,
+      historicalTargetEnd: existingReturnsState?.historicalTargetEnd ?? window.endDate,
+      readyThroughDate: window.endDate,
+      cursorTimestamp: returnsResult.maxUpdatedAt ?? `${window.endDate}T23:59:59.000Z`,
+      cursorValue: returnsResult.maxUpdatedAt ?? window.endDate,
+      latestSyncStartedAt: new Date().toISOString(),
+      latestSuccessfulSyncAt: new Date().toISOString(),
+      latestSyncStatus: "succeeded",
+      latestSyncWindowStart: window.startDate,
+      latestSyncWindowEnd: window.endDate,
+      lastError: null,
+      lastResultSummary: result.reconciliation,
     });
 
     return result;
@@ -150,7 +249,16 @@ export async function syncShopifyCommerceReports(
     await upsertShopifySyncState({
       businessId,
       providerAccountId: credentials.shopId,
-      syncTarget: "commerce_recent",
+      syncTarget: "commerce_orders_recent",
+      latestSyncStatus: "failed",
+      latestSyncWindowStart: window.startDate,
+      latestSyncWindowEnd: window.endDate,
+      lastError: message,
+    });
+    await upsertShopifySyncState({
+      businessId,
+      providerAccountId: credentials.shopId,
+      syncTarget: "commerce_returns_recent",
       latestSyncStatus: "failed",
       latestSyncWindowStart: window.startDate,
       latestSyncWindowEnd: window.endDate,

@@ -10,12 +10,14 @@ import {
   upsertShopifyOrders,
   upsertShopifyOrderTransactions,
   upsertShopifyRefunds,
+  upsertShopifyReturns,
 } from "@/lib/shopify/warehouse";
 import type {
   ShopifyOrderLineWarehouseRow,
   ShopifyOrderTransactionWarehouseRow,
   ShopifyOrderWarehouseRow,
   ShopifyRefundWarehouseRow,
+  ShopifyReturnWarehouseRow,
 } from "@/lib/shopify/warehouse-types";
 
 function toNumber(value: unknown) {
@@ -109,6 +111,26 @@ interface ShopifyOrdersPagePayload {
   } | null;
 }
 
+interface ShopifyGraphqlReturnNode {
+  id?: string | null;
+  status?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  order?: {
+    id?: string | null;
+  } | null;
+}
+
+interface ShopifyReturnsPagePayload {
+  returns?: {
+    pageInfo?: {
+      hasNextPage?: boolean | null;
+      endCursor?: string | null;
+    } | null;
+    edges?: Array<{ node?: ShopifyGraphqlReturnNode | null } | null> | null;
+  } | null;
+}
+
 const ORDERS_QUERY = `
   query ShopifyCommerceOrders($query: String!, $cursor: String) {
     orders(first: 100, after: $cursor, sortKey: CREATED_AT, query: $query) {
@@ -183,6 +205,28 @@ const ORDERS_QUERY = `
               processedAt
               amountSet { shopMoney { amount currencyCode } }
             }
+          }
+        }
+      }
+    }
+  }
+`;
+
+const RETURNS_QUERY = `
+  query ShopifyCommerceReturns($query: String!, $cursor: String) {
+    returns(first: 100, after: $cursor, sortKey: UPDATED_AT, query: $query) {
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+      edges {
+        node {
+          id
+          status
+          createdAt
+          updatedAt
+          order {
+            id
           }
         }
       }
@@ -329,6 +373,33 @@ function round2(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
+export function mapShopifyReturnNodeToWarehouseRow(input: {
+  businessId: string;
+  providerAccountId: string;
+  shopId: string;
+  node: ShopifyGraphqlReturnNode;
+  sourceSnapshotId?: string | null;
+}) {
+  const returnId = trimGid(input.node.id);
+  const createdAt = input.node.createdAt ?? input.node.updatedAt;
+  if (!returnId || !createdAt) {
+    throw new Error("shopify_return_missing_required_fields");
+  }
+
+  return {
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    shopId: input.shopId,
+    orderId: trimGid(input.node.order?.id),
+    returnId,
+    status: input.node.status ?? null,
+    createdAt,
+    updatedAt: input.node.updatedAt ?? null,
+    payloadJson: input.node,
+    sourceSnapshotId: input.sourceSnapshotId ?? null,
+  } satisfies ShopifyReturnWarehouseRow;
+}
+
 export async function syncShopifyOrdersWindow(input: {
   businessId: string;
   startDate: string;
@@ -440,5 +511,109 @@ export async function syncShopifyOrdersWindow(input: {
     refunds: refundsWritten,
     transactions: transactionsWritten,
     pages: pageCount,
+  };
+}
+
+export async function syncShopifyReturnsWindow(input: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+}) {
+  const credentials = await resolveShopifyAdminCredentials(input.businessId);
+  if (!credentials) {
+    return {
+      success: false,
+      reason: "not_connected" as const,
+      returns: 0,
+      pages: 0,
+      maxUpdatedAt: null as string | null,
+    };
+  }
+
+  if (!hasShopifyScope(credentials.scopes, "read_returns")) {
+    return {
+      success: false,
+      reason: "missing_read_returns_scope" as const,
+      returns: 0,
+      pages: 0,
+      maxUpdatedAt: null as string | null,
+    };
+  }
+
+  let cursor: string | null = null;
+  let pageCount = 0;
+  let returnsWritten = 0;
+  let maxUpdatedAt: string | null = null;
+  const query = `updated_at:>=${input.startDate}T00:00:00Z updated_at:<=${input.endDate}T23:59:59Z`;
+
+  while (pageCount < 20) {
+    pageCount += 1;
+    const payload: ShopifyReturnsPagePayload = await shopifyAdminGraphql<ShopifyReturnsPagePayload>({
+      shopId: credentials.shopId,
+      accessToken: credentials.accessToken,
+      query: RETURNS_QUERY,
+      variables: {
+        query,
+        cursor,
+      },
+    });
+
+    const snapshotId = await insertShopifyRawSnapshot({
+      businessId: input.businessId,
+      providerAccountId: credentials.shopId,
+      endpointName: "returns",
+      entityScope: "return",
+      startDate: input.startDate,
+      endDate: input.endDate,
+      payloadJson: payload,
+      payloadHash: buildShopifyRawSnapshotHash({
+        businessId: input.businessId,
+        providerAccountId: credentials.shopId,
+        endpointName: "returns",
+        startDate: input.startDate,
+        endDate: input.endDate,
+        payload,
+      }),
+      requestContext: {
+        cursor,
+        query,
+      },
+      status: "fetched",
+    });
+
+    const mapped = (Array.isArray(payload.returns?.edges) ? payload.returns.edges : [])
+      .map((edge) => edge?.node)
+      .filter((node): node is ShopifyGraphqlReturnNode => Boolean(node?.id && (node?.updatedAt ?? node?.createdAt)))
+      .map((node) =>
+        mapShopifyReturnNodeToWarehouseRow({
+          businessId: input.businessId,
+          providerAccountId: credentials.shopId,
+          shopId: credentials.shopId,
+          node,
+          sourceSnapshotId: snapshotId,
+        })
+      );
+
+    for (const row of mapped) {
+      const candidate = row.updatedAt ?? row.createdAt;
+      if (candidate && (!maxUpdatedAt || candidate > maxUpdatedAt)) {
+        maxUpdatedAt = candidate;
+      }
+    }
+
+    returnsWritten += await upsertShopifyReturns(mapped);
+
+    if (!payload.returns?.pageInfo?.hasNextPage || !payload.returns?.pageInfo?.endCursor) {
+      break;
+    }
+    cursor = payload.returns.pageInfo.endCursor;
+  }
+
+  return {
+    success: true,
+    reason: "ok" as const,
+    returns: returnsWritten,
+    pages: pageCount,
+    maxUpdatedAt,
   };
 }

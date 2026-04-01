@@ -27,12 +27,15 @@ export interface ShopifySyncStateRecord {
   historicalTargetStart?: string | null;
   historicalTargetEnd?: string | null;
   readyThroughDate?: string | null;
+  cursorTimestamp?: string | null;
+  cursorValue?: string | null;
   latestSyncStartedAt?: string | null;
   latestSuccessfulSyncAt?: string | null;
   latestSyncStatus?: string | null;
   latestSyncWindowStart?: string | null;
   latestSyncWindowEnd?: string | null;
   lastError?: string | null;
+  lastResultSummary?: Record<string, unknown> | null;
 }
 
 export async function getShopifySyncState(input: {
@@ -59,12 +62,18 @@ export async function getShopifySyncState(input: {
     historicalTargetStart: normalizeDate(row.historical_target_start),
     historicalTargetEnd: normalizeDate(row.historical_target_end),
     readyThroughDate: normalizeDate(row.ready_through_date),
+    cursorTimestamp: normalizeTimestamp(row.cursor_timestamp),
+    cursorValue: row.cursor_value ? String(row.cursor_value) : null,
     latestSyncStartedAt: normalizeTimestamp(row.latest_sync_started_at),
     latestSuccessfulSyncAt: normalizeTimestamp(row.latest_successful_sync_at),
     latestSyncStatus: row.latest_sync_status ? String(row.latest_sync_status) : null,
     latestSyncWindowStart: normalizeDate(row.latest_sync_window_start),
     latestSyncWindowEnd: normalizeDate(row.latest_sync_window_end),
     lastError: row.last_error ? String(row.last_error) : null,
+    lastResultSummary:
+      row.last_result_summary && typeof row.last_result_summary === "object"
+        ? (row.last_result_summary as Record<string, unknown>)
+        : null,
   } satisfies ShopifySyncStateRecord;
 }
 
@@ -79,12 +88,15 @@ export async function upsertShopifySyncState(input: ShopifySyncStateRecord) {
       historical_target_start,
       historical_target_end,
       ready_through_date,
+      cursor_timestamp,
+      cursor_value,
       latest_sync_started_at,
       latest_successful_sync_at,
       latest_sync_status,
       latest_sync_window_start,
       latest_sync_window_end,
       last_error,
+      last_result_summary,
       updated_at
     )
     VALUES (
@@ -94,24 +106,30 @@ export async function upsertShopifySyncState(input: ShopifySyncStateRecord) {
       ${normalizeDate(input.historicalTargetStart)},
       ${normalizeDate(input.historicalTargetEnd)},
       ${normalizeDate(input.readyThroughDate)},
+      ${normalizeTimestamp(input.cursorTimestamp)},
+      ${input.cursorValue ?? null},
       ${normalizeTimestamp(input.latestSyncStartedAt)},
       ${normalizeTimestamp(input.latestSuccessfulSyncAt)},
       ${input.latestSyncStatus ?? null},
       ${normalizeDate(input.latestSyncWindowStart)},
       ${normalizeDate(input.latestSyncWindowEnd)},
       ${input.lastError ?? null},
+      ${JSON.stringify(input.lastResultSummary ?? null)}::jsonb,
       now()
     )
     ON CONFLICT (business_id, provider_account_id, sync_target) DO UPDATE SET
       historical_target_start = COALESCE(EXCLUDED.historical_target_start, shopify_sync_state.historical_target_start),
       historical_target_end = COALESCE(EXCLUDED.historical_target_end, shopify_sync_state.historical_target_end),
       ready_through_date = COALESCE(EXCLUDED.ready_through_date, shopify_sync_state.ready_through_date),
+      cursor_timestamp = COALESCE(EXCLUDED.cursor_timestamp, shopify_sync_state.cursor_timestamp),
+      cursor_value = COALESCE(EXCLUDED.cursor_value, shopify_sync_state.cursor_value),
       latest_sync_started_at = COALESCE(EXCLUDED.latest_sync_started_at, shopify_sync_state.latest_sync_started_at),
       latest_successful_sync_at = COALESCE(EXCLUDED.latest_successful_sync_at, shopify_sync_state.latest_successful_sync_at),
       latest_sync_status = COALESCE(EXCLUDED.latest_sync_status, shopify_sync_state.latest_sync_status),
       latest_sync_window_start = COALESCE(EXCLUDED.latest_sync_window_start, shopify_sync_state.latest_sync_window_start),
       latest_sync_window_end = COALESCE(EXCLUDED.latest_sync_window_end, shopify_sync_state.latest_sync_window_end),
       last_error = EXCLUDED.last_error,
+      last_result_summary = COALESCE(EXCLUDED.last_result_summary, shopify_sync_state.last_result_summary),
       updated_at = now()
   `;
 }
