@@ -9,6 +9,7 @@ import { createShopifyInstallContext } from "@/lib/shopify/install-context";
 import { getSessionFromRequest } from "@/lib/auth";
 import { sanitizeNextPath } from "@/lib/auth-routing";
 import { getPreferredBusinessIdForShopifyShop } from "@/lib/shopify/preferred-business";
+import { verifyShopifyQueryHmac } from "@/lib/shopify/oauth-hmac";
 
 /**
  * GET /api/oauth/shopify/callback?code=...&shop=...&state=...&hmac=...&timestamp=...
@@ -47,32 +48,12 @@ export async function GET(request: NextRequest) {
   }
 
   // ── Validate HMAC signature ────────────────────────────────
-  // Build the message string from all query params except hmac
-  const params = new URLSearchParams();
-  for (const [key, value] of searchParams.entries()) {
-    if (key !== "hmac") {
-      params.set(key, value);
-    }
-  }
-  // Sort params alphabetically for HMAC (required by Shopify)
-  const sortedParams = new URLSearchParams(
-    [...params.entries()].sort(([a], [b]) => a.localeCompare(b)),
-  );
-  const message = sortedParams.toString();
-  const expectedHmac = crypto
-    .createHmac("sha256", SHOPIFY_CONFIG.clientSecret)
-    .update(message)
-    .digest("hex");
-
-  const expectedBuffer = Buffer.from(expectedHmac);
-  const receivedBuffer = Buffer.from(hmac);
-  if (
-    expectedBuffer.length !== receivedBuffer.length ||
-    !crypto.timingSafeEqual(receivedBuffer, expectedBuffer)
-  ) {
+  if (!verifyShopifyQueryHmac({
+    url: request.nextUrl,
+    clientSecret: SHOPIFY_CONFIG.clientSecret,
+  })) {
     console.error("[shopify-oauth-callback] HMAC verification failed", {
       shop,
-      expected: expectedHmac,
       received: hmac,
     });
     return errorRedirect(tr("HMAC verification failed. Request may be tampered.", "HMAC doğrulamasi başarısız. Istekle oynanmis olabilir."));
