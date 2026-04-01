@@ -1,5 +1,6 @@
 import { getDb } from "@/lib/db";
 import { getIntegrationMetadata } from "@/lib/integrations";
+import { buildShopifyOverviewCanaryKey, SHOPIFY_OVERVIEW_CANARY_TIMEZONE_BASIS } from "@/lib/shopify/serving";
 import { getShopifySyncState } from "@/lib/shopify/sync-state";
 import { getShopifyServingState } from "@/lib/shopify/warehouse";
 
@@ -36,7 +37,16 @@ function isFreshTimestamp(value: string | null | undefined, maxAgeHours: number)
   return Number.isFinite(ageMs) && ageMs <= maxAgeHours * 60 * 60_000;
 }
 
-export async function getShopifyStatus(businessId: string): Promise<ShopifyStatusResponse> {
+export async function getShopifyStatus(
+  input:
+    | string
+    | {
+        businessId: string;
+        startDate?: string;
+        endDate?: string;
+      }
+): Promise<ShopifyStatusResponse> {
+  const businessId = typeof input === "string" ? input : input.businessId;
   const integration = await getIntegrationMetadata(businessId, "shopify").catch(() => null);
   if (
     !integration ||
@@ -76,11 +86,18 @@ export async function getShopifyStatus(businessId: string): Promise<ShopifyStatu
       syncTarget: "commerce_returns_historical",
     }).catch(() => null),
   ]);
-  const serving = await getShopifyServingState({
-    businessId,
-    providerAccountId: integration.provider_account_id,
-    canaryKey: "overview_shopify",
-  }).catch(() => null);
+  const serving =
+    typeof input === "string" || !input.startDate || !input.endDate
+      ? null
+      : await getShopifyServingState({
+          businessId,
+          providerAccountId: integration.provider_account_id,
+          canaryKey: buildShopifyOverviewCanaryKey({
+            startDate: input.startDate,
+            endDate: input.endDate,
+            timeZoneBasis: SHOPIFY_OVERVIEW_CANARY_TIMEZONE_BASIS,
+          }),
+        }).catch(() => null);
 
   const sql = getDb();
   const [orderStatsRow] = (await sql`

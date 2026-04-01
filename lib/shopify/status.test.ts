@@ -30,7 +30,11 @@ describe("getShopifyStatus", () => {
   it("reports not_connected when no Shopify integration exists", async () => {
     vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue(null);
 
-    const status = await getShopifyStatus("biz_1");
+    const status = await getShopifyStatus({
+      businessId: "biz_1",
+      startDate: "2026-03-01",
+      endDate: "2026-03-31",
+    });
 
     expect(status).toEqual({
       state: "not_connected",
@@ -75,7 +79,11 @@ describe("getShopifyStatus", () => {
       .mockResolvedValueOnce([{ row_count: "1" }]);
     vi.mocked(db.getDb).mockReturnValue(sql as never);
 
-    const status = await getShopifyStatus("biz_1");
+    const status = await getShopifyStatus({
+      businessId: "biz_1",
+      startDate: "2026-03-01",
+      endDate: "2026-03-31",
+    });
 
     expect(status.state).toBe("partial");
     expect(status.connected).toBe(true);
@@ -120,7 +128,11 @@ describe("getShopifyStatus", () => {
       .mockResolvedValueOnce([{ row_count: "1" }]);
     vi.mocked(db.getDb).mockReturnValue(sql as never);
 
-    const status = await getShopifyStatus("biz_1");
+    const status = await getShopifyStatus({
+      businessId: "biz_1",
+      startDate: "2026-03-01",
+      endDate: "2026-03-31",
+    });
 
     expect(status.state).toBe("partial");
     expect(status.issues).toContain("Shopify warehouse canary is blocked by trust checks.");

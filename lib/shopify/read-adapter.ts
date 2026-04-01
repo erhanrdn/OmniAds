@@ -1,5 +1,6 @@
 import { getShopifyOverviewAggregate } from "@/lib/shopify/overview";
 import { compareShopifyAggregates } from "@/lib/shopify/divergence";
+import { buildShopifyOverviewCanaryKey, SHOPIFY_OVERVIEW_CANARY_TIMEZONE_BASIS } from "@/lib/shopify/serving";
 import { getShopifyStatus } from "@/lib/shopify/status";
 import { getShopifyWarehouseOverviewAggregate } from "@/lib/shopify/warehouse-overview";
 import { upsertShopifyServingState } from "@/lib/shopify/warehouse";
@@ -15,7 +16,11 @@ export async function getShopifyOverviewReadCandidate(input: {
   endDate: string;
 }) {
   const [status, live, warehouse] = await Promise.all([
-    getShopifyStatus(input.businessId),
+    getShopifyStatus({
+      businessId: input.businessId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+    }),
     getShopifyOverviewAggregate(input),
     getShopifyWarehouseOverviewAggregate({
       businessId: input.businessId,
@@ -63,10 +68,19 @@ export async function getShopifyOverviewReadCandidate(input: {
         ? "warehouse_shadow"
         : "none";
 
+  const canaryKey = buildShopifyOverviewCanaryKey({
+    startDate: input.startDate,
+    endDate: input.endDate,
+    timeZoneBasis: SHOPIFY_OVERVIEW_CANARY_TIMEZONE_BASIS,
+  });
+
   await upsertShopifyServingState({
     businessId: input.businessId,
     providerAccountId: status.shopId ?? "unknown",
-    canaryKey: "overview_shopify",
+    canaryKey,
+    startDate: input.startDate,
+    endDate: input.endDate,
+    timeZoneBasis: SHOPIFY_OVERVIEW_CANARY_TIMEZONE_BASIS,
     assessedAt: new Date().toISOString(),
     statusState: status.state,
     preferredSource,

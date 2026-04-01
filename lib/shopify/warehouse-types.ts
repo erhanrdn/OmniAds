@@ -126,6 +126,9 @@ export interface ShopifyServingStateRecord {
   businessId: string;
   providerAccountId: string;
   canaryKey: string;
+  startDate?: string | null;
+  endDate?: string | null;
+  timeZoneBasis?: string | null;
   assessedAt?: string | null;
   statusState?: string | null;
   preferredSource?: string | null;

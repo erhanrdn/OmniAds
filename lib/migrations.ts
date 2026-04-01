@@ -1467,6 +1467,9 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
           business_id          TEXT NOT NULL,
           provider_account_id  TEXT NOT NULL,
           canary_key           TEXT NOT NULL,
+          start_date           DATE,
+          end_date             DATE,
+          time_zone_basis      TEXT,
           assessed_at          TIMESTAMPTZ,
           status_state         TEXT,
           preferred_source     TEXT,
@@ -1478,8 +1481,16 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
           updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
           PRIMARY KEY (business_id, provider_account_id, canary_key)
         )`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS start_date DATE`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS end_date DATE`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS time_zone_basis TEXT`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_serving_state_business_updated
           ON shopify_serving_state (business_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_serving_state_business_range
+          ON shopify_serving_state (business_id, start_date DESC, end_date DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS shopify_sync_state (
           business_id              TEXT NOT NULL,
           provider_account_id      TEXT NOT NULL,

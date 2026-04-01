@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { buildShopifyOverviewCanaryKey, SHOPIFY_OVERVIEW_CANARY_TIMEZONE_BASIS } from "@/lib/shopify/serving";
+
 vi.mock("@/lib/shopify/overview", () => ({
   getShopifyOverviewAggregate: vi.fn(),
 }));
@@ -133,7 +135,14 @@ describe("getShopifyOverviewReadCandidate", () => {
     expect(result.decisionReasons).toEqual([]);
     expect(warehouseState.upsertShopifyServingState).toHaveBeenCalledWith(
       expect.objectContaining({
-        canaryKey: "overview_shopify",
+        canaryKey: buildShopifyOverviewCanaryKey({
+          startDate: "2026-03-01",
+          endDate: "2026-03-31",
+          timeZoneBasis: SHOPIFY_OVERVIEW_CANARY_TIMEZONE_BASIS,
+        }),
+        startDate: "2026-03-01",
+        endDate: "2026-03-31",
+        timeZoneBasis: SHOPIFY_OVERVIEW_CANARY_TIMEZONE_BASIS,
         preferredSource: "warehouse",
         canServeWarehouse: true,
       })
