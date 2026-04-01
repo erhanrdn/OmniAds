@@ -1376,6 +1376,27 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_refunds_business_refunded
           ON shopify_refunds (business_id, refunded_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS shopify_order_transactions (
+          id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id          TEXT NOT NULL,
+          provider_account_id  TEXT NOT NULL,
+          shop_id              TEXT NOT NULL,
+          order_id             TEXT NOT NULL,
+          transaction_id       TEXT NOT NULL,
+          kind                 TEXT,
+          status               TEXT,
+          gateway              TEXT,
+          processed_at         TIMESTAMPTZ,
+          amount               NUMERIC(18, 4) NOT NULL DEFAULT 0,
+          currency_code        TEXT,
+          payload_json         JSONB NOT NULL DEFAULT '{}'::jsonb,
+          source_snapshot_id   UUID REFERENCES shopify_raw_snapshots(id) ON DELETE SET NULL,
+          created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider_account_id, shop_id, transaction_id)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_order_transactions_business_processed
+          ON shopify_order_transactions (business_id, processed_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS shopify_returns (
           id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id          TEXT NOT NULL,

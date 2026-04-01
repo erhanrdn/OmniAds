@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { getDb } from "@/lib/db";
 import { runMigrations } from "@/lib/migrations";
 import type {
+  ShopifyOrderTransactionWarehouseRow,
   ShopifyCustomerEventWarehouseRow,
   ShopifyOrderLineWarehouseRow,
   ShopifyOrderWarehouseRow,
@@ -316,6 +317,65 @@ export async function upsertShopifyRefunds(rows: ShopifyRefundWarehouseRow[]) {
         refunded_shipping = EXCLUDED.refunded_shipping,
         refunded_taxes = EXCLUDED.refunded_taxes,
         total_refunded = EXCLUDED.total_refunded,
+        payload_json = EXCLUDED.payload_json,
+        source_snapshot_id = EXCLUDED.source_snapshot_id,
+        updated_at = now()
+    `;
+    written += 1;
+  }
+
+  return written;
+}
+
+export async function upsertShopifyOrderTransactions(rows: ShopifyOrderTransactionWarehouseRow[]) {
+  if (rows.length <= 0) return 0;
+  await runMigrations();
+  const sql = getDb();
+  let written = 0;
+
+  for (const row of rows) {
+    await sql`
+      INSERT INTO shopify_order_transactions (
+        business_id,
+        provider_account_id,
+        shop_id,
+        order_id,
+        transaction_id,
+        kind,
+        status,
+        gateway,
+        processed_at,
+        amount,
+        currency_code,
+        payload_json,
+        source_snapshot_id,
+        updated_at
+      )
+      VALUES (
+        ${row.businessId},
+        ${row.providerAccountId},
+        ${row.shopId},
+        ${row.orderId},
+        ${row.transactionId},
+        ${row.kind ?? null},
+        ${row.status ?? null},
+        ${row.gateway ?? null},
+        ${normalizeTimestamp(row.processedAt)},
+        ${toNumber(row.amount)},
+        ${row.currencyCode ?? null},
+        ${JSON.stringify(row.payloadJson ?? {})}::jsonb,
+        ${row.sourceSnapshotId ?? null},
+        now()
+      )
+      ON CONFLICT (business_id, provider_account_id, shop_id, transaction_id)
+      DO UPDATE SET
+        order_id = EXCLUDED.order_id,
+        kind = EXCLUDED.kind,
+        status = EXCLUDED.status,
+        gateway = EXCLUDED.gateway,
+        processed_at = EXCLUDED.processed_at,
+        amount = EXCLUDED.amount,
+        currency_code = EXCLUDED.currency_code,
         payload_json = EXCLUDED.payload_json,
         source_snapshot_id = EXCLUDED.source_snapshot_id,
         updated_at = now()

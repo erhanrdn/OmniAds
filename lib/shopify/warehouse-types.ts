@@ -87,6 +87,22 @@ export interface ShopifyRefundWarehouseRow {
   sourceSnapshotId?: string | null;
 }
 
+export interface ShopifyOrderTransactionWarehouseRow {
+  businessId: string;
+  providerAccountId: string;
+  shopId: string;
+  orderId: string;
+  transactionId: string;
+  kind?: string | null;
+  status?: string | null;
+  gateway?: string | null;
+  processedAt?: string | null;
+  amount?: number;
+  currencyCode?: string | null;
+  payloadJson?: unknown;
+  sourceSnapshotId?: string | null;
+}
+
 export interface ShopifyReturnWarehouseRow {
   businessId: string;
   providerAccountId: string;
