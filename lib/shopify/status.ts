@@ -31,10 +31,44 @@ export interface ShopifyStatusResponse {
   issues: string[];
 }
 
+function shopifyCanaryTrustTtlMinutes() {
+  const parsed = Number(process.env.SHOPIFY_CANARY_TRUST_TTL_MINUTES ?? "30");
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 30;
+}
+
 function isFreshTimestamp(value: string | null | undefined, maxAgeHours: number) {
   if (!value) return false;
   const ageMs = Date.now() - new Date(value).getTime();
   return Number.isFinite(ageMs) && ageMs <= maxAgeHours * 60 * 60_000;
+}
+
+function isFreshTimestampMinutes(value: string | null | undefined, maxAgeMinutes: number) {
+  if (!value) return false;
+  const ageMs = Date.now() - new Date(value).getTime();
+  return Number.isFinite(ageMs) && ageMs <= maxAgeMinutes * 60_000;
+}
+
+function timestampMs(value: string | null | undefined) {
+  if (!value) return Number.NaN;
+  return new Date(value).getTime();
+}
+
+function hasFreshServingTrust(input: {
+  serving: Awaited<ReturnType<typeof getShopifyServingState>> | null;
+  ordersRecent: Awaited<ReturnType<typeof getShopifySyncState>>;
+  returnsRecent: Awaited<ReturnType<typeof getShopifySyncState>>;
+}) {
+  const { serving, ordersRecent, returnsRecent } = input;
+  if (!serving?.canaryEnabled) return true;
+  if (!isFreshTimestampMinutes(serving.assessedAt, shopifyCanaryTrustTtlMinutes())) {
+    return false;
+  }
+  const assessedAtMs = timestampMs(serving.assessedAt);
+  const lastOrdersSyncMs = timestampMs(ordersRecent?.latestSuccessfulSyncAt ?? null);
+  const lastReturnsSyncMs = timestampMs(returnsRecent?.latestSuccessfulSyncAt ?? null);
+  if (Number.isFinite(lastOrdersSyncMs) && assessedAtMs < lastOrdersSyncMs) return false;
+  if (Number.isFinite(lastReturnsSyncMs) && assessedAtMs < lastReturnsSyncMs) return false;
+  return true;
 }
 
 export async function getShopifyStatus(
@@ -44,6 +78,7 @@ export async function getShopifyStatus(
         businessId: string;
         startDate?: string;
         endDate?: string;
+        ignoreServingTrust?: boolean;
       }
 ): Promise<ShopifyStatusResponse> {
   const businessId = typeof input === "string" ? input : input.businessId;
@@ -144,6 +179,13 @@ export async function getShopifyStatus(
       ordersHistorical?.readyThroughDate === ordersHistorical?.historicalTargetEnd) &&
     (returnsHistorical?.latestSyncStatus === "ready" ||
       returnsHistorical?.readyThroughDate === returnsHistorical?.historicalTargetEnd);
+  const ignoreServingTrust =
+    typeof input !== "string" && input.ignoreServingTrust === true;
+  const servingTrustFresh = hasFreshServingTrust({
+    serving,
+    ordersRecent,
+    returnsRecent,
+  });
 
   if (!ordersRecent || !returnsRecent) {
     issues.push("Recent Shopify sync has not produced state yet.");
@@ -163,16 +205,24 @@ export async function getShopifyStatus(
   if (!historicalReady) {
     issues.push("Historical Shopify backfill is not complete yet.");
   }
-  if (serving?.canaryEnabled && serving.canServeWarehouse === false) {
+  if (!ignoreServingTrust && serving?.canaryEnabled && serving.canServeWarehouse === false) {
     issues.push("Shopify warehouse canary is blocked by trust checks.");
   }
+  if (!ignoreServingTrust && serving?.canaryEnabled && !servingTrustFresh) {
+    issues.push("Shopify warehouse canary trust is stale relative to recent sync.");
+  }
+
+  const servingTrustReady =
+    ignoreServingTrust ||
+    !serving?.canaryEnabled ||
+    (serving.canServeWarehouse !== false && servingTrustFresh);
 
   const state: ShopifyStatusResponse["state"] =
     warehouse.orderRowCount <= 0
       ? "syncing"
-      : recentHealthy && historicalReady && (!serving?.canaryEnabled || serving.canServeWarehouse !== false)
+      : recentHealthy && historicalReady && servingTrustReady
         ? "ready"
-      : recentHealthy
+        : recentHealthy
           ? "partial"
           : issues.some((issue) => issue.toLowerCase().includes("error"))
             ? "action_required"

@@ -11,6 +11,7 @@ vi.mock("@/lib/shopify/status", () => ({
 
 vi.mock("@/lib/shopify/warehouse", () => ({
   getShopifyServingState: vi.fn(),
+  listShopifyServingStateHistory: vi.fn(),
 }));
 
 const adminAuth = await import("@/lib/admin-auth");
@@ -44,6 +45,14 @@ describe("GET /api/admin/integrations/health/shopify", () => {
       endDate: "2026-03-31",
       timeZoneBasis: "shop_local",
     } as never);
+    vi.mocked(shopifyWarehouse.listShopifyServingStateHistory).mockResolvedValue([
+      {
+        canaryKey: "overview_shopify:2026-03-01:2026-03-31:shop_local",
+        canServeWarehouse: false,
+        decisionReasons: ["divergence_above_threshold"],
+        assessedAt: "2026-04-02T10:00:00.000Z",
+      },
+    ] as never);
 
     const request = new NextRequest(
       "http://localhost:3000/api/admin/integrations/health/shopify?businessId=biz_1&startDate=2026-03-01&endDate=2026-03-31"
@@ -60,5 +69,6 @@ describe("GET /api/admin/integrations/health/shopify", () => {
     });
     expect(payload.canaryKey).toBe("overview_shopify:2026-03-01:2026-03-31:shop_local");
     expect(payload.serving?.decisionReasons).toEqual(["divergence_above_threshold"]);
+    expect(payload.history).toHaveLength(1);
   });
 });

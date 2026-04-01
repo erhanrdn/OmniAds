@@ -72,6 +72,12 @@ describe("getShopifyOverviewReadCandidate", () => {
     expect(result.divergence?.withinThreshold).toBe(true);
     expect(result.decisionReasons).toContain("warehouse_read_canary_disabled");
     expect(warehouseState.upsertShopifyServingState).toHaveBeenCalled();
+    expect(status.getShopifyStatus).toHaveBeenCalledWith({
+      businessId: "biz_1",
+      startDate: "2026-03-01",
+      endDate: "2026-03-31",
+      ignoreServingTrust: true,
+    });
   });
 
   it("allows warehouse canary when status is ready and divergence is within threshold", async () => {

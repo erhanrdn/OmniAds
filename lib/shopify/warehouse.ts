@@ -11,6 +11,7 @@ import type {
   ShopifyRefundWarehouseRow,
   ShopifyReturnWarehouseRow,
   ShopifyServingStateRecord,
+  ShopifyServingStateHistoryRecord,
 } from "@/lib/shopify/warehouse-types";
 
 function normalizeDate(value: unknown) {
@@ -550,6 +551,53 @@ export async function getShopifyServingState(input: {
   } satisfies ShopifyServingStateRecord;
 }
 
+export async function listShopifyServingStateHistory(input: {
+  businessId: string;
+  providerAccountId: string;
+  canaryKey?: string;
+  startDate?: string | null;
+  endDate?: string | null;
+  limit?: number;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const limit = Math.max(1, Math.min(50, Math.trunc(input.limit ?? 10)));
+  const rows = (await sql`
+    SELECT *
+    FROM shopify_serving_state_history
+    WHERE business_id = ${input.businessId}
+      AND provider_account_id = ${input.providerAccountId}
+      AND (${input.canaryKey ?? null}::text IS NULL OR canary_key = ${input.canaryKey ?? null})
+      AND (${normalizeDate(input.startDate) ?? null}::date IS NULL OR start_date = ${normalizeDate(input.startDate) ?? null})
+      AND (${normalizeDate(input.endDate) ?? null}::date IS NULL OR end_date = ${normalizeDate(input.endDate) ?? null})
+    ORDER BY assessed_at DESC NULLS LAST, created_at DESC
+    LIMIT ${limit}
+  `) as Array<Record<string, unknown>>;
+  return rows.map((row) => ({
+    id: String(row.id),
+    businessId: String(row.business_id),
+    providerAccountId: String(row.provider_account_id),
+    canaryKey: String(row.canary_key),
+    startDate: normalizeDate(row.start_date),
+    endDate: normalizeDate(row.end_date),
+    timeZoneBasis: row.time_zone_basis ? String(row.time_zone_basis) : null,
+    assessedAt: normalizeTimestamp(row.assessed_at),
+    statusState: row.status_state ? String(row.status_state) : null,
+    preferredSource: row.preferred_source ? String(row.preferred_source) : null,
+    canServeWarehouse: Boolean(row.can_serve_warehouse),
+    canaryEnabled: Boolean(row.canary_enabled),
+    decisionReasons: Array.isArray(row.decision_reasons)
+      ? row.decision_reasons.map((value) => String(value))
+      : [],
+    divergence:
+      row.divergence && typeof row.divergence === "object"
+        ? (row.divergence as Record<string, unknown>)
+        : null,
+    createdAt: normalizeTimestamp(row.created_at),
+    updatedAt: normalizeTimestamp(row.updated_at),
+  })) satisfies ShopifyServingStateHistoryRecord[];
+}
+
 export async function upsertShopifyServingState(input: ShopifyServingStateRecord) {
   await runMigrations();
   const sql = getDb();
@@ -599,5 +647,39 @@ export async function upsertShopifyServingState(input: ShopifyServingStateRecord
       decision_reasons = EXCLUDED.decision_reasons,
       divergence = EXCLUDED.divergence,
       updated_at = now()
+  `;
+  await sql`
+    INSERT INTO shopify_serving_state_history (
+      business_id,
+      provider_account_id,
+      canary_key,
+      start_date,
+      end_date,
+      time_zone_basis,
+      assessed_at,
+      status_state,
+      preferred_source,
+      can_serve_warehouse,
+      canary_enabled,
+      decision_reasons,
+      divergence,
+      updated_at
+    )
+    VALUES (
+      ${input.businessId},
+      ${input.providerAccountId},
+      ${input.canaryKey},
+      ${normalizeDate(input.startDate)},
+      ${normalizeDate(input.endDate)},
+      ${input.timeZoneBasis ?? null},
+      COALESCE(${normalizeTimestamp(input.assessedAt)}, now()),
+      ${input.statusState ?? null},
+      ${input.preferredSource ?? null},
+      ${Boolean(input.canServeWarehouse)},
+      ${Boolean(input.canaryEnabled)},
+      ${JSON.stringify(input.decisionReasons ?? [])}::jsonb,
+      ${JSON.stringify(input.divergence ?? null)}::jsonb,
+      now()
+    )
   `;
 }

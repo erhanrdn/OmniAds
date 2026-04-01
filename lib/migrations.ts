@@ -1491,6 +1491,28 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
           ON shopify_serving_state (business_id, updated_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_serving_state_business_range
           ON shopify_serving_state (business_id, start_date DESC, end_date DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS shopify_serving_state_history (
+          id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id          TEXT NOT NULL,
+          provider_account_id  TEXT NOT NULL,
+          canary_key           TEXT NOT NULL,
+          start_date           DATE,
+          end_date             DATE,
+          time_zone_basis      TEXT,
+          assessed_at          TIMESTAMPTZ,
+          status_state         TEXT,
+          preferred_source     TEXT,
+          can_serve_warehouse  BOOLEAN NOT NULL DEFAULT FALSE,
+          canary_enabled       BOOLEAN NOT NULL DEFAULT FALSE,
+          decision_reasons     JSONB NOT NULL DEFAULT '[]'::jsonb,
+          divergence           JSONB,
+          created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_serving_state_history_business_assessed
+          ON shopify_serving_state_history (business_id, assessed_at DESC, created_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_serving_state_history_business_range
+          ON shopify_serving_state_history (business_id, start_date DESC, end_date DESC, assessed_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS shopify_sync_state (
           business_id              TEXT NOT NULL,
           provider_account_id      TEXT NOT NULL,

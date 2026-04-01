@@ -138,6 +138,12 @@ export interface ShopifyServingStateRecord {
   divergence?: Record<string, unknown> | null;
 }
 
+export interface ShopifyServingStateHistoryRecord extends ShopifyServingStateRecord {
+  id?: string;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
 export interface ShopifyCustomerEventWarehouseRow {
   businessId: string;
   providerAccountId: string;

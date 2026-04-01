@@ -20,6 +20,7 @@ export async function getShopifyOverviewReadCandidate(input: {
       businessId: input.businessId,
       startDate: input.startDate,
       endDate: input.endDate,
+      ignoreServingTrust: true,
     }),
     getShopifyOverviewAggregate(input),
     getShopifyWarehouseOverviewAggregate({

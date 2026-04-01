@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
 import { buildShopifyOverviewCanaryKey, SHOPIFY_OVERVIEW_CANARY_TIMEZONE_BASIS } from "@/lib/shopify/serving";
 import { getShopifyStatus } from "@/lib/shopify/status";
-import { getShopifyServingState } from "@/lib/shopify/warehouse";
+import { getShopifyServingState, listShopifyServingStateHistory } from "@/lib/shopify/warehouse";
 
 export async function GET(request: NextRequest) {
   try {
@@ -39,6 +39,21 @@ export async function GET(request: NextRequest) {
             }),
           }).catch(() => null)
         : null;
+    const history =
+      status.shopId && startDate && endDate
+        ? await listShopifyServingStateHistory({
+            businessId,
+            providerAccountId: status.shopId,
+            canaryKey: buildShopifyOverviewCanaryKey({
+              startDate,
+              endDate,
+              timeZoneBasis: SHOPIFY_OVERVIEW_CANARY_TIMEZONE_BASIS,
+            }),
+            startDate,
+            endDate,
+            limit: 5,
+          }).catch(() => [])
+        : [];
 
     return NextResponse.json({
       businessId,
@@ -54,6 +69,7 @@ export async function GET(request: NextRequest) {
           : null,
       status,
       serving,
+      history,
     });
   } catch (err) {
     console.error("[admin/integrations/health/shopify GET]", err);
