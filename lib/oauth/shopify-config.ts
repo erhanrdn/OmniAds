@@ -94,10 +94,15 @@ function logShopifyConfigDiagnostics(appUrl: string, redirectUri: string) {
  *   SHOPIFY_CLIENT_SECRET – Shopify App API secret
  *   SHOPIFY_SCOPES        – Comma-separated OAuth scopes
  *                          Current approved set:
- *                          read_all_orders,read_analytics,read_price_rules,
- *                          read_inventory,read_marketing_events,read_markets,
+ *                          read_all_orders,read_analytics,
+ *                          read_customer_events,read_customers,
+ *                          read_discounts,read_fulfillments,
+ *                          read_inventory,read_locations,
+ *                          read_marketing_events,read_markets,
  *                          read_online_store_pages,read_orders,
- *                          read_product_listings,read_products,read_reports
+ *                          read_price_rules,read_product_listings,
+ *                          read_products,read_reports,read_returns,
+ *                          write_pixels
  *   NEXT_PUBLIC_APP_URL   – e.g. https://localhost:3000 or https://yourdomain.com
  */
 
