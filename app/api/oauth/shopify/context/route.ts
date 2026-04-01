@@ -32,6 +32,10 @@ export async function GET(request: NextRequest) {
         context.metadata && typeof context.metadata.currency === "string"
           ? context.metadata.currency
           : null,
+      ianaTimeZone:
+        context.metadata && typeof context.metadata.iana_timezone === "string"
+          ? context.metadata.iana_timezone
+          : null,
     },
   });
 }

@@ -31,7 +31,7 @@ describe("getShopifyOverviewAggregate", () => {
       token_expires_at: null,
       scopes: "read_reports,read_orders,read_all_orders",
       error_message: null,
-      metadata: {},
+      metadata: { iana_timezone: "America/New_York" },
       connected_at: null,
       disconnected_at: null,
       created_at: "",
@@ -41,88 +41,39 @@ describe("getShopifyOverviewAggregate", () => {
 
   it("returns Shopify-first aggregate with sessions and customer metrics", async () => {
     const fetchMock = vi.mocked(fetch);
-    fetchMock
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            shopifyqlQuery: {
-              parseErrors: [],
-              tableData: {
-                columns: [{ name: "day" }, { name: "total_sales" }, { name: "orders" }],
-                rows: [
-                  ["2026-03-01", "100.00", "1"],
-                  ["2026-03-02", "200.00", "2"],
-                ],
-              },
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: {
+          orders: {
+            pageInfo: {
+              hasNextPage: false,
+              endCursor: null,
             },
-          },
-        }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            shopifyqlQuery: {
-              parseErrors: [],
-              tableData: {
-                columns: [{ name: "day" }, { name: "sessions" }],
-                rows: [
-                  ["2026-03-01", "10"],
-                  ["2026-03-02", "20"],
-                ],
+            edges: [
+              {
+                node: {
+                  createdAt: "2026-03-01T10:00:00Z",
+                  currentTotalPriceSet: { shopMoney: { amount: "100.00" } },
+                },
               },
-            },
-          },
-        }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            orders: {
-              pageInfo: {
-                hasNextPage: false,
-                endCursor: null,
+              {
+                node: {
+                  createdAt: "2026-03-02T10:00:00Z",
+                  currentTotalPriceSet: { shopMoney: { amount: "120.00" } },
+                },
               },
-              edges: [
-                {
-                  node: {
-                    createdAt: "2026-03-01T10:00:00Z",
-                    currentTotalPriceSet: { shopMoney: { amount: "100.00" } },
-                    customer: { id: "gid://shopify/Customer/1" },
-                    customerJourneySummary: { customerOrderIndex: 1 },
-                  },
+              {
+                node: {
+                  createdAt: "2026-03-02T11:00:00Z",
+                  currentTotalPriceSet: { shopMoney: { amount: "80.00" } },
                 },
-                {
-                  node: {
-                    createdAt: "2026-03-02T10:00:00Z",
-                    currentTotalPriceSet: { shopMoney: { amount: "120.00" } },
-                    customer: { id: "gid://shopify/Customer/1" },
-                    customerJourneySummary: { customerOrderIndex: 2 },
-                  },
-                },
-                {
-                  node: {
-                    createdAt: "2026-03-02T11:00:00Z",
-                    currentTotalPriceSet: { shopMoney: { amount: "80.00" } },
-                    customer: { id: "gid://shopify/Customer/2" },
-                    customerJourneySummary: { customerOrderIndex: 1 },
-                  },
-                },
-                {
-                  node: {
-                    createdAt: "2026-03-02T12:00:00Z",
-                    currentTotalPriceSet: { shopMoney: { amount: "0.00" } },
-                    customer: { id: "gid://shopify/Customer/3" },
-                    customerJourneySummary: { customerOrderIndex: 3 },
-                  },
-                },
-              ],
-            },
+              },
+            ],
           },
-        }),
-      } as Response);
+        },
+      }),
+    } as Response);
 
     const aggregate = await getShopifyOverviewAggregate({
       businessId: "biz_1",
@@ -134,28 +85,28 @@ describe("getShopifyOverviewAggregate", () => {
       revenue: 300,
       purchases: 3,
       averageOrderValue: 100,
-      sessions: 30,
-      conversionRate: 10,
-      newCustomers: 2,
-      returningCustomers: 1,
+      sessions: null,
+      conversionRate: null,
+      newCustomers: null,
+      returningCustomers: null,
       dailyTrends: [
         {
           date: "2026-03-01",
           revenue: 100,
           purchases: 1,
-          sessions: 10,
-          conversionRate: 10,
-          newCustomers: 1,
-          returningCustomers: 0,
+          sessions: null,
+          conversionRate: null,
+          newCustomers: null,
+          returningCustomers: null,
         },
         {
           date: "2026-03-02",
           revenue: 200,
           purchases: 2,
-          sessions: 20,
-          conversionRate: 10,
-          newCustomers: 1,
-          returningCustomers: 2,
+          sessions: null,
+          conversionRate: null,
+          newCustomers: null,
+          returningCustomers: null,
         },
       ],
     });
@@ -192,51 +143,35 @@ describe("getShopifyOverviewAggregate", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("falls back to orders-based aggregate when ShopifyQL access is denied", async () => {
+  it("returns commerce metrics even when optional customer fields are unavailable", async () => {
     const fetchMock = vi.mocked(fetch);
-    fetchMock
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          errors: [
-            {
-              message:
-                "Access denied for shopifyqlQuery field. Required access: `read_reports` access scope. Also: Level 2 access to Customer data.",
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: {
+          orders: {
+            pageInfo: {
+              hasNextPage: false,
+              endCursor: null,
             },
-          ],
-        }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            orders: {
-              pageInfo: {
-                hasNextPage: false,
-                endCursor: null,
+            edges: [
+              {
+                node: {
+                  createdAt: "2026-03-01T10:00:00Z",
+                  currentTotalPriceSet: { shopMoney: { amount: "100.00" } },
+                },
               },
-              edges: [
-                {
-                  node: {
-                    createdAt: "2026-03-01T10:00:00Z",
-                    currentTotalPriceSet: { shopMoney: { amount: "100.00" } },
-                    customer: { id: "gid://shopify/Customer/1" },
-                    customerJourneySummary: { customerOrderIndex: 1 },
-                  },
+              {
+                node: {
+                  createdAt: "2026-03-02T10:00:00Z",
+                  currentTotalPriceSet: { shopMoney: { amount: "200.00" } },
                 },
-                {
-                  node: {
-                    createdAt: "2026-03-02T10:00:00Z",
-                    currentTotalPriceSet: { shopMoney: { amount: "200.00" } },
-                    customer: { id: "gid://shopify/Customer/1" },
-                    customerJourneySummary: { customerOrderIndex: 2 },
-                  },
-                },
-              ],
-            },
+              },
+            ],
           },
-        }),
-      } as Response);
+        },
+      }),
+    } as Response);
 
     vi.mocked(integrations.getIntegration).mockResolvedValueOnce({
       id: "int_shopify",
@@ -269,8 +204,8 @@ describe("getShopifyOverviewAggregate", () => {
       averageOrderValue: 150,
       sessions: null,
       conversionRate: null,
-      newCustomers: 1,
-      returningCustomers: 0,
+      newCustomers: null,
+      returningCustomers: null,
       dailyTrends: [
         {
           date: "2026-03-01",
@@ -278,8 +213,8 @@ describe("getShopifyOverviewAggregate", () => {
           purchases: 1,
           sessions: null,
           conversionRate: null,
-          newCustomers: 1,
-          returningCustomers: 0,
+          newCustomers: null,
+          returningCustomers: null,
         },
         {
           date: "2026-03-02",
@@ -287,11 +222,43 @@ describe("getShopifyOverviewAggregate", () => {
           purchases: 1,
           sessions: null,
           conversionRate: null,
-          newCustomers: 0,
-          returningCustomers: 1,
+          newCustomers: null,
+          returningCustomers: null,
         },
       ],
     });
     expect(reportingCache.setCachedReport).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses shop-local timezone boundaries when building the orders filter", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: {
+          orders: {
+            pageInfo: {
+              hasNextPage: false,
+              endCursor: null,
+            },
+            edges: [],
+          },
+        },
+      }),
+    } as Response);
+
+    await getShopifyOverviewAggregate({
+      businessId: "biz_1",
+      startDate: "2026-03-01",
+      endDate: "2026-03-01",
+    });
+
+    const [, init] = fetchMock.mock.calls[0] ?? [];
+    const body = JSON.parse(String(init?.body ?? "{}")) as {
+      variables?: { query?: string };
+    };
+
+    expect(body.variables?.query).toContain("created_at:>=2026-03-01T05:00:00.000Z");
+    expect(body.variables?.query).toContain("created_at:<=2026-03-02T04:59:59.000Z");
   });
 });

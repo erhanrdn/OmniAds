@@ -4,27 +4,9 @@ import { getCachedReport, getReportingDateRangeKey, setCachedReport } from "@/li
 
 const SHOPIFY_OVERVIEW_CACHE_TTL_MINUTES = 15;
 const SHOPIFY_ANALYTICS_API_VERSION = process.env.SHOPIFY_ANALYTICS_API_VERSION ?? "2025-10";
-const SHOPIFY_OVERVIEW_REPORT_TYPE = "overview_shopifyql_aggregate_v2";
+const SHOPIFY_OVERVIEW_REPORT_TYPE = "overview_shopify_orders_aggregate_v3";
 const SHOPIFY_ORDER_PAGE_SIZE = 250;
 const SHOPIFY_ORDER_PAGE_LIMIT = 40;
-
-interface ShopifyqlTableDataColumn {
-  name?: string | null;
-  dataType?: string | null;
-  displayName?: string | null;
-}
-
-interface ShopifyqlTableData {
-  columns?: ShopifyqlTableDataColumn[] | null;
-  rows?: unknown;
-}
-
-interface ShopifyqlQueryPayload {
-  shopifyqlQuery?: {
-    parseErrors?: string[] | null;
-    tableData?: ShopifyqlTableData | null;
-  } | null;
-}
 
 export interface ShopifyOverviewAggregate {
   revenue: number;
@@ -53,14 +35,90 @@ function hasScope(scopes: string | null | undefined, scope: string) {
     .includes(scope);
 }
 
-function buildShopifyqlDateLiteral(date: string) {
-  return date;
-}
-
 function normalizeDate(value: unknown) {
   if (typeof value !== "string") return null;
   const match = value.match(/\d{4}-\d{2}-\d{2}/);
   return match?.[0] ?? null;
+}
+
+function parseTimeZoneOffsetMinutes(value: string) {
+  const match = value.match(/^GMT([+-])(\d{1,2})(?::?(\d{2}))?$/);
+  if (!match) return null;
+  const sign = match[1] === "-" ? -1 : 1;
+  const hours = Number.parseInt(match[2] ?? "0", 10);
+  const minutes = Number.parseInt(match[3] ?? "0", 10);
+  return sign * (hours * 60 + minutes);
+}
+
+function getTimeZoneOffsetMinutes(timeZone: string, date: Date) {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    timeZoneName: "longOffset",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  });
+  const offsetPart = formatter
+    .formatToParts(date)
+    .find((part) => part.type === "timeZoneName")?.value;
+  return offsetPart ? parseTimeZoneOffsetMinutes(offsetPart) : null;
+}
+
+function shiftIsoDate(date: string, dayDelta: number) {
+  const base = new Date(`${date}T00:00:00.000Z`);
+  base.setUTCDate(base.getUTCDate() + dayDelta);
+  return base.toISOString().slice(0, 10);
+}
+
+function localDateBoundaryToUtcIso(input: {
+  date: string;
+  timeZone: string;
+  endOfDay?: boolean;
+}) {
+  const [year, month, day] = input.date.split("-").map((part) => Number.parseInt(part, 10));
+  const utcMillis = Date.UTC(year, month - 1, day, input.endOfDay ? 23 : 0, input.endOfDay ? 59 : 0, input.endOfDay ? 59 : 0);
+  let instant = new Date(utcMillis);
+  let offset = getTimeZoneOffsetMinutes(input.timeZone, instant);
+  if (offset === null) return instant.toISOString();
+  instant = new Date(utcMillis - offset * 60_000);
+  const correctedOffset = getTimeZoneOffsetMinutes(input.timeZone, instant);
+  if (correctedOffset !== null && correctedOffset !== offset) {
+    instant = new Date(utcMillis - correctedOffset * 60_000);
+  }
+  return instant.toISOString();
+}
+
+function resolveShopLocalWindow(input: {
+  startDate: string;
+  endDate: string;
+  timeZone?: string | null;
+}) {
+  if (!input.timeZone) {
+    return {
+      startIso: `${input.startDate}T00:00:00Z`,
+      endIso: `${input.endDate}T23:59:59Z`,
+    };
+  }
+
+  const nextDay = shiftIsoDate(input.endDate, 1);
+  const startIso = localDateBoundaryToUtcIso({
+    date: input.startDate,
+    timeZone: input.timeZone,
+  });
+  const nextDayStartIso = localDateBoundaryToUtcIso({
+    date: nextDay,
+    timeZone: input.timeZone,
+  });
+  const endIso = new Date(new Date(nextDayStartIso).getTime() - 1000).toISOString();
+
+  return {
+    startIso,
+    endIso,
+  };
 }
 
 function toNumber(value: unknown) {
@@ -72,85 +130,6 @@ function toNumber(value: unknown) {
   return 0;
 }
 
-function normalizeTableRows(tableData: ShopifyqlTableData | null | undefined) {
-  const columns = Array.isArray(tableData?.columns) ? tableData.columns : [];
-  const columnNames = columns.map((column) => column.name?.trim() ?? "");
-  const rows = tableData?.rows;
-
-  if (!Array.isArray(rows)) return [] as Array<Record<string, unknown>>;
-
-  return rows
-    .map((row) => {
-      if (Array.isArray(row)) {
-        return Object.fromEntries(
-          columnNames.map((name, index) => [name || `col_${index}`, row[index] ?? null])
-        );
-      }
-      if (row && typeof row === "object") {
-        return row as Record<string, unknown>;
-      }
-      return null;
-    })
-    .filter((row): row is Record<string, unknown> => Boolean(row));
-}
-
-async function shopifyAnalyticsQuery(input: {
-  shopId: string;
-  accessToken: string;
-  query: string;
-}): Promise<ShopifyqlQueryPayload["shopifyqlQuery"] | null> {
-  const response = await fetch(
-    `https://${input.shopId}/admin/api/${SHOPIFY_ANALYTICS_API_VERSION}/graphql.json`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Shopify-Access-Token": input.accessToken,
-        Accept: "application/json",
-      },
-      body: JSON.stringify({
-        query: `
-          query ShopifyOverviewQuery($query: String!) {
-            shopifyqlQuery(query: $query) {
-              parseErrors
-              tableData {
-                columns {
-                  name
-                  dataType
-                  displayName
-                }
-                rows
-              }
-            }
-          }
-        `,
-        variables: { query: input.query },
-      }),
-      cache: "no-store",
-    }
-  );
-
-  const payload = (await response.json().catch(() => null)) as
-    | {
-        data?: ShopifyqlQueryPayload;
-        errors?: Array<{ message?: string; extensions?: { code?: string; requiredAccess?: string } }>;
-      }
-    | null;
-
-  if (!response.ok) {
-    throw new Error(
-      payload?.errors?.[0]?.message ??
-        `Shopify analytics query failed (${response.status}).`
-    );
-  }
-
-  if (payload?.errors?.length) {
-    throw new Error(payload.errors[0]?.message ?? "Shopify analytics query failed.");
-  }
-
-  return payload?.data?.shopifyqlQuery ?? null;
-}
-
 interface ShopifyAdminGraphqlOrderEdge {
   node?: {
     createdAt?: string | null;
@@ -158,10 +137,6 @@ interface ShopifyAdminGraphqlOrderEdge {
       shopMoney?: {
         amount?: string | null;
       } | null;
-    } | null;
-    customer?: { id?: string | null } | null;
-    customerJourneySummary?: {
-      customerOrderIndex?: number | null;
     } | null;
   } | null;
 }
@@ -220,15 +195,16 @@ async function shopifyAdminGraphql<T>(input: {
   return payload.data;
 }
 
-async function getShopifyOrderMetrics(input: {
+async function getShopifyOrderCommerceMetrics(input: {
   shopId: string;
   accessToken: string;
   startDate: string;
   endDate: string;
   dates: string[];
+  timeZone?: string | null;
 }) {
   const query = `
-    query ShopifyOverviewOrders($query: String!, $cursor: String) {
+    query ShopifyOverviewCommerceOrders($query: String!, $cursor: String) {
       orders(first: ${SHOPIFY_ORDER_PAGE_SIZE}, after: $cursor, sortKey: CREATED_AT, query: $query) {
         pageInfo {
           hasNextPage
@@ -242,31 +218,25 @@ async function getShopifyOrderMetrics(input: {
                 amount
               }
             }
-            customer {
-              id
-            }
-            customerJourneySummary {
-              customerOrderIndex
-            }
           }
         }
       }
     }
   `;
 
-  const customerMinIndex = new Map<string, number>();
-  const dailyNewCustomers = new Map<string, Set<string>>();
-  const dailyReturningCustomers = new Map<string, Set<string>>();
   const dailyRevenue = new Map<string, number>();
   const dailyPurchases = new Map<string, number>();
   for (const date of input.dates) {
-    dailyNewCustomers.set(date, new Set());
-    dailyReturningCustomers.set(date, new Set());
     dailyRevenue.set(date, 0);
     dailyPurchases.set(date, 0);
   }
 
-  const ordersQuery = `created_at:>=${input.startDate}T00:00:00Z created_at:<=${input.endDate}T23:59:59Z status:any`;
+  const orderWindow = resolveShopLocalWindow({
+    startDate: input.startDate,
+    endDate: input.endDate,
+    timeZone: input.timeZone,
+  });
+  const ordersQuery = `created_at:>=${orderWindow.startIso} created_at:<=${orderWindow.endIso} status:any`;
   let cursor: string | null = null;
   let pageCount = 0;
 
@@ -293,26 +263,6 @@ async function getShopifyOrderMetrics(input: {
         round2((dailyRevenue.get(date) ?? 0) + toNumber(node?.currentTotalPriceSet?.shopMoney?.amount))
       );
       dailyPurchases.set(date, (dailyPurchases.get(date) ?? 0) + 1);
-
-      const customerId = node?.customer?.id?.trim();
-      const orderIndex = node?.customerJourneySummary?.customerOrderIndex;
-      if (!customerId) continue;
-      if (typeof orderIndex !== "number" || !Number.isFinite(orderIndex) || orderIndex < 1) continue;
-
-      customerMinIndex.set(
-        customerId,
-        Math.min(customerMinIndex.get(customerId) ?? Number.POSITIVE_INFINITY, orderIndex)
-      );
-
-      if (orderIndex === 1) {
-        dailyNewCustomers.get(date)!.add(customerId);
-        dailyReturningCustomers.get(date)!.delete(customerId);
-        continue;
-      }
-
-      if (!dailyNewCustomers.get(date)!.has(customerId)) {
-        dailyReturningCustomers.get(date)!.add(customerId);
-      }
     }
 
     const pageInfo = payload.orders?.pageInfo;
@@ -332,36 +282,14 @@ async function getShopifyOrderMetrics(input: {
     return {
       revenue: null,
       purchases: null,
-      newCustomers: null,
-      returningCustomers: null,
-      byDate: new Map<
-        string,
-        {
-          revenue: number | null;
-          purchases: number | null;
-          newCustomers: number | null;
-          returningCustomers: number | null;
-        }
-      >(),
+      byDate: new Map<string, { revenue: number | null; purchases: number | null }>(),
     };
   }
 
   let revenue = 0;
   let purchases = 0;
-  let newCustomers = 0;
-  let returningCustomers = 0;
-  for (const minIndex of customerMinIndex.values()) {
-    if (minIndex === 1) {
-      newCustomers += 1;
-    } else if (minIndex > 1) {
-      returningCustomers += 1;
-    }
-  }
 
-  const byDate = new Map<
-    string,
-    { revenue: number; purchases: number; newCustomers: number; returningCustomers: number }
-  >();
+  const byDate = new Map<string, { revenue: number; purchases: number }>();
   for (const date of input.dates) {
     const dayRevenue = round2(dailyRevenue.get(date) ?? 0);
     const dayPurchases = dailyPurchases.get(date) ?? 0;
@@ -370,16 +298,12 @@ async function getShopifyOrderMetrics(input: {
     byDate.set(date, {
       revenue: dayRevenue,
       purchases: dayPurchases,
-      newCustomers: dailyNewCustomers.get(date)?.size ?? 0,
-      returningCustomers: dailyReturningCustomers.get(date)?.size ?? 0,
     });
   }
 
   return {
     revenue: round2(revenue),
     purchases: Math.round(purchases),
-    newCustomers,
-    returningCustomers,
     byDate,
   };
 }
@@ -399,12 +323,11 @@ export async function getShopifyOverviewAggregate(params: {
     return null;
   }
 
-  const canReadReports = hasScope(integration.scopes, "read_reports");
   const canReadOrders =
     hasScope(integration.scopes, "read_orders") || hasScope(integration.scopes, "read_all_orders");
 
-  if (!canReadReports && !canReadOrders) {
-    console.warn("[shopify-overview] missing_read_reports_scope", {
+  if (!canReadOrders) {
+    console.warn("[shopify-overview] missing_read_orders_scope", {
       businessId: params.businessId,
       shopId: integration.provider_account_id,
     });
@@ -420,91 +343,6 @@ export async function getShopifyOverviewAggregate(params: {
     maxAgeMinutes: SHOPIFY_OVERVIEW_CACHE_TTL_MINUTES,
   });
   if (cached) return cached;
-
-  const dailyQuery =
-    "FROM sales " +
-    "SHOW total_sales, orders " +
-    `SINCE ${buildShopifyqlDateLiteral(params.startDate)} ` +
-    `UNTIL ${buildShopifyqlDateLiteral(params.endDate)} ` +
-    "GROUP BY day " +
-    "ORDER BY day";
-  const sessionsQuery =
-    "FROM sessions " +
-    "SHOW sessions " +
-    `SINCE ${buildShopifyqlDateLiteral(params.startDate)} ` +
-    `UNTIL ${buildShopifyqlDateLiteral(params.endDate)} ` +
-    "GROUP BY day " +
-    "ORDER BY day";
-
-  let salesResponse: ShopifyqlQueryPayload["shopifyqlQuery"] | null = null;
-  if (canReadReports) {
-    try {
-      salesResponse = await shopifyAnalyticsQuery({
-        shopId: integration.provider_account_id,
-        accessToken: integration.access_token,
-        query: dailyQuery,
-      });
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.warn("[shopify-overview] shopifyql_request_failed", {
-        businessId: params.businessId,
-        shopId: integration.provider_account_id,
-        startDate: params.startDate,
-        endDate: params.endDate,
-        message,
-      });
-    }
-  } else {
-    console.warn("[shopify-overview] missing_read_reports_scope", {
-      businessId: params.businessId,
-      shopId: integration.provider_account_id,
-    });
-  }
-
-  const rows = normalizeTableRows(salesResponse?.tableData);
-  if (salesResponse?.parseErrors?.length) {
-    console.warn("[shopify-overview] shopifyql_parse_error", {
-      businessId: params.businessId,
-      shopId: integration.provider_account_id,
-      startDate: params.startDate,
-      endDate: params.endDate,
-      query: dailyQuery,
-      parseErrors: salesResponse.parseErrors,
-    });
-  }
-
-  const canUseShopifyQl = rows.length > 0;
-  let sessionRows: Array<Record<string, unknown>> = [];
-  if (canUseShopifyQl) {
-    try {
-      const sessionsResponse = await shopifyAnalyticsQuery({
-        shopId: integration.provider_account_id,
-        accessToken: integration.access_token,
-        query: sessionsQuery,
-      });
-      if (sessionsResponse?.parseErrors?.length) {
-        console.warn("[shopify-overview] shopifyql_sessions_parse_error", {
-          businessId: params.businessId,
-          shopId: integration.provider_account_id,
-          startDate: params.startDate,
-          endDate: params.endDate,
-          query: sessionsQuery,
-          parseErrors: sessionsResponse.parseErrors,
-        });
-      } else {
-        sessionRows = normalizeTableRows(sessionsResponse?.tableData);
-      }
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.warn("[shopify-overview] shopifyql_sessions_request_failed", {
-        businessId: params.businessId,
-        shopId: integration.provider_account_id,
-        startDate: params.startDate,
-        endDate: params.endDate,
-        message,
-      });
-    }
-  }
 
   const dates = enumerateDays(params.startDate, params.endDate);
   const trendsByDate = new Map<
@@ -529,89 +367,40 @@ export async function getShopifyOverviewAggregate(params: {
 
   let revenue = 0;
   let purchases = 0;
-
-  for (const row of rows) {
-    const date =
-      normalizeDate(row.day) ??
-      normalizeDate(row.date) ??
-      normalizeDate(row.period) ??
-      normalizeDate(row["Day"]);
-    if (!date || !trendsByDate.has(date)) continue;
-
-    const dayRevenue =
-      toNumber(row.total_sales) ||
-      toNumber(row.gross_sales) ||
-      toNumber(row.net_sales) ||
-      toNumber(row["Total sales"]);
-    const dayOrders =
-      toNumber(row.orders) ||
-      toNumber(row.order_count) ||
-      toNumber(row["Orders"]);
-
-    const totals = trendsByDate.get(date)!;
-    totals.revenue = round2(dayRevenue);
-    totals.purchases = Math.round(dayOrders);
-
-    revenue += dayRevenue;
-    purchases += dayOrders;
-  }
-
   let sessions: number | null = null;
-  if (sessionRows.length > 0) {
-    sessions = 0;
-    for (const row of sessionRows) {
-      const date =
-        normalizeDate(row.day) ??
-        normalizeDate(row.date) ??
-        normalizeDate(row.period) ??
-        normalizeDate(row["Day"]);
-      if (!date || !trendsByDate.has(date)) continue;
-      const daySessions = Math.round(
-        toNumber(row.sessions) || toNumber(row.online_store_sessions) || toNumber(row["Sessions"])
-      );
-      const totals = trendsByDate.get(date)!;
-      totals.sessions = daySessions;
-      sessions += daySessions;
-    }
-  }
-
   let newCustomers: number | null = null;
   let returningCustomers: number | null = null;
-  if (canReadOrders) {
-    try {
-      const orderMetrics = await getShopifyOrderMetrics({
-        shopId: integration.provider_account_id,
-        accessToken: integration.access_token,
-        startDate: params.startDate,
-        endDate: params.endDate,
-        dates,
-      });
-      if (rows.length === 0 && orderMetrics.revenue !== null && orderMetrics.purchases !== null) {
-        revenue = orderMetrics.revenue;
-        purchases = orderMetrics.purchases;
-      }
-      newCustomers = orderMetrics.newCustomers;
-      returningCustomers = orderMetrics.returningCustomers;
-      for (const [date, metrics] of orderMetrics.byDate.entries()) {
-        const totals = trendsByDate.get(date);
-        if (!totals) continue;
-        if (rows.length === 0 && metrics.revenue !== null && metrics.purchases !== null) {
-          totals.revenue = round2(metrics.revenue);
-          totals.purchases = Math.round(metrics.purchases);
-        }
-        totals.newCustomers = metrics.newCustomers;
-        totals.returningCustomers = metrics.returningCustomers;
-      }
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.warn("[shopify-overview] customer_metrics_request_failed", {
-        businessId: params.businessId,
-        shopId: integration.provider_account_id,
-        startDate: params.startDate,
-        endDate: params.endDate,
-        message,
-      });
+  try {
+    const commerceMetrics = await getShopifyOrderCommerceMetrics({
+      shopId: integration.provider_account_id,
+      accessToken: integration.access_token,
+      startDate: params.startDate,
+      endDate: params.endDate,
+      dates,
+      timeZone:
+        typeof integration.metadata?.iana_timezone === "string"
+          ? integration.metadata.iana_timezone
+          : null,
+    });
+    if (commerceMetrics.revenue !== null && commerceMetrics.purchases !== null) {
+      revenue = commerceMetrics.revenue;
+      purchases = commerceMetrics.purchases;
     }
+    for (const [date, metrics] of commerceMetrics.byDate.entries()) {
+      const totals = trendsByDate.get(date);
+      if (!totals) continue;
+      totals.revenue = round2(metrics.revenue ?? 0);
+      totals.purchases = Math.round(metrics.purchases ?? 0);
+    }
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn("[shopify-overview] commerce_metrics_request_failed", {
+      businessId: params.businessId,
+      shopId: integration.provider_account_id,
+      startDate: params.startDate,
+      endDate: params.endDate,
+      message,
+    });
   }
 
   if (revenue <= 0 && purchases <= 0) {

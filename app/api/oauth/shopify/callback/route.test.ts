@@ -79,7 +79,11 @@ describe("GET /api/oauth/shopify/callback", () => {
       shop_name: "Test Shop",
       access_token: "permanent_token",
       scopes: SHOPIFY_GRANTED_SCOPES,
-      metadata: { currency: "USD" },
+      metadata: {
+        currency: "USD",
+        iana_timezone: "America/New_York",
+        timezone: "(GMT-05:00) Eastern Time",
+      },
       return_to: "/integrations",
       session_id: null,
       user_id: null,
@@ -101,6 +105,8 @@ describe("GET /api/oauth/shopify/callback", () => {
           shop: {
             name: "Test Shop",
             currency: "USD",
+            iana_timezone: "America/New_York",
+            timezone: "(GMT-05:00) Eastern Time",
           },
         }),
       });
@@ -114,6 +120,15 @@ describe("GET /api/oauth/shopify/callback", () => {
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe(
       "https://adsecute.com/shopify/connect?context=ctx_token",
+    );
+    expect(installContext.createShopifyInstallContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: {
+          currency: "USD",
+          iana_timezone: "America/New_York",
+          timezone: "(GMT-05:00) Eastern Time",
+        },
+      }),
     );
   });
 
@@ -151,6 +166,8 @@ describe("GET /api/oauth/shopify/callback", () => {
           shop: {
             name: "Test Shop",
             currency: "USD",
+            iana_timezone: "America/New_York",
+            timezone: "(GMT-05:00) Eastern Time",
           },
         }),
       });
@@ -169,6 +186,15 @@ describe("GET /api/oauth/shopify/callback", () => {
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toContain(
       "https://adsecute.com/integrations/callback/shopify?status=success&businessId=biz_1&integrationId=int_1",
+    );
+    expect(integrations.upsertIntegration).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: {
+          currency: "USD",
+          iana_timezone: "America/New_York",
+          timezone: "(GMT-05:00) Eastern Time",
+        },
+      }),
     );
   });
 });

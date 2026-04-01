@@ -129,4 +129,33 @@ describe("getOverviewData", () => {
     expect(overview.kpis.revenue).toBe(480);
     expect(overview.kpis.purchases).toBe(6);
   });
+
+  it("marks ecommerce KPIs as Shopify when Shopify aggregate is present", async () => {
+    vi.mocked(shopifyOverview.getShopifyOverviewAggregate).mockResolvedValue({
+      revenue: 900,
+      purchases: 9,
+      averageOrderValue: 100,
+      sessions: null,
+      conversionRate: null,
+      newCustomers: null,
+      returningCustomers: null,
+      dailyTrends: [],
+    });
+
+    const overview = await getOverviewData({
+      businessId: "biz",
+      startDate: "2026-03-01",
+      endDate: "2026-03-15",
+      includeTrends: false,
+    });
+
+    expect(overview.kpis.revenue).toBe(900);
+    expect(overview.kpis.purchases).toBe(9);
+    expect(overview.kpis.aov).toBe(100);
+    expect(overview.kpis.roas).toBe(7.5);
+    expect(overview.kpiSources.revenue).toEqual({ source: "shopify", label: "Shopify" });
+    expect(overview.kpiSources.purchases).toEqual({ source: "shopify", label: "Shopify" });
+    expect(overview.kpiSources.aov).toEqual({ source: "shopify", label: "Shopify" });
+    expect(overview.kpiSources.roas).toEqual({ source: "shopify", label: "Shopify" });
+  });
 });

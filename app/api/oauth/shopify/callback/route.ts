@@ -107,6 +107,8 @@ export async function GET(request: NextRequest) {
     // ── Fetch shop metadata ─────────────────────────────────────
     let shopName: string = shop;
     let shopCurrency: string | null = null;
+    let shopIanaTimeZone: string | null = null;
+    let shopTimeZoneLabel: string | null = null;
     try {
       const shopRes = await fetch(SHOPIFY_CONFIG.shopInfoUrl(shop), {
         headers: {
@@ -118,6 +120,8 @@ export async function GET(request: NextRequest) {
         const shopData = await shopRes.json();
         shopName = shopData.shop?.name ?? shop;
         shopCurrency = shopData.shop?.currency ?? null;
+        shopIanaTimeZone = shopData.shop?.iana_timezone ?? null;
+        shopTimeZoneLabel = shopData.shop?.timezone ?? null;
       }
     } catch (shopErr) {
       console.warn(
@@ -126,7 +130,14 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const metadata = shopCurrency ? { currency: shopCurrency } : undefined;
+    const metadata =
+      shopCurrency || shopIanaTimeZone || shopTimeZoneLabel
+        ? {
+            ...(shopCurrency ? { currency: shopCurrency } : {}),
+            ...(shopIanaTimeZone ? { iana_timezone: shopIanaTimeZone } : {}),
+            ...(shopTimeZoneLabel ? { timezone: shopTimeZoneLabel } : {}),
+          }
+        : undefined;
 
     if (hasVerifiedState && stateBusinessId) {
       const access = await requireBusinessAccess({

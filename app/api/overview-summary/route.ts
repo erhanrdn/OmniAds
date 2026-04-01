@@ -169,6 +169,7 @@ export async function GET(request: NextRequest) {
     costModelResult.status === "fulfilled" ? costModelResult.value : null;
   const analyticsConnected = Boolean(currentAnalytics?.kpis);
   const shopifyConnected = Boolean(integrationsStatus?.shopify);
+  const tr = (english: string, turkish: string) => (language === "tr" ? turkish : english);
 
   // GA4 daily trends are deferred to the /api/overview-sparklines endpoint.
   // The summary endpoint only needs aggregate KPI values (handled above).
@@ -178,6 +179,12 @@ export async function GET(request: NextRequest) {
   const purchasesSource = currentOverview.kpiSources?.purchases;
   const aovSource = currentOverview.kpiSources?.aov;
   const roasSource = currentOverview.kpiSources?.roas;
+  const revenueCompositeSourceLabel =
+    revenueSource?.source === "shopify"
+      ? tr("Shopify + ad platforms", "Shopify + reklam platformlari")
+      : revenueSource?.source === "ga4_fallback"
+        ? tr("GA4 + ad platforms", "GA4 + reklam platformlari")
+        : tr("Revenue + ad platforms", "Gelir + reklam platformlari");
   const spendSeries = toSparklineSeries(currentOverview.trends.custom, (point) => point.spend);
   const revenueSeries = toSparklineSeries(currentOverview.trends.custom, (point) => point.revenue);
   const purchaseSeries = toSparklineSeries(currentOverview.trends.custom, (point) => point.purchases);
@@ -242,8 +249,6 @@ export async function GET(request: NextRequest) {
     (point) => Math.max(point.totalPurchasers - point.firstTimePurchasers, 0),
     (point) => point.totalPurchasers
   );
-  const tr = (english: string, turkish: string) => (language === "tr" ? turkish : english);
-
   const sessionsCurrent = currentAnalytics?.kpis?.sessions ?? null;
   const sessionsPrevious = previousAnalytics?.kpis?.sessions ?? null;
   const engagementRateCurrent = currentAnalytics?.kpis?.engagementRate ?? null;
@@ -361,8 +366,7 @@ export async function GET(request: NextRequest) {
           : null,
       unit: "ratio",
       sourceKey: revenueSource?.source ?? "unavailable",
-      sourceLabel:
-        revenueSource?.source === "ga4_fallback" ? tr("GA4 + ad platforms", "GA4 + reklam platformlari") : tr("Revenue + ad platforms", "Gelir + reklam platformlari"),
+      sourceLabel: revenueCompositeSourceLabel,
       helperText:
         revenueSource?.source === "unavailable" ? tr("Connect Shopify or GA4", "Shopify veya GA4 bağlayın") : undefined,
       sparklineData: merSeries,
@@ -784,7 +788,11 @@ export async function GET(request: NextRequest) {
       unit: "ratio",
       sourceKey: revenueSource?.source ?? "unavailable",
       sourceLabel:
-        revenueSource?.source === "ga4_fallback" ? "GA4 + ad platforms" : "Revenue + ad platforms",
+        revenueSource?.source === "shopify"
+          ? "Shopify + ad platforms"
+          : revenueSource?.source === "ga4_fallback"
+            ? "GA4 + ad platforms"
+            : "Revenue + ad platforms",
       helperText:
         revenueSource?.source === "unavailable" ? "Connect Shopify or GA4" : undefined,
       sparklineData: merSeries,
