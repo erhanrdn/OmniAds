@@ -11,6 +11,7 @@ import {
   upsertShopifyOrderTransactions,
   upsertShopifyRefunds,
   upsertShopifyReturns,
+  upsertShopifySalesEvents,
 } from "@/lib/shopify/warehouse";
 import type {
   ShopifyOrderLineWarehouseRow,
@@ -18,6 +19,7 @@ import type {
   ShopifyOrderWarehouseRow,
   ShopifyRefundWarehouseRow,
   ShopifyReturnWarehouseRow,
+  ShopifySalesEventWarehouseRow,
 } from "@/lib/shopify/warehouse-types";
 
 function toNumber(value: unknown) {
@@ -393,6 +395,57 @@ export function mapShopifyOrderNodeToWarehouseRows(input: {
   return { order, orderLines, refunds, transactions };
 }
 
+export function mapShopifySalesEventsFromOrderWarehouseRows(input: {
+  order: ShopifyOrderWarehouseRow;
+  refunds: ShopifyRefundWarehouseRow[];
+}) {
+  const orderEvent: ShopifySalesEventWarehouseRow = {
+    businessId: input.order.businessId,
+    providerAccountId: input.order.providerAccountId,
+    shopId: input.order.shopId,
+    eventId: `order:${input.order.orderId}`,
+    sourceKind: "order",
+    sourceId: input.order.orderId,
+    orderId: input.order.orderId,
+    occurredAt: input.order.orderProcessedAt ?? input.order.orderCreatedAt,
+    occurredDateLocal: input.order.orderCreatedDateLocal ?? null,
+    grossSales: input.order.totalPrice ?? 0,
+    refundedSales: 0,
+    refundedShipping: 0,
+    refundedTaxes: 0,
+    netRevenue: input.order.totalPrice ?? 0,
+    currencyCode: input.order.currencyCode ?? null,
+    payloadJson: input.order.payloadJson ?? null,
+    sourceSnapshotId: input.order.sourceSnapshotId ?? null,
+  };
+  const refundEvents: ShopifySalesEventWarehouseRow[] = input.refunds.map((refund) => {
+    const refundedSales = refund.refundedSales ?? 0;
+    const refundedShipping = refund.refundedShipping ?? 0;
+    const refundedTaxes = refund.refundedTaxes ?? 0;
+    const totalRefunded = refundedSales + refundedShipping + refundedTaxes;
+    return {
+      businessId: refund.businessId,
+      providerAccountId: refund.providerAccountId,
+      shopId: refund.shopId,
+      eventId: `refund:${refund.refundId}`,
+      sourceKind: "refund",
+      sourceId: refund.refundId,
+      orderId: refund.orderId,
+      occurredAt: refund.refundedAt,
+      occurredDateLocal: refund.refundedDateLocal ?? null,
+      grossSales: 0,
+      refundedSales,
+      refundedShipping,
+      refundedTaxes,
+      netRevenue: -round2(totalRefunded),
+      currencyCode: input.order.currencyCode ?? null,
+      payloadJson: refund.payloadJson ?? null,
+      sourceSnapshotId: refund.sourceSnapshotId ?? null,
+    } satisfies ShopifySalesEventWarehouseRow;
+  });
+  return [orderEvent, ...refundEvents];
+}
+
 function round2(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
@@ -425,6 +478,30 @@ export function mapShopifyReturnNodeToWarehouseRow(input: {
     payloadJson: input.node,
     sourceSnapshotId: input.sourceSnapshotId ?? null,
   } satisfies ShopifyReturnWarehouseRow;
+}
+
+export function mapShopifySalesEventFromReturnWarehouseRow(input: {
+  row: ShopifyReturnWarehouseRow;
+}) {
+  return {
+    businessId: input.row.businessId,
+    providerAccountId: input.row.providerAccountId,
+    shopId: input.row.shopId,
+    eventId: `return:${input.row.returnId}`,
+    sourceKind: "return",
+    sourceId: input.row.returnId,
+    orderId: input.row.orderId ?? null,
+    occurredAt: input.row.updatedAt ?? input.row.createdAt,
+    occurredDateLocal: input.row.updatedDateLocal ?? input.row.createdDateLocal ?? null,
+    grossSales: 0,
+    refundedSales: 0,
+    refundedShipping: 0,
+    refundedTaxes: 0,
+    netRevenue: 0,
+    currencyCode: null,
+    payloadJson: input.row.payloadJson ?? null,
+    sourceSnapshotId: input.row.sourceSnapshotId ?? null,
+  } satisfies ShopifySalesEventWarehouseRow;
 }
 
 export async function syncShopifyOrdersWindow(input: {
@@ -535,6 +612,14 @@ export async function syncShopifyOrdersWindow(input: {
     ordersWritten += await upsertShopifyOrders(mapped.map((row) => row.order));
     orderLinesWritten += await upsertShopifyOrderLines(mapped.flatMap((row) => row.orderLines));
     refundsWritten += await upsertShopifyRefunds(mapped.flatMap((row) => row.refunds));
+    await upsertShopifySalesEvents(
+      mapped.flatMap((row) =>
+        mapShopifySalesEventsFromOrderWarehouseRows({
+          order: row.order,
+          refunds: row.refunds,
+        })
+      )
+    );
     transactionsWritten += await upsertShopifyOrderTransactions(
       mapped.flatMap((row) => row.transactions)
     );
@@ -650,6 +735,13 @@ export async function syncShopifyReturnsWindow(input: {
     }
 
     returnsWritten += await upsertShopifyReturns(mapped);
+    await upsertShopifySalesEvents(
+      mapped.map((row) =>
+        mapShopifySalesEventFromReturnWarehouseRow({
+          row,
+        })
+      )
+    );
 
     if (!payload.returns?.pageInfo?.hasNextPage || !payload.returns?.pageInfo?.endCursor) {
       break;

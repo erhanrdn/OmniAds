@@ -9,15 +9,27 @@ vi.mock("@/lib/shopify/status", () => ({
   getShopifyStatus: vi.fn(),
 }));
 
+vi.mock("@/lib/shopify/warehouse-overview", () => ({
+  getShopifyWarehouseOverviewAggregate: vi.fn(),
+}));
+
+vi.mock("@/lib/shopify/revenue-ledger", () => ({
+  getShopifyRevenueLedgerAggregate: vi.fn(),
+}));
+
 vi.mock("@/lib/shopify/warehouse", () => ({
+  getShopifyServingOverride: vi.fn(),
   getShopifyServingState: vi.fn(),
   listShopifyServingStateHistory: vi.fn(),
+  upsertShopifyServingOverride: vi.fn(),
 }));
 
 const adminAuth = await import("@/lib/admin-auth");
 const shopifyStatus = await import("@/lib/shopify/status");
 const shopifyWarehouse = await import("@/lib/shopify/warehouse");
-const { GET } = await import("@/app/api/admin/integrations/health/shopify/route");
+const warehouseOverview = await import("@/lib/shopify/warehouse-overview");
+const revenueLedger = await import("@/lib/shopify/revenue-ledger");
+const { GET, PATCH } = await import("@/app/api/admin/integrations/health/shopify/route");
 
 describe("GET /api/admin/integrations/health/shopify", () => {
   beforeEach(() => {
@@ -25,6 +37,9 @@ describe("GET /api/admin/integrations/health/shopify", () => {
     vi.mocked(adminAuth.requireAdmin).mockResolvedValue({
       session: { user: { id: "admin_1", role: "admin" } },
     } as never);
+    vi.mocked(shopifyWarehouse.getShopifyServingOverride).mockResolvedValue(null as never);
+    vi.mocked(warehouseOverview.getShopifyWarehouseOverviewAggregate).mockResolvedValue(null as never);
+    vi.mocked(revenueLedger.getShopifyRevenueLedgerAggregate).mockResolvedValue(null as never);
   });
 
   it("returns a range-aware Shopify canary inspection payload", async () => {
@@ -70,5 +85,29 @@ describe("GET /api/admin/integrations/health/shopify", () => {
     expect(payload.canaryKey).toBe("overview_shopify:2026-03-01:2026-03-31:shop_local");
     expect(payload.serving?.decisionReasons).toEqual(["divergence_above_threshold"]);
     expect(payload.history).toHaveLength(1);
+  });
+
+  it("updates a Shopify serving override", async () => {
+    const request = new NextRequest(
+      "http://localhost:3000/api/admin/integrations/health/shopify",
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          businessId: "biz_1",
+          providerAccountId: "test-shop.myshopify.com",
+          startDate: "2026-03-01",
+          endDate: "2026-03-31",
+          mode: "force_live",
+          reason: "manual_validation",
+        }),
+      }
+    );
+
+    const response = await PATCH(request as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.ok).toBe(true);
+    expect(shopifyWarehouse.upsertShopifyServingOverride).toHaveBeenCalled();
   });
 });

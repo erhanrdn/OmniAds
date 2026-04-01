@@ -156,6 +156,53 @@ export interface ShopifyServingStateHistoryRecord extends ShopifyServingStateRec
   updatedAt?: string | null;
 }
 
+export interface ShopifyServingOverrideRecord {
+  businessId: string;
+  providerAccountId: string;
+  overrideKey: string;
+  startDate?: string | null;
+  endDate?: string | null;
+  mode: "auto" | "force_live" | "force_warehouse";
+  reason?: string | null;
+  updatedBy?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface ShopifyWebhookDeliveryRecord {
+  businessId?: string | null;
+  providerAccountId?: string | null;
+  topic: string;
+  shopDomain: string;
+  webhookId?: string | null;
+  payloadHash: string;
+  payloadJson: unknown;
+  receivedAt?: string | null;
+  processedAt?: string | null;
+  processingState: "received" | "processed" | "ignored" | "failed";
+  resultSummary?: Record<string, unknown> | null;
+  errorMessage?: string | null;
+}
+
+export interface ShopifySalesEventWarehouseRow {
+  businessId: string;
+  providerAccountId: string;
+  shopId: string;
+  eventId: string;
+  sourceKind: "order" | "refund" | "return";
+  sourceId: string;
+  orderId?: string | null;
+  occurredAt: string;
+  occurredDateLocal?: string | null;
+  grossSales?: number;
+  refundedSales?: number;
+  refundedShipping?: number;
+  refundedTaxes?: number;
+  netRevenue?: number;
+  currencyCode?: string | null;
+  payloadJson?: unknown;
+  sourceSnapshotId?: string | null;
+}
+
 export interface ShopifyCustomerEventWarehouseRow {
   businessId: string;
   providerAccountId: string;

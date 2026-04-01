@@ -9,6 +9,7 @@ import {
 import {
   enqueueMetaScheduledWork,
 } from "@/lib/sync/meta-sync";
+import { syncShopifyCommerceReports } from "@/lib/sync/shopify-sync";
 import * as metaWarehouse from "@/lib/meta/warehouse";
 import * as googleAdsWarehouse from "@/lib/google-ads/warehouse";
 
@@ -19,7 +20,7 @@ import * as googleAdsWarehouse from "@/lib/google-ads/warehouse";
  * Restricted to admin sessions or internal signed requests.
  * Returns 202 only after durable enqueue succeeds.
  *
- * Body: { businessId: string, provider: "google_ads" | "meta" }
+ * Body: { businessId: string, provider: "google_ads" | "meta" | "shopify" }
  */
 
 const runtimeSyncRefreshStore = globalThis as typeof globalThis & {
@@ -208,6 +209,11 @@ async function runSyncForProvider(
         provider,
         result: await enqueueMetaScheduledWork(businessId),
       };
+    case "shopify":
+      return {
+        provider,
+        result: await syncShopifyCommerceReports(businessId),
+      };
     default:
       throw new Error(`unsupported_provider_for_refresh:${provider}`);
   }
@@ -277,7 +283,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const validProviders = ["google_ads", "meta"];
+  const validProviders = ["google_ads", "meta", "shopify"];
   if (!validProviders.includes(provider)) {
     return NextResponse.json(
       { error: "unsupported_provider_for_refresh", supportedProviders: validProviders },

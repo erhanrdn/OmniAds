@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { shopifyAdminGraphql } from "@/lib/shopify/admin";
 
 export const SHOPIFY_SYNC_WEBHOOK_TOPICS = [
@@ -18,6 +19,17 @@ function getShopifyWebhookBaseUrl() {
 export function buildShopifyWebhookCallbackUrl(pathname: string) {
   const path = pathname.startsWith("/") ? pathname : `/${pathname}`;
   return `${getShopifyWebhookBaseUrl()}${path}`;
+}
+
+export function buildShopifyWebhookPayloadHash(input: {
+  topic: string;
+  shopDomain: string;
+  body: string;
+}) {
+  return crypto
+    .createHash("sha1")
+    .update(`${input.shopDomain}:${input.topic}:${input.body}`)
+    .digest("hex");
 }
 
 interface ExistingWebhookPayload {

@@ -30,6 +30,10 @@ vi.mock("@/lib/sync/meta-sync", () => ({
   enqueueMetaScheduledWork: vi.fn(),
 }));
 
+vi.mock("@/lib/sync/shopify-sync", () => ({
+  syncShopifyCommerceReports: vi.fn(),
+}));
+
 vi.mock("@/lib/sync/ga4-sync", () => ({
   syncGA4Reports: vi.fn(),
 }));
@@ -49,6 +53,7 @@ vi.mock("@/lib/migrations", () => ({
 const internalAuth = await import("@/lib/internal-sync-auth");
 const googleAdsSync = await import("@/lib/sync/google-ads-sync");
 const metaSync = await import("@/lib/sync/meta-sync");
+const shopifySync = await import("@/lib/sync/shopify-sync");
 const adminLogger = await import("@/lib/admin-logger");
 const db = await import("@/lib/db");
 const { POST } = await import("@/app/api/sync/refresh/route");
@@ -159,6 +164,28 @@ describe("POST /api/sync/refresh", () => {
     expect(response.status).toBe(202);
     expect(payload.status).toBe("started");
     expect(metaSync.enqueueMetaScheduledWork).toHaveBeenCalledWith("biz");
+  });
+
+  it("supports manual Shopify refresh", async () => {
+    vi.mocked(internalAuth.requireInternalOrAdminSyncAccess).mockResolvedValue({
+      kind: "internal",
+    });
+    vi.mocked(db.getDb).mockReturnValue(
+      vi.fn()
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ already_running: false, acquired: true }]) as never
+    );
+    vi.mocked(shopifySync.syncShopifyCommerceReports).mockResolvedValue({
+      success: true,
+      reason: "ok",
+    } as never);
+
+    const response = await POST(buildRequest({ businessId: "biz", provider: "shopify" }));
+    const payload = await response.json();
+
+    expect(response.status).toBe(202);
+    expect(payload.status).toBe("started");
+    expect(shopifySync.syncShopifyCommerceReports).toHaveBeenCalledWith("biz");
   });
 
   it("returns already_running when work is already active", async () => {

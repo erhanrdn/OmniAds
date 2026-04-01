@@ -5,6 +5,7 @@ import { upsertIntegration } from "@/lib/integrations";
 import { updateBusinessCurrency } from "@/lib/account-store";
 import { setSessionActiveBusiness } from "@/lib/auth";
 import { sanitizeNextPath } from "@/lib/auth-routing";
+import { registerShopifyCustomerEventsPixel } from "@/lib/shopify/pixels";
 import { registerShopifySyncWebhooks } from "@/lib/shopify/webhooks";
 
 interface FinalizeBody {
@@ -63,6 +64,16 @@ export async function POST(request: NextRequest) {
     accessToken: context.access_token,
   }).catch((error) => {
     console.warn("[shopify-finalize] webhook_registration_failed", {
+      businessId,
+      shopId: context.shop_domain,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  });
+  await registerShopifyCustomerEventsPixel({
+    shopId: context.shop_domain,
+    accessToken: context.access_token,
+  }).catch((error) => {
+    console.warn("[shopify-finalize] customer_events_pixel_registration_failed", {
       businessId,
       shopId: context.shop_domain,
       error: error instanceof Error ? error.message : String(error),

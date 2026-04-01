@@ -1,5 +1,6 @@
 import { hasShopifyScope, resolveShopifyAdminCredentials } from "@/lib/shopify/admin";
 import { syncShopifyOrdersWindow, syncShopifyReturnsWindow } from "@/lib/shopify/commerce-sync";
+import { getShopifyRevenueLedgerAggregate } from "@/lib/shopify/revenue-ledger";
 import { getShopifyWarehouseOverviewAggregate } from "@/lib/shopify/warehouse-overview";
 import { getShopifySyncState, upsertShopifySyncState } from "@/lib/shopify/sync-state";
 import type { RunnerLeaseGuard } from "@/lib/sync/worker-runtime";
@@ -255,6 +256,12 @@ export async function syncShopifyCommerceReports(
       startDate: window.startDate,
       endDate: window.endDate,
     }).catch(() => null);
+    const ledgerShadow = await getShopifyRevenueLedgerAggregate({
+      businessId,
+      providerAccountId: credentials.shopId,
+      startDate: window.startDate,
+      endDate: window.endDate,
+    }).catch(() => null);
 
     const result = {
       success: true as const,
@@ -280,6 +287,16 @@ export async function syncShopifyCommerceReports(
               refundedRevenue: warehouseShadow.refundedRevenue,
               purchases: warehouseShadow.purchases,
               returnEvents: warehouseShadow.returnEvents,
+            }
+          : null,
+        ledgerShadow: ledgerShadow
+          ? {
+              revenue: ledgerShadow.revenue,
+              grossRevenue: ledgerShadow.grossRevenue,
+              refundedRevenue: ledgerShadow.refundedRevenue,
+              purchases: ledgerShadow.purchases,
+              returnEvents: ledgerShadow.returnEvents,
+              ledgerRows: ledgerShadow.ledgerRows,
             }
           : null,
       },

@@ -8,3 +8,11 @@ export function buildShopifyOverviewCanaryKey(input: {
   const timeZoneBasis = input.timeZoneBasis ?? SHOPIFY_OVERVIEW_CANARY_TIMEZONE_BASIS;
   return `overview_shopify:${input.startDate}:${input.endDate}:${timeZoneBasis}`;
 }
+
+export function buildShopifyOverviewOverrideKey(input: {
+  startDate: string;
+  endDate: string;
+  timeZoneBasis?: string;
+}) {
+  return buildShopifyOverviewCanaryKey(input);
+}

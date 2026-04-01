@@ -1463,6 +1463,68 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
           ON shopify_customer_events (business_id, occurred_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_customer_events_session
           ON shopify_customer_events (business_id, session_id, occurred_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS shopify_sales_events (
+          id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id          TEXT NOT NULL,
+          provider_account_id  TEXT NOT NULL,
+          shop_id              TEXT NOT NULL,
+          event_id             TEXT NOT NULL,
+          source_kind          TEXT NOT NULL,
+          source_id            TEXT NOT NULL,
+          order_id             TEXT,
+          occurred_at          TIMESTAMPTZ NOT NULL,
+          occurred_date_local  DATE,
+          gross_sales          NUMERIC(18,2) NOT NULL DEFAULT 0,
+          refunded_sales       NUMERIC(18,2) NOT NULL DEFAULT 0,
+          refunded_shipping    NUMERIC(18,2) NOT NULL DEFAULT 0,
+          refunded_taxes       NUMERIC(18,2) NOT NULL DEFAULT 0,
+          net_revenue          NUMERIC(18,2) NOT NULL DEFAULT 0,
+          currency_code        TEXT,
+          payload_json         JSONB NOT NULL DEFAULT '{}'::jsonb,
+          source_snapshot_id   UUID REFERENCES shopify_raw_snapshots(id) ON DELETE SET NULL,
+          created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider_account_id, shop_id, event_id)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_sales_events_business_date
+          ON shopify_sales_events (business_id, occurred_date_local DESC, occurred_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_sales_events_order
+          ON shopify_sales_events (business_id, order_id, occurred_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS shopify_serving_overrides (
+          business_id          TEXT NOT NULL,
+          provider_account_id  TEXT NOT NULL,
+          override_key         TEXT NOT NULL,
+          start_date           DATE,
+          end_date             DATE,
+          mode                 TEXT NOT NULL DEFAULT 'auto',
+          reason               TEXT,
+          updated_by           TEXT,
+          created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          PRIMARY KEY (business_id, provider_account_id, override_key)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_serving_overrides_business_range
+          ON shopify_serving_overrides (business_id, start_date DESC, end_date DESC, updated_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS shopify_webhook_deliveries (
+          id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id          TEXT,
+          provider_account_id  TEXT,
+          topic                TEXT NOT NULL,
+          shop_domain          TEXT NOT NULL,
+          webhook_id           TEXT,
+          payload_hash         TEXT NOT NULL,
+          payload_json         JSONB NOT NULL DEFAULT '{}'::jsonb,
+          received_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+          processed_at         TIMESTAMPTZ,
+          processing_state     TEXT NOT NULL DEFAULT 'received',
+          result_summary       JSONB,
+          error_message        TEXT,
+          created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (shop_domain, topic, payload_hash)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_webhook_deliveries_business
+          ON shopify_webhook_deliveries (business_id, received_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS shopify_serving_state (
           business_id          TEXT NOT NULL,
           provider_account_id  TEXT NOT NULL,

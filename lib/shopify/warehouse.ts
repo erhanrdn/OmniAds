@@ -10,8 +10,11 @@ import type {
   ShopifyRawSnapshotRecord,
   ShopifyRefundWarehouseRow,
   ShopifyReturnWarehouseRow,
+  ShopifySalesEventWarehouseRow,
   ShopifyServingStateRecord,
   ShopifyServingStateHistoryRecord,
+  ShopifyServingOverrideRecord,
+  ShopifyWebhookDeliveryRecord,
 } from "@/lib/shopify/warehouse-types";
 
 function normalizeDate(value: unknown) {
@@ -454,6 +457,191 @@ export async function upsertShopifyReturns(rows: ShopifyReturnWarehouseRow[]) {
   }
 
   return written;
+}
+
+export async function upsertShopifySalesEvents(rows: ShopifySalesEventWarehouseRow[]) {
+  if (rows.length <= 0) return 0;
+  await runMigrations();
+  const sql = getDb();
+  let written = 0;
+
+  for (const row of rows) {
+    await sql`
+      INSERT INTO shopify_sales_events (
+        business_id,
+        provider_account_id,
+        shop_id,
+        event_id,
+        source_kind,
+        source_id,
+        order_id,
+        occurred_at,
+        occurred_date_local,
+        gross_sales,
+        refunded_sales,
+        refunded_shipping,
+        refunded_taxes,
+        net_revenue,
+        currency_code,
+        payload_json,
+        source_snapshot_id,
+        updated_at
+      )
+      VALUES (
+        ${row.businessId},
+        ${row.providerAccountId},
+        ${row.shopId},
+        ${row.eventId},
+        ${row.sourceKind},
+        ${row.sourceId},
+        ${row.orderId ?? null},
+        ${normalizeTimestamp(row.occurredAt)},
+        ${normalizeDate(row.occurredDateLocal)},
+        ${toNumber(row.grossSales)},
+        ${toNumber(row.refundedSales)},
+        ${toNumber(row.refundedShipping)},
+        ${toNumber(row.refundedTaxes)},
+        ${toNumber(row.netRevenue)},
+        ${row.currencyCode ?? null},
+        ${JSON.stringify(row.payloadJson ?? {})}::jsonb,
+        ${row.sourceSnapshotId ?? null},
+        now()
+      )
+      ON CONFLICT (business_id, provider_account_id, shop_id, event_id)
+      DO UPDATE SET
+        source_kind = EXCLUDED.source_kind,
+        source_id = EXCLUDED.source_id,
+        order_id = EXCLUDED.order_id,
+        occurred_at = EXCLUDED.occurred_at,
+        occurred_date_local = EXCLUDED.occurred_date_local,
+        gross_sales = EXCLUDED.gross_sales,
+        refunded_sales = EXCLUDED.refunded_sales,
+        refunded_shipping = EXCLUDED.refunded_shipping,
+        refunded_taxes = EXCLUDED.refunded_taxes,
+        net_revenue = EXCLUDED.net_revenue,
+        currency_code = EXCLUDED.currency_code,
+        payload_json = EXCLUDED.payload_json,
+        source_snapshot_id = EXCLUDED.source_snapshot_id,
+        updated_at = now()
+    `;
+    written += 1;
+  }
+
+  return written;
+}
+
+export async function getShopifyServingOverride(input: {
+  businessId: string;
+  providerAccountId: string;
+  overrideKey: string;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = (await sql`
+    SELECT *
+    FROM shopify_serving_overrides
+    WHERE business_id = ${input.businessId}
+      AND provider_account_id = ${input.providerAccountId}
+      AND override_key = ${input.overrideKey}
+    LIMIT 1
+  `) as Array<Record<string, unknown>>;
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    businessId: String(row.business_id),
+    providerAccountId: String(row.provider_account_id),
+    overrideKey: String(row.override_key),
+    startDate: normalizeDate(row.start_date),
+    endDate: normalizeDate(row.end_date),
+    mode: String(row.mode) as ShopifyServingOverrideRecord["mode"],
+    reason: row.reason ? String(row.reason) : null,
+    updatedBy: row.updated_by ? String(row.updated_by) : null,
+    updatedAt: normalizeTimestamp(row.updated_at),
+  } satisfies ShopifyServingOverrideRecord;
+}
+
+export async function upsertShopifyServingOverride(input: ShopifyServingOverrideRecord) {
+  await runMigrations();
+  const sql = getDb();
+  await sql`
+    INSERT INTO shopify_serving_overrides (
+      business_id,
+      provider_account_id,
+      override_key,
+      start_date,
+      end_date,
+      mode,
+      reason,
+      updated_by,
+      updated_at
+    )
+    VALUES (
+      ${input.businessId},
+      ${input.providerAccountId},
+      ${input.overrideKey},
+      ${normalizeDate(input.startDate)},
+      ${normalizeDate(input.endDate)},
+      ${input.mode},
+      ${input.reason ?? null},
+      ${input.updatedBy ?? null},
+      now()
+    )
+    ON CONFLICT (business_id, provider_account_id, override_key)
+    DO UPDATE SET
+      start_date = EXCLUDED.start_date,
+      end_date = EXCLUDED.end_date,
+      mode = EXCLUDED.mode,
+      reason = EXCLUDED.reason,
+      updated_by = EXCLUDED.updated_by,
+      updated_at = now()
+  `;
+}
+
+export async function upsertShopifyWebhookDelivery(input: ShopifyWebhookDeliveryRecord) {
+  await runMigrations();
+  const sql = getDb();
+  await sql`
+    INSERT INTO shopify_webhook_deliveries (
+      business_id,
+      provider_account_id,
+      topic,
+      shop_domain,
+      webhook_id,
+      payload_hash,
+      payload_json,
+      received_at,
+      processed_at,
+      processing_state,
+      result_summary,
+      error_message,
+      updated_at
+    )
+    VALUES (
+      ${input.businessId ?? null},
+      ${input.providerAccountId ?? null},
+      ${input.topic},
+      ${input.shopDomain},
+      ${input.webhookId ?? null},
+      ${String(input.payloadHash)},
+      ${JSON.stringify(input.payloadJson ?? {})}::jsonb,
+      COALESCE(${normalizeTimestamp(input.receivedAt)}, now()),
+      ${normalizeTimestamp(input.processedAt)},
+      ${input.processingState},
+      ${JSON.stringify(input.resultSummary ?? null)}::jsonb,
+      ${input.errorMessage ?? null},
+      now()
+    )
+    ON CONFLICT (shop_domain, topic, payload_hash)
+    DO UPDATE SET
+      business_id = COALESCE(EXCLUDED.business_id, shopify_webhook_deliveries.business_id),
+      provider_account_id = COALESCE(EXCLUDED.provider_account_id, shopify_webhook_deliveries.provider_account_id),
+      webhook_id = COALESCE(EXCLUDED.webhook_id, shopify_webhook_deliveries.webhook_id),
+      processed_at = COALESCE(EXCLUDED.processed_at, shopify_webhook_deliveries.processed_at),
+      processing_state = EXCLUDED.processing_state,
+      result_summary = COALESCE(EXCLUDED.result_summary, shopify_webhook_deliveries.result_summary),
+      error_message = EXCLUDED.error_message,
+      updated_at = now()
+  `;
 }
 
 export async function upsertShopifyCustomerEvents(rows: ShopifyCustomerEventWarehouseRow[]) {

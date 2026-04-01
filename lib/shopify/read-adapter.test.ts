@@ -14,13 +14,19 @@ vi.mock("@/lib/shopify/warehouse-overview", () => ({
   getShopifyWarehouseOverviewAggregate: vi.fn(),
 }));
 
+vi.mock("@/lib/shopify/revenue-ledger", () => ({
+  getShopifyRevenueLedgerAggregate: vi.fn(),
+}));
+
 vi.mock("@/lib/shopify/warehouse", () => ({
+  getShopifyServingOverride: vi.fn(),
   upsertShopifyServingState: vi.fn(),
 }));
 
 const overview = await import("@/lib/shopify/overview");
 const status = await import("@/lib/shopify/status");
 const warehouse = await import("@/lib/shopify/warehouse-overview");
+const revenueLedger = await import("@/lib/shopify/revenue-ledger");
 const warehouseState = await import("@/lib/shopify/warehouse");
 const { getShopifyOverviewReadCandidate } = await import("@/lib/shopify/read-adapter");
 
@@ -29,6 +35,17 @@ describe("getShopifyOverviewReadCandidate", () => {
     vi.resetAllMocks();
     delete process.env.SHOPIFY_WAREHOUSE_READ_CANARY;
     vi.mocked(warehouseState.upsertShopifyServingState).mockResolvedValue(undefined);
+    vi.mocked(warehouseState.getShopifyServingOverride).mockResolvedValue(null as never);
+    vi.mocked(revenueLedger.getShopifyRevenueLedgerAggregate).mockResolvedValue({
+      revenue: 1001,
+      grossRevenue: 1020,
+      refundedRevenue: 19,
+      purchases: 10,
+      returnEvents: 0,
+      averageOrderValue: 100.1,
+      daily: [],
+      ledgerRows: 1,
+    } as never);
   });
 
   it("prefers live when canary is disabled", async () => {

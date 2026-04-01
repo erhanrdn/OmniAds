@@ -1,9 +1,14 @@
 import { getShopifyOverviewAggregate } from "@/lib/shopify/overview";
 import { compareShopifyAggregates } from "@/lib/shopify/divergence";
-import { buildShopifyOverviewCanaryKey, SHOPIFY_OVERVIEW_CANARY_TIMEZONE_BASIS } from "@/lib/shopify/serving";
+import {
+  buildShopifyOverviewCanaryKey,
+  buildShopifyOverviewOverrideKey,
+  SHOPIFY_OVERVIEW_CANARY_TIMEZONE_BASIS,
+} from "@/lib/shopify/serving";
 import { getShopifyStatus } from "@/lib/shopify/status";
+import { getShopifyRevenueLedgerAggregate } from "@/lib/shopify/revenue-ledger";
 import { getShopifyWarehouseOverviewAggregate } from "@/lib/shopify/warehouse-overview";
-import { upsertShopifyServingState } from "@/lib/shopify/warehouse";
+import { getShopifyServingOverride, upsertShopifyServingState } from "@/lib/shopify/warehouse";
 
 function warehouseReadCanaryEnabled() {
   const raw = process.env.SHOPIFY_WAREHOUSE_READ_CANARY?.trim().toLowerCase();
@@ -15,7 +20,7 @@ export async function getShopifyOverviewReadCandidate(input: {
   startDate: string;
   endDate: string;
 }) {
-  const [status, live, warehouse] = await Promise.all([
+  const [status, live, warehouse, ledger] = await Promise.all([
     getShopifyStatus({
       businessId: input.businessId,
       startDate: input.startDate,
@@ -28,7 +33,24 @@ export async function getShopifyOverviewReadCandidate(input: {
       startDate: input.startDate,
       endDate: input.endDate,
     }).catch(() => null),
+    getShopifyRevenueLedgerAggregate({
+      businessId: input.businessId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+    }).catch(() => null),
   ]);
+  const override =
+    status.shopId
+      ? await getShopifyServingOverride({
+          businessId: input.businessId,
+          providerAccountId: status.shopId,
+          overrideKey: buildShopifyOverviewOverrideKey({
+            startDate: input.startDate,
+            endDate: input.endDate,
+            timeZoneBasis: SHOPIFY_OVERVIEW_CANARY_TIMEZONE_BASIS,
+          }),
+        }).catch(() => null)
+      : null;
 
   const divergence =
     live && warehouse
@@ -56,14 +78,32 @@ export async function getShopifyOverviewReadCandidate(input: {
     decisionReasons.push("divergence_above_threshold");
   }
 
+  const forcedLive = override?.mode === "force_live";
+  const forcedWarehouse = override?.mode === "force_warehouse";
+  if (forcedLive) {
+    decisionReasons.push("override_force_live");
+  }
+  if (forcedWarehouse) {
+    decisionReasons.push("override_force_warehouse");
+  }
+
   const canServeWarehouse =
-    canaryEnabled &&
-    status.state === "ready" &&
-    divergence?.withinThreshold === true;
+    forcedWarehouse
+      ? Boolean(warehouse)
+      : !forcedLive &&
+        canaryEnabled &&
+        status.state === "ready" &&
+        divergence?.withinThreshold === true;
 
   const preferredSource = canServeWarehouse
     ? "warehouse"
-    : live
+    : forcedLive
+      ? live
+        ? "live"
+        : warehouse
+          ? "warehouse_shadow"
+          : "none"
+      : live
       ? "live"
       : warehouse
         ? "warehouse_shadow"
@@ -100,13 +140,32 @@ export async function getShopifyOverviewReadCandidate(input: {
     canServeWarehouse,
     canaryEnabled,
     decisionReasons,
-    divergence: divergence ? { ...divergence } : null,
+    divergence: divergence
+      ? {
+          ...divergence,
+          ledgerRevenue: ledger?.revenue ?? null,
+          ledgerGrossRevenue: ledger?.grossRevenue ?? null,
+          ledgerRefundedRevenue: ledger?.refundedRevenue ?? null,
+          ledgerPurchases: ledger?.purchases ?? null,
+          ledgerRows: ledger?.ledgerRows ?? null,
+        }
+      : ledger
+        ? {
+            ledgerRevenue: ledger.revenue,
+            ledgerGrossRevenue: ledger.grossRevenue,
+            ledgerRefundedRevenue: ledger.refundedRevenue,
+            ledgerPurchases: ledger.purchases,
+            ledgerRows: ledger.ledgerRows,
+          }
+        : null,
   }).catch(() => null);
 
   return {
     status,
     live,
     warehouse,
+    ledger,
+    override,
     divergence,
     decisionReasons,
     canaryEnabled,
