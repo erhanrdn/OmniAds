@@ -1,17 +1,45 @@
 import crypto from "crypto";
 
-function buildSignedQueryMessage(url: URL) {
+function stripHmacParams(parts: string[]) {
+  return parts.filter((part) => {
+    const [rawKey = ""] = part.split("=", 1);
+    const key = decodeURIComponent(rawKey.replace(/\+/g, "%20"));
+    return key !== "hmac" && key !== "signature";
+  });
+}
+
+function getRawQueryParts(url: URL) {
   return url.search
     .replace(/^\?/, "")
     .split("&")
     .filter(Boolean)
-    .filter((part) => {
-      const [rawKey = ""] = part.split("=", 1);
-      const key = decodeURIComponent(rawKey.replace(/\+/g, "%20"));
-      return key !== "hmac" && key !== "signature";
-    })
+}
+
+function buildRawSortedMessage(url: URL) {
+  return stripHmacParams(getRawQueryParts(url))
     .sort((a, b) => a.localeCompare(b))
     .join("&");
+}
+
+function buildDecodedSortedMessage(url: URL) {
+  const entries = [...url.searchParams.entries()]
+    .filter(([key]) => key !== "hmac" && key !== "signature")
+    .sort(([a], [b]) => a.localeCompare(b));
+  return entries
+    .map(([key, value]) => `${key}=${value}`)
+    .join("&");
+}
+
+function buildRawPreservedOrderMessage(url: URL) {
+  return stripHmacParams(getRawQueryParts(url)).join("&");
+}
+
+function buildExpectedHmac(message: string, clientSecret: string) {
+  return crypto
+    .createHmac("sha256", clientSecret)
+    .update(message)
+    .digest("hex")
+    .toLowerCase();
 }
 
 export function verifyShopifyQueryHmac(input: {
@@ -21,17 +49,21 @@ export function verifyShopifyQueryHmac(input: {
   const receivedHmac = input.url.searchParams.get("hmac")?.trim().toLowerCase() ?? "";
   if (!receivedHmac) return false;
 
-  const message = buildSignedQueryMessage(input.url);
-  const expectedHmac = crypto
-    .createHmac("sha256", input.clientSecret)
-    .update(message)
-    .digest("hex")
-    .toLowerCase();
-
-  const expectedBuffer = Buffer.from(expectedHmac, "utf8");
   const receivedBuffer = Buffer.from(receivedHmac, "utf8");
-  return (
-    expectedBuffer.length === receivedBuffer.length &&
-    crypto.timingSafeEqual(expectedBuffer, receivedBuffer)
-  );
+  const candidateMessages = [
+    buildRawSortedMessage(input.url),
+    buildDecodedSortedMessage(input.url),
+    buildRawPreservedOrderMessage(input.url),
+  ];
+
+  return candidateMessages.some((message) => {
+    const expectedBuffer = Buffer.from(
+      buildExpectedHmac(message, input.clientSecret),
+      "utf8",
+    );
+    return (
+      expectedBuffer.length === receivedBuffer.length &&
+      crypto.timingSafeEqual(expectedBuffer, receivedBuffer)
+    );
+  });
 }
