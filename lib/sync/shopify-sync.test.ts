@@ -2,6 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/shopify/admin", () => ({
   resolveShopifyAdminCredentials: vi.fn(),
+  hasShopifyScope: vi.fn((scopes: string | null | undefined, scope: string) =>
+    (scopes ?? "")
+      .split(/[,\s]+/)
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .includes(scope)
+  ),
 }));
 
 vi.mock("@/lib/shopify/commerce-sync", () => ({
@@ -22,6 +29,7 @@ const { syncShopifyCommerceReports } = await import("@/lib/sync/shopify-sync");
 describe("syncShopifyCommerceReports", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    delete process.env.SHOPIFY_HISTORICAL_SYNC_ENABLED;
     vi.mocked(admin.resolveShopifyAdminCredentials).mockResolvedValue({
       businessId: "biz_1",
       shopId: "test-shop.myshopify.com",
@@ -58,6 +66,7 @@ describe("syncShopifyCommerceReports", () => {
         orders: 4,
         refunds: 1,
         returns: 2,
+        historical: null,
       })
     );
     expect(commerceSync.syncShopifyOrdersWindow).toHaveBeenCalledWith(
@@ -97,5 +106,44 @@ describe("syncShopifyCommerceReports", () => {
         latestSyncStatus: "succeeded",
       })
     );
+  });
+
+  it("runs one historical chunk when enabled", async () => {
+    process.env.SHOPIFY_HISTORICAL_SYNC_ENABLED = "true";
+    vi.mocked(syncState.getShopifySyncState)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null);
+
+    const result = await syncShopifyCommerceReports("biz_1");
+
+    expect(commerceSync.syncShopifyOrdersWindow).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        businessId: "biz_1",
+      })
+    );
+    expect(commerceSync.syncShopifyReturnsWindow).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        businessId: "biz_1",
+      })
+    );
+    expect(result).toEqual(
+      expect.objectContaining({
+        success: true,
+        historical: expect.objectContaining({
+          orders: 4,
+          returns: 2,
+        }),
+      })
+    );
+    expect(syncState.upsertShopifySyncState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        syncTarget: "commerce_orders_historical",
+      })
+    );
+    delete process.env.SHOPIFY_HISTORICAL_SYNC_ENABLED;
   });
 });

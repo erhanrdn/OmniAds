@@ -1,4 +1,4 @@
-import { resolveShopifyAdminCredentials } from "@/lib/shopify/admin";
+import { hasShopifyScope, resolveShopifyAdminCredentials } from "@/lib/shopify/admin";
 import { syncShopifyOrdersWindow, syncShopifyReturnsWindow } from "@/lib/shopify/commerce-sync";
 import { getShopifySyncState, upsertShopifySyncState } from "@/lib/shopify/sync-state";
 import type { RunnerLeaseGuard } from "@/lib/sync/worker-runtime";
@@ -8,6 +8,11 @@ function envNumber(name: string, fallback: number) {
   if (!raw) return fallback;
   const parsed = Number(raw);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function envFlag(name: string) {
+  const raw = process.env[name]?.trim().toLowerCase();
+  return raw === "1" || raw === "true";
 }
 
 function getTodayIsoForTimeZoneServer(timeZone: string): string {
@@ -50,6 +55,49 @@ function classifyShopifySyncWindow(credentials: Awaited<ReturnType<typeof resolv
   };
 }
 
+function classifyShopifyHistoricalWindow(
+  credentials: Awaited<ReturnType<typeof resolveShopifyAdminCredentials>>
+) {
+  const timeZone =
+    typeof credentials?.metadata?.iana_timezone === "string"
+      ? credentials.metadata.iana_timezone
+      : "UTC";
+  const today = getTodayIsoForTimeZoneServer(timeZone);
+  const historyDays = envNumber("SHOPIFY_HISTORICAL_SYNC_DAYS", 365);
+  const chunkDays = envNumber("SHOPIFY_HISTORICAL_SYNC_CHUNK_DAYS", 14);
+  const yesterday = addDays(new Date(`${today}T00:00:00Z`), -1);
+  const start = addDays(yesterday, -(historyDays - 1));
+  return {
+    targetStartDate: toIsoDate(start),
+    targetEndDate: toIsoDate(yesterday),
+    chunkDays,
+    today,
+    timeZone,
+  };
+}
+
+function addDaysToIsoDate(value: string, days: number) {
+  return toIsoDate(addDays(new Date(`${value}T00:00:00Z`), days));
+}
+
+function minIsoDate(a: string, b: string) {
+  return a <= b ? a : b;
+}
+
+function computeHistoricalChunk(input: {
+  targetStartDate: string;
+  targetEndDate: string;
+  chunkDays: number;
+  existingCursorValue?: string | null;
+}) {
+  const startDate = input.existingCursorValue
+    ? addDaysToIsoDate(input.existingCursorValue, 1)
+    : input.targetStartDate;
+  if (startDate > input.targetEndDate) return null;
+  const endDate = minIsoDate(addDaysToIsoDate(startDate, input.chunkDays - 1), input.targetEndDate);
+  return { startDate, endDate };
+}
+
 export async function syncShopifyCommerceReports(
   businessId: string,
   input?: {
@@ -72,6 +120,7 @@ export async function syncShopifyCommerceReports(
   }
 
   const window = classifyShopifySyncWindow(credentials);
+  const historical = classifyShopifyHistoricalWindow(credentials);
   const existingOrdersState = await getShopifySyncState({
     businessId,
     providerAccountId: credentials.shopId,
@@ -81,6 +130,16 @@ export async function syncShopifyCommerceReports(
     businessId,
     providerAccountId: credentials.shopId,
     syncTarget: "commerce_returns_recent",
+  }).catch(() => null);
+  const existingHistoricalOrdersState = await getShopifySyncState({
+    businessId,
+    providerAccountId: credentials.shopId,
+    syncTarget: "commerce_orders_historical",
+  }).catch(() => null);
+  const existingHistoricalReturnsState = await getShopifySyncState({
+    businessId,
+    providerAccountId: credentials.shopId,
+    syncTarget: "commerce_returns_historical",
   }).catch(() => null);
 
   await upsertShopifySyncState({
@@ -208,6 +267,153 @@ export async function syncShopifyCommerceReports(
       },
     };
 
+    let historicalResult: null | {
+      orders: number;
+      orderLines: number;
+      refunds: number;
+      transactions: number;
+      returns: number;
+      pages: number;
+      returnPages: number;
+      chunkStartDate: string;
+      chunkEndDate: string;
+    } = null;
+
+    if (envFlag("SHOPIFY_HISTORICAL_SYNC_ENABLED") && hasShopifyScope(credentials.scopes, "read_all_orders")) {
+      const ordersChunk = computeHistoricalChunk({
+        targetStartDate: historical.targetStartDate,
+        targetEndDate: historical.targetEndDate,
+        chunkDays: historical.chunkDays,
+        existingCursorValue: existingHistoricalOrdersState?.cursorValue,
+      });
+      const returnsChunk = computeHistoricalChunk({
+        targetStartDate: historical.targetStartDate,
+        targetEndDate: historical.targetEndDate,
+        chunkDays: historical.chunkDays,
+        existingCursorValue: existingHistoricalReturnsState?.cursorValue,
+      });
+
+      if (ordersChunk && returnsChunk) {
+        await upsertShopifySyncState({
+          businessId,
+          providerAccountId: credentials.shopId,
+          syncTarget: "commerce_orders_historical",
+          historicalTargetStart: historical.targetStartDate,
+          historicalTargetEnd: historical.targetEndDate,
+          latestSyncStartedAt: new Date().toISOString(),
+          latestSyncStatus: "running",
+          latestSyncWindowStart: ordersChunk.startDate,
+          latestSyncWindowEnd: ordersChunk.endDate,
+          lastError: null,
+        });
+        await upsertShopifySyncState({
+          businessId,
+          providerAccountId: credentials.shopId,
+          syncTarget: "commerce_returns_historical",
+          historicalTargetStart: historical.targetStartDate,
+          historicalTargetEnd: historical.targetEndDate,
+          latestSyncStartedAt: new Date().toISOString(),
+          latestSyncStatus: "running",
+          latestSyncWindowStart: returnsChunk.startDate,
+          latestSyncWindowEnd: returnsChunk.endDate,
+          lastError: null,
+        });
+
+        const [historicalOrdersResult, historicalReturnsResult] = await Promise.all([
+          syncShopifyOrdersWindow({
+            businessId,
+            startDate: ordersChunk.startDate,
+            endDate: ordersChunk.endDate,
+          }),
+          syncShopifyReturnsWindow({
+            businessId,
+            startDate: returnsChunk.startDate,
+            endDate: returnsChunk.endDate,
+          }),
+        ]);
+
+        if (historicalOrdersResult.success && historicalReturnsResult.success) {
+          await upsertShopifySyncState({
+            businessId,
+            providerAccountId: credentials.shopId,
+            syncTarget: "commerce_orders_historical",
+            historicalTargetStart: historical.targetStartDate,
+            historicalTargetEnd: historical.targetEndDate,
+            readyThroughDate: ordersChunk.endDate,
+            cursorTimestamp: `${ordersChunk.endDate}T23:59:59.000Z`,
+            cursorValue: ordersChunk.endDate,
+            latestSuccessfulSyncAt: new Date().toISOString(),
+            latestSyncStatus:
+              ordersChunk.endDate >= historical.targetEndDate ? "ready" : "succeeded",
+            latestSyncWindowStart: ordersChunk.startDate,
+            latestSyncWindowEnd: ordersChunk.endDate,
+            lastError: null,
+            lastResultSummary: {
+              orderRows: historicalOrdersResult.orders,
+              refundRows: historicalOrdersResult.refunds,
+              transactionRows: historicalOrdersResult.transactions,
+              pages: historicalOrdersResult.pages,
+            },
+          });
+          await upsertShopifySyncState({
+            businessId,
+            providerAccountId: credentials.shopId,
+            syncTarget: "commerce_returns_historical",
+            historicalTargetStart: historical.targetStartDate,
+            historicalTargetEnd: historical.targetEndDate,
+            readyThroughDate: returnsChunk.endDate,
+            cursorTimestamp: historicalReturnsResult.maxUpdatedAt ?? `${returnsChunk.endDate}T23:59:59.000Z`,
+            cursorValue: returnsChunk.endDate,
+            latestSuccessfulSyncAt: new Date().toISOString(),
+            latestSyncStatus:
+              returnsChunk.endDate >= historical.targetEndDate ? "ready" : "succeeded",
+            latestSyncWindowStart: returnsChunk.startDate,
+            latestSyncWindowEnd: returnsChunk.endDate,
+            lastError: null,
+            lastResultSummary: {
+              returnRows: historicalReturnsResult.returns,
+              pages: historicalReturnsResult.pages,
+            },
+          });
+
+          historicalResult = {
+            orders: historicalOrdersResult.orders,
+            orderLines: historicalOrdersResult.orderLines,
+            refunds: historicalOrdersResult.refunds,
+            transactions: historicalOrdersResult.transactions,
+            returns: historicalReturnsResult.returns,
+            pages: historicalOrdersResult.pages,
+            returnPages: historicalReturnsResult.pages,
+            chunkStartDate: ordersChunk.startDate,
+            chunkEndDate: ordersChunk.endDate,
+          };
+        } else {
+          await upsertShopifySyncState({
+            businessId,
+            providerAccountId: credentials.shopId,
+            syncTarget: "commerce_orders_historical",
+            historicalTargetStart: historical.targetStartDate,
+            historicalTargetEnd: historical.targetEndDate,
+            latestSyncStatus: historicalOrdersResult.success ? "skipped" : historicalOrdersResult.reason,
+            latestSyncWindowStart: ordersChunk.startDate,
+            latestSyncWindowEnd: ordersChunk.endDate,
+            lastError: historicalOrdersResult.success ? null : historicalOrdersResult.reason,
+          });
+          await upsertShopifySyncState({
+            businessId,
+            providerAccountId: credentials.shopId,
+            syncTarget: "commerce_returns_historical",
+            historicalTargetStart: historical.targetStartDate,
+            historicalTargetEnd: historical.targetEndDate,
+            latestSyncStatus: historicalReturnsResult.success ? "skipped" : historicalReturnsResult.reason,
+            latestSyncWindowStart: returnsChunk.startDate,
+            latestSyncWindowEnd: returnsChunk.endDate,
+            lastError: historicalReturnsResult.success ? null : historicalReturnsResult.reason,
+          });
+        }
+      }
+    }
+
     await upsertShopifySyncState({
       businessId,
       providerAccountId: credentials.shopId,
@@ -243,7 +449,10 @@ export async function syncShopifyCommerceReports(
       lastResultSummary: result.reconciliation,
     });
 
-    return result;
+    return {
+      ...result,
+      historical: historicalResult,
+    };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await upsertShopifySyncState({
