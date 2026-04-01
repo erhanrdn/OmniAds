@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Popover } from "radix-ui";
 import {
   ArrowRightIcon,
@@ -159,6 +159,88 @@ export function getPresetDates(
   const now = new Date();
   now.setHours(0, 0, 0, 0);
   return getPresetDatesForReferenceDate(preset, toISO(now), customStart, customEnd);
+}
+
+export function resolveRangePresetSelection(
+  draft: DateRangeValue,
+  preset: RangePreset,
+  referenceDate?: string
+): { nextDraft: DateRangeValue; shouldApply: boolean } {
+  const resolved = referenceDate
+    ? getPresetDatesForReferenceDate(preset, referenceDate, draft.customStart, draft.customEnd)
+    : getPresetDates(preset, draft.customStart, draft.customEnd);
+
+  return {
+    nextDraft: {
+      ...draft,
+      rangePreset: preset,
+      customStart: resolved.start,
+      customEnd: resolved.end,
+    },
+    shouldApply: preset !== "custom" && draft.rangePreset === preset,
+  };
+}
+
+export function resolveRangeCalendarDateClick(
+  draft: DateRangeValue,
+  pickStep: "start" | "end",
+  date: string
+): { nextDraft: DateRangeValue; nextPickStep: "start" | "end"; shouldApply: boolean } {
+  if (pickStep === "start" || draft.rangePreset !== "custom") {
+    return {
+      nextDraft: {
+        ...draft,
+        rangePreset: "custom",
+        customStart: date,
+        customEnd: date,
+      },
+      nextPickStep: "end",
+      shouldApply: false,
+    };
+  }
+
+  if (date === draft.customStart) {
+    return {
+      nextDraft: {
+        ...draft,
+        rangePreset: "custom",
+        customStart: date,
+        customEnd: date,
+      },
+      nextPickStep: "start",
+      shouldApply: true,
+    };
+  }
+
+  if (date < draft.customStart) {
+    return {
+      nextDraft: {
+        ...draft,
+        rangePreset: "custom",
+        customStart: date,
+        customEnd: draft.customStart,
+      },
+      nextPickStep: "start",
+      shouldApply: false,
+    };
+  }
+
+  return {
+    nextDraft: {
+      ...draft,
+      rangePreset: "custom",
+      customStart: draft.customStart,
+      customEnd: date,
+    },
+    nextPickStep: "start",
+    shouldApply: false,
+  };
+}
+
+export function getPickerKeyboardAction(key: string): "apply" | "cancel" | null {
+  if (key === "Enter") return "apply";
+  if (key === "Escape") return "cancel";
+  return null;
 }
 
 function formatShortDate(iso: string): string {
@@ -469,7 +551,7 @@ function RangePanel({
 }: {
   draft: DateRangeValue;
   onDraftChange: (value: DateRangeValue) => void;
-  onApply: () => void;
+  onApply: (nextDraft?: DateRangeValue) => void;
   onCancel: () => void;
   rangePresets: Array<{ value: RangePreset; label: string; hint: string; group: string }>;
   referenceDate?: string;
@@ -501,23 +583,10 @@ function RangePanel({
   const activePreset = rangePresets.find((preset) => preset.value === draft.rangePreset);
 
   function handleDateClick(date: string) {
-    if (pickStep === "start" || draft.rangePreset !== "custom") {
-      onDraftChange({
-        ...draft,
-        rangePreset: "custom",
-        customStart: date,
-        customEnd: date,
-      });
-      setPickStep("end");
-      return;
-    }
-
-    if (date < draft.customStart) {
-      onDraftChange({ ...draft, customStart: date, customEnd: draft.customStart });
-    } else {
-      onDraftChange({ ...draft, customEnd: date });
-    }
-    setPickStep("start");
+    const selection = resolveRangeCalendarDateClick(draft, pickStep, date);
+    onDraftChange(selection.nextDraft);
+    setPickStep(selection.nextPickStep);
+    if (selection.shouldApply) onApply(selection.nextDraft);
   }
 
   return (
@@ -542,22 +611,10 @@ function RangePanel({
                       key={preset.value}
                       type="button"
                       onClick={() => {
-                        const resolved = referenceDate
-                          ? getPresetDatesForReferenceDate(
-                              preset.value,
-                              referenceDate,
-                              draft.customStart,
-                              draft.customEnd
-                            )
-                          : getPresetDates(preset.value, draft.customStart, draft.customEnd);
-
-                        onDraftChange({
-                          ...draft,
-                          rangePreset: preset.value,
-                          customStart: resolved.start,
-                          customEnd: resolved.end,
-                        });
+                        const selection = resolveRangePresetSelection(draft, preset.value, referenceDate);
+                        onDraftChange(selection.nextDraft);
                         setPickStep(preset.value === "custom" ? "start" : "start");
+                        if (selection.shouldApply) onApply(selection.nextDraft);
                       }}
                       className={cn(
                         "group flex w-full items-start gap-2 rounded-xl border px-2.5 py-2 text-left transition-all",
@@ -690,7 +747,7 @@ function RangePanel({
           </button>
           <button
             type="button"
-            onClick={onApply}
+            onClick={() => onApply()}
             className="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white shadow-[0_10px_18px_rgba(15,23,42,0.18)] transition-opacity hover:opacity-90"
           >
             Apply
@@ -711,7 +768,7 @@ function ComparisonPanel({
 }: {
   draft: DateRangeValue;
   onDraftChange: (value: DateRangeValue) => void;
-  onApply: () => void;
+  onApply: (nextDraft?: DateRangeValue) => void;
   onCancel: () => void;
   comparisonPresets: Array<{ value: ComparisonPreset; label: string; hint: string; group: string }>;
   referenceDate?: string;
@@ -921,7 +978,7 @@ function ComparisonPanel({
         </button>
         <button
           type="button"
-          onClick={onApply}
+          onClick={() => onApply()}
           className="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white shadow-[0_10px_18px_rgba(15,23,42,0.18)] transition-opacity hover:opacity-90"
         >
           Apply
@@ -956,6 +1013,7 @@ export function DateRangePicker({
 }: DateRangePickerProps) {
   const [openMode, setOpenMode] = useState<"range" | "comparison" | null>(null);
   const [draft, setDraft] = useState<DateRangeValue>(value);
+  const panelRef = useRef<HTMLDivElement | null>(null);
 
   const availableRangePresets = useMemo(
     () =>
@@ -995,8 +1053,8 @@ export function DateRangePicker({
     setOpenMode(mode);
   }
 
-  function handleApply() {
-    onChange(draft);
+  function handleApply(nextDraft?: DateRangeValue) {
+    onChange(nextDraft ?? draft);
     setOpenMode(null);
   }
 
@@ -1019,6 +1077,14 @@ export function DateRangePicker({
   const rangeMetaLabel = `${getRangeDays(resolvedRange.start, resolvedRange.end)} day${
     getRangeDays(resolvedRange.start, resolvedRange.end) === 1 ? "" : "s"
   }`;
+
+  function handlePanelKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    const action = getPickerKeyboardAction(event.key);
+    if (!action) return;
+    event.preventDefault();
+    if (action === "apply") handleApply();
+    if (action === "cancel") handleCancel();
+  }
 
   return (
     <div className={cn("flex flex-wrap items-center gap-1.5", className)}>
@@ -1054,16 +1120,22 @@ export function DateRangePicker({
             collisionPadding={12}
             className="z-50 overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_26px_72px_rgba(15,23,42,0.22)]"
             onInteractOutside={handleCancel}
+            onOpenAutoFocus={(event) => {
+              event.preventDefault();
+              panelRef.current?.focus();
+            }}
           >
-            <RangePanel
-              draft={draft}
-              onDraftChange={setDraft}
-              onApply={handleApply}
-              onCancel={handleCancel}
-              rangePresets={availableRangePresets}
-              referenceDate={referenceDate}
-              timeZoneLabel={timeZoneLabel}
-            />
+            <div ref={panelRef} tabIndex={-1} onKeyDown={handlePanelKeyDown} className="outline-none">
+              <RangePanel
+                draft={draft}
+                onDraftChange={setDraft}
+                onApply={handleApply}
+                onCancel={handleCancel}
+                rangePresets={availableRangePresets}
+                referenceDate={referenceDate}
+                timeZoneLabel={timeZoneLabel}
+              />
+            </div>
           </Popover.Content>
         </Popover.Portal>
       </Popover.Root>
@@ -1100,15 +1172,21 @@ export function DateRangePicker({
               collisionPadding={12}
               className="z-50 overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_26px_72px_rgba(15,23,42,0.22)]"
               onInteractOutside={handleCancel}
+              onOpenAutoFocus={(event) => {
+                event.preventDefault();
+                panelRef.current?.focus();
+              }}
             >
-              <ComparisonPanel
-                draft={draft}
-                onDraftChange={setDraft}
-                onApply={handleApply}
-                onCancel={handleCancel}
-                comparisonPresets={availableComparisonPresets}
-                referenceDate={referenceDate}
-              />
+              <div ref={panelRef} tabIndex={-1} onKeyDown={handlePanelKeyDown} className="outline-none">
+                <ComparisonPanel
+                  draft={draft}
+                  onDraftChange={setDraft}
+                  onApply={handleApply}
+                  onCancel={handleCancel}
+                  comparisonPresets={availableComparisonPresets}
+                  referenceDate={referenceDate}
+                />
+              </div>
             </Popover.Content>
           </Popover.Portal>
         </Popover.Root>
