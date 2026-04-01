@@ -237,4 +237,65 @@ describe("getShopifyStatus", () => {
     expect(status.issues).not.toContain("Shopify warehouse canary trust is stale relative to recent sync.");
     expect(status.issues).not.toContain("Shopify warehouse canary is blocked by trust checks.");
   });
+
+  it("marks status partial when canary trust no longer matches the latest sync watermark state", async () => {
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      status: "connected",
+      provider_account_id: "test-shop.myshopify.com",
+    } as never);
+    const now = new Date();
+    vi.mocked(syncState.getShopifySyncState)
+      .mockResolvedValueOnce({
+        latestSyncStatus: "succeeded",
+        latestSuccessfulSyncAt: now.toISOString(),
+        cursorTimestamp: now.toISOString(),
+        cursorValue: "orders_cursor_new",
+      } as never)
+      .mockResolvedValueOnce({
+        latestSyncStatus: "succeeded",
+        latestSuccessfulSyncAt: now.toISOString(),
+        cursorTimestamp: now.toISOString(),
+        cursorValue: "returns_cursor_new",
+      } as never)
+      .mockResolvedValueOnce({
+        latestSyncStatus: "ready",
+        readyThroughDate: "2026-03-31",
+        historicalTargetEnd: "2026-03-31",
+      } as never)
+      .mockResolvedValueOnce({
+        latestSyncStatus: "ready",
+        readyThroughDate: "2026-03-31",
+        historicalTargetEnd: "2026-03-31",
+      } as never);
+    vi.mocked(warehouse.getShopifyServingState).mockResolvedValue({
+      canaryEnabled: true,
+      canServeWarehouse: true,
+      assessedAt: now.toISOString(),
+      preferredSource: "warehouse",
+      ordersRecentSyncedAt: now.toISOString(),
+      ordersRecentCursorTimestamp: now.toISOString(),
+      ordersRecentCursorValue: "orders_cursor_old",
+      returnsRecentSyncedAt: now.toISOString(),
+      returnsRecentCursorTimestamp: now.toISOString(),
+      returnsRecentCursorValue: "returns_cursor_old",
+      decisionReasons: [],
+    } as never);
+    const sql = vi
+      .fn()
+      .mockResolvedValueOnce([{ row_count: "10", first_date: "2026-03-01", last_date: "2026-03-31" }])
+      .mockResolvedValueOnce([{ row_count: "2" }])
+      .mockResolvedValueOnce([{ row_count: "1" }]);
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const status = await getShopifyStatus({
+      businessId: "biz_1",
+      startDate: "2026-03-01",
+      endDate: "2026-03-31",
+    });
+
+    expect(status.state).toBe("partial");
+    expect(status.issues).toContain(
+      "Shopify warehouse canary trust no longer matches the latest sync watermark state."
+    );
+  });
 });

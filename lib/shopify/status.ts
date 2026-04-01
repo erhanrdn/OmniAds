@@ -71,6 +71,23 @@ function hasFreshServingTrust(input: {
   return true;
 }
 
+function hasMatchingServingTrustSyncBasis(input: {
+  serving: Awaited<ReturnType<typeof getShopifyServingState>> | null;
+  ordersRecent: Awaited<ReturnType<typeof getShopifySyncState>>;
+  returnsRecent: Awaited<ReturnType<typeof getShopifySyncState>>;
+}) {
+  const { serving, ordersRecent, returnsRecent } = input;
+  if (!serving?.canaryEnabled) return true;
+  const matches =
+    serving.ordersRecentSyncedAt === (ordersRecent?.latestSuccessfulSyncAt ?? null) &&
+    serving.ordersRecentCursorTimestamp === (ordersRecent?.cursorTimestamp ?? null) &&
+    serving.ordersRecentCursorValue === (ordersRecent?.cursorValue ?? null) &&
+    serving.returnsRecentSyncedAt === (returnsRecent?.latestSuccessfulSyncAt ?? null) &&
+    serving.returnsRecentCursorTimestamp === (returnsRecent?.cursorTimestamp ?? null) &&
+    serving.returnsRecentCursorValue === (returnsRecent?.cursorValue ?? null);
+  return matches;
+}
+
 export async function getShopifyStatus(
   input:
     | string
@@ -186,6 +203,11 @@ export async function getShopifyStatus(
     ordersRecent,
     returnsRecent,
   });
+  const servingTrustMatchesSyncBasis = hasMatchingServingTrustSyncBasis({
+    serving,
+    ordersRecent,
+    returnsRecent,
+  });
 
   if (!ordersRecent || !returnsRecent) {
     issues.push("Recent Shopify sync has not produced state yet.");
@@ -211,11 +233,14 @@ export async function getShopifyStatus(
   if (!ignoreServingTrust && serving?.canaryEnabled && !servingTrustFresh) {
     issues.push("Shopify warehouse canary trust is stale relative to recent sync.");
   }
+  if (!ignoreServingTrust && serving?.canaryEnabled && !servingTrustMatchesSyncBasis) {
+    issues.push("Shopify warehouse canary trust no longer matches the latest sync watermark state.");
+  }
 
   const servingTrustReady =
     ignoreServingTrust ||
     !serving?.canaryEnabled ||
-    (serving.canServeWarehouse !== false && servingTrustFresh);
+    (serving.canServeWarehouse !== false && servingTrustFresh && servingTrustMatchesSyncBasis);
 
   const state: ShopifyStatusResponse["state"] =
     warehouse.orderRowCount <= 0

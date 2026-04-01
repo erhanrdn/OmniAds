@@ -37,7 +37,20 @@ describe("getShopifyOverviewReadCandidate", () => {
       connected: true,
       shopId: "shop",
       warehouse: null,
-      sync: null,
+      sync: {
+        ordersRecent: {
+          latestSuccessfulSyncAt: "2026-04-02T10:00:00.000Z",
+          cursorTimestamp: "2026-04-02T09:59:00.000Z",
+          cursorValue: "orders_cursor",
+        },
+        returnsRecent: {
+          latestSuccessfulSyncAt: "2026-04-02T10:00:00.000Z",
+          cursorTimestamp: "2026-04-02T09:58:00.000Z",
+          cursorValue: "returns_cursor",
+        },
+        ordersHistorical: null,
+        returnsHistorical: null,
+      },
       serving: null,
       issues: [],
     } as never);
@@ -87,7 +100,20 @@ describe("getShopifyOverviewReadCandidate", () => {
       connected: true,
       shopId: "shop",
       warehouse: null,
-      sync: null,
+      sync: {
+        ordersRecent: {
+          latestSuccessfulSyncAt: "2026-04-02T10:00:00.000Z",
+          cursorTimestamp: "2026-04-02T09:59:00.000Z",
+          cursorValue: "orders_cursor",
+        },
+        returnsRecent: {
+          latestSuccessfulSyncAt: "2026-04-02T10:00:00.000Z",
+          cursorTimestamp: "2026-04-02T09:58:00.000Z",
+          cursorValue: "returns_cursor",
+        },
+        ordersHistorical: null,
+        returnsHistorical: null,
+      },
       serving: null,
       issues: [],
     } as never);
@@ -150,6 +176,12 @@ describe("getShopifyOverviewReadCandidate", () => {
         endDate: "2026-03-31",
         timeZoneBasis: SHOPIFY_OVERVIEW_CANARY_TIMEZONE_BASIS,
         preferredSource: "warehouse",
+        ordersRecentSyncedAt: "2026-04-02T10:00:00.000Z",
+        ordersRecentCursorTimestamp: "2026-04-02T09:59:00.000Z",
+        ordersRecentCursorValue: "orders_cursor",
+        returnsRecentSyncedAt: "2026-04-02T10:00:00.000Z",
+        returnsRecentCursorTimestamp: "2026-04-02T09:58:00.000Z",
+        returnsRecentCursorValue: "returns_cursor",
         canServeWarehouse: true,
       })
     );

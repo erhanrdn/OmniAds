@@ -136,6 +136,12 @@ export interface ShopifyServingStateRecord {
   canaryEnabled?: boolean;
   decisionReasons?: string[] | null;
   divergence?: Record<string, unknown> | null;
+  ordersRecentSyncedAt?: string | null;
+  ordersRecentCursorTimestamp?: string | null;
+  ordersRecentCursorValue?: string | null;
+  returnsRecentSyncedAt?: string | null;
+  returnsRecentCursorTimestamp?: string | null;
+  returnsRecentCursorValue?: string | null;
 }
 
 export interface ShopifyServingStateHistoryRecord extends ShopifyServingStateRecord {

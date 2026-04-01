@@ -1487,6 +1487,18 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
           ADD COLUMN IF NOT EXISTS end_date DATE`.catch(() => {}),
         sql`ALTER TABLE shopify_serving_state
           ADD COLUMN IF NOT EXISTS time_zone_basis TEXT`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS orders_recent_synced_at TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS orders_recent_cursor_timestamp TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS orders_recent_cursor_value TEXT`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS returns_recent_synced_at TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS returns_recent_cursor_timestamp TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS returns_recent_cursor_value TEXT`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_serving_state_business_updated
           ON shopify_serving_state (business_id, updated_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_serving_state_business_range
@@ -1502,6 +1514,12 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
           assessed_at          TIMESTAMPTZ,
           status_state         TEXT,
           preferred_source     TEXT,
+          orders_recent_synced_at TIMESTAMPTZ,
+          orders_recent_cursor_timestamp TIMESTAMPTZ,
+          orders_recent_cursor_value TEXT,
+          returns_recent_synced_at TIMESTAMPTZ,
+          returns_recent_cursor_timestamp TIMESTAMPTZ,
+          returns_recent_cursor_value TEXT,
           can_serve_warehouse  BOOLEAN NOT NULL DEFAULT FALSE,
           canary_enabled       BOOLEAN NOT NULL DEFAULT FALSE,
           decision_reasons     JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -1513,6 +1531,18 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
           ON shopify_serving_state_history (business_id, assessed_at DESC, created_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_serving_state_history_business_range
           ON shopify_serving_state_history (business_id, start_date DESC, end_date DESC, assessed_at DESC)`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state_history
+          ADD COLUMN IF NOT EXISTS orders_recent_synced_at TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state_history
+          ADD COLUMN IF NOT EXISTS orders_recent_cursor_timestamp TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state_history
+          ADD COLUMN IF NOT EXISTS orders_recent_cursor_value TEXT`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state_history
+          ADD COLUMN IF NOT EXISTS returns_recent_synced_at TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state_history
+          ADD COLUMN IF NOT EXISTS returns_recent_cursor_timestamp TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state_history
+          ADD COLUMN IF NOT EXISTS returns_recent_cursor_value TEXT`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS shopify_sync_state (
           business_id              TEXT NOT NULL,
           provider_account_id      TEXT NOT NULL,
