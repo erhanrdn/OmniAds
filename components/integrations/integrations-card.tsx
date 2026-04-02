@@ -4,17 +4,15 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getProviderLabel } from "@/components/integrations/oauth";
 import {
-  GoogleAdsSyncProgress,
-  GoogleAdsSyncProgressSkeleton,
-  shouldRenderGoogleAdsSyncProgress,
-} from "@/components/google-ads/google-ads-sync-progress";
-import {
-  MetaSyncProgress,
-  MetaSyncProgressSkeleton,
-  shouldRenderMetaSyncProgress,
-} from "@/components/meta/meta-sync-progress";
+  SyncStatusPill,
+  SyncStatusPillSkeleton,
+} from "@/components/sync/sync-status-pill";
 import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
+import {
+  resolveGoogleAdsSyncStatusPill,
+  resolveMetaSyncStatusPill,
+} from "@/lib/sync/sync-status-pill";
 import { cn } from "@/lib/utils";
 import {
   IntegrationProvider,
@@ -27,7 +25,6 @@ interface IntegrationsCardProps {
   provider: IntegrationProvider;
   description: string;
   view: ProviderViewState;
-  language?: "en" | "tr";
   syncNotice?: string | null;
   syncNoticeTone?: "info" | "warning" | "error";
   metaSyncStatus?: MetaStatusResponse | null;
@@ -46,7 +43,6 @@ export function IntegrationsCard({
   provider,
   description,
   view,
-  language = "en",
   syncNotice,
   syncNoticeTone = "info",
   metaSyncStatus,
@@ -69,10 +65,15 @@ export function IntegrationsCard({
   const isActionRequired = view.status === "action_required";
   const isShopify = provider === "shopify";
   const logoSrc = getProviderLogo(provider);
-  const shouldShowMetaProgress =
-    provider === "meta" && shouldRenderMetaSyncProgress(metaSyncStatus);
-  const shouldShowGoogleProgress =
-    provider === "google" && shouldRenderGoogleAdsSyncProgress(googleSyncStatus, "compact");
+  const syncPill =
+    provider === "meta"
+      ? resolveMetaSyncStatusPill(metaSyncStatus)
+      : provider === "google"
+        ? resolveGoogleAdsSyncStatusPill(googleSyncStatus)
+        : null;
+  const showSyncSkeleton =
+    (provider === "meta" && metaSyncLoading) ||
+    (provider === "google" && googleSyncLoading);
   const syncNoticeClasses =
     syncNoticeTone === "warning"
       ? "border-amber-300/40 bg-amber-50 text-amber-800"
@@ -126,27 +127,17 @@ export function IntegrationsCard({
         </p>
       ) : null}
 
-      {provider === "meta" && metaSyncLoading ? (
+      {showSyncSkeleton ? (
         <div className="mt-2">
-          <MetaSyncProgressSkeleton variant="compact" />
+          <SyncStatusPillSkeleton className="w-28" />
         </div>
-      ) : shouldShowMetaProgress && metaSyncStatus ? (
+      ) : syncPill?.visible ? (
         <div className="mt-2">
-          <MetaSyncProgress
-            status={metaSyncStatus}
-            language={language}
-            variant="compact"
-          />
+          <SyncStatusPill pill={syncPill} />
         </div>
-      ) : shouldShowGoogleProgress && googleSyncStatus ? (
-        <div className="mt-2">
-          <GoogleAdsSyncProgress status={googleSyncStatus} variant="compact" />
-        </div>
-      ) : provider === "google" && googleSyncLoading ? (
-        <div className="mt-2">
-          <GoogleAdsSyncProgressSkeleton variant="compact" />
-        </div>
-      ) : syncNotice ? (
+      ) : null}
+
+      {syncNotice ? (
         <p className={cn("mt-2 rounded-lg px-2.5 py-2 text-[11px] leading-4", syncNoticeClasses)}>
           {syncNotice}
         </p>

@@ -123,6 +123,15 @@ describe("GET /api/meta/copies", () => {
     expect(response.status).toBe(200);
     expect(payload.rows).toHaveLength(1);
     expect(payload.rows[0].copy_text).toBe("Buy now");
-    expect(creativesApi.getMetaCreativesApiPayload).toHaveBeenCalledOnce();
+    expect(creativesApi.getMetaCreativesApiPayload).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz",
+        mediaMode: "metadata",
+        enableCreativeDetails: false,
+        enableThumbnailBackfill: false,
+        enableCardThumbnailBackfill: false,
+        enableMediaRecovery: false,
+      })
+    );
   });
 });

@@ -12,7 +12,7 @@ import { SummaryAttributionTable } from "@/components/overview/SummaryAttributio
 import { AiDailyBrief } from "@/components/overview/AiDailyBrief";
 import { PinsSection } from "@/components/overview/PinsSection";
 import { CostModelSheet } from "@/components/overview/CostModelSheet";
-import { MetaSyncProgress } from "@/components/meta/meta-sync-progress";
+import { SyncStatusPill } from "@/components/sync/sync-status-pill";
 import {
   DateRangePicker,
   DateRangeValue,
@@ -22,8 +22,9 @@ import { usePersistentDateRange } from "@/hooks/use-persistent-date-range";
 import { buildOverviewMetricCatalog } from "@/lib/overview-metric-catalog";
 import { useAppStore } from "@/store/app-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
-import { usePreferencesStore } from "@/store/preferences-store";
+import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
+import { resolveProviderSyncStatusPill } from "@/lib/sync/sync-status-pill";
 import {
   getOverviewSummary,
   getOverviewSparklines,
@@ -53,9 +54,49 @@ async function fetchMetaStatus(businessId: string): Promise<MetaStatusResponse> 
   return payload as MetaStatusResponse;
 }
 
+async function fetchGoogleAdsStatus(
+  businessId: string
+): Promise<GoogleAdsStatusResponse> {
+  const params = new URLSearchParams({ businessId });
+  const response = await fetch(`/api/google-ads/status?${params.toString()}`, {
+    cache: "no-store",
+    headers: { Accept: "application/json" },
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(
+      (payload as { message?: string } | null)?.message ??
+        `Google Ads status request failed (${response.status})`
+    );
+  }
+  return payload as GoogleAdsStatusResponse;
+}
+
 function getMetaStatusRefetchInterval(status: MetaStatusResponse | undefined) {
   const state = status?.state;
   if (state === "syncing" || state === "partial") return 5_000;
+  if (
+    state === "paused" ||
+    state === "stale" ||
+    (status?.jobHealth?.queueDepth ?? 0) > 0 ||
+    (status?.jobHealth?.leasedPartitions ?? 0) > 0
+  ) {
+    return 10_000;
+  }
+  return false;
+}
+
+function getGoogleAdsStatusRefetchInterval(
+  status: GoogleAdsStatusResponse | undefined
+) {
+  const state = status?.state;
+  if (
+    state === "syncing" ||
+    state === "partial" ||
+    state === "advisor_not_ready"
+  ) {
+    return 5_000;
+  }
   if (
     state === "paused" ||
     state === "stale" ||
@@ -145,6 +186,33 @@ export default function OverviewPage() {
       getMetaStatusRefetchInterval(query.state.data as MetaStatusResponse | undefined),
     queryFn: () => fetchMetaStatus(businessId),
   });
+  const googleAdsStatusQuery = useQuery({
+    queryKey: ["overview-google-ads-status", businessId],
+    enabled: Boolean(selectedBusinessId),
+    staleTime: 30 * 1000,
+    refetchInterval: (query) =>
+      getGoogleAdsStatusRefetchInterval(
+        query.state.data as GoogleAdsStatusResponse | undefined
+      ),
+    queryFn: () => fetchGoogleAdsStatus(businessId),
+  });
+  const platformSyncPills = useMemo(
+    () => ({
+      meta: resolveProviderSyncStatusPill({
+        provider: "meta",
+        metaStatus: metaStatusQuery.data,
+      }),
+      google: resolveProviderSyncStatusPill({
+        provider: "google",
+        googleAdsStatus: googleAdsStatusQuery.data,
+      }),
+      google_ads: resolveProviderSyncStatusPill({
+        provider: "google_ads",
+        googleAdsStatus: googleAdsStatusQuery.data,
+      }),
+    }),
+    [googleAdsStatusQuery.data, metaStatusQuery.data]
+  );
 
   const handleRegenerateAiBrief = async () => {
     if (!businessId || aiBriefRegenerating) return;
@@ -230,7 +298,6 @@ export default function OverviewPage() {
       <DataStatusRow
         dateRange={dateRange}
         onDateRangeChange={setDateRange}
-        metaStatus={metaStatusQuery.data}
         shopifyServing={effectiveSummary?.shopifyServing ?? null}
       />
 
@@ -300,7 +367,11 @@ export default function OverviewPage() {
       {platformSections.map((platform, index) => (
         <SummarySection
           key={`${platform.id}-${platform.provider}-${platform.title}-${index}`}
-          title={renderPlatformSectionTitle(platform.provider, platform.title)}
+          title={renderPlatformSectionTitle(
+            platform.provider,
+            platform.title,
+            platformSyncPills[platform.provider as keyof typeof platformSyncPills] ?? null
+          )}
           description={`Mini dashboard for ${resolvePlatformLabel(platform.provider, platform.title)} performance.`}
         >
           <MetricGrid
@@ -404,7 +475,11 @@ function resolvePlatformLabel(provider: string, fallbackTitle: string) {
   return PLATFORM_TITLE_META[provider]?.label ?? fallbackTitle;
 }
 
-function renderPlatformSectionTitle(provider: string, fallbackTitle: string) {
+function renderPlatformSectionTitle(
+  provider: string,
+  fallbackTitle: string,
+  syncPill?: ReturnType<typeof resolveProviderSyncStatusPill> | null
+) {
   const configured = PLATFORM_TITLE_META[provider];
   if (!configured) return fallbackTitle;
 
@@ -419,6 +494,7 @@ function renderPlatformSectionTitle(provider: string, fallbackTitle: string) {
         />
       </span>
       <span>{configured.label}</span>
+      <SyncStatusPill pill={syncPill ?? null} />
     </span>
   );
 }
@@ -482,15 +558,12 @@ function LoadingInsightPlaceholder() {
 function DataStatusRow({
   dateRange,
   onDateRangeChange,
-  metaStatus,
   shopifyServing,
 }: {
   dateRange: DateRangeValue;
   onDateRangeChange: (value: DateRangeValue) => void;
-  metaStatus?: MetaStatusResponse;
   shopifyServing?: OverviewSummaryData["shopifyServing"];
 }) {
-  const language = usePreferencesStore((state) => state.language);
   const shopifyBadge = shopifyServing
     ? shopifyServing.source === "ledger"
       ? { label: "Trusted ledger", tone: "default" as const }
@@ -534,12 +607,6 @@ function DataStatusRow({
               {shopifyHelper ? <span className="text-slate-500">{shopifyHelper}</span> : null}
             </div>
           ) : null}
-          <MetaSyncProgress
-            status={metaStatus}
-            language={language}
-            variant="inline"
-            className="max-w-full"
-          />
         </div>
 
         <div className="flex flex-wrap items-center gap-3 lg:justify-end">

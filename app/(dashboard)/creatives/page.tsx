@@ -32,6 +32,7 @@ import {
 } from "@/components/creatives/CreativesTopSection";
 import { usePersistentCreativeDateRange } from "@/hooks/use-persistent-date-range";
 import type { ShareMetricKey, SharePayload } from "@/components/creatives/shareCreativeTypes";
+import { SyncStatusPill, SyncStatusPillSkeleton } from "@/components/sync/sync-status-pill";
 import {
   CreativesTableShell,
   buildCreativeHistoryById,
@@ -58,10 +59,7 @@ import {
   addDaysToIsoDate,
   dayCountInclusive,
 } from "@/lib/meta/history";
-import {
-  formatMetaReadyThroughDate,
-} from "@/lib/meta/ui";
-import { MetaSyncProgressSkeleton } from "@/components/meta/meta-sync-progress";
+import { resolveMetaSyncStatusPill } from "@/lib/sync/sync-status-pill";
 
 async function fetchMetaStatus(businessId: string): Promise<MetaStatusResponse> {
   const params = new URLSearchParams({ businessId });
@@ -96,63 +94,41 @@ function clampCreativeDateRangeToHistoryLimit(
   };
 }
 
+function scheduleIdlePhase(work: () => void, timeout = 900) {
+  if (typeof window === "undefined") {
+    return () => undefined;
+  }
+
+  const idleWindow = window as typeof window & {
+    requestIdleCallback?: (
+      callback: IdleRequestCallback,
+      options?: IdleRequestOptions
+    ) => number;
+    cancelIdleCallback?: (handle: number) => void;
+  };
+
+  if (typeof idleWindow.requestIdleCallback === "function") {
+    const idleHandle = idleWindow.requestIdleCallback(() => work(), { timeout });
+    return () => idleWindow.cancelIdleCallback?.(idleHandle);
+  }
+
+  const timeoutHandle = window.setTimeout(work, Math.min(timeout, 350));
+  return () => window.clearTimeout(timeoutHandle);
+}
+
 function CreativesSyncInlineProgress({
   status,
   loading = false,
-  language = "en",
 }: {
   status: MetaStatusResponse | undefined;
   loading?: boolean;
-  language?: "en" | "tr";
 }) {
   if (loading) {
-    return <MetaSyncProgressSkeleton variant="inline" />;
+    return <SyncStatusPillSkeleton className="w-28" />;
   }
-  const coverage = status?.warehouse?.coverage?.creatives;
-  const hasAssignment = (status?.assignedAccountIds?.length ?? 0) > 0;
-  if (!status?.connected || !hasAssignment || !coverage) return null;
-
-  const totalDays = Math.max(coverage.totalDays ?? 0, 1);
-  const completedDays = Math.max(0, coverage.completedDays ?? 0);
-  const dayPercent = Math.max(
-    0,
-    Math.min(100, Math.round((completedDays / totalDays) * 100))
-  );
-  const progress = dayPercent;
-  if (progress >= 100) return null;
-
-  const captionParts = [
-    language === "tr"
-      ? `${completedDays}/${totalDays} gün`
-      : `${completedDays}/${totalDays} days`,
-  ];
-  if ((coverage.totalRows ?? 0) > 0) {
-    captionParts.push(
-      language === "tr"
-        ? `${coverage.previewReadyRows ?? 0}/${coverage.totalRows ?? 0} önizleme`
-        : `${coverage.previewReadyRows ?? 0}/${coverage.totalRows ?? 0} previews`
-    );
-  }
-  const readyThrough = formatMetaReadyThroughDate(coverage.readyThroughDate, language);
-  if (readyThrough) captionParts.push(readyThrough);
-
-  return (
-    <div className="inline-flex min-w-[240px] items-center gap-3 rounded-xl border border-blue-200 bg-blue-50 px-3.5 py-2.5 text-xs text-blue-900">
-      <span className="shrink-0 font-semibold tabular-nums">{progress}%</span>
-      <div className="min-w-0 flex-1 space-y-1.5">
-        <div className="truncate text-[11px] font-medium">
-          {(language === "tr" ? "Creative arşivi hazırlanıyor" : "Creatives backfill") +
-            ` • ${captionParts.join(" • ")}`}
-        </div>
-        <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-blue-100">
-          <div
-            className="h-full rounded-full bg-blue-500 transition-[width] duration-300"
-            style={{ width: `${progress}%` }}
-          />
-        </div>
-      </div>
-    </div>
-  );
+  const pill = resolveMetaSyncStatusPill(status);
+  if (!pill || pill.state === "active") return null;
+  return <SyncStatusPill pill={pill} />;
 }
 
 const CreativeDetailExperience = dynamic(
@@ -208,6 +184,8 @@ export default function CreativesPage() {
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [shareError, setShareError] = useState<string | null>(null);
   const [csvError, setCsvError] = useState<string | null>(null);
+  const [mediaPhaseStarted, setMediaPhaseStarted] = useState(false);
+  const [historyPhaseStarted, setHistoryPhaseStarted] = useState(false);
 
   const platform: "meta" = "meta";
   const metaView = deriveProviderViewState(
@@ -223,6 +201,8 @@ export default function CreativesPage() {
       (bootstrapStatus !== "ready" && !metaView.isConnected));
   const assignedMetaAccounts = assignedAccountsByBusiness[businessId]?.meta ?? [];
   const metaHasAssignments = isDemoBusiness || assignedMetaAccounts.length > 0;
+  const canLoadCreatives =
+    platform === "meta" && platformConnected && metaHasAssignments;
 
   const { start: drStart, end: drEnd } = resolveCreativeDateRange(dateRangeValue);
   const setBoundedDateRangeValue = useCallback(
@@ -249,6 +229,11 @@ export default function CreativesPage() {
     }
   }, [allowedHistoryDays, dateRangeValue, setDateRangeValue]);
 
+  useEffect(() => {
+    setMediaPhaseStarted(false);
+    setHistoryPhaseStarted(false);
+  }, [businessId, drStart, drEnd, groupBy]);
+
   const creativesMetadataQuery = useQuery({
     queryKey: [
       "meta-creatives-creatives-metadata",
@@ -257,7 +242,47 @@ export default function CreativesPage() {
       drEnd,
       groupBy,
     ],
-    enabled: platform === "meta" && platformConnected && metaHasAssignments,
+    enabled: canLoadCreatives,
+    queryFn: () =>
+      fetchMetaCreatives({
+        businessId,
+        start: drStart,
+        end: drEnd,
+        groupBy: mainTableApiGroupBy,
+        format: "all",
+        sort: "spend",
+        mediaMode: "metadata",
+      }),
+    staleTime: 30 * 1000,
+    refetchOnWindowFocus: false,
+    placeholderData: (previousData) => previousData,
+  });
+  useEffect(() => {
+    if (!canLoadCreatives || mediaPhaseStarted) return;
+    if (creativesMetadataQuery.isLoading || creativesMetadataQuery.isFetching) return;
+    if ((creativesMetadataQuery.data?.rows?.length ?? 0) === 0) return;
+    return scheduleIdlePhase(() => setMediaPhaseStarted(true), 450);
+  }, [
+    canLoadCreatives,
+    creativesMetadataQuery.data?.rows?.length,
+    creativesMetadataQuery.isFetching,
+    creativesMetadataQuery.isLoading,
+    mediaPhaseStarted,
+  ]);
+  const creativesMediaQuery = useQuery({
+    queryKey: [
+      "meta-creatives-creatives-media",
+      businessId,
+      drStart,
+      drEnd,
+      groupBy,
+    ],
+    enabled:
+      canLoadCreatives &&
+      mediaPhaseStarted &&
+      !creativesMetadataQuery.isLoading &&
+      !creativesMetadataQuery.isFetching &&
+      (creativesMetadataQuery.data?.rows?.length ?? 0) > 0,
     queryFn: () =>
       fetchMetaCreatives({
         businessId,
@@ -272,29 +297,39 @@ export default function CreativesPage() {
     refetchInterval: (query) =>
       getPreviewPollingInterval(query.state.data as MetaCreativesResponse | undefined),
     refetchIntervalInBackground: true,
+    refetchOnWindowFocus: false,
   });
   const metaStatusQuery = useQuery({
     queryKey: ["meta-creatives-status", businessId],
-    enabled: platform === "meta" && platformConnected && metaHasAssignments,
+    enabled: canLoadCreatives,
     staleTime: 30 * 1000,
     refetchInterval: (query) => {
       const payload = query.state.data as MetaStatusResponse | undefined;
-      const coverage = payload?.warehouse?.coverage?.creatives;
-      const totalRows = coverage?.totalRows ?? 0;
-      const previewReadyRows = coverage?.previewReadyRows ?? 0;
-      const totalDays = coverage?.totalDays ?? 0;
-      const completedDays = coverage?.completedDays ?? 0;
-      const previewPending =
-        totalRows > 0 ? previewReadyRows < totalRows : completedDays < totalDays;
       const stillRunning =
         payload?.state === "syncing" ||
+        payload?.state === "partial" ||
         payload?.latestSync?.status === "running" ||
-        (payload?.jobHealth?.leasedPartitions ?? 0) > 0;
-      if (!previewPending && !stillRunning) return false;
-      return stillRunning ? 5_000 : 15_000;
+        (payload?.jobHealth?.leasedPartitions ?? 0) > 0 ||
+        (payload?.jobHealth?.queueDepth ?? 0) > 0;
+      if (!stillRunning) return false;
+      return payload?.state === "syncing" || payload?.state === "partial" ? 5_000 : 10_000;
     },
     queryFn: () => fetchMetaStatus(businessId),
   });
+  const shouldLoadHistory =
+    historyPhaseStarted || creativeDrawerState.open || breakdownDrawerState.open;
+  useEffect(() => {
+    if (!canLoadCreatives || shouldLoadHistory) return;
+    if (creativesMetadataQuery.isLoading || creativesMetadataQuery.isFetching) return;
+    if ((creativesMetadataQuery.data?.rows?.length ?? 0) === 0) return;
+    return scheduleIdlePhase(() => setHistoryPhaseStarted(true), 1_500);
+  }, [
+    canLoadCreatives,
+    creativesMetadataQuery.data?.rows?.length,
+    creativesMetadataQuery.isFetching,
+    creativesMetadataQuery.isLoading,
+    shouldLoadHistory,
+  ]);
   const creativeHistoryWindowDefs = useMemo<Array<{ key: CreativeHistoryWindowKey; start: string; end: string }>>(
     () => [
       { key: "last3", start: offsetIso(2), end: drEnd },
@@ -317,7 +352,7 @@ export default function CreativesPage() {
         windowDef.start,
         windowDef.end,
       ],
-      enabled: platform === "meta" && platformConnected && metaHasAssignments,
+      enabled: canLoadCreatives && shouldLoadHistory,
       queryFn: () =>
         fetchMetaCreativesHistory({
           businessId,
@@ -335,9 +370,7 @@ export default function CreativesPage() {
   const adBreakdownQuery = useQuery({
     queryKey: ["meta-creatives-ad-breakdown", businessId, drStart, drEnd],
     enabled:
-      platform === "meta" &&
-      platformConnected &&
-      metaHasAssignments &&
+      canLoadCreatives &&
       breakdownDrawerState.open &&
       Boolean(breakdownDrawerState.activeRowId),
     queryFn: () =>
@@ -350,9 +383,10 @@ export default function CreativesPage() {
         sort: "spend",
       }),
   });
+  const activeCreativesPayload = creativesMediaQuery.data ?? creativesMetadataQuery.data;
 
   const allRows = useMemo(() => {
-    const payloadRows = creativesMetadataQuery.data?.rows ?? [];
+    const payloadRows = activeCreativesPayload?.rows ?? [];
     const rows = payloadRows.map(mapApiRowToUiRow);
     if (rows.length > 0 && process.env.NODE_ENV !== "production") {
       const withPreview = rows.filter((r) => r.previewUrl).length;
@@ -404,14 +438,14 @@ export default function CreativesPage() {
       
       // DIAGNOSTIC: Full backend response status
       console.log("[DIAGNOSTIC] Backend response metadata", {
-        status: creativesMetadataQuery.data?.status,
+        status: activeCreativesPayload?.status,
         total_rows: rawRows.length,
         has_preview_field: rawRows.length > 0 ? typeof rawRows[0]?.preview : "N/A",
-        media_hydrated: Boolean(creativesMetadataQuery.data?.media_hydrated),
+        media_hydrated: Boolean(activeCreativesPayload?.media_hydrated),
       });
     }
     return rows;
-  }, [creativesMetadataQuery.data?.media_hydrated, creativesMetadataQuery.data?.rows]);
+  }, [activeCreativesPayload?.media_hydrated, activeCreativesPayload?.rows]);
 
   const filteredRows = useMemo(() => {
     if (platform !== "meta") return [];
@@ -459,9 +493,9 @@ export default function CreativesPage() {
     () => selectedRows,
     [selectedRows]
   );
-  const previewStatusPayload = creativesMetadataQuery.data;
+  const previewStatusPayload = activeCreativesPayload;
   const previewStripState = useMemo<PreviewStripState>(() => {
-    const metadataRows = creativesMetadataQuery.data?.rows ?? [];
+    const metadataRows = activeCreativesPayload?.rows ?? [];
     const hasMetadataRows = metadataRows.length > 0;
 
     if (!hasMetadataRows) {
@@ -489,7 +523,7 @@ export default function CreativesPage() {
 
     return "missing";
   }, [
-    creativesMetadataQuery.data?.rows,
+    activeCreativesPayload?.rows,
     creativesMetadataQuery.isFetching,
     creativesMetadataQuery.isLoading,
     isDemoBusiness,
@@ -672,7 +706,7 @@ export default function CreativesPage() {
     }
   };
 
-  const dataStatus = creativesMetadataQuery.data?.status;
+  const dataStatus = activeCreativesPayload?.status;
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -816,7 +850,6 @@ export default function CreativesPage() {
                 <CreativesSyncInlineProgress
                   status={metaStatusQuery.data}
                   loading={metaStatusQuery.isLoading && !metaStatusQuery.data}
-                  language={language}
                 />
               }
             />
@@ -840,7 +873,7 @@ export default function CreativesPage() {
               (deferredFilteredRows.length === 0 || dataStatus === "no_data") && (
                 <EmptyState
                   title={
-                    (creativesMetadataQuery.data?.rows?.length ?? 0) > 0
+                    (activeCreativesPayload?.rows?.length ?? 0) > 0
                       ? language === "tr"
                         ? "Bu filtrelerle eşleşen creative bulunamadı"
                         : "No creatives match the current filters"
@@ -849,7 +882,7 @@ export default function CreativesPage() {
                         : "No creative performance data found for the selected range"
                   }
                   description={
-                    (creativesMetadataQuery.data?.rows?.length ?? 0) > 0
+                    (activeCreativesPayload?.rows?.length ?? 0) > 0
                       ? language === "tr"
                         ? "Tarih aralığını veya filtreleri gevşeterek daha fazla creative görebilirsiniz."
                         : "Relax the current filters or widen the date range to reveal more creatives."

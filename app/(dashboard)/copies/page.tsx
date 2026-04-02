@@ -246,6 +246,9 @@ export default function CopiesPage() {
         end: drEnd,
         groupBy: copyApiGroupBy,
       }),
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
+    placeholderData: (previousData) => previousData,
   });
 
   const allRows = useMemo(() => {
