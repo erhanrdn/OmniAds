@@ -12,6 +12,17 @@ export interface ShopifyTotalSalesReferenceRow {
   totalSales: number;
 }
 
+export interface ShopifyReferenceAggregateComparison {
+  referenceTotalSales: number;
+  candidateRevenue: number;
+  totalSalesDelta: number;
+  totalSalesDeltaPercent: number | null;
+  referenceOrders: number;
+  candidateOrders: number;
+  orderDelta: number;
+  score: number;
+}
+
 function parseCsvLine(line: string) {
   return line
     .split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/)
@@ -65,6 +76,33 @@ export function summarizeShopifyTotalSalesReference(rows: ShopifyTotalSalesRefer
       totalSales: 0,
     }
   );
+}
+
+export function compareAggregateToShopifyReference(input: {
+  rows: ShopifyTotalSalesReferenceRow[];
+  aggregate: {
+    revenue: number;
+    purchases: number;
+  };
+}) {
+  const summary = summarizeShopifyTotalSalesReference(input.rows);
+  const totalSalesDelta = round2(input.aggregate.revenue - summary.totalSales);
+  const totalSalesDeltaPercent =
+    Math.abs(summary.totalSales) > 0
+      ? round2((Math.abs(totalSalesDelta) / Math.abs(summary.totalSales)) * 100)
+      : null;
+  const orderDelta = input.aggregate.purchases - summary.orders;
+
+  return {
+    referenceTotalSales: summary.totalSales,
+    candidateRevenue: round2(input.aggregate.revenue),
+    totalSalesDelta,
+    totalSalesDeltaPercent,
+    referenceOrders: summary.orders,
+    candidateOrders: input.aggregate.purchases,
+    orderDelta,
+    score: round2(Math.abs(totalSalesDelta) + Math.abs(orderDelta) * 25),
+  } satisfies ShopifyReferenceAggregateComparison;
 }
 
 function round2(value: number) {

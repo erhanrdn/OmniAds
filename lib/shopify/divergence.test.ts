@@ -123,8 +123,29 @@ describe("compareShopifyAggregates", () => {
         purchases: 7,
         returnEvents: 1,
         averageOrderValue: 157.14,
-        daily: [],
+        daily: [
+          {
+            date: "2026-03-01",
+            orderRevenue: 1100,
+            refundedRevenue: 170,
+            netRevenue: 930,
+            orders: 7,
+            returnEvents: 1,
+            orderEventCount: 7,
+            adjustmentEventCount: 2,
+            refundEventCount: 1,
+            adjustmentRevenue: -45,
+            refundPressure: 170,
+            dailySemanticDrift: 215,
+          },
+        ],
         ledgerRows: 3,
+        orderEventCount: 7,
+        adjustmentEventCount: 2,
+        refundEventCount: 1,
+        adjustmentRevenue: -45,
+        refundPressure: 170,
+        dailySemanticDrift: 215,
       },
     });
 
@@ -132,5 +153,7 @@ describe("compareShopifyAggregates", () => {
     expect(result.revenueDeltaPercent).toBe(7);
     expect(result.purchaseDelta).toBe(-3);
     expect(result.refundedRevenueDelta).toBe(70);
+    expect(result.adjustmentRevenueDelta).toBe(-45);
+    expect(result.maxDailySemanticDrift).toBe(215);
   });
 });

@@ -1,4 +1,5 @@
 import type { ShopifyOverviewAggregate } from "@/lib/shopify/overview";
+import type { ShopifyRevenueLedgerAggregate } from "@/lib/shopify/revenue-ledger";
 import type { ShopifyWarehouseOverviewAggregate } from "@/lib/shopify/warehouse-overview";
 
 function round2(value: number) {
@@ -32,6 +33,12 @@ export interface ShopifyLedgerConsistency {
   warehouseRefundedRevenue: number;
   ledgerRefundedRevenue: number;
   refundedRevenueDelta: number;
+  ledgerAdjustmentRevenue: number;
+  adjustmentRevenueDelta: number;
+  refundPressureDelta: number;
+  maxDailyRevenueDeltaPercent: number | null;
+  maxDailyPurchaseDelta: number | null;
+  maxDailySemanticDrift: number | null;
   withinThreshold: boolean;
 }
 
@@ -116,10 +123,14 @@ export function compareShopifyAggregates(input: {
 
 export function compareShopifyWarehouseAndLedger(input: {
   warehouse: ShopifyWarehouseOverviewAggregate;
-  ledger: ShopifyWarehouseOverviewAggregate & { ledgerRows?: number };
+  ledger: ShopifyRevenueLedgerAggregate;
   maxRevenueDeltaPercent?: number;
   maxPurchaseDelta?: number;
   maxRefundedRevenueDelta?: number;
+  maxAdjustmentRevenueDelta?: number;
+  maxDailyRevenueDeltaPercent?: number;
+  maxDailyPurchaseDelta?: number;
+  maxDailySemanticDrift?: number;
 }) {
   const revenueDelta = round2(input.ledger.revenue - input.warehouse.revenue);
   const revenueDeltaPercent =
@@ -130,9 +141,62 @@ export function compareShopifyWarehouseAndLedger(input: {
   const refundedRevenueDelta = round2(
     input.ledger.refundedRevenue - input.warehouse.refundedRevenue
   );
+  const adjustmentRevenueDelta = round2(input.ledger.adjustmentRevenue ?? 0);
+  const refundPressureDelta = round2(
+    (input.ledger.refundPressure ?? input.ledger.refundedRevenue) - input.warehouse.refundedRevenue
+  );
   const maxRevenueDeltaPercent = input.maxRevenueDeltaPercent ?? 2;
   const maxPurchaseDelta = input.maxPurchaseDelta ?? 2;
   const maxRefundedRevenueDelta = input.maxRefundedRevenueDelta ?? 25;
+  const maxAdjustmentRevenueDelta = input.maxAdjustmentRevenueDelta ?? 50;
+  const maxDailyRevenueDeltaPercent = input.maxDailyRevenueDeltaPercent ?? 5;
+  const maxDailyPurchaseDelta = input.maxDailyPurchaseDelta ?? 2;
+  const maxDailySemanticDrift = input.maxDailySemanticDrift ?? 75;
+  const dailyByDate = new Map(input.warehouse.daily.map((row) => [row.date, row]));
+  let observedMaxDailyRevenueDeltaPercent: number | null = null;
+  let observedMaxDailyPurchaseDelta: number | null = null;
+  let observedMaxDailySemanticDrift: number | null = null;
+
+  for (const ledgerRow of input.ledger.daily) {
+    const warehouseRow = dailyByDate.get(ledgerRow.date);
+    if (!warehouseRow) {
+      observedMaxDailySemanticDrift = Math.max(
+        observedMaxDailySemanticDrift ?? 0,
+        ledgerRow.dailySemanticDrift
+      );
+      continue;
+    }
+    const revenueBase = Math.abs(warehouseRow.netRevenue);
+    const dailyRevenueDelta = Math.abs(round2(ledgerRow.netRevenue - warehouseRow.netRevenue));
+    const dailyRevenueDeltaPercent =
+      revenueBase > 0 ? round2((dailyRevenueDelta / revenueBase) * 100) : null;
+    if (
+      dailyRevenueDeltaPercent !== null &&
+      (observedMaxDailyRevenueDeltaPercent === null ||
+        dailyRevenueDeltaPercent > observedMaxDailyRevenueDeltaPercent)
+    ) {
+      observedMaxDailyRevenueDeltaPercent = dailyRevenueDeltaPercent;
+    }
+
+    const dailyPurchaseDelta = Math.abs(ledgerRow.orders - warehouseRow.orders);
+    if (
+      observedMaxDailyPurchaseDelta === null ||
+      dailyPurchaseDelta > observedMaxDailyPurchaseDelta
+    ) {
+      observedMaxDailyPurchaseDelta = dailyPurchaseDelta;
+    }
+
+    const semanticDrift = round2(
+      Math.abs(ledgerRow.adjustmentRevenue) +
+      Math.abs(ledgerRow.refundPressure - warehouseRow.refundedRevenue)
+    );
+    if (
+      observedMaxDailySemanticDrift === null ||
+      semanticDrift > observedMaxDailySemanticDrift
+    ) {
+      observedMaxDailySemanticDrift = semanticDrift;
+    }
+  }
 
   return {
     warehouseRevenue: round2(input.warehouse.revenue),
@@ -145,9 +209,23 @@ export function compareShopifyWarehouseAndLedger(input: {
     warehouseRefundedRevenue: round2(input.warehouse.refundedRevenue),
     ledgerRefundedRevenue: round2(input.ledger.refundedRevenue),
     refundedRevenueDelta,
+    ledgerAdjustmentRevenue: round2(input.ledger.adjustmentRevenue ?? 0),
+    adjustmentRevenueDelta,
+    refundPressureDelta,
+    maxDailyRevenueDeltaPercent: observedMaxDailyRevenueDeltaPercent,
+    maxDailyPurchaseDelta: observedMaxDailyPurchaseDelta,
+    maxDailySemanticDrift: observedMaxDailySemanticDrift,
     withinThreshold:
       (revenueDeltaPercent === null || revenueDeltaPercent <= maxRevenueDeltaPercent) &&
       Math.abs(purchaseDelta) <= maxPurchaseDelta &&
-      Math.abs(refundedRevenueDelta) <= maxRefundedRevenueDelta,
+      Math.abs(refundedRevenueDelta) <= maxRefundedRevenueDelta &&
+      Math.abs(adjustmentRevenueDelta) <= maxAdjustmentRevenueDelta &&
+      Math.abs(refundPressureDelta) <= maxRefundedRevenueDelta &&
+      (observedMaxDailyRevenueDeltaPercent === null ||
+        observedMaxDailyRevenueDeltaPercent <= maxDailyRevenueDeltaPercent) &&
+      (observedMaxDailyPurchaseDelta === null ||
+        observedMaxDailyPurchaseDelta <= maxDailyPurchaseDelta) &&
+      (observedMaxDailySemanticDrift === null ||
+        observedMaxDailySemanticDrift <= maxDailySemanticDrift),
   } satisfies ShopifyLedgerConsistency;
 }

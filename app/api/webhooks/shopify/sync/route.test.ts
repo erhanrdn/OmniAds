@@ -139,4 +139,52 @@ describe("POST /api/webhooks/shopify/sync", () => {
     expect(payload.duplicate).toBe(true);
     expect(shopifySync.syncShopifyCommerceReports).not.toHaveBeenCalled();
   });
+
+  it("retries failed deliveries instead of suppressing them as duplicates", async () => {
+    vi.mocked(verification.verifyShopifyWebhook).mockResolvedValue({
+      valid: true,
+      body: JSON.stringify({ id: "order_4" }),
+    } as never);
+    vi.mocked(db.getDb).mockReturnValue(
+      vi.fn().mockResolvedValue([
+        {
+          business_id: "biz_1",
+          provider_account_id: "test-shop.myshopify.com",
+        },
+      ]) as never
+    );
+    vi.mocked(warehouse.getShopifyWebhookDelivery).mockResolvedValue({
+      processingState: "failed",
+    } as never);
+    vi.mocked(shopifySync.syncShopifyCommerceReports).mockResolvedValue({
+      success: true,
+      reason: "ok",
+    } as never);
+    vi.mocked(warehouse.upsertShopifyWebhookDelivery).mockResolvedValue(undefined);
+
+    const request = new NextRequest("http://localhost:3000/api/webhooks/shopify/sync", {
+      method: "POST",
+      headers: {
+        "x-shopify-topic": "REFUNDS_CREATE",
+        "x-shopify-shop-domain": "test-shop.myshopify.com",
+        "x-shopify-webhook-id": "wh_4",
+      },
+      body: JSON.stringify({ id: "order_4" }),
+    });
+
+    const response = await POST(request as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.received).toBe(true);
+    expect(shopifySync.syncShopifyCommerceReports).toHaveBeenCalledWith("biz_1", {
+      recentWindowDays: 14,
+      triggerReason: "webhook:refunds:create",
+      recentTargets: {
+        orders: true,
+        returns: true,
+      },
+      allowHistorical: false,
+    });
+  });
 });

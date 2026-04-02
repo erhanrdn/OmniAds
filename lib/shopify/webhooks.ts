@@ -10,7 +10,28 @@ export const SHOPIFY_SYNC_WEBHOOK_TOPICS = [
 
 export type ShopifySyncWebhookTopic = (typeof SHOPIFY_SYNC_WEBHOOK_TOPICS)[number];
 
-export function classifyShopifySyncWebhookTopic(topic: string | null | undefined) {
+function envNumber(name: string, fallback: number) {
+  const parsed = Number(process.env[name] ?? String(fallback));
+  return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : fallback;
+}
+
+export interface ShopifySyncWebhookRepairPolicy {
+  supported: boolean;
+  entity: "orders" | "refunds" | "unknown";
+  action: "create" | "update" | "cancel" | "ignore";
+  shouldTriggerSync: boolean;
+  recentWindowDays: number;
+  recentTargets: {
+    orders: boolean;
+    returns: boolean;
+  };
+  allowHistorical: boolean;
+  triggerReason: string | null;
+}
+
+export function classifyShopifySyncWebhookTopic(
+  topic: string | null | undefined
+): ShopifySyncWebhookRepairPolicy {
   switch (topic) {
     case "ORDERS_CREATE":
       return {
@@ -18,6 +39,10 @@ export function classifyShopifySyncWebhookTopic(topic: string | null | undefined
         entity: "orders" as const,
         action: "create" as const,
         shouldTriggerSync: true,
+        recentWindowDays: envNumber("SHOPIFY_WEBHOOK_ORDER_SYNC_DAYS", 3),
+        recentTargets: { orders: true, returns: false },
+        allowHistorical: false,
+        triggerReason: "webhook:orders:create",
       };
     case "ORDERS_UPDATED":
       return {
@@ -25,6 +50,10 @@ export function classifyShopifySyncWebhookTopic(topic: string | null | undefined
         entity: "orders" as const,
         action: "update" as const,
         shouldTriggerSync: true,
+        recentWindowDays: envNumber("SHOPIFY_WEBHOOK_ORDER_SYNC_DAYS", 3),
+        recentTargets: { orders: true, returns: false },
+        allowHistorical: false,
+        triggerReason: "webhook:orders:update",
       };
     case "ORDERS_CANCELLED":
       return {
@@ -32,6 +61,10 @@ export function classifyShopifySyncWebhookTopic(topic: string | null | undefined
         entity: "orders" as const,
         action: "cancel" as const,
         shouldTriggerSync: true,
+        recentWindowDays: envNumber("SHOPIFY_WEBHOOK_ORDER_SYNC_DAYS", 3),
+        recentTargets: { orders: true, returns: false },
+        allowHistorical: false,
+        triggerReason: "webhook:orders:cancel",
       };
     case "REFUNDS_CREATE":
       return {
@@ -39,6 +72,10 @@ export function classifyShopifySyncWebhookTopic(topic: string | null | undefined
         entity: "refunds" as const,
         action: "create" as const,
         shouldTriggerSync: true,
+        recentWindowDays: envNumber("SHOPIFY_WEBHOOK_REFUND_SYNC_DAYS", 14),
+        recentTargets: { orders: true, returns: true },
+        allowHistorical: false,
+        triggerReason: "webhook:refunds:create",
       };
     default:
       return {
@@ -46,6 +83,10 @@ export function classifyShopifySyncWebhookTopic(topic: string | null | undefined
         entity: "unknown" as const,
         action: "ignore" as const,
         shouldTriggerSync: false,
+        recentWindowDays: 0,
+        recentTargets: { orders: false, returns: false },
+        allowHistorical: false,
+        triggerReason: null,
       };
   }
 }

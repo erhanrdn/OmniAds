@@ -8,6 +8,7 @@ const admin = await import("@/lib/shopify/admin");
 const {
   SHOPIFY_SYNC_WEBHOOK_TOPICS,
   buildShopifyWebhookCallbackUrl,
+  classifyShopifySyncWebhookTopic,
   registerShopifySyncWebhooks,
 } = await import("@/lib/shopify/webhooks");
 
@@ -54,5 +55,37 @@ describe("shopify webhook foundation", () => {
     expect(result.desiredTopics).toEqual([...SHOPIFY_SYNC_WEBHOOK_TOPICS]);
     expect(result.created).toEqual(["ORDERS_UPDATED", "ORDERS_CANCELLED", "REFUNDS_CREATE"]);
     expect(admin.shopifyAdminGraphql).toHaveBeenCalledTimes(4);
+  });
+
+  it("classifies supported topics into explicit repair policy", () => {
+    const orderPolicy = classifyShopifySyncWebhookTopic("ORDERS_UPDATED");
+    const refundPolicy = classifyShopifySyncWebhookTopic("REFUNDS_CREATE");
+    const ignoredPolicy = classifyShopifySyncWebhookTopic("PRODUCTS_UPDATE");
+
+    expect(orderPolicy).toEqual(
+      expect.objectContaining({
+        supported: true,
+        entity: "orders",
+        action: "update",
+        recentTargets: { orders: true, returns: false },
+        allowHistorical: false,
+        triggerReason: "webhook:orders:update",
+      })
+    );
+    expect(refundPolicy).toEqual(
+      expect.objectContaining({
+        supported: true,
+        entity: "refunds",
+        action: "create",
+        recentTargets: { orders: true, returns: true },
+      })
+    );
+    expect(ignoredPolicy).toEqual(
+      expect.objectContaining({
+        supported: false,
+        shouldTriggerSync: false,
+        recentTargets: { orders: false, returns: false },
+      })
+    );
   });
 });

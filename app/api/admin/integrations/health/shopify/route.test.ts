@@ -100,7 +100,17 @@ describe("GET /api/admin/integrations/health/shopify", () => {
     expect(payload.ledgerConsistency).toBeNull();
     expect(payload.customerEventsAggregate).toBeNull();
     expect(payload.webhookDeliveries).toEqual([]);
-    expect(payload.rollout.previewCanaryReady).toBe(false);
+    expect(payload.rollout).toEqual(
+      expect.objectContaining({
+        previewCanaryReady: false,
+        broaderLocalServingReady: false,
+        defaultCutoverReady: false,
+        lastDecisionReasons: ["divergence_above_threshold"],
+        stableWarehouseRunCount: 0,
+        stableLedgerRunCount: 0,
+        hasRecentWebhookFailures: false,
+      })
+    );
   });
 
   it("updates a Shopify serving override", async () => {

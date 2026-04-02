@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 import {
+  compareAggregateToShopifyReference,
   parseShopifyTotalSalesReferenceCsv,
   summarizeShopifyTotalSalesReference,
 } from "@/lib/shopify/reference-data";
@@ -65,6 +66,37 @@ describe("Shopify total sales reference fixture", () => {
         discounts: -122.76,
         returns: 0,
       })
+    );
+  });
+
+  it("shows the ledger candidate closer to the March 2026 reference than a weaker warehouse candidate", async () => {
+    const csv = await readFile(
+      new URL("./__fixtures__/total-sales-over-time.2026-03.csv", import.meta.url),
+      "utf8"
+    );
+    const rows = parseShopifyTotalSalesReferenceCsv(csv);
+
+    const warehouseComparison = compareAggregateToShopifyReference({
+      rows,
+      aggregate: {
+        revenue: 79880.22,
+        purchases: 361,
+      },
+    });
+    const ledgerComparison = compareAggregateToShopifyReference({
+      rows,
+      aggregate: {
+        revenue: 81094.12,
+        purchases: 374,
+      },
+    });
+
+    expect(ledgerComparison.score).toBeLessThan(warehouseComparison.score);
+    expect(Math.abs(ledgerComparison.totalSalesDelta)).toBeLessThan(
+      Math.abs(warehouseComparison.totalSalesDelta)
+    );
+    expect(Math.abs(ledgerComparison.orderDelta)).toBeLessThan(
+      Math.abs(warehouseComparison.orderDelta)
     );
   });
 });
