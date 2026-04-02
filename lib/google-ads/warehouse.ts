@@ -1414,10 +1414,7 @@ export async function upsertGoogleAdsSyncCheckpoint(input: GoogleAdsSyncCheckpoi
       WHERE id = ${input.partitionId}
         AND (
           ${input.leaseOwner ?? null}::text IS NULL
-          OR (
-            lease_owner = ${input.leaseOwner ?? null}
-            AND COALESCE(lease_expires_at, now() - interval '1 second') > now()
-          )
+          OR lease_owner = ${input.leaseOwner ?? null}
         )
     )
     INSERT INTO google_ads_sync_checkpoints (

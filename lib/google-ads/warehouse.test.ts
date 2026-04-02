@@ -119,6 +119,37 @@ describe("google ads warehouse ownership safety", () => {
     expect(checkpointId).toBeNull();
   });
 
+  it("does not require an unexpired lease to write a same-owner checkpoint update", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      queries.push(strings.join(" "));
+      return [{ id: "checkpoint-1" }];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const checkpointId = await upsertGoogleAdsSyncCheckpoint({
+      partitionId: "partition-1",
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      checkpointScope: "campaign_daily",
+      phase: "bulk_upsert",
+      status: "running",
+      pageIndex: 0,
+      attemptCount: 1,
+      leaseOwner: "worker-1",
+    });
+
+    expect(checkpointId).toBe("checkpoint-1");
+    expect(
+      queries.some(
+        (query) =>
+          query.includes("WITH owner_guard AS") &&
+          query.includes("lease_owner =") &&
+          query.includes("COALESCE(lease_expires_at, now() - interval '1 second') > now()")
+      )
+    ).toBe(false);
+  });
+
   it("keeps active leased dead-letter partitions out of replay", async () => {
     const queries: string[] = [];
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
