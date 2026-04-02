@@ -79,6 +79,25 @@ function tallyDisposition(
   counts[disposition] = (counts[disposition] ?? 0) + 1;
 }
 
+export interface MetaCleanupPreservedByReason {
+  recentCheckpointProgress: number;
+  matchingRunnerLeasePresent: number;
+  leaseNotExpired: number;
+}
+
+export interface MetaCleanupSummary {
+  candidateCount: number;
+  stalePartitionCount: number;
+  aliveSlowCount: number;
+  reconciledRunCount: number;
+  staleRunCount: number;
+  staleLegacyCount: number;
+  reclaimReasons: {
+    stalledReclaimable: string[];
+  };
+  preservedByReason: MetaCleanupPreservedByReason;
+}
+
 function chunkRows<T>(rows: T[], size = 250) {
   const chunks: T[][] = [];
   for (let index = 0; index < rows.length; index += size) {
@@ -501,6 +520,7 @@ export async function cleanupMetaPartitionOrchestration(input: {
       partition.scope,
       partition.updated_at,
       partition.started_at,
+      partition.lease_owner,
       partition.lease_expires_at,
       checkpoint.checkpoint_scope,
       checkpoint.phase,
@@ -511,8 +531,9 @@ export async function cleanupMetaPartitionOrchestration(input: {
         FROM sync_runner_leases lease
         WHERE lease.business_id = partition.business_id
           AND lease.provider_scope = 'meta'
+          AND lease.lease_owner = partition.lease_owner
           AND lease.lease_expires_at > now()
-      ) AS has_active_runner_lease
+      ) AS has_matching_runner_lease
     FROM meta_sync_partitions partition
     LEFT JOIN LATERAL (
       SELECT checkpoint_scope, phase, page_index, updated_at
@@ -531,39 +552,50 @@ export async function cleanupMetaPartitionOrchestration(input: {
     stalled_reclaimable: 0,
     poison_candidate: 0,
   };
+  const preservedByReason: MetaCleanupPreservedByReason = {
+    recentCheckpointProgress: 0,
+    matchingRunnerLeasePresent: 0,
+    leaseNotExpired: 0,
+  };
   const stalledDecisions: Array<ProviderReclaimDecision & { partitionId: string }> = [];
 
   for (const row of candidates) {
     const partitionId = String(row.id);
     const progressMs = parseTimestampMs(row.checkpoint_updated_at ?? row.updated_at);
-    const leaseMs = parseTimestampMs(
-      row.lease_expires_at ?? row.started_at ?? row.updated_at
-    );
+    const leaseExpiresMs = parseTimestampMs(row.lease_expires_at);
     const hasRecentProgress =
       progressMs != null && now - progressMs <= staleThresholdMs;
-    const hasActiveRunnerLease = Boolean(row.has_active_runner_lease);
+    const hasMatchingRunnerLease = Boolean(row.has_matching_runner_lease);
+    const leaseNotExpired = leaseExpiresMs != null && leaseExpiresMs > now;
 
     let decision: ProviderReclaimDecision;
     if (hasRecentProgress) {
+      preservedByReason.recentCheckpointProgress += 1;
       decision = {
         disposition: "alive_slow",
         reasonCode: "progress_recently_advanced",
         detail: "Recent checkpoint progress detected; keeping partition leased.",
       };
-    } else if (hasActiveRunnerLease) {
+    } else if (hasMatchingRunnerLease) {
+      preservedByReason.matchingRunnerLeasePresent += 1;
       decision = {
         disposition: "alive_slow",
         reasonCode: "active_worker_lease_present",
-        detail: "Meta runner lease is still active.",
+        detail: "Matching Meta runner lease is still active.",
       };
-    } else if (leaseMs != null && now - leaseMs > 0) {
+    } else if (leaseNotExpired) {
+      preservedByReason.leaseNotExpired += 1;
+      decision = {
+        disposition: "alive_slow",
+        reasonCode: "lease_not_expired",
+        detail: "Partition lease has not expired yet.",
+      };
+    } else {
       decision = {
         disposition: "stalled_reclaimable",
         reasonCode: "lease_expired_no_progress",
         detail: "Partition lease expired without recent checkpoint progress.",
       };
-    } else {
-      continue;
     }
     tallyDisposition(dispositionCounts, decision.disposition);
     if (decision.disposition === "stalled_reclaimable") {
@@ -572,6 +604,7 @@ export async function cleanupMetaPartitionOrchestration(input: {
   }
 
   const stalePartitionIds = stalledDecisions.map((row) => row.partitionId);
+  let reconciledRunCount = 0;
   if (stalePartitionIds.length > 0) {
     await sql`
       UPDATE meta_sync_partitions
@@ -584,6 +617,29 @@ export async function cleanupMetaPartitionOrchestration(input: {
         updated_at = now()
       WHERE id = ANY(${stalePartitionIds}::uuid[])
     `;
+    const reconciledRuns = await sql`
+      UPDATE meta_sync_runs run
+      SET
+        status = 'failed',
+        error_class = COALESCE(error_class, 'stale_run'),
+        error_message = COALESCE(error_message, 'stale partition run closed automatically'),
+        finished_at = COALESCE(finished_at, now()),
+        duration_ms = COALESCE(
+          duration_ms,
+          GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (now() - COALESCE(run.started_at, run.created_at))) * 1000))::int
+        ),
+        meta_json = COALESCE(run.meta_json, '{}'::jsonb) || jsonb_build_object(
+          'decisionCaller', 'cleanupMetaPartitionOrchestration',
+          'closureReason', 'partition_reclaimed',
+          'partitionReclaimed', true
+        ),
+        updated_at = now()
+      WHERE run.business_id = ${input.businessId}
+        AND run.partition_id = ANY(${stalePartitionIds}::uuid[])
+        AND run.status = 'running'
+      RETURNING run.id
+    ` as Array<Record<string, unknown>>;
+    reconciledRunCount = reconciledRuns.length;
     for (const decision of stalledDecisions) {
       await recordSyncReclaimEvents({
         providerScope: "meta",
@@ -717,14 +773,17 @@ export async function cleanupMetaPartitionOrchestration(input: {
   ` as Array<Record<string, unknown>>;
 
   return {
+    candidateCount: candidates.length,
     stalePartitionCount: stalePartitionIds.length,
     aliveSlowCount: dispositionCounts.alive_slow,
+    reconciledRunCount,
     staleRunCount: staleRunRows.length,
     staleLegacyCount: staleLegacyRows.length,
     reclaimReasons: {
       stalledReclaimable: stalledDecisions.map((row) => row.reasonCode),
     },
-  };
+    preservedByReason,
+  } satisfies MetaCleanupSummary;
 }
 
 export async function createMetaSyncRun(input: MetaSyncRunRecord) {

@@ -468,6 +468,7 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
                     requeued: autoHealResult.requeued,
                   }
                 : null,
+              repairMeta: autoHealResult?.meta ?? null,
               lastAdvancementEvidence: leasePlan?.progressEvidence ?? null,
               stallFingerprints: leasePlan?.stallFingerprints ?? [],
             },
@@ -514,6 +515,7 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
                       blocked: autoHealResult.blocked,
                     }
                   : null,
+                repairMeta: autoHealResult?.meta ?? null,
                 stallFingerprints: leasePlan?.stallFingerprints ?? [],
               },
               force: true,
@@ -597,6 +599,7 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
                     requeued: autoHealResult.requeued,
                   }
                 : null,
+              repairMeta: autoHealResult?.meta ?? null,
               lastAdvancementEvidence: leasePlan?.progressEvidence ?? null,
               stallFingerprints: leasePlan?.stallFingerprints ?? [],
               consumeAttempted:

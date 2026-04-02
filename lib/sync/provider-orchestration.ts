@@ -73,6 +73,7 @@ export type ProviderReclaimDisposition =
 
 export type ProviderReclaimReasonCode =
   | "lease_expired_no_progress"
+  | "lease_not_expired"
   | "worker_offline_no_progress"
   | "same_phase_reentry_limit"
   | "poison_checkpoint_detected"

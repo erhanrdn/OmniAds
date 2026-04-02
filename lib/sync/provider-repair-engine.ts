@@ -96,9 +96,13 @@ export async function runMetaRepairCycle(
   options?: ProviderRepairCycleOptions
 ) {
   const enqueueScheduledWork = options?.enqueueScheduledWork ?? true;
-  const cleanup = await metaWarehouse
-    .cleanupMetaPartitionOrchestration({ businessId })
-    .catch(() => null);
+  let cleanup: Awaited<ReturnType<typeof metaWarehouse.cleanupMetaPartitionOrchestration>> | null = null;
+  let cleanupError: string | null = null;
+  try {
+    cleanup = await metaWarehouse.cleanupMetaPartitionOrchestration({ businessId });
+  } catch (error) {
+    cleanupError = error instanceof Error ? error.message : String(error);
+  }
   const replayedDeadLetters = await metaWarehouse
     .replayMetaDeadLetterPartitions({
       businessId,
@@ -113,11 +117,19 @@ export async function runMetaRepairCycle(
     ? await enqueueMetaScheduledWork(businessId)
     : null;
   const blocked =
+    cleanupError != null ||
     ((queueHealthBeforeEnqueue?.deadLetterPartitions ?? 0) > 0 &&
       (replayedDeadLetters?.changedCount ?? 0) <= 0) ||
     ((queueHealthBeforeEnqueue?.retryableFailedPartitions ?? 0) > 0 && requeuedFailed.length <= 0);
 
   const blockingReasons = compactBlockingReasons([
+    cleanupError
+      ? buildBlockingReason(
+          "cleanup_error",
+          `Meta stale cleanup failed before repair could reclaim stale work: ${cleanupError}`,
+          { repairable: true }
+        )
+      : null,
     (queueHealthBeforeEnqueue?.deadLetterPartitions ?? 0) > 0 &&
     (replayedDeadLetters?.changedCount ?? 0) <= 0
       ? buildBlockingReason(
@@ -157,6 +169,8 @@ export async function runMetaRepairCycle(
       blockingReasons,
       repairableActions,
       meta: {
+        cleanupSummary: cleanup,
+        cleanupError,
         deadLetters: replayedDeadLetters,
         retryableFailed: requeuedFailed.length,
         enqueueScheduledWork,
