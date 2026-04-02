@@ -29,6 +29,13 @@ import {
 import { isDemoBusinessId, getDemoMetaStatus } from "@/lib/demo-business";
 import { getProviderWorkerHealthState } from "@/lib/sync/worker-health";
 import { deriveMetaOperationsBlockReason } from "@/lib/meta/status-operations";
+import {
+  buildBlockingReason,
+  buildRepairableAction,
+  buildRequiredCoverage,
+  compactBlockingReasons,
+  compactRepairableActions,
+} from "@/lib/sync/provider-status-truth";
 
 function buildMetaDomainReadiness(input: {
   availableSurfaces: string[];
@@ -504,6 +511,81 @@ export async function GET(request: NextRequest) {
                 : !selectedRangeIncomplete && historicalProgressPercent >= 100
                   ? "ready"
                   : "partial";
+  const latestMetaActivityAt =
+    queueHealth?.latestCoreActivityAt ??
+    queueHealth?.latestExtendedActivityAt ??
+    queueHealth?.latestMaintenanceActivityAt ??
+    null;
+  const metaActivityAgeMs =
+    latestMetaActivityAt != null ? Date.now() - new Date(latestMetaActivityAt).getTime() : null;
+  const metaHasRecentActivity =
+    metaActivityAgeMs != null && Number.isFinite(metaActivityAgeMs) && metaActivityAgeMs <= 15 * 60 * 1000;
+  const metaProgressState =
+    state === "ready"
+      ? "ready"
+      : state === "action_required"
+        ? "blocked"
+        : state === "stale" || state === "paused"
+          ? "partial_stuck"
+          : (queueHealth?.leasedPartitions ?? 0) > 0
+            ? "syncing"
+            : overallSyncActive && metaHasRecentActivity
+              ? "partial_progressing"
+              : overallSyncActive
+                ? "partial_stuck"
+                : "ready";
+  const metaBlockingReasons = compactBlockingReasons([
+    (queueHealth?.deadLetterPartitions ?? 0) > 0
+      ? buildBlockingReason(
+          "required_dead_letter_partitions",
+          `${queueHealth?.deadLetterPartitions ?? 0} Meta partition(s) are dead-lettered.`,
+          { repairable: true }
+        )
+      : null,
+    (queueHealth?.retryableFailedPartitions ?? 0) > 0
+      ? buildBlockingReason(
+          "retryable_failed_partitions",
+          `${queueHealth?.retryableFailedPartitions ?? 0} Meta partition(s) are waiting for retry.`,
+          { repairable: true }
+        )
+      : null,
+    operationsBlockReason
+      ? buildBlockingReason(
+          `operations_${operationsBlockReason}`,
+          `Meta sync operations are currently limited by ${operationsBlockReason}.`,
+        )
+      : null,
+  ]);
+  const metaRepairableActions = compactRepairableActions([
+    buildRepairableAction(
+      "refresh_queue",
+      "Run targeted queue repair and re-plan missing Meta partitions.",
+      { available: (queueHealth?.queueDepth ?? 0) > 0 || (queueHealth?.leasedPartitions ?? 0) > 0 }
+    ),
+    (queueHealth?.deadLetterPartitions ?? 0) > 0
+      ? buildRepairableAction(
+          "replay_dead_letters",
+          "Replay Meta dead-letter partitions back into the queue."
+        )
+      : null,
+    (queueHealth?.retryableFailedPartitions ?? 0) > 0
+      ? buildRepairableAction(
+          "requeue_failed",
+          "Requeue retryable Meta failed partitions."
+        )
+      : null,
+  ]);
+  const metaRequiredCoverage = buildRequiredCoverage({
+    completedDays: overallCompletedDays,
+    totalDays: historicalTotalDays,
+    readyThroughDate:
+      [
+        accountCoverage?.ready_through_date ?? null,
+        campaignCoverage?.ready_through_date ?? null,
+      ]
+        .filter((value): value is string => Boolean(value))
+        .sort((left, right) => left.localeCompare(right))[0] ?? null,
+  });
   const providerState = buildProviderStateContract({
     credentialState: connected ? "connected" : "not_connected",
     hasAssignedAccounts: accountIds.length > 0,
@@ -699,6 +781,27 @@ export async function GET(request: NextRequest) {
             ownerWorkerId: workerHealth.ownerWorkerId,
             consumeStage: workerHealth.consumeStage,
             blockReason: operationsBlockReason,
+            progressState: metaProgressState,
+            blockingReasons: metaBlockingReasons,
+            repairableActions: metaRepairableActions,
+            requiredCoverage: metaRequiredCoverage,
+            secondaryReadiness: [
+              {
+                key: "creatives_preview",
+                state:
+                  (creativeCoverage?.completed_days ?? 0) < historicalTotalDays
+                    ? "building"
+                    : ((creativePreviewCoverage?.total_rows ?? 0) === 0) ||
+                        ((creativePreviewCoverage?.preview_ready_rows ?? 0) >=
+                          (creativePreviewCoverage?.total_rows ?? 0))
+                      ? "ready"
+                      : "building",
+                detail:
+                  (creativeCoverage?.completed_days ?? 0) < historicalTotalDays
+                    ? "Creative daily history is still backfilling."
+                    : `Creative previews ready: ${creativePreviewCoverage?.preview_ready_rows ?? 0}/${creativePreviewCoverage?.total_rows ?? 0}.`,
+              },
+            ],
             queueSummary: queueComposition?.summary ?? null,
           }
         : null,

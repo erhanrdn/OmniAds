@@ -2,6 +2,30 @@ import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
 
 export type GoogleAdsAdvisorCtaState = "ready" | "refreshable" | "blocked";
 
+const GOOGLE_ADVISOR_HARD_BLOCK_REASONS = new Set([
+  "dead_letter_partitions",
+  "recent_required_dead_letter_partitions",
+  "recent_required_failed_partitions",
+  "recent_required_unhealthy_leases",
+]);
+
+export function canOpenGoogleAdsAdvisor(input: {
+  connected: boolean;
+  assignedAccountCount: number;
+  advisorSnapshotReady?: boolean;
+  advisorSnapshotBlockedReason?: string | null;
+  fullSyncPriorityRequired?: boolean;
+  advisorMissingSurfaces?: string[];
+}) {
+  if (!input.connected || input.assignedAccountCount <= 0) return false;
+  if (input.advisorSnapshotReady) return true;
+  if (input.fullSyncPriorityRequired) return false;
+  if (GOOGLE_ADVISOR_HARD_BLOCK_REASONS.has(input.advisorSnapshotBlockedReason ?? "")) {
+    return false;
+  }
+  return (input.advisorMissingSurfaces?.length ?? 0) === 0;
+}
+
 function getAdvisorBlockedCopy(
   status: GoogleAdsStatusResponse | undefined,
   options?: {

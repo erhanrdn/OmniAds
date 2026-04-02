@@ -48,6 +48,13 @@ import {
   isGoogleAdsExtendedCanaryBusiness,
   isGoogleAdsIncidentSafeModeEnabled,
 } from "@/lib/sync/google-ads-sync";
+import {
+  buildBlockingReason,
+  buildRepairableAction,
+  buildRequiredCoverage,
+  compactBlockingReasons,
+  compactRepairableActions,
+} from "@/lib/sync/provider-status-truth";
 import type {
   GoogleAdsExtendedRangeCompletion,
   GoogleAdsPanelRecoveryMode,
@@ -977,6 +984,69 @@ export async function GET(request: NextRequest) {
             : advisorRelevantUnhealthyLeases > 0
               ? "recent_required_unhealthy_leases"
               : null;
+  const googleBlockingReasons = compactBlockingReasons([
+    advisorMissingSurfaces.length > 0
+      ? buildBlockingReason(
+          "missing_required_recent_surfaces",
+          `Recent required surfaces are still missing: ${advisorMissingSurfaces.join(", ")}.`,
+        )
+      : null,
+    advisorRelevantDeadLetterPartitions > 0
+      ? buildBlockingReason(
+          "recent_required_dead_letter_partitions",
+          `${advisorRelevantDeadLetterPartitions} required recent Google Ads partition(s) are dead-lettered.`,
+          { repairable: true }
+        )
+      : null,
+    advisorRelevantFailedPartitions > 0
+      ? buildBlockingReason(
+          "recent_required_failed_partitions",
+          `${advisorRelevantFailedPartitions} required recent Google Ads partition(s) are waiting for retry or replay.`,
+          { repairable: true }
+        )
+      : null,
+    advisorRelevantUnhealthyLeases > 0
+      ? buildBlockingReason(
+          "recent_required_unhealthy_leases",
+          `${advisorRelevantUnhealthyLeases} required recent Google Ads partition lease(s) look unhealthy.`,
+          { repairable: true }
+        )
+      : null,
+  ]);
+  const googleRepairableActions = compactRepairableActions([
+    buildRepairableAction(
+      "refresh_queue",
+      "Run targeted queue repair and re-plan missing required Google Ads partitions.",
+      { available: (queueHealth?.queueDepth ?? 0) > 0 || (queueHealth?.leasedPartitions ?? 0) > 0 }
+    ),
+    advisorRelevantDeadLetterPartitions > 0
+      ? buildRepairableAction(
+          "replay_dead_letters",
+          "Replay required recent dead-letter partitions into the queue."
+        )
+      : null,
+    advisorRelevantFailedPartitions > 0
+      ? buildRepairableAction(
+          "requeue_failed",
+          "Requeue retryable required recent failed partitions."
+        )
+      : null,
+  ]);
+  const googleRequiredCoverage = buildRequiredCoverage({
+    completedDays: Math.min(
+      Number(recent90CampaignCoverage?.completed_days ?? 0),
+      Number(recent90SearchTermCoverage?.completed_days ?? 0),
+      Number(recent90ProductCoverage?.completed_days ?? 0)
+    ),
+    totalDays: 90,
+    readyThroughDate: [
+      recent90CampaignCoverage?.ready_through_date ?? null,
+      recent90SearchTermCoverage?.ready_through_date ?? null,
+      recent90ProductCoverage?.ready_through_date ?? null,
+    ]
+      .filter((value): value is string => Boolean(value))
+      .sort((left, right) => left.localeCompare(right))[0] ?? null,
+  });
   console.info("[google-ads-status] advisor-snapshot-gate", {
     businessId: businessId!,
     advisorWindowStart: recent90Start,
@@ -1327,6 +1397,32 @@ export async function GET(request: NextRequest) {
       advisorMissingSurfaces,
       advisorNotReady,
     });
+  const latestGoogleActivityAt =
+    queueHealth?.latestCoreActivityAt ??
+    queueHealth?.latestExtendedActivityAt ??
+    queueHealth?.latestMaintenanceActivityAt ??
+    null;
+  const googleActivityAgeMs =
+    latestGoogleActivityAt != null ? Date.now() - new Date(latestGoogleActivityAt).getTime() : null;
+  const googleHasRecentActivity =
+    googleActivityAgeMs != null &&
+    Number.isFinite(googleActivityAgeMs) &&
+    googleActivityAgeMs <= 15 * 60 * 1000;
+  const googleProgressState =
+    overallState === "ready"
+      ? "ready"
+      : overallState === "action_required"
+        ? "blocked"
+        : overallState === "stale" || overallState === "paused"
+          ? "partial_stuck"
+          : (queueHealth?.leasedPartitions ?? 0) > 0
+            ? "syncing"
+            : (overallState === "syncing" || overallState === "advisor_not_ready" || overallState === "partial") &&
+                googleHasRecentActivity
+              ? "partial_progressing"
+              : overallState === "syncing" || overallState === "advisor_not_ready" || overallState === "partial"
+                ? "partial_stuck"
+                : "ready";
   const providerState = buildProviderStateContract({
     credentialState: connected ? "connected" : "not_connected",
     hasAssignedAccounts: accountIds.length > 0,
@@ -1493,6 +1589,20 @@ export async function GET(request: NextRequest) {
       advisorSnapshotAsOfDate: latestAdvisorSnapshot?.asOfDate ?? null,
       advisorSnapshotFresh: snapshotFresh,
       advisorSnapshotBlockedReason,
+      blockingReasons: googleBlockingReasons,
+      repairableActions: googleRepairableActions,
+      requiredCoverage: googleRequiredCoverage,
+      secondaryReadiness: [
+        {
+          key: "analysis",
+          state: snapshotAvailable ? "ready" : advisorSnapshotBlockedReason ? "blocked" : "building",
+          detail: snapshotAvailable
+            ? "Google Ads analysis snapshot is ready."
+            : advisorSnapshotBlockedReason
+              ? `Google Ads analysis is blocked by ${advisorSnapshotBlockedReason}.`
+              : "Google Ads analysis snapshot is still building after required coverage completed.",
+        },
+      ],
       workerBuildId,
       workerStartedAt,
       lastWorkerHeartbeatAt: workerSchedulingState?.lastHeartbeatAt ?? null,
@@ -1509,6 +1619,7 @@ export async function GET(request: NextRequest) {
       lastConsumeFinishedAt,
       lastFailureReason,
       staleRunPressure,
+      progressState: googleProgressState,
       extendedSuppressionDecisionTrace,
       lastTargetedRepair,
       lastAutoRepair,

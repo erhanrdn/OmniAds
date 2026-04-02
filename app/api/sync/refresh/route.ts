@@ -94,6 +94,28 @@ async function hasMetaQueueConsumerRunning(
   }
 }
 
+async function hasRepairableProviderIssues(
+  businessId: string,
+  provider: string,
+): Promise<boolean> {
+  try {
+    if (provider === "meta") {
+      const queueHealth = await metaWarehouse.getMetaQueueHealth({ businessId }).catch(() => null);
+      return (
+        (queueHealth?.deadLetterPartitions ?? 0) > 0 ||
+        (queueHealth?.retryableFailedPartitions ?? 0) > 0
+      );
+    }
+    if (provider === "google_ads") {
+      const queueHealth = await googleAdsWarehouse.getGoogleAdsQueueHealth({ businessId }).catch(() => null);
+      return (queueHealth?.deadLetterPartitions ?? 0) > 0;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 async function acquireDurableRefreshLock(input: {
   businessId: string;
   provider: string;
@@ -200,14 +222,66 @@ async function runSyncForProvider(
 ): Promise<{ provider: string; result: unknown }> {
   switch (provider) {
     case "google_ads":
+      const googleCleanup = await googleAdsWarehouse.cleanupGoogleAdsPartitionOrchestration({
+        businessId,
+      }).catch(() => null);
+      const replayedGoogleDeadLetters = await googleAdsWarehouse
+        .replayGoogleAdsDeadLetterPartitions({ businessId })
+        .catch(() => null);
+      const forceReplayedGooglePoisoned = await googleAdsWarehouse
+        .forceReplayGoogleAdsPoisonedPartitions({ businessId })
+        .catch(() => null);
+      const googleQueueBeforeEnqueue = await googleAdsWarehouse
+        .getGoogleAdsQueueHealth({ businessId })
+        .catch(() => null);
+      const googleResult = await enqueueGoogleAdsScheduledWork(businessId);
       return {
         provider,
-        result: await enqueueGoogleAdsScheduledWork(businessId),
+        result: {
+          ...((googleResult && typeof googleResult === "object") ? googleResult : {}),
+          repair: {
+            reclaimed: googleCleanup?.stalePartitionCount ?? 0,
+            replayed:
+              (replayedGoogleDeadLetters?.changedCount ?? 0) +
+              (forceReplayedGooglePoisoned?.changedCount ?? 0),
+            requeued: Number((googleResult as { queuedCore?: number } | null)?.queuedCore ?? 0),
+            blocked:
+              (googleQueueBeforeEnqueue?.deadLetterPartitions ?? 0) > 0 &&
+              (replayedGoogleDeadLetters?.changedCount ?? 0) +
+                (forceReplayedGooglePoisoned?.changedCount ?? 0) <=
+                0,
+            deadLetters: replayedGoogleDeadLetters,
+            poisonedReplay: forceReplayedGooglePoisoned,
+          },
+        },
       };
     case "meta":
+      const metaCleanup = await metaWarehouse.cleanupMetaPartitionOrchestration({
+        businessId,
+      }).catch(() => null);
+      const replayedMetaDeadLetters = await metaWarehouse
+        .replayMetaDeadLetterPartitions({ businessId })
+        .catch(() => null);
+      const requeuedMetaFailed = await metaWarehouse
+        .requeueMetaRetryableFailedPartitions({ businessId })
+        .catch(() => []);
+      const metaQueueBeforeEnqueue = await metaWarehouse.getMetaQueueHealth({ businessId }).catch(() => null);
+      const metaResult = await enqueueMetaScheduledWork(businessId);
       return {
         provider,
-        result: await enqueueMetaScheduledWork(businessId),
+        result: {
+          ...((metaResult && typeof metaResult === "object") ? metaResult : {}),
+          repair: {
+            reclaimed: metaCleanup?.stalePartitionCount ?? 0,
+            replayed: replayedMetaDeadLetters?.changedCount ?? 0,
+            requeued: requeuedMetaFailed.length,
+            blocked:
+              (metaQueueBeforeEnqueue?.deadLetterPartitions ?? 0) > 0 &&
+              (replayedMetaDeadLetters?.changedCount ?? 0) <= 0,
+            deadLetters: replayedMetaDeadLetters,
+            retryableFailed: requeuedMetaFailed.length,
+          },
+        },
       };
     case "shopify":
       return {
@@ -227,9 +301,14 @@ function isBacklogOnlySyncResult(provider: string, result: unknown): boolean {
       queuedCore?: number;
       queueDepth?: number;
       leasedPartitions?: number;
+      repair?: { replayed?: number; requeued?: number; reclaimed?: number; blocked?: boolean };
     };
     return (
       (value.queuedCore ?? 0) <= 0 &&
+      (value.repair?.replayed ?? 0) <= 0 &&
+      (value.repair?.requeued ?? 0) <= 0 &&
+      (value.repair?.reclaimed ?? 0) <= 0 &&
+      !value.repair?.blocked &&
       (((value.queueDepth ?? 0) > 0) || ((value.leasedPartitions ?? 0) > 0))
     );
   }
@@ -240,10 +319,15 @@ function isBacklogOnlySyncResult(provider: string, result: unknown): boolean {
       queuedMaintenance?: number;
       queueDepth?: number;
       leasedPartitions?: number;
+      repair?: { replayed?: number; requeued?: number; reclaimed?: number; blocked?: boolean };
     };
     return (
       (value.queuedCore ?? 0) <= 0 &&
       (value.queuedMaintenance ?? 0) <= 0 &&
+      (value.repair?.replayed ?? 0) <= 0 &&
+      (value.repair?.requeued ?? 0) <= 0 &&
+      (value.repair?.reclaimed ?? 0) <= 0 &&
+      !value.repair?.blocked &&
       (((value.queueDepth ?? 0) > 0) || ((value.leasedPartitions ?? 0) > 0))
     );
   }
@@ -300,6 +384,7 @@ export async function POST(request: NextRequest) {
 
   // Zaten çalışan bir job varsa tekrar başlatma
   const alreadyRunning = await isJobAlreadyRunning(businessId, provider);
+  const hasRepairableIssues = await hasRepairableProviderIssues(businessId, provider);
   const metaConsumerRunning =
     provider === "meta"
       ? await hasMetaQueueConsumerRunning(businessId).catch(() => false)
@@ -307,7 +392,7 @@ export async function POST(request: NextRequest) {
   const inFlightRefreshKeys = getInFlightRefreshKeys();
   const refreshKey = getRefreshKey(businessId, provider);
   const refreshAlreadyInFlight = inFlightRefreshKeys.has(refreshKey);
-  if (alreadyRunning || metaConsumerRunning || refreshAlreadyInFlight) {
+  if (refreshAlreadyInFlight || ((!hasRepairableIssues) && (alreadyRunning || metaConsumerRunning))) {
     if (access.kind === "admin") {
       await logAdminAction({
         adminId: access.session.user.id,

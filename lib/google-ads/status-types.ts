@@ -4,6 +4,12 @@ import type {
   ProviderReadinessLevel,
   ProviderSurfaceSummary,
 } from "@/lib/provider-readiness";
+import type {
+  ProviderBlockingReason,
+  ProviderRepairableAction,
+  ProviderRequiredCoverage,
+  ProviderSecondaryReadiness,
+} from "@/lib/sync/provider-status-truth";
 
 export interface GoogleAdsSyncDetails {
   id?: string | null;
@@ -198,6 +204,7 @@ export interface GoogleAdsStatusResponse {
     advisorSnapshotFresh?: boolean;
     advisorSnapshotBlockedReason?: string | null;
     staleRunPressure?: number;
+    progressState?: "ready" | "syncing" | "partial_progressing" | "partial_stuck" | "blocked";
     extendedSuppressionDecisionTrace?: Record<string, unknown> | null;
     lastTargetedRepair?: {
       scope: string | null;
@@ -224,6 +231,10 @@ export interface GoogleAdsStatusResponse {
     recentGapFailedByScope?: Record<string, number>;
     lastAutoRepairAttemptByScope?: Record<string, string | null>;
     autoRepairExecutionStage?: "not_planned" | "planned_not_leased" | "leased_not_completed" | "completed_state_stale" | "completed" | "runtime_waiting" | "failed" | null;
+    blockingReasons?: ProviderBlockingReason[];
+    repairableActions?: ProviderRepairableAction[];
+    requiredCoverage?: ProviderRequiredCoverage | null;
+    secondaryReadiness?: ProviderSecondaryReadiness[];
     workerBuildId?: string | null;
     workerStartedAt?: string | null;
     lastWorkerHeartbeatAt?: string | null;

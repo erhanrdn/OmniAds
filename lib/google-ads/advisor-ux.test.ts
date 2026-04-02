@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  canOpenGoogleAdsAdvisor,
   getGoogleAdsAdvisorButtonLabel,
   getGoogleAdsAdvisorCtaState,
   getGoogleAdsAdvisorHelperText,
@@ -148,5 +149,31 @@ describe("google ads advisor ux helpers", () => {
       description:
         "Core campaign reporting is live. Search term and product history are still being prepared for analysis.",
     });
+  });
+
+  it("allows opening analysis once required inputs are ready even if the snapshot is still missing", () => {
+    expect(
+      canOpenGoogleAdsAdvisor({
+        connected: true,
+        assignedAccountCount: 1,
+        advisorSnapshotReady: false,
+        advisorSnapshotBlockedReason: "snapshot_missing",
+        fullSyncPriorityRequired: false,
+        advisorMissingSurfaces: [],
+      })
+    ).toBe(true);
+  });
+
+  it("keeps analysis blocked when required sync inputs are still missing", () => {
+    expect(
+      canOpenGoogleAdsAdvisor({
+        connected: true,
+        assignedAccountCount: 1,
+        advisorSnapshotReady: false,
+        advisorSnapshotBlockedReason: "recent90_incomplete",
+        fullSyncPriorityRequired: true,
+        advisorMissingSurfaces: ["search_term_daily"],
+      })
+    ).toBe(false);
   });
 });

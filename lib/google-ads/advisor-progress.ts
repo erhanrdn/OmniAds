@@ -40,7 +40,7 @@ export function buildGoogleAdsAdvisorProgress(input: {
           Math.min(99, Math.round(averageCoverageRatio * 100))
         )
     : !missingCoverage
-      ? 99
+      ? 100
       : Math.max(
           input.coreUsable ? 10 : 0,
           Math.min(99, Math.round(averageCoverageRatio * 100))
@@ -59,6 +59,7 @@ export function buildGoogleAdsAdvisorProgress(input: {
     visible:
       input.connected &&
       input.assignedAccountCount > 0 &&
+      percent < 100 &&
       (missingCoverage || coverageUnavailableCount > 0),
     summary,
   };

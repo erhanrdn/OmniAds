@@ -14,12 +14,18 @@ vi.mock("@/lib/meta/warehouse", () => ({
   expireStaleMetaSyncJobs: vi.fn(),
   getMetaQueueHealth: vi.fn(),
   hasBlockingMetaSyncJob: vi.fn(),
+  cleanupMetaPartitionOrchestration: vi.fn(),
+  replayMetaDeadLetterPartitions: vi.fn(),
+  requeueMetaRetryableFailedPartitions: vi.fn(),
 }));
 
 vi.mock("@/lib/google-ads/warehouse", () => ({
   cleanupGoogleAdsObsoleteSyncJobs: vi.fn(),
   expireStaleGoogleAdsSyncJobs: vi.fn(),
   getGoogleAdsQueueHealth: vi.fn(),
+  cleanupGoogleAdsPartitionOrchestration: vi.fn(),
+  replayGoogleAdsDeadLetterPartitions: vi.fn(),
+  forceReplayGoogleAdsPoisonedPartitions: vi.fn(),
 }));
 
 vi.mock("@/lib/sync/google-ads-sync", () => ({
@@ -56,6 +62,8 @@ const metaSync = await import("@/lib/sync/meta-sync");
 const shopifySync = await import("@/lib/sync/shopify-sync");
 const adminLogger = await import("@/lib/admin-logger");
 const db = await import("@/lib/db");
+const metaWarehouse = await import("@/lib/meta/warehouse");
+const googleAdsWarehouse = await import("@/lib/google-ads/warehouse");
 const { POST } = await import("@/app/api/sync/refresh/route");
 
 function buildRequest(body: Record<string, unknown>) {
@@ -85,6 +93,45 @@ describe("POST /api/sync/refresh", () => {
     vi.mocked(db.getDb).mockReturnValue(
       vi.fn().mockResolvedValue([{ already_running: false, acquired: true }]) as never
     );
+    vi.mocked(metaWarehouse.cleanupMetaPartitionOrchestration).mockResolvedValue({
+      stalePartitionCount: 0,
+    } as never);
+    vi.mocked(metaWarehouse.getMetaQueueHealth).mockResolvedValue({
+      queueDepth: 0,
+      leasedPartitions: 0,
+      retryableFailedPartitions: 0,
+      deadLetterPartitions: 0,
+    } as never);
+    vi.mocked(metaWarehouse.replayMetaDeadLetterPartitions).mockResolvedValue({
+      outcome: "no_matching_partitions",
+      partitions: [],
+      matchedCount: 0,
+      changedCount: 0,
+      skippedActiveLeaseCount: 0,
+    } as never);
+    vi.mocked(metaWarehouse.requeueMetaRetryableFailedPartitions).mockResolvedValue([] as never);
+    vi.mocked(googleAdsWarehouse.cleanupGoogleAdsPartitionOrchestration).mockResolvedValue({
+      stalePartitionCount: 0,
+    } as never);
+    vi.mocked(googleAdsWarehouse.getGoogleAdsQueueHealth).mockResolvedValue({
+      queueDepth: 0,
+      leasedPartitions: 0,
+      deadLetterPartitions: 0,
+    } as never);
+    vi.mocked(googleAdsWarehouse.replayGoogleAdsDeadLetterPartitions).mockResolvedValue({
+      outcome: "no_matching_partitions",
+      partitions: [],
+      matchedCount: 0,
+      changedCount: 0,
+      skippedActiveLeaseCount: 0,
+    } as never);
+    vi.mocked(googleAdsWarehouse.forceReplayGoogleAdsPoisonedPartitions).mockResolvedValue({
+      outcome: "no_matching_partitions",
+      partitions: [],
+      matchedCount: 0,
+      changedCount: 0,
+      skippedActiveLeaseCount: 0,
+    } as never);
   });
 
   it("rejects unauthorized callers", async () => {
@@ -164,6 +211,13 @@ describe("POST /api/sync/refresh", () => {
     expect(response.status).toBe(202);
     expect(payload.status).toBe("started");
     expect(metaSync.enqueueMetaScheduledWork).toHaveBeenCalledWith("biz");
+    expect(payload.result.repair).toEqual(
+      expect.objectContaining({
+        replayed: 0,
+        requeued: 0,
+        blocked: false,
+      })
+    );
   });
 
   it("supports manual Shopify refresh", async () => {
@@ -223,13 +277,18 @@ describe("POST /api/sync/refresh", () => {
       ok: true,
       status: "already_running",
       provider: "meta",
-      result: {
+      result: expect.objectContaining({
         businessId: "biz",
         queuedCore: 0,
         queuedMaintenance: 0,
         queueDepth: 2,
         leasedPartitions: 0,
-      },
+        repair: expect.objectContaining({
+          replayed: 0,
+          requeued: 0,
+          blocked: false,
+        }),
+      }),
     });
   });
 
@@ -251,12 +310,56 @@ describe("POST /api/sync/refresh", () => {
       ok: true,
       status: "already_running",
       provider: "google_ads",
-      result: {
+      result: expect.objectContaining({
         businessId: "biz",
         queuedCore: 0,
         queueDepth: 3,
         leasedPartitions: 0,
-      },
+        repair: expect.objectContaining({
+          replayed: 0,
+          requeued: 0,
+          blocked: false,
+        }),
+      }),
+    });
+  });
+
+  it("returns started with repair details when Google Ads refresh replays blocked work", async () => {
+    vi.mocked(internalAuth.requireInternalOrAdminSyncAccess).mockResolvedValue({
+      kind: "internal",
+    });
+    vi.mocked(googleAdsWarehouse.getGoogleAdsQueueHealth).mockResolvedValue({
+      queueDepth: 0,
+      leasedPartitions: 0,
+      deadLetterPartitions: 2,
+    } as never);
+    vi.mocked(googleAdsWarehouse.replayGoogleAdsDeadLetterPartitions).mockResolvedValue({
+      outcome: "replayed",
+      partitions: [{ id: "p1", lane: "extended", scope: "search_term_daily", partitionDate: "2026-03-01" }],
+      matchedCount: 2,
+      changedCount: 1,
+      skippedActiveLeaseCount: 0,
+    } as never);
+    vi.mocked(googleAdsSync.enqueueGoogleAdsScheduledWork).mockResolvedValue({
+      businessId: "biz",
+      queuedCore: 0,
+      queueDepth: 0,
+      leasedPartitions: 0,
+    } as never);
+
+    const response = await POST(buildRequest({ businessId: "biz", provider: "google_ads" }));
+
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({
+      ok: true,
+      status: "started",
+      provider: "google_ads",
+      result: expect.objectContaining({
+        repair: expect.objectContaining({
+          replayed: 1,
+          blocked: false,
+        }),
+      }),
     });
   });
 

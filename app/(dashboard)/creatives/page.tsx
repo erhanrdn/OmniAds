@@ -132,14 +132,7 @@ function CreativesSyncInlineProgress({
     0,
     Math.min(100, Math.round((completedDays / totalDays) * 100))
   );
-  const previewPercent = Math.max(
-    0,
-    Math.min(100, Math.round(coverage.previewReadyPercent ?? 0))
-  );
-  const progress =
-    (coverage.totalRows ?? 0) > 0
-      ? Math.min(dayPercent, previewPercent)
-      : dayPercent;
+  const progress = dayPercent;
   if (progress >= 100) return null;
 
   const captionParts = [

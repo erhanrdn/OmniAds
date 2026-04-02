@@ -3,6 +3,7 @@ import {
   buildGoogleAdsLaneAdmissionPolicy,
   decideGoogleAdsHistoricalFrontier,
   getGoogleAdsExtendedRecoveryBlockReason,
+  getGoogleAdsGapPlannerBlockingStatuses,
   buildGoogleAdsWarehouseFetchPlan,
   evaluateGoogleAdsWorkerSchedulingState,
   shouldBlockGoogleAdsHistoricalExtendedWork,
@@ -443,6 +444,12 @@ describe("shouldLeaseGoogleAdsRecentRepair", () => {
         },
       })
     ).toBe(false);
+  });
+});
+
+describe("getGoogleAdsGapPlannerBlockingStatuses", () => {
+  it("keeps only actively in-flight partitions as gap blockers", () => {
+    expect(getGoogleAdsGapPlannerBlockingStatuses()).toEqual(["queued", "leased", "running"]);
   });
 });
 

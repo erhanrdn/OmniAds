@@ -146,6 +146,7 @@ export interface AdminSyncHealthPayload {
     googleHeartbeatAgeMs?: number | null;
     googleRunnerLeaseActive?: boolean;
     staleRunPressure?: number;
+    progressState?: "ready" | "syncing" | "partial_progressing" | "partial_stuck" | "blocked";
   }>;
   metaBusinesses?: Array<{
     businessId: string;
@@ -184,6 +185,7 @@ export interface AdminSyncHealthPayload {
     recentRangeTotalDays?: number;
     recentExtendedReady?: boolean;
     historicalExtendedReady?: boolean;
+    progressState?: "ready" | "syncing" | "partial_progressing" | "partial_stuck" | "blocked";
   }>;
 }
 
@@ -265,6 +267,121 @@ interface RawCooldownRow {
   error_message: string | null;
   cooldown_until: string;
   updated_at: string;
+}
+
+type ProviderProgressState =
+  | "ready"
+  | "syncing"
+  | "partial_progressing"
+  | "partial_stuck"
+  | "blocked";
+
+function classifyGoogleAdsProgressState(input: {
+  queueDepth: number;
+  leasedPartitions: number;
+  deadLetterPartitions: number;
+  checkpointLagMinutes: number | null;
+  reclaimCandidateCount: number;
+  leaseConflictRuns24h: number;
+  poisonedCheckpointCount: number;
+  staleRunPressure: number;
+  recentExtendedReady: boolean;
+  historicalExtendedReady: boolean;
+  latestPartitionActivityAt: string | null;
+}) : ProviderProgressState {
+  if (
+    input.deadLetterPartitions > 0 ||
+    input.reclaimCandidateCount > 0 ||
+    input.leaseConflictRuns24h > 0 ||
+    input.poisonedCheckpointCount > 0
+  ) {
+    return "blocked";
+  }
+  if (
+    input.queueDepth === 0 &&
+    input.leasedPartitions === 0 &&
+    input.recentExtendedReady &&
+    input.historicalExtendedReady
+  ) {
+    return "ready";
+  }
+  if (
+    input.leasedPartitions > 0 &&
+    (input.checkpointLagMinutes == null || input.checkpointLagMinutes <= 20)
+  ) {
+    return "syncing";
+  }
+  const latestActivityAgeMs = input.latestPartitionActivityAt
+    ? Date.now() - new Date(input.latestPartitionActivityAt).getTime()
+    : null;
+  const hasRecentActivity =
+    latestActivityAgeMs != null && Number.isFinite(latestActivityAgeMs) && latestActivityAgeMs <= 15 * 60_000;
+  if (
+    input.queueDepth > 0 &&
+    hasRecentActivity &&
+    input.staleRunPressure <= 0 &&
+    (input.checkpointLagMinutes == null || input.checkpointLagMinutes <= 20)
+  ) {
+    return "partial_progressing";
+  }
+  if (input.queueDepth > 0 || input.staleRunPressure > 0) {
+    return "partial_stuck";
+  }
+  return "ready";
+}
+
+function classifyMetaProgressState(input: {
+  queueDepth: number;
+  leasedPartitions: number;
+  deadLetterPartitions: number;
+  retryableFailedPartitions: number;
+  staleLeasePartitions: number;
+  checkpointLagMinutes: number | null;
+  reclaimCandidateCount: number;
+  staleRunCount24h: number;
+  recentExtendedReady: boolean;
+  historicalExtendedReady: boolean;
+  latestPartitionActivityAt: string | null;
+}) : ProviderProgressState {
+  if (
+    input.deadLetterPartitions > 0 ||
+    input.staleLeasePartitions > 0 ||
+    input.reclaimCandidateCount > 0 ||
+    input.staleRunCount24h > 0
+  ) {
+    return "blocked";
+  }
+  if (
+    input.queueDepth === 0 &&
+    input.leasedPartitions === 0 &&
+    input.retryableFailedPartitions === 0 &&
+    input.recentExtendedReady &&
+    input.historicalExtendedReady
+  ) {
+    return "ready";
+  }
+  if (
+    input.leasedPartitions > 0 &&
+    (input.checkpointLagMinutes == null || input.checkpointLagMinutes <= 20)
+  ) {
+    return "syncing";
+  }
+  const latestActivityAgeMs = input.latestPartitionActivityAt
+    ? Date.now() - new Date(input.latestPartitionActivityAt).getTime()
+    : null;
+  const hasRecentActivity =
+    latestActivityAgeMs != null && Number.isFinite(latestActivityAgeMs) && latestActivityAgeMs <= 15 * 60_000;
+  if (
+    (input.queueDepth > 0 || input.retryableFailedPartitions > 0) &&
+    hasRecentActivity &&
+    (input.checkpointLagMinutes == null || input.checkpointLagMinutes <= 20)
+  ) {
+    return "partial_progressing";
+  }
+  if (input.queueDepth > 0 || input.retryableFailedPartitions > 0) {
+    return "partial_stuck";
+  }
+  return "ready";
 }
 
 interface RawGoogleAdsHealthRow {
@@ -712,6 +829,20 @@ export function buildAdminSyncHealth(input: {
             ? "historical_recovery_suspended"
             : null;
 
+    const progressState = classifyGoogleAdsProgressState({
+      queueDepth,
+      leasedPartitions,
+      deadLetterPartitions,
+      checkpointLagMinutes: computeLagMinutes(googleProgressHeartbeat),
+      reclaimCandidateCount: Number(row.reclaim_candidate_count ?? 0),
+      leaseConflictRuns24h: Number(row.lease_conflict_runs_24h ?? 0),
+      poisonedCheckpointCount: Number(row.poisoned_checkpoint_count ?? 0),
+      staleRunPressure,
+      recentExtendedReady,
+      historicalExtendedReady,
+      latestPartitionActivityAt: row.latest_partition_activity_at ?? null,
+    });
+
     googleAdsBusinesses.push({
       businessId: row.business_id,
       businessName: row.business_name,
@@ -767,6 +898,7 @@ export function buildAdminSyncHealth(input: {
       googleHeartbeatAgeMs,
       googleRunnerLeaseActive,
       staleRunPressure,
+      progressState,
     });
 
     if (
@@ -988,6 +1120,19 @@ export function buildAdminSyncHealth(input: {
       row.latest_progress_heartbeat_at ?? row.latest_checkpoint_updated_at ?? null;
     const effectiveMode =
       !recentExtendedReady ? "core_only" : historicalExtendedReady ? "extended_normal" : "extended_recovery";
+    const progressState = classifyMetaProgressState({
+      queueDepth,
+      leasedPartitions,
+      deadLetterPartitions,
+      retryableFailedPartitions,
+      staleLeasePartitions,
+      checkpointLagMinutes: computeLagMinutes(metaProgressHeartbeat),
+      reclaimCandidateCount: Number(row.reclaim_candidate_count ?? 0),
+      staleRunCount24h: Number(row.stale_run_count_24h ?? 0),
+      recentExtendedReady,
+      historicalExtendedReady,
+      latestPartitionActivityAt: row.latest_partition_activity_at ?? null,
+    });
 
     metaBusinesses.push({
       businessId: row.business_id,
@@ -1027,6 +1172,7 @@ export function buildAdminSyncHealth(input: {
       recentRangeTotalDays,
       recentExtendedReady,
       historicalExtendedReady,
+      progressState,
     });
 
     if (

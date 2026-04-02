@@ -4,6 +4,12 @@ import type {
   ProviderReadinessLevel,
   ProviderSurfaceSummary,
 } from "@/lib/provider-readiness";
+import type {
+  ProviderBlockingReason,
+  ProviderRepairableAction,
+  ProviderRequiredCoverage,
+  ProviderSecondaryReadiness,
+} from "@/lib/sync/provider-status-truth";
 
 export interface MetaSyncDetails {
   id?: string | null;
@@ -126,6 +132,11 @@ export interface MetaStatusResponse {
     consumeStage?: string | null;
     staleRunPressure?: number;
     blockReason?: string | null;
+    progressState?: "ready" | "syncing" | "partial_progressing" | "partial_stuck" | "blocked";
+    blockingReasons?: ProviderBlockingReason[];
+    repairableActions?: ProviderRepairableAction[];
+    requiredCoverage?: ProviderRequiredCoverage | null;
+    secondaryReadiness?: ProviderSecondaryReadiness[];
     queueSummary?: {
       historicalCoreQueued: number;
       maintenanceQueued: number;

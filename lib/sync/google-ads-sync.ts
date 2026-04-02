@@ -118,6 +118,12 @@ const GOOGLE_ADS_EXTENDED_CORE_BACKLOG_THRESHOLD = envNumber(
   "GOOGLE_ADS_EXTENDED_CORE_BACKLOG_THRESHOLD",
   2
 );
+
+export function getGoogleAdsGapPlannerBlockingStatuses() {
+  // Failed and dead-lettered partitions must remain re-queueable, otherwise a
+  // single poisoned day can permanently block recent/historical convergence.
+  return ["queued", "leased", "running"] as const;
+}
 const GOOGLE_ADS_PARTITION_LEASE_MINUTES = envNumber("GOOGLE_ADS_PARTITION_LEASE_MINUTES", 5);
 const GOOGLE_ADS_TRANSIENT_RETRY_BASE_MINUTES = envNumber(
   "GOOGLE_ADS_TRANSIENT_RETRY_BASE_MINUTES",
@@ -755,7 +761,7 @@ async function enqueueExtendedRecoveryPartitions(input: {
             scope,
             startDate: frontierStart,
             endDate: historicalReplayEnd,
-            statuses: ["queued", "leased", "running", "failed", "dead_letter"],
+            statuses: [...getGoogleAdsGapPlannerBlockingStatuses()],
           }).catch(() => []),
         ]);
         const blocked = new Set([...coveredDates, ...activeDates]);
@@ -883,7 +889,7 @@ async function enqueueGoogleAdsRecentRepairPartitions(input: {
           scope,
           startDate: recentStart,
           endDate: yesterday,
-          statuses: ["queued", "leased", "running", "failed", "dead_letter"],
+          statuses: [...getGoogleAdsGapPlannerBlockingStatuses()],
         }).catch(() => []),
       ]);
       const blocked = new Set([...coveredDates, ...activeDates]);
@@ -1723,7 +1729,7 @@ async function enqueueHistoricalCorePartitions(businessId: string) {
         scope: "campaign_daily",
         startDate: targetStart,
         endDate: yesterday,
-        statuses: ["queued", "leased", "running", "failed", "dead_letter"],
+        statuses: [...getGoogleAdsGapPlannerBlockingStatuses()],
       }).catch(() => []),
     ]);
     const blockedDates = new Set([...coveredDates, ...activePartitionDates]);
@@ -1767,7 +1773,7 @@ async function enqueueMaintenancePartitions(businessId: string) {
         scope: "campaign_daily",
         startDate: addDaysToIsoDate(yesterday, -(GOOGLE_ADS_RECENT_MAINTENANCE_DAYS - 1)),
         endDate: today,
-        statuses: ["queued", "leased", "running", "failed"],
+        statuses: [...getGoogleAdsGapPlannerBlockingStatuses()],
       }).catch(() => [])
     );
     for (const date of recentDates) {
@@ -3393,6 +3399,27 @@ export async function syncGoogleAdsReports(
       policy: livePolicyAfterCore,
       fullSyncPriorityRequired: fullSyncPriority.required,
     });
+    const historicalFairnessLeaseAllowed =
+      !blockHistoricalExtendedWork &&
+      effectiveLivePolicyAfterCore?.lanePolicy.extendedHistorical !== "suspended";
+    const historicalFairnessPartitions =
+      historicalFairnessLeaseAllowed
+        ? await leaseGoogleAdsSyncPartitions({
+            businessId,
+            lane: "extended",
+            workerId,
+            limit: Math.max(
+              1,
+              Math.min(1, getGoogleAdsHistoricalLeaseLimit({ policy: effectiveLivePolicyAfterCore }))
+            ),
+            leaseMinutes: GOOGLE_ADS_PARTITION_LEASE_MINUTES,
+            sourceFilter: "historical_only",
+            scopeFilter: fullSyncPriority.required ? fullSyncPriority.targetScopes : undefined,
+            startDate: historicalLeaseStartDate,
+            endDate: fullSyncPriority.yesterday,
+          }).catch(() => [])
+        : [];
+    partitions = [...partitions, ...historicalFairnessPartitions];
     let recentExtendedPartitions: typeof partitions = [];
     if (
       shouldLeaseGoogleAdsRecentRepair({

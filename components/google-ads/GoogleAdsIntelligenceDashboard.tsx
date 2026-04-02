@@ -53,6 +53,7 @@ import type {
   GoogleAdsStatusResponse,
 } from "@/lib/google-ads/status-types";
 import {
+  canOpenGoogleAdsAdvisor,
   getGoogleAdsAdvisorButtonLabel,
   getGoogleAdsAdvisorCtaState,
   getGoogleAdsAdvisorHelperText,
@@ -515,11 +516,14 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
     },
   });
   const advisorReady = Boolean(syncStatus?.advisor?.ready);
-  const advisorCanOpen =
-    Boolean(syncStatus?.connected) &&
-    Boolean((syncStatus?.assignedAccountIds?.length ?? 0) > 0) &&
-    (syncStatus?.operations?.advisorSnapshotBlockedReason == null ||
-      syncStatus?.operations?.advisorSnapshotReady === true);
+  const advisorCanOpen = canOpenGoogleAdsAdvisor({
+    connected: Boolean(syncStatus?.connected),
+    assignedAccountCount: syncStatus?.assignedAccountIds?.length ?? 0,
+    advisorSnapshotReady: syncStatus?.operations?.advisorSnapshotReady === true,
+    advisorSnapshotBlockedReason: syncStatus?.operations?.advisorSnapshotBlockedReason ?? null,
+    fullSyncPriorityRequired: syncStatus?.operations?.fullSyncPriorityRequired === true,
+    advisorMissingSurfaces: syncStatus?.advisor?.missingSurfaces ?? [],
+  });
   const advisorExecutionAccountId =
     (syncStatus?.assignedAccountIds?.length ?? 0) === 1
       ? syncStatus?.assignedAccountIds?.[0] ?? null

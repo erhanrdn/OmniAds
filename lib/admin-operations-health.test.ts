@@ -183,6 +183,69 @@ describe("buildAdminSyncHealth", () => {
     expect(payload.googleAdsBusinesses?.[0]?.effectiveMode).toBe("canary_reopen");
   });
 
+  it("classifies google ads businesses as partial_stuck when backlog is idle without leases", () => {
+    const staleActivity = new Date(Date.now() - 30 * 60_000).toISOString();
+    const staleCheckpoint = new Date(Date.now() - 25 * 60_000).toISOString();
+    const payload = buildAdminSyncHealth({
+      jobs: [],
+      cooldowns: [],
+      googleAdsHealth: [
+        {
+          business_id: "biz-stuck",
+          business_name: "Stuck Co",
+          queue_depth: 9,
+          leased_partitions: 0,
+          dead_letter_partitions: 0,
+          oldest_queued_partition: "2026-03-20",
+          latest_partition_activity_at: staleActivity,
+          latest_checkpoint_updated_at: staleCheckpoint,
+          campaign_completed_days: 10,
+          campaign_dead_letter_count: 0,
+          search_term_completed_days: 2,
+          product_completed_days: 1,
+          asset_completed_days: 1,
+          recent_range_total_days: 14,
+          recent_search_term_completed_days: 3,
+          recent_product_completed_days: 2,
+          recent_asset_completed_days: 1,
+        },
+      ],
+    });
+
+    expect(payload.googleAdsBusinesses?.[0]?.progressState).toBe("partial_stuck");
+  });
+
+  it("classifies google ads businesses as partial_progressing when backlog is moving", () => {
+    const recent = new Date(Date.now() - 5 * 60_000).toISOString();
+    const payload = buildAdminSyncHealth({
+      jobs: [],
+      cooldowns: [],
+      googleAdsHealth: [
+        {
+          business_id: "biz-progressing",
+          business_name: "Moving Co",
+          queue_depth: 6,
+          leased_partitions: 0,
+          dead_letter_partitions: 0,
+          oldest_queued_partition: "2026-03-20",
+          latest_partition_activity_at: recent,
+          latest_checkpoint_updated_at: recent,
+          campaign_completed_days: 40,
+          campaign_dead_letter_count: 0,
+          search_term_completed_days: 10,
+          product_completed_days: 10,
+          asset_completed_days: 10,
+          recent_range_total_days: 14,
+          recent_search_term_completed_days: 12,
+          recent_product_completed_days: 12,
+          recent_asset_completed_days: 12,
+        },
+      ],
+    });
+
+    expect(payload.googleAdsBusinesses?.[0]?.progressState).toBe("partial_progressing");
+  });
+
   it("surfaces lease-conflict and skipped-active-lease counters as actionable issues", () => {
     const payload = buildAdminSyncHealth({
       jobs: [],
@@ -311,6 +374,43 @@ describe("buildAdminSyncHealth", () => {
     expect(payload.issues.find((issue) => issue.reportType === "stale_runs")?.runbookKey).toBe(
       "meta:stale_run"
     );
+  });
+
+  it("classifies meta businesses as partial_stuck when backlog is idle without leases", () => {
+    const staleActivity = new Date(Date.now() - 30 * 60_000).toISOString();
+    const payload = buildAdminSyncHealth({
+      jobs: [],
+      cooldowns: [],
+      metaHealth: [
+        {
+          business_id: "biz-meta-stuck",
+          business_name: "Meta Stuck",
+          queue_depth: 5,
+          leased_partitions: 0,
+          retryable_failed_partitions: 0,
+          stale_lease_partitions: 0,
+          dead_letter_partitions: 0,
+          state_row_count: 2,
+          current_day_reference: "2026-03-28",
+          oldest_queued_partition: "2026-03-20",
+          latest_partition_activity_at: staleActivity,
+          latest_checkpoint_updated_at: staleActivity,
+          today_account_rows: 12,
+          today_adset_rows: 12,
+          account_completed_days: 50,
+          adset_completed_days: 50,
+          creative_completed_days: 10,
+          ad_completed_days: 10,
+          recent_account_completed_days: 10,
+          recent_adset_completed_days: 10,
+          recent_creative_completed_days: 10,
+          recent_ad_completed_days: 10,
+          recent_range_total_days: 14,
+        },
+      ],
+    });
+
+    expect(payload.metaBusinesses?.[0]?.progressState).toBe("partial_stuck");
   });
 
   it("keeps lightweight google ads summary when detailed health is degraded", () => {

@@ -1061,8 +1061,6 @@ export async function consumeMetaQueuedWork(
         : [];
 
     const leasedHistoricalCorePartitions =
-      !hasMaintenanceBacklogAfterLeasing &&
-      (!hasExtendedRecentBacklog || leasedExtendedRecentPartitions.length === 0) &&
       leasedCoreFairnessPartitions.length < META_CORE_WORKER_LIMIT
         ? await leaseMetaSyncPartitions({
             businessId,

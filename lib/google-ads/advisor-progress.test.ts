@@ -53,7 +53,7 @@ describe("buildGoogleAdsAdvisorProgress", () => {
     });
 
     expect(result.visible).toBe(false);
-    expect(result.percent).toBe(99);
+    expect(result.percent).toBe(100);
   });
 
   it("hides advisor progress once advisor is ready", () => {
@@ -92,6 +92,26 @@ describe("buildGoogleAdsAdvisorProgress", () => {
     expect(result).toEqual({
       percent: 99,
       visible: true,
+      summary: "Finalizing growth analysis.",
+    });
+  });
+
+  it("hides advisor progress once required coverage is complete even before a snapshot exists", () => {
+    const result = buildGoogleAdsAdvisorProgress({
+      connected: true,
+      assignedAccountCount: 1,
+      coreUsable: true,
+      advisorReady: false,
+      coverages: [
+        { completedDays: 90 },
+        { completedDays: 90 },
+        { completedDays: 90 },
+      ],
+    });
+
+    expect(result).toEqual({
+      percent: 100,
+      visible: false,
       summary: "Finalizing growth analysis.",
     });
   });
