@@ -115,6 +115,11 @@ export async function getShopifyOverviewReadCandidate(input: {
   }
   if (warehouse && ledger && ledgerConsistency?.withinThreshold !== true) {
     decisionReasons.push("ledger_semantics_above_threshold");
+    if (ledgerConsistency?.failureReasons?.length) {
+      decisionReasons.push(
+        ...ledgerConsistency.failureReasons.map((reason) => `ledger_${reason}`)
+      );
+    }
   }
 
   const forcedLive = override?.mode === "force_live";

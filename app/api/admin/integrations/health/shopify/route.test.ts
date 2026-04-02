@@ -109,6 +109,11 @@ describe("GET /api/admin/integrations/health/shopify", () => {
         stableWarehouseRunCount: 0,
         stableLedgerRunCount: 0,
         hasRecentWebhookFailures: false,
+        recentWebhookFailures: [],
+        cutoverExplanation: expect.objectContaining({
+          statusState: "partial",
+          ledgerConsistencyWithinThreshold: null,
+        }),
       })
     );
   });

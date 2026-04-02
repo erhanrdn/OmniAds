@@ -30,6 +30,7 @@ describe("classifyShopifyCustomerEventType", () => {
         {
           date: "2026-03-30",
           sessions: 4,
+          sessionless_events: 2,
           page_views: 10,
           product_views: 5,
           add_to_cart: 3,
@@ -52,19 +53,24 @@ describe("classifyShopifyCustomerEventType", () => {
     expect(result).toEqual(
       expect.objectContaining({
         sessions: 4,
+        sessionlessEvents: 2,
         productViewSessions: 3,
         addToCartSessions: 2,
         beginCheckoutSessions: 2,
         purchaseSessions: 1,
         productViewRate: 75,
+        addToCartRate: 50,
         checkoutRate: 50,
+        checkoutCompletionRate: 50,
         conversionRate: 25,
       })
     );
     expect(result.daily[0]).toEqual(
       expect.objectContaining({
         productViewRate: 75,
+        addToCartRate: 50,
         checkoutRate: 50,
+        checkoutCompletionRate: 50,
         conversionRate: 25,
       })
     );

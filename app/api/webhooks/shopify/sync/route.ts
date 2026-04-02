@@ -35,6 +35,7 @@ export async function POST(request: NextRequest) {
     topic: topic ?? "unknown",
     payloadHash,
   }).catch(() => null);
+  const retryAttempted = existingDelivery?.processingState === "failed";
 
   if (existingDelivery?.processingState === "processed") {
     return NextResponse.json({ received: true, duplicate: true }, { status: 200 });
@@ -102,6 +103,11 @@ export async function POST(request: NextRequest) {
         reason: "unsupported_topic",
         entity: topicMeta.entity,
         action: topicMeta.action,
+        repairPolicy: {
+          recentWindowDays: topicMeta.recentWindowDays,
+          recentTargets: topicMeta.recentTargets,
+          allowHistorical: topicMeta.allowHistorical,
+        },
       },
     }).catch(() => null);
     return NextResponse.json({ received: true, ignored: true }, { status: 200 });
@@ -136,6 +142,7 @@ export async function POST(request: NextRequest) {
                 recentTargets: topicMeta.recentTargets,
                 allowHistorical: topicMeta.allowHistorical,
               },
+              retryAttempted,
               ...(syncResult as Record<string, unknown>),
             }
           : { ok: true, topic, entity: topicMeta.entity, action: topicMeta.action },
@@ -155,6 +162,13 @@ export async function POST(request: NextRequest) {
         topic,
         entity: topicMeta.entity,
         action: topicMeta.action,
+        retryable: true,
+        retryAttempted,
+        repairPolicy: {
+          recentWindowDays: topicMeta.recentWindowDays,
+          recentTargets: topicMeta.recentTargets,
+          allowHistorical: topicMeta.allowHistorical,
+        },
       },
       errorMessage: error instanceof Error ? error.message : String(error),
     }).catch(() => null);

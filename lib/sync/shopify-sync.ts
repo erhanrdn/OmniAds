@@ -346,6 +346,7 @@ export async function syncShopifyCommerceReports(
             }
           : null,
         triggerReason: input?.triggerReason ?? null,
+        windowDays: input?.recentWindowDays ?? null,
         recentTargets: {
           orders: runOrdersRecent,
           returns: runReturnsRecent,

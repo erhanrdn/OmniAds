@@ -32,7 +32,12 @@ function buildRolloutSummary(input: {
     preferredSource?: string | null;
     divergence?: Record<string, unknown> | null;
   }>;
-  webhookDeliveries: Array<{ processingState: string; errorMessage?: string | null }>;
+  webhookDeliveries: Array<{
+    processingState: string;
+    topic?: string | null;
+    processedAt?: string | null;
+    errorMessage?: string | null;
+  }>;
 }) {
   const blockers = [...input.status.issues];
   const hasRecentWebhookFailures = input.webhookDeliveries.some(
@@ -40,6 +45,9 @@ function buildRolloutSummary(input: {
   );
   if (input.ledgerConsistency && input.ledgerConsistency.withinThreshold !== true) {
     blockers.push("Shopify ledger semantic consistency is above serving threshold.");
+    for (const reason of input.ledgerConsistency.failureReasons ?? []) {
+      blockers.push(`Ledger semantic blocker: ${reason}.`);
+    }
   }
   if (hasRecentWebhookFailures) {
     blockers.push("Recent Shopify webhook deliveries include failed refresh attempts.");
@@ -69,6 +77,16 @@ function buildRolloutSummary(input: {
     input.serving?.decisionReasons ??
     input.history[0]?.decisionReasons ??
     [];
+  const recentWebhookFailures = input.webhookDeliveries
+    .filter((delivery) => delivery.processingState === "failed")
+    .slice(0, 3)
+    .map((delivery) => ({
+      topic:
+        typeof delivery.topic === "string" ? delivery.topic : null,
+      errorMessage: delivery.errorMessage ?? null,
+      processedAt:
+        typeof delivery.processedAt === "string" ? delivery.processedAt : null,
+    }));
 
   return {
     broaderLocalServingReady,
@@ -88,6 +106,16 @@ function buildRolloutSummary(input: {
     stableLedgerRunCount: input.status.reconciliation?.stableLedgerRunCount ?? 0,
     latestTrustedRecordedAt,
     hasRecentWebhookFailures,
+    recentWebhookFailures,
+    cutoverExplanation: {
+      statusState: input.status.state,
+      ledgerConsistencyWithinThreshold:
+        input.ledgerConsistency?.withinThreshold ?? null,
+      ledgerConsistencyScore: input.ledgerConsistency?.consistencyScore ?? null,
+      reconciliationStable:
+        input.status.reconciliation?.defaultCutoverEligible === true,
+      overrideMode: input.override?.mode ?? "auto",
+    },
   };
 }
 

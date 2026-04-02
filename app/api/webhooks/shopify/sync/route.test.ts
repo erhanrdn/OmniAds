@@ -186,5 +186,6 @@ describe("POST /api/webhooks/shopify/sync", () => {
       },
       allowHistorical: false,
     });
+    expect(warehouse.upsertShopifyWebhookDelivery).toHaveBeenCalled();
   });
 });

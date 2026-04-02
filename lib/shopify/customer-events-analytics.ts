@@ -22,6 +22,7 @@ export function classifyShopifyCustomerEventType(value: string | null | undefine
 export interface ShopifyCustomerEventsDailyAggregate {
   date: string;
   sessions: number;
+  sessionlessEvents: number;
   pageViews: number;
   productViews: number;
   addToCart: number;
@@ -32,12 +33,15 @@ export interface ShopifyCustomerEventsDailyAggregate {
   beginCheckoutSessions: number;
   purchaseSessions: number;
   productViewRate: number | null;
+  addToCartRate: number | null;
   checkoutRate: number | null;
+  checkoutCompletionRate: number | null;
   conversionRate: number | null;
 }
 
 export interface ShopifyCustomerEventsAggregate {
   sessions: number;
+  sessionlessEvents: number;
   pageViews: number;
   productViews: number;
   addToCart: number;
@@ -48,7 +52,9 @@ export interface ShopifyCustomerEventsAggregate {
   beginCheckoutSessions: number;
   purchaseSessions: number;
   productViewRate: number | null;
+  addToCartRate: number | null;
   checkoutRate: number | null;
+  checkoutCompletionRate: number | null;
   conversionRate: number | null;
   daily: ShopifyCustomerEventsDailyAggregate[];
 }
@@ -75,6 +81,7 @@ export async function getShopifyCustomerEventsAggregate(input: {
     SELECT
       occurred_at::date::text AS date,
       COUNT(DISTINCT session_id) FILTER (WHERE session_id IS NOT NULL AND session_id <> '') AS sessions,
+      COUNT(*) FILTER (WHERE session_id IS NULL OR session_id = '') AS sessionless_events,
       COUNT(*) FILTER (
         WHERE lower(event_type) IN ('page_viewed', 'page_view', 'pageview')
       ) AS page_views,
@@ -126,6 +133,7 @@ export async function getShopifyCustomerEventsAggregate(input: {
     return {
       date: String(row.date ?? ""),
       sessions,
+      sessionlessEvents: Math.trunc(toNumber(row.sessionless_events)),
       pageViews: Math.trunc(toNumber(row.page_views)),
       productViews: Math.trunc(toNumber(row.product_views)),
       addToCart: Math.trunc(toNumber(row.add_to_cart)),
@@ -136,7 +144,9 @@ export async function getShopifyCustomerEventsAggregate(input: {
       beginCheckoutSessions,
       purchaseSessions,
       productViewRate: toRate(productViewSessions, sessions),
+      addToCartRate: toRate(addToCartSessions, sessions),
       checkoutRate: toRate(beginCheckoutSessions, sessions),
+      checkoutCompletionRate: toRate(purchaseSessions, beginCheckoutSessions),
       conversionRate: toRate(purchaseSessions, sessions),
     } satisfies ShopifyCustomerEventsDailyAggregate;
   });
@@ -149,6 +159,7 @@ export async function getShopifyCustomerEventsAggregate(input: {
 
   return {
     sessions,
+    sessionlessEvents: daily.reduce((sum, row) => sum + row.sessionlessEvents, 0),
     pageViews: daily.reduce((sum, row) => sum + row.pageViews, 0),
     productViews: daily.reduce((sum, row) => sum + row.productViews, 0),
     addToCart: daily.reduce((sum, row) => sum + row.addToCart, 0),
@@ -159,7 +170,9 @@ export async function getShopifyCustomerEventsAggregate(input: {
     beginCheckoutSessions,
     purchaseSessions,
     productViewRate: toRate(productViewSessions, sessions),
+    addToCartRate: toRate(addToCartSessions, sessions),
     checkoutRate: toRate(beginCheckoutSessions, sessions),
+    checkoutCompletionRate: toRate(purchaseSessions, beginCheckoutSessions),
     conversionRate: toRate(purchaseSessions, sessions),
     daily,
   } satisfies ShopifyCustomerEventsAggregate;

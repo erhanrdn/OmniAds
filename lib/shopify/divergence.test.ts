@@ -153,7 +153,13 @@ describe("compareShopifyAggregates", () => {
     expect(result.revenueDeltaPercent).toBe(7);
     expect(result.purchaseDelta).toBe(-3);
     expect(result.refundedRevenueDelta).toBe(70);
+    expect(result.returnEventDelta).toBe(0);
     expect(result.adjustmentRevenueDelta).toBe(-45);
+    expect(result.failureReasons).toContain("revenue_delta_percent_above_threshold");
+    expect(result.failureReasons).toContain("purchase_delta_above_threshold");
+    expect(result.failureReasons).toContain("refunded_revenue_delta_above_threshold");
+    expect(result.failureReasons).toContain("daily_semantic_drift_above_threshold");
     expect(result.maxDailySemanticDrift).toBe(215);
+    expect(result.consistencyScore).toBeLessThan(100);
   });
 });

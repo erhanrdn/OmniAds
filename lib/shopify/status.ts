@@ -65,6 +65,11 @@ function defaultCutoverMinStableRuns() {
   return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : 5;
 }
 
+function defaultCutoverMinStableLedgerRuns() {
+  const parsed = Number(process.env.SHOPIFY_WAREHOUSE_DEFAULT_CUTOVER_MIN_LEDGER_RUNS ?? "2");
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.trunc(parsed) : 2;
+}
+
 function defaultCutoverMaxAgeMinutes() {
   const parsed = Number(process.env.SHOPIFY_WAREHOUSE_DEFAULT_CUTOVER_MAX_AGE_MINUTES ?? "180");
   return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : 180;
@@ -125,7 +130,8 @@ function summarizeReconciliationRuns(
     defaultCutoverEligible:
       defaultCutoverEnabled() &&
       latestFresh &&
-      stableRunCount >= defaultCutoverMinStableRuns(),
+      stableRunCount >= defaultCutoverMinStableRuns() &&
+      stableLedgerRunCount >= defaultCutoverMinStableLedgerRuns(),
   };
 }
 
