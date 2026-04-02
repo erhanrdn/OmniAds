@@ -864,6 +864,15 @@ function uniqueSnapshotIds(snapshotIds: Array<string | null | undefined>) {
   return Array.from(new Set(snapshotIds.filter((value): value is string => Boolean(value))));
 }
 
+export function shouldCountGoogleAdsReplayChunkAsFetched(input: {
+  pageIndex: number;
+  checkpointPageIndex: number | null | undefined;
+  replayingPersistedChunk: boolean;
+}) {
+  if (!input.replayingPersistedChunk) return true;
+  return input.pageIndex > (input.checkpointPageIndex ?? -1);
+}
+
 export function buildGoogleAdsWarehouseFetchPlan(scopes: Iterable<GoogleAdsWarehouseScope>) {
   const requestedScopes = new Set(scopes);
   const wants = (scope: GoogleAdsWarehouseScope) => requestedScopes.has(scope);
@@ -1651,6 +1660,7 @@ async function persistScopeRows(input: {
   let latestSnapshotId: string | null = null;
   let replayedSnapshotCount = 0;
   let accumulatedRawSnapshotIds = uniqueSnapshotIds(existingCheckpoint?.rawSnapshotIds ?? []);
+  let storedSnapshotIds = uniqueSnapshotIds(existingSnapshots.map((row) => row.id));
 
   for (let pageIndex = startChunkIndex; pageIndex < rowChunks.length; pageIndex += 1) {
     const checkpointChunk = rowChunks[pageIndex] ?? [];
@@ -1734,13 +1744,19 @@ async function persistScopeRows(input: {
       ? extractSnapshotRows(existingSnapshot.payload_json)
       : checkpointChunk;
     accumulatedRawSnapshotIds = uniqueSnapshotIds([...accumulatedRawSnapshotIds, latestSnapshotId]);
+    storedSnapshotIds = uniqueSnapshotIds([...storedSnapshotIds, latestSnapshotId]);
     const replayingPersistedChunk =
       Boolean(existingSnapshot) &&
       Boolean(replayDecision.replayReasonCode) &&
       existingCheckpoint != null &&
       existingCheckpoint.phase !== "fetch_raw";
 
-    rowsFetched += replayingPersistedChunk ? 0 : sourceChunk.length;
+    const shouldCountChunkAsFetched = shouldCountGoogleAdsReplayChunkAsFetched({
+      pageIndex,
+      checkpointPageIndex: existingCheckpoint?.pageIndex,
+      replayingPersistedChunk,
+    });
+    rowsFetched += shouldCountChunkAsFetched ? sourceChunk.length : 0;
 
     await upsertGoogleAdsCheckpointOrThrow({
       partitionId: input.partitionId,
@@ -1801,10 +1817,6 @@ async function persistScopeRows(input: {
 
   const finalRawSnapshotIds = uniqueSnapshotIds([
     ...accumulatedRawSnapshotIds,
-    ...existingSnapshots.map((row) => row.id),
-    latestSnapshotId,
-  ]);
-  const storedSnapshotIds = uniqueSnapshotIds([
     ...existingSnapshots.map((row) => row.id),
     latestSnapshotId,
   ]);

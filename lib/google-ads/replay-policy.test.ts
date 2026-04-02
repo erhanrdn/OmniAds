@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   resolveGoogleReplayReasonCode,
   resolvePhaseAwareReplayDecision,
+  shouldCountGoogleAdsReplayChunkAsFetched,
   validateGoogleReplayCompleteness,
 } from "@/lib/sync/google-ads-sync";
 
@@ -74,6 +75,46 @@ describe("Google replay policy", () => {
     expect(result.ok).toBe(false);
     expect(result.snapshotCoverageBroken).toBe(true);
     expect(result.rowCountBroken).toBe(true);
+  });
+
+  it("treats multi-chunk stored snapshot coverage as complete when all chunk snapshots exist", () => {
+    const result = validateGoogleReplayCompleteness({
+      totalChunks: 3,
+      finalRawSnapshotIds: ["s1", "s2", "s3"],
+      storedSnapshotIds: ["s1", "s2", "s3"],
+      rowsFetched: 300,
+      rowsWritten: 300,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.snapshotCoverageBroken).toBe(false);
+    expect(result.rowCountBroken).toBe(false);
+  });
+
+  it("counts replayed persisted chunks beyond the failed checkpoint page toward fetched rows", () => {
+    expect(
+      shouldCountGoogleAdsReplayChunkAsFetched({
+        pageIndex: 2,
+        checkpointPageIndex: 1,
+        replayingPersistedChunk: true,
+      })
+    ).toBe(true);
+
+    expect(
+      shouldCountGoogleAdsReplayChunkAsFetched({
+        pageIndex: 1,
+        checkpointPageIndex: 1,
+        replayingPersistedChunk: true,
+      })
+    ).toBe(false);
+
+    expect(
+      shouldCountGoogleAdsReplayChunkAsFetched({
+        pageIndex: 1,
+        checkpointPageIndex: 1,
+        replayingPersistedChunk: false,
+      })
+    ).toBe(true);
   });
 
   it("classifies replay reasons deterministically", () => {

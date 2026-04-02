@@ -726,7 +726,6 @@ export async function completeGoogleAdsPartition(input: {
       updated_at = now()
     WHERE id = ${input.partitionId}
       AND lease_owner = ${input.workerId}
-      AND COALESCE(lease_expires_at, now()) > now()
     RETURNING id
   ` as Array<{ id: string }>;
   return rows.length > 0;
@@ -781,7 +780,6 @@ export async function heartbeatGoogleAdsPartitionLease(input: {
       updated_at = now()
     WHERE id = ${input.partitionId}
       AND lease_owner = ${input.workerId}
-      AND COALESCE(lease_expires_at, now()) > now()
     RETURNING id
   ` as Array<{ id: string }>;
   return rows.length > 0;

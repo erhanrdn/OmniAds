@@ -54,6 +54,8 @@ const db = await import("@/lib/db");
 const workerHealth = await import("@/lib/sync/worker-health");
 const {
   cleanupGoogleAdsPartitionOrchestration,
+  completeGoogleAdsPartition,
+  heartbeatGoogleAdsPartitionLease,
   replayGoogleAdsDeadLetterPartitions,
   upsertGoogleAdsSyncCheckpoint,
 } = await import(
@@ -234,5 +236,55 @@ describe("google ads warehouse ownership safety", () => {
     expect(result.stalePartitionCount).toBe(1);
     expect(result.aliveSlowCount).toBe(0);
     expect(result.reclaimReasons.stalledReclaimable).toEqual(["worker_offline_no_progress"]);
+  });
+
+  it("allows same-owner late completion without requiring an unexpired partition lease", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      queries.push(strings.join(" "));
+      return [{ id: "partition-1" }];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const completed = await completeGoogleAdsPartition({
+      partitionId: "partition-1",
+      workerId: "worker-1",
+      status: "succeeded",
+    });
+
+    expect(completed).toBe(true);
+    expect(
+      queries.some(
+        (query) =>
+          query.includes("UPDATE google_ads_sync_partitions") &&
+          query.includes("AND lease_owner =") &&
+          query.includes("COALESCE(lease_expires_at, now()) > now()")
+      )
+    ).toBe(false);
+  });
+
+  it("allows same-owner late heartbeat renewal without requiring an unexpired partition lease", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      queries.push(strings.join(" "));
+      return [{ id: "partition-1" }];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const renewed = await heartbeatGoogleAdsPartitionLease({
+      partitionId: "partition-1",
+      workerId: "worker-1",
+      leaseMinutes: 5,
+    });
+
+    expect(renewed).toBe(true);
+    expect(
+      queries.some(
+        (query) =>
+          query.includes("UPDATE google_ads_sync_partitions") &&
+          query.includes("lease_expires_at = now() +") &&
+          query.includes("COALESCE(lease_expires_at, now()) > now()")
+      )
+    ).toBe(false);
   });
 });
