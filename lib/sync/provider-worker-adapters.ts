@@ -4,8 +4,41 @@ import type {
   ProviderSyncCheckpointState,
   ProviderSyncPartitionIdentity,
 } from "@/lib/sync/provider-orchestration";
-import { syncGoogleAdsReports } from "@/lib/sync/google-ads-sync";
-import { consumeMetaQueuedWork } from "@/lib/sync/meta-sync";
+import { resolveMetaCredentials } from "@/lib/api/meta";
+import { getAssignedGoogleAccounts } from "@/lib/google-ads-gaql";
+import {
+  getGoogleAdsCheckpointHealth,
+  getGoogleAdsSyncCheckpoint,
+  leaseGoogleAdsSyncPartitions,
+  queueGoogleAdsSyncPartition,
+  upsertGoogleAdsSyncCheckpoint,
+} from "@/lib/google-ads/warehouse";
+import type {
+  GoogleAdsSyncCheckpointRecord,
+  GoogleAdsSyncPartitionRecord,
+  GoogleAdsWarehouseScope,
+} from "@/lib/google-ads/warehouse-types";
+import {
+  getMetaCheckpointHealth,
+  getMetaSyncCheckpoint,
+  leaseMetaSyncPartitions,
+  queueMetaSyncPartition,
+  upsertMetaSyncCheckpoint,
+} from "@/lib/meta/warehouse";
+import type {
+  MetaSyncCheckpointRecord,
+  MetaSyncPartitionRecord,
+  MetaWarehouseScope,
+} from "@/lib/meta/warehouse-types";
+import type { ProviderReadinessLevel } from "@/lib/provider-readiness";
+import {
+  processGoogleAdsLifecyclePartition,
+  syncGoogleAdsReports,
+} from "@/lib/sync/google-ads-sync";
+import {
+  consumeMetaQueuedWork,
+  processMetaLifecyclePartition,
+} from "@/lib/sync/meta-sync";
 import { syncShopifyCommerceReports } from "@/lib/sync/shopify-sync";
 
 export interface ProviderWorkerAdapter
@@ -24,23 +57,322 @@ export interface ProviderWorkerAdapter
   ): Promise<unknown>;
 }
 
-const unsupported = async () => {
-  throw new Error("Provider worker adapter uses existing provider sync runtime for this cutover.");
+type WorkerLifecyclePartition = ProviderSyncPartitionIdentity & {
+  lane?: string;
+  status?: string;
+  priority?: number;
+  source?: string;
+  leaseOwner?: string | null;
+  leaseExpiresAt?: string | null;
+  attemptCount?: number;
+  nextRetryAt?: string | null;
+  lastError?: string | null;
 };
+
+const META_ADAPTER_CORE_SCOPES: MetaWarehouseScope[] = ["account_daily", "adset_daily"];
+const GOOGLE_ADS_ADAPTER_CORE_SCOPES: GoogleAdsWarehouseScope[] = [
+  "account_daily",
+  "campaign_daily",
+];
+
+function enumerateDays(startDate: string, endDate: string) {
+  const start = new Date(`${startDate}T00:00:00.000Z`);
+  const end = new Date(`${endDate}T00:00:00.000Z`);
+  if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || start > end) {
+    return [] as string[];
+  }
+
+  const days: string[] = [];
+  for (let cursor = start; cursor <= end; cursor = new Date(cursor.getTime() + 86_400_000)) {
+    days.push(cursor.toISOString().slice(0, 10));
+  }
+  return days;
+}
+
+function mapMetaPartition(
+  partition: MetaSyncPartitionRecord & { id?: string }
+): WorkerLifecyclePartition {
+  return {
+    partitionId: String(partition.id ?? `${partition.providerAccountId}:${partition.scope}:${partition.partitionDate}`),
+    businessId: partition.businessId,
+    providerAccountId: partition.providerAccountId,
+    scope: partition.scope,
+    partitionDate: partition.partitionDate,
+    lane: partition.lane,
+    status: partition.status,
+    priority: partition.priority,
+    source: partition.source,
+    leaseOwner: partition.leaseOwner ?? null,
+    leaseExpiresAt: partition.leaseExpiresAt ?? null,
+    attemptCount: partition.attemptCount,
+    nextRetryAt: partition.nextRetryAt ?? null,
+    lastError: partition.lastError ?? null,
+  };
+}
+
+function mapGoogleAdsPartition(
+  partition: GoogleAdsSyncPartitionRecord & { id?: string }
+): WorkerLifecyclePartition {
+  return {
+    partitionId: String(partition.id ?? `${partition.providerAccountId}:${partition.scope}:${partition.partitionDate}`),
+    businessId: partition.businessId,
+    providerAccountId: partition.providerAccountId,
+    scope: partition.scope,
+    partitionDate: partition.partitionDate,
+    lane: partition.lane,
+    status: partition.status,
+    priority: partition.priority,
+    source: partition.source,
+    leaseOwner: partition.leaseOwner ?? null,
+    leaseExpiresAt: partition.leaseExpiresAt ?? null,
+    attemptCount: partition.attemptCount,
+    nextRetryAt: partition.nextRetryAt ?? null,
+    lastError: partition.lastError ?? null,
+  };
+}
+
+function mapMetaCheckpoint(record: Awaited<ReturnType<typeof getMetaSyncCheckpoint>>) {
+  if (!record) return null;
+  return {
+    checkpointId: record.id ?? null,
+    checkpointScope: record.checkpointScope,
+    phase: record.phase,
+    pageIndex: record.pageIndex,
+    cursor: record.providerCursor ?? null,
+    nextCursor: record.nextPageUrl ?? null,
+    rowsFetched: record.rowsFetched ?? 0,
+    rowsWritten: record.rowsWritten ?? 0,
+    attemptCount: record.attemptCount,
+    retryAfterAt: record.retryAfterAt ?? null,
+    heartbeatAt: record.updatedAt ?? null,
+  } satisfies ProviderSyncCheckpointState;
+}
+
+function mapGoogleAdsCheckpoint(record: Awaited<ReturnType<typeof getGoogleAdsSyncCheckpoint>>) {
+  if (!record) return null;
+  return {
+    checkpointId: record.id ?? null,
+    checkpointScope: record.checkpointScope,
+    phase: record.phase,
+    pageIndex: record.pageIndex,
+    isPaginated: record.isPaginated ?? false,
+    cursor: record.providerCursor ?? null,
+    nextCursor: record.nextPageToken ?? null,
+    rawSnapshotIds: record.rawSnapshotIds ?? [],
+    rowsFetched: record.rowsFetched ?? 0,
+    rowsWritten: record.rowsWritten ?? 0,
+    attemptCount: record.attemptCount,
+    retryAfterAt: record.retryAfterAt ?? null,
+    heartbeatAt: record.progressHeartbeatAt ?? record.updatedAt ?? null,
+    poisonedAt: record.poisonedAt ?? null,
+    poisonReason: record.poisonReason ?? null,
+  } satisfies ProviderSyncCheckpointState;
+}
+
+function normalizeCheckpointChunk(
+  checkpoint: ProviderSyncCheckpointState | null,
+  chunk: unknown
+) {
+  const payload = chunk && typeof chunk === "object" ? (chunk as Record<string, unknown>) : {};
+  return {
+    phase: typeof payload.phase === "string" ? payload.phase : checkpoint?.phase ?? "fetch_raw",
+    pageIndex:
+      typeof payload.pageIndex === "number" ? payload.pageIndex : checkpoint?.pageIndex ?? 0,
+    cursor:
+      typeof payload.cursor === "string"
+        ? payload.cursor
+        : checkpoint?.cursor ?? null,
+    nextCursor:
+      typeof payload.nextCursor === "string"
+        ? payload.nextCursor
+        : checkpoint?.nextCursor ?? null,
+    rowsFetched:
+      typeof payload.rowsFetched === "number"
+        ? payload.rowsFetched
+        : checkpoint?.rowsFetched ?? 0,
+    rowsWritten:
+      typeof payload.rowsWritten === "number"
+        ? payload.rowsWritten
+        : checkpoint?.rowsWritten ?? 0,
+    attemptCount:
+      typeof payload.attemptCount === "number"
+        ? payload.attemptCount
+        : checkpoint?.attemptCount ?? 0,
+    status:
+      typeof payload.status === "string"
+        ? payload.status
+        : "running",
+    isPaginated:
+      typeof payload.isPaginated === "boolean"
+        ? payload.isPaginated
+        : checkpoint?.isPaginated ?? false,
+    rawSnapshotIds: Array.isArray(payload.rawSnapshotIds)
+      ? payload.rawSnapshotIds.map((value) => String(value))
+      : checkpoint?.rawSnapshotIds ?? [],
+    retryAfterAt:
+      typeof payload.retryAfterAt === "string"
+        ? payload.retryAfterAt
+        : checkpoint?.retryAfterAt ?? null,
+    poisonedAt:
+      typeof payload.poisonedAt === "string"
+        ? payload.poisonedAt
+        : checkpoint?.poisonedAt ?? null,
+    poisonReason:
+      typeof payload.poisonReason === "string"
+        ? payload.poisonReason
+        : checkpoint?.poisonReason ?? null,
+  };
+}
+
+function classifyReadinessLevel(input: {
+  assignedAccountCount: number;
+  checkpointUpdatedAt: string | null;
+  checkpointLagMinutes: number | null;
+  resumeCapable: boolean;
+}): ProviderReadinessLevel {
+  if (input.assignedAccountCount === 0) return "partial";
+  if (input.checkpointUpdatedAt && (input.checkpointLagMinutes == null || input.checkpointLagMinutes <= 20)) {
+    return "ready";
+  }
+  return input.resumeCapable ? "usable" : "partial";
+}
+
+async function fetchLegacyPartitionChunk(input: {
+  partition: WorkerLifecyclePartition;
+  checkpoint: ProviderSyncCheckpointState | null;
+}) {
+  return {
+    partition: input.partition,
+    checkpoint: input.checkpoint,
+    fetchedAt: new Date().toISOString(),
+    bridgeMode: "legacy_provider_runtime",
+  };
+}
+
+async function noopLifecycleStep() {}
 
 export const metaWorkerAdapter: ProviderWorkerAdapter = {
   providerScope: "meta",
-  planPartitions: unsupported,
-  leasePartitions: unsupported,
-  getCheckpoint: unsupported,
-  fetchChunk: unsupported,
-  persistChunk: unsupported,
-  transformChunk: unsupported,
-  writeFacts: unsupported,
-  advanceCheckpoint: unsupported,
-  completePartition: unsupported,
+  async planPartitions(range) {
+    const credentials = await resolveMetaCredentials(range.businessId);
+    if (!credentials) return { partitions: [] };
+    const partitions: WorkerLifecyclePartition[] = [];
+    for (const accountId of credentials.accountIds) {
+      for (const partitionDate of enumerateDays(range.startDate, range.endDate)) {
+        for (const scope of META_ADAPTER_CORE_SCOPES) {
+          await queueMetaSyncPartition({
+            businessId: range.businessId,
+            providerAccountId: accountId,
+            lane: "core",
+            scope,
+            partitionDate,
+            status: "queued",
+            priority: 200,
+            source: "request_runtime",
+            attemptCount: 0,
+          });
+          partitions.push({
+            partitionId: `${accountId}:${scope}:${partitionDate}`,
+            businessId: range.businessId,
+            providerAccountId: accountId,
+            scope,
+            partitionDate,
+            lane: "core",
+            source: "request_runtime",
+            status: "queued",
+            priority: 200,
+          });
+        }
+      }
+    }
+    return { partitions };
+  },
+  async leasePartitions(input) {
+    const leased = await leaseMetaSyncPartitions({
+      businessId: input.businessId,
+      workerId: input.workerId,
+      limit: input.limit,
+    });
+    return leased.map((partition) => mapMetaPartition(partition));
+  },
+  async getCheckpoint(input) {
+    return mapMetaCheckpoint(
+      await getMetaSyncCheckpoint({
+        partitionId: input.partition.partitionId,
+        checkpointScope: input.partition.scope,
+      })
+    );
+  },
+  fetchChunk: fetchLegacyPartitionChunk,
+  persistChunk: noopLifecycleStep,
+  transformChunk: noopLifecycleStep,
+  async writeFacts(input) {
+    const partition = input.partition as WorkerLifecyclePartition;
+    const processed = await processMetaLifecyclePartition({
+      partition: {
+        id: partition.partitionId,
+        businessId: partition.businessId,
+        providerAccountId: partition.providerAccountId,
+        lane: (partition.lane ?? "core") as MetaSyncPartitionRecord["lane"],
+        scope: partition.scope as MetaWarehouseScope,
+        partitionDate: partition.partitionDate,
+        attemptCount: partition.attemptCount ?? 0,
+        source: partition.source ?? "request_runtime",
+      },
+      workerId: partition.leaseOwner ?? "",
+    });
+    if (!processed) {
+      throw new Error("meta_partition_processing_failed");
+    }
+  },
+  async advanceCheckpoint(input) {
+    const partition = input.partition as WorkerLifecyclePartition;
+    const currentCheckpoint = await getMetaSyncCheckpoint({
+      partitionId: partition.partitionId,
+      checkpointScope: partition.scope,
+    });
+    const normalized = normalizeCheckpointChunk(mapMetaCheckpoint(currentCheckpoint), input.chunk);
+    const upsertInput: MetaSyncCheckpointRecord = {
+      partitionId: partition.partitionId,
+      businessId: partition.businessId,
+      providerAccountId: partition.providerAccountId,
+      checkpointScope: partition.scope,
+      phase: normalized.phase as MetaSyncCheckpointRecord["phase"],
+      status: normalized.status as MetaSyncCheckpointRecord["status"],
+      pageIndex: normalized.pageIndex,
+      nextPageUrl: normalized.nextCursor,
+      providerCursor: normalized.cursor,
+      rowsFetched: normalized.rowsFetched,
+      rowsWritten: normalized.rowsWritten,
+      attemptCount: normalized.attemptCount,
+      retryAfterAt: normalized.retryAfterAt,
+      leaseOwner: partition.leaseOwner ?? null,
+    };
+    await upsertMetaSyncCheckpoint(upsertInput);
+  },
+  async completePartition(input) {
+    void input;
+  },
   classifyFailure(error) {
     return error instanceof Error ? error.message : String(error);
+  },
+  async getReadiness(input) {
+    const credentials = await resolveMetaCredentials(input.businessId).catch(() => null);
+    const assignedAccountCount = credentials?.accountIds.length ?? 0;
+    const checkpointHealth = await getMetaCheckpointHealth({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId ?? null,
+    }).catch(() => null);
+    return {
+      readinessLevel: classifyReadinessLevel({
+        assignedAccountCount,
+        checkpointUpdatedAt: checkpointHealth?.latestCheckpointUpdatedAt ?? null,
+        checkpointLagMinutes: checkpointHealth?.checkpointLagMinutes ?? null,
+        resumeCapable: checkpointHealth?.resumeCapable ?? false,
+      }),
+      checkpointHealth,
+      domainReadiness: null,
+    };
   },
   async consumeBusiness(businessId: string, input) {
     return consumeMetaQueuedWork(businessId, input);
@@ -49,17 +381,129 @@ export const metaWorkerAdapter: ProviderWorkerAdapter = {
 
 export const googleAdsWorkerAdapter: ProviderWorkerAdapter = {
   providerScope: "google_ads",
-  planPartitions: unsupported,
-  leasePartitions: unsupported,
-  getCheckpoint: unsupported,
-  fetchChunk: unsupported,
-  persistChunk: unsupported,
-  transformChunk: unsupported,
-  writeFacts: unsupported,
-  advanceCheckpoint: unsupported,
-  completePartition: unsupported,
+  async planPartitions(range) {
+    const accountIds = await getAssignedGoogleAccounts(range.businessId).catch(() => []);
+    const partitions: WorkerLifecyclePartition[] = [];
+    for (const accountId of accountIds) {
+      for (const partitionDate of enumerateDays(range.startDate, range.endDate)) {
+        for (const scope of GOOGLE_ADS_ADAPTER_CORE_SCOPES) {
+          await queueGoogleAdsSyncPartition({
+            businessId: range.businessId,
+            providerAccountId: accountId,
+            lane: "core",
+            scope,
+            partitionDate,
+            status: "queued",
+            priority: 200,
+            source: "selected_range",
+            attemptCount: 0,
+          });
+          partitions.push({
+            partitionId: `${accountId}:${scope}:${partitionDate}`,
+            businessId: range.businessId,
+            providerAccountId: accountId,
+            scope,
+            partitionDate,
+            lane: "core",
+            source: "selected_range",
+            status: "queued",
+            priority: 200,
+          });
+        }
+      }
+    }
+    return { partitions };
+  },
+  async leasePartitions(input) {
+    const leased = await leaseGoogleAdsSyncPartitions({
+      businessId: input.businessId,
+      workerId: input.workerId,
+      limit: input.limit,
+    });
+    return leased.map((partition) => mapGoogleAdsPartition(partition));
+  },
+  async getCheckpoint(input) {
+    return mapGoogleAdsCheckpoint(
+      await getGoogleAdsSyncCheckpoint({
+        partitionId: input.partition.partitionId,
+        checkpointScope: input.partition.scope,
+      })
+    );
+  },
+  fetchChunk: fetchLegacyPartitionChunk,
+  persistChunk: noopLifecycleStep,
+  transformChunk: noopLifecycleStep,
+  async writeFacts(input) {
+    const partition = input.partition as WorkerLifecyclePartition;
+    const processed = await processGoogleAdsLifecyclePartition({
+      partition: {
+        id: partition.partitionId,
+        businessId: partition.businessId,
+        providerAccountId: partition.providerAccountId,
+        lane: (partition.lane ?? "core") as GoogleAdsSyncPartitionRecord["lane"],
+        scope: partition.scope as GoogleAdsWarehouseScope,
+        partitionDate: partition.partitionDate,
+        attemptCount: partition.attemptCount ?? 0,
+        source: partition.source ?? "selected_range",
+      },
+      workerId: partition.leaseOwner ?? "",
+    });
+    if (!processed) {
+      throw new Error("google_ads_partition_processing_failed");
+    }
+  },
+  async advanceCheckpoint(input) {
+    const partition = input.partition as WorkerLifecyclePartition;
+    const currentCheckpoint = await getGoogleAdsSyncCheckpoint({
+      partitionId: partition.partitionId,
+      checkpointScope: partition.scope,
+    });
+    const normalized = normalizeCheckpointChunk(mapGoogleAdsCheckpoint(currentCheckpoint), input.chunk);
+    const upsertInput: GoogleAdsSyncCheckpointRecord = {
+      partitionId: partition.partitionId,
+      businessId: partition.businessId,
+      providerAccountId: partition.providerAccountId,
+      checkpointScope: partition.scope,
+      isPaginated: normalized.isPaginated,
+      phase: normalized.phase as GoogleAdsSyncCheckpointRecord["phase"],
+      status: normalized.status as GoogleAdsSyncCheckpointRecord["status"],
+      pageIndex: normalized.pageIndex,
+      nextPageToken: normalized.nextCursor,
+      providerCursor: normalized.cursor,
+      rawSnapshotIds: normalized.rawSnapshotIds,
+      rowsFetched: normalized.rowsFetched,
+      rowsWritten: normalized.rowsWritten,
+      attemptCount: normalized.attemptCount,
+      progressHeartbeatAt: new Date().toISOString(),
+      retryAfterAt: normalized.retryAfterAt,
+      leaseOwner: partition.leaseOwner ?? null,
+      poisonedAt: normalized.poisonedAt,
+      poisonReason: normalized.poisonReason,
+    };
+    await upsertGoogleAdsSyncCheckpoint(upsertInput);
+  },
+  async completePartition(input) {
+    void input;
+  },
   classifyFailure(error) {
     return error instanceof Error ? error.message : String(error);
+  },
+  async getReadiness(input) {
+    const accountIds = await getAssignedGoogleAccounts(input.businessId).catch(() => []);
+    const checkpointHealth = await getGoogleAdsCheckpointHealth({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId ?? null,
+    }).catch(() => null);
+    return {
+      readinessLevel: classifyReadinessLevel({
+        assignedAccountCount: accountIds.length,
+        checkpointUpdatedAt: checkpointHealth?.latestCheckpointUpdatedAt ?? null,
+        checkpointLagMinutes: checkpointHealth?.checkpointLagMinutes ?? null,
+        resumeCapable: checkpointHealth?.resumeCapable ?? false,
+      }),
+      checkpointHealth,
+      domainReadiness: null,
+    };
   },
   async consumeBusiness(businessId: string, input) {
     return syncGoogleAdsReports(businessId, input);
@@ -68,15 +512,21 @@ export const googleAdsWorkerAdapter: ProviderWorkerAdapter = {
 
 export const shopifyWorkerAdapter: ProviderWorkerAdapter = {
   providerScope: "shopify",
-  planPartitions: unsupported,
-  leasePartitions: unsupported,
-  getCheckpoint: unsupported,
-  fetchChunk: unsupported,
-  persistChunk: unsupported,
-  transformChunk: unsupported,
-  writeFacts: unsupported,
-  advanceCheckpoint: unsupported,
-  completePartition: unsupported,
+  async planPartitions() {
+    return { partitions: [] };
+  },
+  async leasePartitions() {
+    return [];
+  },
+  async getCheckpoint() {
+    return null;
+  },
+  fetchChunk: fetchLegacyPartitionChunk,
+  persistChunk: noopLifecycleStep,
+  transformChunk: noopLifecycleStep,
+  writeFacts: noopLifecycleStep,
+  async advanceCheckpoint() {},
+  async completePartition() {},
   classifyFailure(error) {
     return error instanceof Error ? error.message : String(error);
   },

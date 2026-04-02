@@ -45,12 +45,12 @@ export function decideGoogleAdsAdvisorReadiness(
   const ready =
     input.connected &&
     input.assignedAccountCount > 0 &&
-    input.snapshotAvailable;
+    input.recent90Ready;
 
   const notReady =
     input.connected &&
     input.assignedAccountCount > 0 &&
-    input.recent90Ready &&
+    !input.recent90Ready &&
     !ready;
 
   return {
@@ -93,9 +93,8 @@ export function decideGoogleAdsStatusState(
   if ((input.advisorRelevantUnhealthyLeases ?? 0) > 0) return "action_required";
   if (input.latestSyncStatus === "failed" && input.runningJobs === 0) return "action_required";
   if (input.staleRunningJobs > 0) return "stale";
-  if (input.advisorNotReady) return "advisor_not_ready";
-  if (!input.selectedRangeIncomplete && input.historicalProgressPercent >= 100) return "ready";
   if (
+    input.advisorNotReady ||
     input.latestSyncStatus === "running" ||
     input.runningJobs > 0 ||
     input.needsBootstrap ||
@@ -103,6 +102,7 @@ export function decideGoogleAdsStatusState(
   ) {
     return "syncing";
   }
+  if (!input.selectedRangeIncomplete && input.historicalProgressPercent >= 100) return "ready";
   if (input.productPendingSurfaces.length > 0) return "partial";
   return "ready";
 }

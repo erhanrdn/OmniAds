@@ -3,12 +3,7 @@ import { getDb } from "@/lib/db";
 import { runMigrations } from "@/lib/migrations";
 import { requireInternalOrAdminSyncAccess, businessExists } from "@/lib/internal-sync-auth";
 import { logAdminAction } from "@/lib/admin-logger";
-import {
-  enqueueGoogleAdsScheduledWork,
-} from "@/lib/sync/google-ads-sync";
-import {
-  enqueueMetaScheduledWork,
-} from "@/lib/sync/meta-sync";
+import { runGoogleAdsRepairCycle, runMetaRepairCycle } from "@/lib/sync/provider-repair-engine";
 import { syncShopifyCommerceReports } from "@/lib/sync/shopify-sync";
 import * as metaWarehouse from "@/lib/meta/warehouse";
 import * as googleAdsWarehouse from "@/lib/google-ads/warehouse";
@@ -107,8 +102,16 @@ async function hasRepairableProviderIssues(
       );
     }
     if (provider === "google_ads") {
-      const queueHealth = await googleAdsWarehouse.getGoogleAdsQueueHealth({ businessId }).catch(() => null);
-      return (queueHealth?.deadLetterPartitions ?? 0) > 0;
+      const [queueHealth, checkpointHealth] = await Promise.all([
+        googleAdsWarehouse.getGoogleAdsQueueHealth({ businessId }).catch(() => null),
+        googleAdsWarehouse
+          .getGoogleAdsCheckpointHealth({ businessId, providerAccountId: null })
+          .catch(() => null),
+      ]);
+      return (
+        (queueHealth?.deadLetterPartitions ?? 0) > 0 ||
+        (checkpointHealth?.checkpointFailures ?? 0) > 0
+      );
     }
     return false;
   } catch {
@@ -222,65 +225,25 @@ async function runSyncForProvider(
 ): Promise<{ provider: string; result: unknown }> {
   switch (provider) {
     case "google_ads":
-      const googleCleanup = await googleAdsWarehouse.cleanupGoogleAdsPartitionOrchestration({
-        businessId,
-      }).catch(() => null);
-      const replayedGoogleDeadLetters = await googleAdsWarehouse
-        .replayGoogleAdsDeadLetterPartitions({ businessId })
-        .catch(() => null);
-      const forceReplayedGooglePoisoned = await googleAdsWarehouse
-        .forceReplayGoogleAdsPoisonedPartitions({ businessId })
-        .catch(() => null);
-      const googleQueueBeforeEnqueue = await googleAdsWarehouse
-        .getGoogleAdsQueueHealth({ businessId })
-        .catch(() => null);
-      const googleResult = await enqueueGoogleAdsScheduledWork(businessId);
+      const googleResult = await runGoogleAdsRepairCycle(businessId);
       return {
         provider,
         result: {
-          ...((googleResult && typeof googleResult === "object") ? googleResult : {}),
-          repair: {
-            reclaimed: googleCleanup?.stalePartitionCount ?? 0,
-            replayed:
-              (replayedGoogleDeadLetters?.changedCount ?? 0) +
-              (forceReplayedGooglePoisoned?.changedCount ?? 0),
-            requeued: Number((googleResult as { queuedCore?: number } | null)?.queuedCore ?? 0),
-            blocked:
-              (googleQueueBeforeEnqueue?.deadLetterPartitions ?? 0) > 0 &&
-              (replayedGoogleDeadLetters?.changedCount ?? 0) +
-                (forceReplayedGooglePoisoned?.changedCount ?? 0) <=
-                0,
-            deadLetters: replayedGoogleDeadLetters,
-            poisonedReplay: forceReplayedGooglePoisoned,
-          },
+          ...((googleResult.enqueueResult && typeof googleResult.enqueueResult === "object")
+            ? googleResult.enqueueResult
+            : {}),
+          repair: googleResult.repair,
         },
       };
     case "meta":
-      const metaCleanup = await metaWarehouse.cleanupMetaPartitionOrchestration({
-        businessId,
-      }).catch(() => null);
-      const replayedMetaDeadLetters = await metaWarehouse
-        .replayMetaDeadLetterPartitions({ businessId })
-        .catch(() => null);
-      const requeuedMetaFailed = await metaWarehouse
-        .requeueMetaRetryableFailedPartitions({ businessId })
-        .catch(() => []);
-      const metaQueueBeforeEnqueue = await metaWarehouse.getMetaQueueHealth({ businessId }).catch(() => null);
-      const metaResult = await enqueueMetaScheduledWork(businessId);
+      const metaResult = await runMetaRepairCycle(businessId);
       return {
         provider,
         result: {
-          ...((metaResult && typeof metaResult === "object") ? metaResult : {}),
-          repair: {
-            reclaimed: metaCleanup?.stalePartitionCount ?? 0,
-            replayed: replayedMetaDeadLetters?.changedCount ?? 0,
-            requeued: requeuedMetaFailed.length,
-            blocked:
-              (metaQueueBeforeEnqueue?.deadLetterPartitions ?? 0) > 0 &&
-              (replayedMetaDeadLetters?.changedCount ?? 0) <= 0,
-            deadLetters: replayedMetaDeadLetters,
-            retryableFailed: requeuedMetaFailed.length,
-          },
+          ...((metaResult.enqueueResult && typeof metaResult.enqueueResult === "object")
+            ? metaResult.enqueueResult
+            : {}),
+          repair: metaResult.repair,
         },
       };
     case "shopify":

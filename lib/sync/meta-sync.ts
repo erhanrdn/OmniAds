@@ -45,6 +45,12 @@ import {
   META_WAREHOUSE_HISTORY_DAYS,
   dayCountInclusive,
 } from "@/lib/meta/history";
+import {
+  buildProviderProgressEvidence,
+  hasRecentProviderAdvancement,
+  type ProviderProgressEvidence,
+  type ProviderProgressEvidenceStateRow,
+} from "@/lib/sync/provider-status-truth";
 import type { RunnerLeaseGuard } from "@/lib/sync/worker-runtime";
 
 const META_BREAKDOWN_ENDPOINTS = [
@@ -105,7 +111,11 @@ const META_IN_PROCESS_RUNTIME_ENABLED =
   process.env.META_ENABLE_IN_PROCESS_RUNTIME?.trim().toLowerCase() === "true";
 
 function canUseInProcessBackgroundScheduling() {
-  return process.env.SYNC_WORKER_MODE === "1" && META_IN_PROCESS_RUNTIME_ENABLED;
+  return (
+    process.env.NODE_ENV !== "production" &&
+    process.env.SYNC_WORKER_MODE === "1" &&
+    META_IN_PROCESS_RUNTIME_ENABLED
+  );
 }
 
 function getBackgroundSyncKeys() {
@@ -170,8 +180,181 @@ const META_HISTORICAL_SOURCE_SET = new Set([
   "initial_connect",
 ]);
 
+const META_PROGRESS_EVIDENCE_WINDOW_MINUTES = envNumber(
+  "META_PROGRESS_EVIDENCE_WINDOW_MINUTES",
+  20
+);
+
+type MetaQueueHealth = Awaited<ReturnType<typeof getMetaQueueHealth>>;
+type MetaLaneEvidence = Record<
+  "core" | "extended_recent" | "extended_historical" | "maintenance",
+  ProviderProgressEvidence
+>;
+type MetaStatesByScope = Partial<Record<MetaWarehouseScope, ProviderProgressEvidenceStateRow[]>>;
+
+export interface MetaFairnessLeasePlan {
+  coreFairnessLimit: number;
+  extendedHistoricalFairnessLimit: number;
+}
+
+export interface MetaFollowupLeasePlan {
+  extendedRecentLimit: number;
+  historicalCoreLimit: number;
+  extendedHistoricalLimit: number;
+}
+
 function isRecentMetaSource(source: string | null | undefined) {
   return META_RECENT_SOURCE_SET.has(String(source ?? ""));
+}
+
+function buildMetaSyntheticEvidenceState(activityAt: string | null | undefined) {
+  if (!activityAt) return [];
+  return [
+    {
+      latestBackgroundActivityAt: activityAt,
+      updatedAt: activityAt,
+    } satisfies ProviderProgressEvidenceStateRow,
+  ];
+}
+
+export function buildMetaLaneProgressEvidence(input: {
+  statesByScope?: MetaStatesByScope;
+  queueHealth?: MetaQueueHealth | null;
+}) : MetaLaneEvidence {
+  const statesByScope = input.statesByScope ?? {};
+  const queueHealth = input.queueHealth ?? null;
+  const coreStates = [
+    ...(statesByScope.account_daily ?? []),
+    ...(statesByScope.adset_daily ?? []),
+    ...buildMetaSyntheticEvidenceState(queueHealth?.latestCoreActivityAt ?? null),
+  ];
+  const extendedStates = [
+    ...(statesByScope.creative_daily ?? []),
+    ...(statesByScope.ad_daily ?? []),
+    ...buildMetaSyntheticEvidenceState(queueHealth?.latestExtendedActivityAt ?? null),
+  ];
+  const maintenanceStates = buildMetaSyntheticEvidenceState(
+    queueHealth?.latestMaintenanceActivityAt ?? null
+  );
+
+  return {
+    core: buildProviderProgressEvidence({
+      states: coreStates,
+      aggregation: "bottleneck",
+      recentActivityWindowMinutes: META_PROGRESS_EVIDENCE_WINDOW_MINUTES,
+    }),
+    extended_recent: buildProviderProgressEvidence({
+      states: extendedStates,
+      aggregation: "latest",
+      recentActivityWindowMinutes: META_PROGRESS_EVIDENCE_WINDOW_MINUTES,
+    }),
+    extended_historical: buildProviderProgressEvidence({
+      states: extendedStates,
+      aggregation: "bottleneck",
+      recentActivityWindowMinutes: META_PROGRESS_EVIDENCE_WINDOW_MINUTES,
+    }),
+    maintenance: buildProviderProgressEvidence({
+      states: maintenanceStates,
+      aggregation: "latest",
+      recentActivityWindowMinutes: META_PROGRESS_EVIDENCE_WINDOW_MINUTES,
+    }),
+  };
+}
+
+export function getMetaHistoricalCoreFairnessLimit(input: {
+  queueHealth?: MetaQueueHealth | null;
+  progressEvidence?: ProviderProgressEvidence | null;
+  nowMs?: number;
+}) {
+  const queueHealth = input.queueHealth ?? null;
+  const backlogExists =
+    (queueHealth?.historicalCoreQueueDepth ?? 0) > 0 ||
+    (queueHealth?.historicalCoreLeasedPartitions ?? 0) > 0;
+  if (!backlogExists) return 0;
+  const baseLimit = Math.min(META_CORE_WORKER_LIMIT, META_CORE_FAIRNESS_WORKER_LIMIT);
+  if (baseLimit <= 0) return 0;
+  const hasRecentAdvancement = hasRecentProviderAdvancement({
+    progressEvidence: input.progressEvidence ?? null,
+    fallbackLatestPartitionActivityAt: queueHealth?.latestCoreActivityAt ?? null,
+    nowMs: input.nowMs,
+  });
+  return hasRecentAdvancement
+    ? baseLimit
+    : Math.min(META_CORE_WORKER_LIMIT, baseLimit + 1);
+}
+
+export function getMetaExtendedHistoricalFairnessLimit(input: {
+  queueHealth?: MetaQueueHealth | null;
+  progressEvidence?: ProviderProgressEvidence | null;
+  nowMs?: number;
+}) {
+  const queueHealth = input.queueHealth ?? null;
+  const backlogExists =
+    (queueHealth?.extendedHistoricalQueueDepth ?? 0) > 0 ||
+    (queueHealth?.extendedHistoricalLeasedPartitions ?? 0) > 0;
+  if (!backlogExists) return 0;
+  const baseLimit = Math.min(
+    META_EXTENDED_WORKER_LIMIT,
+    META_EXTENDED_HISTORICAL_FAIRNESS_WORKER_LIMIT
+  );
+  if (baseLimit <= 0) return 0;
+  const hasRecentAdvancement = hasRecentProviderAdvancement({
+    progressEvidence: input.progressEvidence ?? null,
+    fallbackLatestPartitionActivityAt: queueHealth?.latestExtendedActivityAt ?? null,
+    nowMs: input.nowMs,
+  });
+  return hasRecentAdvancement
+    ? baseLimit
+    : Math.min(META_EXTENDED_WORKER_LIMIT, baseLimit + 1);
+}
+
+export function buildMetaFairnessLeasePlan(input: {
+  queueHealth?: MetaQueueHealth | null;
+  laneProgressEvidence?: Partial<MetaLaneEvidence> | null;
+  nowMs?: number;
+}) : MetaFairnessLeasePlan {
+  return {
+    coreFairnessLimit: getMetaHistoricalCoreFairnessLimit({
+      queueHealth: input.queueHealth,
+      progressEvidence: input.laneProgressEvidence?.core ?? null,
+      nowMs: input.nowMs,
+    }),
+    extendedHistoricalFairnessLimit: getMetaExtendedHistoricalFairnessLimit({
+      queueHealth: input.queueHealth,
+      progressEvidence: input.laneProgressEvidence?.extended_historical ?? null,
+      nowMs: input.nowMs,
+    }),
+  };
+}
+
+export function buildMetaFollowupLeasePlan(input: {
+  queueHealth?: MetaQueueHealth | null;
+  leasedCoreFairnessCount: number;
+  leasedExtendedHistoricalFairnessCount: number;
+  leasedExtendedRecentCount?: number;
+}) : MetaFollowupLeasePlan {
+  const queueHealth = input.queueHealth ?? null;
+  const hasMaintenanceBacklog =
+    (queueHealth?.maintenanceQueueDepth ?? 0) > 0 ||
+    (queueHealth?.maintenanceLeasedPartitions ?? 0) > 0;
+  const hasExtendedRecentBacklog =
+    (queueHealth?.extendedRecentQueueDepth ?? 0) > 0 ||
+    (queueHealth?.extendedRecentLeasedPartitions ?? 0) > 0;
+  const remainingExtendedCapacity = Math.max(
+    0,
+    META_EXTENDED_WORKER_LIMIT - input.leasedExtendedHistoricalFairnessCount
+  );
+  const remainingExtendedHistoricalCapacity = Math.max(
+    0,
+    remainingExtendedCapacity - (input.leasedExtendedRecentCount ?? 0)
+  );
+
+  return {
+    extendedRecentLimit: hasMaintenanceBacklog ? 0 : remainingExtendedCapacity,
+    historicalCoreLimit: Math.max(0, META_CORE_WORKER_LIMIT - input.leasedCoreFairnessCount),
+    extendedHistoricalLimit:
+      hasMaintenanceBacklog || hasExtendedRecentBacklog ? 0 : remainingExtendedHistoricalCapacity,
+  };
 }
 
 function isHistoricalMetaSource(source: string | null | undefined) {
@@ -914,6 +1097,30 @@ async function processMetaPartition(input: {
   }
 }
 
+export async function processMetaLifecyclePartition(input: {
+  partition: {
+    id?: string;
+    businessId: string;
+    providerAccountId: string;
+    lane: MetaSyncLane;
+    scope: MetaWarehouseScope;
+    partitionDate: string;
+    attemptCount: number;
+    source: string;
+  };
+  workerId: string;
+}) {
+  const credentials = await resolveMetaCredentials(input.partition.businessId).catch(() => null);
+  if (!credentials) {
+    throw new Error("meta_credentials_unavailable");
+  }
+  return processMetaPartition({
+    credentials,
+    partition: input.partition,
+    workerId: input.workerId,
+  });
+}
+
 export async function consumeMetaQueuedWork(
   businessId: string,
   input?: {
@@ -955,6 +1162,16 @@ export async function consumeMetaQueuedWork(
     const hasLeaseConflict = () => input?.runtimeLeaseGuard?.isLeaseLost() ?? false;
     await refreshMetaSyncStateForBusiness({ businessId, credentials }).catch(() => null);
     const queueHealthBeforeEnqueue = await getMetaQueueHealth({ businessId }).catch(() => null);
+    const stateRowsBeforeLeasing = await Promise.all(
+      META_STATE_SCOPES.map((scope) => getMetaSyncState({ businessId, scope }).catch(() => []))
+    ).catch(() => META_STATE_SCOPES.map(() => []));
+    const statesByScope = Object.fromEntries(
+      META_STATE_SCOPES.map((scope, index) => [scope, stateRowsBeforeLeasing[index] ?? []])
+    ) as Record<MetaWarehouseScope, Awaited<ReturnType<typeof getMetaSyncState>>>;
+    const laneProgressEvidence = buildMetaLaneProgressEvidence({
+      statesByScope,
+      queueHealth: queueHealthBeforeEnqueue,
+    });
     const queueCompositionBeforeEnqueue = await getMetaQueueComposition({ businessId }).catch(
       () => null
     );
@@ -1003,84 +1220,83 @@ export async function consumeMetaQueuedWork(
       leaseMinutes: META_PARTITION_LEASE_MINUTES,
     });
     const queueHealthAfterPriorityLeases = await getMetaQueueHealth({ businessId }).catch(() => null);
-    const hasMaintenanceBacklogAfterLeasing =
-      (queueHealthAfterPriorityLeases?.maintenanceQueueDepth ?? 0) > 0 ||
-      (queueHealthAfterPriorityLeases?.maintenanceLeasedPartitions ?? 0) > 0;
-    const hasExtendedRecentBacklog =
-      (queueHealthAfterPriorityLeases?.extendedRecentQueueDepth ?? 0) > 0 ||
-      (queueHealthAfterPriorityLeases?.extendedRecentLeasedPartitions ?? 0) > 0;
     const hasHistoricalCoreBacklog =
       (queueHealthAfterPriorityLeases?.historicalCoreQueueDepth ?? 0) > 0 ||
       (queueHealthAfterPriorityLeases?.historicalCoreLeasedPartitions ?? 0) > 0;
     const hasExtendedHistoricalBacklog =
       (queueHealthAfterPriorityLeases?.extendedHistoricalQueueDepth ?? 0) > 0 ||
       (queueHealthAfterPriorityLeases?.extendedHistoricalLeasedPartitions ?? 0) > 0;
+    const fairnessLeasePlan = buildMetaFairnessLeasePlan({
+      queueHealth: queueHealthAfterPriorityLeases,
+      laneProgressEvidence,
+    });
 
     // Keep historical core moving even while maintenance/recent work is draining.
     const leasedCoreFairnessPartitions =
-      hasHistoricalCoreBacklog
+      hasHistoricalCoreBacklog && fairnessLeasePlan.coreFairnessLimit > 0
         ? await leaseMetaSyncPartitions({
             businessId,
             lane: "core",
             workerId,
-            limit: Math.min(META_CORE_WORKER_LIMIT, META_CORE_FAIRNESS_WORKER_LIMIT),
+            limit: fairnessLeasePlan.coreFairnessLimit,
             leaseMinutes: META_PARTITION_LEASE_MINUTES,
           })
         : [];
 
     const leasedExtendedHistoricalFairnessPartitions =
-      hasExtendedHistoricalBacklog
+      hasExtendedHistoricalBacklog && fairnessLeasePlan.extendedHistoricalFairnessLimit > 0
         ? await leaseMetaSyncPartitions({
             businessId,
             lane: "extended",
             sources: ["historical", "historical_recovery", "initial_connect"],
             workerId,
-            limit: Math.min(
-              META_EXTENDED_WORKER_LIMIT,
-              META_EXTENDED_HISTORICAL_FAIRNESS_WORKER_LIMIT
-            ),
+            limit: fairnessLeasePlan.extendedHistoricalFairnessLimit,
             leaseMinutes: META_PARTITION_LEASE_MINUTES,
           })
         : [];
-
-    const remainingExtendedCapacity = Math.max(
-      0,
-      META_EXTENDED_WORKER_LIMIT - leasedExtendedHistoricalFairnessPartitions.length
-    );
+    const initialFollowupLeasePlan = buildMetaFollowupLeasePlan({
+      queueHealth: queueHealthAfterPriorityLeases,
+      leasedCoreFairnessCount: leasedCoreFairnessPartitions.length,
+      leasedExtendedHistoricalFairnessCount: leasedExtendedHistoricalFairnessPartitions.length,
+    });
 
     const leasedExtendedRecentPartitions =
-      !hasMaintenanceBacklogAfterLeasing && remainingExtendedCapacity > 0
+      initialFollowupLeasePlan.extendedRecentLimit > 0
         ? await leaseMetaSyncPartitions({
             businessId,
             lane: "extended",
             sources: ["recent", "recent_recovery", "today", "priority_window", "request_runtime", "manual_refresh"],
             workerId,
-            limit: remainingExtendedCapacity,
+            limit: initialFollowupLeasePlan.extendedRecentLimit,
             leaseMinutes: META_PARTITION_LEASE_MINUTES,
           })
         : [];
 
     const leasedHistoricalCorePartitions =
-      leasedCoreFairnessPartitions.length < META_CORE_WORKER_LIMIT
+      initialFollowupLeasePlan.historicalCoreLimit > 0
         ? await leaseMetaSyncPartitions({
             businessId,
             lane: "core",
             workerId,
-            limit: META_CORE_WORKER_LIMIT - leasedCoreFairnessPartitions.length,
+            limit: initialFollowupLeasePlan.historicalCoreLimit,
             leaseMinutes: META_PARTITION_LEASE_MINUTES,
           })
         : [];
+    const finalFollowupLeasePlan = buildMetaFollowupLeasePlan({
+      queueHealth: queueHealthAfterPriorityLeases,
+      leasedCoreFairnessCount: leasedCoreFairnessPartitions.length,
+      leasedExtendedHistoricalFairnessCount: leasedExtendedHistoricalFairnessPartitions.length,
+      leasedExtendedRecentCount: leasedExtendedRecentPartitions.length,
+    });
 
     const leasedExtendedHistoricalPartitions =
-      !hasMaintenanceBacklogAfterLeasing &&
-      !hasExtendedRecentBacklog &&
-      Math.max(0, remainingExtendedCapacity - leasedExtendedRecentPartitions.length) > 0
+      finalFollowupLeasePlan.extendedHistoricalLimit > 0
         ? await leaseMetaSyncPartitions({
             businessId,
             lane: "extended",
             sources: ["historical", "historical_recovery", "initial_connect"],
             workerId,
-            limit: Math.max(0, remainingExtendedCapacity - leasedExtendedRecentPartitions.length),
+            limit: finalFollowupLeasePlan.extendedHistoricalLimit,
             leaseMinutes: META_PARTITION_LEASE_MINUTES,
           })
         : [];
@@ -1096,10 +1312,15 @@ export async function consumeMetaQueuedWork(
     console.info("[meta-sync] meta_consume_leased_partitions", {
       businessId,
       maintenanceLeased: leasedMaintenancePartitions.length,
+      coreFairnessLimit: fairnessLeasePlan.coreFairnessLimit,
       coreFairnessLeased: leasedCoreFairnessPartitions.length,
+      extendedHistoricalFairnessLimit: fairnessLeasePlan.extendedHistoricalFairnessLimit,
       extendedHistoricalFairnessLeased: leasedExtendedHistoricalFairnessPartitions.length,
+      extendedRecentLimit: initialFollowupLeasePlan.extendedRecentLimit,
       extendedRecentLeased: leasedExtendedRecentPartitions.length,
+      historicalCoreLimit: initialFollowupLeasePlan.historicalCoreLimit,
       historicalCoreLeased: leasedHistoricalCorePartitions.length,
+      extendedHistoricalLimit: finalFollowupLeasePlan.extendedHistoricalLimit,
       extendedHistoricalLeased: leasedExtendedHistoricalPartitions.length,
       totalLeased: partitions.length,
     });

@@ -23,6 +23,7 @@ vi.mock("@/lib/google-ads/warehouse", () => ({
   cleanupGoogleAdsObsoleteSyncJobs: vi.fn(),
   expireStaleGoogleAdsSyncJobs: vi.fn(),
   getGoogleAdsQueueHealth: vi.fn(),
+  getGoogleAdsCheckpointHealth: vi.fn(),
   cleanupGoogleAdsPartitionOrchestration: vi.fn(),
   replayGoogleAdsDeadLetterPartitions: vi.fn(),
   forceReplayGoogleAdsPoisonedPartitions: vi.fn(),
@@ -117,6 +118,16 @@ describe("POST /api/sync/refresh", () => {
       queueDepth: 0,
       leasedPartitions: 0,
       deadLetterPartitions: 0,
+    } as never);
+    vi.mocked(googleAdsWarehouse.getGoogleAdsCheckpointHealth).mockResolvedValue({
+      latestCheckpointScope: null,
+      latestCheckpointPhase: null,
+      latestCheckpointStatus: null,
+      latestCheckpointUpdatedAt: null,
+      checkpointLagMinutes: null,
+      lastSuccessfulPageIndex: null,
+      resumeCapable: false,
+      checkpointFailures: 0,
     } as never);
     vi.mocked(googleAdsWarehouse.replayGoogleAdsDeadLetterPartitions).mockResolvedValue({
       outcome: "no_matching_partitions",

@@ -6,7 +6,7 @@ import {
 } from "@/lib/google-ads/status-machine";
 
 describe("decideGoogleAdsAdvisorReadiness", () => {
-  it("treats the persisted snapshot as the readiness truth", () => {
+  it("treats required recent coverage as the top-level readiness truth", () => {
     expect(
       decideGoogleAdsAdvisorReadiness({
         connected: true,
@@ -25,10 +25,10 @@ describe("decideGoogleAdsAdvisorReadiness", () => {
         recent90Ready: true,
         snapshotAvailable: false,
       })
-    ).toEqual({ ready: false, notReady: true });
+    ).toEqual({ ready: true, notReady: false });
   });
 
-  it("does not enter advisor_not_ready before the recent 90-day frontier is complete", () => {
+  it("marks the advisor as not ready only while required recent coverage is incomplete", () => {
     expect(
       decideGoogleAdsAdvisorReadiness({
         connected: true,
@@ -37,7 +37,7 @@ describe("decideGoogleAdsAdvisorReadiness", () => {
         recent90Ready: false,
         snapshotAvailable: false,
       })
-    ).toEqual({ ready: false, notReady: false });
+    ).toEqual({ ready: false, notReady: true });
   });
 });
 
@@ -77,13 +77,13 @@ describe("decideGoogleAdsStatusState", () => {
     ).toBe("partial");
   });
 
-  it("returns advisor_not_ready when selected range is complete but advisor inputs are not", () => {
+  it("keeps the provider syncing instead of exposing advisor_not_ready as top-level sync state", () => {
     expect(
       decideGoogleAdsStatusState({
         ...baseInput,
         advisorNotReady: true,
       })
-    ).toBe("advisor_not_ready");
+    ).toBe("syncing");
   });
 
   it("returns paused when history is incomplete and background activity stopped", () => {

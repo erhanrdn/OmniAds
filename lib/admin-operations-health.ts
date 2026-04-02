@@ -1,6 +1,11 @@
 import { getDb, getDbWithTimeout } from "@/lib/db";
 import { getSyncWorkerHealthSummary } from "@/lib/sync/worker-health";
 import { isGoogleAdsExtendedCanaryBusiness } from "@/lib/sync/google-ads-sync";
+import {
+  buildProviderProgressEvidence,
+  deriveProviderProgressState,
+  type ProviderProgressState,
+} from "@/lib/sync/provider-status-truth";
 
 type AuthProvider = "meta" | "google" | "search_console" | "ga4" | "shopify";
 type SyncProvider = "google_ads" | "meta" | "ga4" | "search_console";
@@ -269,18 +274,12 @@ interface RawCooldownRow {
   updated_at: string;
 }
 
-type ProviderProgressState =
-  | "ready"
-  | "syncing"
-  | "partial_progressing"
-  | "partial_stuck"
-  | "blocked";
-
 function classifyGoogleAdsProgressState(input: {
   queueDepth: number;
   leasedPartitions: number;
   deadLetterPartitions: number;
   checkpointLagMinutes: number | null;
+  latestCheckpointUpdatedAt: string | null;
   reclaimCandidateCount: number;
   leaseConflictRuns24h: number;
   poisonedCheckpointCount: number;
@@ -289,45 +288,24 @@ function classifyGoogleAdsProgressState(input: {
   historicalExtendedReady: boolean;
   latestPartitionActivityAt: string | null;
 }) : ProviderProgressState {
-  if (
-    input.deadLetterPartitions > 0 ||
-    input.reclaimCandidateCount > 0 ||
-    input.leaseConflictRuns24h > 0 ||
-    input.poisonedCheckpointCount > 0
-  ) {
-    return "blocked";
-  }
-  if (
-    input.queueDepth === 0 &&
-    input.leasedPartitions === 0 &&
-    input.recentExtendedReady &&
-    input.historicalExtendedReady
-  ) {
-    return "ready";
-  }
-  if (
-    input.leasedPartitions > 0 &&
-    (input.checkpointLagMinutes == null || input.checkpointLagMinutes <= 20)
-  ) {
-    return "syncing";
-  }
-  const latestActivityAgeMs = input.latestPartitionActivityAt
-    ? Date.now() - new Date(input.latestPartitionActivityAt).getTime()
-    : null;
-  const hasRecentActivity =
-    latestActivityAgeMs != null && Number.isFinite(latestActivityAgeMs) && latestActivityAgeMs <= 15 * 60_000;
-  if (
-    input.queueDepth > 0 &&
-    hasRecentActivity &&
-    input.staleRunPressure <= 0 &&
-    (input.checkpointLagMinutes == null || input.checkpointLagMinutes <= 20)
-  ) {
-    return "partial_progressing";
-  }
-  if (input.queueDepth > 0 || input.staleRunPressure > 0) {
-    return "partial_stuck";
-  }
-  return "ready";
+  return deriveProviderProgressState({
+    queueDepth: input.queueDepth,
+    leasedPartitions: input.leasedPartitions,
+    checkpointLagMinutes: input.checkpointLagMinutes,
+    latestPartitionActivityAt: input.latestPartitionActivityAt,
+    blocked:
+      input.deadLetterPartitions > 0 ||
+      input.reclaimCandidateCount > 0 ||
+      input.leaseConflictRuns24h > 0 ||
+      input.poisonedCheckpointCount > 0,
+    fullyReady: input.recentExtendedReady && input.historicalExtendedReady,
+    staleRunPressure: input.staleRunPressure,
+    progressEvidence: buildProviderProgressEvidence({
+      checkpointUpdatedAt: input.latestCheckpointUpdatedAt,
+      recentActivityWindowMinutes: 20,
+      aggregation: "latest",
+    }),
+  });
 }
 
 function classifyMetaProgressState(input: {
@@ -337,51 +315,35 @@ function classifyMetaProgressState(input: {
   retryableFailedPartitions: number;
   staleLeasePartitions: number;
   checkpointLagMinutes: number | null;
+  latestCheckpointUpdatedAt: string | null;
   reclaimCandidateCount: number;
   staleRunCount24h: number;
   recentExtendedReady: boolean;
   historicalExtendedReady: boolean;
   latestPartitionActivityAt: string | null;
 }) : ProviderProgressState {
-  if (
-    input.deadLetterPartitions > 0 ||
-    input.staleLeasePartitions > 0 ||
-    input.reclaimCandidateCount > 0 ||
-    input.staleRunCount24h > 0
-  ) {
-    return "blocked";
-  }
-  if (
-    input.queueDepth === 0 &&
-    input.leasedPartitions === 0 &&
-    input.retryableFailedPartitions === 0 &&
-    input.recentExtendedReady &&
-    input.historicalExtendedReady
-  ) {
-    return "ready";
-  }
-  if (
-    input.leasedPartitions > 0 &&
-    (input.checkpointLagMinutes == null || input.checkpointLagMinutes <= 20)
-  ) {
-    return "syncing";
-  }
-  const latestActivityAgeMs = input.latestPartitionActivityAt
-    ? Date.now() - new Date(input.latestPartitionActivityAt).getTime()
-    : null;
-  const hasRecentActivity =
-    latestActivityAgeMs != null && Number.isFinite(latestActivityAgeMs) && latestActivityAgeMs <= 15 * 60_000;
-  if (
-    (input.queueDepth > 0 || input.retryableFailedPartitions > 0) &&
-    hasRecentActivity &&
-    (input.checkpointLagMinutes == null || input.checkpointLagMinutes <= 20)
-  ) {
-    return "partial_progressing";
-  }
-  if (input.queueDepth > 0 || input.retryableFailedPartitions > 0) {
-    return "partial_stuck";
-  }
-  return "ready";
+  return deriveProviderProgressState({
+    queueDepth: input.queueDepth,
+    leasedPartitions: input.leasedPartitions,
+    checkpointLagMinutes: input.checkpointLagMinutes,
+    latestPartitionActivityAt: input.latestPartitionActivityAt,
+    blocked:
+      input.deadLetterPartitions > 0 ||
+      input.staleLeasePartitions > 0 ||
+      input.reclaimCandidateCount > 0 ||
+      input.staleRunCount24h > 0,
+    fullyReady:
+      input.recentExtendedReady &&
+      input.historicalExtendedReady &&
+      input.retryableFailedPartitions === 0,
+    hasRepairableBacklog: input.retryableFailedPartitions > 0,
+    staleRunPressure: input.staleRunCount24h,
+    progressEvidence: buildProviderProgressEvidence({
+      checkpointUpdatedAt: input.latestCheckpointUpdatedAt,
+      recentActivityWindowMinutes: 20,
+      aggregation: "latest",
+    }),
+  });
 }
 
 interface RawGoogleAdsHealthRow {
@@ -834,6 +796,7 @@ export function buildAdminSyncHealth(input: {
       leasedPartitions,
       deadLetterPartitions,
       checkpointLagMinutes: computeLagMinutes(googleProgressHeartbeat),
+      latestCheckpointUpdatedAt: row.latest_checkpoint_updated_at ?? null,
       reclaimCandidateCount: Number(row.reclaim_candidate_count ?? 0),
       leaseConflictRuns24h: Number(row.lease_conflict_runs_24h ?? 0),
       poisonedCheckpointCount: Number(row.poisoned_checkpoint_count ?? 0),
@@ -1127,6 +1090,7 @@ export function buildAdminSyncHealth(input: {
       retryableFailedPartitions,
       staleLeasePartitions,
       checkpointLagMinutes: computeLagMinutes(metaProgressHeartbeat),
+      latestCheckpointUpdatedAt: row.latest_checkpoint_updated_at ?? null,
       reclaimCandidateCount: Number(row.reclaim_candidate_count ?? 0),
       staleRunCount24h: Number(row.stale_run_count_24h ?? 0),
       recentExtendedReady,

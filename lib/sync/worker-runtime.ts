@@ -82,6 +82,93 @@ export function buildProviderHeartbeatWorkerId(workerId: string, providerScope: 
   return providerScope === "all" ? workerId : `${workerId}:${providerScope}`;
 }
 
+export async function resolveAdapterLifecycleSnapshot(input: {
+  adapter: ProviderWorkerAdapter;
+  businessId: string;
+}) {
+  if (!input.adapter.getReadiness) return null;
+  try {
+    const readiness = await input.adapter.getReadiness({
+      businessId: input.businessId,
+      providerAccountId: null,
+    });
+    return {
+      readinessLevel: readiness.readinessLevel,
+      checkpointHealth: readiness.checkpointHealth,
+      domainReadiness: readiness.domainReadiness ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export interface AdapterLifecycleTickResult {
+  attempted: number;
+  succeeded: number;
+  failed: number;
+  leasedPartitionIds: string[];
+  lastPartitionId: string | null;
+  failureReasons: string[];
+}
+
+export async function runAdapterLifecycleTick(input: {
+  adapter: ProviderWorkerAdapter;
+  businessId: string;
+  workerId: string;
+  leaseLimit: number;
+  leaseGuard?: RunnerLeaseGuard;
+}): Promise<AdapterLifecycleTickResult> {
+  const leasedPartitions = await input.adapter.leasePartitions({
+    businessId: input.businessId,
+    workerId: input.workerId,
+    limit: Math.max(1, input.leaseLimit),
+  });
+  const leasedPartitionIds = leasedPartitions.map((partition) => partition.partitionId);
+  let succeeded = 0;
+  let failed = 0;
+  let lastPartitionId: string | null = null;
+  const failureReasons: string[] = [];
+
+  for (const partition of leasedPartitions) {
+    if (input.leaseGuard?.isLeaseLost()) {
+      failed += 1;
+      const reason = input.leaseGuard.getLeaseLossReason() ?? "runner_lease_conflict";
+      failureReasons.push(reason);
+      break;
+    }
+
+    lastPartitionId = partition.partitionId;
+    try {
+      const checkpoint = await input.adapter.getCheckpoint({ partition });
+      const chunk = await input.adapter.fetchChunk({ partition, checkpoint });
+      await input.adapter.persistChunk({ partition, chunk });
+      await input.adapter.transformChunk({ partition, chunk });
+      await input.adapter.advanceCheckpoint({ partition, chunk });
+      await input.adapter.writeFacts({ partition, chunk });
+      await input.adapter.completePartition({ partition });
+      succeeded += 1;
+    } catch (error) {
+      failed += 1;
+      failureReasons.push(input.adapter.classifyFailure(error));
+      console.error("[durable-worker] lifecycle_partition_failed", {
+        businessId: input.businessId,
+        providerScope: input.adapter.providerScope,
+        partitionId: partition.partitionId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return {
+    attempted: leasedPartitions.length,
+    succeeded,
+    failed,
+    leasedPartitionIds,
+    lastPartitionId,
+    failureReasons,
+  };
+}
+
 function getWorkerBuildFingerprint() {
   return (
     process.env.APP_BUILD_ID?.trim() ||
@@ -103,6 +190,7 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
   const leaseMinutes = envNumber("WORKER_RUNNER_LEASE_MINUTES", 2);
   const heartbeatIntervalMs = envNumber("WORKER_HEARTBEAT_INTERVAL_MS", 15_000);
   const globalDbConcurrency = envNumber("WORKER_GLOBAL_DB_CONCURRENCY", 4);
+  const partitionTickLimit = envNumber("WORKER_PARTITION_TICK_LIMIT", 1);
   const pruneIntervalMs = envNumber("WORKER_PRUNE_INTERVAL_MS", 6 * 60 * 60_000);
   const workerStartedAt = new Date().toISOString();
   const workerBuildId = getWorkerBuildFingerprint();
@@ -305,6 +393,10 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
         }, leaseRenewalIntervalMs);
 
         try {
+          const lifecycleSnapshot = await resolveAdapterLifecycleSnapshot({
+            adapter,
+            businessId: business.id,
+          });
           await heartbeat({
             providerScope: adapter.providerScope,
             status: "running",
@@ -315,14 +407,66 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
               providerScope: adapter.providerScope,
               batchBusinessIds,
               currentBusinessId: business.id,
-              consumeStage: "consume_started",
+              consumeStage: "lifecycle_tick_started",
               consumeStartedAt,
+              lifecycleReadinessLevel: lifecycleSnapshot?.readinessLevel ?? null,
+              lifecycleCheckpointHealth: lifecycleSnapshot?.checkpointHealth ?? null,
             },
             force: true,
           }).catch(() => null);
-          const result = await adapter.consumeBusiness(business.id, {
-            runtimeLeaseGuard: leaseGuard,
+          const lifecycleResult = await runAdapterLifecycleTick({
+            adapter,
+            businessId: business.id,
+            workerId,
+            leaseLimit: partitionTickLimit,
+            leaseGuard,
           });
+          let result: unknown = null;
+          let executionMode: "lifecycle_tick" | "consume_business_fallback" = "lifecycle_tick";
+          if (lifecycleResult.attempted === 0 && lifecycleResult.failed === 0) {
+            executionMode = "consume_business_fallback";
+            await heartbeat({
+              providerScope: adapter.providerScope,
+              status: "running",
+              lastBusinessId: business.id,
+              metaJson: {
+                workerBuildId,
+                workerStartedAt,
+                providerScope: adapter.providerScope,
+                batchBusinessIds,
+                currentBusinessId: business.id,
+                consumeStage: "consume_started",
+                consumeStartedAt,
+                executionMode,
+                lifecycleAttempted: lifecycleResult.attempted,
+                lifecycleSucceeded: lifecycleResult.succeeded,
+                lifecycleFailed: lifecycleResult.failed,
+                lifecycleLeasedPartitionIds: lifecycleResult.leasedPartitionIds,
+                lifecycleCheckpointHealth: lifecycleSnapshot?.checkpointHealth ?? null,
+              },
+              force: true,
+            }).catch(() => null);
+            result = await adapter.consumeBusiness(business.id, {
+              runtimeLeaseGuard: leaseGuard,
+            });
+          } else {
+            result = {
+              businessId: business.id,
+              attempted: lifecycleResult.attempted,
+              succeeded: lifecycleResult.succeeded,
+              failed: lifecycleResult.failed,
+              skipped: lifecycleResult.attempted === 0,
+              outcome:
+                lifecycleResult.failed > 0 && lifecycleResult.succeeded === 0
+                  ? "lifecycle_tick_failed"
+                  : lifecycleResult.succeeded > 0
+                    ? "lifecycle_tick_succeeded"
+                    : "lifecycle_tick_idle",
+              failureReason: lifecycleResult.failureReasons[0] ?? null,
+              lastPartitionId: lifecycleResult.lastPartitionId,
+              leasedPartitionIds: lifecycleResult.leasedPartitionIds,
+            };
+          }
           const syncResult =
             result && typeof result === "object" ? (result as Record<string, unknown>) : null;
           await heartbeat({
@@ -335,7 +479,10 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
               providerScope: adapter.providerScope,
               batchBusinessIds,
               currentBusinessId: business.id,
-              consumeStage: "consume_succeeded",
+              consumeStage:
+                executionMode === "lifecycle_tick"
+                  ? "lifecycle_tick_succeeded"
+                  : "consume_succeeded",
               consumeStartedAt:
                 syncResult?.consumeStartedAt && typeof syncResult.consumeStartedAt === "string"
                   ? syncResult.consumeStartedAt
@@ -349,6 +496,17 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
                 syncResult?.failureReason && typeof syncResult.failureReason === "string"
                   ? syncResult.failureReason
                   : null,
+              executionMode,
+              lifecycleReadinessLevel: lifecycleSnapshot?.readinessLevel ?? null,
+              lifecycleCheckpointHealth: lifecycleSnapshot?.checkpointHealth ?? null,
+              lifecycleLastPartitionId:
+                syncResult?.lastPartitionId && typeof syncResult.lastPartitionId === "string"
+                  ? syncResult.lastPartitionId
+                  : lifecycleResult.lastPartitionId,
+              lifecycleLeasedPartitionIds:
+                Array.isArray(syncResult?.leasedPartitionIds)
+                  ? syncResult?.leasedPartitionIds
+                  : lifecycleResult.leasedPartitionIds,
               consumeAttempted:
                 syncResult?.attempted && typeof syncResult.attempted === "number"
                   ? syncResult.attempted

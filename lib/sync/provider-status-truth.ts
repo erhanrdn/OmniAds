@@ -6,6 +6,36 @@ export interface ProviderRequiredCoverage {
   complete: boolean;
 }
 
+export type ProviderProgressState =
+  | "ready"
+  | "syncing"
+  | "partial_progressing"
+  | "partial_stuck"
+  | "blocked";
+
+export interface ProviderProgressEvidence {
+  lastCheckpointAdvancedAt: string | null;
+  lastReadyThroughAdvancedAt: string | null;
+  lastCompletedAt: string | null;
+  backlogDelta: number | null;
+  completedPartitionDelta: number | null;
+  lastReplayAt: string | null;
+  lastReclaimAt: string | null;
+  recentActivityWindowMinutes?: number;
+}
+
+export interface ProviderProgressEvidenceStateRow {
+  completedDays?: number | null;
+  readyThroughDate?: string | null;
+  latestBackgroundActivityAt?: string | null;
+  latestSuccessfulSyncAt?: string | null;
+  updatedAt?: string | null;
+}
+
+const ACTIVE_PARTITION_BLOCKING_STATUSES = ["queued", "leased", "running"] as const;
+const RETRYABLE_PARTITION_STATUSES = ["failed"] as const;
+const REPLAYABLE_PARTITION_STATUSES = ["dead_letter"] as const;
+
 export interface ProviderSecondaryReadiness {
   key: string;
   state: "ready" | "building" | "blocked";
@@ -94,4 +124,157 @@ export function compactRepairableActions(
     rows.push(action);
   }
   return rows;
+}
+
+export function getActivePartitionBlockingStatuses() {
+  return [...ACTIVE_PARTITION_BLOCKING_STATUSES];
+}
+
+export function getRetryablePartitionStatuses() {
+  return [...RETRYABLE_PARTITION_STATUSES];
+}
+
+export function getReplayablePartitionStatuses() {
+  return [...REPLAYABLE_PARTITION_STATUSES];
+}
+
+export function isActivePartitionBlockingStatus(status: string | null | undefined) {
+  return ACTIVE_PARTITION_BLOCKING_STATUSES.includes(String(status ?? "") as (typeof ACTIVE_PARTITION_BLOCKING_STATUSES)[number]);
+}
+
+export function isRetryablePartitionStatus(status: string | null | undefined) {
+  return RETRYABLE_PARTITION_STATUSES.includes(String(status ?? "") as (typeof RETRYABLE_PARTITION_STATUSES)[number]);
+}
+
+export function isReplayablePartitionStatus(status: string | null | undefined) {
+  return REPLAYABLE_PARTITION_STATUSES.includes(String(status ?? "") as (typeof REPLAYABLE_PARTITION_STATUSES)[number]);
+}
+
+function normalizeEvidenceTimestamp(value: string | null | undefined) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) return null;
+  return parsed.toISOString();
+}
+
+function selectEvidenceTimestamp(
+  values: Array<string | null | undefined>,
+  aggregation: "latest" | "bottleneck"
+) {
+  const normalized = values
+    .map((value) => normalizeEvidenceTimestamp(value))
+    .filter((value): value is string => Boolean(value));
+  if (normalized.length === 0) return null;
+  return aggregation === "latest"
+    ? normalized.sort().at(-1) ?? null
+    : normalized.sort()[0] ?? null;
+}
+
+export function buildProviderProgressEvidence(input: {
+  states?: ProviderProgressEvidenceStateRow[];
+  checkpointUpdatedAt?: string | null;
+  backlogDelta?: number | null;
+  completedPartitionDelta?: number | null;
+  lastReplayAt?: string | null;
+  lastReclaimAt?: string | null;
+  recentActivityWindowMinutes?: number;
+  aggregation?: "latest" | "bottleneck";
+}): ProviderProgressEvidence {
+  const states = input.states ?? [];
+  const aggregation = input.aggregation ?? "bottleneck";
+  const completionTimestamps = states.map(
+    (row) => row.latestSuccessfulSyncAt ?? row.updatedAt ?? row.latestBackgroundActivityAt ?? null
+  );
+  const readyThroughTimestamps = states
+    .filter((row) => Boolean(row.readyThroughDate))
+    .map((row) => row.latestSuccessfulSyncAt ?? row.updatedAt ?? row.latestBackgroundActivityAt ?? null);
+
+  return {
+    lastCheckpointAdvancedAt: normalizeEvidenceTimestamp(input.checkpointUpdatedAt ?? null),
+    lastReadyThroughAdvancedAt: selectEvidenceTimestamp(readyThroughTimestamps, aggregation),
+    lastCompletedAt: selectEvidenceTimestamp(completionTimestamps, aggregation),
+    backlogDelta: input.backlogDelta ?? null,
+    completedPartitionDelta: input.completedPartitionDelta ?? null,
+    lastReplayAt: normalizeEvidenceTimestamp(input.lastReplayAt ?? null),
+    lastReclaimAt: normalizeEvidenceTimestamp(input.lastReclaimAt ?? null),
+    recentActivityWindowMinutes: input.recentActivityWindowMinutes,
+  };
+}
+
+export function hasRecentProviderAdvancement(input: {
+  progressEvidence?: ProviderProgressEvidence | null;
+  fallbackLatestPartitionActivityAt?: string | null;
+  nowMs?: number;
+}) {
+  const evidence = input.progressEvidence;
+  if (!evidence) return false;
+  if ((evidence.completedPartitionDelta ?? 0) > 0) return true;
+  if ((evidence.backlogDelta ?? 0) < 0) return true;
+  const cutoffMs = Math.max(1, evidence.recentActivityWindowMinutes ?? 15) * 60_000;
+  const nowMs = input.nowMs ?? Date.now();
+  const timestamps = [
+    evidence.lastCheckpointAdvancedAt,
+    evidence.lastReadyThroughAdvancedAt,
+    evidence.lastCompletedAt,
+    evidence.lastReplayAt,
+    evidence.lastReclaimAt,
+    input.fallbackLatestPartitionActivityAt ?? null,
+  ]
+    .map((value) => normalizeEvidenceTimestamp(value))
+    .filter((value): value is string => Boolean(value))
+    .map((value) => new Date(value).getTime())
+    .filter((value) => Number.isFinite(value));
+  if (timestamps.length === 0) return false;
+  const latestEvidenceMs = Math.max(...timestamps);
+  return nowMs - latestEvidenceMs <= cutoffMs;
+}
+
+export function deriveProviderProgressState(input: {
+  queueDepth: number;
+  leasedPartitions: number;
+  checkpointLagMinutes: number | null;
+  latestPartitionActivityAt: string | null;
+  blocked: boolean;
+  fullyReady: boolean;
+  hasRepairableBacklog?: boolean;
+  staleRunPressure?: number;
+  progressEvidence?: ProviderProgressEvidence | null;
+}): ProviderProgressState {
+  if (input.blocked) return "blocked";
+  if (input.fullyReady && input.queueDepth === 0 && input.leasedPartitions === 0) return "ready";
+  if (
+    input.leasedPartitions > 0 &&
+    (input.checkpointLagMinutes == null || input.checkpointLagMinutes <= 20)
+  ) {
+    return "syncing";
+  }
+
+  const recentWindowMinutes = Math.max(1, input.progressEvidence?.recentActivityWindowMinutes ?? 15);
+  const hasRecentAdvancement = hasRecentProviderAdvancement({
+    progressEvidence: {
+      backlogDelta: input.progressEvidence?.backlogDelta ?? null,
+      completedPartitionDelta: input.progressEvidence?.completedPartitionDelta ?? null,
+      lastCheckpointAdvancedAt: input.progressEvidence?.lastCheckpointAdvancedAt ?? null,
+      lastReadyThroughAdvancedAt: input.progressEvidence?.lastReadyThroughAdvancedAt ?? null,
+      lastCompletedAt: input.progressEvidence?.lastCompletedAt ?? null,
+      lastReplayAt: input.progressEvidence?.lastReplayAt ?? null,
+      lastReclaimAt: input.progressEvidence?.lastReclaimAt ?? null,
+      recentActivityWindowMinutes: recentWindowMinutes,
+    },
+    fallbackLatestPartitionActivityAt: input.latestPartitionActivityAt,
+  });
+
+  if (
+    (input.queueDepth > 0 || input.hasRepairableBacklog || (input.staleRunPressure ?? 0) > 0) &&
+    hasRecentAdvancement &&
+    (input.checkpointLagMinutes == null || input.checkpointLagMinutes <= 20)
+  ) {
+    return "partial_progressing";
+  }
+
+  if (input.queueDepth > 0 || input.hasRepairableBacklog || (input.staleRunPressure ?? 0) > 0) {
+    return "partial_stuck";
+  }
+
+  return input.fullyReady ? "ready" : "partial_stuck";
 }

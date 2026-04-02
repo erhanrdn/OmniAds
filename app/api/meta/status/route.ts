@@ -31,10 +31,12 @@ import { getProviderWorkerHealthState } from "@/lib/sync/worker-health";
 import { deriveMetaOperationsBlockReason } from "@/lib/meta/status-operations";
 import {
   buildBlockingReason,
+  buildProviderProgressEvidence,
   buildRepairableAction,
   buildRequiredCoverage,
   compactBlockingReasons,
   compactRepairableActions,
+  deriveProviderProgressState,
 } from "@/lib/sync/provider-status-truth";
 
 function buildMetaDomainReadiness(input: {
@@ -516,24 +518,23 @@ export async function GET(request: NextRequest) {
     queueHealth?.latestExtendedActivityAt ??
     queueHealth?.latestMaintenanceActivityAt ??
     null;
-  const metaActivityAgeMs =
-    latestMetaActivityAt != null ? Date.now() - new Date(latestMetaActivityAt).getTime() : null;
-  const metaHasRecentActivity =
-    metaActivityAgeMs != null && Number.isFinite(metaActivityAgeMs) && metaActivityAgeMs <= 15 * 60 * 1000;
-  const metaProgressState =
-    state === "ready"
-      ? "ready"
-      : state === "action_required"
-        ? "blocked"
-        : state === "stale" || state === "paused"
-          ? "partial_stuck"
-          : (queueHealth?.leasedPartitions ?? 0) > 0
-            ? "syncing"
-            : overallSyncActive && metaHasRecentActivity
-              ? "partial_progressing"
-              : overallSyncActive
-                ? "partial_stuck"
-                : "ready";
+  const metaProgressEvidence = buildProviderProgressEvidence({
+    states: META_STATE_SCOPES.flatMap((scope) => relevantStates(scope)),
+    checkpointUpdatedAt: checkpointHealth?.latestCheckpointUpdatedAt ?? null,
+    recentActivityWindowMinutes: 20,
+    aggregation: "latest",
+  });
+  const metaProgressState = deriveProviderProgressState({
+    queueDepth: queueHealth?.queueDepth ?? 0,
+    leasedPartitions: queueHealth?.leasedPartitions ?? 0,
+    checkpointLagMinutes: checkpointHealth?.checkpointLagMinutes ?? null,
+    latestPartitionActivityAt: latestMetaActivityAt,
+    blocked: state === "action_required",
+    fullyReady: state === "ready",
+    hasRepairableBacklog: (queueHealth?.retryableFailedPartitions ?? 0) > 0,
+    staleRunPressure: legacyJobHealth?.staleRunningJobs ?? 0,
+    progressEvidence: metaProgressEvidence,
+  });
   const metaBlockingReasons = compactBlockingReasons([
     (queueHealth?.deadLetterPartitions ?? 0) > 0
       ? buildBlockingReason(

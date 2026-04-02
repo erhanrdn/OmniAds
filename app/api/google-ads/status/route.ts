@@ -50,10 +50,12 @@ import {
 } from "@/lib/sync/google-ads-sync";
 import {
   buildBlockingReason,
+  buildProviderProgressEvidence,
   buildRepairableAction,
   buildRequiredCoverage,
   compactBlockingReasons,
   compactRepairableActions,
+  deriveProviderProgressState,
 } from "@/lib/sync/provider-status-truth";
 import type {
   GoogleAdsExtendedRangeCompletion,
@@ -1402,27 +1404,26 @@ export async function GET(request: NextRequest) {
     queueHealth?.latestExtendedActivityAt ??
     queueHealth?.latestMaintenanceActivityAt ??
     null;
-  const googleActivityAgeMs =
-    latestGoogleActivityAt != null ? Date.now() - new Date(latestGoogleActivityAt).getTime() : null;
-  const googleHasRecentActivity =
-    googleActivityAgeMs != null &&
-    Number.isFinite(googleActivityAgeMs) &&
-    googleActivityAgeMs <= 15 * 60 * 1000;
-  const googleProgressState =
-    overallState === "ready"
-      ? "ready"
-      : overallState === "action_required"
-        ? "blocked"
-        : overallState === "stale" || overallState === "paused"
-          ? "partial_stuck"
-          : (queueHealth?.leasedPartitions ?? 0) > 0
-            ? "syncing"
-            : (overallState === "syncing" || overallState === "advisor_not_ready" || overallState === "partial") &&
-                googleHasRecentActivity
-              ? "partial_progressing"
-              : overallState === "syncing" || overallState === "advisor_not_ready" || overallState === "partial"
-                ? "partial_stuck"
-                : "ready";
+  const googleProgressEvidence = buildProviderProgressEvidence({
+    states: allStateScopes.flatMap((scope) =>
+      statesByScope[scope].filter((row) =>
+        accountIds.length === 0 ? true : accountIds.includes(row.providerAccountId)
+      )
+    ),
+    checkpointUpdatedAt: checkpointHealth?.latestCheckpointUpdatedAt ?? null,
+    recentActivityWindowMinutes: 20,
+    aggregation: "latest",
+  });
+  const googleProgressState = deriveProviderProgressState({
+    queueDepth: queueHealth?.queueDepth ?? 0,
+    leasedPartitions: queueHealth?.leasedPartitions ?? 0,
+    checkpointLagMinutes: checkpointHealth?.checkpointLagMinutes ?? null,
+    latestPartitionActivityAt: latestGoogleActivityAt,
+    blocked: overallState === "action_required",
+    fullyReady: overallState === "ready",
+    staleRunPressure,
+    progressEvidence: googleProgressEvidence,
+  });
   const providerState = buildProviderStateContract({
     credentialState: connected ? "connected" : "not_connected",
     hasAssignedAccounts: accountIds.length > 0,

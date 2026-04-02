@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   buildGoogleAdsLaneAdmissionPolicy,
+  buildGoogleAdsPrimaryLeasePlan,
+  buildGoogleAdsMaintenanceLeasePlan,
+  buildGoogleAdsFallbackExtendedLeasePlan,
+  buildGoogleAdsLaneProgressEvidence,
   decideGoogleAdsHistoricalFrontier,
   getGoogleAdsExtendedRecoveryBlockReason,
+  getGoogleAdsHistoricalFairnessLeaseLimit,
   getGoogleAdsGapPlannerBlockingStatuses,
   buildGoogleAdsWarehouseFetchPlan,
   evaluateGoogleAdsWorkerSchedulingState,
@@ -450,6 +455,207 @@ describe("shouldLeaseGoogleAdsRecentRepair", () => {
 describe("getGoogleAdsGapPlannerBlockingStatuses", () => {
   it("keeps only actively in-flight partitions as gap blockers", () => {
     expect(getGoogleAdsGapPlannerBlockingStatuses()).toEqual(["queued", "leased", "running"]);
+  });
+});
+
+describe("buildGoogleAdsLaneProgressEvidence", () => {
+  it("tracks historical extended evidence on the slowest extended scope", () => {
+    const evidence = buildGoogleAdsLaneProgressEvidence({
+      statesByScope: {
+        search_term_daily: [
+          {
+            completedDays: 20,
+            readyThroughDate: "2026-03-25",
+            latestSuccessfulSyncAt: "2026-04-02T10:00:00.000Z",
+            updatedAt: "2026-04-02T10:00:00.000Z",
+          },
+        ],
+        product_daily: [
+          {
+            completedDays: 18,
+            readyThroughDate: "2026-03-22",
+            latestSuccessfulSyncAt: "2026-04-02T09:40:00.000Z",
+            updatedAt: "2026-04-02T09:40:00.000Z",
+          },
+        ],
+      },
+      queueHealth: {
+        latestExtendedActivityAt: "2026-04-02T10:05:00.000Z",
+        latestCoreActivityAt: null,
+        latestMaintenanceActivityAt: null,
+      } as never,
+    });
+
+    expect(evidence.extended_historical.lastCompletedAt).toBe("2026-04-02T09:40:00.000Z");
+  });
+});
+
+describe("getGoogleAdsHistoricalFairnessLeaseLimit", () => {
+  it("boosts historical fairness when historical extended advancement is stale", () => {
+    const policy = {
+      lanePolicy: {
+        core: "admit",
+        maintenance: "admit",
+        extended: "admit",
+        extendedRecent: "admit",
+        extendedHistorical: "admit",
+      },
+      extendedCanaryEligible: false,
+    } as ReturnType<typeof buildGoogleAdsLaneAdmissionPolicy>;
+
+    const limit = getGoogleAdsHistoricalFairnessLeaseLimit({
+      policy,
+      queueHealth: {
+        extendedHistoricalQueueDepth: 6,
+        extendedHistoricalLeasedPartitions: 0,
+        latestExtendedActivityAt: "2026-04-02T09:00:00.000Z",
+      } as never,
+      progressEvidence: {
+        lastCheckpointAdvancedAt: "2026-04-02T09:00:00.000Z",
+        lastReadyThroughAdvancedAt: null,
+        lastCompletedAt: "2026-04-02T09:00:00.000Z",
+        backlogDelta: null,
+        completedPartitionDelta: null,
+        lastReplayAt: null,
+        lastReclaimAt: null,
+        recentActivityWindowMinutes: 20,
+      },
+      nowMs: new Date("2026-04-02T09:30:00.000Z").getTime(),
+    });
+
+    expect(limit).toBe(2);
+  });
+
+  it("keeps a single fairness lease when historical extended is still moving", () => {
+    const policy = {
+      lanePolicy: {
+        core: "admit",
+        maintenance: "admit",
+        extended: "admit",
+        extendedRecent: "admit",
+        extendedHistorical: "admit",
+      },
+      extendedCanaryEligible: false,
+    } as ReturnType<typeof buildGoogleAdsLaneAdmissionPolicy>;
+
+    const limit = getGoogleAdsHistoricalFairnessLeaseLimit({
+      policy,
+      queueHealth: {
+        extendedHistoricalQueueDepth: 6,
+        extendedHistoricalLeasedPartitions: 0,
+        latestExtendedActivityAt: "2026-04-02T09:25:00.000Z",
+      } as never,
+      progressEvidence: {
+        lastCheckpointAdvancedAt: "2026-04-02T09:25:00.000Z",
+        lastReadyThroughAdvancedAt: null,
+        lastCompletedAt: "2026-04-02T09:25:00.000Z",
+        backlogDelta: null,
+        completedPartitionDelta: null,
+        lastReplayAt: null,
+        lastReclaimAt: null,
+        recentActivityWindowMinutes: 20,
+      },
+      nowMs: new Date("2026-04-02T09:30:00.000Z").getTime(),
+    });
+
+    expect(limit).toBe(1);
+  });
+});
+
+describe("buildGoogleAdsPrimaryLeasePlan", () => {
+  it("produces a deterministic lease plan from policy, priority, and evidence", () => {
+    const policy = {
+      lanePolicy: {
+        core: "admit",
+        maintenance: "admit",
+        extended: "admit",
+        extendedRecent: "admit",
+        extendedHistorical: "admit",
+      },
+      suspendExtended: false,
+      extendedCanaryEligible: false,
+    } as ReturnType<typeof buildGoogleAdsLaneAdmissionPolicy>;
+
+    const plan = buildGoogleAdsPrimaryLeasePlan({
+      policy,
+      queueHealth: {
+        extendedRecentQueueDepth: 6,
+        extendedHistoricalQueueDepth: 4,
+        extendedHistoricalLeasedPartitions: 0,
+        latestExtendedActivityAt: "2026-04-02T09:00:00.000Z",
+      } as never,
+      fullSyncPriorityRequired: true,
+      fullSyncPriorityTargetScopes: ["search_term_daily", "product_daily"],
+      blockHistoricalExtendedWork: false,
+      progressEvidence: {
+        extended_historical: {
+          lastCheckpointAdvancedAt: "2026-04-02T09:00:00.000Z",
+          lastReadyThroughAdvancedAt: null,
+          lastCompletedAt: "2026-04-02T09:00:00.000Z",
+          backlogDelta: null,
+          completedPartitionDelta: null,
+          lastReplayAt: null,
+          lastReclaimAt: null,
+          recentActivityWindowMinutes: 20,
+        },
+      },
+      nowMs: new Date("2026-04-02T09:30:00.000Z").getTime(),
+    });
+
+    expect(plan.historicalFairnessLimit).toBeGreaterThan(0);
+    expect(plan.recentRepairLimit).toBeGreaterThan(0);
+    expect(plan.fullSyncPriorityLimit).toBeGreaterThan(0);
+  });
+});
+
+describe("buildGoogleAdsMaintenanceLeasePlan", () => {
+  it("throttles maintenance while full-sync priority is active", () => {
+    const policy = buildGoogleAdsLaneAdmissionPolicy({
+      safeModeEnabled: false,
+      workerHealthy: true,
+      workerCapacityAvailable: true,
+      breakerOpen: false,
+      queueDepth: 10,
+      extendedQueueDepth: 4,
+      extendedBudgetAllowed: true,
+      extendedCanaryEligible: true,
+      recoveryMode: "closed",
+    });
+
+    const plan = buildGoogleAdsMaintenanceLeasePlan({
+      policy,
+      fullSyncPriorityRequired: true,
+    });
+
+    expect(plan.maintenanceLimit).toBe(1);
+  });
+});
+
+describe("buildGoogleAdsFallbackExtendedLeasePlan", () => {
+  it("switches to recent-only fallback when historical work is blocked", () => {
+    const policy = buildGoogleAdsLaneAdmissionPolicy({
+      safeModeEnabled: false,
+      workerHealthy: true,
+      workerCapacityAvailable: true,
+      breakerOpen: false,
+      queueDepth: 10,
+      extendedQueueDepth: 4,
+      extendedBudgetAllowed: true,
+      extendedCanaryEligible: true,
+      recoveryMode: "closed",
+    });
+
+    const plan = buildGoogleAdsFallbackExtendedLeasePlan({
+      policy,
+      fullSyncPriorityRequired: false,
+      fullSyncPriorityTargetScopes: [],
+      fullSyncPriorityYesterday: "2026-04-01",
+      blockHistoricalExtendedWork: true,
+      historicalLeaseStartDate: "2024-04-02",
+    });
+
+    expect(plan?.sourceFilter).toBe("recent_only");
+    expect(plan?.startDate).toBeNull();
   });
 });
 

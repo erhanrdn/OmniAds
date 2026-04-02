@@ -3,6 +3,8 @@ import {
   buildProviderHeartbeatWorkerId,
   createRunnerLeaseGuard,
   prioritizeBusinessesForAdapter,
+  runAdapterLifecycleTick,
+  resolveAdapterLifecycleSnapshot,
 } from "@/lib/sync/worker-runtime";
 
 describe("prioritizeBusinessesForAdapter", () => {
@@ -49,5 +51,166 @@ describe("createRunnerLeaseGuard", () => {
 
     expect(guard.isLeaseLost()).toBe(true);
     expect(guard.getLeaseLossReason()).toBe("runner_lease_conflict");
+  });
+});
+
+describe("resolveAdapterLifecycleSnapshot", () => {
+  it("returns null when the adapter has no readiness hook", async () => {
+    const snapshot = await resolveAdapterLifecycleSnapshot({
+      adapter: {
+        providerScope: "meta",
+        planPartitions: async () => ({ partitions: [] }),
+        leasePartitions: async () => [],
+        getCheckpoint: async () => null,
+        fetchChunk: async () => ({}),
+        persistChunk: async () => {},
+        transformChunk: async () => {},
+        writeFacts: async () => {},
+        advanceCheckpoint: async () => {},
+        completePartition: async () => {},
+        classifyFailure: () => "x",
+        consumeBusiness: async () => null,
+      },
+      businessId: "biz-1",
+    });
+
+    expect(snapshot).toBeNull();
+  });
+
+  it("surfaces shared lifecycle readiness when available", async () => {
+    const snapshot = await resolveAdapterLifecycleSnapshot({
+      adapter: {
+        providerScope: "google_ads",
+        planPartitions: async () => ({ partitions: [] }),
+        leasePartitions: async () => [],
+        getCheckpoint: async () => null,
+        fetchChunk: async () => ({}),
+        persistChunk: async () => {},
+        transformChunk: async () => {},
+        writeFacts: async () => {},
+        advanceCheckpoint: async () => {},
+        completePartition: async () => {},
+        classifyFailure: () => "x",
+        getReadiness: async () => ({
+          readinessLevel: "usable",
+          checkpointHealth: {
+            latestCheckpointScope: "campaign_daily",
+            latestCheckpointPhase: "fetch_raw",
+            latestCheckpointStatus: "running",
+            latestCheckpointUpdatedAt: "2026-04-02T10:00:00.000Z",
+            checkpointLagMinutes: 3,
+            lastSuccessfulPageIndex: 2,
+            resumeCapable: true,
+            checkpointFailures: 0,
+          },
+          domainReadiness: null,
+        }),
+        consumeBusiness: async () => null,
+      },
+      businessId: "biz-1",
+    });
+
+    expect(snapshot).toEqual(
+      expect.objectContaining({
+        readinessLevel: "usable",
+        checkpointHealth: expect.objectContaining({
+          latestCheckpointScope: "campaign_daily",
+        }),
+      })
+    );
+  });
+});
+
+describe("runAdapterLifecycleTick", () => {
+  it("drives the shared lifecycle methods when a partition is leased", async () => {
+    const calls: string[] = [];
+    const result = await runAdapterLifecycleTick({
+      adapter: {
+        providerScope: "meta",
+        planPartitions: async () => ({ partitions: [] }),
+        leasePartitions: async () => [
+          {
+            partitionId: "part-1",
+            businessId: "biz-1",
+            providerAccountId: "act_1",
+            scope: "account_daily",
+            partitionDate: "2026-04-01",
+          },
+        ],
+        getCheckpoint: async () => {
+          calls.push("getCheckpoint");
+          return null;
+        },
+        fetchChunk: async () => {
+          calls.push("fetchChunk");
+          return { payload: "chunk" };
+        },
+        persistChunk: async () => {
+          calls.push("persistChunk");
+        },
+        transformChunk: async () => {
+          calls.push("transformChunk");
+        },
+        advanceCheckpoint: async () => {
+          calls.push("advanceCheckpoint");
+        },
+        writeFacts: async () => {
+          calls.push("writeFacts");
+        },
+        completePartition: async () => {
+          calls.push("completePartition");
+        },
+        classifyFailure: () => "x",
+        consumeBusiness: async () => null,
+      },
+      businessId: "biz-1",
+      workerId: "worker-1",
+      leaseLimit: 1,
+    });
+
+    expect(result).toMatchObject({
+      attempted: 1,
+      succeeded: 1,
+      failed: 0,
+      lastPartitionId: "part-1",
+    });
+    expect(calls).toEqual([
+      "getCheckpoint",
+      "fetchChunk",
+      "persistChunk",
+      "transformChunk",
+      "advanceCheckpoint",
+      "writeFacts",
+      "completePartition",
+    ]);
+  });
+
+  it("returns without work when no partitions are leased", async () => {
+    const result = await runAdapterLifecycleTick({
+      adapter: {
+        providerScope: "google_ads",
+        planPartitions: async () => ({ partitions: [] }),
+        leasePartitions: async () => [],
+        getCheckpoint: async () => null,
+        fetchChunk: async () => ({ payload: null }),
+        persistChunk: async () => {},
+        transformChunk: async () => {},
+        advanceCheckpoint: async () => {},
+        writeFacts: async () => {},
+        completePartition: async () => {},
+        classifyFailure: () => "x",
+        consumeBusiness: async () => null,
+      },
+      businessId: "biz-1",
+      workerId: "worker-1",
+      leaseLimit: 1,
+    });
+
+    expect(result).toMatchObject({
+      attempted: 0,
+      succeeded: 0,
+      failed: 0,
+      leasedPartitionIds: [],
+    });
   });
 });
