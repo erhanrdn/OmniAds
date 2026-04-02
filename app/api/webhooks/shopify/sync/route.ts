@@ -6,7 +6,7 @@ import {
   buildShopifyWebhookPayloadHash,
   classifyShopifySyncWebhookTopic,
 } from "@/lib/shopify/webhooks";
-import { upsertShopifyWebhookDelivery } from "@/lib/shopify/warehouse";
+import { getShopifyWebhookDelivery, upsertShopifyWebhookDelivery } from "@/lib/shopify/warehouse";
 import { verifyShopifyWebhook } from "@/lib/shopify/webhook-verification";
 
 /**
@@ -30,6 +30,18 @@ export async function POST(request: NextRequest) {
     body: result.body,
   });
   const topicMeta = classifyShopifySyncWebhookTopic(topic);
+  const existingDelivery = await getShopifyWebhookDelivery({
+    shopDomain: shopDomain ?? "unknown",
+    topic: topic ?? "unknown",
+    payloadHash,
+  }).catch(() => null);
+
+  if (existingDelivery?.processingState === "processed") {
+    return NextResponse.json({ received: true, duplicate: true }, { status: 200 });
+  }
+  if (existingDelivery?.processingState === "ignored") {
+    return NextResponse.json({ received: true, ignored: true, duplicate: true }, { status: 200 });
+  }
 
   await runMigrations();
   const sql = getDb();

@@ -645,6 +645,45 @@ export async function upsertShopifyWebhookDelivery(input: ShopifyWebhookDelivery
   `;
 }
 
+export async function getShopifyWebhookDelivery(input: {
+  shopDomain: string;
+  topic: string;
+  payloadHash: string;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = (await sql`
+    SELECT *
+    FROM shopify_webhook_deliveries
+    WHERE shop_domain = ${input.shopDomain}
+      AND topic = ${input.topic}
+      AND payload_hash = ${input.payloadHash}
+    LIMIT 1
+  `) as Array<Record<string, unknown>>;
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    businessId: row.business_id ? String(row.business_id) : null,
+    providerAccountId: row.provider_account_id ? String(row.provider_account_id) : null,
+    topic: String(row.topic),
+    shopDomain: String(row.shop_domain),
+    webhookId: row.webhook_id ? String(row.webhook_id) : null,
+    payloadHash: String(row.payload_hash),
+    payloadJson:
+      row.payload_json && typeof row.payload_json === "object"
+        ? row.payload_json
+        : {},
+    receivedAt: normalizeTimestamp(row.received_at),
+    processedAt: normalizeTimestamp(row.processed_at),
+    processingState: String(row.processing_state) as ShopifyWebhookDeliveryRecord["processingState"],
+    resultSummary:
+      row.result_summary && typeof row.result_summary === "object"
+        ? (row.result_summary as Record<string, unknown>)
+        : null,
+    errorMessage: row.error_message ? String(row.error_message) : null,
+  } satisfies ShopifyWebhookDeliveryRecord;
+}
+
 export async function insertShopifyReconciliationRun(input: ShopifyReconciliationRunRecord) {
   await runMigrations();
   const sql = getDb();

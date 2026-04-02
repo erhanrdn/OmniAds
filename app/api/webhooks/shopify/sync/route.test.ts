@@ -18,6 +18,7 @@ vi.mock("@/lib/sync/shopify-sync", () => ({
 }));
 
 vi.mock("@/lib/shopify/warehouse", () => ({
+  getShopifyWebhookDelivery: vi.fn(),
   upsertShopifyWebhookDelivery: vi.fn(),
 }));
 
@@ -30,6 +31,7 @@ const { POST } = await import("@/app/api/webhooks/shopify/sync/route");
 describe("POST /api/webhooks/shopify/sync", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    vi.mocked(warehouse.getShopifyWebhookDelivery).mockResolvedValue(null as never);
   });
 
   it("records and processes a matched Shopify sync webhook", async () => {
@@ -100,6 +102,33 @@ describe("POST /api/webhooks/shopify/sync", () => {
 
     expect(response.status).toBe(200);
     expect(payload.ignored).toBe(true);
+    expect(shopifySync.syncShopifyCommerceReports).not.toHaveBeenCalled();
+  });
+
+  it("skips duplicate processed deliveries without triggering sync again", async () => {
+    vi.mocked(verification.verifyShopifyWebhook).mockResolvedValue({
+      valid: true,
+      body: JSON.stringify({ id: "order_3" }),
+    } as never);
+    vi.mocked(warehouse.getShopifyWebhookDelivery).mockResolvedValue({
+      processingState: "processed",
+    } as never);
+
+    const request = new NextRequest("http://localhost:3000/api/webhooks/shopify/sync", {
+      method: "POST",
+      headers: {
+        "x-shopify-topic": "ORDERS_UPDATED",
+        "x-shopify-shop-domain": "test-shop.myshopify.com",
+        "x-shopify-webhook-id": "wh_3",
+      },
+      body: JSON.stringify({ id: "order_3" }),
+    });
+
+    const response = await POST(request as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.duplicate).toBe(true);
     expect(shopifySync.syncShopifyCommerceReports).not.toHaveBeenCalled();
   });
 });
