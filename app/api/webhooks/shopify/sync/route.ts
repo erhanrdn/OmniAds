@@ -120,6 +120,11 @@ export async function POST(request: NextRequest) {
     const syncResult = await syncShopifyCommerceReports(match.business_id, {
       recentWindowDays: webhookRecentWindowDays(topicMeta),
       triggerReason: `webhook:${topicMeta.entity}:${topicMeta.action}`,
+      recentTargets: {
+        orders: true,
+        returns: false,
+      },
+      allowHistorical: false,
     });
     await upsertShopifyWebhookDelivery({
       businessId: match.business_id,

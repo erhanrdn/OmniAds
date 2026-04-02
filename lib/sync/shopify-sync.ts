@@ -109,6 +109,11 @@ export async function syncShopifyCommerceReports(
     runtimeLeaseGuard?: RunnerLeaseGuard;
     recentWindowDays?: number;
     triggerReason?: string;
+    recentTargets?: {
+      orders?: boolean;
+      returns?: boolean;
+    };
+    allowHistorical?: boolean;
   }
 ) {
   const credentials = await resolveShopifyAdminCredentials(businessId).catch(() => null);
@@ -129,6 +134,9 @@ export async function syncShopifyCommerceReports(
   const window = classifyShopifySyncWindow(credentials, {
     recentWindowDays: input?.recentWindowDays,
   });
+  const runOrdersRecent = input?.recentTargets?.orders !== false;
+  const runReturnsRecent = input?.recentTargets?.returns !== false;
+  const allowHistorical = input?.allowHistorical !== false;
   const historical = classifyShopifyHistoricalWindow(credentials);
   const existingOrdersState = await getShopifySyncState({
     businessId,
@@ -151,50 +159,58 @@ export async function syncShopifyCommerceReports(
     syncTarget: "commerce_returns_historical",
   }).catch(() => null);
 
-  await upsertShopifySyncState({
-    businessId,
-    providerAccountId: credentials.shopId,
-    syncTarget: "commerce_orders_recent",
-    historicalTargetStart: existingOrdersState?.historicalTargetStart ?? window.startDate,
-    historicalTargetEnd: existingOrdersState?.historicalTargetEnd ?? window.endDate,
-    latestSyncStartedAt: new Date().toISOString(),
-    latestSyncStatus: "running",
-    latestSyncWindowStart: window.startDate,
-    latestSyncWindowEnd: window.endDate,
-    lastError: null,
-  });
-  await upsertShopifySyncState({
-    businessId,
-    providerAccountId: credentials.shopId,
-    syncTarget: "commerce_returns_recent",
-    historicalTargetStart: existingReturnsState?.historicalTargetStart ?? window.startDate,
-    historicalTargetEnd: existingReturnsState?.historicalTargetEnd ?? window.endDate,
-    latestSyncStartedAt: new Date().toISOString(),
-    latestSyncStatus: "running",
-    latestSyncWindowStart: window.startDate,
-    latestSyncWindowEnd: window.endDate,
-    lastError: null,
-  });
-
-  if (input?.runtimeLeaseGuard?.isLeaseLost()) {
+  if (runOrdersRecent) {
     await upsertShopifySyncState({
       businessId,
       providerAccountId: credentials.shopId,
       syncTarget: "commerce_orders_recent",
-      latestSyncStatus: "cancelled",
+      historicalTargetStart: existingOrdersState?.historicalTargetStart ?? window.startDate,
+      historicalTargetEnd: existingOrdersState?.historicalTargetEnd ?? window.endDate,
+      latestSyncStartedAt: new Date().toISOString(),
+      latestSyncStatus: "running",
       latestSyncWindowStart: window.startDate,
       latestSyncWindowEnd: window.endDate,
-      lastError: input.runtimeLeaseGuard.getLeaseLossReason(),
+      lastError: null,
     });
+  }
+  if (runReturnsRecent) {
     await upsertShopifySyncState({
       businessId,
       providerAccountId: credentials.shopId,
       syncTarget: "commerce_returns_recent",
-      latestSyncStatus: "cancelled",
+      historicalTargetStart: existingReturnsState?.historicalTargetStart ?? window.startDate,
+      historicalTargetEnd: existingReturnsState?.historicalTargetEnd ?? window.endDate,
+      latestSyncStartedAt: new Date().toISOString(),
+      latestSyncStatus: "running",
       latestSyncWindowStart: window.startDate,
       latestSyncWindowEnd: window.endDate,
-      lastError: input.runtimeLeaseGuard.getLeaseLossReason(),
+      lastError: null,
     });
+  }
+
+  if (input?.runtimeLeaseGuard?.isLeaseLost()) {
+    if (runOrdersRecent) {
+      await upsertShopifySyncState({
+        businessId,
+        providerAccountId: credentials.shopId,
+        syncTarget: "commerce_orders_recent",
+        latestSyncStatus: "cancelled",
+        latestSyncWindowStart: window.startDate,
+        latestSyncWindowEnd: window.endDate,
+        lastError: input.runtimeLeaseGuard.getLeaseLossReason(),
+      });
+    }
+    if (runReturnsRecent) {
+      await upsertShopifySyncState({
+        businessId,
+        providerAccountId: credentials.shopId,
+        syncTarget: "commerce_returns_recent",
+        latestSyncStatus: "cancelled",
+        latestSyncWindowStart: window.startDate,
+        latestSyncWindowEnd: window.endDate,
+        lastError: input.runtimeLeaseGuard.getLeaseLossReason(),
+      });
+    }
     return {
       success: false,
       reason: "lease_lost" as const,
@@ -210,40 +226,63 @@ export async function syncShopifyCommerceReports(
 
   try {
     const [ordersResult, returnsResult] = await Promise.all([
-      syncShopifyOrdersWindow({
-        businessId,
-        startDate: window.startDate,
-        endDate: window.endDate,
-        queryField: "updated_at",
-      }),
-      syncShopifyReturnsWindow({
-        businessId,
-        startDate: window.startDate,
-        endDate: window.endDate,
-      }),
+      runOrdersRecent
+        ? syncShopifyOrdersWindow({
+            businessId,
+            startDate: window.startDate,
+            endDate: window.endDate,
+            queryField: "updated_at",
+          })
+        : Promise.resolve({
+            success: true as const,
+            reason: "skipped" as const,
+            orders: 0,
+            orderLines: 0,
+            refunds: 0,
+            transactions: 0,
+            pages: 0,
+            maxUpdatedAt: null,
+          }),
+      runReturnsRecent
+        ? syncShopifyReturnsWindow({
+            businessId,
+            startDate: window.startDate,
+            endDate: window.endDate,
+          })
+        : Promise.resolve({
+            success: true as const,
+            reason: "skipped" as const,
+            returns: 0,
+            pages: 0,
+            maxUpdatedAt: null,
+          }),
     ]);
     if (!ordersResult.success) {
-      await upsertShopifySyncState({
-        businessId,
-        providerAccountId: credentials.shopId,
-        syncTarget: "commerce_orders_recent",
-        latestSyncStatus: ordersResult.reason,
-        latestSyncWindowStart: window.startDate,
-        latestSyncWindowEnd: window.endDate,
-        lastError: ordersResult.reason,
-      });
+      if (runOrdersRecent) {
+        await upsertShopifySyncState({
+          businessId,
+          providerAccountId: credentials.shopId,
+          syncTarget: "commerce_orders_recent",
+          latestSyncStatus: ordersResult.reason,
+          latestSyncWindowStart: window.startDate,
+          latestSyncWindowEnd: window.endDate,
+          lastError: ordersResult.reason,
+        });
+      }
       return ordersResult;
     }
     if (!returnsResult.success) {
-      await upsertShopifySyncState({
-        businessId,
-        providerAccountId: credentials.shopId,
-        syncTarget: "commerce_returns_recent",
-        latestSyncStatus: returnsResult.reason,
-        latestSyncWindowStart: window.startDate,
-        latestSyncWindowEnd: window.endDate,
-        lastError: returnsResult.reason,
-      });
+      if (runReturnsRecent) {
+        await upsertShopifySyncState({
+          businessId,
+          providerAccountId: credentials.shopId,
+          syncTarget: "commerce_returns_recent",
+          latestSyncStatus: returnsResult.reason,
+          latestSyncWindowStart: window.startDate,
+          latestSyncWindowEnd: window.endDate,
+          lastError: returnsResult.reason,
+        });
+      }
       return {
         success: false,
         reason: returnsResult.reason,
@@ -307,6 +346,11 @@ export async function syncShopifyCommerceReports(
             }
           : null,
         triggerReason: input?.triggerReason ?? null,
+        recentTargets: {
+          orders: runOrdersRecent,
+          returns: runReturnsRecent,
+        },
+        historicalTriggered: allowHistorical,
       },
     };
 
@@ -322,7 +366,7 @@ export async function syncShopifyCommerceReports(
       chunkEndDate: string;
     } = null;
 
-    if (envFlag("SHOPIFY_HISTORICAL_SYNC_ENABLED") && hasShopifyScope(credentials.scopes, "read_all_orders")) {
+    if (allowHistorical && envFlag("SHOPIFY_HISTORICAL_SYNC_ENABLED") && hasShopifyScope(credentials.scopes, "read_all_orders")) {
       const ordersChunk = computeHistoricalChunk({
         targetStartDate: historical.targetStartDate,
         targetEndDate: historical.targetEndDate,
@@ -459,40 +503,44 @@ export async function syncShopifyCommerceReports(
       }
     }
 
-    await upsertShopifySyncState({
-      businessId,
-      providerAccountId: credentials.shopId,
-      syncTarget: "commerce_orders_recent",
-      historicalTargetStart: existingOrdersState?.historicalTargetStart ?? window.startDate,
-      historicalTargetEnd: existingOrdersState?.historicalTargetEnd ?? window.endDate,
-      readyThroughDate: window.endDate,
-      cursorTimestamp: ordersResult.maxUpdatedAt ?? `${window.endDate}T23:59:59.000Z`,
-      cursorValue: ordersResult.maxUpdatedAt ?? window.endDate,
-      latestSyncStartedAt: new Date().toISOString(),
-      latestSuccessfulSyncAt: new Date().toISOString(),
-      latestSyncStatus: "succeeded",
-      latestSyncWindowStart: window.startDate,
-      latestSyncWindowEnd: window.endDate,
-      lastError: null,
-      lastResultSummary: result.reconciliation,
-    });
-    await upsertShopifySyncState({
-      businessId,
-      providerAccountId: credentials.shopId,
-      syncTarget: "commerce_returns_recent",
-      historicalTargetStart: existingReturnsState?.historicalTargetStart ?? window.startDate,
-      historicalTargetEnd: existingReturnsState?.historicalTargetEnd ?? window.endDate,
-      readyThroughDate: window.endDate,
-      cursorTimestamp: returnsResult.maxUpdatedAt ?? `${window.endDate}T23:59:59.000Z`,
-      cursorValue: returnsResult.maxUpdatedAt ?? window.endDate,
-      latestSyncStartedAt: new Date().toISOString(),
-      latestSuccessfulSyncAt: new Date().toISOString(),
-      latestSyncStatus: "succeeded",
-      latestSyncWindowStart: window.startDate,
-      latestSyncWindowEnd: window.endDate,
-      lastError: null,
-      lastResultSummary: result.reconciliation,
-    });
+    if (runOrdersRecent) {
+      await upsertShopifySyncState({
+        businessId,
+        providerAccountId: credentials.shopId,
+        syncTarget: "commerce_orders_recent",
+        historicalTargetStart: existingOrdersState?.historicalTargetStart ?? window.startDate,
+        historicalTargetEnd: existingOrdersState?.historicalTargetEnd ?? window.endDate,
+        readyThroughDate: window.endDate,
+        cursorTimestamp: ordersResult.maxUpdatedAt ?? `${window.endDate}T23:59:59.000Z`,
+        cursorValue: ordersResult.maxUpdatedAt ?? window.endDate,
+        latestSyncStartedAt: new Date().toISOString(),
+        latestSuccessfulSyncAt: new Date().toISOString(),
+        latestSyncStatus: "succeeded",
+        latestSyncWindowStart: window.startDate,
+        latestSyncWindowEnd: window.endDate,
+        lastError: null,
+        lastResultSummary: result.reconciliation,
+      });
+    }
+    if (runReturnsRecent) {
+      await upsertShopifySyncState({
+        businessId,
+        providerAccountId: credentials.shopId,
+        syncTarget: "commerce_returns_recent",
+        historicalTargetStart: existingReturnsState?.historicalTargetStart ?? window.startDate,
+        historicalTargetEnd: existingReturnsState?.historicalTargetEnd ?? window.endDate,
+        readyThroughDate: window.endDate,
+        cursorTimestamp: returnsResult.maxUpdatedAt ?? `${window.endDate}T23:59:59.000Z`,
+        cursorValue: returnsResult.maxUpdatedAt ?? window.endDate,
+        latestSyncStartedAt: new Date().toISOString(),
+        latestSuccessfulSyncAt: new Date().toISOString(),
+        latestSyncStatus: "succeeded",
+        latestSyncWindowStart: window.startDate,
+        latestSyncWindowEnd: window.endDate,
+        lastError: null,
+        lastResultSummary: result.reconciliation,
+      });
+    }
 
     return {
       ...result,
@@ -500,24 +548,28 @@ export async function syncShopifyCommerceReports(
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    await upsertShopifySyncState({
-      businessId,
-      providerAccountId: credentials.shopId,
-      syncTarget: "commerce_orders_recent",
-      latestSyncStatus: "failed",
-      latestSyncWindowStart: window.startDate,
-      latestSyncWindowEnd: window.endDate,
-      lastError: message,
-    });
-    await upsertShopifySyncState({
-      businessId,
-      providerAccountId: credentials.shopId,
-      syncTarget: "commerce_returns_recent",
-      latestSyncStatus: "failed",
-      latestSyncWindowStart: window.startDate,
-      latestSyncWindowEnd: window.endDate,
-      lastError: message,
-    });
+    if (runOrdersRecent) {
+      await upsertShopifySyncState({
+        businessId,
+        providerAccountId: credentials.shopId,
+        syncTarget: "commerce_orders_recent",
+        latestSyncStatus: "failed",
+        latestSyncWindowStart: window.startDate,
+        latestSyncWindowEnd: window.endDate,
+        lastError: message,
+      });
+    }
+    if (runReturnsRecent) {
+      await upsertShopifySyncState({
+        businessId,
+        providerAccountId: credentials.shopId,
+        syncTarget: "commerce_returns_recent",
+        latestSyncStatus: "failed",
+        latestSyncWindowStart: window.startDate,
+        latestSyncWindowEnd: window.endDate,
+        lastError: message,
+      });
+    }
     throw error;
   }
 }

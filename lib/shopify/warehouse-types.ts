@@ -188,7 +188,7 @@ export interface ShopifySalesEventWarehouseRow {
   providerAccountId: string;
   shopId: string;
   eventId: string;
-  sourceKind: "order" | "refund" | "return";
+  sourceKind: "order" | "refund" | "return" | "adjustment";
   sourceId: string;
   orderId?: string | null;
   occurredAt: string;
@@ -223,6 +223,8 @@ export interface ShopifyReconciliationRunRecord {
 export interface ShopifyReconciliationSummary {
   latestRecordedAt: string | null;
   stableRunCount: number;
+  stableWarehouseRunCount: number;
+  stableLedgerRunCount: number;
   unstableRunCount: number;
   defaultCutoverEligible: boolean;
 }

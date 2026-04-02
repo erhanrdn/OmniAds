@@ -684,6 +684,41 @@ export async function getShopifyWebhookDelivery(input: {
   } satisfies ShopifyWebhookDeliveryRecord;
 }
 
+export async function listShopifyWebhookDeliveries(input: {
+  businessId: string;
+  providerAccountId?: string | null;
+  limit?: number;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = (await sql`
+    SELECT *
+    FROM shopify_webhook_deliveries
+    WHERE business_id = ${input.businessId}
+      AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
+    ORDER BY COALESCE(processed_at, received_at) DESC
+    LIMIT ${Math.max(1, Math.min(input.limit ?? 10, 50))}
+  `) as Array<Record<string, unknown>>;
+
+  return rows.map((row) => ({
+    businessId: row.business_id ? String(row.business_id) : null,
+    providerAccountId: row.provider_account_id ? String(row.provider_account_id) : null,
+    topic: String(row.topic),
+    shopDomain: String(row.shop_domain),
+    webhookId: row.webhook_id ? String(row.webhook_id) : null,
+    payloadHash: String(row.payload_hash),
+    payloadJson: row.payload_json ?? null,
+    receivedAt: normalizeTimestamp(row.received_at),
+    processedAt: normalizeTimestamp(row.processed_at),
+    processingState: String(row.processing_state) as ShopifyWebhookDeliveryRecord["processingState"],
+    resultSummary:
+      row.result_summary && typeof row.result_summary === "object"
+        ? (row.result_summary as Record<string, unknown>)
+        : null,
+    errorMessage: row.error_message ? String(row.error_message) : null,
+  })) satisfies ShopifyWebhookDeliveryRecord[];
+}
+
 export async function insertShopifyReconciliationRun(input: ShopifyReconciliationRunRecord) {
   await runMigrations();
   const sql = getDb();

@@ -10,6 +10,7 @@ import { getShopifyStatus } from "@/lib/shopify/status";
 import {
   getShopifyServingOverride,
   getShopifyServingState,
+  listShopifyWebhookDeliveries,
   listShopifyReconciliationRuns,
   listShopifyServingStateHistory,
   upsertShopifyServingOverride,
@@ -18,6 +19,43 @@ import { getShopifyRevenueLedgerAggregate } from "@/lib/shopify/revenue-ledger";
 import { compareShopifyWarehouseAndLedger } from "@/lib/shopify/divergence";
 import { getShopifyCustomerEventsAggregate } from "@/lib/shopify/customer-events-analytics";
 import { getShopifyWarehouseOverviewAggregate } from "@/lib/shopify/warehouse-overview";
+
+function buildRolloutSummary(input: {
+  status: Awaited<ReturnType<typeof getShopifyStatus>>;
+  ledgerConsistency: ReturnType<typeof compareShopifyWarehouseAndLedger> | null;
+  override: Awaited<ReturnType<typeof getShopifyServingOverride>> | null;
+  webhookDeliveries: Array<{ processingState: string; errorMessage?: string | null }>;
+}) {
+  const blockers = [...input.status.issues];
+  if (input.ledgerConsistency && input.ledgerConsistency.withinThreshold !== true) {
+    blockers.push("Shopify ledger semantic consistency is above serving threshold.");
+  }
+  if (input.webhookDeliveries.some((delivery) => delivery.processingState === "failed")) {
+    blockers.push("Recent Shopify webhook deliveries include failed refresh attempts.");
+  }
+
+  const defaultCutoverReady = input.status.reconciliation?.defaultCutoverEligible === true;
+  const previewCanaryReady =
+    input.status.state === "ready" &&
+    (input.ledgerConsistency === null || input.ledgerConsistency.withinThreshold === true);
+  const broaderLocalServingReady =
+    previewCanaryReady || input.override?.mode === "force_warehouse";
+
+  return {
+    broaderLocalServingReady,
+    previewCanaryReady,
+    defaultCutoverReady,
+    recommendedSource:
+      input.override?.mode === "force_live"
+        ? "live"
+        : input.override?.mode === "force_warehouse"
+          ? "warehouse"
+          : input.ledgerConsistency?.withinThreshold === true
+            ? "ledger_candidate"
+            : "live",
+    blockers: [...new Set(blockers)],
+  };
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -95,7 +133,7 @@ export async function GET(request: NextRequest) {
             limit: 10,
           }).catch(() => [])
         : [];
-    const [warehouseAggregate, ledgerAggregate, customerEventsAggregate] =
+    const [warehouseAggregate, ledgerAggregate, customerEventsAggregate, webhookDeliveries] =
       status.shopId && startDate && endDate
         ? await Promise.all([
             getShopifyWarehouseOverviewAggregate({
@@ -116,8 +154,13 @@ export async function GET(request: NextRequest) {
               startDate,
               endDate,
             }).catch(() => null),
+            listShopifyWebhookDeliveries({
+              businessId,
+              providerAccountId: status.shopId,
+              limit: 10,
+            }).catch(() => []),
           ])
-        : [null, null, null];
+        : [null, null, null, []];
     const ledgerConsistency =
       warehouseAggregate && ledgerAggregate
         ? compareShopifyWarehouseAndLedger({
@@ -125,6 +168,12 @@ export async function GET(request: NextRequest) {
             ledger: ledgerAggregate,
           })
         : null;
+    const rollout = buildRolloutSummary({
+      status,
+      ledgerConsistency,
+      override,
+      webhookDeliveries,
+    });
 
     return NextResponse.json({
       businessId,
@@ -147,6 +196,8 @@ export async function GET(request: NextRequest) {
       ledgerAggregate,
       ledgerConsistency,
       customerEventsAggregate,
+      webhookDeliveries,
+      rollout,
     });
   } catch (err) {
     console.error("[admin/integrations/health/shopify GET]", err);

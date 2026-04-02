@@ -399,6 +399,11 @@ export function mapShopifySalesEventsFromOrderWarehouseRows(input: {
   order: ShopifyOrderWarehouseRow;
   refunds: ShopifyRefundWarehouseRow[];
 }) {
+  const baseGrossRevenue =
+    input.order.originalTotalPrice ?? input.order.totalPrice ?? input.order.currentTotalPrice ?? 0;
+  const currentGrossRevenue =
+    input.order.currentTotalPrice ?? input.order.totalPrice ?? input.order.originalTotalPrice ?? 0;
+  const adjustmentDelta = round2(currentGrossRevenue - baseGrossRevenue);
   const orderEvent: ShopifySalesEventWarehouseRow = {
     businessId: input.order.businessId,
     providerAccountId: input.order.providerAccountId,
@@ -409,15 +414,49 @@ export function mapShopifySalesEventsFromOrderWarehouseRows(input: {
     orderId: input.order.orderId,
     occurredAt: input.order.orderProcessedAt ?? input.order.orderCreatedAt,
     occurredDateLocal: input.order.orderCreatedDateLocal ?? null,
-    grossSales: input.order.totalPrice ?? 0,
+    grossSales: baseGrossRevenue,
     refundedSales: 0,
     refundedShipping: 0,
     refundedTaxes: 0,
-    netRevenue: input.order.totalPrice ?? 0,
+    netRevenue: baseGrossRevenue,
     currencyCode: input.order.currencyCode ?? null,
     payloadJson: input.order.payloadJson ?? null,
     sourceSnapshotId: input.order.sourceSnapshotId ?? null,
   };
+  const adjustmentEvent =
+    adjustmentDelta === 0
+      ? null
+      : ({
+          businessId: input.order.businessId,
+          providerAccountId: input.order.providerAccountId,
+          shopId: input.order.shopId,
+          eventId: `adjustment:${input.order.orderId}`,
+          sourceKind: "adjustment",
+          sourceId: input.order.orderId,
+          orderId: input.order.orderId,
+          occurredAt:
+            input.order.orderUpdatedAt ??
+            input.order.orderProcessedAt ??
+            input.order.orderCreatedAt,
+          occurredDateLocal:
+            input.order.orderUpdatedDateLocal ??
+            input.order.orderCreatedDateLocal ??
+            null,
+          grossSales: adjustmentDelta > 0 ? adjustmentDelta : 0,
+          refundedSales: adjustmentDelta < 0 ? Math.abs(adjustmentDelta) : 0,
+          refundedShipping: 0,
+          refundedTaxes: 0,
+          netRevenue: adjustmentDelta,
+          currencyCode: input.order.currencyCode ?? null,
+          payloadJson: {
+            orderId: input.order.orderId,
+            originalTotalPrice: input.order.originalTotalPrice ?? null,
+            currentTotalPrice: input.order.currentTotalPrice ?? null,
+            totalPrice: input.order.totalPrice ?? null,
+            adjustmentDelta,
+          },
+          sourceSnapshotId: input.order.sourceSnapshotId ?? null,
+        } satisfies ShopifySalesEventWarehouseRow);
   const refundEvents: ShopifySalesEventWarehouseRow[] = input.refunds.map((refund) => {
     const refundedSales = refund.refundedSales ?? 0;
     const refundedShipping = refund.refundedShipping ?? 0;
@@ -440,10 +479,10 @@ export function mapShopifySalesEventsFromOrderWarehouseRows(input: {
       netRevenue: -round2(totalRefunded),
       currencyCode: input.order.currencyCode ?? null,
       payloadJson: refund.payloadJson ?? null,
-      sourceSnapshotId: refund.sourceSnapshotId ?? null,
-    } satisfies ShopifySalesEventWarehouseRow;
+        sourceSnapshotId: refund.sourceSnapshotId ?? null,
+      } satisfies ShopifySalesEventWarehouseRow;
   });
-  return [orderEvent, ...refundEvents];
+  return adjustmentEvent ? [orderEvent, adjustmentEvent, ...refundEvents] : [orderEvent, ...refundEvents];
 }
 
 function round2(value: number) {

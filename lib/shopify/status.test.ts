@@ -435,4 +435,85 @@ describe("getShopifyStatus", () => {
     expect(result.issues).toContain("Shopify warehouse default cutover gate has not been satisfied yet.");
     delete process.env.SHOPIFY_WAREHOUSE_DEFAULT_CUTOVER;
   });
+
+  it("counts ledger-backed stable runs toward the default cutover gate", async () => {
+    process.env.SHOPIFY_WAREHOUSE_DEFAULT_CUTOVER = "true";
+    process.env.SHOPIFY_WAREHOUSE_DEFAULT_CUTOVER_MIN_STABLE_RUNS = "2";
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      status: "connected",
+      provider_account_id: "test-shop.myshopify.com",
+    } as never);
+    const now = new Date().toISOString();
+    vi.mocked(syncState.getShopifySyncState)
+      .mockResolvedValueOnce({
+        latestSyncStatus: "succeeded",
+        latestSuccessfulSyncAt: now,
+        cursorTimestamp: now,
+        cursorValue: "orders_cursor",
+      } as never)
+      .mockResolvedValueOnce({
+        latestSyncStatus: "succeeded",
+        latestSuccessfulSyncAt: now,
+        cursorTimestamp: now,
+        cursorValue: "returns_cursor",
+      } as never)
+      .mockResolvedValueOnce({
+        latestSyncStatus: "ready",
+        latestSuccessfulSyncAt: now,
+        readyThroughDate: "2026-03-31",
+        historicalTargetEnd: "2026-03-31",
+      } as never)
+      .mockResolvedValueOnce({
+        latestSyncStatus: "ready",
+        latestSuccessfulSyncAt: now,
+        readyThroughDate: "2026-03-31",
+        historicalTargetEnd: "2026-03-31",
+      } as never);
+    vi.mocked(warehouse.getShopifyServingState).mockResolvedValue(null as never);
+    vi.mocked(warehouse.listShopifyReconciliationRuns).mockResolvedValue([
+      {
+        recordedAt: now,
+        canServeWarehouse: true,
+        preferredSource: "ledger",
+        divergence: {
+          withinThreshold: true,
+          ledgerConsistency: { withinThreshold: true },
+        },
+      },
+      {
+        recordedAt: now,
+        canServeWarehouse: true,
+        preferredSource: "ledger",
+        divergence: {
+          withinThreshold: true,
+          ledgerConsistency: { withinThreshold: true },
+        },
+      },
+    ] as never);
+    const sql = vi
+      .fn()
+      .mockResolvedValueOnce([{ row_count: "10", first_date: "2026-03-01", last_date: "2026-03-31" }])
+      .mockResolvedValueOnce([{ row_count: "2" }])
+      .mockResolvedValueOnce([{ row_count: "1" }]);
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const result = await getShopifyStatus({
+      businessId: "biz_1",
+      startDate: "2026-03-01",
+      endDate: "2026-03-31",
+    });
+
+    expect(result.state).toBe("ready");
+    expect(result.reconciliation).toEqual(
+      expect.objectContaining({
+        stableRunCount: 2,
+        stableLedgerRunCount: 2,
+        stableWarehouseRunCount: 0,
+        defaultCutoverEligible: true,
+      })
+    );
+
+    delete process.env.SHOPIFY_WAREHOUSE_DEFAULT_CUTOVER;
+    delete process.env.SHOPIFY_WAREHOUSE_DEFAULT_CUTOVER_MIN_STABLE_RUNS;
+  });
 });

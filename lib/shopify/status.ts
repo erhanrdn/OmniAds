@@ -80,16 +80,32 @@ function summarizeReconciliationRuns(
 ): ShopifyReconciliationSummary {
   const latestRecordedAt = runs[0]?.recordedAt ?? null;
   let stableRunCount = 0;
+  let stableWarehouseRunCount = 0;
+  let stableLedgerRunCount = 0;
   let unstableRunCount = 0;
 
   for (const run of runs) {
     const withinThreshold = run.divergence?.withinThreshold === true;
+    const ledgerWithinThreshold =
+      run.divergence?.ledgerConsistency == null ||
+      (
+        typeof run.divergence.ledgerConsistency === "object" &&
+        (run.divergence.ledgerConsistency as Record<string, unknown>).withinThreshold === true
+      );
+    const preferredSource = run.preferredSource === "ledger" ? "ledger" : run.preferredSource === "warehouse" ? "warehouse" : null;
     const stable =
       run.canServeWarehouse === true &&
-      run.preferredSource === "warehouse" &&
-      withinThreshold;
+      preferredSource !== null &&
+      withinThreshold &&
+      ledgerWithinThreshold;
     if (stable) {
       stableRunCount += 1;
+      if (preferredSource === "ledger") {
+        stableLedgerRunCount += 1;
+      }
+      if (preferredSource === "warehouse") {
+        stableWarehouseRunCount += 1;
+      }
       continue;
     }
     unstableRunCount += 1;
@@ -103,6 +119,8 @@ function summarizeReconciliationRuns(
   return {
     latestRecordedAt,
     stableRunCount,
+    stableWarehouseRunCount,
+    stableLedgerRunCount,
     unstableRunCount,
     defaultCutoverEligible:
       defaultCutoverEnabled() &&

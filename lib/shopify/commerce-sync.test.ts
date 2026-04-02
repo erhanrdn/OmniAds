@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   mapShopifyOrderNodeToWarehouseRows,
   mapShopifyReturnNodeToWarehouseRow,
+  mapShopifySalesEventsFromOrderWarehouseRows,
 } from "@/lib/shopify/commerce-sync";
 
 describe("shopify commerce sync mapping", () => {
@@ -158,6 +159,45 @@ describe("shopify commerce sync mapping", () => {
         updatedDateLocal: "2026-03-31",
         sourceSnapshotId: "snap_2",
       })
+    );
+  });
+
+  it("emits a ledger adjustment event when current totals diverge from original totals", () => {
+    const mapped = mapShopifyOrderNodeToWarehouseRows({
+      businessId: "biz_1",
+      providerAccountId: "test-shop.myshopify.com",
+      shopId: "test-shop.myshopify.com",
+      node: {
+        id: "gid://shopify/Order/1002",
+        createdAt: "2026-03-29T13:00:00Z",
+        updatedAt: "2026-03-30T02:00:00Z",
+        processedAt: "2026-03-29T13:05:00Z",
+        totalPriceSet: { shopMoney: { amount: "120.00", currencyCode: "USD" } },
+        originalTotalPriceSet: { shopMoney: { amount: "135.00", currencyCode: "USD" } },
+        currentTotalPriceSet: { shopMoney: { amount: "120.00", currencyCode: "USD" } },
+      },
+    });
+
+    const salesEvents = mapShopifySalesEventsFromOrderWarehouseRows({
+      order: mapped.order,
+      refunds: mapped.refunds,
+    });
+
+    expect(salesEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          eventId: "order:1002",
+          sourceKind: "order",
+          grossSales: 135,
+          netRevenue: 135,
+        }),
+        expect.objectContaining({
+          eventId: "adjustment:1002",
+          sourceKind: "adjustment",
+          refundedSales: 15,
+          netRevenue: -15,
+        }),
+      ])
     );
   });
 });

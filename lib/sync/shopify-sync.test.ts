@@ -25,10 +25,15 @@ vi.mock("@/lib/shopify/warehouse-overview", () => ({
   getShopifyWarehouseOverviewAggregate: vi.fn(),
 }));
 
+vi.mock("@/lib/shopify/revenue-ledger", () => ({
+  getShopifyRevenueLedgerAggregate: vi.fn(),
+}));
+
 const admin = await import("@/lib/shopify/admin");
 const commerceSync = await import("@/lib/shopify/commerce-sync");
 const syncState = await import("@/lib/shopify/sync-state");
 const warehouseOverview = await import("@/lib/shopify/warehouse-overview");
+const revenueLedger = await import("@/lib/shopify/revenue-ledger");
 const { syncShopifyCommerceReports } = await import("@/lib/sync/shopify-sync");
 
 describe("syncShopifyCommerceReports", () => {
@@ -51,6 +56,16 @@ describe("syncShopifyCommerceReports", () => {
       purchases: 4,
       averageOrderValue: 275,
       daily: [],
+    } as never);
+    vi.mocked(revenueLedger.getShopifyRevenueLedgerAggregate).mockResolvedValue({
+      revenue: 998,
+      grossRevenue: 1100,
+      refundedRevenue: 102,
+      purchases: 4,
+      averageOrderValue: 274.5,
+      returnEvents: 2,
+      daily: [],
+      ledgerRows: 6,
     } as never);
     vi.mocked(commerceSync.syncShopifyOrdersWindow).mockResolvedValue({
       success: true,
@@ -164,6 +179,49 @@ describe("syncShopifyCommerceReports", () => {
       })
     );
     expect(syncState.upsertShopifySyncState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        syncTarget: "commerce_orders_historical",
+      })
+    );
+    delete process.env.SHOPIFY_HISTORICAL_SYNC_ENABLED;
+  });
+
+  it("can narrow webhook-triggered sync to orders only without historical backfill", async () => {
+    process.env.SHOPIFY_HISTORICAL_SYNC_ENABLED = "true";
+
+    const result = await syncShopifyCommerceReports("biz_1", {
+      recentWindowDays: 3,
+      triggerReason: "webhook:orders:update",
+      recentTargets: {
+        orders: true,
+        returns: false,
+      },
+      allowHistorical: false,
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        success: true,
+        returns: 0,
+        historical: null,
+        reconciliation: expect.objectContaining({
+          triggerReason: "webhook:orders:update",
+          recentTargets: {
+            orders: true,
+            returns: false,
+          },
+          historicalTriggered: false,
+        }),
+      })
+    );
+    expect(commerceSync.syncShopifyReturnsWindow).not.toHaveBeenCalled();
+    expect(syncState.upsertShopifySyncState).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        syncTarget: "commerce_returns_recent",
+        latestSyncStatus: "running",
+      })
+    );
+    expect(syncState.upsertShopifySyncState).not.toHaveBeenCalledWith(
       expect.objectContaining({
         syncTarget: "commerce_orders_historical",
       })

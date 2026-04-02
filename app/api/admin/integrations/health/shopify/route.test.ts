@@ -23,6 +23,7 @@ vi.mock("@/lib/shopify/customer-events-analytics", () => ({
 
 vi.mock("@/lib/shopify/warehouse", () => ({
   listShopifyReconciliationRuns: vi.fn(),
+  listShopifyWebhookDeliveries: vi.fn(),
   getShopifyServingOverride: vi.fn(),
   getShopifyServingState: vi.fn(),
   listShopifyServingStateHistory: vi.fn(),
@@ -45,6 +46,7 @@ describe("GET /api/admin/integrations/health/shopify", () => {
     } as never);
     vi.mocked(shopifyWarehouse.getShopifyServingOverride).mockResolvedValue(null as never);
     vi.mocked(shopifyWarehouse.listShopifyReconciliationRuns).mockResolvedValue([] as never);
+    vi.mocked(shopifyWarehouse.listShopifyWebhookDeliveries).mockResolvedValue([] as never);
     vi.mocked(warehouseOverview.getShopifyWarehouseOverviewAggregate).mockResolvedValue(null as never);
     vi.mocked(revenueLedger.getShopifyRevenueLedgerAggregate).mockResolvedValue(null as never);
     vi.mocked(customerEventsAnalytics.getShopifyCustomerEventsAggregate).mockResolvedValue(null as never);
@@ -97,6 +99,8 @@ describe("GET /api/admin/integrations/health/shopify", () => {
     expect(payload.reconciliationHistory).toEqual([]);
     expect(payload.ledgerConsistency).toBeNull();
     expect(payload.customerEventsAggregate).toBeNull();
+    expect(payload.webhookDeliveries).toEqual([]);
+    expect(payload.rollout.previewCanaryReady).toBe(false);
   });
 
   it("updates a Shopify serving override", async () => {
