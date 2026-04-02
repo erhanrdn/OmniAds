@@ -11,6 +11,23 @@ vi.mock("@/lib/shopify/admin", () => ({
   ),
 }));
 
+vi.mock("@/lib/integrations", () => ({
+  mergeIntegrationMetadata: vi.fn(),
+}));
+
+vi.mock("@/lib/shopify/read-adapter", () => ({
+  getShopifyOverviewReadCandidate: vi.fn(),
+}));
+
+vi.mock("@/lib/shopify/status", () => ({
+  getShopifyStatus: vi.fn(),
+}));
+
+vi.mock("@/lib/shopify/webhooks", () => ({
+  registerShopifySyncWebhooks: vi.fn(),
+  verifyShopifySyncWebhooks: vi.fn(),
+}));
+
 vi.mock("@/lib/shopify/commerce-sync", () => ({
   syncShopifyOrdersWindow: vi.fn(),
   syncShopifyReturnsWindow: vi.fn(),
@@ -30,11 +47,15 @@ vi.mock("@/lib/shopify/revenue-ledger", () => ({
 }));
 
 const admin = await import("@/lib/shopify/admin");
+const integrations = await import("@/lib/integrations");
 const commerceSync = await import("@/lib/shopify/commerce-sync");
+const readAdapter = await import("@/lib/shopify/read-adapter");
+const shopifyStatus = await import("@/lib/shopify/status");
+const webhooks = await import("@/lib/shopify/webhooks");
 const syncState = await import("@/lib/shopify/sync-state");
 const warehouseOverview = await import("@/lib/shopify/warehouse-overview");
 const revenueLedger = await import("@/lib/shopify/revenue-ledger");
-const { syncShopifyCommerceReports } = await import("@/lib/sync/shopify-sync");
+const { syncShopifyCommerceReports, ensureShopifyProviderReady } = await import("@/lib/sync/shopify-sync");
 
 describe("syncShopifyCommerceReports", () => {
   beforeEach(() => {
@@ -49,6 +70,33 @@ describe("syncShopifyCommerceReports", () => {
     });
     vi.mocked(syncState.getShopifySyncState).mockResolvedValue(null);
     vi.mocked(syncState.upsertShopifySyncState).mockResolvedValue(undefined);
+    vi.mocked(integrations.mergeIntegrationMetadata).mockResolvedValue(undefined);
+    vi.mocked(readAdapter.getShopifyOverviewReadCandidate).mockResolvedValue({
+      preferredSource: "live",
+      servingMetadata: {
+        trustState: "live_fallback",
+        fallbackReason: "pending_repair",
+      },
+    } as never);
+    vi.mocked(shopifyStatus.getShopifyStatus).mockResolvedValue({
+      state: "partial",
+      issues: [],
+    } as never);
+    vi.mocked(webhooks.verifyShopifySyncWebhooks).mockResolvedValue({
+      desiredTopics: ["ORDERS_CREATE"],
+      existingTopics: ["ORDERS_CREATE"],
+      missingTopics: [],
+      extraTopics: [],
+      callbackUrl: "https://app.example.com/api/webhooks/shopify/sync",
+    } as never);
+    vi.mocked(webhooks.registerShopifySyncWebhooks).mockResolvedValue({
+      desiredTopics: ["ORDERS_CREATE"],
+      existingTopics: ["ORDERS_CREATE"],
+      missingTopics: [],
+      extraTopics: [],
+      created: [],
+      callbackUrl: "https://app.example.com/api/webhooks/shopify/sync",
+    } as never);
     vi.mocked(warehouseOverview.getShopifyWarehouseOverviewAggregate).mockResolvedValue({
       revenue: 999,
       grossRevenue: 1100,
@@ -227,5 +275,29 @@ describe("syncShopifyCommerceReports", () => {
       })
     );
     delete process.env.SHOPIFY_HISTORICAL_SYNC_ENABLED;
+  });
+
+  it("orchestrates provider readiness and persists readiness summary", async () => {
+    const result = await ensureShopifyProviderReady({
+      businessId: "biz_1",
+      recentWindowDays: 30,
+      preferredVisibleWindowDays: 90,
+      runHistoricalBootstrap: false,
+      triggerReason: "admin:run_recent_bootstrap",
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        success: true,
+        servingWindow: expect.objectContaining({
+          startDate: expect.any(String),
+          endDate: expect.any(String),
+        }),
+      })
+    );
+    expect(webhooks.verifyShopifySyncWebhooks).toHaveBeenCalled();
+    expect(webhooks.registerShopifySyncWebhooks).toHaveBeenCalled();
+    expect(readAdapter.getShopifyOverviewReadCandidate).toHaveBeenCalled();
+    expect(integrations.mergeIntegrationMetadata).toHaveBeenCalled();
   });
 });

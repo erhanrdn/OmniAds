@@ -193,6 +193,25 @@ export interface OverviewData {
     revenue: number;
     roas: number;
   }>;
+  shopifyServing?: {
+    source: "warehouse" | "live" | "none";
+    provider: "shopify";
+    trustState: "trusted" | "live_fallback" | "pending_repair" | "disabled" | "no_data";
+    fallbackReason: string | null;
+    lastSyncedAt: string | null;
+    coverageStatus: "recent_ready" | "recent_only" | "historical_incomplete" | "unknown";
+    productionMode: "disabled" | "auto" | "force_live" | "force_warehouse";
+    pendingRepair: boolean;
+    pendingRepairStartedAt: string | null;
+    pendingRepairLastTopic: string | null;
+    pendingRepairLastReceivedAt: string | null;
+    selectedRevenueTruthBasis: string | null;
+    basisSelectionReason: string | null;
+    transactionCoverageOrderRate: number | null;
+    transactionCoverageAmountRate: number | null;
+    explainedAdjustmentRevenue: number | null;
+    unexplainedAdjustmentRevenue: number | null;
+  } | null;
 }
 
 export type OverviewMetricUnit =
@@ -296,4 +315,5 @@ export interface OverviewSummaryData {
   customMetrics: OverviewMetricCardData[];
   webAnalytics: OverviewMetricCardData[];
   insights: OverviewInsightCard[];
+  shopifyServing: NonNullable<OverviewData["shopifyServing"]> | null;
 }

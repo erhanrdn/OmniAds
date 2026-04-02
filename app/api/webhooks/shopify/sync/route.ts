@@ -3,11 +3,128 @@ import { getDb } from "@/lib/db";
 import { runMigrations } from "@/lib/migrations";
 import { syncShopifyCommerceReports } from "@/lib/sync/shopify-sync";
 import {
+  buildShopifyOverviewCanaryKey,
+  SHOPIFY_OVERVIEW_CANARY_TIMEZONE_BASIS,
+} from "@/lib/shopify/serving";
+import {
   buildShopifyWebhookPayloadHash,
-  classifyShopifySyncWebhookTopic,
+  resolveShopifySyncWebhookRepairPolicy,
 } from "@/lib/shopify/webhooks";
-import { getShopifyWebhookDelivery, upsertShopifyWebhookDelivery } from "@/lib/shopify/warehouse";
+import {
+  getShopifyWebhookDelivery,
+  upsertShopifyRepairIntent,
+  getShopifyServingState,
+  upsertShopifyServingState,
+  upsertShopifyWebhookDelivery,
+} from "@/lib/shopify/warehouse";
 import { verifyShopifyWebhook } from "@/lib/shopify/webhook-verification";
+
+function shiftIsoDate(date: string, dayDelta: number) {
+  const value = new Date(`${date}T00:00:00.000Z`);
+  value.setUTCDate(value.getUTCDate() + dayDelta);
+  return value.toISOString().slice(0, 10);
+}
+
+async function markRecentShopifyRangesPendingRepair(input: {
+  businessId: string;
+  providerAccountId: string;
+  anchorDate: string;
+  topic: string | null;
+  receivedAt: string;
+}) {
+  const existingProductionMode = (value: unknown) =>
+    value === "disabled" ||
+    value === "auto" ||
+    value === "force_live" ||
+    value === "force_warehouse"
+      ? value
+      : null;
+  const existingCoverageStatus = (value: unknown) =>
+    value === "recent_ready" ||
+    value === "recent_only" ||
+    value === "historical_incomplete" ||
+    value === "unknown"
+      ? value
+      : "unknown";
+
+  const ranges = [
+    { startDate: input.anchorDate, endDate: input.anchorDate },
+    { startDate: shiftIsoDate(input.anchorDate, -6), endDate: input.anchorDate },
+    { startDate: shiftIsoDate(input.anchorDate, -29), endDate: input.anchorDate },
+  ];
+
+  await Promise.all(
+    ranges.map(async ({ startDate, endDate }) => {
+      const canaryKey = buildShopifyOverviewCanaryKey({
+        startDate,
+        endDate,
+        timeZoneBasis: SHOPIFY_OVERVIEW_CANARY_TIMEZONE_BASIS,
+      });
+      const existing = await getShopifyServingState({
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        canaryKey,
+      }).catch(() => null);
+      await upsertShopifyServingState({
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        canaryKey,
+        startDate,
+        endDate,
+        timeZoneBasis: SHOPIFY_OVERVIEW_CANARY_TIMEZONE_BASIS,
+        assessedAt: input.receivedAt,
+        statusState: existing?.statusState ?? "partial",
+        preferredSource: "live",
+        productionMode: existingProductionMode(existing?.productionMode),
+        trustState: "pending_repair",
+        fallbackReason: "pending_repair",
+        coverageStatus: existingCoverageStatus(existing?.coverageStatus),
+        pendingRepair: true,
+        pendingRepairStartedAt: existing?.pendingRepairStartedAt ?? input.receivedAt,
+        pendingRepairLastTopic: input.topic,
+        pendingRepairLastReceivedAt: input.receivedAt,
+        consecutiveCleanValidations: 0,
+        canServeWarehouse: false,
+        canaryEnabled: existing?.canaryEnabled ?? true,
+        decisionReasons: ["pending_repair"],
+        divergence: existing?.divergence ?? null,
+        ordersRecentSyncedAt: existing?.ordersRecentSyncedAt ?? null,
+        ordersRecentCursorTimestamp: existing?.ordersRecentCursorTimestamp ?? null,
+        ordersRecentCursorValue: existing?.ordersRecentCursorValue ?? null,
+        returnsRecentSyncedAt: existing?.returnsRecentSyncedAt ?? null,
+        returnsRecentCursorTimestamp: existing?.returnsRecentCursorTimestamp ?? null,
+        returnsRecentCursorValue: existing?.returnsRecentCursorValue ?? null,
+        ordersHistoricalSyncedAt: existing?.ordersHistoricalSyncedAt ?? null,
+        ordersHistoricalReadyThroughDate: existing?.ordersHistoricalReadyThroughDate ?? null,
+        ordersHistoricalTargetEnd: existing?.ordersHistoricalTargetEnd ?? null,
+        returnsHistoricalSyncedAt: existing?.returnsHistoricalSyncedAt ?? null,
+        returnsHistoricalReadyThroughDate: existing?.returnsHistoricalReadyThroughDate ?? null,
+        returnsHistoricalTargetEnd: existing?.returnsHistoricalTargetEnd ?? null,
+      }).catch(() => null);
+    })
+  );
+}
+
+function resolveRepairIntent(input: { topic: string | null; payload: unknown }) {
+  const record = input.payload && typeof input.payload === "object"
+    ? (input.payload as Record<string, unknown>)
+    : null;
+  const rawId =
+    record?.admin_graphql_api_id ??
+    record?.id ??
+    record?.refund_id ??
+    record?.return_id ??
+    null;
+  const entityId = rawId == null ? null : String(rawId);
+  if (!entityId) return null;
+  if (input.topic?.startsWith("REFUNDS_")) {
+    return { entityType: "refund" as const, entityId };
+  }
+  if (input.topic?.startsWith("RETURNS_")) {
+    return { entityType: "return" as const, entityId };
+  }
+  return { entityType: "order" as const, entityId };
+}
 
 /**
  * POST /api/webhooks/shopify/sync
@@ -29,7 +146,12 @@ export async function POST(request: NextRequest) {
     shopDomain: shopDomain ?? "unknown",
     body: result.body,
   });
-  const topicMeta = classifyShopifySyncWebhookTopic(topic);
+  const receivedAt = new Date();
+  const topicMeta = resolveShopifySyncWebhookRepairPolicy({
+    topic,
+    payload,
+    receivedAt,
+  });
   const existingDelivery = await getShopifyWebhookDelivery({
     shopDomain: shopDomain ?? "unknown",
     topic: topic ?? "unknown",
@@ -66,7 +188,7 @@ export async function POST(request: NextRequest) {
     webhookId,
     payloadHash,
     payloadJson: payload,
-    receivedAt: new Date().toISOString(),
+    receivedAt: receivedAt.toISOString(),
     processingState: match ? "received" : "ignored",
     resultSummary: match
       ? {
@@ -74,8 +196,18 @@ export async function POST(request: NextRequest) {
           supportedTopic: topicMeta.supported,
           entity: topicMeta.entity,
           action: topicMeta.action,
+          eventTimestamp: topicMeta.eventTimestamp,
+          eventAgeDays: topicMeta.eventAgeDays,
+          windowExpanded: topicMeta.windowExpanded,
         }
-      : { ignored: true, supportedTopic: topicMeta.supported, entity: topicMeta.entity },
+      : {
+          ignored: true,
+          supportedTopic: topicMeta.supported,
+          entity: topicMeta.entity,
+          eventTimestamp: topicMeta.eventTimestamp,
+          eventAgeDays: topicMeta.eventAgeDays,
+          windowExpanded: topicMeta.windowExpanded,
+        },
   }).catch(() => null);
 
   console.log("[shopify-webhook] sync received", {
@@ -86,6 +218,32 @@ export async function POST(request: NextRequest) {
 
   if (!match) {
     return NextResponse.json({ received: true, ignored: true }, { status: 200 });
+  }
+  if (topicMeta.shouldTriggerSync) {
+    const repairIntent = resolveRepairIntent({ topic, payload });
+    const anchorDate = (topicMeta.eventTimestamp ?? receivedAt.toISOString()).slice(0, 10);
+    if (repairIntent) {
+      await upsertShopifyRepairIntent({
+        businessId: match.business_id,
+        providerAccountId: match.provider_account_id,
+        entityType: repairIntent.entityType,
+        entityId: repairIntent.entityId,
+        topic: topic ?? "unknown",
+        payloadHash,
+        eventTimestamp: topicMeta.eventTimestamp,
+        eventAgeDays: topicMeta.eventAgeDays,
+        escalationLevel: topicMeta.windowExpanded ? 1 : 0,
+        status: "pending",
+        attemptCount: 0,
+      }).catch(() => null);
+    }
+    await markRecentShopifyRangesPendingRepair({
+      businessId: match.business_id,
+      providerAccountId: match.provider_account_id,
+      anchorDate,
+      topic,
+      receivedAt: receivedAt.toISOString(),
+    }).catch(() => null);
   }
   if (!topicMeta.shouldTriggerSync) {
     await upsertShopifyWebhookDelivery({
@@ -105,6 +263,9 @@ export async function POST(request: NextRequest) {
         action: topicMeta.action,
         repairPolicy: {
           recentWindowDays: topicMeta.recentWindowDays,
+          eventTimestamp: topicMeta.eventTimestamp,
+          eventAgeDays: topicMeta.eventAgeDays,
+          windowExpanded: topicMeta.windowExpanded,
           recentTargets: topicMeta.recentTargets,
           allowHistorical: topicMeta.allowHistorical,
         },
@@ -139,6 +300,9 @@ export async function POST(request: NextRequest) {
               triggerReason: topicMeta.triggerReason,
               repairPolicy: {
                 recentWindowDays: topicMeta.recentWindowDays,
+                eventTimestamp: topicMeta.eventTimestamp,
+                eventAgeDays: topicMeta.eventAgeDays,
+                windowExpanded: topicMeta.windowExpanded,
                 recentTargets: topicMeta.recentTargets,
                 allowHistorical: topicMeta.allowHistorical,
               },
@@ -147,6 +311,26 @@ export async function POST(request: NextRequest) {
             }
           : { ok: true, topic, entity: topicMeta.entity, action: topicMeta.action },
     }).catch(() => null);
+    const repairIntent = resolveRepairIntent({ topic, payload });
+    if (repairIntent) {
+      await upsertShopifyRepairIntent({
+        businessId: match.business_id,
+        providerAccountId: match.provider_account_id,
+        entityType: repairIntent.entityType,
+        entityId: repairIntent.entityId,
+        topic: topic ?? "unknown",
+        payloadHash,
+        eventTimestamp: topicMeta.eventTimestamp,
+        eventAgeDays: topicMeta.eventAgeDays,
+        escalationLevel: topicMeta.windowExpanded ? 1 : 0,
+        status: "processed",
+        attemptCount: retryAttempted ? 2 : 1,
+        lastSyncResult:
+          syncResult && typeof syncResult === "object"
+            ? (syncResult as Record<string, unknown>)
+            : { ok: true },
+      }).catch(() => null);
+    }
   } catch (error) {
     await upsertShopifyWebhookDelivery({
       businessId: match.business_id,
@@ -166,12 +350,32 @@ export async function POST(request: NextRequest) {
         retryAttempted,
         repairPolicy: {
           recentWindowDays: topicMeta.recentWindowDays,
+          eventTimestamp: topicMeta.eventTimestamp,
+          eventAgeDays: topicMeta.eventAgeDays,
+          windowExpanded: topicMeta.windowExpanded,
           recentTargets: topicMeta.recentTargets,
           allowHistorical: topicMeta.allowHistorical,
         },
       },
       errorMessage: error instanceof Error ? error.message : String(error),
     }).catch(() => null);
+    const repairIntent = resolveRepairIntent({ topic, payload });
+    if (repairIntent) {
+      await upsertShopifyRepairIntent({
+        businessId: match.business_id,
+        providerAccountId: match.provider_account_id,
+        entityType: repairIntent.entityType,
+        entityId: repairIntent.entityId,
+        topic: topic ?? "unknown",
+        payloadHash,
+        eventTimestamp: topicMeta.eventTimestamp,
+        eventAgeDays: topicMeta.eventAgeDays,
+        escalationLevel: topicMeta.windowExpanded ? 2 : 1,
+        status: "failed",
+        attemptCount: retryAttempted ? 2 : 1,
+        lastError: error instanceof Error ? error.message : String(error),
+      }).catch(() => null);
+    }
   }
 
   return NextResponse.json({ received: true }, { status: 200 });

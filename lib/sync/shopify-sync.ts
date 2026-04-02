@@ -1,6 +1,10 @@
+import { mergeIntegrationMetadata } from "@/lib/integrations";
 import { hasShopifyScope, resolveShopifyAdminCredentials } from "@/lib/shopify/admin";
+import { getShopifyOverviewReadCandidate } from "@/lib/shopify/read-adapter";
 import { syncShopifyOrdersWindow, syncShopifyReturnsWindow } from "@/lib/shopify/commerce-sync";
 import { getShopifyRevenueLedgerAggregate } from "@/lib/shopify/revenue-ledger";
+import { getShopifyStatus } from "@/lib/shopify/status";
+import { registerShopifySyncWebhooks, verifyShopifySyncWebhooks } from "@/lib/shopify/webhooks";
 import { getShopifyWarehouseOverviewAggregate } from "@/lib/shopify/warehouse-overview";
 import { getShopifySyncState, upsertShopifySyncState } from "@/lib/shopify/sync-state";
 import type { RunnerLeaseGuard } from "@/lib/sync/worker-runtime";
@@ -15,6 +19,15 @@ function envNumber(name: string, fallback: number) {
 function envFlag(name: string) {
   const raw = process.env[name]?.trim().toLowerCase();
   return raw === "1" || raw === "true";
+}
+
+function orchestrationStamp(step: string, status: "running" | "succeeded" | "failed" | "skipped", summary?: Record<string, unknown>) {
+  return {
+    step,
+    status,
+    recordedAt: new Date().toISOString(),
+    ...(summary ? { summary } : {}),
+  };
 }
 
 function getTodayIsoForTimeZoneServer(timeZone: string): string {
@@ -573,4 +586,156 @@ export async function syncShopifyCommerceReports(
     }
     throw error;
   }
+}
+
+export async function ensureShopifyProviderReady(input: {
+  businessId: string;
+  recentWindowDays?: number;
+  preferredVisibleWindowDays?: number;
+  runHistoricalBootstrap?: boolean;
+  triggerReason?: string;
+}) {
+  const startedAt = new Date().toISOString();
+  const visibleWindowDays = Math.max(
+    input.recentWindowDays ?? 30,
+    input.preferredVisibleWindowDays ?? 90
+  );
+  const writeProgress = async (patch: Record<string, unknown>) =>
+    mergeIntegrationMetadata({
+      businessId: input.businessId,
+      provider: "shopify",
+      metadata: {
+        shopifyProviderReadiness: {
+          startedAt,
+          updatedAt: new Date().toISOString(),
+          ...patch,
+        },
+      },
+    }).catch(() => {});
+
+  await writeProgress({
+    status: "running",
+    visibleWindowDays,
+    triggerReason: input.triggerReason ?? null,
+    steps: [orchestrationStamp("start", "running")],
+  });
+
+  const credentials = await resolveShopifyAdminCredentials(input.businessId).catch(() => null);
+  if (!credentials) {
+    await writeProgress({
+      status: "failed",
+      steps: [orchestrationStamp("auth", "failed", { reason: "not_connected" })],
+      lastError: "not_connected",
+    });
+    return { success: false as const, reason: "not_connected" };
+  }
+
+  const steps: Array<Record<string, unknown>> = [];
+  steps.push(
+    orchestrationStamp("auth", "succeeded", {
+      shopId: credentials.shopId,
+      hasReadAllOrders: hasShopifyScope(credentials.scopes, "read_all_orders"),
+      hasReadReturns: hasShopifyScope(credentials.scopes, "read_returns"),
+    })
+  );
+
+  const webhookVerification = await verifyShopifySyncWebhooks({
+    shopId: credentials.shopId,
+    accessToken: credentials.accessToken,
+  }).catch((error) => ({
+    callbackUrl: null,
+    desiredTopics: [] as string[],
+    existingTopics: [] as string[],
+    missingTopics: [] as string[],
+    extraTopics: [] as string[],
+    error: error instanceof Error ? error.message : String(error),
+  }));
+  if ("error" in webhookVerification) {
+    steps.push(orchestrationStamp("webhooks_verify", "failed", { error: webhookVerification.error }));
+  } else {
+    const registration = await registerShopifySyncWebhooks({
+      shopId: credentials.shopId,
+      accessToken: credentials.accessToken,
+    }).catch((error) => ({
+      ...webhookVerification,
+      created: [] as string[],
+      error: error instanceof Error ? error.message : String(error),
+    }));
+    steps.push(
+      "error" in registration
+        ? orchestrationStamp("webhooks_register", "failed", { error: registration.error })
+        : orchestrationStamp("webhooks_register", "succeeded", registration)
+    );
+  }
+
+  const recentSync = await syncShopifyCommerceReports(input.businessId, {
+    recentWindowDays: visibleWindowDays,
+    allowHistorical: input.runHistoricalBootstrap ?? true,
+    triggerReason: input.triggerReason ?? "manual:ensure_provider_ready",
+    recentTargets: { orders: true, returns: true },
+  });
+  steps.push(
+    orchestrationStamp(
+      "recent_bootstrap",
+      recentSync.success ? "succeeded" : "failed",
+      recentSync as unknown as Record<string, unknown>
+    )
+  );
+
+  const today = getTodayIsoForTimeZoneServer(
+    typeof credentials.metadata?.iana_timezone === "string"
+      ? credentials.metadata.iana_timezone
+      : "UTC"
+  );
+  const startDate = toIsoDate(addDays(new Date(`${today}T00:00:00Z`), -(visibleWindowDays - 1)));
+  const servingCandidate = await getShopifyOverviewReadCandidate({
+    businessId: input.businessId,
+    startDate,
+    endDate: today,
+  }).catch((error) => ({
+    error: error instanceof Error ? error.message : String(error),
+  }));
+  steps.push(
+    "error" in servingCandidate
+      ? orchestrationStamp("serving_refresh", "failed", { error: servingCandidate.error })
+      : orchestrationStamp("serving_refresh", "succeeded", {
+          preferredSource: servingCandidate.preferredSource,
+          trustState: servingCandidate.servingMetadata.trustState,
+          fallbackReason: servingCandidate.servingMetadata.fallbackReason,
+        })
+  );
+
+  const status = await getShopifyStatus({
+    businessId: input.businessId,
+    startDate,
+    endDate: today,
+  }).catch(() => null);
+
+  await writeProgress({
+    status: recentSync.success ? "succeeded" : "failed",
+    visibleWindowDays,
+    latestSummary: recentSync,
+    servingWindow: { startDate, endDate: today },
+    steps,
+    healthState: status?.state ?? null,
+    completedAt: new Date().toISOString(),
+    historicalCoverageIncomplete:
+      !hasShopifyScope(credentials.scopes, "read_all_orders") || status?.issues.some((issue) => issue.includes("Historical Shopify backfill")) === true,
+  });
+
+  return {
+    success: recentSync.success,
+    recentSync,
+    status,
+    servingWindow: { startDate, endDate: today },
+    webhookCoverage:
+      "error" in webhookVerification
+        ? null
+        : {
+            desiredTopics: webhookVerification.desiredTopics,
+            existingTopics: webhookVerification.existingTopics,
+            missingTopics: webhookVerification.missingTopics,
+            extraTopics: webhookVerification.extraTopics,
+          },
+  };
 }

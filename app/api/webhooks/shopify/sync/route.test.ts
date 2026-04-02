@@ -19,6 +19,9 @@ vi.mock("@/lib/sync/shopify-sync", () => ({
 
 vi.mock("@/lib/shopify/warehouse", () => ({
   getShopifyWebhookDelivery: vi.fn(),
+  upsertShopifyRepairIntent: vi.fn(),
+  getShopifyServingState: vi.fn(),
+  upsertShopifyServingState: vi.fn(),
   upsertShopifyWebhookDelivery: vi.fn(),
 }));
 
@@ -32,6 +35,9 @@ describe("POST /api/webhooks/shopify/sync", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     vi.mocked(warehouse.getShopifyWebhookDelivery).mockResolvedValue(null as never);
+    vi.mocked(warehouse.upsertShopifyRepairIntent).mockResolvedValue(undefined as never);
+    vi.mocked(warehouse.getShopifyServingState).mockResolvedValue(null as never);
+    vi.mocked(warehouse.upsertShopifyServingState).mockResolvedValue(undefined as never);
   });
 
   it("records and processes a matched Shopify sync webhook", async () => {
@@ -77,6 +83,8 @@ describe("POST /api/webhooks/shopify/sync", () => {
       },
       allowHistorical: false,
     });
+    expect(warehouse.upsertShopifyServingState).toHaveBeenCalledTimes(3);
+    expect(warehouse.upsertShopifyRepairIntent).toHaveBeenCalled();
     expect(warehouse.upsertShopifyWebhookDelivery).toHaveBeenCalled();
   });
 
@@ -187,5 +195,53 @@ describe("POST /api/webhooks/shopify/sync", () => {
       allowHistorical: false,
     });
     expect(warehouse.upsertShopifyWebhookDelivery).toHaveBeenCalled();
+  });
+
+  it("expands stale webhook repairs beyond the base recent window", async () => {
+    vi.mocked(verification.verifyShopifyWebhook).mockResolvedValue({
+      valid: true,
+      body: JSON.stringify({ id: "order_5", updated_at: "2026-03-20T10:00:00Z" }),
+    } as never);
+    vi.mocked(db.getDb).mockReturnValue(
+      vi.fn().mockResolvedValue([
+        {
+          business_id: "biz_1",
+          provider_account_id: "test-shop.myshopify.com",
+        },
+      ]) as never
+    );
+    vi.mocked(shopifySync.syncShopifyCommerceReports).mockResolvedValue({
+      success: true,
+      reason: "ok",
+    } as never);
+    vi.mocked(warehouse.upsertShopifyWebhookDelivery).mockResolvedValue(undefined);
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-02T10:00:00Z"));
+
+    const request = new NextRequest("http://localhost:3000/api/webhooks/shopify/sync", {
+      method: "POST",
+      headers: {
+        "x-shopify-topic": "ORDERS_UPDATED",
+        "x-shopify-shop-domain": "test-shop.myshopify.com",
+        "x-shopify-webhook-id": "wh_5",
+      },
+      body: JSON.stringify({ id: "order_5", updated_at: "2026-03-20T10:00:00Z" }),
+    });
+
+    const response = await POST(request as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.received).toBe(true);
+    expect(shopifySync.syncShopifyCommerceReports).toHaveBeenCalledWith("biz_1", {
+      recentWindowDays: 14,
+      triggerReason: "webhook:orders:update",
+      recentTargets: {
+        orders: true,
+        returns: false,
+      },
+      allowHistorical: false,
+    });
+    vi.useRealTimers();
   });
 });

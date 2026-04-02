@@ -105,6 +105,44 @@ describe("compareShopifyAggregates", () => {
     expect(result.maxDailyPurchaseDelta).toBe(6);
   });
 
+  it("treats warehouse-only daily rows as divergence instead of ignoring them", () => {
+    const result = compareShopifyAggregates({
+      live: {
+        revenue: 0,
+        purchases: 0,
+        averageOrderValue: null,
+        sessions: null,
+        conversionRate: null,
+        newCustomers: null,
+        returningCustomers: null,
+        dailyTrends: [],
+      },
+      warehouse: {
+        revenue: 120,
+        grossRevenue: 120,
+        refundedRevenue: 0,
+        purchases: 1,
+        returnEvents: 0,
+        averageOrderValue: 120,
+        daily: [
+          {
+            date: "2026-03-01",
+            orderRevenue: 120,
+            refundedRevenue: 0,
+            netRevenue: 120,
+            orders: 1,
+            returnEvents: 0,
+          },
+        ],
+      },
+    });
+
+    expect(result.revenueDeltaPercent).toBe(100);
+    expect(result.maxDailyRevenueDeltaPercent).toBe(100);
+    expect(result.maxDailyPurchaseDelta).toBe(1);
+    expect(result.withinThreshold).toBe(false);
+  });
+
   it("flags ledger consistency drift when warehouse and ledger semantics diverge too far", () => {
     const result = compareShopifyWarehouseAndLedger({
       warehouse: {
@@ -114,7 +152,16 @@ describe("compareShopifyAggregates", () => {
         purchases: 10,
         returnEvents: 1,
         averageOrderValue: 110,
-        daily: [],
+        daily: [
+          {
+            date: "2026-03-01",
+            orderRevenue: 1100,
+            refundedRevenue: 100,
+            netRevenue: 1000,
+            orders: 10,
+            returnEvents: 1,
+          },
+        ],
       },
       ledger: {
         revenue: 930,
@@ -123,6 +170,13 @@ describe("compareShopifyAggregates", () => {
         purchases: 7,
         returnEvents: 1,
         averageOrderValue: 157.14,
+        currentOrderRevenue: 930,
+        grossMinusRefundsOrderRevenue: 930,
+        transactionCapturedRevenue: 1100,
+        transactionRefundedRevenue: 170,
+        transactionNetRevenue: 930,
+        transactionCoveredOrders: 7,
+        transactionCoverageRate: 70,
         daily: [
           {
             date: "2026-03-01",
@@ -152,14 +206,153 @@ describe("compareShopifyAggregates", () => {
     expect(result.withinThreshold).toBe(false);
     expect(result.revenueDeltaPercent).toBe(7);
     expect(result.purchaseDelta).toBe(-3);
-    expect(result.refundedRevenueDelta).toBe(70);
+    expect(result.refundedRevenueDelta).toBe(25);
     expect(result.returnEventDelta).toBe(0);
+    expect(result.orderRevenueTruthDelta).toBe(0);
+    expect(result.transactionRevenueDelta).toBe(0);
     expect(result.adjustmentRevenueDelta).toBe(-45);
     expect(result.failureReasons).toContain("revenue_delta_percent_above_threshold");
     expect(result.failureReasons).toContain("purchase_delta_above_threshold");
-    expect(result.failureReasons).toContain("refunded_revenue_delta_above_threshold");
     expect(result.failureReasons).toContain("daily_semantic_drift_above_threshold");
-    expect(result.maxDailySemanticDrift).toBe(215);
+    expect(result.maxDailySemanticDrift).toBe(140);
     expect(result.consistencyScore).toBeLessThan(100);
+  });
+
+  it("does not fail ledger trust on explained negative adjustment refunds when net revenue matches", () => {
+    const result = compareShopifyWarehouseAndLedger({
+      warehouse: {
+        revenue: 105,
+        grossRevenue: 120,
+        refundedRevenue: 0,
+        purchases: 1,
+        returnEvents: 0,
+        averageOrderValue: 120,
+        daily: [
+          {
+            date: "2026-03-01",
+            orderRevenue: 120,
+            refundedRevenue: 0,
+            netRevenue: 105,
+            orders: 1,
+            returnEvents: 0,
+          },
+        ],
+      },
+      ledger: {
+        revenue: 105,
+        grossRevenue: 120,
+        refundedRevenue: 15,
+        purchases: 1,
+        returnEvents: 0,
+        averageOrderValue: 105,
+        currentOrderRevenue: 105,
+        grossMinusRefundsOrderRevenue: 120,
+        transactionCapturedRevenue: 120,
+        transactionRefundedRevenue: 15,
+        transactionNetRevenue: 105,
+        transactionCoveredOrders: 1,
+        transactionCoverageRate: 100,
+        daily: [
+          {
+            date: "2026-03-01",
+            orderRevenue: 120,
+            refundedRevenue: 15,
+            netRevenue: 105,
+            orders: 1,
+            returnEvents: 0,
+            orderEventCount: 1,
+            adjustmentEventCount: 1,
+            refundEventCount: 0,
+            adjustmentRevenue: -15,
+            refundPressure: 15,
+            dailySemanticDrift: 30,
+          },
+        ],
+        ledgerRows: 2,
+        orderEventCount: 1,
+        adjustmentEventCount: 1,
+        refundEventCount: 0,
+        adjustmentRevenue: -15,
+        refundPressure: 15,
+        dailySemanticDrift: 30,
+      },
+    });
+
+    expect(result.revenueDelta).toBe(0);
+    expect(result.refundedRevenueDelta).toBe(0);
+    expect(result.refundPressureDelta).toBe(0);
+    expect(result.adjustmentRevenueDelta).toBe(0);
+    expect(result.maxDailyRefundPressureDelta).toBe(0);
+    expect(result.maxDailyAdjustmentDelta).toBe(0);
+    expect(result.maxDailySemanticDrift).toBe(0);
+    expect(result.failureReasons).toEqual([]);
+    expect(result.withinThreshold).toBe(true);
+  });
+
+  it("fails ledger trust when both order basis and transaction basis disagree at meaningful coverage", () => {
+    const result = compareShopifyWarehouseAndLedger({
+      warehouse: {
+        revenue: 100,
+        grossRevenue: 100,
+        refundedRevenue: 0,
+        purchases: 1,
+        returnEvents: 0,
+        averageOrderValue: 100,
+        daily: [
+          {
+            date: "2026-03-01",
+            orderRevenue: 100,
+            refundedRevenue: 0,
+            netRevenue: 100,
+            orders: 1,
+            returnEvents: 0,
+          },
+        ],
+      },
+      ledger: {
+        revenue: 160,
+        grossRevenue: 160,
+        refundedRevenue: 0,
+        purchases: 1,
+        returnEvents: 0,
+        averageOrderValue: 160,
+        currentOrderRevenue: 100,
+        grossMinusRefundsOrderRevenue: 100,
+        transactionCapturedRevenue: 100,
+        transactionRefundedRevenue: 0,
+        transactionNetRevenue: 100,
+        transactionCoveredOrders: 1,
+        transactionCoverageRate: 100,
+        daily: [
+          {
+            date: "2026-03-01",
+            orderRevenue: 160,
+            refundedRevenue: 0,
+            netRevenue: 160,
+            orders: 1,
+            returnEvents: 0,
+            orderEventCount: 1,
+            adjustmentEventCount: 0,
+            refundEventCount: 0,
+            adjustmentRevenue: 0,
+            refundPressure: 0,
+            dailySemanticDrift: 60,
+          },
+        ],
+        ledgerRows: 1,
+        orderEventCount: 1,
+        adjustmentEventCount: 0,
+        refundEventCount: 0,
+        adjustmentRevenue: 0,
+        refundPressure: 0,
+        dailySemanticDrift: 60,
+      },
+    });
+
+    expect(result.orderRevenueTruthDelta).toBe(60);
+    expect(result.transactionRevenueDelta).toBe(60);
+    expect(result.failureReasons).toContain("order_revenue_truth_delta_above_threshold");
+    expect(result.failureReasons).toContain("transaction_revenue_delta_above_threshold");
+    expect(result.withinThreshold).toBe(false);
   });
 });

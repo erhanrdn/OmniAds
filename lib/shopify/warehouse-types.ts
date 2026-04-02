@@ -134,6 +134,15 @@ export interface ShopifyServingStateRecord {
   preferredSource?: string | null;
   canServeWarehouse?: boolean;
   canaryEnabled?: boolean;
+  productionMode?: "disabled" | "auto" | "force_live" | "force_warehouse" | null;
+  trustState?: "trusted" | "live_fallback" | "pending_repair" | "disabled" | "no_data" | null;
+  fallbackReason?: string | null;
+  coverageStatus?: "recent_ready" | "recent_only" | "historical_incomplete" | "unknown" | null;
+  pendingRepair?: boolean;
+  pendingRepairStartedAt?: string | null;
+  pendingRepairLastTopic?: string | null;
+  pendingRepairLastReceivedAt?: string | null;
+  consecutiveCleanValidations?: number;
   decisionReasons?: string[] | null;
   divergence?: Record<string, unknown> | null;
   ordersRecentSyncedAt?: string | null;
@@ -183,6 +192,25 @@ export interface ShopifyWebhookDeliveryRecord {
   errorMessage?: string | null;
 }
 
+export interface ShopifyRepairIntentRecord {
+  id?: string;
+  businessId: string;
+  providerAccountId: string;
+  entityType: "order" | "refund" | "return";
+  entityId: string;
+  topic: string;
+  payloadHash: string;
+  eventTimestamp?: string | null;
+  eventAgeDays?: number | null;
+  escalationLevel?: number;
+  status: "pending" | "processed" | "failed";
+  attemptCount?: number;
+  lastError?: string | null;
+  lastSyncResult?: Record<string, unknown> | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
 export interface ShopifySalesEventWarehouseRow {
   businessId: string;
   providerAccountId: string;
@@ -212,6 +240,14 @@ export interface ShopifyReconciliationRunRecord {
   endDate?: string | null;
   preferredSource?: string | null;
   canServeWarehouse?: boolean;
+  selectedRevenueTruthBasis?: string | null;
+  basisSelectionReason?: string | null;
+  transactionCoverageOrderRate?: number | null;
+  transactionCoverageAmountRate?: number | null;
+  orderRevenueTruthDelta?: number | null;
+  transactionRevenueDelta?: number | null;
+  explainedAdjustmentRevenue?: number | null;
+  unexplainedAdjustmentRevenue?: number | null;
   divergence?: Record<string, unknown> | null;
   warehouseAggregate?: Record<string, unknown> | null;
   ledgerAggregate?: Record<string, unknown> | null;

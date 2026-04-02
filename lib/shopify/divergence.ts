@@ -6,6 +6,19 @@ function round2(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
+function percentDelta(base: number, delta: number) {
+  const normalizedBase = Math.abs(base);
+  const normalizedDelta = Math.abs(delta);
+  if (normalizedBase > 0) {
+    return round2((normalizedDelta / normalizedBase) * 100);
+  }
+  return normalizedDelta === 0 ? 0 : 100;
+}
+
+function explainedRefundLikeAdjustment(adjustmentRevenue: number) {
+  return round2(Math.abs(Math.min(adjustmentRevenue, 0)));
+}
+
 export interface ShopifyAggregateDivergence {
   liveRevenue: number;
   warehouseRevenue: number;
@@ -36,6 +49,16 @@ export interface ShopifyLedgerConsistency {
   warehouseReturnEvents: number;
   ledgerReturnEvents: number;
   returnEventDelta: number;
+  currentOrderRevenue: number | null;
+  grossMinusRefundsOrderRevenue: number | null;
+  preferredOrderRevenueBasis: "current_total_price" | "gross_minus_total_refunded" | null;
+  orderRevenueTruthDelta: number | null;
+  transactionNetRevenue: number | null;
+  transactionRevenueDelta: number | null;
+  transactionCoveredOrders: number;
+  transactionCoveredRevenue: number | null;
+  transactionCoverageRate: number | null;
+  transactionCoverageAmountRate: number | null;
   ledgerAdjustmentRevenue: number;
   adjustmentRevenueDelta: number;
   refundPressureDelta: number;
@@ -59,10 +82,7 @@ export function compareShopifyAggregates(input: {
   maxDailyPurchaseDelta?: number;
 }) {
   const revenueDelta = round2(input.warehouse.revenue - input.live.revenue);
-  const revenueDeltaPercent =
-    Math.abs(input.live.revenue) > 0
-      ? round2((Math.abs(revenueDelta) / Math.abs(input.live.revenue)) * 100)
-      : null;
+  const revenueDeltaPercent = percentDelta(input.live.revenue, revenueDelta);
   const purchaseDelta = input.warehouse.purchases - input.live.purchases;
   const aovDelta =
     input.live.averageOrderValue !== null && input.warehouse.averageOrderValue !== null
@@ -74,28 +94,30 @@ export function compareShopifyAggregates(input: {
   const maxDailyRevenueDeltaPercent = input.maxDailyRevenueDeltaPercent ?? 10;
   const maxDailyPurchaseDelta = input.maxDailyPurchaseDelta ?? 2;
 
-  const dailyByDate = new Map(
-    input.warehouse.daily.map((row) => [row.date, row])
-  );
+  const liveDailyByDate = new Map(input.live.dailyTrends.map((row) => [row.date, row]));
+  const warehouseDailyByDate = new Map(input.warehouse.daily.map((row) => [row.date, row]));
+  const allDates = new Set([
+    ...input.live.dailyTrends.map((row) => row.date),
+    ...input.warehouse.daily.map((row) => row.date),
+  ]);
   let observedMaxDailyRevenueDeltaPercent: number | null = null;
   let observedMaxDailyPurchaseDelta: number | null = null;
 
-  for (const liveRow of input.live.dailyTrends) {
-    const warehouseRow = dailyByDate.get(liveRow.date);
-    if (!warehouseRow) continue;
-    const revenueBase = Math.abs(liveRow.revenue);
-    const revenueDeltaForDay = Math.abs(round2(warehouseRow.netRevenue - liveRow.revenue));
-    const revenueDeltaPercentForDay =
-      revenueBase > 0 ? round2((revenueDeltaForDay / revenueBase) * 100) : null;
+  for (const date of allDates) {
+    const liveRow = liveDailyByDate.get(date);
+    const warehouseRow = warehouseDailyByDate.get(date);
+    const liveRevenue = round2(liveRow?.revenue ?? 0);
+    const warehouseRevenue = round2(warehouseRow?.netRevenue ?? 0);
+    const revenueDeltaForDay = round2(warehouseRevenue - liveRevenue);
+    const revenueDeltaPercentForDay = percentDelta(liveRevenue, revenueDeltaForDay);
     if (
-      revenueDeltaPercentForDay !== null &&
-      (observedMaxDailyRevenueDeltaPercent === null ||
-        revenueDeltaPercentForDay > observedMaxDailyRevenueDeltaPercent)
+      observedMaxDailyRevenueDeltaPercent === null ||
+      revenueDeltaPercentForDay > observedMaxDailyRevenueDeltaPercent
     ) {
       observedMaxDailyRevenueDeltaPercent = revenueDeltaPercentForDay;
     }
 
-    const purchaseDeltaForDay = Math.abs(warehouseRow.orders - liveRow.purchases);
+    const purchaseDeltaForDay = Math.abs((warehouseRow?.orders ?? 0) - (liveRow?.purchases ?? 0));
     if (
       observedMaxDailyPurchaseDelta === null ||
       purchaseDeltaForDay > observedMaxDailyPurchaseDelta
@@ -141,20 +163,76 @@ export function compareShopifyWarehouseAndLedger(input: {
   maxDailyRefundPressureDelta?: number;
   maxDailyAdjustmentDelta?: number;
   maxDailySemanticDrift?: number;
+  maxOrderRevenueTruthDelta?: number;
+  maxTransactionRevenueDelta?: number;
+  minTransactionCoverageRate?: number;
 }) {
   const revenueDelta = round2(input.ledger.revenue - input.warehouse.revenue);
-  const revenueDeltaPercent =
-    Math.abs(input.warehouse.revenue) > 0
-      ? round2((Math.abs(revenueDelta) / Math.abs(input.warehouse.revenue)) * 100)
-      : null;
+  const revenueDeltaPercent = percentDelta(input.warehouse.revenue, revenueDelta);
   const purchaseDelta = input.ledger.purchases - input.warehouse.purchases;
+  const explainedAdjustmentRefunds = explainedRefundLikeAdjustment(
+    input.ledger.adjustmentRevenue ?? 0
+  );
   const refundedRevenueDelta = round2(
-    input.ledger.refundedRevenue - input.warehouse.refundedRevenue
+    input.ledger.refundedRevenue - input.warehouse.refundedRevenue - explainedAdjustmentRefunds
   );
   const returnEventDelta = input.ledger.returnEvents - input.warehouse.returnEvents;
-  const adjustmentRevenueDelta = round2(input.ledger.adjustmentRevenue ?? 0);
+  const adjustmentRevenueDelta =
+    revenueDelta === 0 && refundedRevenueDelta === 0
+      ? 0
+      : round2(input.ledger.adjustmentRevenue ?? 0);
+  const currentOrderRevenue =
+    typeof input.ledger.currentOrderRevenue === "number"
+      ? round2(input.ledger.currentOrderRevenue)
+      : null;
+  const grossMinusRefundsOrderRevenue =
+    typeof input.ledger.grossMinusRefundsOrderRevenue === "number"
+      ? round2(input.ledger.grossMinusRefundsOrderRevenue)
+      : null;
+  const currentOrderTruthDelta =
+    currentOrderRevenue === null ? null : round2(input.ledger.revenue - currentOrderRevenue);
+  const grossMinusRefundsTruthDelta =
+    grossMinusRefundsOrderRevenue === null
+      ? null
+      : round2(input.ledger.revenue - grossMinusRefundsOrderRevenue);
+  let preferredOrderRevenueBasis: ShopifyLedgerConsistency["preferredOrderRevenueBasis"] = null;
+  let orderRevenueTruthDelta: number | null = null;
+  if (currentOrderTruthDelta !== null || grossMinusRefundsTruthDelta !== null) {
+    const currentAbs = currentOrderTruthDelta === null ? Number.POSITIVE_INFINITY : Math.abs(currentOrderTruthDelta);
+    const grossMinusRefundsAbs =
+      grossMinusRefundsTruthDelta === null ? Number.POSITIVE_INFINITY : Math.abs(grossMinusRefundsTruthDelta);
+    if (currentAbs <= grossMinusRefundsAbs) {
+      preferredOrderRevenueBasis = currentOrderTruthDelta === null ? null : "current_total_price";
+      orderRevenueTruthDelta = currentOrderTruthDelta;
+    } else {
+      preferredOrderRevenueBasis =
+        grossMinusRefundsTruthDelta === null ? null : "gross_minus_total_refunded";
+      orderRevenueTruthDelta = grossMinusRefundsTruthDelta;
+    }
+  }
+  const transactionNetRevenue =
+    typeof input.ledger.transactionNetRevenue === "number"
+      ? round2(input.ledger.transactionNetRevenue)
+      : null;
+  const transactionRevenueDelta =
+    transactionNetRevenue === null ? null : round2(input.ledger.revenue - transactionNetRevenue);
+  const transactionCoveredOrders = Math.max(0, Math.trunc(input.ledger.transactionCoveredOrders ?? 0));
+  const transactionCoveredRevenue =
+    typeof input.ledger.transactionCoveredRevenue === "number"
+      ? round2(input.ledger.transactionCoveredRevenue)
+      : null;
+  const transactionCoverageRate =
+    typeof input.ledger.transactionCoverageRate === "number"
+      ? round2(input.ledger.transactionCoverageRate)
+      : null;
+  const transactionCoverageAmountRate =
+    typeof input.ledger.transactionCoverageAmountRate === "number"
+      ? round2(input.ledger.transactionCoverageAmountRate)
+      : null;
   const refundPressureDelta = round2(
-    (input.ledger.refundPressure ?? input.ledger.refundedRevenue) - input.warehouse.refundedRevenue
+    (input.ledger.refundPressure ?? input.ledger.refundedRevenue) -
+      input.warehouse.refundedRevenue -
+      explainedAdjustmentRefunds
   );
   const maxRevenueDeltaPercent = input.maxRevenueDeltaPercent ?? 2;
   const maxPurchaseDelta = input.maxPurchaseDelta ?? 2;
@@ -166,35 +244,36 @@ export function compareShopifyWarehouseAndLedger(input: {
   const maxDailyRefundPressureDelta = input.maxDailyRefundPressureDelta ?? 35;
   const maxDailyAdjustmentDelta = input.maxDailyAdjustmentDelta ?? 40;
   const maxDailySemanticDrift = input.maxDailySemanticDrift ?? 75;
-  const dailyByDate = new Map(input.warehouse.daily.map((row) => [row.date, row]));
+  const maxOrderRevenueTruthDelta = input.maxOrderRevenueTruthDelta ?? 25;
+  const maxTransactionRevenueDelta = input.maxTransactionRevenueDelta ?? 35;
+  const minTransactionCoverageRate = input.minTransactionCoverageRate ?? 60;
+  const warehouseDailyByDate = new Map(input.warehouse.daily.map((row) => [row.date, row]));
+  const ledgerDailyByDate = new Map(input.ledger.daily.map((row) => [row.date, row]));
+  const allDates = new Set([
+    ...input.warehouse.daily.map((row) => row.date),
+    ...input.ledger.daily.map((row) => row.date),
+  ]);
   let observedMaxDailyRevenueDeltaPercent: number | null = null;
   let observedMaxDailyPurchaseDelta: number | null = null;
   let observedMaxDailyRefundPressureDelta: number | null = null;
   let observedMaxDailyAdjustmentDelta: number | null = null;
   let observedMaxDailySemanticDrift: number | null = null;
 
-  for (const ledgerRow of input.ledger.daily) {
-    const warehouseRow = dailyByDate.get(ledgerRow.date);
-    if (!warehouseRow) {
-      observedMaxDailySemanticDrift = Math.max(
-        observedMaxDailySemanticDrift ?? 0,
-        ledgerRow.dailySemanticDrift
-      );
-      continue;
-    }
-    const revenueBase = Math.abs(warehouseRow.netRevenue);
-    const dailyRevenueDelta = Math.abs(round2(ledgerRow.netRevenue - warehouseRow.netRevenue));
-    const dailyRevenueDeltaPercent =
-      revenueBase > 0 ? round2((dailyRevenueDelta / revenueBase) * 100) : null;
+  for (const date of allDates) {
+    const ledgerRow = ledgerDailyByDate.get(date);
+    const warehouseRow = warehouseDailyByDate.get(date);
+    const warehouseRevenue = round2(warehouseRow?.netRevenue ?? 0);
+    const ledgerRevenue = round2(ledgerRow?.netRevenue ?? 0);
+    const dailyRevenueDelta = round2(ledgerRevenue - warehouseRevenue);
+    const dailyRevenueDeltaPercent = percentDelta(warehouseRevenue, dailyRevenueDelta);
     if (
-      dailyRevenueDeltaPercent !== null &&
-      (observedMaxDailyRevenueDeltaPercent === null ||
-        dailyRevenueDeltaPercent > observedMaxDailyRevenueDeltaPercent)
+      observedMaxDailyRevenueDeltaPercent === null ||
+      dailyRevenueDeltaPercent > observedMaxDailyRevenueDeltaPercent
     ) {
       observedMaxDailyRevenueDeltaPercent = dailyRevenueDeltaPercent;
     }
 
-    const dailyPurchaseDelta = Math.abs(ledgerRow.orders - warehouseRow.orders);
+    const dailyPurchaseDelta = Math.abs((ledgerRow?.orders ?? 0) - (warehouseRow?.orders ?? 0));
     if (
       observedMaxDailyPurchaseDelta === null ||
       dailyPurchaseDelta > observedMaxDailyPurchaseDelta
@@ -202,12 +281,15 @@ export function compareShopifyWarehouseAndLedger(input: {
       observedMaxDailyPurchaseDelta = dailyPurchaseDelta;
     }
 
-    const semanticDrift = round2(
-      Math.abs(ledgerRow.adjustmentRevenue) +
-      Math.abs(ledgerRow.refundPressure - warehouseRow.refundedRevenue)
+    const explainedDailyAdjustmentRefunds = explainedRefundLikeAdjustment(
+      ledgerRow?.adjustmentRevenue ?? 0
     );
     const dailyRefundPressureDelta = Math.abs(
-      round2(ledgerRow.refundPressure - warehouseRow.refundedRevenue)
+      round2(
+        (ledgerRow?.refundPressure ?? ledgerRow?.refundedRevenue ?? 0) -
+          (warehouseRow?.refundedRevenue ?? 0) -
+          explainedDailyAdjustmentRefunds
+      )
     );
     if (
       observedMaxDailyRefundPressureDelta === null ||
@@ -215,13 +297,19 @@ export function compareShopifyWarehouseAndLedger(input: {
     ) {
       observedMaxDailyRefundPressureDelta = dailyRefundPressureDelta;
     }
-    const dailyAdjustmentDelta = Math.abs(round2(ledgerRow.adjustmentRevenue));
+    const dailyAdjustmentDelta =
+      dailyRevenueDelta === 0 && dailyRefundPressureDelta === 0
+        ? 0
+        : Math.abs(round2(ledgerRow?.adjustmentRevenue ?? 0));
     if (
       observedMaxDailyAdjustmentDelta === null ||
       dailyAdjustmentDelta > observedMaxDailyAdjustmentDelta
     ) {
       observedMaxDailyAdjustmentDelta = dailyAdjustmentDelta;
     }
+    const semanticDrift = round2(
+      Math.abs(dailyRevenueDelta) + dailyRefundPressureDelta + dailyAdjustmentDelta
+    );
     if (
       observedMaxDailySemanticDrift === null ||
       semanticDrift > observedMaxDailySemanticDrift
@@ -246,8 +334,18 @@ export function compareShopifyWarehouseAndLedger(input: {
   if (Math.abs(adjustmentRevenueDelta) > maxAdjustmentRevenueDelta) {
     failureReasons.push("adjustment_revenue_delta_above_threshold");
   }
+  if (orderRevenueTruthDelta !== null && Math.abs(orderRevenueTruthDelta) > maxOrderRevenueTruthDelta) {
+    failureReasons.push("order_revenue_truth_delta_above_threshold");
+  }
   if (Math.abs(refundPressureDelta) > maxRefundedRevenueDelta) {
     failureReasons.push("refund_pressure_delta_above_threshold");
+  }
+  if (
+    transactionRevenueDelta !== null &&
+    (transactionCoverageRate ?? 0) >= minTransactionCoverageRate &&
+    Math.abs(transactionRevenueDelta) > maxTransactionRevenueDelta
+  ) {
+    failureReasons.push("transaction_revenue_delta_above_threshold");
   }
   if (
     observedMaxDailyRevenueDeltaPercent !== null &&
@@ -286,7 +384,11 @@ export function compareShopifyWarehouseAndLedger(input: {
     Math.abs(refundedRevenueDelta) / maxRefundedRevenueDelta +
     Math.abs(returnEventDelta) / maxReturnEventDelta +
     Math.abs(adjustmentRevenueDelta) / maxAdjustmentRevenueDelta +
+    Math.abs(orderRevenueTruthDelta ?? 0) / maxOrderRevenueTruthDelta +
     Math.abs(refundPressureDelta) / maxRefundedRevenueDelta +
+    ((transactionCoverageRate ?? 0) >= minTransactionCoverageRate
+      ? Math.abs(transactionRevenueDelta ?? 0) / maxTransactionRevenueDelta
+      : 0) +
     (observedMaxDailyRevenueDeltaPercent ?? 0) / maxDailyRevenueDeltaPercent +
     (observedMaxDailyPurchaseDelta ?? 0) / maxDailyPurchaseDelta +
     (observedMaxDailyRefundPressureDelta ?? 0) / maxDailyRefundPressureDelta +
@@ -309,6 +411,16 @@ export function compareShopifyWarehouseAndLedger(input: {
     warehouseReturnEvents: input.warehouse.returnEvents,
     ledgerReturnEvents: input.ledger.returnEvents,
     returnEventDelta,
+    currentOrderRevenue,
+    grossMinusRefundsOrderRevenue,
+    preferredOrderRevenueBasis,
+    orderRevenueTruthDelta,
+    transactionNetRevenue,
+    transactionRevenueDelta,
+    transactionCoveredOrders,
+    transactionCoveredRevenue,
+    transactionCoverageRate,
+    transactionCoverageAmountRate,
     ledgerAdjustmentRevenue: round2(input.ledger.adjustmentRevenue ?? 0),
     adjustmentRevenueDelta,
     refundPressureDelta,

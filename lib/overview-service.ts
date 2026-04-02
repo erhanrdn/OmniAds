@@ -26,7 +26,10 @@ import {
 } from "@/lib/reporting-cache";
 import { getMetaWarehouseSummary } from "@/lib/meta/serving";
 import { getShopifyOverviewAggregate } from "@/lib/shopify/overview";
-import { getShopifyOverviewReadCandidate } from "@/lib/shopify/read-adapter";
+import {
+  getShopifyOverviewReadCandidate,
+  type ShopifyOverviewServingMetadata,
+} from "@/lib/shopify/read-adapter";
 
 interface TrendPoint {
   date: string;
@@ -91,6 +94,7 @@ export interface OverviewResponse {
     roas: number;
   };
   platformEfficiency: PlatformEfficiencyRow[];
+  shopifyServing?: ShopifyOverviewServingMetadata | null;
   providerTrends?: Partial<Record<"meta" | "google", TrendPoint[]>>;
   trends: {
     "7d": TrendPoint[];
@@ -433,6 +437,7 @@ async function resolveShopifyOverviewAggregateForRead(input: {
     });
 
     return {
+      aggregate: {
       revenue: candidate.warehouse.revenue,
       purchases: candidate.warehouse.purchases,
       averageOrderValue: candidate.warehouse.averageOrderValue,
@@ -449,6 +454,8 @@ async function resolveShopifyOverviewAggregateForRead(input: {
         newCustomers: null,
         returningCustomers: null,
       })),
+      },
+      serving: candidate.servingMetadata,
     };
   }
 
@@ -466,6 +473,7 @@ async function resolveShopifyOverviewAggregateForRead(input: {
     });
 
     return {
+      aggregate: {
       revenue: candidate.ledger.revenue,
       purchases: candidate.ledger.purchases,
       averageOrderValue: candidate.ledger.averageOrderValue,
@@ -482,6 +490,8 @@ async function resolveShopifyOverviewAggregateForRead(input: {
         newCustomers: null,
         returningCustomers: null,
       })),
+      },
+      serving: candidate.servingMetadata,
     };
   }
 
@@ -500,7 +510,18 @@ async function resolveShopifyOverviewAggregateForRead(input: {
     });
   }
 
-  return candidate.live;
+  return {
+    aggregate: candidate.live,
+    serving: candidate.servingMetadata,
+  };
+}
+
+export async function getShopifyOverviewServingData(params: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+}) {
+  return resolveShopifyOverviewAggregateForRead(params);
 }
 
 async function buildDailyTrends(params: {
@@ -508,7 +529,7 @@ async function buildDailyTrends(params: {
   startDate: string;
   endDate: string;
 }): Promise<DailyTrendsBundle> {
-  const shopifyAggregate = await resolveShopifyOverviewAggregateForRead(params).catch((error: unknown) => {
+  const shopifyResult = await resolveShopifyOverviewAggregateForRead(params).catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
     console.warn("[overview] shopify daily trends unavailable", {
       businessId: params.businessId,
@@ -529,7 +550,7 @@ async function buildDailyTrends(params: {
 
   return {
     combined: snapshots.map((s) => {
-      const shopifyDay = shopifyAggregate?.dailyTrends.find((entry) => entry.date === s.combined.date);
+      const shopifyDay = shopifyResult?.aggregate?.dailyTrends.find((entry) => entry.date === s.combined.date);
       return {
         date: s.combined.date,
         spend: s.combined.spend,
@@ -639,7 +660,8 @@ export async function getOverviewData(params: {
     console.warn("[overview] google ads overview unavailable", { businessId, message });
   }
 
-  const shopifyAggregate = shopifyResult.status === "fulfilled" ? shopifyResult.value : null;
+  const shopifyResolution = shopifyResult.status === "fulfilled" ? shopifyResult.value : null;
+  const shopifyAggregate = shopifyResolution?.aggregate ?? null;
   if (shopifyResult.status === "rejected") {
     const message =
       shopifyResult.reason instanceof Error
@@ -682,6 +704,7 @@ export async function getOverviewData(params: {
     shopify: shopifyAggregate,
     ga4Fallback,
   });
+  overview.shopifyServing = shopifyResolution?.serving ?? null;
 
   if (dailyTrends) {
     overview.providerTrends = dailyTrends.providerTrends;

@@ -1,3 +1,4 @@
+import { getIntegrationMetadata } from "@/lib/integrations";
 import { getShopifyOverviewAggregate } from "@/lib/shopify/overview";
 import { compareShopifyAggregates, compareShopifyWarehouseAndLedger } from "@/lib/shopify/divergence";
 import {
@@ -13,6 +14,82 @@ import {
   insertShopifyReconciliationRun,
   upsertShopifyServingState,
 } from "@/lib/shopify/warehouse";
+
+export type ShopifyProductionServingMode = "disabled" | "auto" | "force_live" | "force_warehouse";
+export type ShopifyServingTrustState =
+  | "trusted"
+  | "live_fallback"
+  | "pending_repair"
+  | "disabled"
+  | "no_data";
+export type ShopifyServingCoverageStatus =
+  | "recent_ready"
+  | "recent_only"
+  | "historical_incomplete"
+  | "unknown";
+
+export interface ShopifyOverviewServingMetadata {
+  source: "warehouse" | "live" | "none";
+  provider: "shopify";
+  trustState: ShopifyServingTrustState;
+  fallbackReason: string | null;
+  lastSyncedAt: string | null;
+  coverageStatus: ShopifyServingCoverageStatus;
+  productionMode: ShopifyProductionServingMode;
+  pendingRepair: boolean;
+  pendingRepairStartedAt: string | null;
+  pendingRepairLastTopic: string | null;
+  pendingRepairLastReceivedAt: string | null;
+  selectedRevenueTruthBasis: string | null;
+  basisSelectionReason: string | null;
+  transactionCoverageOrderRate: number | null;
+  transactionCoverageAmountRate: number | null;
+  explainedAdjustmentRevenue: number | null;
+  unexplainedAdjustmentRevenue: number | null;
+}
+
+function resolveProductionMode(raw: unknown): ShopifyProductionServingMode {
+  if (
+    raw === "disabled" ||
+    raw === "auto" ||
+    raw === "force_live" ||
+    raw === "force_warehouse"
+  ) {
+    return raw;
+  }
+  return "disabled";
+}
+
+function pickFallbackReason(reasons: string[]) {
+  return reasons[0] ?? null;
+}
+
+function pickLatestTimestamp(values: Array<string | null | undefined>) {
+  let latest: string | null = null;
+  let latestMs = Number.NEGATIVE_INFINITY;
+  for (const value of values) {
+    if (!value) continue;
+    const ms = new Date(value).getTime();
+    if (Number.isFinite(ms) && ms > latestMs) {
+      latest = value;
+      latestMs = ms;
+    }
+  }
+  return latest;
+}
+
+function resolveCoverageStatus(status: Awaited<ReturnType<typeof getShopifyStatus>>): ShopifyServingCoverageStatus {
+  if (!status.sync) return "unknown";
+  const ordersHistoricalReady = Boolean(status.sync.ordersHistorical?.readyThroughDate);
+  const returnsHistoricalReady = Boolean(status.sync.returnsHistorical?.readyThroughDate);
+  const ordersRecentReady = Boolean(status.sync.ordersRecent?.latestSuccessfulSyncAt);
+  const returnsRecentReady = Boolean(status.sync.returnsRecent?.latestSuccessfulSyncAt);
+
+  if (ordersHistoricalReady && returnsHistoricalReady) return "recent_ready";
+  if (ordersRecentReady && returnsRecentReady) return "historical_incomplete";
+  if (ordersRecentReady || returnsRecentReady) return "recent_only";
+  return "unknown";
+}
 
 function warehouseReadCanaryEnabled() {
   const raw = process.env.SHOPIFY_WAREHOUSE_READ_CANARY?.trim().toLowerCase();
@@ -41,7 +118,8 @@ export async function getShopifyOverviewReadCandidate(input: {
   startDate: string;
   endDate: string;
 }) {
-  const [status, live, warehouse, ledger] = await Promise.all([
+  const [integration, status, live, warehouse, ledger] = await Promise.all([
+    getIntegrationMetadata(input.businessId, "shopify").catch(() => null),
     getShopifyStatus({
       businessId: input.businessId,
       startDate: input.startDate,
@@ -87,6 +165,10 @@ export async function getShopifyOverviewReadCandidate(input: {
           ledger,
         })
       : null;
+  const persistedServing = status.serving;
+  const productionMode = resolveProductionMode(
+    integration?.metadata?.shopifyProductionServingMode
+  );
 
   const decisionReasons: string[] = [];
   const canaryEnabled = warehouseReadCanaryEnabled();
@@ -124,30 +206,60 @@ export async function getShopifyOverviewReadCandidate(input: {
 
   const forcedLive = override?.mode === "force_live";
   const forcedWarehouse = override?.mode === "force_warehouse";
+  const shopForcedLive = productionMode === "force_live";
+  const shopForcedWarehouse = productionMode === "force_warehouse";
+  const shopDisabled = productionMode === "disabled";
   if (forcedLive) {
     decisionReasons.push("override_force_live");
   }
   if (forcedWarehouse) {
     decisionReasons.push("override_force_warehouse");
   }
+  if (shopForcedLive) {
+    decisionReasons.push("shop_force_live");
+  }
+  if (shopForcedWarehouse) {
+    decisionReasons.push("shop_force_warehouse");
+  }
+  if (shopDisabled) {
+    decisionReasons.push("shop_production_serving_disabled");
+  }
 
-  const canServeWarehouse =
-    forcedWarehouse
+  const rawCanServeWarehouse =
+    forcedWarehouse || shopForcedWarehouse
       ? Boolean(warehouse)
       : !forcedLive &&
+        !shopForcedLive &&
+        !shopDisabled &&
         canaryEnabled &&
         (previewAllowed || defaultCutoverEligible) &&
         status.state === "ready" &&
         divergence?.withinThreshold === true &&
         (ledgerConsistency === null || ledgerConsistency.withinThreshold === true);
   const preferredWarehouseSource =
-    canServeWarehouse && ledger && ledgerConsistency?.withinThreshold === true
+    rawCanServeWarehouse && ledger && ledgerConsistency?.withinThreshold === true
       ? "ledger"
       : "warehouse";
 
+  const pendingRepair = persistedServing?.pendingRepair === true;
+  const canRecoverFromPendingRepair = rawCanServeWarehouse;
+  const nextConsecutiveCleanValidations =
+    pendingRepair && canRecoverFromPendingRepair
+      ? (persistedServing?.consecutiveCleanValidations ?? 0) + 1
+      : rawCanServeWarehouse
+        ? Math.max(1, persistedServing?.consecutiveCleanValidations ?? 0)
+        : 0;
+  const recoveryUnlocked =
+    pendingRepair && canRecoverFromPendingRepair && nextConsecutiveCleanValidations >= 2;
+  const shouldHoldLiveForPendingRepair = pendingRepair && !recoveryUnlocked;
+  if (shouldHoldLiveForPendingRepair) {
+    decisionReasons.push("pending_repair");
+  }
+
+  const canServeWarehouse = rawCanServeWarehouse && !shouldHoldLiveForPendingRepair;
   const preferredSource = canServeWarehouse
     ? preferredWarehouseSource
-    : forcedLive
+    : forcedLive || shopForcedLive || shopDisabled
       ? live
         ? "live"
         : warehouse
@@ -158,6 +270,46 @@ export async function getShopifyOverviewReadCandidate(input: {
       : warehouse
         ? "warehouse_shadow"
         : "none";
+
+  const selectedRevenueTruthBasis = ledgerConsistency?.preferredOrderRevenueBasis ?? null;
+  const ledgerAdjustmentRevenue =
+    typeof ledgerConsistency?.ledgerAdjustmentRevenue === "number"
+      ? ledgerConsistency.ledgerAdjustmentRevenue
+      : 0;
+  const explainedAdjustmentRevenue =
+    ledgerAdjustmentRevenue < 0
+      ? Math.abs(ledgerAdjustmentRevenue)
+      : 0;
+  const unexplainedAdjustmentRevenue =
+    ledgerAdjustmentRevenue > 0
+      ? ledgerAdjustmentRevenue
+      : 0;
+  const transactionCoverageAmountRate = ledgerConsistency?.transactionCoverageAmountRate ?? null;
+  const fallbackReason =
+    canServeWarehouse
+      ? null
+      : shopDisabled
+        ? "production_serving_disabled"
+        : shouldHoldLiveForPendingRepair
+          ? "pending_repair"
+          : pickFallbackReason(decisionReasons);
+  const trustState: ShopifyServingTrustState =
+    canServeWarehouse
+      ? "trusted"
+      : preferredSource === "none"
+        ? "no_data"
+        : shouldHoldLiveForPendingRepair
+          ? "pending_repair"
+          : shopDisabled
+            ? "disabled"
+            : "live_fallback";
+  const coverageStatus = resolveCoverageStatus(status);
+  const lastSyncedAt = pickLatestTimestamp([
+    status.sync?.ordersRecent?.latestSuccessfulSyncAt ?? null,
+    status.sync?.returnsRecent?.latestSuccessfulSyncAt ?? null,
+    status.sync?.ordersHistorical?.latestSuccessfulSyncAt ?? null,
+    status.sync?.returnsHistorical?.latestSuccessfulSyncAt ?? null,
+  ]);
 
   const canaryKey = buildShopifyOverviewCanaryKey({
     startDate: input.startDate,
@@ -175,6 +327,24 @@ export async function getShopifyOverviewReadCandidate(input: {
     assessedAt: new Date().toISOString(),
     statusState: status.state,
     preferredSource,
+    productionMode,
+    trustState,
+    fallbackReason,
+    coverageStatus,
+    pendingRepair: shouldHoldLiveForPendingRepair,
+    pendingRepairStartedAt:
+      shouldHoldLiveForPendingRepair
+        ? persistedServing?.pendingRepairStartedAt ?? new Date().toISOString()
+        : null,
+    pendingRepairLastTopic:
+      shouldHoldLiveForPendingRepair
+        ? persistedServing?.pendingRepairLastTopic ?? null
+        : null,
+    pendingRepairLastReceivedAt:
+      shouldHoldLiveForPendingRepair
+        ? persistedServing?.pendingRepairLastReceivedAt ?? null
+        : null,
+    consecutiveCleanValidations: canServeWarehouse ? nextConsecutiveCleanValidations : 0,
     ordersRecentSyncedAt: status.sync?.ordersRecent?.latestSuccessfulSyncAt ?? null,
     ordersRecentCursorTimestamp: status.sync?.ordersRecent?.cursorTimestamp ?? null,
     ordersRecentCursorValue: status.sync?.ordersRecent?.cursorValue ?? null,
@@ -194,6 +364,19 @@ export async function getShopifyOverviewReadCandidate(input: {
       ? {
           ...divergence,
           ledgerConsistency,
+          servingMetadata: {
+            selectedRevenueTruthBasis,
+            basisSelectionReason:
+              selectedRevenueTruthBasis === "current_total_price"
+                ? "closest_current_order_revenue"
+                : selectedRevenueTruthBasis === "gross_minus_total_refunded"
+                  ? "closest_gross_minus_refunds_revenue"
+                  : null,
+            transactionCoverageAmountRate,
+            transactionCoverageOrderRate: ledgerConsistency?.transactionCoverageRate ?? null,
+            explainedAdjustmentRevenue,
+            unexplainedAdjustmentRevenue,
+          },
           ledgerRevenue: ledger?.revenue ?? null,
           ledgerGrossRevenue: ledger?.grossRevenue ?? null,
           ledgerRefundedRevenue: ledger?.refundedRevenue ?? null,
@@ -218,11 +401,37 @@ export async function getShopifyOverviewReadCandidate(input: {
     endDate: input.endDate,
     preferredSource,
     canServeWarehouse,
+    selectedRevenueTruthBasis,
+    basisSelectionReason:
+      selectedRevenueTruthBasis === "current_total_price"
+        ? "closest_current_order_revenue"
+        : selectedRevenueTruthBasis === "gross_minus_total_refunded"
+          ? "closest_gross_minus_refunds_revenue"
+          : null,
+    transactionCoverageOrderRate: ledgerConsistency?.transactionCoverageRate ?? null,
+    transactionCoverageAmountRate,
+    orderRevenueTruthDelta: ledgerConsistency?.orderRevenueTruthDelta ?? null,
+    transactionRevenueDelta: ledgerConsistency?.transactionRevenueDelta ?? null,
+    explainedAdjustmentRevenue,
+    unexplainedAdjustmentRevenue,
     divergence:
       divergence || ledgerConsistency
         ? {
             ...(divergence ? { ...divergence } : {}),
             ...(ledgerConsistency ? { ledgerConsistency } : {}),
+            selectedRevenueTruthBasis,
+            basisSelectionReason:
+              selectedRevenueTruthBasis === "current_total_price"
+                ? "closest_current_order_revenue"
+                : selectedRevenueTruthBasis === "gross_minus_total_refunded"
+                  ? "closest_gross_minus_refunds_revenue"
+                  : null,
+            transactionCoverageAmountRate,
+            transactionCoverageOrderRate: ledgerConsistency?.transactionCoverageRate ?? null,
+            orderRevenueTruthDelta: ledgerConsistency?.orderRevenueTruthDelta ?? null,
+            transactionRevenueDelta: ledgerConsistency?.transactionRevenueDelta ?? null,
+            explainedAdjustmentRevenue,
+            unexplainedAdjustmentRevenue,
           }
         : null,
     warehouseAggregate: warehouse ? { ...warehouse } : null,
@@ -243,5 +452,32 @@ export async function getShopifyOverviewReadCandidate(input: {
     canaryEnabled,
     preferredSource,
     canServeWarehouse,
+    servingMetadata: {
+      source: canServeWarehouse ? "warehouse" : preferredSource === "none" ? "none" : "live",
+      provider: "shopify",
+      trustState,
+      fallbackReason,
+      lastSyncedAt,
+      coverageStatus,
+      productionMode,
+      pendingRepair: shouldHoldLiveForPendingRepair,
+      pendingRepairStartedAt:
+        shouldHoldLiveForPendingRepair ? persistedServing?.pendingRepairStartedAt ?? new Date().toISOString() : null,
+      pendingRepairLastTopic:
+        shouldHoldLiveForPendingRepair ? persistedServing?.pendingRepairLastTopic ?? null : null,
+      pendingRepairLastReceivedAt:
+        shouldHoldLiveForPendingRepair ? persistedServing?.pendingRepairLastReceivedAt ?? null : null,
+      selectedRevenueTruthBasis,
+      basisSelectionReason:
+        selectedRevenueTruthBasis === "current_total_price"
+          ? "closest_current_order_revenue"
+          : selectedRevenueTruthBasis === "gross_minus_total_refunded"
+            ? "closest_gross_minus_refunds_revenue"
+            : null,
+      transactionCoverageOrderRate: ledgerConsistency?.transactionCoverageRate ?? null,
+      transactionCoverageAmountRate,
+      explainedAdjustmentRevenue,
+      unexplainedAdjustmentRevenue,
+    },
   } as const;
 }

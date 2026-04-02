@@ -9,6 +9,7 @@ import type {
   ShopifyOrderWarehouseRow,
   ShopifyRawSnapshotRecord,
   ShopifyRefundWarehouseRow,
+  ShopifyRepairIntentRecord,
   ShopifyReconciliationRunRecord,
   ShopifyReturnWarehouseRow,
   ShopifySalesEventWarehouseRow,
@@ -35,6 +36,43 @@ function normalizeTimestamp(value: unknown) {
   const parsed = new Date(text);
   if (Number.isFinite(parsed.getTime())) return parsed.toISOString();
   return text;
+}
+
+function normalizeServingProductionMode(value: unknown) {
+  if (
+    value === "disabled" ||
+    value === "auto" ||
+    value === "force_live" ||
+    value === "force_warehouse"
+  ) {
+    return value;
+  }
+  return null;
+}
+
+function normalizeServingTrustState(value: unknown) {
+  if (
+    value === "trusted" ||
+    value === "live_fallback" ||
+    value === "pending_repair" ||
+    value === "disabled" ||
+    value === "no_data"
+  ) {
+    return value;
+  }
+  return null;
+}
+
+function normalizeServingCoverageStatus(value: unknown) {
+  if (
+    value === "recent_ready" ||
+    value === "recent_only" ||
+    value === "historical_incomplete" ||
+    value === "unknown"
+  ) {
+    return value;
+  }
+  return null;
 }
 
 function toNumber(value: unknown) {
@@ -645,6 +683,119 @@ export async function upsertShopifyWebhookDelivery(input: ShopifyWebhookDelivery
   `;
 }
 
+export async function upsertShopifyRepairIntent(input: ShopifyRepairIntentRecord) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = (await sql`
+    INSERT INTO shopify_repair_intents (
+      business_id,
+      provider_account_id,
+      entity_type,
+      entity_id,
+      topic,
+      payload_hash,
+      event_timestamp,
+      event_age_days,
+      escalation_level,
+      status,
+      attempt_count,
+      last_error,
+      last_sync_result,
+      updated_at
+    )
+    VALUES (
+      ${input.businessId},
+      ${input.providerAccountId},
+      ${input.entityType},
+      ${input.entityId},
+      ${input.topic},
+      ${input.payloadHash},
+      ${normalizeTimestamp(input.eventTimestamp)},
+      ${input.eventAgeDays ?? null},
+      ${Math.max(0, Math.trunc(input.escalationLevel ?? 0))},
+      ${input.status},
+      ${Math.max(0, Math.trunc(input.attemptCount ?? 0))},
+      ${input.lastError ?? null},
+      ${JSON.stringify(input.lastSyncResult ?? null)}::jsonb,
+      now()
+    )
+    ON CONFLICT (business_id, provider_account_id, entity_type, entity_id, topic, payload_hash)
+    DO UPDATE SET
+      event_timestamp = COALESCE(EXCLUDED.event_timestamp, shopify_repair_intents.event_timestamp),
+      event_age_days = COALESCE(EXCLUDED.event_age_days, shopify_repair_intents.event_age_days),
+      escalation_level = GREATEST(shopify_repair_intents.escalation_level, EXCLUDED.escalation_level),
+      status = EXCLUDED.status,
+      attempt_count = EXCLUDED.attempt_count,
+      last_error = EXCLUDED.last_error,
+      last_sync_result = EXCLUDED.last_sync_result,
+      updated_at = now()
+    RETURNING *
+  `) as Array<Record<string, unknown>>;
+  const row = rows[0];
+  return row
+    ? ({
+        id: String(row.id),
+        businessId: String(row.business_id),
+        providerAccountId: String(row.provider_account_id),
+        entityType: row.entity_type as ShopifyRepairIntentRecord["entityType"],
+        entityId: String(row.entity_id),
+        topic: String(row.topic),
+        payloadHash: String(row.payload_hash),
+        eventTimestamp: normalizeTimestamp(row.event_timestamp),
+        eventAgeDays: row.event_age_days == null ? null : Number(row.event_age_days),
+        escalationLevel: Number(row.escalation_level ?? 0),
+        status: row.status as ShopifyRepairIntentRecord["status"],
+        attemptCount: Number(row.attempt_count ?? 0),
+        lastError: row.last_error ? String(row.last_error) : null,
+        lastSyncResult:
+          row.last_sync_result && typeof row.last_sync_result === "object"
+            ? (row.last_sync_result as Record<string, unknown>)
+            : null,
+        createdAt: normalizeTimestamp(row.created_at),
+        updatedAt: normalizeTimestamp(row.updated_at),
+      } satisfies ShopifyRepairIntentRecord)
+    : null;
+}
+
+export async function listShopifyRepairIntents(input: {
+  businessId: string;
+  providerAccountId: string;
+  limit?: number;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const limit = Math.max(1, Math.min(50, Math.trunc(input.limit ?? 10)));
+  const rows = (await sql`
+    SELECT *
+    FROM shopify_repair_intents
+    WHERE business_id = ${input.businessId}
+      AND provider_account_id = ${input.providerAccountId}
+    ORDER BY updated_at DESC, created_at DESC
+    LIMIT ${limit}
+  `) as Array<Record<string, unknown>>;
+  return rows.map((row) => ({
+    id: String(row.id),
+    businessId: String(row.business_id),
+    providerAccountId: String(row.provider_account_id),
+    entityType: row.entity_type as ShopifyRepairIntentRecord["entityType"],
+    entityId: String(row.entity_id),
+    topic: String(row.topic),
+    payloadHash: String(row.payload_hash),
+    eventTimestamp: normalizeTimestamp(row.event_timestamp),
+    eventAgeDays: row.event_age_days == null ? null : Number(row.event_age_days),
+    escalationLevel: Number(row.escalation_level ?? 0),
+    status: row.status as ShopifyRepairIntentRecord["status"],
+    attemptCount: Number(row.attempt_count ?? 0),
+    lastError: row.last_error ? String(row.last_error) : null,
+    lastSyncResult:
+      row.last_sync_result && typeof row.last_sync_result === "object"
+        ? (row.last_sync_result as Record<string, unknown>)
+        : null,
+    createdAt: normalizeTimestamp(row.created_at),
+    updatedAt: normalizeTimestamp(row.updated_at),
+  })) satisfies ShopifyRepairIntentRecord[];
+}
+
 export async function getShopifyWebhookDelivery(input: {
   shopDomain: string;
   topic: string;
@@ -731,6 +882,14 @@ export async function insertShopifyReconciliationRun(input: ShopifyReconciliatio
       end_date,
       preferred_source,
       can_serve_warehouse,
+      selected_revenue_truth_basis,
+      basis_selection_reason,
+      transaction_coverage_order_rate,
+      transaction_coverage_amount_rate,
+      order_revenue_truth_delta,
+      transaction_revenue_delta,
+      explained_adjustment_revenue,
+      unexplained_adjustment_revenue,
       divergence,
       warehouse_aggregate,
       ledger_aggregate,
@@ -745,6 +904,14 @@ export async function insertShopifyReconciliationRun(input: ShopifyReconciliatio
       ${normalizeDate(input.endDate)},
       ${input.preferredSource ?? null},
       ${Boolean(input.canServeWarehouse)},
+      ${input.selectedRevenueTruthBasis ?? null},
+      ${input.basisSelectionReason ?? null},
+      ${input.transactionCoverageOrderRate ?? null},
+      ${input.transactionCoverageAmountRate ?? null},
+      ${input.orderRevenueTruthDelta ?? null},
+      ${input.transactionRevenueDelta ?? null},
+      ${input.explainedAdjustmentRevenue ?? null},
+      ${input.unexplainedAdjustmentRevenue ?? null},
       ${JSON.stringify(input.divergence ?? null)}::jsonb,
       ${JSON.stringify(input.warehouseAggregate ?? null)}::jsonb,
       ${JSON.stringify(input.ledgerAggregate ?? null)}::jsonb,
@@ -785,6 +952,22 @@ export async function listShopifyReconciliationRuns(input: {
     endDate: normalizeDate(row.end_date),
     preferredSource: row.preferred_source ? String(row.preferred_source) : null,
     canServeWarehouse: Boolean(row.can_serve_warehouse),
+    selectedRevenueTruthBasis: row.selected_revenue_truth_basis
+      ? String(row.selected_revenue_truth_basis)
+      : null,
+    basisSelectionReason: row.basis_selection_reason ? String(row.basis_selection_reason) : null,
+    transactionCoverageOrderRate:
+      row.transaction_coverage_order_rate == null ? null : Number(row.transaction_coverage_order_rate),
+    transactionCoverageAmountRate:
+      row.transaction_coverage_amount_rate == null ? null : Number(row.transaction_coverage_amount_rate),
+    orderRevenueTruthDelta:
+      row.order_revenue_truth_delta == null ? null : Number(row.order_revenue_truth_delta),
+    transactionRevenueDelta:
+      row.transaction_revenue_delta == null ? null : Number(row.transaction_revenue_delta),
+    explainedAdjustmentRevenue:
+      row.explained_adjustment_revenue == null ? null : Number(row.explained_adjustment_revenue),
+    unexplainedAdjustmentRevenue:
+      row.unexplained_adjustment_revenue == null ? null : Number(row.unexplained_adjustment_revenue),
     divergence:
       row.divergence && typeof row.divergence === "object"
         ? (row.divergence as Record<string, unknown>)
@@ -889,6 +1072,17 @@ export async function getShopifyServingState(input: {
     assessedAt: normalizeTimestamp(row.assessed_at),
     statusState: row.status_state ? String(row.status_state) : null,
     preferredSource: row.preferred_source ? String(row.preferred_source) : null,
+    productionMode: normalizeServingProductionMode(row.production_mode),
+    trustState: normalizeServingTrustState(row.trust_state),
+    fallbackReason: row.fallback_reason ? String(row.fallback_reason) : null,
+    coverageStatus: normalizeServingCoverageStatus(row.coverage_status),
+    pendingRepair: Boolean(row.pending_repair),
+    pendingRepairStartedAt: normalizeTimestamp(row.pending_repair_started_at),
+    pendingRepairLastTopic: row.pending_repair_last_topic
+      ? String(row.pending_repair_last_topic)
+      : null,
+    pendingRepairLastReceivedAt: normalizeTimestamp(row.pending_repair_last_received_at),
+    consecutiveCleanValidations: Number(row.consecutive_clean_validations ?? 0) || 0,
     ordersRecentSyncedAt: normalizeTimestamp(row.orders_recent_synced_at),
     ordersRecentCursorTimestamp: normalizeTimestamp(row.orders_recent_cursor_timestamp),
     ordersRecentCursorValue: row.orders_recent_cursor_value ? String(row.orders_recent_cursor_value) : null,
@@ -946,6 +1140,17 @@ export async function listShopifyServingStateHistory(input: {
     assessedAt: normalizeTimestamp(row.assessed_at),
     statusState: row.status_state ? String(row.status_state) : null,
     preferredSource: row.preferred_source ? String(row.preferred_source) : null,
+    productionMode: normalizeServingProductionMode(row.production_mode),
+    trustState: normalizeServingTrustState(row.trust_state),
+    fallbackReason: row.fallback_reason ? String(row.fallback_reason) : null,
+    coverageStatus: normalizeServingCoverageStatus(row.coverage_status),
+    pendingRepair: Boolean(row.pending_repair),
+    pendingRepairStartedAt: normalizeTimestamp(row.pending_repair_started_at),
+    pendingRepairLastTopic: row.pending_repair_last_topic
+      ? String(row.pending_repair_last_topic)
+      : null,
+    pendingRepairLastReceivedAt: normalizeTimestamp(row.pending_repair_last_received_at),
+    consecutiveCleanValidations: Number(row.consecutive_clean_validations ?? 0) || 0,
     ordersRecentSyncedAt: normalizeTimestamp(row.orders_recent_synced_at),
     ordersRecentCursorTimestamp: normalizeTimestamp(row.orders_recent_cursor_timestamp),
     ordersRecentCursorValue: row.orders_recent_cursor_value ? String(row.orders_recent_cursor_value) : null,
@@ -986,6 +1191,15 @@ export async function upsertShopifyServingState(input: ShopifyServingStateRecord
       assessed_at,
       status_state,
       preferred_source,
+      production_mode,
+      trust_state,
+      fallback_reason,
+      coverage_status,
+      pending_repair,
+      pending_repair_started_at,
+      pending_repair_last_topic,
+      pending_repair_last_received_at,
+      consecutive_clean_validations,
       orders_recent_synced_at,
       orders_recent_cursor_timestamp,
       orders_recent_cursor_value,
@@ -1014,6 +1228,15 @@ export async function upsertShopifyServingState(input: ShopifyServingStateRecord
       COALESCE(${normalizeTimestamp(input.assessedAt)}, now()),
       ${input.statusState ?? null},
       ${input.preferredSource ?? null},
+      ${input.productionMode ?? null},
+      ${input.trustState ?? null},
+      ${input.fallbackReason ?? null},
+      ${input.coverageStatus ?? null},
+      ${Boolean(input.pendingRepair)},
+      ${normalizeTimestamp(input.pendingRepairStartedAt)},
+      ${input.pendingRepairLastTopic ?? null},
+      ${normalizeTimestamp(input.pendingRepairLastReceivedAt)},
+      ${Math.max(0, Math.trunc(input.consecutiveCleanValidations ?? 0))},
       ${normalizeTimestamp(input.ordersRecentSyncedAt)},
       ${normalizeTimestamp(input.ordersRecentCursorTimestamp)},
       ${input.ordersRecentCursorValue ?? null},
@@ -1040,6 +1263,15 @@ export async function upsertShopifyServingState(input: ShopifyServingStateRecord
       time_zone_basis = COALESCE(EXCLUDED.time_zone_basis, shopify_serving_state.time_zone_basis),
       status_state = EXCLUDED.status_state,
       preferred_source = EXCLUDED.preferred_source,
+      production_mode = EXCLUDED.production_mode,
+      trust_state = EXCLUDED.trust_state,
+      fallback_reason = EXCLUDED.fallback_reason,
+      coverage_status = EXCLUDED.coverage_status,
+      pending_repair = EXCLUDED.pending_repair,
+      pending_repair_started_at = EXCLUDED.pending_repair_started_at,
+      pending_repair_last_topic = EXCLUDED.pending_repair_last_topic,
+      pending_repair_last_received_at = EXCLUDED.pending_repair_last_received_at,
+      consecutive_clean_validations = EXCLUDED.consecutive_clean_validations,
       orders_recent_synced_at = EXCLUDED.orders_recent_synced_at,
       orders_recent_cursor_timestamp = EXCLUDED.orders_recent_cursor_timestamp,
       orders_recent_cursor_value = EXCLUDED.orders_recent_cursor_value,
@@ -1069,6 +1301,15 @@ export async function upsertShopifyServingState(input: ShopifyServingStateRecord
       assessed_at,
       status_state,
       preferred_source,
+      production_mode,
+      trust_state,
+      fallback_reason,
+      coverage_status,
+      pending_repair,
+      pending_repair_started_at,
+      pending_repair_last_topic,
+      pending_repair_last_received_at,
+      consecutive_clean_validations,
       orders_recent_synced_at,
       orders_recent_cursor_timestamp,
       orders_recent_cursor_value,
@@ -1097,6 +1338,15 @@ export async function upsertShopifyServingState(input: ShopifyServingStateRecord
       COALESCE(${normalizeTimestamp(input.assessedAt)}, now()),
       ${input.statusState ?? null},
       ${input.preferredSource ?? null},
+      ${input.productionMode ?? null},
+      ${input.trustState ?? null},
+      ${input.fallbackReason ?? null},
+      ${input.coverageStatus ?? null},
+      ${Boolean(input.pendingRepair)},
+      ${normalizeTimestamp(input.pendingRepairStartedAt)},
+      ${input.pendingRepairLastTopic ?? null},
+      ${normalizeTimestamp(input.pendingRepairLastReceivedAt)},
+      ${Math.max(0, Math.trunc(input.consecutiveCleanValidations ?? 0))},
       ${normalizeTimestamp(input.ordersRecentSyncedAt)},
       ${normalizeTimestamp(input.ordersRecentCursorTimestamp)},
       ${input.ordersRecentCursorValue ?? null},

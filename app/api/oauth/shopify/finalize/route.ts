@@ -48,7 +48,10 @@ export async function POST(request: NextRequest) {
     providerAccountName: context.shop_name ?? context.shop_domain,
     accessToken: context.access_token,
     scopes: context.scopes ?? undefined,
-    metadata: context.metadata,
+    metadata: {
+      ...(context.metadata ?? {}),
+      shopifyProductionServingMode: "disabled",
+    },
   });
 
   const currency =

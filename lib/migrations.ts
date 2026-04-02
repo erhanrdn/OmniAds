@@ -1534,6 +1534,14 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
           end_date             DATE,
           preferred_source     TEXT,
           can_serve_warehouse  BOOLEAN NOT NULL DEFAULT FALSE,
+          selected_revenue_truth_basis TEXT,
+          basis_selection_reason TEXT,
+          transaction_coverage_order_rate DOUBLE PRECISION,
+          transaction_coverage_amount_rate DOUBLE PRECISION,
+          order_revenue_truth_delta DOUBLE PRECISION,
+          transaction_revenue_delta DOUBLE PRECISION,
+          explained_adjustment_revenue DOUBLE PRECISION,
+          unexplained_adjustment_revenue DOUBLE PRECISION,
           divergence           JSONB,
           warehouse_aggregate  JSONB,
           ledger_aggregate     JSONB,
@@ -1543,6 +1551,22 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_reconciliation_runs_business_recorded
           ON shopify_reconciliation_runs (business_id, recorded_at DESC)`.catch(() => {}),
+        sql`ALTER TABLE shopify_reconciliation_runs
+          ADD COLUMN IF NOT EXISTS selected_revenue_truth_basis TEXT`.catch(() => {}),
+        sql`ALTER TABLE shopify_reconciliation_runs
+          ADD COLUMN IF NOT EXISTS basis_selection_reason TEXT`.catch(() => {}),
+        sql`ALTER TABLE shopify_reconciliation_runs
+          ADD COLUMN IF NOT EXISTS transaction_coverage_order_rate DOUBLE PRECISION`.catch(() => {}),
+        sql`ALTER TABLE shopify_reconciliation_runs
+          ADD COLUMN IF NOT EXISTS transaction_coverage_amount_rate DOUBLE PRECISION`.catch(() => {}),
+        sql`ALTER TABLE shopify_reconciliation_runs
+          ADD COLUMN IF NOT EXISTS order_revenue_truth_delta DOUBLE PRECISION`.catch(() => {}),
+        sql`ALTER TABLE shopify_reconciliation_runs
+          ADD COLUMN IF NOT EXISTS transaction_revenue_delta DOUBLE PRECISION`.catch(() => {}),
+        sql`ALTER TABLE shopify_reconciliation_runs
+          ADD COLUMN IF NOT EXISTS explained_adjustment_revenue DOUBLE PRECISION`.catch(() => {}),
+        sql`ALTER TABLE shopify_reconciliation_runs
+          ADD COLUMN IF NOT EXISTS unexplained_adjustment_revenue DOUBLE PRECISION`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS shopify_serving_state (
           business_id          TEXT NOT NULL,
           provider_account_id  TEXT NOT NULL,
@@ -1591,6 +1615,24 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
           ADD COLUMN IF NOT EXISTS returns_historical_ready_through_date DATE`.catch(() => {}),
         sql`ALTER TABLE shopify_serving_state
           ADD COLUMN IF NOT EXISTS returns_historical_target_end DATE`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS production_mode TEXT`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS trust_state TEXT`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS fallback_reason TEXT`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS coverage_status TEXT`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS pending_repair BOOLEAN NOT NULL DEFAULT FALSE`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS pending_repair_started_at TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS pending_repair_last_topic TEXT`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS pending_repair_last_received_at TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS consecutive_clean_validations INTEGER NOT NULL DEFAULT 0`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_serving_state_business_updated
           ON shopify_serving_state (business_id, updated_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_serving_state_business_range
@@ -1653,6 +1695,45 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
           ADD COLUMN IF NOT EXISTS returns_historical_ready_through_date DATE`.catch(() => {}),
         sql`ALTER TABLE shopify_serving_state_history
           ADD COLUMN IF NOT EXISTS returns_historical_target_end DATE`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state_history
+          ADD COLUMN IF NOT EXISTS production_mode TEXT`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state_history
+          ADD COLUMN IF NOT EXISTS trust_state TEXT`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state_history
+          ADD COLUMN IF NOT EXISTS fallback_reason TEXT`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state_history
+          ADD COLUMN IF NOT EXISTS coverage_status TEXT`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state_history
+          ADD COLUMN IF NOT EXISTS pending_repair BOOLEAN NOT NULL DEFAULT FALSE`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state_history
+          ADD COLUMN IF NOT EXISTS pending_repair_started_at TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state_history
+          ADD COLUMN IF NOT EXISTS pending_repair_last_topic TEXT`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state_history
+          ADD COLUMN IF NOT EXISTS pending_repair_last_received_at TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state_history
+          ADD COLUMN IF NOT EXISTS consecutive_clean_validations INTEGER NOT NULL DEFAULT 0`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS shopify_repair_intents (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id TEXT NOT NULL,
+          provider_account_id TEXT NOT NULL,
+          entity_type TEXT NOT NULL,
+          entity_id TEXT NOT NULL,
+          topic TEXT NOT NULL,
+          payload_hash TEXT NOT NULL,
+          event_timestamp TIMESTAMPTZ,
+          event_age_days INTEGER,
+          escalation_level INTEGER NOT NULL DEFAULT 0,
+          status TEXT NOT NULL DEFAULT 'pending',
+          attempt_count INTEGER NOT NULL DEFAULT 0,
+          last_error TEXT,
+          last_sync_result JSONB,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider_account_id, entity_type, entity_id, topic, payload_hash)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_repair_intents_business_updated
+          ON shopify_repair_intents (business_id, updated_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS shopify_sync_state (
           business_id              TEXT NOT NULL,
           provider_account_id      TEXT NOT NULL,

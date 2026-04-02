@@ -136,8 +136,9 @@ export async function GET(request: NextRequest) {
             ...(shopCurrency ? { currency: shopCurrency } : {}),
             ...(shopIanaTimeZone ? { iana_timezone: shopIanaTimeZone } : {}),
             ...(shopTimeZoneLabel ? { timezone: shopTimeZoneLabel } : {}),
+            shopifyProductionServingMode: "disabled",
           }
-        : undefined;
+        : { shopifyProductionServingMode: "disabled" };
 
     if (hasVerifiedState && stateBusinessId) {
       const access = await requireBusinessAccess({

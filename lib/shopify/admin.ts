@@ -1,6 +1,6 @@
 import { getIntegration } from "@/lib/integrations";
 
-const SHOPIFY_ADMIN_API_VERSION = process.env.SHOPIFY_ADMIN_API_VERSION ?? "2025-10";
+export const SHOPIFY_ADMIN_API_VERSION = process.env.SHOPIFY_ADMIN_API_VERSION ?? "2026-04";
 
 export interface ShopifyAdminCredentials {
   businessId: string;
@@ -82,4 +82,28 @@ export async function shopifyAdminGraphql<T>(input: {
   }
 
   return payload.data;
+}
+
+export async function validateShopifyAdminCredentials(input: {
+  shopId: string;
+  accessToken: string;
+}) {
+  try {
+    await shopifyAdminGraphql<{
+      shop: {
+        id: string;
+        name: string;
+      } | null;
+    }>({
+      shopId: input.shopId,
+      accessToken: input.accessToken,
+      query: `query ValidateShopifyToken { shop { id name } }`,
+    });
+    return { valid: true as const, error: null };
+  } catch (error) {
+    return {
+      valid: false as const,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 }

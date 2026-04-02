@@ -34,6 +34,15 @@ export interface ShopifyRevenueLedgerAggregate extends ShopifyWarehouseOverviewA
   adjustmentRevenue: number;
   refundPressure: number;
   dailySemanticDrift: number;
+  currentOrderRevenue: number | null;
+  grossMinusRefundsOrderRevenue: number | null;
+  transactionCapturedRevenue: number | null;
+  transactionRefundedRevenue: number | null;
+  transactionNetRevenue: number | null;
+  transactionCoveredOrders: number;
+  transactionCoveredRevenue: number | null;
+  transactionCoverageRate: number | null;
+  transactionCoverageAmountRate: number | null;
   daily: ShopifyRevenueLedgerDailyAggregate[];
 }
 
@@ -64,6 +73,63 @@ export async function getShopifyRevenueLedgerAggregate(input: {
       AND COALESCE(occurred_date_local, occurred_at::date) <= ${input.endDate}::date
     GROUP BY 1
     ORDER BY 1 ASC
+  `) as Array<Record<string, unknown>>;
+  const [orderBasisRow] = (await sql`
+    SELECT
+      COALESCE(
+        SUM(COALESCE(current_total_price, total_price, original_total_price)),
+        0
+      ) AS current_order_revenue,
+      COALESCE(
+        SUM(COALESCE(total_price, original_total_price, current_total_price)),
+        0
+      ) AS gross_order_revenue,
+      COALESCE(SUM(COALESCE(total_refunded, 0)), 0) AS total_refunded,
+      COUNT(*) AS order_count
+    FROM shopify_orders
+    WHERE business_id = ${input.businessId}
+      AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
+      AND COALESCE(order_created_date_local, order_created_at::date) >= ${input.startDate}::date
+      AND COALESCE(order_created_date_local, order_created_at::date) <= ${input.endDate}::date
+  `) as Array<Record<string, unknown>>;
+  const [transactionBasisRow] = (await sql`
+    SELECT
+      COALESCE(
+        SUM(
+          CASE
+            WHEN lower(COALESCE(tx.kind, '')) IN ('sale', 'capture')
+              AND lower(COALESCE(tx.status, 'success')) NOT IN ('failure', 'failed', 'error')
+            THEN tx.amount
+            ELSE 0
+          END
+        ),
+        0
+      ) AS captured_revenue,
+      COALESCE(
+        SUM(
+          CASE
+            WHEN lower(COALESCE(tx.kind, '')) = 'refund'
+              AND lower(COALESCE(tx.status, 'success')) NOT IN ('failure', 'failed', 'error')
+            THEN tx.amount
+            ELSE 0
+          END
+        ),
+        0
+      ) AS refunded_revenue,
+      COUNT(DISTINCT tx.order_id) FILTER (
+        WHERE lower(COALESCE(tx.kind, '')) IN ('sale', 'capture', 'refund')
+          AND lower(COALESCE(tx.status, 'success')) NOT IN ('failure', 'failed', 'error')
+      ) AS covered_orders
+    FROM shopify_order_transactions tx
+    INNER JOIN shopify_orders orders
+      ON orders.business_id = tx.business_id
+      AND orders.provider_account_id = tx.provider_account_id
+      AND orders.shop_id = tx.shop_id
+      AND orders.order_id = tx.order_id
+    WHERE tx.business_id = ${input.businessId}
+      AND (${input.providerAccountId ?? null}::text IS NULL OR tx.provider_account_id = ${input.providerAccountId ?? null})
+      AND COALESCE(orders.order_created_date_local, orders.order_created_at::date) >= ${input.startDate}::date
+      AND COALESCE(orders.order_created_date_local, orders.order_created_at::date) <= ${input.endDate}::date
   `) as Array<Record<string, unknown>>;
 
   const daily = rows.map((row) => {
@@ -101,6 +167,22 @@ export async function getShopifyRevenueLedgerAggregate(input: {
   const adjustmentRevenue = round2(daily.reduce((sum, row) => sum + row.adjustmentRevenue, 0));
   const refundPressure = round2(daily.reduce((sum, row) => sum + row.refundPressure, 0));
   const dailySemanticDrift = round2(daily.reduce((sum, row) => sum + row.dailySemanticDrift, 0));
+  const orderCount = Math.trunc(toNumber(orderBasisRow?.order_count));
+  const currentOrderRevenue = round2(toNumber(orderBasisRow?.current_order_revenue));
+  const grossOrderRevenue = round2(toNumber(orderBasisRow?.gross_order_revenue));
+  const totalRefundedFromOrders = round2(toNumber(orderBasisRow?.total_refunded));
+  const grossMinusRefundsOrderRevenue = round2(grossOrderRevenue - totalRefundedFromOrders);
+  const transactionCapturedRevenue = round2(toNumber(transactionBasisRow?.captured_revenue));
+  const transactionRefundedRevenue = round2(toNumber(transactionBasisRow?.refunded_revenue));
+  const transactionNetRevenue = round2(transactionCapturedRevenue - transactionRefundedRevenue);
+  const transactionCoveredOrders = Math.trunc(toNumber(transactionBasisRow?.covered_orders));
+  const transactionCoveredRevenue = transactionCoveredOrders > 0 ? transactionCapturedRevenue : null;
+  const transactionCoverageRate =
+    orderCount > 0 ? round2((transactionCoveredOrders / orderCount) * 100) : null;
+  const transactionCoverageAmountRate =
+    grossOrderRevenue > 0 && transactionCoveredRevenue !== null
+      ? round2((Math.abs(transactionCoveredRevenue) / grossOrderRevenue) * 100)
+      : null;
 
   return {
     revenue,
@@ -117,5 +199,14 @@ export async function getShopifyRevenueLedgerAggregate(input: {
     adjustmentRevenue,
     refundPressure,
     dailySemanticDrift,
+    currentOrderRevenue: orderCount > 0 ? currentOrderRevenue : null,
+    grossMinusRefundsOrderRevenue: orderCount > 0 ? grossMinusRefundsOrderRevenue : null,
+    transactionCapturedRevenue: transactionCoveredOrders > 0 ? transactionCapturedRevenue : null,
+    transactionRefundedRevenue: transactionCoveredOrders > 0 ? transactionRefundedRevenue : null,
+    transactionNetRevenue: transactionCoveredOrders > 0 ? transactionNetRevenue : null,
+    transactionCoveredOrders,
+    transactionCoveredRevenue,
+    transactionCoverageRate,
+    transactionCoverageAmountRate,
   } satisfies ShopifyRevenueLedgerAggregate;
 }

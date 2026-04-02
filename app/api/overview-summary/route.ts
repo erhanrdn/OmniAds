@@ -12,9 +12,9 @@ import {
 } from "@/lib/integration-status";
 import {
   getOverviewData,
+  getShopifyOverviewServingData,
   type OverviewResponse as OverviewAggregateData,
 } from "@/lib/overview-service";
-import { getShopifyOverviewAggregate } from "@/lib/shopify/overview";
 import {
   buildAttributionRows,
   buildMetricCard,
@@ -140,13 +140,13 @@ export async function GET(request: NextRequest) {
           endDate: previousWindow.endDate,
         })
       : Promise.resolve(null),
-    getShopifyOverviewAggregate({
+    getShopifyOverviewServingData({
       businessId,
       startDate: resolvedStart,
       endDate: resolvedEnd,
     }),
     compareMode === "previous_period" && previousWindow.startDate && previousWindow.endDate
-      ? getShopifyOverviewAggregate({
+      ? getShopifyOverviewServingData({
           businessId,
           startDate: previousWindow.startDate,
           endDate: previousWindow.endDate,
@@ -186,9 +186,9 @@ export async function GET(request: NextRequest) {
         ? null
         : null;
   const currentShopify =
-    currentShopifyResult.status === "fulfilled" ? currentShopifyResult.value : null;
+    currentShopifyResult.status === "fulfilled" ? currentShopifyResult.value?.aggregate ?? null : null;
   const previousShopify =
-    previousShopifyResult.status === "fulfilled" ? previousShopifyResult.value : null;
+    previousShopifyResult.status === "fulfilled" ? previousShopifyResult.value?.aggregate ?? null : null;
   const integrationsStatus =
     integrationsStatusResult.status === "fulfilled"
       ? integrationsStatusResult.value
@@ -926,6 +926,7 @@ export async function GET(request: NextRequest) {
     customMetrics,
     webAnalytics,
     insights: mapInsights(currentOverview, analyticsConnected),
+    shopifyServing: currentOverview.shopifyServing ?? null,
   };
 
   return NextResponse.json({

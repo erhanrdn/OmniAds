@@ -231,6 +231,7 @@ export default function OverviewPage() {
         dateRange={dateRange}
         onDateRangeChange={setDateRange}
         metaStatus={metaStatusQuery.data}
+        shopifyServing={effectiveSummary?.shopifyServing ?? null}
       />
 
       <SummarySection
@@ -482,12 +483,27 @@ function DataStatusRow({
   dateRange,
   onDateRangeChange,
   metaStatus,
+  shopifyServing,
 }: {
   dateRange: DateRangeValue;
   onDateRangeChange: (value: DateRangeValue) => void;
   metaStatus?: MetaStatusResponse;
+  shopifyServing?: OverviewSummaryData["shopifyServing"];
 }) {
   const language = usePreferencesStore((state) => state.language);
+  const shopifyBadge =
+    shopifyServing?.source === "warehouse"
+      ? { label: "Shopify provider", tone: "default" as const }
+      : shopifyServing?.source === "live"
+        ? { label: "Shopify live fallback", tone: "secondary" as const }
+        : null;
+  const shopifyHelper = shopifyServing
+    ? shopifyServing.source === "warehouse"
+      ? `Trusted ${shopifyServing.coverageStatus.replaceAll("_", " ")} serving`
+      : shopifyServing.fallbackReason
+        ? `Fallback: ${shopifyServing.fallbackReason.replaceAll("_", " ")}`
+        : "Shopify data unavailable"
+    : null;
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/60">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -500,6 +516,13 @@ function DataStatusRow({
             <Badge>Active</Badge>
             <span className="text-slate-500">Live API responses with cached provider snapshots.</span>
           </div>
+          {shopifyBadge ? (
+            <div className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-2.5 py-1.5 text-xs">
+              <span className="font-medium text-slate-700">Shopify</span>
+              <Badge variant={shopifyBadge.tone}>{shopifyBadge.label}</Badge>
+              {shopifyHelper ? <span className="text-slate-500">{shopifyHelper}</span> : null}
+            </div>
+          ) : null}
           <MetaSyncProgress
             status={metaStatus}
             language={language}
