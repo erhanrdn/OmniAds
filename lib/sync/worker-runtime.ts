@@ -1,5 +1,6 @@
 import { getActiveBusinesses } from "@/lib/sync/active-businesses";
 import type { ProviderWorkerAdapter } from "@/lib/sync/provider-worker-adapters";
+import type { ProviderLeasePlan } from "@/lib/sync/provider-status-truth";
 import {
   acquireSyncRunnerLease,
   heartbeatSyncWorker,
@@ -107,6 +108,7 @@ export interface AdapterLifecycleTickResult {
   succeeded: number;
   failed: number;
   leasedPartitionIds: string[];
+  laneLeaseCounts: Record<string, number>;
   lastPartitionId: string | null;
   failureReasons: string[];
 }
@@ -116,14 +118,21 @@ export async function runAdapterLifecycleTick(input: {
   businessId: string;
   workerId: string;
   leaseLimit: number;
+  leasePlan?: ProviderLeasePlan | null;
   leaseGuard?: RunnerLeaseGuard;
 }): Promise<AdapterLifecycleTickResult> {
   const leasedPartitions = await input.adapter.leasePartitions({
     businessId: input.businessId,
     workerId: input.workerId,
     limit: Math.max(1, input.leaseLimit),
+    plan: input.leasePlan ?? null,
   });
   const leasedPartitionIds = leasedPartitions.map((partition) => partition.partitionId);
+  const laneLeaseCounts = leasedPartitions.reduce<Record<string, number>>((acc, partition) => {
+    const lane = "lane" in partition && typeof partition.lane === "string" ? partition.lane : "unknown";
+    acc[lane] = (acc[lane] ?? 0) + 1;
+    return acc;
+  }, {});
   let succeeded = 0;
   let failed = 0;
   let lastPartitionId: string | null = null;
@@ -164,6 +173,7 @@ export async function runAdapterLifecycleTick(input: {
     succeeded,
     failed,
     leasedPartitionIds,
+    laneLeaseCounts,
     lastPartitionId,
     failureReasons,
   };
@@ -192,9 +202,11 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
   const globalDbConcurrency = envNumber("WORKER_GLOBAL_DB_CONCURRENCY", 4);
   const partitionTickLimit = envNumber("WORKER_PARTITION_TICK_LIMIT", 1);
   const pruneIntervalMs = envNumber("WORKER_PRUNE_INTERVAL_MS", 6 * 60 * 60_000);
+  const autoHealCooldownMs = envNumber("WORKER_AUTO_HEAL_COOLDOWN_MS", 60_000);
   const workerStartedAt = new Date().toISOString();
   const workerBuildId = getWorkerBuildFingerprint();
   const discoveredBusinesses = new Set<string>();
+  const lastAutoHealAtByKey = new Map<string, number>();
   let shuttingDown = false;
   let lastHeartbeatAt = 0;
   let lastPruneAt = 0;
@@ -393,10 +405,26 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
         }, leaseRenewalIntervalMs);
 
         try {
+          const autoHealKey = `${adapter.providerScope}:${business.id}`;
+          const nowMs = Date.now();
+          let autoHealResult: Awaited<ReturnType<NonNullable<typeof adapter.runAutoHeal>>> | null = null;
+          if (
+            adapter.runAutoHeal &&
+            nowMs - (lastAutoHealAtByKey.get(autoHealKey) ?? 0) >= autoHealCooldownMs
+          ) {
+            autoHealResult = await adapter.runAutoHeal(business.id).catch(() => null);
+            lastAutoHealAtByKey.set(autoHealKey, nowMs);
+          }
           const lifecycleSnapshot = await resolveAdapterLifecycleSnapshot({
             adapter,
             businessId: business.id,
           });
+          const leasePlan = adapter.buildLeasePlan
+            ? await adapter.buildLeasePlan({
+                businessId: business.id,
+                leaseLimit: partitionTickLimit,
+              }).catch(() => null)
+            : null;
           await heartbeat({
             providerScope: adapter.providerScope,
             status: "running",
@@ -411,6 +439,37 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
               consumeStartedAt,
               lifecycleReadinessLevel: lifecycleSnapshot?.readinessLevel ?? null,
               lifecycleCheckpointHealth: lifecycleSnapshot?.checkpointHealth ?? null,
+              leasePlanKind: leasePlan?.kind ?? null,
+              lanePlanSummary:
+                leasePlan?.steps.map((step) => ({
+                  key: step.key,
+                  lane: step.lane ?? null,
+                  limit: step.limit,
+                  sourceFilter: step.sourceFilter ?? null,
+                  sources: step.sources ?? null,
+                  scopeFilter: step.scopeFilter ?? null,
+                  startDate: step.startDate ?? null,
+                  endDate: step.endDate ?? null,
+                  onlyIfNoLease: step.onlyIfNoLease ?? false,
+                })) ?? [],
+              fairnessInputs: leasePlan?.fairnessInputs ?? null,
+              repairActionsRun: autoHealResult
+                ? {
+                    reclaimed: autoHealResult.reclaimed,
+                    replayed: autoHealResult.replayed,
+                    requeued: autoHealResult.requeued,
+                    blocked: autoHealResult.blocked,
+                  }
+                : null,
+              repairCounts: autoHealResult
+                ? {
+                    reclaimed: autoHealResult.reclaimed,
+                    replayed: autoHealResult.replayed,
+                    requeued: autoHealResult.requeued,
+                  }
+                : null,
+              lastAdvancementEvidence: leasePlan?.progressEvidence ?? null,
+              stallFingerprints: leasePlan?.stallFingerprints ?? [],
             },
             force: true,
           }).catch(() => null);
@@ -419,6 +478,7 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
             businessId: business.id,
             workerId,
             leaseLimit: partitionTickLimit,
+            leasePlan,
             leaseGuard,
           });
           let result: unknown = null;
@@ -442,7 +502,19 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
                 lifecycleSucceeded: lifecycleResult.succeeded,
                 lifecycleFailed: lifecycleResult.failed,
                 lifecycleLeasedPartitionIds: lifecycleResult.leasedPartitionIds,
+                laneLeaseCounts: lifecycleResult.laneLeaseCounts,
                 lifecycleCheckpointHealth: lifecycleSnapshot?.checkpointHealth ?? null,
+                leasePlanKind: leasePlan?.kind ?? null,
+                fairnessInputs: leasePlan?.fairnessInputs ?? null,
+                repairActionsRun: autoHealResult
+                  ? {
+                      reclaimed: autoHealResult.reclaimed,
+                      replayed: autoHealResult.replayed,
+                      requeued: autoHealResult.requeued,
+                      blocked: autoHealResult.blocked,
+                    }
+                  : null,
+                stallFingerprints: leasePlan?.stallFingerprints ?? [],
               },
               force: true,
             }).catch(() => null);
@@ -507,6 +579,26 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
                 Array.isArray(syncResult?.leasedPartitionIds)
                   ? syncResult?.leasedPartitionIds
                   : lifecycleResult.leasedPartitionIds,
+              laneLeaseCounts: lifecycleResult.laneLeaseCounts,
+              leasePlanKind: leasePlan?.kind ?? null,
+              fairnessInputs: leasePlan?.fairnessInputs ?? null,
+              repairActionsRun: autoHealResult
+                ? {
+                    reclaimed: autoHealResult.reclaimed,
+                    replayed: autoHealResult.replayed,
+                    requeued: autoHealResult.requeued,
+                    blocked: autoHealResult.blocked,
+                  }
+                : null,
+              repairCounts: autoHealResult
+                ? {
+                    reclaimed: autoHealResult.reclaimed,
+                    replayed: autoHealResult.replayed,
+                    requeued: autoHealResult.requeued,
+                  }
+                : null,
+              lastAdvancementEvidence: leasePlan?.progressEvidence ?? null,
+              stallFingerprints: leasePlan?.stallFingerprints ?? [],
               consumeAttempted:
                 syncResult?.attempted && typeof syncResult.attempted === "number"
                   ? syncResult.attempted

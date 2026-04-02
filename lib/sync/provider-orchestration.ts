@@ -3,6 +3,7 @@ import type {
   ProviderDomainReadiness,
   ProviderReadinessLevel,
 } from "@/lib/provider-readiness";
+import type { ProviderLeasePlan } from "@/lib/sync/provider-status-truth";
 
 export interface ProviderSyncPartitionPlan<TPartition> {
   partitions: TPartition[];
@@ -100,6 +101,7 @@ export interface ProviderSyncAdapter<
     businessId: string;
     limit: number;
     workerId: string;
+    plan?: ProviderLeasePlan | null;
   }): Promise<TPartition[]>;
   getCheckpoint(input: {
     partition: TPartition;

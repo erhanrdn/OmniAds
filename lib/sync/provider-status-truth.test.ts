@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildProviderProgressEvidence,
+  deriveProviderStallFingerprints,
   deriveProviderProgressState,
   hasRecentProviderAdvancement,
 } from "@/lib/sync/provider-status-truth";
@@ -96,5 +97,46 @@ describe("deriveProviderProgressState", () => {
     });
 
     expect(state).toBe("partial_stuck");
+  });
+});
+
+describe("deriveProviderStallFingerprints", () => {
+  it("flags historical starvation when backlog exists without advancement", () => {
+    const stale = new Date(Date.now() - 45 * 60_000).toISOString();
+    const fingerprints = deriveProviderStallFingerprints({
+      queueDepth: 8,
+      leasedPartitions: 0,
+      checkpointLagMinutes: 30,
+      latestPartitionActivityAt: null,
+      blocked: false,
+      progressEvidence: {
+        lastCheckpointAdvancedAt: stale,
+        lastReadyThroughAdvancedAt: null,
+        lastCompletedAt: null,
+        backlogDelta: null,
+        completedPartitionDelta: null,
+        lastReplayAt: null,
+        lastReclaimAt: null,
+        recentActivityWindowMinutes: 20,
+      },
+      historicalBacklogDepth: 5,
+    });
+
+    expect(fingerprints).toContain("historical_starvation");
+    expect(fingerprints).toContain("checkpoint_not_advancing");
+  });
+
+  it("flags dead-letter completion blockers explicitly", () => {
+    const fingerprints = deriveProviderStallFingerprints({
+      queueDepth: 1,
+      leasedPartitions: 0,
+      checkpointLagMinutes: null,
+      latestPartitionActivityAt: null,
+      blocked: true,
+      blockedReasonCodes: ["required_dead_letter_partitions"],
+      progressEvidence: null,
+    });
+
+    expect(fingerprints).toContain("dead_letter_blocking_completion");
   });
 });

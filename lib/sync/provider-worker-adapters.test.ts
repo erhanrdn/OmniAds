@@ -7,12 +7,18 @@ const upsertGoogleAdsSyncCheckpoint = vi.fn();
 const getGoogleAdsCheckpointHealth = vi.fn();
 const getAssignedGoogleAccounts = vi.fn();
 const processGoogleAdsLifecyclePartition = vi.fn();
+const buildGoogleAdsWorkerLeasePlan = vi.fn();
 
 const resolveMetaCredentials = vi.fn();
 const getMetaCheckpointHealth = vi.fn();
 const getMetaSyncCheckpoint = vi.fn();
 const upsertMetaSyncCheckpoint = vi.fn();
 const processMetaLifecyclePartition = vi.fn();
+const leaseMetaSyncPartitions = vi.fn();
+const queueMetaSyncPartition = vi.fn();
+const buildMetaWorkerLeasePlan = vi.fn();
+const runMetaRepairCycle = vi.fn();
+const runGoogleAdsRepairCycle = vi.fn();
 
 vi.mock("@/lib/google-ads-gaql", () => ({
   getAssignedGoogleAccounts,
@@ -33,19 +39,26 @@ vi.mock("@/lib/api/meta", () => ({
 vi.mock("@/lib/meta/warehouse", () => ({
   getMetaCheckpointHealth,
   getMetaSyncCheckpoint,
-  leaseMetaSyncPartitions: vi.fn(),
-  queueMetaSyncPartition: vi.fn(),
+  leaseMetaSyncPartitions,
+  queueMetaSyncPartition,
   upsertMetaSyncCheckpoint,
 }));
 
 vi.mock("@/lib/sync/google-ads-sync", () => ({
   syncGoogleAdsReports: vi.fn(),
   processGoogleAdsLifecyclePartition,
+  buildGoogleAdsWorkerLeasePlan,
 }));
 
 vi.mock("@/lib/sync/meta-sync", () => ({
   consumeMetaQueuedWork: vi.fn(),
   processMetaLifecyclePartition,
+  buildMetaWorkerLeasePlan,
+}));
+
+vi.mock("@/lib/sync/provider-repair-engine", () => ({
+  runMetaRepairCycle,
+  runGoogleAdsRepairCycle,
 }));
 
 vi.mock("@/lib/sync/shopify-sync", () => ({
@@ -111,6 +124,91 @@ describe("provider-worker-adapters", () => {
       providerAccountId: "acct-1",
       scope: "campaign_daily",
     });
+  });
+
+  it("applies Google lease-plan steps on the dominant lifecycle path", async () => {
+    leaseGoogleAdsSyncPartitions
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: "part-2",
+          businessId: "biz-1",
+          providerAccountId: "acct-1",
+          lane: "extended",
+          scope: "campaign_daily",
+          partitionDate: "2026-03-01",
+          status: "leased",
+          priority: 190,
+          source: "historical",
+          leaseOwner: "worker-1",
+          leaseExpiresAt: "2026-03-01T00:05:00.000Z",
+          attemptCount: 1,
+          nextRetryAt: null,
+          lastError: null,
+        },
+      ]);
+
+    const { googleAdsWorkerAdapter } = await import("@/lib/sync/provider-worker-adapters");
+    const leased = await googleAdsWorkerAdapter.leasePartitions({
+      businessId: "biz-1",
+      workerId: "worker-1",
+      limit: 1,
+      plan: {
+        kind: "google_ads_policy_lease_plan",
+        requestedLimit: 1,
+        steps: [
+          { key: "core", lane: "core", limit: 1 },
+          {
+            key: "historical_fairness",
+            lane: "extended",
+            limit: 1,
+            sourceFilter: "historical_only",
+          },
+        ],
+      },
+    });
+
+    expect(leaseGoogleAdsSyncPartitions).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        lane: "extended",
+        sourceFilter: "historical_only",
+      })
+    );
+    expect(leased).toHaveLength(1);
+  });
+
+  it("runs Meta auto-heal through the shared repair engine", async () => {
+    runMetaRepairCycle.mockResolvedValue({
+      repair: {
+        reclaimed: 1,
+        replayed: 2,
+        requeued: 3,
+        blocked: false,
+        blockingReasons: [],
+        repairableActions: [],
+      },
+    });
+
+    const { metaWorkerAdapter } = await import("@/lib/sync/provider-worker-adapters");
+    const repair = await metaWorkerAdapter.runAutoHeal?.("biz-1");
+
+    expect(runMetaRepairCycle).toHaveBeenCalledWith("biz-1", {
+      enqueueScheduledWork: false,
+      metaDeadLetterSources: [
+        "historical",
+        "historical_recovery",
+        "initial_connect",
+        "request_runtime",
+      ],
+    });
+    expect(repair).toEqual(
+      expect.objectContaining({
+        reclaimed: 1,
+        replayed: 2,
+        requeued: 3,
+      })
+    );
   });
 
   it("routes Meta writeFacts through the legacy partition processor", async () => {

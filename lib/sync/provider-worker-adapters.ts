@@ -4,6 +4,10 @@ import type {
   ProviderSyncCheckpointState,
   ProviderSyncPartitionIdentity,
 } from "@/lib/sync/provider-orchestration";
+import type {
+  ProviderAutoHealResult,
+  ProviderLeasePlan,
+} from "@/lib/sync/provider-status-truth";
 import { resolveMetaCredentials } from "@/lib/api/meta";
 import { getAssignedGoogleAccounts } from "@/lib/google-ads-gaql";
 import {
@@ -32,13 +36,19 @@ import type {
 } from "@/lib/meta/warehouse-types";
 import type { ProviderReadinessLevel } from "@/lib/provider-readiness";
 import {
+  buildGoogleAdsWorkerLeasePlan,
   processGoogleAdsLifecyclePartition,
   syncGoogleAdsReports,
 } from "@/lib/sync/google-ads-sync";
 import {
+  buildMetaWorkerLeasePlan,
   consumeMetaQueuedWork,
   processMetaLifecyclePartition,
 } from "@/lib/sync/meta-sync";
+import {
+  runGoogleAdsRepairCycle,
+  runMetaRepairCycle,
+} from "@/lib/sync/provider-repair-engine";
 import { syncShopifyCommerceReports } from "@/lib/sync/shopify-sync";
 
 export interface ProviderWorkerAdapter
@@ -55,6 +65,11 @@ export interface ProviderWorkerAdapter
       runtimeLeaseGuard?: RunnerLeaseGuard;
     }
   ): Promise<unknown>;
+  buildLeasePlan?(input: {
+    businessId: string;
+    leaseLimit: number;
+  }): Promise<ProviderLeasePlan | null>;
+  runAutoHeal?(businessId: string): Promise<ProviderAutoHealResult | null>;
 }
 
 type WorkerLifecyclePartition = ProviderSyncPartitionIdentity & {
@@ -251,6 +266,79 @@ async function fetchLegacyPartitionChunk(input: {
 
 async function noopLifecycleStep() {}
 
+async function leaseMetaPartitionsWithPlan(input: {
+  businessId: string;
+  workerId: string;
+  limit: number;
+  plan: ProviderLeasePlan | null | undefined;
+}) {
+  const plan = input.plan;
+  if (!plan?.steps?.length) {
+    return leaseMetaSyncPartitions({
+      businessId: input.businessId,
+      workerId: input.workerId,
+      limit: input.limit,
+    });
+  }
+
+  const leased: MetaSyncPartitionRecord[] = [];
+  let remaining = Math.max(1, input.limit);
+  for (const step of plan.steps) {
+    if (remaining <= 0) break;
+    if (step.onlyIfNoLease && leased.length > 0) continue;
+    const stepLimit = Math.min(remaining, Math.max(0, step.limit));
+    if (stepLimit <= 0) continue;
+    const rows = await leaseMetaSyncPartitions({
+      businessId: input.businessId,
+      lane: (step.lane as MetaSyncPartitionRecord["lane"] | undefined) ?? undefined,
+      sources: step.sources ?? null,
+      workerId: input.workerId,
+      limit: stepLimit,
+    });
+    leased.push(...rows);
+    remaining = Math.max(0, remaining - rows.length);
+  }
+  return leased;
+}
+
+async function leaseGoogleAdsPartitionsWithPlan(input: {
+  businessId: string;
+  workerId: string;
+  limit: number;
+  plan: ProviderLeasePlan | null | undefined;
+}) {
+  const plan = input.plan;
+  if (!plan?.steps?.length) {
+    return leaseGoogleAdsSyncPartitions({
+      businessId: input.businessId,
+      workerId: input.workerId,
+      limit: input.limit,
+    });
+  }
+
+  const leased: GoogleAdsSyncPartitionRecord[] = [];
+  let remaining = Math.max(1, input.limit);
+  for (const step of plan.steps) {
+    if (remaining <= 0) break;
+    if (step.onlyIfNoLease && leased.length > 0) continue;
+    const stepLimit = Math.min(remaining, Math.max(0, step.limit));
+    if (stepLimit <= 0) continue;
+    const rows = await leaseGoogleAdsSyncPartitions({
+      businessId: input.businessId,
+      lane: (step.lane as GoogleAdsSyncPartitionRecord["lane"] | undefined) ?? undefined,
+      workerId: input.workerId,
+      limit: stepLimit,
+      sourceFilter: step.sourceFilter ?? "all",
+      scopeFilter: (step.scopeFilter as GoogleAdsWarehouseScope[] | undefined) ?? undefined,
+      startDate: step.startDate ?? null,
+      endDate: step.endDate ?? null,
+    });
+    leased.push(...rows);
+    remaining = Math.max(0, remaining - rows.length);
+  }
+  return leased;
+}
+
 export const metaWorkerAdapter: ProviderWorkerAdapter = {
   providerScope: "meta",
   async planPartitions(range) {
@@ -288,10 +376,11 @@ export const metaWorkerAdapter: ProviderWorkerAdapter = {
     return { partitions };
   },
   async leasePartitions(input) {
-    const leased = await leaseMetaSyncPartitions({
+    const leased = await leaseMetaPartitionsWithPlan({
       businessId: input.businessId,
       workerId: input.workerId,
       limit: input.limit,
+      plan: input.plan,
     });
     return leased.map((partition) => mapMetaPartition(partition));
   },
@@ -377,6 +466,21 @@ export const metaWorkerAdapter: ProviderWorkerAdapter = {
   async consumeBusiness(businessId: string, input) {
     return consumeMetaQueuedWork(businessId, input);
   },
+  async buildLeasePlan(input) {
+    return buildMetaWorkerLeasePlan(input);
+  },
+  async runAutoHeal(businessId: string) {
+    const result = await runMetaRepairCycle(businessId, {
+      enqueueScheduledWork: false,
+      metaDeadLetterSources: [
+        "historical",
+        "historical_recovery",
+        "initial_connect",
+        "request_runtime",
+      ],
+    });
+    return result.repair;
+  },
 };
 
 export const googleAdsWorkerAdapter: ProviderWorkerAdapter = {
@@ -415,10 +519,11 @@ export const googleAdsWorkerAdapter: ProviderWorkerAdapter = {
     return { partitions };
   },
   async leasePartitions(input) {
-    const leased = await leaseGoogleAdsSyncPartitions({
+    const leased = await leaseGoogleAdsPartitionsWithPlan({
       businessId: input.businessId,
       workerId: input.workerId,
       limit: input.limit,
+      plan: input.plan,
     });
     return leased.map((partition) => mapGoogleAdsPartition(partition));
   },
@@ -507,6 +612,15 @@ export const googleAdsWorkerAdapter: ProviderWorkerAdapter = {
   },
   async consumeBusiness(businessId: string, input) {
     return syncGoogleAdsReports(businessId, input);
+  },
+  async buildLeasePlan(input) {
+    return buildGoogleAdsWorkerLeasePlan(input);
+  },
+  async runAutoHeal(businessId: string) {
+    const result = await runGoogleAdsRepairCycle(businessId, {
+      enqueueScheduledWork: false,
+    });
+    return result.repair;
   },
 };
 

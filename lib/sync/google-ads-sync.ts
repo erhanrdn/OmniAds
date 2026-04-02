@@ -30,8 +30,10 @@ import type { RunnerLeaseGuard } from "@/lib/sync/worker-runtime";
 import type { ProviderReplayReasonCode } from "@/lib/sync/provider-orchestration";
 import {
   buildProviderProgressEvidence,
+  deriveProviderStallFingerprints,
   getActivePartitionBlockingStatuses,
   hasRecentProviderAdvancement,
+  type ProviderLeasePlan,
   type ProviderProgressEvidence,
   type ProviderProgressEvidenceStateRow,
 } from "@/lib/sync/provider-status-truth";
@@ -233,6 +235,7 @@ export interface GoogleAdsFallbackExtendedLeasePlan {
   scopeFilter?: GoogleAdsWarehouseScope[];
   startDate: string | null;
   endDate: string | null;
+  onlyIfNoLease?: boolean;
 }
 
 function parseEnvList(name: string) {
@@ -639,6 +642,160 @@ export function buildGoogleAdsFallbackExtendedLeasePlan(input: {
       (input.fullSyncPriorityRequired || policy.lanePolicy.extendedHistorical !== "suspended")
         ? input.fullSyncPriorityYesterday
         : null,
+    onlyIfNoLease: true,
+  };
+}
+
+export async function buildGoogleAdsWorkerLeasePlan(input: {
+  businessId: string;
+  leaseLimit: number;
+}): Promise<ProviderLeasePlan> {
+  const queueHealth = await getGoogleAdsQueueHealth({ businessId: input.businessId }).catch(() => null);
+  const recent90State = await getGoogleAdsRecent90CompletionState({
+    businessId: input.businessId,
+  }).catch(() => null);
+  const fullSyncPriority = await getGoogleAdsFullSyncPriorityState({
+    businessId: input.businessId,
+  }).catch(() => ({
+    required: false,
+    targetScopes: [] as GoogleAdsWarehouseScope[],
+    totalDays: 0,
+    historicalStart: null,
+    yesterday: null,
+  }));
+  const incidentPolicy = await getGoogleAdsIncidentPolicy({
+    businessId: input.businessId,
+    queueHealth,
+  }).catch(() => null);
+  const effectivePolicy = applyGoogleAdsFullSyncPriorityPolicyOverride({
+    policy: incidentPolicy,
+    fullSyncPriorityRequired: fullSyncPriority.required,
+  });
+  const blockHistoricalExtendedWork = shouldBlockGoogleAdsHistoricalExtendedWork({
+    recent90Complete: recent90State?.complete ?? true,
+  });
+  const historicalLeaseStartDate =
+    fullSyncPriority.historicalStart && recent90State?.recent90Start
+      ? decideGoogleAdsHistoricalFrontier({
+          historicalStart: fullSyncPriority.historicalStart,
+          recent90Start: recent90State.recent90Start,
+          recent90Complete: recent90State.complete,
+        })
+      : fullSyncPriority.historicalStart ?? null;
+  const laneProgressEvidence = buildGoogleAdsLaneProgressEvidence({
+    queueHealth,
+  });
+  const primaryLeasePlan = buildGoogleAdsPrimaryLeasePlan({
+    policy: effectivePolicy,
+    queueHealth,
+    fullSyncPriorityRequired: fullSyncPriority.required,
+    fullSyncPriorityTargetScopes: fullSyncPriority.targetScopes,
+    blockHistoricalExtendedWork,
+    progressEvidence: laneProgressEvidence,
+  });
+  const maintenanceLeasePlan = buildGoogleAdsMaintenanceLeasePlan({
+    policy: effectivePolicy,
+    fullSyncPriorityRequired: fullSyncPriority.required,
+  });
+  const fallbackLeasePlan = buildGoogleAdsFallbackExtendedLeasePlan({
+    policy: effectivePolicy,
+    fullSyncPriorityRequired: fullSyncPriority.required,
+    fullSyncPriorityTargetScopes: fullSyncPriority.targetScopes,
+    fullSyncPriorityYesterday: fullSyncPriority.yesterday,
+    blockHistoricalExtendedWork,
+    historicalLeaseStartDate,
+  });
+  const latestPartitionActivityAt =
+    queueHealth?.latestCoreActivityAt ??
+    queueHealth?.latestExtendedActivityAt ??
+    queueHealth?.latestMaintenanceActivityAt ??
+    null;
+  const steps: ProviderLeasePlan["steps"] = [
+    {
+      key: "core",
+      lane: "core",
+      limit: GOOGLE_ADS_CORE_WORKER_LIMIT,
+      startDate: historicalLeaseStartDate,
+      endDate: fullSyncPriority.yesterday,
+    },
+    {
+      key: "historical_fairness",
+      lane: "extended",
+      limit: primaryLeasePlan.historicalFairnessLimit,
+      sourceFilter: "historical_only" as const,
+      scopeFilter: fullSyncPriority.required ? fullSyncPriority.targetScopes : undefined,
+      startDate: historicalLeaseStartDate,
+      endDate: fullSyncPriority.yesterday,
+    },
+    {
+      key: "recent_repair",
+      lane: "extended",
+      limit: primaryLeasePlan.recentRepairLimit,
+      sourceFilter: "recent_only" as const,
+    },
+    {
+      key: "full_sync_priority",
+      lane: "extended",
+      limit: primaryLeasePlan.fullSyncPriorityLimit,
+      sourceFilter: "historical_only" as const,
+      scopeFilter: fullSyncPriority.targetScopes,
+      startDate: historicalLeaseStartDate,
+      endDate: fullSyncPriority.yesterday,
+    },
+    {
+      key: "maintenance",
+      lane: "maintenance",
+      limit: maintenanceLeasePlan.maintenanceLimit,
+    },
+  ].filter((step) => step.limit > 0);
+  if (fallbackLeasePlan && fallbackLeasePlan.limit > 0) {
+    steps.push({
+      key: "fallback_extended",
+      lane: "extended",
+      limit: fallbackLeasePlan.limit,
+      sourceFilter: fallbackLeasePlan.sourceFilter,
+      scopeFilter: fallbackLeasePlan.scopeFilter,
+      startDate: fallbackLeasePlan.startDate,
+      endDate: fallbackLeasePlan.endDate,
+      onlyIfNoLease: fallbackLeasePlan.onlyIfNoLease,
+    });
+  }
+
+  return {
+    kind: "google_ads_policy_lease_plan",
+    requestedLimit: Math.max(1, input.leaseLimit),
+    steps,
+    maintenancePlan: {
+      autoHealEnabled: true,
+      enqueueScheduledWork: false,
+    },
+    fairnessInputs: {
+      historicalFairnessLimit: primaryLeasePlan.historicalFairnessLimit,
+      recentRepairLimit: primaryLeasePlan.recentRepairLimit,
+      fullSyncPriorityLimit: primaryLeasePlan.fullSyncPriorityLimit,
+      maintenanceLimit: maintenanceLeasePlan.maintenanceLimit,
+      blockHistoricalExtendedWork,
+      fullSyncPriorityRequired: fullSyncPriority.required,
+    },
+    progressEvidence: laneProgressEvidence.extended_historical,
+    latestPartitionActivityAt,
+    queueDepth: queueHealth?.queueDepth ?? 0,
+    leasedPartitions: queueHealth?.leasedPartitions ?? 0,
+    hasRepairableBacklog: (queueHealth?.deadLetterPartitions ?? 0) > 0,
+    staleRunPressure: 0,
+    stallFingerprints: deriveProviderStallFingerprints({
+      queueDepth: queueHealth?.queueDepth ?? 0,
+      leasedPartitions: queueHealth?.leasedPartitions ?? 0,
+      checkpointLagMinutes: null,
+      latestPartitionActivityAt,
+      blocked: (queueHealth?.deadLetterPartitions ?? 0) > 0,
+      progressEvidence: laneProgressEvidence.extended_historical,
+      historicalBacklogDepth:
+        (queueHealth?.extendedHistoricalQueueDepth ?? 0) +
+        (queueHealth?.extendedHistoricalLeasedPartitions ?? 0),
+      blockedReasonCodes:
+        (queueHealth?.deadLetterPartitions ?? 0) > 0 ? ["required_dead_letter_partitions"] : [],
+    }),
   };
 }
 

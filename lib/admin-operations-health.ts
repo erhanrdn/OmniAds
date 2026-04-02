@@ -3,8 +3,10 @@ import { getSyncWorkerHealthSummary } from "@/lib/sync/worker-health";
 import { isGoogleAdsExtendedCanaryBusiness } from "@/lib/sync/google-ads-sync";
 import {
   buildProviderProgressEvidence,
+  deriveProviderStallFingerprints,
   deriveProviderProgressState,
   type ProviderProgressState,
+  type ProviderStallFingerprint,
 } from "@/lib/sync/provider-status-truth";
 
 type AuthProvider = "meta" | "google" | "search_console" | "ga4" | "shopify";
@@ -152,6 +154,7 @@ export interface AdminSyncHealthPayload {
     googleRunnerLeaseActive?: boolean;
     staleRunPressure?: number;
     progressState?: "ready" | "syncing" | "partial_progressing" | "partial_stuck" | "blocked";
+    stallFingerprints?: ProviderStallFingerprint[];
   }>;
   metaBusinesses?: Array<{
     businessId: string;
@@ -191,6 +194,7 @@ export interface AdminSyncHealthPayload {
     recentExtendedReady?: boolean;
     historicalExtendedReady?: boolean;
     progressState?: "ready" | "syncing" | "partial_progressing" | "partial_stuck" | "blocked";
+    stallFingerprints?: ProviderStallFingerprint[];
   }>;
 }
 
@@ -790,6 +794,11 @@ export function buildAdminSyncHealth(input: {
           : extendedHistoricalQueueDepth > 0 && recoveryMode !== "closed"
             ? "historical_recovery_suspended"
             : null;
+    const googleProgressEvidence = buildProviderProgressEvidence({
+      checkpointUpdatedAt: row.latest_checkpoint_updated_at ?? null,
+      recentActivityWindowMinutes: 20,
+      aggregation: "latest",
+    });
 
     const progressState = classifyGoogleAdsProgressState({
       queueDepth,
@@ -804,6 +813,22 @@ export function buildAdminSyncHealth(input: {
       recentExtendedReady,
       historicalExtendedReady,
       latestPartitionActivityAt: row.latest_partition_activity_at ?? null,
+    });
+    const stallFingerprints = deriveProviderStallFingerprints({
+      queueDepth,
+      leasedPartitions,
+      checkpointLagMinutes: computeLagMinutes(googleProgressHeartbeat),
+      latestPartitionActivityAt: row.latest_partition_activity_at ?? null,
+      blocked:
+        deadLetterPartitions > 0 ||
+        Number(row.reclaim_candidate_count ?? 0) > 0 ||
+        Number(row.lease_conflict_runs_24h ?? 0) > 0 ||
+        Number(row.poisoned_checkpoint_count ?? 0) > 0,
+      staleRunPressure,
+      progressEvidence: googleProgressEvidence,
+      blockedReasonCodes: deadLetterPartitions > 0 ? ["required_dead_letter_partitions"] : [],
+      historicalBacklogDepth:
+        extendedHistoricalQueueDepth + extendedHistoricalLeasedPartitions,
     });
 
     googleAdsBusinesses.push({
@@ -862,6 +887,7 @@ export function buildAdminSyncHealth(input: {
       googleRunnerLeaseActive,
       staleRunPressure,
       progressState,
+      stallFingerprints,
     });
 
     if (
@@ -1083,6 +1109,11 @@ export function buildAdminSyncHealth(input: {
       row.latest_progress_heartbeat_at ?? row.latest_checkpoint_updated_at ?? null;
     const effectiveMode =
       !recentExtendedReady ? "core_only" : historicalExtendedReady ? "extended_normal" : "extended_recovery";
+    const metaProgressEvidence = buildProviderProgressEvidence({
+      checkpointUpdatedAt: row.latest_checkpoint_updated_at ?? null,
+      recentActivityWindowMinutes: 20,
+      aggregation: "latest",
+    });
     const progressState = classifyMetaProgressState({
       queueDepth,
       leasedPartitions,
@@ -1096,6 +1127,22 @@ export function buildAdminSyncHealth(input: {
       recentExtendedReady,
       historicalExtendedReady,
       latestPartitionActivityAt: row.latest_partition_activity_at ?? null,
+    });
+    const stallFingerprints = deriveProviderStallFingerprints({
+      queueDepth,
+      leasedPartitions,
+      checkpointLagMinutes: computeLagMinutes(metaProgressHeartbeat),
+      latestPartitionActivityAt: row.latest_partition_activity_at ?? null,
+      blocked:
+        deadLetterPartitions > 0 ||
+        staleLeasePartitions > 0 ||
+        Number(row.reclaim_candidate_count ?? 0) > 0 ||
+        Number(row.stale_run_count_24h ?? 0) > 0,
+      hasRepairableBacklog: retryableFailedPartitions > 0,
+      staleRunPressure: Number(row.stale_run_count_24h ?? 0),
+      progressEvidence: metaProgressEvidence,
+      blockedReasonCodes: deadLetterPartitions > 0 ? ["required_dead_letter_partitions"] : [],
+      historicalBacklogDepth: queueDepth,
     });
 
     metaBusinesses.push({
@@ -1137,6 +1184,7 @@ export function buildAdminSyncHealth(input: {
       recentExtendedReady,
       historicalExtendedReady,
       progressState,
+      stallFingerprints,
     });
 
     if (

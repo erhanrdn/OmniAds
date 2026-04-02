@@ -36,6 +36,7 @@ import {
   buildRequiredCoverage,
   compactBlockingReasons,
   compactRepairableActions,
+  deriveProviderStallFingerprints,
   deriveProviderProgressState,
 } from "@/lib/sync/provider-status-truth";
 
@@ -587,6 +588,22 @@ export async function GET(request: NextRequest) {
         .filter((value): value is string => Boolean(value))
         .sort((left, right) => left.localeCompare(right))[0] ?? null,
   });
+  const metaStallFingerprints = deriveProviderStallFingerprints({
+    queueDepth: queueHealth?.queueDepth ?? 0,
+    leasedPartitions: queueHealth?.leasedPartitions ?? 0,
+    checkpointLagMinutes: checkpointHealth?.checkpointLagMinutes ?? null,
+    latestPartitionActivityAt: latestMetaActivityAt,
+    blocked: state === "action_required",
+    hasRepairableBacklog: (queueHealth?.retryableFailedPartitions ?? 0) > 0,
+    staleRunPressure: legacyJobHealth?.staleRunningJobs ?? 0,
+    progressEvidence: metaProgressEvidence,
+    blockedReasonCodes: metaBlockingReasons.map((reason) => reason.code),
+    historicalBacklogDepth:
+      (queueHealth?.historicalCoreQueueDepth ?? 0) +
+      (queueHealth?.historicalCoreLeasedPartitions ?? 0) +
+      (queueHealth?.extendedHistoricalQueueDepth ?? 0) +
+      (queueHealth?.extendedHistoricalLeasedPartitions ?? 0),
+  });
   const providerState = buildProviderStateContract({
     credentialState: connected ? "connected" : "not_connected",
     hasAssignedAccounts: accountIds.length > 0,
@@ -786,6 +803,7 @@ export async function GET(request: NextRequest) {
             blockingReasons: metaBlockingReasons,
             repairableActions: metaRepairableActions,
             requiredCoverage: metaRequiredCoverage,
+            stallFingerprints: metaStallFingerprints,
             secondaryReadiness: [
               {
                 key: "creatives_preview",

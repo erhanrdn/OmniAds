@@ -55,6 +55,7 @@ import {
   buildRequiredCoverage,
   compactBlockingReasons,
   compactRepairableActions,
+  deriveProviderStallFingerprints,
   deriveProviderProgressState,
 } from "@/lib/sync/provider-status-truth";
 import type {
@@ -1424,6 +1425,19 @@ export async function GET(request: NextRequest) {
     staleRunPressure,
     progressEvidence: googleProgressEvidence,
   });
+  const googleStallFingerprints = deriveProviderStallFingerprints({
+    queueDepth: queueHealth?.queueDepth ?? 0,
+    leasedPartitions: queueHealth?.leasedPartitions ?? 0,
+    checkpointLagMinutes: checkpointHealth?.checkpointLagMinutes ?? null,
+    latestPartitionActivityAt: latestGoogleActivityAt,
+    blocked: overallState === "action_required",
+    staleRunPressure,
+    progressEvidence: googleProgressEvidence,
+    blockedReasonCodes: googleBlockingReasons.map((reason) => reason.code),
+    historicalBacklogDepth:
+      (queueHealth?.extendedHistoricalQueueDepth ?? 0) +
+      (queueHealth?.extendedHistoricalLeasedPartitions ?? 0),
+  });
   const providerState = buildProviderStateContract({
     credentialState: connected ? "connected" : "not_connected",
     hasAssignedAccounts: accountIds.length > 0,
@@ -1593,6 +1607,7 @@ export async function GET(request: NextRequest) {
       blockingReasons: googleBlockingReasons,
       repairableActions: googleRepairableActions,
       requiredCoverage: googleRequiredCoverage,
+      stallFingerprints: googleStallFingerprints,
       secondaryReadiness: [
         {
           key: "analysis",

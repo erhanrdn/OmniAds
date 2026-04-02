@@ -7,21 +7,19 @@ import {
   buildRepairableAction,
   compactBlockingReasons,
   compactRepairableActions,
-  type ProviderBlockingReason,
-  type ProviderRepairableAction,
+  type ProviderAutoHealResult,
 } from "@/lib/sync/provider-status-truth";
 
-export interface ProviderRepairResult {
-  reclaimed: number;
-  replayed: number;
-  requeued: number;
-  blocked: boolean;
-  blockingReasons: ProviderBlockingReason[];
-  repairableActions: ProviderRepairableAction[];
-  meta?: Record<string, unknown>;
+export interface ProviderRepairCycleOptions {
+  enqueueScheduledWork?: boolean;
+  metaDeadLetterSources?: string[] | null;
 }
 
-export async function runGoogleAdsRepairCycle(businessId: string) {
+export async function runGoogleAdsRepairCycle(
+  businessId: string,
+  options?: ProviderRepairCycleOptions
+) {
+  const enqueueScheduledWork = options?.enqueueScheduledWork ?? true;
   const cleanup = await googleAdsWarehouse
     .cleanupGoogleAdsPartitionOrchestration({ businessId })
     .catch(() => null);
@@ -37,7 +35,9 @@ export async function runGoogleAdsRepairCycle(businessId: string) {
       .getGoogleAdsCheckpointHealth({ businessId, providerAccountId: null })
       .catch(() => null),
   ]);
-  const enqueueResult = await enqueueGoogleAdsScheduledWork(businessId);
+  const enqueueResult = enqueueScheduledWork
+    ? await enqueueGoogleAdsScheduledWork(businessId)
+    : null;
   const blocked =
     ((queueHealthBeforeEnqueue?.deadLetterPartitions ?? 0) > 0 &&
       (replayedDeadLetters?.changedCount ?? 0) + (replayedPoisoned?.changedCount ?? 0) <= 0) ||
@@ -85,23 +85,33 @@ export async function runGoogleAdsRepairCycle(businessId: string) {
       meta: {
         deadLetters: replayedDeadLetters,
         poisonedReplay: replayedPoisoned,
+        enqueueScheduledWork,
       },
-    } satisfies ProviderRepairResult,
+    } satisfies ProviderAutoHealResult,
   };
 }
 
-export async function runMetaRepairCycle(businessId: string) {
+export async function runMetaRepairCycle(
+  businessId: string,
+  options?: ProviderRepairCycleOptions
+) {
+  const enqueueScheduledWork = options?.enqueueScheduledWork ?? true;
   const cleanup = await metaWarehouse
     .cleanupMetaPartitionOrchestration({ businessId })
     .catch(() => null);
   const replayedDeadLetters = await metaWarehouse
-    .replayMetaDeadLetterPartitions({ businessId })
+    .replayMetaDeadLetterPartitions({
+      businessId,
+      sources: options?.metaDeadLetterSources ?? null,
+    })
     .catch(() => null);
   const requeuedFailed = await metaWarehouse
     .requeueMetaRetryableFailedPartitions({ businessId })
     .catch(() => []);
   const queueHealthBeforeEnqueue = await metaWarehouse.getMetaQueueHealth({ businessId }).catch(() => null);
-  const enqueueResult = await enqueueMetaScheduledWork(businessId);
+  const enqueueResult = enqueueScheduledWork
+    ? await enqueueMetaScheduledWork(businessId)
+    : null;
   const blocked =
     ((queueHealthBeforeEnqueue?.deadLetterPartitions ?? 0) > 0 &&
       (replayedDeadLetters?.changedCount ?? 0) <= 0) ||
@@ -149,7 +159,8 @@ export async function runMetaRepairCycle(businessId: string) {
       meta: {
         deadLetters: replayedDeadLetters,
         retryableFailed: requeuedFailed.length,
+        enqueueScheduledWork,
       },
-    } satisfies ProviderRepairResult,
+    } satisfies ProviderAutoHealResult,
   };
 }

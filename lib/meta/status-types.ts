@@ -9,6 +9,7 @@ import type {
   ProviderRepairableAction,
   ProviderRequiredCoverage,
   ProviderSecondaryReadiness,
+  ProviderStallFingerprint,
 } from "@/lib/sync/provider-status-truth";
 
 export interface MetaSyncDetails {
@@ -137,6 +138,7 @@ export interface MetaStatusResponse {
     repairableActions?: ProviderRepairableAction[];
     requiredCoverage?: ProviderRequiredCoverage | null;
     secondaryReadiness?: ProviderSecondaryReadiness[];
+    stallFingerprints?: ProviderStallFingerprint[];
     queueSummary?: {
       historicalCoreQueued: number;
       maintenanceQueued: number;

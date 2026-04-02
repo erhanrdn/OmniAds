@@ -1858,6 +1858,7 @@ export interface MetaRecoveryActionResult {
 export async function replayMetaDeadLetterPartitions(input: {
   businessId: string;
   scope?: MetaWarehouseScope | null;
+  sources?: string[] | null;
 }): Promise<MetaRecoveryActionResult> {
   await runMigrations();
   const sql = getDb();
@@ -1867,6 +1868,7 @@ export async function replayMetaDeadLetterPartitions(input: {
     WHERE business_id = ${input.businessId}
       AND status = 'dead_letter'
       AND (${input.scope ?? null}::text IS NULL OR scope = ${input.scope ?? null})
+      AND (${input.sources ?? null}::text[] IS NULL OR source = ANY(${input.sources ?? null}::text[]))
   ` as Array<{ id: string }>;
   const skippedActiveLeaseRows = await sql`
     SELECT id
@@ -1875,6 +1877,7 @@ export async function replayMetaDeadLetterPartitions(input: {
       AND status = 'dead_letter'
       AND COALESCE(lease_expires_at, now() - interval '1 second') > now()
       AND (${input.scope ?? null}::text IS NULL OR scope = ${input.scope ?? null})
+      AND (${input.sources ?? null}::text[] IS NULL OR source = ANY(${input.sources ?? null}::text[]))
   ` as Array<{ id: string }>;
   const rows = await sql`
     UPDATE meta_sync_partitions
@@ -1893,6 +1896,7 @@ export async function replayMetaDeadLetterPartitions(input: {
       AND status = 'dead_letter'
       AND COALESCE(lease_expires_at, now() - interval '1 second') <= now()
       AND (${input.scope ?? null}::text IS NULL OR scope = ${input.scope ?? null})
+      AND (${input.sources ?? null}::text[] IS NULL OR source = ANY(${input.sources ?? null}::text[]))
     RETURNING id, lane, scope, partition_date
   ` as Array<Record<string, unknown>>;
   const partitions = rows.map((row) => ({

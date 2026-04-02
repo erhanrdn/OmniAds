@@ -13,6 +13,13 @@ export type ProviderProgressState =
   | "partial_stuck"
   | "blocked";
 
+export type ProviderStallFingerprint =
+  | "historical_starvation"
+  | "dead_letter_blocking_completion"
+  | "checkpoint_not_advancing"
+  | "activity_without_coverage_progress"
+  | "repair_loop_without_progress";
+
 export interface ProviderProgressEvidence {
   lastCheckpointAdvancedAt: string | null;
   lastReadyThroughAdvancedAt: string | null;
@@ -30,6 +37,50 @@ export interface ProviderProgressEvidenceStateRow {
   latestBackgroundActivityAt?: string | null;
   latestSuccessfulSyncAt?: string | null;
   updatedAt?: string | null;
+}
+
+export interface ProviderFairnessInputs {
+  maintenanceLimit?: number | null;
+  coreFairnessLimit?: number | null;
+  historicalFairnessLimit?: number | null;
+  extendedHistoricalFairnessLimit?: number | null;
+  extendedRecentLimit?: number | null;
+  recentRepairLimit?: number | null;
+  fullSyncPriorityLimit?: number | null;
+  blockHistoricalExtendedWork?: boolean | null;
+  fullSyncPriorityRequired?: boolean | null;
+}
+
+export interface ProviderMaintenancePlan {
+  autoHealEnabled: boolean;
+  enqueueScheduledWork: boolean;
+}
+
+export interface ProviderLeasePlanStep {
+  key: string;
+  lane?: string;
+  limit: number;
+  onlyIfNoLease?: boolean;
+  sources?: string[] | null;
+  sourceFilter?: "all" | "recent_only" | "historical_only";
+  scopeFilter?: string[];
+  startDate?: string | null;
+  endDate?: string | null;
+}
+
+export interface ProviderLeasePlan {
+  kind: string;
+  requestedLimit: number;
+  steps: ProviderLeasePlanStep[];
+  maintenancePlan?: ProviderMaintenancePlan | null;
+  fairnessInputs?: ProviderFairnessInputs | null;
+  progressEvidence?: ProviderProgressEvidence | null;
+  latestPartitionActivityAt?: string | null;
+  queueDepth?: number;
+  leasedPartitions?: number;
+  hasRepairableBacklog?: boolean;
+  staleRunPressure?: number;
+  stallFingerprints?: ProviderStallFingerprint[];
 }
 
 const ACTIVE_PARTITION_BLOCKING_STATUSES = ["queued", "leased", "running"] as const;
@@ -52,6 +103,16 @@ export interface ProviderRepairableAction {
   kind: string;
   detail: string;
   available: boolean;
+}
+
+export interface ProviderAutoHealResult {
+  reclaimed: number;
+  replayed: number;
+  requeued: number;
+  blocked: boolean;
+  blockingReasons: ProviderBlockingReason[];
+  repairableActions: ProviderRepairableAction[];
+  meta?: Record<string, unknown>;
 }
 
 export function buildRequiredCoverage(input: {
@@ -277,4 +338,67 @@ export function deriveProviderProgressState(input: {
   }
 
   return input.fullyReady ? "ready" : "partial_stuck";
+}
+
+export function deriveProviderStallFingerprints(input: {
+  queueDepth: number;
+  leasedPartitions: number;
+  checkpointLagMinutes: number | null;
+  latestPartitionActivityAt: string | null;
+  blocked: boolean;
+  hasRepairableBacklog?: boolean;
+  staleRunPressure?: number;
+  progressEvidence?: ProviderProgressEvidence | null;
+  blockedReasonCodes?: string[];
+  historicalBacklogDepth?: number;
+  nowMs?: number;
+}): ProviderStallFingerprint[] {
+  const rows = new Set<ProviderStallFingerprint>();
+  const blockedReasonCodes = new Set(input.blockedReasonCodes ?? []);
+  const hasRecentAdvancement = hasRecentProviderAdvancement({
+    progressEvidence: input.progressEvidence,
+    fallbackLatestPartitionActivityAt: input.latestPartitionActivityAt,
+    nowMs: input.nowMs,
+  });
+
+  if (
+    blockedReasonCodes.has("required_dead_letter_partitions") ||
+    blockedReasonCodes.has("dead_letter_partitions")
+  ) {
+    rows.add("dead_letter_blocking_completion");
+  }
+
+  if (
+    (input.historicalBacklogDepth ?? 0) > 0 &&
+    !hasRecentAdvancement &&
+    input.queueDepth > 0
+  ) {
+    rows.add("historical_starvation");
+  }
+
+  if (
+    input.queueDepth > 0 &&
+    (input.checkpointLagMinutes == null || input.checkpointLagMinutes > 20) &&
+    !hasRecentAdvancement
+  ) {
+    rows.add("checkpoint_not_advancing");
+  }
+
+  if (input.leasedPartitions > 0 && input.queueDepth > 0 && !hasRecentAdvancement) {
+    rows.add("activity_without_coverage_progress");
+  }
+
+  if (
+    (input.hasRepairableBacklog || input.blocked) &&
+    !hasRecentAdvancement &&
+    Boolean(input.progressEvidence?.lastReplayAt || input.progressEvidence?.lastReclaimAt)
+  ) {
+    rows.add("repair_loop_without_progress");
+  }
+
+  if ((input.staleRunPressure ?? 0) > 0 && !hasRecentAdvancement && input.queueDepth > 0) {
+    rows.add("checkpoint_not_advancing");
+  }
+
+  return [...rows];
 }

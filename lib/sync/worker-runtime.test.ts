@@ -124,19 +124,24 @@ describe("resolveAdapterLifecycleSnapshot", () => {
 describe("runAdapterLifecycleTick", () => {
   it("drives the shared lifecycle methods when a partition is leased", async () => {
     const calls: string[] = [];
+    const leasePartitions = async (input: { plan?: { kind: string } | null }) => {
+      calls.push(`lease:${input.plan?.kind ?? "none"}`);
+      return [
+        {
+          partitionId: "part-1",
+          businessId: "biz-1",
+          providerAccountId: "act_1",
+          scope: "account_daily",
+          partitionDate: "2026-04-01",
+          lane: "core",
+        },
+      ];
+    };
     const result = await runAdapterLifecycleTick({
       adapter: {
         providerScope: "meta",
         planPartitions: async () => ({ partitions: [] }),
-        leasePartitions: async () => [
-          {
-            partitionId: "part-1",
-            businessId: "biz-1",
-            providerAccountId: "act_1",
-            scope: "account_daily",
-            partitionDate: "2026-04-01",
-          },
-        ],
+        leasePartitions,
         getCheckpoint: async () => {
           calls.push("getCheckpoint");
           return null;
@@ -166,6 +171,11 @@ describe("runAdapterLifecycleTick", () => {
       businessId: "biz-1",
       workerId: "worker-1",
       leaseLimit: 1,
+      leasePlan: {
+        kind: "meta_policy_lease_plan",
+        requestedLimit: 1,
+        steps: [],
+      },
     });
 
     expect(result).toMatchObject({
@@ -173,8 +183,10 @@ describe("runAdapterLifecycleTick", () => {
       succeeded: 1,
       failed: 0,
       lastPartitionId: "part-1",
+      laneLeaseCounts: { core: 1 },
     });
     expect(calls).toEqual([
+      "lease:meta_policy_lease_plan",
       "getCheckpoint",
       "fetchChunk",
       "persistChunk",

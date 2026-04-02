@@ -47,7 +47,9 @@ import {
 } from "@/lib/meta/history";
 import {
   buildProviderProgressEvidence,
+  deriveProviderStallFingerprints,
   hasRecentProviderAdvancement,
+  type ProviderLeasePlan,
   type ProviderProgressEvidence,
   type ProviderProgressEvidenceStateRow,
 } from "@/lib/sync/provider-status-truth";
@@ -201,6 +203,108 @@ export interface MetaFollowupLeasePlan {
   extendedRecentLimit: number;
   historicalCoreLimit: number;
   extendedHistoricalLimit: number;
+}
+
+export async function buildMetaWorkerLeasePlan(input: {
+  businessId: string;
+  leaseLimit: number;
+}): Promise<ProviderLeasePlan> {
+  const queueHealth = await getMetaQueueHealth({ businessId: input.businessId }).catch(() => null);
+  const laneProgressEvidence = buildMetaLaneProgressEvidence({
+    queueHealth,
+  });
+  const fairnessLeasePlan = buildMetaFairnessLeasePlan({
+    queueHealth,
+    laneProgressEvidence,
+  });
+  const followupLeasePlan = buildMetaFollowupLeasePlan({
+    queueHealth,
+    leasedCoreFairnessCount: 0,
+    leasedExtendedHistoricalFairnessCount: 0,
+  });
+  const latestPartitionActivityAt =
+    queueHealth?.latestCoreActivityAt ??
+    queueHealth?.latestExtendedActivityAt ??
+    queueHealth?.latestMaintenanceActivityAt ??
+    null;
+  return {
+    kind: "meta_policy_lease_plan",
+    requestedLimit: Math.max(1, input.leaseLimit),
+    steps: [
+      {
+        key: "maintenance",
+        lane: "maintenance",
+        limit: META_MAINTENANCE_WORKER_LIMIT,
+      },
+      {
+        key: "core_fairness",
+        lane: "core",
+        limit: fairnessLeasePlan.coreFairnessLimit,
+      },
+      {
+        key: "extended_historical_fairness",
+        lane: "extended",
+        limit: fairnessLeasePlan.extendedHistoricalFairnessLimit,
+        sources: ["historical", "historical_recovery", "initial_connect"],
+      },
+      {
+        key: "extended_recent",
+        lane: "extended",
+        limit: followupLeasePlan.extendedRecentLimit,
+        sources: [
+          "recent",
+          "recent_recovery",
+          "today",
+          "priority_window",
+          "request_runtime",
+          "manual_refresh",
+        ],
+      },
+      {
+        key: "historical_core",
+        lane: "core",
+        limit: followupLeasePlan.historicalCoreLimit,
+      },
+      {
+        key: "extended_historical",
+        lane: "extended",
+        limit: followupLeasePlan.extendedHistoricalLimit,
+        sources: ["historical", "historical_recovery", "initial_connect"],
+      },
+    ].filter((step) => step.limit > 0),
+    maintenancePlan: {
+      autoHealEnabled: true,
+      enqueueScheduledWork: false,
+    },
+    fairnessInputs: {
+      maintenanceLimit: META_MAINTENANCE_WORKER_LIMIT,
+      coreFairnessLimit: fairnessLeasePlan.coreFairnessLimit,
+      extendedHistoricalFairnessLimit: fairnessLeasePlan.extendedHistoricalFairnessLimit,
+      extendedRecentLimit: followupLeasePlan.extendedRecentLimit,
+    },
+    progressEvidence: laneProgressEvidence.core,
+    latestPartitionActivityAt,
+    queueDepth: queueHealth?.queueDepth ?? 0,
+    leasedPartitions: queueHealth?.leasedPartitions ?? 0,
+    hasRepairableBacklog: (queueHealth?.retryableFailedPartitions ?? 0) > 0,
+    staleRunPressure: 0,
+    stallFingerprints: deriveProviderStallFingerprints({
+      queueDepth: queueHealth?.queueDepth ?? 0,
+      leasedPartitions: queueHealth?.leasedPartitions ?? 0,
+      checkpointLagMinutes: null,
+      latestPartitionActivityAt,
+      blocked: (queueHealth?.deadLetterPartitions ?? 0) > 0,
+      hasRepairableBacklog: (queueHealth?.retryableFailedPartitions ?? 0) > 0,
+      progressEvidence: laneProgressEvidence.core,
+      historicalBacklogDepth:
+        (queueHealth?.historicalCoreQueueDepth ?? 0) +
+        (queueHealth?.historicalCoreLeasedPartitions ?? 0) +
+        (queueHealth?.extendedHistoricalQueueDepth ?? 0) +
+        (queueHealth?.extendedHistoricalLeasedPartitions ?? 0),
+      blockedReasonCodes:
+        (queueHealth?.deadLetterPartitions ?? 0) > 0 ? ["required_dead_letter_partitions"] : [],
+    }),
+  };
 }
 
 function isRecentMetaSource(source: string | null | undefined) {

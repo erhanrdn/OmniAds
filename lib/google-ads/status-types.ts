@@ -9,6 +9,7 @@ import type {
   ProviderRepairableAction,
   ProviderRequiredCoverage,
   ProviderSecondaryReadiness,
+  ProviderStallFingerprint,
 } from "@/lib/sync/provider-status-truth";
 
 export interface GoogleAdsSyncDetails {
@@ -235,6 +236,7 @@ export interface GoogleAdsStatusResponse {
     repairableActions?: ProviderRepairableAction[];
     requiredCoverage?: ProviderRequiredCoverage | null;
     secondaryReadiness?: ProviderSecondaryReadiness[];
+    stallFingerprints?: ProviderStallFingerprint[];
     workerBuildId?: string | null;
     workerStartedAt?: string | null;
     lastWorkerHeartbeatAt?: string | null;
