@@ -693,9 +693,9 @@ export async function cleanupMetaPartitionOrchestration(input: {
         lease.updated_at AS lease_updated_at,
         lease.lease_expires_at AS lease_expires_at,
         CASE
-          WHEN run.lane = 'core' THEN ${String(staleRunMinutesCore)}
-          WHEN run.lane = 'maintenance' THEN ${String(staleRunMinutesMaintenance)}
-          ELSE ${String(staleRunMinutesExtended)}
+          WHEN run.lane = 'core' THEN ${staleRunMinutesCore}
+          WHEN run.lane = 'maintenance' THEN ${staleRunMinutesMaintenance}
+          ELSE ${staleRunMinutesExtended}
         END AS stale_threshold_minutes,
         EXISTS (
           SELECT 1
@@ -767,7 +767,7 @@ export async function cleanupMetaPartitionOrchestration(input: {
       AND NOT (
         stale_candidates.progress_updated_at IS NOT NULL
         AND stale_candidates.progress_updated_at >
-          now() - (${String(runProgressGraceMinutes)} || ' minutes')::interval
+          now() - (${runProgressGraceMinutes} || ' minutes')::interval
       )
     RETURNING run.id
   ` as Array<Record<string, unknown>>;
