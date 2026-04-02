@@ -188,7 +188,7 @@ describe("getShopifyOverviewReadCandidate", () => {
       endDate: "2026-03-31",
     });
 
-    expect(result.preferredSource).toBe("warehouse");
+    expect(result.preferredSource).toBe("ledger");
     expect(result.canServeWarehouse).toBe(true);
     expect(result.decisionReasons).toEqual([]);
     expect(warehouseState.upsertShopifyServingState).toHaveBeenCalledWith(
@@ -215,6 +215,7 @@ describe("getShopifyOverviewReadCandidate", () => {
         returnsHistoricalReadyThroughDate: null,
         returnsHistoricalTargetEnd: null,
         canServeWarehouse: true,
+        preferredSource: "ledger",
       })
     );
   });
@@ -318,7 +319,7 @@ describe("getShopifyOverviewReadCandidate", () => {
     });
 
     expect(result.canServeWarehouse).toBe(true);
-    expect(result.preferredSource).toBe("warehouse");
+    expect(result.preferredSource).toBe("ledger");
     expect(result.decisionReasons).not.toContain("preview_canary_not_allowed_for_business");
     expect(result.decisionReasons).not.toContain("default_cutover_gate_not_met");
   });

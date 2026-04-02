@@ -135,9 +135,13 @@ export async function getShopifyOverviewReadCandidate(input: {
         status.state === "ready" &&
         divergence?.withinThreshold === true &&
         (ledgerConsistency === null || ledgerConsistency.withinThreshold === true);
+  const preferredWarehouseSource =
+    canServeWarehouse && ledger && ledgerConsistency?.withinThreshold === true
+      ? "ledger"
+      : "warehouse";
 
   const preferredSource = canServeWarehouse
-    ? "warehouse"
+    ? preferredWarehouseSource
     : forcedLive
       ? live
         ? "live"

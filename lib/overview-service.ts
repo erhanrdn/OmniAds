@@ -452,6 +452,39 @@ async function resolveShopifyOverviewAggregateForRead(input: {
     };
   }
 
+  if (candidate.preferredSource === "ledger" && candidate.ledger) {
+    console.info("[overview] shopify ledger read canary selected", {
+      businessId: input.businessId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      revenueDeltaPercent: candidate.divergence?.revenueDeltaPercent ?? null,
+      purchaseDelta: candidate.divergence?.purchaseDelta ?? null,
+      ledgerRevenueDeltaPercent:
+        typeof candidate.ledgerConsistency?.revenueDeltaPercent === "number"
+          ? candidate.ledgerConsistency.revenueDeltaPercent
+          : null,
+    });
+
+    return {
+      revenue: candidate.ledger.revenue,
+      purchases: candidate.ledger.purchases,
+      averageOrderValue: candidate.ledger.averageOrderValue,
+      sessions: null,
+      conversionRate: null,
+      newCustomers: null,
+      returningCustomers: null,
+      dailyTrends: candidate.ledger.daily.map((row) => ({
+        date: row.date,
+        revenue: row.netRevenue,
+        purchases: row.orders,
+        sessions: null,
+        conversionRate: null,
+        newCustomers: null,
+        returningCustomers: null,
+      })),
+    };
+  }
+
   if (candidate.canaryEnabled) {
     console.info("[overview] shopify warehouse read canary blocked", {
       businessId: input.businessId,
