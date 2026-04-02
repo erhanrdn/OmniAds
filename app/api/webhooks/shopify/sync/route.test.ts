@@ -68,7 +68,10 @@ describe("POST /api/webhooks/shopify/sync", () => {
 
     expect(response.status).toBe(200);
     expect(payload.received).toBe(true);
-    expect(shopifySync.syncShopifyCommerceReports).toHaveBeenCalledWith("biz_1");
+    expect(shopifySync.syncShopifyCommerceReports).toHaveBeenCalledWith("biz_1", {
+      recentWindowDays: 3,
+      triggerReason: "webhook:orders:update",
+    });
     expect(warehouse.upsertShopifyWebhookDelivery).toHaveBeenCalled();
   });
 

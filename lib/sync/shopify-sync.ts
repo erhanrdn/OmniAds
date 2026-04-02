@@ -40,13 +40,16 @@ function toIsoDate(date: Date) {
   return date.toISOString().slice(0, 10);
 }
 
-function classifyShopifySyncWindow(credentials: Awaited<ReturnType<typeof resolveShopifyAdminCredentials>>) {
+function classifyShopifySyncWindow(
+  credentials: Awaited<ReturnType<typeof resolveShopifyAdminCredentials>>,
+  input?: { recentWindowDays?: number }
+) {
   const timeZone =
     typeof credentials?.metadata?.iana_timezone === "string"
       ? credentials.metadata.iana_timezone
       : "UTC";
   const today = getTodayIsoForTimeZoneServer(timeZone);
-  const historyDays = envNumber("SHOPIFY_COMMERCE_SYNC_DAYS", 7);
+  const historyDays = input?.recentWindowDays ?? envNumber("SHOPIFY_COMMERCE_SYNC_DAYS", 7);
   const end = new Date(`${today}T00:00:00Z`);
   const start = addDays(end, -(historyDays - 1));
   return {
@@ -104,6 +107,8 @@ export async function syncShopifyCommerceReports(
   businessId: string,
   input?: {
     runtimeLeaseGuard?: RunnerLeaseGuard;
+    recentWindowDays?: number;
+    triggerReason?: string;
   }
 ) {
   const credentials = await resolveShopifyAdminCredentials(businessId).catch(() => null);
@@ -121,7 +126,9 @@ export async function syncShopifyCommerceReports(
     };
   }
 
-  const window = classifyShopifySyncWindow(credentials);
+  const window = classifyShopifySyncWindow(credentials, {
+    recentWindowDays: input?.recentWindowDays,
+  });
   const historical = classifyShopifyHistoricalWindow(credentials);
   const existingOrdersState = await getShopifySyncState({
     businessId,
@@ -299,6 +306,7 @@ export async function syncShopifyCommerceReports(
               ledgerRows: ledgerShadow.ledgerRows,
             }
           : null,
+        triggerReason: input?.triggerReason ?? null,
       },
     };
 

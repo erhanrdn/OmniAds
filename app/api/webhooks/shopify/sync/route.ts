@@ -9,6 +9,15 @@ import {
 import { getShopifyWebhookDelivery, upsertShopifyWebhookDelivery } from "@/lib/shopify/warehouse";
 import { verifyShopifyWebhook } from "@/lib/shopify/webhook-verification";
 
+function webhookRecentWindowDays(input: { entity: string; action: string }) {
+  if (input.entity === "refunds") {
+    const parsed = Number(process.env.SHOPIFY_WEBHOOK_REFUND_SYNC_DAYS ?? "14");
+    return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : 14;
+  }
+  const parsed = Number(process.env.SHOPIFY_WEBHOOK_ORDER_SYNC_DAYS ?? "3");
+  return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : 3;
+}
+
 /**
  * POST /api/webhooks/shopify/sync
  *
@@ -108,7 +117,10 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const syncResult = await syncShopifyCommerceReports(match.business_id);
+    const syncResult = await syncShopifyCommerceReports(match.business_id, {
+      recentWindowDays: webhookRecentWindowDays(topicMeta),
+      triggerReason: `webhook:${topicMeta.entity}:${topicMeta.action}`,
+    });
     await upsertShopifyWebhookDelivery({
       businessId: match.business_id,
       providerAccountId: match.provider_account_id,
