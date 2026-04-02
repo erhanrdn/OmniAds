@@ -16,6 +16,7 @@ import {
 } from "@/lib/shopify/warehouse";
 import { getShopifyRevenueLedgerAggregate } from "@/lib/shopify/revenue-ledger";
 import { compareShopifyWarehouseAndLedger } from "@/lib/shopify/divergence";
+import { getShopifyCustomerEventsAggregate } from "@/lib/shopify/customer-events-analytics";
 import { getShopifyWarehouseOverviewAggregate } from "@/lib/shopify/warehouse-overview";
 
 export async function GET(request: NextRequest) {
@@ -94,7 +95,7 @@ export async function GET(request: NextRequest) {
             limit: 10,
           }).catch(() => [])
         : [];
-    const [warehouseAggregate, ledgerAggregate] =
+    const [warehouseAggregate, ledgerAggregate, customerEventsAggregate] =
       status.shopId && startDate && endDate
         ? await Promise.all([
             getShopifyWarehouseOverviewAggregate({
@@ -109,8 +110,14 @@ export async function GET(request: NextRequest) {
               startDate,
               endDate,
             }).catch(() => null),
+            getShopifyCustomerEventsAggregate({
+              businessId,
+              providerAccountId: status.shopId,
+              startDate,
+              endDate,
+            }).catch(() => null),
           ])
-        : [null, null];
+        : [null, null, null];
     const ledgerConsistency =
       warehouseAggregate && ledgerAggregate
         ? compareShopifyWarehouseAndLedger({
@@ -139,6 +146,7 @@ export async function GET(request: NextRequest) {
       warehouseAggregate,
       ledgerAggregate,
       ledgerConsistency,
+      customerEventsAggregate,
     });
   } catch (err) {
     console.error("[admin/integrations/health/shopify GET]", err);

@@ -17,6 +17,10 @@ vi.mock("@/lib/shopify/revenue-ledger", () => ({
   getShopifyRevenueLedgerAggregate: vi.fn(),
 }));
 
+vi.mock("@/lib/shopify/customer-events-analytics", () => ({
+  getShopifyCustomerEventsAggregate: vi.fn(),
+}));
+
 vi.mock("@/lib/shopify/warehouse", () => ({
   listShopifyReconciliationRuns: vi.fn(),
   getShopifyServingOverride: vi.fn(),
@@ -30,6 +34,7 @@ const shopifyStatus = await import("@/lib/shopify/status");
 const shopifyWarehouse = await import("@/lib/shopify/warehouse");
 const warehouseOverview = await import("@/lib/shopify/warehouse-overview");
 const revenueLedger = await import("@/lib/shopify/revenue-ledger");
+const customerEventsAnalytics = await import("@/lib/shopify/customer-events-analytics");
 const { GET, PATCH } = await import("@/app/api/admin/integrations/health/shopify/route");
 
 describe("GET /api/admin/integrations/health/shopify", () => {
@@ -42,6 +47,7 @@ describe("GET /api/admin/integrations/health/shopify", () => {
     vi.mocked(shopifyWarehouse.listShopifyReconciliationRuns).mockResolvedValue([] as never);
     vi.mocked(warehouseOverview.getShopifyWarehouseOverviewAggregate).mockResolvedValue(null as never);
     vi.mocked(revenueLedger.getShopifyRevenueLedgerAggregate).mockResolvedValue(null as never);
+    vi.mocked(customerEventsAnalytics.getShopifyCustomerEventsAggregate).mockResolvedValue(null as never);
   });
 
   it("returns a range-aware Shopify canary inspection payload", async () => {
@@ -90,6 +96,7 @@ describe("GET /api/admin/integrations/health/shopify", () => {
     expect(payload.history).toHaveLength(1);
     expect(payload.reconciliationHistory).toEqual([]);
     expect(payload.ledgerConsistency).toBeNull();
+    expect(payload.customerEventsAggregate).toBeNull();
   });
 
   it("updates a Shopify serving override", async () => {
