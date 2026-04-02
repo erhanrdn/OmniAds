@@ -5,7 +5,7 @@ import { getDemoMetaCreatives } from "@/lib/demo-business";
 import type { FormatFilter, GroupBy, SortKey } from "@/lib/meta/creatives-types";
 export type { MetaCreativeApiRow } from "@/lib/meta/creatives-types";
 import { toISODate, nDaysAgo } from "@/lib/meta/creatives-row-mappers";
-import { getMetaCreativesDbPayload } from "@/lib/meta/creatives-api";
+import { getMetaCreativesApiPayload } from "@/lib/meta/creatives-api";
 
 export async function GET(request: NextRequest) {
   const requestStartedAt = Date.now();
@@ -46,6 +46,15 @@ export async function GET(request: NextRequest) {
       { status: 400 }
     );
   }
+  if (detailPreviewCreativeId) {
+    return NextResponse.json(
+      {
+        error: "detail_preview_moved",
+        message: "Use /api/meta/creatives/detail for creative detail preview requests.",
+      },
+      { status: 400 }
+    );
+  }
   const access = await requireBusinessAccess({ request, businessId, minRole: "guest" });
   if ("error" in access) return access.error;
 
@@ -53,11 +62,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(getDemoMetaCreatives());
   }
 
-  const result = await getMetaCreativesDbPayload({
+  const result = await getMetaCreativesApiPayload({
     request,
     requestStartedAt,
     businessId,
-    detailPreviewCreativeId,
     mediaMode,
     groupBy,
     format,

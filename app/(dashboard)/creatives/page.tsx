@@ -36,6 +36,7 @@ import {
   CreativesTableShell,
   buildCreativeHistoryById,
   fetchMetaCreatives,
+  fetchMetaCreativesHistory,
   getPreviewPollingInterval,
   hasRenderablePreview,
   mapApiRowToUiRow,
@@ -59,7 +60,6 @@ import {
 } from "@/lib/meta/history";
 import {
   formatMetaReadyThroughDate,
-  getMetaSyncDescription,
 } from "@/lib/meta/ui";
 import { MetaSyncProgressSkeleton } from "@/components/meta/meta-sync-progress";
 
@@ -77,20 +77,6 @@ async function fetchMetaStatus(businessId: string): Promise<MetaStatusResponse> 
     );
   }
   return payload as MetaStatusResponse;
-}
-
-function getMetaStatusRefetchInterval(status: MetaStatusResponse | undefined) {
-  const state = status?.state;
-  if (state === "syncing" || state === "partial") return 5_000;
-  if (
-    state === "paused" ||
-    state === "stale" ||
-    (status?.jobHealth?.queueDepth ?? 0) > 0 ||
-    (status?.jobHealth?.leasedPartitions ?? 0) > 0
-  ) {
-    return 10_000;
-  }
-  return false;
 }
 
 function clampCreativeDateRangeToHistoryLimit(
@@ -280,9 +266,12 @@ export default function CreativesPage() {
         groupBy: mainTableApiGroupBy,
         format: "all",
         sort: "spend",
-        mediaMode: "metadata",
+        mediaMode: "full",
       }),
     staleTime: 30 * 1000,
+    refetchInterval: (query) =>
+      getPreviewPollingInterval(query.state.data as MetaCreativesResponse | undefined),
+    refetchIntervalInBackground: true,
   });
   const metaStatusQuery = useQuery({
     queryKey: ["meta-creatives-status", businessId],
@@ -305,34 +294,6 @@ export default function CreativesPage() {
       return stillRunning ? 5_000 : 15_000;
     },
     queryFn: () => fetchMetaStatus(businessId),
-  });
-  const creativesMediaQuery = useQuery({
-    queryKey: [
-      "meta-creatives-creatives-media",
-      businessId,
-      drStart,
-      drEnd,
-      groupBy,
-    ],
-    enabled:
-      platform === "meta" &&
-      platformConnected &&
-      metaHasAssignments &&
-      creativesMetadataQuery.isSuccess &&
-      (creativesMetadataQuery.data?.rows?.length ?? 0) > 0,
-    queryFn: () =>
-      fetchMetaCreatives({
-        businessId,
-        start: drStart,
-        end: drEnd,
-        groupBy: mainTableApiGroupBy,
-        format: "all",
-        sort: "spend",
-        mediaMode: "full",
-      }),
-    refetchInterval: (query) =>
-      getPreviewPollingInterval(query.state.data as MetaCreativesResponse | undefined),
-    refetchIntervalInBackground: true,
   });
   const creativeHistoryWindowDefs = useMemo<Array<{ key: CreativeHistoryWindowKey; start: string; end: string }>>(
     () => [
@@ -358,7 +319,7 @@ export default function CreativesPage() {
       ],
       enabled: platform === "meta" && platformConnected && metaHasAssignments,
       queryFn: () =>
-        fetchMetaCreatives({
+        fetchMetaCreativesHistory({
           businessId,
           start: windowDef.start,
           end: windowDef.end,
@@ -380,7 +341,7 @@ export default function CreativesPage() {
       breakdownDrawerState.open &&
       Boolean(breakdownDrawerState.activeRowId),
     queryFn: () =>
-      fetchMetaCreatives({
+      fetchMetaCreativesHistory({
         businessId,
         start: drStart,
         end: drEnd,
@@ -391,10 +352,8 @@ export default function CreativesPage() {
   });
 
   const allRows = useMemo(() => {
-    const metadataRows = creativesMetadataQuery.data?.rows ?? [];
-    const hydratedRows = creativesMediaQuery.data?.rows ?? [];
-    const hydratedById = new Map(hydratedRows.map((row) => [row.id, row]));
-    const rows = metadataRows.map((row) => mapApiRowToUiRow(hydratedById.get(row.id) ?? row));
+    const payloadRows = creativesMetadataQuery.data?.rows ?? [];
+    const rows = payloadRows.map(mapApiRowToUiRow);
     if (rows.length > 0 && process.env.NODE_ENV !== "production") {
       const withPreview = rows.filter((r) => r.previewUrl).length;
       console.log("[creatives-page] UI row preview summary", {
@@ -418,7 +377,7 @@ export default function CreativesPage() {
       });
       
       // DIAGNOSTIC: Log raw API data vs mapped rows
-      const rawRows = metadataRows;
+      const rawRows = payloadRows;
       console.log("[DIAGNOSTIC] API -> UI mapping check", {
         first_3_raw: rawRows.slice(0, 3).map((r) => ({
           id: r.id,
@@ -448,11 +407,11 @@ export default function CreativesPage() {
         status: creativesMetadataQuery.data?.status,
         total_rows: rawRows.length,
         has_preview_field: rawRows.length > 0 ? typeof rawRows[0]?.preview : "N/A",
-        media_hydrated: Boolean(creativesMediaQuery.data?.media_hydrated),
+        media_hydrated: Boolean(creativesMetadataQuery.data?.media_hydrated),
       });
     }
     return rows;
-  }, [creativesMediaQuery.data?.media_hydrated, creativesMediaQuery.data?.rows, creativesMetadataQuery.data?.rows]);
+  }, [creativesMetadataQuery.data?.media_hydrated, creativesMetadataQuery.data?.rows]);
 
   const filteredRows = useMemo(() => {
     if (platform !== "meta") return [];
@@ -500,7 +459,7 @@ export default function CreativesPage() {
     () => selectedRows,
     [selectedRows]
   );
-  const previewStatusPayload = creativesMediaQuery.data ?? creativesMetadataQuery.data;
+  const previewStatusPayload = creativesMetadataQuery.data;
   const previewStripState = useMemo<PreviewStripState>(() => {
     const metadataRows = creativesMetadataQuery.data?.rows ?? [];
     const hasMetadataRows = metadataRows.length > 0;
@@ -885,28 +844,18 @@ export default function CreativesPage() {
                       ? language === "tr"
                         ? "Bu filtrelerle eşleşen creative bulunamadı"
                         : "No creatives match the current filters"
-                      : metaStatusQuery.data?.state === "syncing" ||
-                          metaStatusQuery.data?.state === "partial" ||
-                          metaStatusQuery.data?.state === "paused"
-                        ? language === "tr"
-                          ? "Creative verileri hâlâ hazırlanıyor"
-                          : "Creative data is still being prepared"
-                        : language === "tr"
-                          ? "Seçili aralık için creative performans verisi bulunamadı"
-                          : "No creative performance data found for the selected range"
+                      : language === "tr"
+                        ? "Seçili aralık için creative performans verisi bulunamadı"
+                        : "No creative performance data found for the selected range"
                   }
                   description={
                     (creativesMetadataQuery.data?.rows?.length ?? 0) > 0
                       ? language === "tr"
                         ? "Tarih aralığını veya filtreleri gevşeterek daha fazla creative görebilirsiniz."
                         : "Relax the current filters or widen the date range to reveal more creatives."
-                      : metaStatusQuery.data?.state === "syncing" ||
-                          metaStatusQuery.data?.state === "partial" ||
-                          metaStatusQuery.data?.state === "paused"
-                        ? getMetaSyncDescription(metaStatusQuery.data, language)
-                        : language === "tr"
-                          ? "Daha geniş bir tarih aralığı deneyin veya bağlı Meta hesaplarında aktif reklam yayını olduğunu doğrulayın."
-                          : "Try a wider date range or verify that assigned Meta accounts have active ad delivery."
+                      : language === "tr"
+                        ? "Daha geniş bir tarih aralığı deneyin veya bağlı Meta hesaplarında aktif reklam yayını olduğunu doğrulayın."
+                        : "Try a wider date range or verify that assigned Meta accounts have active ad delivery."
                   }
                 />
               )}

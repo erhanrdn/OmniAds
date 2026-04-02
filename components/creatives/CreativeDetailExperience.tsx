@@ -11,6 +11,7 @@ import {
   formatCreativeDateLabel,
   type CreativeDateRangeValue,
 } from "@/components/creatives/CreativesTopSection";
+import { fetchMetaCreativeDetailPreview } from "@/app/(dashboard)/creatives/page-support";
 import {
   creativeDateRangeToStandard,
   standardDateRangeToCreative,
@@ -83,26 +84,15 @@ export function CreativeDetailExperience({
   useEffect(() => {
     if (!open || !row?.creativeId || !businessId) return;
     let cancelled = false;
-    const controller = new AbortController();
     setDetailPreviewLoading(true);
 
-    const query = new URLSearchParams({
+    fetchMetaCreativeDetailPreview({
       businessId,
-      detailPreviewCreativeId: row.creativeId,
-    });
-
-    fetch(`/api/meta/creatives?${query.toString()}`, {
-      method: "GET",
-      headers: { Accept: "application/json" },
-      cache: "no-store",
-      signal: controller.signal,
+      creativeId: row.creativeId,
     })
-      .then((response) => response.json().catch(() => null))
-      .then((payload: unknown) => {
-        if (cancelled || !payload || typeof payload !== "object") return;
-        const detail = "detail_preview" in payload
-          ? (payload as { detail_preview?: Record<string, unknown> }).detail_preview
-          : null;
+      .then((payload) => {
+        if (cancelled) return;
+        const detail = payload.detail_preview;
         const html = typeof detail?.html === "string" && detail.html.trim().length > 0 ? detail.html : null;
         setDetailPreviewHtml(html);
       })
@@ -115,7 +105,6 @@ export function CreativeDetailExperience({
 
     return () => {
       cancelled = true;
-      controller.abort();
     };
   }, [businessId, open, row?.creativeId]);
 

@@ -3,7 +3,7 @@ import { isDemoBusiness } from "@/lib/business-mode.server";
 import { requireBusinessAccess } from "@/lib/access";
 import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
 import { getDemoMetaCopies } from "@/lib/demo-business";
-import { getMetaCreativesDbPayload } from "@/lib/meta/creatives-api";
+import { getMetaCreativesApiPayload } from "@/lib/meta/creatives-api";
 
 type CopyGroupBy = "copy" | "adName" | "campaign" | "adSet";
 type CopySortKey = "roas" | "spend" | "ctrAll" | "purchaseValue";
@@ -342,7 +342,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(getDemoMetaCopies());
   }
 
-  const creativePayload = (await getMetaCreativesDbPayload({
+  const creativePayload = (await getMetaCreativesApiPayload({
     request,
     requestStartedAt: Date.now(),
     businessId,

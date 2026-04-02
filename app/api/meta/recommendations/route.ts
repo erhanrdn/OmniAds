@@ -168,37 +168,37 @@ export async function GET(request: NextRequest) {
     ),
     fetchInternalJson<{ rows: MetaCreativeApiRow[] }>(
       request,
-      "/api/meta/creatives",
+      "/api/meta/creatives/history",
       new URLSearchParams({ ...Object.fromEntries(baseParams), start: startDate, end: endDate, groupBy: "creative", format: "all", sort: "spend", mediaMode: "metadata" })
     ),
     fetchInternalJson<{ rows: MetaCreativeApiRow[] }>(
       request,
-      "/api/meta/creatives",
+      "/api/meta/creatives/history",
       new URLSearchParams({ ...Object.fromEntries(baseParams), start: last3Start, end: endDate, groupBy: "creative", format: "all", sort: "spend", mediaMode: "metadata" })
     ),
     fetchInternalJson<{ rows: MetaCreativeApiRow[] }>(
       request,
-      "/api/meta/creatives",
+      "/api/meta/creatives/history",
       new URLSearchParams({ ...Object.fromEntries(baseParams), start: last7Start, end: endDate, groupBy: "creative", format: "all", sort: "spend", mediaMode: "metadata" })
     ),
     fetchInternalJson<{ rows: MetaCreativeApiRow[] }>(
       request,
-      "/api/meta/creatives",
+      "/api/meta/creatives/history",
       new URLSearchParams({ ...Object.fromEntries(baseParams), start: last14Start, end: endDate, groupBy: "creative", format: "all", sort: "spend", mediaMode: "metadata" })
     ),
     fetchInternalJson<{ rows: MetaCreativeApiRow[] }>(
       request,
-      "/api/meta/creatives",
+      "/api/meta/creatives/history",
       new URLSearchParams({ ...Object.fromEntries(baseParams), start: last30Start, end: endDate, groupBy: "creative", format: "all", sort: "spend", mediaMode: "metadata" })
     ),
     fetchInternalJson<{ rows: MetaCreativeApiRow[] }>(
       request,
-      "/api/meta/creatives",
+      "/api/meta/creatives/history",
       new URLSearchParams({ ...Object.fromEntries(baseParams), start: last90Start, end: endDate, groupBy: "creative", format: "all", sort: "spend", mediaMode: "metadata" })
     ),
     fetchInternalJson<{ rows: MetaCreativeApiRow[] }>(
       request,
-      "/api/meta/creatives",
+      "/api/meta/creatives/history",
       new URLSearchParams({ ...Object.fromEntries(baseParams), start: allHistoryStart, end: endDate, groupBy: "creative", format: "all", sort: "spend", mediaMode: "metadata" })
     ),
   ]);

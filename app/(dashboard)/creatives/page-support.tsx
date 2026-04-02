@@ -21,6 +21,17 @@ export interface MetaCreativesResponse {
   };
 }
 
+export interface MetaCreativeDetailResponse {
+  status?: string;
+  detail_preview?: {
+    creative_id?: string;
+    mode?: "html" | "unavailable";
+    source?: string | null;
+    ad_format?: string | null;
+    html?: string | null;
+  };
+}
+
 export type CreativeHistoryWindowKey = "last3" | "last7" | "last14" | "last30" | "last90" | "allHistory";
 
 export type PreviewStripState = "data_loading" | "media_hydrating" | "ready" | "missing";
@@ -186,15 +197,18 @@ function hasMessage(payload: unknown): payload is { message: string } {
   return "message" in payload && typeof payload.message === "string";
 }
 
-export async function fetchMetaCreatives(params: {
-  businessId: string;
-  start: string;
-  end: string;
-  groupBy: "adName" | "creative" | "adSet";
-  format: "all" | "image" | "video";
-  sort: "roas" | "spend" | "ctrAll" | "purchaseValue";
-  mediaMode?: "metadata" | "full";
-}): Promise<MetaCreativesResponse> {
+async function fetchCreativesLikeResponse(
+  path: string,
+  params: {
+    businessId: string;
+    start: string;
+    end: string;
+    groupBy: "adName" | "creative" | "adSet";
+    format: "all" | "image" | "video";
+    sort: "roas" | "spend" | "ctrAll" | "purchaseValue";
+    mediaMode?: "metadata" | "full";
+  }
+): Promise<MetaCreativesResponse> {
   const query = new URLSearchParams({
     businessId: params.businessId,
     start: params.start,
@@ -202,11 +216,13 @@ export async function fetchMetaCreatives(params: {
     groupBy: params.groupBy,
     format: params.format,
     sort: params.sort,
-    mediaMode: params.mediaMode ?? "full",
-    snapshotBypass: "1",
   });
 
-  const response = await fetch(`/api/meta/creatives?${query.toString()}`, {
+  if (params.mediaMode) {
+    query.set("mediaMode", params.mediaMode);
+  }
+
+  const response = await fetch(`${path}?${query.toString()}`, {
     headers: { Accept: "application/json" },
     cache: "no-store",
   });
@@ -224,6 +240,65 @@ export async function fetchMetaCreatives(params: {
   }
 
   return payload as MetaCreativesResponse;
+}
+
+export async function fetchMetaCreatives(params: {
+  businessId: string;
+  start: string;
+  end: string;
+  groupBy: "adName" | "creative" | "adSet";
+  format: "all" | "image" | "video";
+  sort: "roas" | "spend" | "ctrAll" | "purchaseValue";
+  mediaMode?: "metadata" | "full";
+}): Promise<MetaCreativesResponse> {
+  return fetchCreativesLikeResponse("/api/meta/creatives", {
+    ...params,
+    mediaMode: params.mediaMode ?? "full",
+  });
+}
+
+export async function fetchMetaCreativesHistory(params: {
+  businessId: string;
+  start: string;
+  end: string;
+  groupBy: "adName" | "creative" | "adSet";
+  format: "all" | "image" | "video";
+  sort: "roas" | "spend" | "ctrAll" | "purchaseValue";
+  mediaMode?: "metadata" | "full";
+}): Promise<MetaCreativesResponse> {
+  return fetchCreativesLikeResponse("/api/meta/creatives/history", {
+    ...params,
+    mediaMode: params.mediaMode ?? "metadata",
+  });
+}
+
+export async function fetchMetaCreativeDetailPreview(params: {
+  businessId: string;
+  creativeId: string;
+}): Promise<MetaCreativeDetailResponse> {
+  const query = new URLSearchParams({
+    businessId: params.businessId,
+    creativeId: params.creativeId,
+  });
+
+  const response = await fetch(`/api/meta/creatives/detail?${query.toString()}`, {
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message = hasMessage(payload)
+      ? payload.message
+      : `Could not load creative detail (${response.status}).`;
+    throw new Error(message);
+  }
+
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Invalid creative detail response received from backend.");
+  }
+
+  return payload as MetaCreativeDetailResponse;
 }
 
 function toHistoricalWindow(row: MetaCreativeRow): AiCreativeHistoricalWindow {
