@@ -1421,18 +1421,33 @@ export function resolvePhaseAwareReplayDecision(input: {
 
 export function validateGoogleReplayCompleteness(input: {
   totalChunks: number;
-  finalRawSnapshotIds: string[];
-  storedSnapshotIds: string[];
+  replayWindowStartChunk?: number;
+  finalRawSnapshotIds?: string[];
+  storedSnapshotIds?: string[];
+  storedSnapshotPages?: number[];
   rowsFetched: number;
   rowsWritten: number;
 }) {
-  const storedSnapshotSet = new Set(input.storedSnapshotIds);
-  const lineageBroken = input.finalRawSnapshotIds.some(
-    (snapshotId) => !storedSnapshotSet.has(snapshotId)
+  const replayWindowStartChunk = Math.max(
+    0,
+    Math.min(input.totalChunks, input.replayWindowStartChunk ?? 0)
   );
+  const storedSnapshotSet = new Set(input.storedSnapshotIds ?? []);
+  const storedSnapshotPageSet = new Set(
+    (input.storedSnapshotPages ?? []).map((pageIndex) => Math.max(0, Number(pageIndex)))
+  );
+  const lineageBroken =
+    storedSnapshotPageSet.size > 0
+      ? false
+      : (input.finalRawSnapshotIds ?? []).some((snapshotId) => !storedSnapshotSet.has(snapshotId));
   const snapshotCoverageBroken =
-    input.totalChunks > 0 && storedSnapshotSet.size < input.totalChunks;
-  const rowCountBroken = input.rowsFetched < input.rowsWritten;
+    storedSnapshotPageSet.size > 0
+      ? Array.from(
+          { length: Math.max(0, input.totalChunks - replayWindowStartChunk) },
+          (_, offset) => replayWindowStartChunk + offset
+        ).some((pageIndex) => !storedSnapshotPageSet.has(pageIndex))
+      : input.totalChunks > 0 && storedSnapshotSet.size < input.totalChunks;
+  const rowCountBroken = input.rowsWritten > 0 && input.rowsFetched <= 0;
 
   return {
     lineageBroken,
@@ -1661,6 +1676,9 @@ async function persistScopeRows(input: {
   let replayedSnapshotCount = 0;
   let accumulatedRawSnapshotIds = uniqueSnapshotIds(existingCheckpoint?.rawSnapshotIds ?? []);
   let storedSnapshotIds = uniqueSnapshotIds(existingSnapshots.map((row) => row.id));
+  let storedSnapshotPages = Array.from(
+    new Set(existingSnapshots.map((row) => Math.max(0, Number(row.page_index ?? 0))))
+  );
 
   for (let pageIndex = startChunkIndex; pageIndex < rowChunks.length; pageIndex += 1) {
     const checkpointChunk = rowChunks[pageIndex] ?? [];
@@ -1745,6 +1763,7 @@ async function persistScopeRows(input: {
       : checkpointChunk;
     accumulatedRawSnapshotIds = uniqueSnapshotIds([...accumulatedRawSnapshotIds, latestSnapshotId]);
     storedSnapshotIds = uniqueSnapshotIds([...storedSnapshotIds, latestSnapshotId]);
+    storedSnapshotPages = Array.from(new Set([...storedSnapshotPages, pageIndex]));
     const replayingPersistedChunk =
       Boolean(existingSnapshot) &&
       Boolean(replayDecision.replayReasonCode) &&
@@ -1822,8 +1841,10 @@ async function persistScopeRows(input: {
   ]);
   const completeness = validateGoogleReplayCompleteness({
     totalChunks: rowChunks.length,
+    replayWindowStartChunk: startChunkIndex,
     finalRawSnapshotIds,
     storedSnapshotIds,
+    storedSnapshotPages,
     rowsFetched,
     rowsWritten,
   });

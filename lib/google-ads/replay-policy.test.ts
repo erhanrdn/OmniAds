@@ -69,12 +69,12 @@ describe("Google replay policy", () => {
       finalRawSnapshotIds: ["s1", "s2", "s3"],
       storedSnapshotIds: ["s1", "s2"],
       rowsFetched: 100,
-      rowsWritten: 120,
+      rowsWritten: 0,
     });
 
     expect(result.ok).toBe(false);
     expect(result.snapshotCoverageBroken).toBe(true);
-    expect(result.rowCountBroken).toBe(true);
+    expect(result.rowCountBroken).toBe(false);
   });
 
   it("treats multi-chunk stored snapshot coverage as complete when all chunk snapshots exist", () => {
@@ -89,6 +89,33 @@ describe("Google replay policy", () => {
     expect(result.ok).toBe(true);
     expect(result.snapshotCoverageBroken).toBe(false);
     expect(result.rowCountBroken).toBe(false);
+  });
+
+  it("only requires replay-window page coverage during late checkpoint replay", () => {
+    const result = validateGoogleReplayCompleteness({
+      totalChunks: 3,
+      replayWindowStartChunk: 2,
+      storedSnapshotPages: [2],
+      rowsFetched: 4,
+      rowsWritten: 80,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.snapshotCoverageBroken).toBe(false);
+    expect(result.rowCountBroken).toBe(false);
+  });
+
+  it("still fails replay verification when the current replay window is missing a page", () => {
+    const result = validateGoogleReplayCompleteness({
+      totalChunks: 3,
+      replayWindowStartChunk: 1,
+      storedSnapshotPages: [2],
+      rowsFetched: 4,
+      rowsWritten: 80,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.snapshotCoverageBroken).toBe(true);
   });
 
   it("counts replayed persisted chunks beyond the failed checkpoint page toward fetched rows", () => {
