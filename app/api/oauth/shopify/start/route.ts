@@ -1,16 +1,10 @@
-import crypto from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { SHOPIFY_CONFIG } from "@/lib/oauth/shopify-config";
 import { sanitizeNextPath } from "@/lib/auth-routing";
 import { getSessionFromRequest } from "@/lib/auth";
 import { verifyShopifyQueryHmac } from "@/lib/shopify/oauth-hmac";
-
-const SHOP_DOMAIN_PATTERN =
-  /^[a-z0-9][a-z0-9-]*\.myshopify\.com$/i;
-
-function isValidShopDomain(value: string): boolean {
-  return SHOP_DOMAIN_PATTERN.test(value);
-}
+import { createShopifyOAuthState } from "@/lib/shopify/oauth-state";
+import { normalizeShopifyShopDomain } from "@/lib/shopify/shop-domain";
 
 function hasValidInstallSignature(request: NextRequest): boolean {
   return verifyShopifyQueryHmac({
@@ -21,13 +15,13 @@ function hasValidInstallSignature(request: NextRequest): boolean {
 
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
-  const shop = searchParams.get("shop")?.trim().toLowerCase() ?? "";
+  const shop = normalizeShopifyShopDomain(searchParams.get("shop"));
   const host = searchParams.get("host")?.trim() ?? "";
   const returnTo = sanitizeNextPath(searchParams.get("returnTo"));
   const businessId = searchParams.get("businessId")?.trim() ?? "";
   const signedInstallRequest = searchParams.has("hmac");
 
-  if (!shop || !isValidShopDomain(shop)) {
+  if (!shop) {
     return NextResponse.redirect(new URL("/shopify/connect", request.url));
   }
   if (signedInstallRequest && !hasValidInstallSignature(request)) {
@@ -35,13 +29,11 @@ export async function GET(request: NextRequest) {
   }
 
   const session = await getSessionFromRequest(request);
-  const statePayload = JSON.stringify({
+  const state = createShopifyOAuthState({
     businessId: businessId || session?.activeBusinessId || undefined,
     returnTo,
     host: host || undefined,
-    nonce: crypto.randomBytes(16).toString("hex"),
   });
-  const state = Buffer.from(statePayload).toString("base64url");
 
   const params = new URLSearchParams({
     client_id: SHOPIFY_CONFIG.clientId,

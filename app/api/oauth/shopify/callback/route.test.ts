@@ -47,6 +47,7 @@ const hmac = await import("@/lib/shopify/oauth-hmac");
 const access = await import("@/lib/access");
 const integrations = await import("@/lib/integrations");
 const installContext = await import("@/lib/shopify/install-context");
+const oauthState = await import("@/lib/shopify/oauth-state");
 const { GET } = await import("@/app/api/oauth/shopify/callback/route");
 
 describe("GET /api/oauth/shopify/callback", () => {
@@ -71,6 +72,10 @@ describe("GET /api/oauth/shopify/callback", () => {
   });
 
   it("creates a pending install context when no verified business is available", async () => {
+    const state = oauthState.createShopifyOAuthState({
+      returnTo: "/integrations",
+    });
+
     vi.mocked(hmac.verifyShopifyQueryHmac).mockReturnValue(true);
     vi.mocked(installContext.createShopifyInstallContext).mockResolvedValue({
       id: "ctx_1",
@@ -83,6 +88,7 @@ describe("GET /api/oauth/shopify/callback", () => {
         currency: "USD",
         iana_timezone: "America/New_York",
         timezone: "(GMT-05:00) Eastern Time",
+        shopifyProductionServingMode: "auto",
       },
       return_to: "/integrations",
       session_id: null,
@@ -113,13 +119,13 @@ describe("GET /api/oauth/shopify/callback", () => {
 
     const response = await GET(
       new NextRequest(
-        "https://adsecute.com/api/oauth/shopify/callback?code=abc&shop=test-shop.myshopify.com&state=opaque&hmac=ok&timestamp=1711939200",
+        `https://adsecute.com/api/oauth/shopify/callback?code=abc&shop=test-shop.myshopify.com&state=${state}&hmac=ok&timestamp=1711939200`,
       ),
     );
 
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe(
-      "https://adsecute.com/shopify/connect?context=ctx_token",
+      "https://adsecute.com/shopify/connect?context=ctx_token&returnTo=%2Fintegrations",
     );
     expect(installContext.createShopifyInstallContext).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -127,6 +133,7 @@ describe("GET /api/oauth/shopify/callback", () => {
           currency: "USD",
           iana_timezone: "America/New_York",
           timezone: "(GMT-05:00) Eastern Time",
+          shopifyProductionServingMode: "auto",
         },
       }),
     );
@@ -134,11 +141,11 @@ describe("GET /api/oauth/shopify/callback", () => {
 
   it("directly upserts the integration when state and business access are verified", async () => {
     const state = Buffer.from(
-      JSON.stringify({
+      oauthState.createShopifyOAuthState({
         businessId: "biz_1",
         returnTo: "/integrations",
       }),
-    ).toString("base64url");
+    ).toString();
 
     vi.mocked(hmac.verifyShopifyQueryHmac).mockReturnValue(true);
     vi.mocked(access.requireBusinessAccess).mockResolvedValue({
@@ -193,8 +200,25 @@ describe("GET /api/oauth/shopify/callback", () => {
           currency: "USD",
           iana_timezone: "America/New_York",
           timezone: "(GMT-05:00) Eastern Time",
+          shopifyProductionServingMode: "auto",
         },
       }),
     );
+  });
+
+  it("fails closed on malformed callback state", async () => {
+    vi.mocked(hmac.verifyShopifyQueryHmac).mockReturnValue(true);
+
+    const response = await GET(
+      new NextRequest(
+        "https://adsecute.com/api/oauth/shopify/callback?code=abc&shop=test-shop.myshopify.com&state=not-base64&hmac=ok&timestamp=1711939200",
+      ),
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toContain(
+      "https://adsecute.com/integrations/callback/shopify?status=error",
+    );
+    expect(integrations.upsertIntegration).not.toHaveBeenCalled();
   });
 });

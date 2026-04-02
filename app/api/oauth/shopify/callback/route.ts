@@ -8,6 +8,8 @@ import { createShopifyInstallContext } from "@/lib/shopify/install-context";
 import { getSessionFromRequest } from "@/lib/auth";
 import { sanitizeNextPath } from "@/lib/auth-routing";
 import { verifyShopifyQueryHmac } from "@/lib/shopify/oauth-hmac";
+import { normalizeShopifyShopDomain } from "@/lib/shopify/shop-domain";
+import { validateShopifyOAuthCallbackState } from "@/lib/shopify/oauth-state";
 
 /**
  * GET /api/oauth/shopify/callback?code=...&shop=...&state=...&hmac=...&timestamp=...
@@ -25,7 +27,7 @@ export async function GET(request: NextRequest) {
   const tr = (english: string, turkish: string) => (language === "tr" ? turkish : english);
   const { searchParams } = request.nextUrl;
   const code = searchParams.get("code");
-  const shop = searchParams.get("shop");
+  const shop = normalizeShopifyShopDomain(searchParams.get("shop"));
   const state = searchParams.get("state");
   const hmac = searchParams.get("hmac");
   const timestamp = searchParams.get("timestamp");
@@ -57,23 +59,22 @@ export async function GET(request: NextRequest) {
     return errorRedirect(tr("HMAC verification failed. Request may be tampered.", "HMAC doğrulamasi başarısız. Istekle oynanmis olabilir."));
   }
 
-  let stateBusinessId: string | null = null;
-  let stateReturnTo: string | null = null;
-  if (state) {
-    try {
-      const payload = JSON.parse(Buffer.from(state, "base64url").toString()) as {
-        businessId?: string;
-        returnTo?: string;
-      };
-      stateBusinessId = typeof payload.businessId === "string" ? payload.businessId : null;
-      stateReturnTo = sanitizeNextPath(payload.returnTo) ?? null;
-    } catch {
-      console.warn("[shopify-oauth-callback] Ignoring malformed state payload");
-    }
+  const cookieState = request.cookies.get("shopify_oauth_state")?.value;
+  const stateValidation = validateShopifyOAuthCallbackState({
+    state,
+    cookieState: cookieState ?? null,
+  });
+  if (!stateValidation.valid) {
+    console.warn("[shopify-oauth-callback] State validation failed", {
+      shop,
+      reason: stateValidation.reason,
+    });
+    return errorRedirect(tr("Invalid Shopify callback state.", "Geçersiz Shopify callback state değeri."));
   }
 
-  const cookieState = request.cookies.get("shopify_oauth_state")?.value;
-  const hasVerifiedState = Boolean(state && cookieState && cookieState === state);
+  const stateBusinessId = stateValidation.parsedState?.businessId ?? null;
+  const stateReturnTo = stateValidation.parsedState?.returnTo ?? null;
+  const hasVerifiedState = stateValidation.reason === "state_verified";
   const session = await getSessionFromRequest(request);
 
   try {
@@ -136,9 +137,9 @@ export async function GET(request: NextRequest) {
             ...(shopCurrency ? { currency: shopCurrency } : {}),
             ...(shopIanaTimeZone ? { iana_timezone: shopIanaTimeZone } : {}),
             ...(shopTimeZoneLabel ? { timezone: shopTimeZoneLabel } : {}),
-            shopifyProductionServingMode: "disabled",
+            shopifyProductionServingMode: "auto",
           }
-        : { shopifyProductionServingMode: "disabled" };
+        : { shopifyProductionServingMode: "auto" };
 
     if (hasVerifiedState && stateBusinessId) {
       const access = await requireBusinessAccess({

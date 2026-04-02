@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
     scopes: context.scopes ?? undefined,
     metadata: {
       ...(context.metadata ?? {}),
-      shopifyProductionServingMode: "disabled",
+      shopifyProductionServingMode: "auto",
     },
   });
 
