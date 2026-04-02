@@ -735,7 +735,7 @@ export async function cleanupMetaPartitionOrchestration(input: {
       meta_json = COALESCE(run.meta_json, '{}'::jsonb) || jsonb_build_object(
         'decisionCaller', 'cleanupMetaPartitionOrchestration',
         'checkpointPhase', stale_candidates.checkpoint_phase,
-        'staleThresholdMs', stale_candidates.stale_threshold_minutes * 60000,
+        'staleThresholdMs', (stale_candidates.stale_threshold_minutes::int * 60000),
         'runAgeMs', GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (now() - stale_candidates.started_at)) * 1000))::int,
         'leaseAgeMs', CASE
           WHEN stale_candidates.lease_updated_at IS NULL THEN NULL
