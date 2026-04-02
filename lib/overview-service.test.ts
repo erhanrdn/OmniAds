@@ -46,6 +46,10 @@ vi.mock("@/lib/shopify/overview", () => ({
   getShopifyOverviewAggregate: vi.fn(),
 }));
 
+vi.mock("@/lib/shopify/read-adapter", () => ({
+  getShopifyOverviewReadCandidate: vi.fn(),
+}));
+
 const businessMode = await import("@/lib/business-mode.server");
 const demo = await import("@/lib/demo-business");
 const googleServing = await import("@/lib/google-ads/serving");
@@ -54,6 +58,7 @@ const assignments = await import("@/lib/provider-account-assignments");
 const reportingCache = await import("@/lib/reporting-cache");
 const metaServing = await import("@/lib/meta/serving");
 const shopifyOverview = await import("@/lib/shopify/overview");
+const shopifyReadAdapter = await import("@/lib/shopify/read-adapter");
 const { getOverviewData } = await import("@/lib/overview-service");
 
 describe("getOverviewData", () => {
@@ -63,6 +68,23 @@ describe("getOverviewData", () => {
     vi.mocked(demo.isDemoBusinessId).mockReturnValue(false);
     vi.mocked(reportingCache.getCachedReport).mockResolvedValue(null);
     vi.mocked(shopifyOverview.getShopifyOverviewAggregate).mockResolvedValue(null);
+    vi.mocked(shopifyReadAdapter.getShopifyOverviewReadCandidate).mockResolvedValue({
+      status: {
+        state: "not_connected",
+        connected: false,
+        shopId: null,
+        warehouse: null,
+        sync: null,
+        issues: [],
+      },
+      live: null,
+      warehouse: null,
+      divergence: null,
+      decisionReasons: ["warehouse_read_canary_disabled"],
+      canaryEnabled: false,
+      preferredSource: "none",
+      canServeWarehouse: false,
+    });
     vi.mocked(googleServing.getGoogleAdsOverviewReport).mockResolvedValue({
       kpis: {
         spend: 0,
@@ -131,15 +153,31 @@ describe("getOverviewData", () => {
   });
 
   it("marks ecommerce KPIs as Shopify when Shopify aggregate is present", async () => {
-    vi.mocked(shopifyOverview.getShopifyOverviewAggregate).mockResolvedValue({
-      revenue: 900,
-      purchases: 9,
-      averageOrderValue: 100,
-      sessions: null,
-      conversionRate: null,
-      newCustomers: null,
-      returningCustomers: null,
-      dailyTrends: [],
+    vi.mocked(shopifyReadAdapter.getShopifyOverviewReadCandidate).mockResolvedValue({
+      status: {
+        state: "ready",
+        connected: true,
+        shopId: "test-shop.myshopify.com",
+        warehouse: null,
+        sync: null,
+        issues: [],
+      },
+      live: {
+        revenue: 900,
+        purchases: 9,
+        averageOrderValue: 100,
+        sessions: null,
+        conversionRate: null,
+        newCustomers: null,
+        returningCustomers: null,
+        dailyTrends: [],
+      },
+      warehouse: null,
+      divergence: null,
+      decisionReasons: ["warehouse_aggregate_unavailable"],
+      canaryEnabled: false,
+      preferredSource: "live",
+      canServeWarehouse: false,
     });
 
     const overview = await getOverviewData({
@@ -157,5 +195,77 @@ describe("getOverviewData", () => {
     expect(overview.kpiSources.purchases).toEqual({ source: "shopify", label: "Shopify" });
     expect(overview.kpiSources.aov).toEqual({ source: "shopify", label: "Shopify" });
     expect(overview.kpiSources.roas).toEqual({ source: "shopify", label: "Shopify" });
+  });
+
+  it("uses warehouse canary aggregate when it is selected", async () => {
+    vi.mocked(shopifyReadAdapter.getShopifyOverviewReadCandidate).mockResolvedValue({
+      status: {
+        state: "ready",
+        connected: true,
+        shopId: "test-shop.myshopify.com",
+        warehouse: null,
+        sync: null,
+        issues: [],
+      },
+      live: {
+        revenue: 900,
+        purchases: 9,
+        averageOrderValue: 100,
+        sessions: null,
+        conversionRate: null,
+        newCustomers: null,
+        returningCustomers: null,
+        dailyTrends: [],
+      },
+      warehouse: {
+        revenue: 840,
+        grossRevenue: 900,
+        refundedRevenue: 60,
+        purchases: 8,
+        returnEvents: 1,
+        averageOrderValue: 105,
+        daily: [
+          {
+            date: "2026-03-01",
+            orderRevenue: 900,
+            refundedRevenue: 60,
+            netRevenue: 840,
+            orders: 8,
+            returnEvents: 1,
+          },
+        ],
+      },
+      divergence: {
+        liveRevenue: 900,
+        warehouseRevenue: 840,
+        revenueDelta: -60,
+        revenueDeltaPercent: 6.67,
+        livePurchases: 9,
+        warehousePurchases: 8,
+        purchaseDelta: -1,
+        liveAov: 100,
+        warehouseAov: 105,
+        aovDelta: 5,
+        maxDailyRevenueDeltaPercent: 6.67,
+        maxDailyPurchaseDelta: 1,
+        withinThreshold: true,
+      },
+      decisionReasons: [],
+      canaryEnabled: true,
+      preferredSource: "warehouse",
+      canServeWarehouse: true,
+    });
+
+    const overview = await getOverviewData({
+      businessId: "biz",
+      startDate: "2026-03-01",
+      endDate: "2026-03-15",
+      includeTrends: false,
+    });
+
+    expect(overview.kpis.revenue).toBe(840);
+    expect(overview.kpis.purchases).toBe(8);
+    expect(overview.kpis.aov).toBe(105);
+    expect(overview.kpiSources.revenue).toEqual({ source: "shopify", label: "Shopify" });
   });
 });

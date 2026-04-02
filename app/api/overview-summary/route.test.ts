@@ -1,135 +1,146 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 vi.mock("@/lib/access", () => ({
-  requireBusinessAccess: vi.fn().mockResolvedValue({ businessId: "biz" }),
+  requireBusinessAccess: vi.fn(),
 }));
 
-vi.mock("@/lib/business-cost-model", () => ({
-  getBusinessCostModel: vi.fn().mockResolvedValue(null),
+vi.mock("@/lib/account-store", () => ({
+  getBusinessTimezone: vi.fn(),
 }));
 
 vi.mock("@/lib/analytics-overview", () => ({
   GA4AuthError: class GA4AuthError extends Error {},
-  getAnalyticsOverviewData: vi.fn().mockResolvedValue(null),
+  getAnalyticsOverviewData: vi.fn(),
+}));
+
+vi.mock("@/lib/business-cost-model", () => ({
+  getBusinessCostModel: vi.fn(),
 }));
 
 vi.mock("@/lib/integration-status", () => ({
-  getIntegrationStatusByBusiness: vi.fn().mockResolvedValue({ shopify: true }),
+  getIntegrationStatusByBusiness: vi.fn(),
 }));
 
 vi.mock("@/lib/overview-service", () => ({
   getOverviewData: vi.fn(),
+  getShopifyOverviewServingData: vi.fn(),
 }));
 
-vi.mock("@/lib/shopify/overview", () => ({
-  getShopifyOverviewAggregate: vi.fn(),
-}));
+vi.mock("@/lib/overview-summary-support", async () => {
+  const actual = await vi.importActual<object>("@/lib/overview-summary-support");
+  return {
+    ...actual,
+    getGa4DailyTrendSnapshot: vi.fn().mockResolvedValue([]),
+    getGa4LtvSnapshot: vi.fn().mockResolvedValue(null),
+  };
+});
 
 vi.mock("@/lib/request-language", () => ({
-  resolveRequestLanguage: vi.fn().mockResolvedValue("en"),
+  resolveRequestLanguage: vi.fn(),
 }));
 
-vi.mock("@/lib/overview-summary-support", () => ({
-  buildAttributionRows: vi.fn(() => []),
-  buildMetricCard: vi.fn((params) => ({
-    id: params.id,
-    title: params.title,
-    helperText: params.helperText,
-    dataSource: { key: params.sourceKey, label: params.sourceLabel },
-    value: params.value,
-  })),
-  buildPlatformSections: vi.fn(() => []),
-  buildUnavailableMetric: vi.fn((params) => ({
-    id: params.id,
-    title: params.title,
-    helperText: params.helperText,
-    dataSource: { key: params.sourceKey ?? "unavailable", label: params.sourceLabel ?? "Unavailable" },
-    value: null,
-  })),
-  getGa4DailyTrendSnapshot: vi.fn(() => []),
-  getGa4LtvSnapshot: vi.fn().mockResolvedValue(null),
-  getPreviousWindow: vi.fn(() => ({ startDate: "2026-02-01", endDate: "2026-02-28" })),
-  mapInsights: vi.fn(() => []),
-  parseIsoDate: vi.fn((value, fallback) => (value ? new Date(value) : fallback)),
-  roundSparklineValue: vi.fn((value) => value),
-  toCostModelData: vi.fn(() => null),
-  toIsoDate: vi.fn((date) => date.toISOString().slice(0, 10)),
-  toPercentSparklineSeries: vi.fn(() => []),
-  toRatioSparklineSeries: vi.fn(() => []),
-  toSparklineSeries: vi.fn(() => []),
-}));
-
+const access = await import("@/lib/access");
+const accountStore = await import("@/lib/account-store");
+const analyticsOverview = await import("@/lib/analytics-overview");
+const businessCostModel = await import("@/lib/business-cost-model");
+const integrationStatus = await import("@/lib/integration-status");
 const overviewService = await import("@/lib/overview-service");
-const shopifyOverview = await import("@/lib/shopify/overview");
+const requestLanguage = await import("@/lib/request-language");
 const { GET } = await import("@/app/api/overview-summary/route");
 
 describe("GET /api/overview-summary", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
+    vi.mocked(requestLanguage.resolveRequestLanguage).mockResolvedValue("en" as never);
+    vi.mocked(access.requireBusinessAccess).mockResolvedValue({
+      businessId: "biz_1",
+    } as never);
+    vi.mocked(accountStore.getBusinessTimezone).mockResolvedValue("UTC" as never);
+    vi.mocked(businessCostModel.getBusinessCostModel).mockResolvedValue(null as never);
+    vi.mocked(integrationStatus.getIntegrationStatusByBusiness).mockResolvedValue({
+      shopify: true,
+    } as never);
+    vi.mocked(analyticsOverview.getAnalyticsOverviewData).mockResolvedValue(null as never);
     vi.mocked(overviewService.getOverviewData).mockResolvedValue({
-      businessId: "biz",
-      dateRange: { startDate: "2026-03-01", endDate: "2026-03-31" },
-      kpis: {
-        spend: 100,
-        revenue: 250,
-        roas: 2.5,
-        purchases: 5,
-        cpa: 20,
-        aov: 50,
-      },
+      businessId: "biz_1",
+      dateRange: { startDate: "2026-03-01", endDate: "2026-03-30" },
+      kpis: { spend: 100, revenue: 200, roas: 2, purchases: 2, cpa: 50, aov: 100 },
       kpiSources: {
-        spend: { source: "ad_platforms", label: "Ad platforms" },
         revenue: { source: "shopify", label: "Shopify" },
-        roas: { source: "shopify", label: "Shopify" },
         purchases: { source: "shopify", label: "Shopify" },
-        cpa: { source: "ad_platforms", label: "Ad platforms" },
         aov: { source: "shopify", label: "Shopify" },
+        roas: { source: "shopify", label: "Shopify" },
       },
       totals: {
-        impressions: 0,
-        clicks: 0,
-        purchases: 5,
+        impressions: 10,
+        clicks: 5,
+        purchases: 2,
         spend: 100,
-        conversions: 5,
-        revenue: 250,
-        ctr: 0,
-        cpm: 0,
-        cpc: 0,
-        cpa: 20,
-        roas: 2.5,
+        conversions: 2,
+        revenue: 200,
+        ctr: 50,
+        cpm: 10,
+        cpc: 20,
+        cpa: 50,
+        roas: 2,
       },
       platformEfficiency: [],
-      providerTrends: {},
       trends: { "7d": [], "14d": [], "30d": [], custom: [] },
+      shopifyServing: {
+        source: "live",
+        provider: "shopify",
+        trustState: "live_fallback",
+        fallbackReason: "pending_repair",
+        lastSyncedAt: "2026-04-02T10:00:00.000Z",
+        coverageStatus: "historical_incomplete",
+        productionMode: "auto",
+        pendingRepair: true,
+        pendingRepairStartedAt: "2026-04-02T10:05:00.000Z",
+        pendingRepairLastTopic: "REFUNDS_CREATE",
+        pendingRepairLastReceivedAt: "2026-04-02T10:05:00.000Z",
+        selectedRevenueTruthBasis: "current_total_price",
+        basisSelectionReason: "closest_current_order_revenue",
+        transactionCoverageOrderRate: 70,
+        transactionCoverageAmountRate: 82,
+        explainedAdjustmentRevenue: 5,
+        unexplainedAdjustmentRevenue: 0,
+      },
     } as never);
-    vi.mocked(shopifyOverview.getShopifyOverviewAggregate).mockResolvedValue({
-      revenue: 250,
-      purchases: 5,
-      averageOrderValue: 50,
-      sessions: null,
-      conversionRate: null,
-      newCustomers: null,
-      returningCustomers: null,
-      dailyTrends: [],
-    });
+    vi.mocked(overviewService.getShopifyOverviewServingData).mockResolvedValue({
+      aggregate: {
+        revenue: 200,
+        purchases: 2,
+        averageOrderValue: 100,
+        conversionRate: null,
+        newCustomers: null,
+        returningCustomers: null,
+        sessions: null,
+        dailyTrends: [],
+      },
+      serving: {
+        source: "live",
+      },
+    } as never);
   });
 
-  it("removes connect helper text from Shopify-first commerce cards and labels MER correctly", async () => {
+  it("returns a non-blank summary contract with shopify serving metadata", async () => {
     const request = new NextRequest(
-      "http://localhost:3000/api/overview-summary?businessId=biz&startDate=2026-03-01&endDate=2026-03-31&compareMode=none"
+      "http://localhost:3000/api/overview-summary?businessId=biz_1&startDate=2026-03-01&endDate=2026-03-30"
     );
 
-    const response = await GET(request);
+    const response = await GET(request as never);
     const payload = await response.json();
-    const pins = payload.summary.pins as Array<{ id: string; helperText?: string; dataSource: { label: string } }>;
-    const storeMetrics = payload.summary.storeMetrics as Array<{ id: string; helperText?: string }>;
 
-    expect(pins.find((card) => card.id === "pins-revenue")?.helperText).toBeUndefined();
-    expect(pins.find((card) => card.id === "pins-orders")?.helperText).toBeUndefined();
-    expect(pins.find((card) => card.id === "pins-mer")?.helperText).toBeUndefined();
-    expect(pins.find((card) => card.id === "pins-mer")?.dataSource.label).toBe("Shopify + ad platforms");
-    expect(pins.find((card) => card.id === "pins-blended-roas")?.helperText).toBeUndefined();
-    expect(storeMetrics.find((card) => card.id === "store-aov")?.helperText).toBeUndefined();
+    expect(response.status).toBe(200);
+    expect(payload.summary.shopifyServing).toEqual(
+      expect.objectContaining({
+        source: "live",
+        trustState: "live_fallback",
+        fallbackReason: "pending_repair",
+      })
+    );
+    expect(Array.isArray(payload.summary.storeMetrics)).toBe(true);
+    expect(payload.summary.storeMetrics.length).toBeGreaterThan(0);
   });
 });

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { getBusinessCostModel } from "@/lib/business-cost-model";
+import { getBusinessTimezone } from "@/lib/account-store";
 import {
   GA4AuthError,
   getAnalyticsOverviewData,
@@ -11,9 +12,9 @@ import {
 } from "@/lib/integration-status";
 import {
   getOverviewData,
+  getShopifyOverviewServingData,
   type OverviewResponse as OverviewAggregateData,
 } from "@/lib/overview-service";
-import { getShopifyOverviewAggregate } from "@/lib/shopify/overview";
 import {
   buildAttributionRows,
   buildMetricCard,
@@ -38,6 +39,26 @@ import type {
   OverviewSummaryData,
 } from "@/src/types/models";
 
+function getTodayIsoForTimeZone(timeZone?: string | null): string {
+  if (!timeZone) return new Date().toISOString().slice(0, 10);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const year = parts.find((part) => part.type === "year")?.value ?? "1970";
+  const month = parts.find((part) => part.type === "month")?.value ?? "01";
+  const day = parts.find((part) => part.type === "day")?.value ?? "01";
+  return `${year}-${month}-${day}`;
+}
+
+function shiftIsoDate(date: string, dayDelta: number): string {
+  const value = new Date(`${date}T00:00:00.000Z`);
+  value.setUTCDate(value.getUTCDate() + dayDelta);
+  return value.toISOString().slice(0, 10);
+}
+
 export async function GET(request: NextRequest) {
   const language = await resolveRequestLanguage(request);
   const businessId = request.nextUrl.searchParams.get("businessId");
@@ -60,8 +81,15 @@ export async function GET(request: NextRequest) {
   });
   if ("error" in access) return access.error;
 
-  const resolvedStart = toIsoDate(parseIsoDate(startDate, new Date(Date.now() - 29 * 86_400_000)));
-  const resolvedEnd = toIsoDate(parseIsoDate(endDate, new Date()));
+  const businessTimeZone = await getBusinessTimezone(businessId);
+  const fallbackEndDate = getTodayIsoForTimeZone(businessTimeZone);
+  const fallbackStartDate = shiftIsoDate(fallbackEndDate, -29);
+  const resolvedStart = startDate
+    ? toIsoDate(parseIsoDate(startDate, new Date(`${fallbackStartDate}T00:00:00.000Z`)))
+    : fallbackStartDate;
+  const resolvedEnd = endDate
+    ? toIsoDate(parseIsoDate(endDate, new Date(`${fallbackEndDate}T00:00:00.000Z`)))
+    : fallbackEndDate;
   const previousWindow =
     compareMode === "previous_period"
       ? getPreviousWindow(resolvedStart, resolvedEnd)
@@ -112,13 +140,13 @@ export async function GET(request: NextRequest) {
           endDate: previousWindow.endDate,
         })
       : Promise.resolve(null),
-    getShopifyOverviewAggregate({
+    getShopifyOverviewServingData({
       businessId,
       startDate: resolvedStart,
       endDate: resolvedEnd,
     }),
     compareMode === "previous_period" && previousWindow.startDate && previousWindow.endDate
-      ? getShopifyOverviewAggregate({
+      ? getShopifyOverviewServingData({
           businessId,
           startDate: previousWindow.startDate,
           endDate: previousWindow.endDate,
@@ -158,9 +186,9 @@ export async function GET(request: NextRequest) {
         ? null
         : null;
   const currentShopify =
-    currentShopifyResult.status === "fulfilled" ? currentShopifyResult.value : null;
+    currentShopifyResult.status === "fulfilled" ? currentShopifyResult.value?.aggregate ?? null : null;
   const previousShopify =
-    previousShopifyResult.status === "fulfilled" ? previousShopifyResult.value : null;
+    previousShopifyResult.status === "fulfilled" ? previousShopifyResult.value?.aggregate ?? null : null;
   const integrationsStatus =
     integrationsStatusResult.status === "fulfilled"
       ? integrationsStatusResult.value
@@ -898,6 +926,7 @@ export async function GET(request: NextRequest) {
     customMetrics,
     webAnalytics,
     insights: mapInsights(currentOverview, analyticsConnected),
+    shopifyServing: currentOverview.shopifyServing ?? null,
   };
 
   return NextResponse.json({

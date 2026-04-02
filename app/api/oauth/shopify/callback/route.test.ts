@@ -21,7 +21,7 @@ vi.mock("@/lib/oauth/shopify-config", () => ({
 }));
 
 const SHOPIFY_GRANTED_SCOPES =
-  "read_all_orders,read_analytics,read_price_rules,read_inventory,read_marketing_events,read_markets,read_online_store_pages,read_orders,read_product_listings,read_products,read_reports";
+  "read_all_orders,read_analytics,read_customer_events,read_customers,read_discounts,read_fulfillments,read_inventory,read_locations,read_marketing_events,read_markets,read_online_store_pages,read_orders,read_price_rules,read_product_listings,read_products,read_reports,read_returns,write_pixels";
 
 vi.mock("@/lib/auth", () => ({
   getSessionFromRequest: vi.fn().mockResolvedValue(null),

@@ -1270,6 +1270,497 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
         ...buildGoogleAdsWarehouseIndexQueries("google_ads_geo_daily").map((query) => sql.query(query).catch(() => {})),
         ...buildGoogleAdsWarehouseIndexQueries("google_ads_device_daily").map((query) => sql.query(query).catch(() => {})),
         ...buildGoogleAdsWarehouseIndexQueries("google_ads_product_daily").map((query) => sql.query(query).catch(() => {})),
+        sql`CREATE TABLE IF NOT EXISTS shopify_raw_snapshots (
+          id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id          TEXT NOT NULL,
+          provider_account_id  TEXT NOT NULL,
+          endpoint_name        TEXT NOT NULL,
+          entity_scope         TEXT NOT NULL DEFAULT 'shop',
+          start_date           DATE,
+          end_date             DATE,
+          payload_json         JSONB NOT NULL DEFAULT '{}'::jsonb,
+          payload_hash         TEXT NOT NULL,
+          request_context      JSONB NOT NULL DEFAULT '{}'::jsonb,
+          response_headers     JSONB NOT NULL DEFAULT '{}'::jsonb,
+          provider_http_status INTEGER,
+          status               TEXT NOT NULL DEFAULT 'fetched'
+                               CHECK (status IN ('fetched', 'partial', 'failed')),
+          fetched_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_raw_snapshots_business
+          ON shopify_raw_snapshots (business_id, fetched_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_raw_snapshots_account
+          ON shopify_raw_snapshots (provider_account_id, fetched_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_raw_snapshots_endpoint
+          ON shopify_raw_snapshots (endpoint_name, fetched_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS shopify_orders (
+          id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id              TEXT NOT NULL,
+          provider_account_id      TEXT NOT NULL,
+          shop_id                  TEXT NOT NULL,
+          order_id                 TEXT NOT NULL,
+          order_name               TEXT,
+          customer_id              TEXT,
+          currency_code            TEXT,
+          shop_currency_code       TEXT,
+          order_created_at         TIMESTAMPTZ NOT NULL,
+          order_created_date_local DATE,
+          order_updated_at         TIMESTAMPTZ,
+          order_updated_date_local DATE,
+          order_processed_at       TIMESTAMPTZ,
+          order_cancelled_at       TIMESTAMPTZ,
+          order_closed_at          TIMESTAMPTZ,
+          financial_status         TEXT,
+          fulfillment_status       TEXT,
+          customer_journey_summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+          subtotal_price           NUMERIC(18, 4) NOT NULL DEFAULT 0,
+          total_discounts          NUMERIC(18, 4) NOT NULL DEFAULT 0,
+          total_shipping           NUMERIC(18, 4) NOT NULL DEFAULT 0,
+          total_tax                NUMERIC(18, 4) NOT NULL DEFAULT 0,
+          total_refunded           NUMERIC(18, 4) NOT NULL DEFAULT 0,
+          total_price              NUMERIC(18, 4) NOT NULL DEFAULT 0,
+          original_total_price     NUMERIC(18, 4) NOT NULL DEFAULT 0,
+          current_total_price      NUMERIC(18, 4) NOT NULL DEFAULT 0,
+          payload_json             JSONB NOT NULL DEFAULT '{}'::jsonb,
+          source_snapshot_id       UUID REFERENCES shopify_raw_snapshots(id) ON DELETE SET NULL,
+          created_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider_account_id, shop_id, order_id)
+        )`.catch(() => {}),
+        sql`ALTER TABLE shopify_orders
+          ADD COLUMN IF NOT EXISTS order_created_date_local DATE`.catch(() => {}),
+        sql`ALTER TABLE shopify_orders
+          ADD COLUMN IF NOT EXISTS order_updated_at TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE shopify_orders
+          ADD COLUMN IF NOT EXISTS order_updated_date_local DATE`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_orders_business_created
+          ON shopify_orders (business_id, order_created_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_orders_business_created_local
+          ON shopify_orders (business_id, order_created_date_local DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_orders_business_updated
+          ON shopify_orders (business_id, order_updated_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_orders_shop_created
+          ON shopify_orders (shop_id, order_created_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_orders_customer
+          ON shopify_orders (business_id, customer_id, order_created_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS shopify_order_lines (
+          id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id          TEXT NOT NULL,
+          provider_account_id  TEXT NOT NULL,
+          shop_id              TEXT NOT NULL,
+          order_id             TEXT NOT NULL,
+          line_item_id         TEXT NOT NULL,
+          product_id           TEXT,
+          variant_id           TEXT,
+          sku                  TEXT,
+          title                TEXT,
+          variant_title        TEXT,
+          quantity             INTEGER NOT NULL DEFAULT 0,
+          discounted_total     NUMERIC(18, 4) NOT NULL DEFAULT 0,
+          original_total       NUMERIC(18, 4) NOT NULL DEFAULT 0,
+          tax_total            NUMERIC(18, 4) NOT NULL DEFAULT 0,
+          payload_json         JSONB NOT NULL DEFAULT '{}'::jsonb,
+          source_snapshot_id   UUID REFERENCES shopify_raw_snapshots(id) ON DELETE SET NULL,
+          created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider_account_id, shop_id, order_id, line_item_id)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_order_lines_business_product
+          ON shopify_order_lines (business_id, product_id, variant_id)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS shopify_refunds (
+          id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id          TEXT NOT NULL,
+          provider_account_id  TEXT NOT NULL,
+          shop_id              TEXT NOT NULL,
+          order_id             TEXT NOT NULL,
+          refund_id            TEXT NOT NULL,
+          refunded_at          TIMESTAMPTZ NOT NULL,
+          refunded_date_local  DATE,
+          refunded_sales       NUMERIC(18, 4) NOT NULL DEFAULT 0,
+          refunded_shipping    NUMERIC(18, 4) NOT NULL DEFAULT 0,
+          refunded_taxes       NUMERIC(18, 4) NOT NULL DEFAULT 0,
+          total_refunded       NUMERIC(18, 4) NOT NULL DEFAULT 0,
+          payload_json         JSONB NOT NULL DEFAULT '{}'::jsonb,
+          source_snapshot_id   UUID REFERENCES shopify_raw_snapshots(id) ON DELETE SET NULL,
+          created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider_account_id, shop_id, refund_id)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_refunds_business_refunded
+          ON shopify_refunds (business_id, refunded_at DESC)`.catch(() => {}),
+        sql`ALTER TABLE shopify_refunds
+          ADD COLUMN IF NOT EXISTS refunded_date_local DATE`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_refunds_business_refunded_local
+          ON shopify_refunds (business_id, refunded_date_local DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS shopify_order_transactions (
+          id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id          TEXT NOT NULL,
+          provider_account_id  TEXT NOT NULL,
+          shop_id              TEXT NOT NULL,
+          order_id             TEXT NOT NULL,
+          transaction_id       TEXT NOT NULL,
+          kind                 TEXT,
+          status               TEXT,
+          gateway              TEXT,
+          processed_at         TIMESTAMPTZ,
+          amount               NUMERIC(18, 4) NOT NULL DEFAULT 0,
+          currency_code        TEXT,
+          payload_json         JSONB NOT NULL DEFAULT '{}'::jsonb,
+          source_snapshot_id   UUID REFERENCES shopify_raw_snapshots(id) ON DELETE SET NULL,
+          created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider_account_id, shop_id, transaction_id)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_order_transactions_business_processed
+          ON shopify_order_transactions (business_id, processed_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS shopify_returns (
+          id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id          TEXT NOT NULL,
+          provider_account_id  TEXT NOT NULL,
+          shop_id              TEXT NOT NULL,
+          order_id             TEXT,
+          return_id            TEXT NOT NULL,
+          status               TEXT,
+          created_at_provider  TIMESTAMPTZ NOT NULL,
+          created_date_local   DATE,
+          updated_at_provider  TIMESTAMPTZ,
+          updated_date_local   DATE,
+          payload_json         JSONB NOT NULL DEFAULT '{}'::jsonb,
+          source_snapshot_id   UUID REFERENCES shopify_raw_snapshots(id) ON DELETE SET NULL,
+          created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider_account_id, shop_id, return_id)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_returns_business_created
+          ON shopify_returns (business_id, created_at_provider DESC)`.catch(() => {}),
+        sql`ALTER TABLE shopify_returns
+          ADD COLUMN IF NOT EXISTS created_date_local DATE`.catch(() => {}),
+        sql`ALTER TABLE shopify_returns
+          ADD COLUMN IF NOT EXISTS updated_date_local DATE`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_returns_business_created_local
+          ON shopify_returns (business_id, created_date_local DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS shopify_customer_events (
+          id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id          TEXT NOT NULL,
+          provider_account_id  TEXT NOT NULL,
+          shop_id              TEXT NOT NULL,
+          event_id             TEXT NOT NULL,
+          event_type           TEXT NOT NULL,
+          occurred_at          TIMESTAMPTZ NOT NULL,
+          customer_id          TEXT,
+          session_id           TEXT,
+          page_type            TEXT,
+          page_url             TEXT,
+          consent_state        TEXT,
+          payload_json         JSONB NOT NULL DEFAULT '{}'::jsonb,
+          created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider_account_id, shop_id, event_id)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_customer_events_business_occurred
+          ON shopify_customer_events (business_id, occurred_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_customer_events_session
+          ON shopify_customer_events (business_id, session_id, occurred_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS shopify_sales_events (
+          id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id          TEXT NOT NULL,
+          provider_account_id  TEXT NOT NULL,
+          shop_id              TEXT NOT NULL,
+          event_id             TEXT NOT NULL,
+          source_kind          TEXT NOT NULL,
+          source_id            TEXT NOT NULL,
+          order_id             TEXT,
+          occurred_at          TIMESTAMPTZ NOT NULL,
+          occurred_date_local  DATE,
+          gross_sales          NUMERIC(18,2) NOT NULL DEFAULT 0,
+          refunded_sales       NUMERIC(18,2) NOT NULL DEFAULT 0,
+          refunded_shipping    NUMERIC(18,2) NOT NULL DEFAULT 0,
+          refunded_taxes       NUMERIC(18,2) NOT NULL DEFAULT 0,
+          net_revenue          NUMERIC(18,2) NOT NULL DEFAULT 0,
+          currency_code        TEXT,
+          payload_json         JSONB NOT NULL DEFAULT '{}'::jsonb,
+          source_snapshot_id   UUID REFERENCES shopify_raw_snapshots(id) ON DELETE SET NULL,
+          created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider_account_id, shop_id, event_id)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_sales_events_business_date
+          ON shopify_sales_events (business_id, occurred_date_local DESC, occurred_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_sales_events_order
+          ON shopify_sales_events (business_id, order_id, occurred_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS shopify_serving_overrides (
+          business_id          TEXT NOT NULL,
+          provider_account_id  TEXT NOT NULL,
+          override_key         TEXT NOT NULL,
+          start_date           DATE,
+          end_date             DATE,
+          mode                 TEXT NOT NULL DEFAULT 'auto',
+          reason               TEXT,
+          updated_by           TEXT,
+          created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          PRIMARY KEY (business_id, provider_account_id, override_key)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_serving_overrides_business_range
+          ON shopify_serving_overrides (business_id, start_date DESC, end_date DESC, updated_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS shopify_webhook_deliveries (
+          id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id          TEXT,
+          provider_account_id  TEXT,
+          topic                TEXT NOT NULL,
+          shop_domain          TEXT NOT NULL,
+          webhook_id           TEXT,
+          payload_hash         TEXT NOT NULL,
+          payload_json         JSONB NOT NULL DEFAULT '{}'::jsonb,
+          received_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+          processed_at         TIMESTAMPTZ,
+          processing_state     TEXT NOT NULL DEFAULT 'received',
+          result_summary       JSONB,
+          error_message        TEXT,
+          created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (shop_domain, topic, payload_hash)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_webhook_deliveries_business
+          ON shopify_webhook_deliveries (business_id, received_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS shopify_reconciliation_runs (
+          id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id          TEXT NOT NULL,
+          provider_account_id  TEXT NOT NULL,
+          reconciliation_key   TEXT NOT NULL,
+          start_date           DATE,
+          end_date             DATE,
+          preferred_source     TEXT,
+          can_serve_warehouse  BOOLEAN NOT NULL DEFAULT FALSE,
+          selected_revenue_truth_basis TEXT,
+          basis_selection_reason TEXT,
+          transaction_coverage_order_rate DOUBLE PRECISION,
+          transaction_coverage_amount_rate DOUBLE PRECISION,
+          order_revenue_truth_delta DOUBLE PRECISION,
+          transaction_revenue_delta DOUBLE PRECISION,
+          explained_adjustment_revenue DOUBLE PRECISION,
+          unexplained_adjustment_revenue DOUBLE PRECISION,
+          divergence           JSONB,
+          warehouse_aggregate  JSONB,
+          ledger_aggregate     JSONB,
+          live_aggregate       JSONB,
+          recorded_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+          created_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_reconciliation_runs_business_recorded
+          ON shopify_reconciliation_runs (business_id, recorded_at DESC)`.catch(() => {}),
+        sql`ALTER TABLE shopify_reconciliation_runs
+          ADD COLUMN IF NOT EXISTS selected_revenue_truth_basis TEXT`.catch(() => {}),
+        sql`ALTER TABLE shopify_reconciliation_runs
+          ADD COLUMN IF NOT EXISTS basis_selection_reason TEXT`.catch(() => {}),
+        sql`ALTER TABLE shopify_reconciliation_runs
+          ADD COLUMN IF NOT EXISTS transaction_coverage_order_rate DOUBLE PRECISION`.catch(() => {}),
+        sql`ALTER TABLE shopify_reconciliation_runs
+          ADD COLUMN IF NOT EXISTS transaction_coverage_amount_rate DOUBLE PRECISION`.catch(() => {}),
+        sql`ALTER TABLE shopify_reconciliation_runs
+          ADD COLUMN IF NOT EXISTS order_revenue_truth_delta DOUBLE PRECISION`.catch(() => {}),
+        sql`ALTER TABLE shopify_reconciliation_runs
+          ADD COLUMN IF NOT EXISTS transaction_revenue_delta DOUBLE PRECISION`.catch(() => {}),
+        sql`ALTER TABLE shopify_reconciliation_runs
+          ADD COLUMN IF NOT EXISTS explained_adjustment_revenue DOUBLE PRECISION`.catch(() => {}),
+        sql`ALTER TABLE shopify_reconciliation_runs
+          ADD COLUMN IF NOT EXISTS unexplained_adjustment_revenue DOUBLE PRECISION`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS shopify_serving_state (
+          business_id          TEXT NOT NULL,
+          provider_account_id  TEXT NOT NULL,
+          canary_key           TEXT NOT NULL,
+          start_date           DATE,
+          end_date             DATE,
+          time_zone_basis      TEXT,
+          assessed_at          TIMESTAMPTZ,
+          status_state         TEXT,
+          preferred_source     TEXT,
+          can_serve_warehouse  BOOLEAN NOT NULL DEFAULT FALSE,
+          canary_enabled       BOOLEAN NOT NULL DEFAULT FALSE,
+          decision_reasons     JSONB NOT NULL DEFAULT '[]'::jsonb,
+          divergence           JSONB,
+          created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          PRIMARY KEY (business_id, provider_account_id, canary_key)
+        )`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS start_date DATE`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS end_date DATE`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS time_zone_basis TEXT`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS orders_recent_synced_at TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS orders_recent_cursor_timestamp TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS orders_recent_cursor_value TEXT`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS returns_recent_synced_at TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS returns_recent_cursor_timestamp TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS returns_recent_cursor_value TEXT`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS orders_historical_synced_at TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS orders_historical_ready_through_date DATE`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS orders_historical_target_end DATE`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS returns_historical_synced_at TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS returns_historical_ready_through_date DATE`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS returns_historical_target_end DATE`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS production_mode TEXT`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS trust_state TEXT`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS fallback_reason TEXT`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS coverage_status TEXT`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS pending_repair BOOLEAN NOT NULL DEFAULT FALSE`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS pending_repair_started_at TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS pending_repair_last_topic TEXT`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS pending_repair_last_received_at TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state
+          ADD COLUMN IF NOT EXISTS consecutive_clean_validations INTEGER NOT NULL DEFAULT 0`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_serving_state_business_updated
+          ON shopify_serving_state (business_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_serving_state_business_range
+          ON shopify_serving_state (business_id, start_date DESC, end_date DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS shopify_serving_state_history (
+          id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id          TEXT NOT NULL,
+          provider_account_id  TEXT NOT NULL,
+          canary_key           TEXT NOT NULL,
+          start_date           DATE,
+          end_date             DATE,
+          time_zone_basis      TEXT,
+          assessed_at          TIMESTAMPTZ,
+          status_state         TEXT,
+          preferred_source     TEXT,
+          orders_recent_synced_at TIMESTAMPTZ,
+          orders_recent_cursor_timestamp TIMESTAMPTZ,
+          orders_recent_cursor_value TEXT,
+          returns_recent_synced_at TIMESTAMPTZ,
+          returns_recent_cursor_timestamp TIMESTAMPTZ,
+          returns_recent_cursor_value TEXT,
+          orders_historical_synced_at TIMESTAMPTZ,
+          orders_historical_ready_through_date DATE,
+          orders_historical_target_end DATE,
+          returns_historical_synced_at TIMESTAMPTZ,
+          returns_historical_ready_through_date DATE,
+          returns_historical_target_end DATE,
+          can_serve_warehouse  BOOLEAN NOT NULL DEFAULT FALSE,
+          canary_enabled       BOOLEAN NOT NULL DEFAULT FALSE,
+          decision_reasons     JSONB NOT NULL DEFAULT '[]'::jsonb,
+          divergence           JSONB,
+          created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_serving_state_history_business_assessed
+          ON shopify_serving_state_history (business_id, assessed_at DESC, created_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_serving_state_history_business_range
+          ON shopify_serving_state_history (business_id, start_date DESC, end_date DESC, assessed_at DESC)`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state_history
+          ADD COLUMN IF NOT EXISTS orders_recent_synced_at TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state_history
+          ADD COLUMN IF NOT EXISTS orders_recent_cursor_timestamp TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state_history
+          ADD COLUMN IF NOT EXISTS orders_recent_cursor_value TEXT`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state_history
+          ADD COLUMN IF NOT EXISTS returns_recent_synced_at TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state_history
+          ADD COLUMN IF NOT EXISTS returns_recent_cursor_timestamp TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state_history
+          ADD COLUMN IF NOT EXISTS returns_recent_cursor_value TEXT`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state_history
+          ADD COLUMN IF NOT EXISTS orders_historical_synced_at TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state_history
+          ADD COLUMN IF NOT EXISTS orders_historical_ready_through_date DATE`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state_history
+          ADD COLUMN IF NOT EXISTS orders_historical_target_end DATE`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state_history
+          ADD COLUMN IF NOT EXISTS returns_historical_synced_at TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state_history
+          ADD COLUMN IF NOT EXISTS returns_historical_ready_through_date DATE`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state_history
+          ADD COLUMN IF NOT EXISTS returns_historical_target_end DATE`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state_history
+          ADD COLUMN IF NOT EXISTS production_mode TEXT`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state_history
+          ADD COLUMN IF NOT EXISTS trust_state TEXT`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state_history
+          ADD COLUMN IF NOT EXISTS fallback_reason TEXT`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state_history
+          ADD COLUMN IF NOT EXISTS coverage_status TEXT`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state_history
+          ADD COLUMN IF NOT EXISTS pending_repair BOOLEAN NOT NULL DEFAULT FALSE`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state_history
+          ADD COLUMN IF NOT EXISTS pending_repair_started_at TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state_history
+          ADD COLUMN IF NOT EXISTS pending_repair_last_topic TEXT`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state_history
+          ADD COLUMN IF NOT EXISTS pending_repair_last_received_at TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE shopify_serving_state_history
+          ADD COLUMN IF NOT EXISTS consecutive_clean_validations INTEGER NOT NULL DEFAULT 0`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS shopify_repair_intents (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id TEXT NOT NULL,
+          provider_account_id TEXT NOT NULL,
+          entity_type TEXT NOT NULL,
+          entity_id TEXT NOT NULL,
+          topic TEXT NOT NULL,
+          payload_hash TEXT NOT NULL,
+          event_timestamp TIMESTAMPTZ,
+          event_age_days INTEGER,
+          escalation_level INTEGER NOT NULL DEFAULT 0,
+          status TEXT NOT NULL DEFAULT 'pending',
+          attempt_count INTEGER NOT NULL DEFAULT 0,
+          last_error TEXT,
+          last_sync_result JSONB,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider_account_id, entity_type, entity_id, topic, payload_hash)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_repair_intents_business_updated
+          ON shopify_repair_intents (business_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS shopify_sync_state (
+          business_id              TEXT NOT NULL,
+          provider_account_id      TEXT NOT NULL,
+          sync_target              TEXT NOT NULL,
+          historical_target_start  DATE,
+          historical_target_end    DATE,
+          ready_through_date       DATE,
+          cursor_timestamp         TIMESTAMPTZ,
+          cursor_value             TEXT,
+          latest_sync_started_at   TIMESTAMPTZ,
+          latest_successful_sync_at TIMESTAMPTZ,
+          latest_sync_status       TEXT,
+          latest_sync_window_start DATE,
+          latest_sync_window_end   DATE,
+          last_error               TEXT,
+          last_result_summary      JSONB,
+          updated_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
+          PRIMARY KEY (business_id, provider_account_id, sync_target)
+        )`.catch(() => {}),
+        sql`ALTER TABLE shopify_sync_state
+          ADD COLUMN IF NOT EXISTS cursor_timestamp TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE shopify_sync_state
+          ADD COLUMN IF NOT EXISTS cursor_value TEXT`.catch(() => {}),
+        sql`ALTER TABLE shopify_sync_state
+          ADD COLUMN IF NOT EXISTS last_result_summary JSONB`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_sync_state_business
+          ON shopify_sync_state (business_id, updated_at DESC)`.catch(() => {}),
       ]);
 
       // ── Seed superadmin ───────────────────────────────────────────────────

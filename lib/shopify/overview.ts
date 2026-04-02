@@ -1,10 +1,11 @@
+import { getBusinessTimezone } from "@/lib/account-store";
 import { getIntegration } from "@/lib/integrations";
 import { enumerateDays, round2 } from "@/lib/overview-service-support";
 import { getCachedReport, getReportingDateRangeKey, setCachedReport } from "@/lib/reporting-cache";
 
 const SHOPIFY_OVERVIEW_CACHE_TTL_MINUTES = 15;
 const SHOPIFY_ANALYTICS_API_VERSION = process.env.SHOPIFY_ANALYTICS_API_VERSION ?? "2025-10";
-const SHOPIFY_OVERVIEW_REPORT_TYPE = "overview_shopify_orders_aggregate_v3";
+const SHOPIFY_OVERVIEW_REPORT_TYPE = "overview_shopify_orders_aggregate_v6";
 const SHOPIFY_ORDER_PAGE_SIZE = 250;
 const SHOPIFY_ORDER_PAGE_LIMIT = 40;
 
@@ -39,6 +40,22 @@ function normalizeDate(value: unknown) {
   if (typeof value !== "string") return null;
   const match = value.match(/\d{4}-\d{2}-\d{2}/);
   return match?.[0] ?? null;
+}
+
+function toTimeZoneIsoDate(value: string, timeZone?: string | null) {
+  if (!timeZone) return normalizeDate(value);
+  const instant = new Date(value);
+  if (Number.isNaN(instant.getTime())) return normalizeDate(value);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(instant);
+  const year = parts.find((part) => part.type === "year")?.value ?? "1970";
+  const month = parts.find((part) => part.type === "month")?.value ?? "01";
+  const day = parts.find((part) => part.type === "day")?.value ?? "01";
+  return `${year}-${month}-${day}`;
 }
 
 function parseTimeZoneOffsetMinutes(value: string) {
@@ -133,6 +150,20 @@ function toNumber(value: unknown) {
 interface ShopifyAdminGraphqlOrderEdge {
   node?: {
     createdAt?: string | null;
+    processedAt?: string | null;
+    test?: boolean | null;
+    cancelledAt?: string | null;
+    displayFinancialStatus?: string | null;
+    totalPriceSet?: {
+      shopMoney?: {
+        amount?: string | null;
+      } | null;
+    } | null;
+    totalRefundedSet?: {
+      shopMoney?: {
+        amount?: string | null;
+      } | null;
+    } | null;
     currentTotalPriceSet?: {
       shopMoney?: {
         amount?: string | null;
@@ -202,6 +233,7 @@ async function getShopifyOrderCommerceMetrics(input: {
   endDate: string;
   dates: string[];
   timeZone?: string | null;
+  businessTimeZone?: string | null;
 }) {
   const query = `
     query ShopifyOverviewCommerceOrders($query: String!, $cursor: String) {
@@ -213,6 +245,20 @@ async function getShopifyOrderCommerceMetrics(input: {
         edges {
           node {
             createdAt
+            processedAt
+            test
+            cancelledAt
+            displayFinancialStatus
+            totalPriceSet {
+              shopMoney {
+                amount
+              }
+            }
+            totalRefundedSet {
+              shopMoney {
+                amount
+              }
+            }
             currentTotalPriceSet {
               shopMoney {
                 amount
@@ -226,17 +272,33 @@ async function getShopifyOrderCommerceMetrics(input: {
 
   const dailyRevenue = new Map<string, number>();
   const dailyPurchases = new Map<string, number>();
+  const expandedStartDate = shiftIsoDate(input.startDate, -1);
+  const expandedEndDate = shiftIsoDate(input.endDate, 1);
+  const diagnosticDates = enumerateDays(expandedStartDate, expandedEndDate);
+  const diagnosticCreatedShopRevenue = new Map<string, number>();
+  const diagnosticCreatedBusinessRevenue = new Map<string, number>();
+  const diagnosticProcessedShopRevenue = new Map<string, number>();
+  let totalCurrentRevenue = 0;
+  let totalGrossMinusRefundsRevenue = 0;
+  let cancelledOrders = 0;
+  let refundedOrders = 0;
+  let testOrders = 0;
   for (const date of input.dates) {
     dailyRevenue.set(date, 0);
     dailyPurchases.set(date, 0);
   }
+  for (const date of diagnosticDates) {
+    diagnosticCreatedShopRevenue.set(date, 0);
+    diagnosticCreatedBusinessRevenue.set(date, 0);
+    diagnosticProcessedShopRevenue.set(date, 0);
+  }
 
   const orderWindow = resolveShopLocalWindow({
-    startDate: input.startDate,
-    endDate: input.endDate,
+    startDate: expandedStartDate,
+    endDate: expandedEndDate,
     timeZone: input.timeZone,
   });
-  const ordersQuery = `created_at:>=${orderWindow.startIso} created_at:<=${orderWindow.endIso} status:any`;
+  const ordersQuery = `created_at:>=${orderWindow.startIso} created_at:<=${orderWindow.endIso} status:any test:false`;
   let cursor: string | null = null;
   let pageCount = 0;
 
@@ -255,14 +317,58 @@ async function getShopifyOrderCommerceMetrics(input: {
     const edges = Array.isArray(payload.orders?.edges) ? payload.orders.edges : [];
     for (const edge of edges) {
       const node = edge.node;
-      const date = normalizeDate(node?.createdAt);
-      if (!date || !dailyRevenue.has(date) || !dailyPurchases.has(date)) continue;
+      if (node?.test) testOrders += 1;
+      if (node?.cancelledAt) cancelledOrders += 1;
+      if ((toNumber(node?.totalRefundedSet?.shopMoney?.amount) ?? 0) > 0) refundedOrders += 1;
+
+      const currentTotalRevenue = toNumber(node?.currentTotalPriceSet?.shopMoney?.amount);
+      const preReturnRevenue = toNumber(node?.totalPriceSet?.shopMoney?.amount);
+      const grossMinusRefundsRevenue = round2(
+        toNumber(node?.totalPriceSet?.shopMoney?.amount) -
+          toNumber(node?.totalRefundedSet?.shopMoney?.amount)
+      );
+      totalCurrentRevenue += currentTotalRevenue;
+      totalGrossMinusRefundsRevenue += grossMinusRefundsRevenue;
+
+      const createdShopDate =
+        typeof node?.createdAt === "string"
+          ? toTimeZoneIsoDate(node.createdAt, input.timeZone)
+          : null;
+      const createdBusinessDate =
+        typeof node?.createdAt === "string"
+          ? toTimeZoneIsoDate(node.createdAt, input.businessTimeZone)
+          : null;
+      const processedShopDate =
+        typeof node?.processedAt === "string"
+          ? toTimeZoneIsoDate(node.processedAt, input.timeZone)
+          : null;
+
+      if (createdShopDate && diagnosticCreatedShopRevenue.has(createdShopDate)) {
+        diagnosticCreatedShopRevenue.set(
+          createdShopDate,
+          round2((diagnosticCreatedShopRevenue.get(createdShopDate) ?? 0) + preReturnRevenue)
+        );
+      }
+      if (createdBusinessDate && diagnosticCreatedBusinessRevenue.has(createdBusinessDate)) {
+        diagnosticCreatedBusinessRevenue.set(
+          createdBusinessDate,
+          round2((diagnosticCreatedBusinessRevenue.get(createdBusinessDate) ?? 0) + preReturnRevenue)
+        );
+      }
+      if (processedShopDate && diagnosticProcessedShopRevenue.has(processedShopDate)) {
+        diagnosticProcessedShopRevenue.set(
+          processedShopDate,
+          round2((diagnosticProcessedShopRevenue.get(processedShopDate) ?? 0) + preReturnRevenue)
+        );
+      }
+
+      if (!createdShopDate || !dailyRevenue.has(createdShopDate) || !dailyPurchases.has(createdShopDate)) continue;
 
       dailyRevenue.set(
-        date,
-        round2((dailyRevenue.get(date) ?? 0) + toNumber(node?.currentTotalPriceSet?.shopMoney?.amount))
+        createdShopDate,
+        round2((dailyRevenue.get(createdShopDate) ?? 0) + preReturnRevenue)
       );
-      dailyPurchases.set(date, (dailyPurchases.get(date) ?? 0) + 1);
+      dailyPurchases.set(createdShopDate, (dailyPurchases.get(createdShopDate) ?? 0) + 1);
     }
 
     const pageInfo = payload.orders?.pageInfo;
@@ -280,6 +386,7 @@ async function getShopifyOrderCommerceMetrics(input: {
       pageLimit: SHOPIFY_ORDER_PAGE_LIMIT,
     });
     return {
+      success: false,
       revenue: null,
       purchases: null,
       byDate: new Map<string, { revenue: number | null; purchases: number | null }>(),
@@ -301,7 +408,62 @@ async function getShopifyOrderCommerceMetrics(input: {
     });
   }
 
+  const currentRevenueRounded = round2(totalCurrentRevenue);
+  const preReturnRevenueRounded = round2(revenue);
+  const grossMinusRefundsRounded = round2(totalGrossMinusRefundsRevenue);
+  const shopDateBasis = input.timeZone ?? "UTC";
+  const businessDateBasis = input.businessTimeZone ?? "UTC";
+  const leakageDiagnostic = diagnosticDates.map((date) => ({
+    date,
+    createdShopRevenue: round2(diagnosticCreatedShopRevenue.get(date) ?? 0),
+    createdBusinessRevenue: round2(diagnosticCreatedBusinessRevenue.get(date) ?? 0),
+    processedShopRevenue: round2(diagnosticProcessedShopRevenue.get(date) ?? 0),
+  }));
+  const selectedAndAdjacentDays = leakageDiagnostic.filter(
+    (row) => row.date >= expandedStartDate && row.date <= expandedEndDate
+  );
+  if (
+    Math.abs(currentRevenueRounded - preReturnRevenueRounded) >= 0.01 ||
+    Math.abs(preReturnRevenueRounded - grossMinusRefundsRounded) >= 0.01
+  ) {
+    console.info("[shopify-overview] revenue_semantic_delta", {
+      shopId: input.shopId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      revenueBasis: "created_at",
+      bucketBasis: "created_at",
+      timezoneBasis: shopDateBasis,
+      currentRevenue: currentRevenueRounded,
+      preReturnRevenue: preReturnRevenueRounded,
+      grossMinusRefundsRevenue: grossMinusRefundsRounded,
+      currentVsPreReturnDelta: round2(currentRevenueRounded - preReturnRevenueRounded),
+      preReturnVsGrossMinusRefundsDelta: round2(preReturnRevenueRounded - grossMinusRefundsRounded),
+      cancelledOrders,
+      refundedOrders,
+      testOrders,
+    });
+  }
+
+  const hasAdjacentLeakageSignal = selectedAndAdjacentDays.some((row) => {
+    return (
+      Math.abs(row.createdShopRevenue - row.createdBusinessRevenue) >= 0.01 ||
+      Math.abs(row.createdShopRevenue - row.processedShopRevenue) >= 0.01
+    );
+  });
+  if (hasAdjacentLeakageSignal) {
+    console.info("[shopify-overview] daily_attribution_shadow", {
+      shopId: input.shopId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      publicRevenueBasis: "created_at",
+      publicTimezoneBasis: shopDateBasis,
+      businessTimezoneBasis: businessDateBasis,
+      days: selectedAndAdjacentDays,
+    });
+  }
+
   return {
+    success: true,
     revenue: round2(revenue),
     purchases: Math.round(purchases),
     byDate,
@@ -370,6 +532,8 @@ export async function getShopifyOverviewAggregate(params: {
   let sessions: number | null = null;
   let newCustomers: number | null = null;
   let returningCustomers: number | null = null;
+  let hasCommerceMetrics = false;
+  const businessTimeZone = await getBusinessTimezone(params.businessId).catch(() => null);
   try {
     const commerceMetrics = await getShopifyOrderCommerceMetrics({
       shopId: integration.provider_account_id,
@@ -381,8 +545,10 @@ export async function getShopifyOverviewAggregate(params: {
         typeof integration.metadata?.iana_timezone === "string"
           ? integration.metadata.iana_timezone
           : null,
+      businessTimeZone,
     });
-    if (commerceMetrics.revenue !== null && commerceMetrics.purchases !== null) {
+    if (commerceMetrics.success && commerceMetrics.revenue !== null && commerceMetrics.purchases !== null) {
+      hasCommerceMetrics = true;
       revenue = commerceMetrics.revenue;
       purchases = commerceMetrics.purchases;
     }
@@ -403,7 +569,7 @@ export async function getShopifyOverviewAggregate(params: {
     });
   }
 
-  if (revenue <= 0 && purchases <= 0) {
+  if (!hasCommerceMetrics) {
     return null;
   }
 

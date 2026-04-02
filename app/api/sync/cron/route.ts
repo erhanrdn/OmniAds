@@ -4,6 +4,7 @@ import { enqueueMetaScheduledWork } from "@/lib/sync/meta-sync";
 import { enqueueGoogleAdsScheduledWork } from "@/lib/sync/google-ads-sync";
 import { syncGA4Reports } from "@/lib/sync/ga4-sync";
 import { syncSearchConsoleReports } from "@/lib/sync/search-console-sync";
+import { syncShopifyCommerceReports } from "@/lib/sync/shopify-sync";
 import { runSyncSoakGate } from "@/lib/sync/soak-gate";
 
 /**
@@ -15,6 +16,11 @@ import { runSyncSoakGate } from "@/lib/sync/soak-gate";
  *
  * Protected by CRON_SECRET bearer token.
  */
+
+function shopifySyncEnabled() {
+  const raw = process.env.SHOPIFY_SYNC_ENABLED?.trim().toLowerCase();
+  return raw === "1" || raw === "true";
+}
 
 export async function POST(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
@@ -39,11 +45,14 @@ export async function POST(request: NextRequest) {
 
   const results = await Promise.allSettled(
     businesses.map(async (business) => {
-      const [gads, ga4, sc, metaScheduled] = await Promise.allSettled([
+      const [gads, ga4, sc, metaScheduled, shopify] = await Promise.allSettled([
         enqueueGoogleAdsScheduledWork(business.id),
         syncGA4Reports(business.id),
         syncSearchConsoleReports(business.id),
         enqueueMetaScheduledWork(business.id),
+        shopifySyncEnabled()
+          ? syncShopifyCommerceReports(business.id)
+          : Promise.resolve({ skipped: true, reason: "disabled" }),
       ]);
 
       return {
@@ -55,6 +64,9 @@ export async function POST(request: NextRequest) {
         meta: metaScheduled.status === "fulfilled"
           ? metaScheduled.value
           : { error: String((metaScheduled as PromiseRejectedResult).reason) },
+        shopify: shopify.status === "fulfilled"
+          ? shopify.value
+          : { error: String((shopify as PromiseRejectedResult).reason) },
       };
     }),
   );

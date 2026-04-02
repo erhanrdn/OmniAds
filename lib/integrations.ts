@@ -259,6 +259,21 @@ export async function setIntegrationError(
   `;
 }
 
+export async function mergeIntegrationMetadata(params: {
+  businessId: string;
+  provider: IntegrationProviderType;
+  metadata: Record<string, unknown>;
+}): Promise<void> {
+  const sql = getDb();
+  await sql`
+    UPDATE integrations
+    SET metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify(params.metadata ?? {})}::jsonb,
+        updated_at = now()
+    WHERE business_id = ${params.businessId}
+      AND provider = ${params.provider}
+  `;
+}
+
 export async function backfillIntegrationSecretsEncryption(input?: {
   batchSize?: number;
 }): Promise<{ scanned: number; updated: number }> {

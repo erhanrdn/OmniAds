@@ -26,6 +26,10 @@ import {
 } from "@/lib/reporting-cache";
 import { getMetaWarehouseSummary } from "@/lib/meta/serving";
 import { getShopifyOverviewAggregate } from "@/lib/shopify/overview";
+import {
+  getShopifyOverviewReadCandidate,
+  type ShopifyOverviewServingMetadata,
+} from "@/lib/shopify/read-adapter";
 
 interface TrendPoint {
   date: string;
@@ -90,6 +94,7 @@ export interface OverviewResponse {
     roas: number;
   };
   platformEfficiency: PlatformEfficiencyRow[];
+  shopifyServing?: ShopifyOverviewServingMetadata | null;
   providerTrends?: Partial<Record<"meta" | "google", TrendPoint[]>>;
   trends: {
     "7d": TrendPoint[];
@@ -415,12 +420,116 @@ async function fetchDaySnapshot(businessId: string, date: string) {
   };
 }
 
+async function resolveShopifyOverviewAggregateForRead(input: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+}) {
+  const candidate = await getShopifyOverviewReadCandidate(input);
+
+  if (candidate.preferredSource === "warehouse" && candidate.warehouse) {
+    console.info("[overview] shopify warehouse read canary selected", {
+      businessId: input.businessId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      revenueDeltaPercent: candidate.divergence?.revenueDeltaPercent ?? null,
+      purchaseDelta: candidate.divergence?.purchaseDelta ?? null,
+    });
+
+    return {
+      aggregate: {
+      revenue: candidate.warehouse.revenue,
+      purchases: candidate.warehouse.purchases,
+      averageOrderValue: candidate.warehouse.averageOrderValue,
+      sessions: null,
+      conversionRate: null,
+      newCustomers: null,
+      returningCustomers: null,
+      dailyTrends: candidate.warehouse.daily.map((row) => ({
+        date: row.date,
+        revenue: row.netRevenue,
+        purchases: row.orders,
+        sessions: null,
+        conversionRate: null,
+        newCustomers: null,
+        returningCustomers: null,
+      })),
+      },
+      serving: candidate.servingMetadata,
+    };
+  }
+
+  if (candidate.preferredSource === "ledger" && candidate.ledger) {
+    console.info("[overview] shopify ledger read canary selected", {
+      businessId: input.businessId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      revenueDeltaPercent: candidate.divergence?.revenueDeltaPercent ?? null,
+      purchaseDelta: candidate.divergence?.purchaseDelta ?? null,
+      ledgerRevenueDeltaPercent:
+        typeof candidate.ledgerConsistency?.revenueDeltaPercent === "number"
+          ? candidate.ledgerConsistency.revenueDeltaPercent
+          : null,
+    });
+
+    return {
+      aggregate: {
+      revenue: candidate.ledger.revenue,
+      purchases: candidate.ledger.purchases,
+      averageOrderValue: candidate.ledger.averageOrderValue,
+      sessions: null,
+      conversionRate: null,
+      newCustomers: null,
+      returningCustomers: null,
+      dailyTrends: candidate.ledger.daily.map((row) => ({
+        date: row.date,
+        revenue: row.netRevenue,
+        purchases: row.orders,
+        sessions: null,
+        conversionRate: null,
+        newCustomers: null,
+        returningCustomers: null,
+      })),
+      },
+      serving: candidate.servingMetadata,
+    };
+  }
+
+  if (candidate.canaryEnabled) {
+    console.info("[overview] shopify warehouse read canary blocked", {
+      businessId: input.businessId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      status: candidate.status.state,
+      preferredSource: candidate.preferredSource,
+      reasons: candidate.decisionReasons,
+      revenueDeltaPercent: candidate.divergence?.revenueDeltaPercent ?? null,
+      maxDailyRevenueDeltaPercent: candidate.divergence?.maxDailyRevenueDeltaPercent ?? null,
+      purchaseDelta: candidate.divergence?.purchaseDelta ?? null,
+      maxDailyPurchaseDelta: candidate.divergence?.maxDailyPurchaseDelta ?? null,
+    });
+  }
+
+  return {
+    aggregate: candidate.live,
+    serving: candidate.servingMetadata,
+  };
+}
+
+export async function getShopifyOverviewServingData(params: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+}) {
+  return resolveShopifyOverviewAggregateForRead(params);
+}
+
 async function buildDailyTrends(params: {
   businessId: string;
   startDate: string;
   endDate: string;
 }): Promise<DailyTrendsBundle> {
-  const shopifyAggregate = await getShopifyOverviewAggregate(params).catch((error: unknown) => {
+  const shopifyResult = await resolveShopifyOverviewAggregateForRead(params).catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
     console.warn("[overview] shopify daily trends unavailable", {
       businessId: params.businessId,
@@ -441,7 +550,7 @@ async function buildDailyTrends(params: {
 
   return {
     combined: snapshots.map((s) => {
-      const shopifyDay = shopifyAggregate?.dailyTrends.find((entry) => entry.date === s.combined.date);
+      const shopifyDay = shopifyResult?.aggregate?.dailyTrends.find((entry) => entry.date === s.combined.date);
       return {
         date: s.combined.date,
         spend: s.combined.spend,
@@ -514,7 +623,7 @@ export async function getOverviewData(params: {
       startDate: resolvedStart,
       endDate: resolvedEnd,
     }),
-    getShopifyOverviewAggregate({
+    resolveShopifyOverviewAggregateForRead({
       businessId,
       startDate: resolvedStart,
       endDate: resolvedEnd,
@@ -551,7 +660,8 @@ export async function getOverviewData(params: {
     console.warn("[overview] google ads overview unavailable", { businessId, message });
   }
 
-  const shopifyAggregate = shopifyResult.status === "fulfilled" ? shopifyResult.value : null;
+  const shopifyResolution = shopifyResult.status === "fulfilled" ? shopifyResult.value : null;
+  const shopifyAggregate = shopifyResolution?.aggregate ?? null;
   if (shopifyResult.status === "rejected") {
     const message =
       shopifyResult.reason instanceof Error
@@ -594,6 +704,7 @@ export async function getOverviewData(params: {
     shopify: shopifyAggregate,
     ga4Fallback,
   });
+  overview.shopifyServing = shopifyResolution?.serving ?? null;
 
   if (dailyTrends) {
     overview.providerTrends = dailyTrends.providerTrends;
