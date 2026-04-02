@@ -154,7 +154,13 @@ export interface OverviewData {
     Record<
       keyof OverviewData["kpis"],
       {
-        source: "shopify" | "ga4_fallback" | "ad_platforms" | "unavailable";
+        source:
+          | "shopify_ledger"
+          | "shopify_warehouse"
+          | "shopify_live_fallback"
+          | "ga4_fallback"
+          | "ad_platforms"
+          | "unavailable";
         label: string;
       }
     >
@@ -194,7 +200,7 @@ export interface OverviewData {
     roas: number;
   }>;
   shopifyServing?: {
-    source: "warehouse" | "live" | "none";
+    source: "ledger" | "warehouse" | "live" | "none";
     provider: "shopify";
     trustState: "trusted" | "live_fallback" | "pending_repair" | "disabled" | "no_data";
     fallbackReason: string | null;

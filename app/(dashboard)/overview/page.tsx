@@ -258,7 +258,7 @@ export default function OverviewPage() {
       {(query.isLoading || storeMetrics.length > 0) ? (
         <SummarySection
           title="Store Metrics"
-          description="Store health and ecommerce output sourced from GA4 ecommerce reporting."
+          description="Store health and ecommerce output sourced from connected ecommerce providers."
         >
           <MetricGrid
             metrics={storeMetrics}
@@ -491,18 +491,29 @@ function DataStatusRow({
   shopifyServing?: OverviewSummaryData["shopifyServing"];
 }) {
   const language = usePreferencesStore((state) => state.language);
-  const shopifyBadge =
-    shopifyServing?.source === "warehouse"
-      ? { label: "Shopify provider", tone: "default" as const }
-      : shopifyServing?.source === "live"
-        ? { label: "Shopify live fallback", tone: "secondary" as const }
-        : null;
+  const shopifyBadge = shopifyServing
+    ? shopifyServing.source === "ledger"
+      ? { label: "Trusted ledger", tone: "default" as const }
+      : shopifyServing.source === "warehouse"
+      ? { label: "Warehouse serving", tone: "default" as const }
+      : shopifyServing.source === "live"
+        ? { label: "Live fallback", tone: "secondary" as const }
+        : shopifyServing.trustState === "disabled"
+          ? { label: "Serving disabled", tone: "destructive" as const }
+          : { label: "No serving data", tone: "secondary" as const }
+    : null;
   const shopifyHelper = shopifyServing
-    ? shopifyServing.source === "warehouse"
+    ? shopifyServing.source === "ledger"
+      ? `Ledger-backed ${shopifyServing.coverageStatus.replaceAll("_", " ")} serving`
+      : shopifyServing.source === "warehouse"
       ? `Trusted ${shopifyServing.coverageStatus.replaceAll("_", " ")} serving`
       : shopifyServing.fallbackReason
         ? `Fallback: ${shopifyServing.fallbackReason.replaceAll("_", " ")}`
-        : "Shopify data unavailable"
+        : shopifyServing.trustState === "no_data"
+          ? "Shopify is connected but overview data is not available for this range yet"
+          : shopifyServing.trustState === "disabled"
+            ? "Shopify production serving is disabled for this integration"
+            : "Shopify data unavailable"
     : null;
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/60">
@@ -516,7 +527,7 @@ function DataStatusRow({
             <Badge>Active</Badge>
             <span className="text-slate-500">Live API responses with cached provider snapshots.</span>
           </div>
-          {shopifyBadge ? (
+          {shopifyServing && shopifyBadge ? (
             <div className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-2.5 py-1.5 text-xs">
               <span className="font-medium text-slate-700">Shopify</span>
               <Badge variant={shopifyBadge.tone}>{shopifyBadge.label}</Badge>

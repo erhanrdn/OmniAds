@@ -152,7 +152,7 @@ describe("getOverviewData", () => {
     expect(overview.kpis.purchases).toBe(6);
   });
 
-  it("marks ecommerce KPIs as Shopify when Shopify aggregate is present", async () => {
+  it("marks ecommerce KPIs as Shopify live fallback when only live aggregate is present", async () => {
     vi.mocked(shopifyReadAdapter.getShopifyOverviewReadCandidate).mockResolvedValue({
       status: {
         state: "ready",
@@ -191,10 +191,22 @@ describe("getOverviewData", () => {
     expect(overview.kpis.purchases).toBe(9);
     expect(overview.kpis.aov).toBe(100);
     expect(overview.kpis.roas).toBe(7.5);
-    expect(overview.kpiSources.revenue).toEqual({ source: "shopify", label: "Shopify" });
-    expect(overview.kpiSources.purchases).toEqual({ source: "shopify", label: "Shopify" });
-    expect(overview.kpiSources.aov).toEqual({ source: "shopify", label: "Shopify" });
-    expect(overview.kpiSources.roas).toEqual({ source: "shopify", label: "Shopify" });
+    expect(overview.kpiSources.revenue).toEqual({
+      source: "shopify_live_fallback",
+      label: "Shopify Live Fallback",
+    });
+    expect(overview.kpiSources.purchases).toEqual({
+      source: "shopify_live_fallback",
+      label: "Shopify Live Fallback",
+    });
+    expect(overview.kpiSources.aov).toEqual({
+      source: "shopify_live_fallback",
+      label: "Shopify Live Fallback",
+    });
+    expect(overview.kpiSources.roas).toEqual({
+      source: "shopify_live_fallback",
+      label: "Shopify Live Fallback",
+    });
   });
 
   it("uses warehouse canary aggregate when it is selected", async () => {
@@ -254,6 +266,25 @@ describe("getOverviewData", () => {
       canaryEnabled: true,
       preferredSource: "warehouse",
       canServeWarehouse: true,
+      servingMetadata: {
+        source: "warehouse",
+        provider: "shopify",
+        trustState: "trusted",
+        fallbackReason: null,
+        lastSyncedAt: "2026-04-02T10:00:00.000Z",
+        coverageStatus: "recent_ready",
+        productionMode: "auto",
+        pendingRepair: false,
+        pendingRepairStartedAt: null,
+        pendingRepairLastTopic: null,
+        pendingRepairLastReceivedAt: null,
+        selectedRevenueTruthBasis: "gross_minus_total_refunded",
+        basisSelectionReason: "closest_gross_minus_refunds_revenue",
+        transactionCoverageOrderRate: 88,
+        transactionCoverageAmountRate: 92,
+        explainedAdjustmentRevenue: 0,
+        unexplainedAdjustmentRevenue: 0,
+      },
     });
 
     const overview = await getOverviewData({
@@ -266,6 +297,154 @@ describe("getOverviewData", () => {
     expect(overview.kpis.revenue).toBe(840);
     expect(overview.kpis.purchases).toBe(8);
     expect(overview.kpis.aov).toBe(105);
-    expect(overview.kpiSources.revenue).toEqual({ source: "shopify", label: "Shopify" });
+    expect(overview.kpiSources.revenue).toEqual({
+      source: "shopify_warehouse",
+      label: "Shopify Warehouse",
+    });
+  });
+
+  it("prefers ledger revenue truth when ledger serving is selected", async () => {
+    vi.mocked(shopifyReadAdapter.getShopifyOverviewReadCandidate).mockResolvedValue({
+      status: {
+        state: "ready",
+        connected: true,
+        shopId: "test-shop.myshopify.com",
+        warehouse: null,
+        sync: null,
+        issues: [],
+      },
+      live: {
+        revenue: 900,
+        purchases: 9,
+        averageOrderValue: 100,
+        sessions: null,
+        conversionRate: null,
+        newCustomers: null,
+        returningCustomers: null,
+        dailyTrends: [],
+      },
+      warehouse: {
+        revenue: 840,
+        grossRevenue: 900,
+        refundedRevenue: 60,
+        purchases: 8,
+        returnEvents: 1,
+        averageOrderValue: 105,
+        daily: [],
+      },
+      ledger: {
+        revenue: 780,
+        grossRevenue: 900,
+        refundedRevenue: 120,
+        purchases: 8,
+        returnEvents: 1,
+        averageOrderValue: 97.5,
+        daily: [
+          {
+            date: "2026-03-01",
+            orderRevenue: 900,
+            refundedRevenue: 120,
+            netRevenue: 780,
+            orders: 8,
+            returnEvents: 1,
+            orderEventCount: 8,
+            adjustmentEventCount: 0,
+            refundEventCount: 1,
+            adjustmentRevenue: 0,
+            refundPressure: 120,
+            dailySemanticDrift: 120,
+          },
+        ],
+        ledgerRows: 1,
+        orderEventCount: 8,
+        adjustmentEventCount: 0,
+        refundEventCount: 1,
+        adjustmentRevenue: 0,
+        refundPressure: 120,
+        dailySemanticDrift: 120,
+        currentOrderRevenue: 900,
+        grossMinusRefundsOrderRevenue: 780,
+        transactionCapturedRevenue: null,
+        transactionRefundedRevenue: null,
+        transactionNetRevenue: null,
+        transactionCoveredOrders: 0,
+        transactionCoveredRevenue: null,
+        transactionCoverageRate: null,
+        transactionCoverageAmountRate: null,
+      },
+      divergence: null,
+      ledgerConsistency: {
+        withinThreshold: true,
+        revenueDelta: 60,
+        revenueDeltaPercent: 7.14,
+        purchaseDelta: 0,
+        returnEventDelta: 0,
+        refundedRevenueDelta: 60,
+        adjustmentRevenueDelta: 0,
+        refundPressureDelta: 60,
+        orderRevenueTruthDelta: 0,
+        transactionRevenueDelta: null,
+        currentOrderRevenue: 900,
+        grossMinusRefundsOrderRevenue: 780,
+        preferredOrderRevenueBasis: "gross_minus_total_refunded",
+        transactionNetRevenue: null,
+        transactionCoveredOrders: 0,
+        transactionCoveredRevenue: null,
+        transactionCoverageRate: null,
+        transactionCoverageAmountRate: null,
+        warehouseRevenue: 840,
+        ledgerRevenue: 780,
+        warehousePurchases: 8,
+        ledgerPurchases: 8,
+        warehouseReturnEvents: 1,
+        ledgerReturnEvents: 1,
+        warehouseRefundedRevenue: 60,
+        ledgerRefundedRevenue: 120,
+        ledgerAdjustmentRevenue: 0,
+        maxDailyRevenueDeltaPercent: null,
+        maxDailyPurchaseDelta: null,
+        maxDailyRefundPressureDelta: null,
+        maxDailyAdjustmentDelta: null,
+        maxDailySemanticDrift: null,
+        consistencyScore: 92.86,
+        failureReasons: [],
+      },
+      decisionReasons: [],
+      canaryEnabled: true,
+      preferredSource: "ledger",
+      canServeWarehouse: true,
+      servingMetadata: {
+        source: "ledger",
+        provider: "shopify",
+        trustState: "trusted",
+        fallbackReason: null,
+        lastSyncedAt: "2026-04-02T10:00:00.000Z",
+        coverageStatus: "recent_ready",
+        productionMode: "auto",
+        pendingRepair: false,
+        pendingRepairStartedAt: null,
+        pendingRepairLastTopic: null,
+        pendingRepairLastReceivedAt: null,
+        selectedRevenueTruthBasis: "gross_minus_total_refunded",
+        basisSelectionReason: "closest_gross_minus_refunds_revenue",
+        transactionCoverageOrderRate: null,
+        transactionCoverageAmountRate: null,
+        explainedAdjustmentRevenue: 0,
+        unexplainedAdjustmentRevenue: 0,
+      },
+    });
+
+    const overview = await getOverviewData({
+      businessId: "biz",
+      startDate: "2026-03-01",
+      endDate: "2026-03-15",
+      includeTrends: false,
+    });
+
+    expect(overview.kpis.revenue).toBe(780);
+    expect(overview.kpiSources.revenue).toEqual({
+      source: "shopify_ledger",
+      label: "Shopify Ledger",
+    });
   });
 });

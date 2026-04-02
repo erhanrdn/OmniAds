@@ -162,6 +162,12 @@ export async function GET(request: NextRequest) {
     const missingScopes = ["read_orders", "read_all_orders", "read_returns"].filter(
       (scope) => !hasShopifyScope(integration?.scopes, scope)
     );
+    const missingRequiredScopes = ["read_orders", "read_all_orders"].filter(
+      (scope) => !hasShopifyScope(integration?.scopes, scope)
+    );
+    const missingOptionalScopes = ["read_returns"].filter(
+      (scope) => !hasShopifyScope(integration?.scopes, scope)
+    );
 
     const status = await getShopifyStatus({
       businessId,
@@ -293,11 +299,13 @@ export async function GET(request: NextRequest) {
         tokenValidationError: authHealth.error,
         grantedScopes,
         missingScopes,
+        missingRequiredScopes,
+        missingOptionalScopes,
         apiVersion: SHOPIFY_ADMIN_API_VERSION,
         productionMode:
           integration?.metadata?.shopifyProductionServingMode ?? "disabled",
-        historicalCoverageBlockedByMissingReadAllOrders: missingScopes.includes("read_all_orders"),
-        returnsRepairBlockedByMissingReadReturns: missingScopes.includes("read_returns"),
+        historicalCoverageBlockedByMissingReadAllOrders: missingRequiredScopes.includes("read_all_orders"),
+        returnsRepairBlockedByMissingReadReturns: missingOptionalScopes.includes("read_returns"),
         orchestration: integration?.metadata?.shopifyProviderReadiness ?? null,
       },
       serving,

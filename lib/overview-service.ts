@@ -75,7 +75,13 @@ export interface OverviewResponse {
     Record<
       keyof OverviewResponse["kpis"],
       {
-        source: "shopify" | "ga4_fallback" | "ad_platforms" | "unavailable";
+        source:
+          | "shopify_ledger"
+          | "shopify_warehouse"
+          | "shopify_live_fallback"
+          | "ga4_fallback"
+          | "ad_platforms"
+          | "unavailable";
         label: string;
       }
     >
@@ -438,22 +444,22 @@ async function resolveShopifyOverviewAggregateForRead(input: {
 
     return {
       aggregate: {
-      revenue: candidate.warehouse.revenue,
-      purchases: candidate.warehouse.purchases,
-      averageOrderValue: candidate.warehouse.averageOrderValue,
-      sessions: null,
-      conversionRate: null,
-      newCustomers: null,
-      returningCustomers: null,
-      dailyTrends: candidate.warehouse.daily.map((row) => ({
-        date: row.date,
-        revenue: row.netRevenue,
-        purchases: row.orders,
+        revenue: candidate.warehouse.revenue,
+        purchases: candidate.warehouse.purchases,
+        averageOrderValue: candidate.warehouse.averageOrderValue,
         sessions: null,
         conversionRate: null,
         newCustomers: null,
         returningCustomers: null,
-      })),
+        dailyTrends: candidate.warehouse.daily.map((row) => ({
+          date: row.date,
+          revenue: row.netRevenue,
+          purchases: row.orders,
+          sessions: null,
+          conversionRate: null,
+          newCustomers: null,
+          returningCustomers: null,
+        })),
       },
       serving: candidate.servingMetadata,
     };
@@ -474,22 +480,22 @@ async function resolveShopifyOverviewAggregateForRead(input: {
 
     return {
       aggregate: {
-      revenue: candidate.ledger.revenue,
-      purchases: candidate.ledger.purchases,
-      averageOrderValue: candidate.ledger.averageOrderValue,
-      sessions: null,
-      conversionRate: null,
-      newCustomers: null,
-      returningCustomers: null,
-      dailyTrends: candidate.ledger.daily.map((row) => ({
-        date: row.date,
-        revenue: row.netRevenue,
-        purchases: row.orders,
+        revenue: candidate.ledger.revenue,
+        purchases: candidate.ledger.purchases,
+        averageOrderValue: candidate.ledger.averageOrderValue,
         sessions: null,
         conversionRate: null,
         newCustomers: null,
         returningCustomers: null,
-      })),
+        dailyTrends: candidate.ledger.daily.map((row) => ({
+          date: row.date,
+          revenue: row.netRevenue,
+          purchases: row.orders,
+          sessions: null,
+          conversionRate: null,
+          newCustomers: null,
+          returningCustomers: null,
+        })),
       },
       serving: candidate.servingMetadata,
     };
@@ -701,7 +707,17 @@ export async function getOverviewData(params: {
   ]);
 
   applyEcommerceSourcePriority(overview, {
-    shopify: shopifyAggregate,
+    shopify: shopifyAggregate
+      ? {
+          ...shopifyAggregate,
+          source:
+            shopifyResolution?.serving?.source === "ledger"
+              ? "shopify_ledger"
+              : shopifyResolution?.serving?.source === "warehouse"
+                ? "shopify_warehouse"
+                : "shopify_live_fallback",
+        }
+      : null,
     ga4Fallback,
   });
   overview.shopifyServing = shopifyResolution?.serving ?? null;

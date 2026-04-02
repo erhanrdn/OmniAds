@@ -263,7 +263,14 @@ function resolveMetricSources({
 function mapSourceKey(sourceKey: string | null | undefined, adSources: SupportedSource[]) {
   const normalized = sourceKey?.toLowerCase();
   if (!normalized) return null;
-  if (normalized === "shopify") return "shopify";
+  if (
+    normalized === "shopify" ||
+    normalized === "shopify_ledger" ||
+    normalized === "shopify_warehouse" ||
+    normalized === "shopify_live_fallback"
+  ) {
+    return "shopify";
+  }
   if (normalized === "ga4" || normalized === "ga4_fallback") return "ga4";
   if (normalized === "meta") return "meta";
   if (normalized === "google" || normalized === "google_ads") return "google_ads";

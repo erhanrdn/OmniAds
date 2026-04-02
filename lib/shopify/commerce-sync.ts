@@ -70,38 +70,72 @@ interface ShopifyGraphqlOrderNode {
       variant?: { id?: string | null } | null;
     } | null> | null;
   } | null;
-  refunds?: {
-    nodes?: Array<{
-      id?: string | null;
-      createdAt?: string | null;
-      updatedAt?: string | null;
-      totalRefundedSet?: MoneyBag;
-      refundShippingLines?: {
-        edges?: Array<{
-          node?: {
-            amountSet?: MoneyBag;
-            taxAmountSet?: MoneyBag;
+  refunds?:
+    | Array<{
+        id?: string | null;
+        createdAt?: string | null;
+        updatedAt?: string | null;
+        totalRefundedSet?: MoneyBag;
+        refundShippingLines?: {
+          edges?: Array<{
+            node?: {
+              amountSet?: MoneyBag;
+              subtotalAmountSet?: MoneyBag;
+              taxAmountSet?: MoneyBag;
+            } | null;
+          } | null> | null;
+        } | null;
+        refundLineItems?: {
+          nodes?: Array<{
+            subtotalSet?: MoneyBag;
+            totalTaxSet?: MoneyBag;
+          } | null> | null;
+        } | null;
+      } | null>
+    | {
+        nodes?: Array<{
+          id?: string | null;
+          createdAt?: string | null;
+          updatedAt?: string | null;
+          totalRefundedSet?: MoneyBag;
+          refundShippingLines?: {
+            edges?: Array<{
+              node?: {
+                amountSet?: MoneyBag;
+                subtotalAmountSet?: MoneyBag;
+                taxAmountSet?: MoneyBag;
+              } | null;
+            } | null> | null;
+          } | null;
+          refundLineItems?: {
+            nodes?: Array<{
+              subtotalSet?: MoneyBag;
+              totalTaxSet?: MoneyBag;
+            } | null> | null;
           } | null;
         } | null> | null;
-      } | null;
-      refundLineItems?: {
+      }
+    | null;
+  transactions?:
+    | Array<{
+        id?: string | null;
+        kind?: string | null;
+        status?: string | null;
+        gateway?: string | null;
+        processedAt?: string | null;
+        amountSet?: MoneyBag;
+      } | null>
+    | {
         nodes?: Array<{
-          subtotalSet?: MoneyBag;
-          totalTaxSet?: MoneyBag;
+          id?: string | null;
+          kind?: string | null;
+          status?: string | null;
+          gateway?: string | null;
+          processedAt?: string | null;
+          amountSet?: MoneyBag;
         } | null> | null;
-      } | null;
-    } | null> | null;
-  } | null;
-  transactions?: {
-    nodes?: Array<{
-      id?: string | null;
-      kind?: string | null;
-      status?: string | null;
-      gateway?: string | null;
-      processedAt?: string | null;
-      amountSet?: MoneyBag;
-    } | null> | null;
-  } | null;
+      }
+    | null;
 }
 
 interface ShopifyOrdersPagePayload {
@@ -155,7 +189,9 @@ const ORDERS_QUERY = `
           customer {
             id
           }
-          customerJourneySummary
+          customerJourneySummary {
+            customerOrderIndex
+          }
           subtotalPriceSet { shopMoney { amount currencyCode } }
           totalDiscountsSet { shopMoney { amount currencyCode } }
           totalShippingPriceSet { shopMoney { amount currencyCode } }
@@ -173,42 +209,37 @@ const ORDERS_QUERY = `
               quantity
               discountedTotalSet { shopMoney { amount currencyCode } }
               originalTotalSet { shopMoney { amount currencyCode } }
-              totalTaxSet { shopMoney { amount currencyCode } }
               product { id }
               variant { id }
             }
           }
-          refunds(first: 50) {
-            nodes {
-              id
-              createdAt
-              updatedAt
-              totalRefundedSet { shopMoney { amount currencyCode } }
-              refundShippingLines(first: 20) {
-                edges {
-                  node {
-                    amountSet { shopMoney { amount currencyCode } }
-                    taxAmountSet { shopMoney { amount currencyCode } }
+          refunds {
+            id
+            createdAt
+            updatedAt
+            totalRefundedSet { shopMoney { amount currencyCode } }
+                refundShippingLines(first: 20) {
+                  edges {
+                    node {
+                      subtotalAmountSet { shopMoney { amount currencyCode } }
+                      taxAmountSet { shopMoney { amount currencyCode } }
+                    }
                   }
                 }
-              }
-              refundLineItems(first: 100) {
-                nodes {
-                  subtotalSet { shopMoney { amount currencyCode } }
-                  totalTaxSet { shopMoney { amount currencyCode } }
-                }
+            refundLineItems(first: 100) {
+              nodes {
+                subtotalSet { shopMoney { amount currencyCode } }
+                totalTaxSet { shopMoney { amount currencyCode } }
               }
             }
           }
-          transactions(first: 50) {
-            nodes {
-              id
-              kind
-              status
-              gateway
-              processedAt
-              amountSet { shopMoney { amount currencyCode } }
-            }
+          transactions {
+            id
+            kind
+            status
+            gateway
+            processedAt
+            amountSet { shopMoney { amount currencyCode } }
           }
         }
       }
@@ -248,6 +279,13 @@ function moneyCurrency(value: MoneyBag | undefined) {
 
 function trimGid(value: string | null | undefined) {
   return value ? value.split("/").pop() ?? value : null;
+}
+
+function normalizeNodes<T>(
+  value: Array<T | null> | { nodes?: Array<T | null> | null } | null | undefined
+) {
+  if (Array.isArray(value)) return value;
+  return Array.isArray(value?.nodes) ? value.nodes : [];
 }
 
 function toTimeZoneIsoDate(value: string | null | undefined, timeZone?: string | null) {
@@ -332,12 +370,12 @@ export function mapShopifyOrderNodeToWarehouseRows(input: {
       quantity: row.quantity ?? 0,
       discountedTotal: moneyAmount(row.discountedTotalSet),
       originalTotal: moneyAmount(row.originalTotalSet),
-      taxTotal: moneyAmount(row.totalTaxSet),
+      taxTotal: 0,
       payloadJson: row,
       sourceSnapshotId: input.sourceSnapshotId ?? null,
     }));
 
-  const refunds: ShopifyRefundWarehouseRow[] = (input.node.refunds?.nodes ?? [])
+  const refunds: ShopifyRefundWarehouseRow[] = normalizeNodes(input.node.refunds)
     .filter((row): row is NonNullable<typeof row> => Boolean(row?.id && (row.updatedAt ?? row.createdAt)))
     .map((row) => ({
       businessId: input.businessId,
@@ -355,7 +393,9 @@ export function mapShopifyOrderNodeToWarehouseRows(input: {
       ),
       refundedShipping: round2(
         (row.refundShippingLines?.edges ?? []).reduce(
-          (sum, edge) => sum + moneyAmount(edge?.node?.amountSet),
+          (sum, edge) =>
+            sum +
+            moneyAmount(edge?.node?.subtotalAmountSet ?? edge?.node?.amountSet),
           0
         )
       ),
@@ -374,7 +414,7 @@ export function mapShopifyOrderNodeToWarehouseRows(input: {
       sourceSnapshotId: input.sourceSnapshotId ?? null,
     }));
 
-  const transactions: ShopifyOrderTransactionWarehouseRow[] = (input.node.transactions?.nodes ?? [])
+  const transactions: ShopifyOrderTransactionWarehouseRow[] = normalizeNodes(input.node.transactions)
     .filter((row): row is NonNullable<typeof row> => Boolean(row?.id))
     .map((row) => ({
       businessId: input.businessId,
@@ -627,41 +667,44 @@ export async function syncShopifyOrdersWindow(input: {
     });
 
     const edges = Array.isArray(payload.orders?.edges) ? payload.orders?.edges : [];
-    const mapped = edges
-      .map((edge) => edge?.node)
-      .filter((node): node is ShopifyGraphqlOrderNode => Boolean(node?.id && node?.createdAt))
-      .map((node) =>
-        mapShopifyOrderNodeToWarehouseRows({
-          businessId: input.businessId,
-          providerAccountId: credentials.shopId,
-          shopId: credentials.shopId,
-          node,
-          sourceSnapshotId: snapshotId,
-          timeZone,
-        })
-      );
+    const ordersBatch: ShopifyOrderWarehouseRow[] = [];
+    const orderLinesBatch: ShopifyOrderLineWarehouseRow[] = [];
+    const refundsBatch: ShopifyRefundWarehouseRow[] = [];
+    const transactionsBatch: ShopifyOrderTransactionWarehouseRow[] = [];
+    const salesEventsBatch: ShopifySalesEventWarehouseRow[] = [];
 
-    for (const mappedRow of mapped) {
+    for (const edge of edges) {
+      const node = edge?.node;
+      if (!node?.id || !node.createdAt) continue;
+      const mappedRow = mapShopifyOrderNodeToWarehouseRows({
+        businessId: input.businessId,
+        providerAccountId: credentials.shopId,
+        shopId: credentials.shopId,
+        node,
+        sourceSnapshotId: snapshotId,
+        timeZone,
+      });
       const candidate = mappedRow.order.orderUpdatedAt ?? mappedRow.order.orderCreatedAt;
       if (candidate && (!maxUpdatedAt || candidate > maxUpdatedAt)) {
         maxUpdatedAt = candidate;
       }
+      ordersBatch.push(mappedRow.order);
+      orderLinesBatch.push(...mappedRow.orderLines);
+      refundsBatch.push(...mappedRow.refunds);
+      transactionsBatch.push(...mappedRow.transactions);
+      salesEventsBatch.push(
+        ...mapShopifySalesEventsFromOrderWarehouseRows({
+          order: mappedRow.order,
+          refunds: mappedRow.refunds,
+        })
+      );
     }
 
-    ordersWritten += await upsertShopifyOrders(mapped.map((row) => row.order));
-    orderLinesWritten += await upsertShopifyOrderLines(mapped.flatMap((row) => row.orderLines));
-    refundsWritten += await upsertShopifyRefunds(mapped.flatMap((row) => row.refunds));
-    await upsertShopifySalesEvents(
-      mapped.flatMap((row) =>
-        mapShopifySalesEventsFromOrderWarehouseRows({
-          order: row.order,
-          refunds: row.refunds,
-        })
-      )
-    );
-    transactionsWritten += await upsertShopifyOrderTransactions(
-      mapped.flatMap((row) => row.transactions)
-    );
+    ordersWritten += await upsertShopifyOrders(ordersBatch);
+    orderLinesWritten += await upsertShopifyOrderLines(orderLinesBatch);
+    refundsWritten += await upsertShopifyRefunds(refundsBatch);
+    await upsertShopifySalesEvents(salesEventsBatch);
+    transactionsWritten += await upsertShopifyOrderTransactions(transactionsBatch);
 
     if (!payload.orders?.pageInfo?.hasNextPage || !payload.orders?.pageInfo?.endCursor) {
       break;
@@ -719,15 +762,33 @@ export async function syncShopifyReturnsWindow(input: {
 
   while (pageCount < 20) {
     pageCount += 1;
-    const payload: ShopifyReturnsPagePayload = await shopifyAdminGraphql<ShopifyReturnsPagePayload>({
-      shopId: credentials.shopId,
-      accessToken: credentials.accessToken,
-      query: RETURNS_QUERY,
-      variables: {
-        query,
-        cursor,
-      },
-    });
+    let payload: ShopifyReturnsPagePayload;
+    try {
+      payload = await shopifyAdminGraphql<ShopifyReturnsPagePayload>({
+        shopId: credentials.shopId,
+        accessToken: credentials.accessToken,
+        query: RETURNS_QUERY,
+        variables: {
+          query,
+          cursor,
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const returnsSurfaceUnavailable =
+        message.includes("Field 'returns' doesn't exist on type 'QueryRoot'") ||
+        message.includes('Cannot query field "returns" on type "QueryRoot"');
+      if (returnsSurfaceUnavailable) {
+        return {
+          success: true,
+          reason: "returns_api_unavailable" as const,
+          returns: 0,
+          pages: 0,
+          maxUpdatedAt: null as string | null,
+        };
+      }
+      throw error;
+    }
 
     const snapshotId = await insertShopifyRawSnapshot({
       businessId: input.businessId,

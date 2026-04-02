@@ -37,11 +37,11 @@ export function getDemoOverview() {
     kpis: { spend: 38240, revenue: 124860, roas: 3.27, purchases: 1420, cpa: 26.93, aov: 87.93 },
     kpiSources: {
       spend: { source: "ad_platforms", label: "Ad platforms" },
-      revenue: { source: "shopify", label: "Shopify" },
-      roas: { source: "shopify", label: "Shopify" },
-      purchases: { source: "shopify", label: "Shopify" },
+      revenue: { source: "shopify_ledger", label: "Shopify Ledger" },
+      roas: { source: "shopify_ledger", label: "Shopify Ledger" },
+      purchases: { source: "shopify_ledger", label: "Shopify Ledger" },
       cpa: { source: "ad_platforms", label: "Ad platforms" },
-      aov: { source: "shopify", label: "Shopify" },
+      aov: { source: "shopify_ledger", label: "Shopify Ledger" },
     },
     totals: {
       impressions: 2361800,

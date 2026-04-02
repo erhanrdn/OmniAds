@@ -67,10 +67,10 @@ describe("GET /api/overview-summary", () => {
       dateRange: { startDate: "2026-03-01", endDate: "2026-03-30" },
       kpis: { spend: 100, revenue: 200, roas: 2, purchases: 2, cpa: 50, aov: 100 },
       kpiSources: {
-        revenue: { source: "shopify", label: "Shopify" },
-        purchases: { source: "shopify", label: "Shopify" },
-        aov: { source: "shopify", label: "Shopify" },
-        roas: { source: "shopify", label: "Shopify" },
+        revenue: { source: "shopify_live_fallback", label: "Shopify Live Fallback" },
+        purchases: { source: "shopify_live_fallback", label: "Shopify Live Fallback" },
+        aov: { source: "shopify_live_fallback", label: "Shopify Live Fallback" },
+        roas: { source: "shopify_live_fallback", label: "Shopify Live Fallback" },
       },
       totals: {
         impressions: 10,

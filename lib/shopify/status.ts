@@ -75,6 +75,22 @@ function defaultCutoverMaxAgeMinutes() {
   return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : 180;
 }
 
+function isOptionalReturnsSyncState(
+  syncState: Awaited<ReturnType<typeof getShopifySyncState>> | null
+) {
+  return (
+    syncState?.latestSyncStatus === "succeeded" ||
+    syncState?.latestSyncStatus === "ready" ||
+    syncState?.lastError === "returns_api_unavailable"
+  );
+}
+
+function shouldIgnoreReturnsBasis(
+  syncState: Awaited<ReturnType<typeof getShopifySyncState>> | null
+) {
+  return syncState == null || syncState.lastError === "returns_api_unavailable";
+}
+
 function summarizeReconciliationRuns(
   runs: Array<{
     recordedAt?: string | null;
@@ -160,13 +176,18 @@ function hasMatchingServingTrustSyncBasis(input: {
 }) {
   const { serving, ordersRecent, returnsRecent } = input;
   if (!serving?.canaryEnabled) return true;
+  const returnsBasisMatches =
+    shouldIgnoreReturnsBasis(returnsRecent) ||
+    (
+      serving.returnsRecentSyncedAt === (returnsRecent?.latestSuccessfulSyncAt ?? null) &&
+      serving.returnsRecentCursorTimestamp === (returnsRecent?.cursorTimestamp ?? null) &&
+      serving.returnsRecentCursorValue === (returnsRecent?.cursorValue ?? null)
+    );
   const matches =
     serving.ordersRecentSyncedAt === (ordersRecent?.latestSuccessfulSyncAt ?? null) &&
     serving.ordersRecentCursorTimestamp === (ordersRecent?.cursorTimestamp ?? null) &&
     serving.ordersRecentCursorValue === (ordersRecent?.cursorValue ?? null) &&
-    serving.returnsRecentSyncedAt === (returnsRecent?.latestSuccessfulSyncAt ?? null) &&
-    serving.returnsRecentCursorTimestamp === (returnsRecent?.cursorTimestamp ?? null) &&
-    serving.returnsRecentCursorValue === (returnsRecent?.cursorValue ?? null);
+    returnsBasisMatches;
   return matches;
 }
 
@@ -177,13 +198,18 @@ function hasMatchingServingTrustHistoricalBasis(input: {
 }) {
   const { serving, ordersHistorical, returnsHistorical } = input;
   if (!serving?.canaryEnabled) return true;
+  const returnsBasisMatches =
+    shouldIgnoreReturnsBasis(returnsHistorical) ||
+    (
+      serving.returnsHistoricalSyncedAt === (returnsHistorical?.latestSuccessfulSyncAt ?? null) &&
+      serving.returnsHistoricalReadyThroughDate === (returnsHistorical?.readyThroughDate ?? null) &&
+      serving.returnsHistoricalTargetEnd === (returnsHistorical?.historicalTargetEnd ?? null)
+    );
   const matches =
     serving.ordersHistoricalSyncedAt === (ordersHistorical?.latestSuccessfulSyncAt ?? null) &&
     serving.ordersHistoricalReadyThroughDate === (ordersHistorical?.readyThroughDate ?? null) &&
     serving.ordersHistoricalTargetEnd === (ordersHistorical?.historicalTargetEnd ?? null) &&
-    serving.returnsHistoricalSyncedAt === (returnsHistorical?.latestSuccessfulSyncAt ?? null) &&
-    serving.returnsHistoricalReadyThroughDate === (returnsHistorical?.readyThroughDate ?? null) &&
-    serving.returnsHistoricalTargetEnd === (returnsHistorical?.historicalTargetEnd ?? null);
+    returnsBasisMatches;
   return matches;
 }
 
@@ -304,15 +330,27 @@ export async function getShopifyStatus(
 
   const recentHealthy =
     ordersRecent?.latestSyncStatus === "succeeded" &&
-    returnsRecent?.latestSyncStatus === "succeeded" &&
     isFreshTimestamp(ordersRecent.latestSuccessfulSyncAt, 6) &&
-    isFreshTimestamp(returnsRecent.latestSuccessfulSyncAt, 6);
+    (
+      returnsRecent == null ||
+      (
+        isOptionalReturnsSyncState(returnsRecent) &&
+        (
+          returnsRecent.lastError === "returns_api_unavailable" ||
+          isFreshTimestamp(returnsRecent.latestSuccessfulSyncAt, 6)
+        )
+      )
+    );
 
   const historicalReady =
     (ordersHistorical?.latestSyncStatus === "ready" ||
       ordersHistorical?.readyThroughDate === ordersHistorical?.historicalTargetEnd) &&
-    (returnsHistorical?.latestSyncStatus === "ready" ||
-      returnsHistorical?.readyThroughDate === returnsHistorical?.historicalTargetEnd);
+    (
+      returnsHistorical == null ||
+      returnsHistorical?.latestSyncStatus === "ready" ||
+      returnsHistorical?.readyThroughDate === returnsHistorical?.historicalTargetEnd ||
+      returnsHistorical?.lastError === "returns_api_unavailable"
+    );
   const ignoreServingTrust =
     typeof input !== "string" && input.ignoreServingTrust === true;
   const servingTrustFresh = hasFreshServingTrust({
@@ -331,13 +369,13 @@ export async function getShopifyStatus(
     returnsHistorical,
   });
 
-  if (!ordersRecent || !returnsRecent) {
-    issues.push("Recent Shopify sync has not produced state yet.");
+  if (!ordersRecent) {
+    issues.push("Recent Shopify orders sync has not produced state yet.");
   }
   if (ordersRecent?.lastError) {
     issues.push(`Recent orders sync error: ${ordersRecent.lastError}`);
   }
-  if (returnsRecent?.lastError) {
+  if (returnsRecent?.lastError && returnsRecent.lastError !== "returns_api_unavailable") {
     issues.push(`Recent returns sync error: ${returnsRecent.lastError}`);
   }
   if (warehouse.orderRowCount <= 0) {

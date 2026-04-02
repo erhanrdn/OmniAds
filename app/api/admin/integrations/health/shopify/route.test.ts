@@ -148,6 +148,8 @@ describe("GET /api/admin/integrations/health/shopify", () => {
         tokenPresent: true,
         tokenValid: true,
         missingScopes: expect.arrayContaining(["read_all_orders"]),
+        missingRequiredScopes: expect.arrayContaining(["read_all_orders"]),
+        missingOptionalScopes: [],
         productionMode: "auto",
       })
     );
@@ -178,6 +180,7 @@ describe("GET /api/admin/integrations/health/shopify", () => {
         }),
       })
     );
+    expect(payload.auth.returnsRepairBlockedByMissingReadReturns).toBe(false);
   });
 
   it("updates a Shopify serving override", async () => {

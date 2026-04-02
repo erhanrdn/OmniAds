@@ -238,7 +238,7 @@ export async function syncShopifyCommerceReports(
   }
 
   try {
-    const [ordersResult, returnsResult] = await Promise.all([
+    const [ordersSettled, returnsSettled] = await Promise.allSettled([
       runOrdersRecent
         ? syncShopifyOrdersWindow({
             businessId,
@@ -270,6 +270,35 @@ export async function syncShopifyCommerceReports(
             maxUpdatedAt: null,
           }),
     ]);
+    const ordersResult =
+      ordersSettled.status === "fulfilled"
+        ? ordersSettled.value
+        : {
+            success: false as const,
+            reason:
+              ordersSettled.reason instanceof Error
+                ? ordersSettled.reason.message
+                : String(ordersSettled.reason),
+            orders: 0,
+            orderLines: 0,
+            refunds: 0,
+            transactions: 0,
+            pages: 0,
+            maxUpdatedAt: null,
+          };
+    const returnsResult =
+      returnsSettled.status === "fulfilled"
+        ? returnsSettled.value
+        : {
+            success: false as const,
+            reason:
+              returnsSettled.reason instanceof Error
+                ? returnsSettled.reason.message
+                : String(returnsSettled.reason),
+            returns: 0,
+            pages: 0,
+            maxUpdatedAt: null,
+          };
     if (!ordersResult.success) {
       if (runOrdersRecent) {
         await upsertShopifySyncState({
@@ -296,17 +325,6 @@ export async function syncShopifyCommerceReports(
           lastError: returnsResult.reason,
         });
       }
-      return {
-        success: false,
-        reason: returnsResult.reason,
-        orders: ordersResult.orders,
-        orderLines: ordersResult.orderLines,
-        refunds: ordersResult.refunds,
-        transactions: ordersResult.transactions,
-        returns: 0,
-        pages: ordersResult.pages,
-        returnPages: 0,
-      };
     }
 
     const warehouseShadow = await getShopifyWarehouseOverviewAggregate({
@@ -329,16 +347,16 @@ export async function syncShopifyCommerceReports(
       orderLines: ordersResult.orderLines,
       refunds: ordersResult.refunds,
       transactions: ordersResult.transactions,
-      returns: returnsResult.returns,
+      returns: returnsResult.success ? returnsResult.returns : 0,
       pages: ordersResult.pages,
-      returnPages: returnsResult.pages,
+      returnPages: returnsResult.success ? returnsResult.pages : 0,
       reconciliation: {
         orderRows: ordersResult.orders,
         refundRows: ordersResult.refunds,
         transactionRows: ordersResult.transactions,
-        returnRows: returnsResult.returns,
+        returnRows: returnsResult.success ? returnsResult.returns : 0,
         orderPages: ordersResult.pages,
-        returnPages: returnsResult.pages,
+        returnPages: returnsResult.success ? returnsResult.pages : 0,
         warehouseShadow: warehouseShadow
           ? {
               revenue: warehouseShadow.revenue,
@@ -365,6 +383,7 @@ export async function syncShopifyCommerceReports(
           returns: runReturnsRecent,
         },
         historicalTriggered: allowHistorical,
+        returnsSyncReason: returnsResult.success ? null : returnsResult.reason,
       },
     };
 
@@ -544,14 +563,21 @@ export async function syncShopifyCommerceReports(
         historicalTargetStart: existingReturnsState?.historicalTargetStart ?? window.startDate,
         historicalTargetEnd: existingReturnsState?.historicalTargetEnd ?? window.endDate,
         readyThroughDate: window.endDate,
-        cursorTimestamp: returnsResult.maxUpdatedAt ?? `${window.endDate}T23:59:59.000Z`,
-        cursorValue: returnsResult.maxUpdatedAt ?? window.endDate,
+        cursorTimestamp:
+          returnsResult.success
+            ? returnsResult.maxUpdatedAt ?? `${window.endDate}T23:59:59.000Z`
+            : existingReturnsState?.cursorTimestamp ?? null,
+        cursorValue:
+          returnsResult.success
+            ? returnsResult.maxUpdatedAt ?? window.endDate
+            : existingReturnsState?.cursorValue ?? null,
         latestSyncStartedAt: new Date().toISOString(),
-        latestSuccessfulSyncAt: new Date().toISOString(),
-        latestSyncStatus: "succeeded",
+        latestSuccessfulSyncAt:
+          returnsResult.success ? new Date().toISOString() : existingReturnsState?.latestSuccessfulSyncAt ?? null,
+        latestSyncStatus: returnsResult.success ? "succeeded" : "failed",
         latestSyncWindowStart: window.startDate,
         latestSyncWindowEnd: window.endDate,
-        lastError: null,
+        lastError: returnsResult.success ? null : returnsResult.reason,
         lastResultSummary: result.reconciliation,
       });
     }
@@ -596,9 +622,10 @@ export async function ensureShopifyProviderReady(input: {
   triggerReason?: string;
 }) {
   const startedAt = new Date().toISOString();
+  const recentWindowDays = Math.max(1, input.recentWindowDays ?? 30);
   const visibleWindowDays = Math.max(
-    input.recentWindowDays ?? 30,
-    input.preferredVisibleWindowDays ?? 90
+    recentWindowDays,
+    input.preferredVisibleWindowDays ?? recentWindowDays
   );
   const writeProgress = async (patch: Record<string, unknown>) =>
     mergeIntegrationMetadata({
@@ -616,6 +643,7 @@ export async function ensureShopifyProviderReady(input: {
   await writeProgress({
     status: "running",
     visibleWindowDays,
+    recentWindowDays,
     triggerReason: input.triggerReason ?? null,
     steps: [orchestrationStamp("start", "running")],
   });
@@ -669,7 +697,7 @@ export async function ensureShopifyProviderReady(input: {
   }
 
   const recentSync = await syncShopifyCommerceReports(input.businessId, {
-    recentWindowDays: visibleWindowDays,
+    recentWindowDays,
     allowHistorical: input.runHistoricalBootstrap ?? true,
     triggerReason: input.triggerReason ?? "manual:ensure_provider_ready",
     recentTargets: { orders: true, returns: true },
@@ -714,6 +742,7 @@ export async function ensureShopifyProviderReady(input: {
   await writeProgress({
     status: recentSync.success ? "succeeded" : "failed",
     visibleWindowDays,
+    recentWindowDays,
     latestSummary: recentSync,
     servingWindow: { startDate, endDate: today },
     steps,

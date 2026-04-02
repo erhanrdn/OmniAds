@@ -207,9 +207,11 @@ export async function GET(request: NextRequest) {
   const purchasesSource = currentOverview.kpiSources?.purchases;
   const aovSource = currentOverview.kpiSources?.aov;
   const roasSource = currentOverview.kpiSources?.roas;
+  const isShopifySource = (source: { source?: string | null } | null | undefined) =>
+    typeof source?.source === "string" && source.source.startsWith("shopify");
   const revenueCompositeSourceLabel =
-    revenueSource?.source === "shopify"
-      ? tr("Shopify + ad platforms", "Shopify + reklam platformlari")
+    isShopifySource(revenueSource)
+      ? tr(`${revenueSource?.label ?? "Shopify"} + ad platforms`, `${revenueSource?.label ?? "Shopify"} + reklam platformlari`)
       : revenueSource?.source === "ga4_fallback"
         ? tr("GA4 + ad platforms", "GA4 + reklam platformlari")
         : tr("Revenue + ad platforms", "Gelir + reklam platformlari");
@@ -467,7 +469,7 @@ export async function GET(request: NextRequest) {
       sourceLabel: aovSource?.label ?? tr("Unavailable", "Kullanılamıyor"),
       helperText: aovSource?.source === "unavailable" ? tr("Connect Shopify or GA4", "Shopify veya GA4 bağlayın") : undefined,
       sparklineData:
-        aovSource?.source === "shopify" || ga4AovSeries.length === 0
+        isShopifySource(aovSource) || ga4AovSeries.length === 0
           ? toRatioSparklineSeries(
               currentOverview.trends.custom,
               (point) => point.revenue,
@@ -816,8 +818,8 @@ export async function GET(request: NextRequest) {
       unit: "ratio",
       sourceKey: revenueSource?.source ?? "unavailable",
       sourceLabel:
-        revenueSource?.source === "shopify"
-          ? "Shopify + ad platforms"
+        isShopifySource(revenueSource)
+          ? `${revenueSource?.label ?? "Shopify"} + ad platforms`
           : revenueSource?.source === "ga4_fallback"
             ? "GA4 + ad platforms"
             : "Revenue + ad platforms",

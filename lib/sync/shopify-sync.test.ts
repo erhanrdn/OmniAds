@@ -298,6 +298,27 @@ describe("syncShopifyCommerceReports", () => {
     expect(webhooks.verifyShopifySyncWebhooks).toHaveBeenCalled();
     expect(webhooks.registerShopifySyncWebhooks).toHaveBeenCalled();
     expect(readAdapter.getShopifyOverviewReadCandidate).toHaveBeenCalled();
-    expect(integrations.mergeIntegrationMetadata).toHaveBeenCalled();
+    expect(integrations.mergeIntegrationMetadata).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz_1",
+        provider: "shopify",
+        metadata: expect.objectContaining({
+          shopifyProviderReadiness: expect.objectContaining({
+            recentWindowDays: 30,
+            visibleWindowDays: 90,
+          }),
+        }),
+      })
+    );
+    expect(commerceSync.syncShopifyOrdersWindow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz_1",
+      })
+    );
+    expect(commerceSync.syncShopifyReturnsWindow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz_1",
+      })
+    );
   });
 });

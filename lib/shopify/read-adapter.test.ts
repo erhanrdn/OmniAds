@@ -86,7 +86,7 @@ describe("getShopifyOverviewReadCandidate", () => {
     } as never);
   });
 
-  it("prefers live when canary is disabled", async () => {
+  it("prefers ledger truth even when warehouse canary is disabled", async () => {
     vi.mocked(status.getShopifyStatus).mockResolvedValue({
       state: "ready",
       connected: true,
@@ -155,11 +155,12 @@ describe("getShopifyOverviewReadCandidate", () => {
       endDate: "2026-03-31",
     });
 
-    expect(result.preferredSource).toBe("live");
-    expect(result.canServeWarehouse).toBe(false);
+    expect(result.preferredSource).toBe("ledger");
+    expect(result.canServeWarehouse).toBe(true);
     expect(result.divergence?.withinThreshold).toBe(true);
-    expect(result.decisionReasons).toContain("warehouse_read_canary_disabled");
-    expect(result.servingMetadata.source).toBe("live");
+    expect(result.decisionReasons).toEqual([]);
+    expect(result.servingMetadata.source).toBe("ledger");
+    expect(result.servingMetadata.trustState).toBe("trusted");
     expect(result.servingMetadata.productionMode).toBe("auto");
     expect(warehouseState.upsertShopifyServingState).toHaveBeenCalled();
     expect(warehouseState.insertShopifyReconciliationRun).toHaveBeenCalled();
@@ -244,7 +245,7 @@ describe("getShopifyOverviewReadCandidate", () => {
     expect(result.preferredSource).toBe("ledger");
     expect(result.canServeWarehouse).toBe(true);
     expect(result.decisionReasons).toEqual([]);
-    expect(result.servingMetadata.source).toBe("warehouse");
+    expect(result.servingMetadata.source).toBe("ledger");
     expect(result.servingMetadata.trustState).toBe("trusted");
     expect(warehouseState.upsertShopifyServingState).toHaveBeenCalledWith(
       expect.objectContaining({

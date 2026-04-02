@@ -16,6 +16,12 @@ import {
 } from "@/lib/shopify/warehouse";
 
 export type ShopifyProductionServingMode = "disabled" | "auto" | "force_live" | "force_warehouse";
+export type ShopifyPreferredOverviewSource =
+  | "ledger"
+  | "warehouse"
+  | "live"
+  | "warehouse_shadow"
+  | "none";
 export type ShopifyServingTrustState =
   | "trusted"
   | "live_fallback"
@@ -29,7 +35,7 @@ export type ShopifyServingCoverageStatus =
   | "unknown";
 
 export interface ShopifyOverviewServingMetadata {
-  source: "warehouse" | "live" | "none";
+  source: "ledger" | "warehouse" | "live" | "none";
   provider: "shopify";
   trustState: ShopifyServingTrustState;
   fallbackReason: string | null;
@@ -81,9 +87,15 @@ function pickLatestTimestamp(values: Array<string | null | undefined>) {
 function resolveCoverageStatus(status: Awaited<ReturnType<typeof getShopifyStatus>>): ShopifyServingCoverageStatus {
   if (!status.sync) return "unknown";
   const ordersHistoricalReady = Boolean(status.sync.ordersHistorical?.readyThroughDate);
-  const returnsHistoricalReady = Boolean(status.sync.returnsHistorical?.readyThroughDate);
   const ordersRecentReady = Boolean(status.sync.ordersRecent?.latestSuccessfulSyncAt);
-  const returnsRecentReady = Boolean(status.sync.returnsRecent?.latestSuccessfulSyncAt);
+  const returnsHistoricalUnavailable =
+    status.sync.returnsHistorical?.lastError === "returns_api_unavailable";
+  const returnsRecentUnavailable =
+    status.sync.returnsRecent?.lastError === "returns_api_unavailable";
+  const returnsHistoricalReady =
+    returnsHistoricalUnavailable || Boolean(status.sync.returnsHistorical?.readyThroughDate);
+  const returnsRecentReady =
+    returnsRecentUnavailable || Boolean(status.sync.returnsRecent?.latestSuccessfulSyncAt);
 
   if (ordersHistoricalReady && returnsHistoricalReady) return "recent_ready";
   if (ordersRecentReady && returnsRecentReady) return "historical_incomplete";
@@ -174,15 +186,7 @@ export async function getShopifyOverviewReadCandidate(input: {
   const canaryEnabled = warehouseReadCanaryEnabled();
   const previewAllowed = isPreviewCanaryBusiness(input.businessId);
   const defaultCutoverEligible = status.reconciliation?.defaultCutoverEligible === true;
-  if (!canaryEnabled) {
-    decisionReasons.push("warehouse_read_canary_disabled");
-  }
-  if (!previewAllowed && !defaultCutoverEligible) {
-    decisionReasons.push("preview_canary_not_allowed_for_business");
-  }
-  if (defaultCutoverEnabled() && !defaultCutoverEligible && !previewAllowed) {
-    decisionReasons.push("default_cutover_gate_not_met");
-  }
+
   if (status.state !== "ready") {
     decisionReasons.push(`status_${status.state}`);
   }
@@ -225,28 +229,46 @@ export async function getShopifyOverviewReadCandidate(input: {
     decisionReasons.push("shop_production_serving_disabled");
   }
 
-  const rawCanServeWarehouse =
+  const baseTrustedReadEligible =
+    !forcedLive &&
+    !shopForcedLive &&
+    !shopDisabled &&
+    status.state === "ready" &&
+    divergence?.withinThreshold === true;
+  const ledgerTrusted =
+    forcedWarehouse || shopForcedWarehouse
+      ? Boolean(ledger && ledger.ledgerRows > 0)
+      : baseTrustedReadEligible &&
+        Boolean(ledger && ledger.ledgerRows > 0) &&
+        ledgerConsistency?.withinThreshold === true;
+  const warehouseTrusted =
     forcedWarehouse || shopForcedWarehouse
       ? Boolean(warehouse)
-      : !forcedLive &&
-        !shopForcedLive &&
-        !shopDisabled &&
+      : baseTrustedReadEligible &&
         canaryEnabled &&
         (previewAllowed || defaultCutoverEligible) &&
-        status.state === "ready" &&
-        divergence?.withinThreshold === true &&
+        Boolean(warehouse) &&
         (ledgerConsistency === null || ledgerConsistency.withinThreshold === true);
-  const preferredWarehouseSource =
-    rawCanServeWarehouse && ledger && ledgerConsistency?.withinThreshold === true
-      ? "ledger"
-      : "warehouse";
+
+  if (!ledgerTrusted) {
+    if (!canaryEnabled) {
+      decisionReasons.push("warehouse_read_canary_disabled");
+    }
+    if (!previewAllowed && !defaultCutoverEligible) {
+      decisionReasons.push("preview_canary_not_allowed_for_business");
+    }
+    if (defaultCutoverEnabled() && !defaultCutoverEligible && !previewAllowed) {
+      decisionReasons.push("default_cutover_gate_not_met");
+    }
+  }
 
   const pendingRepair = persistedServing?.pendingRepair === true;
-  const canRecoverFromPendingRepair = rawCanServeWarehouse;
+  const rawCanServeTrustedShopify = ledgerTrusted || warehouseTrusted;
+  const canRecoverFromPendingRepair = rawCanServeTrustedShopify;
   const nextConsecutiveCleanValidations =
     pendingRepair && canRecoverFromPendingRepair
       ? (persistedServing?.consecutiveCleanValidations ?? 0) + 1
-      : rawCanServeWarehouse
+      : rawCanServeTrustedShopify
         ? Math.max(1, persistedServing?.consecutiveCleanValidations ?? 0)
         : 0;
   const recoveryUnlocked =
@@ -256,9 +278,11 @@ export async function getShopifyOverviewReadCandidate(input: {
     decisionReasons.push("pending_repair");
   }
 
-  const canServeWarehouse = rawCanServeWarehouse && !shouldHoldLiveForPendingRepair;
-  const preferredSource = canServeWarehouse
-    ? preferredWarehouseSource
+  const canServeTrustedShopify = rawCanServeTrustedShopify && !shouldHoldLiveForPendingRepair;
+  const preferredSource: ShopifyPreferredOverviewSource = canServeTrustedShopify
+    ? ledgerTrusted
+      ? "ledger"
+      : "warehouse"
     : forcedLive || shopForcedLive || shopDisabled
       ? live
         ? "live"
@@ -286,7 +310,7 @@ export async function getShopifyOverviewReadCandidate(input: {
       : 0;
   const transactionCoverageAmountRate = ledgerConsistency?.transactionCoverageAmountRate ?? null;
   const fallbackReason =
-    canServeWarehouse
+    canServeTrustedShopify
       ? null
       : shopDisabled
         ? "production_serving_disabled"
@@ -294,7 +318,7 @@ export async function getShopifyOverviewReadCandidate(input: {
           ? "pending_repair"
           : pickFallbackReason(decisionReasons);
   const trustState: ShopifyServingTrustState =
-    canServeWarehouse
+    canServeTrustedShopify
       ? "trusted"
       : preferredSource === "none"
         ? "no_data"
@@ -344,7 +368,7 @@ export async function getShopifyOverviewReadCandidate(input: {
       shouldHoldLiveForPendingRepair
         ? persistedServing?.pendingRepairLastReceivedAt ?? null
         : null,
-    consecutiveCleanValidations: canServeWarehouse ? nextConsecutiveCleanValidations : 0,
+    consecutiveCleanValidations: canServeTrustedShopify ? nextConsecutiveCleanValidations : 0,
     ordersRecentSyncedAt: status.sync?.ordersRecent?.latestSuccessfulSyncAt ?? null,
     ordersRecentCursorTimestamp: status.sync?.ordersRecent?.cursorTimestamp ?? null,
     ordersRecentCursorValue: status.sync?.ordersRecent?.cursorValue ?? null,
@@ -357,7 +381,7 @@ export async function getShopifyOverviewReadCandidate(input: {
     returnsHistoricalSyncedAt: status.sync?.returnsHistorical?.latestSuccessfulSyncAt ?? null,
     returnsHistoricalReadyThroughDate: status.sync?.returnsHistorical?.readyThroughDate ?? null,
     returnsHistoricalTargetEnd: status.sync?.returnsHistorical?.historicalTargetEnd ?? null,
-    canServeWarehouse,
+    canServeWarehouse: canServeTrustedShopify,
     canaryEnabled,
     decisionReasons,
     divergence: divergence
@@ -400,7 +424,7 @@ export async function getShopifyOverviewReadCandidate(input: {
     startDate: input.startDate,
     endDate: input.endDate,
     preferredSource,
-    canServeWarehouse,
+    canServeWarehouse: canServeTrustedShopify,
     selectedRevenueTruthBasis,
     basisSelectionReason:
       selectedRevenueTruthBasis === "current_total_price"
@@ -451,9 +475,16 @@ export async function getShopifyOverviewReadCandidate(input: {
     decisionReasons,
     canaryEnabled,
     preferredSource,
-    canServeWarehouse,
+    canServeWarehouse: canServeTrustedShopify,
     servingMetadata: {
-      source: canServeWarehouse ? "warehouse" : preferredSource === "none" ? "none" : "live",
+      source:
+        preferredSource === "ledger"
+          ? "ledger"
+          : preferredSource === "warehouse"
+            ? "warehouse"
+            : preferredSource === "none"
+              ? "none"
+              : "live",
       provider: "shopify",
       trustState,
       fallbackReason,

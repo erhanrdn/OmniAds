@@ -22,6 +22,25 @@ interface ShopifyEcommerceAggregate {
   averageOrderValue: number | null;
 }
 
+type ShopifyKpiSourceKey =
+  | "shopify_ledger"
+  | "shopify_warehouse"
+  | "shopify_live_fallback";
+
+function resolveShopifySourceDescriptor(
+  source: ShopifyKpiSourceKey | null | undefined
+): { source: ShopifyKpiSourceKey; label: string } {
+  switch (source) {
+    case "shopify_ledger":
+      return { source, label: "Shopify Ledger" };
+    case "shopify_warehouse":
+      return { source, label: "Shopify Warehouse" };
+    case "shopify_live_fallback":
+    default:
+      return { source: "shopify_live_fallback", label: "Shopify Live Fallback" };
+  }
+}
+
 export function buildEmptyOverview(
   businessId: string,
   startDate: string,
@@ -63,7 +82,7 @@ export function buildEmptyOverview(
 export function applyEcommerceSourcePriority(
   overview: OverviewResponse,
   input: {
-    shopify: ShopifyEcommerceAggregate | null;
+    shopify: (ShopifyEcommerceAggregate & { source: ShopifyKpiSourceKey }) | null;
     ga4Fallback: Ga4EcommerceFallback | null;
   }
 ) {
@@ -88,10 +107,11 @@ export function applyEcommerceSourcePriority(
     overview.totals.conversions = purchases;
     overview.totals.roas = roas;
 
-    overview.kpiSources.revenue = { source: "shopify", label: "Shopify" };
-    overview.kpiSources.purchases = { source: "shopify", label: "Shopify" };
-    overview.kpiSources.aov = { source: "shopify", label: "Shopify" };
-    overview.kpiSources.roas = { source: "shopify", label: "Shopify" };
+    const shopifySource = resolveShopifySourceDescriptor(input.shopify.source);
+    overview.kpiSources.revenue = shopifySource;
+    overview.kpiSources.purchases = shopifySource;
+    overview.kpiSources.aov = shopifySource;
+    overview.kpiSources.roas = shopifySource;
     return;
   }
 
