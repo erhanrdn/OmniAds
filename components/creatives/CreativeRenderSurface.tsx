@@ -22,6 +22,7 @@ type CreativeRenderSurfaceProps = {
   size?: "thumb" | "card" | "large";
   mode?: "asset" | "full";
   assetFallbacks?: (string | null | undefined)[];
+  assetUpgradeSources?: (string | null | undefined)[];
   onAssetSettled?: () => void;
 };
 
@@ -144,6 +145,7 @@ export const CreativeRenderSurface = memo(function CreativeRenderSurface({
   size = "card",
   mode = "full",
   assetFallbacks,
+  assetUpgradeSources,
   onAssetSettled,
 }: CreativeRenderSurfaceProps) {
   const frameClass = cn("relative overflow-hidden bg-muted/30", SIZE_MAP[size], className);
@@ -190,6 +192,7 @@ export const CreativeRenderSurface = memo(function CreativeRenderSurface({
         name={name}
         preview={preview}
         assetFallbacks={assetFallbacks}
+        assetUpgradeSources={assetUpgradeSources}
         frameClass={frameClass}
         size={size}
         onAssetSettled={onAssetSettled}
@@ -238,6 +241,7 @@ function AssetImage({
   name,
   preview,
   assetFallbacks,
+  assetUpgradeSources,
   frameClass,
   size,
   onAssetSettled,
@@ -246,23 +250,46 @@ function AssetImage({
   name: string;
   preview: CreativeRenderPayload;
   assetFallbacks?: (string | null | undefined)[];
+  assetUpgradeSources?: (string | null | undefined)[];
   frameClass: string;
   size: NonNullable<CreativeRenderSurfaceProps["size"]>;
   onAssetSettled?: () => void;
 }) {
   const sources = useMemo(() => resolveAssetSources(preview, assetFallbacks, size), [preview, assetFallbacks, size]);
   const sourceKey = useMemo(() => sources.map((source) => source.src).join("|"), [sources]);
+  const upgradeSources = useMemo(
+    () =>
+      dedupeSourcesInOrder(
+        (assetUpgradeSources ?? []).map((src, index) => ({
+          src: src ?? null,
+          source: `upgrade_${index}`,
+        }))
+      ),
+    [assetUpgradeSources]
+  );
+  const upgradeKey = useMemo(
+    () => upgradeSources.map((source) => source.src).join("|"),
+    [upgradeSources]
+  );
 
   const [sourceIndex, setSourceIndex] = useState(0);
   const [useProxy, setUseProxy] = useState(false);
   const [exhausted, setExhausted] = useState(false);
+  const [upgradeIndex, setUpgradeIndex] = useState(0);
+  const [displaySource, setDisplaySource] = useState<ResolvedAssetSource | null>(null);
+  const [readyToUpgrade, setReadyToUpgrade] = useState(false);
   const hasSettledRef = useRef(false);
+  const loadedBaseSrcRef = useRef<string | null>(null);
 
   useEffect(() => {
     setSourceIndex(0);
     setUseProxy(false);
     setExhausted(false);
+    setUpgradeIndex(0);
+    setDisplaySource(null);
+    setReadyToUpgrade(false);
     hasSettledRef.current = false;
+    loadedBaseSrcRef.current = null;
     if (process.env.NODE_ENV !== "production") {
       console.log("[creative-render][reset]", {
         id: id ?? null,
@@ -270,9 +297,12 @@ function AssetImage({
         sourceKey,
       });
     }
-  }, [sourceKey]);
+  }, [id, name, sourceKey, upgradeKey]);
 
   const current = exhausted ? null : (sources[sourceIndex] ?? null);
+  const currentDirectSrc = current?.src ?? null;
+  const currentDisplaySrc =
+    current && useProxy && isMetaCdnUrl(current.src) ? proxyUrl(current.src) : current?.src ?? null;
 
   useEffect(() => {
     if (hasSettledRef.current) return;
@@ -312,9 +342,84 @@ function AssetImage({
     return <PreviewFallback frameClass={frameClass} name={name} />;
   }
 
-  const imgSrc = useProxy && isMetaCdnUrl(current.src) ? proxyUrl(current.src) : current.src;
+  useEffect(() => {
+    if (!current) {
+      setDisplaySource(null);
+      return;
+    }
+
+    if (!displaySource || displaySource.source.startsWith("fallback_")) {
+      setDisplaySource({
+        src: currentDisplaySrc ?? current.src,
+        source: current.source,
+      });
+    }
+  }, [current, currentDisplaySrc, displaySource]);
+
+  useEffect(() => {
+    if (!readyToUpgrade) return;
+    if (!currentDirectSrc) return;
+    if (displaySource && !displaySource.source.startsWith("fallback_")) return;
+
+    const candidates = upgradeSources.filter(
+      (candidate) =>
+        candidate.src !== currentDirectSrc &&
+        candidate.src !== loadedBaseSrcRef.current &&
+        candidate.src !== displaySource?.src
+    );
+    const candidate = candidates[upgradeIndex] ?? null;
+    if (!candidate) return;
+
+    let cancelled = false;
+    let proxyAttempted = false;
+    const image = new Image();
+
+    const resolveSrc = (src: string) =>
+      !proxyAttempted && isMetaCdnUrl(src) ? src : isMetaCdnUrl(src) ? proxyUrl(src) : src;
+
+    image.decoding = "async";
+    image.referrerPolicy = "no-referrer";
+    image.onload = () => {
+      if (cancelled) return;
+      setDisplaySource({
+        src: resolveSrc(candidate.src),
+        source: candidate.source,
+      });
+    };
+    image.onerror = () => {
+      if (cancelled) return;
+      if (!proxyAttempted && isMetaCdnUrl(candidate.src)) {
+        proxyAttempted = true;
+        image.src = proxyUrl(candidate.src);
+        return;
+      }
+      setUpgradeIndex((prev) => prev + 1);
+    };
+    image.src = candidate.src;
+
+    return () => {
+      cancelled = true;
+      image.onload = null;
+      image.onerror = null;
+    };
+  }, [currentDirectSrc, displaySource, readyToUpgrade, upgradeIndex, upgradeSources]);
+
+  const imgSrc = displaySource?.src ?? currentDisplaySrc ?? current?.src ?? null;
 
   const handleError = () => {
+    if (displaySource && !displaySource.source.startsWith("fallback_")) {
+      setDisplaySource(
+        current
+          ? {
+              src: currentDisplaySrc ?? current.src,
+              source: current.source,
+            }
+          : null
+      );
+      setUpgradeIndex((prev) => prev + 1);
+      return;
+    }
+
     if (process.env.NODE_ENV !== "production") {
       console.warn("[creative-render][handle-error]", {
         id: id ?? null,
@@ -363,6 +468,10 @@ function AssetImage({
     setExhausted(true);
   };
 
+  if (!imgSrc) {
+    return <PreviewFallback frameClass={frameClass} name={name} />;
+  }
+
   return (
     <AssetFrame
       frameClass={frameClass}
@@ -370,8 +479,10 @@ function AssetImage({
       src={imgSrc}
       fallback={<PreviewFallback frameClass={frameClass} name={name} />}
       onError={handleError}
-      imageKey={`${sourceIndex}_${useProxy}_${current.source}`}
+      imageKey={`${sourceIndex}_${useProxy}_${current.source}_${displaySource?.source ?? "base"}`}
       onLoadSuccess={() => {
+        loadedBaseSrcRef.current = currentDirectSrc;
+        setReadyToUpgrade(true);
         if (hasSettledRef.current) return;
         hasSettledRef.current = true;
         onAssetSettled?.();

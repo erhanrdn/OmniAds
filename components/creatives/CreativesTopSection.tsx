@@ -97,6 +97,7 @@ interface CreativeMetricContext {
 
 interface CreativesTopSectionProps {
   showHeader?: boolean;
+  showGroupByControl?: boolean;
   dateRange: CreativeDateRangeValue;
   onDateRangeChange: (next: CreativeDateRangeValue) => void;
   groupBy: CreativeGroupBy;
@@ -322,6 +323,7 @@ export function getCreativeMetricDefinition(id: string): CreativeMetricDefinitio
 
 export function CreativesTopSection({
   showHeader = true,
+  showGroupByControl = true,
   dateRange,
   onDateRangeChange,
   groupBy,
@@ -379,20 +381,22 @@ export function CreativesTopSection({
         <div className="flex flex-wrap items-center gap-2">
           <CreativeDateRangePicker value={dateRange} onChange={onDateRangeChange} />
 
-          <div className="inline-flex items-center gap-2 rounded-full border bg-background px-3 py-2 text-xs">
-            <span className="text-muted-foreground">Group by</span>
-            <select
-              value={groupBy}
-              onChange={(event) => onGroupByChange(event.target.value as CreativeGroupBy)}
-              className="border-0 bg-transparent pr-6 text-xs outline-none"
-            >
-              {groupByOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
+          {showGroupByControl ? (
+            <div className="inline-flex items-center gap-2 rounded-full border bg-background px-3 py-2 text-xs">
+              <span className="text-muted-foreground">Group by</span>
+              <select
+                value={groupBy}
+                onChange={(event) => onGroupByChange(event.target.value as CreativeGroupBy)}
+                className="border-0 bg-transparent pr-6 text-xs outline-none"
+              >
+                {groupByOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
 
           <AddFilterDropdown filters={filters} rows={allRowsForHeatmap} onChange={onFiltersChange} />
 
@@ -1163,6 +1167,13 @@ function PreviewStrip({
             row.previewUrl ?? null,
             row.cardPreviewUrl ?? null,
           ];
+          const assetUpgradeSources = [
+            row.cardPreviewUrl ?? null,
+            row.imageUrl ?? null,
+            row.preview?.image_url ?? null,
+            row.preview?.poster_url ?? null,
+            row.previewUrl ?? null,
+          ];
           if (process.env.NODE_ENV !== "production" && topRowPropLogCount < 20) {
             topRowPropLogCount += 1;
             console.log("[motion-top][row-props]", {
@@ -1206,6 +1217,7 @@ function PreviewStrip({
                       size="card"
                       mode="asset"
                       assetFallbacks={assetFallbacks}
+                      assetUpgradeSources={assetUpgradeSources}
                       className="aspect-square w-full"
                       onAssetSettled={() =>
                         setUnlockedPreviewCount((prev) =>

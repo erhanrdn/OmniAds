@@ -692,6 +692,7 @@ export default function CreativesPage() {
           <>
             <CreativesTopSection
               showHeader={false}
+              showGroupByControl={false}
               showAiActionsRow={false}
               dateRange={dateRangeValue}
               onDateRangeChange={setBoundedDateRangeValue}
