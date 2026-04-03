@@ -7,9 +7,9 @@ import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MiniTrendAreaChart } from "@/components/overview/MiniTrendAreaChart";
 import {
-  GoogleAdsSyncProgress,
-  shouldRenderGoogleAdsSyncProgress,
-} from "@/components/google-ads/google-ads-sync-progress";
+  SyncStatusPill,
+  SyncStatusPillSkeleton,
+} from "@/components/sync/sync-status-pill";
 import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
 import { GoogleAdvisorPanel } from "@/components/google/google-advisor-panel";
@@ -59,6 +59,7 @@ import {
   getGoogleAdsAdvisorHelperText,
   getGoogleAdsAdvisorIdleState,
 } from "@/lib/google-ads/advisor-ux";
+import { resolveGoogleAdsSyncStatusPill } from "@/lib/sync/sync-status-pill";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -539,6 +540,9 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
     isStatusLoading: isSyncStatusLoading,
     isStatusError: isSyncStatusError,
   });
+  const syncStatusPill = resolveGoogleAdsSyncStatusPill(syncStatus);
+  const shouldShowSyncStatusPill =
+    (syncStatusPill?.state ?? "active") !== "active";
   useEffect(() => {
     if (!advisorReady && !advisorCanOpen && advisorAnalysisKey === currentAdvisorKey) {
       setAdvisorData(undefined);
@@ -1119,12 +1123,10 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                     })}
                   </p>
                 </div>
-                {shouldRenderGoogleAdsSyncProgress(syncStatus, "inline") ? (
-                  <GoogleAdsSyncProgress
-                    status={syncStatus}
-                    variant="inline"
-                    className="max-w-full"
-                  />
+                {isSyncStatusLoading ? (
+                  <SyncStatusPillSkeleton className="w-28" />
+                ) : shouldShowSyncStatusPill ? (
+                  <SyncStatusPill pill={syncStatusPill} />
                 ) : null}
               </div>
             </div>
@@ -1139,59 +1141,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
         </div>
       </div>
 
-      {syncStatus?.panel ? (
-        <div className="rounded-xl border border-border/70 bg-card p-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-800">
-              {syncStatus.panel.coreUsable ? "Core live" : "Core preparing"}
-            </span>
-            {syncStatus.panel.extendedLimited ? (
-              <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-800">
-                {(syncStatus.panel.surfaceStates ?? []).some(
-                  (surface) => surface.state === "extended_limited"
-                )
-                  ? "Extended limited"
-                  : "Extended backfilling"}
-              </span>
-            ) : (
-              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-800">
-                Extended ready
-              </span>
-            )}
-            {syncStatus.operations ? (
-              <span className="rounded-full border border-border/70 bg-background px-2 py-0.5 text-[10px] text-muted-foreground">
-                Mode {syncStatus.operations.currentMode.replaceAll("_", " ")}
-              </span>
-            ) : null}
-          </div>
-          <p className="mt-2 text-sm font-medium">{syncStatus.panel.headline}</p>
-          <p className="mt-1 text-xs text-muted-foreground">{syncStatus.panel.detail}</p>
-        </div>
-      ) : isSyncStatusLoading ? (
-        <div className="rounded-xl border border-border/70 bg-card p-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-medium text-slate-700">
-              Status loading
-            </span>
-          </div>
-          <p className="mt-2 text-sm font-medium">Analysis readiness is being checked</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Google Ads sync status is still loading for this account.
-          </p>
-        </div>
-      ) : isSyncStatusError ? (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full border border-amber-200 bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-900">
-              Status unavailable
-            </span>
-          </div>
-          <p className="mt-2 text-sm font-medium">Analysis status could not be loaded</p>
-          <p className="mt-1 text-xs text-amber-900/80">
-            Retry the sync status check. Campaign metrics can still render while the advisor status request is degraded.
-          </p>
-        </div>
-      ) : null}
+      {null}
 
       {activePanel === "summary" && <section className="mb-6">
         <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-5">

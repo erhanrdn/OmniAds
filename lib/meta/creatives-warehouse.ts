@@ -181,6 +181,7 @@ async function syncMetaCreativesAccountDay(input: {
       debugPerf: false,
       snapshotBypass: true,
       snapshotWarm: false,
+      enableCopyRecovery: true,
       enableCreativeBasicsFallback: true,
       enableCreativeDetails: true,
       enableThumbnailBackfill: true,

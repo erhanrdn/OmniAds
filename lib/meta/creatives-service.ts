@@ -98,6 +98,7 @@ export interface CreativesQueryParams {
   debugPerf: boolean;
   snapshotBypass: boolean;
   snapshotWarm: boolean;
+  enableCopyRecovery: boolean;
   enableCreativeBasicsFallback: boolean;
   enableCreativeDetails: boolean;
   enableThumbnailBackfill: boolean;
@@ -138,6 +139,7 @@ export async function buildCreativesResponse(
     debugPerf,
     snapshotBypass,
     snapshotWarm,
+    enableCopyRecovery,
     enableCreativeBasicsFallback,
     enableCreativeDetails,
     enableThumbnailBackfill,
@@ -750,7 +752,7 @@ export async function buildCreativesResponse(
     }
   }
 
-  const unresolvedCopyAdIds = enableFullMediaHydration
+  const unresolvedCopyAdIds = enableCopyRecovery
     ? rawRows
         .filter(
           (row) =>
@@ -765,7 +767,7 @@ export async function buildCreativesResponse(
         .map((row) => row.id)
     : [];
 
-  if (enableFullMediaHydration && unresolvedCopyAdIds.length > 0) {
+  if (enableCopyRecovery && unresolvedCopyAdIds.length > 0) {
     const tCopyRecovery = Date.now();
     const deepCopyMap = await fetchAdCreativeMediaDirectByAdIds(unresolvedCopyAdIds, accessToken);
     for (const row of rawRows) {
@@ -821,8 +823,8 @@ export async function buildCreativesResponse(
   rows = sortRows(rows, sort);
 
   // Copy enrichment fallback path for /copies use-cases.
-  const unresolvedCopyRows = enableFullMediaHydration ? rows.filter((row) => !normalizeCopyText(row.copy_text)) : [];
-  if (enableFullMediaHydration && unresolvedCopyRows.length > 0) {
+  const unresolvedCopyRows = enableCopyRecovery ? rows.filter((row) => !normalizeCopyText(row.copy_text)) : [];
+  if (enableCopyRecovery && unresolvedCopyRows.length > 0) {
     const storyLookupIds = Array.from(
       new Set(
         unresolvedCopyRows.flatMap((row) =>

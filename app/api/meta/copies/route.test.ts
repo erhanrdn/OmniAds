@@ -127,6 +127,7 @@ describe("GET /api/meta/copies", () => {
       expect.objectContaining({
         businessId: "biz",
         mediaMode: "metadata",
+        enableCopyRecovery: true,
         enableCreativeDetails: false,
         enableThumbnailBackfill: false,
         enableCardThumbnailBackfill: false,

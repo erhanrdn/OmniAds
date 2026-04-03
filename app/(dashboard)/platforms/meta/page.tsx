@@ -58,16 +58,16 @@ import { MetaCampaignList } from "@/components/meta/meta-campaign-list";
 import { MetaCampaignDetail } from "@/components/meta/meta-campaign-detail";
 import type { MetaRecommendationsResponse } from "@/lib/meta/recommendations";
 import { buildMetaCampaignLaneSignals } from "@/lib/meta/campaign-lanes";
-import {
-  MetaSyncProgress,
-  MetaSyncProgressSkeleton,
-  shouldRenderMetaSyncProgress,
-} from "@/components/meta/meta-sync-progress";
 import { ProviderReadinessIndicator } from "@/components/sync/provider-readiness-indicator";
+import {
+  SyncStatusPill,
+  SyncStatusPillSkeleton,
+} from "@/components/sync/sync-status-pill";
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
 import { usePlanState } from "@/lib/pricing/usePlan";
 import { PRICING_PLANS } from "@/lib/pricing/plans";
 import { META_WAREHOUSE_HISTORY_DAYS } from "@/lib/meta/history";
+import { resolveMetaSyncStatusPill } from "@/lib/sync/sync-status-pill";
 import {
   formatMetaDate,
   getMetaStatusNotice,
@@ -427,136 +427,13 @@ function SectionError({
 }
 
 function MetaStatusBanner({
-  status,
-  language,
+  status: _status,
+  language: _language,
 }: {
   status: MetaStatusResponse | undefined;
   language: "en" | "tr";
 }) {
-  if (!status || status.state === "ready" || status.state === "not_connected") {
-    return null;
-  }
-
-  if (status.state === "connected_no_assignment") {
-    return (
-      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-        <p className="text-sm font-semibold text-amber-900">
-          {language === "tr"
-            ? "Meta bağlantısı hazır, ama reklam hesabı bekleniyor."
-            : "Meta is connected, but an ad account still needs to be assigned."}
-        </p>
-        <p className="mt-1.5 text-sm text-amber-800">
-          {language === "tr"
-            ? "Bu workspace'e en az bir Meta reklam hesabı atadığınızda kampanya ve kırılım verileri açılacak."
-            : "Assign at least one Meta ad account to this workspace to unlock campaigns and breakdowns."}
-        </p>
-      </div>
-    );
-  }
-
-  if (status.state === "syncing" || status.state === "partial") {
-    return null;
-  }
-
-  if (status.state === "paused" || status.state === "stale") {
-    if (status.operations?.blockReason === "worker_offline") {
-      return (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-          <p className="text-sm font-semibold text-amber-900">
-            {language === "tr"
-              ? "Meta worker şu anda çevrimdışı görünüyor."
-              : "The Meta worker appears to be offline right now."}
-          </p>
-          <p className="mt-1.5 text-sm text-amber-800">
-            {language === "tr"
-              ? "Kuyruktaki işler korunuyor, ancak arka plan worker tekrar çalışmadan senkron ilerlemez."
-              : "Queued work is safe, but sync will not progress until the background worker is running again."}
-          </p>
-          {status.latestSync?.lastError ? (
-            <p className="mt-2 text-xs text-amber-800/80">{status.latestSync.lastError}</p>
-          ) : null}
-        </div>
-      );
-    }
-
-    if (status.operations?.blockReason === "lease_denied") {
-      return (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-          <p className="text-sm font-semibold text-amber-900">
-            {language === "tr"
-              ? "Meta senkronu şu anda başka bir worker tarafından tutuluyor."
-              : "Meta sync is currently owned by another worker."}
-          </p>
-          <p className="mt-1.5 text-sm text-amber-800">
-            {language === "tr"
-              ? "Kuyruktaki işler korunuyor. Lease serbest kalınca bu workspace tekrar işlenecek."
-              : "Queued work is safe. This workspace will resume once the active lease is released."}
-          </p>
-          {status.latestSync?.lastError ? (
-            <p className="mt-2 text-xs text-amber-800/80">{status.latestSync.lastError}</p>
-          ) : null}
-        </div>
-      );
-    }
-
-    const queueSummary = status.operations?.queueSummary;
-    const hasHistoricalBackfillPressure =
-      (queueSummary?.historicalCoreQueued ?? 0) > 0 ||
-      (queueSummary?.extendedHistoricalQueued ?? 0) > 0;
-    const hasMaintenancePressure = (queueSummary?.maintenanceQueued ?? 0) > 0;
-
-    return (
-      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-        <p className="text-sm font-semibold text-amber-900">
-          {hasHistoricalBackfillPressure
-            ? language === "tr"
-              ? "Meta geçmiş backfill kuyruğu hâlâ boşaltılıyor."
-              : "Historical Meta backfill is still draining."
-            : hasMaintenancePressure
-              ? language === "tr"
-                ? "Meta yakın dönem bakım senkronu aktif."
-                : "Recent Meta maintenance sync is active."
-              : language === "tr"
-                ? "Meta senkronu gecikmeli ilerliyor."
-                : "Meta sync is progressing with delays."}
-        </p>
-        <p className="mt-1.5 text-sm text-amber-800">
-          {hasHistoricalBackfillPressure
-            ? language === "tr"
-              ? "Kuyruktaki tarihsel işler güvenli. Worker core ve extended geçmiş günü kapattıkça kapsam kademeli olarak artacak."
-              : "Historical queued work is safe. Coverage will expand as the worker closes core and extended backfill days."
-            : hasMaintenancePressure
-              ? language === "tr"
-                ? "Kuyruktaki işler güvenli. Worker yakın dönem düzeltme ve bakım işlerini tamamladıkça güncel görünüm toparlanacak."
-                : "Queued work is safe. The current view will improve as the worker completes recent maintenance and recovery work."
-              : language === "tr"
-                ? "Kuyruktaki işler korunuyor. Worker kuyruğu işlerken senkron kademeli olarak ilerleyecek."
-                : "Queued work is safe. Sync will continue as the worker drains the backlog."}
-        </p>
-        {status.latestSync?.lastError ? (
-          <p className="mt-2 text-xs text-amber-800/80">{status.latestSync.lastError}</p>
-        ) : null}
-      </div>
-    );
-  }
-
-  return (
-    <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-4">
-      <p className="text-sm font-semibold text-destructive">
-        {language === "tr"
-          ? "Meta senkronunda müdahale gerektiren bir durum var."
-          : "Meta sync needs attention."}
-      </p>
-      <p className="mt-1.5 text-sm text-destructive/80">
-        {language === "tr"
-          ? "Arka plan senkronu tamamlanamadı. Entegrasyonu kontrol edin veya senkronu yeniden başlatın."
-          : "Background sync stopped before finishing. Review the integration or restart the sync."}
-      </p>
-      {status.latestSync?.lastError ? (
-        <p className="mt-2 text-xs text-destructive/80">{status.latestSync.lastError}</p>
-      ) : null}
-    </div>
-  );
+  return null;
 }
 
 function isMetaCurrentDayPreparing(input: {
@@ -1105,40 +982,16 @@ export default function MetaPage() {
   };
   const kpis = warehouseKpis ?? campaignWarehouseKpis ?? emptyKpis;
   const historicalProgressStatus = effectiveStatus;
-  const selectedRangeCoverage = effectiveStatus?.warehouse?.coverage?.selectedRange ?? null;
-  const selectedRangeReady = Boolean(selectedRangeCoverage?.isComplete);
-  const historicalCoverage = effectiveStatus?.warehouse?.coverage?.historical ?? null;
-  const hasHistoricalBacklog =
-    Boolean(historicalCoverage) &&
-    (historicalCoverage?.completedDays ?? 0) < (historicalCoverage?.totalDays ?? 0);
-  const hasBackgroundQueueActivity =
-    (effectiveStatus?.jobHealth?.leasedPartitions ?? 0) > 0 ||
-    (effectiveStatus?.jobHealth?.queueDepth ?? 0) > 0;
-  const shouldKeepStatusVisible =
-    metaConnected &&
-    Boolean(
-      effectiveStatus &&
-        (
-          effectiveStatus.state === "action_required" ||
-          effectiveStatus.state === "paused" ||
-          effectiveStatus.state === "stale" ||
-          hasBackgroundQueueActivity ||
-          hasHistoricalBacklog ||
-          !selectedRangeReady
-        )
-    );
+  const metaSyncPill = resolveMetaSyncStatusPill(historicalProgressStatus);
   const shouldShowHistoricalProgress =
     metaConnected &&
-    shouldKeepStatusVisible &&
-    shouldRenderMetaSyncProgress(historicalProgressStatus);
+    (metaSyncPill?.state ?? "active") !== "active";
   const isStatusLoading =
     metaConnected &&
     (!isMetaReferenceReady ||
       (!effectiveStatus && (baseStatusQuery.isLoading || statusQuery.isLoading)));
   const isSyncInProgress =
-    shouldShowHistoricalProgress &&
-    (historicalProgressStatus?.state === "syncing" ||
-      (historicalProgressStatus?.jobHealth?.leasedPartitions ?? 0) > 0);
+    metaSyncPill?.state === "syncing";
 
   const previousWarehouseKpis = useMemo(() => {
     const totals = comparisonSummaryQuery.data?.totals;
@@ -1287,15 +1140,10 @@ export default function MetaPage() {
         </div>
         <div className="flex items-center gap-2">
           {metaConnected && isStatusLoading && (
-            <MetaSyncProgressSkeleton variant="inline" className="max-w-[320px]" />
+            <SyncStatusPillSkeleton className="w-28" />
           )}
           {metaConnected && !isStatusLoading && shouldShowHistoricalProgress && (
-            <MetaSyncProgress
-              status={historicalProgressStatus}
-              language={language}
-              variant="inline"
-              className="max-w-[320px]"
-            />
+            <SyncStatusPill pill={metaSyncPill} />
           )}
           {metaConnected && (
             <Button

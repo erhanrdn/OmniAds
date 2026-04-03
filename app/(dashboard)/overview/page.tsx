@@ -299,6 +299,9 @@ export default function OverviewPage() {
         dateRange={dateRange}
         onDateRangeChange={setDateRange}
         shopifyServing={effectiveSummary?.shopifyServing ?? null}
+        platformProviders={Array.from(
+          new Set((effectiveSummary?.platforms ?? []).map((platform) => platform.provider))
+        )}
       />
 
       <SummarySection
@@ -559,10 +562,12 @@ function DataStatusRow({
   dateRange,
   onDateRangeChange,
   shopifyServing,
+  platformProviders = [],
 }: {
   dateRange: DateRangeValue;
   onDateRangeChange: (value: DateRangeValue) => void;
   shopifyServing?: OverviewSummaryData["shopifyServing"];
+  platformProviders?: string[];
 }) {
   const shopifyBadge = shopifyServing
     ? shopifyServing.source === "ledger"
@@ -575,19 +580,9 @@ function DataStatusRow({
           ? { label: "Serving disabled", tone: "destructive" as const }
           : { label: "No serving data", tone: "secondary" as const }
     : null;
-  const shopifyHelper = shopifyServing
-    ? shopifyServing.source === "ledger"
-      ? `Ledger-backed ${shopifyServing.coverageStatus.replaceAll("_", " ")} serving`
-      : shopifyServing.source === "warehouse"
-      ? `Trusted ${shopifyServing.coverageStatus.replaceAll("_", " ")} serving`
-      : shopifyServing.fallbackReason
-        ? `Fallback: ${shopifyServing.fallbackReason.replaceAll("_", " ")}`
-        : shopifyServing.trustState === "no_data"
-          ? "Shopify is connected but overview data is not available for this range yet"
-          : shopifyServing.trustState === "disabled"
-            ? "Shopify production serving is disabled for this integration"
-            : "Shopify data unavailable"
-    : null;
+  const providerChips = Array.from(new Set(platformProviders))
+    .map((provider) => PLATFORM_TITLE_META[provider])
+    .filter((provider): provider is { label: string; logo: string } => Boolean(provider));
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/60">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -596,15 +591,29 @@ function DataStatusRow({
             Live Status
           </p>
           <div className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-2.5 py-1.5 text-xs">
-            <span className="font-medium text-slate-700">Overview Data</span>
+            <span className="font-medium text-slate-700">Overview</span>
             <Badge>Active</Badge>
-            <span className="text-slate-500">Live API responses with cached provider snapshots.</span>
           </div>
+          {providerChips.map((provider) => (
+            <div
+              key={provider.label}
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-2.5 py-1.5 text-xs"
+            >
+              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-white ring-1 ring-slate-200">
+                <img
+                  src={provider.logo}
+                  alt={provider.label}
+                  className="h-3.5 w-3.5 object-contain"
+                  loading="lazy"
+                />
+              </span>
+              <span className="font-medium text-slate-700">{provider.label}</span>
+            </div>
+          ))}
           {shopifyServing && shopifyBadge ? (
             <div className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-2.5 py-1.5 text-xs">
               <span className="font-medium text-slate-700">Shopify</span>
               <Badge variant={shopifyBadge.tone}>{shopifyBadge.label}</Badge>
-              {shopifyHelper ? <span className="text-slate-500">{shopifyHelper}</span> : null}
             </div>
           ) : null}
         </div>

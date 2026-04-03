@@ -24,6 +24,8 @@ export async function GET(request: NextRequest) {
   const debugPerf = params.get("debugPerf") === "1";
   const snapshotBypass = params.get("snapshotBypass") === "1";
   const snapshotWarm = params.get("snapshotWarm") === "1";
+  const enableCopyRecovery =
+    enableFullMediaHydration || params.get("copyRecovery") === "1";
   const enableCreativeBasicsFallback = enableFullMediaHydration && params.get("creativeBasicsFallback") !== "0";
   const enableCreativeDetails = enableFullMediaHydration && params.get("creativeDetails") !== "0";
   const enableThumbnailBackfill = enableFullMediaHydration && params.get("thumbnailBackfill") !== "0";
@@ -77,6 +79,7 @@ export async function GET(request: NextRequest) {
     debugPerf,
     snapshotBypass,
     snapshotWarm,
+    enableCopyRecovery,
     enableCreativeBasicsFallback,
     enableCreativeDetails,
     enableThumbnailBackfill,

@@ -22,6 +22,7 @@ export interface MetaCreativesLivePayloadInput {
   debugPerf: boolean;
   snapshotBypass: boolean;
   snapshotWarm: boolean;
+  enableCopyRecovery: boolean;
   enableCreativeBasicsFallback: boolean;
   enableCreativeDetails: boolean;
   enableThumbnailBackfill: boolean;
@@ -64,6 +65,7 @@ export async function getMetaCreativesApiPayload(input: MetaCreativesLivePayload
     debugPerf,
     snapshotBypass,
     snapshotWarm,
+    enableCopyRecovery,
     enableCreativeBasicsFallback,
     enableCreativeDetails,
     enableThumbnailBackfill,
@@ -107,6 +109,7 @@ export async function getMetaCreativesApiPayload(input: MetaCreativesLivePayload
       debugPerf,
       snapshotBypass,
       snapshotWarm,
+      enableCopyRecovery,
       enableCreativeBasicsFallback,
       enableCreativeDetails,
       enableThumbnailBackfill,

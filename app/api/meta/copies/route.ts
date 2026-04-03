@@ -357,6 +357,7 @@ export async function GET(request: NextRequest) {
     debugPerf: false,
     snapshotBypass: false,
     snapshotWarm: false,
+    enableCopyRecovery: true,
     enableCreativeBasicsFallback: false,
     enableCreativeDetails: false,
     enableThumbnailBackfill: false,
