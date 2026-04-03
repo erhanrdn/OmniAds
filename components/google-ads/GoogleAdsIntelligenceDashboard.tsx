@@ -924,6 +924,19 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
   const assetGroupEmptyState = getGoogleAdsSyncEmptyState(syncStatus, "Asset groups and audiences");
   const productsEmptyState = getGoogleAdsSyncEmptyState(syncStatus, "Product performance", productSurfaceState);
   const assetsEmptyState = getGoogleAdsSyncEmptyState(syncStatus, "Asset performance", assetSurfaceState);
+  const campaignScopeLabel = isLoading
+    ? "Loading campaign data..."
+    : scopedRows.length > 0
+      ? `${scopedRows.length} campaigns · Google Ads`
+      : summaryEmptyState.description;
+  const advisorHelperText = getGoogleAdsAdvisorHelperText({
+    status: syncStatus,
+    ctaState: advisorCtaState,
+    advisorIsStale,
+    lastAnalyzedLabel,
+    isStatusLoading: isSyncStatusLoading,
+    isStatusError: isSyncStatusError,
+  });
 
   const summaryAdvisor = filterAdvisorByTypes(advisorCurrent, [
     "operating_model_gap",
@@ -1091,15 +1104,19 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                 </DropdownMenuContent>
               </DropdownMenu>
 
-              <div className="ml-1 flex flex-wrap items-center gap-2">
+              <div className="ml-1 flex flex-wrap items-center gap-2 lg:flex-nowrap">
                 <DateRangePicker value={dateRange} onChange={setDateRange} />
-                <div className="flex flex-col gap-1">
+                <p className="text-xs text-muted-foreground whitespace-nowrap">
+                  {campaignScopeLabel}
+                </p>
+                <div className="ml-auto flex min-w-0 items-center gap-2">
                   <button
                     type="button"
                     onClick={() => runAdvisorAnalysis()}
                     disabled={!advisorCanOpen || isAdvisorLoading}
+                    title={advisorHelperText}
                     className={cn(
-                      "inline-flex h-9 items-center rounded-md border px-3 text-xs font-semibold transition-colors",
+                      "inline-flex h-9 shrink-0 items-center rounded-md border px-3 text-xs font-semibold transition-colors",
                       !advisorCanOpen || isAdvisorLoading
                         ? "cursor-not-allowed border-border bg-muted text-muted-foreground"
                         : advisorCurrent
@@ -1112,32 +1129,15 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                       ctaState: advisorCtaState,
                     })}
                   </button>
-                  <p className="text-[11px] text-muted-foreground">
-                    {getGoogleAdsAdvisorHelperText({
-                      status: syncStatus,
-                      ctaState: advisorCtaState,
-                      advisorIsStale,
-                      lastAnalyzedLabel,
-                      isStatusLoading: isSyncStatusLoading,
-                      isStatusError: isSyncStatusError,
-                    })}
-                  </p>
+                  {isSyncStatusLoading ? (
+                    <SyncStatusPillSkeleton className="w-28 shrink-0" />
+                  ) : shouldShowSyncStatusPill ? (
+                    <SyncStatusPill pill={syncStatusPill} />
+                  ) : null}
                 </div>
-                {isSyncStatusLoading ? (
-                  <SyncStatusPillSkeleton className="w-28" />
-                ) : shouldShowSyncStatusPill ? (
-                  <SyncStatusPill pill={syncStatusPill} />
-                ) : null}
               </div>
             </div>
           </div>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {isLoading
-              ? "Loading campaign data..."
-              : scopedRows.length > 0
-                ? `${scopedRows.length} campaigns · Google Ads`
-                : summaryEmptyState.description}
-          </p>
         </div>
       </div>
 
