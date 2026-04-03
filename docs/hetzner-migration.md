@@ -1,4 +1,4 @@
-# Vercel to Hetzner Migration
+# Hetzner Deployment
 
 This project can run on Hetzner with four clear responsibilities:
 
@@ -28,7 +28,6 @@ Important:
 - Set `NEXT_PUBLIC_APP_URL` to the final production domain.
 - Add `CRON_SECRET`.
 - Keep your existing database values unless you are also migrating the database away from Neon.
-- `VERCEL_OIDC_TOKEN` is Vercel-specific and is not needed on Hetzner.
 
 ## 3. Build and run the containers
 
@@ -57,9 +56,9 @@ Then issue TLS certificates:
 sudo certbot --nginx -d your-domain.com -d www.your-domain.com
 ```
 
-## 5. Re-create Vercel cron jobs
+## 5. Re-create app cron jobs
 
-Vercel currently calls:
+The app expects:
 
 - `/api/sync/cron` every 10 minutes
 - `/api/ai/cron` every day at 04:00

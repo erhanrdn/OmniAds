@@ -372,8 +372,6 @@ export async function resolveContext(params: {
         tokenLength: process.env.GOOGLE_ADS_DEVELOPER_TOKEN?.length ?? 0,
       },
       runtime: "nodejs",
-      vercelEnv: process.env.VERCEL_ENV ?? null,
-      vercelUrl: process.env.VERCEL_URL ?? null,
       message,
     });
     return {

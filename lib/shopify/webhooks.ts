@@ -199,7 +199,7 @@ function getShopifyWebhookBaseUrl() {
   const base =
     process.env.SHOPIFY_APP_URL?.trim() ||
     process.env.NEXT_PUBLIC_APP_URL?.trim() ||
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+    "http://localhost:3000";
   return base.replace(/\/$/, "");
 }
 
