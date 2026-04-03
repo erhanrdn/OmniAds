@@ -91,16 +91,16 @@ export function resolveMetaSyncStatusPill(
     status.state === "stale" ||
     status.operations?.progressState === "blocked";
 
-  if (typeof percent === "number" && percent < 100 && !isAttentionState) {
+  if (isAttentionState) {
+    return buildAttentionPill();
+  }
+
+  if (typeof percent === "number" && percent < 100) {
     return buildSyncingPill(percent);
   }
 
   if (status.state === "ready" || percent === 100) {
     return buildActivePill();
-  }
-
-  if (isAttentionState) {
-    return buildAttentionPill();
   }
 
   if ((status.state === "syncing" || status.state === "partial") && typeof percent === "number") {
@@ -145,16 +145,16 @@ export function resolveGoogleAdsSyncStatusPill(
     status.state === "advisor_not_ready" ||
     status.operations?.progressState === "blocked";
 
-  if (typeof percent === "number" && percent < 100 && !isAttentionState) {
+  if (isAttentionState) {
+    return buildAttentionPill();
+  }
+
+  if (typeof percent === "number" && percent < 100) {
     return buildSyncingPill(percent);
   }
 
   if (status.state === "ready" || percent === 100) {
     return buildActivePill();
-  }
-
-  if (isAttentionState) {
-    return buildAttentionPill();
   }
 
   if ((status.state === "syncing" || status.state === "partial") && typeof percent === "number") {

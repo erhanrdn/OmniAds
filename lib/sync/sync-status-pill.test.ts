@@ -48,6 +48,21 @@ describe("sync status pill resolver", () => {
     });
   });
 
+  it("prefers Meta attention state over 100 percent progress", () => {
+    expect(
+      resolveMetaSyncStatusPill({
+        connected: true,
+        assignedAccountIds: ["act_1"],
+        state: "stale",
+        latestSync: { progressPercent: 100 },
+      } as never)
+    ).toMatchObject({
+      label: "Needs attention",
+      tone: "warning",
+      state: "needs_attention",
+    });
+  });
+
   it("renders a syncing pill for Google Ads when advisor progress is visible", () => {
     expect(
       resolveGoogleAdsSyncStatusPill({
@@ -87,6 +102,25 @@ describe("sync status pill resolver", () => {
         connected: true,
         assignedAccountIds: ["acc_1"],
         state: "stale",
+      } as never)
+    ).toMatchObject({
+      label: "Needs attention",
+      tone: "warning",
+      state: "needs_attention",
+    });
+  });
+
+  it("prefers Google Ads attention state over 100 percent progress", () => {
+    expect(
+      resolveGoogleAdsSyncStatusPill({
+        connected: true,
+        assignedAccountIds: ["acc_1"],
+        state: "advisor_not_ready",
+        advisorProgress: {
+          visible: true,
+          percent: 100,
+          summary: "Preparing",
+        },
       } as never)
     ).toMatchObject({
       label: "Needs attention",
