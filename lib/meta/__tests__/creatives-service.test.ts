@@ -70,6 +70,7 @@ function buildRow(overrides: Partial<MetaCreativeApiRow> = {}): MetaCreativeApiR
       card_src: "https://example.com/card.jpg",
       detail_image_src: "https://example.com/image.jpg",
       detail_video_src: null,
+      render_state: "renderable_high_quality",
       table_source_kind: "thumbnail_static",
       card_source_kind: "non_thumbnail_static",
       resolution_class: "high_res",
@@ -274,6 +275,49 @@ describe("buildCreativesResponse snapshot freshness", () => {
     expect(response.status).toBe("ok");
     expect(response.snapshot_source).toBe("persisted");
     expect(snapshotHelpers.triggerSnapshotRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("reuses a renderable low-quality metadata snapshot instead of treating enrichment need as stale", async () => {
+    vi.mocked(snapshotStore.getMetaCreativesSnapshot).mockResolvedValue(
+      buildSnapshotRecord({
+        payload: buildMetaCreativesSnapshotPayload({
+          status: "ok",
+          rows: [
+            buildRow({
+              preview_manifest: {
+                table_src: "https://example.com/thumb_p150x120.jpg",
+                card_src: "https://example.com/thumb_p150x120.jpg",
+                detail_image_src: "https://example.com/thumb_p150x120.jpg",
+                detail_video_src: null,
+                render_state: "renderable_low_quality",
+                table_source_kind: "thumbnail_static",
+                card_source_kind: "thumbnail_static",
+                resolution_class: "low_res",
+                thumbnail_like: true,
+                source_reason: "fallback_static_source",
+                needs_card_enrichment: true,
+                live_html_available: false,
+              },
+              thumbnail_url: "https://example.com/thumb_p150x120.jpg",
+              image_url: "https://example.com/thumb_p150x120.jpg",
+              preview_url: "https://example.com/thumb_p150x120.jpg",
+              table_thumbnail_url: "https://example.com/thumb_p150x120.jpg",
+              card_preview_url: "https://example.com/thumb_p150x120.jpg",
+            }),
+          ],
+          mediaHydrated: false,
+        }),
+      })
+    );
+
+    const response = await buildCreativesResponse(
+      buildQuery(),
+      new NextRequest("http://localhost/api/meta/creatives?businessId=biz")
+    );
+
+    expect(response.status).toBe("ok");
+    expect(response.snapshot_source).toBe("persisted");
+    expect(snapshotHelpers.triggerSnapshotRefresh).not.toHaveBeenCalled();
   });
 
   it("still bypasses suspicious empty-copy snapshots", async () => {

@@ -37,6 +37,7 @@ function buildApiRow(overrides: Partial<MetaCreativeApiRow> = {}): MetaCreativeA
       card_src: "https://example.com/card.jpg",
       detail_image_src: "https://example.com/image.jpg",
       detail_video_src: null,
+      render_state: "renderable_high_quality",
       table_source_kind: "thumbnail_static",
       card_source_kind: "non_thumbnail_static",
       resolution_class: "high_res",

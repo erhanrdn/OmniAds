@@ -35,6 +35,7 @@ function buildRow(overrides: Partial<MetaCreativeApiRow> = {}): MetaCreativeApiR
       card_src: "https://example.com/card.jpg",
       detail_image_src: "https://example.com/image.jpg",
       detail_video_src: null,
+      render_state: "renderable_high_quality",
       table_source_kind: "thumbnail_static",
       card_source_kind: "non_thumbnail_static",
       resolution_class: "high_res",
@@ -108,7 +109,7 @@ describe("creatives snapshot taxonomy health", () => {
 
     expect(payload.snapshot_schema_version).toBe(META_CREATIVES_SNAPSHOT_SCHEMA_VERSION);
     expect(payload.taxonomy_version).toBe("v2");
-    expect(payload.preview_contract_version).toBe("v3");
+    expect(payload.preview_contract_version).toBe("v4");
     expect(payload.taxonomy_summary).toEqual({
       total_rows: 2,
       deterministic_rows: 2,
@@ -164,7 +165,7 @@ describe("creatives snapshot taxonomy health", () => {
     expect(evaluateMetaCreativesSnapshotTaxonomyHealth(payload)).toEqual({
       snapshotSchemaVersion: META_CREATIVES_SNAPSHOT_SCHEMA_VERSION,
       taxonomyVersion: "v2",
-      previewContractVersion: "v3",
+      previewContractVersion: "v4",
       taxonomySummary: {
         total_rows: 1,
         deterministic_rows: 1,
@@ -268,5 +269,41 @@ describe("creatives snapshot taxonomy health", () => {
 
     expect(health.isTaxonomyStale).toBe(true);
     expect(health.reasonCodes).toContain("rows_missing_preview_manifest");
+  });
+
+  it("does not mark renderable low-quality metadata snapshots stale just because top rows need enrichment", () => {
+    const health = evaluateMetaCreativesSnapshotTaxonomyHealth(
+      buildMetaCreativesSnapshotPayload({
+        status: "ok",
+        rows: [
+          buildRow({
+            preview_manifest: {
+              table_src: "https://example.com/thumb_p150x120.jpg",
+              card_src: "https://example.com/thumb_p150x120.jpg",
+              detail_image_src: "https://example.com/thumb_p150x120.jpg",
+              detail_video_src: null,
+              render_state: "renderable_low_quality",
+              table_source_kind: "thumbnail_static",
+              card_source_kind: "thumbnail_static",
+              resolution_class: "low_res",
+              thumbnail_like: true,
+              source_reason: "fallback_static_source",
+              needs_card_enrichment: true,
+              live_html_available: false,
+            },
+            table_thumbnail_url: "https://example.com/thumb_p150x120.jpg",
+            card_preview_url: "https://example.com/thumb_p150x120.jpg",
+            thumbnail_url: "https://example.com/thumb_p150x120.jpg",
+            image_url: "https://example.com/thumb_p150x120.jpg",
+            preview_url: "https://example.com/thumb_p150x120.jpg",
+          }),
+        ],
+        mediaHydrated: false,
+      })
+    );
+
+    expect(health.isTaxonomyStale).toBe(false);
+    expect(health.reasonCodes).toEqual([]);
+    expect(health.previewSummary.top_rows_needing_card_enrichment).toBe(1);
   });
 });

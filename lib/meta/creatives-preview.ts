@@ -8,6 +8,7 @@ import type {
   NormalizedRenderPreviewPayload,
   PreviewAuditCandidate,
   PreviewDebugPatch,
+  PreviewManifestRenderState,
   PreviewResolutionClass,
   PreviewRenderMode,
   PreviewSourceKind,
@@ -39,7 +40,7 @@ type CreativeStaticPreviewRowLike = {
 };
 
 export type CreativeStaticPreviewTier = "card" | "table";
-export const META_CREATIVES_PREVIEW_CONTRACT_VERSION: PreviewContractVersion = "v3";
+export const META_CREATIVES_PREVIEW_CONTRACT_VERSION: PreviewContractVersion = "v4";
 
 // ── URL helpers ────────────────────────────────────────────────────────────────
 
@@ -176,6 +177,23 @@ export function hasAcceptableCardPreviewSource(value: unknown): boolean {
   return getPreviewResolutionRank(url) >= 2;
 }
 
+function getPreviewManifestRenderState(input: {
+  tableSrc: string | null;
+  cardSrc: string | null;
+  detailImageSrc: string | null;
+  detailVideoSrc: string | null;
+}): PreviewManifestRenderState {
+  const hasRenderableSource = Boolean(
+    input.cardSrc ?? input.tableSrc ?? input.detailImageSrc ?? input.detailVideoSrc
+  );
+  if (!hasRenderableSource) {
+    return "missing";
+  }
+  return hasAcceptableCardPreviewSource(input.cardSrc)
+    ? "renderable_high_quality"
+    : "renderable_low_quality";
+}
+
 export function buildCreativePreviewManifest(input: {
   tableSrc: string | null;
   cardSrc: string | null;
@@ -185,6 +203,8 @@ export function buildCreativePreviewManifest(input: {
 }): CreativePreviewManifest {
   const normalizedTableSrc = normalizeMediaUrl(input.tableSrc);
   const normalizedCardSrc = normalizeMediaUrl(input.cardSrc);
+  const normalizedDetailImageSrc = normalizeMediaUrl(input.detailImageSrc);
+  const normalizedDetailVideoSrc = normalizeMediaUrl(input.detailVideoSrc);
   const tableDebug = describeStaticPreviewSelection({
     tier: "table",
     selectedUrl: normalizedTableSrc,
@@ -193,18 +213,25 @@ export function buildCreativePreviewManifest(input: {
     tier: "card",
     selectedUrl: normalizedCardSrc,
   });
+  const renderState = getPreviewManifestRenderState({
+    tableSrc: normalizedTableSrc,
+    cardSrc: normalizedCardSrc,
+    detailImageSrc: normalizedDetailImageSrc,
+    detailVideoSrc: normalizedDetailVideoSrc,
+  });
 
   return {
     table_src: normalizedTableSrc,
     card_src: normalizedCardSrc,
-    detail_image_src: normalizeMediaUrl(input.detailImageSrc),
-    detail_video_src: normalizeMediaUrl(input.detailVideoSrc),
+    detail_image_src: normalizedDetailImageSrc,
+    detail_video_src: normalizedDetailVideoSrc,
+    render_state: renderState,
     table_source_kind: tableDebug.sourceKind,
     card_source_kind: cardDebug.sourceKind,
     resolution_class: cardDebug.resolutionClass,
     thumbnail_like: isThumbnailLikeUrl(normalizedCardSrc),
     source_reason: cardDebug.reason,
-    needs_card_enrichment: !hasAcceptableCardPreviewSource(normalizedCardSrc),
+    needs_card_enrichment: renderState === "renderable_low_quality",
     live_html_available: input.liveHtmlAvailable,
   };
 }
@@ -258,11 +285,14 @@ export function getCreativeStaticPreviewState(
   if (!hasAnyStaticSource) return "missing";
 
   if (tier === "table") {
-    return manifest.table_src ? "ready" : "missing";
+    return hasAnyStaticSource ? "ready" : "missing";
   }
 
-  if (manifest.card_src && !manifest.needs_card_enrichment) return "ready";
-  if (manifest.needs_card_enrichment) return "pending";
+  if (manifest.render_state === "renderable_high_quality") return "ready";
+  if (manifest.render_state === "renderable_low_quality") return "pending";
+  if (manifest.card_src) {
+    return manifest.needs_card_enrichment ? "pending" : "ready";
+  }
   return "missing";
 }
 
@@ -469,17 +499,8 @@ export function scorePreviewCandidate(candidate: PreviewCandidate): number {
   if (source === "image_url") score += 30;
   if (source === "thumbnail_url") score += 10;
 
-  if (source.includes("object_story_spec.video_data.image_url")) score += 32;
-  if (source.includes("object_story_spec.video_data.thumbnail_url")) score += 18;
-  if (source.includes("object_story_spec.photo_data.image_url")) score += 30;
   if (source.includes("object_story_spec.link_data.picture")) score += 26;
-  if (source.includes("child_attachments[].image_url")) score += 24;
   if (source.includes("child_attachments[].picture")) score += 18;
-  if (source.includes("asset_feed_spec.images[].image_url")) score += 34;
-  if (source.includes("asset_feed_spec.images[].original_url")) score += 36;
-  if (source.includes("asset_feed_spec.images[].url")) score += 22;
-  if (source.includes("asset_feed_spec.videos[].image_url")) score += 24;
-  if (source.includes("asset_feed_spec.videos[].thumbnail_url")) score += 16;
 
   return score;
 }

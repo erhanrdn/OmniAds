@@ -173,6 +173,7 @@ function PreviewStripMediaSurface({
       assetState={assetState}
       assetFallbacks={assetFallbacks}
       assetUpgradeSources={assetUpgradeSources}
+      pendingRevealDelayMs={assetState === "pending" ? 450 : 0}
       className="aspect-square w-full"
       onAssetSettled={onAdvance}
     />

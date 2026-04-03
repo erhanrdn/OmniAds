@@ -28,8 +28,8 @@ export async function GET(request: NextRequest) {
     enableFullMediaHydration || params.get("copyRecovery") === "1";
   const enableCreativeBasicsFallback = enableFullMediaHydration && params.get("creativeBasicsFallback") !== "0";
   const enableCreativeDetails = enableFullMediaHydration && params.get("creativeDetails") !== "0";
-  const enableThumbnailBackfill = enableFullMediaHydration && params.get("thumbnailBackfill") !== "0";
-  const enableCardThumbnailBackfill = enableFullMediaHydration && params.get("cardThumbnailBackfill") !== "0";
+  const enableThumbnailBackfill = params.get("thumbnailBackfill") !== "0";
+  const enableCardThumbnailBackfill = params.get("cardThumbnailBackfill") !== "0";
   const enableImageHashLookup =
     enableFullMediaHydration && (debugPreview || debugThumbnail || params.get("imageHashLookup") === "1");
   const enableMediaRecovery =

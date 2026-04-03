@@ -60,7 +60,7 @@ export type MetaCreativesSnapshotTaxonomyHealthReason =
   | "rows_missing_taxonomy_source"
   | "rows_legacy_fallback"
   | "rows_missing_preview_manifest"
-  | "top_rows_need_card_enrichment";
+  | "rows_missing_renderable_preview";
 
 export interface MetaCreativesSnapshotTaxonomyHealth {
   snapshotSchemaVersion: string | null;
@@ -196,8 +196,8 @@ export function evaluateMetaCreativesSnapshotTaxonomyHealth(
     reasonCodes.push("rows_missing_preview_manifest");
   }
 
-  if ((payload?.media_hydrated ?? false) === false && previewSummary.top_rows_needing_card_enrichment > 0) {
-    reasonCodes.push("top_rows_need_card_enrichment");
+  if (previewSummary.rows_missing_preview > 0) {
+    reasonCodes.push("rows_missing_renderable_preview");
   }
 
   return {

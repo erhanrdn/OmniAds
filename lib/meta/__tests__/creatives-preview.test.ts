@@ -69,8 +69,8 @@ describe("scorePreviewCandidate", () => {
     expect(highResScore).toBeGreaterThan(lowResScore);
   });
 
-  it("gives bonus for asset_feed_spec.images[].original_url source", () => {
-    const originalScore = scorePreviewCandidate({ source: "asset_feed_spec.images[].original_url", url: "https://example.com/img.jpg" });
+  it("gives bonus for blocking-safe object_story_spec picture sources", () => {
+    const originalScore = scorePreviewCandidate({ source: "object_story_spec.link_data.picture", url: "https://example.com/img.jpg" });
     const basicScore = scorePreviewCandidate({ source: "thumbnail_url", url: "https://example.com/img.jpg" });
     expect(originalScore).toBeGreaterThan(basicScore);
   });
@@ -237,6 +237,7 @@ describe("preview manifest helpers", () => {
     });
 
     expect(manifest.needs_card_enrichment).toBe(true);
+    expect(manifest.render_state).toBe("renderable_low_quality");
     expect(hasAcceptableCardPreviewSource(manifest.card_src)).toBe(false);
   });
 
@@ -254,6 +255,22 @@ describe("preview manifest helpers", () => {
     expect(getCreativeStaticPreviewState(row, "table")).toBe("ready");
     expect(getCreativeStaticPreviewState(row, "card")).toBe("pending");
     expect(resolveCreativePreviewManifest(row)?.table_src).toBe("https://example.com/thumb_p150x120.jpg");
+  });
+
+  it("treats card-missing but table-backed rows as renderable for table tier", () => {
+    const row = {
+      previewManifest: buildCreativePreviewManifest({
+        tableSrc: "https://example.com/thumb_p150x120.jpg",
+        cardSrc: null,
+        detailImageSrc: null,
+        detailVideoSrc: null,
+        liveHtmlAvailable: false,
+      }),
+    };
+
+    expect(resolveCreativePreviewManifest(row)?.render_state).toBe("renderable_low_quality");
+    expect(getCreativeStaticPreviewState(row, "table")).toBe("ready");
+    expect(getCreativeStaticPreviewState(row, "card")).toBe("pending");
   });
 });
 

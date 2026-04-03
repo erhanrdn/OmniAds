@@ -24,6 +24,7 @@ type CreativeRenderSurfaceProps = {
   assetState?: "ready" | "pending" | "missing";
   assetFallbacks?: (string | null | undefined)[];
   assetUpgradeSources?: (string | null | undefined)[];
+  pendingRevealDelayMs?: number;
   onAssetSettled?: () => void;
 };
 
@@ -148,6 +149,7 @@ export const CreativeRenderSurface = memo(function CreativeRenderSurface({
   assetState = "ready",
   assetFallbacks,
   assetUpgradeSources,
+  pendingRevealDelayMs = 0,
   onAssetSettled,
 }: CreativeRenderSurfaceProps) {
   const frameClass = cn("relative overflow-hidden bg-muted/30", SIZE_MAP[size], className);
@@ -196,6 +198,7 @@ export const CreativeRenderSurface = memo(function CreativeRenderSurface({
         assetState={assetState}
         assetFallbacks={assetFallbacks}
         assetUpgradeSources={assetUpgradeSources}
+        pendingRevealDelayMs={pendingRevealDelayMs}
         frameClass={frameClass}
         size={size}
         onAssetSettled={onAssetSettled}
@@ -246,6 +249,7 @@ function AssetImage({
   assetState,
   assetFallbacks,
   assetUpgradeSources,
+  pendingRevealDelayMs,
   frameClass,
   size,
   onAssetSettled,
@@ -256,6 +260,7 @@ function AssetImage({
   assetState: NonNullable<CreativeRenderSurfaceProps["assetState"]>;
   assetFallbacks?: (string | null | undefined)[];
   assetUpgradeSources?: (string | null | undefined)[];
+  pendingRevealDelayMs: number;
   frameClass: string;
   size: NonNullable<CreativeRenderSurfaceProps["size"]>;
   onAssetSettled?: () => void;
@@ -283,6 +288,7 @@ function AssetImage({
   const [upgradeIndex, setUpgradeIndex] = useState(0);
   const [displaySource, setDisplaySource] = useState<ResolvedAssetSource | null>(null);
   const [readyToUpgrade, setReadyToUpgrade] = useState(false);
+  const [pendingRevealElapsed, setPendingRevealElapsed] = useState(assetState !== "pending" || pendingRevealDelayMs <= 0);
   const hasSettledRef = useRef(false);
   const loadedBaseSrcRef = useRef<string | null>(null);
 
@@ -293,6 +299,7 @@ function AssetImage({
     setUpgradeIndex(0);
     setDisplaySource(null);
     setReadyToUpgrade(false);
+    setPendingRevealElapsed(assetState !== "pending" || pendingRevealDelayMs <= 0);
     hasSettledRef.current = false;
     loadedBaseSrcRef.current = null;
     if (process.env.NODE_ENV !== "production") {
@@ -302,12 +309,24 @@ function AssetImage({
         sourceKey,
       });
     }
-  }, [id, name, sourceKey, upgradeKey]);
+  }, [assetState, id, name, pendingRevealDelayMs, sourceKey, upgradeKey]);
 
   const current = exhausted ? null : (sources[sourceIndex] ?? null);
   const currentDirectSrc = current?.src ?? null;
   const currentDisplaySrc =
     current && useProxy && isMetaCdnUrl(current.src) ? proxyUrl(current.src) : current?.src ?? null;
+
+  useEffect(() => {
+    if (assetState !== "pending" || pendingRevealDelayMs <= 0 || !currentDisplaySrc) {
+      setPendingRevealElapsed(true);
+      return;
+    }
+    setPendingRevealElapsed(false);
+    const timeoutId = window.setTimeout(() => {
+      setPendingRevealElapsed(true);
+    }, pendingRevealDelayMs);
+    return () => window.clearTimeout(timeoutId);
+  }, [assetState, currentDisplaySrc, pendingRevealDelayMs]);
 
   useEffect(() => {
     if (hasSettledRef.current) return;
@@ -488,7 +507,7 @@ function AssetImage({
     setExhausted(true);
   };
 
-  if (assetState === "pending") {
+  if (assetState === "pending" && !pendingRevealElapsed) {
     return <PreviewLoadingPlaceholder frameClass={frameClass} />;
   }
 

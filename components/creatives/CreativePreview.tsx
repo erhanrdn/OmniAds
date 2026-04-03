@@ -104,6 +104,7 @@ export function CreativePreview({
         assetState={resolvedAssetState}
         assetFallbacks={sources}
         assetUpgradeSources={sources}
+        pendingRevealDelayMs={size === "card" && resolvedAssetState === "pending" ? 450 : 0}
         className={cn(SIZE_MAP[size], className)}
       />
       {resolvedBadgeLabel ? (

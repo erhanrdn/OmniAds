@@ -3,7 +3,7 @@ import { getDb } from "@/lib/db";
 
 export type MetaCreativesSnapshotLevel = "metadata" | "full";
 export type MetaCreativesFreshnessState = "fresh" | "stale" | "expired";
-export type MetaCreativesPreviewProfile = "main_grid_v3";
+export type MetaCreativesPreviewProfile = "main_grid_v4";
 
 export interface MetaCreativesSnapshotQuery {
   businessId: string;
