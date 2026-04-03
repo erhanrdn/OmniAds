@@ -905,6 +905,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
   let pageIndex = checkpoint?.pageIndex ?? restoredPages.length;
   let throttleCount = 0;
   let lastUsagePercent = 0;
+  const coreCheckpointStartedAt = checkpoint?.startedAt ?? new Date().toISOString();
 
   await upsertMetaSyncCheckpoint({
     partitionId: input.partitionId,
@@ -926,7 +927,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     attemptCount: input.attemptCount,
     leaseOwner: input.workerId,
     leaseExpiresAt: null,
-    startedAt: checkpoint?.startedAt ?? new Date().toISOString(),
+    startedAt: coreCheckpointStartedAt,
   });
 
   while (nextPageUrl) {
@@ -1147,7 +1148,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     lastResponseHeaders: checkpoint?.lastResponseHeaders ?? {},
     attemptCount: input.attemptCount,
     leaseOwner: input.workerId,
-    startedAt: checkpoint?.startedAt ?? new Date().toISOString(),
+    startedAt: coreCheckpointStartedAt,
   });
 
   await Promise.all([
@@ -1155,6 +1156,58 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     upsertMetaCampaignDailyRows(campaignRows),
     upsertMetaAdSetDailyRows(adsetRows),
     upsertMetaAdDailyRows(adRows),
+  ]);
+
+  const [accountDailyCheckpoint, adsetDailyCheckpoint] = await Promise.all([
+    getMetaSyncCheckpoint({
+      partitionId: input.partitionId,
+      checkpointScope: "account_daily",
+    }),
+    getMetaSyncCheckpoint({
+      partitionId: input.partitionId,
+      checkpointScope: "adset_daily",
+    }),
+  ]);
+
+  await Promise.all([
+    upsertMetaSyncCheckpoint({
+      partitionId: input.partitionId,
+      businessId: input.credentials.businessId,
+      providerAccountId: input.accountId,
+      checkpointScope: "account_daily",
+      phase: "finalize",
+      status: "succeeded",
+      pageIndex,
+      nextPageUrl: null,
+      providerCursor: null,
+      rowsFetched: rowsFetchedTotal,
+      rowsWritten: accountRows.length,
+      lastSuccessfulEntityKey: null,
+      lastResponseHeaders: checkpoint?.lastResponseHeaders ?? {},
+      attemptCount: input.attemptCount,
+      leaseOwner: input.workerId,
+      startedAt: accountDailyCheckpoint?.startedAt ?? coreCheckpointStartedAt,
+      finishedAt: new Date().toISOString(),
+    }),
+    upsertMetaSyncCheckpoint({
+      partitionId: input.partitionId,
+      businessId: input.credentials.businessId,
+      providerAccountId: input.accountId,
+      checkpointScope: "adset_daily",
+      phase: "finalize",
+      status: "succeeded",
+      pageIndex,
+      nextPageUrl: null,
+      providerCursor: null,
+      rowsFetched: rowsFetchedTotal,
+      rowsWritten: adsetRows.length,
+      lastSuccessfulEntityKey: adsetRows.at(-1)?.adsetId ?? null,
+      lastResponseHeaders: checkpoint?.lastResponseHeaders ?? {},
+      attemptCount: input.attemptCount,
+      leaseOwner: input.workerId,
+      startedAt: adsetDailyCheckpoint?.startedAt ?? coreCheckpointStartedAt,
+      finishedAt: new Date().toISOString(),
+    }),
   ]);
 
   const positiveSpendAdIds = adRows.filter((row) => row.spend > 0).map((row) => row.adId);
@@ -1186,7 +1239,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     lastResponseHeaders: checkpoint?.lastResponseHeaders ?? {},
     attemptCount: input.attemptCount,
     leaseOwner: input.workerId,
-    startedAt: checkpoint?.startedAt ?? new Date().toISOString(),
+    startedAt: coreCheckpointStartedAt,
     finishedAt: new Date().toISOString(),
   });
 
