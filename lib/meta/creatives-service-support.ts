@@ -1,4 +1,9 @@
-import { collectPreviewCandidates } from "@/lib/meta/creatives-preview";
+import {
+  chooseBestStaticPreviewCandidate,
+  collectPreviewCandidates,
+  describeStaticPreviewSelection,
+  META_CREATIVES_PREVIEW_CONTRACT_VERSION,
+} from "@/lib/meta/creatives-preview";
 import {
   coerceCreativeTaxonomyFromLegacy,
   deriveLegacyCreativeClassification,
@@ -289,14 +294,20 @@ export function buildMetaCreativeApiRow(params: {
     tableThumbnailUrl,
   ].filter((value): value is string => Boolean(value));
 
-  const cardPrimary =
-    cardCandidates.find((candidate) => !isThumbnailLikeUrl(candidate)) ??
-    cardCandidates[0] ??
-    null;
+  const cardPrimary = chooseBestStaticPreviewCandidate(cardCandidates);
   const cardPreviewUrl =
     cardPrimary === tableThumbnailUrl
-      ? cardCandidates.find((candidate) => candidate !== tableThumbnailUrl) ?? cardPrimary
+      ? chooseBestStaticPreviewCandidate(cardCandidates.filter((candidate) => candidate !== tableThumbnailUrl)) ??
+        cardPrimary
       : cardPrimary;
+  const cardPreviewDebug = describeStaticPreviewSelection({
+    tier: "card",
+    selectedUrl: cardPreviewUrl,
+  });
+  const tablePreviewDebug = describeStaticPreviewSelection({
+    tier: "table",
+    selectedUrl: tableThumbnailUrl,
+  });
   const previewStatus: "ready" | "missing" =
     finalPreviewUrl || finalThumbnailUrl || finalImageUrl || normalizedCachedThumbnailUrl
       ? "ready"
@@ -387,6 +398,11 @@ export function buildMetaCreativeApiRow(params: {
     image_url: finalImageUrl,
     table_thumbnail_url: tableThumbnailUrl,
     card_preview_url: cardPreviewUrl,
+    preview_contract_version: META_CREATIVES_PREVIEW_CONTRACT_VERSION,
+    card_preview_source_kind: cardPreviewDebug.sourceKind,
+    card_preview_resolution_class: cardPreviewDebug.resolutionClass,
+    table_preview_source_kind: tablePreviewDebug.sourceKind,
+    preview_source_reason: cardPreviewDebug.reason,
     is_catalog: row.is_catalog,
     preview_state: previewState,
     preview: finalPreviewPayload,

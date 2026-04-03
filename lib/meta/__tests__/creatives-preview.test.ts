@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
+  chooseBestStaticPreviewCandidate,
+  describeStaticPreviewSelection,
+  getPreviewResolutionClass,
   isLikelyLowResCreativeUrl,
   isThumbnailLikeUrl,
   scorePreviewCandidate,
@@ -216,5 +219,44 @@ describe("getCreativeStaticPreviewSources", () => {
       "https://example.com/shared.jpg",
       "https://example.com/other.jpg",
     ]);
+  });
+});
+
+describe("chooseBestStaticPreviewCandidate", () => {
+  it("prefers a larger thumbnail over a smaller thumbnail when no non-thumbnail source exists", () => {
+    const best = chooseBestStaticPreviewCandidate([
+      "https://example.com/thumb_p64x64.jpg",
+      "https://example.com/thumb_p640x640.jpg",
+    ]);
+
+    expect(best).toBe("https://example.com/thumb_p640x640.jpg");
+  });
+
+  it("still prefers a non-thumbnail image over larger thumbnail candidates", () => {
+    const best = chooseBestStaticPreviewCandidate([
+      "https://example.com/thumb_p640x640.jpg",
+      "https://example.com/image_p1200x1200.jpg",
+    ]);
+
+    expect(best).toBe("https://example.com/image_p1200x1200.jpg");
+  });
+});
+
+describe("preview selection observability helpers", () => {
+  it("classifies 640 thumbnail URLs as medium resolution", () => {
+    expect(getPreviewResolutionClass("https://example.com/thumb_p640x640.jpg")).toBe("medium_res");
+  });
+
+  it("marks promoted large thumbnails with the correct reason", () => {
+    expect(
+      describeStaticPreviewSelection({
+        tier: "card",
+        selectedUrl: "https://example.com/thumb_p640x640.jpg",
+      })
+    ).toEqual({
+      sourceKind: "thumbnail_static",
+      resolutionClass: "medium_res",
+      reason: "card_promoted_larger_thumbnail",
+    });
   });
 });

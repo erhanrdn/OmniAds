@@ -11,6 +11,15 @@ export type CreativePrimaryType = "standard" | "catalog" | "flexible" | "carouse
 export type CreativeSecondaryType = "video" | "carousel";
 export type CreativeTaxonomyVersion = "v2";
 export type CreativeTaxonomySource = "deterministic" | "legacy_fallback";
+export type PreviewContractVersion = "v2";
+export type PreviewSourceKind = "non_thumbnail_static" | "thumbnail_static" | "none";
+export type PreviewResolutionClass = "high_res" | "medium_res" | "low_res" | "unknown";
+export type PreviewSourceReason =
+  | "card_prefer_non_thumbnail"
+  | "card_promoted_larger_thumbnail"
+  | "table_thumbnail_preferred"
+  | "fallback_static_source"
+  | "unavailable";
 export type AiTagKey =
   | "assetType"
   | "visualFormat"
@@ -431,6 +440,11 @@ export interface CreativePreviewFields {
   image_url: string | null;
   table_thumbnail_url?: string | null;
   card_preview_url?: string | null;
+  preview_contract_version?: PreviewContractVersion;
+  card_preview_source_kind?: PreviewSourceKind | null;
+  card_preview_resolution_class?: PreviewResolutionClass | null;
+  table_preview_source_kind?: PreviewSourceKind | null;
+  preview_source_reason?: PreviewSourceReason | null;
   is_catalog: boolean;
   preview_state: LegacyPreviewState;
   preview: NormalizedRenderPreviewPayload;

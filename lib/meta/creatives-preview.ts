@@ -3,10 +3,14 @@ import type {
   MetaAdRecord,
   MetaPromotedObjectLike,
   NormalizedPreviewSource,
+  PreviewContractVersion,
   NormalizedRenderPreviewPayload,
   PreviewAuditCandidate,
   PreviewDebugPatch,
+  PreviewResolutionClass,
   PreviewRenderMode,
+  PreviewSourceKind,
+  PreviewSourceReason,
   UrlValidationResult,
 } from "@/lib/meta/creatives-types";
 import { classifyMetaCreative } from "@/lib/meta/creative-taxonomy";
@@ -32,10 +36,11 @@ type CreativeStaticPreviewRowLike = {
 };
 
 export type CreativeStaticPreviewTier = "card" | "table";
+export const META_CREATIVES_PREVIEW_CONTRACT_VERSION: PreviewContractVersion = "v2";
 
 // ── URL helpers ────────────────────────────────────────────────────────────────
 
-function parsePreviewSizeFromUrl(url: string): { width: number; height: number } | null {
+export function parsePreviewSizeFromUrl(url: string): { width: number; height: number } | null {
   const match = url.match(/p(\d+)x(\d+)/i);
   if (!match) return null;
   const width = Number(match[1]);
@@ -57,6 +62,108 @@ export function isThumbnailLikeUrl(value: unknown): boolean {
   if (!url) return false;
   if (isLikelyLowResCreativeUrl(url)) return true;
   return /thumbnail|thumb|_p\d+x\d+|emg1|\/t39\.2147-6\//i.test(url);
+}
+
+export function getPreviewResolutionClass(value: unknown): PreviewResolutionClass {
+  const url = normalizeMediaUrl(value);
+  if (!url) return "unknown";
+  const parsedSize = parsePreviewSizeFromUrl(url);
+  if (!parsedSize) return isThumbnailLikeUrl(url) ? "unknown" : "high_res";
+  const maxEdge = Math.max(parsedSize.width, parsedSize.height);
+  if (maxEdge >= 800) return "high_res";
+  if (maxEdge >= 320) return "medium_res";
+  return "low_res";
+}
+
+export function getPreviewSourceKind(value: unknown): PreviewSourceKind {
+  const url = normalizeMediaUrl(value);
+  if (!url) return "none";
+  return isThumbnailLikeUrl(url) ? "thumbnail_static" : "non_thumbnail_static";
+}
+
+function getPreviewResolutionRank(value: unknown): number {
+  const resolutionClass = getPreviewResolutionClass(value);
+  if (resolutionClass === "high_res") return 3;
+  if (resolutionClass === "medium_res") return 2;
+  if (resolutionClass === "low_res") return 1;
+  return 0;
+}
+
+export function chooseBestStaticPreviewCandidate(candidates: Array<string | null | undefined>): string | null {
+  let best: string | null = null;
+  let bestKindRank = -1;
+  let bestResolutionRank = -1;
+
+  for (const candidate of candidates) {
+    const normalized = normalizeMediaUrl(candidate);
+    if (!normalized) continue;
+
+    const kindRank = getPreviewSourceKind(normalized) === "non_thumbnail_static" ? 1 : 0;
+    const resolutionRank = getPreviewResolutionRank(normalized);
+
+    if (
+      best === null ||
+      kindRank > bestKindRank ||
+      (kindRank === bestKindRank && resolutionRank > bestResolutionRank)
+    ) {
+      best = normalized;
+      bestKindRank = kindRank;
+      bestResolutionRank = resolutionRank;
+    }
+  }
+
+  return best;
+}
+
+export function describeStaticPreviewSelection(input: {
+  tier: CreativeStaticPreviewTier;
+  selectedUrl: string | null;
+}): {
+  sourceKind: PreviewSourceKind;
+  resolutionClass: PreviewResolutionClass;
+  reason: PreviewSourceReason;
+} {
+  const { tier, selectedUrl } = input;
+  const sourceKind = getPreviewSourceKind(selectedUrl);
+  const resolutionClass = getPreviewResolutionClass(selectedUrl);
+
+  if (!selectedUrl) {
+    return {
+      sourceKind: "none",
+      resolutionClass: "unknown",
+      reason: "unavailable",
+    };
+  }
+
+  if (tier === "table") {
+    return {
+      sourceKind,
+      resolutionClass,
+      reason: "table_thumbnail_preferred",
+    };
+  }
+
+  if (sourceKind === "non_thumbnail_static") {
+    return {
+      sourceKind,
+      resolutionClass,
+      reason: "card_prefer_non_thumbnail",
+    };
+  }
+
+  if (resolutionClass === "medium_res" || resolutionClass === "high_res") {
+    return {
+      sourceKind,
+      resolutionClass,
+      reason: "card_promoted_larger_thumbnail",
+    };
+  }
+
+  return {
+    sourceKind,
+    resolutionClass,
+    reason: "fallback_static_source",
+  };
 }
 
 function isPreviewContentType(contentType: string | null): boolean {
