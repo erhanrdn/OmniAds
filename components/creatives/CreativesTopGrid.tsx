@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { CreativePreview } from "@/components/creatives/CreativePreview";
 import { METRIC_CONFIG, MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { getCreativeFormatSummaryLabel } from "@/lib/meta/creative-taxonomy";
+import { getCreativeStaticPreviewSources } from "@/lib/meta/creatives-preview";
 
 interface CreativesTopGridProps {
   rows: MetaCreativeRow[];
@@ -76,29 +77,8 @@ function CreativeCard({
   const isCatalog = Boolean(row.isCatalog || row.is_catalog || row.preview?.is_catalog);
 
   const sourcePriority = useMemo(
-    () => [
-      row.cardPreviewUrl ?? row.card_preview_url ?? null,
-      row.imageUrl ?? row.image_url ?? null,
-      row.preview?.image_url ?? null,
-      row.preview?.poster_url ?? null,
-      row.previewUrl ?? row.preview_url ?? null,
-      row.cachedThumbnailUrl ?? row.cached_thumbnail_url ?? null,
-      row.thumbnailUrl ?? row.thumbnail_url ?? null,
-    ],
-    [
-      row.cardPreviewUrl,
-      row.card_preview_url,
-      row.imageUrl,
-      row.image_url,
-      row.preview?.image_url,
-      row.preview?.poster_url,
-      row.previewUrl,
-      row.preview_url,
-      row.cachedThumbnailUrl,
-      row.cached_thumbnail_url,
-      row.thumbnailUrl,
-      row.thumbnail_url,
-    ]
+    () => getCreativeStaticPreviewSources(row, "card"),
+    [row]
   );
   const badgeLabel = getCreativeFormatSummaryLabel({
     creative_delivery_type: row.creativeDeliveryType,
@@ -107,6 +87,7 @@ function CreativeCard({
     creative_primary_label: row.creativePrimaryLabel,
     creative_secondary_type: row.creativeSecondaryType,
     creative_secondary_label: row.creativeSecondaryLabel,
+    taxonomy_source: row.taxonomySource ?? null,
   });
 
   return (

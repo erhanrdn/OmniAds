@@ -9,6 +9,8 @@ export type CreativeDeliveryType = "standard" | "catalog" | "flexible" | "mixed"
 export type CreativeVisualFormat = "image" | "video" | "carousel" | "mixed";
 export type CreativePrimaryType = "standard" | "catalog" | "flexible" | "carousel" | "video" | "mixed";
 export type CreativeSecondaryType = "video" | "carousel";
+export type CreativeTaxonomyVersion = "v2";
+export type CreativeTaxonomySource = "deterministic" | "legacy_fallback";
 export type AiTagKey =
   | "assetType"
   | "visualFormat"
@@ -447,6 +449,9 @@ export interface CreativeClassificationFields {
   creative_secondary_type: CreativeSecondaryType | null;
   creative_secondary_label: string | null;
   classification_signals?: CreativeClassificationSignals | null;
+  taxonomy_version?: CreativeTaxonomyVersion;
+  taxonomy_source?: CreativeTaxonomySource | null;
+  taxonomy_reconciled_by_video_evidence?: boolean;
 }
 
 export interface CreativeMetricFields {

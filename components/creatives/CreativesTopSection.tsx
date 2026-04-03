@@ -6,8 +6,8 @@ import { createPortal } from "react-dom";
 import { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
 import { resolveCreativeCurrency } from "@/components/creatives/money";
-import { fetchMetaCreativeDetailPreview } from "@/app/(dashboard)/creatives/page-support";
 import { getCreativeFormatSummaryLabel } from "@/lib/meta/creative-taxonomy";
+import { getCreativeStaticPreviewSources } from "@/lib/meta/creatives-preview";
 import {
   applyCreativeFilters,
   buildMonthGrid,
@@ -148,148 +148,19 @@ const GROUP_BY_OPTIONS: Array<{ value: CreativeGroupBy; label: string }> = [
   { value: "landingPage", label: "Landing Page" },
 ];
 
-const PREVIEW_STRIP_CARD_SIZE = 190;
-const META_PREVIEW_IFRAME_FALLBACK_WIDTH = 540;
-const META_PREVIEW_IFRAME_FALLBACK_HEIGHT = 690;
-const previewIframeCache = new Map<string, PreviewIframeDescriptor | null>();
-
-type PreviewIframeDescriptor = {
-  src: string;
-  width: number;
-  height: number;
-};
-
-function isCenteredCropMetaUrl(value: string | null | undefined): boolean {
-  if (typeof value !== "string") return false;
-  return value.includes("c0.5000x0.5000f");
-}
-
-function isThumbnailOnlyCardSource(value: string | null | undefined): boolean {
-  if (typeof value !== "string") return false;
-  return /thumbnail|thumb|_p\d+x\d+|\/t39\.2147-6\//i.test(value) || isCenteredCropMetaUrl(value);
-}
-
-function extractPreviewIframeDescriptor(html: string | null | undefined): PreviewIframeDescriptor | null {
-  if (typeof html !== "string" || html.trim().length === 0) return null;
-  const srcMatch = html.match(/<iframe[^>]+src="([^"]+)"/i);
-  if (!srcMatch?.[1]) return null;
-
-  const widthMatch = html.match(/<iframe[^>]+width="(\d+)"/i);
-  const heightMatch = html.match(/<iframe[^>]+height="(\d+)"/i);
-
-  const width = Number.parseInt(widthMatch?.[1] ?? "", 10);
-  const height = Number.parseInt(heightMatch?.[1] ?? "", 10);
-
-  return {
-    src: srcMatch[1].replace(/&amp;/g, "&"),
-    width: Number.isFinite(width) && width > 0 ? width : META_PREVIEW_IFRAME_FALLBACK_WIDTH,
-    height: Number.isFinite(height) && height > 0 ? height : META_PREVIEW_IFRAME_FALLBACK_HEIGHT,
-  };
-}
-
-function shouldUpgradePreviewStripCard(row: MetaCreativeRow, assetFallbacks: Array<string | null>): boolean {
-  if (!row.creativeId) return false;
-  if (row.preview?.render_mode === "video" || row.preview?.video_url) return false;
-  if (row.preview?.source === "thumbnail_url") return true;
-  if (row.preview?.source === "image_url" && isCenteredCropMetaUrl(row.preview?.image_url ?? null)) return true;
-
-  const candidateUrls = assetFallbacks.filter((value): value is string => Boolean(value));
-  if (candidateUrls.length === 0) return false;
-
-  const hasBetterSource = candidateUrls.some((value) => !isThumbnailOnlyCardSource(value));
-  if (hasBetterSource) return false;
-
-  return true;
-}
-
 function PreviewStripMediaSurface({
-  businessId,
   row,
   assetFallbacks,
   assetUpgradeSources,
   shouldUnlockPreview,
   onAdvance,
 }: {
-  businessId?: string;
   row: MetaCreativeRow;
   assetFallbacks: Array<string | null>;
   assetUpgradeSources: Array<string | null>;
   shouldUnlockPreview: boolean;
   onAdvance: () => void;
 }) {
-  const [iframeDescriptor, setIframeDescriptor] = useState<PreviewIframeDescriptor | null>(null);
-  const shouldAttemptLivePreview =
-    shouldUnlockPreview &&
-    Boolean(businessId) &&
-    shouldUpgradePreviewStripCard(row, assetFallbacks);
-
-  useEffect(() => {
-    const creativeId = row.creativeId?.trim();
-    const business = businessId?.trim();
-
-    if (!shouldAttemptLivePreview || !creativeId || !business) {
-      setIframeDescriptor(null);
-      return;
-    }
-
-    const cacheKey = `${business}:${creativeId}`;
-    if (previewIframeCache.has(cacheKey)) {
-      setIframeDescriptor(previewIframeCache.get(cacheKey) ?? null);
-      return;
-    }
-
-    let cancelled = false;
-    fetchMetaCreativeDetailPreview({ businessId: business, creativeId })
-      .then((payload) => {
-        if (cancelled) return;
-        const nextDescriptor = extractPreviewIframeDescriptor(payload.detail_preview?.html);
-        previewIframeCache.set(cacheKey, nextDescriptor);
-        setIframeDescriptor(nextDescriptor);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        previewIframeCache.set(cacheKey, null);
-        setIframeDescriptor(null);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [businessId, row.creativeId, shouldAttemptLivePreview]);
-
-  if (iframeDescriptor) {
-    const scale = Math.min(
-      PREVIEW_STRIP_CARD_SIZE / iframeDescriptor.width,
-      PREVIEW_STRIP_CARD_SIZE / iframeDescriptor.height
-    );
-
-    return (
-      <div className="absolute inset-0 overflow-hidden bg-white">
-        <div
-          className="pointer-events-none absolute left-1/2 top-1/2 overflow-hidden rounded-[18px] shadow-[0_12px_34px_rgba(15,23,42,0.16)]"
-          style={{
-            width: iframeDescriptor.width,
-            height: iframeDescriptor.height,
-            transform: `translate(-50%, -50%) scale(${scale})`,
-            transformOrigin: "center center",
-          }}
-        >
-          <iframe
-            title={`${row.name} live preview`}
-            src={iframeDescriptor.src}
-            width={iframeDescriptor.width}
-            height={iframeDescriptor.height}
-            className="block border-0 bg-white"
-            loading="lazy"
-            tabIndex={-1}
-            aria-hidden="true"
-            sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
-          />
-        </div>
-      </div>
-    );
-  }
-
   return shouldUnlockPreview ? (
     <CreativeRenderSurface
       id={row.id}
@@ -363,7 +234,6 @@ const PRESET_OPTIONS: Array<{ value: CreativeDatePreset; label: string }> = [
 ];
 
 const METRIC_COLOR_TOKENS = ["bg-blue-100 text-blue-700", "bg-emerald-100 text-emerald-700", "bg-amber-100 text-amber-700", "bg-rose-100 text-rose-700", "bg-cyan-100 text-cyan-700", "bg-indigo-100 text-indigo-700"];
-let topRowPropLogCount = 0;
 
 const METRIC_DEFS: CreativeMetricDefinition[] = [
   { id: "spend", label: "Spend", direction: "neutral", format: fmtCurrency, getValue: (r) => r.spend },
@@ -1323,39 +1193,8 @@ function PreviewStrip({
     <div className="overflow-x-auto pb-1">
       <div className="flex min-w-max gap-3">
         {rows.map((row, index) => {
-          const assetFallbacks = [
-            row.cardPreviewUrl ?? null,
-            row.imageUrl ?? null,
-            row.preview?.image_url ?? null,
-            row.preview?.poster_url ?? null,
-            row.previewUrl ?? null,
-            row.cachedThumbnailUrl ?? null,
-            row.tableThumbnailUrl ?? null,
-            row.thumbnailUrl ?? null,
-          ];
-          const assetUpgradeSources = [
-            row.imageUrl ?? null,
-            row.preview?.image_url ?? null,
-            row.preview?.poster_url ?? null,
-            row.previewUrl ?? null,
-            row.cardPreviewUrl ?? null,
-            row.cachedThumbnailUrl ?? null,
-          ];
-          if (process.env.NODE_ENV !== "production" && topRowPropLogCount < 20) {
-            topRowPropLogCount += 1;
-            console.log("[motion-top][row-props]", {
-              id: row.id,
-              name: row.name,
-              cardPreviewUrl: row.cardPreviewUrl ?? null,
-              tableThumbnailUrl: row.tableThumbnailUrl ?? null,
-              imageUrl: row.imageUrl ?? null,
-              previewUrl: row.previewUrl ?? null,
-              preview_image_url: row.preview?.image_url ?? null,
-              preview_poster_url: row.preview?.poster_url ?? null,
-              preview_render_mode: row.preview?.render_mode ?? null,
-              assetFallbacks,
-            });
-          }
+          const assetFallbacks = getCreativeStaticPreviewSources(row, "card");
+          const assetUpgradeSources = assetFallbacks;
           const resolvedRowCurrency = resolveCreativeCurrency(row.currency, defaultCurrency);
           const shouldUnlockPreview = previewMode !== "media" || index < unlockedPreviewCount;
           const creativeTypeLabel = getCreativeFormatSummaryLabel({
@@ -1365,6 +1204,7 @@ function PreviewStrip({
             creative_primary_label: row.creativePrimaryLabel,
             creative_secondary_type: row.creativeSecondaryType,
             creative_secondary_label: row.creativeSecondaryLabel,
+            taxonomy_source: row.taxonomySource ?? null,
           });
           return (
             <button
@@ -1385,7 +1225,6 @@ function PreviewStrip({
               ) : (
                 <div className="relative aspect-square w-full overflow-hidden bg-muted/20">
                   <PreviewStripMediaSurface
-                    businessId={businessId}
                     row={row}
                     assetFallbacks={assetFallbacks}
                     assetUpgradeSources={assetUpgradeSources}
@@ -1396,9 +1235,11 @@ function PreviewStrip({
                       )
                     }
                   />
-                  <span className="pointer-events-none absolute bottom-2 left-2 rounded-full bg-black/65 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
-                    {creativeTypeLabel}
-                  </span>
+                  {creativeTypeLabel ? (
+                    <span className="pointer-events-none absolute bottom-2 left-2 rounded-full bg-black/65 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
+                      {creativeTypeLabel}
+                    </span>
+                  ) : null}
                 </div>
               )}
 

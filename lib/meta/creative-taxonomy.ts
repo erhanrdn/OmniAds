@@ -4,6 +4,7 @@ import type {
   CreativeFormat,
   CreativePrimaryType,
   CreativeSecondaryType,
+  CreativeTaxonomySource,
   CreativeType,
   CreativeVisualFormat,
   MetaAdRecord,
@@ -28,7 +29,9 @@ type CreativeTaxonomyLike = Pick<
   | "creative_primary_label"
   | "creative_secondary_type"
   | "creative_secondary_label"
->;
+> & {
+  taxonomy_source?: CreativeTaxonomySource | null;
+};
 
 const PRIMARY_TYPE_LABELS: Record<CreativePrimaryType, string> = {
   standard: "Standard",
@@ -92,10 +95,21 @@ export function shouldShowCreativePrimaryPill(type: CreativePrimaryType): boolea
   return type !== "standard";
 }
 
+function shouldShowCreativeTaxonomy(input: CreativeTaxonomyLike): boolean {
+  return input.taxonomy_source !== "legacy_fallback";
+}
+
 export function getCreativeDisplayPills(input: CreativeTaxonomyLike): {
   primaryLabel: string | null;
   secondaryLabel: string | null;
 } {
+  if (!shouldShowCreativeTaxonomy(input)) {
+    return {
+      primaryLabel: null,
+      secondaryLabel: null,
+    };
+  }
+
   const primaryLabel =
     shouldShowCreativePrimaryPill(input.creative_primary_type)
       ? input.creative_primary_label ?? getCreativePrimaryTypeLabel(input.creative_primary_type)
@@ -161,7 +175,11 @@ export function getCreativeVisualFormatLabel(format: CreativeVisualFormat): stri
   return "Image";
 }
 
-export function getCreativeFormatSummaryLabel(input: CreativeTaxonomyLike): string {
+export function getCreativeFormatSummaryLabel(input: CreativeTaxonomyLike): string | null {
+  if (!shouldShowCreativeTaxonomy(input)) {
+    return null;
+  }
+
   const primaryLabel = input.creative_primary_label ?? getCreativePrimaryTypeLabel(input.creative_primary_type);
   const secondaryLabel =
     input.creative_secondary_type

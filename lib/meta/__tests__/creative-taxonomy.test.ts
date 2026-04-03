@@ -3,6 +3,7 @@ import {
   classifyMetaCreative,
   coerceCreativeTaxonomyFromLegacy,
   getCreativeDisplayPills,
+  getCreativeFormatSummaryLabel,
   reconcileCreativeTaxonomyWithVideoEvidence,
 } from "@/lib/meta/creative-taxonomy";
 
@@ -146,6 +147,28 @@ describe("creative taxonomy display helpers", () => {
 
     expect(display.primaryLabel).toBeNull();
     expect(display.secondaryLabel).toBeNull();
+  });
+
+  it("suppresses visible labels for legacy fallback taxonomy", () => {
+    const taxonomy = coerceCreativeTaxonomyFromLegacy({
+      format: "video",
+      creative_type: "video",
+      is_catalog: false,
+    });
+
+    const display = getCreativeDisplayPills({
+      ...taxonomy,
+      taxonomy_source: "legacy_fallback",
+    });
+
+    expect(display.primaryLabel).toBeNull();
+    expect(display.secondaryLabel).toBeNull();
+    expect(
+      getCreativeFormatSummaryLabel({
+        ...taxonomy,
+        taxonomy_source: "legacy_fallback",
+      })
+    ).toBeNull();
   });
 });
 

@@ -6,6 +6,7 @@ import {
   pickBestCandidate,
   collectPreviewCandidates,
   buildNormalizedPreview,
+  getCreativeStaticPreviewSources,
 } from "@/lib/meta/creatives-preview";
 
 describe("isLikelyLowResCreativeUrl", () => {
@@ -181,5 +182,39 @@ describe("buildNormalizedPreview", () => {
     });
     // Card tier should prefer the high-res image, not the thumbnail
     expect(result.tiers.card_preview_url).toBe("https://example.com/img_p1080x1080.jpg");
+  });
+});
+
+describe("getCreativeStaticPreviewSources", () => {
+  it("prefers card preview for card tier and table thumbnail for table tier", () => {
+    const row = {
+      cardPreviewUrl: "https://example.com/card.jpg",
+      tableThumbnailUrl: "https://example.com/table.jpg",
+      imageUrl: "https://example.com/image.jpg",
+      preview: {
+        image_url: "https://example.com/preview-image.jpg",
+        poster_url: "https://example.com/poster.jpg",
+      },
+      previewUrl: "https://example.com/preview.jpg",
+      cachedThumbnailUrl: "https://example.com/cached.jpg",
+      thumbnailUrl: "https://example.com/thumb.jpg",
+    };
+
+    expect(getCreativeStaticPreviewSources(row, "card")[0]).toBe("https://example.com/card.jpg");
+    expect(getCreativeStaticPreviewSources(row, "table")[0]).toBe("https://example.com/table.jpg");
+  });
+
+  it("deduplicates repeated URLs while preserving precedence", () => {
+    const row = {
+      cardPreviewUrl: "https://example.com/shared.jpg",
+      imageUrl: "https://example.com/shared.jpg",
+      previewUrl: "https://example.com/other.jpg",
+      thumbnailUrl: "https://example.com/shared.jpg",
+    };
+
+    expect(getCreativeStaticPreviewSources(row, "card")).toEqual([
+      "https://example.com/shared.jpg",
+      "https://example.com/other.jpg",
+    ]);
   });
 });

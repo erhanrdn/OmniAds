@@ -31,6 +31,7 @@ import {
   toHeatColor,
 } from "@/components/creatives/creatives-table-support";
 import { cn } from "@/lib/utils";
+import { getCreativeStaticPreviewSources } from "@/lib/meta/creatives-preview";
 import { useDropdownBehavior } from "@/hooks/use-dropdown-behavior";
 import { getAiCreativeDecisions, type AiCreativeDecision, type AiCreativeDecisionInputRow } from "@/src/services";
 import { createPortal } from "react-dom";
@@ -1930,24 +1931,8 @@ const CreativeTableRow = memo(function CreativeTableRow({
   onOpenBreakdownRow,
 }: CreativeTableRowProps) {
   const assetFallbacks = useMemo(
-    () => [
-      row.tableThumbnailUrl ?? null,
-      row.cachedThumbnailUrl ?? null,
-      row.thumbnailUrl ?? null,
-      row.imageUrl ?? null,
-      row.preview?.image_url ?? null,
-      row.preview?.poster_url ?? null,
-      row.previewUrl ?? null,
-    ],
-    [
-      row.cachedThumbnailUrl,
-      row.imageUrl,
-      row.preview?.image_url,
-      row.preview?.poster_url,
-      row.previewUrl,
-      row.tableThumbnailUrl,
-      row.thumbnailUrl,
-    ]
+    () => getCreativeStaticPreviewSources(row, "table"),
+    [row]
   );
   const resolvedRowCurrency = resolveCreativeCurrency(row.currency, defaultCurrency);
 

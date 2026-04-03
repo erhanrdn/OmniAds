@@ -12,6 +12,7 @@ import {
   getCreativeFormatSummaryLabel,
   getCreativePreviewBadgeLabel,
 } from "@/lib/meta/creative-taxonomy";
+import { getCreativeStaticPreviewSources } from "@/lib/meta/creatives-preview";
 import { cn } from "@/lib/utils";
 
 interface CreativesTableLegacyProps {
@@ -199,32 +200,12 @@ function CreativeNameCell({ row }: { row: CreativeRowLike }) {
     creative_primary_label: row.creativePrimaryLabel,
     creative_secondary_type: row.creativeSecondaryType,
     creative_secondary_label: row.creativeSecondaryLabel,
+    taxonomy_source: row.taxonomySource ?? null,
   });
 
   const sourcePriority = useMemo(
-    () => [
-      row.tableThumbnailUrl ?? row.table_thumbnail_url ?? null,
-      row.cachedThumbnailUrl ?? row.cached_thumbnail_url ?? null,
-      row.thumbnailUrl ?? row.thumbnail_url ?? null,
-      row.imageUrl ?? row.image_url ?? null,
-      row.preview?.image_url ?? null,
-      row.preview?.poster_url ?? null,
-      row.previewUrl ?? row.preview_url ?? null,
-    ],
-    [
-      row.tableThumbnailUrl,
-      row.table_thumbnail_url,
-      row.cachedThumbnailUrl,
-      row.cached_thumbnail_url,
-      row.thumbnailUrl,
-      row.thumbnail_url,
-      row.imageUrl,
-      row.image_url,
-      row.preview?.image_url,
-      row.preview?.poster_url,
-      row.previewUrl,
-      row.preview_url,
-    ]
+    () => getCreativeStaticPreviewSources(row, "table"),
+    [row]
   );
   const badgeLabel = getCreativePreviewBadgeLabel({
     creative_delivery_type: row.creativeDeliveryType,
@@ -233,6 +214,7 @@ function CreativeNameCell({ row }: { row: CreativeRowLike }) {
     creative_primary_label: row.creativePrimaryLabel,
     creative_secondary_type: row.creativeSecondaryType,
     creative_secondary_label: row.creativeSecondaryLabel,
+    taxonomy_source: row.taxonomySource ?? null,
   });
 
   return (
@@ -256,10 +238,10 @@ function CreativeNameCell({ row }: { row: CreativeRowLike }) {
       <div className="min-w-0 flex-1">
         <p className="truncate text-[13px] font-semibold tracking-tight text-foreground">{row.name}</p>
         <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-          <span className="capitalize">{formatLabel}</span>
+          {formatLabel ? <span className="capitalize">{formatLabel}</span> : null}
           {associatedAdsCount > 1 && (
             <span className="flex items-center gap-1.5">
-              <span className="h-1 w-1 rounded-full bg-muted-foreground/40" />
+              {formatLabel ? <span className="h-1 w-1 rounded-full bg-muted-foreground/40" /> : null}
               {associatedAdsCount} ads
             </span>
           )}

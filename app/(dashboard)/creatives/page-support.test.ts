@@ -57,6 +57,9 @@ function buildApiRow(overrides: Partial<MetaCreativeApiRow> = {}): MetaCreativeA
     creative_secondary_type: "video",
     creative_secondary_label: "Video",
     classification_signals: null,
+    taxonomy_version: "v2",
+    taxonomy_source: "deterministic",
+    taxonomy_reconciled_by_video_evidence: false,
     spend: 100,
     purchase_value: 250,
     roas: 2.5,
@@ -87,22 +90,22 @@ describe("mapApiRowToUiRow", () => {
   it("maps new taxonomy labels to the UI row", () => {
     const row = mapApiRowToUiRow(buildApiRow());
 
-    expect(row.format).toBe("catalog");
-    expect(row.creativeType).toBe("feed_catalog");
-    expect(row.creativeTypeLabel).toBe("Feed (Catalog ads)");
     expect(row.creativePrimaryType).toBe("catalog");
     expect(row.creativePrimaryLabel).toBe("Catalog");
     expect(row.creativeSecondaryType).toBe("video");
     expect(row.creativeSecondaryLabel).toBe("Video");
+    expect(row.taxonomyVersion).toBe("v2");
+    expect(row.taxonomySource).toBe("deterministic");
+    expect(row.taxonomyReconciledByVideoEvidence).toBe(false);
   });
 
-  it("prefers taxonomy over stale legacy format fields", () => {
+  it("keeps legacy aliases exactly as provided by the API", () => {
     const row = mapApiRowToUiRow(
       buildApiRow({
         format: "image",
         creative_type: "feed",
         creative_type_label: "Feed",
-        creative_delivery_type: "standard",
+        creative_delivery_type: "catalog",
         creative_visual_format: "video",
         creative_primary_type: "video",
         creative_primary_label: "Video",
@@ -111,18 +114,16 @@ describe("mapApiRowToUiRow", () => {
       })
     );
 
-    expect(row.format).toBe("video");
-    expect(row.creativeType).toBe("video");
-    expect(row.creativeTypeLabel).toBe("Video");
+    expect(row.format).toBe("image");
+    expect(row.creativeType).toBe("feed");
+    expect(row.creativeTypeLabel).toBe("Feed");
     expect(row.creativeVisualFormat).toBe("video");
+    expect(row.creativePrimaryType).toBe("video");
   });
 
-  it("upgrades stale image taxonomy when preview evidence proves video", () => {
+  it("does not reinterpret taxonomy on the client from preview evidence", () => {
     const row = mapApiRowToUiRow(
       buildApiRow({
-        format: "image",
-        creative_type: "feed",
-        creative_type_label: "Feed",
         creative_delivery_type: "standard",
         creative_visual_format: "image",
         creative_primary_type: "standard",
@@ -142,18 +143,17 @@ describe("mapApiRowToUiRow", () => {
         video50: 0,
         video75: 0,
         video100: 0,
+        taxonomy_reconciled_by_video_evidence: false,
       })
     );
 
-    expect(row.format).toBe("video");
-    expect(row.creativeType).toBe("video");
-    expect(row.creativeTypeLabel).toBe("Video");
-    expect(row.creativeVisualFormat).toBe("video");
-    expect(row.creativePrimaryType).toBe("video");
-    expect(row.creativePrimaryLabel).toBe("Video");
+    expect(row.creativeVisualFormat).toBe("image");
+    expect(row.creativePrimaryType).toBe("standard");
+    expect(row.creativePrimaryLabel).toBe("Standard");
+    expect(row.taxonomyReconciledByVideoEvidence).toBe(false);
   });
 
-  it("backfills taxonomy from legacy fields when new fields are missing", () => {
+  it("defaults rows without taxonomy metadata to legacy fallback", () => {
     const row = mapApiRowToUiRow(
       buildApiRow({
         creative_delivery_type: undefined as never,
@@ -162,13 +162,21 @@ describe("mapApiRowToUiRow", () => {
         creative_primary_label: undefined as never,
         creative_secondary_type: undefined as never,
         creative_secondary_label: undefined as never,
+        taxonomy_version: undefined,
+        taxonomy_source: undefined,
+        taxonomy_reconciled_by_video_evidence: undefined,
         format: "video",
         creative_type: "video",
+        creative_type_label: "Video",
       })
     );
 
-    expect(row.creativePrimaryType).toBe("video");
-    expect(row.creativePrimaryLabel).toBe("Video");
+    expect(row.creativePrimaryType).toBe("standard");
+    expect(row.creativePrimaryLabel).toBeNull();
     expect(row.creativeSecondaryType).toBeNull();
+    expect(row.taxonomySource).toBe("legacy_fallback");
+    expect(row.format).toBe("video");
+    expect(row.creativeType).toBe("video");
+    expect(row.creativeTypeLabel).toBe("Video");
   });
 });

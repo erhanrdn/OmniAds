@@ -2,9 +2,7 @@ import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import type { ShareMetricKey, SharedCreative } from "@/components/creatives/shareCreativeTypes";
 import {
-  coerceCreativeTaxonomyFromLegacy,
-  deriveLegacyCreativeClassification,
-  reconcileCreativeTaxonomyWithVideoEvidence,
+  getLegacyCreativeTypeLabel,
 } from "@/lib/meta/creative-taxonomy";
 import type { AiCreativeHistoricalWindow, AiCreativeHistoricalWindows } from "@/src/services";
 
@@ -349,31 +347,10 @@ export function buildCreativeHistoryById(input: Partial<Record<CreativeHistoryWi
 }
 
 export function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
-  const creativeTaxonomy =
-    row.creative_primary_type
-      ? {
-          creative_delivery_type: row.creative_delivery_type,
-          creative_visual_format: row.creative_visual_format,
-          creative_primary_type: row.creative_primary_type,
-          creative_primary_label: row.creative_primary_label,
-          creative_secondary_type: row.creative_secondary_type,
-          creative_secondary_label: row.creative_secondary_label,
-          classification_signals: row.classification_signals ?? null,
-        }
-      : coerceCreativeTaxonomyFromLegacy({
-          format: row.format,
-          creative_type: row.creative_type,
-          is_catalog: row.is_catalog,
-        });
-  const reconciledCreativeTaxonomy = reconcileCreativeTaxonomyWithVideoEvidence(creativeTaxonomy, {
-    preview: row.preview,
-    thumbstop: row.thumbstop,
-    video25: row.video25,
-    video50: row.video50,
-    video75: row.video75,
-    video100: row.video100,
-  });
-  const legacyCreativeClassification = deriveLegacyCreativeClassification(reconciledCreativeTaxonomy);
+  const taxonomySource = row.taxonomy_source ?? "legacy_fallback";
+  const legacyCreativeType = row.creative_type ?? "feed";
+  const legacyCreativeTypeLabel =
+    row.creative_type_label ?? getLegacyCreativeTypeLabel(legacyCreativeType);
   const safeNumber = (value: number | null | undefined) => (typeof value === "number" && Number.isFinite(value) ? value : 0);
 
   return {
@@ -391,15 +368,18 @@ export function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
     adSetId: row.adset_id ?? null,
     adSetName: row.adset_name ?? null,
     currency: row.currency ?? null,
-    format: legacyCreativeClassification.format,
-    creativeType: legacyCreativeClassification.creative_type,
-    creativeTypeLabel: legacyCreativeClassification.creative_type_label,
-    creativeDeliveryType: reconciledCreativeTaxonomy.creative_delivery_type,
-    creativeVisualFormat: reconciledCreativeTaxonomy.creative_visual_format,
-    creativePrimaryType: reconciledCreativeTaxonomy.creative_primary_type,
-    creativePrimaryLabel: reconciledCreativeTaxonomy.creative_primary_label,
-    creativeSecondaryType: reconciledCreativeTaxonomy.creative_secondary_type,
-    creativeSecondaryLabel: reconciledCreativeTaxonomy.creative_secondary_label,
+    format: row.format ?? "image",
+    creativeType: legacyCreativeType,
+    creativeTypeLabel: legacyCreativeTypeLabel,
+    creativeDeliveryType: row.creative_delivery_type ?? "standard",
+    creativeVisualFormat: row.creative_visual_format ?? "image",
+    creativePrimaryType: row.creative_primary_type ?? "standard",
+    creativePrimaryLabel: row.creative_primary_label ?? null,
+    creativeSecondaryType: row.creative_secondary_type ?? null,
+    creativeSecondaryLabel: row.creative_secondary_label ?? null,
+    taxonomyVersion: row.taxonomy_version,
+    taxonomySource,
+    taxonomyReconciledByVideoEvidence: row.taxonomy_reconciled_by_video_evidence ?? false,
     thumbnailUrl: row.thumbnail_url,
     previewUrl: row.preview_url,
     imageUrl: row.image_url,

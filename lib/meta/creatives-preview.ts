@@ -12,6 +12,27 @@ import type {
 import { classifyMetaCreative } from "@/lib/meta/creative-taxonomy";
 import { normalizeMediaUrl, extractVideoIdsFromCreative } from "@/lib/meta/creatives-utils";
 
+type CreativeStaticPreviewRowLike = {
+  cardPreviewUrl?: string | null;
+  card_preview_url?: string | null;
+  tableThumbnailUrl?: string | null;
+  table_thumbnail_url?: string | null;
+  cachedThumbnailUrl?: string | null;
+  cached_thumbnail_url?: string | null;
+  thumbnailUrl?: string | null;
+  thumbnail_url?: string | null;
+  imageUrl?: string | null;
+  image_url?: string | null;
+  previewUrl?: string | null;
+  preview_url?: string | null;
+  preview?: {
+    image_url?: string | null;
+    poster_url?: string | null;
+  } | null;
+};
+
+export type CreativeStaticPreviewTier = "card" | "table";
+
 // ── URL helpers ────────────────────────────────────────────────────────────────
 
 function parsePreviewSizeFromUrl(url: string): { width: number; height: number } | null {
@@ -41,6 +62,40 @@ export function isThumbnailLikeUrl(value: unknown): boolean {
 function isPreviewContentType(contentType: string | null): boolean {
   if (!contentType) return false;
   return contentType.toLowerCase().startsWith("image/");
+}
+
+export function getCreativeStaticPreviewSources(
+  row: CreativeStaticPreviewRowLike,
+  tier: CreativeStaticPreviewTier
+): string[] {
+  const preferred =
+    tier === "card"
+      ? row.cardPreviewUrl ?? row.card_preview_url ?? null
+      : row.tableThumbnailUrl ?? row.table_thumbnail_url ?? null;
+
+  const candidates = [
+    preferred,
+    row.cardPreviewUrl ?? row.card_preview_url ?? null,
+    row.imageUrl ?? row.image_url ?? null,
+    row.preview?.image_url ?? null,
+    row.preview?.poster_url ?? null,
+    row.previewUrl ?? row.preview_url ?? null,
+    row.cachedThumbnailUrl ?? row.cached_thumbnail_url ?? null,
+    row.tableThumbnailUrl ?? row.table_thumbnail_url ?? null,
+    row.thumbnailUrl ?? row.thumbnail_url ?? null,
+  ];
+
+  const seen = new Set<string>();
+  const resolved: string[] = [];
+
+  for (const candidate of candidates) {
+    const normalized = normalizeMediaUrl(candidate);
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    resolved.push(normalized);
+  }
+
+  return resolved;
 }
 
 export async function validateMediaUrl(

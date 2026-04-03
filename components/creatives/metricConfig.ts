@@ -3,6 +3,8 @@ import type {
   CreativeFormat,
   CreativePrimaryType,
   CreativeSecondaryType,
+  CreativeTaxonomySource,
+  CreativeTaxonomyVersion,
   CreativeType,
   CreativeVisualFormat,
 } from "@/lib/meta/creatives-types";
@@ -77,6 +79,9 @@ export interface MetaCreativeRow {
   creativePrimaryLabel: string | null;
   creativeSecondaryType: CreativeSecondaryType | null;
   creativeSecondaryLabel: string | null;
+  taxonomyVersion?: CreativeTaxonomyVersion;
+  taxonomySource?: CreativeTaxonomySource | null;
+  taxonomyReconciledByVideoEvidence?: boolean;
   thumbnailUrl: string | null;
   previewUrl: string | null;
   imageUrl: string | null;

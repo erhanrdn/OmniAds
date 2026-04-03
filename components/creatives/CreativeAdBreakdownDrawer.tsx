@@ -501,15 +501,7 @@ function CreativeBreakdownTable({
                 const isLast = idx === displayRows.length - 1;
                 const borderClass = !isLast ? "border-b border-border/40" : "";
 
-                const assetFallbacks = [
-                  row.cardPreviewUrl ?? null,
-                  row.imageUrl ?? null,
-                  row.preview?.image_url ?? null,
-                  row.preview?.poster_url ?? null,
-                  row.previewUrl ?? null,
-                  row.cachedThumbnailUrl ?? null,
-                  row.thumbnailUrl ?? null,
-                ];
+                const assetFallbacks = buildCreativeAssetFallbacks(row);
 
                 return (
                   <tr key={row.id} className="group transition-colors hover:bg-muted/15">

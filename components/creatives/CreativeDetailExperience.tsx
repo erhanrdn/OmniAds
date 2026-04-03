@@ -58,8 +58,6 @@ export function CreativeDetailExperience({
   const language = usePreferencesStore((state) => state.language);
   const creativeTranslations = getTranslations(language).creativeDetail;
   const [source, setSource] = useState<StageSource>("html");
-  const [detailPreviewHtml, setDetailPreviewHtml] = useState<string | null>(null);
-  const [detailPreviewLoading, setDetailPreviewLoading] = useState(false);
   const [aiInterpretationRequested, setAiInterpretationRequested] = useState(false);
 
   useEffect(() => {
@@ -76,52 +74,43 @@ export function CreativeDetailExperience({
   }, [onOpenChange, open]);
 
   useEffect(() => {
-    setDetailPreviewHtml(null);
-    setDetailPreviewLoading(false);
     setSource("html");
     setAiInterpretationRequested(false);
   }, [row?.id]);
-
-  useEffect(() => {
-    if (!open || !row?.creativeId || !businessId) return;
-    let cancelled = false;
-    setDetailPreviewLoading(true);
-
-    fetchMetaCreativeDetailPreview({
-      businessId,
-      creativeId: row.creativeId,
-    })
-      .then((payload) => {
-        if (cancelled) return;
-        const detail = payload.detail_preview;
-        const html = typeof detail?.html === "string" && detail.html.trim().length > 0 ? detail.html : null;
-        setDetailPreviewHtml(html);
-      })
-      .catch(() => {
-        if (!cancelled) setDetailPreviewHtml(null);
-      })
-      .finally(() => {
-        if (!cancelled) setDetailPreviewLoading(false);
+  const detailPreviewQuery = useQuery({
+    queryKey: ["creative-detail-preview", businessId, row?.creativeId ?? ""],
+    enabled: open && Boolean(businessId) && Boolean(row?.creativeId),
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    retry: 1,
+    queryFn: async () => {
+      if (!row?.creativeId) return null;
+      const payload = await fetchMetaCreativeDetailPreview({
+        businessId,
+        creativeId: row.creativeId,
       });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [businessId, open, row?.creativeId]);
+      const detail = payload.detail_preview;
+      return typeof detail?.html === "string" && detail.html.trim().length > 0 ? detail.html : null;
+    },
+  });
 
   const currency = resolveCreativeCurrency(row?.currency ?? null, defaultCurrency);
   const imageUrl = row ? resolveDetailImageUrl(row) : null;
+  const detailPreviewHtml = detailPreviewQuery.data ?? null;
+  const detailPreviewLoading = detailPreviewQuery.isFetching;
   const canShowHtml = Boolean(detailPreviewHtml);
   const resolvedSource: StageSource = canShowHtml && source === "html" ? "html" : "image";
   const taxonomyPills = row
-    ? getCreativeDisplayPills({
-        creative_delivery_type: row.creativeDeliveryType,
-        creative_visual_format: row.creativeVisualFormat,
-        creative_primary_type: row.creativePrimaryType,
-        creative_primary_label: row.creativePrimaryLabel,
-        creative_secondary_type: row.creativeSecondaryType,
-        creative_secondary_label: row.creativeSecondaryLabel,
-      })
+      ? getCreativeDisplayPills({
+          creative_delivery_type: row.creativeDeliveryType,
+          creative_visual_format: row.creativeVisualFormat,
+          creative_primary_type: row.creativePrimaryType,
+          creative_primary_label: row.creativePrimaryLabel,
+          creative_secondary_type: row.creativeSecondaryType,
+          creative_secondary_label: row.creativeSecondaryLabel,
+          taxonomy_source: row.taxonomySource ?? null,
+        })
     : { primaryLabel: null, secondaryLabel: null };
 
   const context = useMemo(() => (row ? buildCreativeDecisionContext(row, allRows) : null), [allRows, row]);

@@ -325,8 +325,11 @@ export function buildMetaCreativeApiRow(params: {
   const normalizedCtrAll = safeImpressions > 0 ? (safeLinkClicks / safeImpressions) * 100 : 0;
   const normalizedClickToAtc = safeLinkClicks > 0 ? (safeAddToCart / safeLinkClicks) * 100 : 0;
   const normalizedAtcToPurchase = safeAddToCart > 0 ? (safePurchases / safeAddToCart) * 100 : 0;
+  const taxonomySource =
+    row.taxonomy_source ??
+    (row.creative_primary_type ? "deterministic" : "legacy_fallback");
   const creativeTaxonomy =
-    row.creative_primary_type
+    taxonomySource === "deterministic" && row.creative_primary_type
       ? {
           creative_delivery_type: row.creative_delivery_type,
           creative_visual_format: row.creative_visual_format,
@@ -349,6 +352,11 @@ export function buildMetaCreativeApiRow(params: {
     video75: row.video75,
     video100: row.video100,
   });
+  const taxonomyReconciledByVideoEvidence =
+    reconciledCreativeTaxonomy.creative_delivery_type !== creativeTaxonomy.creative_delivery_type ||
+    reconciledCreativeTaxonomy.creative_visual_format !== creativeTaxonomy.creative_visual_format ||
+    reconciledCreativeTaxonomy.creative_primary_type !== creativeTaxonomy.creative_primary_type ||
+    reconciledCreativeTaxonomy.creative_secondary_type !== creativeTaxonomy.creative_secondary_type;
   const legacyCreativeClassification = deriveLegacyCreativeClassification(reconciledCreativeTaxonomy);
 
   const baseRow: MetaCreativeApiRow = {
@@ -395,6 +403,9 @@ export function buildMetaCreativeApiRow(params: {
     creative_secondary_type: reconciledCreativeTaxonomy.creative_secondary_type,
     creative_secondary_label: reconciledCreativeTaxonomy.creative_secondary_label,
     classification_signals: reconciledCreativeTaxonomy.classification_signals,
+    taxonomy_version: "v2",
+    taxonomy_source: taxonomySource,
+    taxonomy_reconciled_by_video_evidence: taxonomyReconciledByVideoEvidence,
     spend: r2(safeSpend),
     purchase_value: r2(normalizedPurchaseValue),
     roas: r2(normalizedRoas),
