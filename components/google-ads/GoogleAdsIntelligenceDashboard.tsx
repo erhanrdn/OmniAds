@@ -1110,25 +1110,32 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                   {campaignScopeLabel}
                 </p>
                 <div className="ml-auto flex min-w-0 items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => runAdvisorAnalysis()}
-                    disabled={!advisorCanOpen || isAdvisorLoading}
-                    title={advisorHelperText}
-                    className={cn(
-                      "inline-flex h-9 shrink-0 items-center rounded-md border px-3 text-xs font-semibold transition-colors",
-                      !advisorCanOpen || isAdvisorLoading
-                        ? "cursor-not-allowed border-border bg-muted text-muted-foreground"
-                        : advisorCurrent
-                          ? "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
-                          : "border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100"
-                    )}
-                  >
-                    {getGoogleAdsAdvisorButtonLabel({
+                  {(() => {
+                    const advisorButtonLabel = getGoogleAdsAdvisorButtonLabel({
                       isLoading: isAdvisorLoading,
                       ctaState: advisorCtaState,
-                    })}
-                  </button>
+                    });
+
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => runAdvisorAnalysis()}
+                        disabled={!advisorCanOpen || isAdvisorLoading}
+                        title={advisorHelperText}
+                        aria-label={`${advisorButtonLabel}. ${advisorHelperText}`}
+                        className={cn(
+                          "inline-flex h-8 shrink-0 items-center rounded-md border px-2.5 text-[11px] font-semibold transition-colors",
+                          !advisorCanOpen || isAdvisorLoading
+                            ? "cursor-not-allowed border-border bg-muted text-muted-foreground"
+                            : advisorCurrent
+                              ? "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                              : "border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100"
+                        )}
+                      >
+                        {advisorButtonLabel}
+                      </button>
+                    );
+                  })()}
                   {isSyncStatusLoading ? (
                     <SyncStatusPillSkeleton className="w-28 shrink-0" />
                   ) : shouldShowSyncStatusPill ? (

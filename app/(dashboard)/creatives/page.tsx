@@ -36,9 +36,12 @@ import { SyncStatusPill, SyncStatusPillSkeleton } from "@/components/sync/sync-s
 import {
   CreativesTableShell,
   buildCreativeHistoryById,
+  fetchMetaCreativePreviewHydration,
   fetchMetaCreatives,
   fetchMetaCreativesHistory,
+  hasRenderablePreview,
   mapApiRowToUiRow,
+  mergeHydratedPreviewIntoRow,
   PLATFORM_LABELS,
   PreviewStripState,
   SHARE_METRIC_IDS,
@@ -475,6 +478,57 @@ export default function CreativesPage() {
     topPanelRows.length,
   ]);
   const topPreviewRows = useMemo(() => topPanelRows.slice(0, 20), [topPanelRows]);
+  const previewHydrationItems = useMemo(
+    () =>
+      topPreviewRows
+        .slice(0, 10)
+        .filter((row) => !hasRenderablePreview(row))
+        .map((row) => ({
+          rowId: row.id,
+          creativeId: row.creativeId || null,
+        })),
+    [topPreviewRows]
+  );
+  const previewHydrationSignature = useMemo(
+    () =>
+      previewHydrationItems
+        .map((item) => `${item.rowId}:${item.creativeId ?? ""}`)
+        .join("|"),
+    [previewHydrationItems]
+  );
+  const topPreviewHydrationQuery = useQuery({
+    queryKey: [
+      "meta-creatives-preview-hydration",
+      businessId,
+      previewHydrationSignature,
+    ],
+    enabled:
+      canLoadCreatives &&
+      previewHydrationItems.length > 0 &&
+      topPreviewRows.length > 0,
+    queryFn: () =>
+      fetchMetaCreativePreviewHydration({
+        businessId,
+        items: previewHydrationItems,
+      }),
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    placeholderData: (previousData) => previousData,
+  });
+  const hydratedPreviewRowById = useMemo(
+    () =>
+      new Map(
+        (topPreviewHydrationQuery.data?.rows ?? []).map((row) => [row.rowId, row])
+      ),
+    [topPreviewHydrationQuery.data?.rows]
+  );
+  const mergedTopPreviewRows = useMemo(
+    () =>
+      topPreviewRows.map((row) =>
+        mergeHydratedPreviewIntoRow(row, hydratedPreviewRowById.get(row.id))
+      ),
+    [hydratedPreviewRowById, topPreviewRows]
+  );
 
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return;
@@ -752,7 +806,7 @@ export default function CreativesPage() {
               onFiltersChange={setTopFilters}
               selectedMetricIds={topMetricIds}
               onSelectedMetricIdsChange={setTopMetricIds}
-              selectedRows={topPreviewRows}
+              selectedRows={mergedTopPreviewRows}
               allRowsForHeatmap={filteredRows}
               defaultCurrency={selectedBusinessCurrency}
               onOpenRow={(rowId) => openCreativeDrawer(rowId, true)}

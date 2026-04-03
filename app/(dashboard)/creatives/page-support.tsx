@@ -32,6 +32,23 @@ export interface MetaCreativeDetailResponse {
   };
 }
 
+export interface MetaCreativePreviewHydrationRow {
+  rowId: string;
+  creative_id: string | null;
+  thumbnail_url: string | null;
+  table_thumbnail_url: string | null;
+  card_preview_url: string | null;
+  preview_url: string | null;
+  image_url: string | null;
+  cached_thumbnail_url: string | null;
+  preview: MetaCreativeRow["preview"];
+}
+
+export interface MetaCreativePreviewHydrationResponse {
+  status?: string;
+  rows: MetaCreativePreviewHydrationRow[];
+}
+
 export type CreativeHistoryWindowKey = "last3" | "last7" | "last14" | "last30" | "last90" | "allHistory";
 
 export type PreviewStripState = "data_loading" | "media_hydrating" | "ready" | "missing";
@@ -299,6 +316,91 @@ export async function fetchMetaCreativeDetailPreview(params: {
   }
 
   return payload as MetaCreativeDetailResponse;
+}
+
+export async function fetchMetaCreativePreviewHydration(params: {
+  businessId: string;
+  items: Array<{ rowId: string; creativeId?: string | null }>;
+}): Promise<MetaCreativePreviewHydrationResponse> {
+  const response = await fetch("/api/meta/creatives/hydrate", {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    cache: "no-store",
+    body: JSON.stringify(params),
+  });
+
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message = hasMessage(payload)
+      ? payload.message
+      : `Could not hydrate creative previews (${response.status}).`;
+    throw new Error(message);
+  }
+
+  if (
+    !payload ||
+    typeof payload !== "object" ||
+    !Array.isArray((payload as MetaCreativePreviewHydrationResponse).rows)
+  ) {
+    throw new Error("Invalid creative preview hydration response received from backend.");
+  }
+
+  return payload as MetaCreativePreviewHydrationResponse;
+}
+
+export function mergeHydratedPreviewIntoRow(
+  row: MetaCreativeRow,
+  hydrated: MetaCreativePreviewHydrationRow | undefined
+): MetaCreativeRow {
+  if (!hydrated) return row;
+
+  const mergedPreview = {
+    ...row.preview,
+    ...hydrated.preview,
+    image_url:
+      hydrated.preview.image_url ??
+      row.preview.image_url ??
+      hydrated.image_url ??
+      row.imageUrl ??
+      null,
+    poster_url:
+      hydrated.preview.poster_url ??
+      row.preview.poster_url ??
+      hydrated.thumbnail_url ??
+      row.thumbnailUrl ??
+      null,
+    video_url: hydrated.preview.video_url ?? row.preview.video_url ?? null,
+    source: hydrated.preview.source ?? row.preview.source ?? null,
+    is_catalog: hydrated.preview.is_catalog ?? row.preview.is_catalog,
+    render_mode:
+      hydrated.preview.render_mode === "unavailable" &&
+      !(hydrated.preview.image_url ?? hydrated.preview.poster_url)
+        ? row.preview.render_mode
+        : hydrated.preview.render_mode,
+  } as MetaCreativeRow["preview"];
+
+  const mergedRow: MetaCreativeRow = {
+    ...row,
+    creativeId: hydrated.creative_id ?? row.creativeId,
+    thumbnailUrl: hydrated.thumbnail_url ?? row.thumbnailUrl,
+    tableThumbnailUrl: hydrated.table_thumbnail_url ?? row.tableThumbnailUrl ?? null,
+    cardPreviewUrl: hydrated.card_preview_url ?? row.cardPreviewUrl ?? null,
+    previewUrl: hydrated.preview_url ?? row.previewUrl,
+    imageUrl: hydrated.image_url ?? row.imageUrl,
+    cachedThumbnailUrl: hydrated.cached_thumbnail_url ?? row.cachedThumbnailUrl ?? null,
+    preview: mergedPreview,
+  };
+
+  return {
+    ...mergedRow,
+    previewState:
+      hasRenderablePreview(mergedRow) || mergedPreview.render_mode !== "unavailable"
+        ? "preview"
+        : row.previewState,
+  };
 }
 
 function toHistoricalWindow(row: MetaCreativeRow): AiCreativeHistoricalWindow {

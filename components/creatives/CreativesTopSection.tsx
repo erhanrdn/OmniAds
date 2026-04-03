@@ -1089,27 +1089,23 @@ function PreviewStrip({
     setUnlockedPreviewCount(previewMode === "media" && rows.length > 0 ? 1 : rows.length);
   }, [previewMode, rowSignature, rows.length]);
 
-  if (previewStripState === "data_loading" || previewStripState === "media_hydrating") {
-    const helperText =
-      previewStripState === "data_loading"
-        ? "Fetching creatives and media previews from Meta"
-        : "Preparing preview cards";
-
+  if (previewStripState === "data_loading") {
     return (
-      <div className="min-h-[280px] rounded-xl border border-dashed bg-muted/10 px-4 py-8">
-        <div className="mx-auto flex min-h-[248px] max-w-xl flex-col items-center justify-center text-center">
-          <p className="text-sm font-medium text-foreground">Waiting for Facebook...</p>
-          <div className="mt-4 h-1.5 w-full max-w-sm overflow-hidden rounded-full bg-slate-200/80">
-            <div className="h-full w-2/5 animate-pulse rounded-full bg-slate-500/70" />
-          </div>
-          <p className="mt-3 text-xs text-muted-foreground">{helperText}</p>
-          {previewStripSummary ? (
-            <p className="mt-1 text-[11px] text-muted-foreground/80">
-              {previewStripSummary.total > 0
-                ? `${previewStripSummary.ready} of ${previewStripSummary.total} top creatives are preview-ready so far.`
-                : "Waiting for your top creatives selection to finish loading."}
-            </p>
-          ) : null}
+      <div className="overflow-x-auto pb-1">
+        <div className="flex min-w-max gap-3">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div
+              key={`creative-preview-skeleton-${index}`}
+              className="w-[190px] shrink-0 overflow-hidden rounded-xl border bg-background"
+            >
+              <div className="aspect-square w-full animate-pulse bg-gradient-to-br from-slate-100 to-slate-200" />
+              <div className="space-y-2 px-3 pb-3 pt-2.5">
+                <div className="h-4 w-3/4 animate-pulse rounded bg-slate-100" />
+                <div className="h-3 w-1/2 animate-pulse rounded bg-slate-100" />
+                <div className="h-3 w-2/3 animate-pulse rounded bg-slate-100" />
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     );
