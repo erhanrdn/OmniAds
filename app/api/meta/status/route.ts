@@ -4,6 +4,11 @@ import { getIntegrationMetadata } from "@/lib/integrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { readProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
 import {
+  META_PRODUCT_CORE_COVERAGE_SCOPES,
+  META_RUNTIME_STATE_SCOPES,
+  META_SECONDARY_REPORTING_SCOPES,
+} from "@/lib/meta/core-config";
+import {
   getLatestMetaSyncHealth,
   getMetaAccountDailyCoverage,
   getMetaCampaignDailyCoverage,
@@ -43,15 +48,15 @@ function buildMetaDomainReadiness(input: {
   availableSurfaces: string[];
   missingSurfaces: string[];
 }) {
-  const coreSurfacesReady = ["account_daily", "campaign_daily"].filter((surface) =>
+  const coreSurfacesReady = [...META_PRODUCT_CORE_COVERAGE_SCOPES].filter((surface) =>
     input.availableSurfaces.includes(surface)
   );
   const deepSurfacesPending = Array.from(
     new Set(
-      input.missingSurfaces.filter((surface) => !["account_daily", "campaign_daily"].includes(surface))
+      input.missingSurfaces.filter((surface) => !META_PRODUCT_CORE_COVERAGE_SCOPES.includes(surface as never))
     )
   );
-  const blockingSurfaces = ["account_daily", "campaign_daily"].filter((surface) =>
+  const blockingSurfaces = [...META_PRODUCT_CORE_COVERAGE_SCOPES].filter((surface) =>
     input.missingSurfaces.includes(surface)
   );
   const summary =
@@ -72,9 +77,9 @@ const META_BREAKDOWN_ENDPOINTS = [
   "breakdown_publisher_platform,platform_position,impression_device",
 ] as const;
 
-const META_STATE_SCOPES = ["account_daily", "adset_daily", "creative_daily", "ad_daily"] as const;
-const META_CORE_REQUIRED_SURFACES = ["account_daily", "campaign_daily"] as const;
-const META_SECONDARY_SURFACES = ["adset_daily", "ad_daily"] as const;
+const META_STATE_SCOPES = [...META_RUNTIME_STATE_SCOPES] as const;
+const META_CORE_REQUIRED_SURFACES = [...META_PRODUCT_CORE_COVERAGE_SCOPES] as const;
+const META_SECONDARY_SURFACES = [...META_SECONDARY_REPORTING_SCOPES, "ad_daily"] as const;
 const META_DEEP_SURFACES = ["breakdowns"] as const;
 const META_RECENT_RECOVERY_DAYS = Math.max(
   1,
@@ -322,6 +327,7 @@ export async function GET(request: NextRequest) {
     );
 
   const accountDailyStates = relevantStates("account_daily");
+  const campaignDailyStates = relevantStates("campaign_daily");
   const adsetDailyStates = relevantStates("adset_daily");
   const creativeDailyStates = relevantStates("creative_daily");
   const adDailyStates = relevantStates("ad_daily");
@@ -338,20 +344,24 @@ export async function GET(request: NextRequest) {
       .filter((value): value is string => Boolean(value))
       .sort((a, b) => a.localeCompare(b))[0] ?? null;
 
-  const overallCompletedDays = minCompletedDays(
+  const historicalArchiveCompletedDays = minCompletedDays(
     [
       accountDailyStates.length > 0
         ? Math.min(...accountDailyStates.map((row) => row.completedDays))
         : accountCoverage?.completed_days ?? 0,
-      campaignCoverage?.completed_days ?? 0,
+      campaignDailyStates.length > 0
+        ? Math.min(...campaignDailyStates.map((row) => row.completedDays))
+        : campaignCoverage?.completed_days ?? 0,
     ],
     historicalTotalDays
   );
-  const historicalReadyThroughDate = earliestReadyThroughDate([
+  const historicalArchiveReadyThroughDate = earliestReadyThroughDate([
     accountDailyStates.length > 0
       ? earliestReadyThroughDate(accountDailyStates.map((row) => row.readyThroughDate))
       : accountCoverage?.ready_through_date ?? null,
-    campaignCoverage?.ready_through_date ?? null,
+    campaignDailyStates.length > 0
+      ? earliestReadyThroughDate(campaignDailyStates.map((row) => row.readyThroughDate))
+      : campaignCoverage?.ready_through_date ?? null,
   ]);
 
   const selectedRangeCoverage =
@@ -374,7 +384,6 @@ export async function GET(request: NextRequest) {
       : null;
   const selectedRangeTotalDays =
     selectedStartDate && selectedEndDate ? dayCountInclusive(selectedStartDate, selectedEndDate) : null;
-  const selectedRangeCompletedDays = selectedRangeCoverage?.completed_days ?? 0;
   const selectedRangeRequested = Boolean(selectedStartDate && selectedEndDate && selectedRangeTotalDays);
   const selectedRangeCoreCompletedDays = minCompletedDays(
     [selectedRangeCoverage?.completed_days ?? 0, selectedRangeCampaignCoverage?.completed_days ?? 0],
@@ -382,9 +391,6 @@ export async function GET(request: NextRequest) {
   );
   const selectedRangeIncomplete =
     Boolean(selectedRangeTotalDays) && selectedRangeCoreCompletedDays < (selectedRangeTotalDays ?? 0);
-  const selectedRangeCampaignIncomplete =
-    Boolean(selectedRangeTotalDays) &&
-    (selectedRangeCampaignCoverage?.completed_days ?? 0) < (selectedRangeTotalDays ?? 0);
   const selectedRangeCoreReadyThroughDate = earliestReadyThroughDate([
     selectedRangeCoverage?.ready_through_date ?? null,
     selectedRangeCampaignCoverage?.ready_through_date ?? null,
@@ -399,6 +405,12 @@ export async function GET(request: NextRequest) {
       states: accountDailyStates,
       fallbackCompletedDays: accountCoverage?.completed_days ?? 0,
       fallbackReadyThroughDate: accountCoverage?.ready_through_date ?? null,
+    },
+    {
+      scope: "campaign_daily",
+      states: campaignDailyStates,
+      fallbackCompletedDays: campaignCoverage?.completed_days ?? 0,
+      fallbackReadyThroughDate: campaignCoverage?.ready_through_date ?? null,
     },
     {
       scope: "adset_daily",
@@ -439,11 +451,33 @@ export async function GET(request: NextRequest) {
       entry.states.length > 0 ? Math.max(...entry.states.map((row) => row.deadLetterCount)) : 0,
   }));
 
-  const historicalProgressPercent =
+  const historicalArchiveProgressPercent =
     historicalTotalDays > 0
-      ? Math.min(100, Math.round((overallCompletedDays / historicalTotalDays) * 100))
+      ? Math.min(100, Math.round((historicalArchiveCompletedDays / historicalTotalDays) * 100))
       : 0;
-
+  const currentCoreProgressPercent =
+    selectedRangeRequested && selectedRangeTotalDays
+      ? Math.min(100, Math.round((selectedRangeCoreCompletedDays / selectedRangeTotalDays) * 100))
+      : recentWindowTotalDays > 0
+        ? Math.min(
+            100,
+            Math.round(
+              (minCompletedDays(
+                [recentAccountCoverage?.completed_days ?? 0, recentCampaignCoverage?.completed_days ?? 0],
+                recentWindowTotalDays
+              ) /
+                recentWindowTotalDays) *
+                100
+            )
+          )
+        : 0;
+  const historicalArchiveComplete = historicalArchiveCompletedDays >= historicalTotalDays;
+  const currentCoreUsable = selectedRangeRequested
+    ? Boolean(selectedRangeTotalDays) && selectedRangeCoreCompletedDays >= (selectedRangeTotalDays ?? 0)
+    : minCompletedDays(
+          [recentAccountCoverage?.completed_days ?? 0, recentCampaignCoverage?.completed_days ?? 0],
+          recentWindowTotalDays
+        ) >= recentWindowTotalDays;
   const latestBackgroundActivityAt =
     queueHealth?.latestCoreActivityAt ??
     queueHealth?.latestMaintenanceActivityAt ??
@@ -459,7 +493,7 @@ export async function GET(request: NextRequest) {
   const historicalQueuePaused =
     connected &&
     accountIds.length > 0 &&
-    overallCompletedDays < historicalTotalDays &&
+    historicalArchiveCompletedDays < historicalTotalDays &&
     (queueHealth?.leasedPartitions ?? 0) === 0 &&
     (queueHealth?.queueDepth ?? 0) > 0 &&
     !backgroundRecentlyActive;
@@ -480,7 +514,7 @@ export async function GET(request: NextRequest) {
     historicalQueuePaused,
     staleLeasedQueue,
     stateMissingWhileQueued,
-    overallCompletedDays,
+    overallCompletedDays: historicalArchiveCompletedDays,
     totalDays: historicalTotalDays,
     latestSyncType: latestSync?.sync_type ? String(latestSync.sync_type) : null,
   });
@@ -490,7 +524,7 @@ export async function GET(request: NextRequest) {
     connected &&
     accountIds.length > 0 &&
     (
-      overallCompletedDays < historicalTotalDays ||
+      historicalArchiveCompletedDays < historicalTotalDays ||
       (queueHealth?.leasedPartitions ?? 0) > 0 ||
       (queueHealth?.queueDepth ?? 0) > 0 ||
       (queueHealth?.retryableFailedPartitions ?? 0) > 0
@@ -499,16 +533,16 @@ export async function GET(request: NextRequest) {
   const responseProgressPercent =
     shouldReportSelectedRangeProgress && selectedRangeTotalDays
       ? Math.min(100, Math.round((selectedRangeCoreCompletedDays / selectedRangeTotalDays) * 100))
-      : historicalProgressPercent;
+      : historicalArchiveProgressPercent;
   const responseCompletedDays = shouldReportSelectedRangeProgress
     ? selectedRangeCoreCompletedDays
-    : overallCompletedDays;
+    : historicalArchiveCompletedDays;
   const responseTotalDays = shouldReportSelectedRangeProgress
     ? selectedRangeTotalDays
     : historicalTotalDays;
   const responseReadyThroughDate = shouldReportSelectedRangeProgress
     ? selectedRangeCoreReadyThroughDate
-    : historicalReadyThroughDate;
+    : historicalArchiveReadyThroughDate;
 
   const state = !connected
     ? "not_connected"
@@ -530,7 +564,7 @@ export async function GET(request: NextRequest) {
               ? "syncing"
               : selectedRangeRequested && !selectedRangeIncomplete
                 ? "ready"
-                : !selectedRangeIncomplete && historicalProgressPercent >= 100
+                : !selectedRangeIncomplete && historicalArchiveProgressPercent >= 100
                   ? "ready"
                   : "partial";
   const latestMetaActivityAt =
@@ -597,15 +631,9 @@ export async function GET(request: NextRequest) {
       : null,
   ]);
   const metaRequiredCoverage = buildRequiredCoverage({
-    completedDays: overallCompletedDays,
+    completedDays: historicalArchiveCompletedDays,
     totalDays: historicalTotalDays,
-    readyThroughDate:
-      [
-        accountCoverage?.ready_through_date ?? null,
-        campaignCoverage?.ready_through_date ?? null,
-      ]
-        .filter((value): value is string => Boolean(value))
-        .sort((left, right) => left.localeCompare(right))[0] ?? null,
+    readyThroughDate: historicalArchiveReadyThroughDate,
   });
   const metaStallFingerprints = deriveProviderStallFingerprints({
     queueDepth: queueHealth?.queueDepth ?? 0,
@@ -628,27 +656,18 @@ export async function GET(request: NextRequest) {
     hasAssignedAccounts: accountIds.length > 0,
     warehouseRowCount: Number(accountStats?.row_count ?? 0),
     warehousePartial: selectedRangeRequested
-      ? Boolean(selectedRangeIncomplete || selectedRangeCampaignIncomplete)
-      : overallCompletedDays < historicalTotalDays,
+      ? Boolean(selectedRangeIncomplete)
+      : historicalArchiveCompletedDays < historicalTotalDays,
     syncState: state,
     selectedCurrentDay: selectedRangeIsToday,
     notReadyReason: phaseLabel === "Ready" ? null : phaseLabel,
   });
 
-  const accountSurfaceReady =
-    (accountCoverage?.completed_days ?? 0) >= historicalTotalDays;
-  const campaignSurfaceReady =
-    (campaignCoverage?.completed_days ?? 0) >= historicalTotalDays;
-  const currentAccountSurfaceUsable = selectedRangeRequested
-    ? Boolean(selectedRangeTotalDays) && selectedRangeCompletedDays >= (selectedRangeTotalDays ?? 0)
-    : (recentAccountCoverage?.completed_days ?? 0) >= recentWindowTotalDays;
-  const currentCampaignSurfaceUsable = selectedRangeRequested
-    ? Boolean(selectedRangeTotalDays) &&
-      (selectedRangeCampaignCoverage?.completed_days ?? 0) >= (selectedRangeTotalDays ?? 0)
-    : (recentCampaignCoverage?.completed_days ?? 0) >= recentWindowTotalDays;
+  const accountSurfaceReady = (accountCoverage?.completed_days ?? 0) >= historicalTotalDays;
+  const campaignSurfaceReady = (campaignCoverage?.completed_days ?? 0) >= historicalTotalDays;
   const availableSurfaces = [
-    currentAccountSurfaceUsable ? "account_daily" : null,
-    currentCampaignSurfaceUsable ? "campaign_daily" : null,
+    currentCoreUsable ? "account_daily" : null,
+    currentCoreUsable ? "campaign_daily" : null,
     (adsetCoverage?.completed_days ?? 0) >= effectiveHistoricalTotalDays ? "adset_daily" : null,
     (adDailyCoverage?.completed_days ?? 0) >= effectiveHistoricalTotalDays ? "ad_daily" : null,
     breakdownCoverageDays >= Math.min(historicalTotalDays, META_BREAKDOWN_MAX_HISTORY_DAYS) ? "breakdowns" : null,
@@ -660,7 +679,7 @@ export async function GET(request: NextRequest) {
   const readinessLevel: "usable" | "partial" | "ready" =
     accountSurfaceReady && campaignSurfaceReady
       ? "ready"
-      : currentAccountSurfaceUsable && currentCampaignSurfaceUsable
+      : currentCoreUsable
         ? "usable"
         : "partial";
   const domainReadiness = buildMetaDomainReadiness({
@@ -675,6 +694,13 @@ export async function GET(request: NextRequest) {
       historicalCompletedDays: Math.min(historicalTotalDays, accountCoverage?.completed_days ?? 0),
       historicalTotalDays,
       readyThroughDate: accountCoverage?.ready_through_date ?? null,
+    },
+    campaign_daily: {
+      recentCompletedDays: Math.min(recentWindowTotalDays, recentCampaignCoverage?.completed_days ?? 0),
+      recentTotalDays: recentWindowTotalDays,
+      historicalCompletedDays: Math.min(historicalTotalDays, campaignCoverage?.completed_days ?? 0),
+      historicalTotalDays,
+      readyThroughDate: campaignCoverage?.ready_through_date ?? null,
     },
     adset_daily: {
       recentCompletedDays: Math.min(recentWindowTotalDays, recentAdsetCoverage?.completed_days ?? 0),
@@ -730,25 +756,30 @@ export async function GET(request: NextRequest) {
       assignedAccountIds: accountIds,
       primaryAccountTimezone,
       currentDateInTimezone,
-      needsBootstrap: connected && accountIds.length > 0 && overallCompletedDays < historicalTotalDays,
+      currentCoreProgressPercent,
+      historicalArchiveProgressPercent,
+      currentCoreUsable,
+      historicalArchiveComplete,
+      needsBootstrap:
+        connected && accountIds.length > 0 && historicalArchiveCompletedDays < historicalTotalDays,
       warehouse: {
         rowCount: accountStats?.row_count ?? 0,
         firstDate: accountStats?.first_date ?? null,
         lastDate: accountStats?.last_date ?? null,
         coverage: {
           historical: {
-            completedDays: overallCompletedDays,
+            completedDays: historicalArchiveCompletedDays,
             totalDays: historicalTotalDays,
-            readyThroughDate: historicalReadyThroughDate,
+            readyThroughDate: historicalArchiveReadyThroughDate,
           },
           selectedRange:
             selectedStartDate && selectedEndDate && selectedRangeTotalDays
               ? {
                   startDate: selectedStartDate,
                   endDate: selectedEndDate,
-                  completedDays: selectedRangeCompletedDays,
+                  completedDays: selectedRangeCoreCompletedDays,
                   totalDays: selectedRangeTotalDays,
-                  readyThroughDate: selectedRangeCoverage?.ready_through_date ?? null,
+                  readyThroughDate: selectedRangeCoreReadyThroughDate,
                   isComplete: !selectedRangeIncomplete,
                 }
               : null,
@@ -854,7 +885,7 @@ export async function GET(request: NextRequest) {
           ? {
               startDate: selectedStartDate,
               endDate: selectedEndDate,
-              completedDays: selectedRangeCompletedDays,
+              completedDays: selectedRangeCoreCompletedDays,
               totalDays: selectedRangeTotalDays,
               isActive: Boolean(selectedRangeIncomplete) && (queueHealth?.leasedPartitions ?? 0) > 0,
             }

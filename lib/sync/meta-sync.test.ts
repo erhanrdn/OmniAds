@@ -20,7 +20,7 @@ describe("buildMetaLaneProgressEvidence", () => {
             updatedAt: "2026-04-02T10:00:00.000Z",
           },
         ],
-        adset_daily: [
+        campaign_daily: [
           {
             completedDays: 28,
             readyThroughDate: "2026-03-26",

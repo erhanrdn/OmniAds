@@ -312,6 +312,10 @@ describe("GET /api/meta/status", () => {
     expect(response.status).toBe(200);
     expect(payload.readinessLevel).toBe("usable");
     expect(payload.domainReadiness?.summary ?? null).toBeNull();
+    expect(payload.currentCoreUsable).toBe(true);
+    expect(payload.currentCoreProgressPercent).toBe(100);
+    expect(payload.historicalArchiveComplete).toBe(false);
+    expect(payload.historicalArchiveProgressPercent).toBe(10);
     expect(payload.latestSync?.progressPercent).toBe(10);
     expect(payload.latestSync?.completedDays).toBe(35);
     expect(payload.latestSync?.totalDays).toBe(365);

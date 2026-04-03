@@ -691,6 +691,7 @@ export default function CreativesPage() {
         return (
           <>
             <CreativesTopSection
+              businessId={businessId}
               showHeader={false}
               showGroupByControl={false}
               showAiActionsRow={false}
