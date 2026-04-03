@@ -13,6 +13,9 @@ export interface ShopifyOverviewAggregate {
   revenue: number;
   purchases: number;
   averageOrderValue: number | null;
+  grossRevenue?: number | null;
+  refundedRevenue?: number | null;
+  returnEvents?: number | null;
   sessions: number | null;
   conversionRate: number | null;
   newCustomers: number | null;
@@ -21,6 +24,9 @@ export interface ShopifyOverviewAggregate {
     date: string;
     revenue: number;
     purchases: number;
+    grossRevenue?: number | null;
+    refundedRevenue?: number | null;
+    returnEvents?: number | null;
     sessions: number | null;
     conversionRate: number | null;
     newCustomers: number | null;
@@ -580,6 +586,9 @@ export async function getShopifyOverviewAggregate(params: {
     revenue: round2(revenue),
     purchases: Math.round(purchases),
     averageOrderValue: purchases > 0 ? round2(revenue / purchases) : null,
+    grossRevenue: null,
+    refundedRevenue: null,
+    returnEvents: null,
     sessions,
     conversionRate,
     newCustomers,
@@ -588,6 +597,9 @@ export async function getShopifyOverviewAggregate(params: {
       date,
       revenue: round2(totals.revenue),
       purchases: Math.round(totals.purchases),
+      grossRevenue: null,
+      refundedRevenue: null,
+      returnEvents: null,
       sessions: totals.sessions,
       conversionRate:
         totals.sessions !== null && totals.sessions > 0

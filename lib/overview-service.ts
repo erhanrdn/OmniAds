@@ -432,6 +432,9 @@ async function resolveShopifyOverviewAggregateForRead(input: {
   endDate: string;
 }) {
   const candidate = await getShopifyOverviewReadCandidate(input);
+  const liveDailyByDate = new Map(
+    (candidate.live?.dailyTrends ?? []).map((row) => [row.date, row])
+  );
 
   if (candidate.preferredSource === "warehouse" && candidate.warehouse) {
     console.info("[overview] shopify warehouse read canary selected", {
@@ -447,19 +450,28 @@ async function resolveShopifyOverviewAggregateForRead(input: {
         revenue: candidate.warehouse.revenue,
         purchases: candidate.warehouse.purchases,
         averageOrderValue: candidate.warehouse.averageOrderValue,
-        sessions: null,
-        conversionRate: null,
-        newCustomers: null,
-        returningCustomers: null,
-        dailyTrends: candidate.warehouse.daily.map((row) => ({
-          date: row.date,
-          revenue: row.netRevenue,
-          purchases: row.orders,
-          sessions: null,
-          conversionRate: null,
-          newCustomers: null,
-          returningCustomers: null,
-        })),
+        grossRevenue: candidate.warehouse.grossRevenue,
+        refundedRevenue: candidate.warehouse.refundedRevenue,
+        returnEvents: candidate.warehouse.returnEvents,
+        sessions: candidate.live?.sessions ?? null,
+        conversionRate: candidate.live?.conversionRate ?? null,
+        newCustomers: candidate.live?.newCustomers ?? null,
+        returningCustomers: candidate.live?.returningCustomers ?? null,
+        dailyTrends: candidate.warehouse.daily.map((row) => {
+          const liveRow = liveDailyByDate.get(row.date);
+          return {
+            date: row.date,
+            revenue: row.netRevenue,
+            grossRevenue: row.orderRevenue,
+            refundedRevenue: row.refundedRevenue,
+            returnEvents: row.returnEvents,
+            purchases: row.orders,
+            sessions: liveRow?.sessions ?? null,
+            conversionRate: liveRow?.conversionRate ?? null,
+            newCustomers: liveRow?.newCustomers ?? null,
+            returningCustomers: liveRow?.returningCustomers ?? null,
+          };
+        }),
       },
       serving: candidate.servingMetadata,
     };
@@ -483,19 +495,28 @@ async function resolveShopifyOverviewAggregateForRead(input: {
         revenue: candidate.ledger.revenue,
         purchases: candidate.ledger.purchases,
         averageOrderValue: candidate.ledger.averageOrderValue,
-        sessions: null,
-        conversionRate: null,
-        newCustomers: null,
-        returningCustomers: null,
-        dailyTrends: candidate.ledger.daily.map((row) => ({
-          date: row.date,
-          revenue: row.netRevenue,
-          purchases: row.orders,
-          sessions: null,
-          conversionRate: null,
-          newCustomers: null,
-          returningCustomers: null,
-        })),
+        grossRevenue: candidate.ledger.grossRevenue,
+        refundedRevenue: candidate.ledger.refundedRevenue,
+        returnEvents: candidate.ledger.returnEvents,
+        sessions: candidate.live?.sessions ?? null,
+        conversionRate: candidate.live?.conversionRate ?? null,
+        newCustomers: candidate.live?.newCustomers ?? null,
+        returningCustomers: candidate.live?.returningCustomers ?? null,
+        dailyTrends: candidate.ledger.daily.map((row) => {
+          const liveRow = liveDailyByDate.get(row.date);
+          return {
+            date: row.date,
+            revenue: row.netRevenue,
+            grossRevenue: row.orderRevenue,
+            refundedRevenue: row.refundedRevenue,
+            returnEvents: row.returnEvents,
+            purchases: row.orders,
+            sessions: liveRow?.sessions ?? null,
+            conversionRate: liveRow?.conversionRate ?? null,
+            newCustomers: liveRow?.newCustomers ?? null,
+            returningCustomers: liveRow?.returningCustomers ?? null,
+          };
+        }),
       },
       serving: candidate.servingMetadata,
     };

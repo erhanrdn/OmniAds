@@ -59,7 +59,7 @@ const reportingCache = await import("@/lib/reporting-cache");
 const metaServing = await import("@/lib/meta/serving");
 const shopifyOverview = await import("@/lib/shopify/overview");
 const shopifyReadAdapter = await import("@/lib/shopify/read-adapter");
-const { getOverviewData } = await import("@/lib/overview-service");
+const { getOverviewData, getShopifyOverviewServingData } = await import("@/lib/overview-service");
 
 describe("getOverviewData", () => {
   beforeEach(() => {
@@ -301,6 +301,114 @@ describe("getOverviewData", () => {
       source: "shopify_warehouse",
       label: "Shopify Warehouse",
     });
+  });
+
+  it("preserves warehouse-only Shopify store metrics for summary surfaces", async () => {
+    vi.mocked(shopifyReadAdapter.getShopifyOverviewReadCandidate).mockResolvedValue({
+      status: {
+        state: "ready",
+        connected: true,
+        shopId: "test-shop.myshopify.com",
+        warehouse: null,
+        sync: null,
+        issues: [],
+      },
+      live: {
+        revenue: 900,
+        purchases: 9,
+        averageOrderValue: 100,
+        grossRevenue: null,
+        refundedRevenue: null,
+        returnEvents: null,
+        sessions: null,
+        conversionRate: null,
+        newCustomers: null,
+        returningCustomers: null,
+        dailyTrends: [],
+      },
+      warehouse: {
+        revenue: 840,
+        grossRevenue: 900,
+        refundedRevenue: 60,
+        purchases: 8,
+        returnEvents: 1,
+        averageOrderValue: 105,
+        daily: [
+          {
+            date: "2026-03-01",
+            orderRevenue: 900,
+            refundedRevenue: 60,
+            netRevenue: 840,
+            orders: 8,
+            returnEvents: 1,
+          },
+        ],
+      },
+      divergence: {
+        liveRevenue: 900,
+        warehouseRevenue: 840,
+        revenueDelta: -60,
+        revenueDeltaPercent: 6.67,
+        livePurchases: 9,
+        warehousePurchases: 8,
+        purchaseDelta: -1,
+        liveAov: 100,
+        warehouseAov: 105,
+        aovDelta: 5,
+        maxDailyRevenueDeltaPercent: 6.67,
+        maxDailyPurchaseDelta: 1,
+        withinThreshold: true,
+      },
+      decisionReasons: [],
+      canaryEnabled: true,
+      preferredSource: "warehouse",
+      canServeWarehouse: true,
+      servingMetadata: {
+        source: "warehouse",
+        provider: "shopify",
+        trustState: "trusted",
+        fallbackReason: null,
+        lastSyncedAt: "2026-04-02T10:00:00.000Z",
+        coverageStatus: "recent_ready",
+        productionMode: "auto",
+        pendingRepair: false,
+        pendingRepairStartedAt: null,
+        pendingRepairLastTopic: null,
+        pendingRepairLastReceivedAt: null,
+        selectedRevenueTruthBasis: "gross_minus_total_refunded",
+        basisSelectionReason: "closest_gross_minus_refunds_revenue",
+        transactionCoverageOrderRate: 88,
+        transactionCoverageAmountRate: 92,
+        explainedAdjustmentRevenue: 0,
+        unexplainedAdjustmentRevenue: 0,
+      },
+    });
+
+    const result = await getShopifyOverviewServingData({
+      businessId: "biz",
+      startDate: "2026-03-01",
+      endDate: "2026-03-15",
+    });
+
+    expect(result.aggregate).toEqual(
+      expect.objectContaining({
+        revenue: 840,
+        grossRevenue: 900,
+        refundedRevenue: 60,
+        purchases: 8,
+        returnEvents: 1,
+      })
+    );
+    expect(result.aggregate?.dailyTrends[0]).toEqual(
+      expect.objectContaining({
+        date: "2026-03-01",
+        revenue: 840,
+        grossRevenue: 900,
+        refundedRevenue: 60,
+        purchases: 8,
+        returnEvents: 1,
+      })
+    );
   });
 
   it("prefers ledger revenue truth when ledger serving is selected", async () => {

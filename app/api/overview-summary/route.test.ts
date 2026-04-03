@@ -110,13 +110,29 @@ describe("GET /api/overview-summary", () => {
     vi.mocked(overviewService.getShopifyOverviewServingData).mockResolvedValue({
       aggregate: {
         revenue: 200,
+        grossRevenue: 240,
+        refundedRevenue: 40,
         purchases: 2,
+        returnEvents: 1,
         averageOrderValue: 100,
         conversionRate: null,
         newCustomers: null,
         returningCustomers: null,
         sessions: null,
-        dailyTrends: [],
+        dailyTrends: [
+          {
+            date: "2026-03-01",
+            revenue: 200,
+            grossRevenue: 240,
+            refundedRevenue: 40,
+            purchases: 2,
+            returnEvents: 1,
+            sessions: null,
+            conversionRate: null,
+            newCustomers: null,
+            returningCustomers: null,
+          },
+        ],
       },
       serving: {
         source: "live",
@@ -141,6 +157,13 @@ describe("GET /api/overview-summary", () => {
       })
     );
     expect(Array.isArray(payload.summary.storeMetrics)).toBe(true);
-    expect(payload.summary.storeMetrics.length).toBeGreaterThan(0);
+    expect(payload.summary.storeMetrics.map((metric: { id: string }) => metric.id)).toEqual([
+      "store-aov",
+      "store-gross-sales",
+      "store-refunded-revenue",
+      "store-refund-rate",
+      "store-return-events",
+      "store-return-rate",
+    ]);
   });
 });
