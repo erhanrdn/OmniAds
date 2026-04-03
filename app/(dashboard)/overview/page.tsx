@@ -20,7 +20,12 @@ import {
 } from "@/components/date-range/DateRangePicker";
 import { usePersistentDateRange } from "@/hooks/use-persistent-date-range";
 import { buildOverviewMetricCatalog } from "@/lib/overview-metric-catalog";
+import { isDemoBusinessSelected } from "@/lib/business-mode";
 import { useAppStore } from "@/store/app-store";
+import {
+  buildDefaultProviderDomains,
+  deriveProviderViewState,
+} from "@/store/integrations-support";
 import { useIntegrationsStore } from "@/store/integrations-store";
 import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
@@ -112,6 +117,7 @@ const PLATFORM_TITLE_META: Record<
   string,
   { label: string; logo: string }
 > = {
+  ga4: { label: "GA4", logo: "/platform-logos/GA4.svg" },
   meta: { label: "Meta Ads", logo: "/platform-logos/Meta.png" },
   google: { label: "Google Ads", logo: "/platform-logos/googleAds.svg" },
   google_ads: { label: "Google Ads", logo: "/platform-logos/googleAds.svg" },
@@ -124,10 +130,19 @@ export default function OverviewPage() {
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const workspaceOwnerId = useAppStore((state) => state.workspaceOwnerId);
   const businessId = selectedBusinessId ?? "";
+  const domains = useIntegrationsStore((state) =>
+    selectedBusinessId ? state.domainsByBusinessId[selectedBusinessId] : undefined
+  );
   const activeBusiness = useMemo(
     () => businesses.find((business) => business.id === selectedBusinessId) ?? null,
     [businesses, selectedBusinessId]
   );
+  const isDemoBusiness = isDemoBusinessSelected(selectedBusinessId, businesses);
+  const ga4View = deriveProviderViewState(
+    "ga4",
+    domains?.ga4 ?? buildDefaultProviderDomains().ga4
+  );
+  const ga4Connected = ga4View.isConnected || isDemoBusiness;
 
   const [dateRange, setDateRange] = usePersistentDateRange();
   const currency: CurrencyCode = (activeBusiness?.currency as CurrencyCode) ?? "USD";
@@ -300,7 +315,10 @@ export default function OverviewPage() {
         onDateRangeChange={setDateRange}
         shopifyServing={effectiveSummary?.shopifyServing ?? null}
         platformProviders={Array.from(
-          new Set((effectiveSummary?.platforms ?? []).map((platform) => platform.provider))
+          new Set([
+            ...(effectiveSummary?.platforms ?? []).map((platform) => platform.provider),
+            ...(ga4Connected ? (["ga4"] as const) : []),
+          ])
         )}
       />
 
@@ -590,10 +608,6 @@ function DataStatusRow({
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
             Live Status
           </p>
-          <div className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-2.5 py-1.5 text-xs">
-            <span className="font-medium text-slate-700">Overview</span>
-            <Badge>Active</Badge>
-          </div>
           {providerChips.map((provider) => (
             <div
               key={provider.label}
