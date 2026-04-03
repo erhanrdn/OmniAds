@@ -531,6 +531,7 @@ export async function leaseMetaSyncPartitions(input: {
 export async function markMetaPartitionRunning(input: {
   partitionId: string;
   workerId: string;
+  leaseMinutes?: number;
 }) {
   await runMigrations();
   const sql = getDb();
@@ -540,7 +541,7 @@ export async function markMetaPartitionRunning(input: {
       status = 'running',
       lease_owner = ${input.workerId},
       started_at = COALESCE(started_at, now()),
-      lease_expires_at = now() + interval '5 minutes',
+      lease_expires_at = now() + (${input.leaseMinutes ?? 15} || ' minutes')::interval,
       attempt_count = attempt_count + 1,
       updated_at = now()
     WHERE id = ${input.partitionId}

@@ -14,7 +14,12 @@ vi.mock("@/lib/sync/worker-health", () => ({
 
 const db = await import("@/lib/db");
 const workerHealth = await import("@/lib/sync/worker-health");
-const { cleanupMetaPartitionOrchestration, replayMetaDeadLetterPartitions, upsertMetaSyncCheckpoint } = await import(
+const {
+  cleanupMetaPartitionOrchestration,
+  markMetaPartitionRunning,
+  replayMetaDeadLetterPartitions,
+  upsertMetaSyncCheckpoint,
+} = await import(
   "@/lib/meta/warehouse"
 );
 
@@ -41,6 +46,24 @@ describe("meta warehouse ownership safety", () => {
     });
 
     expect(checkpointId).toBeNull();
+  });
+
+  it("extends the running lease using the requested lease minutes", async () => {
+    const calls: unknown[][] = [];
+    const sql = vi.fn(async (_strings: TemplateStringsArray, ...values: unknown[]) => {
+      calls.push(values);
+      return [{ id: "partition-1" }];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const result = await markMetaPartitionRunning({
+      partitionId: "partition-1",
+      workerId: "worker-1",
+      leaseMinutes: 15,
+    });
+
+    expect(result).toBe(true);
+    expect(calls.at(0)).toContain(15);
   });
 
   it("keeps active leased dead-letter partitions out of replay", async () => {

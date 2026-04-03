@@ -7,6 +7,11 @@ export interface GoogleAdsNamedQuery {
   metrics: string[];
 }
 
+export const GOOGLE_ADS_CAMPAIGN_CORE_LIMIT = (() => {
+  const parsed = Number(process.env.GOOGLE_ADS_CAMPAIGN_CORE_LIMIT ?? 10_000);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 10_000;
+})();
+
 function compactQuery(input: string): string {
   return input.replace(/\s+/g, " ").trim();
 }
@@ -108,6 +113,7 @@ export function buildCampaignCoreBasicQuery(
         "campaign.status != 'REMOVED'",
       ],
       orderBy: ["metrics.cost_micros DESC"],
+      limit: GOOGLE_ADS_CAMPAIGN_CORE_LIMIT,
     }),
   };
 }

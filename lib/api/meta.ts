@@ -256,6 +256,21 @@ export interface MetaCredentials {
 
 const META_ACCOUNT_PROFILE_TIMEOUT_MS = 8_000;
 
+function readPositiveEnvNumber(name: string, fallback: number) {
+  const parsed = Number(process.env[name] ?? fallback);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+const META_FETCH_TIMEOUT_MS = readPositiveEnvNumber("META_FETCH_TIMEOUT_MS", 90_000);
+const META_FETCH_HEARTBEAT_INTERVAL_MS = readPositiveEnvNumber(
+  "META_FETCH_HEARTBEAT_INTERVAL_MS",
+  30_000
+);
+const DEFAULT_META_PARTITION_LEASE_MINUTES = readPositiveEnvNumber(
+  "META_PARTITION_LEASE_MINUTES",
+  15
+);
+
 function normalizeMetaApiDate(value: string): string {
   const text = String(value ?? "").trim();
   if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
@@ -644,8 +659,39 @@ function buildMetaBreakdownInsightsUrl(input: {
   return url.toString();
 }
 
+function startMetaFetchHeartbeat(input: {
+  partitionId: string;
+  workerId: string;
+  leaseMinutes: number;
+}) {
+  return setInterval(() => {
+    void heartbeatMetaPartitionLease({
+      partitionId: input.partitionId,
+      workerId: input.workerId,
+      leaseMinutes: input.leaseMinutes,
+    }).catch(() => null);
+  }, META_FETCH_HEARTBEAT_INTERVAL_MS);
+}
+
 async function fetchMetaPagedJson<TItem>(url: string) {
-  const response = await fetch(url, { cache: "no-store" });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(META_FETCH_TIMEOUT_MS),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const name = error instanceof Error ? error.name : "";
+    if (
+      name === "AbortError" ||
+      name === "TimeoutError" ||
+      /timed out|abort|aborted/i.test(message)
+    ) {
+      throw new Error(`Meta request timed out after ${META_FETCH_TIMEOUT_MS}ms`);
+    }
+    throw error;
+  }
   const json = (await response.json().catch(() => ({}))) as MetaGraphCollectionResponse<TItem> & {
     error?: { message?: string };
   };
@@ -887,12 +933,22 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     await heartbeatMetaPartitionLease({
       partitionId: input.partitionId,
       workerId: input.workerId,
-      leaseMinutes: input.leaseMinutes ?? 10,
+      leaseMinutes: input.leaseMinutes ?? DEFAULT_META_PARTITION_LEASE_MINUTES,
     });
-    const pageResult: {
+    const fetchHeartbeat = startMetaFetchHeartbeat({
+      partitionId: input.partitionId,
+      workerId: input.workerId,
+      leaseMinutes: input.leaseMinutes ?? DEFAULT_META_PARTITION_LEASE_MINUTES,
+    });
+    let pageResult: {
       response: Response;
       json: MetaGraphCollectionResponse<RawAdInsight> & { error?: { message?: string } };
-    } = await fetchMetaPagedJson<RawAdInsight>(nextPageUrl);
+    };
+    try {
+      pageResult = await fetchMetaPagedJson<RawAdInsight>(nextPageUrl);
+    } finally {
+      clearInterval(fetchHeartbeat);
+    }
     const response = pageResult.response;
     const json = pageResult.json;
     const rows = json.data ?? [];
@@ -1188,12 +1244,22 @@ export async function syncMetaAccountBreakdownWarehouseDay(input: {
     await heartbeatMetaPartitionLease({
       partitionId: input.partitionId,
       workerId: input.workerId,
-      leaseMinutes: input.leaseMinutes ?? 15,
+      leaseMinutes: input.leaseMinutes ?? DEFAULT_META_PARTITION_LEASE_MINUTES,
     });
-    const pageResult: {
+    const fetchHeartbeat = startMetaFetchHeartbeat({
+      partitionId: input.partitionId,
+      workerId: input.workerId,
+      leaseMinutes: input.leaseMinutes ?? DEFAULT_META_PARTITION_LEASE_MINUTES,
+    });
+    let pageResult: {
       response: Response;
       json: MetaGraphCollectionResponse<RawBreakdownInsight> & { error?: { message?: string } };
-    } = await fetchMetaPagedJson<RawBreakdownInsight>(nextPageUrl);
+    };
+    try {
+      pageResult = await fetchMetaPagedJson<RawBreakdownInsight>(nextPageUrl);
+    } finally {
+      clearInterval(fetchHeartbeat);
+    }
     const response = pageResult.response;
     const json = pageResult.json;
     const usageSummary = parseMetaBusinessUsageHeader(response.headers);

@@ -10,6 +10,7 @@ import {
   getGoogleAdsProductsReport,
   getGoogleAdsSearchIntelligenceReport,
 } from "@/lib/google-ads/reporting";
+import { GOOGLE_ADS_CAMPAIGN_CORE_LIMIT } from "@/lib/google-ads/query-builders";
 import { readProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
 import { getAssignedGoogleAccounts } from "@/lib/google-ads-gaql";
 import {
@@ -132,7 +133,7 @@ const GOOGLE_ADS_EXTENDED_CORE_BACKLOG_THRESHOLD = envNumber(
 export function getGoogleAdsGapPlannerBlockingStatuses() {
   return getActivePartitionBlockingStatuses();
 }
-const GOOGLE_ADS_PARTITION_LEASE_MINUTES = envNumber("GOOGLE_ADS_PARTITION_LEASE_MINUTES", 5);
+const GOOGLE_ADS_PARTITION_LEASE_MINUTES = envNumber("GOOGLE_ADS_PARTITION_LEASE_MINUTES", 15);
 const GOOGLE_ADS_TRANSIENT_RETRY_BASE_MINUTES = envNumber(
   "GOOGLE_ADS_TRANSIENT_RETRY_BASE_MINUTES",
   2
@@ -143,6 +144,7 @@ const GOOGLE_ADS_QUOTA_RETRY_BASE_MINUTES = envNumber(
 );
 const GOOGLE_ADS_PARTITION_MAX_ATTEMPTS = 6;
 const GOOGLE_ADS_CHECKPOINT_CHUNK_SIZE = envNumber("GOOGLE_ADS_CHECKPOINT_CHUNK_SIZE", 250);
+const GOOGLE_ADS_CAMPAIGN_CORE_LIMIT_ERROR_CODE = "google_ads_campaign_core_limit_exceeded";
 const GOOGLE_ADS_CIRCUIT_BREAKER_BASE_MINUTES = envNumber(
   "GOOGLE_ADS_CIRCUIT_BREAKER_BASE_MINUTES",
   15
@@ -2425,6 +2427,11 @@ async function syncGoogleAdsAccountDay(input: {
         })
       : null;
     const campaignRows = (campaigns?.rows as GenericRow[] | undefined) ?? [];
+    if (fetchPlan.campaigns && campaignRows.length >= GOOGLE_ADS_CAMPAIGN_CORE_LIMIT) {
+      throw new Error(
+        `${GOOGLE_ADS_CAMPAIGN_CORE_LIMIT_ERROR_CODE}: campaign_daily returned ${campaignRows.length} rows, hitting hard cap ${GOOGLE_ADS_CAMPAIGN_CORE_LIMIT}`
+      );
+    }
     const overview = fetchPlan.campaigns ? aggregateAccountMetrics(campaignRows) : null;
     const searchIntelligence =
       fetchPlan.searchIntelligence
@@ -3043,9 +3050,15 @@ async function syncGoogleAdsAccountDay(input: {
 
 function classifyGoogleAdsSyncError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
+  if (isGoogleAdsCampaignCoreLimitError(error)) return "application";
   if (/RESOURCE_EXHAUSTED|quota|rate limit|429/i.test(message)) return "quota";
   if (/timeout|ECONNRESET|ENOTFOUND|server_login_retry|partial pkt/i.test(message)) return "transient";
   return "application";
+}
+
+function isGoogleAdsCampaignCoreLimitError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.startsWith(`${GOOGLE_ADS_CAMPAIGN_CORE_LIMIT_ERROR_CODE}:`);
 }
 
 function computePartitionRetryDelayMinutes(attemptCount: number, errorClass: string) {
@@ -3152,6 +3165,7 @@ async function processGoogleAdsPartition(input: {
   const markRunningOk = await markGoogleAdsPartitionRunning({
     partitionId,
     workerId: input.workerId,
+    leaseMinutes: GOOGLE_ADS_PARTITION_LEASE_MINUTES,
   }).catch(() => false);
   if (!markRunningOk) {
     console.warn("[google-ads-sync] partition_lost_ownership_before_run", {
@@ -3309,6 +3323,7 @@ async function processGoogleAdsPartition(input: {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const errorClass = classifyGoogleAdsSyncError(error);
+    const hardCapExceeded = isGoogleAdsCampaignCoreLimitError(error);
     if (errorClass === "quota") {
       if (
         input.partition.lane === "extended" &&
@@ -3334,10 +3349,9 @@ async function processGoogleAdsPartition(input: {
       checkpointScope: input.partition.scope,
     }).catch(() => null);
     const poisonCandidate = nextAttempt >= 3;
-    const status =
-      poisonCandidate || nextAttempt >= GOOGLE_ADS_PARTITION_MAX_ATTEMPTS
-        ? "dead_letter"
-        : "failed";
+    const shouldDeadLetter =
+      hardCapExceeded || poisonCandidate || nextAttempt >= GOOGLE_ADS_PARTITION_MAX_ATTEMPTS;
+    const status = shouldDeadLetter ? "dead_letter" : "failed";
     await upsertGoogleAdsCheckpointOrThrow({
       partitionId,
       businessId: input.partition.businessId,
@@ -3357,13 +3371,15 @@ async function processGoogleAdsPartition(input: {
       attemptCount: nextAttempt,
       progressHeartbeatAt: new Date().toISOString(),
       leaseOwner: input.workerId,
-      poisonedAt: poisonCandidate ? new Date().toISOString() : null,
+      poisonedAt: shouldDeadLetter ? new Date().toISOString() : null,
       poisonReason:
-        poisonCandidate
-          ? `Repeated failure on checkpoint page ${activeCheckpoint?.pageIndex ?? 0}: ${message}`
+        shouldDeadLetter
+          ? hardCapExceeded
+            ? message
+            : `Repeated failure on checkpoint page ${activeCheckpoint?.pageIndex ?? 0}: ${message}`
           : null,
       replayReasonCode:
-        poisonCandidate
+        shouldDeadLetter
           ? "quarantine_release"
           : resolveGoogleReplayReasonCode({
               checkpointStatus: activeCheckpoint?.status ?? "failed",
@@ -3372,13 +3388,15 @@ async function processGoogleAdsPartition(input: {
               retryAfterAt: activeCheckpoint?.retryAfterAt,
             }),
       replayDetail: `Partition failure captured during ${activeCheckpoint?.phase ?? "bulk_upsert"} phase: ${message}`,
-      retryAfterAt: new Date(
-        Date.now() + computePartitionRetryDelayMinutes(nextAttempt, errorClass) * 60_000
-      ).toISOString(),
+      retryAfterAt: shouldDeadLetter
+        ? null
+        : new Date(
+            Date.now() + computePartitionRetryDelayMinutes(nextAttempt, errorClass) * 60_000
+          ).toISOString(),
       startedAt: activeCheckpoint?.startedAt ?? null,
       finishedAt: new Date().toISOString(),
     }).catch(() => null);
-    if (poisonCandidate) {
+    if (shouldDeadLetter) {
       await recordSyncReclaimEvents({
         providerScope: "google_ads",
         businessId: input.partition.businessId,
@@ -3387,7 +3405,9 @@ async function processGoogleAdsPartition(input: {
         eventType: "poisoned",
         disposition: "poison_candidate",
         reasonCode: "same_phase_reentry_limit",
-        detail: `Repeated failure on phase ${activeCheckpoint?.phase ?? "unknown"} page ${activeCheckpoint?.pageIndex ?? 0}: ${message}`,
+        detail: hardCapExceeded
+          ? message
+          : `Repeated failure on phase ${activeCheckpoint?.phase ?? "unknown"} page ${activeCheckpoint?.pageIndex ?? 0}: ${message}`,
       }).catch(() => null);
     }
     const completed = await completeGoogleAdsPartition({
@@ -3395,7 +3415,9 @@ async function processGoogleAdsPartition(input: {
       workerId: input.workerId,
       status,
       lastError: message,
-      retryDelayMinutes: computePartitionRetryDelayMinutes(nextAttempt, errorClass),
+      retryDelayMinutes: shouldDeadLetter
+        ? undefined
+        : computePartitionRetryDelayMinutes(nextAttempt, errorClass),
     }).catch(() => false);
     if (runId) {
       await updateGoogleAdsSyncRun({

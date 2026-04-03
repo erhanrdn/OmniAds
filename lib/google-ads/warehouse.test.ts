@@ -56,6 +56,7 @@ const {
   cleanupGoogleAdsPartitionOrchestration,
   completeGoogleAdsPartition,
   heartbeatGoogleAdsPartitionLease,
+  markGoogleAdsPartitionRunning,
   replayGoogleAdsDeadLetterPartitions,
   upsertGoogleAdsSyncCheckpoint,
 } = await import(
@@ -117,6 +118,24 @@ describe("google ads warehouse ownership safety", () => {
     });
 
     expect(checkpointId).toBeNull();
+  });
+
+  it("extends the running lease using the requested lease minutes", async () => {
+    const calls: unknown[][] = [];
+    const sql = vi.fn(async (_strings: TemplateStringsArray, ...values: unknown[]) => {
+      calls.push(values);
+      return [{ id: "partition-1" }];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const result = await markGoogleAdsPartitionRunning({
+      partitionId: "partition-1",
+      workerId: "worker-1",
+      leaseMinutes: 15,
+    });
+
+    expect(result).toBe(true);
+    expect(calls.at(0)).toContain(15);
   });
 
   it("does not require an unexpired lease to write a same-owner checkpoint update", async () => {

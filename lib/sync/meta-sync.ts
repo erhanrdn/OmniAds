@@ -106,7 +106,7 @@ const META_EXTENDED_HISTORICAL_FAIRNESS_WORKER_LIMIT = envNumber(
   1
 );
 const META_MAINTENANCE_WORKER_LIMIT = envNumber("META_MAINTENANCE_WORKER_LIMIT", 2);
-const META_PARTITION_LEASE_MINUTES = envNumber("META_PARTITION_LEASE_MINUTES", 5);
+const META_PARTITION_LEASE_MINUTES = envNumber("META_PARTITION_LEASE_MINUTES", 15);
 const META_PARTITION_MAX_ATTEMPTS = envNumber("META_PARTITION_MAX_ATTEMPTS", 6);
 const META_ENQUEUE_BATCH_SIZE = envNumber("META_ENQUEUE_BATCH_SIZE", 25);
 const META_HISTORICAL_ENQUEUE_DAYS_PER_RUN = envNumber("META_HISTORICAL_ENQUEUE_DAYS_PER_RUN", 21);
@@ -533,7 +533,14 @@ function classifyMetaError(error: unknown) {
   ) {
     return { errorClass: "permission", terminal: true, retryDelayMinutes: 0 };
   }
-  if (lower.includes("network") || lower.includes("timeout") || lower.includes("fetch failed")) {
+  if (
+    lower.includes("network") ||
+    lower.includes("timeout") ||
+    lower.includes("timed out") ||
+    lower.includes("abort") ||
+    lower.includes("aborted") ||
+    lower.includes("fetch failed")
+  ) {
     return { errorClass: "transient", terminal: false, retryDelayMinutes: 3 };
   }
   if (lower.includes("invalid parameter") || lower.includes("malformed")) {
@@ -662,7 +669,7 @@ async function syncMetaPartitionDay(input: {
       partitionId: input.partitionId,
       workerId: input.workerId,
       attemptCount: input.attemptCount + 1,
-      leaseMinutes: 10,
+      leaseMinutes: META_PARTITION_LEASE_MINUTES,
     });
     if (bulkResult.memoryInstrumentation?.oversizeWarning) {
       console.warn("[meta-sync] oversized_partition_detected", {
@@ -700,7 +707,7 @@ async function syncMetaPartitionDay(input: {
           breakdowns: breakdownJob.breakdowns,
           endpointName: breakdownJob.endpointName,
           positiveSpendAdIds: bulkResult.positiveSpendAdIds,
-          leaseMinutes: 15,
+          leaseMinutes: META_PARTITION_LEASE_MINUTES,
         });
       } catch (error) {
         await upsertMetaCheckpointOrThrow({
@@ -1147,6 +1154,7 @@ async function processMetaPartition(input: {
   const markRunningOk = await markMetaPartitionRunning({
     partitionId,
     workerId: input.workerId,
+    leaseMinutes: META_PARTITION_LEASE_MINUTES,
   }).catch(() => false);
   if (!markRunningOk) {
     console.warn("[meta-sync] partition_lost_ownership_before_run", {
