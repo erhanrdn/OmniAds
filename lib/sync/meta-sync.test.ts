@@ -4,6 +4,7 @@ import {
   buildMetaFairnessLeasePlan,
   buildMetaFollowupLeasePlan,
   buildMetaLaneProgressEvidence,
+  getDeprecatedMetaPartitionCancellationReason,
   getMetaExtendedHistoricalFairnessLimit,
   getMetaHistoricalCoreFairnessLimit,
   resolveMetaHistoricalReplaySource,
@@ -228,5 +229,12 @@ describe("meta creatives sync gating", () => {
     expect(source).not.toContain("getMetaAdDailyPreviewCoverage");
     expect(source).not.toContain("creativesMediaReadyBefore");
     expect(source).not.toContain("creativesMediaReadyAfter");
+  });
+
+  it("cancels deprecated creative_daily partitions before any warehouse fetch runs", () => {
+    expect(getDeprecatedMetaPartitionCancellationReason("creative_daily")).toContain(
+      "live/snapshot path"
+    );
+    expect(getDeprecatedMetaPartitionCancellationReason("ad_daily")).toBeNull();
   });
 });

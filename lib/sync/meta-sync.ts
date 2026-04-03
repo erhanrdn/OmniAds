@@ -32,6 +32,7 @@ import {
   getMetaPartitionHealth,
   getMetaQueueHealth,
   getMetaRawSnapshotCoverageByEndpoint,
+  getMetaSyncCheckpoint,
   getMetaSyncState,
   leaseMetaSyncPartitions,
   markMetaPartitionRunning,
@@ -77,6 +78,17 @@ async function upsertMetaCheckpointOrThrow(input: MetaSyncCheckpointRecord) {
     throw new Error("lease_conflict:checkpoint_write_rejected");
   }
   return checkpointId;
+}
+
+const META_DEPRECATED_SCOPE_REASONS: Partial<Record<MetaWarehouseScope, string>> = {
+  creative_daily:
+    "creative_daily sync disabled after moving creative scoring to the live/snapshot path",
+};
+
+export function getDeprecatedMetaPartitionCancellationReason(
+  scope: MetaWarehouseScope
+): string | null {
+  return META_DEPRECATED_SCOPE_REASONS[scope] ?? null;
 }
 
 const META_CORE_SCOPES: MetaWarehouseScope[] = [...META_PRODUCT_CORE_COVERAGE_SCOPES];
@@ -1114,6 +1126,95 @@ export function scheduleMetaBackgroundSync(input: {
   return true;
 }
 
+async function cancelDeprecatedMetaPartition(input: {
+  partition: {
+    id: string;
+    businessId: string;
+    providerAccountId: string;
+    lane: MetaSyncLane;
+    scope: MetaWarehouseScope;
+    partitionDate: string;
+    attemptCount: number;
+    source: string;
+  };
+  workerId: string;
+  runId: string | null;
+  startedAtMs: number;
+  reason: string;
+}) {
+  const cancelledAt = new Date().toISOString();
+  const checkpoint = await getMetaSyncCheckpoint({
+    partitionId: input.partition.id,
+    checkpointScope: input.partition.scope,
+  }).catch(() => null);
+
+  if (checkpoint) {
+    await upsertMetaCheckpointOrThrow({
+      partitionId: input.partition.id,
+      businessId: input.partition.businessId,
+      providerAccountId: input.partition.providerAccountId,
+      checkpointScope: input.partition.scope,
+      phase: "finalize",
+      status: "cancelled",
+      pageIndex: checkpoint.pageIndex,
+      nextPageUrl: null,
+      providerCursor: null,
+      rowsFetched: checkpoint.rowsFetched ?? 0,
+      rowsWritten: checkpoint.rowsWritten ?? 0,
+      lastSuccessfulEntityKey: checkpoint.lastSuccessfulEntityKey ?? null,
+      lastResponseHeaders: checkpoint.lastResponseHeaders ?? {},
+      attemptCount: Math.max(checkpoint.attemptCount, input.partition.attemptCount + 1),
+      leaseOwner: input.workerId,
+      startedAt: checkpoint.startedAt ?? cancelledAt,
+      finishedAt: cancelledAt,
+    }).catch(() => null);
+  }
+
+  const completed = await completeMetaPartition({
+    partitionId: input.partition.id,
+    workerId: input.workerId,
+    status: "cancelled",
+    lastError: input.reason,
+  }).catch(() => false);
+
+  if (!completed) {
+    if (input.runId) {
+      await updateMetaSyncRun({
+        id: input.runId,
+        status: "failed",
+        durationMs: Date.now() - input.startedAtMs,
+        errorClass: "lease_conflict",
+        errorMessage: "partition lost ownership before deprecated-scope cancellation",
+        finishedAt: cancelledAt,
+        onlyIfCurrentStatus: "running",
+      }).catch(() => null);
+    }
+    return false;
+  }
+
+  if (input.runId) {
+    await updateMetaSyncRun({
+      id: input.runId,
+      status: "cancelled",
+      durationMs: Date.now() - input.startedAtMs,
+      errorClass: "deprecated_scope",
+      errorMessage: input.reason,
+      finishedAt: cancelledAt,
+      onlyIfCurrentStatus: "running",
+    }).catch(() => null);
+  }
+
+  console.info("[meta-sync] partition_cancelled_deprecated_scope", {
+    businessId: input.partition.businessId,
+    partitionId: input.partition.id,
+    workerId: input.workerId,
+    scope: input.partition.scope,
+    partitionDate: input.partition.partitionDate,
+    source: input.partition.source,
+  });
+  return true;
+}
+
 async function processMetaPartition(input: {
   credentials: MetaCredentials;
   partition: {
@@ -1158,6 +1259,26 @@ async function processMetaPartition(input: {
     attemptCount: input.partition.attemptCount + 1,
     metaJson: { source: input.partition.source },
   }).catch(() => null);
+
+  const deprecatedScopeReason = getDeprecatedMetaPartitionCancellationReason(input.partition.scope);
+  if (deprecatedScopeReason) {
+    return cancelDeprecatedMetaPartition({
+      partition: {
+        id: partitionId,
+        businessId: input.partition.businessId,
+        providerAccountId: input.partition.providerAccountId,
+        lane: input.partition.lane,
+        scope: input.partition.scope,
+        partitionDate: input.partition.partitionDate,
+        attemptCount: input.partition.attemptCount,
+        source: input.partition.source,
+      },
+      workerId: input.workerId,
+      runId,
+      startedAtMs: startedAt,
+      reason: deprecatedScopeReason,
+    });
+  }
 
   try {
     const scopes =
