@@ -1061,6 +1061,34 @@ function PreviewStrip({
     minimumReady: number;
   };
 }) {
+  const context = useMemo<CreativeMetricContext>(
+    () => ({
+      totalSpend: rows.reduce((sum, row) => sum + row.spend, 0),
+      totalPurchaseValue: rows.reduce((sum, row) => sum + row.purchaseValue, 0),
+    }),
+    [rows]
+  );
+
+  const metricAverages = useMemo(() => {
+    return metrics.reduce<Record<string, number>>((acc, metric) => {
+      const sourceRows = allRowsForHeatmap.length > 0 ? allRowsForHeatmap : rows;
+      const values = sourceRows
+        .map((row) => metric.getValue(row, context))
+        .filter((value) => Number.isFinite(value));
+      acc[metric.id] = values.length > 0 ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+      return acc;
+    }, {});
+  }, [allRowsForHeatmap, context, metrics, rows]);
+
+  const rowSignature = useMemo(() => rows.map((row) => row.id).join("|"), [rows]);
+  const [unlockedPreviewCount, setUnlockedPreviewCount] = useState(
+    previewMode === "media" && rows.length > 0 ? 1 : rows.length
+  );
+
+  useEffect(() => {
+    setUnlockedPreviewCount(previewMode === "media" && rows.length > 0 ? 1 : rows.length);
+  }, [previewMode, rowSignature, rows.length]);
+
   if (previewStripState === "data_loading" || previewStripState === "media_hydrating") {
     const helperText =
       previewStripState === "data_loading"
@@ -1110,29 +1138,10 @@ function PreviewStrip({
     );
   }
 
-  const context = useMemo<CreativeMetricContext>(
-    () => ({
-      totalSpend: rows.reduce((sum, row) => sum + row.spend, 0),
-      totalPurchaseValue: rows.reduce((sum, row) => sum + row.purchaseValue, 0),
-    }),
-    [rows]
-  );
-
-  const metricAverages = useMemo(() => {
-    return metrics.reduce<Record<string, number>>((acc, metric) => {
-      const sourceRows = allRowsForHeatmap.length > 0 ? allRowsForHeatmap : rows;
-      const values = sourceRows
-        .map((row) => metric.getValue(row, context))
-        .filter((value) => Number.isFinite(value));
-      acc[metric.id] = values.length > 0 ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
-      return acc;
-    }, {});
-  }, [allRowsForHeatmap, context, metrics, rows]);
-
   return (
     <div className="overflow-x-auto pb-1">
       <div className="flex min-w-max gap-3">
-        {rows.map((row) => {
+        {rows.map((row, index) => {
           const assetFallbacks = [
             row.cardPreviewUrl ?? null,
             row.tableThumbnailUrl ?? null,
@@ -1159,6 +1168,7 @@ function PreviewStrip({
             });
           }
           const resolvedRowCurrency = resolveCreativeCurrency(row.currency, defaultCurrency);
+          const shouldUnlockPreview = previewMode !== "media" || index < unlockedPreviewCount;
           return (
             <button
               key={row.id}
@@ -1177,15 +1187,24 @@ function PreviewStrip({
                 </div>
               ) : (
                 <div className="relative aspect-square w-full overflow-hidden bg-muted/20">
-                  <CreativeRenderSurface
-                    id={row.id}
-                    name={row.name}
-                    preview={row.preview}
-                    size="card"
-                    mode="asset"
-                    assetFallbacks={assetFallbacks}
-                    className="aspect-square w-full"
-                  />
+                  {shouldUnlockPreview ? (
+                    <CreativeRenderSurface
+                      id={row.id}
+                      name={row.name}
+                      preview={row.preview}
+                      size="card"
+                      mode="asset"
+                      assetFallbacks={assetFallbacks}
+                      className="aspect-square w-full"
+                      onAssetSettled={() =>
+                        setUnlockedPreviewCount((prev) =>
+                          prev >= rows.length ? prev : Math.max(prev, index + 2)
+                        )
+                      }
+                    />
+                  ) : (
+                    <div className="h-full w-full animate-pulse bg-gradient-to-br from-slate-100 to-slate-200" />
+                  )}
                 </div>
               )}
 

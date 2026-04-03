@@ -22,6 +22,7 @@ type CreativeRenderSurfaceProps = {
   size?: "thumb" | "card" | "large";
   mode?: "asset" | "full";
   assetFallbacks?: (string | null | undefined)[];
+  onAssetSettled?: () => void;
 };
 
 type ResolvedAssetSource = {
@@ -143,6 +144,7 @@ export const CreativeRenderSurface = memo(function CreativeRenderSurface({
   size = "card",
   mode = "full",
   assetFallbacks,
+  onAssetSettled,
 }: CreativeRenderSurfaceProps) {
   const frameClass = cn("relative overflow-hidden bg-muted/30", SIZE_MAP[size], className);
 
@@ -190,6 +192,7 @@ export const CreativeRenderSurface = memo(function CreativeRenderSurface({
         assetFallbacks={assetFallbacks}
         frameClass={frameClass}
         size={size}
+        onAssetSettled={onAssetSettled}
       />
     );
   }
@@ -237,6 +240,7 @@ function AssetImage({
   assetFallbacks,
   frameClass,
   size,
+  onAssetSettled,
 }: {
   id?: string;
   name: string;
@@ -244,6 +248,7 @@ function AssetImage({
   assetFallbacks?: (string | null | undefined)[];
   frameClass: string;
   size: NonNullable<CreativeRenderSurfaceProps["size"]>;
+  onAssetSettled?: () => void;
 }) {
   const sources = useMemo(() => resolveAssetSources(preview, assetFallbacks, size), [preview, assetFallbacks, size]);
   const sourceKey = useMemo(() => sources.map((source) => source.src).join("|"), [sources]);
@@ -251,11 +256,13 @@ function AssetImage({
   const [sourceIndex, setSourceIndex] = useState(0);
   const [useProxy, setUseProxy] = useState(false);
   const [exhausted, setExhausted] = useState(false);
+  const hasSettledRef = useRef(false);
 
   useEffect(() => {
     setSourceIndex(0);
     setUseProxy(false);
     setExhausted(false);
+    hasSettledRef.current = false;
     if (process.env.NODE_ENV !== "production") {
       console.log("[creative-render][reset]", {
         id: id ?? null,
@@ -266,6 +273,13 @@ function AssetImage({
   }, [sourceKey]);
 
   const current = exhausted ? null : (sources[sourceIndex] ?? null);
+
+  useEffect(() => {
+    if (hasSettledRef.current) return;
+    if (current || !onAssetSettled) return;
+    hasSettledRef.current = true;
+    onAssetSettled();
+  }, [current, onAssetSettled]);
 
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return;
@@ -357,6 +371,11 @@ function AssetImage({
       fallback={<PreviewFallback frameClass={frameClass} name={name} />}
       onError={handleError}
       imageKey={`${sourceIndex}_${useProxy}_${current.source}`}
+      onLoadSuccess={() => {
+        if (hasSettledRef.current) return;
+        hasSettledRef.current = true;
+        onAssetSettled?.();
+      }}
     />
   );
 }
@@ -368,6 +387,7 @@ function AssetFrame({
   fallback,
   onError,
   imageKey,
+  onLoadSuccess,
 }: {
   frameClass: string;
   name: string;
@@ -375,6 +395,7 @@ function AssetFrame({
   fallback: ReactNode;
   onError?: () => void;
   imageKey?: string;
+  onLoadSuccess?: () => void;
 }) {
   const [failed, setFailed] = useState(false);
   const frameRef = useRef<HTMLDivElement>(null);
@@ -428,6 +449,7 @@ function AssetFrame({
         decoding="async"
         referrerPolicy="no-referrer"
         onLoad={() => {
+          onLoadSuccess?.();
           if (process.env.NODE_ENV === "production") return;
           if (thumbnailLoadLogCount >= LOG_LIMIT) return;
           thumbnailLoadLogCount += 1;

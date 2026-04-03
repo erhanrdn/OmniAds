@@ -38,10 +38,7 @@ import {
   buildCreativeHistoryById,
   fetchMetaCreatives,
   fetchMetaCreativesHistory,
-  getPreviewPollingInterval,
-  hasRenderablePreview,
   mapApiRowToUiRow,
-  MetaCreativesResponse,
   PLATFORM_LABELS,
   PreviewStripState,
   SHARE_METRIC_IDS,
@@ -184,8 +181,8 @@ export default function CreativesPage() {
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [shareError, setShareError] = useState<string | null>(null);
   const [csvError, setCsvError] = useState<string | null>(null);
-  const [mediaPhaseStarted, setMediaPhaseStarted] = useState(false);
   const [historyPhaseStarted, setHistoryPhaseStarted] = useState(false);
+  const [tableSortedRows, setTableSortedRows] = useState<MetaCreativeRow[]>([]);
 
   const platform: "meta" = "meta";
   const metaView = deriveProviderViewState(
@@ -230,7 +227,6 @@ export default function CreativesPage() {
   }, [allowedHistoryDays, dateRangeValue, setDateRangeValue]);
 
   useEffect(() => {
-    setMediaPhaseStarted(false);
     setHistoryPhaseStarted(false);
   }, [businessId, drStart, drEnd, groupBy]);
 
@@ -256,48 +252,6 @@ export default function CreativesPage() {
     staleTime: 30 * 1000,
     refetchOnWindowFocus: false,
     placeholderData: (previousData) => previousData,
-  });
-  useEffect(() => {
-    if (!canLoadCreatives || mediaPhaseStarted) return;
-    if (creativesMetadataQuery.isLoading || creativesMetadataQuery.isFetching) return;
-    if ((creativesMetadataQuery.data?.rows?.length ?? 0) === 0) return;
-    return scheduleIdlePhase(() => setMediaPhaseStarted(true), 450);
-  }, [
-    canLoadCreatives,
-    creativesMetadataQuery.data?.rows?.length,
-    creativesMetadataQuery.isFetching,
-    creativesMetadataQuery.isLoading,
-    mediaPhaseStarted,
-  ]);
-  const creativesMediaQuery = useQuery({
-    queryKey: [
-      "meta-creatives-creatives-media",
-      businessId,
-      drStart,
-      drEnd,
-      groupBy,
-    ],
-    enabled:
-      canLoadCreatives &&
-      mediaPhaseStarted &&
-      !creativesMetadataQuery.isLoading &&
-      !creativesMetadataQuery.isFetching &&
-      (creativesMetadataQuery.data?.rows?.length ?? 0) > 0,
-    queryFn: () =>
-      fetchMetaCreatives({
-        businessId,
-        start: drStart,
-        end: drEnd,
-        groupBy: mainTableApiGroupBy,
-        format: "all",
-        sort: "spend",
-        mediaMode: "full",
-      }),
-    staleTime: 30 * 1000,
-    refetchInterval: (query) =>
-      getPreviewPollingInterval(query.state.data as MetaCreativesResponse | undefined),
-    refetchIntervalInBackground: true,
-    refetchOnWindowFocus: false,
   });
   const metaStatusQuery = useQuery({
     queryKey: ["meta-creatives-status", businessId],
@@ -383,7 +337,7 @@ export default function CreativesPage() {
         sort: "spend",
       }),
   });
-  const activeCreativesPayload = creativesMediaQuery.data ?? creativesMetadataQuery.data;
+  const activeCreativesPayload = creativesMetadataQuery.data;
 
   const allRows = useMemo(() => {
     const payloadRows = activeCreativesPayload?.rows ?? [];
@@ -441,11 +395,11 @@ export default function CreativesPage() {
         status: activeCreativesPayload?.status,
         total_rows: rawRows.length,
         has_preview_field: rawRows.length > 0 ? typeof rawRows[0]?.preview : "N/A",
-        media_hydrated: Boolean(activeCreativesPayload?.media_hydrated),
+        media_mode: activeCreativesPayload?.media_mode ?? null,
       });
     }
     return rows;
-  }, [activeCreativesPayload?.media_hydrated, activeCreativesPayload?.rows]);
+  }, [activeCreativesPayload?.media_mode, activeCreativesPayload?.rows]);
 
   const filteredRows = useMemo(() => {
     if (platform !== "meta") return [];
@@ -461,6 +415,17 @@ export default function CreativesPage() {
     return buildCreativeHistoryById(historyRows);
   }, [creativeHistoryQueries, creativeHistoryWindowDefs]);
   const deferredFilteredRows = useDeferredValue(filteredRows);
+
+  const orderedTableRows = useMemo(() => {
+    if (tableSortedRows.length === 0) return deferredFilteredRows;
+
+    const filteredIds = new Set(deferredFilteredRows.map((row) => row.id));
+    const sortedVisibleRows = tableSortedRows.filter((row) => filteredIds.has(row.id));
+
+    return sortedVisibleRows.length === deferredFilteredRows.length
+      ? sortedVisibleRows
+      : deferredFilteredRows;
+  }, [deferredFilteredRows, tableSortedRows]);
 
   useEffect(() => {
     setSelectionState((prev) => {
@@ -483,17 +448,14 @@ export default function CreativesPage() {
     });
   }, [filteredRows]);
 
-  const selectedRows = useMemo(
-    () =>
-      deferredFilteredRows
-        .filter((row) => selectionState.selectedRowIds.includes(row.id)),
-    [deferredFilteredRows, selectionState.selectedRowIds]
-  );
+  const selectedRows = useMemo(() => {
+    const selectedRowIdSet = new Set(selectionState.selectedRowIds);
+    return orderedTableRows.filter((row) => selectedRowIdSet.has(row.id));
+  }, [orderedTableRows, selectionState.selectedRowIds]);
   const topPanelRows = useMemo(
-    () => selectedRows,
-    [selectedRows]
+    () => (selectedRows.length > 0 ? selectedRows : orderedTableRows),
+    [orderedTableRows, selectedRows]
   );
-  const previewStatusPayload = activeCreativesPayload;
   const previewStripState = useMemo<PreviewStripState>(() => {
     const metadataRows = activeCreativesPayload?.rows ?? [];
     const hasMetadataRows = metadataRows.length > 0;
@@ -505,56 +467,14 @@ export default function CreativesPage() {
       return "missing";
     }
 
-    // For demo businesses, skip media hydration check — rows have local image URLs and are always ready.
-    if (isDemoBusiness) {
-      return "ready";
-    }
-
-    const mediaHydrated = previewStatusPayload?.media_hydrated === true;
-    const previewCoverage = previewStatusPayload?.preview_coverage?.previewCoverage ?? 0;
-
-    if (!mediaHydrated) {
-      return "media_hydrating";
-    }
-
-    if (previewCoverage > 0) {
-      return "ready";
-    }
-
-    return "missing";
+    return topPanelRows.length > 0 ? "ready" : "missing";
   }, [
     activeCreativesPayload?.rows,
     creativesMetadataQuery.isFetching,
     creativesMetadataQuery.isLoading,
-    isDemoBusiness,
-    previewStatusPayload,
+    topPanelRows.length,
   ]);
-  const topPreviewRows = useMemo(
-    () =>
-      previewStripState === "ready"
-        ? topPanelRows.filter((row) => hasRenderablePreview(row)).slice(0, 20)
-        : [],
-    [previewStripState, topPanelRows]
-  );
-  const topPreviewSummary = useMemo(() => {
-    const total = topPanelRows.length;
-    const ready = previewStripState === "ready" ? topPreviewRows.length : 0;
-    const pending =
-      previewStripState === "data_loading" || previewStripState === "media_hydrating"
-        ? total
-        : 0;
-    const missing = previewStripState === "missing" ? total : Math.max(total - ready - pending, 0);
-    const minimumReady = total <= 2 ? 1 : Math.min(3, total);
-
-    return {
-      state: previewStripState,
-      total,
-      ready,
-      pending,
-      missing,
-      minimumReady,
-    };
-  }, [previewStripState, topPanelRows.length, topPreviewRows.length]);
+  const topPreviewRows = useMemo(() => topPanelRows.slice(0, 20), [topPanelRows]);
 
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return;
@@ -562,7 +482,6 @@ export default function CreativesPage() {
 
     console.log("[creatives-page] before CreativesTopSection", {
       total: topPanelRows.length,
-      top_preview_summary: topPreviewSummary,
       samples: topPanelRows.slice(0, 3).map((row) => ({
         id: row.id,
         name: row.name,
@@ -586,7 +505,7 @@ export default function CreativesPage() {
         isCatalog: row.isCatalog,
       })),
     });
-  }, [filteredRows, topPanelRows, topPreviewSummary]);
+  }, [filteredRows, topPanelRows]);
 
   const activeCreativeRow = useMemo(
     () => filteredRows.find((row) => row.id === creativeDrawerState.activeRowId) ?? null,
@@ -845,7 +764,6 @@ export default function CreativesPage() {
               shareError={shareError}
               csvError={csvError}
               previewStripState={previewStripState}
-              previewStripSummary={topPreviewSummary}
               actionsPrefix={
                 <CreativesSyncInlineProgress
                   status={metaStatusQuery.data}
@@ -915,6 +833,7 @@ export default function CreativesPage() {
                     onToggleAll={toggleAllRows}
                     onOpenRow={openCreativeDrawer}
                     onOpenBreakdownRow={openAdBreakdownDrawer}
+                    onSortedRowsChange={setTableSortedRows}
                   />
                 </>
               )}

@@ -46,13 +46,6 @@ const COPY_GROUP_OPTIONS: Array<{ value: CreativeGroupBy; label: string }> = [
   { value: "adSet", label: "Ad Set" },
 ];
 
-const COPY_AI_ACTIONS = [
-  "Ask me anything",
-  "What should I create next?",
-  "What's working and what's not",
-  "Give me a testing plan",
-];
-
 const EMPTY_PREVIEW: MetaCreativePreview = {
   render_mode: "unavailable",
   image_url: null,
@@ -333,6 +326,7 @@ export default function CopiesPage() {
 
       <CreativesTopSection
         showHeader={false}
+        showAiActionsRow={false}
         title="Top copy"
         description="Compare high-performing ad texts, isolate winning angles, and scale copy that drives efficient purchases."
         dateRange={dateRangeValue}
@@ -342,7 +336,6 @@ export default function CopiesPage() {
         groupByOptions={COPY_GROUP_OPTIONS}
         filters={topFilters}
         onFiltersChange={setTopFilters}
-        aiActions={COPY_AI_ACTIONS}
         selectedMetricIds={topMetricIds}
         onSelectedMetricIdsChange={setTopMetricIds}
         selectedRows={topPanelRows}

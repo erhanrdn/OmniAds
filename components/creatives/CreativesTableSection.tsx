@@ -197,6 +197,7 @@ interface CreativesTableSectionProps {
   onToggleAll: () => void;
   onOpenRow: (rowId: string) => void;
   onOpenBreakdownRow?: (rowId: string) => void;
+  onSortedRowsChange?: (rows: MetaCreativeRow[]) => void;
 }
 
 interface MetricTooltipState {
@@ -610,6 +611,7 @@ export function CreativesTableSection({
   onToggleAll,
   onOpenRow,
   onOpenBreakdownRow,
+  onSortedRowsChange,
 }: CreativesTableSectionProps) {
   const queryClient = useQueryClient();
   const defaultPreset = PRESETS.find((p) => p.presetName === "Facebook Ecommerce") ?? PRESETS[0];
@@ -733,6 +735,10 @@ export function CreativesTableSection({
     logPerf("table.sortRows", t, rows.length);
     return next;
   }, [ctx, rows, sortState.direction, sortState.key]);
+
+  useEffect(() => {
+    onSortedRowsChange?.(sortedRows);
+  }, [onSortedRowsChange, sortedRows]);
 
   const aiDecisionInputRows = useMemo<AiCreativeDecisionInputRow[]>(
     () =>
