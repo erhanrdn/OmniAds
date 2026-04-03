@@ -15,6 +15,7 @@ type CreativePreviewProps = {
   format?: "image" | "video" | "catalog";
   isCatalog?: boolean;
   badgeLabel?: string | null;
+  pendingLabel?: string;
   className?: string;
   size?: "card" | "thumb";
 };
@@ -61,12 +62,14 @@ export function CreativePreview({
   format = "image",
   isCatalog = false,
   badgeLabel,
+  pendingLabel,
   className,
   size = "card",
 }: CreativePreviewProps) {
+  const usingProvidedPriority = Boolean(sourcePriority);
   const sources = dedupeSources(
-    sourcePriority?.length
-      ? sourcePriority
+    usingProvidedPriority
+      ? sourcePriority ?? []
       : [
           imageUrl,
           previewUrl,
@@ -74,6 +77,7 @@ export function CreativePreview({
           thumbnailUrl,
         ]
   );
+  const primarySource = sources[0] ?? null;
 
   const resolvedBadgeLabel =
     badgeLabel === undefined
@@ -93,10 +97,24 @@ export function CreativePreview({
         name={name}
         preview={{
           render_mode: format === "video" ? "video" : "image",
-          image_url: imageUrl ?? previewUrl ?? cachedUrl ?? thumbnailUrl ?? null,
+          image_url: usingProvidedPriority
+            ? primarySource
+            : imageUrl ?? previewUrl ?? cachedUrl ?? thumbnailUrl ?? null,
           video_url: null,
-          poster_url: previewUrl ?? cachedUrl ?? thumbnailUrl ?? null,
-          source: imageUrl ? "image_url" : previewUrl ? "preview_url" : thumbnailUrl ? "thumbnail_url" : null,
+          poster_url: usingProvidedPriority
+            ? primarySource
+            : previewUrl ?? cachedUrl ?? thumbnailUrl ?? null,
+          source: usingProvidedPriority
+            ? primarySource
+              ? "image_url"
+              : null
+            : imageUrl
+            ? "image_url"
+            : previewUrl
+            ? "preview_url"
+            : thumbnailUrl
+            ? "thumbnail_url"
+            : null,
           is_catalog: isCatalog,
         }}
         size={size === "thumb" ? "thumb" : "card"}
@@ -104,7 +122,7 @@ export function CreativePreview({
         assetState={resolvedAssetState}
         assetFallbacks={sources}
         assetUpgradeSources={sources}
-        pendingRevealDelayMs={size === "card" && resolvedAssetState === "pending" ? 450 : 0}
+        pendingLabel={pendingLabel ?? (size === "card" && resolvedAssetState === "pending" ? "Waiting for Meta" : undefined)}
         className={cn(SIZE_MAP[size], className)}
       />
       {resolvedBadgeLabel ? (

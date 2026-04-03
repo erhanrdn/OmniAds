@@ -71,6 +71,8 @@ function buildRow(overrides: Partial<MetaCreativeApiRow> = {}): MetaCreativeApiR
       detail_image_src: "https://example.com/image.jpg",
       detail_video_src: null,
       render_state: "renderable_high_quality",
+      card_state: "ready",
+      waiting_reason: null,
       table_source_kind: "thumbnail_static",
       card_source_kind: "non_thumbnail_static",
       resolution_class: "high_res",
@@ -286,10 +288,12 @@ describe("buildCreativesResponse snapshot freshness", () => {
             buildRow({
               preview_manifest: {
                 table_src: "https://example.com/thumb_p150x120.jpg",
-                card_src: "https://example.com/thumb_p150x120.jpg",
+                card_src: null,
                 detail_image_src: "https://example.com/thumb_p150x120.jpg",
                 detail_video_src: null,
                 render_state: "renderable_low_quality",
+                card_state: "waiting_meta",
+                waiting_reason: "awaiting_card_source",
                 table_source_kind: "thumbnail_static",
                 card_source_kind: "thumbnail_static",
                 resolution_class: "low_res",

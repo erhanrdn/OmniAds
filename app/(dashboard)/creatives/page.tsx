@@ -57,6 +57,7 @@ import {
   addDaysToIsoDate,
   dayCountInclusive,
 } from "@/lib/meta/history";
+import { getCreativeStaticPreviewState } from "@/lib/meta/creatives-preview";
 
 function clampCreativeDateRangeToHistoryLimit(
   value: CreativeDateRangeValue,
@@ -412,11 +413,7 @@ export default function CreativesPage() {
   const topPreviewRows = useMemo(() => topPanelRows.slice(0, 20), [topPanelRows]);
   const previewStripSummary = useMemo(() => {
     const states = topPreviewRows.map((row) =>
-      hasRenderablePreview(row)
-        ? "ready"
-        : row.previewManifest?.needs_card_enrichment
-        ? "pending"
-        : "missing"
+      hasRenderablePreview(row) ? "ready" : getCreativeStaticPreviewState(row, "grid")
     );
 
     const ready = states.filter((state) => state === "ready").length;

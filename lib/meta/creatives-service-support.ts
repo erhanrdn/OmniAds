@@ -292,18 +292,12 @@ export function buildMetaCreativeApiRow(params: {
     rowPreviewPoster,
     cardFallbackThumbnailUrl,
     rowThumbnailUrl,
-    tableThumbnailUrl,
   ].filter((value): value is string => Boolean(value));
 
-  const cardPrimary = chooseBestStaticPreviewCandidate(cardCandidates);
-  const cardPreviewUrl =
-    cardPrimary === tableThumbnailUrl
-      ? chooseBestStaticPreviewCandidate(cardCandidates.filter((candidate) => candidate !== tableThumbnailUrl)) ??
-        cardPrimary
-      : cardPrimary;
+  const rawCardPreviewCandidate = chooseBestStaticPreviewCandidate(cardCandidates);
   const cardPreviewDebug = describeStaticPreviewSelection({
     tier: "card",
-    selectedUrl: cardPreviewUrl,
+    selectedUrl: rawCardPreviewCandidate,
   });
   const tablePreviewDebug = describeStaticPreviewSelection({
     tier: "table",
@@ -311,15 +305,16 @@ export function buildMetaCreativeApiRow(params: {
   });
   const previewManifest = buildCreativePreviewManifest({
     tableSrc: tableThumbnailUrl,
-    cardSrc: cardPreviewUrl,
+    cardSrc: rawCardPreviewCandidate,
     detailImageSrc:
       finalImageUrl ??
       normalizeMediaUrl(finalPreviewPayload.image_url) ??
       normalizeMediaUrl(finalPreviewPayload.poster_url) ??
-      cardPreviewUrl,
+      rawCardPreviewCandidate,
     detailVideoSrc: normalizeMediaUrl(finalPreviewPayload.video_url),
     liveHtmlAvailable: Boolean(row.creative_id),
   });
+  const cardPreviewUrl = previewManifest.card_src;
   const previewStatus: "ready" | "missing" =
     finalPreviewUrl || finalThumbnailUrl || finalImageUrl || normalizedCachedThumbnailUrl
       ? "ready"

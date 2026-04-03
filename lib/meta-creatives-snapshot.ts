@@ -3,7 +3,7 @@ import { getDb } from "@/lib/db";
 
 export type MetaCreativesSnapshotLevel = "metadata" | "full";
 export type MetaCreativesFreshnessState = "fresh" | "stale" | "expired";
-export type MetaCreativesPreviewProfile = "main_grid_v4";
+export type MetaCreativesPreviewProfile = "main_grid_v5";
 
 export interface MetaCreativesSnapshotQuery {
   businessId: string;
@@ -195,12 +195,17 @@ export async function markMetaCreativesSnapshotRefreshing(
   `;
 }
 
-export function getSnapshotCoverage(rowCount: number, previewReadyCount: number) {
-  const previewMissingCount = Math.max(0, rowCount - previewReadyCount);
+export function getSnapshotCoverage(
+  rowCount: number,
+  previewReadyCount: number,
+  previewWaitingCount = 0
+) {
+  const previewMissingCount = Math.max(0, rowCount - previewReadyCount - previewWaitingCount);
   const previewCoverage = rowCount > 0 ? Math.round((previewReadyCount / rowCount) * 100) : 0;
   return {
     totalCreatives: rowCount,
     previewReadyCount,
+    previewWaitingCount,
     previewMissingCount,
     previewCoverage,
   };

@@ -77,10 +77,10 @@ function CreativeCard({
   const isCatalog = Boolean(row.isCatalog || row.is_catalog || row.preview?.is_catalog);
 
   const sourcePriority = useMemo(
-    () => getCreativeStaticPreviewSources(row, "card"),
+    () => getCreativeStaticPreviewSources(row, "grid"),
     [row]
   );
-  const assetState = getCreativeStaticPreviewState(row, "card");
+  const assetState = getCreativeStaticPreviewState(row, "grid");
   const badgeLabel = getCreativeFormatSummaryLabel({
     creative_delivery_type: row.creativeDeliveryType,
     creative_visual_format: row.creativeVisualFormat,
@@ -113,6 +113,7 @@ function CreativeCard({
           format={row.creativeVisualFormat === "video" ? "video" : isCatalog ? "catalog" : "image"}
           isCatalog={isCatalog}
           badgeLabel={badgeLabel}
+          pendingLabel="Waiting for Meta"
           size="card"
         />
 

@@ -193,8 +193,15 @@ describe("buildNormalizedPreview", () => {
 });
 
 describe("getCreativeStaticPreviewSources", () => {
-  it("prefers card preview for card tier and table thumbnail for table tier", () => {
+  it("keeps grid tier on card-safe sources and table tier on table sources", () => {
     const row = {
+      previewManifest: buildCreativePreviewManifest({
+        tableSrc: "https://example.com/table.jpg",
+        cardSrc: "https://example.com/card.jpg",
+        detailImageSrc: "https://example.com/image.jpg",
+        detailVideoSrc: null,
+        liveHtmlAvailable: false,
+      }),
       cardPreviewUrl: "https://example.com/card.jpg",
       tableThumbnailUrl: "https://example.com/table.jpg",
       imageUrl: "https://example.com/image.jpg",
@@ -207,21 +214,28 @@ describe("getCreativeStaticPreviewSources", () => {
       thumbnailUrl: "https://example.com/thumb.jpg",
     };
 
+    expect(getCreativeStaticPreviewSources(row, "grid")).toEqual(["https://example.com/card.jpg"]);
     expect(getCreativeStaticPreviewSources(row, "card")[0]).toBe("https://example.com/card.jpg");
     expect(getCreativeStaticPreviewSources(row, "table")[0]).toBe("https://example.com/table.jpg");
   });
 
-  it("deduplicates repeated URLs while preserving precedence", () => {
+  it("does not let grid tier fall back to table-grade sources", () => {
     const row = {
-      cardPreviewUrl: "https://example.com/shared.jpg",
-      imageUrl: "https://example.com/shared.jpg",
-      previewUrl: "https://example.com/other.jpg",
-      thumbnailUrl: "https://example.com/shared.jpg",
+      previewManifest: buildCreativePreviewManifest({
+        tableSrc: "https://example.com/thumb_p150x120.jpg",
+        cardSrc: "https://example.com/thumb_p150x120.jpg",
+        detailImageSrc: "https://example.com/thumb_p150x120.jpg",
+        detailVideoSrc: null,
+        liveHtmlAvailable: false,
+      }),
+      tableThumbnailUrl: "https://example.com/thumb_p150x120.jpg",
+      thumbnailUrl: "https://example.com/thumb_p150x120.jpg",
+      previewUrl: "https://example.com/thumb_p150x120.jpg",
     };
 
-    expect(getCreativeStaticPreviewSources(row, "card")).toEqual([
-      "https://example.com/shared.jpg",
-      "https://example.com/other.jpg",
+    expect(getCreativeStaticPreviewSources(row, "grid")).toEqual([]);
+    expect(getCreativeStaticPreviewSources(row, "table")).toEqual([
+      "https://example.com/thumb_p150x120.jpg",
     ]);
   });
 });
@@ -238,7 +252,10 @@ describe("preview manifest helpers", () => {
 
     expect(manifest.needs_card_enrichment).toBe(true);
     expect(manifest.render_state).toBe("renderable_low_quality");
+    expect(manifest.card_state).toBe("waiting_meta");
+    expect(manifest.waiting_reason).toBe("awaiting_card_source");
     expect(hasAcceptableCardPreviewSource(manifest.card_src)).toBe(false);
+    expect(manifest.card_src).toBeNull();
   });
 
   it("resolves manifest-backed state for card and table tiers", () => {
@@ -253,7 +270,8 @@ describe("preview manifest helpers", () => {
     };
 
     expect(getCreativeStaticPreviewState(row, "table")).toBe("ready");
-    expect(getCreativeStaticPreviewState(row, "card")).toBe("pending");
+    expect(getCreativeStaticPreviewState(row, "grid")).toBe("pending");
+    expect(getCreativeStaticPreviewState(row, "card")).toBe("ready");
     expect(resolveCreativePreviewManifest(row)?.table_src).toBe("https://example.com/thumb_p150x120.jpg");
   });
 
@@ -270,7 +288,8 @@ describe("preview manifest helpers", () => {
 
     expect(resolveCreativePreviewManifest(row)?.render_state).toBe("renderable_low_quality");
     expect(getCreativeStaticPreviewState(row, "table")).toBe("ready");
-    expect(getCreativeStaticPreviewState(row, "card")).toBe("pending");
+    expect(getCreativeStaticPreviewState(row, "grid")).toBe("pending");
+    expect(getCreativeStaticPreviewState(row, "card")).toBe("ready");
   });
 });
 

@@ -10,7 +10,11 @@ import {
   type MetaCreativesSnapshotQuery,
 } from "@/lib/meta-creatives-snapshot";
 import { normalizeMediaUrl } from "@/lib/meta/creatives-utils";
-import { buildPreviewObservabilityStats, getPreviewReadyCount } from "@/lib/meta/creatives-observability";
+import {
+  buildPreviewObservabilityStats,
+  getPreviewReadyCount,
+  getPreviewWaitingCount,
+} from "@/lib/meta/creatives-observability";
 import type {
   CreativeTaxonomyVersion,
   MetaCreativeApiRow,
@@ -299,6 +303,7 @@ export async function buildSnapshotApiResponse(input: {
   const rows = Array.isArray(payload.rows) ? payload.rows : [];
   const hydratedRows = await hydrateRowsWithSnapshotCache(rows, input.businessId, input.enableMediaCache);
   const previewReadyCount = getPreviewReadyCount(hydratedRows);
+  const previewWaitingCount = getPreviewWaitingCount(hydratedRows);
   const freshness = getMetaCreativesSnapshotFreshness(snapshot.lastSyncedAt);
   const preview_observability = buildPreviewObservabilityStats(hydratedRows);
   return {
@@ -316,7 +321,7 @@ export async function buildSnapshotApiResponse(input: {
     snapshot_age_ms: freshness.snapshotAgeMs,
     freshness_state: freshness.freshnessState,
     is_refreshing: Boolean(snapshot.refreshStartedAt),
-    preview_coverage: getSnapshotCoverage(hydratedRows.length, previewReadyCount),
+    preview_coverage: getSnapshotCoverage(hydratedRows.length, previewReadyCount, previewWaitingCount),
     preview_observability,
   };
 }
@@ -329,6 +334,7 @@ export function buildLiveApiResponse(input: {
   snapshotSource?: "live" | "refresh";
 }) {
   const previewReadyCount = getPreviewReadyCount(input.rows);
+  const previewWaitingCount = getPreviewWaitingCount(input.rows);
   const preview_observability = buildPreviewObservabilityStats(input.rows);
   return {
     status: "ok",
@@ -343,7 +349,7 @@ export function buildLiveApiResponse(input: {
     snapshot_age_ms: 0,
     freshness_state: "fresh" as const,
     is_refreshing: false,
-    preview_coverage: getSnapshotCoverage(input.rows.length, previewReadyCount),
+    preview_coverage: getSnapshotCoverage(input.rows.length, previewReadyCount, previewWaitingCount),
     preview_observability,
   };
 }

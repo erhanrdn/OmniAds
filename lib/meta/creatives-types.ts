@@ -11,13 +11,15 @@ export type CreativePrimaryType = "standard" | "catalog" | "flexible" | "carouse
 export type CreativeSecondaryType = "video" | "carousel";
 export type CreativeTaxonomyVersion = "v2";
 export type CreativeTaxonomySource = "deterministic" | "legacy_fallback";
-export type PreviewContractVersion = "v4";
+export type PreviewContractVersion = "v5";
 export type PreviewSourceKind = "non_thumbnail_static" | "thumbnail_static" | "none";
 export type PreviewResolutionClass = "high_res" | "medium_res" | "low_res" | "unknown";
 export type PreviewManifestRenderState =
   | "renderable_high_quality"
   | "renderable_low_quality"
   | "missing";
+export type PreviewCardState = "ready" | "waiting_meta" | "missing";
+export type PreviewWaitingReason = "awaiting_card_source" | "missing_media";
 export type PreviewSourceReason =
   | "card_prefer_non_thumbnail"
   | "card_promoted_larger_thumbnail"
@@ -75,6 +77,7 @@ export type PreviewResolutionReason =
 export type PreviewObservabilityStats = {
   total_rows: number;
   preview_ready_count: number;
+  preview_waiting_count: number;
   preview_missing_count: number;
   render_mode_counts: { video: number; image: number; unavailable: number };
   resolution_stage_counts: Partial<Record<PreviewResolutionStage, number>>;
@@ -461,6 +464,8 @@ export interface CreativePreviewManifest {
   detail_image_src: string | null;
   detail_video_src: string | null;
   render_state: PreviewManifestRenderState;
+  card_state: PreviewCardState;
+  waiting_reason: PreviewWaitingReason | null;
   table_source_kind: PreviewSourceKind | null;
   card_source_kind: PreviewSourceKind | null;
   resolution_class: PreviewResolutionClass | null;

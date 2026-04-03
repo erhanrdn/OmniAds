@@ -7,12 +7,14 @@ import type {
   PreviewContractVersion,
   NormalizedRenderPreviewPayload,
   PreviewAuditCandidate,
+  PreviewCardState,
   PreviewDebugPatch,
   PreviewManifestRenderState,
   PreviewResolutionClass,
   PreviewRenderMode,
   PreviewSourceKind,
   PreviewSourceReason,
+  PreviewWaitingReason,
   UrlValidationResult,
 } from "@/lib/meta/creatives-types";
 import { classifyMetaCreative } from "@/lib/meta/creative-taxonomy";
@@ -40,7 +42,8 @@ type CreativeStaticPreviewRowLike = {
 };
 
 export type CreativeStaticPreviewTier = "card" | "table";
-export const META_CREATIVES_PREVIEW_CONTRACT_VERSION: PreviewContractVersion = "v4";
+export type CreativePreviewSurfaceTier = "grid" | "card" | "table";
+export const META_CREATIVES_PREVIEW_CONTRACT_VERSION: PreviewContractVersion = "v5";
 
 // ── URL helpers ────────────────────────────────────────────────────────────────
 
@@ -179,19 +182,38 @@ export function hasAcceptableCardPreviewSource(value: unknown): boolean {
 
 function getPreviewManifestRenderState(input: {
   tableSrc: string | null;
-  cardSrc: string | null;
+  safeCardSrc: string | null;
   detailImageSrc: string | null;
   detailVideoSrc: string | null;
 }): PreviewManifestRenderState {
   const hasRenderableSource = Boolean(
-    input.cardSrc ?? input.tableSrc ?? input.detailImageSrc ?? input.detailVideoSrc
+    input.safeCardSrc ?? input.tableSrc ?? input.detailImageSrc ?? input.detailVideoSrc
   );
   if (!hasRenderableSource) {
     return "missing";
   }
-  return hasAcceptableCardPreviewSource(input.cardSrc)
+  return input.safeCardSrc
     ? "renderable_high_quality"
     : "renderable_low_quality";
+}
+
+function getPreviewCardState(input: {
+  safeCardSrc: string | null;
+  tableSrc: string | null;
+  detailImageSrc: string | null;
+  detailVideoSrc: string | null;
+}): PreviewCardState {
+  if (input.safeCardSrc) return "ready";
+  if (input.tableSrc ?? input.detailImageSrc ?? input.detailVideoSrc) {
+    return "waiting_meta";
+  }
+  return "missing";
+}
+
+function getPreviewWaitingReason(cardState: PreviewCardState): PreviewWaitingReason | null {
+  if (cardState === "waiting_meta") return "awaiting_card_source";
+  if (cardState === "missing") return "missing_media";
+  return null;
 }
 
 export function buildCreativePreviewManifest(input: {
@@ -202,7 +224,10 @@ export function buildCreativePreviewManifest(input: {
   liveHtmlAvailable: boolean;
 }): CreativePreviewManifest {
   const normalizedTableSrc = normalizeMediaUrl(input.tableSrc);
-  const normalizedCardSrc = normalizeMediaUrl(input.cardSrc);
+  const normalizedRequestedCardSrc = normalizeMediaUrl(input.cardSrc);
+  const normalizedSafeCardSrc = hasAcceptableCardPreviewSource(normalizedRequestedCardSrc)
+    ? normalizedRequestedCardSrc
+    : null;
   const normalizedDetailImageSrc = normalizeMediaUrl(input.detailImageSrc);
   const normalizedDetailVideoSrc = normalizeMediaUrl(input.detailVideoSrc);
   const tableDebug = describeStaticPreviewSelection({
@@ -211,27 +236,35 @@ export function buildCreativePreviewManifest(input: {
   });
   const cardDebug = describeStaticPreviewSelection({
     tier: "card",
-    selectedUrl: normalizedCardSrc,
+    selectedUrl: normalizedRequestedCardSrc,
+  });
+  const cardState = getPreviewCardState({
+    safeCardSrc: normalizedSafeCardSrc,
+    tableSrc: normalizedTableSrc,
+    detailImageSrc: normalizedDetailImageSrc,
+    detailVideoSrc: normalizedDetailVideoSrc,
   });
   const renderState = getPreviewManifestRenderState({
     tableSrc: normalizedTableSrc,
-    cardSrc: normalizedCardSrc,
+    safeCardSrc: normalizedSafeCardSrc,
     detailImageSrc: normalizedDetailImageSrc,
     detailVideoSrc: normalizedDetailVideoSrc,
   });
 
   return {
     table_src: normalizedTableSrc,
-    card_src: normalizedCardSrc,
+    card_src: normalizedSafeCardSrc,
     detail_image_src: normalizedDetailImageSrc,
     detail_video_src: normalizedDetailVideoSrc,
     render_state: renderState,
+    card_state: cardState,
+    waiting_reason: getPreviewWaitingReason(cardState),
     table_source_kind: tableDebug.sourceKind,
     card_source_kind: cardDebug.sourceKind,
     resolution_class: cardDebug.resolutionClass,
-    thumbnail_like: isThumbnailLikeUrl(normalizedCardSrc),
+    thumbnail_like: isThumbnailLikeUrl(normalizedRequestedCardSrc),
     source_reason: cardDebug.reason,
-    needs_card_enrichment: renderState === "renderable_low_quality",
+    needs_card_enrichment: cardState === "waiting_meta",
     live_html_available: input.liveHtmlAvailable,
   };
 }
@@ -256,7 +289,6 @@ export function resolveCreativePreviewManifest(
     row.preview?.image_url ?? null,
     row.preview?.poster_url ?? null,
     row.previewUrl ?? row.preview_url ?? null,
-    tableSrc,
   ]);
 
   return buildCreativePreviewManifest({
@@ -275,7 +307,7 @@ export function resolveCreativePreviewManifest(
 
 export function getCreativeStaticPreviewState(
   row: CreativeStaticPreviewRowLike,
-  tier: CreativeStaticPreviewTier
+  tier: CreativePreviewSurfaceTier
 ): "ready" | "pending" | "missing" {
   const manifest = resolveCreativePreviewManifest(row);
   if (!manifest) return "missing";
@@ -285,15 +317,18 @@ export function getCreativeStaticPreviewState(
   if (!hasAnyStaticSource) return "missing";
 
   if (tier === "table") {
-    return hasAnyStaticSource ? "ready" : "missing";
+    return manifest.table_src ? "ready" : "missing";
   }
 
-  if (manifest.render_state === "renderable_high_quality") return "ready";
-  if (manifest.render_state === "renderable_low_quality") return "pending";
-  if (manifest.card_src) {
-    return manifest.needs_card_enrichment ? "pending" : "ready";
+  if (tier === "grid") {
+    if (manifest.card_state === "ready") return "ready";
+    if (manifest.card_state === "waiting_meta") return "pending";
+    return "missing";
   }
-  return "missing";
+
+  return manifest.card_src || manifest.detail_image_src || manifest.detail_video_src || manifest.table_src
+    ? "ready"
+    : "missing";
 }
 
 function isPreviewContentType(contentType: string | null): boolean {
@@ -303,12 +338,14 @@ function isPreviewContentType(contentType: string | null): boolean {
 
 export function getCreativeStaticPreviewSources(
   row: CreativeStaticPreviewRowLike,
-  tier: CreativeStaticPreviewTier
+  tier: CreativePreviewSurfaceTier
 ): string[] {
   const manifest = resolveCreativePreviewManifest(row);
   if (manifest) {
     const manifestCandidates =
-      tier === "card"
+      tier === "grid"
+        ? [manifest.card_src]
+        : tier === "card"
         ? [
             manifest.card_src,
             manifest.detail_image_src,
@@ -316,6 +353,7 @@ export function getCreativeStaticPreviewSources(
             row.previewUrl ?? row.preview_url ?? null,
             row.cachedThumbnailUrl ?? row.cached_thumbnail_url ?? null,
             manifest.table_src,
+            row.thumbnailUrl ?? row.thumbnail_url ?? null,
           ]
         : [
             manifest.table_src,
@@ -323,6 +361,7 @@ export function getCreativeStaticPreviewSources(
             manifest.card_src,
             manifest.detail_image_src,
             row.preview?.poster_url ?? null,
+            row.previewUrl ?? row.preview_url ?? null,
             row.thumbnailUrl ?? row.thumbnail_url ?? null,
           ];
 
@@ -340,20 +379,41 @@ export function getCreativeStaticPreviewSources(
   }
 
   const preferred =
-    tier === "card"
+    tier === "grid" || tier === "card"
       ? row.cardPreviewUrl ?? row.card_preview_url ?? null
       : row.tableThumbnailUrl ?? row.table_thumbnail_url ?? null;
 
   const candidates = [
     preferred,
-    row.cardPreviewUrl ?? row.card_preview_url ?? null,
-    row.imageUrl ?? row.image_url ?? null,
-    row.preview?.image_url ?? null,
-    row.preview?.poster_url ?? null,
-    row.previewUrl ?? row.preview_url ?? null,
-    row.cachedThumbnailUrl ?? row.cached_thumbnail_url ?? null,
-    row.tableThumbnailUrl ?? row.table_thumbnail_url ?? null,
-    row.thumbnailUrl ?? row.thumbnail_url ?? null,
+    ...(tier === "grid"
+      ? [
+          row.cardPreviewUrl ?? row.card_preview_url ?? null,
+          row.imageUrl ?? row.image_url ?? null,
+          row.preview?.image_url ?? null,
+          row.preview?.poster_url ?? null,
+          row.previewUrl ?? row.preview_url ?? null,
+        ]
+      : tier === "card"
+      ? [
+          row.cardPreviewUrl ?? row.card_preview_url ?? null,
+          row.imageUrl ?? row.image_url ?? null,
+          row.preview?.image_url ?? null,
+          row.preview?.poster_url ?? null,
+          row.previewUrl ?? row.preview_url ?? null,
+          row.cachedThumbnailUrl ?? row.cached_thumbnail_url ?? null,
+          row.tableThumbnailUrl ?? row.table_thumbnail_url ?? null,
+          row.thumbnailUrl ?? row.thumbnail_url ?? null,
+        ]
+      : [
+          row.cardPreviewUrl ?? row.card_preview_url ?? null,
+          row.imageUrl ?? row.image_url ?? null,
+          row.preview?.image_url ?? null,
+          row.preview?.poster_url ?? null,
+          row.previewUrl ?? row.preview_url ?? null,
+          row.cachedThumbnailUrl ?? row.cached_thumbnail_url ?? null,
+          row.tableThumbnailUrl ?? row.table_thumbnail_url ?? null,
+          row.thumbnailUrl ?? row.thumbnail_url ?? null,
+        ]),
   ];
 
   const seen = new Set<string>();

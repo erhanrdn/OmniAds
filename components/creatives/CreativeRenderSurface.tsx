@@ -25,6 +25,7 @@ type CreativeRenderSurfaceProps = {
   assetFallbacks?: (string | null | undefined)[];
   assetUpgradeSources?: (string | null | undefined)[];
   pendingRevealDelayMs?: number;
+  pendingLabel?: string;
   onAssetSettled?: () => void;
 };
 
@@ -138,6 +139,26 @@ function PreviewLoadingPlaceholder({ frameClass }: { frameClass: string }) {
   );
 }
 
+function PreviewPendingState({
+  frameClass,
+  label,
+}: {
+  frameClass: string;
+  label: string;
+}) {
+  return (
+    <div
+      className={cn(
+        frameClass,
+        "flex flex-col items-center justify-center gap-3 bg-gradient-to-br from-slate-100 to-slate-200 p-3 text-slate-600"
+      )}
+    >
+      <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-300 border-t-slate-500" aria-hidden="true" />
+      <div className="text-center text-[11px] font-medium">{label}</div>
+    </div>
+  );
+}
+
 export const CreativeRenderSurface = memo(function CreativeRenderSurface({
   id,
   name,
@@ -150,6 +171,7 @@ export const CreativeRenderSurface = memo(function CreativeRenderSurface({
   assetFallbacks,
   assetUpgradeSources,
   pendingRevealDelayMs = 0,
+  pendingLabel,
   onAssetSettled,
 }: CreativeRenderSurfaceProps) {
   const frameClass = cn("relative overflow-hidden bg-muted/30", SIZE_MAP[size], className);
@@ -199,6 +221,7 @@ export const CreativeRenderSurface = memo(function CreativeRenderSurface({
         assetFallbacks={assetFallbacks}
         assetUpgradeSources={assetUpgradeSources}
         pendingRevealDelayMs={pendingRevealDelayMs}
+        pendingLabel={pendingLabel}
         frameClass={frameClass}
         size={size}
         onAssetSettled={onAssetSettled}
@@ -250,6 +273,7 @@ function AssetImage({
   assetFallbacks,
   assetUpgradeSources,
   pendingRevealDelayMs,
+  pendingLabel,
   frameClass,
   size,
   onAssetSettled,
@@ -261,6 +285,7 @@ function AssetImage({
   assetFallbacks?: (string | null | undefined)[];
   assetUpgradeSources?: (string | null | undefined)[];
   pendingRevealDelayMs: number;
+  pendingLabel?: string;
   frameClass: string;
   size: NonNullable<CreativeRenderSurfaceProps["size"]>;
   onAssetSettled?: () => void;
@@ -506,6 +531,10 @@ function AssetImage({
     }
     setExhausted(true);
   };
+
+  if (assetState === "pending" && !imgSrc) {
+    return <PreviewPendingState frameClass={frameClass} label={pendingLabel ?? "Waiting for Meta"} />;
+  }
 
   if (assetState === "pending" && !pendingRevealElapsed) {
     return <PreviewLoadingPlaceholder frameClass={frameClass} />;

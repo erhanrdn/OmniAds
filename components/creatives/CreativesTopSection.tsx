@@ -173,7 +173,7 @@ function PreviewStripMediaSurface({
       assetState={assetState}
       assetFallbacks={assetFallbacks}
       assetUpgradeSources={assetUpgradeSources}
-      pendingRevealDelayMs={assetState === "pending" ? 450 : 0}
+      pendingLabel="Waiting for Meta"
       className="aspect-square w-full"
       onAssetSettled={onAdvance}
     />
@@ -1197,9 +1197,9 @@ function PreviewStrip({
     <div className="overflow-x-auto pb-1">
       <div className="flex min-w-max gap-3">
         {rows.map((row, index) => {
-          const assetFallbacks = getCreativeStaticPreviewSources(row, "card");
+          const assetFallbacks = getCreativeStaticPreviewSources(row, "grid");
           const assetUpgradeSources = assetFallbacks;
-          const assetState = getCreativeStaticPreviewState(row, "card");
+          const assetState = getCreativeStaticPreviewState(row, "grid");
           const resolvedRowCurrency = resolveCreativeCurrency(row.currency, defaultCurrency);
           const shouldUnlockPreview = previewMode !== "media" || index < unlockedPreviewCount;
           const creativeTypeLabel = getCreativeFormatSummaryLabel({

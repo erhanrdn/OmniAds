@@ -4,6 +4,7 @@ import type { ShareMetricKey, SharedCreative } from "@/components/creatives/shar
 import {
   getLegacyCreativeTypeLabel,
 } from "@/lib/meta/creative-taxonomy";
+import { getCreativeStaticPreviewState } from "@/lib/meta/creatives-preview";
 import type { AiCreativeHistoricalWindow, AiCreativeHistoricalWindows } from "@/src/services";
 
 export interface MetaCreativesResponse {
@@ -19,6 +20,7 @@ export interface MetaCreativesResponse {
   preview_coverage?: {
     totalCreatives: number;
     previewReadyCount: number;
+    previewWaitingCount: number;
     previewMissingCount: number;
     previewCoverage: number;
   };
@@ -50,28 +52,14 @@ export const PLATFORM_LABELS: Record<string, string> = {
 export const SHARE_METRIC_IDS = new Set<ShareMetricKey>(["spend", "purchaseValue", "roas", "cpa", "ctrAll", "purchases"]);
 
 export function hasRenderablePreview(row: MetaCreativeRow): boolean {
-  const manifest = row.previewManifest;
-  return Boolean(
-    manifest?.card_src ??
-      manifest?.table_src ??
-      manifest?.detail_image_src ??
-      manifest?.detail_video_src ??
-      row.cardPreviewUrl ??
-      row.cachedThumbnailUrl ??
-      row.tableThumbnailUrl ??
-      row.previewUrl ??
-      row.imageUrl ??
-      row.thumbnailUrl ??
-      row.preview?.image_url ??
-      row.preview?.poster_url ??
-      row.preview?.video_url
-  );
+  return getCreativeStaticPreviewState(row, "grid") === "ready";
 }
 
 export function shouldPollForPreviewReadiness(payload: MetaCreativesResponse | undefined): boolean {
   if (!payload || !Array.isArray(payload.rows) || payload.rows.length === 0) return false;
+  const previewWaitingCount = payload.preview_coverage?.previewWaitingCount ?? 0;
   const previewMissingCount = payload.preview_coverage?.previewMissingCount ?? 0;
-  if (previewMissingCount <= 0) return false;
+  if (previewWaitingCount <= 0 && previewMissingCount <= 0) return false;
   if (payload.snapshot_level === "metadata") return true;
   return Boolean(payload.is_refreshing || payload.freshness_state === "stale");
 }
@@ -80,8 +68,9 @@ export function getPreviewPollingInterval(
   payload: MetaCreativesResponse | undefined
 ): number | false {
   if (!shouldPollForPreviewReadiness(payload)) return false;
+  const previewWaitingCount = payload?.preview_coverage?.previewWaitingCount ?? 0;
   const previewMissingCount = payload?.preview_coverage?.previewMissingCount ?? 0;
-  if (previewMissingCount <= 0) return false;
+  if (previewWaitingCount <= 0 && previewMissingCount <= 0) return false;
   if (payload?.snapshot_level === "metadata") return 2500;
   if (!payload?.is_refreshing && payload?.freshness_state !== "stale") return false;
   return payload.is_refreshing ? 2500 : 8000;

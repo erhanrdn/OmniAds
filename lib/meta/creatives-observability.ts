@@ -28,6 +28,7 @@ export function buildPreviewObservabilityStats(
   const stats: PreviewObservabilityStats = {
     total_rows: rows.length,
     preview_ready_count: 0,
+    preview_waiting_count: 0,
     preview_missing_count: 0,
     render_mode_counts: { video: 0, image: 0, unavailable: 0 },
     resolution_stage_counts: {},
@@ -38,23 +39,10 @@ export function buildPreviewObservabilityStats(
 
   for (const row of rows) {
     const manifest = row.preview_manifest ?? null;
-    const hasPreview = Boolean(
-      manifest?.card_src ??
-        manifest?.table_src ??
-        manifest?.detail_image_src ??
-        manifest?.detail_video_src ??
-        row.cached_thumbnail_url ??
-        row.table_thumbnail_url ??
-        row.card_preview_url ??
-        row.thumbnail_url ??
-        row.image_url ??
-        row.preview_url ??
-        row.preview?.image_url ??
-        row.preview?.poster_url ??
-        row.preview?.video_url
-    );
-    if (hasPreview) {
+    if (manifest?.card_state === "ready") {
       stats.preview_ready_count++;
+    } else if (manifest?.card_state === "waiting_meta") {
+      stats.preview_waiting_count++;
     } else {
       stats.preview_missing_count++;
     }
@@ -74,21 +62,9 @@ export function buildPreviewObservabilityStats(
 }
 
 export function getPreviewReadyCount(rows: MetaCreativeApiRow[]): number {
-  return rows.filter((row) =>
-    Boolean(
-      row.preview_manifest?.card_src ??
-        row.preview_manifest?.table_src ??
-        row.preview_manifest?.detail_image_src ??
-        row.preview_manifest?.detail_video_src ??
-        row.cached_thumbnail_url ??
-        row.table_thumbnail_url ??
-        row.card_preview_url ??
-        row.thumbnail_url ??
-        row.image_url ??
-        row.preview_url ??
-        row.preview?.image_url ??
-        row.preview?.poster_url ??
-        row.preview?.video_url
-    )
-  ).length;
+  return rows.filter((row) => row.preview_manifest?.card_state === "ready").length;
+}
+
+export function getPreviewWaitingCount(rows: MetaCreativeApiRow[]): number {
+  return rows.filter((row) => row.preview_manifest?.card_state === "waiting_meta").length;
 }
