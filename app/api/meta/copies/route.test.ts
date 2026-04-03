@@ -135,4 +135,84 @@ describe("GET /api/meta/copies", () => {
       })
     );
   });
+
+  it("retries with snapshot bypass when source rows have no recoverable copy", async () => {
+    vi.mocked(creativesApi.getMetaCreativesApiPayload)
+      .mockResolvedValueOnce({
+        status: "ok",
+        rows: [
+          buildCreativeRow({
+            copy_text: null,
+            copy_variants: [],
+            headline_variants: [],
+            description_variants: [],
+            copy_source: null,
+          }),
+        ],
+        snapshot_source: "live",
+      } as never)
+      .mockResolvedValueOnce({
+        status: "ok",
+        rows: [
+          buildCreativeRow({
+            copy_text: "Recovered copy",
+            copy_variants: ["Recovered copy"],
+            copy_source: "preview_html",
+          }),
+        ],
+        snapshot_source: "live",
+      } as never);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/copies?businessId=biz&start=2026-03-21&end=2026-04-03&groupBy=copy"
+      )
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.rows).toHaveLength(1);
+    expect(payload.rows[0].copy_text).toBe("Recovered copy");
+    expect(payload.meta.recoveryAttempted).toBe(true);
+    expect(payload.meta.recoveryRecovered).toBe(true);
+    expect(payload.meta.recoveryReason).toBe("copy_empty_source_rows");
+    expect(creativesApi.getMetaCreativesApiPayload).toHaveBeenCalledTimes(2);
+    expect(creativesApi.getMetaCreativesApiPayload).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        snapshotBypass: true,
+        enableCreativeDetails: true,
+        enableCreativeBasicsFallback: true,
+        mediaMode: "metadata",
+      })
+    );
+  });
+
+  it("retries once when a persisted snapshot returns zero rows", async () => {
+    vi.mocked(creativesApi.getMetaCreativesApiPayload)
+      .mockResolvedValueOnce({
+        status: "ok",
+        rows: [],
+        snapshot_source: "persisted",
+      } as never)
+      .mockResolvedValueOnce({
+        status: "ok",
+        rows: [],
+        snapshot_source: "live",
+      } as never);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/copies?businessId=biz&start=2026-03-21&end=2026-04-03&groupBy=copy"
+      )
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.rows).toHaveLength(0);
+    expect(payload.meta.recoveryAttempted).toBe(true);
+    expect(payload.meta.recoveryRecovered).toBe(false);
+    expect(payload.meta.recoveryReason).toBe("persisted_snapshot_empty");
+    expect(creativesApi.getMetaCreativesApiPayload).toHaveBeenCalledTimes(2);
+  });
 });

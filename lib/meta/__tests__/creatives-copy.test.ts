@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   normalizeCopyText,
   uniqueNormalizedText,
+  hasCopyContent,
+  hasSuspiciousCopyEmptyRows,
   chooseBestCopyText,
   resolveCreativeCopyExtraction,
   normalizeAiTags,
@@ -98,6 +100,55 @@ describe("chooseBestCopyText", () => {
       description_variants: [],
     });
     expect(result).toBeNull();
+  });
+});
+
+describe("copy presence helpers", () => {
+  it("detects when a row has usable copy content", () => {
+    expect(
+      hasCopyContent({
+        copy_text: null,
+        copy_variants: [],
+        headline_variants: ["Headline"],
+        description_variants: [],
+      })
+    ).toBe(true);
+  });
+
+  it("detects suspicious copy-empty rows only when every row is empty", () => {
+    expect(
+      hasSuspiciousCopyEmptyRows([
+        {
+          copy_text: null,
+          copy_variants: [],
+          headline_variants: [],
+          description_variants: [],
+        },
+        {
+          copy_text: null,
+          copy_variants: [],
+          headline_variants: [],
+          description_variants: [],
+        },
+      ])
+    ).toBe(true);
+
+    expect(
+      hasSuspiciousCopyEmptyRows([
+        {
+          copy_text: null,
+          copy_variants: [],
+          headline_variants: [],
+          description_variants: [],
+        },
+        {
+          copy_text: "Shop now",
+          copy_variants: [],
+          headline_variants: [],
+          description_variants: [],
+        },
+      ])
+    ).toBe(false);
   });
 });
 

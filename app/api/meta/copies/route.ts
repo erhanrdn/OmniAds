@@ -4,6 +4,7 @@ import { requireBusinessAccess } from "@/lib/access";
 import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
 import { getDemoMetaCopies } from "@/lib/demo-business";
 import { getMetaCreativesApiPayload } from "@/lib/meta/creatives-api";
+import { hasCopyContent } from "@/lib/meta/creatives-copy";
 
 type CopyGroupBy = "copy" | "adName" | "campaign" | "adSet";
 type CopySortKey = "roas" | "spend" | "ctrAll" | "purchaseValue";
@@ -71,6 +72,9 @@ interface MetaCopiesApiResponse {
     unresolved_filtered_count: number;
     source_rows_count: number;
     returned_rows_count: number;
+    recoveryAttempted?: boolean;
+    recoveryRecovered?: boolean;
+    recoveryReason?: "copy_empty_source_rows" | "persisted_snapshot_empty" | null;
     unresolved_debug?: Array<{
       id: string;
       ad_id: string;
@@ -88,6 +92,13 @@ interface MetaCopiesApiResponse {
     }>;
   };
 }
+
+type CreativePayload = {
+  status?: string;
+  rows?: MetaCreativeApiRow[];
+  message?: string;
+  snapshot_source?: string;
+};
 
 function normalizeText(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -214,12 +225,7 @@ function mapCreativeRowToCopyRow(row: MetaCreativeApiRow): MetaCopyApiRow {
 }
 
 function isCopyEligible(row: MetaCopyApiRow): boolean {
-  return Boolean(
-    normalizeText(row.copy_text) ||
-      row.copy_variants.length > 0 ||
-      row.headline_variants.length > 0 ||
-      row.description_variants.length > 0
-  );
+  return hasCopyContent(row);
 }
 
 function aggregateRows(rows: MetaCopyApiRow[], groupBy: CopyGroupBy): MetaCopyApiRow[] {
@@ -314,6 +320,59 @@ function sortRows(rows: MetaCopyApiRow[], sort: CopySortKey): MetaCopyApiRow[] {
   return [...rows].sort((a, b) => valueOf(b) - valueOf(a));
 }
 
+async function fetchCopiesCreativePayload(input: {
+  request: NextRequest;
+  businessId: string;
+  start: string;
+  end: string;
+  format: "all" | "image" | "video";
+  snapshotBypass: boolean;
+  enableCreativeDetails: boolean;
+  enableCreativeBasicsFallback: boolean;
+}): Promise<CreativePayload | null> {
+  return (await getMetaCreativesApiPayload({
+    request: input.request,
+    requestStartedAt: Date.now(),
+    businessId: input.businessId,
+    mediaMode: "metadata",
+    groupBy: "adName",
+    format: input.format,
+    sort: "spend",
+    start: input.start,
+    end: input.end,
+    debugPreview: false,
+    debugThumbnail: false,
+    debugPerf: false,
+    snapshotBypass: input.snapshotBypass,
+    snapshotWarm: false,
+    enableCopyRecovery: true,
+    enableCreativeBasicsFallback: input.enableCreativeBasicsFallback,
+    enableCreativeDetails: input.enableCreativeDetails,
+    enableThumbnailBackfill: false,
+    enableCardThumbnailBackfill: false,
+    enableImageHashLookup: false,
+    enableMediaRecovery: false,
+    enableMediaCache: false,
+    enableDeepAudit: false,
+    perAccountSampleLimit: 5,
+  })) as CreativePayload | null;
+}
+
+function shouldAttemptCopiesRecovery(input: {
+  payload: CreativePayload | null;
+  sourceRows: MetaCreativeApiRow[];
+  eligibleRows: MetaCopyApiRow[];
+}) {
+  if (input.payload?.status !== "ok") return null;
+  if (input.sourceRows.length > 0 && input.eligibleRows.length === 0) {
+    return "copy_empty_source_rows" as const;
+  }
+  if ((input.payload?.snapshot_source ?? null) === "persisted" && input.sourceRows.length === 0) {
+    return "persisted_snapshot_empty" as const;
+  }
+  return null;
+}
+
 export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   const businessId = params.get("businessId")?.trim() ?? "";
@@ -342,32 +401,51 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(getDemoMetaCopies());
   }
 
-  const creativePayload = (await getMetaCreativesApiPayload({
+  const formatFilter = (format as "all" | "image" | "video") || "all";
+  const initialCreativePayload = await fetchCopiesCreativePayload({
     request,
-    requestStartedAt: Date.now(),
     businessId,
-    mediaMode: "metadata",
-    groupBy: "adName",
-    format: (format as "all" | "image" | "video") || "all",
-    sort: "spend",
     start,
     end,
-    debugPreview: false,
-    debugThumbnail: false,
-    debugPerf: false,
+    format: formatFilter,
     snapshotBypass: false,
-    snapshotWarm: false,
-    enableCopyRecovery: true,
-    enableCreativeBasicsFallback: false,
     enableCreativeDetails: false,
-    enableThumbnailBackfill: false,
-    enableCardThumbnailBackfill: false,
-    enableImageHashLookup: false,
-    enableMediaRecovery: false,
-    enableMediaCache: false,
-    enableDeepAudit: false,
-    perAccountSampleLimit: 5,
-  })) as { status?: string; rows?: MetaCreativeApiRow[]; message?: string } | null;
+    enableCreativeBasicsFallback: false,
+  });
+
+  const initialSourceRows = Array.isArray(initialCreativePayload?.rows) ? initialCreativePayload.rows : [];
+  const initialMapped = initialSourceRows.map(mapCreativeRowToCopyRow);
+  const initialEligible = initialMapped.filter(isCopyEligible);
+  const recoveryReason = shouldAttemptCopiesRecovery({
+    payload: initialCreativePayload,
+    sourceRows: initialSourceRows,
+    eligibleRows: initialEligible,
+  });
+
+  let recoveryAttempted = false;
+  let recoveryRecovered = false;
+  let creativePayload = initialCreativePayload;
+  if (recoveryReason) {
+    recoveryAttempted = true;
+    const recoveredPayload = await fetchCopiesCreativePayload({
+      request,
+      businessId,
+      start,
+      end,
+      format: formatFilter,
+      snapshotBypass: true,
+      enableCreativeDetails: true,
+      enableCreativeBasicsFallback: true,
+    });
+    if (recoveredPayload?.status === "ok") {
+      creativePayload = recoveredPayload;
+      const recoveredRows = Array.isArray(recoveredPayload.rows) ? recoveredPayload.rows : [];
+      const recoveredEligible = recoveredRows
+        .map(mapCreativeRowToCopyRow)
+        .filter(isCopyEligible);
+      recoveryRecovered = recoveredEligible.length > 0;
+    }
+  }
 
   const sourceRows = Array.isArray(creativePayload?.rows) ? creativePayload.rows : [];
   const mapped = sourceRows.map(mapCreativeRowToCopyRow);
@@ -422,6 +500,9 @@ export async function GET(request: NextRequest) {
       unresolved_filtered_count: unresolvedFilteredCount,
       source_rows_count: sourceRows.length,
       returned_rows_count: sorted.length,
+      recoveryAttempted,
+      recoveryRecovered,
+      recoveryReason,
       unresolved_debug: unresolvedDebug,
     },
   };

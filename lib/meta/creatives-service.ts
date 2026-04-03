@@ -35,6 +35,7 @@ import {
 } from "@/lib/meta/creatives-preview";
 import {
   normalizeCopyText,
+  hasSuspiciousCopyEmptyRows,
   normalizeAiTags,
   resolveCreativeCopyExtraction,
   mergeDebugSources,
@@ -177,13 +178,17 @@ export async function buildCreativesResponse(
         enableMediaCache,
       });
       if (snapshotPayload) {
-        if (hasSuspiciousMissingFunnelMetrics(snapshotPayload.rows ?? [])) {
+        const hasSuspiciousCopyEmptySnapshot =
+          enableCopyRecovery && hasSuspiciousCopyEmptyRows(snapshotPayload.rows ?? []);
+        if (hasSuspiciousMissingFunnelMetrics(snapshotPayload.rows ?? []) || hasSuspiciousCopyEmptySnapshot) {
           if (process.env.NODE_ENV !== "production") {
-            console.log("[meta-creatives] bypassing suspicious snapshot with zero funnel metrics", {
+            console.log("[meta-creatives] bypassing suspicious snapshot", {
               business_id: businessId,
               last_synced_at: snapshot.lastSyncedAt,
               freshness_state: freshness.freshnessState,
               rows: Array.isArray(snapshotPayload.rows) ? snapshotPayload.rows.length : 0,
+              suspicious_funnel_metrics: hasSuspiciousMissingFunnelMetrics(snapshotPayload.rows ?? []),
+              suspicious_copy_empty: hasSuspiciousCopyEmptySnapshot,
             });
           }
           triggerSnapshotRefresh(request, snapshotQuery);

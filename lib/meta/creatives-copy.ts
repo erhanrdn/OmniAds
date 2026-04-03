@@ -37,6 +37,27 @@ export function uniqueNormalizedText(values: Array<unknown>): string[] {
   return result;
 }
 
+type CopyLike = {
+  copy_text?: unknown;
+  copy_variants?: Array<unknown>;
+  headline_variants?: Array<unknown>;
+  description_variants?: Array<unknown>;
+};
+
+export function hasCopyContent(row: CopyLike): boolean {
+  return Boolean(
+    normalizeCopyText(row.copy_text) ||
+      uniqueNormalizedText(row.copy_variants ?? []).length > 0 ||
+      uniqueNormalizedText(row.headline_variants ?? []).length > 0 ||
+      uniqueNormalizedText(row.description_variants ?? []).length > 0
+  );
+}
+
+export function hasSuspiciousCopyEmptyRows(rows: CopyLike[]): boolean {
+  if (rows.length === 0) return false;
+  return rows.every((row) => !hasCopyContent(row));
+}
+
 export function chooseBestCopyText(extraction: Pick<CopyExtraction, "copy_variants" | "headline_variants" | "description_variants">) {
   if (extraction.copy_variants.length > 0) return extraction.copy_variants[0];
   if (extraction.headline_variants.length > 0) return extraction.headline_variants[0];
@@ -231,10 +252,7 @@ export function applyExtractionToRow(
     }
   );
   const hasRecoveredCopy = Boolean(
-    normalizeCopyText(merged.copy_text) ||
-      merged.copy_variants.length > 0 ||
-      merged.headline_variants.length > 0 ||
-      merged.description_variants.length > 0
+    hasCopyContent(merged)
   );
   return {
     ...row,
