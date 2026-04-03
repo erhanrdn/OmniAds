@@ -122,7 +122,7 @@ interface CreativesTopSectionProps {
   shareUrl?: string | null;
   shareError?: string | null;
   csvError?: string | null;
-  previewStripState?: "data_loading" | "media_hydrating" | "ready" | "missing";
+  previewStripState?: "data_loading" | "ready" | "missing";
   showAiActionsRow?: boolean;
   previewStripSummary?: {
     total: number;
@@ -1052,7 +1052,7 @@ function PreviewStrip({
   onOpenRow: (rowId: string) => void;
   previewMode?: "media" | "copy";
   getPreviewCopyText?: (row: MetaCreativeRow) => string;
-  previewStripState?: "data_loading" | "media_hydrating" | "ready" | "missing";
+  previewStripState?: "data_loading" | "ready" | "missing";
   previewStripSummary?: {
     total: number;
     ready: number;
@@ -1088,6 +1088,21 @@ function PreviewStrip({
   useEffect(() => {
     setUnlockedPreviewCount(previewMode === "media" && rows.length > 0 ? 1 : rows.length);
   }, [previewMode, rowSignature, rows.length]);
+
+  useEffect(() => {
+    if (previewMode !== "media") return;
+    if (rows.length === 0) return;
+    if (previewStripState === "data_loading" || previewStripState === "missing") return;
+    if (unlockedPreviewCount >= rows.length) return;
+
+    const settleTimer = window.setTimeout(() => {
+      setUnlockedPreviewCount((prev) =>
+        prev >= rows.length ? prev : Math.min(rows.length, prev + 1)
+      );
+    }, 400);
+
+    return () => window.clearTimeout(settleTimer);
+  }, [previewMode, previewStripState, rows.length, unlockedPreviewCount]);
 
   if (previewStripState === "data_loading") {
     return (
@@ -1139,14 +1154,14 @@ function PreviewStrip({
       <div className="flex min-w-max gap-3">
         {rows.map((row, index) => {
           const assetFallbacks = [
-            row.cardPreviewUrl ?? null,
             row.tableThumbnailUrl ?? null,
+            row.cachedThumbnailUrl ?? null,
+            row.thumbnailUrl ?? null,
             row.imageUrl ?? null,
             row.preview?.image_url ?? null,
             row.preview?.poster_url ?? null,
             row.previewUrl ?? null,
-            row.cachedThumbnailUrl ?? null,
-            row.thumbnailUrl ?? null,
+            row.cardPreviewUrl ?? null,
           ];
           if (process.env.NODE_ENV !== "production" && topRowPropLogCount < 20) {
             topRowPropLogCount += 1;

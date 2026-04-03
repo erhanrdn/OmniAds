@@ -32,16 +32,12 @@ import {
 } from "@/components/creatives/CreativesTopSection";
 import { usePersistentCreativeDateRange } from "@/hooks/use-persistent-date-range";
 import type { ShareMetricKey, SharePayload } from "@/components/creatives/shareCreativeTypes";
-import { SyncStatusPill, SyncStatusPillSkeleton } from "@/components/sync/sync-status-pill";
 import {
   CreativesTableShell,
   buildCreativeHistoryById,
-  fetchMetaCreativePreviewHydration,
   fetchMetaCreatives,
   fetchMetaCreativesHistory,
-  hasRenderablePreview,
   mapApiRowToUiRow,
-  mergeHydratedPreviewIntoRow,
   PLATFORM_LABELS,
   PreviewStripState,
   SHARE_METRIC_IDS,
@@ -51,7 +47,6 @@ import {
 } from "@/app/(dashboard)/creatives/page-support";
 import { useBusinessIntegrationsBootstrap } from "@/hooks/use-business-integrations-bootstrap";
 import { PlanGate } from "@/components/pricing/PlanGate";
-import type { MetaStatusResponse } from "@/lib/meta/status-types";
 import { usePlanState } from "@/lib/pricing/usePlan";
 import { PRICING_PLANS } from "@/lib/pricing/plans";
 import {
@@ -59,23 +54,6 @@ import {
   addDaysToIsoDate,
   dayCountInclusive,
 } from "@/lib/meta/history";
-import { resolveMetaSyncStatusPill } from "@/lib/sync/sync-status-pill";
-
-async function fetchMetaStatus(businessId: string): Promise<MetaStatusResponse> {
-  const params = new URLSearchParams({ businessId });
-  const response = await fetch(`/api/meta/status?${params.toString()}`, {
-    cache: "no-store",
-    headers: { Accept: "application/json" },
-  });
-  const payload = await response.json().catch(() => null);
-  if (!response.ok) {
-    throw new Error(
-      (payload as { message?: string } | null)?.message ??
-        `Meta status request failed (${response.status})`
-    );
-  }
-  return payload as MetaStatusResponse;
-}
 
 function clampCreativeDateRangeToHistoryLimit(
   value: CreativeDateRangeValue,
@@ -114,21 +92,6 @@ function scheduleIdlePhase(work: () => void, timeout = 900) {
 
   const timeoutHandle = window.setTimeout(work, Math.min(timeout, 350));
   return () => window.clearTimeout(timeoutHandle);
-}
-
-function CreativesSyncInlineProgress({
-  status,
-  loading = false,
-}: {
-  status: MetaStatusResponse | undefined;
-  loading?: boolean;
-}) {
-  if (loading) {
-    return <SyncStatusPillSkeleton className="w-28" />;
-  }
-  const pill = resolveMetaSyncStatusPill(status);
-  if (!pill || pill.state === "active") return null;
-  return <SyncStatusPill pill={pill} />;
 }
 
 const CreativeDetailExperience = dynamic(
@@ -255,23 +218,6 @@ export default function CreativesPage() {
     staleTime: 30 * 1000,
     refetchOnWindowFocus: false,
     placeholderData: (previousData) => previousData,
-  });
-  const metaStatusQuery = useQuery({
-    queryKey: ["meta-creatives-status", businessId],
-    enabled: canLoadCreatives,
-    staleTime: 30 * 1000,
-    refetchInterval: (query) => {
-      const payload = query.state.data as MetaStatusResponse | undefined;
-      const stillRunning =
-        payload?.state === "syncing" ||
-        payload?.state === "partial" ||
-        payload?.latestSync?.status === "running" ||
-        (payload?.jobHealth?.leasedPartitions ?? 0) > 0 ||
-        (payload?.jobHealth?.queueDepth ?? 0) > 0;
-      if (!stillRunning) return false;
-      return payload?.state === "syncing" || payload?.state === "partial" ? 5_000 : 10_000;
-    },
-    queryFn: () => fetchMetaStatus(businessId),
   });
   const shouldLoadHistory =
     historyPhaseStarted || creativeDrawerState.open || breakdownDrawerState.open;
@@ -478,57 +424,6 @@ export default function CreativesPage() {
     topPanelRows.length,
   ]);
   const topPreviewRows = useMemo(() => topPanelRows.slice(0, 20), [topPanelRows]);
-  const previewHydrationItems = useMemo(
-    () =>
-      topPreviewRows
-        .slice(0, 10)
-        .filter((row) => !hasRenderablePreview(row))
-        .map((row) => ({
-          rowId: row.id,
-          creativeId: row.creativeId || null,
-        })),
-    [topPreviewRows]
-  );
-  const previewHydrationSignature = useMemo(
-    () =>
-      previewHydrationItems
-        .map((item) => `${item.rowId}:${item.creativeId ?? ""}`)
-        .join("|"),
-    [previewHydrationItems]
-  );
-  const topPreviewHydrationQuery = useQuery({
-    queryKey: [
-      "meta-creatives-preview-hydration",
-      businessId,
-      previewHydrationSignature,
-    ],
-    enabled:
-      canLoadCreatives &&
-      previewHydrationItems.length > 0 &&
-      topPreviewRows.length > 0,
-    queryFn: () =>
-      fetchMetaCreativePreviewHydration({
-        businessId,
-        items: previewHydrationItems,
-      }),
-    staleTime: 5 * 60 * 1000,
-    refetchOnWindowFocus: false,
-    placeholderData: (previousData) => previousData,
-  });
-  const hydratedPreviewRowById = useMemo(
-    () =>
-      new Map(
-        (topPreviewHydrationQuery.data?.rows ?? []).map((row) => [row.rowId, row])
-      ),
-    [topPreviewHydrationQuery.data?.rows]
-  );
-  const mergedTopPreviewRows = useMemo(
-    () =>
-      topPreviewRows.map((row) =>
-        mergeHydratedPreviewIntoRow(row, hydratedPreviewRowById.get(row.id))
-      ),
-    [hydratedPreviewRowById, topPreviewRows]
-  );
 
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return;
@@ -806,7 +701,7 @@ export default function CreativesPage() {
               onFiltersChange={setTopFilters}
               selectedMetricIds={topMetricIds}
               onSelectedMetricIdsChange={setTopMetricIds}
-              selectedRows={mergedTopPreviewRows}
+              selectedRows={topPreviewRows}
               allRowsForHeatmap={filteredRows}
               defaultCurrency={selectedBusinessCurrency}
               onOpenRow={(rowId) => openCreativeDrawer(rowId, true)}
@@ -818,12 +713,6 @@ export default function CreativesPage() {
               shareError={shareError}
               csvError={csvError}
               previewStripState={previewStripState}
-              actionsPrefix={
-                <CreativesSyncInlineProgress
-                  status={metaStatusQuery.data}
-                  loading={metaStatusQuery.isLoading && !metaStatusQuery.data}
-                />
-              }
             />
 
             {creativesMetadataQuery.isLoading && <CreativesTableShell />}
