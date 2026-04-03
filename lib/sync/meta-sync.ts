@@ -17,6 +17,7 @@ import {
   getMetaAdSetDailyCoverage,
   getMetaAccountDailyCoverage,
   getMetaCreativeDailyCoverage,
+  getMetaIncompleteCoreDates,
   getMetaPartitionStatesForDate,
   getMetaQueueComposition,
   getMetaPartitionHealth,
@@ -830,11 +831,31 @@ async function enqueueMetaDates(input: {
         .map((item) => queueMetaSyncPartition(item).catch(() => null))
     );
     for (const row of rows) {
-      if (row?.id) queued += 1;
+      if (row?.id && row.status === "queued") queued += 1;
     }
   }
 
   return queued;
+}
+
+export function resolveMetaHistoricalReplaySource(
+  partitionStates: Map<
+    string,
+    {
+      status: string;
+      source: string;
+      finishedAt: string | null;
+    }
+  >
+) {
+  const states = Array.from(partitionStates.values()).map((value) => value.status);
+  if (states.some((status) => ["queued", "leased", "running"].includes(status))) {
+    return null;
+  }
+  if (states.some((status) => ["succeeded", "failed", "dead_letter", "cancelled"].includes(status))) {
+    return "historical_recovery" as const;
+  }
+  return "historical" as const;
 }
 
 async function enqueueMetaHistoricalCorePartitions(
@@ -854,16 +875,62 @@ async function enqueueMetaHistoricalCorePartitions(
     endDate: historicalReplayEnd,
   }).catch(() => null);
   if (completion?.complete) return 0;
-  const dates = enumerateDays(startDate, historicalReplayEnd, true).slice(0, Math.max(1, maxDates));
-  return enqueueMetaDates({
-    businessId,
-    accountIds: credentials.accountIds,
-    dates,
-    triggerSource: "historical",
-    lane: "core",
-    scopes: META_CORE_SCOPES,
-    priority: 20,
-  });
+  let queued = 0;
+
+  for (const providerAccountId of credentials.accountIds) {
+    const incompleteDates = await getMetaIncompleteCoreDates({
+      businessId,
+      providerAccountId,
+      startDate,
+      endDate: historicalReplayEnd,
+      limit: Math.max(1, maxDates),
+    }).catch(() => []);
+
+    const historicalDates: string[] = [];
+    const historicalRecoveryDates: string[] = [];
+
+    for (const date of incompleteDates) {
+      const partitionStates = await getMetaPartitionStatesForDate({
+        businessId,
+        providerAccountId,
+        lane: "core",
+        partitionDate: date,
+        scopes: META_CORE_SCOPES,
+      }).catch(() => new Map());
+      const triggerSource = resolveMetaHistoricalReplaySource(partitionStates);
+      if (triggerSource === "historical_recovery") {
+        historicalRecoveryDates.push(date);
+      } else if (triggerSource === "historical") {
+        historicalDates.push(date);
+      }
+    }
+
+    if (historicalDates.length > 0) {
+      queued += await enqueueMetaDates({
+        businessId,
+        accountIds: [providerAccountId],
+        dates: historicalDates,
+        triggerSource: "historical",
+        lane: "core",
+        scopes: META_CORE_SCOPES,
+        priority: 20,
+      });
+    }
+
+    if (historicalRecoveryDates.length > 0) {
+      queued += await enqueueMetaDates({
+        businessId,
+        accountIds: [providerAccountId],
+        dates: historicalRecoveryDates,
+        triggerSource: "historical_recovery",
+        lane: "core",
+        scopes: META_CORE_SCOPES,
+        priority: 25,
+      });
+    }
+  }
+
+  return queued;
 }
 
 async function enqueueMetaMaintenancePartitions(

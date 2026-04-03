@@ -22,6 +22,7 @@ import {
   type AiCreativeHistoricalWindows,
   type CreativeRuleReportPayload,
 } from "@/src/services";
+import { getCreativeDisplayPills } from "@/lib/meta/creative-taxonomy";
 import { getTranslations } from "@/lib/i18n";
 import { usePreferencesStore } from "@/store/preferences-store";
 
@@ -112,6 +113,16 @@ export function CreativeDetailExperience({
   const imageUrl = row ? resolveDetailImageUrl(row) : null;
   const canShowHtml = Boolean(detailPreviewHtml);
   const resolvedSource: StageSource = canShowHtml && source === "html" ? "html" : "image";
+  const taxonomyPills = row
+    ? getCreativeDisplayPills({
+        creative_delivery_type: row.creativeDeliveryType,
+        creative_visual_format: row.creativeVisualFormat,
+        creative_primary_type: row.creativePrimaryType,
+        creative_primary_label: row.creativePrimaryLabel,
+        creative_secondary_type: row.creativeSecondaryType,
+        creative_secondary_label: row.creativeSecondaryLabel,
+      })
+    : { primaryLabel: null, secondaryLabel: null };
 
   const context = useMemo(() => (row ? buildCreativeDecisionContext(row, allRows) : null), [allRows, row]);
   const report = useMemo(
@@ -208,8 +219,8 @@ export function CreativeDetailExperience({
                   </div>
 
                   <div className="flex flex-wrap gap-1.5">
-                    <Pill value={row.creativeTypeLabel} />
-                    <Pill value={row.format === "video" ? "Video" : row.format === "catalog" ? "Catalog" : "Image"} />
+                    {taxonomyPills.primaryLabel ? <Pill value={taxonomyPills.primaryLabel} /> : null}
+                    {taxonomyPills.secondaryLabel ? <Pill value={taxonomyPills.secondaryLabel} /> : null}
                     {row.launchDate ? <Pill value={`Launched ${row.launchDate}`} /> : null}
                   </div>
                 </div>

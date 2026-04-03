@@ -312,31 +312,66 @@ export async function queueMetaSyncPartition(input: MetaSyncPartitionRecord) {
         ELSE meta_sync_partitions.source
       END,
       status = CASE
-        WHEN EXCLUDED.source IN ('priority_window', 'recent', 'recent_recovery', 'today', 'request_runtime')
+        WHEN EXCLUDED.source IN (
+          'priority_window',
+          'recent',
+          'recent_recovery',
+          'today',
+          'request_runtime',
+          'historical_recovery'
+        )
           AND meta_sync_partitions.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
           THEN 'queued'
         ELSE meta_sync_partitions.status
       END,
       lease_owner = CASE
-        WHEN EXCLUDED.source IN ('priority_window', 'recent', 'recent_recovery', 'today', 'request_runtime')
+        WHEN EXCLUDED.source IN (
+          'priority_window',
+          'recent',
+          'recent_recovery',
+          'today',
+          'request_runtime',
+          'historical_recovery'
+        )
           AND meta_sync_partitions.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
           THEN NULL
         ELSE meta_sync_partitions.lease_owner
       END,
       lease_expires_at = CASE
-        WHEN EXCLUDED.source IN ('priority_window', 'recent', 'recent_recovery', 'today', 'request_runtime')
+        WHEN EXCLUDED.source IN (
+          'priority_window',
+          'recent',
+          'recent_recovery',
+          'today',
+          'request_runtime',
+          'historical_recovery'
+        )
           AND meta_sync_partitions.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
           THEN NULL
         ELSE meta_sync_partitions.lease_expires_at
       END,
       last_error = CASE
-        WHEN EXCLUDED.source IN ('priority_window', 'recent', 'recent_recovery', 'today', 'request_runtime')
+        WHEN EXCLUDED.source IN (
+          'priority_window',
+          'recent',
+          'recent_recovery',
+          'today',
+          'request_runtime',
+          'historical_recovery'
+        )
           AND meta_sync_partitions.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
           THEN NULL
         ELSE meta_sync_partitions.last_error
       END,
       next_retry_at = CASE
-        WHEN EXCLUDED.source IN ('priority_window', 'recent', 'recent_recovery', 'today', 'request_runtime')
+        WHEN EXCLUDED.source IN (
+          'priority_window',
+          'recent',
+          'recent_recovery',
+          'today',
+          'request_runtime',
+          'historical_recovery'
+        )
           AND meta_sync_partitions.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
           THEN now()
         WHEN meta_sync_partitions.status IN ('succeeded', 'running', 'leased')
@@ -389,7 +424,16 @@ export async function leaseMetaSyncPartitions(input: {
           WHEN 'historical' THEN 150
           ELSE 100
         END DESC,
-        partition_date DESC,
+        CASE
+          WHEN source IN ('historical', 'historical_recovery', 'initial_connect')
+            THEN partition_date
+          ELSE NULL
+        END ASC,
+        CASE
+          WHEN source IN ('historical', 'historical_recovery', 'initial_connect')
+            THEN NULL
+          ELSE partition_date
+        END DESC,
         updated_at ASC
       LIMIT ${Math.max(1, input.limit)}
       FOR UPDATE SKIP LOCKED
@@ -1586,6 +1630,66 @@ export async function getMetaPartitionStatesForDate(input: {
       },
     ])
   );
+}
+
+export async function getMetaIncompleteCoreDates(input: {
+  businessId: string;
+  providerAccountId?: string | null;
+  startDate: string;
+  endDate: string;
+  limit?: number;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = await sql.query(
+    `
+      WITH target_dates AS (
+        SELECT generate_series($1::date, $2::date, interval '1 day')::date AS day
+      ),
+      account_dates AS (
+        SELECT DISTINCT date::date AS day
+        FROM meta_account_daily
+        WHERE business_id = $3
+          AND ($4::text IS NULL OR provider_account_id = $4)
+          AND date::date BETWEEN $1::date AND $2::date
+      ),
+      campaign_dates AS (
+        SELECT DISTINCT date::date AS day
+        FROM meta_campaign_daily
+        WHERE business_id = $3
+          AND ($4::text IS NULL OR provider_account_id = $4)
+          AND date::date BETWEEN $1::date AND $2::date
+      ),
+      adset_dates AS (
+        SELECT DISTINCT date::date AS day
+        FROM meta_adset_daily
+        WHERE business_id = $3
+          AND ($4::text IS NULL OR provider_account_id = $4)
+          AND date::date BETWEEN $1::date AND $2::date
+      )
+      SELECT target_dates.day::text AS partition_date
+      FROM target_dates
+      LEFT JOIN account_dates ON account_dates.day = target_dates.day
+      LEFT JOIN campaign_dates ON campaign_dates.day = target_dates.day
+      LEFT JOIN adset_dates ON adset_dates.day = target_dates.day
+      WHERE account_dates.day IS NULL
+         OR campaign_dates.day IS NULL
+         OR adset_dates.day IS NULL
+      ORDER BY target_dates.day ASC
+      LIMIT $5
+    `,
+    [
+      normalizeDate(input.startDate),
+      normalizeDate(input.endDate),
+      input.businessId,
+      input.providerAccountId ?? null,
+      Math.max(1, input.limit ?? 100),
+    ]
+  ) as Array<Record<string, unknown>>;
+
+  return rows
+    .map((row) => normalizeDate(row.partition_date))
+    .filter(Boolean);
 }
 
 export async function getMetaPartitionHealth(input: {

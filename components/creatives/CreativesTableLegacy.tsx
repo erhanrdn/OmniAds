@@ -8,6 +8,10 @@ import {
   MetaCreativeRow,
   MetaMetricKey,
 } from "@/components/creatives/metricConfig";
+import {
+  getCreativeFormatSummaryLabel,
+  getCreativePreviewBadgeLabel,
+} from "@/lib/meta/creative-taxonomy";
 import { cn } from "@/lib/utils";
 
 interface CreativesTableLegacyProps {
@@ -188,7 +192,14 @@ export function CreativesTableLegacy({
 function CreativeNameCell({ row }: { row: CreativeRowLike }) {
   const isCatalog = Boolean(row.isCatalog || row.is_catalog || row.preview?.is_catalog);
   const associatedAdsCount = row.associatedAdsCount || row.associated_ads_count || 0;
-  const formatLabel = isCatalog ? "Catalog" : row.format || "Static";
+  const formatLabel = getCreativeFormatSummaryLabel({
+    creative_delivery_type: row.creativeDeliveryType,
+    creative_visual_format: row.creativeVisualFormat,
+    creative_primary_type: row.creativePrimaryType,
+    creative_primary_label: row.creativePrimaryLabel,
+    creative_secondary_type: row.creativeSecondaryType,
+    creative_secondary_label: row.creativeSecondaryLabel,
+  });
 
   const sourcePriority = useMemo(
     () => [
@@ -215,6 +226,14 @@ function CreativeNameCell({ row }: { row: CreativeRowLike }) {
       row.preview_url,
     ]
   );
+  const badgeLabel = getCreativePreviewBadgeLabel({
+    creative_delivery_type: row.creativeDeliveryType,
+    creative_visual_format: row.creativeVisualFormat,
+    creative_primary_type: row.creativePrimaryType,
+    creative_primary_label: row.creativePrimaryLabel,
+    creative_secondary_type: row.creativeSecondaryType,
+    creative_secondary_label: row.creativeSecondaryLabel,
+  });
 
   return (
     <div className="flex items-center gap-3">
@@ -226,8 +245,9 @@ function CreativeNameCell({ row }: { row: CreativeRowLike }) {
         imageUrl={row.imageUrl ?? row.image_url ?? row.preview?.image_url ?? null}
         previewUrl={row.preview?.poster_url ?? row.previewUrl ?? row.preview_url ?? null}
         sourcePriority={sourcePriority}
-        format={isCatalog ? "catalog" : row.format === "video" ? "video" : "image"}
+        format={row.creativeVisualFormat === "video" ? "video" : isCatalog ? "catalog" : "image"}
         isCatalog={isCatalog}
+        badgeLabel={badgeLabel}
         debugScope="table-thumb"
         size="thumb"
         className="shadow-sm"

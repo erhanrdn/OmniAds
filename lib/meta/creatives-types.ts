@@ -5,6 +5,10 @@ export type FormatFilter = "all" | "image" | "video";
 export type SortKey = "roas" | "spend" | "ctrAll" | "purchaseValue";
 export type CreativeFormat = "image" | "video" | "catalog";
 export type CreativeType = "feed" | "video" | "flexible" | "feed_catalog";
+export type CreativeDeliveryType = "standard" | "catalog" | "flexible" | "mixed";
+export type CreativeVisualFormat = "image" | "video" | "carousel" | "mixed";
+export type CreativePrimaryType = "standard" | "catalog" | "flexible" | "carousel" | "video" | "mixed";
+export type CreativeSecondaryType = "video" | "carousel";
 export type AiTagKey =
   | "assetType"
   | "visualFormat"
@@ -92,6 +96,25 @@ export type CreativeDebugInfo = {
   preview_render_mode?: PreviewRenderMode | null;
   preview_candidates_count?: number;
   preview_resolution_reason?: PreviewResolutionReason | string | null;
+};
+
+export type CreativeClassificationSignals = {
+  is_catalog_by_object_type: boolean;
+  has_template_data: boolean;
+  has_promoted_product_set_id: boolean;
+  has_promoted_catalog_id: boolean;
+  has_asset_feed_catalog_id: boolean;
+  has_asset_feed_product_set_id: boolean;
+  child_attachment_count: number;
+  has_top_level_video_id: boolean;
+  has_object_story_video_data: boolean;
+  has_video_object_type: boolean;
+  asset_feed_image_count: number;
+  asset_feed_video_count: number;
+  has_asset_feed_spec: boolean;
+  has_mixed_asset_families: boolean;
+  has_multi_image_assets: boolean;
+  has_multi_video_assets: boolean;
 };
 
 export type PreviewDebugPatch = {
@@ -417,6 +440,13 @@ export interface CreativeClassificationFields {
   format: CreativeFormat;
   creative_type: CreativeType;
   creative_type_label: string;
+  creative_delivery_type: CreativeDeliveryType;
+  creative_visual_format: CreativeVisualFormat;
+  creative_primary_type: CreativePrimaryType;
+  creative_primary_label: string | null;
+  creative_secondary_type: CreativeSecondaryType | null;
+  creative_secondary_label: string | null;
+  classification_signals?: CreativeClassificationSignals | null;
 }
 
 export interface CreativeMetricFields {

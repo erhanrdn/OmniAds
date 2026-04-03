@@ -35,6 +35,7 @@ import { useDropdownBehavior } from "@/hooks/use-dropdown-behavior";
 import { getAiCreativeDecisions, type AiCreativeDecision, type AiCreativeDecisionInputRow } from "@/src/services";
 import { createPortal } from "react-dom";
 import { buildHeuristicCreativeDecisions } from "@/lib/ai/generate-creative-decisions";
+import { getCreativeVisualFormatLabel } from "@/lib/meta/creative-taxonomy";
 import type { AiCreativeHistoricalWindows } from "@/src/services";
 
 type AiSignalAction = AiCreativeDecision["action"];
@@ -2020,7 +2021,9 @@ const CreativeTableRow = memo(function CreativeTableRow({
       )}
 
       {tablePreset.showAdLength && (
-        <td className="border-b px-2.5 py-1.5 text-[10px] font-medium">{row.format === "video" ? "15s" : "Static"}</td>
+        <td className="border-b px-2.5 py-1.5 text-[10px] font-medium">
+          {row.creativeVisualFormat === "video" ? "15s" : getCreativeVisualFormatLabel(row.creativeVisualFormat)}
+        </td>
       )}
 
       {selectedAiTagColumns.map((tagKey) => (
@@ -2374,7 +2377,15 @@ function getMetricConfig(key: TableColumnKey): TableMetricConfig {
 }
 
 function hasVideoEvidence(row: MetaCreativeRow): boolean {
-  return row.format === "video" || row.thumbstop > 0 || row.video25 > 0 || row.video50 > 0 || row.video75 > 0 || row.video100 > 0;
+  return (
+    row.creativeVisualFormat === "video" ||
+    row.format === "video" ||
+    row.thumbstop > 0 ||
+    row.video25 > 0 ||
+    row.video50 > 0 ||
+    row.video75 > 0 ||
+    row.video100 > 0
+  );
 }
 
 function isMetricApplicable(key: TableColumnKey, row: MetaCreativeRow): boolean {

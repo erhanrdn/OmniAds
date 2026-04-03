@@ -24,7 +24,6 @@ import { getMetaBreakdownSupportedStart, META_BREAKDOWN_MAX_HISTORY_DAYS } from 
 import {
   buildProviderStateContract,
   buildProviderSurfaces,
-  decideProviderReadinessLevel,
 } from "@/lib/provider-readiness";
 import { isDemoBusinessId, getDemoMetaStatus } from "@/lib/demo-business";
 import { getProviderWorkerHealthState } from "@/lib/sync/worker-health";
@@ -58,9 +57,7 @@ function buildMetaDomainReadiness(input: {
   const summary =
     blockingSurfaces.length > 0
       ? "Core spend and campaign summary are still syncing."
-      : deepSurfacesPending.length > 0
-        ? "Core spend and campaign summary are ready. Creative and deeper reporting surfaces are still syncing."
-        : "Meta core and deep reporting surfaces are ready.";
+      : null;
   return {
     coreSurfacesReady,
     deepSurfacesPending,
@@ -78,7 +75,7 @@ const META_BREAKDOWN_ENDPOINTS = [
 const META_STATE_SCOPES = ["account_daily", "adset_daily", "creative_daily", "ad_daily"] as const;
 const META_CORE_REQUIRED_SURFACES = ["account_daily", "campaign_daily"] as const;
 const META_SECONDARY_SURFACES = ["adset_daily", "ad_daily"] as const;
-const META_DEEP_SURFACES = ["breakdowns", "creatives"] as const;
+const META_DEEP_SURFACES = ["breakdowns"] as const;
 const META_RECENT_RECOVERY_DAYS = Math.max(
   1,
   Number(process.env.META_RECENT_RECOVERY_DAYS ?? 14) || 14
@@ -101,6 +98,25 @@ function addDays(date: Date, days: number) {
   const next = new Date(date);
   next.setUTCDate(next.getUTCDate() + days);
   return next;
+}
+
+function minCompletedDays(
+  values: Array<number | null | undefined>,
+  totalDays: number | null | undefined
+) {
+  const finiteValues = values.filter((value): value is number => Number.isFinite(value));
+  if (finiteValues.length === 0) return 0;
+  const minValue = Math.min(...finiteValues);
+  if (!Number.isFinite(totalDays) || (totalDays ?? 0) <= 0) return minValue;
+  return Math.min(minValue, totalDays ?? 0);
+}
+
+function earliestReadyThroughDate(values: Array<string | null | undefined>) {
+  return (
+    values
+      .filter((value): value is string => Boolean(value))
+      .sort((left, right) => left.localeCompare(right))[0] ?? null
+  );
 }
 
 function buildPhaseLabel(input: {
@@ -194,7 +210,7 @@ export async function GET(request: NextRequest) {
     dayCountInclusive(recentWindowStart, initialBackfillEnd)
   );
 
-  const [accountCoverage, campaignCoverage, adsetCoverage, adDailyCoverage, creativeCoverage, creativePreviewCoverage, breakdownCoverageByEndpoint, queueHealth, queueComposition, checkpointHealth, recentAccountCoverage, recentAdsetCoverage, recentCreativeCoverage, recentAdCoverage, ...stateRows] =
+  const [accountCoverage, campaignCoverage, adsetCoverage, adDailyCoverage, creativeCoverage, creativePreviewCoverage, breakdownCoverageByEndpoint, queueHealth, queueComposition, checkpointHealth, recentAccountCoverage, recentCampaignCoverage, recentAdsetCoverage, recentCreativeCoverage, recentAdCoverage, ...stateRows] =
       await Promise.all([
           getMetaAccountDailyCoverage({
             businessId: businessId!,
@@ -243,6 +259,12 @@ export async function GET(request: NextRequest) {
           getMetaQueueComposition({ businessId: businessId! }).catch(() => null),
           getMetaCheckpointHealth({ businessId: businessId! }).catch(() => null),
           getMetaAccountDailyCoverage({
+            businessId: businessId!,
+            providerAccountId: null,
+            startDate: recentWindowStart,
+            endDate: initialBackfillEnd,
+          }).catch(() => null),
+          getMetaCampaignDailyCoverage({
             businessId: businessId!,
             providerAccountId: null,
             startDate: recentWindowStart,
@@ -316,31 +338,21 @@ export async function GET(request: NextRequest) {
       .filter((value): value is string => Boolean(value))
       .sort((a, b) => a.localeCompare(b))[0] ?? null;
 
-  const overallCompletedDays =
-    accountDailyStates.length > 0 && adsetDailyStates.length > 0
-      ? Math.min(
-          Math.min(...accountDailyStates.map((row) => row.completedDays)),
-          Math.min(...adsetDailyStates.map((row) => row.completedDays)),
-          historicalTotalDays
-        )
-      : Math.min(
-          accountCoverage?.completed_days ?? 0,
-          adsetCoverage?.completed_days ?? 0,
-          historicalTotalDays
-        );
-  const historicalReadyThroughDate =
+  const overallCompletedDays = minCompletedDays(
     [
-      accountDailyStates
-        .map((row) => row.readyThroughDate)
-        .filter((value): value is string => Boolean(value))
-        .sort((a, b) => a.localeCompare(b))[0] ?? accountCoverage?.ready_through_date ?? null,
-      adsetDailyStates
-        .map((row) => row.readyThroughDate)
-        .filter((value): value is string => Boolean(value))
-        .sort((a, b) => a.localeCompare(b))[0] ?? adsetCoverage?.ready_through_date ?? null,
-    ]
-      .filter((value): value is string => Boolean(value))
-      .sort((a, b) => a.localeCompare(b))[0] ?? null;
+      accountDailyStates.length > 0
+        ? Math.min(...accountDailyStates.map((row) => row.completedDays))
+        : accountCoverage?.completed_days ?? 0,
+      campaignCoverage?.completed_days ?? 0,
+    ],
+    historicalTotalDays
+  );
+  const historicalReadyThroughDate = earliestReadyThroughDate([
+    accountDailyStates.length > 0
+      ? earliestReadyThroughDate(accountDailyStates.map((row) => row.readyThroughDate))
+      : accountCoverage?.ready_through_date ?? null,
+    campaignCoverage?.ready_through_date ?? null,
+  ]);
 
   const selectedRangeCoverage =
     selectedStartDate && selectedEndDate
@@ -364,16 +376,23 @@ export async function GET(request: NextRequest) {
     selectedStartDate && selectedEndDate ? dayCountInclusive(selectedStartDate, selectedEndDate) : null;
   const selectedRangeCompletedDays = selectedRangeCoverage?.completed_days ?? 0;
   const selectedRangeRequested = Boolean(selectedStartDate && selectedEndDate && selectedRangeTotalDays);
+  const selectedRangeCoreCompletedDays = minCompletedDays(
+    [selectedRangeCoverage?.completed_days ?? 0, selectedRangeCampaignCoverage?.completed_days ?? 0],
+    selectedRangeTotalDays
+  );
   const selectedRangeIncomplete =
-    Boolean(selectedRangeTotalDays) && selectedRangeCompletedDays < (selectedRangeTotalDays ?? 0);
+    Boolean(selectedRangeTotalDays) && selectedRangeCoreCompletedDays < (selectedRangeTotalDays ?? 0);
   const selectedRangeCampaignIncomplete =
     Boolean(selectedRangeTotalDays) &&
     (selectedRangeCampaignCoverage?.completed_days ?? 0) < (selectedRangeTotalDays ?? 0);
+  const selectedRangeCoreReadyThroughDate = earliestReadyThroughDate([
+    selectedRangeCoverage?.ready_through_date ?? null,
+    selectedRangeCampaignCoverage?.ready_through_date ?? null,
+  ]);
   const selectedRangeIsToday =
     Boolean(selectedStartDate && selectedEndDate && currentDateInTimezone) &&
     selectedStartDate === selectedEndDate &&
     selectedStartDate === currentDateInTimezone;
-
   const scopeSummaries = [
     {
       scope: "account_daily",
@@ -479,16 +498,16 @@ export async function GET(request: NextRequest) {
   const shouldReportSelectedRangeProgress = selectedRangeStillPreparing;
   const responseProgressPercent =
     shouldReportSelectedRangeProgress && selectedRangeTotalDays
-      ? Math.min(100, Math.round((selectedRangeCompletedDays / selectedRangeTotalDays) * 100))
+      ? Math.min(100, Math.round((selectedRangeCoreCompletedDays / selectedRangeTotalDays) * 100))
       : historicalProgressPercent;
   const responseCompletedDays = shouldReportSelectedRangeProgress
-    ? selectedRangeCompletedDays
+    ? selectedRangeCoreCompletedDays
     : overallCompletedDays;
   const responseTotalDays = shouldReportSelectedRangeProgress
     ? selectedRangeTotalDays
     : historicalTotalDays;
   const responseReadyThroughDate = shouldReportSelectedRangeProgress
-    ? selectedRangeCoverage?.ready_through_date ?? null
+    ? selectedRangeCoreReadyThroughDate
     : historicalReadyThroughDate;
 
   const state = !connected
@@ -616,33 +635,34 @@ export async function GET(request: NextRequest) {
     notReadyReason: phaseLabel === "Ready" ? null : phaseLabel,
   });
 
+  const accountSurfaceReady =
+    (accountCoverage?.completed_days ?? 0) >= historicalTotalDays;
+  const campaignSurfaceReady =
+    (campaignCoverage?.completed_days ?? 0) >= historicalTotalDays;
+  const currentAccountSurfaceUsable = selectedRangeRequested
+    ? Boolean(selectedRangeTotalDays) && selectedRangeCompletedDays >= (selectedRangeTotalDays ?? 0)
+    : (recentAccountCoverage?.completed_days ?? 0) >= recentWindowTotalDays;
+  const currentCampaignSurfaceUsable = selectedRangeRequested
+    ? Boolean(selectedRangeTotalDays) &&
+      (selectedRangeCampaignCoverage?.completed_days ?? 0) >= (selectedRangeTotalDays ?? 0)
+    : (recentCampaignCoverage?.completed_days ?? 0) >= recentWindowTotalDays;
   const availableSurfaces = [
-    (selectedRangeTotalDays == null || selectedRangeCompletedDays >= selectedRangeTotalDays) &&
-    (accountCoverage?.completed_days ?? 0) > 0
-      ? "account_daily"
-      : null,
-    (selectedRangeTotalDays == null || !selectedRangeCampaignIncomplete) &&
-    (campaignCoverage?.completed_days ?? 0) > 0
-      ? "campaign_daily"
-      : null,
+    currentAccountSurfaceUsable ? "account_daily" : null,
+    currentCampaignSurfaceUsable ? "campaign_daily" : null,
     (adsetCoverage?.completed_days ?? 0) >= effectiveHistoricalTotalDays ? "adset_daily" : null,
     (adDailyCoverage?.completed_days ?? 0) >= effectiveHistoricalTotalDays ? "ad_daily" : null,
     breakdownCoverageDays >= Math.min(historicalTotalDays, META_BREAKDOWN_MAX_HISTORY_DAYS) ? "breakdowns" : null,
-    (creativeCoverage?.completed_days ?? 0) >= historicalTotalDays &&
-    (((creativePreviewCoverage?.total_rows ?? 0) === 0) ||
-      ((creativePreviewCoverage?.preview_ready_rows ?? 0) >= (creativePreviewCoverage?.total_rows ?? 0)))
-      ? "creatives"
-      : null,
   ].filter((value): value is string => Boolean(value));
   const surfaces = buildProviderSurfaces({
     required: [...META_CORE_REQUIRED_SURFACES, ...META_SECONDARY_SURFACES, ...META_DEEP_SURFACES],
     available: availableSurfaces,
   });
-  const readinessLevel = decideProviderReadinessLevel({
-    required: surfaces.required,
-    available: surfaces.available,
-    usable: [...META_CORE_REQUIRED_SURFACES],
-  });
+  const readinessLevel: "usable" | "partial" | "ready" =
+    accountSurfaceReady && campaignSurfaceReady
+      ? "ready"
+      : currentAccountSurfaceUsable && currentCampaignSurfaceUsable
+        ? "usable"
+        : "partial";
   const domainReadiness = buildMetaDomainReadiness({
     availableSurfaces,
     missingSurfaces: surfaces.missing,

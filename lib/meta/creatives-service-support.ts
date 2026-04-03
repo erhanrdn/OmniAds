@@ -1,4 +1,9 @@
 import { collectPreviewCandidates } from "@/lib/meta/creatives-preview";
+import {
+  coerceCreativeTaxonomyFromLegacy,
+  deriveLegacyCreativeClassification,
+  reconcileCreativeTaxonomyWithVideoEvidence,
+} from "@/lib/meta/creative-taxonomy";
 import type {
   CreativeDebugInfo,
   LegacyPreviewState,
@@ -320,6 +325,31 @@ export function buildMetaCreativeApiRow(params: {
   const normalizedCtrAll = safeImpressions > 0 ? (safeLinkClicks / safeImpressions) * 100 : 0;
   const normalizedClickToAtc = safeLinkClicks > 0 ? (safeAddToCart / safeLinkClicks) * 100 : 0;
   const normalizedAtcToPurchase = safeAddToCart > 0 ? (safePurchases / safeAddToCart) * 100 : 0;
+  const creativeTaxonomy =
+    row.creative_primary_type
+      ? {
+          creative_delivery_type: row.creative_delivery_type,
+          creative_visual_format: row.creative_visual_format,
+          creative_primary_type: row.creative_primary_type,
+          creative_primary_label: row.creative_primary_label,
+          creative_secondary_type: row.creative_secondary_type,
+          creative_secondary_label: row.creative_secondary_label,
+          classification_signals: row.classification_signals ?? null,
+        }
+      : coerceCreativeTaxonomyFromLegacy({
+          format: row.format,
+          creative_type: row.creative_type,
+          is_catalog: row.is_catalog,
+        });
+  const reconciledCreativeTaxonomy = reconcileCreativeTaxonomyWithVideoEvidence(creativeTaxonomy, {
+    preview: finalPreviewPayload,
+    thumbstop: row.thumbstop,
+    video25: row.video25,
+    video50: row.video50,
+    video75: row.video75,
+    video100: row.video100,
+  });
+  const legacyCreativeClassification = deriveLegacyCreativeClassification(reconciledCreativeTaxonomy);
 
   const baseRow: MetaCreativeApiRow = {
     id: row.id,
@@ -355,9 +385,16 @@ export function buildMetaCreativeApiRow(params: {
     launch_date: row.launch_date,
     tags: row.tags,
     ai_tags: Object.keys(row.ai_tags).length > 0 ? row.ai_tags : normalizeAiTags(row.tags),
-    format: row.format,
-    creative_type: row.creative_type,
-    creative_type_label: row.creative_type_label,
+    format: legacyCreativeClassification.format,
+    creative_type: legacyCreativeClassification.creative_type,
+    creative_type_label: legacyCreativeClassification.creative_type_label,
+    creative_delivery_type: reconciledCreativeTaxonomy.creative_delivery_type,
+    creative_visual_format: reconciledCreativeTaxonomy.creative_visual_format,
+    creative_primary_type: reconciledCreativeTaxonomy.creative_primary_type,
+    creative_primary_label: reconciledCreativeTaxonomy.creative_primary_label,
+    creative_secondary_type: reconciledCreativeTaxonomy.creative_secondary_type,
+    creative_secondary_label: reconciledCreativeTaxonomy.creative_secondary_label,
+    classification_signals: reconciledCreativeTaxonomy.classification_signals,
     spend: r2(safeSpend),
     purchase_value: r2(normalizedPurchaseValue),
     roas: r2(normalizedRoas),

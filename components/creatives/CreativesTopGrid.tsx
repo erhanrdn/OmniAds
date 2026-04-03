@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { CreativePreview } from "@/components/creatives/CreativePreview";
 import { METRIC_CONFIG, MetaCreativeRow } from "@/components/creatives/metricConfig";
-import { cn } from "@/lib/utils";
+import { getCreativeFormatSummaryLabel } from "@/lib/meta/creative-taxonomy";
 
 interface CreativesTopGridProps {
   rows: MetaCreativeRow[];
@@ -100,6 +100,14 @@ function CreativeCard({
       row.thumbnail_url,
     ]
   );
+  const badgeLabel = getCreativeFormatSummaryLabel({
+    creative_delivery_type: row.creativeDeliveryType,
+    creative_visual_format: row.creativeVisualFormat,
+    creative_primary_type: row.creativePrimaryType,
+    creative_primary_label: row.creativePrimaryLabel,
+    creative_secondary_type: row.creativeSecondaryType,
+    creative_secondary_label: row.creativeSecondaryLabel,
+  });
 
   return (
     <div className="group overflow-hidden rounded-xl border bg-background transition-shadow hover:shadow-md hover:ring-1 hover:ring-border">
@@ -119,8 +127,9 @@ function CreativeCard({
           previewUrl={row.preview?.poster_url ?? row.previewUrl ?? row.preview_url ?? null}
           thumbnailUrl={row.thumbnailUrl ?? row.thumbnail_url ?? null}
           sourcePriority={sourcePriority}
-          format={row.format === "video" ? "video" : isCatalog ? "catalog" : "image"}
+          format={row.creativeVisualFormat === "video" ? "video" : isCatalog ? "catalog" : "image"}
           isCatalog={isCatalog}
+          badgeLabel={badgeLabel}
           debugScope="top-grid"
           size="card"
         />

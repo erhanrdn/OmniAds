@@ -9,6 +9,7 @@ import type {
   PreviewRenderMode,
   UrlValidationResult,
 } from "@/lib/meta/creatives-types";
+import { classifyMetaCreative } from "@/lib/meta/creative-taxonomy";
 import { normalizeMediaUrl, extractVideoIdsFromCreative } from "@/lib/meta/creatives-utils";
 
 // ── URL helpers ────────────────────────────────────────────────────────────────
@@ -118,16 +119,7 @@ export function detectIsCatalog(
   creative: MetaAdRecord["creative"],
   promotedObject: MetaPromotedObjectLike
 ): boolean {
-  const objectType = creative?.object_type?.toUpperCase() ?? "";
-  if (objectType === "DYNAMIC") return true;
-  if (promotedObject?.product_set_id || promotedObject?.catalog_id) return true;
-  if (
-    creative?.asset_feed_spec?.catalog_id ||
-    creative?.asset_feed_spec?.product_set_id
-  ) {
-    return true;
-  }
-  return false;
+  return classifyMetaCreative({ creative, promotedObject }).creative_delivery_type === "catalog";
 }
 
 // ── Image hash extraction ──────────────────────────────────────────────────────

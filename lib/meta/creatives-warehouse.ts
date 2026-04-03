@@ -1,5 +1,10 @@
 import { NextRequest } from "next/server";
 import { getIntegration } from "@/lib/integrations";
+import {
+  coerceCreativeTaxonomyFromLegacy,
+  deriveLegacyCreativeClassification,
+  reconcileCreativeTaxonomyWithVideoEvidence,
+} from "@/lib/meta/creative-taxonomy";
 import { fetchAssignedAccountIds } from "@/lib/meta/creatives-fetchers";
 import { buildCreativesResponse } from "@/lib/meta/creatives-service";
 import type {
@@ -68,10 +73,73 @@ function coerceRawCreativeRow(value: unknown): RawCreativeRow | null {
   if (!value || typeof value !== "object") return null;
   const row = value as Partial<RawCreativeRow>;
   if (typeof row.id === "string" && typeof row.creative_id === "string" && "copy_text" in row) {
-    return row as RawCreativeRow;
+    const creativeTaxonomy =
+      row.creative_primary_type
+        ? {
+            creative_delivery_type: row.creative_delivery_type ?? "standard",
+            creative_visual_format: row.creative_visual_format ?? "image",
+            creative_primary_type: row.creative_primary_type,
+            creative_primary_label: row.creative_primary_label ?? null,
+            creative_secondary_type: row.creative_secondary_type ?? null,
+            creative_secondary_label: row.creative_secondary_label ?? null,
+            classification_signals: row.classification_signals ?? null,
+          }
+        : coerceCreativeTaxonomyFromLegacy({
+            format: row.format ?? "image",
+            creative_type: row.creative_type ?? "feed",
+            is_catalog: row.is_catalog ?? false,
+          });
+    const reconciledCreativeTaxonomy = reconcileCreativeTaxonomyWithVideoEvidence(creativeTaxonomy, {
+      preview: row.preview,
+      thumbstop: row.thumbstop,
+      video25: row.video25,
+      video50: row.video50,
+      video75: row.video75,
+      video100: row.video100,
+    });
+    const legacyCreativeClassification = deriveLegacyCreativeClassification(reconciledCreativeTaxonomy);
+
+    return {
+      ...(row as RawCreativeRow),
+      format: legacyCreativeClassification.format,
+      creative_type: legacyCreativeClassification.creative_type,
+      creative_type_label: legacyCreativeClassification.creative_type_label,
+      creative_delivery_type: reconciledCreativeTaxonomy.creative_delivery_type,
+      creative_visual_format: reconciledCreativeTaxonomy.creative_visual_format,
+      creative_primary_type: reconciledCreativeTaxonomy.creative_primary_type,
+      creative_primary_label: reconciledCreativeTaxonomy.creative_primary_label,
+      creative_secondary_type: reconciledCreativeTaxonomy.creative_secondary_type,
+      creative_secondary_label: reconciledCreativeTaxonomy.creative_secondary_label,
+      classification_signals: reconciledCreativeTaxonomy.classification_signals,
+    };
   }
   const apiRow = value as Partial<MetaCreativeApiRow>;
   if (typeof apiRow.id !== "string" || typeof apiRow.creative_id !== "string") return null;
+  const creativeTaxonomy =
+    apiRow.creative_primary_type
+      ? {
+          creative_delivery_type: apiRow.creative_delivery_type ?? "standard",
+          creative_visual_format: apiRow.creative_visual_format ?? "image",
+          creative_primary_type: apiRow.creative_primary_type,
+          creative_primary_label: apiRow.creative_primary_label ?? null,
+          creative_secondary_type: apiRow.creative_secondary_type ?? null,
+          creative_secondary_label: apiRow.creative_secondary_label ?? null,
+          classification_signals: apiRow.classification_signals ?? null,
+        }
+      : coerceCreativeTaxonomyFromLegacy({
+          format: apiRow.format ?? "image",
+          creative_type: apiRow.creative_type ?? "feed",
+          is_catalog: apiRow.is_catalog ?? false,
+        });
+  const reconciledCreativeTaxonomy = reconcileCreativeTaxonomyWithVideoEvidence(creativeTaxonomy, {
+    preview: apiRow.preview,
+    thumbstop: Number(apiRow.thumbstop ?? 0),
+    video25: Number(apiRow.video25 ?? 0),
+    video50: Number(apiRow.video50 ?? 0),
+    video75: Number(apiRow.video75 ?? 0),
+    video100: Number(apiRow.video100 ?? 0),
+  });
+  const legacyCreativeClassification = deriveLegacyCreativeClassification(reconciledCreativeTaxonomy);
   return {
     id: apiRow.id,
     creative_id: apiRow.creative_id,
@@ -113,9 +181,16 @@ function coerceRawCreativeRow(value: unknown): RawCreativeRow | null {
     },
     tags: apiRow.tags ?? [],
     ai_tags: apiRow.ai_tags ?? {},
-    format: apiRow.format ?? "image",
-    creative_type: apiRow.creative_type ?? "feed",
-    creative_type_label: apiRow.creative_type_label ?? "Feed",
+    format: legacyCreativeClassification.format,
+    creative_type: legacyCreativeClassification.creative_type,
+    creative_type_label: legacyCreativeClassification.creative_type_label,
+    creative_delivery_type: reconciledCreativeTaxonomy.creative_delivery_type,
+    creative_visual_format: reconciledCreativeTaxonomy.creative_visual_format,
+    creative_primary_type: reconciledCreativeTaxonomy.creative_primary_type,
+    creative_primary_label: reconciledCreativeTaxonomy.creative_primary_label,
+    creative_secondary_type: reconciledCreativeTaxonomy.creative_secondary_type,
+    creative_secondary_label: reconciledCreativeTaxonomy.creative_secondary_label,
+    classification_signals: reconciledCreativeTaxonomy.classification_signals,
     spend: Number(apiRow.spend ?? 0),
     purchase_value: Number(apiRow.purchase_value ?? 0),
     roas: Number(apiRow.roas ?? 0),

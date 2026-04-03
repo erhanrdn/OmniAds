@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/sheet";
 import { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
+import { getCreativeDisplayPills } from "@/lib/meta/creative-taxonomy";
 import { generateAiAnalysis } from "@/lib/generateAiAnalysis";
 
 interface CreativeInsightsDrawerProps {
@@ -47,6 +48,27 @@ export function CreativeInsightsDrawer({
   const analysis = useMemo(() => {
     return safeRow ? generateAiAnalysis(safeRow) : null;
   }, [safeRow]);
+  const taxonomyPills = useMemo(
+    () =>
+      safeRow
+        ? getCreativeDisplayPills({
+            creative_delivery_type: safeRow.creativeDeliveryType,
+            creative_visual_format: safeRow.creativeVisualFormat,
+            creative_primary_type: safeRow.creativePrimaryType,
+            creative_primary_label: safeRow.creativePrimaryLabel,
+            creative_secondary_type: safeRow.creativeSecondaryType,
+            creative_secondary_label: safeRow.creativeSecondaryLabel,
+          })
+        : { primaryLabel: null, secondaryLabel: null },
+    [
+      safeRow?.creativeDeliveryType,
+      safeRow?.creativeVisualFormat,
+      safeRow?.creativePrimaryType,
+      safeRow?.creativePrimaryLabel,
+      safeRow?.creativeSecondaryType,
+      safeRow?.creativeSecondaryLabel,
+    ]
+  );
 
   const assetFallbacks = useMemo(
     () =>
@@ -109,9 +131,16 @@ export function CreativeInsightsDrawer({
               <Badge variant="secondary" className="text-[10px]">
                 Meta
               </Badge>
-              <Badge variant="outline" className="text-[10px]">
-                {safeRow.creativeTypeLabel}
-              </Badge>
+              {taxonomyPills.primaryLabel ? (
+                <Badge variant="outline" className="text-[10px]">
+                  {taxonomyPills.primaryLabel}
+                </Badge>
+              ) : null}
+              {taxonomyPills.secondaryLabel ? (
+                <Badge variant="outline" className="text-[10px]">
+                  {taxonomyPills.secondaryLabel}
+                </Badge>
+              ) : null}
               <span className="text-[11px] text-muted-foreground">Launched {safeRow.launchDate}</span>
             </div>
           </div>

@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
 import { formatMoney } from "@/components/creatives/money";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
+import { getCreativeFormatSummaryLabel } from "@/lib/meta/creative-taxonomy";
 import {
   CHART_METRICS,
   fmtChartMetricValue,
@@ -25,9 +26,16 @@ export function CreativeDrawerHeader({
   assetFallbacks: (string | null)[];
   onClose: () => void;
 }) {
-  const formatLabel =
-    creative?.isCatalog ? "Catalog" :
-    creative?.format === "video" ? "Video" : "Image";
+  const formatLabel = creative
+    ? getCreativeFormatSummaryLabel({
+        creative_delivery_type: creative.creativeDeliveryType,
+        creative_visual_format: creative.creativeVisualFormat,
+        creative_primary_type: creative.creativePrimaryType,
+        creative_primary_label: creative.creativePrimaryLabel,
+        creative_secondary_type: creative.creativeSecondaryType,
+        creative_secondary_label: creative.creativeSecondaryLabel,
+      })
+    : "Image";
 
   return (
     <header className="shrink-0 border-b bg-muted/30">

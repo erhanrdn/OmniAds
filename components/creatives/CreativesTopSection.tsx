@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 import { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
 import { resolveCreativeCurrency } from "@/components/creatives/money";
+import { getCreativeFormatSummaryLabel } from "@/lib/meta/creative-taxonomy";
 import {
   applyCreativeFilters,
   buildMonthGrid,
@@ -1191,6 +1192,14 @@ function PreviewStrip({
           }
           const resolvedRowCurrency = resolveCreativeCurrency(row.currency, defaultCurrency);
           const shouldUnlockPreview = previewMode !== "media" || index < unlockedPreviewCount;
+          const creativeTypeLabel = getCreativeFormatSummaryLabel({
+            creative_delivery_type: row.creativeDeliveryType,
+            creative_visual_format: row.creativeVisualFormat,
+            creative_primary_type: row.creativePrimaryType,
+            creative_primary_label: row.creativePrimaryLabel,
+            creative_secondary_type: row.creativeSecondaryType,
+            creative_secondary_label: row.creativeSecondaryLabel,
+          });
           return (
             <button
               key={row.id}
@@ -1228,6 +1237,9 @@ function PreviewStrip({
                   ) : (
                     <div className="h-full w-full animate-pulse bg-gradient-to-br from-slate-100 to-slate-200" />
                   )}
+                  <span className="pointer-events-none absolute bottom-2 left-2 rounded-full bg-black/65 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
+                    {creativeTypeLabel}
+                  </span>
                 </div>
               )}
 

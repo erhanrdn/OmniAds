@@ -14,6 +14,7 @@ type CreativePreviewProps = {
   sourcePriority?: Array<string | null | undefined>;
   format?: "image" | "video" | "catalog";
   isCatalog?: boolean;
+  badgeLabel?: string | null;
   debugScope?: "top-grid" | "table-thumb" | "other";
   className?: string;
   size?: "card" | "thumb";
@@ -129,6 +130,7 @@ export function CreativePreview({
   sourcePriority,
   format = "image",
   isCatalog = false,
+  badgeLabel,
   debugScope = "other",
   className,
   size = "card",
@@ -222,7 +224,14 @@ export function CreativePreview({
     );
   }
 
-  const badgeLabel = isCatalog ? "Catalog" : format === "video" ? "Video" : "Feed";
+  const resolvedBadgeLabel =
+    badgeLabel === undefined
+      ? isCatalog
+        ? "Catalog"
+        : format === "video"
+        ? "Video"
+        : "Feed"
+      : badgeLabel;
   const imgSrc = useProxy && isMetaCdnUrl(currentSrc) ? proxyUrl(currentSrc) : currentSrc;
 
   const handleError = () => {
@@ -275,9 +284,11 @@ export function CreativePreview({
         }}
         onError={handleError}
       />
-      <span className="absolute bottom-1.5 left-1.5 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
-        {badgeLabel}
-      </span>
+      {resolvedBadgeLabel ? (
+        <span className="absolute bottom-1.5 left-1.5 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
+          {resolvedBadgeLabel}
+        </span>
+      ) : null}
     </div>
   );
 }

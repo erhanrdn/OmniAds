@@ -1,6 +1,11 @@
 import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import type { ShareMetricKey, SharedCreative } from "@/components/creatives/shareCreativeTypes";
+import {
+  coerceCreativeTaxonomyFromLegacy,
+  deriveLegacyCreativeClassification,
+  reconcileCreativeTaxonomyWithVideoEvidence,
+} from "@/lib/meta/creative-taxonomy";
 import type { AiCreativeHistoricalWindow, AiCreativeHistoricalWindows } from "@/src/services";
 
 export interface MetaCreativesResponse {
@@ -114,7 +119,13 @@ export function toCsv(rows: MetaCreativeRow[]): string {
   const totalPurchaseValue = rows.reduce((sum, row) => sum + row.purchaseValue, 0);
   const escape = (value: string | number) => `"${String(value).replace(/"/g, '""')}"`;
   const isVideo = (row: MetaCreativeRow) =>
-    row.format === "video" || row.thumbstop > 0 || row.video25 > 0 || row.video50 > 0 || row.video75 > 0 || row.video100 > 0;
+    row.creativeVisualFormat === "video" ||
+    row.format === "video" ||
+    row.thumbstop > 0 ||
+    row.video25 > 0 ||
+    row.video50 > 0 ||
+    row.video75 > 0 ||
+    row.video100 > 0;
 
   const body = rows.map((row) => {
     const videoApplicable = isVideo(row);
@@ -338,9 +349,31 @@ export function buildCreativeHistoryById(input: Partial<Record<CreativeHistoryWi
 }
 
 export function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
-  const fallbackCreativeTypeLabel =
-    row.format === "catalog" ? "Feed (Catalog ads)" : row.format === "video" ? "Video" : "Feed";
-  const fallbackCreativeType = row.format === "catalog" ? "feed_catalog" : row.format === "video" ? "video" : "feed";
+  const creativeTaxonomy =
+    row.creative_primary_type
+      ? {
+          creative_delivery_type: row.creative_delivery_type,
+          creative_visual_format: row.creative_visual_format,
+          creative_primary_type: row.creative_primary_type,
+          creative_primary_label: row.creative_primary_label,
+          creative_secondary_type: row.creative_secondary_type,
+          creative_secondary_label: row.creative_secondary_label,
+          classification_signals: row.classification_signals ?? null,
+        }
+      : coerceCreativeTaxonomyFromLegacy({
+          format: row.format,
+          creative_type: row.creative_type,
+          is_catalog: row.is_catalog,
+        });
+  const reconciledCreativeTaxonomy = reconcileCreativeTaxonomyWithVideoEvidence(creativeTaxonomy, {
+    preview: row.preview,
+    thumbstop: row.thumbstop,
+    video25: row.video25,
+    video50: row.video50,
+    video75: row.video75,
+    video100: row.video100,
+  });
+  const legacyCreativeClassification = deriveLegacyCreativeClassification(reconciledCreativeTaxonomy);
   const safeNumber = (value: number | null | undefined) => (typeof value === "number" && Number.isFinite(value) ? value : 0);
 
   return {
@@ -358,9 +391,15 @@ export function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
     adSetId: row.adset_id ?? null,
     adSetName: row.adset_name ?? null,
     currency: row.currency ?? null,
-    format: row.format,
-    creativeType: row.creative_type ?? fallbackCreativeType,
-    creativeTypeLabel: row.creative_type_label ?? fallbackCreativeTypeLabel,
+    format: legacyCreativeClassification.format,
+    creativeType: legacyCreativeClassification.creative_type,
+    creativeTypeLabel: legacyCreativeClassification.creative_type_label,
+    creativeDeliveryType: reconciledCreativeTaxonomy.creative_delivery_type,
+    creativeVisualFormat: reconciledCreativeTaxonomy.creative_visual_format,
+    creativePrimaryType: reconciledCreativeTaxonomy.creative_primary_type,
+    creativePrimaryLabel: reconciledCreativeTaxonomy.creative_primary_label,
+    creativeSecondaryType: reconciledCreativeTaxonomy.creative_secondary_type,
+    creativeSecondaryLabel: reconciledCreativeTaxonomy.creative_secondary_label,
     thumbnailUrl: row.thumbnail_url,
     previewUrl: row.preview_url,
     imageUrl: row.image_url,

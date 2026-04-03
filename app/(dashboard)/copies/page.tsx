@@ -21,6 +21,7 @@ import {
 import { usePersistentCreativeDateRange } from "@/hooks/use-persistent-date-range";
 import { PlanGate } from "@/components/pricing/PlanGate";
 import type { MetaCreativeRow, MetaCreativePreview } from "@/components/creatives/metricConfig";
+import { coerceCreativeTaxonomyFromLegacy } from "@/lib/meta/creative-taxonomy";
 import { useAppStore } from "@/store/app-store";
 import type { MetaCopyApiRow } from "@/app/api/meta/copies/route";
 
@@ -134,6 +135,13 @@ function mapApiRowToCopyRow(row: MetaCopyApiRow): CopyMotionRow {
   const linkClicks = row.link_clicks ?? 0;
   const purchases = row.purchases ?? 0;
   const addToCart = row.add_to_cart ?? 0;
+  const fallbackFormat = row.is_catalog ? "catalog" : row.preview?.render_mode === "video" ? "video" : "image";
+  const fallbackCreativeType = row.is_catalog ? "feed_catalog" : row.preview?.render_mode === "video" ? "video" : "feed";
+  const creativeTaxonomy = coerceCreativeTaxonomyFromLegacy({
+    format: fallbackFormat,
+    creative_type: fallbackCreativeType,
+    is_catalog: row.is_catalog,
+  });
 
   const copyText = resolveCopyDisplayText(row);
   const displayName = excerptCopyText(copyText, 180);
@@ -153,9 +161,15 @@ function mapApiRowToCopyRow(row: MetaCopyApiRow): CopyMotionRow {
     adSetId: row.adset_id,
     adSetName: row.adset_name,
     currency: row.currency ?? null,
-    format: "image",
-    creativeType: "feed",
-    creativeTypeLabel: "Feed",
+    format: fallbackFormat,
+    creativeType: fallbackCreativeType,
+    creativeTypeLabel: row.is_catalog ? "Feed (Catalog ads)" : row.preview?.render_mode === "video" ? "Video" : "Feed",
+    creativeDeliveryType: creativeTaxonomy.creative_delivery_type,
+    creativeVisualFormat: creativeTaxonomy.creative_visual_format,
+    creativePrimaryType: creativeTaxonomy.creative_primary_type,
+    creativePrimaryLabel: creativeTaxonomy.creative_primary_label,
+    creativeSecondaryType: creativeTaxonomy.creative_secondary_type,
+    creativeSecondaryLabel: creativeTaxonomy.creative_secondary_label,
     thumbnailUrl: row.thumbnail_url,
     previewUrl: row.preview_url,
     imageUrl: row.image_url,

@@ -344,17 +344,31 @@ function AssetImage({
 
   useEffect(() => {
     if (!current) {
-      setDisplaySource(null);
+      setDisplaySource((prev) => (prev === null ? prev : null));
       return;
     }
 
     if (!displaySource || displaySource.source.startsWith("fallback_")) {
-      setDisplaySource({
-        src: currentDisplaySrc ?? current.src,
-        source: current.source,
+      const nextSrc = currentDisplaySrc ?? current.src;
+      const nextSource = current.source;
+
+      setDisplaySource((prev) => {
+        if (prev?.src === nextSrc && prev?.source === nextSource) {
+          return prev;
+        }
+        return {
+          src: nextSrc,
+          source: nextSource,
+        };
       });
     }
-  }, [current, currentDisplaySrc, displaySource]);
+  }, [
+    current?.src,
+    current?.source,
+    currentDisplaySrc,
+    displaySource?.src,
+    displaySource?.source,
+  ]);
 
   useEffect(() => {
     if (!readyToUpgrade) return;
