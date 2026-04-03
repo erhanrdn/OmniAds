@@ -26,6 +26,17 @@ vi.mock("@/lib/meta/creative-intelligence", () => ({
   buildMetaCreativeIntelligence: vi.fn(() => ({ rows: [] })),
 }));
 
+vi.mock("@/lib/meta/creative-score-service", () => ({
+  getCreativeScoreSnapshot: vi.fn(async () => ({
+    selectedRows: [],
+    historyById: new Map(),
+    decisionsById: new Map(),
+    computedAt: new Date().toISOString(),
+    freshnessState: "fresh",
+    ruleVersion: "meta-creative-score-v1",
+  })),
+}));
+
 const access = await import("@/lib/access");
 const businessMode = await import("@/lib/business-mode.server");
 const requestLanguage = await import("@/lib/request-language");
@@ -61,13 +72,6 @@ describe("GET /api/meta/recommendations", () => {
           });
         }
 
-        if (pathname === "/api/meta/creatives/history") {
-          return new Response(JSON.stringify({ rows: [] }), {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          });
-        }
-
         return new Response("not found", { status: 404 });
       })
     );
@@ -77,7 +81,7 @@ describe("GET /api/meta/recommendations", () => {
     vi.unstubAllGlobals();
   });
 
-  it("loads creative history windows from the warehouse history endpoint", async () => {
+  it("loads creative scoring from the score snapshot service without creative history fanout", async () => {
     const response = await GET(
       new NextRequest(
         "http://localhost/api/meta/recommendations?businessId=biz&startDate=2026-03-01&endDate=2026-03-31"
@@ -91,7 +95,7 @@ describe("GET /api/meta/recommendations", () => {
 
     expect(response.status).toBe(200);
     expect(payload.status).toBe("ok");
-    expect(calls.filter((pathname) => pathname === "/api/meta/creatives/history")).toHaveLength(7);
     expect(calls).not.toContain("/api/meta/creatives");
+    expect(calls).not.toContain("/api/meta/creatives/history");
   });
 });

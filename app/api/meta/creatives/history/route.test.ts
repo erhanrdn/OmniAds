@@ -15,7 +15,7 @@ vi.mock("@/lib/demo-business", () => ({
 }));
 
 vi.mock("@/lib/meta/creatives-api", () => ({
-  getMetaCreativesDbPayload: vi.fn(),
+  getMetaCreativesApiPayload: vi.fn(),
 }));
 
 const businessMode = await import("@/lib/business-mode.server");
@@ -33,10 +33,10 @@ describe("GET /api/meta/creatives/history", () => {
   });
 
   it("serves warehouse-backed archive rows without triggering the live surface path", async () => {
-    vi.mocked(creativesApi.getMetaCreativesDbPayload).mockResolvedValue({
+    vi.mocked(creativesApi.getMetaCreativesApiPayload).mockResolvedValue({
       status: "ok",
       rows: [],
-      snapshot_source: "persisted",
+      snapshot_source: "snapshot",
     } as never);
 
     const response = await GET(
@@ -48,7 +48,9 @@ describe("GET /api/meta/creatives/history", () => {
 
     expect(response.status).toBe(200);
     expect(payload.status).toBe("ok");
-    expect(creativesApi.getMetaCreativesDbPayload).toHaveBeenCalledWith({
+    expect(creativesApi.getMetaCreativesApiPayload).toHaveBeenCalledWith({
+      request: expect.any(NextRequest),
+      requestStartedAt: expect.any(Number),
       businessId: "biz",
       mediaMode: "metadata",
       groupBy: "creative",
@@ -56,6 +58,21 @@ describe("GET /api/meta/creatives/history", () => {
       sort: "roas",
       start: "2026-03-01",
       end: "2026-03-31",
+      debugPreview: false,
+      debugThumbnail: false,
+      debugPerf: false,
+      snapshotBypass: false,
+      snapshotWarm: false,
+      enableCopyRecovery: false,
+      enableCreativeBasicsFallback: false,
+      enableCreativeDetails: false,
+      enableThumbnailBackfill: false,
+      enableCardThumbnailBackfill: false,
+      enableImageHashLookup: false,
+      enableMediaRecovery: false,
+      enableMediaCache: true,
+      enableDeepAudit: false,
+      perAccountSampleLimit: 10,
     });
   });
 });

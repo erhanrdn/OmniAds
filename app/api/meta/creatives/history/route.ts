@@ -4,9 +4,10 @@ import { requireBusinessAccess } from "@/lib/access";
 import { getDemoMetaCreatives } from "@/lib/demo-business";
 import type { FormatFilter, GroupBy, SortKey } from "@/lib/meta/creatives-types";
 import { toISODate, nDaysAgo } from "@/lib/meta/creatives-row-mappers";
-import { getMetaCreativesDbPayload } from "@/lib/meta/creatives-api";
+import { getMetaCreativesApiPayload } from "@/lib/meta/creatives-api";
 
 export async function GET(request: NextRequest) {
+  const requestStartedAt = Date.now();
   const params = request.nextUrl.searchParams;
   const businessId = params.get("businessId");
   const mediaMode = params.get("mediaMode") === "full" ? "full" : "metadata";
@@ -30,7 +31,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(getDemoMetaCreatives());
   }
 
-  const result = await getMetaCreativesDbPayload({
+  const result = await getMetaCreativesApiPayload({
+    request,
+    requestStartedAt,
     businessId,
     mediaMode,
     groupBy,
@@ -38,6 +41,21 @@ export async function GET(request: NextRequest) {
     sort,
     start,
     end,
+    debugPreview: false,
+    debugThumbnail: false,
+    debugPerf: false,
+    snapshotBypass: false,
+    snapshotWarm: false,
+    enableCopyRecovery: false,
+    enableCreativeBasicsFallback: false,
+    enableCreativeDetails: false,
+    enableThumbnailBackfill: false,
+    enableCardThumbnailBackfill: false,
+    enableImageHashLookup: false,
+    enableMediaRecovery: false,
+    enableMediaCache: true,
+    enableDeepAudit: false,
+    perAccountSampleLimit: 10,
   });
 
   return NextResponse.json(result);

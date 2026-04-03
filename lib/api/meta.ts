@@ -1158,7 +1158,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     upsertMetaAdDailyRows(adRows),
   ]);
 
-  const [accountDailyCheckpoint, adsetDailyCheckpoint] = await Promise.all([
+  const [accountDailyCheckpoint, adsetDailyCheckpoint, adDailyCheckpoint] = await Promise.all([
     getMetaSyncCheckpoint({
       partitionId: input.partitionId,
       checkpointScope: "account_daily",
@@ -1166,6 +1166,10 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     getMetaSyncCheckpoint({
       partitionId: input.partitionId,
       checkpointScope: "adset_daily",
+    }),
+    getMetaSyncCheckpoint({
+      partitionId: input.partitionId,
+      checkpointScope: "ad_daily",
     }),
   ]);
 
@@ -1187,6 +1191,25 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
       attemptCount: input.attemptCount,
       leaseOwner: input.workerId,
       startedAt: accountDailyCheckpoint?.startedAt ?? coreCheckpointStartedAt,
+      finishedAt: new Date().toISOString(),
+    }),
+    upsertMetaSyncCheckpoint({
+      partitionId: input.partitionId,
+      businessId: input.credentials.businessId,
+      providerAccountId: input.accountId,
+      checkpointScope: "ad_daily",
+      phase: "finalize",
+      status: "succeeded",
+      pageIndex,
+      nextPageUrl: null,
+      providerCursor: null,
+      rowsFetched: rowsFetchedTotal,
+      rowsWritten: adRows.length,
+      lastSuccessfulEntityKey: adRows.at(-1)?.adId ?? null,
+      lastResponseHeaders: checkpoint?.lastResponseHeaders ?? {},
+      attemptCount: input.attemptCount,
+      leaseOwner: input.workerId,
+      startedAt: adDailyCheckpoint?.startedAt ?? coreCheckpointStartedAt,
       finishedAt: new Date().toISOString(),
     }),
     upsertMetaSyncCheckpoint({

@@ -728,7 +728,7 @@ async function syncMetaPartitionDay(input: {
     }
   }
 
-  if (input.scopes.some((scope) => META_EXTENDED_SCOPE_LIST.includes(scope))) {
+  if (input.scopes.includes("creative_daily")) {
     if (!coverageState.creativesComplete) {
       await syncMetaCreativesWarehouseDay({
         businessId: input.businessId,

@@ -5,10 +5,9 @@ import { getDemoMetaBreakdowns, getDemoMetaCampaigns } from "@/lib/demo-business
 import { buildMetaRecommendations, type MetaRecommendationsResponse } from "@/lib/meta/recommendations";
 import { readMetaBidRegimeHistorySummaries } from "@/lib/meta/config-snapshots";
 import { buildMetaCreativeIntelligence } from "@/lib/meta/creative-intelligence";
+import { getCreativeScoreSnapshot } from "@/lib/meta/creative-score-service";
 import type { MetaBreakdownsResponse } from "@/app/api/meta/breakdowns/route";
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
-import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
-import { buildCreativeHistoryById, mapApiRowToUiRow } from "@/app/(dashboard)/creatives/page-support";
 import { resolveRequestLanguage } from "@/lib/request-language";
 import { META_WAREHOUSE_HISTORY_DAYS } from "@/lib/meta/history";
 
@@ -113,13 +112,7 @@ export async function GET(request: NextRequest) {
     last90Campaigns,
     allHistoryCampaigns,
     breakdowns,
-    selectedCreatives,
-    last3Creatives,
-    last7Creatives,
-    last14Creatives,
-    last30Creatives,
-    last90Creatives,
-    allHistoryCreatives,
+    creativeScoreSnapshot,
   ] = await Promise.all([
     fetchInternalJson<{ rows: MetaCampaignRow[] }>(
       request,
@@ -166,55 +159,17 @@ export async function GET(request: NextRequest) {
       "/api/meta/breakdowns",
       new URLSearchParams({ ...Object.fromEntries(baseParams), startDate, endDate })
     ),
-    fetchInternalJson<{ rows: MetaCreativeApiRow[] }>(
+    getCreativeScoreSnapshot({
       request,
-      "/api/meta/creatives/history",
-      new URLSearchParams({ ...Object.fromEntries(baseParams), start: startDate, end: endDate, groupBy: "creative", format: "all", sort: "spend", mediaMode: "metadata" })
-    ),
-    fetchInternalJson<{ rows: MetaCreativeApiRow[] }>(
-      request,
-      "/api/meta/creatives/history",
-      new URLSearchParams({ ...Object.fromEntries(baseParams), start: last3Start, end: endDate, groupBy: "creative", format: "all", sort: "spend", mediaMode: "metadata" })
-    ),
-    fetchInternalJson<{ rows: MetaCreativeApiRow[] }>(
-      request,
-      "/api/meta/creatives/history",
-      new URLSearchParams({ ...Object.fromEntries(baseParams), start: last7Start, end: endDate, groupBy: "creative", format: "all", sort: "spend", mediaMode: "metadata" })
-    ),
-    fetchInternalJson<{ rows: MetaCreativeApiRow[] }>(
-      request,
-      "/api/meta/creatives/history",
-      new URLSearchParams({ ...Object.fromEntries(baseParams), start: last14Start, end: endDate, groupBy: "creative", format: "all", sort: "spend", mediaMode: "metadata" })
-    ),
-    fetchInternalJson<{ rows: MetaCreativeApiRow[] }>(
-      request,
-      "/api/meta/creatives/history",
-      new URLSearchParams({ ...Object.fromEntries(baseParams), start: last30Start, end: endDate, groupBy: "creative", format: "all", sort: "spend", mediaMode: "metadata" })
-    ),
-    fetchInternalJson<{ rows: MetaCreativeApiRow[] }>(
-      request,
-      "/api/meta/creatives/history",
-      new URLSearchParams({ ...Object.fromEntries(baseParams), start: last90Start, end: endDate, groupBy: "creative", format: "all", sort: "spend", mediaMode: "metadata" })
-    ),
-    fetchInternalJson<{ rows: MetaCreativeApiRow[] }>(
-      request,
-      "/api/meta/creatives/history",
-      new URLSearchParams({ ...Object.fromEntries(baseParams), start: allHistoryStart, end: endDate, groupBy: "creative", format: "all", sort: "spend", mediaMode: "metadata" })
-    ),
+      businessId,
+      selectedStartDate: startDate,
+      selectedEndDate: endDate,
+    }),
   ]);
 
-  const selectedCreativeRows = (selectedCreatives.rows ?? []).map(mapApiRowToUiRow);
-  const creativeHistoryById = buildCreativeHistoryById({
-    last3: (last3Creatives.rows ?? []).map(mapApiRowToUiRow),
-    last7: (last7Creatives.rows ?? []).map(mapApiRowToUiRow),
-    last14: (last14Creatives.rows ?? []).map(mapApiRowToUiRow),
-    last30: (last30Creatives.rows ?? []).map(mapApiRowToUiRow),
-    last90: (last90Creatives.rows ?? []).map(mapApiRowToUiRow),
-    allHistory: (allHistoryCreatives.rows ?? []).map(mapApiRowToUiRow),
-  });
   const creativeIntelligence = buildMetaCreativeIntelligence({
-    rows: selectedCreativeRows,
-    historyById: creativeHistoryById,
+    rows: creativeScoreSnapshot.selectedRows,
+    historyById: creativeScoreSnapshot.historyById,
     campaigns: selectedCampaigns.rows ?? [],
   });
 

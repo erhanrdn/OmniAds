@@ -52,7 +52,7 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     vi.unstubAllGlobals();
   });
 
-  it("finalizes derived account_daily and adset_daily checkpoints after core writes", async () => {
+  it("finalizes derived account_daily, adset_daily, and ad_daily checkpoints after core writes", async () => {
     vi.mocked(warehouse.getMetaSyncCheckpoint).mockImplementation(async ({ checkpointScope }) => {
       if (checkpointScope === "core_ad_insights") {
         return null;
@@ -62,6 +62,9 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       }
       if (checkpointScope === "adset_daily") {
         return { startedAt: "2026-04-03T20:44:30.200Z" } as never;
+      }
+      if (checkpointScope === "ad_daily") {
+        return { startedAt: "2026-04-03T20:44:30.240Z" } as never;
       }
       return null;
     });
@@ -135,6 +138,9 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     const adsetFinalize = checkpointCalls.find(
       (call) => call.checkpointScope === "adset_daily" && call.phase === "finalize"
     );
+    const adFinalize = checkpointCalls.find(
+      (call) => call.checkpointScope === "ad_daily" && call.phase === "finalize"
+    );
     const coreFinalize = checkpointCalls.find(
       (call) => call.checkpointScope === "core_ad_insights" && call.phase === "finalize"
     );
@@ -155,6 +161,15 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       rowsWritten: 1,
       lastSuccessfulEntityKey: "adset-1",
       startedAt: "2026-04-03T20:44:30.200Z",
+    });
+    expect(adFinalize).toMatchObject({
+      checkpointScope: "ad_daily",
+      phase: "finalize",
+      status: "succeeded",
+      rowsFetched: 1,
+      rowsWritten: 1,
+      lastSuccessfulEntityKey: "ad-1",
+      startedAt: "2026-04-03T20:44:30.240Z",
     });
     expect(coreFinalize).toMatchObject({
       checkpointScope: "core_ad_insights",

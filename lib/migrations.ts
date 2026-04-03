@@ -1041,6 +1041,35 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
         sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_daily_business_date ON meta_creative_daily (business_id, date DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_daily_account_date ON meta_creative_daily (provider_account_id, date DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_daily_creative ON meta_creative_daily (creative_id, date DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS meta_creative_score_snapshots (
+          id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id         TEXT NOT NULL,
+          provider_account_id TEXT NOT NULL,
+          creative_id         TEXT NOT NULL,
+          as_of_date          DATE NOT NULL,
+          selected_start_date DATE NOT NULL,
+          selected_end_date   DATE NOT NULL,
+          window_metrics      JSONB NOT NULL DEFAULT '{}'::jsonb,
+          selected_row_json   JSONB NOT NULL DEFAULT '{}'::jsonb,
+          weighted_score      DOUBLE PRECISION,
+          label               TEXT,
+          computed_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+          freshness_state     TEXT NOT NULL DEFAULT 'fresh',
+          rule_version        TEXT NOT NULL,
+          created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (
+            business_id,
+            provider_account_id,
+            creative_id,
+            as_of_date,
+            selected_start_date,
+            selected_end_date,
+            rule_version
+          )
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_score_snapshots_lookup ON meta_creative_score_snapshots (business_id, selected_start_date, selected_end_date, as_of_date DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_score_snapshots_creative ON meta_creative_score_snapshots (creative_id, as_of_date DESC)`.catch(() => {}),
         // ── Google Ads warehouse-first tables ──────────────────────────────
         sql`CREATE TABLE IF NOT EXISTS google_ads_sync_jobs (
           id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
