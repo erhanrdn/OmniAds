@@ -11,6 +11,7 @@ import {
   CHART_METRICS,
   fmtChartMetricValue,
   getChartMetricValue,
+  getCreativeAssetState,
   type BreakdownRow,
   type ChartMetric,
 } from "@/components/creatives/creative-ad-breakdown-support";
@@ -68,6 +69,7 @@ export function CreativeDrawerHeader({
               preview={creative.preview}
               size="card"
               mode="asset"
+              assetState={getCreativeAssetState(creative)}
               assetFallbacks={assetFallbacks}
               className="h-full w-full object-cover"
             />

@@ -13,7 +13,7 @@ import {
 import { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
 import { getCreativeDisplayPills } from "@/lib/meta/creative-taxonomy";
-import { getCreativeStaticPreviewSources } from "@/lib/meta/creatives-preview";
+import { getCreativeStaticPreviewSources, getCreativeStaticPreviewState } from "@/lib/meta/creatives-preview";
 import { generateAiAnalysis } from "@/lib/generateAiAnalysis";
 
 interface CreativeInsightsDrawerProps {
@@ -77,6 +77,7 @@ export function CreativeInsightsDrawer({
       safeRow ? getCreativeStaticPreviewSources(safeRow, "card") : [],
     [safeRow]
   );
+  const assetState = safeRow ? getCreativeStaticPreviewState(safeRow, "card") : "missing";
 
   const handleNotesChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
     onNotesChange(event.target.value);
@@ -100,6 +101,7 @@ export function CreativeInsightsDrawer({
               preview={safeRow.preview}
               size="large"
               mode="asset"
+              assetState={assetState}
               assetFallbacks={assetFallbacks}
             />
           </div>

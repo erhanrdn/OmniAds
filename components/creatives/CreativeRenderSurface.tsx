@@ -21,6 +21,7 @@ type CreativeRenderSurfaceProps = {
   badgeClassName?: string;
   size?: "thumb" | "card" | "large";
   mode?: "asset" | "full";
+  assetState?: "ready" | "pending" | "missing";
   assetFallbacks?: (string | null | undefined)[];
   assetUpgradeSources?: (string | null | undefined)[];
   onAssetSettled?: () => void;
@@ -144,6 +145,7 @@ export const CreativeRenderSurface = memo(function CreativeRenderSurface({
   badgeClassName,
   size = "card",
   mode = "full",
+  assetState = "ready",
   assetFallbacks,
   assetUpgradeSources,
   onAssetSettled,
@@ -191,6 +193,7 @@ export const CreativeRenderSurface = memo(function CreativeRenderSurface({
         id={id}
         name={name}
         preview={preview}
+        assetState={assetState}
         assetFallbacks={assetFallbacks}
         assetUpgradeSources={assetUpgradeSources}
         frameClass={frameClass}
@@ -240,6 +243,7 @@ function AssetImage({
   id,
   name,
   preview,
+  assetState,
   assetFallbacks,
   assetUpgradeSources,
   frameClass,
@@ -249,6 +253,7 @@ function AssetImage({
   id?: string;
   name: string;
   preview: CreativeRenderPayload;
+  assetState: NonNullable<CreativeRenderSurfaceProps["assetState"]>;
   assetFallbacks?: (string | null | undefined)[];
   assetUpgradeSources?: (string | null | undefined)[];
   frameClass: string;
@@ -306,10 +311,11 @@ function AssetImage({
 
   useEffect(() => {
     if (hasSettledRef.current) return;
-    if (current || !onAssetSettled) return;
+    if (!onAssetSettled) return;
+    if (assetState === "ready" && current) return;
     hasSettledRef.current = true;
     onAssetSettled();
-  }, [current, onAssetSettled]);
+  }, [assetState, current, onAssetSettled]);
 
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return;
@@ -481,6 +487,10 @@ function AssetImage({
     }
     setExhausted(true);
   };
+
+  if (assetState === "pending") {
+    return <PreviewLoadingPlaceholder frameClass={frameClass} />;
+  }
 
   if (!imgSrc) {
     return <PreviewFallback frameClass={frameClass} name={name} />;

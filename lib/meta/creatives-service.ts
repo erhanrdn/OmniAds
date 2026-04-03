@@ -164,6 +164,7 @@ export async function buildCreativesResponse(
     groupBy,
     format,
     sort,
+    previewProfile: "main_grid_v3",
   };
   const snapshotEligible =
     !snapshotBypass &&

@@ -12,7 +12,7 @@ import {
   getCreativeFormatSummaryLabel,
   getCreativePreviewBadgeLabel,
 } from "@/lib/meta/creative-taxonomy";
-import { getCreativeStaticPreviewSources } from "@/lib/meta/creatives-preview";
+import { getCreativeStaticPreviewSources, getCreativeStaticPreviewState } from "@/lib/meta/creatives-preview";
 import { cn } from "@/lib/utils";
 
 interface CreativesTableLegacyProps {
@@ -207,6 +207,7 @@ function CreativeNameCell({ row }: { row: CreativeRowLike }) {
     () => getCreativeStaticPreviewSources(row, "table"),
     [row]
   );
+  const assetState = getCreativeStaticPreviewState(row, "table");
   const badgeLabel = getCreativePreviewBadgeLabel({
     creative_delivery_type: row.creativeDeliveryType,
     creative_visual_format: row.creativeVisualFormat,
@@ -227,10 +228,10 @@ function CreativeNameCell({ row }: { row: CreativeRowLike }) {
         imageUrl={row.imageUrl ?? row.image_url ?? row.preview?.image_url ?? null}
         previewUrl={row.preview?.poster_url ?? row.previewUrl ?? row.preview_url ?? null}
         sourcePriority={sourcePriority}
+        assetState={assetState}
         format={row.creativeVisualFormat === "video" ? "video" : isCatalog ? "catalog" : "image"}
         isCatalog={isCatalog}
         badgeLabel={badgeLabel}
-        debugScope="table-thumb"
         size="thumb"
         className="shadow-sm"
       />

@@ -1,4 +1,5 @@
 import type {
+  CreativePreviewManifest,
   LegacyPreviewState,
   MetaAdRecord,
   MetaPromotedObjectLike,
@@ -17,6 +18,8 @@ import { classifyMetaCreative } from "@/lib/meta/creative-taxonomy";
 import { normalizeMediaUrl, extractVideoIdsFromCreative } from "@/lib/meta/creatives-utils";
 
 type CreativeStaticPreviewRowLike = {
+  previewManifest?: CreativePreviewManifest | null;
+  preview_manifest?: CreativePreviewManifest | null;
   cardPreviewUrl?: string | null;
   card_preview_url?: string | null;
   tableThumbnailUrl?: string | null;
@@ -36,7 +39,7 @@ type CreativeStaticPreviewRowLike = {
 };
 
 export type CreativeStaticPreviewTier = "card" | "table";
-export const META_CREATIVES_PREVIEW_CONTRACT_VERSION: PreviewContractVersion = "v2";
+export const META_CREATIVES_PREVIEW_CONTRACT_VERSION: PreviewContractVersion = "v3";
 
 // ── URL helpers ────────────────────────────────────────────────────────────────
 
@@ -166,6 +169,103 @@ export function describeStaticPreviewSelection(input: {
   };
 }
 
+export function hasAcceptableCardPreviewSource(value: unknown): boolean {
+  const url = normalizeMediaUrl(value);
+  if (!url) return false;
+  if (getPreviewSourceKind(url) === "non_thumbnail_static") return true;
+  return getPreviewResolutionRank(url) >= 2;
+}
+
+export function buildCreativePreviewManifest(input: {
+  tableSrc: string | null;
+  cardSrc: string | null;
+  detailImageSrc: string | null;
+  detailVideoSrc: string | null;
+  liveHtmlAvailable: boolean;
+}): CreativePreviewManifest {
+  const normalizedTableSrc = normalizeMediaUrl(input.tableSrc);
+  const normalizedCardSrc = normalizeMediaUrl(input.cardSrc);
+  const tableDebug = describeStaticPreviewSelection({
+    tier: "table",
+    selectedUrl: normalizedTableSrc,
+  });
+  const cardDebug = describeStaticPreviewSelection({
+    tier: "card",
+    selectedUrl: normalizedCardSrc,
+  });
+
+  return {
+    table_src: normalizedTableSrc,
+    card_src: normalizedCardSrc,
+    detail_image_src: normalizeMediaUrl(input.detailImageSrc),
+    detail_video_src: normalizeMediaUrl(input.detailVideoSrc),
+    table_source_kind: tableDebug.sourceKind,
+    card_source_kind: cardDebug.sourceKind,
+    resolution_class: cardDebug.resolutionClass,
+    thumbnail_like: isThumbnailLikeUrl(normalizedCardSrc),
+    source_reason: cardDebug.reason,
+    needs_card_enrichment: !hasAcceptableCardPreviewSource(normalizedCardSrc),
+    live_html_available: input.liveHtmlAvailable,
+  };
+}
+
+export function resolveCreativePreviewManifest(
+  row: CreativeStaticPreviewRowLike
+): CreativePreviewManifest | null {
+  const existingManifest = row.previewManifest ?? row.preview_manifest ?? null;
+  if (existingManifest) return existingManifest;
+
+  const tableSrc =
+    row.tableThumbnailUrl ??
+    row.table_thumbnail_url ??
+    row.cachedThumbnailUrl ??
+    row.cached_thumbnail_url ??
+    row.thumbnailUrl ??
+    row.thumbnail_url ??
+    null;
+  const cardSrc = chooseBestStaticPreviewCandidate([
+    row.cardPreviewUrl ?? row.card_preview_url ?? null,
+    row.imageUrl ?? row.image_url ?? null,
+    row.preview?.image_url ?? null,
+    row.preview?.poster_url ?? null,
+    row.previewUrl ?? row.preview_url ?? null,
+    tableSrc,
+  ]);
+
+  return buildCreativePreviewManifest({
+    tableSrc,
+    cardSrc,
+    detailImageSrc:
+      row.imageUrl ??
+      row.image_url ??
+      row.preview?.image_url ??
+      row.preview?.poster_url ??
+      cardSrc,
+    detailVideoSrc: null,
+    liveHtmlAvailable: false,
+  });
+}
+
+export function getCreativeStaticPreviewState(
+  row: CreativeStaticPreviewRowLike,
+  tier: CreativeStaticPreviewTier
+): "ready" | "pending" | "missing" {
+  const manifest = resolveCreativePreviewManifest(row);
+  if (!manifest) return "missing";
+  const hasAnyStaticSource = Boolean(
+    manifest.table_src ?? manifest.card_src ?? manifest.detail_image_src ?? manifest.detail_video_src
+  );
+  if (!hasAnyStaticSource) return "missing";
+
+  if (tier === "table") {
+    return manifest.table_src ? "ready" : "missing";
+  }
+
+  if (manifest.card_src && !manifest.needs_card_enrichment) return "ready";
+  if (manifest.needs_card_enrichment) return "pending";
+  return "missing";
+}
+
 function isPreviewContentType(contentType: string | null): boolean {
   if (!contentType) return false;
   return contentType.toLowerCase().startsWith("image/");
@@ -175,6 +275,40 @@ export function getCreativeStaticPreviewSources(
   row: CreativeStaticPreviewRowLike,
   tier: CreativeStaticPreviewTier
 ): string[] {
+  const manifest = resolveCreativePreviewManifest(row);
+  if (manifest) {
+    const manifestCandidates =
+      tier === "card"
+        ? [
+            manifest.card_src,
+            manifest.detail_image_src,
+            row.preview?.poster_url ?? null,
+            row.previewUrl ?? row.preview_url ?? null,
+            row.cachedThumbnailUrl ?? row.cached_thumbnail_url ?? null,
+            manifest.table_src,
+          ]
+        : [
+            manifest.table_src,
+            row.cachedThumbnailUrl ?? row.cached_thumbnail_url ?? null,
+            manifest.card_src,
+            manifest.detail_image_src,
+            row.preview?.poster_url ?? null,
+            row.thumbnailUrl ?? row.thumbnail_url ?? null,
+          ];
+
+    const seen = new Set<string>();
+    const resolved: string[] = [];
+
+    for (const candidate of manifestCandidates) {
+      const normalized = normalizeMediaUrl(candidate);
+      if (!normalized || seen.has(normalized)) continue;
+      seen.add(normalized);
+      resolved.push(normalized);
+    }
+
+    return resolved;
+  }
+
   const preferred =
     tier === "card"
       ? row.cardPreviewUrl ?? row.card_preview_url ?? null
@@ -394,31 +528,10 @@ export function collectPreviewCandidates(
 
   pushCandidate(candidates, "thumbnail_url", creative?.thumbnail_url);
   pushCandidate(candidates, "image_url", creative?.image_url);
-  pushCandidate(candidates, "object_story_spec.video_data.thumbnail_url", creative?.object_story_spec?.video_data?.thumbnail_url);
-  pushCandidate(candidates, "object_story_spec.video_data.image_url", creative?.object_story_spec?.video_data?.image_url);
-  pushCandidate(candidates, "object_story_spec.photo_data.image_url", creative?.object_story_spec?.photo_data?.image_url);
   pushCandidate(candidates, "object_story_spec.link_data.picture", creative?.object_story_spec?.link_data?.picture);
 
   for (const attachment of creative?.object_story_spec?.link_data?.child_attachments ?? []) {
     pushCandidate(candidates, "object_story_spec.link_data.child_attachments[].picture", attachment?.picture);
-  }
-  for (const attachment of creative?.object_story_spec?.link_data?.child_attachments ?? []) {
-    pushCandidate(candidates, "object_story_spec.link_data.child_attachments[].image_url", attachment?.image_url);
-  }
-  for (const video of creative?.asset_feed_spec?.videos ?? []) {
-    pushCandidate(candidates, "asset_feed_spec.videos[].thumbnail_url", video?.thumbnail_url);
-  }
-  for (const video of creative?.asset_feed_spec?.videos ?? []) {
-    pushCandidate(candidates, "asset_feed_spec.videos[].image_url", video?.image_url);
-  }
-  for (const image of creative?.asset_feed_spec?.images ?? []) {
-    pushCandidate(candidates, "asset_feed_spec.images[].image_url", image?.image_url);
-  }
-  for (const image of creative?.asset_feed_spec?.images ?? []) {
-    pushCandidate(candidates, "asset_feed_spec.images[].url", image?.url);
-  }
-  for (const image of creative?.asset_feed_spec?.images ?? []) {
-    pushCandidate(candidates, "asset_feed_spec.images[].original_url", image?.original_url);
   }
 
   const hashes = extractImageHashesFromCreative(creative);

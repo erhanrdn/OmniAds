@@ -14,6 +14,7 @@ import {
   DEFAULT_METRIC_KEYS,
   fmtMetricValue,
   getActiveBreakdownMetrics,
+  getCreativeAssetState,
   getAssociatedAdsCount,
   METRIC_CATEGORIES,
   METRIC_MAP,
@@ -516,6 +517,7 @@ function CreativeBreakdownTable({
                             preview={row.preview}
                             size="thumb"
                             mode="asset"
+                            assetState={getCreativeAssetState(row)}
                             assetFallbacks={assetFallbacks}
                             className="h-full w-full object-cover"
                           />

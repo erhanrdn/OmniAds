@@ -50,8 +50,13 @@ export const PLATFORM_LABELS: Record<string, string> = {
 export const SHARE_METRIC_IDS = new Set<ShareMetricKey>(["spend", "purchaseValue", "roas", "cpa", "ctrAll", "purchases"]);
 
 export function hasRenderablePreview(row: MetaCreativeRow): boolean {
+  const manifest = row.previewManifest;
   return Boolean(
-    row.cardPreviewUrl ??
+    manifest?.card_src ??
+      manifest?.table_src ??
+      manifest?.detail_image_src ??
+      manifest?.detail_video_src ??
+      row.cardPreviewUrl ??
       row.cachedThumbnailUrl ??
       row.tableThumbnailUrl ??
       row.previewUrl ??
@@ -67,8 +72,8 @@ export function shouldPollForPreviewReadiness(payload: MetaCreativesResponse | u
   if (!payload || !Array.isArray(payload.rows) || payload.rows.length === 0) return false;
   const previewMissingCount = payload.preview_coverage?.previewMissingCount ?? 0;
   if (previewMissingCount <= 0) return false;
-  if (payload.media_mode !== "full") return false;
-  return payload.is_refreshing || payload.freshness_state === "stale";
+  if (payload.snapshot_level === "metadata") return true;
+  return Boolean(payload.is_refreshing || payload.freshness_state === "stale");
 }
 
 export function getPreviewPollingInterval(
@@ -77,6 +82,7 @@ export function getPreviewPollingInterval(
   if (!shouldPollForPreviewReadiness(payload)) return false;
   const previewMissingCount = payload?.preview_coverage?.previewMissingCount ?? 0;
   if (previewMissingCount <= 0) return false;
+  if (payload?.snapshot_level === "metadata") return 2500;
   if (!payload?.is_refreshing && payload?.freshness_state !== "stale") return false;
   return payload.is_refreshing ? 2500 : 8000;
 }
@@ -385,6 +391,7 @@ export function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
     imageUrl: row.image_url,
     tableThumbnailUrl: row.table_thumbnail_url ?? row.thumbnail_url ?? null,
     cardPreviewUrl: row.card_preview_url ?? row.image_url ?? row.thumbnail_url ?? row.preview_url ?? null,
+    previewManifest: row.preview_manifest ?? null,
     isCatalog: row.is_catalog,
     previewState: row.preview_state,
     preview: row.preview,

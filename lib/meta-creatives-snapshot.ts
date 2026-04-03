@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 
 export type MetaCreativesSnapshotLevel = "metadata" | "full";
 export type MetaCreativesFreshnessState = "fresh" | "stale" | "expired";
+export type MetaCreativesPreviewProfile = "main_grid_v3";
 
 export interface MetaCreativesSnapshotQuery {
   businessId: string;
@@ -12,6 +13,7 @@ export interface MetaCreativesSnapshotQuery {
   groupBy: string;
   format: string;
   sort: string;
+  previewProfile?: MetaCreativesPreviewProfile;
 }
 
 export interface MetaCreativesSnapshotRecord {
@@ -49,6 +51,7 @@ export function hashAssignedAccountIds(accountIds: string[]): string {
 export function getMetaCreativesSnapshotKey(query: MetaCreativesSnapshotQuery): string {
   return hashParts([
     "meta-creatives",
+    query.previewProfile ?? "default",
     query.businessId,
     hashAssignedAccountIds(query.assignedAccountIds),
     query.start,
@@ -232,4 +235,3 @@ export function startMetaCreativesSnapshotRefresh(
   })();
   return true;
 }
-

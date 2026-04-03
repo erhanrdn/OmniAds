@@ -1,4 +1,5 @@
 import {
+  buildCreativePreviewManifest,
   chooseBestStaticPreviewCandidate,
   collectPreviewCandidates,
   describeStaticPreviewSelection,
@@ -308,6 +309,17 @@ export function buildMetaCreativeApiRow(params: {
     tier: "table",
     selectedUrl: tableThumbnailUrl,
   });
+  const previewManifest = buildCreativePreviewManifest({
+    tableSrc: tableThumbnailUrl,
+    cardSrc: cardPreviewUrl,
+    detailImageSrc:
+      finalImageUrl ??
+      normalizeMediaUrl(finalPreviewPayload.image_url) ??
+      normalizeMediaUrl(finalPreviewPayload.poster_url) ??
+      cardPreviewUrl,
+    detailVideoSrc: normalizeMediaUrl(finalPreviewPayload.video_url),
+    liveHtmlAvailable: Boolean(row.creative_id),
+  });
   const previewStatus: "ready" | "missing" =
     finalPreviewUrl || finalThumbnailUrl || finalImageUrl || normalizedCachedThumbnailUrl
       ? "ready"
@@ -399,6 +411,7 @@ export function buildMetaCreativeApiRow(params: {
     table_thumbnail_url: tableThumbnailUrl,
     card_preview_url: cardPreviewUrl,
     preview_contract_version: META_CREATIVES_PREVIEW_CONTRACT_VERSION,
+    preview_manifest: previewManifest,
     card_preview_source_kind: cardPreviewDebug.sourceKind,
     card_preview_resolution_class: cardPreviewDebug.resolutionClass,
     table_preview_source_kind: tablePreviewDebug.sourceKind,

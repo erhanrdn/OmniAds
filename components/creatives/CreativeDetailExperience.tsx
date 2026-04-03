@@ -57,7 +57,7 @@ export function CreativeDetailExperience({
 }: CreativeDetailExperienceProps) {
   const language = usePreferencesStore((state) => state.language);
   const creativeTranslations = getTranslations(language).creativeDetail;
-  const [source, setSource] = useState<StageSource>("html");
+  const [source, setSource] = useState<StageSource>("image");
   const [aiInterpretationRequested, setAiInterpretationRequested] = useState(false);
 
   useEffect(() => {
@@ -73,13 +73,22 @@ export function CreativeDetailExperience({
     };
   }, [onOpenChange, open]);
 
+  const imageUrl = row ? resolveDetailImageUrl(row) : null;
+
   useEffect(() => {
-    setSource("html");
+    setSource(imageUrl ? "image" : "html");
     setAiInterpretationRequested(false);
-  }, [row?.id]);
+  }, [imageUrl, row?.id]);
+
+  const shouldFetchHtmlPreview =
+    open &&
+    Boolean(businessId) &&
+    Boolean(row?.creativeId) &&
+    (source === "html" || !imageUrl);
+
   const detailPreviewQuery = useQuery({
     queryKey: ["creative-detail-preview", businessId, row?.creativeId ?? ""],
-    enabled: open && Boolean(businessId) && Boolean(row?.creativeId),
+    enabled: shouldFetchHtmlPreview,
     staleTime: 5 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
     refetchOnWindowFocus: false,
@@ -96,7 +105,6 @@ export function CreativeDetailExperience({
   });
 
   const currency = resolveCreativeCurrency(row?.currency ?? null, defaultCurrency);
-  const imageUrl = row ? resolveDetailImageUrl(row) : null;
   const detailPreviewHtml = detailPreviewQuery.data ?? null;
   const detailPreviewLoading = detailPreviewQuery.isFetching;
   const canShowHtml = Boolean(detailPreviewHtml);
@@ -958,6 +966,8 @@ function buildDecisionFromRuleReport(report: CreativeRuleReportPayload): AiCreat
 
 function resolveDetailImageUrl(row: MetaCreativeRow): string | null {
   const candidates = [
+    row.previewManifest?.detail_image_src ?? null,
+    row.previewManifest?.card_src ?? null,
     row.imageUrl,
     row.preview?.image_url,
     row.preview?.poster_url,

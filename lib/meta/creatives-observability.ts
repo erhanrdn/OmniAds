@@ -37,8 +37,13 @@ export function buildPreviewObservabilityStats(
   };
 
   for (const row of rows) {
+    const manifest = row.preview_manifest ?? null;
     const hasPreview = Boolean(
-      row.cached_thumbnail_url ??
+      manifest?.card_src ??
+        manifest?.table_src ??
+        manifest?.detail_image_src ??
+        manifest?.detail_video_src ??
+        row.cached_thumbnail_url ??
         row.table_thumbnail_url ??
         row.card_preview_url ??
         row.thumbnail_url ??
@@ -71,7 +76,11 @@ export function buildPreviewObservabilityStats(
 export function getPreviewReadyCount(rows: MetaCreativeApiRow[]): number {
   return rows.filter((row) =>
     Boolean(
-      row.cached_thumbnail_url ??
+      row.preview_manifest?.card_src ??
+        row.preview_manifest?.table_src ??
+        row.preview_manifest?.detail_image_src ??
+        row.preview_manifest?.detail_video_src ??
+        row.cached_thumbnail_url ??
         row.table_thumbnail_url ??
         row.card_preview_url ??
         row.thumbnail_url ??

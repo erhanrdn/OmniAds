@@ -9,7 +9,11 @@ import {
   pickBestCandidate,
   collectPreviewCandidates,
   buildNormalizedPreview,
+  buildCreativePreviewManifest,
   getCreativeStaticPreviewSources,
+  getCreativeStaticPreviewState,
+  hasAcceptableCardPreviewSource,
+  resolveCreativePreviewManifest,
 } from "@/lib/meta/creatives-preview";
 
 describe("isLikelyLowResCreativeUrl", () => {
@@ -219,6 +223,37 @@ describe("getCreativeStaticPreviewSources", () => {
       "https://example.com/shared.jpg",
       "https://example.com/other.jpg",
     ]);
+  });
+});
+
+describe("preview manifest helpers", () => {
+  it("marks low-res thumbnail-only card sources as needing enrichment", () => {
+    const manifest = buildCreativePreviewManifest({
+      tableSrc: "https://example.com/thumb_p150x120.jpg",
+      cardSrc: "https://example.com/thumb_p150x120.jpg",
+      detailImageSrc: "https://example.com/thumb_p150x120.jpg",
+      detailVideoSrc: null,
+      liveHtmlAvailable: true,
+    });
+
+    expect(manifest.needs_card_enrichment).toBe(true);
+    expect(hasAcceptableCardPreviewSource(manifest.card_src)).toBe(false);
+  });
+
+  it("resolves manifest-backed state for card and table tiers", () => {
+    const row = {
+      previewManifest: buildCreativePreviewManifest({
+        tableSrc: "https://example.com/thumb_p150x120.jpg",
+        cardSrc: "https://example.com/thumb_p150x120.jpg",
+        detailImageSrc: "https://example.com/thumb_p150x120.jpg",
+        detailVideoSrc: null,
+        liveHtmlAvailable: false,
+      }),
+    };
+
+    expect(getCreativeStaticPreviewState(row, "table")).toBe("ready");
+    expect(getCreativeStaticPreviewState(row, "card")).toBe("pending");
+    expect(resolveCreativePreviewManifest(row)?.table_src).toBe("https://example.com/thumb_p150x120.jpg");
   });
 });
 

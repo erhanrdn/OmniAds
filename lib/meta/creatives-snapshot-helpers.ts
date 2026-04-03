@@ -16,7 +16,10 @@ import type {
   MetaCreativeApiRow,
   PreviewContractVersion,
 } from "@/lib/meta/creatives-types";
-import { META_CREATIVES_PREVIEW_CONTRACT_VERSION } from "@/lib/meta/creatives-preview";
+import {
+  buildCreativePreviewManifest,
+  META_CREATIVES_PREVIEW_CONTRACT_VERSION,
+} from "@/lib/meta/creatives-preview";
 
 export const META_CREATIVES_SNAPSHOT_SCHEMA_VERSION = "creatives_snapshot_v2";
 
@@ -28,6 +31,16 @@ export interface MetaCreativesSnapshotTaxonomySummary {
   missing_taxonomy_source_rows: number;
 }
 
+export interface MetaCreativesSnapshotPreviewSummary {
+  total_rows: number;
+  rows_with_preview_manifest: number;
+  rows_with_table_src: number;
+  rows_with_card_src: number;
+  rows_needing_card_enrichment: number;
+  rows_missing_preview: number;
+  top_rows_needing_card_enrichment: number;
+}
+
 export interface MetaCreativesSnapshotPayload extends Record<string, unknown> {
   status?: string;
   rows?: MetaCreativeApiRow[];
@@ -36,6 +49,7 @@ export interface MetaCreativesSnapshotPayload extends Record<string, unknown> {
   taxonomy_version?: CreativeTaxonomyVersion;
   preview_contract_version?: PreviewContractVersion;
   taxonomy_summary?: MetaCreativesSnapshotTaxonomySummary;
+  preview_summary?: MetaCreativesSnapshotPreviewSummary;
 }
 
 export type MetaCreativesSnapshotTaxonomyHealthReason =
@@ -44,13 +58,16 @@ export type MetaCreativesSnapshotTaxonomyHealthReason =
   | "preview_contract_version_mismatch"
   | "rows_missing_taxonomy_version"
   | "rows_missing_taxonomy_source"
-  | "rows_legacy_fallback";
+  | "rows_legacy_fallback"
+  | "rows_missing_preview_manifest"
+  | "top_rows_need_card_enrichment";
 
 export interface MetaCreativesSnapshotTaxonomyHealth {
   snapshotSchemaVersion: string | null;
   taxonomyVersion: CreativeTaxonomyVersion | null;
   previewContractVersion: PreviewContractVersion | null;
   taxonomySummary: MetaCreativesSnapshotTaxonomySummary;
+  previewSummary: MetaCreativesSnapshotPreviewSummary;
   isTaxonomyStale: boolean;
   reasonCodes: MetaCreativesSnapshotTaxonomyHealthReason[];
 }
@@ -90,6 +107,47 @@ export function buildMetaCreativesSnapshotTaxonomySummary(
   );
 }
 
+export function buildMetaCreativesSnapshotPreviewSummary(
+  rows: MetaCreativeApiRow[]
+): MetaCreativesSnapshotPreviewSummary {
+  return rows.reduce<MetaCreativesSnapshotPreviewSummary>(
+    (summary, row, index) => {
+      summary.total_rows += 1;
+
+      const manifest = row.preview_manifest ?? null;
+      if (manifest) {
+        summary.rows_with_preview_manifest += 1;
+      }
+      if (manifest?.table_src) {
+        summary.rows_with_table_src += 1;
+      }
+      if (manifest?.card_src) {
+        summary.rows_with_card_src += 1;
+      }
+      if (manifest?.needs_card_enrichment) {
+        summary.rows_needing_card_enrichment += 1;
+        if (index < 8) {
+          summary.top_rows_needing_card_enrichment += 1;
+        }
+      }
+      if (!manifest?.table_src && !manifest?.card_src && !manifest?.detail_image_src && !manifest?.detail_video_src) {
+        summary.rows_missing_preview += 1;
+      }
+
+      return summary;
+    },
+    {
+      total_rows: 0,
+      rows_with_preview_manifest: 0,
+      rows_with_table_src: 0,
+      rows_with_card_src: 0,
+      rows_needing_card_enrichment: 0,
+      rows_missing_preview: 0,
+      top_rows_needing_card_enrichment: 0,
+    }
+  );
+}
+
 export function evaluateMetaCreativesSnapshotTaxonomyHealth(
   payload: MetaCreativesSnapshotPayload | null | undefined,
   rowsOverride?: MetaCreativeApiRow[]
@@ -100,6 +158,7 @@ export function evaluateMetaCreativesSnapshotTaxonomyHealth(
     ? payload.rows
     : [];
   const taxonomySummary = buildMetaCreativesSnapshotTaxonomySummary(rows);
+  const previewSummary = buildMetaCreativesSnapshotPreviewSummary(rows);
   const snapshotSchemaVersion =
     typeof payload?.snapshot_schema_version === "string" ? payload.snapshot_schema_version : null;
   const taxonomyVersion = payload?.taxonomy_version === "v2" ? payload.taxonomy_version : null;
@@ -133,11 +192,20 @@ export function evaluateMetaCreativesSnapshotTaxonomyHealth(
     reasonCodes.push("rows_legacy_fallback");
   }
 
+  if (previewSummary.rows_with_preview_manifest !== rows.length) {
+    reasonCodes.push("rows_missing_preview_manifest");
+  }
+
+  if ((payload?.media_hydrated ?? false) === false && previewSummary.top_rows_needing_card_enrichment > 0) {
+    reasonCodes.push("top_rows_need_card_enrichment");
+  }
+
   return {
     snapshotSchemaVersion,
     taxonomyVersion,
     previewContractVersion,
     taxonomySummary,
+    previewSummary,
     isTaxonomyStale: reasonCodes.length > 0,
     reasonCodes,
   };
@@ -156,6 +224,7 @@ export function buildMetaCreativesSnapshotPayload(input: {
     taxonomy_version: "v2",
     preview_contract_version: META_CREATIVES_PREVIEW_CONTRACT_VERSION,
     taxonomy_summary: buildMetaCreativesSnapshotTaxonomySummary(input.rows),
+    preview_summary: buildMetaCreativesSnapshotPreviewSummary(input.rows),
   };
 }
 
@@ -179,14 +248,29 @@ export async function hydrateRowsWithSnapshotCache(
     if (!cached || cached.source !== "cache") return row;
     const cachedUrl = normalizeMediaUrl(cached.url);
     if (!cachedUrl) return row;
+    const nextTableSrc = row.table_thumbnail_url ?? cachedUrl;
+    const nextCardSrc =
+      row.card_preview_url ??
+      (row.preview.render_mode === "video" ? row.card_preview_url ?? cachedUrl : cachedUrl);
+    const nextDetailImageSrc =
+      row.image_url ??
+      row.preview.image_url ??
+      row.preview.poster_url ??
+      nextCardSrc ??
+      nextTableSrc;
     return {
       ...row,
       cached_thumbnail_url: cachedUrl,
       thumbnail_url: row.thumbnail_url ?? cachedUrl,
-      table_thumbnail_url: row.table_thumbnail_url ?? cachedUrl,
-      card_preview_url:
-        row.card_preview_url ??
-        (row.preview.render_mode === "video" ? row.card_preview_url ?? cachedUrl : cachedUrl),
+      table_thumbnail_url: nextTableSrc,
+      card_preview_url: nextCardSrc,
+      preview_manifest: buildCreativePreviewManifest({
+        tableSrc: nextTableSrc,
+        cardSrc: nextCardSrc,
+        detailImageSrc: nextDetailImageSrc,
+        detailVideoSrc: row.preview.video_url ?? null,
+        liveHtmlAvailable: row.preview_manifest?.live_html_available ?? Boolean(row.creative_id),
+      }),
       preview_url: row.preview_url ?? cachedUrl,
       preview:
         row.preview.render_mode === "video"
@@ -224,6 +308,8 @@ export async function buildSnapshotApiResponse(input: {
     media_hydrated: payload.media_hydrated ?? snapshot.snapshotLevel === "full",
     preview_contract_version:
       payload.preview_contract_version ?? META_CREATIVES_PREVIEW_CONTRACT_VERSION,
+    preview_summary:
+      payload.preview_summary ?? buildMetaCreativesSnapshotPreviewSummary(hydratedRows),
     snapshot_source: "persisted",
     snapshot_level: snapshot.snapshotLevel,
     last_synced_at: snapshot.lastSyncedAt,
@@ -250,6 +336,7 @@ export function buildLiveApiResponse(input: {
     media_mode: input.mediaMode,
     media_hydrated: input.mediaHydrated,
     preview_contract_version: META_CREATIVES_PREVIEW_CONTRACT_VERSION,
+    preview_summary: buildMetaCreativesSnapshotPreviewSummary(input.rows),
     snapshot_source: input.snapshotSource ?? "live",
     snapshot_level: input.snapshotLevel,
     last_synced_at: new Date().toISOString(),

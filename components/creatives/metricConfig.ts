@@ -1,4 +1,5 @@
 import type {
+  CreativePreviewManifest,
   CreativeDeliveryType,
   CreativeFormat,
   CreativePrimaryType,
@@ -87,6 +88,7 @@ export interface MetaCreativeRow {
   imageUrl: string | null;
   tableThumbnailUrl?: string | null;
   cardPreviewUrl?: string | null;
+  previewManifest?: CreativePreviewManifest | null;
   cachedThumbnailUrl?: string | null;
   previewStatus?: PreviewReadiness;
   previewOrigin?: PreviewOrigin;

@@ -31,7 +31,7 @@ import {
   toHeatColor,
 } from "@/components/creatives/creatives-table-support";
 import { cn } from "@/lib/utils";
-import { getCreativeStaticPreviewSources } from "@/lib/meta/creatives-preview";
+import { getCreativeStaticPreviewSources, getCreativeStaticPreviewState } from "@/lib/meta/creatives-preview";
 import { useDropdownBehavior } from "@/hooks/use-dropdown-behavior";
 import { getAiCreativeDecisions, type AiCreativeDecision, type AiCreativeDecisionInputRow } from "@/src/services";
 import { createPortal } from "react-dom";
@@ -1934,6 +1934,7 @@ const CreativeTableRow = memo(function CreativeTableRow({
     () => getCreativeStaticPreviewSources(row, "table"),
     [row]
   );
+  const assetState = getCreativeStaticPreviewState(row, "table");
   const resolvedRowCurrency = resolveCreativeCurrency(row.currency, defaultCurrency);
 
   return (
@@ -1958,6 +1959,7 @@ const CreativeTableRow = memo(function CreativeTableRow({
             preview={row.preview}
             size="thumb"
             mode="asset"
+            assetState={assetState}
             assetFallbacks={assetFallbacks}
             className="h-9 w-9 shrink-0 rounded-md"
           />

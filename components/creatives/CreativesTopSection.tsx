@@ -7,7 +7,7 @@ import { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
 import { resolveCreativeCurrency } from "@/components/creatives/money";
 import { getCreativeFormatSummaryLabel } from "@/lib/meta/creative-taxonomy";
-import { getCreativeStaticPreviewSources } from "@/lib/meta/creatives-preview";
+import { getCreativeStaticPreviewSources, getCreativeStaticPreviewState } from "@/lib/meta/creatives-preview";
 import {
   applyCreativeFilters,
   buildMonthGrid,
@@ -150,12 +150,14 @@ const GROUP_BY_OPTIONS: Array<{ value: CreativeGroupBy; label: string }> = [
 
 function PreviewStripMediaSurface({
   row,
+  assetState,
   assetFallbacks,
   assetUpgradeSources,
   shouldUnlockPreview,
   onAdvance,
 }: {
   row: MetaCreativeRow;
+  assetState: "ready" | "pending" | "missing";
   assetFallbacks: Array<string | null>;
   assetUpgradeSources: Array<string | null>;
   shouldUnlockPreview: boolean;
@@ -168,6 +170,7 @@ function PreviewStripMediaSurface({
       preview={row.preview}
       size="card"
       mode="asset"
+      assetState={assetState}
       assetFallbacks={assetFallbacks}
       assetUpgradeSources={assetUpgradeSources}
       className="aspect-square w-full"
@@ -1195,6 +1198,7 @@ function PreviewStrip({
         {rows.map((row, index) => {
           const assetFallbacks = getCreativeStaticPreviewSources(row, "card");
           const assetUpgradeSources = assetFallbacks;
+          const assetState = getCreativeStaticPreviewState(row, "card");
           const resolvedRowCurrency = resolveCreativeCurrency(row.currency, defaultCurrency);
           const shouldUnlockPreview = previewMode !== "media" || index < unlockedPreviewCount;
           const creativeTypeLabel = getCreativeFormatSummaryLabel({
@@ -1226,6 +1230,7 @@ function PreviewStrip({
                 <div className="relative aspect-square w-full overflow-hidden bg-muted/20">
                   <PreviewStripMediaSurface
                     row={row}
+                    assetState={assetState}
                     assetFallbacks={assetFallbacks}
                     assetUpgradeSources={assetUpgradeSources}
                     shouldUnlockPreview={shouldUnlockPreview}

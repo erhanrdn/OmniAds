@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import { CreativePreview } from "@/components/creatives/CreativePreview";
 import { METRIC_CONFIG, MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { getCreativeFormatSummaryLabel } from "@/lib/meta/creative-taxonomy";
-import { getCreativeStaticPreviewSources } from "@/lib/meta/creatives-preview";
+import { getCreativeStaticPreviewSources, getCreativeStaticPreviewState } from "@/lib/meta/creatives-preview";
 
 interface CreativesTopGridProps {
   rows: MetaCreativeRow[];
@@ -80,6 +80,7 @@ function CreativeCard({
     () => getCreativeStaticPreviewSources(row, "card"),
     [row]
   );
+  const assetState = getCreativeStaticPreviewState(row, "card");
   const badgeLabel = getCreativeFormatSummaryLabel({
     creative_delivery_type: row.creativeDeliveryType,
     creative_visual_format: row.creativeVisualFormat,
@@ -108,10 +109,10 @@ function CreativeCard({
           previewUrl={row.preview?.poster_url ?? row.previewUrl ?? row.preview_url ?? null}
           thumbnailUrl={row.thumbnailUrl ?? row.thumbnail_url ?? null}
           sourcePriority={sourcePriority}
+          assetState={assetState}
           format={row.creativeVisualFormat === "video" ? "video" : isCatalog ? "catalog" : "image"}
           isCatalog={isCatalog}
           badgeLabel={badgeLabel}
-          debugScope="top-grid"
           size="card"
         />
 

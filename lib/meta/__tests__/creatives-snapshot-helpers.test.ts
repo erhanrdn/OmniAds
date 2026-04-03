@@ -30,6 +30,19 @@ function buildRow(overrides: Partial<MetaCreativeApiRow> = {}): MetaCreativeApiR
     image_url: "https://example.com/image.jpg",
     table_thumbnail_url: "https://example.com/table.jpg",
     card_preview_url: "https://example.com/card.jpg",
+    preview_manifest: {
+      table_src: "https://example.com/table.jpg",
+      card_src: "https://example.com/card.jpg",
+      detail_image_src: "https://example.com/image.jpg",
+      detail_video_src: null,
+      table_source_kind: "thumbnail_static",
+      card_source_kind: "non_thumbnail_static",
+      resolution_class: "high_res",
+      thumbnail_like: false,
+      source_reason: "card_prefer_non_thumbnail",
+      needs_card_enrichment: false,
+      live_html_available: true,
+    },
     cached_thumbnail_url: null,
     is_catalog: false,
     preview_state: "preview",
@@ -95,13 +108,22 @@ describe("creatives snapshot taxonomy health", () => {
 
     expect(payload.snapshot_schema_version).toBe(META_CREATIVES_SNAPSHOT_SCHEMA_VERSION);
     expect(payload.taxonomy_version).toBe("v2");
-    expect(payload.preview_contract_version).toBe("v2");
+    expect(payload.preview_contract_version).toBe("v3");
     expect(payload.taxonomy_summary).toEqual({
       total_rows: 2,
       deterministic_rows: 2,
       legacy_fallback_rows: 0,
       missing_taxonomy_version_rows: 0,
       missing_taxonomy_source_rows: 0,
+    });
+    expect(payload.preview_summary).toEqual({
+      total_rows: 2,
+      rows_with_preview_manifest: 2,
+      rows_with_table_src: 2,
+      rows_with_card_src: 2,
+      rows_needing_card_enrichment: 0,
+      rows_missing_preview: 0,
+      top_rows_needing_card_enrichment: 0,
     });
   });
 
@@ -142,13 +164,22 @@ describe("creatives snapshot taxonomy health", () => {
     expect(evaluateMetaCreativesSnapshotTaxonomyHealth(payload)).toEqual({
       snapshotSchemaVersion: META_CREATIVES_SNAPSHOT_SCHEMA_VERSION,
       taxonomyVersion: "v2",
-      previewContractVersion: "v2",
+      previewContractVersion: "v3",
       taxonomySummary: {
         total_rows: 1,
         deterministic_rows: 1,
         legacy_fallback_rows: 0,
         missing_taxonomy_version_rows: 0,
         missing_taxonomy_source_rows: 0,
+      },
+      previewSummary: {
+        total_rows: 1,
+        rows_with_preview_manifest: 1,
+        rows_with_table_src: 1,
+        rows_with_card_src: 1,
+        rows_needing_card_enrichment: 0,
+        rows_missing_preview: 0,
+        top_rows_needing_card_enrichment: 0,
       },
       isTaxonomyStale: false,
       reasonCodes: [],
@@ -204,6 +235,7 @@ describe("creatives snapshot taxonomy health", () => {
       missing_taxonomy_version_rows: 1,
       missing_taxonomy_source_rows: 1,
     });
+    expect(health.previewSummary.rows_with_preview_manifest).toBe(2);
   });
 
   it("marks snapshots stale when preview contract metadata is missing", () => {
@@ -218,5 +250,23 @@ describe("creatives snapshot taxonomy health", () => {
 
     expect(health.isTaxonomyStale).toBe(true);
     expect(health.reasonCodes).toEqual(["preview_contract_version_mismatch"]);
+  });
+
+  it("marks snapshots stale when rows are missing preview manifests", () => {
+    const payload = buildMetaCreativesSnapshotPayload({
+      status: "ok",
+      rows: [
+        buildRow({
+          id: "ad_missing_preview",
+          preview_manifest: undefined,
+        }),
+      ],
+      mediaHydrated: false,
+    });
+
+    const health = evaluateMetaCreativesSnapshotTaxonomyHealth(payload);
+
+    expect(health.isTaxonomyStale).toBe(true);
+    expect(health.reasonCodes).toContain("rows_missing_preview_manifest");
   });
 });
