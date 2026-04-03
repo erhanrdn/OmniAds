@@ -22,7 +22,6 @@ import {
   expireStaleMetaSyncJobs,
   getLatestMetaSyncHealth,
   getMetaAdDailyCoverage,
-  getMetaAdDailyPreviewCoverage,
   getMetaAdSetDailyCoverage,
   getMetaAccountDailyCoverage,
   getMetaCampaignDailyCoverage,
@@ -595,7 +594,7 @@ async function getMetaDailyCoverageState(input: {
   businessId: string;
   day: string;
 }) {
-  const [accountCoverage, campaignCoverage, creativeCoverage, creativePreviewCoverage] =
+  const [accountCoverage, campaignCoverage, creativeCoverage] =
     await Promise.all([
       getMetaAccountDailyCoverage({
         businessId: input.businessId,
@@ -615,27 +614,16 @@ async function getMetaDailyCoverageState(input: {
         startDate: input.day,
         endDate: input.day,
       }).catch(() => null),
-      getMetaAdDailyPreviewCoverage({
-        businessId: input.businessId,
-        providerAccountId: null,
-        startDate: input.day,
-        endDate: input.day,
-      }).catch(() => null),
     ]);
 
   const productCoreComplete =
     (accountCoverage?.completed_days ?? 0) >= 1 &&
     (campaignCoverage?.completed_days ?? 0) >= 1;
   const creativesComplete = (creativeCoverage?.completed_days ?? 0) >= 1;
-  const creativesMediaReady =
-    (creativePreviewCoverage?.total_rows ?? 0) === 0 ||
-    (creativePreviewCoverage?.preview_ready_rows ?? 0) >=
-      (creativePreviewCoverage?.total_rows ?? 0);
 
   return {
     productCoreComplete,
     creativesComplete,
-    creativesMediaReady,
   };
 }
 
@@ -741,23 +729,16 @@ async function syncMetaPartitionDay(input: {
   }
 
   if (input.scopes.some((scope) => META_EXTENDED_SCOPE_LIST.includes(scope))) {
-    const creativeMediaRetentionStart = getCreativeMediaRetentionStart(getMetaReferenceToday(credentials));
-    const shouldRetainCreativeMedia = input.day >= creativeMediaRetentionStart;
     if (!coverageState.creativesComplete) {
       await syncMetaCreativesWarehouseDay({
         businessId: input.businessId,
         day: normalizedDay,
         accessToken: credentials.accessToken,
         assignedAccountIds,
-        mediaMode: shouldRetainCreativeMedia ? "full" : "metadata",
-      });
-    } else if (shouldRetainCreativeMedia && !coverageState.creativesMediaReady) {
-      await syncMetaCreativesWarehouseDay({
-        businessId: input.businessId,
-        day: normalizedDay,
-        accessToken: credentials.accessToken,
-        assignedAccountIds,
-        mediaMode: "full",
+        mediaMode:
+          input.day >= getCreativeMediaRetentionStart(getMetaReferenceToday(credentials))
+            ? "full"
+            : "metadata",
       });
     }
   }
@@ -777,8 +758,6 @@ async function syncMetaPartitionDay(input: {
     productCoreCompleteAfter: afterCoverage.productCoreComplete,
     creativesCompleteBefore: beforeCoverage.creativesComplete,
     creativesCompleteAfter: afterCoverage.creativesComplete,
-    creativesMediaReadyBefore: beforeCoverage.creativesMediaReady,
-    creativesMediaReadyAfter: afterCoverage.creativesMediaReady,
   });
 }
 

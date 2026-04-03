@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   buildMetaFairnessLeasePlan,
@@ -216,5 +217,16 @@ describe("resolveMetaHistoricalReplaySource", () => {
         ])
       )
     ).toBe("historical_recovery");
+  });
+});
+
+describe("meta creatives sync gating", () => {
+  it("does not reference creativesMediaReady in partition gating or logs", () => {
+    const source = readFileSync(new URL("./meta-sync.ts", import.meta.url), "utf8");
+
+    expect(source).not.toContain("creativesMediaReady");
+    expect(source).not.toContain("getMetaAdDailyPreviewCoverage");
+    expect(source).not.toContain("creativesMediaReadyBefore");
+    expect(source).not.toContain("creativesMediaReadyAfter");
   });
 });
