@@ -5,6 +5,27 @@ export type FormatFilter = "all" | "image" | "video";
 export type SortKey = "roas" | "spend" | "ctrAll" | "purchaseValue";
 export type CreativeFormat = "image" | "video" | "catalog";
 export type CreativeType = "feed" | "video" | "flexible" | "feed_catalog";
+export type CreativeDeliveryType = "standard" | "catalog" | "flexible" | "mixed";
+export type CreativeVisualFormat = "image" | "video" | "carousel" | "mixed";
+export type CreativePrimaryType = "standard" | "catalog" | "flexible" | "carousel" | "video" | "mixed";
+export type CreativeSecondaryType = "video" | "carousel";
+export type CreativeTaxonomyVersion = "v2";
+export type CreativeTaxonomySource = "deterministic" | "legacy_fallback";
+export type PreviewContractVersion = "v5";
+export type PreviewSourceKind = "non_thumbnail_static" | "thumbnail_static" | "none";
+export type PreviewResolutionClass = "high_res" | "medium_res" | "low_res" | "unknown";
+export type PreviewManifestRenderState =
+  | "renderable_high_quality"
+  | "renderable_low_quality"
+  | "missing";
+export type PreviewCardState = "ready" | "waiting_meta" | "missing";
+export type PreviewWaitingReason = "awaiting_card_source" | "missing_media";
+export type PreviewSourceReason =
+  | "card_prefer_non_thumbnail"
+  | "card_promoted_larger_thumbnail"
+  | "table_thumbnail_preferred"
+  | "fallback_static_source"
+  | "unavailable";
 export type AiTagKey =
   | "assetType"
   | "visualFormat"
@@ -56,6 +77,7 @@ export type PreviewResolutionReason =
 export type PreviewObservabilityStats = {
   total_rows: number;
   preview_ready_count: number;
+  preview_waiting_count: number;
   preview_missing_count: number;
   render_mode_counts: { video: number; image: number; unavailable: number };
   resolution_stage_counts: Partial<Record<PreviewResolutionStage, number>>;
@@ -92,6 +114,25 @@ export type CreativeDebugInfo = {
   preview_render_mode?: PreviewRenderMode | null;
   preview_candidates_count?: number;
   preview_resolution_reason?: PreviewResolutionReason | string | null;
+};
+
+export type CreativeClassificationSignals = {
+  is_catalog_by_object_type: boolean;
+  has_template_data: boolean;
+  has_promoted_product_set_id: boolean;
+  has_promoted_catalog_id: boolean;
+  has_asset_feed_catalog_id: boolean;
+  has_asset_feed_product_set_id: boolean;
+  child_attachment_count: number;
+  has_top_level_video_id: boolean;
+  has_object_story_video_data: boolean;
+  has_video_object_type: boolean;
+  asset_feed_image_count: number;
+  asset_feed_video_count: number;
+  has_asset_feed_spec: boolean;
+  has_mixed_asset_families: boolean;
+  has_multi_image_assets: boolean;
+  has_multi_video_assets: boolean;
 };
 
 export type PreviewDebugPatch = {
@@ -406,9 +447,32 @@ export interface CreativePreviewFields {
   image_url: string | null;
   table_thumbnail_url?: string | null;
   card_preview_url?: string | null;
+  preview_contract_version?: PreviewContractVersion;
+  preview_manifest?: CreativePreviewManifest | null;
+  card_preview_source_kind?: PreviewSourceKind | null;
+  card_preview_resolution_class?: PreviewResolutionClass | null;
+  table_preview_source_kind?: PreviewSourceKind | null;
+  preview_source_reason?: PreviewSourceReason | null;
   is_catalog: boolean;
   preview_state: LegacyPreviewState;
   preview: NormalizedRenderPreviewPayload;
+}
+
+export interface CreativePreviewManifest {
+  table_src: string | null;
+  card_src: string | null;
+  detail_image_src: string | null;
+  detail_video_src: string | null;
+  render_state: PreviewManifestRenderState;
+  card_state: PreviewCardState;
+  waiting_reason: PreviewWaitingReason | null;
+  table_source_kind: PreviewSourceKind | null;
+  card_source_kind: PreviewSourceKind | null;
+  resolution_class: PreviewResolutionClass | null;
+  thumbnail_like: boolean;
+  source_reason: PreviewSourceReason | null;
+  needs_card_enrichment: boolean;
+  live_html_available: boolean;
 }
 
 export interface CreativeClassificationFields {
@@ -417,6 +481,16 @@ export interface CreativeClassificationFields {
   format: CreativeFormat;
   creative_type: CreativeType;
   creative_type_label: string;
+  creative_delivery_type: CreativeDeliveryType;
+  creative_visual_format: CreativeVisualFormat;
+  creative_primary_type: CreativePrimaryType;
+  creative_primary_label: string | null;
+  creative_secondary_type: CreativeSecondaryType | null;
+  creative_secondary_label: string | null;
+  classification_signals?: CreativeClassificationSignals | null;
+  taxonomy_version?: CreativeTaxonomyVersion;
+  taxonomy_source?: CreativeTaxonomySource | null;
+  taxonomy_reconciled_by_video_evidence?: boolean;
 }
 
 export interface CreativeMetricFields {

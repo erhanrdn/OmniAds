@@ -3,7 +3,6 @@ import type {
   CopySourceLabel,
   CreativeDebugInfo,
   CreativeFormat,
-  CreativeType,
   GroupBy,
   LegacyPreviewState,
   MetaAccountMeta,
@@ -14,6 +13,13 @@ import type {
   RawCreativeRow,
   SortKey,
 } from "@/lib/meta/creatives-types";
+import {
+  aggregateCreativeTaxonomy,
+  classifyMetaCreative,
+  deriveCreativeFormat,
+  deriveLegacyCreativeType,
+  getLegacyCreativeTypeLabel,
+} from "@/lib/meta/creative-taxonomy";
 import { normalizeMediaUrl, extractPostIdFromStoryIdentifier, extractVideoIdsFromCreative } from "@/lib/meta/creatives-utils";
 import { buildNormalizedPreview, resolveThumbnailUrl } from "@/lib/meta/creatives-preview";
 import {
@@ -21,8 +27,6 @@ import {
   normalizeCopyText,
   uniqueNormalizedText,
   mergeDebugSources,
-  resolveGroupedCreativeType,
-  toCreativeTypeLabel,
   buildCreativeDebugInfo,
 } from "@/lib/meta/creatives-copy";
 
@@ -125,6 +129,129 @@ export function mergeCreativeData(
   if (!baseCreative) return detailCreative ?? null;
   if (!detailCreative) return baseCreative;
 
+  const preferNonEmptyArray = <T>(
+    detailItems: T[] | null | undefined,
+    baseItems: T[] | null | undefined
+  ): T[] | null => {
+    if (Array.isArray(detailItems) && detailItems.length > 0) return detailItems;
+    if (Array.isArray(baseItems) && baseItems.length > 0) return baseItems;
+    return null;
+  };
+
+  const mergeTemplateData = (
+    baseTemplate: Record<string, unknown> | null | undefined,
+    detailTemplate: Record<string, unknown> | null | undefined
+  ): Record<string, unknown> | null => {
+    const hasBase = Boolean(baseTemplate && Object.keys(baseTemplate).length > 0);
+    const hasDetail = Boolean(detailTemplate && Object.keys(detailTemplate).length > 0);
+    if (!hasBase && !hasDetail) return null;
+    if (!hasBase) return detailTemplate ?? null;
+    if (!hasDetail) return baseTemplate ?? null;
+    return {
+      ...baseTemplate,
+      ...detailTemplate,
+    };
+  };
+
+  const mergeCallToAction = <
+    T extends {
+      type?: string | null;
+      value?: { link?: string | null } | null;
+    } | null | undefined,
+  >(
+    baseCallToAction: T,
+    detailCallToAction: T
+  ) => {
+    if (!baseCallToAction && !detailCallToAction) return null;
+    if (!baseCallToAction) return detailCallToAction ?? null;
+    if (!detailCallToAction) return baseCallToAction ?? null;
+    return {
+      ...baseCallToAction,
+      ...detailCallToAction,
+      value: detailCallToAction.value ?? baseCallToAction.value ?? null,
+    };
+  };
+
+  const mergeLinkData = (
+    baseLinkData: NonNullable<NonNullable<MetaAdRecord["creative"]>["object_story_spec"]>["link_data"],
+    detailLinkData: NonNullable<NonNullable<MetaAdRecord["creative"]>["object_story_spec"]>["link_data"]
+  ) => {
+    if (!baseLinkData && !detailLinkData) return null;
+    if (!baseLinkData) return detailLinkData ?? null;
+    if (!detailLinkData) return baseLinkData ?? null;
+    return {
+      ...baseLinkData,
+      ...detailLinkData,
+      call_to_action: mergeCallToAction(baseLinkData.call_to_action, detailLinkData.call_to_action),
+      child_attachments: preferNonEmptyArray(detailLinkData.child_attachments, baseLinkData.child_attachments),
+    };
+  };
+
+  const mergeVideoData = (
+    baseVideoData: NonNullable<NonNullable<MetaAdRecord["creative"]>["object_story_spec"]>["video_data"],
+    detailVideoData: NonNullable<NonNullable<MetaAdRecord["creative"]>["object_story_spec"]>["video_data"]
+  ) => {
+    if (!baseVideoData && !detailVideoData) return null;
+    if (!baseVideoData) return detailVideoData ?? null;
+    if (!detailVideoData) return baseVideoData ?? null;
+    return {
+      ...baseVideoData,
+      ...detailVideoData,
+      call_to_action: mergeCallToAction(baseVideoData.call_to_action, detailVideoData.call_to_action),
+    };
+  };
+
+  const mergePhotoData = (
+    basePhotoData: NonNullable<NonNullable<MetaAdRecord["creative"]>["object_story_spec"]>["photo_data"],
+    detailPhotoData: NonNullable<NonNullable<MetaAdRecord["creative"]>["object_story_spec"]>["photo_data"]
+  ) => {
+    if (!basePhotoData && !detailPhotoData) return null;
+    if (!basePhotoData) return detailPhotoData ?? null;
+    if (!detailPhotoData) return basePhotoData ?? null;
+    return {
+      ...basePhotoData,
+      ...detailPhotoData,
+      call_to_action: mergeCallToAction(basePhotoData.call_to_action, detailPhotoData.call_to_action),
+    };
+  };
+
+  const mergeObjectStorySpec = (
+    baseStorySpec: NonNullable<MetaAdRecord["creative"]>["object_story_spec"],
+    detailStorySpec: NonNullable<MetaAdRecord["creative"]>["object_story_spec"]
+  ) => {
+    if (!baseStorySpec && !detailStorySpec) return null;
+    if (!baseStorySpec) return detailStorySpec ?? null;
+    if (!detailStorySpec) return baseStorySpec ?? null;
+    return {
+      ...baseStorySpec,
+      ...detailStorySpec,
+      link_data: mergeLinkData(baseStorySpec.link_data, detailStorySpec.link_data),
+      video_data: mergeVideoData(baseStorySpec.video_data, detailStorySpec.video_data),
+      photo_data: mergePhotoData(baseStorySpec.photo_data, detailStorySpec.photo_data),
+      template_data: mergeTemplateData(baseStorySpec.template_data, detailStorySpec.template_data),
+    };
+  };
+
+  const mergeAssetFeedSpec = (
+    baseAssetFeedSpec: NonNullable<MetaAdRecord["creative"]>["asset_feed_spec"],
+    detailAssetFeedSpec: NonNullable<MetaAdRecord["creative"]>["asset_feed_spec"]
+  ) => {
+    if (!baseAssetFeedSpec && !detailAssetFeedSpec) return null;
+    if (!baseAssetFeedSpec) return detailAssetFeedSpec ?? null;
+    if (!detailAssetFeedSpec) return baseAssetFeedSpec ?? null;
+    return {
+      ...baseAssetFeedSpec,
+      ...detailAssetFeedSpec,
+      catalog_id: detailAssetFeedSpec.catalog_id ?? baseAssetFeedSpec.catalog_id ?? null,
+      product_set_id: detailAssetFeedSpec.product_set_id ?? baseAssetFeedSpec.product_set_id ?? null,
+      bodies: preferNonEmptyArray(detailAssetFeedSpec.bodies, baseAssetFeedSpec.bodies),
+      titles: preferNonEmptyArray(detailAssetFeedSpec.titles, baseAssetFeedSpec.titles),
+      descriptions: preferNonEmptyArray(detailAssetFeedSpec.descriptions, baseAssetFeedSpec.descriptions),
+      images: preferNonEmptyArray(detailAssetFeedSpec.images, baseAssetFeedSpec.images),
+      videos: preferNonEmptyArray(detailAssetFeedSpec.videos, baseAssetFeedSpec.videos),
+    };
+  };
+
   return {
     ...baseCreative,
     ...detailCreative,
@@ -133,8 +260,8 @@ export function mergeCreativeData(
     thumbnail_url: detailCreative.thumbnail_url ?? baseCreative.thumbnail_url ?? null,
     image_url: detailCreative.image_url ?? baseCreative.image_url ?? null,
     image_hash: detailCreative.image_hash ?? baseCreative.image_hash ?? null,
-    object_story_spec: detailCreative.object_story_spec ?? baseCreative.object_story_spec ?? null,
-    asset_feed_spec: detailCreative.asset_feed_spec ?? baseCreative.asset_feed_spec ?? null,
+    object_story_spec: mergeObjectStorySpec(baseCreative.object_story_spec, detailCreative.object_story_spec),
+    asset_feed_spec: mergeAssetFeedSpec(baseCreative.asset_feed_spec, detailCreative.asset_feed_spec),
   };
 }
 
@@ -331,17 +458,12 @@ export function toRawRow(
       is_catalog: normalizedPreview.legacy.is_catalog,
     });
   }
-  const format: CreativeFormat = normalizedPreview.preview.is_catalog
-    ? "catalog"
-    : normalizedPreview.preview.render_mode === "video" || creative?.object_type?.toUpperCase() === "VIDEO"
-    ? "video"
-    : "image";
-  const creativeType: CreativeType =
-    format === "catalog"
-      ? "feed_catalog"
-      : format === "video"
-      ? "video"
-      : "feed";
+  const creativeTaxonomy = classifyMetaCreative({
+    creative,
+    promotedObject,
+  });
+  const format: CreativeFormat = deriveCreativeFormat(creativeTaxonomy);
+  const creativeType = deriveLegacyCreativeType(creativeTaxonomy.creative_primary_type);
 
   const launchDate = cleanDate(ad?.created_time) || cleanDate(insight.date_start) || toISODate(new Date());
   const name = insight.ad_name ?? ad?.name ?? creative?.name ?? "Unnamed ad";
@@ -443,7 +565,14 @@ export function toRawRow(
     ai_tags: {},
     format,
     creative_type: creativeType,
-    creative_type_label: toCreativeTypeLabel(creativeType),
+    creative_type_label: getLegacyCreativeTypeLabel(creativeType),
+    creative_delivery_type: creativeTaxonomy.creative_delivery_type,
+    creative_visual_format: creativeTaxonomy.creative_visual_format,
+    creative_primary_type: creativeTaxonomy.creative_primary_type,
+    creative_primary_label: creativeTaxonomy.creative_primary_label,
+    creative_secondary_type: creativeTaxonomy.creative_secondary_type,
+    creative_secondary_label: creativeTaxonomy.creative_secondary_label,
+    classification_signals: creativeTaxonomy.classification_signals,
     spend: r2(spend),
     purchase_value: r2(derivedPurchaseValue),
     roas: r2(derivedPurchaseValue > 0 ? derivedPurchaseValue / spend : 0),
@@ -573,7 +702,8 @@ export function groupRows(
       is_catalog: list.some((item) => item.preview.is_catalog),
     };
     const groupedLegacyState: LegacyPreviewState = groupedPreview.render_mode === "unavailable" ? "unavailable" : "preview";
-    const groupedCreativeType = resolveGroupedCreativeType(list);
+    const groupedTaxonomy = aggregateCreativeTaxonomy(list);
+    const groupedCreativeType = deriveLegacyCreativeType(groupedTaxonomy.creative_primary_type);
     const groupedObjectStoryId =
       list.map((item) => item.object_story_id ?? null).find((value): value is string => Boolean(value)) ?? null;
     const groupedEffectiveObjectStoryId =
@@ -660,7 +790,14 @@ export function groupRows(
         ? "video"
         : "image",
       creative_type: groupedCreativeType,
-      creative_type_label: toCreativeTypeLabel(groupedCreativeType),
+      creative_type_label: getLegacyCreativeTypeLabel(groupedCreativeType),
+      creative_delivery_type: groupedTaxonomy.creative_delivery_type,
+      creative_visual_format: groupedTaxonomy.creative_visual_format,
+      creative_primary_type: groupedTaxonomy.creative_primary_type,
+      creative_primary_label: groupedTaxonomy.creative_primary_label,
+      creative_secondary_type: groupedTaxonomy.creative_secondary_type,
+      creative_secondary_label: groupedTaxonomy.creative_secondary_label,
+      classification_signals: null,
       spend: r2(spend),
       purchase_value: r2(purchaseValue),
       roas: r2(spend > 0 ? purchaseValue / spend : 0),

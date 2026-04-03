@@ -49,6 +49,10 @@ export interface MetaStatusResponse {
   assignedAccountIds: string[];
   primaryAccountTimezone?: string | null;
   currentDateInTimezone?: string | null;
+  currentCoreProgressPercent?: number;
+  historicalArchiveProgressPercent?: number;
+  currentCoreUsable?: boolean;
+  historicalArchiveComplete?: boolean;
   needsBootstrap?: boolean;
   warehouse?: {
     rowCount: number;
@@ -151,7 +155,7 @@ export interface MetaStatusResponse {
   historicalExtendedReady?: boolean;
   recentExtendedUsable?: boolean;
   rangeCompletionBySurface?: Record<
-    "account_daily" | "adset_daily" | "creative_daily" | "ad_daily",
+    "account_daily" | "campaign_daily" | "adset_daily" | "creative_daily" | "ad_daily",
     {
       recentCompletedDays: number;
       recentTotalDays: number;

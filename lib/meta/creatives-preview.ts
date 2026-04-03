@@ -1,19 +1,53 @@
 import type {
+  CreativePreviewManifest,
   LegacyPreviewState,
   MetaAdRecord,
   MetaPromotedObjectLike,
   NormalizedPreviewSource,
+  PreviewContractVersion,
   NormalizedRenderPreviewPayload,
   PreviewAuditCandidate,
+  PreviewCardState,
   PreviewDebugPatch,
+  PreviewManifestRenderState,
+  PreviewResolutionClass,
   PreviewRenderMode,
+  PreviewSourceKind,
+  PreviewSourceReason,
+  PreviewWaitingReason,
   UrlValidationResult,
 } from "@/lib/meta/creatives-types";
+import { classifyMetaCreative } from "@/lib/meta/creative-taxonomy";
 import { normalizeMediaUrl, extractVideoIdsFromCreative } from "@/lib/meta/creatives-utils";
+
+type CreativeStaticPreviewRowLike = {
+  previewManifest?: CreativePreviewManifest | null;
+  preview_manifest?: CreativePreviewManifest | null;
+  cardPreviewUrl?: string | null;
+  card_preview_url?: string | null;
+  tableThumbnailUrl?: string | null;
+  table_thumbnail_url?: string | null;
+  cachedThumbnailUrl?: string | null;
+  cached_thumbnail_url?: string | null;
+  thumbnailUrl?: string | null;
+  thumbnail_url?: string | null;
+  imageUrl?: string | null;
+  image_url?: string | null;
+  previewUrl?: string | null;
+  preview_url?: string | null;
+  preview?: {
+    image_url?: string | null;
+    poster_url?: string | null;
+  } | null;
+};
+
+export type CreativeStaticPreviewTier = "card" | "table";
+export type CreativePreviewSurfaceTier = "grid" | "card" | "table";
+export const META_CREATIVES_PREVIEW_CONTRACT_VERSION: PreviewContractVersion = "v5";
 
 // ── URL helpers ────────────────────────────────────────────────────────────────
 
-function parsePreviewSizeFromUrl(url: string): { width: number; height: number } | null {
+export function parsePreviewSizeFromUrl(url: string): { width: number; height: number } | null {
   const match = url.match(/p(\d+)x(\d+)/i);
   if (!match) return null;
   const width = Number(match[1]);
@@ -37,9 +71,362 @@ export function isThumbnailLikeUrl(value: unknown): boolean {
   return /thumbnail|thumb|_p\d+x\d+|emg1|\/t39\.2147-6\//i.test(url);
 }
 
+export function getPreviewResolutionClass(value: unknown): PreviewResolutionClass {
+  const url = normalizeMediaUrl(value);
+  if (!url) return "unknown";
+  const parsedSize = parsePreviewSizeFromUrl(url);
+  if (!parsedSize) return isThumbnailLikeUrl(url) ? "unknown" : "high_res";
+  const maxEdge = Math.max(parsedSize.width, parsedSize.height);
+  if (maxEdge >= 800) return "high_res";
+  if (maxEdge >= 320) return "medium_res";
+  return "low_res";
+}
+
+export function getPreviewSourceKind(value: unknown): PreviewSourceKind {
+  const url = normalizeMediaUrl(value);
+  if (!url) return "none";
+  return isThumbnailLikeUrl(url) ? "thumbnail_static" : "non_thumbnail_static";
+}
+
+function getPreviewResolutionRank(value: unknown): number {
+  const resolutionClass = getPreviewResolutionClass(value);
+  if (resolutionClass === "high_res") return 3;
+  if (resolutionClass === "medium_res") return 2;
+  if (resolutionClass === "low_res") return 1;
+  return 0;
+}
+
+export function chooseBestStaticPreviewCandidate(candidates: Array<string | null | undefined>): string | null {
+  let best: string | null = null;
+  let bestKindRank = -1;
+  let bestResolutionRank = -1;
+
+  for (const candidate of candidates) {
+    const normalized = normalizeMediaUrl(candidate);
+    if (!normalized) continue;
+
+    const kindRank = getPreviewSourceKind(normalized) === "non_thumbnail_static" ? 1 : 0;
+    const resolutionRank = getPreviewResolutionRank(normalized);
+
+    if (
+      best === null ||
+      kindRank > bestKindRank ||
+      (kindRank === bestKindRank && resolutionRank > bestResolutionRank)
+    ) {
+      best = normalized;
+      bestKindRank = kindRank;
+      bestResolutionRank = resolutionRank;
+    }
+  }
+
+  return best;
+}
+
+export function describeStaticPreviewSelection(input: {
+  tier: CreativeStaticPreviewTier;
+  selectedUrl: string | null;
+}): {
+  sourceKind: PreviewSourceKind;
+  resolutionClass: PreviewResolutionClass;
+  reason: PreviewSourceReason;
+} {
+  const { tier, selectedUrl } = input;
+  const sourceKind = getPreviewSourceKind(selectedUrl);
+  const resolutionClass = getPreviewResolutionClass(selectedUrl);
+
+  if (!selectedUrl) {
+    return {
+      sourceKind: "none",
+      resolutionClass: "unknown",
+      reason: "unavailable",
+    };
+  }
+
+  if (tier === "table") {
+    return {
+      sourceKind,
+      resolutionClass,
+      reason: "table_thumbnail_preferred",
+    };
+  }
+
+  if (sourceKind === "non_thumbnail_static") {
+    return {
+      sourceKind,
+      resolutionClass,
+      reason: "card_prefer_non_thumbnail",
+    };
+  }
+
+  if (resolutionClass === "medium_res" || resolutionClass === "high_res") {
+    return {
+      sourceKind,
+      resolutionClass,
+      reason: "card_promoted_larger_thumbnail",
+    };
+  }
+
+  return {
+    sourceKind,
+    resolutionClass,
+    reason: "fallback_static_source",
+  };
+}
+
+export function hasAcceptableCardPreviewSource(value: unknown): boolean {
+  const url = normalizeMediaUrl(value);
+  if (!url) return false;
+  if (getPreviewSourceKind(url) === "non_thumbnail_static") return true;
+  return getPreviewResolutionRank(url) >= 2;
+}
+
+function getPreviewManifestRenderState(input: {
+  tableSrc: string | null;
+  safeCardSrc: string | null;
+  detailImageSrc: string | null;
+  detailVideoSrc: string | null;
+}): PreviewManifestRenderState {
+  const hasRenderableSource = Boolean(
+    input.safeCardSrc ?? input.tableSrc ?? input.detailImageSrc ?? input.detailVideoSrc
+  );
+  if (!hasRenderableSource) {
+    return "missing";
+  }
+  return input.safeCardSrc
+    ? "renderable_high_quality"
+    : "renderable_low_quality";
+}
+
+function getPreviewCardState(input: {
+  safeCardSrc: string | null;
+  tableSrc: string | null;
+  detailImageSrc: string | null;
+  detailVideoSrc: string | null;
+}): PreviewCardState {
+  if (input.safeCardSrc) return "ready";
+  if (input.tableSrc ?? input.detailImageSrc ?? input.detailVideoSrc) {
+    return "waiting_meta";
+  }
+  return "missing";
+}
+
+function getPreviewWaitingReason(cardState: PreviewCardState): PreviewWaitingReason | null {
+  if (cardState === "waiting_meta") return "awaiting_card_source";
+  if (cardState === "missing") return "missing_media";
+  return null;
+}
+
+export function buildCreativePreviewManifest(input: {
+  tableSrc: string | null;
+  cardSrc: string | null;
+  detailImageSrc: string | null;
+  detailVideoSrc: string | null;
+  liveHtmlAvailable: boolean;
+}): CreativePreviewManifest {
+  const normalizedTableSrc = normalizeMediaUrl(input.tableSrc);
+  const normalizedRequestedCardSrc = normalizeMediaUrl(input.cardSrc);
+  const normalizedSafeCardSrc = hasAcceptableCardPreviewSource(normalizedRequestedCardSrc)
+    ? normalizedRequestedCardSrc
+    : null;
+  const normalizedDetailImageSrc = normalizeMediaUrl(input.detailImageSrc);
+  const normalizedDetailVideoSrc = normalizeMediaUrl(input.detailVideoSrc);
+  const tableDebug = describeStaticPreviewSelection({
+    tier: "table",
+    selectedUrl: normalizedTableSrc,
+  });
+  const cardDebug = describeStaticPreviewSelection({
+    tier: "card",
+    selectedUrl: normalizedRequestedCardSrc,
+  });
+  const cardState = getPreviewCardState({
+    safeCardSrc: normalizedSafeCardSrc,
+    tableSrc: normalizedTableSrc,
+    detailImageSrc: normalizedDetailImageSrc,
+    detailVideoSrc: normalizedDetailVideoSrc,
+  });
+  const renderState = getPreviewManifestRenderState({
+    tableSrc: normalizedTableSrc,
+    safeCardSrc: normalizedSafeCardSrc,
+    detailImageSrc: normalizedDetailImageSrc,
+    detailVideoSrc: normalizedDetailVideoSrc,
+  });
+
+  return {
+    table_src: normalizedTableSrc,
+    card_src: normalizedSafeCardSrc,
+    detail_image_src: normalizedDetailImageSrc,
+    detail_video_src: normalizedDetailVideoSrc,
+    render_state: renderState,
+    card_state: cardState,
+    waiting_reason: getPreviewWaitingReason(cardState),
+    table_source_kind: tableDebug.sourceKind,
+    card_source_kind: cardDebug.sourceKind,
+    resolution_class: cardDebug.resolutionClass,
+    thumbnail_like: isThumbnailLikeUrl(normalizedRequestedCardSrc),
+    source_reason: cardDebug.reason,
+    needs_card_enrichment: cardState === "waiting_meta",
+    live_html_available: input.liveHtmlAvailable,
+  };
+}
+
+export function resolveCreativePreviewManifest(
+  row: CreativeStaticPreviewRowLike
+): CreativePreviewManifest | null {
+  const existingManifest = row.previewManifest ?? row.preview_manifest ?? null;
+  if (existingManifest) return existingManifest;
+
+  const tableSrc =
+    row.tableThumbnailUrl ??
+    row.table_thumbnail_url ??
+    row.cachedThumbnailUrl ??
+    row.cached_thumbnail_url ??
+    row.thumbnailUrl ??
+    row.thumbnail_url ??
+    null;
+  const cardSrc = chooseBestStaticPreviewCandidate([
+    row.cardPreviewUrl ?? row.card_preview_url ?? null,
+    row.imageUrl ?? row.image_url ?? null,
+    row.preview?.image_url ?? null,
+    row.preview?.poster_url ?? null,
+    row.previewUrl ?? row.preview_url ?? null,
+  ]);
+
+  return buildCreativePreviewManifest({
+    tableSrc,
+    cardSrc,
+    detailImageSrc:
+      row.imageUrl ??
+      row.image_url ??
+      row.preview?.image_url ??
+      row.preview?.poster_url ??
+      cardSrc,
+    detailVideoSrc: null,
+    liveHtmlAvailable: false,
+  });
+}
+
+export function getCreativeStaticPreviewState(
+  row: CreativeStaticPreviewRowLike,
+  tier: CreativePreviewSurfaceTier
+): "ready" | "pending" | "missing" {
+  const manifest = resolveCreativePreviewManifest(row);
+  if (!manifest) return "missing";
+  const hasAnyStaticSource = Boolean(
+    manifest.table_src ?? manifest.card_src ?? manifest.detail_image_src ?? manifest.detail_video_src
+  );
+  if (!hasAnyStaticSource) return "missing";
+
+  if (tier === "table") {
+    return manifest.table_src ? "ready" : "missing";
+  }
+
+  if (tier === "grid") {
+    if (manifest.card_state === "ready") return "ready";
+    if (manifest.card_state === "waiting_meta") return "pending";
+    return "missing";
+  }
+
+  return manifest.card_src || manifest.detail_image_src || manifest.detail_video_src || manifest.table_src
+    ? "ready"
+    : "missing";
+}
+
 function isPreviewContentType(contentType: string | null): boolean {
   if (!contentType) return false;
   return contentType.toLowerCase().startsWith("image/");
+}
+
+export function getCreativeStaticPreviewSources(
+  row: CreativeStaticPreviewRowLike,
+  tier: CreativePreviewSurfaceTier
+): string[] {
+  const manifest = resolveCreativePreviewManifest(row);
+  if (manifest) {
+    const manifestCandidates =
+      tier === "grid"
+        ? [manifest.card_src]
+        : tier === "card"
+        ? [
+            manifest.card_src,
+            manifest.detail_image_src,
+            row.preview?.poster_url ?? null,
+            row.previewUrl ?? row.preview_url ?? null,
+            row.cachedThumbnailUrl ?? row.cached_thumbnail_url ?? null,
+            manifest.table_src,
+            row.thumbnailUrl ?? row.thumbnail_url ?? null,
+          ]
+        : [
+            manifest.table_src,
+            row.cachedThumbnailUrl ?? row.cached_thumbnail_url ?? null,
+            manifest.card_src,
+            manifest.detail_image_src,
+            row.preview?.poster_url ?? null,
+            row.previewUrl ?? row.preview_url ?? null,
+            row.thumbnailUrl ?? row.thumbnail_url ?? null,
+          ];
+
+    const seen = new Set<string>();
+    const resolved: string[] = [];
+
+    for (const candidate of manifestCandidates) {
+      const normalized = normalizeMediaUrl(candidate);
+      if (!normalized || seen.has(normalized)) continue;
+      seen.add(normalized);
+      resolved.push(normalized);
+    }
+
+    return resolved;
+  }
+
+  const preferred =
+    tier === "grid" || tier === "card"
+      ? row.cardPreviewUrl ?? row.card_preview_url ?? null
+      : row.tableThumbnailUrl ?? row.table_thumbnail_url ?? null;
+
+  const candidates = [
+    preferred,
+    ...(tier === "grid"
+      ? [
+          row.cardPreviewUrl ?? row.card_preview_url ?? null,
+          row.imageUrl ?? row.image_url ?? null,
+          row.preview?.image_url ?? null,
+          row.preview?.poster_url ?? null,
+          row.previewUrl ?? row.preview_url ?? null,
+        ]
+      : tier === "card"
+      ? [
+          row.cardPreviewUrl ?? row.card_preview_url ?? null,
+          row.imageUrl ?? row.image_url ?? null,
+          row.preview?.image_url ?? null,
+          row.preview?.poster_url ?? null,
+          row.previewUrl ?? row.preview_url ?? null,
+          row.cachedThumbnailUrl ?? row.cached_thumbnail_url ?? null,
+          row.tableThumbnailUrl ?? row.table_thumbnail_url ?? null,
+          row.thumbnailUrl ?? row.thumbnail_url ?? null,
+        ]
+      : [
+          row.cardPreviewUrl ?? row.card_preview_url ?? null,
+          row.imageUrl ?? row.image_url ?? null,
+          row.preview?.image_url ?? null,
+          row.preview?.poster_url ?? null,
+          row.previewUrl ?? row.preview_url ?? null,
+          row.cachedThumbnailUrl ?? row.cached_thumbnail_url ?? null,
+          row.tableThumbnailUrl ?? row.table_thumbnail_url ?? null,
+          row.thumbnailUrl ?? row.thumbnail_url ?? null,
+        ]),
+  ];
+
+  const seen = new Set<string>();
+  const resolved: string[] = [];
+
+  for (const candidate of candidates) {
+    const normalized = normalizeMediaUrl(candidate);
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    resolved.push(normalized);
+  }
+
+  return resolved;
 }
 
 export async function validateMediaUrl(
@@ -118,16 +505,7 @@ export function detectIsCatalog(
   creative: MetaAdRecord["creative"],
   promotedObject: MetaPromotedObjectLike
 ): boolean {
-  const objectType = creative?.object_type?.toUpperCase() ?? "";
-  if (objectType === "DYNAMIC") return true;
-  if (promotedObject?.product_set_id || promotedObject?.catalog_id) return true;
-  if (
-    creative?.asset_feed_spec?.catalog_id ||
-    creative?.asset_feed_spec?.product_set_id
-  ) {
-    return true;
-  }
-  return false;
+  return classifyMetaCreative({ creative, promotedObject }).creative_delivery_type === "catalog";
 }
 
 // ── Image hash extraction ──────────────────────────────────────────────────────
@@ -181,17 +559,8 @@ export function scorePreviewCandidate(candidate: PreviewCandidate): number {
   if (source === "image_url") score += 30;
   if (source === "thumbnail_url") score += 10;
 
-  if (source.includes("object_story_spec.video_data.image_url")) score += 32;
-  if (source.includes("object_story_spec.video_data.thumbnail_url")) score += 18;
-  if (source.includes("object_story_spec.photo_data.image_url")) score += 30;
   if (source.includes("object_story_spec.link_data.picture")) score += 26;
-  if (source.includes("child_attachments[].image_url")) score += 24;
   if (source.includes("child_attachments[].picture")) score += 18;
-  if (source.includes("asset_feed_spec.images[].image_url")) score += 34;
-  if (source.includes("asset_feed_spec.images[].original_url")) score += 36;
-  if (source.includes("asset_feed_spec.images[].url")) score += 22;
-  if (source.includes("asset_feed_spec.videos[].image_url")) score += 24;
-  if (source.includes("asset_feed_spec.videos[].thumbnail_url")) score += 16;
 
   return score;
 }
@@ -240,31 +609,10 @@ export function collectPreviewCandidates(
 
   pushCandidate(candidates, "thumbnail_url", creative?.thumbnail_url);
   pushCandidate(candidates, "image_url", creative?.image_url);
-  pushCandidate(candidates, "object_story_spec.video_data.thumbnail_url", creative?.object_story_spec?.video_data?.thumbnail_url);
-  pushCandidate(candidates, "object_story_spec.video_data.image_url", creative?.object_story_spec?.video_data?.image_url);
-  pushCandidate(candidates, "object_story_spec.photo_data.image_url", creative?.object_story_spec?.photo_data?.image_url);
   pushCandidate(candidates, "object_story_spec.link_data.picture", creative?.object_story_spec?.link_data?.picture);
 
   for (const attachment of creative?.object_story_spec?.link_data?.child_attachments ?? []) {
     pushCandidate(candidates, "object_story_spec.link_data.child_attachments[].picture", attachment?.picture);
-  }
-  for (const attachment of creative?.object_story_spec?.link_data?.child_attachments ?? []) {
-    pushCandidate(candidates, "object_story_spec.link_data.child_attachments[].image_url", attachment?.image_url);
-  }
-  for (const video of creative?.asset_feed_spec?.videos ?? []) {
-    pushCandidate(candidates, "asset_feed_spec.videos[].thumbnail_url", video?.thumbnail_url);
-  }
-  for (const video of creative?.asset_feed_spec?.videos ?? []) {
-    pushCandidate(candidates, "asset_feed_spec.videos[].image_url", video?.image_url);
-  }
-  for (const image of creative?.asset_feed_spec?.images ?? []) {
-    pushCandidate(candidates, "asset_feed_spec.images[].image_url", image?.image_url);
-  }
-  for (const image of creative?.asset_feed_spec?.images ?? []) {
-    pushCandidate(candidates, "asset_feed_spec.images[].url", image?.url);
-  }
-  for (const image of creative?.asset_feed_spec?.images ?? []) {
-    pushCandidate(candidates, "asset_feed_spec.images[].original_url", image?.original_url);
   }
 
   const hashes = extractImageHashesFromCreative(creative);

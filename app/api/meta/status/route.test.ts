@@ -121,7 +121,7 @@ describe("GET /api/meta/status", () => {
         sourceReason: null,
       },
     });
-    vi.mocked(warehouse.getLatestMetaSyncHealth).mockResolvedValue(null);
+    vi.mocked(warehouse.getLatestMetaSyncHealth).mockResolvedValue(null as never);
     vi.mocked(warehouse.getMetaAccountDailyStats).mockResolvedValue({
       row_count: 10,
       first_date: "2025-04-01",
@@ -161,12 +161,12 @@ describe("GET /api/meta/status", () => {
         ],
       ]) as never
     );
-    vi.mocked(warehouse.getMetaQueueHealth).mockResolvedValue(null);
-    vi.mocked(warehouse.getMetaQueueComposition).mockResolvedValue(null);
-    vi.mocked(warehouse.getMetaCheckpointHealth).mockResolvedValue(null);
-    vi.mocked(warehouse.getMetaSyncJobHealth).mockResolvedValue(null);
+    vi.mocked(warehouse.getMetaQueueHealth).mockResolvedValue(null as never);
+    vi.mocked(warehouse.getMetaQueueComposition).mockResolvedValue(null as never);
+    vi.mocked(warehouse.getMetaCheckpointHealth).mockResolvedValue(null as never);
+    vi.mocked(warehouse.getMetaSyncJobHealth).mockResolvedValue(null as never);
     vi.mocked(warehouse.getMetaSyncState).mockResolvedValue([]);
-    vi.mocked(workerHealth.getProviderWorkerHealthState).mockResolvedValue(null);
+    vi.mocked(workerHealth.getProviderWorkerHealthState).mockResolvedValue(null as never);
   });
 
   it("reports warehouse readiness even when the provider is disconnected", async () => {
@@ -180,5 +180,144 @@ describe("GET /api/meta/status", () => {
     expect(payload.credentialState).toBe("not_connected");
     expect(payload.assignmentState).toBe("assigned");
     expect(payload.warehouseState).toBe("ready");
+  });
+
+  it("keeps historical core progress while removing creative backlog from the summary", async () => {
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_meta",
+      business_id: "biz",
+      provider: "meta",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+    vi.mocked(warehouse.getMetaQueueHealth).mockResolvedValue({
+      queueDepth: 12,
+      leasedPartitions: 1,
+      retryableFailedPartitions: 0,
+      deadLetterPartitions: 0,
+      latestCoreActivityAt: "2026-04-03T09:00:00.000Z",
+      latestExtendedActivityAt: "2026-04-03T09:00:00.000Z",
+      latestMaintenanceActivityAt: null,
+      oldestQueuedPartition: "2026-03-01",
+      historicalCoreQueueDepth: 0,
+      historicalCoreLeasedPartitions: 0,
+      extendedRecentQueueDepth: 0,
+      extendedRecentLeasedPartitions: 0,
+      extendedHistoricalQueueDepth: 12,
+      extendedHistoricalLeasedPartitions: 1,
+    } as never);
+    vi.mocked(warehouse.getMetaAccountDailyCoverage).mockImplementation(async (input: {
+      startDate: string;
+      endDate: string;
+    }) => {
+      if (input.startDate === "2026-04-03" && input.endDate === "2026-04-03") {
+        return {
+          completed_days: 1,
+          ready_through_date: "2026-04-03",
+        } as never;
+      }
+      const start = new Date(`${input.startDate}T00:00:00Z`).getTime();
+      const end = new Date(`${input.endDate}T00:00:00Z`).getTime();
+      const spanDays = Math.floor((end - start) / 86_400_000) + 1;
+      if (spanDays <= 14) {
+        return {
+          completed_days: 14,
+          ready_through_date: "2026-04-02",
+        } as never;
+      }
+      return {
+        completed_days: 35,
+        ready_through_date: "2026-04-02",
+      } as never;
+    });
+    vi.mocked(warehouse.getMetaCampaignDailyCoverage).mockImplementation(async (input: {
+      startDate: string;
+      endDate: string;
+    }) => {
+      if (input.startDate === "2026-04-03" && input.endDate === "2026-04-03") {
+        return {
+          completed_days: 1,
+          ready_through_date: "2026-04-03",
+        } as never;
+      }
+      const start = new Date(`${input.startDate}T00:00:00Z`).getTime();
+      const end = new Date(`${input.endDate}T00:00:00Z`).getTime();
+      const spanDays = Math.floor((end - start) / 86_400_000) + 1;
+      if (spanDays <= 14) {
+        return {
+          completed_days: 14,
+          ready_through_date: "2026-04-02",
+        } as never;
+      }
+      return {
+        completed_days: 35,
+        ready_through_date: "2026-04-02",
+      } as never;
+    });
+    vi.mocked(warehouse.getMetaAdSetDailyCoverage).mockResolvedValue({
+      completed_days: 35,
+      ready_through_date: "2026-04-02",
+    } as never);
+    vi.mocked(warehouse.getMetaAdDailyCoverage).mockResolvedValue({
+      completed_days: 24,
+      ready_through_date: "2026-04-02",
+    } as never);
+    vi.mocked(warehouse.getMetaCreativeDailyCoverage).mockResolvedValue({
+      completed_days: 24,
+      ready_through_date: "2026-04-02",
+    } as never);
+    vi.mocked(warehouse.getMetaRawSnapshotCoverageByEndpoint).mockResolvedValue(
+      new Map([
+        ["breakdown_age", { completed_days: 10, ready_through_date: "2026-04-02" }],
+        ["breakdown_country", { completed_days: 10, ready_through_date: "2026-04-02" }],
+        [
+          "breakdown_publisher_platform,platform_position,impression_device",
+          { completed_days: 10, ready_through_date: "2026-04-02" },
+        ],
+      ]) as never
+    );
+    vi.mocked(warehouse.getMetaSyncState).mockImplementation(async ({ scope }: { scope: string }) => {
+      if (scope === "account_daily") {
+        return [
+          {
+            providerAccountId: "act_1",
+            completedDays: 35,
+            readyThroughDate: "2026-04-02",
+            latestBackgroundActivityAt: "2026-04-03T09:00:00.000Z",
+            deadLetterCount: 0,
+          },
+        ] as never;
+      }
+      return [] as never;
+    });
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/status?businessId=biz&startDate=2026-04-03&endDate=2026-04-03"
+      )
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.readinessLevel).toBe("usable");
+    expect(payload.domainReadiness?.summary ?? null).toBeNull();
+    expect(payload.currentCoreUsable).toBe(true);
+    expect(payload.currentCoreProgressPercent).toBe(100);
+    expect(payload.historicalArchiveComplete).toBe(false);
+    expect(payload.historicalArchiveProgressPercent).toBe(10);
+    expect(payload.latestSync?.progressPercent).toBe(10);
+    expect(payload.latestSync?.completedDays).toBe(35);
+    expect(payload.latestSync?.totalDays).toBe(365);
   });
 });

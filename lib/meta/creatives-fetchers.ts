@@ -82,11 +82,8 @@ export function getCreativeMediaFields(): string {
     "name",
     "object_type",
     "video_id",
-    "thumbnail_url",
-    "image_url",
-    "image_hash",
-    "object_story_spec{link_data{link,message,name,description,picture,image_hash,call_to_action{type,value{link}},child_attachments{link,picture,image_url,image_hash}},video_data{video_id,image_url,thumbnail_url,message,title,call_to_action{type,value{link}}},photo_data{image_url,message,caption,call_to_action{type,value{link}}},template_data}",
-    "asset_feed_spec{bodies{text},titles{text},descriptions{text},images{url,image_url,original_url,hash,image_hash},videos{video_id,thumbnail_url,image_url}}",
+    "object_story_spec{link_data{link,message,name,description,picture,call_to_action{type,value{link}},child_attachments{link,picture}},video_data{video_id,message,title,call_to_action{type,value{link}}},photo_data{message,caption,call_to_action{type,value{link}}},template_data}",
+    "asset_feed_spec{catalog_id,product_set_id,bodies{text},titles{text},descriptions{text},videos{video_id}}",
   ].join(",");
 }
 
@@ -96,8 +93,6 @@ export function getCreativeSummaryFields(): string {
     "name",
     "object_type",
     "video_id",
-    "thumbnail_url",
-    "image_url",
   ].join(",");
 }
 
@@ -107,12 +102,36 @@ export function getCreativeDetailFields(): string {
     "name",
     "object_type",
     "video_id",
-    "thumbnail_url",
-    "image_url",
-    "image_hash",
+    "object_story_spec{link_data{link,message,name,description,picture,call_to_action{type,value{link}},child_attachments{link,picture}},video_data{video_id,message,title,call_to_action{type,value{link}}},photo_data{message,caption,call_to_action{type,value{link}}},template_data}",
     // Keep this set conservative for adcreative IDs endpoint stability.
-    "object_story_spec{link_data{link,message,name,description,picture,image_hash,call_to_action{type,value{link}},child_attachments{link,picture,image_url,image_hash}},video_data{video_id,image_url,thumbnail_url,message,title,call_to_action{type,value{link}}},photo_data{image_url,message,caption,call_to_action{type,value{link}}}}",
-    "asset_feed_spec{bodies{text},titles{text},descriptions{text},images{url,image_url,original_url,hash,image_hash},videos{video_id,thumbnail_url,image_url}}",
+    "asset_feed_spec{bodies{text},titles{text},descriptions{text},videos{video_id}}",
+  ].join(",");
+}
+
+export function getNestedCreativeMediaFields(): string {
+  return [
+    "id",
+    "name",
+    "object_type",
+    "video_id",
+    "object_story_spec{link_data{link,message,name,description,picture,call_to_action{type,value{link}},child_attachments{link,picture}},video_data{video_id,message,title,call_to_action{type,value{link}}},photo_data{message,caption,call_to_action{type,value{link}}},template_data}",
+    "asset_feed_spec{bodies{text},titles{text},descriptions{text},videos{video_id}}",
+  ].join(",");
+}
+
+export function getNestedCreativeSummaryFields(): string {
+  return [
+    "id",
+    "name",
+    "object_type",
+    "video_id",
+  ].join(",");
+}
+
+export function getCreativeDetailAdvancedFields(): string {
+  return [
+    "id",
+    "asset_feed_spec{catalog_id,product_set_id}",
   ].join(",");
 }
 
@@ -269,7 +288,7 @@ export async function fetchAccountAdsMap(
           "adset{id,name,promoted_object{product_set_id,catalog_id}}",
           "promoted_object{product_set_id,catalog_id}",
           "created_time",
-          `creative{${getCreativeMediaFields()}}`,
+          `creative{${getNestedCreativeMediaFields()}}`,
         ].join(",")
       );
       url.searchParams.set("limit", "500");
@@ -359,7 +378,7 @@ export async function batchFetchAdsByIds(
     "name",
     "adset_id",
     ...(mode === "full" ? ["created_time"] : []),
-    `creative{${mode === "full" ? getCreativeMediaFields() : getCreativeSummaryFields()}}`,
+    `creative{${mode === "full" ? getNestedCreativeMediaFields() : getNestedCreativeSummaryFields()}}`,
   ].join(",");
 
   return readThroughCache({
@@ -443,7 +462,8 @@ export async function fetchCreativeDetailsMap(
   const uniqueIds = Array.from(new Set(creativeIds.filter((id) => id.trim().length > 0)));
   if (uniqueIds.length === 0) return map;
 
-  const fields = getCreativeDetailFields();
+  const safeFields = getCreativeDetailFields();
+  const advancedFields = getCreativeDetailAdvancedFields();
   return readThroughCache({
     key: metaCacheKey(["meta-creative-details", hashForCache(accessToken), hashForCache(uniqueIds.join(","))]),
     ttlMs: 15 * 60_000,
@@ -453,7 +473,7 @@ export async function fetchCreativeDetailsMap(
         const idsChunk = uniqueIds.slice(i, i + chunkSize);
         const url = new URL("https://graph.facebook.com/v25.0/");
         url.searchParams.set("ids", idsChunk.join(","));
-        url.searchParams.set("fields", fields);
+        url.searchParams.set("fields", safeFields);
         url.searchParams.set("thumbnail_width", "150");
         url.searchParams.set("thumbnail_height", "150");
         url.searchParams.set("access_token", accessToken);
@@ -468,6 +488,35 @@ export async function fetchCreativeDetailsMap(
         for (const [creativeId, creative] of Object.entries(payload)) {
           if (!creative || typeof creative !== "object") continue;
           map.set(creativeId, creative as NonNullable<MetaAdRecord["creative"]>);
+        }
+
+        const advancedUrl = new URL("https://graph.facebook.com/v25.0/");
+        advancedUrl.searchParams.set("ids", idsChunk.join(","));
+        advancedUrl.searchParams.set("fields", advancedFields);
+        advancedUrl.searchParams.set("access_token", accessToken);
+
+        const advancedPayload = await metaGet<Record<string, MetaAdRecord["creative"]>>(
+          advancedUrl,
+          "creative details advanced",
+          { chunk: i, count: idsChunk.length }
+        );
+        if (!advancedPayload || typeof advancedPayload !== "object") continue;
+
+        for (const [creativeId, creative] of Object.entries(advancedPayload)) {
+          if (!creative || typeof creative !== "object") continue;
+          const existing = map.get(creativeId);
+          if (!existing) {
+            map.set(creativeId, creative as NonNullable<MetaAdRecord["creative"]>);
+            continue;
+          }
+          map.set(creativeId, {
+            ...existing,
+            ...creative,
+            asset_feed_spec: {
+              ...(existing.asset_feed_spec ?? {}),
+              ...(creative.asset_feed_spec ?? {}),
+            },
+          } as NonNullable<MetaAdRecord["creative"]>);
         }
       }
       return Array.from(map.entries());
@@ -583,7 +632,7 @@ export async function fetchAdCreativeMediaByAdIds(
 
   const fields = [
     "id",
-    `creative{${getCreativeMediaFields()}}`,
+    `creative{${getNestedCreativeMediaFields()}}`,
   ].join(",");
 
   const chunkSize = 40;
@@ -658,7 +707,7 @@ export async function fetchAdCreativeBasicsByAdIds(
   const uniqueIds = Array.from(new Set(adIds.filter((id) => id.trim().length > 0)));
   if (uniqueIds.length === 0) return map;
 
-  const fields = "id,creative{id,thumbnail_url,image_url}";
+  const fields = "id,creative{id}";
   const concurrency = 20;
   for (let i = 0; i < uniqueIds.length; i += concurrency) {
     const chunk = uniqueIds.slice(i, i + concurrency);
@@ -693,7 +742,7 @@ export async function fetchAdCreativeMediaDirectByAdIds(
 
   const fields = [
     "id",
-    `creative{${getCreativeMediaFields()}}`,
+    `creative{${getNestedCreativeMediaFields()}}`,
   ].join(",");
 
   const concurrency = 20;

@@ -2,6 +2,7 @@
 
 import { formatMoney } from "@/components/creatives/money";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
+import { getCreativeStaticPreviewSources, getCreativeStaticPreviewState } from "@/lib/meta/creatives-preview";
 
 export type BreakdownRow = MetaCreativeRow & {
   associatedAdsCount?: number;
@@ -126,15 +127,12 @@ export function getAssociatedAdsCount(creative: MetaCreativeRow | null, rows: Br
 
 export function buildCreativeAssetFallbacks(creative: MetaCreativeRow | null): (string | null)[] {
   if (!creative) return [];
-  return [
-    creative.cardPreviewUrl ?? null,
-    creative.imageUrl ?? null,
-    creative.preview?.image_url ?? null,
-    creative.preview?.poster_url ?? null,
-    creative.previewUrl ?? null,
-    creative.cachedThumbnailUrl ?? null,
-    creative.thumbnailUrl ?? null,
-  ];
+  return getCreativeStaticPreviewSources(creative, "card");
+}
+
+export function getCreativeAssetState(creative: MetaCreativeRow | null): "ready" | "pending" | "missing" {
+  if (!creative) return "missing";
+  return getCreativeStaticPreviewState(creative, "card");
 }
 
 export function aggregateBreakdownRows(rows: BreakdownRow[]) {

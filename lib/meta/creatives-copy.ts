@@ -9,6 +9,7 @@ import type {
   RawCreativeRow,
   StoryCopyPayload,
 } from "@/lib/meta/creatives-types";
+import { getLegacyCreativeTypeLabel } from "@/lib/meta/creative-taxonomy";
 
 export function normalizeCopyText(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -177,14 +178,14 @@ export function normalizeAiTags(rawTags: string[] | undefined): MetaAiTags {
 }
 
 export const CREATIVE_TYPE_LABELS: Record<CreativeType, string> = {
-  feed: "Feed",
-  video: "Video",
-  flexible: "Flexible ad",
-  feed_catalog: "Feed (Catalog ads)",
+  feed: getLegacyCreativeTypeLabel("feed"),
+  video: getLegacyCreativeTypeLabel("video"),
+  flexible: getLegacyCreativeTypeLabel("flexible"),
+  feed_catalog: getLegacyCreativeTypeLabel("feed_catalog"),
 };
 
 export function toCreativeTypeLabel(type: CreativeType): string {
-  return CREATIVE_TYPE_LABELS[type] ?? "Feed";
+  return CREATIVE_TYPE_LABELS[type] ?? getLegacyCreativeTypeLabel("feed");
 }
 
 export function resolveGroupedCreativeType(rows: RawCreativeRow[]): CreativeType {

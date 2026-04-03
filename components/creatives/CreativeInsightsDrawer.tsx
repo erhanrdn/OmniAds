@@ -12,6 +12,8 @@ import {
 } from "@/components/ui/sheet";
 import { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
+import { getCreativeDisplayPills } from "@/lib/meta/creative-taxonomy";
+import { getCreativeStaticPreviewSources, getCreativeStaticPreviewState } from "@/lib/meta/creatives-preview";
 import { generateAiAnalysis } from "@/lib/generateAiAnalysis";
 
 interface CreativeInsightsDrawerProps {
@@ -47,35 +49,35 @@ export function CreativeInsightsDrawer({
   const analysis = useMemo(() => {
     return safeRow ? generateAiAnalysis(safeRow) : null;
   }, [safeRow]);
+  const taxonomyPills = useMemo(
+    () =>
+      safeRow
+        ? getCreativeDisplayPills({
+            creative_delivery_type: safeRow.creativeDeliveryType,
+            creative_visual_format: safeRow.creativeVisualFormat,
+            creative_primary_type: safeRow.creativePrimaryType,
+            creative_primary_label: safeRow.creativePrimaryLabel,
+            creative_secondary_type: safeRow.creativeSecondaryType,
+            creative_secondary_label: safeRow.creativeSecondaryLabel,
+            taxonomy_source: safeRow.taxonomySource ?? null,
+          })
+        : { primaryLabel: null, secondaryLabel: null },
+    [
+      safeRow?.creativeDeliveryType,
+      safeRow?.creativeVisualFormat,
+      safeRow?.creativePrimaryType,
+      safeRow?.creativePrimaryLabel,
+      safeRow?.creativeSecondaryType,
+      safeRow?.creativeSecondaryLabel,
+    ]
+  );
 
   const assetFallbacks = useMemo(
     () =>
-      safeRow
-        ? [
-            safeRow.cardPreviewUrl ?? safeRow.card_preview_url ?? null,
-            safeRow.imageUrl ?? safeRow.image_url ?? null,
-            safeRow.preview?.image_url ?? null,
-            safeRow.preview?.poster_url ?? null,
-            safeRow.previewUrl ?? safeRow.preview_url ?? null,
-            safeRow.cachedThumbnailUrl ?? safeRow.cached_thumbnail_url ?? null,
-            safeRow.thumbnailUrl ?? safeRow.thumbnail_url ?? null,
-          ]
-        : [],
-    [
-      safeRow?.cardPreviewUrl,
-      safeRow?.card_preview_url,
-      safeRow?.imageUrl,
-      safeRow?.image_url,
-      safeRow?.preview?.image_url,
-      safeRow?.preview?.poster_url,
-      safeRow?.previewUrl,
-      safeRow?.preview_url,
-      safeRow?.cachedThumbnailUrl,
-      safeRow?.cached_thumbnail_url,
-      safeRow?.thumbnailUrl,
-      safeRow?.thumbnail_url,
-    ]
+      safeRow ? getCreativeStaticPreviewSources(safeRow, "card") : [],
+    [safeRow]
   );
+  const assetState = safeRow ? getCreativeStaticPreviewState(safeRow, "card") : "missing";
 
   const handleNotesChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
     onNotesChange(event.target.value);
@@ -99,6 +101,7 @@ export function CreativeInsightsDrawer({
               preview={safeRow.preview}
               size="large"
               mode="asset"
+              assetState={assetState}
               assetFallbacks={assetFallbacks}
             />
           </div>
@@ -109,9 +112,16 @@ export function CreativeInsightsDrawer({
               <Badge variant="secondary" className="text-[10px]">
                 Meta
               </Badge>
-              <Badge variant="outline" className="text-[10px]">
-                {safeRow.creativeTypeLabel}
-              </Badge>
+              {taxonomyPills.primaryLabel ? (
+                <Badge variant="outline" className="text-[10px]">
+                  {taxonomyPills.primaryLabel}
+                </Badge>
+              ) : null}
+              {taxonomyPills.secondaryLabel ? (
+                <Badge variant="outline" className="text-[10px]">
+                  {taxonomyPills.secondaryLabel}
+                </Badge>
+              ) : null}
               <span className="text-[11px] text-muted-foreground">Launched {safeRow.launchDate}</span>
             </div>
           </div>

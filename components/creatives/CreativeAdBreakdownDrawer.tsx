@@ -14,6 +14,7 @@ import {
   DEFAULT_METRIC_KEYS,
   fmtMetricValue,
   getActiveBreakdownMetrics,
+  getCreativeAssetState,
   getAssociatedAdsCount,
   METRIC_CATEGORIES,
   METRIC_MAP,
@@ -501,15 +502,7 @@ function CreativeBreakdownTable({
                 const isLast = idx === displayRows.length - 1;
                 const borderClass = !isLast ? "border-b border-border/40" : "";
 
-                const assetFallbacks = [
-                  row.cardPreviewUrl ?? null,
-                  row.imageUrl ?? null,
-                  row.preview?.image_url ?? null,
-                  row.preview?.poster_url ?? null,
-                  row.previewUrl ?? null,
-                  row.cachedThumbnailUrl ?? null,
-                  row.thumbnailUrl ?? null,
-                ];
+                const assetFallbacks = buildCreativeAssetFallbacks(row);
 
                 return (
                   <tr key={row.id} className="group transition-colors hover:bg-muted/15">
@@ -524,6 +517,7 @@ function CreativeBreakdownTable({
                             preview={row.preview}
                             size="thumb"
                             mode="asset"
+                            assetState={getCreativeAssetState(row)}
                             assetFallbacks={assetFallbacks}
                             className="h-full w-full object-cover"
                           />

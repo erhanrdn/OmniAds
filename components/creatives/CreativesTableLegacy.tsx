@@ -8,6 +8,11 @@ import {
   MetaCreativeRow,
   MetaMetricKey,
 } from "@/components/creatives/metricConfig";
+import {
+  getCreativeFormatSummaryLabel,
+  getCreativePreviewBadgeLabel,
+} from "@/lib/meta/creative-taxonomy";
+import { getCreativeStaticPreviewSources, getCreativeStaticPreviewState } from "@/lib/meta/creatives-preview";
 import { cn } from "@/lib/utils";
 
 interface CreativesTableLegacyProps {
@@ -188,33 +193,30 @@ export function CreativesTableLegacy({
 function CreativeNameCell({ row }: { row: CreativeRowLike }) {
   const isCatalog = Boolean(row.isCatalog || row.is_catalog || row.preview?.is_catalog);
   const associatedAdsCount = row.associatedAdsCount || row.associated_ads_count || 0;
-  const formatLabel = isCatalog ? "Catalog" : row.format || "Static";
+  const formatLabel = getCreativeFormatSummaryLabel({
+    creative_delivery_type: row.creativeDeliveryType,
+    creative_visual_format: row.creativeVisualFormat,
+    creative_primary_type: row.creativePrimaryType,
+    creative_primary_label: row.creativePrimaryLabel,
+    creative_secondary_type: row.creativeSecondaryType,
+    creative_secondary_label: row.creativeSecondaryLabel,
+    taxonomy_source: row.taxonomySource ?? null,
+  });
 
   const sourcePriority = useMemo(
-    () => [
-      row.tableThumbnailUrl ?? row.table_thumbnail_url ?? null,
-      row.cachedThumbnailUrl ?? row.cached_thumbnail_url ?? null,
-      row.thumbnailUrl ?? row.thumbnail_url ?? null,
-      row.imageUrl ?? row.image_url ?? null,
-      row.preview?.image_url ?? null,
-      row.preview?.poster_url ?? null,
-      row.previewUrl ?? row.preview_url ?? null,
-    ],
-    [
-      row.tableThumbnailUrl,
-      row.table_thumbnail_url,
-      row.cachedThumbnailUrl,
-      row.cached_thumbnail_url,
-      row.thumbnailUrl,
-      row.thumbnail_url,
-      row.imageUrl,
-      row.image_url,
-      row.preview?.image_url,
-      row.preview?.poster_url,
-      row.previewUrl,
-      row.preview_url,
-    ]
+    () => getCreativeStaticPreviewSources(row, "table"),
+    [row]
   );
+  const assetState = getCreativeStaticPreviewState(row, "table");
+  const badgeLabel = getCreativePreviewBadgeLabel({
+    creative_delivery_type: row.creativeDeliveryType,
+    creative_visual_format: row.creativeVisualFormat,
+    creative_primary_type: row.creativePrimaryType,
+    creative_primary_label: row.creativePrimaryLabel,
+    creative_secondary_type: row.creativeSecondaryType,
+    creative_secondary_label: row.creativeSecondaryLabel,
+    taxonomy_source: row.taxonomySource ?? null,
+  });
 
   return (
     <div className="flex items-center gap-3">
@@ -226,9 +228,10 @@ function CreativeNameCell({ row }: { row: CreativeRowLike }) {
         imageUrl={row.imageUrl ?? row.image_url ?? row.preview?.image_url ?? null}
         previewUrl={row.preview?.poster_url ?? row.previewUrl ?? row.preview_url ?? null}
         sourcePriority={sourcePriority}
-        format={isCatalog ? "catalog" : row.format === "video" ? "video" : "image"}
+        assetState={assetState}
+        format={row.creativeVisualFormat === "video" ? "video" : isCatalog ? "catalog" : "image"}
         isCatalog={isCatalog}
-        debugScope="table-thumb"
+        badgeLabel={badgeLabel}
         size="thumb"
         className="shadow-sm"
       />
@@ -236,10 +239,10 @@ function CreativeNameCell({ row }: { row: CreativeRowLike }) {
       <div className="min-w-0 flex-1">
         <p className="truncate text-[13px] font-semibold tracking-tight text-foreground">{row.name}</p>
         <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-          <span className="capitalize">{formatLabel}</span>
+          {formatLabel ? <span className="capitalize">{formatLabel}</span> : null}
           {associatedAdsCount > 1 && (
             <span className="flex items-center gap-1.5">
-              <span className="h-1 w-1 rounded-full bg-muted-foreground/40" />
+              {formatLabel ? <span className="h-1 w-1 rounded-full bg-muted-foreground/40" /> : null}
               {associatedAdsCount} ads
             </span>
           )}

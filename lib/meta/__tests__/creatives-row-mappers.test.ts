@@ -6,6 +6,7 @@ import {
   groupRows,
   sortRows,
   hasSuspiciousMissingFunnelMetrics,
+  mergeCreativeData,
 } from "@/lib/meta/creatives-row-mappers";
 import type { RawCreativeRow } from "@/lib/meta/creatives-types";
 
@@ -30,6 +31,13 @@ function makeRow(overrides: Partial<RawCreativeRow> = {}): RawCreativeRow {
     format: "image",
     creative_type: "feed",
     creative_type_label: "Feed",
+    creative_delivery_type: "standard",
+    creative_visual_format: "image",
+    creative_primary_type: "standard",
+    creative_primary_label: "Standard",
+    creative_secondary_type: null,
+    creative_secondary_label: null,
+    classification_signals: null,
     tags: [],
     launch_date: "2025-01-01",
     spend: 100,
@@ -183,6 +191,73 @@ describe("groupRows", () => {
 
     const adsetA = result.find((r) => r.adset_id === "adset_A");
     expect(adsetA?.spend).toBeCloseTo(250);
+  });
+
+  it("marks grouped rows as Mixed when underlying primary types conflict", () => {
+    const rows = [
+      makeRow({
+        id: "a1",
+        creative_id: "cre_1",
+        name: "Creative A",
+        format: "image",
+        creative_primary_type: "carousel",
+        creative_primary_label: "Carousel",
+        creative_visual_format: "carousel",
+      }),
+      makeRow({
+        id: "a2",
+        creative_id: "cre_1",
+        name: "Creative A",
+        format: "image",
+        creative_primary_type: "standard",
+        creative_primary_label: "Standard",
+        creative_visual_format: "image",
+      }),
+    ];
+
+    const result = groupRows(rows, "creative", new Map());
+
+    expect(result).toHaveLength(1);
+    expect(result[0].creative_primary_type).toBe("mixed");
+    expect(result[0].creative_primary_label).toBe("Mixed");
+    expect(result[0].creative_secondary_type).toBeNull();
+    expect(result[0].creative_type).toBe("feed");
+  });
+});
+
+describe("mergeCreativeData", () => {
+  it("preserves base catalog signals when detail enrichment is poorer", () => {
+    const merged = mergeCreativeData(
+      {
+        object_story_spec: {
+          template_data: {
+            template_url: "https://example.com/template",
+          },
+        },
+        asset_feed_spec: {
+          catalog_id: "catalog_1",
+          product_set_id: "ps_1",
+          images: [{ image_url: "https://example.com/base.jpg" }],
+        },
+      } as never,
+      {
+        object_story_spec: {
+          link_data: {
+            message: "detail only",
+          },
+        },
+        asset_feed_spec: {
+          images: [],
+        },
+      } as never
+    );
+
+    expect(merged?.object_story_spec?.template_data).toEqual({
+      template_url: "https://example.com/template",
+    });
+    expect(merged?.asset_feed_spec?.catalog_id).toBe("catalog_1");
+    expect(merged?.asset_feed_spec?.product_set_id).toBe("ps_1");
+    expect(merged?.asset_feed_spec?.images).toHaveLength(1);
   });
 });
 

@@ -63,6 +63,21 @@ describe("sync status pill resolver", () => {
     });
   });
 
+  it("renders an active pill for Meta when core progress is complete despite background backlog", () => {
+    expect(
+      resolveMetaSyncStatusPill({
+        connected: true,
+        assignedAccountIds: ["act_1"],
+        state: "syncing",
+        latestSync: { progressPercent: 100 },
+      } as never)
+    ).toMatchObject({
+      label: "Active",
+      tone: "success",
+      state: "active",
+    });
+  });
+
   it("renders a syncing pill for Google Ads when advisor progress is visible", () => {
     expect(
       resolveGoogleAdsSyncStatusPill({

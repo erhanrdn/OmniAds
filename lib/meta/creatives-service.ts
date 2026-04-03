@@ -69,8 +69,10 @@ import {
   summarizePreviewAudit,
 } from "@/lib/meta/creatives-row-mappers";
 import {
+  buildMetaCreativesSnapshotPayload,
   buildSnapshotApiResponse,
   buildLiveApiResponse,
+  evaluateMetaCreativesSnapshotTaxonomyHealth,
   triggerSnapshotRefresh,
 } from "@/lib/meta/creatives-snapshot-helpers";
 import {
@@ -82,6 +84,7 @@ import {
   getStoryLookupCandidates,
   resolveCardThumbnailCreativeIds,
 } from "@/lib/meta/creatives-service-support";
+import { META_CREATIVES_PREVIEW_CONTRACT_VERSION } from "@/lib/meta/creatives-preview";
 
 export interface CreativesQueryParams {
   businessId: string;
@@ -161,6 +164,7 @@ export async function buildCreativesResponse(
     groupBy,
     format,
     sort,
+    previewProfile: "main_grid_v5",
   };
   const snapshotEligible =
     !snapshotBypass &&
@@ -178,15 +182,26 @@ export async function buildCreativesResponse(
         enableMediaCache,
       });
       if (snapshotPayload) {
+        const snapshotTaxonomyHealth = evaluateMetaCreativesSnapshotTaxonomyHealth(
+          snapshot.payload as Parameters<typeof evaluateMetaCreativesSnapshotTaxonomyHealth>[0],
+          snapshotPayload.rows ?? []
+        );
         const hasSuspiciousCopyEmptySnapshot =
           enableCopyRecovery && hasSuspiciousCopyEmptyRows(snapshotPayload.rows ?? []);
-        if (hasSuspiciousMissingFunnelMetrics(snapshotPayload.rows ?? []) || hasSuspiciousCopyEmptySnapshot) {
+        if (
+          snapshotTaxonomyHealth.isTaxonomyStale ||
+          hasSuspiciousMissingFunnelMetrics(snapshotPayload.rows ?? []) ||
+          hasSuspiciousCopyEmptySnapshot
+        ) {
           if (process.env.NODE_ENV !== "production") {
             console.log("[meta-creatives] bypassing suspicious snapshot", {
               business_id: businessId,
               last_synced_at: snapshot.lastSyncedAt,
               freshness_state: freshness.freshnessState,
               rows: Array.isArray(snapshotPayload.rows) ? snapshotPayload.rows.length : 0,
+              taxonomy_reason_codes: snapshotTaxonomyHealth.reasonCodes,
+              preview_contract_version: snapshotTaxonomyHealth.previewContractVersion,
+              taxonomy_summary: snapshotTaxonomyHealth.taxonomySummary,
               suspicious_funnel_metrics: hasSuspiciousMissingFunnelMetrics(snapshotPayload.rows ?? []),
               suspicious_copy_empty: hasSuspiciousCopyEmptySnapshot,
             });
@@ -1057,23 +1072,48 @@ export async function buildCreativesResponse(
     !debugPerf;
 
   if (snapshotPersistEligible) {
-    await persistMetaCreativesSnapshot({
-      ...snapshotQuery,
-      payload: {
-        status: liveApiPayload.status,
-        rows: responseRows,
-        media_hydrated: enableFullMediaHydration,
-      },
-      snapshotLevel: mediaMode,
-      rowCount: responseRows.length,
-      previewReadyCount: liveApiPayload.preview_coverage.previewReadyCount,
-    }).catch((error: unknown) => {
-      console.warn("[meta-creatives] snapshot persist failed", {
+    const shouldPreserveExistingFullSnapshot =
+      mediaMode === "metadata"
+        ? await getMetaCreativesSnapshot(snapshotQuery)
+            .then((existingSnapshot) => {
+              const existingPayload = existingSnapshot?.payload as
+                | {
+                    preview_contract_version?: string;
+                  }
+                | undefined;
+              return (
+                existingSnapshot?.snapshotLevel === "full" &&
+                existingPayload?.preview_contract_version === META_CREATIVES_PREVIEW_CONTRACT_VERSION
+              );
+            })
+            .catch(() => false)
+        : false;
+
+    if (!shouldPreserveExistingFullSnapshot) {
+      await persistMetaCreativesSnapshot({
+        ...snapshotQuery,
+        payload: buildMetaCreativesSnapshotPayload({
+          status: liveApiPayload.status,
+          rows: responseRows,
+          mediaHydrated: enableFullMediaHydration,
+        }),
+        snapshotLevel: mediaMode,
+        rowCount: responseRows.length,
+        previewReadyCount: liveApiPayload.preview_coverage.previewReadyCount,
+      }).catch((error: unknown) => {
+        console.warn("[meta-creatives] snapshot persist failed", {
+          businessId,
+          mediaMode,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      });
+    } else if (process.env.NODE_ENV !== "production") {
+      console.log("[meta-creatives] preserved richer full snapshot", {
         businessId,
         mediaMode,
-        message: error instanceof Error ? error.message : String(error),
+        preview_contract_version: META_CREATIVES_PREVIEW_CONTRACT_VERSION,
       });
-    });
+    }
   }
 
   if (snapshotEligible && mediaMode === "metadata" && !snapshotWarm) {

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { META_PRODUCT_CORE_COVERAGE_SCOPES } from "@/lib/meta/core-config";
 import { getDb } from "@/lib/db";
 import { runMigrations } from "@/lib/migrations";
 import { recordSyncReclaimEvents } from "@/lib/sync/worker-health";
@@ -78,6 +79,14 @@ function tallyDisposition(
 ) {
   counts[disposition] = (counts[disposition] ?? 0) + 1;
 }
+
+const META_DAILY_COVERAGE_TABLE_BY_SCOPE: Partial<Record<MetaWarehouseScope, string>> = {
+  account_daily: "meta_account_daily",
+  campaign_daily: "meta_campaign_daily",
+  adset_daily: "meta_adset_daily",
+  ad_daily: "meta_ad_daily",
+  creative_daily: "meta_creative_daily",
+};
 
 export interface MetaCleanupPreservedByReason {
   recentCheckpointProgress: number;
@@ -312,31 +321,66 @@ export async function queueMetaSyncPartition(input: MetaSyncPartitionRecord) {
         ELSE meta_sync_partitions.source
       END,
       status = CASE
-        WHEN EXCLUDED.source IN ('priority_window', 'recent', 'recent_recovery', 'today', 'request_runtime')
+        WHEN EXCLUDED.source IN (
+          'priority_window',
+          'recent',
+          'recent_recovery',
+          'today',
+          'request_runtime',
+          'historical_recovery'
+        )
           AND meta_sync_partitions.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
           THEN 'queued'
         ELSE meta_sync_partitions.status
       END,
       lease_owner = CASE
-        WHEN EXCLUDED.source IN ('priority_window', 'recent', 'recent_recovery', 'today', 'request_runtime')
+        WHEN EXCLUDED.source IN (
+          'priority_window',
+          'recent',
+          'recent_recovery',
+          'today',
+          'request_runtime',
+          'historical_recovery'
+        )
           AND meta_sync_partitions.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
           THEN NULL
         ELSE meta_sync_partitions.lease_owner
       END,
       lease_expires_at = CASE
-        WHEN EXCLUDED.source IN ('priority_window', 'recent', 'recent_recovery', 'today', 'request_runtime')
+        WHEN EXCLUDED.source IN (
+          'priority_window',
+          'recent',
+          'recent_recovery',
+          'today',
+          'request_runtime',
+          'historical_recovery'
+        )
           AND meta_sync_partitions.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
           THEN NULL
         ELSE meta_sync_partitions.lease_expires_at
       END,
       last_error = CASE
-        WHEN EXCLUDED.source IN ('priority_window', 'recent', 'recent_recovery', 'today', 'request_runtime')
+        WHEN EXCLUDED.source IN (
+          'priority_window',
+          'recent',
+          'recent_recovery',
+          'today',
+          'request_runtime',
+          'historical_recovery'
+        )
           AND meta_sync_partitions.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
           THEN NULL
         ELSE meta_sync_partitions.last_error
       END,
       next_retry_at = CASE
-        WHEN EXCLUDED.source IN ('priority_window', 'recent', 'recent_recovery', 'today', 'request_runtime')
+        WHEN EXCLUDED.source IN (
+          'priority_window',
+          'recent',
+          'recent_recovery',
+          'today',
+          'request_runtime',
+          'historical_recovery'
+        )
           AND meta_sync_partitions.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
           THEN now()
         WHEN meta_sync_partitions.status IN ('succeeded', 'running', 'leased')
@@ -347,6 +391,36 @@ export async function queueMetaSyncPartition(input: MetaSyncPartitionRecord) {
     RETURNING id, status
   ` as Array<{ id: string; status: MetaPartitionStatus }>;
   return rows[0] ?? null;
+}
+
+export async function cancelObsoleteMetaCoreScopePartitions(input: {
+  businessId: string;
+  canonicalScope?: MetaWarehouseScope;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const canonicalScope = input.canonicalScope ?? META_PRODUCT_CORE_COVERAGE_SCOPES[0];
+  const rows = await sql`
+    UPDATE meta_sync_partitions
+    SET
+      status = 'cancelled',
+      lease_owner = NULL,
+      lease_expires_at = NULL,
+      next_retry_at = NULL,
+      last_error = COALESCE(
+        last_error,
+        'Obsolete duplicate core-day partition scope cancelled after product-core migration.'
+      ),
+      finished_at = COALESCE(finished_at, now()),
+      updated_at = now()
+    WHERE business_id = ${input.businessId}
+      AND lane IN ('core', 'maintenance')
+      AND scope <> ${canonicalScope}
+      AND status IN ('queued', 'failed', 'dead_letter')
+    RETURNING id
+  ` as Array<{ id: string }>;
+
+  return rows.map((row) => row.id);
 }
 
 export async function leaseMetaSyncPartitions(input: {
@@ -389,7 +463,16 @@ export async function leaseMetaSyncPartitions(input: {
           WHEN 'historical' THEN 150
           ELSE 100
         END DESC,
-        partition_date DESC,
+        CASE
+          WHEN source IN ('historical', 'historical_recovery', 'initial_connect')
+            THEN partition_date
+          ELSE NULL
+        END ASC,
+        CASE
+          WHEN source IN ('historical', 'historical_recovery', 'initial_connect')
+            THEN NULL
+          ELSE partition_date
+        END DESC,
         updated_at ASC
       LIMIT ${Math.max(1, input.limit)}
       FOR UPDATE SKIP LOCKED
@@ -1586,6 +1669,89 @@ export async function getMetaPartitionStatesForDate(input: {
       },
     ])
   );
+}
+
+export async function getMetaIncompleteCoreDates(input: {
+  businessId: string;
+  providerAccountId?: string | null;
+  startDate: string;
+  endDate: string;
+  limit?: number;
+}) {
+  return getMetaIncompleteCoverageDates({
+    ...input,
+    scopes: [...META_PRODUCT_CORE_COVERAGE_SCOPES],
+  });
+}
+
+export async function getMetaIncompleteCoverageDates(input: {
+  businessId: string;
+  providerAccountId?: string | null;
+  startDate: string;
+  endDate: string;
+  scopes: MetaWarehouseScope[];
+  limit?: number;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const scopes = Array.from(
+    new Set(
+      input.scopes.filter(
+        (scope): scope is MetaWarehouseScope =>
+          typeof scope === "string" && Boolean(META_DAILY_COVERAGE_TABLE_BY_SCOPE[scope])
+      )
+    )
+  );
+  if (scopes.length === 0) return [];
+
+  const coverageCtes = scopes
+    .map((scope) => {
+      const tableName = META_DAILY_COVERAGE_TABLE_BY_SCOPE[scope];
+      const alias = `${scope}_dates`;
+      return `
+      ${alias} AS (
+        SELECT DISTINCT date::date AS day
+        FROM ${tableName}
+        WHERE business_id = $3
+          AND ($4::text IS NULL OR provider_account_id = $4)
+          AND date::date BETWEEN $1::date AND $2::date
+      )`;
+    })
+    .join(",\n");
+  const joins = scopes
+    .map((scope) => {
+      const alias = `${scope}_dates`;
+      return `LEFT JOIN ${alias} ON ${alias}.day = target_dates.day`;
+    })
+    .join("\n      ");
+  const missingCoveragePredicate = scopes
+    .map((scope) => `${scope}_dates.day IS NULL`)
+    .join("\n         OR ");
+  const rows = await sql.query(
+    `
+      WITH target_dates AS (
+        SELECT generate_series($1::date, $2::date, interval '1 day')::date AS day
+      ),
+      ${coverageCtes}
+      SELECT target_dates.day::text AS partition_date
+      FROM target_dates
+      ${joins}
+      WHERE ${missingCoveragePredicate}
+      ORDER BY target_dates.day ASC
+      LIMIT $5
+    `,
+    [
+      normalizeDate(input.startDate),
+      normalizeDate(input.endDate),
+      input.businessId,
+      input.providerAccountId ?? null,
+      Math.max(1, input.limit ?? 100),
+    ]
+  ) as Array<Record<string, unknown>>;
+
+  return rows
+    .map((row) => normalizeDate(row.partition_date))
+    .filter(Boolean);
 }
 
 export async function getMetaPartitionHealth(input: {

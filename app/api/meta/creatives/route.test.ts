@@ -73,4 +73,29 @@ describe("GET /api/meta/creatives", () => {
     expect(payload.error).toBe("detail_preview_moved");
     expect(creativesApi.getMetaCreativesApiPayload).not.toHaveBeenCalled();
   });
+
+  it("keeps safe thumbnail backfills enabled in metadata mode while leaving risky enrichment full-only", async () => {
+    vi.mocked(creativesApi.getMetaCreativesApiPayload).mockResolvedValue({
+      status: "ok",
+      rows: [],
+    } as never);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/creatives?businessId=biz&mediaMode=metadata"
+      )
+    );
+
+    expect(response.status).toBe(200);
+    expect(creativesApi.getMetaCreativesApiPayload).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mediaMode: "metadata",
+        enableThumbnailBackfill: true,
+        enableCardThumbnailBackfill: true,
+        enableCreativeDetails: false,
+        enableImageHashLookup: false,
+        enableMediaRecovery: false,
+      })
+    );
+  });
 });

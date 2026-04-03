@@ -1,11 +1,19 @@
 import { describe, it, expect } from "vitest";
 import {
+  chooseBestStaticPreviewCandidate,
+  describeStaticPreviewSelection,
+  getPreviewResolutionClass,
   isLikelyLowResCreativeUrl,
   isThumbnailLikeUrl,
   scorePreviewCandidate,
   pickBestCandidate,
   collectPreviewCandidates,
   buildNormalizedPreview,
+  buildCreativePreviewManifest,
+  getCreativeStaticPreviewSources,
+  getCreativeStaticPreviewState,
+  hasAcceptableCardPreviewSource,
+  resolveCreativePreviewManifest,
 } from "@/lib/meta/creatives-preview";
 
 describe("isLikelyLowResCreativeUrl", () => {
@@ -61,8 +69,8 @@ describe("scorePreviewCandidate", () => {
     expect(highResScore).toBeGreaterThan(lowResScore);
   });
 
-  it("gives bonus for asset_feed_spec.images[].original_url source", () => {
-    const originalScore = scorePreviewCandidate({ source: "asset_feed_spec.images[].original_url", url: "https://example.com/img.jpg" });
+  it("gives bonus for blocking-safe object_story_spec picture sources", () => {
+    const originalScore = scorePreviewCandidate({ source: "object_story_spec.link_data.picture", url: "https://example.com/img.jpg" });
     const basicScore = scorePreviewCandidate({ source: "thumbnail_url", url: "https://example.com/img.jpg" });
     expect(originalScore).toBeGreaterThan(basicScore);
   });
@@ -181,5 +189,145 @@ describe("buildNormalizedPreview", () => {
     });
     // Card tier should prefer the high-res image, not the thumbnail
     expect(result.tiers.card_preview_url).toBe("https://example.com/img_p1080x1080.jpg");
+  });
+});
+
+describe("getCreativeStaticPreviewSources", () => {
+  it("keeps grid tier on card-safe sources and table tier on table sources", () => {
+    const row = {
+      previewManifest: buildCreativePreviewManifest({
+        tableSrc: "https://example.com/table.jpg",
+        cardSrc: "https://example.com/card.jpg",
+        detailImageSrc: "https://example.com/image.jpg",
+        detailVideoSrc: null,
+        liveHtmlAvailable: false,
+      }),
+      cardPreviewUrl: "https://example.com/card.jpg",
+      tableThumbnailUrl: "https://example.com/table.jpg",
+      imageUrl: "https://example.com/image.jpg",
+      preview: {
+        image_url: "https://example.com/preview-image.jpg",
+        poster_url: "https://example.com/poster.jpg",
+      },
+      previewUrl: "https://example.com/preview.jpg",
+      cachedThumbnailUrl: "https://example.com/cached.jpg",
+      thumbnailUrl: "https://example.com/thumb.jpg",
+    };
+
+    expect(getCreativeStaticPreviewSources(row, "grid")).toEqual(["https://example.com/card.jpg"]);
+    expect(getCreativeStaticPreviewSources(row, "card")[0]).toBe("https://example.com/card.jpg");
+    expect(getCreativeStaticPreviewSources(row, "table")[0]).toBe("https://example.com/table.jpg");
+  });
+
+  it("does not let grid tier fall back to table-grade sources", () => {
+    const row = {
+      previewManifest: buildCreativePreviewManifest({
+        tableSrc: "https://example.com/thumb_p150x120.jpg",
+        cardSrc: "https://example.com/thumb_p150x120.jpg",
+        detailImageSrc: "https://example.com/thumb_p150x120.jpg",
+        detailVideoSrc: null,
+        liveHtmlAvailable: false,
+      }),
+      tableThumbnailUrl: "https://example.com/thumb_p150x120.jpg",
+      thumbnailUrl: "https://example.com/thumb_p150x120.jpg",
+      previewUrl: "https://example.com/thumb_p150x120.jpg",
+    };
+
+    expect(getCreativeStaticPreviewSources(row, "grid")).toEqual([]);
+    expect(getCreativeStaticPreviewSources(row, "table")).toEqual([
+      "https://example.com/thumb_p150x120.jpg",
+    ]);
+  });
+});
+
+describe("preview manifest helpers", () => {
+  it("marks low-res thumbnail-only card sources as needing enrichment", () => {
+    const manifest = buildCreativePreviewManifest({
+      tableSrc: "https://example.com/thumb_p150x120.jpg",
+      cardSrc: "https://example.com/thumb_p150x120.jpg",
+      detailImageSrc: "https://example.com/thumb_p150x120.jpg",
+      detailVideoSrc: null,
+      liveHtmlAvailable: true,
+    });
+
+    expect(manifest.needs_card_enrichment).toBe(true);
+    expect(manifest.render_state).toBe("renderable_low_quality");
+    expect(manifest.card_state).toBe("waiting_meta");
+    expect(manifest.waiting_reason).toBe("awaiting_card_source");
+    expect(hasAcceptableCardPreviewSource(manifest.card_src)).toBe(false);
+    expect(manifest.card_src).toBeNull();
+  });
+
+  it("resolves manifest-backed state for card and table tiers", () => {
+    const row = {
+      previewManifest: buildCreativePreviewManifest({
+        tableSrc: "https://example.com/thumb_p150x120.jpg",
+        cardSrc: "https://example.com/thumb_p150x120.jpg",
+        detailImageSrc: "https://example.com/thumb_p150x120.jpg",
+        detailVideoSrc: null,
+        liveHtmlAvailable: false,
+      }),
+    };
+
+    expect(getCreativeStaticPreviewState(row, "table")).toBe("ready");
+    expect(getCreativeStaticPreviewState(row, "grid")).toBe("pending");
+    expect(getCreativeStaticPreviewState(row, "card")).toBe("ready");
+    expect(resolveCreativePreviewManifest(row)?.table_src).toBe("https://example.com/thumb_p150x120.jpg");
+  });
+
+  it("treats card-missing but table-backed rows as renderable for table tier", () => {
+    const row = {
+      previewManifest: buildCreativePreviewManifest({
+        tableSrc: "https://example.com/thumb_p150x120.jpg",
+        cardSrc: null,
+        detailImageSrc: null,
+        detailVideoSrc: null,
+        liveHtmlAvailable: false,
+      }),
+    };
+
+    expect(resolveCreativePreviewManifest(row)?.render_state).toBe("renderable_low_quality");
+    expect(getCreativeStaticPreviewState(row, "table")).toBe("ready");
+    expect(getCreativeStaticPreviewState(row, "grid")).toBe("pending");
+    expect(getCreativeStaticPreviewState(row, "card")).toBe("ready");
+  });
+});
+
+describe("chooseBestStaticPreviewCandidate", () => {
+  it("prefers a larger thumbnail over a smaller thumbnail when no non-thumbnail source exists", () => {
+    const best = chooseBestStaticPreviewCandidate([
+      "https://example.com/thumb_p64x64.jpg",
+      "https://example.com/thumb_p640x640.jpg",
+    ]);
+
+    expect(best).toBe("https://example.com/thumb_p640x640.jpg");
+  });
+
+  it("still prefers a non-thumbnail image over larger thumbnail candidates", () => {
+    const best = chooseBestStaticPreviewCandidate([
+      "https://example.com/thumb_p640x640.jpg",
+      "https://example.com/image_p1200x1200.jpg",
+    ]);
+
+    expect(best).toBe("https://example.com/image_p1200x1200.jpg");
+  });
+});
+
+describe("preview selection observability helpers", () => {
+  it("classifies 640 thumbnail URLs as medium resolution", () => {
+    expect(getPreviewResolutionClass("https://example.com/thumb_p640x640.jpg")).toBe("medium_res");
+  });
+
+  it("marks promoted large thumbnails with the correct reason", () => {
+    expect(
+      describeStaticPreviewSelection({
+        tier: "card",
+        selectedUrl: "https://example.com/thumb_p640x640.jpg",
+      })
+    ).toEqual({
+      sourceKind: "thumbnail_static",
+      resolutionClass: "medium_res",
+      reason: "card_promoted_larger_thumbnail",
+    });
   });
 });

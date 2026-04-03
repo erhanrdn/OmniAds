@@ -1,3 +1,15 @@
+import type {
+  CreativePreviewManifest,
+  CreativeDeliveryType,
+  CreativeFormat,
+  CreativePrimaryType,
+  CreativeSecondaryType,
+  CreativeTaxonomySource,
+  CreativeTaxonomyVersion,
+  CreativeType,
+  CreativeVisualFormat,
+} from "@/lib/meta/creatives-types";
+
 export const META_METRIC_KEYS = [
   "spend",
   "purchaseValue",
@@ -29,9 +41,6 @@ export const META_AI_TAG_KEYS = [
 
 export type MetaAiTagKey = (typeof META_AI_TAG_KEYS)[number];
 export type MetaAiTags = Partial<Record<MetaAiTagKey, string[]>>;
-
-export type CreativeFormat = "image" | "video" | "catalog";
-export type CreativeType = "feed" | "video" | "flexible" | "feed_catalog";
 export type PreviewState = "preview" | "catalog" | "unavailable";
 export type PreviewRenderMode = "video" | "image" | "unavailable";
 export type PreviewSource = "preview_url" | "thumbnail_url" | "image_url" | "image_hash" | null;
@@ -65,11 +74,21 @@ export interface MetaCreativeRow {
   format: CreativeFormat;
   creativeType: CreativeType;
   creativeTypeLabel: string;
+  creativeDeliveryType: CreativeDeliveryType;
+  creativeVisualFormat: CreativeVisualFormat;
+  creativePrimaryType: CreativePrimaryType;
+  creativePrimaryLabel: string | null;
+  creativeSecondaryType: CreativeSecondaryType | null;
+  creativeSecondaryLabel: string | null;
+  taxonomyVersion?: CreativeTaxonomyVersion;
+  taxonomySource?: CreativeTaxonomySource | null;
+  taxonomyReconciledByVideoEvidence?: boolean;
   thumbnailUrl: string | null;
   previewUrl: string | null;
   imageUrl: string | null;
   tableThumbnailUrl?: string | null;
   cardPreviewUrl?: string | null;
+  previewManifest?: CreativePreviewManifest | null;
   cachedThumbnailUrl?: string | null;
   previewStatus?: PreviewReadiness;
   previewOrigin?: PreviewOrigin;

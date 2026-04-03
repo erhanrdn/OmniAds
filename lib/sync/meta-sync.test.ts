@@ -5,6 +5,7 @@ import {
   buildMetaLaneProgressEvidence,
   getMetaExtendedHistoricalFairnessLimit,
   getMetaHistoricalCoreFairnessLimit,
+  resolveMetaHistoricalReplaySource,
 } from "@/lib/sync/meta-sync";
 
 describe("buildMetaLaneProgressEvidence", () => {
@@ -19,7 +20,7 @@ describe("buildMetaLaneProgressEvidence", () => {
             updatedAt: "2026-04-02T10:00:00.000Z",
           },
         ],
-        adset_daily: [
+        campaign_daily: [
           {
             completedDays: 28,
             readyThroughDate: "2026-03-26",
@@ -175,5 +176,45 @@ describe("buildMetaFollowupLeasePlan", () => {
 
     expect(plan.extendedHistoricalLimit).toBe(0);
     expect(plan.extendedRecentLimit).toBeGreaterThan(0);
+  });
+});
+
+describe("resolveMetaHistoricalReplaySource", () => {
+  it("returns historical for unseen dates", () => {
+    expect(resolveMetaHistoricalReplaySource(new Map())).toBe("historical");
+  });
+
+  it("returns null when a core historical date is already active", () => {
+    expect(
+      resolveMetaHistoricalReplaySource(
+        new Map([
+          [
+            "account_daily",
+            {
+              status: "queued",
+              source: "historical",
+              finishedAt: null,
+            },
+          ],
+        ])
+      )
+    ).toBeNull();
+  });
+
+  it("returns historical_recovery when a terminal partition exists but coverage is still incomplete", () => {
+    expect(
+      resolveMetaHistoricalReplaySource(
+        new Map([
+          [
+            "account_daily",
+            {
+              status: "succeeded",
+              source: "historical",
+              finishedAt: "2026-04-03T09:00:00.000Z",
+            },
+          ],
+        ])
+      )
+    ).toBe("historical_recovery");
   });
 });

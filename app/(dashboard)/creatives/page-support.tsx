@@ -1,6 +1,10 @@
 import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import type { ShareMetricKey, SharedCreative } from "@/components/creatives/shareCreativeTypes";
+import {
+  getLegacyCreativeTypeLabel,
+} from "@/lib/meta/creative-taxonomy";
+import { getCreativeStaticPreviewState } from "@/lib/meta/creatives-preview";
 import type { AiCreativeHistoricalWindow, AiCreativeHistoricalWindows } from "@/src/services";
 
 export interface MetaCreativesResponse {
@@ -16,6 +20,7 @@ export interface MetaCreativesResponse {
   preview_coverage?: {
     totalCreatives: number;
     previewReadyCount: number;
+    previewWaitingCount: number;
     previewMissingCount: number;
     previewCoverage: number;
   };
@@ -47,33 +52,26 @@ export const PLATFORM_LABELS: Record<string, string> = {
 export const SHARE_METRIC_IDS = new Set<ShareMetricKey>(["spend", "purchaseValue", "roas", "cpa", "ctrAll", "purchases"]);
 
 export function hasRenderablePreview(row: MetaCreativeRow): boolean {
-  return Boolean(
-    row.cardPreviewUrl ??
-      row.cachedThumbnailUrl ??
-      row.tableThumbnailUrl ??
-      row.previewUrl ??
-      row.imageUrl ??
-      row.thumbnailUrl ??
-      row.preview?.image_url ??
-      row.preview?.poster_url ??
-      row.preview?.video_url
-  );
+  return getCreativeStaticPreviewState(row, "grid") === "ready";
 }
 
 export function shouldPollForPreviewReadiness(payload: MetaCreativesResponse | undefined): boolean {
   if (!payload || !Array.isArray(payload.rows) || payload.rows.length === 0) return false;
+  const previewWaitingCount = payload.preview_coverage?.previewWaitingCount ?? 0;
   const previewMissingCount = payload.preview_coverage?.previewMissingCount ?? 0;
-  if (previewMissingCount <= 0) return false;
-  if (payload.media_mode !== "full") return false;
-  return payload.is_refreshing || payload.freshness_state === "stale";
+  if (previewWaitingCount <= 0 && previewMissingCount <= 0) return false;
+  if (payload.snapshot_level === "metadata") return true;
+  return Boolean(payload.is_refreshing || payload.freshness_state === "stale");
 }
 
 export function getPreviewPollingInterval(
   payload: MetaCreativesResponse | undefined
 ): number | false {
   if (!shouldPollForPreviewReadiness(payload)) return false;
+  const previewWaitingCount = payload?.preview_coverage?.previewWaitingCount ?? 0;
   const previewMissingCount = payload?.preview_coverage?.previewMissingCount ?? 0;
-  if (previewMissingCount <= 0) return false;
+  if (previewWaitingCount <= 0 && previewMissingCount <= 0) return false;
+  if (payload?.snapshot_level === "metadata") return 2500;
   if (!payload?.is_refreshing && payload?.freshness_state !== "stale") return false;
   return payload.is_refreshing ? 2500 : 8000;
 }
@@ -114,7 +112,13 @@ export function toCsv(rows: MetaCreativeRow[]): string {
   const totalPurchaseValue = rows.reduce((sum, row) => sum + row.purchaseValue, 0);
   const escape = (value: string | number) => `"${String(value).replace(/"/g, '""')}"`;
   const isVideo = (row: MetaCreativeRow) =>
-    row.format === "video" || row.thumbstop > 0 || row.video25 > 0 || row.video50 > 0 || row.video75 > 0 || row.video100 > 0;
+    row.creativeVisualFormat === "video" ||
+    row.format === "video" ||
+    row.thumbstop > 0 ||
+    row.video25 > 0 ||
+    row.video50 > 0 ||
+    row.video75 > 0 ||
+    row.video100 > 0;
 
   const body = rows.map((row) => {
     const videoApplicable = isVideo(row);
@@ -338,9 +342,10 @@ export function buildCreativeHistoryById(input: Partial<Record<CreativeHistoryWi
 }
 
 export function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
-  const fallbackCreativeTypeLabel =
-    row.format === "catalog" ? "Feed (Catalog ads)" : row.format === "video" ? "Video" : "Feed";
-  const fallbackCreativeType = row.format === "catalog" ? "feed_catalog" : row.format === "video" ? "video" : "feed";
+  const taxonomySource = row.taxonomy_source ?? "legacy_fallback";
+  const legacyCreativeType = row.creative_type ?? "feed";
+  const legacyCreativeTypeLabel =
+    row.creative_type_label ?? getLegacyCreativeTypeLabel(legacyCreativeType);
   const safeNumber = (value: number | null | undefined) => (typeof value === "number" && Number.isFinite(value) ? value : 0);
 
   return {
@@ -358,14 +363,24 @@ export function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
     adSetId: row.adset_id ?? null,
     adSetName: row.adset_name ?? null,
     currency: row.currency ?? null,
-    format: row.format,
-    creativeType: row.creative_type ?? fallbackCreativeType,
-    creativeTypeLabel: row.creative_type_label ?? fallbackCreativeTypeLabel,
+    format: row.format ?? "image",
+    creativeType: legacyCreativeType,
+    creativeTypeLabel: legacyCreativeTypeLabel,
+    creativeDeliveryType: row.creative_delivery_type ?? "standard",
+    creativeVisualFormat: row.creative_visual_format ?? "image",
+    creativePrimaryType: row.creative_primary_type ?? "standard",
+    creativePrimaryLabel: row.creative_primary_label ?? null,
+    creativeSecondaryType: row.creative_secondary_type ?? null,
+    creativeSecondaryLabel: row.creative_secondary_label ?? null,
+    taxonomyVersion: row.taxonomy_version,
+    taxonomySource,
+    taxonomyReconciledByVideoEvidence: row.taxonomy_reconciled_by_video_evidence ?? false,
     thumbnailUrl: row.thumbnail_url,
     previewUrl: row.preview_url,
     imageUrl: row.image_url,
     tableThumbnailUrl: row.table_thumbnail_url ?? row.thumbnail_url ?? null,
     cardPreviewUrl: row.card_preview_url ?? row.image_url ?? row.thumbnail_url ?? row.preview_url ?? null,
+    previewManifest: row.preview_manifest ?? null,
     isCatalog: row.is_catalog,
     previewState: row.preview_state,
     preview: row.preview,

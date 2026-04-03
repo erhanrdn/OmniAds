@@ -1,4 +1,15 @@
-import { collectPreviewCandidates } from "@/lib/meta/creatives-preview";
+import {
+  buildCreativePreviewManifest,
+  chooseBestStaticPreviewCandidate,
+  collectPreviewCandidates,
+  describeStaticPreviewSelection,
+  META_CREATIVES_PREVIEW_CONTRACT_VERSION,
+} from "@/lib/meta/creatives-preview";
+import {
+  coerceCreativeTaxonomyFromLegacy,
+  deriveLegacyCreativeClassification,
+  reconcileCreativeTaxonomyWithVideoEvidence,
+} from "@/lib/meta/creative-taxonomy";
 import type {
   CreativeDebugInfo,
   LegacyPreviewState,
@@ -281,17 +292,29 @@ export function buildMetaCreativeApiRow(params: {
     rowPreviewPoster,
     cardFallbackThumbnailUrl,
     rowThumbnailUrl,
-    tableThumbnailUrl,
   ].filter((value): value is string => Boolean(value));
 
-  const cardPrimary =
-    cardCandidates.find((candidate) => !isThumbnailLikeUrl(candidate)) ??
-    cardCandidates[0] ??
-    null;
-  const cardPreviewUrl =
-    cardPrimary === tableThumbnailUrl
-      ? cardCandidates.find((candidate) => candidate !== tableThumbnailUrl) ?? cardPrimary
-      : cardPrimary;
+  const rawCardPreviewCandidate = chooseBestStaticPreviewCandidate(cardCandidates);
+  const cardPreviewDebug = describeStaticPreviewSelection({
+    tier: "card",
+    selectedUrl: rawCardPreviewCandidate,
+  });
+  const tablePreviewDebug = describeStaticPreviewSelection({
+    tier: "table",
+    selectedUrl: tableThumbnailUrl,
+  });
+  const previewManifest = buildCreativePreviewManifest({
+    tableSrc: tableThumbnailUrl,
+    cardSrc: rawCardPreviewCandidate,
+    detailImageSrc:
+      finalImageUrl ??
+      normalizeMediaUrl(finalPreviewPayload.image_url) ??
+      normalizeMediaUrl(finalPreviewPayload.poster_url) ??
+      rawCardPreviewCandidate,
+    detailVideoSrc: normalizeMediaUrl(finalPreviewPayload.video_url),
+    liveHtmlAvailable: Boolean(row.creative_id),
+  });
+  const cardPreviewUrl = previewManifest.card_src;
   const previewStatus: "ready" | "missing" =
     finalPreviewUrl || finalThumbnailUrl || finalImageUrl || normalizedCachedThumbnailUrl
       ? "ready"
@@ -320,6 +343,39 @@ export function buildMetaCreativeApiRow(params: {
   const normalizedCtrAll = safeImpressions > 0 ? (safeLinkClicks / safeImpressions) * 100 : 0;
   const normalizedClickToAtc = safeLinkClicks > 0 ? (safeAddToCart / safeLinkClicks) * 100 : 0;
   const normalizedAtcToPurchase = safeAddToCart > 0 ? (safePurchases / safeAddToCart) * 100 : 0;
+  const taxonomySource =
+    row.taxonomy_source ??
+    (row.creative_primary_type ? "deterministic" : "legacy_fallback");
+  const creativeTaxonomy =
+    taxonomySource === "deterministic" && row.creative_primary_type
+      ? {
+          creative_delivery_type: row.creative_delivery_type,
+          creative_visual_format: row.creative_visual_format,
+          creative_primary_type: row.creative_primary_type,
+          creative_primary_label: row.creative_primary_label,
+          creative_secondary_type: row.creative_secondary_type,
+          creative_secondary_label: row.creative_secondary_label,
+          classification_signals: row.classification_signals ?? null,
+        }
+      : coerceCreativeTaxonomyFromLegacy({
+          format: row.format,
+          creative_type: row.creative_type,
+          is_catalog: row.is_catalog,
+        });
+  const reconciledCreativeTaxonomy = reconcileCreativeTaxonomyWithVideoEvidence(creativeTaxonomy, {
+    preview: finalPreviewPayload,
+    thumbstop: row.thumbstop,
+    video25: row.video25,
+    video50: row.video50,
+    video75: row.video75,
+    video100: row.video100,
+  });
+  const taxonomyReconciledByVideoEvidence =
+    reconciledCreativeTaxonomy.creative_delivery_type !== creativeTaxonomy.creative_delivery_type ||
+    reconciledCreativeTaxonomy.creative_visual_format !== creativeTaxonomy.creative_visual_format ||
+    reconciledCreativeTaxonomy.creative_primary_type !== creativeTaxonomy.creative_primary_type ||
+    reconciledCreativeTaxonomy.creative_secondary_type !== creativeTaxonomy.creative_secondary_type;
+  const legacyCreativeClassification = deriveLegacyCreativeClassification(reconciledCreativeTaxonomy);
 
   const baseRow: MetaCreativeApiRow = {
     id: row.id,
@@ -349,15 +405,31 @@ export function buildMetaCreativeApiRow(params: {
     image_url: finalImageUrl,
     table_thumbnail_url: tableThumbnailUrl,
     card_preview_url: cardPreviewUrl,
+    preview_contract_version: META_CREATIVES_PREVIEW_CONTRACT_VERSION,
+    preview_manifest: previewManifest,
+    card_preview_source_kind: cardPreviewDebug.sourceKind,
+    card_preview_resolution_class: cardPreviewDebug.resolutionClass,
+    table_preview_source_kind: tablePreviewDebug.sourceKind,
+    preview_source_reason: cardPreviewDebug.reason,
     is_catalog: row.is_catalog,
     preview_state: previewState,
     preview: finalPreviewPayload,
     launch_date: row.launch_date,
     tags: row.tags,
     ai_tags: Object.keys(row.ai_tags).length > 0 ? row.ai_tags : normalizeAiTags(row.tags),
-    format: row.format,
-    creative_type: row.creative_type,
-    creative_type_label: row.creative_type_label,
+    format: legacyCreativeClassification.format,
+    creative_type: legacyCreativeClassification.creative_type,
+    creative_type_label: legacyCreativeClassification.creative_type_label,
+    creative_delivery_type: reconciledCreativeTaxonomy.creative_delivery_type,
+    creative_visual_format: reconciledCreativeTaxonomy.creative_visual_format,
+    creative_primary_type: reconciledCreativeTaxonomy.creative_primary_type,
+    creative_primary_label: reconciledCreativeTaxonomy.creative_primary_label,
+    creative_secondary_type: reconciledCreativeTaxonomy.creative_secondary_type,
+    creative_secondary_label: reconciledCreativeTaxonomy.creative_secondary_label,
+    classification_signals: reconciledCreativeTaxonomy.classification_signals,
+    taxonomy_version: "v2",
+    taxonomy_source: taxonomySource,
+    taxonomy_reconciled_by_video_evidence: taxonomyReconciledByVideoEvidence,
     spend: r2(safeSpend),
     purchase_value: r2(normalizedPurchaseValue),
     roas: r2(normalizedRoas),

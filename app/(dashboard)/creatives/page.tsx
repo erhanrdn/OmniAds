@@ -37,10 +37,13 @@ import {
   buildCreativeHistoryById,
   fetchMetaCreatives,
   fetchMetaCreativesHistory,
+  getPreviewPollingInterval,
+  hasRenderablePreview,
   mapApiRowToUiRow,
   PLATFORM_LABELS,
   PreviewStripState,
   SHARE_METRIC_IDS,
+  shouldPollForPreviewReadiness,
   toCsv,
   toSharedCreative,
   type CreativeHistoryWindowKey,
@@ -54,6 +57,7 @@ import {
   addDaysToIsoDate,
   dayCountInclusive,
 } from "@/lib/meta/history";
+import { getCreativeStaticPreviewState } from "@/lib/meta/creatives-preview";
 
 function clampCreativeDateRangeToHistoryLimit(
   value: CreativeDateRangeValue,
@@ -217,6 +221,7 @@ export default function CreativesPage() {
       }),
     staleTime: 30 * 1000,
     refetchOnWindowFocus: false,
+    refetchInterval: (query) => getPreviewPollingInterval(query.state.data),
     placeholderData: (previousData) => previousData,
   });
   const shouldLoadHistory =
@@ -405,6 +410,24 @@ export default function CreativesPage() {
     () => (selectedRows.length > 0 ? selectedRows : orderedTableRows),
     [orderedTableRows, selectedRows]
   );
+  const topPreviewRows = useMemo(() => topPanelRows.slice(0, 20), [topPanelRows]);
+  const previewStripSummary = useMemo(() => {
+    const states = topPreviewRows.map((row) =>
+      hasRenderablePreview(row) ? "ready" : getCreativeStaticPreviewState(row, "grid")
+    );
+
+    const ready = states.filter((state) => state === "ready").length;
+    const pending = states.filter((state) => state === "pending").length;
+    const missing = states.filter((state) => state === "missing").length;
+
+    return {
+      total: topPreviewRows.length,
+      ready,
+      pending,
+      missing,
+      minimumReady: Math.min(3, topPreviewRows.length),
+    };
+  }, [topPreviewRows]);
   const previewStripState = useMemo<PreviewStripState>(() => {
     const metadataRows = activeCreativesPayload?.rows ?? [];
     const hasMetadataRows = metadataRows.length > 0;
@@ -416,14 +439,19 @@ export default function CreativesPage() {
       return "missing";
     }
 
-    return topPanelRows.length > 0 ? "ready" : "missing";
+    if (topPreviewRows.length === 0) return "missing";
+    if (previewStripSummary.ready > 0) return "ready";
+    if (shouldPollForPreviewReadiness(activeCreativesPayload)) return "data_loading";
+    if (previewStripSummary.pending > 0) return "data_loading";
+    return "missing";
   }, [
-    activeCreativesPayload?.rows,
+    activeCreativesPayload,
     creativesMetadataQuery.isFetching,
     creativesMetadataQuery.isLoading,
-    topPanelRows.length,
+    previewStripSummary.pending,
+    previewStripSummary.ready,
+    topPreviewRows.length,
   ]);
-  const topPreviewRows = useMemo(() => topPanelRows.slice(0, 20), [topPanelRows]);
 
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return;
@@ -691,6 +719,7 @@ export default function CreativesPage() {
         return (
           <>
             <CreativesTopSection
+              businessId={businessId}
               showHeader={false}
               showGroupByControl={false}
               showAiActionsRow={false}
@@ -714,6 +743,7 @@ export default function CreativesPage() {
               shareError={shareError}
               csvError={csvError}
               previewStripState={previewStripState}
+              previewStripSummary={previewStripSummary}
             />
 
             {creativesMetadataQuery.isLoading && <CreativesTableShell />}

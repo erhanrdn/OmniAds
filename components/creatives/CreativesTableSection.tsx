@@ -31,10 +31,12 @@ import {
   toHeatColor,
 } from "@/components/creatives/creatives-table-support";
 import { cn } from "@/lib/utils";
+import { getCreativeStaticPreviewSources, getCreativeStaticPreviewState } from "@/lib/meta/creatives-preview";
 import { useDropdownBehavior } from "@/hooks/use-dropdown-behavior";
 import { getAiCreativeDecisions, type AiCreativeDecision, type AiCreativeDecisionInputRow } from "@/src/services";
 import { createPortal } from "react-dom";
 import { buildHeuristicCreativeDecisions } from "@/lib/ai/generate-creative-decisions";
+import { getCreativeVisualFormatLabel } from "@/lib/meta/creative-taxonomy";
 import type { AiCreativeHistoricalWindows } from "@/src/services";
 
 type AiSignalAction = AiCreativeDecision["action"];
@@ -1929,25 +1931,10 @@ const CreativeTableRow = memo(function CreativeTableRow({
   onOpenBreakdownRow,
 }: CreativeTableRowProps) {
   const assetFallbacks = useMemo(
-    () => [
-      row.tableThumbnailUrl ?? null,
-      row.cachedThumbnailUrl ?? null,
-      row.thumbnailUrl ?? null,
-      row.imageUrl ?? null,
-      row.preview?.image_url ?? null,
-      row.preview?.poster_url ?? null,
-      row.previewUrl ?? null,
-    ],
-    [
-      row.cachedThumbnailUrl,
-      row.imageUrl,
-      row.preview?.image_url,
-      row.preview?.poster_url,
-      row.previewUrl,
-      row.tableThumbnailUrl,
-      row.thumbnailUrl,
-    ]
+    () => getCreativeStaticPreviewSources(row, "table"),
+    [row]
   );
+  const assetState = getCreativeStaticPreviewState(row, "table");
   const resolvedRowCurrency = resolveCreativeCurrency(row.currency, defaultCurrency);
 
   return (
@@ -1972,6 +1959,7 @@ const CreativeTableRow = memo(function CreativeTableRow({
             preview={row.preview}
             size="thumb"
             mode="asset"
+            assetState={assetState}
             assetFallbacks={assetFallbacks}
             className="h-9 w-9 shrink-0 rounded-md"
           />
@@ -2020,7 +2008,9 @@ const CreativeTableRow = memo(function CreativeTableRow({
       )}
 
       {tablePreset.showAdLength && (
-        <td className="border-b px-2.5 py-1.5 text-[10px] font-medium">{row.format === "video" ? "15s" : "Static"}</td>
+        <td className="border-b px-2.5 py-1.5 text-[10px] font-medium">
+          {row.creativeVisualFormat === "video" ? "15s" : getCreativeVisualFormatLabel(row.creativeVisualFormat)}
+        </td>
       )}
 
       {selectedAiTagColumns.map((tagKey) => (
@@ -2374,7 +2364,15 @@ function getMetricConfig(key: TableColumnKey): TableMetricConfig {
 }
 
 function hasVideoEvidence(row: MetaCreativeRow): boolean {
-  return row.format === "video" || row.thumbstop > 0 || row.video25 > 0 || row.video50 > 0 || row.video75 > 0 || row.video100 > 0;
+  return (
+    row.creativeVisualFormat === "video" ||
+    row.format === "video" ||
+    row.thumbstop > 0 ||
+    row.video25 > 0 ||
+    row.video50 > 0 ||
+    row.video75 > 0 ||
+    row.video100 > 0
+  );
 }
 
 function isMetricApplicable(key: TableColumnKey, row: MetaCreativeRow): boolean {

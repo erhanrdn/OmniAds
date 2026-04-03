@@ -21,8 +21,11 @@ type CreativeRenderSurfaceProps = {
   badgeClassName?: string;
   size?: "thumb" | "card" | "large";
   mode?: "asset" | "full";
+  assetState?: "ready" | "pending" | "missing";
   assetFallbacks?: (string | null | undefined)[];
   assetUpgradeSources?: (string | null | undefined)[];
+  pendingRevealDelayMs?: number;
+  pendingLabel?: string;
   onAssetSettled?: () => void;
 };
 
@@ -136,6 +139,26 @@ function PreviewLoadingPlaceholder({ frameClass }: { frameClass: string }) {
   );
 }
 
+function PreviewPendingState({
+  frameClass,
+  label,
+}: {
+  frameClass: string;
+  label: string;
+}) {
+  return (
+    <div
+      className={cn(
+        frameClass,
+        "flex flex-col items-center justify-center gap-3 bg-gradient-to-br from-slate-100 to-slate-200 p-3 text-slate-600"
+      )}
+    >
+      <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-300 border-t-slate-500" aria-hidden="true" />
+      <div className="text-center text-[11px] font-medium">{label}</div>
+    </div>
+  );
+}
+
 export const CreativeRenderSurface = memo(function CreativeRenderSurface({
   id,
   name,
@@ -144,8 +167,11 @@ export const CreativeRenderSurface = memo(function CreativeRenderSurface({
   badgeClassName,
   size = "card",
   mode = "full",
+  assetState = "ready",
   assetFallbacks,
   assetUpgradeSources,
+  pendingRevealDelayMs = 0,
+  pendingLabel,
   onAssetSettled,
 }: CreativeRenderSurfaceProps) {
   const frameClass = cn("relative overflow-hidden bg-muted/30", SIZE_MAP[size], className);
@@ -191,8 +217,11 @@ export const CreativeRenderSurface = memo(function CreativeRenderSurface({
         id={id}
         name={name}
         preview={preview}
+        assetState={assetState}
         assetFallbacks={assetFallbacks}
         assetUpgradeSources={assetUpgradeSources}
+        pendingRevealDelayMs={pendingRevealDelayMs}
+        pendingLabel={pendingLabel}
         frameClass={frameClass}
         size={size}
         onAssetSettled={onAssetSettled}
@@ -240,8 +269,11 @@ function AssetImage({
   id,
   name,
   preview,
+  assetState,
   assetFallbacks,
   assetUpgradeSources,
+  pendingRevealDelayMs,
+  pendingLabel,
   frameClass,
   size,
   onAssetSettled,
@@ -249,8 +281,11 @@ function AssetImage({
   id?: string;
   name: string;
   preview: CreativeRenderPayload;
+  assetState: NonNullable<CreativeRenderSurfaceProps["assetState"]>;
   assetFallbacks?: (string | null | undefined)[];
   assetUpgradeSources?: (string | null | undefined)[];
+  pendingRevealDelayMs: number;
+  pendingLabel?: string;
   frameClass: string;
   size: NonNullable<CreativeRenderSurfaceProps["size"]>;
   onAssetSettled?: () => void;
@@ -278,6 +313,7 @@ function AssetImage({
   const [upgradeIndex, setUpgradeIndex] = useState(0);
   const [displaySource, setDisplaySource] = useState<ResolvedAssetSource | null>(null);
   const [readyToUpgrade, setReadyToUpgrade] = useState(false);
+  const [pendingRevealElapsed, setPendingRevealElapsed] = useState(assetState !== "pending" || pendingRevealDelayMs <= 0);
   const hasSettledRef = useRef(false);
   const loadedBaseSrcRef = useRef<string | null>(null);
 
@@ -288,6 +324,7 @@ function AssetImage({
     setUpgradeIndex(0);
     setDisplaySource(null);
     setReadyToUpgrade(false);
+    setPendingRevealElapsed(assetState !== "pending" || pendingRevealDelayMs <= 0);
     hasSettledRef.current = false;
     loadedBaseSrcRef.current = null;
     if (process.env.NODE_ENV !== "production") {
@@ -297,7 +334,7 @@ function AssetImage({
         sourceKey,
       });
     }
-  }, [id, name, sourceKey, upgradeKey]);
+  }, [assetState, id, name, pendingRevealDelayMs, sourceKey, upgradeKey]);
 
   const current = exhausted ? null : (sources[sourceIndex] ?? null);
   const currentDirectSrc = current?.src ?? null;
@@ -305,11 +342,24 @@ function AssetImage({
     current && useProxy && isMetaCdnUrl(current.src) ? proxyUrl(current.src) : current?.src ?? null;
 
   useEffect(() => {
+    if (assetState !== "pending" || pendingRevealDelayMs <= 0 || !currentDisplaySrc) {
+      setPendingRevealElapsed(true);
+      return;
+    }
+    setPendingRevealElapsed(false);
+    const timeoutId = window.setTimeout(() => {
+      setPendingRevealElapsed(true);
+    }, pendingRevealDelayMs);
+    return () => window.clearTimeout(timeoutId);
+  }, [assetState, currentDisplaySrc, pendingRevealDelayMs]);
+
+  useEffect(() => {
     if (hasSettledRef.current) return;
-    if (current || !onAssetSettled) return;
+    if (!onAssetSettled) return;
+    if (assetState === "ready" && current) return;
     hasSettledRef.current = true;
     onAssetSettled();
-  }, [current, onAssetSettled]);
+  }, [assetState, current, onAssetSettled]);
 
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return;
@@ -344,17 +394,31 @@ function AssetImage({
 
   useEffect(() => {
     if (!current) {
-      setDisplaySource(null);
+      setDisplaySource((prev) => (prev === null ? prev : null));
       return;
     }
 
     if (!displaySource || displaySource.source.startsWith("fallback_")) {
-      setDisplaySource({
-        src: currentDisplaySrc ?? current.src,
-        source: current.source,
+      const nextSrc = currentDisplaySrc ?? current.src;
+      const nextSource = current.source;
+
+      setDisplaySource((prev) => {
+        if (prev?.src === nextSrc && prev?.source === nextSource) {
+          return prev;
+        }
+        return {
+          src: nextSrc,
+          source: nextSource,
+        };
       });
     }
-  }, [current, currentDisplaySrc, displaySource]);
+  }, [
+    current?.src,
+    current?.source,
+    currentDisplaySrc,
+    displaySource?.src,
+    displaySource?.source,
+  ]);
 
   useEffect(() => {
     if (!readyToUpgrade) return;
@@ -467,6 +531,14 @@ function AssetImage({
     }
     setExhausted(true);
   };
+
+  if (assetState === "pending" && !imgSrc) {
+    return <PreviewPendingState frameClass={frameClass} label={pendingLabel ?? "Waiting for Meta"} />;
+  }
+
+  if (assetState === "pending" && !pendingRevealElapsed) {
+    return <PreviewLoadingPlaceholder frameClass={frameClass} />;
+  }
 
   if (!imgSrc) {
     return <PreviewFallback frameClass={frameClass} name={name} />;

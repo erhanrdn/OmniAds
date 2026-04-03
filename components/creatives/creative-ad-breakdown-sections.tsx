@@ -6,10 +6,12 @@ import { cn } from "@/lib/utils";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
 import { formatMoney } from "@/components/creatives/money";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
+import { getCreativeFormatSummaryLabel } from "@/lib/meta/creative-taxonomy";
 import {
   CHART_METRICS,
   fmtChartMetricValue,
   getChartMetricValue,
+  getCreativeAssetState,
   type BreakdownRow,
   type ChartMetric,
 } from "@/components/creatives/creative-ad-breakdown-support";
@@ -25,9 +27,17 @@ export function CreativeDrawerHeader({
   assetFallbacks: (string | null)[];
   onClose: () => void;
 }) {
-  const formatLabel =
-    creative?.isCatalog ? "Catalog" :
-    creative?.format === "video" ? "Video" : "Image";
+  const formatLabel = creative
+    ? getCreativeFormatSummaryLabel({
+        creative_delivery_type: creative.creativeDeliveryType,
+        creative_visual_format: creative.creativeVisualFormat,
+        creative_primary_type: creative.creativePrimaryType,
+        creative_primary_label: creative.creativePrimaryLabel,
+        creative_secondary_type: creative.creativeSecondaryType,
+        creative_secondary_label: creative.creativeSecondaryLabel,
+        taxonomy_source: creative.taxonomySource ?? null,
+      })
+    : null;
 
   return (
     <header className="shrink-0 border-b bg-muted/30">
@@ -59,6 +69,7 @@ export function CreativeDrawerHeader({
               preview={creative.preview}
               size="card"
               mode="asset"
+              assetState={getCreativeAssetState(creative)}
               assetFallbacks={assetFallbacks}
               className="h-full w-full object-cover"
             />
@@ -77,9 +88,11 @@ export function CreativeDrawerHeader({
             <span className="inline-flex items-center rounded-md bg-blue-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400">
               Meta
             </span>
-            <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-              {formatLabel}
-            </span>
+            {formatLabel ? (
+              <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                {formatLabel}
+              </span>
+            ) : null}
             <span className="text-[11px] text-muted-foreground">
               {associatedAdsCount} {associatedAdsCount === 1 ? "ad" : "ads"} using this creative
             </span>

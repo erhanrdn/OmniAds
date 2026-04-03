@@ -6,6 +6,8 @@ import { createPortal } from "react-dom";
 import { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
 import { resolveCreativeCurrency } from "@/components/creatives/money";
+import { getCreativeFormatSummaryLabel } from "@/lib/meta/creative-taxonomy";
+import { getCreativeStaticPreviewSources, getCreativeStaticPreviewState } from "@/lib/meta/creatives-preview";
 import {
   applyCreativeFilters,
   buildMonthGrid,
@@ -96,6 +98,7 @@ interface CreativeMetricContext {
 }
 
 interface CreativesTopSectionProps {
+  businessId?: string;
   showHeader?: boolean;
   showGroupByControl?: boolean;
   dateRange: CreativeDateRangeValue;
@@ -144,6 +147,40 @@ const GROUP_BY_OPTIONS: Array<{ value: CreativeGroupBy; label: string }> = [
   { value: "adSet", label: "Ad Set" },
   { value: "landingPage", label: "Landing Page" },
 ];
+
+function PreviewStripMediaSurface({
+  row,
+  assetState,
+  assetFallbacks,
+  assetUpgradeSources,
+  shouldUnlockPreview,
+  onAdvance,
+}: {
+  row: MetaCreativeRow;
+  assetState: "ready" | "pending" | "missing";
+  assetFallbacks: Array<string | null>;
+  assetUpgradeSources: Array<string | null>;
+  shouldUnlockPreview: boolean;
+  onAdvance: () => void;
+}) {
+  return shouldUnlockPreview ? (
+    <CreativeRenderSurface
+      id={row.id}
+      name={row.name}
+      preview={row.preview}
+      size="card"
+      mode="asset"
+      assetState={assetState}
+      assetFallbacks={assetFallbacks}
+      assetUpgradeSources={assetUpgradeSources}
+      pendingLabel="Waiting for Meta"
+      className="aspect-square w-full"
+      onAssetSettled={onAdvance}
+    />
+  ) : (
+    <div className="h-full w-full animate-pulse bg-gradient-to-br from-slate-100 to-slate-200" />
+  );
+}
 
 const FILTER_TREE: Array<{ label: string; children: Array<{ label: string; value: CreativeFilterField }> }> = [
   {
@@ -201,7 +238,6 @@ const PRESET_OPTIONS: Array<{ value: CreativeDatePreset; label: string }> = [
 ];
 
 const METRIC_COLOR_TOKENS = ["bg-blue-100 text-blue-700", "bg-emerald-100 text-emerald-700", "bg-amber-100 text-amber-700", "bg-rose-100 text-rose-700", "bg-cyan-100 text-cyan-700", "bg-indigo-100 text-indigo-700"];
-let topRowPropLogCount = 0;
 
 const METRIC_DEFS: CreativeMetricDefinition[] = [
   { id: "spend", label: "Spend", direction: "neutral", format: fmtCurrency, getValue: (r) => r.spend },
@@ -322,6 +358,7 @@ export function getCreativeMetricDefinition(id: string): CreativeMetricDefinitio
 }
 
 export function CreativesTopSection({
+  businessId,
   showHeader = true,
   showGroupByControl = true,
   dateRange,
@@ -466,6 +503,7 @@ export function CreativesTopSection({
         </div>
 
         <PreviewStrip
+          businessId={businessId}
           rows={topRows}
           metrics={metricDefs}
           allRowsForHeatmap={allRowsForHeatmap}
@@ -1039,6 +1077,7 @@ function MetricSelectorBar({ selectedMetricIds, onChange }: { selectedMetricIds:
 }
 
 function PreviewStrip({
+  businessId,
   rows,
   metrics,
   allRowsForHeatmap,
@@ -1049,6 +1088,7 @@ function PreviewStrip({
   previewStripState = "ready",
   previewStripSummary,
 }: {
+  businessId?: string;
   rows: MetaCreativeRow[];
   metrics: CreativeMetricDefinition[];
   allRowsForHeatmap: MetaCreativeRow[];
@@ -1157,40 +1197,20 @@ function PreviewStrip({
     <div className="overflow-x-auto pb-1">
       <div className="flex min-w-max gap-3">
         {rows.map((row, index) => {
-          const assetFallbacks = [
-            row.tableThumbnailUrl ?? null,
-            row.cachedThumbnailUrl ?? null,
-            row.thumbnailUrl ?? null,
-            row.imageUrl ?? null,
-            row.preview?.image_url ?? null,
-            row.preview?.poster_url ?? null,
-            row.previewUrl ?? null,
-            row.cardPreviewUrl ?? null,
-          ];
-          const assetUpgradeSources = [
-            row.cardPreviewUrl ?? null,
-            row.imageUrl ?? null,
-            row.preview?.image_url ?? null,
-            row.preview?.poster_url ?? null,
-            row.previewUrl ?? null,
-          ];
-          if (process.env.NODE_ENV !== "production" && topRowPropLogCount < 20) {
-            topRowPropLogCount += 1;
-            console.log("[motion-top][row-props]", {
-              id: row.id,
-              name: row.name,
-              cardPreviewUrl: row.cardPreviewUrl ?? null,
-              tableThumbnailUrl: row.tableThumbnailUrl ?? null,
-              imageUrl: row.imageUrl ?? null,
-              previewUrl: row.previewUrl ?? null,
-              preview_image_url: row.preview?.image_url ?? null,
-              preview_poster_url: row.preview?.poster_url ?? null,
-              preview_render_mode: row.preview?.render_mode ?? null,
-              assetFallbacks,
-            });
-          }
+          const assetFallbacks = getCreativeStaticPreviewSources(row, "grid");
+          const assetUpgradeSources = assetFallbacks;
+          const assetState = getCreativeStaticPreviewState(row, "grid");
           const resolvedRowCurrency = resolveCreativeCurrency(row.currency, defaultCurrency);
           const shouldUnlockPreview = previewMode !== "media" || index < unlockedPreviewCount;
+          const creativeTypeLabel = getCreativeFormatSummaryLabel({
+            creative_delivery_type: row.creativeDeliveryType,
+            creative_visual_format: row.creativeVisualFormat,
+            creative_primary_type: row.creativePrimaryType,
+            creative_primary_label: row.creativePrimaryLabel,
+            creative_secondary_type: row.creativeSecondaryType,
+            creative_secondary_label: row.creativeSecondaryLabel,
+            taxonomy_source: row.taxonomySource ?? null,
+          });
           return (
             <button
               key={row.id}
@@ -1209,25 +1229,23 @@ function PreviewStrip({
                 </div>
               ) : (
                 <div className="relative aspect-square w-full overflow-hidden bg-muted/20">
-                  {shouldUnlockPreview ? (
-                    <CreativeRenderSurface
-                      id={row.id}
-                      name={row.name}
-                      preview={row.preview}
-                      size="card"
-                      mode="asset"
-                      assetFallbacks={assetFallbacks}
-                      assetUpgradeSources={assetUpgradeSources}
-                      className="aspect-square w-full"
-                      onAssetSettled={() =>
-                        setUnlockedPreviewCount((prev) =>
-                          prev >= rows.length ? prev : Math.max(prev, index + 2)
-                        )
-                      }
-                    />
-                  ) : (
-                    <div className="h-full w-full animate-pulse bg-gradient-to-br from-slate-100 to-slate-200" />
-                  )}
+                  <PreviewStripMediaSurface
+                    row={row}
+                    assetState={assetState}
+                    assetFallbacks={assetFallbacks}
+                    assetUpgradeSources={assetUpgradeSources}
+                    shouldUnlockPreview={shouldUnlockPreview}
+                    onAdvance={() =>
+                      setUnlockedPreviewCount((prev) =>
+                        prev >= rows.length ? prev : Math.max(prev, index + 2)
+                      )
+                    }
+                  />
+                  {creativeTypeLabel ? (
+                    <span className="pointer-events-none absolute bottom-2 left-2 rounded-full bg-black/65 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
+                      {creativeTypeLabel}
+                    </span>
+                  ) : null}
                 </div>
               )}
 

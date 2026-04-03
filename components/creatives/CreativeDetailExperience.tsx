@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Sparkles, X } from "lucide-react";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
@@ -22,6 +22,7 @@ import {
   type AiCreativeHistoricalWindows,
   type CreativeRuleReportPayload,
 } from "@/src/services";
+import { getCreativeDisplayPills } from "@/lib/meta/creative-taxonomy";
 import { getTranslations } from "@/lib/i18n";
 import { usePreferencesStore } from "@/store/preferences-store";
 
@@ -39,7 +40,163 @@ interface CreativeDetailExperienceProps {
   onDateRangeChange: (next: CreativeDateRangeValue) => void;
 }
 
-type StageSource = "html" | "image";
+const LIVE_PREVIEW_MIN_WIDTH = 420;
+const LIVE_PREVIEW_MIN_HEIGHT = 720;
+const LIVE_PREVIEW_DEFAULT_WIDTH = 680;
+const LIVE_PREVIEW_DEFAULT_HEIGHT = 1200;
+const LIVE_PREVIEW_STAGE_MAX_WIDTH = 980;
+
+function buildLivePreviewSrcDoc(html: string | null): string | null {
+  if (!html) return null;
+  const injectedStyles = `
+    <style>
+      html, body {
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: hidden !important;
+        background: transparent !important;
+        width: max-content !important;
+        height: max-content !important;
+      }
+      body {
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+      }
+      body > * {
+        flex-shrink: 0;
+      }
+      * {
+        scrollbar-width: none !important;
+      }
+      *::-webkit-scrollbar {
+        width: 0 !important;
+        height: 0 !important;
+        display: none !important;
+      }
+      iframe, video, img, canvas, svg {
+        max-width: 100% !important;
+      }
+      [style*="overflow: scroll"],
+      [style*="overflow:scroll"],
+      [style*="overflow-y: scroll"],
+      [style*="overflow-y:scroll"],
+      [style*="overflow: auto"],
+      [style*="overflow:auto"],
+      [style*="overflow-y: auto"],
+      [style*="overflow-y:auto"] {
+        overflow: visible !important;
+        overflow-y: visible !important;
+        max-height: none !important;
+        height: auto !important;
+      }
+    </style>
+    <script>
+      (() => {
+        let processed = new WeakSet();
+
+        const forceStyle = (node, property, value) => {
+          if (!(node instanceof HTMLElement)) return;
+          node.style.setProperty(property, value, "important");
+        };
+
+        const expandNode = (node) => {
+          if (!(node instanceof HTMLElement)) return;
+          processed.add(node);
+
+          forceStyle(node, "scrollbar-width", "none");
+          forceStyle(node, "overflow", "visible");
+          forceStyle(node, "overflow-y", "visible");
+          forceStyle(node, "overflow-x", "visible");
+          forceStyle(node, "max-height", "none");
+          forceStyle(node, "height", "auto");
+          forceStyle(node, "max-width", "none");
+          forceStyle(node, "width", "auto");
+          if (node.scrollHeight > node.clientHeight + 4) {
+            forceStyle(node, "min-height", node.scrollHeight + "px");
+          }
+          if (node.scrollWidth > node.clientWidth + 4) {
+            forceStyle(node, "min-width", node.scrollWidth + "px");
+          }
+        };
+
+        const normalize = () => {
+          const root = document.documentElement;
+          const body = document.body;
+          if (!root || !body) return;
+
+          forceStyle(root, "overflow", "visible");
+          forceStyle(root, "overflow-y", "visible");
+          forceStyle(root, "overflow-x", "visible");
+          forceStyle(root, "max-height", "none");
+          forceStyle(root, "scrollbar-width", "none");
+          forceStyle(body, "overflow", "visible");
+          forceStyle(body, "overflow-y", "visible");
+          forceStyle(body, "overflow-x", "visible");
+          forceStyle(body, "max-height", "none");
+          forceStyle(body, "scrollbar-width", "none");
+
+          const nodes = body.querySelectorAll("*");
+          for (const node of nodes) {
+            if (!(node instanceof HTMLElement)) continue;
+            const computed = window.getComputedStyle(node);
+            const isScrollableY =
+              (computed.overflowY === "auto" || computed.overflowY === "scroll" || computed.overflow === "auto" || computed.overflow === "scroll") &&
+              node.scrollHeight > node.clientHeight + 4;
+            const isScrollableX =
+              (computed.overflowX === "auto" || computed.overflowX === "scroll" || computed.overflow === "auto" || computed.overflow === "scroll") &&
+              node.scrollWidth > node.clientWidth + 4;
+
+            if (isScrollableY || isScrollableX || processed.has(node)) {
+              expandNode(node);
+            }
+          }
+        };
+
+        const run = () => {
+          normalize();
+          requestAnimationFrame(normalize);
+          window.setTimeout(normalize, 60);
+          window.setTimeout(normalize, 220);
+          window.setTimeout(normalize, 600);
+        };
+
+        const observer = new MutationObserver(() => {
+          processed = new WeakSet();
+          run();
+        });
+
+        const intervalId = window.setInterval(() => {
+          run();
+        }, 800);
+
+        if (document.readyState === "complete") {
+          run();
+        } else {
+          window.addEventListener("load", run, { once: true });
+        }
+
+        observer.observe(document.documentElement, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          attributeFilter: ["style", "class"],
+        });
+
+        window.addEventListener("beforeunload", () => {
+          observer.disconnect();
+          window.clearInterval(intervalId);
+        });
+      })();
+    </script>
+  `;
+
+  if (html.includes("</head>")) {
+    return html.replace("</head>", `${injectedStyles}</head>`);
+  }
+
+  return `${injectedStyles}${html}`;
+}
 
 export function CreativeDetailExperience({
   businessId,
@@ -56,10 +213,14 @@ export function CreativeDetailExperience({
 }: CreativeDetailExperienceProps) {
   const language = usePreferencesStore((state) => state.language);
   const creativeTranslations = getTranslations(language).creativeDetail;
-  const [source, setSource] = useState<StageSource>("html");
-  const [detailPreviewHtml, setDetailPreviewHtml] = useState<string | null>(null);
-  const [detailPreviewLoading, setDetailPreviewLoading] = useState(false);
   const [aiInterpretationRequested, setAiInterpretationRequested] = useState(false);
+  const livePreviewStageRef = useRef<HTMLDivElement | null>(null);
+  const livePreviewFrameRef = useRef<HTMLIFrameElement | null>(null);
+  const [livePreviewScale, setLivePreviewScale] = useState(1);
+  const [livePreviewContentSize, setLivePreviewContentSize] = useState({
+    width: LIVE_PREVIEW_DEFAULT_WIDTH,
+    height: LIVE_PREVIEW_DEFAULT_HEIGHT,
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -74,44 +235,58 @@ export function CreativeDetailExperience({
     };
   }, [onOpenChange, open]);
 
+  const imageUrl = row ? resolveDetailImageUrl(row) : null;
+  const canRequestHtml = Boolean(
+    row?.creativeId && (row.previewManifest?.live_html_available ?? true)
+  );
+
   useEffect(() => {
-    setDetailPreviewHtml(null);
-    setDetailPreviewLoading(false);
-    setSource("html");
     setAiInterpretationRequested(false);
   }, [row?.id]);
 
-  useEffect(() => {
-    if (!open || !row?.creativeId || !businessId) return;
-    let cancelled = false;
-    setDetailPreviewLoading(true);
+  const shouldFetchHtmlPreview =
+    open &&
+    Boolean(businessId) &&
+    Boolean(row?.creativeId) &&
+    canRequestHtml;
 
-    fetchMetaCreativeDetailPreview({
-      businessId,
-      creativeId: row.creativeId,
-    })
-      .then((payload) => {
-        if (cancelled) return;
-        const detail = payload.detail_preview;
-        const html = typeof detail?.html === "string" && detail.html.trim().length > 0 ? detail.html : null;
-        setDetailPreviewHtml(html);
-      })
-      .catch(() => {
-        if (!cancelled) setDetailPreviewHtml(null);
-      })
-      .finally(() => {
-        if (!cancelled) setDetailPreviewLoading(false);
+  const detailPreviewQuery = useQuery({
+    queryKey: ["creative-detail-preview", businessId, row?.creativeId ?? ""],
+    enabled: shouldFetchHtmlPreview,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    retry: 1,
+    queryFn: async () => {
+      if (!row?.creativeId) return null;
+      const payload = await fetchMetaCreativeDetailPreview({
+        businessId,
+        creativeId: row.creativeId,
       });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [businessId, open, row?.creativeId]);
+      const detail = payload.detail_preview;
+      return typeof detail?.html === "string" && detail.html.trim().length > 0 ? detail.html : null;
+    },
+  });
 
   const currency = resolveCreativeCurrency(row?.currency ?? null, defaultCurrency);
-  const imageUrl = row ? resolveDetailImageUrl(row) : null;
+  const detailPreviewHtml = detailPreviewQuery.data ?? null;
+  const detailPreviewLoading = detailPreviewQuery.isFetching;
   const canShowHtml = Boolean(detailPreviewHtml);
-  const resolvedSource: StageSource = canShowHtml && source === "html" ? "html" : "image";
+  const livePreviewSrcDoc = useMemo(
+    () => buildLivePreviewSrcDoc(detailPreviewHtml),
+    [detailPreviewHtml]
+  );
+  const taxonomyPills = row
+      ? getCreativeDisplayPills({
+          creative_delivery_type: row.creativeDeliveryType,
+          creative_visual_format: row.creativeVisualFormat,
+          creative_primary_type: row.creativePrimaryType,
+          creative_primary_label: row.creativePrimaryLabel,
+          creative_secondary_type: row.creativeSecondaryType,
+          creative_secondary_label: row.creativeSecondaryLabel,
+          taxonomy_source: row.taxonomySource ?? null,
+        })
+    : { primaryLabel: null, secondaryLabel: null };
 
   const context = useMemo(() => (row ? buildCreativeDecisionContext(row, allRows) : null), [allRows, row]);
   const report = useMemo(
@@ -143,6 +318,121 @@ export function CreativeDetailExperience({
       return getAiCreativeRuleCommentary(businessId, currency ?? defaultCurrency ?? "USD", report);
     },
   });
+
+  useEffect(() => {
+    const node = livePreviewStageRef.current;
+    if (!node) return;
+
+    const updateScale = () => {
+      const bounds = node.getBoundingClientRect();
+      if (bounds.width <= 0 || bounds.height <= 0) {
+        setLivePreviewScale(1);
+        return;
+      }
+
+      const widthScale = bounds.width / livePreviewContentSize.width;
+      const heightScale = bounds.height / livePreviewContentSize.height;
+      const nextScale = Math.min(widthScale, heightScale, 1);
+      setLivePreviewScale(Number.isFinite(nextScale) && nextScale > 0 ? nextScale : 1);
+    };
+
+    updateScale();
+
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => updateScale());
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [
+    canShowHtml,
+    detailPreviewLoading,
+    imageUrl,
+    livePreviewContentSize.height,
+    livePreviewContentSize.width,
+    open,
+    row?.id,
+  ]);
+
+  useEffect(() => {
+    if (!canShowHtml) {
+      setLivePreviewContentSize({
+        width: LIVE_PREVIEW_DEFAULT_WIDTH,
+        height: LIVE_PREVIEW_DEFAULT_HEIGHT,
+      });
+      return;
+    }
+
+    const iframe = livePreviewFrameRef.current;
+    if (!iframe) return;
+
+    let frameObserver: ResizeObserver | null = null;
+    let animationFrameId = 0;
+
+    const updateFromFrame = () => {
+      const frameDocument = iframe.contentDocument;
+      const html = frameDocument?.documentElement ?? null;
+      const body = frameDocument?.body ?? null;
+      if (!html || !body) return;
+
+      const nextWidth = Math.max(
+        LIVE_PREVIEW_MIN_WIDTH,
+        html.scrollWidth,
+        body.scrollWidth,
+        html.offsetWidth,
+        body.offsetWidth
+      );
+      const nextHeight = Math.max(
+        LIVE_PREVIEW_MIN_HEIGHT,
+        html.scrollHeight,
+        body.scrollHeight,
+        html.offsetHeight,
+        body.offsetHeight
+      );
+
+      html.style.width = `${nextWidth}px`;
+      html.style.height = `${nextHeight}px`;
+      html.style.overflow = "hidden";
+      html.style.overflowY = "hidden";
+      body.style.width = `${nextWidth}px`;
+      body.style.height = `${nextHeight}px`;
+      body.style.overflow = "hidden";
+      body.style.overflowY = "hidden";
+
+      setLivePreviewContentSize((current) => {
+        if (current.width === nextWidth && current.height === nextHeight) {
+          return current;
+        }
+        return { width: nextWidth, height: nextHeight };
+      });
+    };
+
+    const scheduleUpdate = () => {
+      cancelAnimationFrame(animationFrameId);
+      animationFrameId = requestAnimationFrame(updateFromFrame);
+    };
+
+    const handleLoad = () => {
+      scheduleUpdate();
+      const frameDocument = iframe.contentDocument;
+      const html = frameDocument?.documentElement ?? null;
+      const body = frameDocument?.body ?? null;
+      if (typeof ResizeObserver === "undefined" || !html || !body) return;
+      frameObserver?.disconnect();
+      frameObserver = new ResizeObserver(() => scheduleUpdate());
+      frameObserver.observe(html);
+      frameObserver.observe(body);
+    };
+
+    if (iframe.contentDocument?.readyState === "complete") {
+      handleLoad();
+    }
+
+    iframe.addEventListener("load", handleLoad);
+    return () => {
+      iframe.removeEventListener("load", handleLoad);
+      frameObserver?.disconnect();
+      cancelAnimationFrame(animationFrameId);
+    };
+  }, [canShowHtml, livePreviewSrcDoc]);
 
   if (!open || !row || !report || !decision) return null;
 
@@ -177,64 +467,61 @@ export function CreativeDetailExperience({
           </div>
         </header>
 
-        <main className="grid h-[calc(100%-64px)] grid-cols-1 lg:grid-cols-[1.35fr_minmax(360px,520px)]">
-          <section className="min-h-0 overflow-y-auto px-4 py-4 md:px-6 md:py-6">
-            <div className="mx-auto max-w-[1100px]">
-              <div className="rounded-2xl border border-slate-200 bg-white shadow-[0_12px_30px_rgba(15,23,42,0.08)]">
+        <main className="grid h-[calc(100%-64px)] grid-cols-1 lg:grid-cols-[minmax(0,1.7fr)_minmax(340px,460px)]">
+          <section className="min-h-0 overflow-hidden px-3 py-3 md:px-4 md:py-4">
+            <div className="mx-auto flex h-full w-full max-w-[1320px] flex-col">
+              <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-slate-200 bg-white shadow-[0_12px_30px_rgba(15,23,42,0.08)]">
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
-                  <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1">
-                    <button
-                      type="button"
-                      onClick={() => setSource("html")}
-                      disabled={!canShowHtml}
-                      className={cn(
-                        "rounded-md px-3 py-1.5 text-xs font-medium",
-                        resolvedSource === "html" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900",
-                        !canShowHtml && "cursor-not-allowed opacity-50"
-                      )}
-                    >
-                      Live preview
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSource("image")}
-                      className={cn(
-                        "rounded-md px-3 py-1.5 text-xs font-medium",
-                        resolvedSource === "image" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
-                      )}
-                    >
-                      Creative media
-                    </button>
-                  </div>
-
                   <div className="flex flex-wrap gap-1.5">
-                    <Pill value={row.creativeTypeLabel} />
-                    <Pill value={row.format === "video" ? "Video" : row.format === "catalog" ? "Catalog" : "Image"} />
+                    {taxonomyPills.primaryLabel ? <Pill value={taxonomyPills.primaryLabel} /> : null}
+                    {taxonomyPills.secondaryLabel ? <Pill value={taxonomyPills.secondaryLabel} /> : null}
                     {row.launchDate ? <Pill value={`Launched ${row.launchDate}`} /> : null}
                   </div>
                 </div>
 
-                <div className="bg-[radial-gradient(circle_at_top,_#ffffff_0%,_#eef3f8_72%,_#e7edf5_100%)] p-3 md:p-5">
-                  <div className="flex min-h-[560px] items-center justify-center rounded-2xl border border-slate-200 bg-[#eef2f7] p-3">
-                    {resolvedSource === "html" && detailPreviewHtml ? (
-                      <iframe
-                        title={`${row.name} live preview`}
-                        srcDoc={detailPreviewHtml}
-                        className="h-[78vh] w-full rounded-xl bg-white"
-                        style={{ maxWidth: 860 }}
-                        sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
-                      />
-                    ) : resolvedSource === "html" && detailPreviewLoading ? (
-                      <p className="text-sm text-slate-600">Loading live preview...</p>
+                <div className="min-h-0 flex-1 bg-[radial-gradient(circle_at_top,_#ffffff_0%,_#eef3f8_72%,_#e7edf5_100%)] px-2 py-2 md:px-3 md:py-3">
+                  <div className="flex h-full min-h-[560px] items-center justify-center px-2 py-4 md:min-h-[640px] md:px-4">
+                    <div
+                      ref={livePreviewStageRef}
+                      className="relative flex h-full max-h-full min-h-0 w-full items-center justify-center overflow-hidden"
+                      style={{ maxWidth: LIVE_PREVIEW_STAGE_MAX_WIDTH }}
+                    >
+                    {canShowHtml ? (
+                      <div
+                        className="shrink-0"
+                        style={{
+                          width: livePreviewContentSize.width,
+                          height: livePreviewContentSize.height,
+                          transform: `scale(${livePreviewScale})`,
+                          transformOrigin: "center center",
+                        }}
+                      >
+                        <iframe
+                          ref={livePreviewFrameRef}
+                          title={`${row.name} live preview`}
+                          srcDoc={livePreviewSrcDoc ?? undefined}
+                          scrolling="no"
+                          className="h-full w-full bg-transparent"
+                          style={{ border: 0 }}
+                          sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+                        />
+                      </div>
+                    ) : canRequestHtml && detailPreviewLoading ? (
+                      <div className="flex flex-col items-center justify-center gap-3 text-slate-500">
+                        <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-300 border-t-slate-600" aria-hidden="true" />
+                        <p className="text-sm font-medium">Loading live preview...</p>
+                      </div>
                     ) : imageUrl ? (
-                      <div className="relative flex max-h-[78vh] w-full max-w-[860px] items-center justify-center overflow-hidden rounded-2xl border border-slate-300 bg-[#0b1020] p-2 shadow-[0_28px_80px_rgba(2,6,23,0.38)]">
-                        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(148,163,184,0.22),rgba(15,23,42,0.08)_55%,rgba(2,6,23,0.9)_100%)]" />
+                      <div className="relative flex max-h-[78vh] w-full max-w-[860px] items-center justify-center overflow-hidden p-2">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img src={imageUrl} alt={row.name} className="relative z-[1] block max-h-[74vh] w-auto max-w-full object-contain" />
                       </div>
+                    ) : canRequestHtml ? (
+                      <p className="text-sm text-slate-600">Live preview unavailable.</p>
                     ) : (
                       <p className="text-sm text-slate-600">No preview available.</p>
                     )}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -958,6 +1245,8 @@ function buildDecisionFromRuleReport(report: CreativeRuleReportPayload): AiCreat
 
 function resolveDetailImageUrl(row: MetaCreativeRow): string | null {
   const candidates = [
+    row.previewManifest?.detail_image_src ?? null,
+    row.previewManifest?.card_src ?? null,
     row.imageUrl,
     row.preview?.image_url,
     row.preview?.poster_url,
