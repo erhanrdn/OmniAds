@@ -33,20 +33,14 @@ async function main() {
         FROM meta_sync_partitions
         WHERE lease_epoch IS NULL
       ),
-      'metaSyncCheckpointsLeaseEpochNullCountEstimate',
+      'metaSyncCheckpointsLeaseEpochNullRowsPresent',
       (
-        SELECT CASE
-          WHEN stats.null_frac IS NULL
-            THEN NULL
-          ELSE GREATEST(0, FLOOR(class.reltuples * stats.null_frac))::bigint
-        END
-        FROM pg_class class
-        LEFT JOIN pg_stats stats
-          ON stats.schemaname = 'public'
-         AND stats.tablename = 'meta_sync_checkpoints'
-         AND stats.attname = 'lease_epoch'
-        WHERE class.oid = 'meta_sync_checkpoints'::regclass
-        LIMIT 1
+        SELECT EXISTS (
+          SELECT 1
+          FROM meta_sync_checkpoints
+          WHERE lease_epoch IS NULL
+          LIMIT 1
+        )
       )
     ) AS summary
   `) as Array<{ summary: unknown }>;
