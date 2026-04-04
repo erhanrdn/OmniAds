@@ -407,6 +407,8 @@ async function main() {
           COALESCE(checkpoint.lease_epoch, 0) AS checkpoint_lease_epoch,
           COALESCE(partition.lease_epoch, 0) AS partition_lease_epoch
         FROM google_ads_sync_checkpoints checkpoint
+        JOIN google_ads_sync_partitions partition
+          ON partition.id = checkpoint.partition_id
         WHERE checkpoint.partition_id = run.partition_id
         ORDER BY checkpoint.updated_at DESC
         LIMIT 1
