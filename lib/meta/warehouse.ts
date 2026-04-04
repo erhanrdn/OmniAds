@@ -1647,6 +1647,18 @@ export async function createMetaSyncRun(input: MetaSyncRunRecord) {
       ${input.finishedAt ?? null},
       now()
     )
+    ON CONFLICT (partition_id)
+      WHERE status = 'running'
+    DO UPDATE SET
+      business_id = EXCLUDED.business_id,
+      provider_account_id = EXCLUDED.provider_account_id,
+      lane = EXCLUDED.lane,
+      scope = EXCLUDED.scope,
+      partition_date = EXCLUDED.partition_date,
+      worker_id = EXCLUDED.worker_id,
+      attempt_count = GREATEST(meta_sync_runs.attempt_count, EXCLUDED.attempt_count),
+      meta_json = EXCLUDED.meta_json,
+      updated_at = now()
     RETURNING id
   ` as Array<{ id: string }>;
   return rows[0]?.id ?? null;

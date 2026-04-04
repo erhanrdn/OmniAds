@@ -18,6 +18,7 @@ const {
   cleanupMetaPartitionOrchestration,
   completeMetaPartition,
   completeMetaPartitionAttempt,
+  createMetaSyncRun,
   leaseMetaSyncPartitions,
   markMetaPartitionRunning,
   replayMetaDeadLetterPartitions,
@@ -658,5 +659,37 @@ describe("meta warehouse ownership safety", () => {
     expect(queries.some((query) => query.includes("partition_already_dead_letter"))).toBe(true);
     expect(queries.some((query) => query.includes("THEN 'succeeded'"))).toBe(true);
     expect(queries.some((query) => query.includes("THEN 'cancelled'"))).toBe(true);
+  });
+
+  it("reuses the existing running row when concurrent run creation conflicts on partition_id", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      queries.push(strings.join(" "));
+      if (queries.length === 1) return [];
+      return [{ id: "existing-running-run-id" }];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const runId = await createMetaSyncRun({
+      partitionId: "partition-dup",
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      lane: "core",
+      scope: "account_daily",
+      partitionDate: "2026-04-04",
+      status: "running",
+      workerId: "worker-1",
+      attemptCount: 2,
+      metaJson: { source: "test" },
+    });
+
+    expect(runId).toBe("existing-running-run-id");
+    expect(queries[0]).toContain("UPDATE meta_sync_runs");
+    expect(queries[0]).toContain("status = 'running'");
+    expect(queries[1]).toContain("ON CONFLICT (partition_id)");
+    expect(queries[1]).toContain("WHERE status = 'running'");
+    expect(queries[1]).toContain(
+      "attempt_count = GREATEST(meta_sync_runs.attempt_count, EXCLUDED.attempt_count)"
+    );
   });
 });

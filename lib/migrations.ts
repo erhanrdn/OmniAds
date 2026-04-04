@@ -782,6 +782,9 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_runs_partition ON meta_sync_runs (partition_id, created_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_runs_business ON meta_sync_runs (business_id, created_at DESC)`.catch(() => {}),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_meta_sync_runs_one_running_per_partition
+          ON meta_sync_runs (partition_id)
+          WHERE status = 'running'`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS meta_sync_checkpoints (
           id                        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           partition_id              UUID NOT NULL REFERENCES meta_sync_partitions(id) ON DELETE CASCADE,
