@@ -10,6 +10,7 @@ import {
   getGoogleAdsHistoricalFairnessLeaseLimit,
   getGoogleAdsGapPlannerBlockingStatuses,
   buildGoogleAdsWarehouseFetchPlan,
+  classifyGoogleAdsQueuedCampaignDailyPartition,
   evaluateGoogleAdsWorkerSchedulingState,
   getGoogleAdsScopeCheckpointChunkSize,
   logGoogleAdsLeaseStepResult,
@@ -279,6 +280,68 @@ describe("Google Ads lease step telemetry", () => {
         }),
       }),
     );
+  });
+});
+
+describe("Google Ads leaseable backlog classification", () => {
+  it("classifies future retry rows as retry_cooldown", () => {
+    expect(
+      classifyGoogleAdsQueuedCampaignDailyPartition({
+        row: {
+          lane: "maintenance",
+          partitionDate: "2026-01-10",
+          nextRetryAt: "2026-04-06T00:00:00.000Z",
+        },
+        frontierStart: "2026-01-04",
+        suspendMaintenance: true,
+        now: new Date("2026-04-05T00:00:00.000Z"),
+      }),
+    ).toBe("retry_cooldown");
+  });
+
+  it("classifies stale core rows before the frontier as outside_frontier", () => {
+    expect(
+      classifyGoogleAdsQueuedCampaignDailyPartition({
+        row: {
+          lane: "core",
+          partitionDate: "2026-01-01",
+          nextRetryAt: null,
+        },
+        frontierStart: "2026-01-04",
+        suspendMaintenance: false,
+        now: new Date("2026-04-05T00:00:00.000Z"),
+      }),
+    ).toBe("outside_frontier");
+  });
+
+  it("classifies queued maintenance rows under suspension as suspended_maintenance", () => {
+    expect(
+      classifyGoogleAdsQueuedCampaignDailyPartition({
+        row: {
+          lane: "maintenance",
+          partitionDate: "2026-04-03",
+          nextRetryAt: null,
+        },
+        frontierStart: "2026-01-04",
+        suspendMaintenance: true,
+        now: new Date("2026-04-05T00:00:00.000Z"),
+      }),
+    ).toBe("suspended_maintenance");
+  });
+
+  it("classifies in-frontier core rows without cooldown as leaseable_now", () => {
+    expect(
+      classifyGoogleAdsQueuedCampaignDailyPartition({
+        row: {
+          lane: "core",
+          partitionDate: "2026-01-04",
+          nextRetryAt: null,
+        },
+        frontierStart: "2026-01-04",
+        suspendMaintenance: false,
+        now: new Date("2026-04-05T00:00:00.000Z"),
+      }),
+    ).toBe("leaseable_now");
   });
 });
 

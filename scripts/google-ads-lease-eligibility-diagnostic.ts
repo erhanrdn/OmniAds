@@ -1,5 +1,7 @@
 import { getDb } from "@/lib/db";
 import {
+  classifyGoogleAdsQueuedCampaignDailyPartition,
+  decideGoogleAdsHistoricalFrontier,
   getGoogleAdsFullSyncPriorityState,
   getGoogleAdsIncidentPolicy,
   getGoogleAdsRecent90CompletionState,
@@ -7,6 +9,29 @@ import {
 } from "@/lib/sync/google-ads-sync";
 import { getGoogleAdsQueueHealth } from "@/lib/google-ads/warehouse";
 import { configureOperationalScriptRuntime } from "./_operational-runtime";
+
+function toIso(value: unknown) {
+  if (!value) return null;
+  if (value instanceof Date) return value.toISOString();
+  const text = String(value).trim();
+  const parsed = new Date(text);
+  return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : text;
+}
+
+async function withStartupLogsSilenced<T>(callback: () => Promise<T>) {
+  const originalInfo = console.info;
+  console.info = (...args: unknown[]) => {
+    if (typeof args[0] === "string" && args[0].startsWith("[startup]")) {
+      return;
+    }
+    originalInfo(...args);
+  };
+  try {
+    return await callback();
+  } finally {
+    console.info = originalInfo;
+  }
+}
 
 async function main() {
   configureOperationalScriptRuntime();
@@ -18,9 +43,15 @@ async function main() {
     process.exit(1);
   }
 
-  const sql = getDb();
-  const [queuedRows, queueHealth, fullSyncPriority, recent90State, workerState] =
-    await Promise.all([
+  await withStartupLogsSilenced(async () => {
+    const sql = getDb();
+    const [
+      queuedRowsResult,
+      queueHealth,
+      fullSyncPriority,
+      recent90State,
+      workerState,
+    ] = await Promise.all([
       sql.query(
         `
           SELECT
@@ -46,27 +77,92 @@ async function main() {
       getGoogleAdsRecent90CompletionState({ businessId }).catch(() => null),
       getGoogleAdsWorkerSchedulingState({ businessId }).catch(() => null),
     ]);
+    const queuedRows = queuedRowsResult as Array<Record<string, unknown>>;
 
-  const incidentPolicy = await getGoogleAdsIncidentPolicy({
-    businessId,
-    queueHealth,
-  }).catch(() => null);
+    const incidentPolicy = await getGoogleAdsIncidentPolicy({
+      businessId,
+      queueHealth,
+    }).catch(() => null);
+    const frontierStart =
+      fullSyncPriority?.historicalStart && recent90State?.recent90Start
+        ? decideGoogleAdsHistoricalFrontier({
+            historicalStart: fullSyncPriority.historicalStart,
+            recent90Start: recent90State.recent90Start,
+            recent90Complete: recent90State.complete,
+          })
+        : (fullSyncPriority?.historicalStart ?? null);
 
-  console.log(
-    JSON.stringify(
-      {
-        businessId,
-        queuedCampaignDailyRows: queuedRows,
-        queueHealth,
-        fullSyncPriority,
-        recent90State,
-        workerSchedulingState: workerState,
-        incidentPolicy,
-      },
-      null,
-      2,
-    ),
-  );
+    const classifiedRows = queuedRows.map((row: Record<string, unknown>) => {
+      const classification = classifyGoogleAdsQueuedCampaignDailyPartition({
+        row: {
+          lane: String(row.lane) as "core" | "maintenance" | "extended",
+          partitionDate: toIso(row.partition_date)?.slice(0, 10) ?? null,
+          nextRetryAt: toIso(row.next_retry_at),
+        },
+        frontierStart,
+        suspendMaintenance: Boolean(incidentPolicy?.suspendMaintenance),
+      });
+
+      return {
+        lane: String(row.lane),
+        source: String(row.source),
+        partitionDate: toIso(row.partition_date)?.slice(0, 10) ?? null,
+        priority: Number(row.priority ?? 0),
+        providerAccountId: String(row.provider_account_id),
+        attemptCount: Number(row.attempt_count ?? 0),
+        nextRetryAt: toIso(row.next_retry_at),
+        createdAt: toIso(row.created_at),
+        updatedAt: toIso(row.updated_at),
+        classification,
+      };
+    });
+
+    const summary = {
+      totalQueuedCampaignDaily: classifiedRows.length,
+      coreQueueDepth: classifiedRows.filter(
+        (row: (typeof classifiedRows)[number]) => row.lane === "core",
+      ).length,
+      maintenanceQueueDepth: classifiedRows.filter(
+        (row: (typeof classifiedRows)[number]) => row.lane === "maintenance",
+      ).length,
+      leaseable_now: classifiedRows.filter(
+        (row: (typeof classifiedRows)[number]) =>
+          row.classification === "leaseable_now",
+      ).length,
+      suspended_maintenance: classifiedRows.filter(
+        (row: (typeof classifiedRows)[number]) =>
+          row.classification === "suspended_maintenance",
+      ).length,
+      outside_frontier: classifiedRows.filter(
+        (row: (typeof classifiedRows)[number]) =>
+          row.classification === "outside_frontier",
+      ).length,
+      retry_cooldown: classifiedRows.filter(
+        (row: (typeof classifiedRows)[number]) =>
+          row.classification === "retry_cooldown",
+      ).length,
+    };
+
+    console.log(
+      JSON.stringify(
+        {
+          businessId,
+          frontierStart,
+          leaseableBacklogBreakdown: {
+            summary,
+            rows: classifiedRows,
+          },
+          queueHealth,
+          fullSyncPriority,
+          recent90State,
+          workerSchedulingState: workerState,
+          incidentPolicy,
+        },
+        null,
+        2,
+      ),
+    );
+  });
 }
 
 main().catch((error) => {

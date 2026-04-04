@@ -259,6 +259,45 @@ type GoogleAdsLeaseStepLog = {
 export function logGoogleAdsLeaseStepResult(input: GoogleAdsLeaseStepLog) {
   console.info("[google-ads-sync] google_ads_lease_step_result", input);
 }
+
+export type GoogleAdsLeaseableBacklogClassification =
+  | "leaseable_now"
+  | "suspended_maintenance"
+  | "outside_frontier"
+  | "retry_cooldown";
+
+export type GoogleAdsQueuedCampaignDailyPartition = {
+  lane: GoogleAdsSyncLane;
+  partitionDate: string | null;
+  nextRetryAt: string | null;
+};
+
+export function classifyGoogleAdsQueuedCampaignDailyPartition(input: {
+  row: GoogleAdsQueuedCampaignDailyPartition;
+  frontierStart: string | null;
+  suspendMaintenance: boolean;
+  now?: Date;
+}): GoogleAdsLeaseableBacklogClassification {
+  const nowIso = (input.now ?? new Date()).toISOString();
+  if (input.row.nextRetryAt && input.row.nextRetryAt > nowIso) {
+    return "retry_cooldown";
+  }
+
+  if (
+    input.row.lane === "core" &&
+    input.frontierStart &&
+    input.row.partitionDate &&
+    input.row.partitionDate < input.frontierStart
+  ) {
+    return "outside_frontier";
+  }
+
+  if (input.row.lane === "maintenance" && input.suspendMaintenance) {
+    return "suspended_maintenance";
+  }
+
+  return "leaseable_now";
+}
 const GOOGLE_ADS_WORKER_STALE_THRESHOLD_MS = envNumber(
   "GOOGLE_ADS_WORKER_STALE_THRESHOLD_MS",
   5 * 60_000,
