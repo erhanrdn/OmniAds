@@ -257,16 +257,6 @@ export async function closeSucceededMetaParentRunningCheckpoints(input?: {
     SELECT json_build_object(
       'businessId', ${businessId}::text,
       'totalClosed', COALESCE((SELECT SUM(row_count)::int FROM grouped), 0),
-      'remainingRunningChildrenOfSucceededParents',
-      (
-        SELECT COUNT(*)::int
-        FROM meta_sync_checkpoints checkpoint
-        JOIN meta_sync_partitions partition
-          ON partition.id = checkpoint.partition_id
-        WHERE partition.status = 'succeeded'
-          AND checkpoint.status = 'running'
-          AND (${businessId}::text IS NULL OR checkpoint.business_id = ${businessId})
-      ),
       'groups',
       COALESCE(
         (
@@ -287,10 +277,30 @@ export async function closeSucceededMetaParentRunningCheckpoints(input?: {
     ) AS summary
   `) as Array<{ summary: MetaSucceededParentRunningCheckpointCleanupSummary }>;
 
-  return row?.summary ?? {
+  const [remainingRow] = (await sql`
+    SELECT COUNT(*)::int AS count
+    FROM meta_sync_checkpoints checkpoint
+    JOIN meta_sync_partitions partition
+      ON partition.id = checkpoint.partition_id
+    WHERE partition.status = 'succeeded'
+      AND checkpoint.status = 'running'
+      AND (${businessId}::text IS NULL OR checkpoint.business_id = ${businessId})
+  `) as Array<{ count: number }>;
+
+  const remainingRunningChildrenOfSucceededParents =
+    typeof remainingRow?.count === "number" ? remainingRow.count : 0;
+
+  if (row?.summary) {
+    return {
+      ...row.summary,
+      remainingRunningChildrenOfSucceededParents,
+    };
+  }
+
+  return {
     businessId,
     totalClosed: 0,
-    remainingRunningChildrenOfSucceededParents: 0,
+    remainingRunningChildrenOfSucceededParents,
     groups: [],
   };
 }

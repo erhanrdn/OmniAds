@@ -24,31 +24,34 @@ describe("closeSucceededMetaParentRunningCheckpoints", () => {
     const queries: string[] = [];
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       queries.push(strings.join(" "));
-      return [
-        {
-          summary: {
-            businessId: null,
-            totalClosed: 3,
-            remainingRunningChildrenOfSucceededParents: 0,
-            groups: [
-              {
-                checkpointScope: "account_daily",
-                phase: "fetch_raw",
-                epochBucket: "epoch_match",
-                timingBucket: "checkpoint_updated_before_or_at_parent_finished",
-                count: 2,
-              },
-              {
-                checkpointScope: "core_ad_insights",
-                phase: "bulk_upsert",
-                epochBucket: "checkpoint_epoch_null",
-                timingBucket: "checkpoint_updated_after_parent_finished",
-                count: 1,
-              },
-            ],
+      if (queries.length === 1) {
+        return [
+          {
+            summary: {
+              businessId: null,
+              totalClosed: 3,
+              groups: [
+                {
+                  checkpointScope: "account_daily",
+                  phase: "fetch_raw",
+                  epochBucket: "epoch_match",
+                  timingBucket: "checkpoint_updated_before_or_at_parent_finished",
+                  count: 2,
+                },
+                {
+                  checkpointScope: "core_ad_insights",
+                  phase: "bulk_upsert",
+                  epochBucket: "checkpoint_epoch_null",
+                  timingBucket: "checkpoint_updated_after_parent_finished",
+                  count: 1,
+                },
+              ],
+            },
           },
-        },
-      ];
+        ];
+      }
+
+      return [{ count: 0 }];
     });
     vi.mocked(db.getDb).mockReturnValue(sql as never);
 
@@ -82,5 +85,6 @@ describe("closeSucceededMetaParentRunningCheckpoints", () => {
     expect(queries.some((query) => query.includes("checkpoint_updated_before_or_at_parent_finished"))).toBe(
       true
     );
+    expect(queries).toHaveLength(2);
   });
 });
