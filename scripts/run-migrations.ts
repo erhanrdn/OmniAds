@@ -29,11 +29,38 @@ async function main() {
         FROM meta_sync_partitions
         WHERE lease_epoch IS NULL
       ),
+      'metaSyncCheckpointsLeaseEpochNullRowsExist',
+      EXISTS (
+        SELECT 1
+        FROM meta_sync_checkpoints
+        WHERE lease_epoch IS NULL
+        LIMIT 1
+      ),
+      'metaSyncCheckpointsLeaseEpochNullCountEstimate',
+      (
+        SELECT CASE
+          WHEN EXISTS (
+            SELECT 1
+            FROM meta_sync_checkpoints
+            WHERE lease_epoch IS NULL
+            LIMIT 1
+          )
+            THEN GREATEST(0, FLOOR(reltuples))::bigint
+          ELSE 0
+        END
+        FROM pg_class
+        WHERE oid = 'meta_sync_checkpoints'::regclass
+        LIMIT 1
+      ),
       'metaSyncCheckpointsLeaseEpochNullCount',
       (
         SELECT COUNT(*)::int
-        FROM meta_sync_checkpoints
-        WHERE lease_epoch IS NULL
+        FROM (
+          SELECT 1
+          FROM meta_sync_checkpoints
+          WHERE lease_epoch IS NULL
+          LIMIT 1000
+        ) limited_rows
       )
     ) AS summary
   `) as Array<{ summary: unknown }>;
