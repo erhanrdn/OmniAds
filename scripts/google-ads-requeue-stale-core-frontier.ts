@@ -85,6 +85,8 @@ async function main() {
         `requeued to frontier ${frontierStart} via selected_range operational fix`,
       ],
     );
+    const stalePartitionCancelled =
+      Array.isArray(cancelledRows) && cancelledRows.length > 0;
 
     results.push({
       stalePartitionId,
@@ -92,7 +94,7 @@ async function main() {
       providerAccountId,
       frontierStart,
       queuedFrontierPartitionId: queued?.id ?? null,
-      stalePartitionCancelled: cancelledRows.length > 0,
+      stalePartitionCancelled,
     });
   }
 
