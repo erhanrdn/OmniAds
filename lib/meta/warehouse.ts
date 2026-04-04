@@ -86,11 +86,15 @@ type MetaClosedCheckpointGroup = {
   count: number;
 };
 
+type MetaRunObservabilityPath = "primary" | "backfill" | "repair";
+
 export type MetaPartitionAttemptCompletionResult =
   | {
       ok: true;
       runUpdated: boolean;
       closedCheckpointGroups: MetaClosedCheckpointGroup[];
+      observedLatestRunningRunId: string | null;
+      callerRunIdMatchedLatestRunningRunId: boolean | null;
     }
   | {
       ok: false;
@@ -598,6 +602,15 @@ function parseMetaClosedCheckpointGroups(raw: unknown): MetaClosedCheckpointGrou
   return [];
 }
 
+function parseNullableBoolean(value: unknown) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    if (value === "true") return true;
+    if (value === "false") return false;
+  }
+  return null;
+}
+
 export async function completeMetaPartitionAttempt(input: {
   partitionId: string;
   workerId: string;
@@ -611,6 +624,10 @@ export async function completeMetaPartitionAttempt(input: {
   finishedAt?: string | null;
   lastError?: string | null;
   retryDelayMinutes?: number;
+  lane?: MetaSyncLane | null;
+  scope?: MetaWarehouseScope | null;
+  observabilityPath?: MetaRunObservabilityPath | null;
+  recoveredRunId?: string | null;
 }): Promise<MetaPartitionAttemptCompletionResult> {
   await runMigrations();
   const sql = getDb();
@@ -681,6 +698,49 @@ export async function completeMetaPartitionAttempt(input: {
       FROM closed_checkpoints
       GROUP BY checkpoint_scope, previous_phase
     ),
+    latest_running_run AS (
+      SELECT run.id AS latest_running_run_id
+      FROM meta_sync_runs run
+      WHERE run.partition_id = ${input.partitionId}
+        AND run.status = 'running'
+      ORDER BY run.created_at DESC
+      LIMIT 1
+    ),
+    observed_running_run AS (
+      UPDATE meta_sync_runs run
+      SET
+        meta_json = COALESCE(run.meta_json, '{}'::jsonb) || jsonb_build_object(
+          'runLeakObservability',
+          jsonb_strip_nulls(
+            jsonb_build_object(
+              'callerRunId', ${input.runId ?? null}::text,
+              'recoveredRunId', ${input.recoveredRunId ?? null}::text,
+              'latestRunningRunId', latest.latest_running_run_id::text,
+              'callerRunIdMatchedLatestRunningRunId', CASE
+                WHEN ${input.runId ?? null}::uuid IS NULL THEN NULL
+                ELSE (${input.runId ?? null}::uuid = latest.latest_running_run_id)
+              END,
+              'pathKind', ${input.observabilityPath ?? null}::text,
+              'workerId', ${input.workerId},
+              'leaseEpoch', ${input.leaseEpoch},
+              'lane', ${input.lane ?? null}::text,
+              'scope', ${input.scope ?? null}::text,
+              'partitionStatus', ${input.partitionStatus},
+              'runStatusBefore', 'running',
+              'runStatusAfter', ${runStatus},
+              'observedAt', now()
+            )
+          )
+        )
+      FROM latest_running_run latest
+      WHERE run.id = latest.latest_running_run_id
+      RETURNING
+        latest.latest_running_run_id::text AS latest_running_run_id,
+        CASE
+          WHEN ${input.runId ?? null}::uuid IS NULL THEN NULL
+          ELSE (${input.runId ?? null}::uuid = latest.latest_running_run_id)
+        END AS caller_run_id_matches_latest_running_run_id
+    ),
     updated_run AS (
       UPDATE meta_sync_runs run
       SET
@@ -706,6 +766,16 @@ export async function completeMetaPartitionAttempt(input: {
     SELECT
       EXISTS(SELECT 1 FROM completed_partition) AS completed,
       EXISTS(SELECT 1 FROM updated_run) AS run_updated,
+      (
+        SELECT latest_running_run_id
+        FROM observed_running_run
+        LIMIT 1
+      ) AS observed_latest_running_run_id,
+      (
+        SELECT caller_run_id_matches_latest_running_run_id
+        FROM observed_running_run
+        LIMIT 1
+      ) AS caller_run_id_matches_latest_running_run_id,
       COALESCE(
         (
           SELECT json_agg(
@@ -731,6 +801,11 @@ export async function completeMetaPartitionAttempt(input: {
   }
 
   const closedCheckpointGroups = parseMetaClosedCheckpointGroups(row.closed_checkpoint_groups);
+  const observedLatestRunningRunId =
+    typeof row.observed_latest_running_run_id === "string" ? row.observed_latest_running_run_id : null;
+  const callerRunIdMatchedLatestRunningRunId = parseNullableBoolean(
+    row.caller_run_id_matches_latest_running_run_id
+  );
   if (input.partitionStatus === "succeeded" && closedCheckpointGroups.length > 0) {
     console.info("[meta-sync] partition_success_closed_open_checkpoints", {
       partitionId: input.partitionId,
@@ -739,11 +814,30 @@ export async function completeMetaPartitionAttempt(input: {
       closedCheckpointGroups,
     });
   }
+  if (!Boolean(row.run_updated)) {
+    console.warn("[meta-sync] partition_completion_run_update_zero_rows", {
+      partitionId: input.partitionId,
+      runId: input.runId ?? null,
+      recoveredRunId: input.recoveredRunId ?? null,
+      workerId: input.workerId,
+      leaseEpoch: input.leaseEpoch,
+      lane: input.lane ?? null,
+      scope: input.scope ?? null,
+      partitionStatus: input.partitionStatus,
+      runStatusBefore: "running",
+      runStatusAfter: runStatus,
+      pathKind: input.observabilityPath ?? null,
+      observedLatestRunningRunId,
+      callerRunIdMatchedLatestRunningRunId,
+    });
+  }
 
   return {
     ok: true,
     runUpdated: Boolean(row.run_updated),
     closedCheckpointGroups,
+    observedLatestRunningRunId,
+    callerRunIdMatchedLatestRunningRunId,
   };
 }
 

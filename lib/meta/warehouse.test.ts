@@ -209,11 +209,15 @@ describe("meta warehouse ownership safety", () => {
       finishedAt: "2026-04-04T00:00:00.000Z",
     });
 
-    expect(completed).toEqual({
-      ok: true,
-      runUpdated: true,
-      closedCheckpointGroups: [],
-    });
+    expect(completed).toEqual(
+      expect.objectContaining({
+        ok: true,
+        runUpdated: true,
+        closedCheckpointGroups: [],
+        observedLatestRunningRunId: null,
+        callerRunIdMatchedLatestRunningRunId: null,
+      })
+    );
     expect(queries.some((query) => query.includes("UPDATE meta_sync_runs run"))).toBe(true);
     expect(queries.some((query) => query.includes("run.status = 'running'"))).toBe(true);
   });

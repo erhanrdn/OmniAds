@@ -177,6 +177,7 @@ async function enqueueMetaExtendedPartitionsAfterSuccess(input: {
 
 async function backfillMetaRunTerminalState(input: {
   runId: string | null;
+  recoveredRunId?: string | null;
   startedAtMs: number;
   status: "succeeded" | "failed" | "cancelled";
   errorClass?: string | null;
@@ -193,11 +194,16 @@ async function backfillMetaRunTerminalState(input: {
   if (!input.runId) return;
   console.warn("[meta-sync] partition_completion_run_backfill", {
     partitionId: input.context.partitionId,
+    runId: input.runId,
+    recoveredRunId: input.recoveredRunId ?? null,
     workerId: input.context.workerId,
     leaseEpoch: input.context.leaseEpoch,
     lane: input.context.lane,
     scope: input.context.scope,
-    status: input.status,
+    partitionStatus: input.status,
+    runStatusBefore: "running",
+    runStatusAfter: input.status,
+    pathKind: "backfill",
   });
   await updateMetaSyncRun({
     id: input.runId,
@@ -919,6 +925,39 @@ async function syncMetaPartitionDay(input: {
   });
 }
 
+function logMetaRunObservability(input: {
+  event:
+    | "run_row_created"
+    | "run_id_attached_to_execution_context"
+    | "latest_running_run_lookup_result"
+    | "completion_attempt_started";
+  partitionId: string;
+  runId?: string | null;
+  recoveredRunId?: string | null;
+  workerId: string;
+  leaseEpoch: number;
+  lane: MetaSyncLane;
+  scope: MetaWarehouseScope;
+  partitionStatus: string;
+  runStatusBefore?: string | null;
+  runStatusAfter?: string | null;
+  pathKind: "primary" | "backfill" | "repair";
+}) {
+  console.info(`[meta-sync] ${input.event}`, {
+    partitionId: input.partitionId,
+    runId: input.runId ?? null,
+    recoveredRunId: input.recoveredRunId ?? null,
+    workerId: input.workerId,
+    leaseEpoch: input.leaseEpoch,
+    lane: input.lane,
+    scope: input.scope,
+    partitionStatus: input.partitionStatus,
+    runStatusBefore: input.runStatusBefore ?? null,
+    runStatusAfter: input.runStatusAfter ?? null,
+    pathKind: input.pathKind,
+  });
+}
+
 async function enqueueMetaDates(input: {
   businessId: string;
   accountIds: string[];
@@ -1286,6 +1325,7 @@ async function cancelDeprecatedMetaPartition(input: {
   };
   workerId: string;
   runId: string | null;
+  recoveredRunId?: string | null;
   startedAtMs: number;
   reason: string;
 }) {
@@ -1318,6 +1358,20 @@ async function cancelDeprecatedMetaPartition(input: {
     }).catch(() => null);
   }
 
+  logMetaRunObservability({
+    event: "completion_attempt_started",
+    partitionId: input.partition.id,
+    runId: input.runId,
+    recoveredRunId: input.recoveredRunId ?? null,
+    workerId: input.workerId,
+    leaseEpoch: input.partition.leaseEpoch,
+    lane: input.partition.lane,
+    scope: input.partition.scope,
+    partitionStatus: "cancelled",
+    runStatusBefore: "running",
+    runStatusAfter: "cancelled",
+    pathKind: "primary",
+  });
   const completionHeartbeatOk = await heartbeatMetaPartitionBeforeCompletion({
     partitionId: input.partition.id,
     workerId: input.workerId,
@@ -1350,6 +1404,10 @@ async function cancelDeprecatedMetaPartition(input: {
       durationMs: Date.now() - input.startedAtMs,
       finishedAt: cancelledAt,
       lastError: input.reason,
+      lane: input.partition.lane,
+      scope: input.partition.scope,
+      observabilityPath: "primary",
+      recoveredRunId: input.recoveredRunId ?? null,
     });
   } catch (error) {
     if (input.runId) {
@@ -1382,6 +1440,7 @@ async function cancelDeprecatedMetaPartition(input: {
   if (!completion.runUpdated) {
     await backfillMetaRunTerminalState({
       runId: input.runId,
+      recoveredRunId: input.recoveredRunId ?? null,
       startedAtMs: input.startedAtMs,
       status: "cancelled",
       finishedAt: cancelledAt,
@@ -1440,7 +1499,7 @@ async function processMetaPartition(input: {
     return false;
   }
   const startedAt = Date.now();
-  let runId = await createMetaSyncRun({
+  const createdRunId = await createMetaSyncRun({
     partitionId,
     businessId: input.partition.businessId,
     providerAccountId: input.partition.providerAccountId,
@@ -1452,20 +1511,54 @@ async function processMetaPartition(input: {
     attemptCount: input.partition.attemptCount + 1,
     metaJson: { source: input.partition.source, leaseEpoch: input.partition.leaseEpoch },
   }).catch(() => null);
+  logMetaRunObservability({
+    event: "run_row_created",
+    partitionId,
+    runId: createdRunId,
+    recoveredRunId: null,
+    workerId: input.workerId,
+    leaseEpoch: input.partition.leaseEpoch,
+    lane: input.partition.lane,
+    scope: input.partition.scope,
+    partitionStatus: "running",
+    runStatusBefore: null,
+    runStatusAfter: createdRunId ? "running" : null,
+    pathKind: "primary",
+  });
+  let runId = createdRunId;
+  let recoveredRunId: string | null = null;
   if (!runId) {
-    runId = await getLatestRunningMetaSyncRunIdForPartition({ partitionId }).catch(() => null);
-    if (runId) {
-      console.warn("[meta-sync] partition_run_id_recovered", {
-        businessId: input.partition.businessId,
-        partitionId,
-        workerId: input.workerId,
-        leaseEpoch: input.partition.leaseEpoch,
-        lane: input.partition.lane,
-        scope: input.partition.scope,
-        runId,
-      });
-    }
+    recoveredRunId = await getLatestRunningMetaSyncRunIdForPartition({ partitionId }).catch(() => null);
+    logMetaRunObservability({
+      event: "latest_running_run_lookup_result",
+      partitionId,
+      runId: createdRunId,
+      recoveredRunId,
+      workerId: input.workerId,
+      leaseEpoch: input.partition.leaseEpoch,
+      lane: input.partition.lane,
+      scope: input.partition.scope,
+      partitionStatus: "running",
+      runStatusBefore: null,
+      runStatusAfter: recoveredRunId ? "running" : null,
+      pathKind: "primary",
+    });
+    runId = recoveredRunId;
   }
+  logMetaRunObservability({
+    event: "run_id_attached_to_execution_context",
+    partitionId,
+    runId,
+    recoveredRunId,
+    workerId: input.workerId,
+    leaseEpoch: input.partition.leaseEpoch,
+    lane: input.partition.lane,
+    scope: input.partition.scope,
+    partitionStatus: "running",
+    runStatusBefore: null,
+    runStatusAfter: runId ? "running" : null,
+    pathKind: "primary",
+  });
 
   const deprecatedScopeReason = getDeprecatedMetaPartitionCancellationReason(input.partition.scope);
   if (deprecatedScopeReason) {
@@ -1483,6 +1576,7 @@ async function processMetaPartition(input: {
       },
       workerId: input.workerId,
       runId,
+      recoveredRunId,
       startedAtMs: startedAt,
       reason: deprecatedScopeReason,
     });
@@ -1533,6 +1627,20 @@ async function processMetaPartition(input: {
         }
         return false;
       }
+      logMetaRunObservability({
+        event: "completion_attempt_started",
+        partitionId,
+        runId,
+        recoveredRunId,
+        workerId: input.workerId,
+        leaseEpoch: input.partition.leaseEpoch,
+        lane: input.partition.lane,
+        scope: input.partition.scope,
+        partitionStatus: "succeeded",
+        runStatusBefore: "running",
+        runStatusAfter: "succeeded",
+        pathKind: "primary",
+      });
       const completed = await completeMetaPartitionAttempt({
         partitionId,
         workerId: input.workerId,
@@ -1542,6 +1650,10 @@ async function processMetaPartition(input: {
         runStatus: "succeeded",
         durationMs: Date.now() - startedAt,
         finishedAt: new Date().toISOString(),
+        lane: input.partition.lane,
+        scope: input.partition.scope,
+        observabilityPath: "primary",
+        recoveredRunId,
       });
       if (!completed.ok) {
         await logMetaSuccessCompletionDenied({
@@ -1568,6 +1680,7 @@ async function processMetaPartition(input: {
       if (!completed.runUpdated) {
         await backfillMetaRunTerminalState({
           runId,
+          recoveredRunId,
           startedAtMs: startedAt,
           status: "succeeded",
           finishedAt: new Date().toISOString(),
@@ -1613,6 +1726,20 @@ async function processMetaPartition(input: {
         leaseMinutes: META_PARTITION_LEASE_MINUTES,
       });
       if (completionHeartbeat.ok) {
+        logMetaRunObservability({
+          event: "completion_attempt_started",
+          partitionId,
+          runId,
+          recoveredRunId,
+          workerId: input.workerId,
+          leaseEpoch: input.partition.leaseEpoch,
+          lane: input.partition.lane,
+          scope: input.partition.scope,
+          partitionStatus: shouldDeadLetter ? "dead_letter" : "failed",
+          runStatusBefore: "running",
+          runStatusAfter: "failed",
+          pathKind: "primary",
+        });
         const completed = await completeMetaPartitionAttempt({
           partitionId,
           workerId: input.workerId,
@@ -1628,6 +1755,10 @@ async function processMetaPartition(input: {
           retryDelayMinutes: shouldDeadLetter
             ? undefined
             : computeRetryDelayMinutes(input.partition, classified.retryDelayMinutes),
+          lane: input.partition.lane,
+          scope: input.partition.scope,
+          observabilityPath: "primary",
+          recoveredRunId,
         });
         if (!completed.ok) {
           if (runId) {
@@ -1644,6 +1775,7 @@ async function processMetaPartition(input: {
         } else if (!completed.runUpdated) {
           await backfillMetaRunTerminalState({
             runId,
+            recoveredRunId,
             startedAtMs: startedAt,
             status: "failed",
             errorClass: classified.errorClass,

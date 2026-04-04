@@ -331,6 +331,9 @@ export async function repairMetaRunningRunsUnderTerminalParents(input?: {
     WITH candidate_runs AS (
       SELECT
         run.id,
+        run.partition_id,
+        run.worker_id,
+        partition.lease_epoch,
         partition.status AS partition_status,
         partition.last_error AS partition_last_error,
         run.lane,
@@ -380,6 +383,10 @@ export async function repairMetaRunningRunsUnderTerminalParents(input?: {
       FROM candidate_runs candidate
       WHERE run.id = candidate.id
       RETURNING
+        candidate.id,
+        candidate.partition_id,
+        candidate.worker_id,
+        candidate.lease_epoch,
         candidate.partition_status,
         candidate.run_status,
         candidate.lane,
@@ -414,9 +421,44 @@ export async function repairMetaRunningRunsUnderTerminalParents(input?: {
           FROM grouped
         ),
         '[]'::json
+      ),
+      'repairRows',
+      COALESCE(
+        (
+          SELECT json_agg(
+            json_build_object(
+              'runId', id,
+              'partitionId', partition_id,
+              'workerId', worker_id,
+              'leaseEpoch', lease_epoch,
+              'partitionStatus', partition_status,
+              'runStatusAfter', run_status,
+              'lane', lane,
+              'scope', scope
+            )
+            ORDER BY partition_status, run_status, lane, scope, id
+          )
+          FROM repaired_runs
+        ),
+        '[]'::json
       )
     ) AS summary
-  `) as Array<{ summary: MetaTerminalParentRunningRunRepairSummary }>;
+  `) as Array<
+    {
+      summary: MetaTerminalParentRunningRunRepairSummary & {
+        repairRows?: Array<{
+          runId: string;
+          partitionId: string;
+          workerId: string | null;
+          leaseEpoch: number | null;
+          partitionStatus: string;
+          runStatusAfter: string;
+          lane: string;
+          scope: string;
+        }>;
+      };
+    }
+  >;
 
   const [remainingRow] = (await sql`
     SELECT COUNT(*)::int AS count
@@ -431,9 +473,26 @@ export async function repairMetaRunningRunsUnderTerminalParents(input?: {
   const remainingRunningRunsUnderTerminalParents =
     typeof remainingRow?.count === "number" ? remainingRow.count : 0;
 
+  for (const repairRow of row?.summary?.repairRows ?? []) {
+    console.warn("[meta-sync] terminal_parent_running_run_repaired", {
+      partitionId: repairRow.partitionId,
+      runId: repairRow.runId,
+      recoveredRunId: null,
+      workerId: repairRow.workerId ?? null,
+      leaseEpoch: repairRow.leaseEpoch ?? null,
+      lane: repairRow.lane,
+      scope: repairRow.scope,
+      partitionStatus: repairRow.partitionStatus,
+      runStatusBefore: "running",
+      runStatusAfter: repairRow.runStatusAfter,
+      pathKind: "repair",
+    });
+  }
+
   if (row?.summary) {
+    const { repairRows: _repairRows, ...summary } = row.summary;
     return {
-      ...row.summary,
+      ...summary,
       remainingRunningRunsUnderTerminalParents,
     };
   }

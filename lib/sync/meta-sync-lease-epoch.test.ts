@@ -106,6 +106,8 @@ describe("processMetaLifecyclePartition lease epoch", () => {
       ok: true,
       runUpdated: true,
       closedCheckpointGroups: [],
+      observedLatestRunningRunId: null,
+      callerRunIdMatchedLatestRunningRunId: null,
     });
     vi.mocked(warehouse.completeMetaPartition).mockResolvedValue(true);
     vi.mocked(warehouse.updateMetaSyncRun).mockResolvedValue(undefined);
@@ -184,16 +186,22 @@ describe("processMetaLifecyclePartition lease epoch", () => {
         },
       })
     );
-    expect(warehouse.completeMetaPartitionAttempt).toHaveBeenCalledWith({
-      partitionId: "partition-1",
-      workerId: "worker-1",
-      leaseEpoch: 7,
-      runId: "run-1",
-      partitionStatus: "succeeded",
-      runStatus: "succeeded",
-      durationMs: expect.any(Number),
-      finishedAt: expect.any(String),
-    });
+    expect(warehouse.completeMetaPartitionAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        partitionId: "partition-1",
+        workerId: "worker-1",
+        leaseEpoch: 7,
+        runId: "run-1",
+        partitionStatus: "succeeded",
+        runStatus: "succeeded",
+        durationMs: expect.any(Number),
+        finishedAt: expect.any(String),
+        lane: "extended",
+        scope: "account_daily",
+        observabilityPath: "primary",
+        recoveredRunId: null,
+      })
+    );
     expect(warehouse.heartbeatMetaPartitionLease).toHaveBeenCalledWith({
       partitionId: "partition-1",
       workerId: "worker-1",
@@ -284,6 +292,8 @@ describe("processMetaLifecyclePartition lease epoch", () => {
         ok: true,
         runUpdated: true,
         closedCheckpointGroups: [],
+        observedLatestRunningRunId: null,
+        callerRunIdMatchedLatestRunningRunId: null,
       });
 
     const processed = await processMetaLifecyclePartition({
@@ -324,6 +334,8 @@ describe("processMetaLifecyclePartition lease epoch", () => {
       ok: true,
       runUpdated: false,
       closedCheckpointGroups: [],
+      observedLatestRunningRunId: null,
+      callerRunIdMatchedLatestRunningRunId: null,
     });
 
     const processed = await processMetaLifecyclePartition({
