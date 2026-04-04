@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildMetaFairnessLeasePlan,
   buildMetaFollowupLeasePlan,
@@ -7,8 +7,13 @@ import {
   getDeprecatedMetaPartitionCancellationReason,
   getMetaExtendedHistoricalFairnessLimit,
   getMetaHistoricalCoreFairnessLimit,
+  logMetaQueueVisibility,
   resolveMetaHistoricalReplaySource,
 } from "@/lib/sync/meta-sync";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("buildMetaLaneProgressEvidence", () => {
   it("keeps historical evidence on the bottleneck timestamp", () => {
@@ -198,8 +203,8 @@ describe("resolveMetaHistoricalReplaySource", () => {
               finishedAt: null,
             },
           ],
-        ])
-      )
+        ]),
+      ),
     ).toBeNull();
   });
 
@@ -215,15 +220,18 @@ describe("resolveMetaHistoricalReplaySource", () => {
               finishedAt: "2026-04-03T09:00:00.000Z",
             },
           ],
-        ])
-      )
+        ]),
+      ),
     ).toBe("historical_recovery");
   });
 });
 
 describe("meta creatives sync gating", () => {
   it("does not reference creativesMediaReady in partition gating or logs", () => {
-    const source = readFileSync(new URL("./meta-sync.ts", import.meta.url), "utf8");
+    const source = readFileSync(
+      new URL("./meta-sync.ts", import.meta.url),
+      "utf8",
+    );
 
     expect(source).not.toContain("creativesMediaReady");
     expect(source).not.toContain("getMetaAdDailyPreviewCoverage");
@@ -232,9 +240,64 @@ describe("meta creatives sync gating", () => {
   });
 
   it("cancels deprecated creative_daily partitions before any warehouse fetch runs", () => {
-    expect(getDeprecatedMetaPartitionCancellationReason("creative_daily")).toContain(
-      "live/snapshot path"
-    );
+    expect(
+      getDeprecatedMetaPartitionCancellationReason("creative_daily"),
+    ).toContain("live/snapshot path");
     expect(getDeprecatedMetaPartitionCancellationReason("ad_daily")).toBeNull();
+  });
+});
+
+describe("logMetaQueueVisibility", () => {
+  it("emits structured background scheduling visibility events", () => {
+    const infoSpy = vi
+      .spyOn(console, "info")
+      .mockImplementation(() => undefined);
+
+    logMetaQueueVisibility("meta_background_sync_already_scheduled", {
+      businessId: "business-1",
+      delayMs: 0,
+      source: "schedule",
+    });
+
+    expect(infoSpy).toHaveBeenCalledWith(
+      "[meta-sync] meta_background_sync_already_scheduled",
+      expect.objectContaining({
+        businessId: "business-1",
+        source: "schedule",
+      }),
+    );
+  });
+
+  it("emits queue visibility when partitions exist but no runner lease is acquired", () => {
+    const infoSpy = vi
+      .spyOn(console, "info")
+      .mockImplementation(() => undefined);
+
+    logMetaQueueVisibility("meta_queue_present_no_runner_lease", {
+      businessId: "business-2",
+      workerId: "worker-1",
+      queueDepth: 5,
+    });
+    logMetaQueueVisibility("meta_runner_lease_not_acquired", {
+      businessId: "business-2",
+      workerId: "worker-1",
+      queueDepth: 5,
+    });
+
+    expect(infoSpy).toHaveBeenNthCalledWith(
+      1,
+      "[meta-sync] meta_queue_present_no_runner_lease",
+      expect.objectContaining({
+        businessId: "business-2",
+        workerId: "worker-1",
+      }),
+    );
+    expect(infoSpy).toHaveBeenNthCalledWith(
+      2,
+      "[meta-sync] meta_runner_lease_not_acquired",
+      expect.objectContaining({
+        queueDepth: 5,
+      }),
+    );
   });
 });

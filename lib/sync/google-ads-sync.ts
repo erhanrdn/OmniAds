@@ -170,6 +170,14 @@ const GOOGLE_ADS_CHECKPOINT_CHUNK_SIZE = envNumber(
   "GOOGLE_ADS_CHECKPOINT_CHUNK_SIZE",
   250,
 );
+const GOOGLE_ADS_CAMPAIGN_CHECKPOINT_CHUNK_SIZE = Math.min(
+  GOOGLE_ADS_CHECKPOINT_CHUNK_SIZE,
+  envNumber("GOOGLE_ADS_CAMPAIGN_CHECKPOINT_CHUNK_SIZE", 150),
+);
+const GOOGLE_ADS_GEO_CHECKPOINT_CHUNK_SIZE = Math.min(
+  GOOGLE_ADS_CHECKPOINT_CHUNK_SIZE,
+  envNumber("GOOGLE_ADS_GEO_CHECKPOINT_CHUNK_SIZE", 125),
+);
 const GOOGLE_ADS_CAMPAIGN_CORE_LIMIT_ERROR_CODE =
   "google_ads_campaign_core_limit_exceeded";
 const GOOGLE_ADS_CIRCUIT_BREAKER_BASE_MINUTES = envNumber(
@@ -180,6 +188,39 @@ const GOOGLE_ADS_CIRCUIT_BREAKER_REPEAT_MINUTES = envNumber(
   "GOOGLE_ADS_CIRCUIT_BREAKER_REPEAT_MINUTES",
   30,
 );
+
+export function getGoogleAdsScopeCheckpointChunkSize(
+  scope: GoogleAdsWarehouseScope,
+) {
+  if (scope === "campaign_daily")
+    return GOOGLE_ADS_CAMPAIGN_CHECKPOINT_CHUNK_SIZE;
+  if (scope === "geo_daily") return GOOGLE_ADS_GEO_CHECKPOINT_CHUNK_SIZE;
+  return GOOGLE_ADS_CHECKPOINT_CHUNK_SIZE;
+}
+
+type GoogleAdsPhaseTelemetry = {
+  businessId: string;
+  providerAccountId: string;
+  date: string;
+  primaryScope: GoogleAdsWarehouseScope;
+  fetchMs: number;
+  transformMs: number;
+  persistMs: number;
+  finalizeMs: number;
+  totalMs: number;
+  scopeMetrics: Array<{
+    scope: GoogleAdsWarehouseScope;
+    rowCount: number;
+    batchCount: number;
+    chunkSize: number;
+    persistedRowCount: number;
+    durationMs: number;
+  }>;
+};
+
+export function logGoogleAdsPhaseTelemetry(input: GoogleAdsPhaseTelemetry) {
+  console.info("[google-ads-sync] google_ads_scope_phase_metrics", input);
+}
 const GOOGLE_ADS_WORKER_STALE_THRESHOLD_MS = envNumber(
   "GOOGLE_ADS_WORKER_STALE_THRESHOLD_MS",
   5 * 60_000,
@@ -475,19 +516,22 @@ export function logGoogleAdsCompletionOutcome(input: {
     (input.outcome.closedRunningRunCount === 0 ||
       input.outcome.callerRunIdWasClosed === false)
   ) {
-    console.warn("[google-ads-sync] google_ads_completion_weak_close_detected", {
-      partitionId: input.partitionId,
-      runId: input.runId ?? null,
-      recoveredRunId: input.recoveredRunId ?? null,
-      workerId: input.workerId,
-      leaseEpoch: input.leaseEpoch ?? null,
-      lane: input.lane,
-      scope: input.scope,
-      partitionStatus: input.partitionStatus,
-      closedRunningRunCount: input.outcome.closedRunningRunCount,
-      callerRunIdWasClosed: input.outcome.callerRunIdWasClosed,
-      successBackfillWillTrigger: true,
-    });
+    console.warn(
+      "[google-ads-sync] google_ads_completion_weak_close_detected",
+      {
+        partitionId: input.partitionId,
+        runId: input.runId ?? null,
+        recoveredRunId: input.recoveredRunId ?? null,
+        workerId: input.workerId,
+        leaseEpoch: input.leaseEpoch ?? null,
+        lane: input.lane,
+        scope: input.scope,
+        partitionStatus: input.partitionStatus,
+        closedRunningRunCount: input.outcome.closedRunningRunCount,
+        callerRunIdWasClosed: input.outcome.callerRunIdWasClosed,
+        successBackfillWillTrigger: true,
+      },
+    );
   }
 }
 
@@ -523,20 +567,24 @@ export async function maybeBackfillGoogleAdsCompletionSuccess(input: {
         partitionId: input.partitionId,
       }),
     ]);
-    console.warn("[google-ads-sync] google_ads_completion_success_backfill_triggered", {
-      partitionId: input.partitionId,
-      runId: input.runId ?? null,
-      recoveredRunId: input.recoveredRunId ?? null,
-    workerId: input.workerId,
-    leaseEpoch: input.leaseEpoch ?? null,
-    lane: input.lane,
-      scope: input.scope,
-      closedRunningRunCount: input.completionResult.closedRunningRunCount,
-      callerRunIdWasClosed: input.completionResult.callerRunIdWasClosed,
-      backfilledRunCount: runResult.closedRunningRunCount,
-      backfilledCheckpointCount: checkpointResult.closedRunningCheckpointCount,
-      closedCheckpointGroups: checkpointResult.closedCheckpointGroups,
-    });
+    console.warn(
+      "[google-ads-sync] google_ads_completion_success_backfill_triggered",
+      {
+        partitionId: input.partitionId,
+        runId: input.runId ?? null,
+        recoveredRunId: input.recoveredRunId ?? null,
+        workerId: input.workerId,
+        leaseEpoch: input.leaseEpoch ?? null,
+        lane: input.lane,
+        scope: input.scope,
+        closedRunningRunCount: input.completionResult.closedRunningRunCount,
+        callerRunIdWasClosed: input.completionResult.callerRunIdWasClosed,
+        backfilledRunCount: runResult.closedRunningRunCount,
+        backfilledCheckpointCount:
+          checkpointResult.closedRunningCheckpointCount,
+        closedCheckpointGroups: checkpointResult.closedCheckpointGroups,
+      },
+    );
   } catch (error) {
     console.warn(
       "[google-ads-sync] google_ads_completion_success_backfill_failed",
@@ -544,9 +592,9 @@ export async function maybeBackfillGoogleAdsCompletionSuccess(input: {
         partitionId: input.partitionId,
         runId: input.runId ?? null,
         recoveredRunId: input.recoveredRunId ?? null,
-      workerId: input.workerId,
-      leaseEpoch: input.leaseEpoch ?? null,
-      lane: input.lane,
+        workerId: input.workerId,
+        leaseEpoch: input.leaseEpoch ?? null,
+        lane: input.lane,
         scope: input.scope,
         closedRunningRunCount: input.completionResult.closedRunningRunCount,
         callerRunIdWasClosed: input.completionResult.callerRunIdWasClosed,
@@ -2022,8 +2070,9 @@ async function persistScopeRows(input: {
   leaseEpoch?: number;
   attemptCount?: number;
 }) {
+  const chunkSize = getGoogleAdsScopeCheckpointChunkSize(input.scope);
   if (!input.partitionId) {
-    const rowChunks = chunkRows(input.rows, GOOGLE_ADS_CHECKPOINT_CHUNK_SIZE);
+    const rowChunks = chunkRows(input.rows, chunkSize);
     let latestSnapshotId: string | null = null;
     let rowCount = 0;
 
@@ -2084,7 +2133,7 @@ async function persistScopeRows(input: {
   const existingSnapshotPages = new Map(
     existingSnapshots.map((row) => [Number(row.page_index ?? 0), row] as const),
   );
-  const rowChunks = chunkRows(input.rows, GOOGLE_ADS_CHECKPOINT_CHUNK_SIZE);
+  const rowChunks = chunkRows(input.rows, chunkSize);
   const replayDecision = resolvePhaseAwareReplayDecision({
     checkpoint: existingCheckpoint,
     existingSnapshots,
@@ -2894,6 +2943,40 @@ async function syncGoogleAdsAccountDay(input: {
   const primaryScope = resolvePrimaryGoogleAdsSyncScope(scopes);
   const shouldWriteLegacyJobs = !input.partitionOwned;
   let jobIds: string[] = [];
+  const syncStartedAtMs = Date.now();
+  let fetchCompletedAtMs = syncStartedAtMs;
+  let transformAccumulatedMs = 0;
+  let persistAccumulatedMs = 0;
+  const scopeMetrics: GoogleAdsPhaseTelemetry["scopeMetrics"] = [];
+
+  const recordPersistMetric = async <T>(
+    scope: GoogleAdsWarehouseScope,
+    rowCount: number,
+    operation: () => Promise<T>,
+  ) => {
+    const startedAtMs = Date.now();
+    const result = await operation();
+    const durationMs = Date.now() - startedAtMs;
+    persistAccumulatedMs += durationMs;
+    scopeMetrics.push({
+      scope,
+      rowCount,
+      batchCount: Math.max(
+        1,
+        Math.ceil(rowCount / getGoogleAdsScopeCheckpointChunkSize(scope)),
+      ),
+      chunkSize: getGoogleAdsScopeCheckpointChunkSize(scope),
+      persistedRowCount:
+        result &&
+        typeof result === "object" &&
+        "rowCount" in result &&
+        typeof (result as { rowCount?: unknown }).rowCount === "number"
+          ? (result as { rowCount: number }).rowCount
+          : rowCount,
+      durationMs,
+    });
+    return result;
+  };
 
   if (shouldWriteLegacyJobs) {
     const primaryJob = await createScopeSyncJob({
@@ -2939,6 +3022,14 @@ async function syncGoogleAdsAccountDay(input: {
       fetchPlan.campaigns &&
       campaignRows.length >= GOOGLE_ADS_CAMPAIGN_CORE_LIMIT
     ) {
+      console.warn("[google-ads-sync] google_ads_campaign_daily_hard_cap_hit", {
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        date: input.date,
+        partitionId: input.partitionId ?? null,
+        rowCount: campaignRows.length,
+        hardCap: GOOGLE_ADS_CAMPAIGN_CORE_LIMIT,
+      });
       throw new Error(
         `${GOOGLE_ADS_CAMPAIGN_CORE_LIMIT_ERROR_CODE}: campaign_daily returned ${campaignRows.length} rows, hitting hard cap ${GOOGLE_ADS_CAMPAIGN_CORE_LIMIT}`,
       );
@@ -3003,111 +3094,183 @@ async function syncGoogleAdsAccountDay(input: {
           executionMode: "warehouse_sync",
         })
       : null;
+    fetchCompletedAtMs = Date.now();
 
     if (wants("account_daily") && overview) {
-      await persistScopeRows({
-        businessId: input.businessId,
-        providerAccountId: input.providerAccountId,
-        date: input.date,
-        accountTimezone: profile.timezone,
-        accountCurrency: profile.currency,
-        endpointName: "overview",
-        scope: "account_daily",
-        rows: [
-          {
-            id: input.providerAccountId,
-            name: input.providerAccountId,
-            ...overview,
-            convRate:
-              overview.clicks > 0
-                ? Number(
-                    ((overview.conversions / overview.clicks) * 100).toFixed(2),
-                  )
-                : 0,
-          },
-        ],
-        requestContext: { source: "sync", report: "overview" },
-        partitionId: input.partitionId,
-        workerId: input.workerId,
-        attemptCount: input.attemptCount,
-        mapRow: (row, snapshotId) =>
-          buildWarehouseRow({
-            businessId: input.businessId,
-            providerAccountId: input.providerAccountId,
-            date: input.date,
-            accountTimezone: profile.timezone,
-            accountCurrency: profile.currency,
-            entityKey: input.providerAccountId,
-            entityLabel: nullIfEmpty(row.name),
-            spend: toNumber(row.spend),
-            revenue: toNumber(row.revenue),
-            conversions: toNumber(row.conversions),
-            impressions: toNumber(row.impressions),
-            clicks: toNumber(row.clicks),
-            conversionRate:
-              row.convRate == null ? null : toNumber(row.convRate),
-            interactionRate:
-              row.interactionRate == null
-                ? null
-                : toNumber(row.interactionRate),
-            payloadJson: row,
-            sourceSnapshotId: snapshotId,
-          }),
-      });
+      const transformStartedAtMs = Date.now();
+      const accountRows = [
+        {
+          id: input.providerAccountId,
+          name: input.providerAccountId,
+          ...overview,
+          convRate:
+            overview.clicks > 0
+              ? Number(
+                  ((overview.conversions / overview.clicks) * 100).toFixed(2),
+                )
+              : 0,
+        },
+      ];
+      transformAccumulatedMs += Date.now() - transformStartedAtMs;
+      await recordPersistMetric("account_daily", accountRows.length, () =>
+        persistScopeRows({
+          businessId: input.businessId,
+          providerAccountId: input.providerAccountId,
+          date: input.date,
+          accountTimezone: profile.timezone,
+          accountCurrency: profile.currency,
+          endpointName: "overview",
+          scope: "account_daily",
+          rows: accountRows,
+          requestContext: { source: "sync", report: "overview" },
+          partitionId: input.partitionId,
+          workerId: input.workerId,
+          attemptCount: input.attemptCount,
+          mapRow: (row, snapshotId) =>
+            buildWarehouseRow({
+              businessId: input.businessId,
+              providerAccountId: input.providerAccountId,
+              date: input.date,
+              accountTimezone: profile.timezone,
+              accountCurrency: profile.currency,
+              entityKey: input.providerAccountId,
+              entityLabel: nullIfEmpty(row.name),
+              spend: toNumber(row.spend),
+              revenue: toNumber(row.revenue),
+              conversions: toNumber(row.conversions),
+              impressions: toNumber(row.impressions),
+              clicks: toNumber(row.clicks),
+              conversionRate:
+                row.convRate == null ? null : toNumber(row.convRate),
+              interactionRate:
+                row.interactionRate == null
+                  ? null
+                  : toNumber(row.interactionRate),
+              payloadJson: row,
+              sourceSnapshotId: snapshotId,
+            }),
+        }),
+      );
     }
 
     if (wants("campaign_daily") && campaigns) {
-      await persistScopeRows({
-        businessId: input.businessId,
-        providerAccountId: input.providerAccountId,
-        date: input.date,
-        accountTimezone: profile.timezone,
-        accountCurrency: profile.currency,
-        endpointName: "campaigns",
-        scope: "campaign_daily",
-        rows: campaigns.rows as GenericRow[],
-        requestContext: { source: "sync", report: "campaigns" },
-        partitionId: input.partitionId,
-        workerId: input.workerId,
-        attemptCount: input.attemptCount,
-        mapRow: (row, snapshotId) =>
-          buildWarehouseRow({
-            businessId: input.businessId,
-            providerAccountId: input.providerAccountId,
-            date: input.date,
-            accountTimezone: profile.timezone,
-            accountCurrency: profile.currency,
-            entityKey: String(row.id),
-            entityLabel: nullIfEmpty(row.name),
-            campaignId: String(row.id),
-            campaignName: nullIfEmpty(row.name),
-            status: nullIfEmpty(row.status),
-            channel: nullIfEmpty(row.channel),
-            spend: toNumber(row.spend),
-            revenue: toNumber(row.revenue),
-            conversions: toNumber(row.conversions),
-            impressions: toNumber(row.impressions),
-            clicks: toNumber(row.clicks),
-            conversionRate:
-              row.conversionRate == null ? null : toNumber(row.conversionRate),
-            payloadJson: row,
-            sourceSnapshotId: snapshotId,
-          }),
-      });
+      await recordPersistMetric("campaign_daily", campaignRows.length, () =>
+        persistScopeRows({
+          businessId: input.businessId,
+          providerAccountId: input.providerAccountId,
+          date: input.date,
+          accountTimezone: profile.timezone,
+          accountCurrency: profile.currency,
+          endpointName: "campaigns",
+          scope: "campaign_daily",
+          rows: campaigns.rows as GenericRow[],
+          requestContext: { source: "sync", report: "campaigns" },
+          partitionId: input.partitionId,
+          workerId: input.workerId,
+          attemptCount: input.attemptCount,
+          mapRow: (row, snapshotId) =>
+            buildWarehouseRow({
+              businessId: input.businessId,
+              providerAccountId: input.providerAccountId,
+              date: input.date,
+              accountTimezone: profile.timezone,
+              accountCurrency: profile.currency,
+              entityKey: String(row.id),
+              entityLabel: nullIfEmpty(row.name),
+              campaignId: String(row.id),
+              campaignName: nullIfEmpty(row.name),
+              status: nullIfEmpty(row.status),
+              channel: nullIfEmpty(row.channel),
+              spend: toNumber(row.spend),
+              revenue: toNumber(row.revenue),
+              conversions: toNumber(row.conversions),
+              impressions: toNumber(row.impressions),
+              clicks: toNumber(row.clicks),
+              conversionRate:
+                row.conversionRate == null
+                  ? null
+                  : toNumber(row.conversionRate),
+              payloadJson: row,
+              sourceSnapshotId: snapshotId,
+            }),
+        }),
+      );
     }
 
     const searchSnapshot =
       wants("search_term_daily") && searchIntelligence
-        ? await persistScopeRows({
+        ? await recordPersistMetric(
+            "search_term_daily",
+            (searchIntelligence.rows as GenericRow[]).length,
+            () =>
+              persistScopeRows({
+                businessId: input.businessId,
+                providerAccountId: input.providerAccountId,
+                date: input.date,
+                accountTimezone: profile.timezone,
+                accountCurrency: profile.currency,
+                endpointName: "search_intelligence",
+                scope: "search_term_daily",
+                rows: searchIntelligence.rows as GenericRow[],
+                requestContext: {
+                  source: "sync",
+                  report: "search_intelligence",
+                },
+                partitionId: input.partitionId,
+                workerId: input.workerId,
+                attemptCount: input.attemptCount,
+                mapRow: (row, snapshotId) =>
+                  buildWarehouseRow({
+                    businessId: input.businessId,
+                    providerAccountId: input.providerAccountId,
+                    date: input.date,
+                    accountTimezone: profile.timezone,
+                    accountCurrency: profile.currency,
+                    entityKey: [
+                      nullIfEmpty(row.searchTerm),
+                      nullIfEmpty(row.campaignId),
+                      nullIfEmpty(row.adGroupId),
+                    ]
+                      .filter(Boolean)
+                      .join(":"),
+                    entityLabel: nullIfEmpty(row.searchTerm),
+                    campaignId: nullIfEmpty(row.campaignId),
+                    campaignName:
+                      nullIfEmpty(row.campaignName) ??
+                      nullIfEmpty(row.campaign),
+                    adGroupId: nullIfEmpty(row.adGroupId),
+                    adGroupName:
+                      nullIfEmpty(row.adGroupName) ?? nullIfEmpty(row.adGroup),
+                    classification:
+                      nullIfEmpty(row.classification) ??
+                      nullIfEmpty(row.intentClass),
+                    spend: toNumber(row.spend),
+                    revenue: toNumber(row.revenue),
+                    conversions: toNumber(row.conversions),
+                    impressions: toNumber(row.impressions),
+                    clicks: toNumber(row.clicks),
+                    payloadJson: row,
+                    sourceSnapshotId: snapshotId,
+                  }),
+              }),
+          )
+        : null;
+
+    if (wants("keyword_daily") && keywords) {
+      await recordPersistMetric(
+        "keyword_daily",
+        (keywords.rows as GenericRow[]).length,
+        () =>
+          persistScopeRows({
             businessId: input.businessId,
             providerAccountId: input.providerAccountId,
             date: input.date,
             accountTimezone: profile.timezone,
             accountCurrency: profile.currency,
-            endpointName: "search_intelligence",
-            scope: "search_term_daily",
-            rows: searchIntelligence.rows as GenericRow[],
-            requestContext: { source: "sync", report: "search_intelligence" },
+            endpointName: "keywords",
+            scope: "keyword_daily",
+            rows: keywords.rows as GenericRow[],
+            requestContext: { source: "sync", report: "keywords" },
             partitionId: input.partitionId,
             workerId: input.workerId,
             attemptCount: input.attemptCount,
@@ -3118,23 +3281,17 @@ async function syncGoogleAdsAccountDay(input: {
                 date: input.date,
                 accountTimezone: profile.timezone,
                 accountCurrency: profile.currency,
-                entityKey: [
-                  nullIfEmpty(row.searchTerm),
-                  nullIfEmpty(row.campaignId),
-                  nullIfEmpty(row.adGroupId),
-                ]
-                  .filter(Boolean)
-                  .join(":"),
-                entityLabel: nullIfEmpty(row.searchTerm),
+                entityKey:
+                  nullIfEmpty(row.criterionId) ??
+                  `${nullIfEmpty(row.keywordText)}:${nullIfEmpty(row.adGroupId)}`,
+                entityLabel: nullIfEmpty(row.keywordText),
                 campaignId: nullIfEmpty(row.campaignId),
                 campaignName:
                   nullIfEmpty(row.campaignName) ?? nullIfEmpty(row.campaign),
                 adGroupId: nullIfEmpty(row.adGroupId),
                 adGroupName:
                   nullIfEmpty(row.adGroupName) ?? nullIfEmpty(row.adGroup),
-                classification:
-                  nullIfEmpty(row.classification) ??
-                  nullIfEmpty(row.intentClass),
+                classification: nullIfEmpty(row.keywordState),
                 spend: toNumber(row.spend),
                 revenue: toNumber(row.revenue),
                 conversions: toNumber(row.conversions),
@@ -3143,99 +3300,65 @@ async function syncGoogleAdsAccountDay(input: {
                 payloadJson: row,
                 sourceSnapshotId: snapshotId,
               }),
-          })
-        : null;
-
-    if (wants("keyword_daily") && keywords) {
-      await persistScopeRows({
-        businessId: input.businessId,
-        providerAccountId: input.providerAccountId,
-        date: input.date,
-        accountTimezone: profile.timezone,
-        accountCurrency: profile.currency,
-        endpointName: "keywords",
-        scope: "keyword_daily",
-        rows: keywords.rows as GenericRow[],
-        requestContext: { source: "sync", report: "keywords" },
-        partitionId: input.partitionId,
-        workerId: input.workerId,
-        attemptCount: input.attemptCount,
-        mapRow: (row, snapshotId) =>
-          buildWarehouseRow({
-            businessId: input.businessId,
-            providerAccountId: input.providerAccountId,
-            date: input.date,
-            accountTimezone: profile.timezone,
-            accountCurrency: profile.currency,
-            entityKey:
-              nullIfEmpty(row.criterionId) ??
-              `${nullIfEmpty(row.keywordText)}:${nullIfEmpty(row.adGroupId)}`,
-            entityLabel: nullIfEmpty(row.keywordText),
-            campaignId: nullIfEmpty(row.campaignId),
-            campaignName:
-              nullIfEmpty(row.campaignName) ?? nullIfEmpty(row.campaign),
-            adGroupId: nullIfEmpty(row.adGroupId),
-            adGroupName:
-              nullIfEmpty(row.adGroupName) ?? nullIfEmpty(row.adGroup),
-            classification: nullIfEmpty(row.keywordState),
-            spend: toNumber(row.spend),
-            revenue: toNumber(row.revenue),
-            conversions: toNumber(row.conversions),
-            impressions: toNumber(row.impressions),
-            clicks: toNumber(row.clicks),
-            payloadJson: row,
-            sourceSnapshotId: snapshotId,
           }),
-      });
+      );
     }
 
     const adsSnapshot =
       wants("ad_daily") && ads
-        ? await persistScopeRows({
-            businessId: input.businessId,
-            providerAccountId: input.providerAccountId,
-            date: input.date,
-            accountTimezone: profile.timezone,
-            accountCurrency: profile.currency,
-            endpointName: "ads",
-            scope: "ad_daily",
-            rows: ads.rows as GenericRow[],
-            requestContext: { source: "sync", report: "ads" },
-            partitionId: input.partitionId,
-            workerId: input.workerId,
-            attemptCount: input.attemptCount,
-            mapRow: (row, snapshotId) =>
-              buildWarehouseRow({
+        ? await recordPersistMetric(
+            "ad_daily",
+            (ads.rows as GenericRow[]).length,
+            () =>
+              persistScopeRows({
                 businessId: input.businessId,
                 providerAccountId: input.providerAccountId,
                 date: input.date,
                 accountTimezone: profile.timezone,
                 accountCurrency: profile.currency,
-                entityKey: nullIfEmpty(row.adId) ?? nullIfEmpty(row.id) ?? "",
-                entityLabel:
-                  nullIfEmpty(row.assetName) ??
-                  nullIfEmpty(row.headline) ??
-                  nullIfEmpty(row.id),
-                campaignId: nullIfEmpty(row.campaignId),
-                campaignName:
-                  nullIfEmpty(row.campaignName) ?? nullIfEmpty(row.campaign),
-                adGroupId: nullIfEmpty(row.adGroupId),
-                adGroupName:
-                  nullIfEmpty(row.adGroupName) ?? nullIfEmpty(row.adGroup),
-                status: nullIfEmpty(row.status),
-                channel: nullIfEmpty(row.channel),
-                spend: toNumber(row.spend),
-                revenue: toNumber(row.revenue),
-                conversions: toNumber(row.conversions),
-                impressions: toNumber(row.impressions),
-                clicks: toNumber(row.clicks),
-                payloadJson: row,
-                sourceSnapshotId: snapshotId,
+                endpointName: "ads",
+                scope: "ad_daily",
+                rows: ads.rows as GenericRow[],
+                requestContext: { source: "sync", report: "ads" },
+                partitionId: input.partitionId,
+                workerId: input.workerId,
+                attemptCount: input.attemptCount,
+                mapRow: (row, snapshotId) =>
+                  buildWarehouseRow({
+                    businessId: input.businessId,
+                    providerAccountId: input.providerAccountId,
+                    date: input.date,
+                    accountTimezone: profile.timezone,
+                    accountCurrency: profile.currency,
+                    entityKey:
+                      nullIfEmpty(row.adId) ?? nullIfEmpty(row.id) ?? "",
+                    entityLabel:
+                      nullIfEmpty(row.assetName) ??
+                      nullIfEmpty(row.headline) ??
+                      nullIfEmpty(row.id),
+                    campaignId: nullIfEmpty(row.campaignId),
+                    campaignName:
+                      nullIfEmpty(row.campaignName) ??
+                      nullIfEmpty(row.campaign),
+                    adGroupId: nullIfEmpty(row.adGroupId),
+                    adGroupName:
+                      nullIfEmpty(row.adGroupName) ?? nullIfEmpty(row.adGroup),
+                    status: nullIfEmpty(row.status),
+                    channel: nullIfEmpty(row.channel),
+                    spend: toNumber(row.spend),
+                    revenue: toNumber(row.revenue),
+                    conversions: toNumber(row.conversions),
+                    impressions: toNumber(row.impressions),
+                    clicks: toNumber(row.clicks),
+                    payloadJson: row,
+                    sourceSnapshotId: snapshotId,
+                  }),
               }),
-          })
+          )
         : null;
 
     if (wants("ad_group_daily")) {
+      const transformStartedAtMs = Date.now();
       const adGroupRows = aggregateAdGroupRows({
         businessId: input.businessId,
         providerAccountId: input.providerAccountId,
@@ -3250,13 +3373,18 @@ async function syncGoogleAdsAccountDay(input: {
           ...((searchIntelligence?.rows as GenericRow[] | undefined) ?? []),
         ],
       });
+      transformAccumulatedMs += Date.now() - transformStartedAtMs;
       if (input.partitionId) {
         const checkpointScope = "ad_group_daily";
         const existingCheckpoint = await getGoogleAdsSyncCheckpoint({
           partitionId: input.partitionId,
           checkpointScope,
         }).catch(() => null);
-        const chunks = chunkRows(adGroupRows, GOOGLE_ADS_CHECKPOINT_CHUNK_SIZE);
+        const chunks = chunkRows(
+          adGroupRows,
+          getGoogleAdsScopeCheckpointChunkSize("ad_group_daily"),
+        );
+        const adGroupPersistStartedAtMs = Date.now();
         const startChunkIndex =
           existingCheckpoint?.status === "succeeded" &&
           existingCheckpoint.phase === "finalize"
@@ -3339,255 +3467,320 @@ async function syncGoogleAdsAccountDay(input: {
           finishedAt: new Date().toISOString(),
           startedAt: existingCheckpoint?.startedAt ?? new Date().toISOString(),
         });
+        const durationMs = Date.now() - adGroupPersistStartedAtMs;
+        persistAccumulatedMs += durationMs;
+        scopeMetrics.push({
+          scope: "ad_group_daily",
+          rowCount: adGroupRows.length,
+          batchCount: Math.max(1, chunks.length),
+          chunkSize: getGoogleAdsScopeCheckpointChunkSize("ad_group_daily"),
+          persistedRowCount: rowsWritten,
+          durationMs,
+        });
       } else {
+        const adGroupPersistStartedAtMs = Date.now();
         await upsertGoogleAdsDailyRows("ad_group_daily", adGroupRows);
+        const durationMs = Date.now() - adGroupPersistStartedAtMs;
+        persistAccumulatedMs += durationMs;
+        scopeMetrics.push({
+          scope: "ad_group_daily",
+          rowCount: adGroupRows.length,
+          batchCount: Math.max(
+            1,
+            Math.ceil(
+              adGroupRows.length /
+                getGoogleAdsScopeCheckpointChunkSize("ad_group_daily"),
+            ),
+          ),
+          chunkSize: getGoogleAdsScopeCheckpointChunkSize("ad_group_daily"),
+          persistedRowCount: adGroupRows.length,
+          durationMs,
+        });
       }
     }
 
     if (wants("asset_daily") && assets) {
-      await persistScopeRows({
-        businessId: input.businessId,
-        providerAccountId: input.providerAccountId,
-        date: input.date,
-        accountTimezone: profile.timezone,
-        accountCurrency: profile.currency,
-        endpointName: "assets",
-        scope: "asset_daily",
-        rows: assets.rows as GenericRow[],
-        requestContext: { source: "sync", report: "assets" },
-        partitionId: input.partitionId,
-        workerId: input.workerId,
-        attemptCount: input.attemptCount,
-        mapRow: (row, snapshotId) =>
-          buildWarehouseRow({
+      await recordPersistMetric(
+        "asset_daily",
+        (assets.rows as GenericRow[]).length,
+        () =>
+          persistScopeRows({
             businessId: input.businessId,
             providerAccountId: input.providerAccountId,
             date: input.date,
             accountTimezone: profile.timezone,
             accountCurrency: profile.currency,
-            entityKey: nullIfEmpty(row.assetId) ?? nullIfEmpty(row.id) ?? "",
-            entityLabel:
-              nullIfEmpty(row.assetName) ?? nullIfEmpty(row.assetText),
-            campaignId: nullIfEmpty(row.campaignId),
-            campaignName:
-              nullIfEmpty(row.campaignName) ?? nullIfEmpty(row.campaign),
-            adGroupId: nullIfEmpty(row.assetGroupId),
-            adGroupName:
-              nullIfEmpty(row.assetGroupName) ?? nullIfEmpty(row.assetGroup),
-            classification: nullIfEmpty(row.assetState),
-            spend: toNumber(row.spend),
-            revenue: toNumber(row.revenue),
-            conversions: toNumber(row.conversions),
-            impressions: toNumber(row.impressions),
-            clicks: toNumber(row.clicks),
-            interactionRate:
-              row.interactionRate == null
-                ? null
-                : toNumber(row.interactionRate),
-            payloadJson: row,
-            sourceSnapshotId: snapshotId,
+            endpointName: "assets",
+            scope: "asset_daily",
+            rows: assets.rows as GenericRow[],
+            requestContext: { source: "sync", report: "assets" },
+            partitionId: input.partitionId,
+            workerId: input.workerId,
+            attemptCount: input.attemptCount,
+            mapRow: (row, snapshotId) =>
+              buildWarehouseRow({
+                businessId: input.businessId,
+                providerAccountId: input.providerAccountId,
+                date: input.date,
+                accountTimezone: profile.timezone,
+                accountCurrency: profile.currency,
+                entityKey:
+                  nullIfEmpty(row.assetId) ?? nullIfEmpty(row.id) ?? "",
+                entityLabel:
+                  nullIfEmpty(row.assetName) ?? nullIfEmpty(row.assetText),
+                campaignId: nullIfEmpty(row.campaignId),
+                campaignName:
+                  nullIfEmpty(row.campaignName) ?? nullIfEmpty(row.campaign),
+                adGroupId: nullIfEmpty(row.assetGroupId),
+                adGroupName:
+                  nullIfEmpty(row.assetGroupName) ??
+                  nullIfEmpty(row.assetGroup),
+                classification: nullIfEmpty(row.assetState),
+                spend: toNumber(row.spend),
+                revenue: toNumber(row.revenue),
+                conversions: toNumber(row.conversions),
+                impressions: toNumber(row.impressions),
+                clicks: toNumber(row.clicks),
+                interactionRate:
+                  row.interactionRate == null
+                    ? null
+                    : toNumber(row.interactionRate),
+                payloadJson: row,
+                sourceSnapshotId: snapshotId,
+              }),
           }),
-      });
+      );
     }
 
     if (wants("asset_group_daily") && assetGroups) {
-      await persistScopeRows({
-        businessId: input.businessId,
-        providerAccountId: input.providerAccountId,
-        date: input.date,
-        accountTimezone: profile.timezone,
-        accountCurrency: profile.currency,
-        endpointName: "asset_groups",
-        scope: "asset_group_daily",
-        rows: assetGroups.rows as GenericRow[],
-        requestContext: { source: "sync", report: "asset_groups" },
-        partitionId: input.partitionId,
-        workerId: input.workerId,
-        attemptCount: input.attemptCount,
-        mapRow: (row, snapshotId) =>
-          buildWarehouseRow({
+      await recordPersistMetric(
+        "asset_group_daily",
+        (assetGroups.rows as GenericRow[]).length,
+        () =>
+          persistScopeRows({
             businessId: input.businessId,
             providerAccountId: input.providerAccountId,
             date: input.date,
             accountTimezone: profile.timezone,
             accountCurrency: profile.currency,
-            entityKey:
-              nullIfEmpty(row.assetGroupId) ?? nullIfEmpty(row.id) ?? "",
-            entityLabel:
-              nullIfEmpty(row.assetGroupName) ?? nullIfEmpty(row.name),
-            campaignId: nullIfEmpty(row.campaignId),
-            campaignName:
-              nullIfEmpty(row.campaignName) ?? nullIfEmpty(row.campaign),
-            status: nullIfEmpty(row.status),
-            classification: nullIfEmpty(row.classification),
-            spend: toNumber(row.spend),
-            revenue: toNumber(row.revenue),
-            conversions: toNumber(row.conversions),
-            impressions: toNumber(row.impressions),
-            clicks: toNumber(row.clicks),
-            conversionRate:
-              row.conversionRate == null ? null : toNumber(row.conversionRate),
-            payloadJson: row,
-            sourceSnapshotId: snapshotId,
+            endpointName: "asset_groups",
+            scope: "asset_group_daily",
+            rows: assetGroups.rows as GenericRow[],
+            requestContext: { source: "sync", report: "asset_groups" },
+            partitionId: input.partitionId,
+            workerId: input.workerId,
+            attemptCount: input.attemptCount,
+            mapRow: (row, snapshotId) =>
+              buildWarehouseRow({
+                businessId: input.businessId,
+                providerAccountId: input.providerAccountId,
+                date: input.date,
+                accountTimezone: profile.timezone,
+                accountCurrency: profile.currency,
+                entityKey:
+                  nullIfEmpty(row.assetGroupId) ?? nullIfEmpty(row.id) ?? "",
+                entityLabel:
+                  nullIfEmpty(row.assetGroupName) ?? nullIfEmpty(row.name),
+                campaignId: nullIfEmpty(row.campaignId),
+                campaignName:
+                  nullIfEmpty(row.campaignName) ?? nullIfEmpty(row.campaign),
+                status: nullIfEmpty(row.status),
+                classification: nullIfEmpty(row.classification),
+                spend: toNumber(row.spend),
+                revenue: toNumber(row.revenue),
+                conversions: toNumber(row.conversions),
+                impressions: toNumber(row.impressions),
+                clicks: toNumber(row.clicks),
+                conversionRate:
+                  row.conversionRate == null
+                    ? null
+                    : toNumber(row.conversionRate),
+                payloadJson: row,
+                sourceSnapshotId: snapshotId,
+              }),
           }),
-      });
+      );
     }
 
     if (wants("audience_daily") && audiences) {
-      await persistScopeRows({
-        businessId: input.businessId,
-        providerAccountId: input.providerAccountId,
-        date: input.date,
-        accountTimezone: profile.timezone,
-        accountCurrency: profile.currency,
-        endpointName: "audiences",
-        scope: "audience_daily",
-        rows: audiences.rows as GenericRow[],
-        requestContext: { source: "sync", report: "audiences" },
-        partitionId: input.partitionId,
-        workerId: input.workerId,
-        attemptCount: input.attemptCount,
-        mapRow: (row, snapshotId) =>
-          buildWarehouseRow({
+      await recordPersistMetric(
+        "audience_daily",
+        (audiences.rows as GenericRow[]).length,
+        () =>
+          persistScopeRows({
             businessId: input.businessId,
             providerAccountId: input.providerAccountId,
             date: input.date,
             accountTimezone: profile.timezone,
             accountCurrency: profile.currency,
-            entityKey:
-              nullIfEmpty(row.audienceKey) ??
-              `${nullIfEmpty(row.audienceType)}:${nullIfEmpty(row.adGroupId)}`,
-            entityLabel:
-              nullIfEmpty(row.audienceNameBestEffort) ?? nullIfEmpty(row.type),
-            campaignId: nullIfEmpty(row.campaignId),
-            campaignName:
-              nullIfEmpty(row.campaignName) ?? nullIfEmpty(row.campaign),
-            adGroupId: nullIfEmpty(row.adGroupId),
-            adGroupName:
-              nullIfEmpty(row.adGroupName) ?? nullIfEmpty(row.adGroup),
-            classification: nullIfEmpty(row.audienceState),
-            spend: toNumber(row.spend),
-            revenue: toNumber(row.revenue),
-            conversions: toNumber(row.conversions),
-            impressions: toNumber(row.impressions),
-            clicks: toNumber(row.clicks),
-            payloadJson: row,
-            sourceSnapshotId: snapshotId,
+            endpointName: "audiences",
+            scope: "audience_daily",
+            rows: audiences.rows as GenericRow[],
+            requestContext: { source: "sync", report: "audiences" },
+            partitionId: input.partitionId,
+            workerId: input.workerId,
+            attemptCount: input.attemptCount,
+            mapRow: (row, snapshotId) =>
+              buildWarehouseRow({
+                businessId: input.businessId,
+                providerAccountId: input.providerAccountId,
+                date: input.date,
+                accountTimezone: profile.timezone,
+                accountCurrency: profile.currency,
+                entityKey:
+                  nullIfEmpty(row.audienceKey) ??
+                  `${nullIfEmpty(row.audienceType)}:${nullIfEmpty(row.adGroupId)}`,
+                entityLabel:
+                  nullIfEmpty(row.audienceNameBestEffort) ??
+                  nullIfEmpty(row.type),
+                campaignId: nullIfEmpty(row.campaignId),
+                campaignName:
+                  nullIfEmpty(row.campaignName) ?? nullIfEmpty(row.campaign),
+                adGroupId: nullIfEmpty(row.adGroupId),
+                adGroupName:
+                  nullIfEmpty(row.adGroupName) ?? nullIfEmpty(row.adGroup),
+                classification: nullIfEmpty(row.audienceState),
+                spend: toNumber(row.spend),
+                revenue: toNumber(row.revenue),
+                conversions: toNumber(row.conversions),
+                impressions: toNumber(row.impressions),
+                clicks: toNumber(row.clicks),
+                payloadJson: row,
+                sourceSnapshotId: snapshotId,
+              }),
           }),
-      });
+      );
     }
 
     if (wants("geo_daily") && geo) {
-      await persistScopeRows({
-        businessId: input.businessId,
-        providerAccountId: input.providerAccountId,
-        date: input.date,
-        accountTimezone: profile.timezone,
-        accountCurrency: profile.currency,
-        endpointName: "geo",
-        scope: "geo_daily",
-        rows: geo.rows as GenericRow[],
-        requestContext: { source: "sync", report: "geo" },
-        partitionId: input.partitionId,
-        workerId: input.workerId,
-        attemptCount: input.attemptCount,
-        mapRow: (row, snapshotId) =>
-          buildWarehouseRow({
+      await recordPersistMetric(
+        "geo_daily",
+        (geo.rows as GenericRow[]).length,
+        () =>
+          persistScopeRows({
             businessId: input.businessId,
             providerAccountId: input.providerAccountId,
             date: input.date,
             accountTimezone: profile.timezone,
             accountCurrency: profile.currency,
-            entityKey:
-              nullIfEmpty(row.geoId) ??
-              nullIfEmpty(row.country) ??
-              nullIfEmpty(row.geoName) ??
-              "",
-            entityLabel: nullIfEmpty(row.geoName) ?? nullIfEmpty(row.country),
-            classification: nullIfEmpty(row.geoState),
-            spend: toNumber(row.spend),
-            revenue: toNumber(row.revenue),
-            conversions: toNumber(row.conversions),
-            impressions: toNumber(row.impressions),
-            clicks: toNumber(row.clicks),
-            payloadJson: row,
-            sourceSnapshotId: snapshotId,
+            endpointName: "geo",
+            scope: "geo_daily",
+            rows: geo.rows as GenericRow[],
+            requestContext: { source: "sync", report: "geo" },
+            partitionId: input.partitionId,
+            workerId: input.workerId,
+            attemptCount: input.attemptCount,
+            mapRow: (row, snapshotId) =>
+              buildWarehouseRow({
+                businessId: input.businessId,
+                providerAccountId: input.providerAccountId,
+                date: input.date,
+                accountTimezone: profile.timezone,
+                accountCurrency: profile.currency,
+                entityKey:
+                  nullIfEmpty(row.geoId) ??
+                  nullIfEmpty(row.country) ??
+                  nullIfEmpty(row.geoName) ??
+                  "",
+                entityLabel:
+                  nullIfEmpty(row.geoName) ?? nullIfEmpty(row.country),
+                classification: nullIfEmpty(row.geoState),
+                spend: toNumber(row.spend),
+                revenue: toNumber(row.revenue),
+                conversions: toNumber(row.conversions),
+                impressions: toNumber(row.impressions),
+                clicks: toNumber(row.clicks),
+                payloadJson: row,
+                sourceSnapshotId: snapshotId,
+              }),
           }),
-      });
+      );
     }
 
     if (wants("device_daily") && devices) {
-      await persistScopeRows({
-        businessId: input.businessId,
-        providerAccountId: input.providerAccountId,
-        date: input.date,
-        accountTimezone: profile.timezone,
-        accountCurrency: profile.currency,
-        endpointName: "devices",
-        scope: "device_daily",
-        rows: devices.rows as GenericRow[],
-        requestContext: { source: "sync", report: "devices" },
-        partitionId: input.partitionId,
-        workerId: input.workerId,
-        attemptCount: input.attemptCount,
-        mapRow: (row, snapshotId) =>
-          buildWarehouseRow({
+      await recordPersistMetric(
+        "device_daily",
+        (devices.rows as GenericRow[]).length,
+        () =>
+          persistScopeRows({
             businessId: input.businessId,
             providerAccountId: input.providerAccountId,
             date: input.date,
             accountTimezone: profile.timezone,
             accountCurrency: profile.currency,
-            entityKey: nullIfEmpty(row.device) ?? "",
-            entityLabel: nullIfEmpty(row.device),
-            classification: nullIfEmpty(row.deviceState),
-            spend: toNumber(row.spend),
-            revenue: toNumber(row.revenue),
-            conversions: toNumber(row.conversions),
-            impressions: toNumber(row.impressions),
-            clicks: toNumber(row.clicks),
-            payloadJson: row,
-            sourceSnapshotId: snapshotId,
+            endpointName: "devices",
+            scope: "device_daily",
+            rows: devices.rows as GenericRow[],
+            requestContext: { source: "sync", report: "devices" },
+            partitionId: input.partitionId,
+            workerId: input.workerId,
+            attemptCount: input.attemptCount,
+            mapRow: (row, snapshotId) =>
+              buildWarehouseRow({
+                businessId: input.businessId,
+                providerAccountId: input.providerAccountId,
+                date: input.date,
+                accountTimezone: profile.timezone,
+                accountCurrency: profile.currency,
+                entityKey: nullIfEmpty(row.device) ?? "",
+                entityLabel: nullIfEmpty(row.device),
+                classification: nullIfEmpty(row.deviceState),
+                spend: toNumber(row.spend),
+                revenue: toNumber(row.revenue),
+                conversions: toNumber(row.conversions),
+                impressions: toNumber(row.impressions),
+                clicks: toNumber(row.clicks),
+                payloadJson: row,
+                sourceSnapshotId: snapshotId,
+              }),
           }),
-      });
+      );
     }
 
     if (wants("product_daily") && products) {
-      await persistScopeRows({
-        businessId: input.businessId,
-        providerAccountId: input.providerAccountId,
-        date: input.date,
-        accountTimezone: profile.timezone,
-        accountCurrency: profile.currency,
-        endpointName: "products",
-        scope: "product_daily",
-        rows: products.rows as GenericRow[],
-        requestContext: { source: "sync", report: "products" },
-        partitionId: input.partitionId,
-        workerId: input.workerId,
-        attemptCount: input.attemptCount,
-        mapRow: (row, snapshotId) =>
-          buildWarehouseRow({
+      await recordPersistMetric(
+        "product_daily",
+        (products.rows as GenericRow[]).length,
+        () =>
+          persistScopeRows({
             businessId: input.businessId,
             providerAccountId: input.providerAccountId,
             date: input.date,
             accountTimezone: profile.timezone,
             accountCurrency: profile.currency,
-            entityKey:
-              nullIfEmpty(row.productItemId) ?? nullIfEmpty(row.itemId) ?? "",
-            entityLabel:
-              nullIfEmpty(row.productTitle) ?? nullIfEmpty(row.title),
-            classification:
-              nullIfEmpty(row.scaleState) ??
-              nullIfEmpty(row.underperformingState),
-            spend: toNumber(row.spend),
-            revenue: toNumber(row.revenue),
-            conversions: toNumber(row.conversions),
-            impressions: toNumber(row.impressions),
-            clicks: toNumber(row.clicks),
-            payloadJson: row,
-            sourceSnapshotId: snapshotId,
+            endpointName: "products",
+            scope: "product_daily",
+            rows: products.rows as GenericRow[],
+            requestContext: { source: "sync", report: "products" },
+            partitionId: input.partitionId,
+            workerId: input.workerId,
+            attemptCount: input.attemptCount,
+            mapRow: (row, snapshotId) =>
+              buildWarehouseRow({
+                businessId: input.businessId,
+                providerAccountId: input.providerAccountId,
+                date: input.date,
+                accountTimezone: profile.timezone,
+                accountCurrency: profile.currency,
+                entityKey:
+                  nullIfEmpty(row.productItemId) ??
+                  nullIfEmpty(row.itemId) ??
+                  "",
+                entityLabel:
+                  nullIfEmpty(row.productTitle) ?? nullIfEmpty(row.title),
+                classification:
+                  nullIfEmpty(row.scaleState) ??
+                  nullIfEmpty(row.underperformingState),
+                spend: toNumber(row.spend),
+                revenue: toNumber(row.revenue),
+                conversions: toNumber(row.conversions),
+                impressions: toNumber(row.impressions),
+                clicks: toNumber(row.clicks),
+                payloadJson: row,
+                sourceSnapshotId: snapshotId,
+              }),
           }),
-      });
+      );
     }
 
     await Promise.all(
@@ -3600,6 +3793,24 @@ async function syncGoogleAdsAccountDay(input: {
         }),
       ),
     );
+    const totalMs = Date.now() - syncStartedAtMs;
+    const fetchMs = fetchCompletedAtMs - syncStartedAtMs;
+    const finalizeMs = Math.max(
+      0,
+      totalMs - fetchMs - transformAccumulatedMs - persistAccumulatedMs,
+    );
+    logGoogleAdsPhaseTelemetry({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      date: input.date,
+      primaryScope,
+      fetchMs,
+      transformMs: transformAccumulatedMs,
+      persistMs: persistAccumulatedMs,
+      finalizeMs,
+      totalMs,
+      scopeMetrics,
+    });
     return true;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -3865,8 +4076,8 @@ async function processGoogleAdsPartition(input: {
             onlyIfCurrentStatus: "running",
           }).catch(() => null);
         }
-      return false;
-    }
+        return false;
+      }
       const completed = await completeGoogleAdsPartitionAttempt({
         partitionId,
         workerId: input.workerId,

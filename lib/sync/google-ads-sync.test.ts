@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildGoogleAdsLaneAdmissionPolicy,
   buildGoogleAdsPrimaryLeasePlan,
@@ -11,9 +11,15 @@ import {
   getGoogleAdsGapPlannerBlockingStatuses,
   buildGoogleAdsWarehouseFetchPlan,
   evaluateGoogleAdsWorkerSchedulingState,
+  getGoogleAdsScopeCheckpointChunkSize,
+  logGoogleAdsPhaseTelemetry,
   shouldBlockGoogleAdsHistoricalExtendedWork,
   shouldLeaseGoogleAdsRecentRepair,
 } from "@/lib/sync/google-ads-sync";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("buildGoogleAdsLaneAdmissionPolicy", () => {
   it("suspends extended lanes when safe mode is enabled", () => {
@@ -178,6 +184,59 @@ describe("buildGoogleAdsWarehouseFetchPlan", () => {
   });
 });
 
+describe("Google Ads throughput telemetry", () => {
+  it("uses smaller checkpoint chunks for campaign and geo scopes", () => {
+    expect(getGoogleAdsScopeCheckpointChunkSize("campaign_daily")).toBeLessThan(
+      getGoogleAdsScopeCheckpointChunkSize("account_daily"),
+    );
+    expect(getGoogleAdsScopeCheckpointChunkSize("geo_daily")).toBeLessThan(
+      getGoogleAdsScopeCheckpointChunkSize("account_daily"),
+    );
+  });
+
+  it("emits structured phase telemetry with campaign batch metrics", () => {
+    const infoSpy = vi
+      .spyOn(console, "info")
+      .mockImplementation(() => undefined);
+
+    logGoogleAdsPhaseTelemetry({
+      businessId: "business-1",
+      providerAccountId: "acct-1",
+      date: "2026-04-04",
+      primaryScope: "campaign_daily",
+      fetchMs: 100,
+      transformMs: 20,
+      persistMs: 30,
+      finalizeMs: 10,
+      totalMs: 160,
+      scopeMetrics: [
+        {
+          scope: "campaign_daily",
+          rowCount: 120,
+          batchCount: 1,
+          chunkSize: getGoogleAdsScopeCheckpointChunkSize("campaign_daily"),
+          persistedRowCount: 120,
+          durationMs: 30,
+        },
+      ],
+    });
+
+    expect(infoSpy).toHaveBeenCalledWith(
+      "[google-ads-sync] google_ads_scope_phase_metrics",
+      expect.objectContaining({
+        businessId: "business-1",
+        primaryScope: "campaign_daily",
+        scopeMetrics: [
+          expect.objectContaining({
+            scope: "campaign_daily",
+            rowCount: 120,
+          }),
+        ],
+      }),
+    );
+  });
+});
+
 describe("decideGoogleAdsHistoricalFrontier", () => {
   it("holds older-than-90 daily history until the recent frontier is complete", () => {
     expect(
@@ -185,7 +244,7 @@ describe("decideGoogleAdsHistoricalFrontier", () => {
         historicalStart: "2024-01-01",
         recent90Start: "2025-12-02",
         recent90Complete: false,
-      })
+      }),
     ).toBe("2025-12-02");
 
     expect(
@@ -193,7 +252,7 @@ describe("decideGoogleAdsHistoricalFrontier", () => {
         historicalStart: "2024-01-01",
         recent90Start: "2025-12-02",
         recent90Complete: true,
-      })
+      }),
     ).toBe("2024-01-01");
   });
 });
@@ -203,13 +262,13 @@ describe("shouldBlockGoogleAdsHistoricalExtendedWork", () => {
     expect(
       shouldBlockGoogleAdsHistoricalExtendedWork({
         recent90Complete: false,
-      })
+      }),
     ).toBe(true);
 
     expect(
       shouldBlockGoogleAdsHistoricalExtendedWork({
         recent90Complete: true,
-      })
+      }),
     ).toBe(false);
   });
 });
@@ -408,7 +467,7 @@ describe("shouldLeaseGoogleAdsRecentRepair", () => {
           latestExtendedActivityAt: null,
           latestMaintenanceActivityAt: null,
         },
-      })
+      }),
     ).toBe(true);
   });
 
@@ -447,14 +506,18 @@ describe("shouldLeaseGoogleAdsRecentRepair", () => {
           latestExtendedActivityAt: null,
           latestMaintenanceActivityAt: null,
         },
-      })
+      }),
     ).toBe(false);
   });
 });
 
 describe("getGoogleAdsGapPlannerBlockingStatuses", () => {
   it("keeps only actively in-flight partitions as gap blockers", () => {
-    expect(getGoogleAdsGapPlannerBlockingStatuses()).toEqual(["queued", "leased", "running"]);
+    expect(getGoogleAdsGapPlannerBlockingStatuses()).toEqual([
+      "queued",
+      "leased",
+      "running",
+    ]);
   });
 });
 
@@ -486,7 +549,9 @@ describe("buildGoogleAdsLaneProgressEvidence", () => {
       } as never,
     });
 
-    expect(evidence.extended_historical.lastCompletedAt).toBe("2026-04-02T09:40:00.000Z");
+    expect(evidence.extended_historical.lastCompletedAt).toBe(
+      "2026-04-02T09:40:00.000Z",
+    );
   });
 });
 

@@ -89,6 +89,19 @@ function sleepMs(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+type MetaQueueVisibilityEvent =
+  | "meta_background_sync_already_scheduled"
+  | "meta_queue_present_no_runner_lease"
+  | "meta_runner_lease_not_acquired"
+  | "meta_queue_health";
+
+export function logMetaQueueVisibility(
+  event: MetaQueueVisibilityEvent,
+  details: Record<string, unknown>,
+) {
+  console.info(`[meta-sync] ${event}`, details);
+}
+
 async function heartbeatMetaPartitionBeforeCompletion(input: {
   partitionId: string;
   workerId: string;
@@ -159,24 +172,30 @@ async function logMetaSuccessCompletionDenied(input: {
     runStatusAfter: input.runStatus,
     reason: input.reason,
     message: input.message ?? null,
-    currentPartitionStatus:
-      denialSnapshot?.currentPartitionStatus ?? null,
+    currentPartitionStatus: denialSnapshot?.currentPartitionStatus ?? null,
     currentLeaseOwner: denialSnapshot?.currentLeaseOwner ?? null,
     currentLeaseEpoch: denialSnapshot?.currentLeaseEpoch ?? null,
     currentLeaseExpiresAt: denialSnapshot?.currentLeaseExpiresAt ?? null,
     ownerMatchesCaller: denialSnapshot?.ownerMatchesCaller ?? null,
     epochMatchesCaller: denialSnapshot?.epochMatchesCaller ?? null,
-    leaseExpiredAtObservation: denialSnapshot?.leaseExpiredAtObservation ?? null,
-    currentPartitionFinishedAt: denialSnapshot?.currentPartitionFinishedAt ?? null,
+    leaseExpiredAtObservation:
+      denialSnapshot?.leaseExpiredAtObservation ?? null,
+    currentPartitionFinishedAt:
+      denialSnapshot?.currentPartitionFinishedAt ?? null,
     checkpointScope:
-      denialSnapshot?.latestCheckpointScope ?? latestCheckpoint?.checkpointScope ?? null,
+      denialSnapshot?.latestCheckpointScope ??
+      latestCheckpoint?.checkpointScope ??
+      null,
     checkpointPhase:
       denialSnapshot?.latestCheckpointPhase ?? latestCheckpoint?.phase ?? null,
     checkpointUpdatedAt:
-      denialSnapshot?.latestCheckpointUpdatedAt ?? latestCheckpoint?.updatedAt ?? null,
+      denialSnapshot?.latestCheckpointUpdatedAt ??
+      latestCheckpoint?.updatedAt ??
+      null,
     latestRunningRunId: denialSnapshot?.latestRunningRunId ?? null,
     runningRunCount: denialSnapshot?.runningRunCount ?? 0,
-    denialClassification: denialSnapshot?.denialClassification ?? "unknown_denial",
+    denialClassification:
+      denialSnapshot?.denialClassification ?? "unknown_denial",
   });
   return denialSnapshot;
 }
@@ -296,20 +315,28 @@ async function backfillMetaRunTerminalState(input: {
   }).catch(() => null);
 }
 
-const META_DEPRECATED_SCOPE_REASONS: Partial<Record<MetaWarehouseScope, string>> = {
+const META_DEPRECATED_SCOPE_REASONS: Partial<
+  Record<MetaWarehouseScope, string>
+> = {
   creative_daily:
     "creative_daily sync disabled after moving creative scoring to the live/snapshot path",
 };
 
 export function getDeprecatedMetaPartitionCancellationReason(
-  scope: MetaWarehouseScope
+  scope: MetaWarehouseScope,
 ): string | null {
   return META_DEPRECATED_SCOPE_REASONS[scope] ?? null;
 }
 
-const META_CORE_SCOPES: MetaWarehouseScope[] = [...META_PRODUCT_CORE_COVERAGE_SCOPES];
-const META_CORE_PARTITION_QUEUE_SCOPES: MetaWarehouseScope[] = [...META_CORE_PARTITION_SCOPES];
-const META_EXTENDED_SCOPE_LIST: MetaWarehouseScope[] = [...META_EXTENDED_SCOPES];
+const META_CORE_SCOPES: MetaWarehouseScope[] = [
+  ...META_PRODUCT_CORE_COVERAGE_SCOPES,
+];
+const META_CORE_PARTITION_QUEUE_SCOPES: MetaWarehouseScope[] = [
+  ...META_CORE_PARTITION_SCOPES,
+];
+const META_EXTENDED_SCOPE_LIST: MetaWarehouseScope[] = [
+  ...META_EXTENDED_SCOPES,
+];
 const META_STATE_SCOPES: MetaWarehouseScope[] = [...META_RUNTIME_STATE_SCOPES];
 
 const runtimeSyncStore = globalThis as typeof globalThis & {
@@ -324,24 +351,51 @@ function envNumber(name: string, fallback: number) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-const META_BACKGROUND_LOOP_DELAY_MS = envNumber("META_BACKGROUND_LOOP_DELAY_MS", 5_000);
+const META_BACKGROUND_LOOP_DELAY_MS = envNumber(
+  "META_BACKGROUND_LOOP_DELAY_MS",
+  5_000,
+);
 const META_CORE_WORKER_LIMIT = envNumber("META_CORE_WORKER_LIMIT", 4);
-const META_CORE_FAIRNESS_WORKER_LIMIT = envNumber("META_CORE_FAIRNESS_WORKER_LIMIT", 1);
+const META_CORE_FAIRNESS_WORKER_LIMIT = envNumber(
+  "META_CORE_FAIRNESS_WORKER_LIMIT",
+  1,
+);
 const META_EXTENDED_WORKER_LIMIT = envNumber("META_EXTENDED_WORKER_LIMIT", 2);
 const META_EXTENDED_HISTORICAL_FAIRNESS_WORKER_LIMIT = envNumber(
   "META_EXTENDED_HISTORICAL_FAIRNESS_WORKER_LIMIT",
-  1
+  1,
 );
-const META_MAINTENANCE_WORKER_LIMIT = envNumber("META_MAINTENANCE_WORKER_LIMIT", 2);
-const META_PARTITION_LEASE_MINUTES = envNumber("META_PARTITION_LEASE_MINUTES", 15);
+const META_MAINTENANCE_WORKER_LIMIT = envNumber(
+  "META_MAINTENANCE_WORKER_LIMIT",
+  2,
+);
+const META_PARTITION_LEASE_MINUTES = envNumber(
+  "META_PARTITION_LEASE_MINUTES",
+  15,
+);
 const META_PARTITION_MAX_ATTEMPTS = envNumber("META_PARTITION_MAX_ATTEMPTS", 6);
 const META_ENQUEUE_BATCH_SIZE = envNumber("META_ENQUEUE_BATCH_SIZE", 25);
-const META_HISTORICAL_ENQUEUE_DAYS_PER_RUN = envNumber("META_HISTORICAL_ENQUEUE_DAYS_PER_RUN", 21);
+const META_HISTORICAL_ENQUEUE_DAYS_PER_RUN = envNumber(
+  "META_HISTORICAL_ENQUEUE_DAYS_PER_RUN",
+  21,
+);
 const META_RECENT_RECOVERY_DAYS = envNumber("META_RECENT_RECOVERY_DAYS", 14);
-const META_RUN_PROGRESS_GRACE_MINUTES = envNumber("META_RUN_PROGRESS_GRACE_MINUTES", 3);
-const META_STALE_RUN_CORE_MINUTES = envNumber("META_STALE_RUN_CORE_MINUTES", 12);
-const META_STALE_RUN_MAINTENANCE_MINUTES = envNumber("META_STALE_RUN_MAINTENANCE_MINUTES", 15);
-const META_STALE_RUN_EXTENDED_MINUTES = envNumber("META_STALE_RUN_EXTENDED_MINUTES", 25);
+const META_RUN_PROGRESS_GRACE_MINUTES = envNumber(
+  "META_RUN_PROGRESS_GRACE_MINUTES",
+  3,
+);
+const META_STALE_RUN_CORE_MINUTES = envNumber(
+  "META_STALE_RUN_CORE_MINUTES",
+  12,
+);
+const META_STALE_RUN_MAINTENANCE_MINUTES = envNumber(
+  "META_STALE_RUN_MAINTENANCE_MINUTES",
+  15,
+);
+const META_STALE_RUN_EXTENDED_MINUTES = envNumber(
+  "META_STALE_RUN_EXTENDED_MINUTES",
+  25,
+);
 const META_IN_PROCESS_RUNTIME_ENABLED =
   process.env.META_ENABLE_IN_PROCESS_RUNTIME?.trim().toLowerCase() === "1" ||
   process.env.META_ENABLE_IN_PROCESS_RUNTIME?.trim().toLowerCase() === "true";
@@ -418,7 +472,7 @@ const META_HISTORICAL_SOURCE_SET = new Set([
 
 const META_PROGRESS_EVIDENCE_WINDOW_MINUTES = envNumber(
   "META_PROGRESS_EVIDENCE_WINDOW_MINUTES",
-  20
+  20,
 );
 
 type MetaQueueHealth = Awaited<ReturnType<typeof getMetaQueueHealth>>;
@@ -426,7 +480,9 @@ type MetaLaneEvidence = Record<
   "core" | "extended_recent" | "extended_historical" | "maintenance",
   ProviderProgressEvidence
 >;
-type MetaStatesByScope = Partial<Record<MetaWarehouseScope, ProviderProgressEvidenceStateRow[]>>;
+type MetaStatesByScope = Partial<
+  Record<MetaWarehouseScope, ProviderProgressEvidenceStateRow[]>
+>;
 
 export interface MetaFairnessLeasePlan {
   coreFairnessLimit: number;
@@ -443,7 +499,9 @@ export async function buildMetaWorkerLeasePlan(input: {
   businessId: string;
   leaseLimit: number;
 }): Promise<ProviderLeasePlan> {
-  const queueHealth = await getMetaQueueHealth({ businessId: input.businessId }).catch(() => null);
+  const queueHealth = await getMetaQueueHealth({
+    businessId: input.businessId,
+  }).catch(() => null);
   const laneProgressEvidence = buildMetaLaneProgressEvidence({
     queueHealth,
   });
@@ -513,7 +571,8 @@ export async function buildMetaWorkerLeasePlan(input: {
     fairnessInputs: {
       maintenanceLimit: META_MAINTENANCE_WORKER_LIMIT,
       coreFairnessLimit: fairnessLeasePlan.coreFairnessLimit,
-      extendedHistoricalFairnessLimit: fairnessLeasePlan.extendedHistoricalFairnessLimit,
+      extendedHistoricalFairnessLimit:
+        fairnessLeasePlan.extendedHistoricalFairnessLimit,
       extendedRecentLimit: followupLeasePlan.extendedRecentLimit,
     },
     progressEvidence: laneProgressEvidence.core,
@@ -536,7 +595,9 @@ export async function buildMetaWorkerLeasePlan(input: {
         (queueHealth?.extendedHistoricalQueueDepth ?? 0) +
         (queueHealth?.extendedHistoricalLeasedPartitions ?? 0),
       blockedReasonCodes:
-        (queueHealth?.deadLetterPartitions ?? 0) > 0 ? ["required_dead_letter_partitions"] : [],
+        (queueHealth?.deadLetterPartitions ?? 0) > 0
+          ? ["required_dead_letter_partitions"]
+          : [],
     }),
   };
 }
@@ -545,7 +606,9 @@ function isRecentMetaSource(source: string | null | undefined) {
   return META_RECENT_SOURCE_SET.has(String(source ?? ""));
 }
 
-function buildMetaSyntheticEvidenceState(activityAt: string | null | undefined) {
+function buildMetaSyntheticEvidenceState(
+  activityAt: string | null | undefined,
+) {
   if (!activityAt) return [];
   return [
     {
@@ -558,21 +621,25 @@ function buildMetaSyntheticEvidenceState(activityAt: string | null | undefined) 
 export function buildMetaLaneProgressEvidence(input: {
   statesByScope?: MetaStatesByScope;
   queueHealth?: MetaQueueHealth | null;
-}) : MetaLaneEvidence {
+}): MetaLaneEvidence {
   const statesByScope = input.statesByScope ?? {};
   const queueHealth = input.queueHealth ?? null;
   const coreStates = [
     ...(statesByScope.account_daily ?? []),
     ...(statesByScope.campaign_daily ?? []),
-    ...buildMetaSyntheticEvidenceState(queueHealth?.latestCoreActivityAt ?? null),
+    ...buildMetaSyntheticEvidenceState(
+      queueHealth?.latestCoreActivityAt ?? null,
+    ),
   ];
   const extendedStates = [
     ...(statesByScope.creative_daily ?? []),
     ...(statesByScope.ad_daily ?? []),
-    ...buildMetaSyntheticEvidenceState(queueHealth?.latestExtendedActivityAt ?? null),
+    ...buildMetaSyntheticEvidenceState(
+      queueHealth?.latestExtendedActivityAt ?? null,
+    ),
   ];
   const maintenanceStates = buildMetaSyntheticEvidenceState(
-    queueHealth?.latestMaintenanceActivityAt ?? null
+    queueHealth?.latestMaintenanceActivityAt ?? null,
   );
 
   return {
@@ -609,11 +676,15 @@ export function getMetaHistoricalCoreFairnessLimit(input: {
     (queueHealth?.historicalCoreQueueDepth ?? 0) > 0 ||
     (queueHealth?.historicalCoreLeasedPartitions ?? 0) > 0;
   if (!backlogExists) return 0;
-  const baseLimit = Math.min(META_CORE_WORKER_LIMIT, META_CORE_FAIRNESS_WORKER_LIMIT);
+  const baseLimit = Math.min(
+    META_CORE_WORKER_LIMIT,
+    META_CORE_FAIRNESS_WORKER_LIMIT,
+  );
   if (baseLimit <= 0) return 0;
   const hasRecentAdvancement = hasRecentProviderAdvancement({
     progressEvidence: input.progressEvidence ?? null,
-    fallbackLatestPartitionActivityAt: queueHealth?.latestCoreActivityAt ?? null,
+    fallbackLatestPartitionActivityAt:
+      queueHealth?.latestCoreActivityAt ?? null,
     nowMs: input.nowMs,
   });
   return hasRecentAdvancement
@@ -633,12 +704,13 @@ export function getMetaExtendedHistoricalFairnessLimit(input: {
   if (!backlogExists) return 0;
   const baseLimit = Math.min(
     META_EXTENDED_WORKER_LIMIT,
-    META_EXTENDED_HISTORICAL_FAIRNESS_WORKER_LIMIT
+    META_EXTENDED_HISTORICAL_FAIRNESS_WORKER_LIMIT,
   );
   if (baseLimit <= 0) return 0;
   const hasRecentAdvancement = hasRecentProviderAdvancement({
     progressEvidence: input.progressEvidence ?? null,
-    fallbackLatestPartitionActivityAt: queueHealth?.latestExtendedActivityAt ?? null,
+    fallbackLatestPartitionActivityAt:
+      queueHealth?.latestExtendedActivityAt ?? null,
     nowMs: input.nowMs,
   });
   return hasRecentAdvancement
@@ -650,7 +722,7 @@ export function buildMetaFairnessLeasePlan(input: {
   queueHealth?: MetaQueueHealth | null;
   laneProgressEvidence?: Partial<MetaLaneEvidence> | null;
   nowMs?: number;
-}) : MetaFairnessLeasePlan {
+}): MetaFairnessLeasePlan {
   return {
     coreFairnessLimit: getMetaHistoricalCoreFairnessLimit({
       queueHealth: input.queueHealth,
@@ -670,7 +742,7 @@ export function buildMetaFollowupLeasePlan(input: {
   leasedCoreFairnessCount: number;
   leasedExtendedHistoricalFairnessCount: number;
   leasedExtendedRecentCount?: number;
-}) : MetaFollowupLeasePlan {
+}): MetaFollowupLeasePlan {
   const queueHealth = input.queueHealth ?? null;
   const hasMaintenanceBacklog =
     (queueHealth?.maintenanceQueueDepth ?? 0) > 0 ||
@@ -680,18 +752,23 @@ export function buildMetaFollowupLeasePlan(input: {
     (queueHealth?.extendedRecentLeasedPartitions ?? 0) > 0;
   const remainingExtendedCapacity = Math.max(
     0,
-    META_EXTENDED_WORKER_LIMIT - input.leasedExtendedHistoricalFairnessCount
+    META_EXTENDED_WORKER_LIMIT - input.leasedExtendedHistoricalFairnessCount,
   );
   const remainingExtendedHistoricalCapacity = Math.max(
     0,
-    remainingExtendedCapacity - (input.leasedExtendedRecentCount ?? 0)
+    remainingExtendedCapacity - (input.leasedExtendedRecentCount ?? 0),
   );
 
   return {
     extendedRecentLimit: hasMaintenanceBacklog ? 0 : remainingExtendedCapacity,
-    historicalCoreLimit: Math.max(0, META_CORE_WORKER_LIMIT - input.leasedCoreFairnessCount),
+    historicalCoreLimit: Math.max(
+      0,
+      META_CORE_WORKER_LIMIT - input.leasedCoreFairnessCount,
+    ),
     extendedHistoricalLimit:
-      hasMaintenanceBacklog || hasExtendedRecentBacklog ? 0 : remainingExtendedHistoricalCapacity,
+      hasMaintenanceBacklog || hasExtendedRecentBacklog
+        ? 0
+        : remainingExtendedHistoricalCapacity,
   };
 }
 
@@ -699,7 +776,11 @@ function isHistoricalMetaSource(source: string | null | undefined) {
   return META_HISTORICAL_SOURCE_SET.has(String(source ?? ""));
 }
 
-function enumerateDays(startDate: string, endDate: string, recentFirst = false) {
+function enumerateDays(
+  startDate: string,
+  endDate: string,
+  recentFirst = false,
+) {
   const rows: string[] = [];
   let cursor = new Date(`${startDate}T00:00:00Z`);
   const end = new Date(`${endDate}T00:00:00Z`);
@@ -710,19 +791,29 @@ function enumerateDays(startDate: string, endDate: string, recentFirst = false) 
   return recentFirst ? rows.reverse() : rows;
 }
 
-function getMetaReferenceToday(credentials: Awaited<ReturnType<typeof resolveMetaCredentials>>) {
+function getMetaReferenceToday(
+  credentials: Awaited<ReturnType<typeof resolveMetaCredentials>>,
+) {
   const primaryAccountId = credentials?.accountIds[0] ?? null;
   const primaryTimeZone =
-    primaryAccountId && credentials?.accountProfiles?.[primaryAccountId]?.timezone
+    primaryAccountId &&
+    credentials?.accountProfiles?.[primaryAccountId]?.timezone
       ? credentials.accountProfiles[primaryAccountId].timezone
       : null;
-  return primaryTimeZone ? getTodayIsoForTimeZoneServer(primaryTimeZone) : toIsoDate(new Date());
+  return primaryTimeZone
+    ? getTodayIsoForTimeZoneServer(primaryTimeZone)
+    : toIsoDate(new Date());
 }
 
-function getMetaHistoricalWindow(credentials: Awaited<ReturnType<typeof resolveMetaCredentials>>) {
+function getMetaHistoricalWindow(
+  credentials: Awaited<ReturnType<typeof resolveMetaCredentials>>,
+) {
   const today = getMetaReferenceToday(credentials);
   const historicalEnd = addDays(new Date(`${today}T00:00:00Z`), -1);
-  const historicalStart = addDays(historicalEnd, -(META_WAREHOUSE_HISTORY_DAYS - 1));
+  const historicalStart = addDays(
+    historicalEnd,
+    -(META_WAREHOUSE_HISTORY_DAYS - 1),
+  );
   return {
     startDate: toIsoDate(historicalStart),
     endDate: toIsoDate(historicalEnd),
@@ -750,7 +841,11 @@ function classifyMetaError(error: unknown) {
     lower.includes("access token") ||
     lower.includes("session has expired")
   ) {
-    return { errorClass: "invalid_token", terminal: true, retryDelayMinutes: 0 };
+    return {
+      errorClass: "invalid_token",
+      terminal: true,
+      retryDelayMinutes: 0,
+    };
   }
   if (
     lower.includes("permission") ||
@@ -776,8 +871,14 @@ function classifyMetaError(error: unknown) {
   return { errorClass: "transient", terminal: false, retryDelayMinutes: 5 };
 }
 
-function computeRetryDelayMinutes(partition: { attemptCount: number }, baseMinutes: number) {
-  return Math.min(60, baseMinutes * Math.max(1, 2 ** Math.max(0, partition.attemptCount - 1)));
+function computeRetryDelayMinutes(
+  partition: { attemptCount: number },
+  baseMinutes: number,
+) {
+  return Math.min(
+    60,
+    baseMinutes * Math.max(1, 2 ** Math.max(0, partition.attemptCount - 1)),
+  );
 }
 
 export interface MetaSyncResult {
@@ -810,7 +911,10 @@ async function getMetaWarehouseWindowCompletion(input: {
       endDate: input.endDate,
     }).catch(() => null),
   ]);
-  const completedDays = Math.min(accountCoverage?.completed_days ?? 0, campaignCoverage?.completed_days ?? 0);
+  const completedDays = Math.min(
+    accountCoverage?.completed_days ?? 0,
+    campaignCoverage?.completed_days ?? 0,
+  );
   return {
     totalDays,
     completedDays,
@@ -878,7 +982,10 @@ async function syncMetaPartitionDay(input: {
   });
   const beforeCoverage = coverageState;
 
-  if (input.scopes.some((scope) => isMetaProductCoreCoverageScope(scope)) && !coverageState.productCoreComplete) {
+  if (
+    input.scopes.some((scope) => isMetaProductCoreCoverageScope(scope)) &&
+    !coverageState.productCoreComplete
+  ) {
     const bulkResult = await syncMetaAccountCoreWarehouseDay({
       credentials,
       accountId: input.providerAccountId,
@@ -910,7 +1017,8 @@ async function syncMetaPartitionDay(input: {
       },
       {
         breakdowns: "publisher_platform,platform_position,impression_device",
-        endpointName: "breakdown_publisher_platform,platform_position,impression_device",
+        endpointName:
+          "breakdown_publisher_platform,platform_position,impression_device",
       },
     ];
     for (const breakdownJob of breakdownJobs) {
@@ -980,7 +1088,8 @@ async function syncMetaPartitionDay(input: {
         accessToken: credentials.accessToken,
         assignedAccountIds,
         mediaMode:
-          input.day >= getCreativeMediaRetentionStart(getMetaReferenceToday(credentials))
+          input.day >=
+          getCreativeMediaRetentionStart(getMetaReferenceToday(credentials))
             ? "full"
             : "metadata",
       });
@@ -1062,15 +1171,19 @@ async function enqueueMetaDates(input: {
         priority: input.priority,
         source: input.triggerSource,
         attemptCount: 0,
-      }))
-    )
+      })),
+    ),
   );
 
-  for (let index = 0; index < workItems.length; index += META_ENQUEUE_BATCH_SIZE) {
+  for (
+    let index = 0;
+    index < workItems.length;
+    index += META_ENQUEUE_BATCH_SIZE
+  ) {
     const rows = await Promise.all(
       workItems
         .slice(index, index + META_ENQUEUE_BATCH_SIZE)
-        .map((item) => queueMetaSyncPartition(item).catch(() => null))
+        .map((item) => queueMetaSyncPartition(item).catch(() => null)),
     );
     for (const row of rows) {
       if (row?.id && row.status === "queued") queued += 1;
@@ -1088,13 +1201,21 @@ export function resolveMetaHistoricalReplaySource(
       source: string;
       finishedAt: string | null;
     }
-  >
+  >,
 ) {
-  const states = Array.from(partitionStates.values()).map((value) => value.status);
-  if (states.some((status) => ["queued", "leased", "running"].includes(status))) {
+  const states = Array.from(partitionStates.values()).map(
+    (value) => value.status,
+  );
+  if (
+    states.some((status) => ["queued", "leased", "running"].includes(status))
+  ) {
     return null;
   }
-  if (states.some((status) => ["succeeded", "failed", "dead_letter", "cancelled"].includes(status))) {
+  if (
+    states.some((status) =>
+      ["succeeded", "failed", "dead_letter", "cancelled"].includes(status),
+    )
+  ) {
     return "historical_recovery" as const;
   }
   return "historical" as const;
@@ -1103,12 +1224,12 @@ export function resolveMetaHistoricalReplaySource(
 async function enqueueMetaHistoricalCorePartitions(
   businessId: string,
   credentials: MetaCredentials,
-  maxDates = META_HISTORICAL_ENQUEUE_DAYS_PER_RUN
+  maxDates = META_HISTORICAL_ENQUEUE_DAYS_PER_RUN,
 ) {
   if (!credentials?.accountIds?.length) return 0;
   const { startDate, endDate } = getMetaHistoricalWindow(credentials);
   const historicalReplayEnd = toIsoDate(
-    addDays(new Date(`${endDate}T00:00:00Z`), -(META_RECENT_RECOVERY_DAYS))
+    addDays(new Date(`${endDate}T00:00:00Z`), -META_RECENT_RECOVERY_DAYS),
   );
   if (historicalReplayEnd < startDate) return 0;
   const completion = await getMetaWarehouseWindowCompletion({
@@ -1177,11 +1298,14 @@ async function enqueueMetaHistoricalCorePartitions(
 
 async function enqueueMetaMaintenancePartitions(
   businessId: string,
-  credentials: MetaCredentials
+  credentials: MetaCredentials,
 ) {
   if (!credentials?.accountIds?.length) return 0;
   const { endDate, today } = getMetaHistoricalWindow(credentials);
-  const recentStart = addDays(new Date(`${endDate}T00:00:00Z`), -(META_RECENT_RECOVERY_DAYS - 1));
+  const recentStart = addDays(
+    new Date(`${endDate}T00:00:00Z`),
+    -(META_RECENT_RECOVERY_DAYS - 1),
+  );
   const recentDates = enumerateDays(toIsoDate(recentStart), endDate, true);
   let queued = 0;
   queued += await enqueueMetaDates({
@@ -1206,19 +1330,24 @@ async function enqueueMetaMaintenancePartitions(
 }
 
 export async function enqueueMetaScheduledWork(businessId: string) {
-  const credentials = await resolveMetaCredentials(businessId).catch(() => null);
+  const credentials = await resolveMetaCredentials(businessId).catch(
+    () => null,
+  );
   let queuedCore = 0;
   let queuedMaintenance = 0;
   let queueDepth = 0;
   let leasedPartitions = 0;
 
-  const cancelledObsoletePartitions = await cancelObsoleteMetaCoreScopePartitions({
-    businessId,
-    canonicalScope: META_PRODUCT_CORE_PARTITION_SCOPE,
-  }).catch(() => []);
+  const cancelledObsoletePartitions =
+    await cancelObsoleteMetaCoreScopePartitions({
+      businessId,
+      canonicalScope: META_PRODUCT_CORE_PARTITION_SCOPE,
+    }).catch(() => []);
 
   if (credentials?.accountIds?.length) {
-    const queueHealth = await getMetaQueueHealth({ businessId }).catch(() => null);
+    const queueHealth = await getMetaQueueHealth({ businessId }).catch(
+      () => null,
+    );
     queueDepth = queueHealth?.queueDepth ?? 0;
     leasedPartitions = queueHealth?.leasedPartitions ?? 0;
     const hasHistoricalCoreBacklog =
@@ -1228,14 +1357,20 @@ export async function enqueueMetaScheduledWork(businessId: string) {
       (queueHealth?.maintenanceQueueDepth ?? 0) > 0 ||
       (queueHealth?.maintenanceLeasedPartitions ?? 0) > 0;
 
-    await refreshMetaSyncStateForBusiness({ businessId, credentials }).catch(() => null);
+    await refreshMetaSyncStateForBusiness({ businessId, credentials }).catch(
+      () => null,
+    );
     if (!hasHistoricalCoreBacklog) {
-      queuedCore = await enqueueMetaHistoricalCorePartitions(businessId, credentials).catch(() => 0);
+      queuedCore = await enqueueMetaHistoricalCorePartitions(
+        businessId,
+        credentials,
+      ).catch(() => 0);
     }
     if (!hasMaintenanceBacklog) {
-      queuedMaintenance = await enqueueMetaMaintenancePartitions(businessId, credentials).catch(
-        () => 0
-      );
+      queuedMaintenance = await enqueueMetaMaintenancePartitions(
+        businessId,
+        credentials,
+      ).catch(() => 0);
     }
   }
 
@@ -1294,7 +1429,9 @@ export async function refreshMetaSyncStateForBusiness(input: {
   businessId: string;
   credentials?: MetaCredentials | null;
 }) {
-  const credentials = input.credentials ?? (await resolveMetaCredentials(input.businessId).catch(() => null));
+  const credentials =
+    input.credentials ??
+    (await resolveMetaCredentials(input.businessId).catch(() => null));
   if (!credentials?.accountIds?.length) return;
   const { startDate, endDate } = getMetaHistoricalWindow(credentials);
 
@@ -1316,26 +1453,26 @@ export async function refreshMetaSyncStateForBusiness(input: {
                   startDate,
                   endDate,
                 }).catch(() => null)
-            : scope === "adset_daily"
-              ? await getMetaAdSetDailyCoverage({
-                  businessId: input.businessId,
-                  providerAccountId,
-                  startDate,
-                  endDate,
-                }).catch(() => null)
-              : scope === "creative_daily"
-                ? await getMetaCreativeDailyCoverage({
+              : scope === "adset_daily"
+                ? await getMetaAdSetDailyCoverage({
                     businessId: input.businessId,
                     providerAccountId,
                     startDate,
                     endDate,
                   }).catch(() => null)
-                : await getMetaAdDailyCoverage({
-                    businessId: input.businessId,
-                    providerAccountId,
-                    startDate,
-                    endDate,
-                  }).catch(() => null);
+                : scope === "creative_daily"
+                  ? await getMetaCreativeDailyCoverage({
+                      businessId: input.businessId,
+                      providerAccountId,
+                      startDate,
+                      endDate,
+                    }).catch(() => null)
+                  : await getMetaAdDailyCoverage({
+                      businessId: input.businessId,
+                      providerAccountId,
+                      startDate,
+                      endDate,
+                    }).catch(() => null);
 
         const partitionHealth = await getMetaPartitionHealth({
           businessId: input.businessId,
@@ -1354,13 +1491,15 @@ export async function refreshMetaSyncStateForBusiness(input: {
           readyThroughDate: coverage?.ready_through_date ?? null,
           lastSuccessfulPartitionDate: coverage?.ready_through_date ?? null,
           latestBackgroundActivityAt:
-            partitionHealth?.latestActivityAt ?? coverage?.latest_updated_at ?? null,
+            partitionHealth?.latestActivityAt ??
+            coverage?.latest_updated_at ??
+            null,
           latestSuccessfulSyncAt: coverage?.latest_updated_at ?? null,
           completedDays: coverage?.completed_days ?? 0,
           deadLetterCount: partitionHealth?.deadLetterPartitions ?? 0,
         }).catch(() => null);
-      })
-    )
+      }),
+    ),
   );
 }
 
@@ -1372,21 +1511,31 @@ export function scheduleMetaBackgroundSync(input: {
   const backgroundSyncKeys = getBackgroundSyncKeys();
   const timers = getBackgroundWorkerTimers();
   const key = input.businessId;
-  if (backgroundSyncKeys.has(key)) return false;
+  if (backgroundSyncKeys.has(key)) {
+    logMetaQueueVisibility("meta_background_sync_already_scheduled", {
+      businessId: input.businessId,
+      delayMs: Math.max(0, input.delayMs ?? 0),
+      source: "schedule",
+    });
+    return false;
+  }
   backgroundSyncKeys.add(key);
-  const timer = setTimeout(() => {
-    timers.delete(key);
-    void syncMetaReports(input.businessId)
-      .catch((error) => {
-        console.warn("[meta-sync] background_run_failed", {
-          businessId: input.businessId,
-          message: error instanceof Error ? error.message : String(error),
+  const timer = setTimeout(
+    () => {
+      timers.delete(key);
+      void syncMetaReports(input.businessId)
+        .catch((error) => {
+          console.warn("[meta-sync] background_run_failed", {
+            businessId: input.businessId,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        })
+        .finally(() => {
+          backgroundSyncKeys.delete(key);
         });
-      })
-      .finally(() => {
-        backgroundSyncKeys.delete(key);
-      });
-  }, Math.max(0, input.delayMs ?? 0));
+    },
+    Math.max(0, input.delayMs ?? 0),
+  );
   timers.set(key, timer);
   return true;
 }
@@ -1430,7 +1579,10 @@ async function cancelDeprecatedMetaPartition(input: {
       rowsWritten: checkpoint.rowsWritten ?? 0,
       lastSuccessfulEntityKey: checkpoint.lastSuccessfulEntityKey ?? null,
       lastResponseHeaders: checkpoint.lastResponseHeaders ?? {},
-      attemptCount: Math.max(checkpoint.attemptCount, input.partition.attemptCount + 1),
+      attemptCount: Math.max(
+        checkpoint.attemptCount,
+        input.partition.attemptCount + 1,
+      ),
       leaseEpoch: input.partition.leaseEpoch,
       leaseOwner: input.workerId,
       startedAt: checkpoint.startedAt ?? cancelledAt,
@@ -1465,7 +1617,8 @@ async function cancelDeprecatedMetaPartition(input: {
         status: "failed",
         durationMs: Date.now() - input.startedAtMs,
         errorClass: "lease_conflict",
-        errorMessage: "partition lost ownership before deprecated-scope cancellation",
+        errorMessage:
+          "partition lost ownership before deprecated-scope cancellation",
         finishedAt: cancelledAt,
         onlyIfCurrentStatus: "running",
       }).catch(() => null);
@@ -1510,7 +1663,8 @@ async function cancelDeprecatedMetaPartition(input: {
         status: "failed",
         durationMs: Date.now() - input.startedAtMs,
         errorClass: "lease_conflict",
-        errorMessage: "partition lost ownership before deprecated-scope cancellation",
+        errorMessage:
+          "partition lost ownership before deprecated-scope cancellation",
         finishedAt: cancelledAt,
         onlyIfCurrentStatus: "running",
       }).catch(() => null);
@@ -1589,7 +1743,10 @@ async function processMetaPartition(input: {
     status: "running",
     workerId: input.workerId,
     attemptCount: input.partition.attemptCount + 1,
-    metaJson: { source: input.partition.source, leaseEpoch: input.partition.leaseEpoch },
+    metaJson: {
+      source: input.partition.source,
+      leaseEpoch: input.partition.leaseEpoch,
+    },
   }).catch(() => null);
   logMetaRunObservability({
     event: "run_row_created",
@@ -1608,7 +1765,9 @@ async function processMetaPartition(input: {
   let runId = createdRunId;
   let recoveredRunId: string | null = null;
   if (!runId) {
-    recoveredRunId = await getLatestRunningMetaSyncRunIdForPartition({ partitionId }).catch(() => null);
+    recoveredRunId = await getLatestRunningMetaSyncRunIdForPartition({
+      partitionId,
+    }).catch(() => null);
     logMetaRunObservability({
       event: "latest_running_run_lookup_result",
       partitionId,
@@ -1640,7 +1799,9 @@ async function processMetaPartition(input: {
     pathKind: "primary",
   });
 
-  const deprecatedScopeReason = getDeprecatedMetaPartitionCancellationReason(input.partition.scope);
+  const deprecatedScopeReason = getDeprecatedMetaPartitionCancellationReason(
+    input.partition.scope,
+  );
   if (deprecatedScopeReason) {
     return cancelDeprecatedMetaPartition({
       partition: {
@@ -1817,7 +1978,10 @@ async function processMetaPartition(input: {
         partitionStatus: "succeeded",
         runStatus: "succeeded",
         reason: "operational_error",
-        message: completionError instanceof Error ? completionError.message : String(completionError),
+        message:
+          completionError instanceof Error
+            ? completionError.message
+            : String(completionError),
       });
       if (denialSnapshot?.denialClassification === "already_terminal") {
         await backfillMetaDeniedTerminalRuns({
@@ -1833,7 +1997,10 @@ async function processMetaPartition(input: {
       }
       throw completionError;
     }
-    if (input.partition.lane === "core" || input.partition.lane === "maintenance") {
+    if (
+      input.partition.lane === "core" ||
+      input.partition.lane === "maintenance"
+    ) {
       await enqueueMetaExtendedPartitionsAfterSuccess({
         businessId: input.partition.businessId,
         providerAccountId: input.partition.providerAccountId,
@@ -1845,7 +2012,9 @@ async function processMetaPartition(input: {
   } catch (error) {
     const classified = classifyMetaError(error);
     const message = error instanceof Error ? error.message : String(error);
-    const shouldDeadLetter = classified.terminal || input.partition.attemptCount + 1 >= META_PARTITION_MAX_ATTEMPTS;
+    const shouldDeadLetter =
+      classified.terminal ||
+      input.partition.attemptCount + 1 >= META_PARTITION_MAX_ATTEMPTS;
     try {
       const completionHeartbeat = await heartbeatMetaPartitionBeforeCompletion({
         partitionId,
@@ -1882,7 +2051,10 @@ async function processMetaPartition(input: {
           lastError: message,
           retryDelayMinutes: shouldDeadLetter
             ? undefined
-            : computeRetryDelayMinutes(input.partition, classified.retryDelayMinutes),
+            : computeRetryDelayMinutes(
+                input.partition,
+                classified.retryDelayMinutes,
+              ),
           lane: input.partition.lane,
           scope: input.partition.scope,
           observabilityPath: "primary",
@@ -1895,7 +2067,8 @@ async function processMetaPartition(input: {
               status: "failed",
               durationMs: Date.now() - startedAt,
               errorClass: "lease_conflict",
-              errorMessage: "partition lost ownership before failure completion",
+              errorMessage:
+                "partition lost ownership before failure completion",
               finishedAt: new Date().toISOString(),
               onlyIfCurrentStatus: "running",
             }).catch(() => null);
@@ -1935,7 +2108,10 @@ async function processMetaPartition(input: {
         partitionId,
         scope: input.partition.scope,
         lane: input.partition.lane,
-        message: completionError instanceof Error ? completionError.message : String(completionError),
+        message:
+          completionError instanceof Error
+            ? completionError.message
+            : String(completionError),
       });
       if (runId) {
         await updateMetaSyncRun({
@@ -1976,7 +2152,9 @@ export async function processMetaLifecyclePartition(input: {
   };
   workerId: string;
 }) {
-  const credentials = await resolveMetaCredentials(input.partition.businessId).catch(() => null);
+  const credentials = await resolveMetaCredentials(
+    input.partition.businessId,
+  ).catch(() => null);
   if (!credentials) {
     throw new Error("meta_credentials_unavailable");
   }
@@ -1991,21 +2169,26 @@ export async function consumeMetaQueuedWork(
   businessId: string,
   input?: {
     runtimeLeaseGuard?: RunnerLeaseGuard;
-  }
+  },
 ): Promise<MetaSyncResult> {
-  const credentials = await resolveMetaCredentials(businessId).catch(() => null);
+  const credentials = await resolveMetaCredentials(businessId).catch(
+    () => null,
+  );
   if (!credentials?.accountIds?.length) {
-    console.info("[meta-sync] meta_consume_skipped_no_credentials", { businessId });
+    console.info("[meta-sync] meta_consume_skipped_no_credentials", {
+      businessId,
+    });
     return { businessId, attempted: 0, succeeded: 0, failed: 0, skipped: true };
   }
   console.info("[meta-sync] meta_consume_started", {
     businessId,
     accountIds: credentials.accountIds,
   });
-  const cancelledObsoletePartitions = await cancelObsoleteMetaCoreScopePartitions({
-    businessId,
-    canonicalScope: META_PRODUCT_CORE_PARTITION_SCOPE,
-  }).catch(() => []);
+  const cancelledObsoletePartitions =
+    await cancelObsoleteMetaCoreScopePartitions({
+      businessId,
+      canonicalScope: META_PRODUCT_CORE_PARTITION_SCOPE,
+    }).catch(() => []);
   if (cancelledObsoletePartitions.length > 0) {
     console.info("[meta-sync] cancelled_obsolete_core_scope_partitions", {
       businessId,
@@ -2027,6 +2210,11 @@ export async function consumeMetaQueuedWork(
   const lockKey = `background:${businessId}`;
   const backgroundSyncKeys = getBackgroundSyncKeys();
   if (backgroundSyncKeys.has(lockKey)) {
+    logMetaQueueVisibility("meta_background_sync_already_scheduled", {
+      businessId,
+      lockKey,
+      source: "consume",
+    });
     return { businessId, attempted: 0, succeeded: 0, failed: 0, skipped: true };
   }
 
@@ -2035,33 +2223,52 @@ export async function consumeMetaQueuedWork(
   try {
     const leaseConflictReason = () =>
       input?.runtimeLeaseGuard?.getLeaseLossReason() ?? "runner_lease_conflict";
-    const hasLeaseConflict = () => input?.runtimeLeaseGuard?.isLeaseLost() ?? false;
-    await refreshMetaSyncStateForBusiness({ businessId, credentials }).catch(() => null);
-    const queueHealthBeforeEnqueue = await getMetaQueueHealth({ businessId }).catch(() => null);
+    const hasLeaseConflict = () =>
+      input?.runtimeLeaseGuard?.isLeaseLost() ?? false;
+    await refreshMetaSyncStateForBusiness({ businessId, credentials }).catch(
+      () => null,
+    );
+    const queueHealthBeforeEnqueue = await getMetaQueueHealth({
+      businessId,
+    }).catch(() => null);
     const stateRowsBeforeLeasing = await Promise.all(
-      META_STATE_SCOPES.map((scope) => getMetaSyncState({ businessId, scope }).catch(() => []))
+      META_STATE_SCOPES.map((scope) =>
+        getMetaSyncState({ businessId, scope }).catch(() => []),
+      ),
     ).catch(() => META_STATE_SCOPES.map(() => []));
     const statesByScope = Object.fromEntries(
-      META_STATE_SCOPES.map((scope, index) => [scope, stateRowsBeforeLeasing[index] ?? []])
-    ) as Record<MetaWarehouseScope, Awaited<ReturnType<typeof getMetaSyncState>>>;
+      META_STATE_SCOPES.map((scope, index) => [
+        scope,
+        stateRowsBeforeLeasing[index] ?? [],
+      ]),
+    ) as Record<
+      MetaWarehouseScope,
+      Awaited<ReturnType<typeof getMetaSyncState>>
+    >;
     const laneProgressEvidence = buildMetaLaneProgressEvidence({
       statesByScope,
       queueHealth: queueHealthBeforeEnqueue,
     });
-    const queueCompositionBeforeEnqueue = await getMetaQueueComposition({ businessId }).catch(
-      () => null
-    );
-    console.info("[meta-sync] meta_consume_queue_health", {
+    const queueCompositionBeforeEnqueue = await getMetaQueueComposition({
+      businessId,
+    }).catch(() => null);
+    const queueHealthPayload = {
       businessId,
       queueDepth: queueHealthBeforeEnqueue?.queueDepth ?? 0,
       leasedPartitions: queueHealthBeforeEnqueue?.leasedPartitions ?? 0,
       coreQueueDepth: queueHealthBeforeEnqueue?.coreQueueDepth ?? 0,
-      maintenanceQueueDepth: queueHealthBeforeEnqueue?.maintenanceQueueDepth ?? 0,
+      maintenanceQueueDepth:
+        queueHealthBeforeEnqueue?.maintenanceQueueDepth ?? 0,
       extendedQueueDepth: queueHealthBeforeEnqueue?.extendedQueueDepth ?? 0,
-      historicalCoreQueued: queueCompositionBeforeEnqueue?.summary.historicalCoreQueued ?? 0,
-      extendedRecentQueued: queueCompositionBeforeEnqueue?.summary.extendedRecentQueued ?? 0,
-      extendedHistoricalQueued: queueCompositionBeforeEnqueue?.summary.extendedHistoricalQueued ?? 0,
-    });
+      historicalCoreQueued:
+        queueCompositionBeforeEnqueue?.summary.historicalCoreQueued ?? 0,
+      extendedRecentQueued:
+        queueCompositionBeforeEnqueue?.summary.extendedRecentQueued ?? 0,
+      extendedHistoricalQueued:
+        queueCompositionBeforeEnqueue?.summary.extendedHistoricalQueued ?? 0,
+    };
+    console.info("[meta-sync] meta_consume_queue_health", queueHealthPayload);
+    logMetaQueueVisibility("meta_queue_health", queueHealthPayload);
     const hasHistoricalCoreBacklogBeforeEnqueue =
       (queueHealthBeforeEnqueue?.historicalCoreQueueDepth ?? 0) > 0 ||
       (queueHealthBeforeEnqueue?.historicalCoreLeasedPartitions ?? 0) > 0;
@@ -2070,10 +2277,14 @@ export async function consumeMetaQueuedWork(
       (queueHealthBeforeEnqueue?.maintenanceLeasedPartitions ?? 0) > 0;
 
     if (!hasHistoricalCoreBacklogBeforeEnqueue) {
-      await enqueueMetaHistoricalCorePartitions(businessId, credentials).catch(() => 0);
+      await enqueueMetaHistoricalCorePartitions(businessId, credentials).catch(
+        () => 0,
+      );
     }
     if (!hasMaintenanceBacklog) {
-      await enqueueMetaMaintenancePartitions(businessId, credentials).catch(() => 0);
+      await enqueueMetaMaintenancePartitions(businessId, credentials).catch(
+        () => 0,
+      );
     }
 
     if (hasLeaseConflict()) {
@@ -2095,13 +2306,16 @@ export async function consumeMetaQueuedWork(
       limit: META_MAINTENANCE_WORKER_LIMIT,
       leaseMinutes: META_PARTITION_LEASE_MINUTES,
     });
-    const queueHealthAfterPriorityLeases = await getMetaQueueHealth({ businessId }).catch(() => null);
+    const queueHealthAfterPriorityLeases = await getMetaQueueHealth({
+      businessId,
+    }).catch(() => null);
     const hasHistoricalCoreBacklog =
       (queueHealthAfterPriorityLeases?.historicalCoreQueueDepth ?? 0) > 0 ||
       (queueHealthAfterPriorityLeases?.historicalCoreLeasedPartitions ?? 0) > 0;
     const hasExtendedHistoricalBacklog =
       (queueHealthAfterPriorityLeases?.extendedHistoricalQueueDepth ?? 0) > 0 ||
-      (queueHealthAfterPriorityLeases?.extendedHistoricalLeasedPartitions ?? 0) > 0;
+      (queueHealthAfterPriorityLeases?.extendedHistoricalLeasedPartitions ??
+        0) > 0;
     const fairnessLeasePlan = buildMetaFairnessLeasePlan({
       queueHealth: queueHealthAfterPriorityLeases,
       laneProgressEvidence,
@@ -2120,7 +2334,8 @@ export async function consumeMetaQueuedWork(
         : [];
 
     const leasedExtendedHistoricalFairnessPartitions =
-      hasExtendedHistoricalBacklog && fairnessLeasePlan.extendedHistoricalFairnessLimit > 0
+      hasExtendedHistoricalBacklog &&
+      fairnessLeasePlan.extendedHistoricalFairnessLimit > 0
         ? await leaseMetaSyncPartitions({
             businessId,
             lane: "extended",
@@ -2133,7 +2348,8 @@ export async function consumeMetaQueuedWork(
     const initialFollowupLeasePlan = buildMetaFollowupLeasePlan({
       queueHealth: queueHealthAfterPriorityLeases,
       leasedCoreFairnessCount: leasedCoreFairnessPartitions.length,
-      leasedExtendedHistoricalFairnessCount: leasedExtendedHistoricalFairnessPartitions.length,
+      leasedExtendedHistoricalFairnessCount:
+        leasedExtendedHistoricalFairnessPartitions.length,
     });
 
     const leasedExtendedRecentPartitions =
@@ -2141,7 +2357,14 @@ export async function consumeMetaQueuedWork(
         ? await leaseMetaSyncPartitions({
             businessId,
             lane: "extended",
-            sources: ["recent", "recent_recovery", "today", "priority_window", "request_runtime", "manual_refresh"],
+            sources: [
+              "recent",
+              "recent_recovery",
+              "today",
+              "priority_window",
+              "request_runtime",
+              "manual_refresh",
+            ],
             workerId,
             limit: initialFollowupLeasePlan.extendedRecentLimit,
             leaseMinutes: META_PARTITION_LEASE_MINUTES,
@@ -2161,7 +2384,8 @@ export async function consumeMetaQueuedWork(
     const finalFollowupLeasePlan = buildMetaFollowupLeasePlan({
       queueHealth: queueHealthAfterPriorityLeases,
       leasedCoreFairnessCount: leasedCoreFairnessPartitions.length,
-      leasedExtendedHistoricalFairnessCount: leasedExtendedHistoricalFairnessPartitions.length,
+      leasedExtendedHistoricalFairnessCount:
+        leasedExtendedHistoricalFairnessPartitions.length,
       leasedExtendedRecentCount: leasedExtendedRecentPartitions.length,
     });
 
@@ -2190,8 +2414,10 @@ export async function consumeMetaQueuedWork(
       maintenanceLeased: leasedMaintenancePartitions.length,
       coreFairnessLimit: fairnessLeasePlan.coreFairnessLimit,
       coreFairnessLeased: leasedCoreFairnessPartitions.length,
-      extendedHistoricalFairnessLimit: fairnessLeasePlan.extendedHistoricalFairnessLimit,
-      extendedHistoricalFairnessLeased: leasedExtendedHistoricalFairnessPartitions.length,
+      extendedHistoricalFairnessLimit:
+        fairnessLeasePlan.extendedHistoricalFairnessLimit,
+      extendedHistoricalFairnessLeased:
+        leasedExtendedHistoricalFairnessPartitions.length,
       extendedRecentLimit: initialFollowupLeasePlan.extendedRecentLimit,
       extendedRecentLeased: leasedExtendedRecentPartitions.length,
       historicalCoreLimit: initialFollowupLeasePlan.historicalCoreLimit,
@@ -2201,23 +2427,46 @@ export async function consumeMetaQueuedWork(
       totalLeased: partitions.length,
     });
     if (partitions.length === 0) {
-      const queueHealth = await getMetaQueueHealth({ businessId }).catch(() => null);
+      const queueHealth = await getMetaQueueHealth({ businessId }).catch(
+        () => null,
+      );
       console.info("[meta-sync] meta_consume_no_partitions", {
         businessId,
         queueDepth: queueHealth?.queueDepth ?? 0,
         leasedPartitions: queueHealth?.leasedPartitions ?? 0,
       });
-      if ((queueHealth?.queueDepth ?? 0) > 0 || (queueHealth?.leasedPartitions ?? 0) > 0) {
-        console.warn("[meta-sync] queue_idle_without_lease", {
+      if (
+        (queueHealth?.queueDepth ?? 0) > 0 ||
+        (queueHealth?.leasedPartitions ?? 0) > 0
+      ) {
+        const noLeasePayload = {
           businessId,
+          workerId,
           queueDepth: queueHealth?.queueDepth ?? 0,
           leasedPartitions: queueHealth?.leasedPartitions ?? 0,
           latestCoreActivityAt: queueHealth?.latestCoreActivityAt ?? null,
-          latestMaintenanceActivityAt: queueHealth?.latestMaintenanceActivityAt ?? null,
-          latestExtendedActivityAt: queueHealth?.latestExtendedActivityAt ?? null,
-        });
+          latestMaintenanceActivityAt:
+            queueHealth?.latestMaintenanceActivityAt ?? null,
+          latestExtendedActivityAt:
+            queueHealth?.latestExtendedActivityAt ?? null,
+        };
+        console.warn("[meta-sync] queue_idle_without_lease", noLeasePayload);
+        logMetaQueueVisibility(
+          "meta_queue_present_no_runner_lease",
+          noLeasePayload,
+        );
+        logMetaQueueVisibility(
+          "meta_runner_lease_not_acquired",
+          noLeasePayload,
+        );
       }
-      return { businessId, attempted: 0, succeeded: 0, failed: 0, skipped: true };
+      return {
+        businessId,
+        attempted: 0,
+        succeeded: 0,
+        failed: 0,
+        skipped: true,
+      };
     }
 
     let attempted = partitions.length;
@@ -2247,7 +2496,9 @@ export async function consumeMetaQueuedWork(
       else failed += 1;
     }
 
-    await refreshMetaSyncStateForBusiness({ businessId, credentials }).catch(() => null);
+    await refreshMetaSyncStateForBusiness({ businessId, credentials }).catch(
+      () => null,
+    );
     console.info("[meta-sync] meta_consume_finished", {
       businessId,
       attempted,
@@ -2260,15 +2511,21 @@ export async function consumeMetaQueuedWork(
       succeeded,
       failed,
       skipped: attempted === 0,
-      outcome: failed > 0 && succeeded === 0 ? "consume_failed_after_leasing" : undefined,
-      failureReason: failed > 0 && succeeded === 0 ? leaseConflictReason() : null,
+      outcome:
+        failed > 0 && succeeded === 0
+          ? "consume_failed_after_leasing"
+          : undefined,
+      failureReason:
+        failed > 0 && succeeded === 0 ? leaseConflictReason() : null,
     };
   } finally {
     backgroundSyncKeys.delete(lockKey);
   }
 }
 
-export async function syncMetaReports(businessId: string): Promise<MetaSyncResult> {
+export async function syncMetaReports(
+  businessId: string,
+): Promise<MetaSyncResult> {
   if (process.env.SYNC_WORKER_MODE !== "1") {
     await enqueueMetaScheduledWork(businessId).catch(() => null);
     return { businessId, attempted: 0, succeeded: 0, failed: 0, skipped: true };
@@ -2288,7 +2545,13 @@ async function enqueueMetaRangeJob(input: {
 }) {
   const credentials = await resolveMetaCredentials(input.businessId);
   if (!credentials?.accountIds?.length) {
-    return { businessId: input.businessId, attempted: 0, succeeded: 0, failed: 0, skipped: true };
+    return {
+      businessId: input.businessId,
+      attempted: 0,
+      succeeded: 0,
+      failed: 0,
+      skipped: true,
+    };
   }
   const days = enumerateDays(input.startDate, input.endDate, true);
   const primaryAccountId = credentials.accountIds[0] ?? "workspace";
@@ -2356,7 +2619,9 @@ export async function backfillMetaRange(input: {
   });
 }
 
-export async function syncMetaRecent(businessId: string): Promise<MetaSyncResult> {
+export async function syncMetaRecent(
+  businessId: string,
+): Promise<MetaSyncResult> {
   const credentials = await resolveMetaCredentials(businessId);
   if (!credentials) {
     return { businessId, attempted: 0, succeeded: 0, failed: 0, skipped: true };
@@ -2375,7 +2640,9 @@ export async function syncMetaRecent(businessId: string): Promise<MetaSyncResult
   });
 }
 
-export async function syncMetaToday(businessId: string): Promise<MetaSyncResult> {
+export async function syncMetaToday(
+  businessId: string,
+): Promise<MetaSyncResult> {
   const credentials = await resolveMetaCredentials(businessId);
   if (!credentials) {
     return { businessId, attempted: 0, succeeded: 0, failed: 0, skipped: true };
@@ -2410,7 +2677,9 @@ export async function syncMetaRepairRange(input: {
   });
 }
 
-export async function syncMetaInitial(businessId: string): Promise<MetaSyncResult> {
+export async function syncMetaInitial(
+  businessId: string,
+): Promise<MetaSyncResult> {
   const credentials = await resolveMetaCredentials(businessId);
   if (!credentials) {
     return { businessId, attempted: 0, succeeded: 0, failed: 0, skipped: true };
@@ -2472,14 +2741,17 @@ export async function getMetaSelectedRangeState(input: {
   const [completion, queueHealth, latestSync, states] = await Promise.all([
     getMetaWarehouseWindowCompletion(input).catch(() => null),
     getMetaQueueHealth({ businessId: input.businessId }).catch(() => null),
-    getLatestMetaSyncHealth({ businessId: input.businessId, providerAccountId: null }).catch(() => null),
+    getLatestMetaSyncHealth({
+      businessId: input.businessId,
+      providerAccountId: null,
+    }).catch(() => null),
     Promise.all(
       META_STATE_SCOPES.map((scope) =>
         getMetaSyncState({
           businessId: input.businessId,
           scope,
-        }).catch(() => [])
-      )
+        }).catch(() => []),
+      ),
     ),
   ]);
   return { completion, queueHealth, latestSync, states };
