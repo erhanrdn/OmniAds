@@ -417,6 +417,68 @@ async function backfillGoogleAdsDeniedTerminalChildren(input: {
   }
 }
 
+export async function maybeBackfillGoogleAdsCompletionSuccess(input: {
+  partitionId: string;
+  runId?: string | null;
+  recoveredRunId?: string | null;
+  workerId: string;
+  lane: GoogleAdsSyncLane;
+  scope: GoogleAdsWarehouseScope;
+  completionResult: {
+    ok: true;
+    closedRunningRunCount: number;
+    callerRunIdWasClosed: boolean | null;
+  };
+}) {
+  const shouldBackfill =
+    input.completionResult.closedRunningRunCount === 0 ||
+    input.completionResult.callerRunIdWasClosed === false;
+  if (!shouldBackfill) {
+    return;
+  }
+
+  try {
+    const [runResult, checkpointResult] = await Promise.all([
+      backfillGoogleAdsRunningRunsForTerminalPartition({
+        partitionId: input.partitionId,
+        runId: input.runId ?? null,
+        recoveredRunId: input.recoveredRunId ?? null,
+      }),
+      backfillGoogleAdsRunningCheckpointsForTerminalPartition({
+        partitionId: input.partitionId,
+      }),
+    ]);
+    console.warn("[google-ads-sync] google_ads_completion_success_backfill_triggered", {
+      partitionId: input.partitionId,
+      runId: input.runId ?? null,
+      recoveredRunId: input.recoveredRunId ?? null,
+      workerId: input.workerId,
+      lane: input.lane,
+      scope: input.scope,
+      closedRunningRunCount: input.completionResult.closedRunningRunCount,
+      callerRunIdWasClosed: input.completionResult.callerRunIdWasClosed,
+      backfilledRunCount: runResult.closedRunningRunCount,
+      backfilledCheckpointCount: checkpointResult.closedRunningCheckpointCount,
+      closedCheckpointGroups: checkpointResult.closedCheckpointGroups,
+    });
+  } catch (error) {
+    console.warn(
+      "[google-ads-sync] google_ads_completion_success_backfill_failed",
+      {
+        partitionId: input.partitionId,
+        runId: input.runId ?? null,
+        recoveredRunId: input.recoveredRunId ?? null,
+        workerId: input.workerId,
+        lane: input.lane,
+        scope: input.scope,
+        closedRunningRunCount: input.completionResult.closedRunningRunCount,
+        callerRunIdWasClosed: input.completionResult.callerRunIdWasClosed,
+        message: error instanceof Error ? error.message : String(error),
+      },
+    );
+  }
+}
+
 const GOOGLE_ADS_EXTENDED_CANARY_BUSINESS_IDS = new Set(
   parseEnvList("GOOGLE_ADS_EXTENDED_CANARY_BUSINESS_IDS"),
 );
@@ -3851,6 +3913,15 @@ async function processGoogleAdsPartition(input: {
       }
       return false;
     }
+    await maybeBackfillGoogleAdsCompletionSuccess({
+      partitionId,
+      runId,
+      recoveredRunId,
+      workerId: input.workerId,
+      lane: input.partition.lane,
+      scope: input.partition.scope,
+      completionResult: completed,
+    });
 
     try {
       if (
