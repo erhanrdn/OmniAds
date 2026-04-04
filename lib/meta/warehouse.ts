@@ -1202,6 +1202,22 @@ export async function updateMetaSyncRun(input: {
   `;
 }
 
+export async function getLatestRunningMetaSyncRunIdForPartition(input: {
+  partitionId: string;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = await sql`
+    SELECT id
+    FROM meta_sync_runs
+    WHERE partition_id = ${input.partitionId}
+      AND status = 'running'
+    ORDER BY created_at DESC
+    LIMIT 1
+  ` as Array<{ id: string }>;
+  return rows[0]?.id ?? null;
+}
+
 export function buildMetaSyncCheckpointHash(input: {
   partitionId: string;
   checkpointScope: string;

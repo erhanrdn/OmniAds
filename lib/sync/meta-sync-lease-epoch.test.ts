@@ -24,6 +24,7 @@ vi.mock("@/lib/meta/warehouse", async () => {
     createMetaSyncRun: vi.fn(),
     expireStaleMetaSyncJobs: vi.fn(),
     getLatestMetaCheckpointForPartition: vi.fn(),
+    getLatestRunningMetaSyncRunIdForPartition: vi.fn(),
     heartbeatMetaPartitionLease: vi.fn().mockResolvedValue(true),
     getLatestMetaSyncHealth: vi.fn(),
     getMetaAdDailyCoverage: vi.fn(),
@@ -108,6 +109,7 @@ describe("processMetaLifecyclePartition lease epoch", () => {
     });
     vi.mocked(warehouse.completeMetaPartition).mockResolvedValue(true);
     vi.mocked(warehouse.updateMetaSyncRun).mockResolvedValue(undefined);
+    vi.mocked(warehouse.getLatestRunningMetaSyncRunIdForPartition).mockResolvedValue(null);
     vi.mocked(warehouse.getMetaPartitionStatesForDate).mockResolvedValue(new Map());
     vi.mocked(warehouse.queueMetaSyncPartition).mockResolvedValue({
       id: "queued-1",
@@ -346,6 +348,37 @@ describe("processMetaLifecyclePartition lease epoch", () => {
         status: "succeeded",
         finishedAt: expect.any(String),
         onlyIfCurrentStatus: "running",
+      })
+    );
+  });
+
+  it("recovers the current running run id when run creation returns null", async () => {
+    vi.mocked(warehouse.createMetaSyncRun).mockResolvedValue(null);
+    vi.mocked(warehouse.getLatestRunningMetaSyncRunIdForPartition).mockResolvedValue("run-recovered");
+
+    const processed = await processMetaLifecyclePartition({
+      partition: {
+        id: "partition-4c",
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        lane: "extended",
+        scope: "account_daily",
+        partitionDate: "2026-04-03",
+        attemptCount: 1,
+        leaseEpoch: 20,
+        source: "recent_recovery",
+      },
+      workerId: "worker-1",
+    });
+
+    expect(processed).toBe(true);
+    expect(warehouse.getLatestRunningMetaSyncRunIdForPartition).toHaveBeenCalledWith({
+      partitionId: "partition-4c",
+    });
+    expect(warehouse.completeMetaPartitionAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: "run-recovered",
+        partitionStatus: "succeeded",
       })
     );
   });

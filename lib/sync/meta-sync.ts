@@ -20,6 +20,7 @@ import {
   createMetaSyncJob,
   createMetaSyncRun,
   expireStaleMetaSyncJobs,
+  getLatestRunningMetaSyncRunIdForPartition,
   getLatestMetaCheckpointForPartition,
   heartbeatMetaPartitionLease,
   getLatestMetaSyncHealth,
@@ -1439,7 +1440,7 @@ async function processMetaPartition(input: {
     return false;
   }
   const startedAt = Date.now();
-  const runId = await createMetaSyncRun({
+  let runId = await createMetaSyncRun({
     partitionId,
     businessId: input.partition.businessId,
     providerAccountId: input.partition.providerAccountId,
@@ -1451,6 +1452,20 @@ async function processMetaPartition(input: {
     attemptCount: input.partition.attemptCount + 1,
     metaJson: { source: input.partition.source, leaseEpoch: input.partition.leaseEpoch },
   }).catch(() => null);
+  if (!runId) {
+    runId = await getLatestRunningMetaSyncRunIdForPartition({ partitionId }).catch(() => null);
+    if (runId) {
+      console.warn("[meta-sync] partition_run_id_recovered", {
+        businessId: input.partition.businessId,
+        partitionId,
+        workerId: input.workerId,
+        leaseEpoch: input.partition.leaseEpoch,
+        lane: input.partition.lane,
+        scope: input.partition.scope,
+        runId,
+      });
+    }
+  }
 
   const deprecatedScopeReason = getDeprecatedMetaPartitionCancellationReason(input.partition.scope);
   if (deprecatedScopeReason) {
