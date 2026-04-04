@@ -34,8 +34,11 @@ async function runMigrationBatchSequentially(queries: MigrationBatchQuery[]) {
 }
 
 function runtimeMigrationsEnabled() {
+  const explicit = process.env.ENABLE_RUNTIME_MIGRATIONS?.trim().toLowerCase();
+  if (explicit === "1" || explicit === "true") return true;
+  if (explicit === "0" || explicit === "false") return false;
   if (process.env.NODE_ENV !== "production") return true;
-  return process.env.ENABLE_RUNTIME_MIGRATIONS === "1";
+  return false;
 }
 
 function getMigrationTimeoutMs() {
