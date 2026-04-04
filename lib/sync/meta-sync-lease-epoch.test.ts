@@ -23,6 +23,7 @@ vi.mock("@/lib/meta/warehouse", async () => {
     createMetaSyncJob: vi.fn(),
     createMetaSyncRun: vi.fn(),
     expireStaleMetaSyncJobs: vi.fn(),
+    getMetaPartitionCompletionDenialSnapshot: vi.fn(),
     getLatestMetaCheckpointForPartition: vi.fn(),
     getLatestRunningMetaSyncRunIdForPartition: vi.fn(),
     heartbeatMetaPartitionLease: vi.fn().mockResolvedValue(true),
@@ -102,6 +103,22 @@ describe("processMetaLifecyclePartition lease epoch", () => {
     vi.mocked(warehouse.markMetaPartitionRunning).mockResolvedValue(true);
     vi.mocked(warehouse.createMetaSyncRun).mockResolvedValue("run-1");
     vi.mocked(warehouse.heartbeatMetaPartitionLease).mockResolvedValue(true);
+    vi.mocked(warehouse.getMetaPartitionCompletionDenialSnapshot).mockResolvedValue({
+      currentPartitionStatus: "running",
+      currentLeaseOwner: "worker-2",
+      currentLeaseEpoch: 99,
+      currentLeaseExpiresAt: "2026-04-04T00:05:00.000Z",
+      ownerMatchesCaller: false,
+      epochMatchesCaller: false,
+      leaseExpiredAtObservation: false,
+      currentPartitionFinishedAt: null,
+      latestCheckpointScope: "account_daily",
+      latestCheckpointPhase: "finalize",
+      latestCheckpointUpdatedAt: "2026-04-04T00:00:00.000Z",
+      latestRunningRunId: "run-foreign",
+      runningRunCount: 1,
+      denialClassification: "owner_mismatch",
+    } as never);
     vi.mocked(warehouse.completeMetaPartitionAttempt).mockResolvedValue({
       ok: true,
       runUpdated: true,
@@ -214,6 +231,7 @@ describe("processMetaLifecyclePartition lease epoch", () => {
   });
 
   it("returns false and records lease_conflict when completion loses the current epoch", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     vi.mocked(warehouse.completeMetaPartitionAttempt).mockResolvedValue({
       ok: false,
       reason: "lease_conflict",
@@ -243,9 +261,39 @@ describe("processMetaLifecyclePartition lease epoch", () => {
         errorMessage: "partition lost ownership before success completion",
       })
     );
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[meta-sync] partition_success_completion_denied",
+      expect.objectContaining({
+        partitionId: "partition-2",
+        runId: "run-1",
+        recoveredRunId: null,
+        workerId: "worker-1",
+        leaseEpoch: 12,
+        lane: "extended",
+        scope: "account_daily",
+        partitionStatus: "succeeded",
+        runStatusBefore: "running",
+        runStatusAfter: "succeeded",
+        reason: "lease_conflict",
+        currentPartitionStatus: "running",
+        currentLeaseOwner: "worker-2",
+        currentLeaseEpoch: 99,
+        currentLeaseExpiresAt: "2026-04-04T00:05:00.000Z",
+        ownerMatchesCaller: false,
+        epochMatchesCaller: false,
+        leaseExpiredAtObservation: false,
+        checkpointScope: "account_daily",
+        checkpointPhase: "finalize",
+        checkpointUpdatedAt: "2026-04-04T00:00:00.000Z",
+        latestRunningRunId: "run-foreign",
+        runningRunCount: 1,
+        denialClassification: "owner_mismatch",
+      })
+    );
   });
 
   it("skips completion when the pre-completion heartbeat loses the current epoch", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     vi.mocked(warehouse.getMetaAccountDailyCoverage).mockResolvedValue({
       completed_days: 1,
       latest_updated_at: null,
@@ -281,6 +329,72 @@ describe("processMetaLifecyclePartition lease epoch", () => {
         status: "failed",
         errorClass: "lease_conflict",
         errorMessage: "partition lost ownership before success completion",
+      })
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[meta-sync] partition_success_completion_denied",
+      expect.objectContaining({
+        partitionId: "partition-3",
+        runId: "run-1",
+        recoveredRunId: null,
+        workerId: "worker-1",
+        leaseEpoch: 15,
+        reason: "lease_conflict",
+        denialClassification: "owner_mismatch",
+      })
+    );
+  });
+
+  it("logs denial snapshots with recoveredRunId when run creation returned null", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.mocked(warehouse.createMetaSyncRun).mockResolvedValue(null);
+    vi.mocked(warehouse.getLatestRunningMetaSyncRunIdForPartition).mockResolvedValue("run-recovered");
+    vi.mocked(warehouse.completeMetaPartitionAttempt).mockResolvedValue({
+      ok: false,
+      reason: "lease_conflict",
+    });
+    vi.mocked(warehouse.getMetaPartitionCompletionDenialSnapshot).mockResolvedValue({
+      currentPartitionStatus: "running",
+      currentLeaseOwner: "worker-1",
+      currentLeaseEpoch: 20,
+      currentLeaseExpiresAt: "2026-04-04T00:06:00.000Z",
+      ownerMatchesCaller: true,
+      epochMatchesCaller: true,
+      leaseExpiredAtObservation: true,
+      currentPartitionFinishedAt: null,
+      latestCheckpointScope: "account_daily",
+      latestCheckpointPhase: "finalize",
+      latestCheckpointUpdatedAt: "2026-04-04T00:01:00.000Z",
+      latestRunningRunId: "run-recovered",
+      runningRunCount: 1,
+      denialClassification: "lease_expired",
+    } as never);
+
+    const processed = await processMetaLifecyclePartition({
+      partition: {
+        id: "partition-3b",
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        lane: "extended",
+        scope: "account_daily",
+        partitionDate: "2026-04-03",
+        attemptCount: 1,
+        leaseEpoch: 20,
+        source: "recent_recovery",
+      },
+      workerId: "worker-1",
+    });
+
+    expect(processed).toBe(false);
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[meta-sync] partition_success_completion_denied",
+      expect.objectContaining({
+        partitionId: "partition-3b",
+        recoveredRunId: "run-recovered",
+        lane: "extended",
+        scope: "account_daily",
+        denialClassification: "lease_expired",
+        latestRunningRunId: "run-recovered",
       })
     );
   });

@@ -101,6 +101,30 @@ export type MetaPartitionAttemptCompletionResult =
       reason: "lease_conflict";
     };
 
+export type MetaCompletionDenialClassification =
+  | "owner_mismatch"
+  | "epoch_mismatch"
+  | "lease_expired"
+  | "already_terminal"
+  | "unknown_denial";
+
+export interface MetaPartitionCompletionDenialSnapshot {
+  currentPartitionStatus: string | null;
+  currentLeaseOwner: string | null;
+  currentLeaseEpoch: number | null;
+  currentLeaseExpiresAt: string | null;
+  ownerMatchesCaller: boolean | null;
+  epochMatchesCaller: boolean | null;
+  leaseExpiredAtObservation: boolean | null;
+  currentPartitionFinishedAt: string | null;
+  latestCheckpointScope: string | null;
+  latestCheckpointPhase: string | null;
+  latestCheckpointUpdatedAt: string | null;
+  latestRunningRunId: string | null;
+  runningRunCount: number;
+  denialClassification: MetaCompletionDenialClassification;
+}
+
 const META_DAILY_COVERAGE_TABLE_BY_SCOPE: Partial<Record<MetaWarehouseScope, string>> = {
   account_daily: "meta_account_daily",
   campaign_daily: "meta_campaign_daily",
@@ -602,6 +626,138 @@ function parseMetaClosedCheckpointGroups(raw: unknown): MetaClosedCheckpointGrou
   return [];
 }
 
+function parseNullableBoolean(value: unknown) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    if (value === "true") return true;
+    if (value === "false") return false;
+  }
+  return null;
+}
+
+export async function getMetaPartitionCompletionDenialSnapshot(input: {
+  partitionId: string;
+  workerId: string;
+  leaseEpoch: number;
+}) {
+  const sql = getDb();
+  try {
+    const [row] = (await sql`
+      WITH input_values AS (
+        SELECT
+          ${input.partitionId}::uuid AS partition_id,
+          ${input.workerId}::text AS worker_id,
+          ${input.leaseEpoch}::bigint AS lease_epoch
+      ),
+      current_partition AS (
+        SELECT
+          partition.status::text AS current_partition_status,
+          partition.lease_owner::text AS current_lease_owner,
+          partition.lease_epoch AS current_lease_epoch,
+          partition.lease_expires_at AS current_lease_expires_at,
+          (partition.lease_owner = input_values.worker_id) AS owner_matches_caller,
+          (partition.lease_epoch = input_values.lease_epoch) AS epoch_matches_caller,
+          (COALESCE(partition.lease_expires_at, now() - interval '1 second') <= now())
+            AS lease_expired_at_observation,
+          partition.finished_at AS current_partition_finished_at
+        FROM meta_sync_partitions partition
+        CROSS JOIN input_values
+        WHERE partition.id = input_values.partition_id
+      ),
+      latest_checkpoint AS (
+        SELECT
+          checkpoint.checkpoint_scope::text AS latest_checkpoint_scope,
+          checkpoint.phase::text AS latest_checkpoint_phase,
+          checkpoint.updated_at AS latest_checkpoint_updated_at
+        FROM meta_sync_checkpoints checkpoint
+        CROSS JOIN input_values
+        WHERE checkpoint.partition_id = input_values.partition_id
+        ORDER BY checkpoint.updated_at DESC
+        LIMIT 1
+      ),
+      latest_running_run AS (
+        SELECT run.id::text AS latest_running_run_id
+        FROM meta_sync_runs run
+        CROSS JOIN input_values
+        WHERE run.partition_id = input_values.partition_id
+          AND run.status = 'running'
+        ORDER BY run.created_at DESC
+        LIMIT 1
+      ),
+      running_run_count AS (
+        SELECT COUNT(*)::int AS running_run_count
+        FROM meta_sync_runs run
+        CROSS JOIN input_values
+        WHERE run.partition_id = input_values.partition_id
+          AND run.status = 'running'
+      )
+      SELECT
+        current_partition.current_partition_status,
+        current_partition.current_lease_owner,
+        current_partition.current_lease_epoch,
+        current_partition.current_lease_expires_at,
+        current_partition.owner_matches_caller,
+        current_partition.epoch_matches_caller,
+        current_partition.lease_expired_at_observation,
+        current_partition.current_partition_finished_at,
+        latest_checkpoint.latest_checkpoint_scope,
+        latest_checkpoint.latest_checkpoint_phase,
+        latest_checkpoint.latest_checkpoint_updated_at,
+        latest_running_run.latest_running_run_id,
+        running_run_count.running_run_count,
+        CASE
+          WHEN current_partition.current_partition_status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
+            THEN 'already_terminal'
+          WHEN current_partition.owner_matches_caller IS FALSE
+            THEN 'owner_mismatch'
+          WHEN current_partition.epoch_matches_caller IS FALSE
+            THEN 'epoch_mismatch'
+          WHEN current_partition.lease_expired_at_observation IS TRUE
+            THEN 'lease_expired'
+          ELSE 'unknown_denial'
+        END AS denial_classification
+      FROM current_partition
+      LEFT JOIN latest_checkpoint ON TRUE
+      LEFT JOIN latest_running_run ON TRUE
+      LEFT JOIN running_run_count ON TRUE
+    `) as Array<Record<string, unknown>>;
+
+    if (!row) return null;
+
+    return {
+      currentPartitionStatus:
+        typeof row.current_partition_status === "string" ? row.current_partition_status : null,
+      currentLeaseOwner: typeof row.current_lease_owner === "string" ? row.current_lease_owner : null,
+      currentLeaseEpoch:
+        typeof row.current_lease_epoch === "number" ? row.current_lease_epoch : toNumber(row.current_lease_epoch),
+      currentLeaseExpiresAt: normalizeTimestamp(row.current_lease_expires_at),
+      ownerMatchesCaller: parseNullableBoolean(row.owner_matches_caller),
+      epochMatchesCaller: parseNullableBoolean(row.epoch_matches_caller),
+      leaseExpiredAtObservation: parseNullableBoolean(row.lease_expired_at_observation),
+      currentPartitionFinishedAt: normalizeTimestamp(row.current_partition_finished_at),
+      latestCheckpointScope:
+        typeof row.latest_checkpoint_scope === "string" ? row.latest_checkpoint_scope : null,
+      latestCheckpointPhase:
+        typeof row.latest_checkpoint_phase === "string" ? row.latest_checkpoint_phase : null,
+      latestCheckpointUpdatedAt: normalizeTimestamp(row.latest_checkpoint_updated_at),
+      latestRunningRunId: typeof row.latest_running_run_id === "string" ? row.latest_running_run_id : null,
+      runningRunCount: toNumber(row.running_run_count),
+      denialClassification:
+        typeof row.denial_classification === "string"
+          ? (row.denial_classification as MetaCompletionDenialClassification)
+          : "unknown_denial",
+    } satisfies MetaPartitionCompletionDenialSnapshot;
+  } catch (error) {
+    console.warn("[meta-sync] partition_completion_denial_observability_failed", {
+      partitionId: input.partitionId,
+      workerId: input.workerId,
+      leaseEpoch: input.leaseEpoch,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
 async function writeMetaPartitionCompletionObservability(input: {
   partitionId: string;
   runId?: string | null;
@@ -647,7 +803,7 @@ async function writeMetaPartitionCompletionObservability(input: {
               'callerRunId', ${input.runId ?? null}::text,
               'recoveredRunId', ${input.recoveredRunId ?? null}::text,
               'latestRunningRunId', ${observedLatestRunningRunId}::text,
-              'callerRunIdMatchedLatestRunningRunId', ${callerRunIdMatchedLatestRunningRunId},
+              'callerRunIdMatchedLatestRunningRunId', ${callerRunIdMatchedLatestRunningRunId}::boolean,
               'pathKind', ${input.observabilityPath ?? null}::text,
               'workerId', ${input.workerId}::text,
               'leaseEpoch', ${input.leaseEpoch}::bigint,

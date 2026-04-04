@@ -319,6 +319,44 @@ describe("meta warehouse ownership safety", () => {
     );
   });
 
+  it("casts callerRunIdMatchedLatestRunningRunId explicitly in the non-blocking observability write", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      queries.push(strings.join(" "));
+      if (queries.length === 1) {
+        return [
+          {
+            completed: true,
+            run_updated: true,
+            closed_checkpoint_groups: [],
+          },
+        ];
+      }
+      if (queries.length === 2) {
+        return [{ latest_running_run_id: "44444444-4444-4444-4444-444444444444" }];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await completeMetaPartitionAttempt({
+      partitionId: "partition-4",
+      workerId: "worker-1",
+      leaseEpoch: 13,
+      runId: "44444444-4444-4444-4444-444444444444",
+      partitionStatus: "succeeded",
+      runStatus: "succeeded",
+      durationMs: 1700,
+      finishedAt: "2026-04-04T00:03:00.000Z",
+      lane: "core",
+      scope: "account_daily",
+      observabilityPath: "primary",
+    });
+
+    expect(queries[2]).toContain("'callerRunIdMatchedLatestRunningRunId', ");
+    expect(queries[2]).toContain("::boolean");
+  });
+
   it("does not run child checkpoint closure when partition completion is non-success", async () => {
     const queries: string[] = [];
     const sql = vi.fn(async (strings: TemplateStringsArray) => {

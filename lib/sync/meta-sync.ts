@@ -20,6 +20,7 @@ import {
   createMetaSyncJob,
   createMetaSyncRun,
   expireStaleMetaSyncJobs,
+  getMetaPartitionCompletionDenialSnapshot,
   getLatestRunningMetaSyncRunIdForPartition,
   getLatestMetaCheckpointForPartition,
   heartbeatMetaPartitionLease,
@@ -123,26 +124,58 @@ async function heartbeatMetaPartitionDuringOrchestrationOrThrow(input: {
 
 async function logMetaSuccessCompletionDenied(input: {
   partitionId: string;
+  runId?: string | null;
+  recoveredRunId?: string | null;
   workerId: string;
   leaseEpoch: number;
   lane: MetaSyncLane;
   scope: MetaWarehouseScope;
+  partitionStatus: "succeeded" | "failed" | "dead_letter" | "cancelled";
+  runStatus: "succeeded" | "failed" | "cancelled";
   reason: "lease_conflict" | "operational_error";
   message?: string | null;
 }) {
-  const latestCheckpoint = await getLatestMetaCheckpointForPartition({
-    partitionId: input.partitionId,
-  }).catch(() => null);
+  const [latestCheckpoint, denialSnapshot] = await Promise.all([
+    getLatestMetaCheckpointForPartition({
+      partitionId: input.partitionId,
+    }).catch(() => null),
+    getMetaPartitionCompletionDenialSnapshot({
+      partitionId: input.partitionId,
+      workerId: input.workerId,
+      leaseEpoch: input.leaseEpoch,
+    }).catch(() => null),
+  ]);
   console.warn("[meta-sync] partition_success_completion_denied", {
     partitionId: input.partitionId,
+    runId: input.runId ?? null,
+    recoveredRunId: input.recoveredRunId ?? null,
     workerId: input.workerId,
     leaseEpoch: input.leaseEpoch,
     lane: input.lane,
     scope: input.scope,
+    partitionStatus: input.partitionStatus,
+    runStatusBefore: "running",
+    runStatusAfter: input.runStatus,
     reason: input.reason,
     message: input.message ?? null,
-    checkpointScope: latestCheckpoint?.checkpointScope ?? null,
-    checkpointPhase: latestCheckpoint?.phase ?? null,
+    currentPartitionStatus:
+      denialSnapshot?.currentPartitionStatus ?? null,
+    currentLeaseOwner: denialSnapshot?.currentLeaseOwner ?? null,
+    currentLeaseEpoch: denialSnapshot?.currentLeaseEpoch ?? null,
+    currentLeaseExpiresAt: denialSnapshot?.currentLeaseExpiresAt ?? null,
+    ownerMatchesCaller: denialSnapshot?.ownerMatchesCaller ?? null,
+    epochMatchesCaller: denialSnapshot?.epochMatchesCaller ?? null,
+    leaseExpiredAtObservation: denialSnapshot?.leaseExpiredAtObservation ?? null,
+    currentPartitionFinishedAt: denialSnapshot?.currentPartitionFinishedAt ?? null,
+    checkpointScope:
+      denialSnapshot?.latestCheckpointScope ?? latestCheckpoint?.checkpointScope ?? null,
+    checkpointPhase:
+      denialSnapshot?.latestCheckpointPhase ?? latestCheckpoint?.phase ?? null,
+    checkpointUpdatedAt:
+      denialSnapshot?.latestCheckpointUpdatedAt ?? latestCheckpoint?.updatedAt ?? null,
+    latestRunningRunId: denialSnapshot?.latestRunningRunId ?? null,
+    runningRunCount: denialSnapshot?.runningRunCount ?? 0,
+    denialClassification: denialSnapshot?.denialClassification ?? "unknown_denial",
   });
 }
 
@@ -1608,10 +1641,14 @@ async function processMetaPartition(input: {
       if (!completionHeartbeat.ok) {
         await logMetaSuccessCompletionDenied({
           partitionId,
+          runId,
+          recoveredRunId,
           workerId: input.workerId,
           leaseEpoch: input.partition.leaseEpoch,
           lane: input.partition.lane,
           scope: input.partition.scope,
+          partitionStatus: "succeeded",
+          runStatus: "succeeded",
           reason: "lease_conflict",
         });
         if (runId) {
@@ -1658,10 +1695,14 @@ async function processMetaPartition(input: {
       if (!completed.ok) {
         await logMetaSuccessCompletionDenied({
           partitionId,
+          runId,
+          recoveredRunId,
           workerId: input.workerId,
           leaseEpoch: input.partition.leaseEpoch,
           lane: input.partition.lane,
           scope: input.partition.scope,
+          partitionStatus: "succeeded",
+          runStatus: "succeeded",
           reason: "lease_conflict",
         });
         if (runId) {
@@ -1696,10 +1737,14 @@ async function processMetaPartition(input: {
     } catch (completionError) {
       await logMetaSuccessCompletionDenied({
         partitionId,
+        runId,
+        recoveredRunId,
         workerId: input.workerId,
         leaseEpoch: input.partition.leaseEpoch,
         lane: input.partition.lane,
         scope: input.partition.scope,
+        partitionStatus: "succeeded",
+        runStatus: "succeeded",
         reason: "operational_error",
         message: completionError instanceof Error ? completionError.message : String(completionError),
       });
