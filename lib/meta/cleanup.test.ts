@@ -13,7 +13,10 @@ vi.mock("@/lib/reporting-cache", () => ({
 }));
 
 const db = await import("@/lib/db");
-const { closeSucceededMetaParentRunningCheckpoints } = await import("@/lib/meta/cleanup");
+const {
+  closeSucceededMetaParentRunningCheckpoints,
+  repairMetaRunningRunsUnderTerminalParents,
+} = await import("@/lib/meta/cleanup");
 
 describe("closeSucceededMetaParentRunningCheckpoints", () => {
   beforeEach(() => {
@@ -85,6 +88,71 @@ describe("closeSucceededMetaParentRunningCheckpoints", () => {
     expect(queries.some((query) => query.includes("checkpoint_updated_before_or_at_parent_finished"))).toBe(
       true
     );
+    expect(queries).toHaveLength(2);
+  });
+
+  it("repairs running runs under terminal parents and returns grouped diagnostics", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      queries.push(strings.join(" "));
+      if (queries.length === 1) {
+        return [
+          {
+            summary: {
+              businessId: null,
+              totalRepaired: 2,
+              groups: [
+                {
+                  partitionStatus: "succeeded",
+                  runStatus: "succeeded",
+                  lane: "core",
+                  scope: "account_daily",
+                  count: 1,
+                },
+                {
+                  partitionStatus: "dead_letter",
+                  runStatus: "failed",
+                  lane: "extended",
+                  scope: "ad_daily",
+                  count: 1,
+                },
+              ],
+            },
+          },
+        ];
+      }
+
+      return [{ count: 0 }];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const summary = await repairMetaRunningRunsUnderTerminalParents();
+
+    expect(summary).toEqual({
+      businessId: null,
+      totalRepaired: 2,
+      remainingRunningRunsUnderTerminalParents: 0,
+      groups: [
+        {
+          partitionStatus: "succeeded",
+          runStatus: "succeeded",
+          lane: "core",
+          scope: "account_daily",
+          count: 1,
+        },
+        {
+          partitionStatus: "dead_letter",
+          runStatus: "failed",
+          lane: "extended",
+          scope: "ad_daily",
+          count: 1,
+        },
+      ],
+    });
+    expect(
+      queries.some((query) => query.includes("partition.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')"))
+    ).toBe(true);
+    expect(queries.some((query) => query.includes("partition_already_dead_letter"))).toBe(true);
     expect(queries).toHaveLength(2);
   });
 });

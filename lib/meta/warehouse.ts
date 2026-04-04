@@ -80,6 +80,23 @@ function tallyDisposition(
   counts[disposition] = (counts[disposition] ?? 0) + 1;
 }
 
+type MetaClosedCheckpointGroup = {
+  checkpointScope: string;
+  previousPhase: string;
+  count: number;
+};
+
+export type MetaPartitionAttemptCompletionResult =
+  | {
+      ok: true;
+      runUpdated: boolean;
+      closedCheckpointGroups: MetaClosedCheckpointGroup[];
+    }
+  | {
+      ok: false;
+      reason: "lease_conflict";
+    };
+
 const META_DAILY_COVERAGE_TABLE_BY_SCOPE: Partial<Record<MetaWarehouseScope, string>> = {
   account_daily: "meta_account_daily",
   campaign_daily: "meta_campaign_daily",
@@ -557,6 +574,179 @@ export async function markMetaPartitionRunning(input: {
   return rows.length > 0;
 }
 
+function parseMetaClosedCheckpointGroups(raw: unknown): MetaClosedCheckpointGroup[] {
+  if (Array.isArray(raw)) {
+    return raw
+      .map((entry) => {
+        if (!entry || typeof entry !== "object") return null;
+        const record = entry as Record<string, unknown>;
+        return {
+          checkpointScope: String(record.checkpointScope ?? record.checkpoint_scope ?? ""),
+          previousPhase: String(record.previousPhase ?? record.previous_phase ?? ""),
+          count: toNumber(record.count ?? record.row_count),
+        } satisfies MetaClosedCheckpointGroup;
+      })
+      .filter((entry): entry is MetaClosedCheckpointGroup => Boolean(entry?.checkpointScope));
+  }
+  if (typeof raw === "string") {
+    try {
+      return parseMetaClosedCheckpointGroups(JSON.parse(raw));
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+export async function completeMetaPartitionAttempt(input: {
+  partitionId: string;
+  workerId: string;
+  leaseEpoch: number;
+  partitionStatus: Extract<MetaPartitionStatus, "succeeded" | "failed" | "dead_letter" | "cancelled">;
+  runId?: string | null;
+  runStatus?: MetaSyncRunRecord["status"];
+  durationMs?: number | null;
+  errorClass?: string | null;
+  errorMessage?: string | null;
+  finishedAt?: string | null;
+  lastError?: string | null;
+  retryDelayMinutes?: number;
+}): Promise<MetaPartitionAttemptCompletionResult> {
+  await runMigrations();
+  const sql = getDb();
+  const runStatus =
+    input.runStatus ??
+    (input.partitionStatus === "succeeded"
+      ? "succeeded"
+      : input.partitionStatus === "cancelled"
+        ? "cancelled"
+        : "failed");
+  const rows = await sql`
+    WITH completed_partition AS (
+      UPDATE meta_sync_partitions
+      SET
+        status = ${input.partitionStatus},
+        lease_owner = NULL,
+        lease_expires_at = NULL,
+        next_retry_at = CASE
+          WHEN ${input.partitionStatus} = 'failed'
+            THEN now() + (${input.retryDelayMinutes ?? 5} || ' minutes')::interval
+          ELSE NULL
+        END,
+        last_error = ${input.lastError ?? null},
+        finished_at = CASE
+          WHEN ${input.partitionStatus} IN ('succeeded', 'dead_letter', 'cancelled')
+            THEN COALESCE(${input.finishedAt ?? null}, now())
+          ELSE finished_at
+        END,
+        updated_at = now()
+      WHERE id = ${input.partitionId}
+        AND lease_owner = ${input.workerId}
+        AND lease_epoch = ${input.leaseEpoch}
+        AND COALESCE(lease_expires_at, now()) > now()
+      RETURNING id
+    ),
+    candidate_checkpoints AS (
+      SELECT
+        checkpoint.id,
+        checkpoint.checkpoint_scope,
+        checkpoint.phase AS previous_phase
+      FROM meta_sync_checkpoints checkpoint
+      JOIN completed_partition partition
+        ON partition.id = checkpoint.partition_id
+      WHERE ${input.partitionStatus} = 'succeeded'
+        AND COALESCE(checkpoint.lease_epoch, 0) = ${input.leaseEpoch}::bigint
+        AND checkpoint.status = 'running'
+    ),
+    closed_checkpoints AS (
+      UPDATE meta_sync_checkpoints checkpoint
+      SET
+        status = 'succeeded',
+        phase = 'finalize',
+        next_page_url = NULL,
+        provider_cursor = NULL,
+        finished_at = COALESCE(checkpoint.finished_at, now()),
+        updated_at = now()
+      FROM candidate_checkpoints candidate
+      WHERE checkpoint.id = candidate.id
+      RETURNING
+        candidate.checkpoint_scope,
+        candidate.previous_phase
+    ),
+    grouped_closed_checkpoints AS (
+      SELECT
+        checkpoint_scope,
+        previous_phase,
+        COUNT(*)::int AS row_count
+      FROM closed_checkpoints
+      GROUP BY checkpoint_scope, previous_phase
+    ),
+    updated_run AS (
+      UPDATE meta_sync_runs run
+      SET
+        status = ${runStatus},
+        duration_ms = COALESCE(${input.durationMs ?? null}, run.duration_ms),
+        error_class = CASE
+          WHEN ${runStatus} IN ('succeeded', 'cancelled') THEN NULL
+          ELSE COALESCE(${input.errorClass ?? null}, run.error_class)
+        END,
+        error_message = CASE
+          WHEN ${runStatus} IN ('succeeded', 'cancelled') THEN NULL
+          ELSE COALESCE(${input.errorMessage ?? null}, run.error_message)
+        END,
+        finished_at = COALESCE(${input.finishedAt ?? null}, now()),
+        updated_at = now()
+      FROM completed_partition partition
+      WHERE ${input.runId ?? null}::uuid IS NOT NULL
+        AND run.id = ${input.runId ?? null}::uuid
+        AND run.partition_id = partition.id
+        AND run.status = 'running'
+      RETURNING run.id
+    )
+    SELECT
+      EXISTS(SELECT 1 FROM completed_partition) AS completed,
+      EXISTS(SELECT 1 FROM updated_run) AS run_updated,
+      COALESCE(
+        (
+          SELECT json_agg(
+            json_build_object(
+              'checkpointScope', checkpoint_scope,
+              'previousPhase', previous_phase,
+              'count', row_count
+            )
+            ORDER BY checkpoint_scope, previous_phase
+          )
+          FROM grouped_closed_checkpoints
+        ),
+        '[]'::json
+      ) AS closed_checkpoint_groups
+  ` as Array<Record<string, unknown>>;
+
+  const row = rows[0] ?? {};
+  if (!Boolean(row.completed)) {
+    return {
+      ok: false,
+      reason: "lease_conflict",
+    };
+  }
+
+  const closedCheckpointGroups = parseMetaClosedCheckpointGroups(row.closed_checkpoint_groups);
+  if (input.partitionStatus === "succeeded" && closedCheckpointGroups.length > 0) {
+    console.info("[meta-sync] partition_success_closed_open_checkpoints", {
+      partitionId: input.partitionId,
+      workerId: input.workerId,
+      leaseEpoch: input.leaseEpoch,
+      closedCheckpointGroups,
+    });
+  }
+
+  return {
+    ok: true,
+    runUpdated: Boolean(row.run_updated),
+    closedCheckpointGroups,
+  };
+}
+
 export async function completeMetaPartition(input: {
   partitionId: string;
   workerId: string;
@@ -565,119 +755,15 @@ export async function completeMetaPartition(input: {
   lastError?: string | null;
   retryDelayMinutes?: number;
 }) {
-  await runMigrations();
-  const sql = getDb();
-  if (input.status === "succeeded") {
-    const rows = await sql`
-      WITH completed_partition AS (
-        UPDATE meta_sync_partitions
-        SET
-          status = ${input.status},
-          lease_owner = NULL,
-          lease_expires_at = NULL,
-          next_retry_at = NULL,
-          last_error = ${input.lastError ?? null},
-          finished_at = now(),
-          updated_at = now()
-        WHERE id = ${input.partitionId}
-          AND lease_owner = ${input.workerId}
-          AND lease_epoch = ${input.leaseEpoch}
-          AND COALESCE(lease_expires_at, now()) > now()
-        RETURNING id
-      ),
-      candidate_checkpoints AS (
-        SELECT
-          checkpoint.id,
-          checkpoint.checkpoint_scope,
-          checkpoint.phase AS previous_phase
-        FROM meta_sync_checkpoints checkpoint
-        JOIN completed_partition partition
-          ON partition.id = checkpoint.partition_id
-        WHERE COALESCE(checkpoint.lease_epoch, 0) = ${input.leaseEpoch}::bigint
-          AND checkpoint.status = 'running'
-      ),
-      closed_checkpoints AS (
-        UPDATE meta_sync_checkpoints checkpoint
-        SET
-          status = 'succeeded',
-          phase = 'finalize',
-          next_page_url = NULL,
-          provider_cursor = NULL,
-          finished_at = COALESCE(checkpoint.finished_at, now()),
-          updated_at = now()
-        FROM candidate_checkpoints candidate
-        WHERE checkpoint.id = candidate.id
-        RETURNING
-          candidate.checkpoint_scope,
-          candidate.previous_phase
-      ),
-      grouped_closed_checkpoints AS (
-        SELECT
-          checkpoint_scope,
-          previous_phase,
-          COUNT(*)::int AS row_count
-        FROM closed_checkpoints
-        GROUP BY checkpoint_scope, previous_phase
-      )
-      SELECT
-        EXISTS(SELECT 1 FROM completed_partition) AS completed,
-        COALESCE(
-          (
-            SELECT json_agg(
-              json_build_object(
-                'checkpointScope', checkpoint_scope,
-                'previousPhase', previous_phase,
-                'count', row_count
-              )
-              ORDER BY checkpoint_scope, previous_phase
-            )
-            FROM grouped_closed_checkpoints
-          ),
-          '[]'::json
-        ) AS closed_checkpoint_groups
-    ` as Array<Record<string, unknown>>;
-    const row = rows[0] ?? {};
-    const completed = Boolean(row.completed);
-    const rawGroups = row.closed_checkpoint_groups;
-    const closedCheckpointGroups = Array.isArray(rawGroups)
-      ? rawGroups
-      : typeof rawGroups === "string"
-        ? (JSON.parse(rawGroups) as unknown[])
-        : [];
-    if (completed && closedCheckpointGroups.length > 0) {
-      console.info("[meta-sync] partition_success_closed_open_checkpoints", {
-        partitionId: input.partitionId,
-        workerId: input.workerId,
-        leaseEpoch: input.leaseEpoch,
-        closedCheckpointGroups,
-      });
-    }
-    return completed;
-  }
-  const rows = await sql`
-    UPDATE meta_sync_partitions
-    SET
-      status = ${input.status},
-      lease_owner = NULL,
-      lease_expires_at = NULL,
-      next_retry_at = CASE
-        WHEN ${input.status} = 'failed'
-          THEN now() + (${input.retryDelayMinutes ?? 5} || ' minutes')::interval
-        ELSE NULL
-      END,
-      last_error = ${input.lastError ?? null},
-      finished_at = CASE
-        WHEN ${input.status} IN ('succeeded', 'dead_letter', 'cancelled') THEN now()
-        ELSE finished_at
-      END,
-      updated_at = now()
-    WHERE id = ${input.partitionId}
-      AND lease_owner = ${input.workerId}
-      AND lease_epoch = ${input.leaseEpoch}
-      AND COALESCE(lease_expires_at, now()) > now()
-    RETURNING id
-  ` as Array<{ id: string }>;
-  return rows.length > 0;
+  const result = await completeMetaPartitionAttempt({
+    partitionId: input.partitionId,
+    workerId: input.workerId,
+    leaseEpoch: input.leaseEpoch,
+    partitionStatus: input.status,
+    lastError: input.lastError ?? null,
+    retryDelayMinutes: input.retryDelayMinutes,
+  });
+  return result.ok;
 }
 
 export async function cleanupMetaPartitionOrchestration(input: {
@@ -866,6 +952,9 @@ export async function cleanupMetaPartitionOrchestration(input: {
         run.worker_id,
         run.lane,
         COALESCE(run.started_at, run.created_at) AS started_at,
+        partition.status AS partition_status,
+        partition.last_error AS partition_last_error,
+        partition.finished_at AS partition_finished_at,
         partition.lease_epoch AS partition_lease_epoch,
         checkpoint.phase AS checkpoint_phase,
         checkpoint.updated_at AS progress_updated_at,
@@ -905,10 +994,48 @@ export async function cleanupMetaPartitionOrchestration(input: {
     )
     UPDATE meta_sync_runs run
     SET
-      status = 'failed',
-      error_class = COALESCE(error_class, 'stale_run'),
-      error_message = COALESCE(error_message, 'stale partition run closed automatically'),
-      finished_at = COALESCE(finished_at, now()),
+      status = CASE
+        WHEN stale_candidates.partition_state_invalid
+          AND stale_candidates.partition_status = 'succeeded'
+          THEN 'succeeded'
+        WHEN stale_candidates.partition_state_invalid
+          AND stale_candidates.partition_status = 'cancelled'
+          THEN 'cancelled'
+        ELSE 'failed'
+      END,
+      error_class = CASE
+        WHEN stale_candidates.partition_state_invalid
+          AND stale_candidates.partition_status IN ('succeeded', 'cancelled')
+          THEN NULL
+        WHEN stale_candidates.partition_state_invalid
+          AND stale_candidates.partition_status = 'dead_letter'
+          THEN COALESCE(error_class, 'dead_letter')
+        WHEN stale_candidates.partition_state_invalid
+          AND stale_candidates.partition_status = 'failed'
+          THEN COALESCE(error_class, 'failed')
+        ELSE COALESCE(error_class, 'stale_run')
+      END,
+      error_message = CASE
+        WHEN stale_candidates.partition_state_invalid
+          AND stale_candidates.partition_status IN ('succeeded', 'cancelled')
+          THEN NULL
+        WHEN stale_candidates.partition_state_invalid
+          AND stale_candidates.partition_status = 'dead_letter'
+          THEN COALESCE(
+            stale_candidates.partition_last_error,
+            error_message,
+            'partition already dead_letter'
+          )
+        WHEN stale_candidates.partition_state_invalid
+          AND stale_candidates.partition_status = 'failed'
+          THEN COALESCE(
+            stale_candidates.partition_last_error,
+            error_message,
+            'partition already failed'
+          )
+        ELSE COALESCE(error_message, 'stale partition run closed automatically')
+      END,
+      finished_at = COALESCE(finished_at, stale_candidates.partition_finished_at, now()),
       duration_ms = COALESCE(
         duration_ms,
         GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (now() - COALESCE(run.started_at, run.created_at))) * 1000))::int
@@ -928,7 +1055,18 @@ export async function cleanupMetaPartitionOrchestration(input: {
         END,
         'runnerLeaseSeen', COALESCE(stale_candidates.lease_expires_at > now(), false),
         'closureReason', CASE
-          WHEN stale_candidates.partition_state_invalid THEN 'partition_state_invalid'
+          WHEN stale_candidates.partition_state_invalid
+            AND stale_candidates.partition_status = 'succeeded'
+            THEN 'partition_already_succeeded'
+          WHEN stale_candidates.partition_state_invalid
+            AND stale_candidates.partition_status = 'failed'
+            THEN 'partition_already_failed'
+          WHEN stale_candidates.partition_state_invalid
+            AND stale_candidates.partition_status = 'dead_letter'
+            THEN 'partition_already_dead_letter'
+          WHEN stale_candidates.partition_state_invalid
+            AND stale_candidates.partition_status = 'cancelled'
+            THEN 'partition_already_cancelled'
           ELSE 'lane_stale_threshold_exceeded'
         END
       ),
@@ -1237,6 +1375,28 @@ export async function getMetaSyncCheckpoint(input: {
     createdAt: normalizeTimestamp(row.created_at) ?? undefined,
     updatedAt: normalizeTimestamp(row.updated_at) ?? undefined,
   } satisfies MetaSyncCheckpointRecord;
+}
+
+export async function getLatestMetaCheckpointForPartition(input: {
+  partitionId: string;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = await sql`
+    SELECT checkpoint_scope, phase, status, updated_at
+    FROM meta_sync_checkpoints
+    WHERE partition_id = ${input.partitionId}
+    ORDER BY updated_at DESC
+    LIMIT 1
+  ` as Array<Record<string, unknown>>;
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    checkpointScope: row.checkpoint_scope ? String(row.checkpoint_scope) : null,
+    phase: row.phase ? String(row.phase) : null,
+    status: row.status ? String(row.status) : null,
+    updatedAt: normalizeTimestamp(row.updated_at),
+  };
 }
 
 export async function listMetaRawSnapshotsForPartition(input: {

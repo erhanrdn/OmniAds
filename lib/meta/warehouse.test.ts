@@ -17,6 +17,7 @@ const workerHealth = await import("@/lib/sync/worker-health");
 const {
   cleanupMetaPartitionOrchestration,
   completeMetaPartition,
+  completeMetaPartitionAttempt,
   leaseMetaSyncPartitions,
   markMetaPartitionRunning,
   replayMetaDeadLetterPartitions,
@@ -183,11 +184,51 @@ describe("meta warehouse ownership safety", () => {
     );
   });
 
+  it("completes partition and current attempt run in the same success path", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      queries.push(strings.join(" "));
+      return [
+        {
+          completed: true,
+          run_updated: true,
+          closed_checkpoint_groups: [],
+        },
+      ];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const completed = await completeMetaPartitionAttempt({
+      partitionId: "partition-1",
+      workerId: "worker-1",
+      leaseEpoch: 10,
+      runId: "11111111-1111-1111-1111-111111111111",
+      partitionStatus: "succeeded",
+      runStatus: "succeeded",
+      durationMs: 1200,
+      finishedAt: "2026-04-04T00:00:00.000Z",
+    });
+
+    expect(completed).toEqual({
+      ok: true,
+      runUpdated: true,
+      closedCheckpointGroups: [],
+    });
+    expect(queries.some((query) => query.includes("UPDATE meta_sync_runs run"))).toBe(true);
+    expect(queries.some((query) => query.includes("run.status = 'running'"))).toBe(true);
+  });
+
   it("does not run child checkpoint closure when partition completion is non-success", async () => {
     const queries: string[] = [];
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       queries.push(strings.join(" "));
-      return [{ id: "partition-1" }];
+      return [
+        {
+          completed: true,
+          run_updated: false,
+          closed_checkpoint_groups: [],
+        },
+      ];
     });
     vi.mocked(db.getDb).mockReturnValue(sql as never);
 
@@ -200,8 +241,9 @@ describe("meta warehouse ownership safety", () => {
     });
 
     expect(completed).toBe(true);
-    expect(queries.some((query) => query.includes("UPDATE meta_sync_checkpoints checkpoint"))).toBe(
-      false
+    expect(console.info).not.toHaveBeenCalledWith(
+      "[meta-sync] partition_success_closed_open_checkpoints",
+      expect.anything()
     );
   });
 
@@ -413,5 +455,31 @@ describe("meta warehouse ownership safety", () => {
       matchingRunnerLeasePresent: 0,
       leaseNotExpired: 1,
     });
+  });
+
+  it("mirrors succeeded parent status when cleaning invalid running runs", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      queries.push(query);
+      if (query.includes("FROM meta_sync_partitions partition") && query.includes("partition.status IN ('leased', 'running')")) {
+        return [];
+      }
+      if (query.includes("WITH stale_candidates AS")) {
+        return [{ id: "run-1" }];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await cleanupMetaPartitionOrchestration({
+      businessId: "biz-1",
+      staleLeaseMinutes: 8,
+    });
+
+    expect(queries.some((query) => query.includes("partition_already_succeeded"))).toBe(true);
+    expect(queries.some((query) => query.includes("partition_already_dead_letter"))).toBe(true);
+    expect(queries.some((query) => query.includes("THEN 'succeeded'"))).toBe(true);
+    expect(queries.some((query) => query.includes("THEN 'cancelled'"))).toBe(true);
   });
 });

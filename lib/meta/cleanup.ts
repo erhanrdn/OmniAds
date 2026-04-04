@@ -44,6 +44,21 @@ export interface MetaSucceededParentRunningCheckpointCleanupSummary {
   groups: MetaSucceededParentRunningCheckpointCleanupGroup[];
 }
 
+export interface MetaTerminalParentRunningRunRepairGroup {
+  partitionStatus: "succeeded" | "failed" | "dead_letter" | "cancelled";
+  runStatus: "succeeded" | "failed" | "cancelled";
+  lane: string;
+  scope: string;
+  count: number;
+}
+
+export interface MetaTerminalParentRunningRunRepairSummary {
+  businessId: string | null;
+  totalRepaired: number;
+  remainingRunningRunsUnderTerminalParents: number;
+  groups: MetaTerminalParentRunningRunRepairGroup[];
+}
+
 async function execCount(query: Promise<unknown>) {
   const rows = await query;
   const first = Array.isArray(rows) ? rows[0] : null;
@@ -301,6 +316,132 @@ export async function closeSucceededMetaParentRunningCheckpoints(input?: {
     businessId,
     totalClosed: 0,
     remainingRunningChildrenOfSucceededParents,
+    groups: [],
+  };
+}
+
+export async function repairMetaRunningRunsUnderTerminalParents(input?: {
+  businessId?: string | null;
+}): Promise<MetaTerminalParentRunningRunRepairSummary> {
+  await runMigrations({ force: true, reason: "meta_terminal_run_repair" });
+  const sql = getDb();
+  const businessId = input?.businessId?.trim() || null;
+
+  const [row] = (await sql`
+    WITH candidate_runs AS (
+      SELECT
+        run.id,
+        partition.status AS partition_status,
+        partition.last_error AS partition_last_error,
+        run.lane,
+        run.scope,
+        CASE
+          WHEN partition.status = 'succeeded' THEN 'succeeded'
+          WHEN partition.status = 'cancelled' THEN 'cancelled'
+          ELSE 'failed'
+        END AS run_status
+      FROM meta_sync_runs run
+      JOIN meta_sync_partitions partition
+        ON partition.id = run.partition_id
+      WHERE run.status = 'running'
+        AND partition.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
+        AND (${businessId}::text IS NULL OR run.business_id = ${businessId})
+    ),
+    repaired_runs AS (
+      UPDATE meta_sync_runs run
+      SET
+        status = candidate.run_status,
+        error_class = CASE
+          WHEN candidate.run_status IN ('succeeded', 'cancelled') THEN NULL
+          WHEN candidate.partition_status = 'dead_letter' THEN COALESCE(run.error_class, 'dead_letter')
+          ELSE COALESCE(run.error_class, 'failed')
+        END,
+        error_message = CASE
+          WHEN candidate.run_status IN ('succeeded', 'cancelled') THEN NULL
+          WHEN candidate.partition_status = 'dead_letter'
+            THEN COALESCE(candidate.partition_last_error, run.error_message, 'partition already dead_letter')
+          ELSE COALESCE(candidate.partition_last_error, run.error_message, 'partition already failed')
+        END,
+        finished_at = COALESCE(run.finished_at, now()),
+        duration_ms = COALESCE(
+          run.duration_ms,
+          GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (now() - COALESCE(run.started_at, run.created_at))) * 1000))::int
+        ),
+        meta_json = COALESCE(run.meta_json, '{}'::jsonb) || jsonb_build_object(
+          'decisionCaller', 'repairMetaRunningRunsUnderTerminalParents',
+          'closureReason', CASE
+            WHEN candidate.partition_status = 'succeeded' THEN 'partition_already_succeeded'
+            WHEN candidate.partition_status = 'failed' THEN 'partition_already_failed'
+            WHEN candidate.partition_status = 'dead_letter' THEN 'partition_already_dead_letter'
+            ELSE 'partition_already_cancelled'
+          END
+        ),
+        updated_at = now()
+      FROM candidate_runs candidate
+      WHERE run.id = candidate.id
+      RETURNING
+        candidate.partition_status,
+        candidate.run_status,
+        candidate.lane,
+        candidate.scope
+    ),
+    grouped AS (
+      SELECT
+        partition_status,
+        run_status,
+        lane,
+        scope,
+        COUNT(*)::int AS row_count
+      FROM repaired_runs
+      GROUP BY partition_status, run_status, lane, scope
+    )
+    SELECT json_build_object(
+      'businessId', ${businessId}::text,
+      'totalRepaired', COALESCE((SELECT SUM(row_count)::int FROM grouped), 0),
+      'groups',
+      COALESCE(
+        (
+          SELECT json_agg(
+            json_build_object(
+              'partitionStatus', partition_status,
+              'runStatus', run_status,
+              'lane', lane,
+              'scope', scope,
+              'count', row_count
+            )
+            ORDER BY partition_status, run_status, lane, scope
+          )
+          FROM grouped
+        ),
+        '[]'::json
+      )
+    ) AS summary
+  `) as Array<{ summary: MetaTerminalParentRunningRunRepairSummary }>;
+
+  const [remainingRow] = (await sql`
+    SELECT COUNT(*)::int AS count
+    FROM meta_sync_runs run
+    JOIN meta_sync_partitions partition
+      ON partition.id = run.partition_id
+    WHERE run.status = 'running'
+      AND partition.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
+      AND (${businessId}::text IS NULL OR run.business_id = ${businessId})
+  `) as Array<{ count: number }>;
+
+  const remainingRunningRunsUnderTerminalParents =
+    typeof remainingRow?.count === "number" ? remainingRow.count : 0;
+
+  if (row?.summary) {
+    return {
+      ...row.summary,
+      remainingRunningRunsUnderTerminalParents,
+    };
+  }
+
+  return {
+    businessId,
+    totalRepaired: 0,
+    remainingRunningRunsUnderTerminalParents,
     groups: [],
   };
 }
