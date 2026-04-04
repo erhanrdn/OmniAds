@@ -16,6 +16,8 @@ const db = await import("@/lib/db");
 const workerHealth = await import("@/lib/sync/worker-health");
 const {
   cleanupMetaPartitionOrchestration,
+  completeMetaPartition,
+  leaseMetaSyncPartitions,
   markMetaPartitionRunning,
   replayMetaDeadLetterPartitions,
   upsertMetaSyncCheckpoint,
@@ -42,15 +44,60 @@ describe("meta warehouse ownership safety", () => {
       status: "running",
       pageIndex: 0,
       attemptCount: 1,
+      leaseEpoch: 3,
       leaseOwner: "worker-1",
     });
 
     expect(checkpointId).toBeNull();
   });
 
+  it("increments lease_epoch whenever a partition is leased", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      queries.push(strings.join(" "));
+      return [
+        {
+          id: "partition-1",
+          business_id: "biz-1",
+          provider_account_id: "acct-1",
+          lane: "extended",
+          scope: "ad_daily",
+          partition_date: "2026-04-03",
+          status: "leased",
+          priority: 55,
+          source: "recent_recovery",
+          lease_epoch: 4,
+          lease_owner: "worker-1",
+          lease_expires_at: new Date(Date.now() + 60_000).toISOString(),
+          attempt_count: 1,
+          next_retry_at: null,
+          last_error: null,
+          created_at: new Date().toISOString(),
+          started_at: null,
+          finished_at: null,
+          updated_at: new Date().toISOString(),
+        },
+      ];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const rows = await leaseMetaSyncPartitions({
+      businessId: "biz-1",
+      workerId: "worker-1",
+      limit: 1,
+      leaseMinutes: 15,
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.leaseEpoch).toBe(4);
+    expect(queries.some((query) => query.includes("lease_epoch = partition.lease_epoch + 1"))).toBe(true);
+  });
+
   it("extends the running lease using the requested lease minutes", async () => {
+    const queries: string[] = [];
     const calls: unknown[][] = [];
-    const sql = vi.fn(async (_strings: TemplateStringsArray, ...values: unknown[]) => {
+    const sql = vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      queries.push(strings.join(" "));
       calls.push(values);
       return [{ id: "partition-1" }];
     });
@@ -59,11 +106,33 @@ describe("meta warehouse ownership safety", () => {
     const result = await markMetaPartitionRunning({
       partitionId: "partition-1",
       workerId: "worker-1",
+      leaseEpoch: 7,
       leaseMinutes: 15,
     });
 
     expect(result).toBe(true);
+    expect(queries.some((query) => query.includes("AND lease_epoch = "))).toBe(true);
+    expect(calls.at(0)).toContain(7);
     expect(calls.at(0)).toContain(15);
+  });
+
+  it("fails partition completion when the lease epoch is stale", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      queries.push(strings.join(" "));
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const completed = await completeMetaPartition({
+      partitionId: "partition-1",
+      workerId: "worker-1",
+      leaseEpoch: 9,
+      status: "succeeded",
+    });
+
+    expect(completed).toBe(false);
+    expect(queries.some((query) => query.includes("AND lease_epoch = "))).toBe(true);
   });
 
   it("keeps active leased dead-letter partitions out of replay", async () => {
@@ -188,6 +257,11 @@ describe("meta warehouse ownership safety", () => {
     expect(result.reclaimReasons.stalledReclaimable).toEqual(["lease_expired_no_progress"]);
     expect(
       queries.some((query) => query.includes("lease.lease_owner = partition.lease_owner"))
+    ).toBe(true);
+    expect(
+      queries.some((query) =>
+        query.includes("COALESCE(checkpoint.lease_epoch, 0) = COALESCE(partition.lease_epoch, 0)")
+      )
     ).toBe(true);
     expect(
       queries.some((query) => query.includes("AND run.partition_id = ANY(") && query.includes("partitionReclaimed"))

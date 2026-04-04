@@ -662,15 +662,42 @@ function buildMetaBreakdownInsightsUrl(input: {
 function startMetaFetchHeartbeat(input: {
   partitionId: string;
   workerId: string;
+  leaseEpoch: number;
   leaseMinutes: number;
 }) {
   return setInterval(() => {
     void heartbeatMetaPartitionLease({
       partitionId: input.partitionId,
       workerId: input.workerId,
+      leaseEpoch: input.leaseEpoch,
       leaseMinutes: input.leaseMinutes,
     }).catch(() => null);
   }, META_FETCH_HEARTBEAT_INTERVAL_MS);
+}
+
+async function heartbeatOwnedMetaPartitionLeaseOrThrow(input: {
+  partitionId: string;
+  workerId: string;
+  leaseEpoch: number;
+  leaseMinutes: number;
+}) {
+  const ok = await heartbeatMetaPartitionLease({
+    partitionId: input.partitionId,
+    workerId: input.workerId,
+    leaseEpoch: input.leaseEpoch,
+    leaseMinutes: input.leaseMinutes,
+  });
+  if (!ok) {
+    throw new Error("lease_conflict:lease_heartbeat_rejected");
+  }
+}
+
+async function upsertOwnedMetaCheckpointOrThrow(input: MetaSyncCheckpointRecord) {
+  const checkpointId = await upsertMetaSyncCheckpoint(input);
+  if (input.leaseOwner && !checkpointId) {
+    throw new Error("lease_conflict:checkpoint_write_rejected");
+  }
+  return checkpointId;
 }
 
 async function fetchMetaPagedJson<TItem>(url: string) {
@@ -851,6 +878,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
   day: string;
   partitionId: string;
   workerId: string;
+  leaseEpoch: number;
   attemptCount: number;
   leaseMinutes?: number;
 }) : Promise<MetaBulkCoreSyncResult> {
@@ -907,7 +935,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
   let lastUsagePercent = 0;
   const coreCheckpointStartedAt = checkpoint?.startedAt ?? new Date().toISOString();
 
-  await upsertMetaSyncCheckpoint({
+  await upsertOwnedMetaCheckpointOrThrow({
     partitionId: input.partitionId,
     businessId: input.credentials.businessId,
     providerAccountId: input.accountId,
@@ -925,20 +953,23 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     lastSuccessfulEntityKey: checkpoint?.lastSuccessfulEntityKey ?? null,
     lastResponseHeaders: checkpoint?.lastResponseHeaders ?? {},
     attemptCount: input.attemptCount,
+    leaseEpoch: input.leaseEpoch,
     leaseOwner: input.workerId,
     leaseExpiresAt: null,
     startedAt: coreCheckpointStartedAt,
   });
 
   while (nextPageUrl) {
-    await heartbeatMetaPartitionLease({
+    await heartbeatOwnedMetaPartitionLeaseOrThrow({
       partitionId: input.partitionId,
       workerId: input.workerId,
+      leaseEpoch: input.leaseEpoch,
       leaseMinutes: input.leaseMinutes ?? DEFAULT_META_PARTITION_LEASE_MINUTES,
     });
     const fetchHeartbeat = startMetaFetchHeartbeat({
       partitionId: input.partitionId,
       workerId: input.workerId,
+      leaseEpoch: input.leaseEpoch,
       leaseMinutes: input.leaseMinutes ?? DEFAULT_META_PARTITION_LEASE_MINUTES,
     });
     let pageResult: {
@@ -955,7 +986,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     const rows = json.data ?? [];
     const usageSummary = parseMetaBusinessUsageHeader(response.headers);
     lastUsagePercent = Math.max(lastUsagePercent, usageSummary.maxPercent);
-    const checkpointId = await upsertMetaSyncCheckpoint({
+    const checkpointId = await upsertOwnedMetaCheckpointOrThrow({
       partitionId: input.partitionId,
       businessId: input.credentials.businessId,
       providerAccountId: input.accountId,
@@ -981,6 +1012,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
         providerCursor: json.paging?.next ?? null,
       }),
       attemptCount: input.attemptCount,
+      leaseEpoch: input.leaseEpoch,
       leaseOwner: input.workerId,
       startedAt: checkpoint?.startedAt ?? new Date().toISOString(),
     });
@@ -1132,7 +1164,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     },
   ];
 
-  await upsertMetaSyncCheckpoint({
+  await upsertOwnedMetaCheckpointOrThrow({
     partitionId: input.partitionId,
     businessId: input.credentials.businessId,
     providerAccountId: input.accountId,
@@ -1147,6 +1179,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     lastSuccessfulEntityKey: adRows.at(-1)?.adId ?? adsetRows.at(-1)?.adsetId ?? campaignRows.at(-1)?.campaignId ?? null,
     lastResponseHeaders: checkpoint?.lastResponseHeaders ?? {},
     attemptCount: input.attemptCount,
+    leaseEpoch: input.leaseEpoch,
     leaseOwner: input.workerId,
     startedAt: coreCheckpointStartedAt,
   });
@@ -1174,7 +1207,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
   ]);
 
   await Promise.all([
-    upsertMetaSyncCheckpoint({
+    upsertOwnedMetaCheckpointOrThrow({
       partitionId: input.partitionId,
       businessId: input.credentials.businessId,
       providerAccountId: input.accountId,
@@ -1189,11 +1222,12 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
       lastSuccessfulEntityKey: null,
       lastResponseHeaders: checkpoint?.lastResponseHeaders ?? {},
       attemptCount: input.attemptCount,
+      leaseEpoch: input.leaseEpoch,
       leaseOwner: input.workerId,
       startedAt: accountDailyCheckpoint?.startedAt ?? coreCheckpointStartedAt,
       finishedAt: new Date().toISOString(),
     }),
-    upsertMetaSyncCheckpoint({
+    upsertOwnedMetaCheckpointOrThrow({
       partitionId: input.partitionId,
       businessId: input.credentials.businessId,
       providerAccountId: input.accountId,
@@ -1208,11 +1242,12 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
       lastSuccessfulEntityKey: adRows.at(-1)?.adId ?? null,
       lastResponseHeaders: checkpoint?.lastResponseHeaders ?? {},
       attemptCount: input.attemptCount,
+      leaseEpoch: input.leaseEpoch,
       leaseOwner: input.workerId,
       startedAt: adDailyCheckpoint?.startedAt ?? coreCheckpointStartedAt,
       finishedAt: new Date().toISOString(),
     }),
-    upsertMetaSyncCheckpoint({
+    upsertOwnedMetaCheckpointOrThrow({
       partitionId: input.partitionId,
       businessId: input.credentials.businessId,
       providerAccountId: input.accountId,
@@ -1227,6 +1262,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
       lastSuccessfulEntityKey: adsetRows.at(-1)?.adsetId ?? null,
       lastResponseHeaders: checkpoint?.lastResponseHeaders ?? {},
       attemptCount: input.attemptCount,
+      leaseEpoch: input.leaseEpoch,
       leaseOwner: input.workerId,
       startedAt: adsetDailyCheckpoint?.startedAt ?? coreCheckpointStartedAt,
       finishedAt: new Date().toISOString(),
@@ -1246,7 +1282,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     });
   }
 
-  await upsertMetaSyncCheckpoint({
+  await upsertOwnedMetaCheckpointOrThrow({
     partitionId: input.partitionId,
     businessId: input.credentials.businessId,
     providerAccountId: input.accountId,
@@ -1261,6 +1297,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     lastSuccessfulEntityKey: positiveSpendAdIds.at(-1) ?? adRows.at(-1)?.adId ?? null,
     lastResponseHeaders: checkpoint?.lastResponseHeaders ?? {},
     attemptCount: input.attemptCount,
+    leaseEpoch: input.leaseEpoch,
     leaseOwner: input.workerId,
     startedAt: coreCheckpointStartedAt,
     finishedAt: new Date().toISOString(),
@@ -1291,6 +1328,7 @@ export async function syncMetaAccountBreakdownWarehouseDay(input: {
   day: string;
   partitionId: string;
   workerId: string;
+  leaseEpoch: number;
   attemptCount: number;
   breakdowns: string;
   endpointName: string;
@@ -1317,14 +1355,16 @@ export async function syncMetaAccountBreakdownWarehouseDay(input: {
   let rowsFetchedTotal = checkpoint?.rowsFetched ?? 0;
 
   while (nextPageUrl) {
-    await heartbeatMetaPartitionLease({
+    await heartbeatOwnedMetaPartitionLeaseOrThrow({
       partitionId: input.partitionId,
       workerId: input.workerId,
+      leaseEpoch: input.leaseEpoch,
       leaseMinutes: input.leaseMinutes ?? DEFAULT_META_PARTITION_LEASE_MINUTES,
     });
     const fetchHeartbeat = startMetaFetchHeartbeat({
       partitionId: input.partitionId,
       workerId: input.workerId,
+      leaseEpoch: input.leaseEpoch,
       leaseMinutes: input.leaseMinutes ?? DEFAULT_META_PARTITION_LEASE_MINUTES,
     });
     let pageResult: {
@@ -1340,7 +1380,7 @@ export async function syncMetaAccountBreakdownWarehouseDay(input: {
     const json = pageResult.json;
     const usageSummary = parseMetaBusinessUsageHeader(response.headers);
     const rows = json.data ?? [];
-    const checkpointId = await upsertMetaSyncCheckpoint({
+    const checkpointId = await upsertOwnedMetaCheckpointOrThrow({
       partitionId: input.partitionId,
       businessId: input.credentials.businessId,
       providerAccountId: input.accountId,
@@ -1357,6 +1397,7 @@ export async function syncMetaAccountBreakdownWarehouseDay(input: {
         "x-business-use-case-usage": usageSummary.raw,
       },
       attemptCount: input.attemptCount,
+      leaseEpoch: input.leaseEpoch,
       leaseOwner: input.workerId,
       startedAt: checkpoint?.startedAt ?? new Date().toISOString(),
     });
@@ -1393,7 +1434,7 @@ export async function syncMetaAccountBreakdownWarehouseDay(input: {
     }
   }
 
-  await upsertMetaSyncCheckpoint({
+  await upsertOwnedMetaCheckpointOrThrow({
     partitionId: input.partitionId,
     businessId: input.credentials.businessId,
     providerAccountId: input.accountId,
@@ -1408,6 +1449,7 @@ export async function syncMetaAccountBreakdownWarehouseDay(input: {
     lastSuccessfulEntityKey: null,
     lastResponseHeaders: checkpoint?.lastResponseHeaders ?? {},
     attemptCount: input.attemptCount,
+    leaseEpoch: input.leaseEpoch,
     leaseOwner: input.workerId,
     startedAt: checkpoint?.startedAt ?? new Date().toISOString(),
     finishedAt: new Date().toISOString(),

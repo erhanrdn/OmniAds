@@ -732,6 +732,7 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
           ON meta_sync_partitions (business_id, lane, status, priority DESC, partition_date DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_partitions_lease
           ON meta_sync_partitions (status, lease_expires_at, next_retry_at, updated_at DESC)`.catch(() => {}),
+        sql`ALTER TABLE meta_sync_partitions ADD COLUMN IF NOT EXISTS lease_epoch BIGINT NOT NULL DEFAULT 0`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS meta_sync_runs (
           id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           partition_id        UUID REFERENCES meta_sync_partitions(id) ON DELETE CASCADE,
@@ -787,6 +788,9 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
           ON meta_sync_checkpoints (partition_id, updated_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_checkpoints_scope
           ON meta_sync_checkpoints (business_id, provider_account_id, checkpoint_scope, status, updated_at DESC)`.catch(() => {}),
+        sql`ALTER TABLE meta_sync_checkpoints ADD COLUMN IF NOT EXISTS lease_epoch BIGINT`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_checkpoints_partition_epoch
+          ON meta_sync_checkpoints (partition_id, lease_epoch, updated_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS sync_worker_heartbeats (
           worker_id          TEXT PRIMARY KEY,
           instance_type      TEXT NOT NULL,

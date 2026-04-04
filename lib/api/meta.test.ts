@@ -127,6 +127,7 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       day: "2026-04-03",
       partitionId: "partition-1",
       workerId: "worker-1",
+      leaseEpoch: 11,
       attemptCount: 1,
       leaseMinutes: 15,
     });
@@ -176,7 +177,14 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       phase: "finalize",
       status: "succeeded",
       rowsFetched: 1,
+      leaseEpoch: 11,
     });
+    expect(checkpointCalls.every((call) => call.leaseEpoch === 11)).toBe(true);
+    expect(
+      vi.mocked(warehouse.heartbeatMetaPartitionLease).mock.calls.every(
+        ([input]) => input.leaseEpoch === 11
+      )
+    ).toBe(true);
   });
 
   it("marks derived checkpoints succeeded even when adset rows are empty", async () => {
@@ -243,6 +251,7 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       day: "2026-04-03",
       partitionId: "partition-2",
       workerId: "worker-1",
+      leaseEpoch: 17,
       attemptCount: 1,
       leaseMinutes: 15,
     });
@@ -259,6 +268,7 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       rowsFetched: 1,
       rowsWritten: 0,
       lastSuccessfulEntityKey: null,
+      leaseEpoch: 17,
     });
   });
 });

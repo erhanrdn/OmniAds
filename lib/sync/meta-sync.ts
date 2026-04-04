@@ -647,6 +647,7 @@ async function syncMetaPartitionDay(input: {
   scopes: MetaWarehouseScope[];
   partitionId: string;
   workerId: string;
+  leaseEpoch: number;
   attemptCount: number;
 }) {
   const normalizedDay = normalizeMetaPartitionDate(input.day);
@@ -668,6 +669,7 @@ async function syncMetaPartitionDay(input: {
       day: normalizedDay,
       partitionId: input.partitionId,
       workerId: input.workerId,
+      leaseEpoch: input.leaseEpoch,
       attemptCount: input.attemptCount + 1,
       leaseMinutes: META_PARTITION_LEASE_MINUTES,
     });
@@ -703,6 +705,7 @@ async function syncMetaPartitionDay(input: {
           day: normalizedDay,
           partitionId: input.partitionId,
           workerId: input.workerId,
+          leaseEpoch: input.leaseEpoch,
           attemptCount: input.attemptCount + 1,
           breakdowns: breakdownJob.breakdowns,
           endpointName: breakdownJob.endpointName,
@@ -725,6 +728,7 @@ async function syncMetaPartitionDay(input: {
           lastSuccessfulEntityKey: null,
           lastResponseHeaders: {},
           attemptCount: input.attemptCount + 1,
+          leaseEpoch: input.leaseEpoch,
           leaseOwner: input.workerId,
           startedAt: new Date().toISOString(),
           finishedAt: new Date().toISOString(),
@@ -1135,6 +1139,7 @@ async function cancelDeprecatedMetaPartition(input: {
     scope: MetaWarehouseScope;
     partitionDate: string;
     attemptCount: number;
+    leaseEpoch: number;
     source: string;
   };
   workerId: string;
@@ -1164,6 +1169,7 @@ async function cancelDeprecatedMetaPartition(input: {
       lastSuccessfulEntityKey: checkpoint.lastSuccessfulEntityKey ?? null,
       lastResponseHeaders: checkpoint.lastResponseHeaders ?? {},
       attemptCount: Math.max(checkpoint.attemptCount, input.partition.attemptCount + 1),
+      leaseEpoch: input.partition.leaseEpoch,
       leaseOwner: input.workerId,
       startedAt: checkpoint.startedAt ?? cancelledAt,
       finishedAt: cancelledAt,
@@ -1173,6 +1179,7 @@ async function cancelDeprecatedMetaPartition(input: {
   const completed = await completeMetaPartition({
     partitionId: input.partition.id,
     workerId: input.workerId,
+    leaseEpoch: input.partition.leaseEpoch,
     status: "cancelled",
     lastError: input.reason,
   }).catch(() => false);
@@ -1225,6 +1232,7 @@ async function processMetaPartition(input: {
     scope: MetaWarehouseScope;
     partitionDate: string;
     attemptCount: number;
+    leaseEpoch: number;
     source: string;
   };
   workerId: string;
@@ -1234,6 +1242,7 @@ async function processMetaPartition(input: {
   const markRunningOk = await markMetaPartitionRunning({
     partitionId,
     workerId: input.workerId,
+    leaseEpoch: input.partition.leaseEpoch,
     leaseMinutes: META_PARTITION_LEASE_MINUTES,
   }).catch(() => false);
   if (!markRunningOk) {
@@ -1257,7 +1266,7 @@ async function processMetaPartition(input: {
     status: "running",
     workerId: input.workerId,
     attemptCount: input.partition.attemptCount + 1,
-    metaJson: { source: input.partition.source },
+    metaJson: { source: input.partition.source, leaseEpoch: input.partition.leaseEpoch },
   }).catch(() => null);
 
   const deprecatedScopeReason = getDeprecatedMetaPartitionCancellationReason(input.partition.scope);
@@ -1271,6 +1280,7 @@ async function processMetaPartition(input: {
         scope: input.partition.scope,
         partitionDate: input.partition.partitionDate,
         attemptCount: input.partition.attemptCount,
+        leaseEpoch: input.partition.leaseEpoch,
         source: input.partition.source,
       },
       workerId: input.workerId,
@@ -1293,6 +1303,7 @@ async function processMetaPartition(input: {
       scopes,
       partitionId,
       workerId: input.workerId,
+      leaseEpoch: input.partition.leaseEpoch,
       attemptCount: input.partition.attemptCount,
     });
     if (input.partition.lane === "core" || input.partition.lane === "maintenance") {
@@ -1306,6 +1317,7 @@ async function processMetaPartition(input: {
     const completed = await completeMetaPartition({
       partitionId,
       workerId: input.workerId,
+      leaseEpoch: input.partition.leaseEpoch,
       status: "succeeded",
     }).catch(() => false);
     if (!completed) {
@@ -1339,6 +1351,7 @@ async function processMetaPartition(input: {
     const completed = await completeMetaPartition({
       partitionId,
       workerId: input.workerId,
+      leaseEpoch: input.partition.leaseEpoch,
       status: shouldDeadLetter ? "dead_letter" : "failed",
       lastError: message,
       retryDelayMinutes: shouldDeadLetter
@@ -1378,6 +1391,7 @@ export async function processMetaLifecyclePartition(input: {
     scope: MetaWarehouseScope;
     partitionDate: string;
     attemptCount: number;
+    leaseEpoch: number;
     source: string;
   };
   workerId: string;
@@ -1644,6 +1658,7 @@ export async function consumeMetaQueuedWork(
           scope: partition.scope,
           partitionDate: partition.partitionDate,
           attemptCount: partition.attemptCount,
+          leaseEpoch: partition.leaseEpoch ?? 0,
           source: partition.source,
         },
         workerId,

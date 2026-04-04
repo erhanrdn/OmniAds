@@ -77,6 +77,7 @@ type WorkerLifecyclePartition = ProviderSyncPartitionIdentity & {
   status?: string;
   priority?: number;
   source?: string;
+  leaseEpoch?: number | null;
   leaseOwner?: string | null;
   leaseExpiresAt?: string | null;
   attemptCount?: number;
@@ -117,6 +118,7 @@ function mapMetaPartition(
     status: partition.status,
     priority: partition.priority,
     source: partition.source,
+    leaseEpoch: partition.leaseEpoch ?? null,
     leaseOwner: partition.leaseOwner ?? null,
     leaseExpiresAt: partition.leaseExpiresAt ?? null,
     attemptCount: partition.attemptCount,
@@ -406,6 +408,7 @@ export const metaWorkerAdapter: ProviderWorkerAdapter = {
         scope: partition.scope as MetaWarehouseScope,
         partitionDate: partition.partitionDate,
         attemptCount: partition.attemptCount ?? 0,
+        leaseEpoch: partition.leaseEpoch ?? 0,
         source: partition.source ?? "request_runtime",
       },
       workerId: partition.leaseOwner ?? "",
@@ -435,6 +438,7 @@ export const metaWorkerAdapter: ProviderWorkerAdapter = {
       rowsWritten: normalized.rowsWritten,
       attemptCount: normalized.attemptCount,
       retryAfterAt: normalized.retryAfterAt,
+      leaseEpoch: partition.leaseEpoch ?? null,
       leaseOwner: partition.leaseOwner ?? null,
     };
     await upsertMetaSyncCheckpoint(upsertInput);

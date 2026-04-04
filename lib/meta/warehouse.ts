@@ -480,6 +480,7 @@ export async function leaseMetaSyncPartitions(input: {
     UPDATE meta_sync_partitions partition
     SET
       status = 'leased',
+      lease_epoch = partition.lease_epoch + 1,
       lease_owner = ${input.workerId},
       lease_expires_at = now() + (${input.leaseMinutes ?? 5} || ' minutes')::interval,
       updated_at = now()
@@ -495,6 +496,7 @@ export async function leaseMetaSyncPartitions(input: {
       partition.status,
       partition.priority,
       partition.source,
+      partition.lease_epoch,
       partition.lease_owner,
       partition.lease_expires_at,
       partition.attempt_count,
@@ -516,6 +518,7 @@ export async function leaseMetaSyncPartitions(input: {
     status: String(row.status) as MetaPartitionStatus,
     priority: toNumber(row.priority),
     source: String(row.source),
+    leaseEpoch: toNumber(row.lease_epoch),
     leaseOwner: row.lease_owner ? String(row.lease_owner) : null,
     leaseExpiresAt: normalizeTimestamp(row.lease_expires_at),
     attemptCount: toNumber(row.attempt_count),
@@ -531,6 +534,7 @@ export async function leaseMetaSyncPartitions(input: {
 export async function markMetaPartitionRunning(input: {
   partitionId: string;
   workerId: string;
+  leaseEpoch: number;
   leaseMinutes?: number;
 }) {
   await runMigrations();
@@ -546,6 +550,7 @@ export async function markMetaPartitionRunning(input: {
       updated_at = now()
     WHERE id = ${input.partitionId}
       AND lease_owner = ${input.workerId}
+      AND lease_epoch = ${input.leaseEpoch}
       AND COALESCE(lease_expires_at, now()) > now()
     RETURNING id
   ` as Array<{ id: string }>;
@@ -555,6 +560,7 @@ export async function markMetaPartitionRunning(input: {
 export async function completeMetaPartition(input: {
   partitionId: string;
   workerId: string;
+  leaseEpoch: number;
   status: Extract<MetaPartitionStatus, "succeeded" | "failed" | "dead_letter" | "cancelled">;
   lastError?: string | null;
   retryDelayMinutes?: number;
@@ -580,6 +586,7 @@ export async function completeMetaPartition(input: {
       updated_at = now()
     WHERE id = ${input.partitionId}
       AND lease_owner = ${input.workerId}
+      AND lease_epoch = ${input.leaseEpoch}
       AND COALESCE(lease_expires_at, now()) > now()
     RETURNING id
   ` as Array<{ id: string }>;
@@ -623,6 +630,7 @@ export async function cleanupMetaPartitionOrchestration(input: {
       SELECT checkpoint_scope, phase, page_index, updated_at
       FROM meta_sync_checkpoints checkpoint
       WHERE checkpoint.partition_id = partition.id
+        AND COALESCE(checkpoint.lease_epoch, 0) = COALESCE(partition.lease_epoch, 0)
       ORDER BY checkpoint.updated_at DESC
       LIMIT 1
     ) checkpoint ON TRUE
@@ -771,6 +779,7 @@ export async function cleanupMetaPartitionOrchestration(input: {
         run.worker_id,
         run.lane,
         COALESCE(run.started_at, run.created_at) AS started_at,
+        partition.lease_epoch AS partition_lease_epoch,
         checkpoint.phase AS checkpoint_phase,
         checkpoint.updated_at AS progress_updated_at,
         lease.lease_owner AS active_lease_owner,
@@ -781,17 +790,18 @@ export async function cleanupMetaPartitionOrchestration(input: {
           WHEN run.lane = 'maintenance' THEN ${staleRunMinutesMaintenance}
           ELSE ${staleRunMinutesExtended}
         END AS stale_threshold_minutes,
-        EXISTS (
-          SELECT 1
-          FROM meta_sync_partitions partition
-          WHERE partition.id = run.partition_id
-            AND partition.status NOT IN ('leased', 'running')
-        ) AS partition_state_invalid
+        (partition.id IS NULL OR partition.status NOT IN ('leased', 'running')) AS partition_state_invalid
       FROM meta_sync_runs run
+      LEFT JOIN meta_sync_partitions partition
+        ON partition.id = run.partition_id
       LEFT JOIN LATERAL (
         SELECT checkpoint.phase, checkpoint.updated_at
         FROM meta_sync_checkpoints checkpoint
         WHERE checkpoint.partition_id = run.partition_id
+          AND (
+            partition.id IS NULL
+            OR COALESCE(checkpoint.lease_epoch, 0) = COALESCE(partition.lease_epoch, 0)
+          )
         ORDER BY checkpoint.updated_at DESC
         LIMIT 1
       ) checkpoint ON TRUE
@@ -992,6 +1002,8 @@ export function buildMetaSyncCheckpointHash(input: {
 export async function upsertMetaSyncCheckpoint(input: MetaSyncCheckpointRecord) {
   await runMigrations();
   const sql = getDb();
+  const normalizedLeaseEpoch =
+    input.leaseEpoch == null ? null : Math.max(0, Math.trunc(input.leaseEpoch));
   const checkpointHash =
     input.checkpointHash ??
     buildMetaSyncCheckpointHash({
@@ -1011,6 +1023,8 @@ export async function upsertMetaSyncCheckpoint(input: MetaSyncCheckpointRecord) 
           ${input.leaseOwner ?? null}::text IS NULL
           OR (
             lease_owner = ${input.leaseOwner ?? null}
+            AND ${normalizedLeaseEpoch}::bigint IS NOT NULL
+            AND COALESCE(lease_epoch, 0) = ${normalizedLeaseEpoch}::bigint
             AND COALESCE(lease_expires_at, now() - interval '1 second') > now()
           )
         )
@@ -1032,6 +1046,7 @@ export async function upsertMetaSyncCheckpoint(input: MetaSyncCheckpointRecord) 
       checkpoint_hash,
       attempt_count,
       retry_after_at,
+      lease_epoch,
       lease_owner,
       lease_expires_at,
       started_at,
@@ -1055,6 +1070,7 @@ export async function upsertMetaSyncCheckpoint(input: MetaSyncCheckpointRecord) 
       ${checkpointHash},
       ${input.attemptCount},
       ${input.retryAfterAt ?? null},
+      ${normalizedLeaseEpoch},
       ${input.leaseOwner ?? null},
       ${input.leaseExpiresAt ?? null},
       ${input.startedAt ?? null},
@@ -1075,6 +1091,7 @@ export async function upsertMetaSyncCheckpoint(input: MetaSyncCheckpointRecord) 
       checkpoint_hash = EXCLUDED.checkpoint_hash,
       attempt_count = EXCLUDED.attempt_count,
       retry_after_at = EXCLUDED.retry_after_at,
+      lease_epoch = EXCLUDED.lease_epoch,
       lease_owner = EXCLUDED.lease_owner,
       lease_expires_at = EXCLUDED.lease_expires_at,
       started_at = COALESCE(meta_sync_checkpoints.started_at, EXCLUDED.started_at, now()),
@@ -1124,6 +1141,8 @@ export async function getMetaSyncCheckpoint(input: {
     checkpointHash: row.checkpoint_hash ? String(row.checkpoint_hash) : null,
     attemptCount: toNumber(row.attempt_count),
     retryAfterAt: normalizeTimestamp(row.retry_after_at),
+    leaseEpoch:
+      row.lease_epoch == null ? null : toNumber(row.lease_epoch),
     leaseOwner: row.lease_owner ? String(row.lease_owner) : null,
     leaseExpiresAt: normalizeTimestamp(row.lease_expires_at),
     startedAt: normalizeTimestamp(row.started_at),
@@ -1170,6 +1189,7 @@ export async function listMetaRawSnapshotsForPartition(input: {
 export async function heartbeatMetaPartitionLease(input: {
   partitionId: string;
   workerId: string;
+  leaseEpoch: number;
   leaseMinutes?: number;
 }) {
   await runMigrations();
@@ -1182,6 +1202,7 @@ export async function heartbeatMetaPartitionLease(input: {
       updated_at = now()
     WHERE id = ${input.partitionId}
       AND lease_owner = ${input.workerId}
+      AND lease_epoch = ${input.leaseEpoch}
       AND COALESCE(lease_expires_at, now()) > now()
     RETURNING id
   ` as Array<{ id: string }>;

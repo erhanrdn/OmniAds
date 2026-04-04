@@ -199,6 +199,7 @@ export interface MetaSyncCheckpointRecord {
   checkpointHash?: string | null;
   attemptCount: number;
   retryAfterAt?: string | null;
+  leaseEpoch?: number | null;
   leaseOwner?: string | null;
   leaseExpiresAt?: string | null;
   startedAt?: string | null;
@@ -217,6 +218,7 @@ export interface MetaSyncPartitionRecord {
   status: MetaPartitionStatus;
   priority: number;
   source: MetaSyncPartitionSource | string;
+  leaseEpoch?: number | null;
   leaseOwner?: string | null;
   leaseExpiresAt?: string | null;
   attemptCount: number;
