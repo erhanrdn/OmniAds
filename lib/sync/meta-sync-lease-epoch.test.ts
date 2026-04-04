@@ -22,6 +22,7 @@ vi.mock("@/lib/meta/warehouse", async () => {
     createMetaSyncJob: vi.fn(),
     createMetaSyncRun: vi.fn(),
     expireStaleMetaSyncJobs: vi.fn(),
+    heartbeatMetaPartitionLease: vi.fn().mockResolvedValue(true),
     getLatestMetaSyncHealth: vi.fn(),
     getMetaAdDailyCoverage: vi.fn(),
     getMetaAdSetDailyCoverage: vi.fn(),
@@ -97,6 +98,7 @@ describe("processMetaLifecyclePartition lease epoch", () => {
     } as never);
     vi.mocked(warehouse.markMetaPartitionRunning).mockResolvedValue(true);
     vi.mocked(warehouse.createMetaSyncRun).mockResolvedValue("run-1");
+    vi.mocked(warehouse.heartbeatMetaPartitionLease).mockResolvedValue(true);
     vi.mocked(warehouse.completeMetaPartition).mockResolvedValue(true);
     vi.mocked(warehouse.updateMetaSyncRun).mockResolvedValue(undefined);
   });
@@ -151,6 +153,15 @@ describe("processMetaLifecyclePartition lease epoch", () => {
       leaseEpoch: 7,
       status: "succeeded",
     });
+    expect(warehouse.heartbeatMetaPartitionLease).toHaveBeenCalledWith({
+      partitionId: "partition-1",
+      workerId: "worker-1",
+      leaseEpoch: 7,
+      leaseMinutes: 15,
+    });
+    expect(
+      vi.mocked(warehouse.heartbeatMetaPartitionLease).mock.invocationCallOrder[0]
+    ).toBeLessThan(vi.mocked(warehouse.completeMetaPartition).mock.invocationCallOrder[0]!);
   });
 
   it("returns false and records lease_conflict when completion loses the current epoch", async () => {
@@ -172,6 +183,36 @@ describe("processMetaLifecyclePartition lease epoch", () => {
     });
 
     expect(processed).toBe(false);
+    expect(warehouse.updateMetaSyncRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "run-1",
+        status: "failed",
+        errorClass: "lease_conflict",
+        errorMessage: "partition lost ownership before success completion",
+      })
+    );
+  });
+
+  it("skips completion when the pre-completion heartbeat loses the current epoch", async () => {
+    vi.mocked(warehouse.heartbeatMetaPartitionLease).mockResolvedValue(false);
+
+    const processed = await processMetaLifecyclePartition({
+      partition: {
+        id: "partition-3",
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        lane: "extended",
+        scope: "account_daily",
+        partitionDate: "2026-04-03",
+        attemptCount: 1,
+        leaseEpoch: 15,
+        source: "recent_recovery",
+      },
+      workerId: "worker-1",
+    });
+
+    expect(processed).toBe(false);
+    expect(warehouse.completeMetaPartition).not.toHaveBeenCalled();
     expect(warehouse.updateMetaSyncRun).toHaveBeenCalledWith(
       expect.objectContaining({
         id: "run-1",

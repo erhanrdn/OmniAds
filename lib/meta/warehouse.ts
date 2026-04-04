@@ -567,6 +567,93 @@ export async function completeMetaPartition(input: {
 }) {
   await runMigrations();
   const sql = getDb();
+  if (input.status === "succeeded") {
+    const rows = await sql`
+      WITH completed_partition AS (
+        UPDATE meta_sync_partitions
+        SET
+          status = ${input.status},
+          lease_owner = NULL,
+          lease_expires_at = NULL,
+          next_retry_at = NULL,
+          last_error = ${input.lastError ?? null},
+          finished_at = now(),
+          updated_at = now()
+        WHERE id = ${input.partitionId}
+          AND lease_owner = ${input.workerId}
+          AND lease_epoch = ${input.leaseEpoch}
+          AND COALESCE(lease_expires_at, now()) > now()
+        RETURNING id
+      ),
+      candidate_checkpoints AS (
+        SELECT
+          checkpoint.id,
+          checkpoint.checkpoint_scope,
+          checkpoint.phase AS previous_phase
+        FROM meta_sync_checkpoints checkpoint
+        JOIN completed_partition partition
+          ON partition.id = checkpoint.partition_id
+        WHERE COALESCE(checkpoint.lease_epoch, 0) = ${input.leaseEpoch}::bigint
+          AND checkpoint.status = 'running'
+      ),
+      closed_checkpoints AS (
+        UPDATE meta_sync_checkpoints checkpoint
+        SET
+          status = 'succeeded',
+          phase = 'finalize',
+          next_page_url = NULL,
+          provider_cursor = NULL,
+          finished_at = COALESCE(checkpoint.finished_at, now()),
+          updated_at = now()
+        FROM candidate_checkpoints candidate
+        WHERE checkpoint.id = candidate.id
+        RETURNING
+          candidate.checkpoint_scope,
+          candidate.previous_phase
+      ),
+      grouped_closed_checkpoints AS (
+        SELECT
+          checkpoint_scope,
+          previous_phase,
+          COUNT(*)::int AS row_count
+        FROM closed_checkpoints
+        GROUP BY checkpoint_scope, previous_phase
+      )
+      SELECT
+        EXISTS(SELECT 1 FROM completed_partition) AS completed,
+        COALESCE(
+          (
+            SELECT json_agg(
+              json_build_object(
+                'checkpointScope', checkpoint_scope,
+                'previousPhase', previous_phase,
+                'count', row_count
+              )
+              ORDER BY checkpoint_scope, previous_phase
+            )
+            FROM grouped_closed_checkpoints
+          ),
+          '[]'::json
+        ) AS closed_checkpoint_groups
+    ` as Array<Record<string, unknown>>;
+    const row = rows[0] ?? {};
+    const completed = Boolean(row.completed);
+    const rawGroups = row.closed_checkpoint_groups;
+    const closedCheckpointGroups = Array.isArray(rawGroups)
+      ? rawGroups
+      : typeof rawGroups === "string"
+        ? (JSON.parse(rawGroups) as unknown[])
+        : [];
+    if (completed && closedCheckpointGroups.length > 0) {
+      console.info("[meta-sync] partition_success_closed_open_checkpoints", {
+        partitionId: input.partitionId,
+        workerId: input.workerId,
+        leaseEpoch: input.leaseEpoch,
+        closedCheckpointGroups,
+      });
+    }
+    return completed;
+  }
   const rows = await sql`
     UPDATE meta_sync_partitions
     SET

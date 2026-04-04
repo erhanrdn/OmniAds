@@ -45,5 +45,7 @@ jobs:
             cd /var/www/adsecute
             git fetch origin main
             git reset --hard origin/main
-            docker compose up -d --build
+            docker compose build
+            docker compose run --rm --no-deps web node --import tsx scripts/run-migrations.ts
+            docker compose up -d
           EOF

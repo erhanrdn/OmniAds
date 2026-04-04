@@ -27,6 +27,23 @@ export interface MetaCreativeMediaPruneSummary {
   metaCreativeDailyUpdated: number;
 }
 
+export interface MetaSucceededParentRunningCheckpointCleanupGroup {
+  checkpointScope: string;
+  phase: string;
+  epochBucket: "epoch_match" | "epoch_mismatch" | "checkpoint_epoch_null";
+  timingBucket:
+    | "checkpoint_updated_before_or_at_parent_finished"
+    | "checkpoint_updated_after_parent_finished";
+  count: number;
+}
+
+export interface MetaSucceededParentRunningCheckpointCleanupSummary {
+  businessId: string | null;
+  totalClosed: number;
+  remainingRunningChildrenOfSucceededParents: number;
+  groups: MetaSucceededParentRunningCheckpointCleanupGroup[];
+}
+
 async function execCount(query: Promise<unknown>) {
   const rows = await query;
   const first = Array.isArray(rows) ? rows[0] : null;
@@ -174,6 +191,107 @@ export async function purgeMetaLegacyCaches(businessId?: string | null): Promise
   return {
     providerReportingSnapshotsDeleted,
     metaCreativesSnapshotsDeleted,
+  };
+}
+
+export async function closeSucceededMetaParentRunningCheckpoints(input?: {
+  businessId?: string | null;
+}): Promise<MetaSucceededParentRunningCheckpointCleanupSummary> {
+  await runMigrations({ force: true, reason: "meta_orphan_checkpoint_cleanup" });
+  const sql = getDb();
+  const businessId = input?.businessId?.trim() || null;
+
+  const [row] = (await sql`
+    WITH candidate_checkpoints AS (
+      SELECT
+        checkpoint.id,
+        checkpoint.business_id,
+        checkpoint.provider_account_id,
+        checkpoint.checkpoint_scope,
+        checkpoint.phase,
+        CASE
+          WHEN checkpoint.lease_epoch IS NULL THEN 'checkpoint_epoch_null'
+          WHEN COALESCE(checkpoint.lease_epoch, 0) = COALESCE(partition.lease_epoch, 0)
+            THEN 'epoch_match'
+          ELSE 'epoch_mismatch'
+        END AS epoch_bucket,
+        CASE
+          WHEN partition.finished_at IS NOT NULL AND checkpoint.updated_at <= partition.finished_at
+            THEN 'checkpoint_updated_before_or_at_parent_finished'
+          ELSE 'checkpoint_updated_after_parent_finished'
+        END AS timing_bucket
+      FROM meta_sync_checkpoints checkpoint
+      JOIN meta_sync_partitions partition
+        ON partition.id = checkpoint.partition_id
+      WHERE partition.status = 'succeeded'
+        AND checkpoint.status = 'running'
+        AND (${businessId}::text IS NULL OR checkpoint.business_id = ${businessId})
+    ),
+    updated_checkpoints AS (
+      UPDATE meta_sync_checkpoints checkpoint
+      SET
+        status = 'succeeded',
+        phase = 'finalize',
+        next_page_url = NULL,
+        provider_cursor = NULL,
+        finished_at = COALESCE(checkpoint.finished_at, now()),
+        updated_at = now()
+      FROM candidate_checkpoints candidate
+      WHERE checkpoint.id = candidate.id
+      RETURNING
+        candidate.checkpoint_scope,
+        candidate.phase,
+        candidate.epoch_bucket,
+        candidate.timing_bucket
+    ),
+    grouped AS (
+      SELECT
+        checkpoint_scope,
+        phase,
+        epoch_bucket,
+        timing_bucket,
+        COUNT(*)::int AS row_count
+      FROM updated_checkpoints
+      GROUP BY checkpoint_scope, phase, epoch_bucket, timing_bucket
+    )
+    SELECT json_build_object(
+      'businessId', ${businessId}::text,
+      'totalClosed', COALESCE((SELECT SUM(row_count)::int FROM grouped), 0),
+      'remainingRunningChildrenOfSucceededParents',
+      (
+        SELECT COUNT(*)::int
+        FROM meta_sync_checkpoints checkpoint
+        JOIN meta_sync_partitions partition
+          ON partition.id = checkpoint.partition_id
+        WHERE partition.status = 'succeeded'
+          AND checkpoint.status = 'running'
+          AND (${businessId}::text IS NULL OR checkpoint.business_id = ${businessId})
+      ),
+      'groups',
+      COALESCE(
+        (
+          SELECT json_agg(
+            json_build_object(
+              'checkpointScope', checkpoint_scope,
+              'phase', phase,
+              'epochBucket', epoch_bucket,
+              'timingBucket', timing_bucket,
+              'count', row_count
+            )
+            ORDER BY checkpoint_scope, phase, epoch_bucket, timing_bucket
+          )
+          FROM grouped
+        ),
+        '[]'::json
+      )
+    ) AS summary
+  `) as Array<{ summary: MetaSucceededParentRunningCheckpointCleanupSummary }>;
+
+  return row?.summary ?? {
+    businessId,
+    totalClosed: 0,
+    remainingRunningChildrenOfSucceededParents: 0,
+    groups: [],
   };
 }
 

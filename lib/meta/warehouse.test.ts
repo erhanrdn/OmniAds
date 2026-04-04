@@ -29,6 +29,7 @@ describe("meta warehouse ownership safety", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     vi.mocked(workerHealth.recordSyncReclaimEvents).mockResolvedValue(undefined);
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
   });
 
   it("returns null when checkpoint upsert loses partition ownership", async () => {
@@ -133,6 +134,75 @@ describe("meta warehouse ownership safety", () => {
 
     expect(completed).toBe(false);
     expect(queries.some((query) => query.includes("AND lease_epoch = "))).toBe(true);
+  });
+
+  it("closes current-epoch running checkpoints when a partition succeeds", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      queries.push(strings.join(" "));
+      return [
+        {
+          completed: true,
+          closed_checkpoint_groups: [
+            {
+              checkpointScope: "ad_daily",
+              previousPhase: "fetch_raw",
+              count: 2,
+            },
+          ],
+        },
+      ];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const completed = await completeMetaPartition({
+      partitionId: "partition-1",
+      workerId: "worker-1",
+      leaseEpoch: 10,
+      status: "succeeded",
+    });
+
+    expect(completed).toBe(true);
+    expect(queries.some((query) => query.includes("UPDATE meta_sync_checkpoints checkpoint"))).toBe(true);
+    expect(queries.some((query) => query.includes("checkpoint.status = 'running'"))).toBe(true);
+    expect(queries.some((query) => query.includes("phase = 'finalize'"))).toBe(true);
+    expect(console.info).toHaveBeenCalledWith(
+      "[meta-sync] partition_success_closed_open_checkpoints",
+      expect.objectContaining({
+        partitionId: "partition-1",
+        workerId: "worker-1",
+        leaseEpoch: 10,
+        closedCheckpointGroups: [
+          {
+            checkpointScope: "ad_daily",
+            previousPhase: "fetch_raw",
+            count: 2,
+          },
+        ],
+      })
+    );
+  });
+
+  it("does not run child checkpoint closure when partition completion is non-success", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      queries.push(strings.join(" "));
+      return [{ id: "partition-1" }];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const completed = await completeMetaPartition({
+      partitionId: "partition-1",
+      workerId: "worker-1",
+      leaseEpoch: 10,
+      status: "failed",
+      lastError: "network",
+    });
+
+    expect(completed).toBe(true);
+    expect(queries.some((query) => query.includes("UPDATE meta_sync_checkpoints checkpoint"))).toBe(
+      false
+    );
   });
 
   it("keeps active leased dead-letter partitions out of replay", async () => {

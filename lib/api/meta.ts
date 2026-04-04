@@ -1184,12 +1184,34 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     startedAt: coreCheckpointStartedAt,
   });
 
-  await Promise.all([
-    upsertMetaAccountDailyRows(accountRows),
-    upsertMetaCampaignDailyRows(campaignRows),
-    upsertMetaAdSetDailyRows(adsetRows),
-    upsertMetaAdDailyRows(adRows),
-  ]);
+  await heartbeatOwnedMetaPartitionLeaseOrThrow({
+    partitionId: input.partitionId,
+    workerId: input.workerId,
+    leaseEpoch: input.leaseEpoch,
+    leaseMinutes: input.leaseMinutes ?? DEFAULT_META_PARTITION_LEASE_MINUTES,
+  });
+  await upsertMetaAccountDailyRows(accountRows);
+  await heartbeatOwnedMetaPartitionLeaseOrThrow({
+    partitionId: input.partitionId,
+    workerId: input.workerId,
+    leaseEpoch: input.leaseEpoch,
+    leaseMinutes: input.leaseMinutes ?? DEFAULT_META_PARTITION_LEASE_MINUTES,
+  });
+  await upsertMetaCampaignDailyRows(campaignRows);
+  await heartbeatOwnedMetaPartitionLeaseOrThrow({
+    partitionId: input.partitionId,
+    workerId: input.workerId,
+    leaseEpoch: input.leaseEpoch,
+    leaseMinutes: input.leaseMinutes ?? DEFAULT_META_PARTITION_LEASE_MINUTES,
+  });
+  await upsertMetaAdSetDailyRows(adsetRows);
+  await heartbeatOwnedMetaPartitionLeaseOrThrow({
+    partitionId: input.partitionId,
+    workerId: input.workerId,
+    leaseEpoch: input.leaseEpoch,
+    leaseMinutes: input.leaseMinutes ?? DEFAULT_META_PARTITION_LEASE_MINUTES,
+  });
+  await upsertMetaAdDailyRows(adRows);
 
   const [accountDailyCheckpoint, adsetDailyCheckpoint, adDailyCheckpoint] = await Promise.all([
     getMetaSyncCheckpoint({
@@ -1206,6 +1228,12 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     }),
   ]);
 
+  await heartbeatOwnedMetaPartitionLeaseOrThrow({
+    partitionId: input.partitionId,
+    workerId: input.workerId,
+    leaseEpoch: input.leaseEpoch,
+    leaseMinutes: input.leaseMinutes ?? DEFAULT_META_PARTITION_LEASE_MINUTES,
+  });
   await Promise.all([
     upsertOwnedMetaCheckpointOrThrow({
       partitionId: input.partitionId,
@@ -1282,6 +1310,12 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     });
   }
 
+  await heartbeatOwnedMetaPartitionLeaseOrThrow({
+    partitionId: input.partitionId,
+    workerId: input.workerId,
+    leaseEpoch: input.leaseEpoch,
+    leaseMinutes: input.leaseMinutes ?? DEFAULT_META_PARTITION_LEASE_MINUTES,
+  });
   await upsertOwnedMetaCheckpointOrThrow({
     partitionId: input.partitionId,
     businessId: input.credentials.businessId,

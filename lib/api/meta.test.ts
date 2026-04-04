@@ -180,6 +180,31 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       leaseEpoch: 11,
     });
     expect(checkpointCalls.every((call) => call.leaseEpoch === 11)).toBe(true);
+    const heartbeatOrder = vi.mocked(warehouse.heartbeatMetaPartitionLease).mock.invocationCallOrder;
+    const accountUpsertOrder = vi.mocked(warehouse.upsertMetaAccountDailyRows).mock.invocationCallOrder[0]!;
+    const campaignUpsertOrder = vi.mocked(warehouse.upsertMetaCampaignDailyRows).mock.invocationCallOrder[0]!;
+    const adsetUpsertOrder = vi.mocked(warehouse.upsertMetaAdSetDailyRows).mock.invocationCallOrder[0]!;
+    const adUpsertOrder = vi.mocked(warehouse.upsertMetaAdDailyRows).mock.invocationCallOrder[0]!;
+    const derivedFinalizeOrder = vi
+      .mocked(warehouse.upsertMetaSyncCheckpoint)
+      .mock.calls.map(([call], index) => ({
+        call,
+        order: vi.mocked(warehouse.upsertMetaSyncCheckpoint).mock.invocationCallOrder[index]!,
+      }))
+      .find(({ call }) => call.checkpointScope === "account_daily" && call.phase === "finalize")?.order;
+
+    expect(heartbeatOrder.every((order) => Number.isFinite(order))).toBe(true);
+    expect(heartbeatOrder.some((order) => order < accountUpsertOrder)).toBe(true);
+    expect(heartbeatOrder.some((order) => order > accountUpsertOrder && order < campaignUpsertOrder)).toBe(
+      true
+    );
+    expect(heartbeatOrder.some((order) => order > campaignUpsertOrder && order < adsetUpsertOrder)).toBe(
+      true
+    );
+    expect(heartbeatOrder.some((order) => order > adsetUpsertOrder && order < adUpsertOrder)).toBe(true);
+    expect(
+      heartbeatOrder.some((order) => derivedFinalizeOrder != null && order > adUpsertOrder && order < derivedFinalizeOrder)
+    ).toBe(true);
     expect(
       vi.mocked(warehouse.heartbeatMetaPartitionLease).mock.calls.every(
         ([input]) => input.leaseEpoch === 11

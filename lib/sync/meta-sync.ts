@@ -20,6 +20,7 @@ import {
   createMetaSyncJob,
   createMetaSyncRun,
   expireStaleMetaSyncJobs,
+  heartbeatMetaPartitionLease,
   getLatestMetaSyncHealth,
   getMetaAdDailyCoverage,
   getMetaAdSetDailyCoverage,
@@ -78,6 +79,20 @@ async function upsertMetaCheckpointOrThrow(input: MetaSyncCheckpointRecord) {
     throw new Error("lease_conflict:checkpoint_write_rejected");
   }
   return checkpointId;
+}
+
+async function heartbeatMetaPartitionBeforeCompletion(input: {
+  partitionId: string;
+  workerId: string;
+  leaseEpoch: number;
+  leaseMinutes: number;
+}) {
+  return heartbeatMetaPartitionLease({
+    partitionId: input.partitionId,
+    workerId: input.workerId,
+    leaseEpoch: input.leaseEpoch,
+    leaseMinutes: input.leaseMinutes,
+  }).catch(() => false);
 }
 
 const META_DEPRECATED_SCOPE_REASONS: Partial<Record<MetaWarehouseScope, string>> = {
@@ -1176,13 +1191,21 @@ async function cancelDeprecatedMetaPartition(input: {
     }).catch(() => null);
   }
 
-  const completed = await completeMetaPartition({
+  const completionHeartbeatOk = await heartbeatMetaPartitionBeforeCompletion({
     partitionId: input.partition.id,
     workerId: input.workerId,
     leaseEpoch: input.partition.leaseEpoch,
-    status: "cancelled",
-    lastError: input.reason,
-  }).catch(() => false);
+    leaseMinutes: META_PARTITION_LEASE_MINUTES,
+  });
+  const completed = completionHeartbeatOk
+    ? await completeMetaPartition({
+        partitionId: input.partition.id,
+        workerId: input.workerId,
+        leaseEpoch: input.partition.leaseEpoch,
+        status: "cancelled",
+        lastError: input.reason,
+      }).catch(() => false)
+    : false;
 
   if (!completed) {
     if (input.runId) {
@@ -1314,12 +1337,20 @@ async function processMetaPartition(input: {
         source: input.partition.source,
       });
     }
-    const completed = await completeMetaPartition({
+    const completionHeartbeatOk = await heartbeatMetaPartitionBeforeCompletion({
       partitionId,
       workerId: input.workerId,
       leaseEpoch: input.partition.leaseEpoch,
-      status: "succeeded",
-    }).catch(() => false);
+      leaseMinutes: META_PARTITION_LEASE_MINUTES,
+    });
+    const completed = completionHeartbeatOk
+      ? await completeMetaPartition({
+          partitionId,
+          workerId: input.workerId,
+          leaseEpoch: input.partition.leaseEpoch,
+          status: "succeeded",
+        }).catch(() => false)
+      : false;
     if (!completed) {
       if (runId) {
         await updateMetaSyncRun({
@@ -1348,16 +1379,24 @@ async function processMetaPartition(input: {
     const classified = classifyMetaError(error);
     const message = error instanceof Error ? error.message : String(error);
     const shouldDeadLetter = classified.terminal || input.partition.attemptCount + 1 >= META_PARTITION_MAX_ATTEMPTS;
-    const completed = await completeMetaPartition({
+    const completionHeartbeatOk = await heartbeatMetaPartitionBeforeCompletion({
       partitionId,
       workerId: input.workerId,
       leaseEpoch: input.partition.leaseEpoch,
-      status: shouldDeadLetter ? "dead_letter" : "failed",
-      lastError: message,
-      retryDelayMinutes: shouldDeadLetter
-        ? undefined
-        : computeRetryDelayMinutes(input.partition, classified.retryDelayMinutes),
-    }).catch(() => null);
+      leaseMinutes: META_PARTITION_LEASE_MINUTES,
+    });
+    const completed = completionHeartbeatOk
+      ? await completeMetaPartition({
+          partitionId,
+          workerId: input.workerId,
+          leaseEpoch: input.partition.leaseEpoch,
+          status: shouldDeadLetter ? "dead_letter" : "failed",
+          lastError: message,
+          retryDelayMinutes: shouldDeadLetter
+            ? undefined
+            : computeRetryDelayMinutes(input.partition, classified.retryDelayMinutes),
+        }).catch(() => null)
+      : null;
     if (runId) {
       await updateMetaSyncRun({
         id: runId,
