@@ -174,6 +174,41 @@ async function enqueueMetaExtendedPartitionsAfterSuccess(input: {
   return false;
 }
 
+async function backfillMetaRunTerminalState(input: {
+  runId: string | null;
+  startedAtMs: number;
+  status: "succeeded" | "failed" | "cancelled";
+  errorClass?: string | null;
+  errorMessage?: string | null;
+  finishedAt: string;
+  context: {
+    partitionId: string;
+    workerId: string;
+    leaseEpoch: number;
+    lane: MetaSyncLane;
+    scope: MetaWarehouseScope;
+  };
+}) {
+  if (!input.runId) return;
+  console.warn("[meta-sync] partition_completion_run_backfill", {
+    partitionId: input.context.partitionId,
+    workerId: input.context.workerId,
+    leaseEpoch: input.context.leaseEpoch,
+    lane: input.context.lane,
+    scope: input.context.scope,
+    status: input.status,
+  });
+  await updateMetaSyncRun({
+    id: input.runId,
+    status: input.status,
+    durationMs: Date.now() - input.startedAtMs,
+    errorClass: input.errorClass ?? null,
+    errorMessage: input.errorMessage ?? null,
+    finishedAt: input.finishedAt,
+    onlyIfCurrentStatus: "running",
+  }).catch(() => null);
+}
+
 const META_DEPRECATED_SCOPE_REASONS: Partial<Record<MetaWarehouseScope, string>> = {
   creative_daily:
     "creative_daily sync disabled after moving creative scoring to the live/snapshot path",
@@ -1343,6 +1378,21 @@ async function cancelDeprecatedMetaPartition(input: {
     }
     return false;
   }
+  if (!completion.runUpdated) {
+    await backfillMetaRunTerminalState({
+      runId: input.runId,
+      startedAtMs: input.startedAtMs,
+      status: "cancelled",
+      finishedAt: cancelledAt,
+      context: {
+        partitionId: input.partition.id,
+        workerId: input.workerId,
+        leaseEpoch: input.partition.leaseEpoch,
+        lane: input.partition.lane,
+        scope: input.partition.scope,
+      },
+    });
+  }
 
   console.info("[meta-sync] partition_cancelled_deprecated_scope", {
     businessId: input.partition.businessId,
@@ -1500,6 +1550,21 @@ async function processMetaPartition(input: {
         }
         return false;
       }
+      if (!completed.runUpdated) {
+        await backfillMetaRunTerminalState({
+          runId,
+          startedAtMs: startedAt,
+          status: "succeeded",
+          finishedAt: new Date().toISOString(),
+          context: {
+            partitionId,
+            workerId: input.workerId,
+            leaseEpoch: input.partition.leaseEpoch,
+            lane: input.partition.lane,
+            scope: input.partition.scope,
+          },
+        });
+      }
     } catch (completionError) {
       await logMetaSuccessCompletionDenied({
         partitionId,
@@ -1549,16 +1614,34 @@ async function processMetaPartition(input: {
             ? undefined
             : computeRetryDelayMinutes(input.partition, classified.retryDelayMinutes),
         });
-        if (!completed.ok && runId) {
-          await updateMetaSyncRun({
-            id: runId,
+        if (!completed.ok) {
+          if (runId) {
+            await updateMetaSyncRun({
+              id: runId,
+              status: "failed",
+              durationMs: Date.now() - startedAt,
+              errorClass: "lease_conflict",
+              errorMessage: "partition lost ownership before failure completion",
+              finishedAt: new Date().toISOString(),
+              onlyIfCurrentStatus: "running",
+            }).catch(() => null);
+          }
+        } else if (!completed.runUpdated) {
+          await backfillMetaRunTerminalState({
+            runId,
+            startedAtMs: startedAt,
             status: "failed",
-            durationMs: Date.now() - startedAt,
-            errorClass: "lease_conflict",
-            errorMessage: "partition lost ownership before failure completion",
+            errorClass: classified.errorClass,
+            errorMessage: message,
             finishedAt: new Date().toISOString(),
-            onlyIfCurrentStatus: "running",
-          }).catch(() => null);
+            context: {
+              partitionId,
+              workerId: input.workerId,
+              leaseEpoch: input.partition.leaseEpoch,
+              lane: input.partition.lane,
+              scope: input.partition.scope,
+            },
+          });
         }
       } else if (runId) {
         await updateMetaSyncRun({

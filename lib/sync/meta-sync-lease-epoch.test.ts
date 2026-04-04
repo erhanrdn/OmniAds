@@ -317,6 +317,39 @@ describe("processMetaLifecyclePartition lease epoch", () => {
     );
   });
 
+  it("backfills the run terminal state when partition completion succeeds without updating the run row", async () => {
+    vi.mocked(warehouse.completeMetaPartitionAttempt).mockResolvedValue({
+      ok: true,
+      runUpdated: false,
+      closedCheckpointGroups: [],
+    });
+
+    const processed = await processMetaLifecyclePartition({
+      partition: {
+        id: "partition-4b",
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        lane: "extended",
+        scope: "account_daily",
+        partitionDate: "2026-04-03",
+        attemptCount: 1,
+        leaseEpoch: 19,
+        source: "recent_recovery",
+      },
+      workerId: "worker-1",
+    });
+
+    expect(processed).toBe(true);
+    expect(warehouse.updateMetaSyncRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "run-1",
+        status: "succeeded",
+        finishedAt: expect.any(String),
+        onlyIfCurrentStatus: "running",
+      })
+    );
+  });
+
   it("completes core partitions before enqueueing extended follow-up work", async () => {
     const processed = await processMetaLifecyclePartition({
       partition: {
