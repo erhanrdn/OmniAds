@@ -25,6 +25,47 @@ import type {
 import { mergeGoogleAdsSyncStateWrite } from "@/lib/google-ads/sync-state-write";
 import { computeCheckpointLagMinutes } from "@/lib/provider-readiness";
 
+type GoogleAdsClosedCheckpointGroup = {
+  checkpointScope: string;
+  previousPhase: string;
+  count: number;
+};
+
+export type GoogleAdsPartitionAttemptCompletionResult =
+  | {
+      ok: true;
+      runUpdated: boolean;
+      closedRunningRunCount: number;
+      callerRunIdWasClosed: boolean | null;
+      closedRunningRunIds: string[];
+      closedCheckpointGroups: GoogleAdsClosedCheckpointGroup[];
+    }
+  | {
+      ok: false;
+      reason: "lease_conflict";
+    };
+
+export type GoogleAdsCompletionDenialClassification =
+  | "owner_mismatch"
+  | "lease_expired"
+  | "already_terminal"
+  | "unknown_denial";
+
+export interface GoogleAdsPartitionCompletionDenialSnapshot {
+  currentPartitionStatus: string | null;
+  currentLeaseOwner: string | null;
+  currentLeaseExpiresAt: string | null;
+  ownerMatchesCaller: boolean | null;
+  leaseExpiredAtObservation: boolean | null;
+  currentPartitionFinishedAt: string | null;
+  latestCheckpointScope: string | null;
+  latestCheckpointPhase: string | null;
+  latestCheckpointUpdatedAt: string | null;
+  latestRunningRunId: string | null;
+  runningRunCount: number;
+  denialClassification: GoogleAdsCompletionDenialClassification;
+}
+
 const GOOGLE_SCOPE_TABLES: Record<GoogleAdsWarehouseScope, string> = {
   account_daily: "google_ads_account_daily",
   campaign_daily: "google_ads_campaign_daily",
@@ -124,6 +165,65 @@ function toNumber(value: unknown) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function parseNullableBoolean(value: unknown) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    if (value === "true") return true;
+    if (value === "false") return false;
+  }
+  return null;
+}
+
+function parseStringArray(value: unknown) {
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) =>
+        typeof entry === "string" ? entry : String(entry ?? "").trim(),
+      )
+      .filter((entry) => entry.length > 0);
+  }
+  if (typeof value === "string") {
+    try {
+      return parseStringArray(JSON.parse(value));
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function parseGoogleAdsClosedCheckpointGroups(
+  raw: unknown,
+): GoogleAdsClosedCheckpointGroup[] {
+  if (Array.isArray(raw)) {
+    return raw
+      .map((entry) => {
+        if (!entry || typeof entry !== "object") return null;
+        const record = entry as Record<string, unknown>;
+        return {
+          checkpointScope: String(
+            record.checkpointScope ?? record.checkpoint_scope ?? "",
+          ),
+          previousPhase: String(
+            record.previousPhase ?? record.previous_phase ?? "",
+          ),
+          count: toNumber(record.count ?? record.row_count),
+        } satisfies GoogleAdsClosedCheckpointGroup;
+      })
+      .filter((entry): entry is GoogleAdsClosedCheckpointGroup =>
+        Boolean(entry?.checkpointScope),
+      );
+  }
+  if (typeof raw === "string") {
+    try {
+      return parseGoogleAdsClosedCheckpointGroups(JSON.parse(raw));
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 function parseTimestampMs(value: unknown) {
   const normalized = normalizeTimestamp(value);
   if (!normalized) return null;
@@ -133,7 +233,7 @@ function parseTimestampMs(value: unknown) {
 
 function tallyDisposition(
   counts: Record<ProviderReclaimDisposition, number>,
-  disposition: ProviderReclaimDisposition
+  disposition: ProviderReclaimDisposition,
 ) {
   counts[disposition] = (counts[disposition] ?? 0) + 1;
 }
@@ -155,7 +255,7 @@ export function buildGoogleAdsRawSnapshotHash(input: {
         startDate: normalizeDate(input.startDate),
         endDate: normalizeDate(input.endDate),
         payload: input.payload,
-      })
+      }),
     )
     .digest("hex");
 }
@@ -177,7 +277,7 @@ export function buildGoogleAdsSyncCheckpointHash(input: {
         pageIndex: input.pageIndex,
         nextPageToken: input.nextPageToken ?? null,
         providerCursor: input.providerCursor ?? null,
-      })
+      }),
     )
     .digest("hex");
 }
@@ -199,7 +299,7 @@ export function emptyGoogleAdsWarehouseMetrics(): GoogleAdsWarehouseMetricSet {
 }
 
 export function createGoogleAdsWarehouseFreshness(
-  input: Partial<GoogleAdsWarehouseFreshness> = {}
+  input: Partial<GoogleAdsWarehouseFreshness> = {},
 ): GoogleAdsWarehouseFreshness {
   return {
     dataState: input.dataState ?? "syncing",
@@ -213,7 +313,7 @@ export function createGoogleAdsWarehouseFreshness(
 
 export function mergeGoogleAdsWarehouseState(
   current: GoogleAdsWarehouseDataState,
-  next: GoogleAdsWarehouseDataState
+  next: GoogleAdsWarehouseDataState,
 ): GoogleAdsWarehouseDataState {
   const priority: Record<GoogleAdsWarehouseDataState, number> = {
     not_connected: 0,
@@ -250,7 +350,7 @@ export async function createGoogleAdsSyncJob(input: GoogleAdsSyncJobRecord) {
         AND status = 'running'
     `;
   }
-  const insertedRows = await sql`
+  const insertedRows = (await sql`
     INSERT INTO google_ads_sync_jobs (
       business_id,
       provider_account_id,
@@ -296,7 +396,7 @@ export async function createGoogleAdsSyncJob(input: GoogleAdsSyncJobRecord) {
     ) WHERE status = 'running'
     DO NOTHING
     RETURNING id
-  ` as Array<{ id: string }>;
+  `) as Array<{ id: string }>;
   if (insertedRows[0]?.id) {
     return {
       id: insertedRows[0].id,
@@ -304,7 +404,7 @@ export async function createGoogleAdsSyncJob(input: GoogleAdsSyncJobRecord) {
     };
   }
 
-  const existingRows = await sql`
+  const existingRows = (await sql`
     SELECT id
     FROM google_ads_sync_jobs
     WHERE business_id = ${input.businessId}
@@ -317,7 +417,7 @@ export async function createGoogleAdsSyncJob(input: GoogleAdsSyncJobRecord) {
       AND status = 'running'
     ORDER BY triggered_at DESC
     LIMIT 1
-  ` as Array<{ id: string }>;
+  `) as Array<{ id: string }>;
   return {
     id: existingRows[0]?.id ?? null,
     created: false,
@@ -374,7 +474,7 @@ export async function acquireGoogleAdsRunnerLease(input: {
     businessId: input.businessId,
     lane: input.lane,
   }).catch(() => null);
-  const rows = await sql`
+  const rows = (await sql`
     INSERT INTO google_ads_runner_leases (
       business_id,
       lane,
@@ -412,7 +512,7 @@ export async function acquireGoogleAdsRunnerLease(input: {
       lease_expires_at,
       created_at,
       updated_at
-  ` as Array<Record<string, unknown>>;
+  `) as Array<Record<string, unknown>>;
 
   const row = rows[0];
   if (!row) return null;
@@ -423,7 +523,8 @@ export async function acquireGoogleAdsRunnerLease(input: {
     businessId: String(row.business_id),
     lane: String(row.lane) as GoogleAdsSyncLane,
     leaseOwner: String(row.lease_owner),
-    leaseExpiresAt: normalizeTimestamp(row.lease_expires_at) ?? new Date().toISOString(),
+    leaseExpiresAt:
+      normalizeTimestamp(row.lease_expires_at) ?? new Date().toISOString(),
     createdAt: normalizeTimestamp(row.created_at) ?? undefined,
     updatedAt: normalizeTimestamp(row.updated_at) ?? undefined,
   } satisfies GoogleAdsRunnerLeaseRecord;
@@ -452,7 +553,7 @@ export async function getGoogleAdsRunnerLeaseHealth(input: {
   const sql = getDb();
   const lanes =
     input.lanes?.map((lane) => String(lane).trim()).filter(Boolean) ?? [];
-  const rows = await sql`
+  const rows = (await sql`
     SELECT
       COUNT(*) FILTER (WHERE lease_expires_at > now())::int AS active_leases,
       MAX(lease_expires_at) AS latest_lease_expires_at,
@@ -464,7 +565,7 @@ export async function getGoogleAdsRunnerLeaseHealth(input: {
         COALESCE(array_length(${lanes}::text[], 1), 0) = 0
         OR lane = ANY(${lanes}::text[])
       )
-  ` as Array<Record<string, unknown>>;
+  `) as Array<Record<string, unknown>>;
   const row = rows[0] ?? {};
   return {
     activeLeases: toNumber(row.active_leases),
@@ -474,7 +575,9 @@ export async function getGoogleAdsRunnerLeaseHealth(input: {
   };
 }
 
-export async function queueGoogleAdsSyncPartition(input: GoogleAdsSyncPartitionRecord) {
+export async function queueGoogleAdsSyncPartition(
+  input: GoogleAdsSyncPartitionRecord,
+) {
   await runMigrations();
   const sql = getDb();
   const priorityResetSources = [
@@ -485,7 +588,7 @@ export async function queueGoogleAdsSyncPartition(input: GoogleAdsSyncPartitionR
     "historical_recovery",
     "core_success",
   ];
-  const rows = await sql`
+  const rows = (await sql`
     INSERT INTO google_ads_sync_partitions (
       business_id,
       provider_account_id,
@@ -565,7 +668,7 @@ export async function queueGoogleAdsSyncPartition(input: GoogleAdsSyncPartitionR
       END,
       updated_at = now()
     RETURNING id, status
-  ` as Array<{ id: string; status: GoogleAdsPartitionStatus }>;
+  `) as Array<{ id: string; status: GoogleAdsPartitionStatus }>;
   return rows[0] ?? null;
 }
 
@@ -584,7 +687,7 @@ export async function leaseGoogleAdsSyncPartitions(input: {
   const sql = getDb();
   const scopePrioritySql = buildGoogleAdsScopeLeasePrioritySql();
   const sourcePrioritySql = buildGoogleAdsSourceLeasePrioritySql();
-  const rows = await sql.query(
+  const rows = (await sql.query(
     `
       WITH candidates AS (
         SELECT id
@@ -650,8 +753,8 @@ export async function leaseGoogleAdsSyncPartitions(input: {
       input.scopeFilter ?? [],
       input.startDate ? normalizeDate(input.startDate) : null,
       input.endDate ? normalizeDate(input.endDate) : null,
-    ]
-  ) as Array<Record<string, unknown>>;
+    ],
+  )) as Array<Record<string, unknown>>;
 
   return rows.map((row) => ({
     id: String(row.id),
@@ -682,7 +785,7 @@ export async function markGoogleAdsPartitionRunning(input: {
 }) {
   await runMigrations();
   const sql = getDb();
-  const rows = await sql`
+  const rows = (await sql`
     UPDATE google_ads_sync_partitions
     SET
       status = 'running',
@@ -695,54 +798,576 @@ export async function markGoogleAdsPartitionRunning(input: {
       AND lease_owner = ${input.workerId}
       AND COALESCE(lease_expires_at, now()) > now()
     RETURNING id
-  ` as Array<{ id: string }>;
+  `) as Array<{ id: string }>;
   return rows.length > 0;
+}
+
+export async function getGoogleAdsPartitionCompletionDenialSnapshot(input: {
+  partitionId: string;
+  workerId: string;
+}) {
+  const sql = getDb();
+  try {
+    const [row] = (await sql`
+      WITH input_values AS (
+        SELECT
+          ${input.partitionId}::uuid AS partition_id,
+          ${input.workerId}::text AS worker_id
+      ),
+      current_partition AS (
+        SELECT
+          partition.status::text AS current_partition_status,
+          partition.lease_owner::text AS current_lease_owner,
+          partition.lease_expires_at AS current_lease_expires_at,
+          (partition.lease_owner = input_values.worker_id) AS owner_matches_caller,
+          (COALESCE(partition.lease_expires_at, now() - interval '1 second') <= now())
+            AS lease_expired_at_observation,
+          partition.finished_at AS current_partition_finished_at
+        FROM google_ads_sync_partitions partition
+        CROSS JOIN input_values
+        WHERE partition.id = input_values.partition_id
+      ),
+      latest_checkpoint AS (
+        SELECT
+          checkpoint.checkpoint_scope::text AS latest_checkpoint_scope,
+          checkpoint.phase::text AS latest_checkpoint_phase,
+          checkpoint.updated_at AS latest_checkpoint_updated_at
+        FROM google_ads_sync_checkpoints checkpoint
+        CROSS JOIN input_values
+        WHERE checkpoint.partition_id = input_values.partition_id
+        ORDER BY checkpoint.updated_at DESC
+        LIMIT 1
+      ),
+      latest_running_run AS (
+        SELECT run.id::text AS latest_running_run_id
+        FROM google_ads_sync_runs run
+        CROSS JOIN input_values
+        WHERE run.partition_id = input_values.partition_id
+          AND run.status = 'running'
+        ORDER BY run.created_at DESC
+        LIMIT 1
+      ),
+      running_run_count AS (
+        SELECT COUNT(*)::int AS running_run_count
+        FROM google_ads_sync_runs run
+        CROSS JOIN input_values
+        WHERE run.partition_id = input_values.partition_id
+          AND run.status = 'running'
+      )
+      SELECT
+        current_partition.current_partition_status,
+        current_partition.current_lease_owner,
+        current_partition.current_lease_expires_at,
+        current_partition.owner_matches_caller,
+        current_partition.lease_expired_at_observation,
+        current_partition.current_partition_finished_at,
+        latest_checkpoint.latest_checkpoint_scope,
+        latest_checkpoint.latest_checkpoint_phase,
+        latest_checkpoint.latest_checkpoint_updated_at,
+        latest_running_run.latest_running_run_id,
+        running_run_count.running_run_count,
+        CASE
+          WHEN current_partition.current_partition_status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
+            THEN 'already_terminal'
+          WHEN current_partition.owner_matches_caller IS FALSE
+            THEN 'owner_mismatch'
+          WHEN current_partition.lease_expired_at_observation IS TRUE
+            THEN 'lease_expired'
+          ELSE 'unknown_denial'
+        END AS denial_classification
+      FROM current_partition
+      LEFT JOIN latest_checkpoint ON TRUE
+      LEFT JOIN latest_running_run ON TRUE
+      LEFT JOIN running_run_count ON TRUE
+    `) as Array<Record<string, unknown>>;
+
+    if (!row) return null;
+
+    return {
+      currentPartitionStatus:
+        typeof row.current_partition_status === "string"
+          ? row.current_partition_status
+          : null,
+      currentLeaseOwner:
+        typeof row.current_lease_owner === "string"
+          ? row.current_lease_owner
+          : null,
+      currentLeaseExpiresAt: normalizeTimestamp(row.current_lease_expires_at),
+      ownerMatchesCaller: parseNullableBoolean(row.owner_matches_caller),
+      leaseExpiredAtObservation: parseNullableBoolean(
+        row.lease_expired_at_observation,
+      ),
+      currentPartitionFinishedAt: normalizeTimestamp(
+        row.current_partition_finished_at,
+      ),
+      latestCheckpointScope:
+        typeof row.latest_checkpoint_scope === "string"
+          ? row.latest_checkpoint_scope
+          : null,
+      latestCheckpointPhase:
+        typeof row.latest_checkpoint_phase === "string"
+          ? row.latest_checkpoint_phase
+          : null,
+      latestCheckpointUpdatedAt: normalizeTimestamp(
+        row.latest_checkpoint_updated_at,
+      ),
+      latestRunningRunId:
+        typeof row.latest_running_run_id === "string"
+          ? row.latest_running_run_id
+          : null,
+      runningRunCount: toNumber(row.running_run_count),
+      denialClassification:
+        typeof row.denial_classification === "string"
+          ? (row.denial_classification as GoogleAdsCompletionDenialClassification)
+          : "unknown_denial",
+    } satisfies GoogleAdsPartitionCompletionDenialSnapshot;
+  } catch (error) {
+    console.warn(
+      "[google-ads-sync] partition_completion_denial_observability_failed",
+      {
+        partitionId: input.partitionId,
+        workerId: input.workerId,
+        message: error instanceof Error ? error.message : String(error),
+      },
+    );
+    return null;
+  }
+}
+
+export async function backfillGoogleAdsRunningRunsForTerminalPartition(input: {
+  partitionId: string;
+  runId?: string | null;
+  recoveredRunId?: string | null;
+}) {
+  const sql = getDb();
+  const [row] = (await sql`
+    WITH input_values AS (
+      SELECT
+        ${input.partitionId}::uuid AS partition_id,
+        ${input.runId ?? input.recoveredRunId ?? null}::uuid AS effective_run_id
+    ),
+    terminal_partition AS (
+      SELECT
+        partition.status::text AS partition_status,
+        partition.last_error::text AS partition_last_error,
+        partition.finished_at AS partition_finished_at
+      FROM google_ads_sync_partitions partition
+      CROSS JOIN input_values
+      WHERE partition.id = input_values.partition_id
+        AND partition.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
+    ),
+    updated_runs AS (
+      UPDATE google_ads_sync_runs run
+      SET
+        status = CASE
+          WHEN terminal_partition.partition_status = 'succeeded' THEN 'succeeded'
+          WHEN terminal_partition.partition_status = 'cancelled' THEN 'cancelled'
+          ELSE 'failed'
+        END,
+        error_class = CASE
+          WHEN terminal_partition.partition_status IN ('succeeded', 'cancelled') THEN NULL
+          WHEN terminal_partition.partition_status = 'dead_letter'
+            THEN COALESCE(run.error_class, 'dead_letter')
+          ELSE COALESCE(run.error_class, 'failed')
+        END,
+        error_message = CASE
+          WHEN terminal_partition.partition_status IN ('succeeded', 'cancelled') THEN NULL
+          WHEN terminal_partition.partition_status = 'dead_letter'
+            THEN COALESCE(
+              terminal_partition.partition_last_error,
+              run.error_message,
+              'partition already dead_letter'
+            )
+          ELSE COALESCE(
+            terminal_partition.partition_last_error,
+            run.error_message,
+            'partition already failed'
+          )
+        END,
+        finished_at = COALESCE(run.finished_at, terminal_partition.partition_finished_at, now()),
+        duration_ms = COALESCE(
+          run.duration_ms,
+          GREATEST(
+            0,
+            FLOOR(
+              EXTRACT(
+                EPOCH FROM (
+                  COALESCE(terminal_partition.partition_finished_at, now()) -
+                  COALESCE(run.started_at, run.created_at)
+                )
+              ) * 1000
+            )::int
+          )
+        ),
+        meta_json = COALESCE(run.meta_json, '{}'::jsonb) || jsonb_build_object(
+          'decisionCaller', 'backfillGoogleAdsRunningRunsForTerminalPartition',
+          'closureReason', CASE
+            WHEN terminal_partition.partition_status = 'succeeded' THEN 'partition_already_succeeded'
+            WHEN terminal_partition.partition_status = 'failed' THEN 'partition_already_failed'
+            WHEN terminal_partition.partition_status = 'dead_letter' THEN 'partition_already_dead_letter'
+            ELSE 'partition_already_cancelled'
+          END
+        ),
+        updated_at = now()
+      FROM terminal_partition
+      CROSS JOIN input_values
+      WHERE run.partition_id = input_values.partition_id
+        AND run.status = 'running'
+      RETURNING
+        run.id AS run_id_uuid,
+        run.id::text AS run_id,
+        terminal_partition.partition_status
+    ),
+    updated_summary AS (
+      SELECT
+        COALESCE(MAX(partition_status), (SELECT partition_status FROM terminal_partition LIMIT 1)) AS partition_status,
+        COUNT(*)::int AS closed_running_run_count,
+        CASE
+          WHEN (SELECT effective_run_id FROM input_values) IS NULL THEN NULL
+          ELSE BOOL_OR(run_id_uuid = (SELECT effective_run_id FROM input_values))
+        END AS caller_run_id_was_closed
+      FROM updated_runs
+    ),
+    capped_run_ids AS (
+      SELECT run_id
+      FROM updated_runs
+      ORDER BY run_id
+      LIMIT 10
+    )
+    SELECT
+      (SELECT partition_status FROM updated_summary) AS partition_status,
+      COALESCE((SELECT closed_running_run_count FROM updated_summary), 0) AS closed_running_run_count,
+      (SELECT caller_run_id_was_closed FROM updated_summary) AS caller_run_id_was_closed,
+      COALESCE((SELECT json_agg(run_id ORDER BY run_id) FROM capped_run_ids), '[]'::json) AS closed_running_run_ids
+  `) as Array<Record<string, unknown>>;
+
+  return {
+    partitionStatus:
+      typeof row?.partition_status === "string" ? row.partition_status : null,
+    closedRunningRunCount: toNumber(row?.closed_running_run_count),
+    callerRunIdWasClosed: parseNullableBoolean(row?.caller_run_id_was_closed),
+    closedRunningRunIds: parseStringArray(row?.closed_running_run_ids),
+  };
+}
+
+export async function backfillGoogleAdsRunningCheckpointsForTerminalPartition(input: {
+  partitionId: string;
+}) {
+  const sql = getDb();
+  const [row] = (await sql`
+    WITH input_values AS (
+      SELECT ${input.partitionId}::uuid AS partition_id
+    ),
+    terminal_partition AS (
+      SELECT
+        partition.status::text AS partition_status,
+        partition.finished_at AS partition_finished_at
+      FROM google_ads_sync_partitions partition
+      CROSS JOIN input_values
+      WHERE partition.id = input_values.partition_id
+        AND partition.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
+    ),
+    candidate_checkpoints AS (
+      SELECT
+        checkpoint.id,
+        checkpoint.checkpoint_scope,
+        checkpoint.phase AS previous_phase
+      FROM google_ads_sync_checkpoints checkpoint
+      CROSS JOIN input_values
+      JOIN terminal_partition ON TRUE
+      WHERE checkpoint.partition_id = input_values.partition_id
+        AND checkpoint.status = 'running'
+    ),
+    updated_checkpoints AS (
+      UPDATE google_ads_sync_checkpoints checkpoint
+      SET
+        status = CASE
+          WHEN terminal_partition.partition_status = 'succeeded' THEN 'succeeded'
+          WHEN terminal_partition.partition_status = 'cancelled' THEN 'cancelled'
+          ELSE 'failed'
+        END,
+        phase = CASE
+          WHEN terminal_partition.partition_status = 'succeeded' THEN 'finalize'
+          ELSE checkpoint.phase
+        END,
+        next_page_token = CASE
+          WHEN terminal_partition.partition_status = 'succeeded' THEN NULL
+          ELSE checkpoint.next_page_token
+        END,
+        provider_cursor = CASE
+          WHEN terminal_partition.partition_status = 'succeeded' THEN NULL
+          ELSE checkpoint.provider_cursor
+        END,
+        finished_at = COALESCE(checkpoint.finished_at, terminal_partition.partition_finished_at, now()),
+        updated_at = now()
+      FROM candidate_checkpoints candidate
+      CROSS JOIN terminal_partition
+      WHERE checkpoint.id = candidate.id
+      RETURNING candidate.checkpoint_scope, candidate.previous_phase
+    ),
+    grouped_closed_checkpoints AS (
+      SELECT
+        checkpoint_scope,
+        previous_phase,
+        COUNT(*)::int AS row_count
+      FROM updated_checkpoints
+      GROUP BY checkpoint_scope, previous_phase
+    )
+    SELECT COALESCE(
+      (
+        SELECT json_agg(
+          json_build_object(
+            'checkpointScope', checkpoint_scope,
+            'previousPhase', previous_phase,
+            'count', row_count
+          )
+          ORDER BY checkpoint_scope, previous_phase
+        )
+        FROM grouped_closed_checkpoints
+      ),
+      '[]'::json
+    ) AS closed_checkpoint_groups
+  `) as Array<Record<string, unknown>>;
+
+  const closedCheckpointGroups = parseGoogleAdsClosedCheckpointGroups(
+    row?.closed_checkpoint_groups,
+  );
+  return {
+    closedCheckpointGroups,
+    closedRunningCheckpointCount: closedCheckpointGroups.reduce(
+      (sum, group) => sum + group.count,
+      0,
+    ),
+  };
+}
+
+export async function completeGoogleAdsPartitionAttempt(input: {
+  partitionId: string;
+  workerId: string;
+  partitionStatus: Extract<
+    GoogleAdsPartitionStatus,
+    "succeeded" | "failed" | "dead_letter" | "cancelled"
+  >;
+  runId?: string | null;
+  recoveredRunId?: string | null;
+  runStatus?: GoogleAdsSyncRunRecord["status"];
+  durationMs?: number | null;
+  errorClass?: string | null;
+  errorMessage?: string | null;
+  finishedAt?: string | null;
+  lastError?: string | null;
+  retryDelayMinutes?: number;
+}): Promise<GoogleAdsPartitionAttemptCompletionResult> {
+  await runMigrations();
+  const sql = getDb();
+  const runStatus =
+    input.runStatus ??
+    (input.partitionStatus === "succeeded"
+      ? "succeeded"
+      : input.partitionStatus === "cancelled"
+        ? "cancelled"
+        : "failed");
+  const rows = (await sql`
+    WITH input_values AS (
+      SELECT
+        ${input.partitionStatus}::text AS partition_status,
+        ${input.retryDelayMinutes ?? 5}::int AS retry_delay_minutes,
+        ${input.lastError ?? null}::text AS last_error,
+        ${input.finishedAt ?? null}::timestamptz AS finished_at,
+        ${input.partitionId}::uuid AS partition_id,
+        ${input.workerId}::text AS worker_id,
+        ${input.runId ?? null}::uuid AS run_id,
+        ${input.runId ?? input.recoveredRunId ?? null}::uuid AS effective_run_id,
+        ${runStatus}::text AS run_status,
+        ${input.durationMs ?? null}::int AS duration_ms,
+        ${input.errorClass ?? null}::text AS error_class,
+        ${input.errorMessage ?? null}::text AS error_message
+    ),
+    completed_partition AS (
+      UPDATE google_ads_sync_partitions partition
+      SET
+        status = input_values.partition_status,
+        lease_owner = NULL,
+        lease_expires_at = NULL,
+        next_retry_at = CASE
+          WHEN input_values.partition_status = 'failed'
+            THEN now() + (input_values.retry_delay_minutes || ' minutes')::interval
+          ELSE NULL
+        END,
+        last_error = input_values.last_error,
+        finished_at = CASE
+          WHEN input_values.partition_status IN ('succeeded', 'dead_letter', 'cancelled')
+            THEN COALESCE(input_values.finished_at, now())
+          ELSE partition.finished_at
+        END,
+        updated_at = now()
+      FROM input_values
+      WHERE partition.id = input_values.partition_id
+        AND partition.lease_owner = input_values.worker_id
+        AND COALESCE(partition.lease_expires_at, now()) > now()
+      RETURNING partition.id
+    ),
+    candidate_checkpoints AS (
+      SELECT
+        checkpoint.id,
+        checkpoint.checkpoint_scope,
+        checkpoint.phase AS previous_phase
+      FROM google_ads_sync_checkpoints checkpoint
+      JOIN completed_partition partition
+        ON partition.id = checkpoint.partition_id
+      WHERE checkpoint.status = 'running'
+    ),
+    closed_checkpoints AS (
+      UPDATE google_ads_sync_checkpoints checkpoint
+      SET
+        status = CASE
+          WHEN input_values.partition_status = 'succeeded' THEN 'succeeded'
+          WHEN input_values.partition_status = 'cancelled' THEN 'cancelled'
+          ELSE 'failed'
+        END,
+        phase = CASE
+          WHEN input_values.partition_status = 'succeeded' THEN 'finalize'
+          ELSE checkpoint.phase
+        END,
+        next_page_token = CASE
+          WHEN input_values.partition_status = 'succeeded' THEN NULL
+          ELSE checkpoint.next_page_token
+        END,
+        provider_cursor = CASE
+          WHEN input_values.partition_status = 'succeeded' THEN NULL
+          ELSE checkpoint.provider_cursor
+        END,
+        finished_at = COALESCE(checkpoint.finished_at, input_values.finished_at, now()),
+        updated_at = now()
+      FROM candidate_checkpoints candidate
+      CROSS JOIN input_values
+      WHERE checkpoint.id = candidate.id
+      RETURNING
+        candidate.checkpoint_scope,
+        candidate.previous_phase
+    ),
+    grouped_closed_checkpoints AS (
+      SELECT
+        checkpoint_scope,
+        previous_phase,
+        COUNT(*)::int AS row_count
+      FROM closed_checkpoints
+      GROUP BY checkpoint_scope, previous_phase
+    ),
+    updated_runs AS (
+      UPDATE google_ads_sync_runs run
+      SET
+        status = input_values.run_status,
+        duration_ms = COALESCE(input_values.duration_ms, run.duration_ms),
+        error_class = CASE
+          WHEN input_values.run_status IN ('succeeded', 'cancelled') THEN NULL
+          ELSE COALESCE(input_values.error_class, run.error_class)
+        END,
+        error_message = CASE
+          WHEN input_values.run_status IN ('succeeded', 'cancelled') THEN NULL
+          ELSE COALESCE(input_values.error_message, run.error_message)
+        END,
+        finished_at = COALESCE(input_values.finished_at, now()),
+        updated_at = now()
+      FROM completed_partition partition
+      CROSS JOIN input_values
+      WHERE run.partition_id = partition.id
+        AND run.status = 'running'
+      RETURNING
+        run.id AS run_id_uuid,
+        run.id::text AS run_id
+    ),
+    updated_run_summary AS (
+      SELECT
+        COUNT(*)::int AS closed_running_run_count,
+        CASE
+          WHEN (SELECT effective_run_id FROM input_values) IS NULL THEN NULL
+          ELSE BOOL_OR(run_id_uuid = (SELECT effective_run_id FROM input_values))
+        END AS caller_run_id_was_closed
+      FROM updated_runs
+    ),
+    capped_updated_run_ids AS (
+      SELECT run_id
+      FROM updated_runs
+      ORDER BY run_id
+      LIMIT 10
+    )
+    SELECT
+      EXISTS(SELECT 1 FROM completed_partition) AS completed,
+      EXISTS(SELECT 1 FROM updated_runs) AS run_updated,
+      COALESCE((SELECT closed_running_run_count FROM updated_run_summary), 0) AS closed_running_run_count,
+      (SELECT caller_run_id_was_closed FROM updated_run_summary) AS caller_run_id_was_closed,
+      COALESCE((SELECT json_agg(run_id ORDER BY run_id) FROM capped_updated_run_ids), '[]'::json)
+        AS closed_running_run_ids,
+      COALESCE(
+        (
+          SELECT json_agg(
+            json_build_object(
+              'checkpointScope', checkpoint_scope,
+              'previousPhase', previous_phase,
+              'count', row_count
+            )
+            ORDER BY checkpoint_scope, previous_phase
+          )
+          FROM grouped_closed_checkpoints
+        ),
+        '[]'::json
+      ) AS closed_checkpoint_groups
+  `) as Array<Record<string, unknown>>;
+
+  const row = rows[0] ?? {};
+  if (!Boolean(row.completed)) {
+    return {
+      ok: false,
+      reason: "lease_conflict",
+    };
+  }
+
+  return {
+    ok: true,
+    runUpdated: Boolean(row.run_updated),
+    closedRunningRunCount: toNumber(row.closed_running_run_count),
+    callerRunIdWasClosed: parseNullableBoolean(row.caller_run_id_was_closed),
+    closedRunningRunIds: parseStringArray(row.closed_running_run_ids),
+    closedCheckpointGroups: parseGoogleAdsClosedCheckpointGroups(
+      row.closed_checkpoint_groups,
+    ),
+  };
 }
 
 export async function completeGoogleAdsPartition(input: {
   partitionId: string;
   workerId: string;
-  status: Extract<GoogleAdsPartitionStatus, "succeeded" | "failed" | "dead_letter" | "cancelled">;
+  status: Extract<
+    GoogleAdsPartitionStatus,
+    "succeeded" | "failed" | "dead_letter" | "cancelled"
+  >;
   lastError?: string | null;
   retryDelayMinutes?: number;
 }) {
-  await runMigrations();
-  const sql = getDb();
-  const rows = await sql`
-    UPDATE google_ads_sync_partitions
-    SET
-      status = ${input.status},
-      lease_owner = NULL,
-      lease_expires_at = NULL,
-      next_retry_at = CASE
-        WHEN ${input.status} = 'failed'
-          THEN now() + (${input.retryDelayMinutes ?? 5} || ' minutes')::interval
-        ELSE NULL
-      END,
-      last_error = ${input.lastError ?? null},
-      finished_at = CASE
-        WHEN ${input.status} IN ('succeeded', 'dead_letter', 'cancelled') THEN now()
-        ELSE finished_at
-      END,
-      updated_at = now()
-    WHERE id = ${input.partitionId}
-      AND lease_owner = ${input.workerId}
-    RETURNING id
-  ` as Array<{ id: string }>;
-  return rows.length > 0;
+  const result = await completeGoogleAdsPartitionAttempt({
+    partitionId: input.partitionId,
+    workerId: input.workerId,
+    partitionStatus: input.status,
+    lastError: input.lastError ?? null,
+    retryDelayMinutes: input.retryDelayMinutes,
+  });
+  return result.ok;
 }
 
 export async function cancelGoogleAdsPartitionsBySource(input: {
   businessId: string;
   lane?: GoogleAdsSyncLane | null;
   sources: string[];
-  statuses: Array<Extract<GoogleAdsPartitionStatus, "queued" | "leased" | "running">>;
+  statuses: Array<
+    Extract<GoogleAdsPartitionStatus, "queued" | "leased" | "running">
+  >;
   scopeFilter?: GoogleAdsWarehouseScope[];
   lastError?: string | null;
 }) {
   await runMigrations();
   const sql = getDb();
-  const rows = await sql`
+  const rows = (await sql`
     UPDATE google_ads_sync_partitions
     SET
       status = 'cancelled',
@@ -761,7 +1386,7 @@ export async function cancelGoogleAdsPartitionsBySource(input: {
         OR scope = ANY(${input.scopeFilter ?? []}::text[])
       )
     RETURNING id
-  ` as Array<{ id: string }>;
+  `) as Array<{ id: string }>;
 
   return rows.length;
 }
@@ -773,7 +1398,7 @@ export async function heartbeatGoogleAdsPartitionLease(input: {
 }) {
   await runMigrations();
   const sql = getDb();
-  const rows = await sql`
+  const rows = (await sql`
     UPDATE google_ads_sync_partitions
     SET
       lease_owner = ${input.workerId},
@@ -782,7 +1407,7 @@ export async function heartbeatGoogleAdsPartitionLease(input: {
     WHERE id = ${input.partitionId}
       AND lease_owner = ${input.workerId}
     RETURNING id
-  ` as Array<{ id: string }>;
+  `) as Array<{ id: string }>;
   return rows.length > 0;
 }
 
@@ -797,7 +1422,104 @@ export async function cleanupGoogleAdsPartitionOrchestration(input: {
   await runMigrations();
   const sql = getDb();
   const staleThresholdMs = Math.max(1, input.staleLeaseMinutes ?? 8) * 60_000;
-  const candidates = await sql`
+  const terminalRunningRunRows = (await sql`
+    WITH terminal_partitions AS (
+      SELECT
+        partition.id,
+        partition.status::text AS partition_status,
+        partition.last_error::text AS partition_last_error,
+        partition.finished_at AS partition_finished_at
+      FROM google_ads_sync_partitions partition
+      WHERE partition.business_id = ${input.businessId}
+        AND partition.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
+    )
+    UPDATE google_ads_sync_runs run
+    SET
+      status = CASE
+        WHEN terminal_partitions.partition_status = 'succeeded' THEN 'succeeded'
+        WHEN terminal_partitions.partition_status = 'cancelled' THEN 'cancelled'
+        ELSE 'failed'
+      END,
+      error_class = CASE
+        WHEN terminal_partitions.partition_status IN ('succeeded', 'cancelled') THEN NULL
+        WHEN terminal_partitions.partition_status = 'dead_letter'
+          THEN COALESCE(run.error_class, 'dead_letter')
+        ELSE COALESCE(run.error_class, 'failed')
+      END,
+      error_message = CASE
+        WHEN terminal_partitions.partition_status IN ('succeeded', 'cancelled') THEN NULL
+        WHEN terminal_partitions.partition_status = 'dead_letter'
+          THEN COALESCE(
+            terminal_partitions.partition_last_error,
+            run.error_message,
+            'partition already dead_letter'
+          )
+        ELSE COALESCE(
+          terminal_partitions.partition_last_error,
+          run.error_message,
+          'partition already failed'
+        )
+      END,
+      finished_at = COALESCE(run.finished_at, terminal_partitions.partition_finished_at, now()),
+      duration_ms = COALESCE(
+        run.duration_ms,
+        GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (now() - COALESCE(run.started_at, run.created_at))) * 1000))::int
+      ),
+      meta_json = COALESCE(run.meta_json, '{}'::jsonb) || jsonb_build_object(
+        'decisionCaller', 'cleanupGoogleAdsPartitionOrchestration',
+        'closureReason', CASE
+          WHEN terminal_partitions.partition_status = 'succeeded' THEN 'partition_already_succeeded'
+          WHEN terminal_partitions.partition_status = 'failed' THEN 'partition_already_failed'
+          WHEN terminal_partitions.partition_status = 'dead_letter' THEN 'partition_already_dead_letter'
+          ELSE 'partition_already_cancelled'
+        END
+      ),
+      updated_at = now()
+    FROM terminal_partitions
+    WHERE run.business_id = ${input.businessId}
+      AND run.partition_id = terminal_partitions.id
+      AND run.status = 'running'
+    RETURNING run.id
+  `) as Array<Record<string, unknown>>;
+
+  const terminalRunningCheckpointRows = (await sql`
+    WITH terminal_partitions AS (
+      SELECT
+        partition.id,
+        partition.status::text AS partition_status,
+        partition.finished_at AS partition_finished_at
+      FROM google_ads_sync_partitions partition
+      WHERE partition.business_id = ${input.businessId}
+        AND partition.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
+    )
+    UPDATE google_ads_sync_checkpoints checkpoint
+    SET
+      status = CASE
+        WHEN terminal_partitions.partition_status = 'succeeded' THEN 'succeeded'
+        WHEN terminal_partitions.partition_status = 'cancelled' THEN 'cancelled'
+        ELSE 'failed'
+      END,
+      phase = CASE
+        WHEN terminal_partitions.partition_status = 'succeeded' THEN 'finalize'
+        ELSE checkpoint.phase
+      END,
+      next_page_token = CASE
+        WHEN terminal_partitions.partition_status = 'succeeded' THEN NULL
+        ELSE checkpoint.next_page_token
+      END,
+      provider_cursor = CASE
+        WHEN terminal_partitions.partition_status = 'succeeded' THEN NULL
+        ELSE checkpoint.provider_cursor
+      END,
+      finished_at = COALESCE(checkpoint.finished_at, terminal_partitions.partition_finished_at, now()),
+      updated_at = now()
+    FROM terminal_partitions
+    WHERE checkpoint.partition_id = terminal_partitions.id
+      AND checkpoint.status = 'running'
+    RETURNING checkpoint.id
+  `) as Array<Record<string, unknown>>;
+
+  const candidates = (await sql`
     SELECT
       partition.id,
       partition.scope,
@@ -840,7 +1562,7 @@ export async function cleanupGoogleAdsPartitionOrchestration(input: {
     ) failures ON TRUE
     WHERE partition.business_id = ${input.businessId}
       AND partition.status IN ('leased', 'running')
-  ` as Array<Record<string, unknown>>;
+  `) as Array<Record<string, unknown>>;
 
   const now = Date.now();
   const dispositionCounts: Record<ProviderReclaimDisposition, number> = {
@@ -848,16 +1570,23 @@ export async function cleanupGoogleAdsPartitionOrchestration(input: {
     stalled_reclaimable: 0,
     poison_candidate: 0,
   };
-  const stalledDecisions: Array<ProviderReclaimDecision & { partitionId: string }> = [];
+  const stalledDecisions: Array<
+    ProviderReclaimDecision & { partitionId: string }
+  > = [];
   const poisonDecisions: Array<
-    ProviderReclaimDecision & { partitionId: string; checkpointScope: string | null }
+    ProviderReclaimDecision & {
+      partitionId: string;
+      checkpointScope: string | null;
+    }
   > = [];
 
   for (const row of candidates) {
     const partitionId = String(row.id);
-    const progressMs = parseTimestampMs(row.progress_updated_at ?? row.updated_at);
+    const progressMs = parseTimestampMs(
+      row.progress_updated_at ?? row.updated_at,
+    );
     const leaseMs = parseTimestampMs(
-      row.lease_expires_at ?? row.started_at ?? row.updated_at
+      row.lease_expires_at ?? row.started_at ?? row.updated_at,
     );
     const updatedMs = parseTimestampMs(row.updated_at);
     const hasRecentProgress =
@@ -887,7 +1616,8 @@ export async function cleanupGoogleAdsPartitionOrchestration(input: {
       decision = {
         disposition: "alive_slow",
         reasonCode: "progress_recently_advanced",
-        detail: "Recent checkpoint progress detected; keeping partition leased.",
+        detail:
+          "Recent checkpoint progress detected; keeping partition leased.",
       };
     } else if (hasActiveRunnerLease) {
       decision = {
@@ -904,7 +1634,8 @@ export async function cleanupGoogleAdsPartitionOrchestration(input: {
       decision = {
         disposition: "stalled_reclaimable",
         reasonCode: "worker_offline_no_progress",
-        detail: "Lease expired and no recent runner/progress heartbeat remained.",
+        detail:
+          "Lease expired and no recent runner/progress heartbeat remained.",
       };
     } else if (leaseMs != null && now - leaseMs > 0) {
       decision = {
@@ -926,6 +1657,7 @@ export async function cleanupGoogleAdsPartitionOrchestration(input: {
   }
 
   const stalePartitionIds = stalledDecisions.map((row) => row.partitionId);
+  let reclaimedCheckpointCount = 0;
   if (stalePartitionIds.length > 0) {
     await sql`
       UPDATE google_ads_sync_partitions
@@ -938,6 +1670,17 @@ export async function cleanupGoogleAdsPartitionOrchestration(input: {
         updated_at = now()
       WHERE id = ANY(${stalePartitionIds}::uuid[])
     `;
+    const reconciledCheckpoints = (await sql`
+      UPDATE google_ads_sync_checkpoints checkpoint
+      SET
+        status = 'failed',
+        finished_at = COALESCE(checkpoint.finished_at, now()),
+        updated_at = now()
+      WHERE checkpoint.partition_id = ANY(${stalePartitionIds}::uuid[])
+        AND checkpoint.status = 'running'
+      RETURNING checkpoint.id
+    `) as Array<Record<string, unknown>>;
+    reclaimedCheckpointCount = reconciledCheckpoints.length;
     for (const decision of stalledDecisions) {
       await recordSyncReclaimEvents({
         providerScope: "google_ads",
@@ -952,6 +1695,7 @@ export async function cleanupGoogleAdsPartitionOrchestration(input: {
   }
 
   const poisonPartitionIds = poisonDecisions.map((row) => row.partitionId);
+  let poisonedCheckpointCount = 0;
   if (poisonPartitionIds.length > 0) {
     await sql`
       UPDATE google_ads_sync_partitions
@@ -964,6 +1708,17 @@ export async function cleanupGoogleAdsPartitionOrchestration(input: {
         updated_at = now()
       WHERE id = ANY(${poisonPartitionIds}::uuid[])
     `;
+    const poisonedCheckpoints = (await sql`
+      UPDATE google_ads_sync_checkpoints checkpoint
+      SET
+        status = 'failed',
+        finished_at = COALESCE(checkpoint.finished_at, now()),
+        updated_at = now()
+      WHERE checkpoint.partition_id = ANY(${poisonPartitionIds}::uuid[])
+        AND checkpoint.status = 'running'
+      RETURNING checkpoint.id
+    `) as Array<Record<string, unknown>>;
+    poisonedCheckpointCount = poisonedCheckpoints.length;
     for (const decision of poisonDecisions) {
       await recordSyncReclaimEvents({
         providerScope: "google_ads",
@@ -978,7 +1733,7 @@ export async function cleanupGoogleAdsPartitionOrchestration(input: {
     }
   }
 
-  const duplicateLegacyIds = await sql`
+  const duplicateLegacyIds = (await sql`
     SELECT id
     FROM (
       SELECT
@@ -993,10 +1748,10 @@ export async function cleanupGoogleAdsPartitionOrchestration(input: {
     ) ranked
     WHERE ranked.row_number > 1
     LIMIT 200
-  ` as Array<Record<string, unknown>>;
+  `) as Array<Record<string, unknown>>;
   let duplicateLegacyCount = 0;
   if (duplicateLegacyIds.length > 0) {
-    const rows = await sql`
+    const rows = (await sql`
       UPDATE google_ads_sync_jobs
       SET
         status = 'cancelled',
@@ -1005,11 +1760,11 @@ export async function cleanupGoogleAdsPartitionOrchestration(input: {
         updated_at = now()
       WHERE id = ANY(${duplicateLegacyIds.map((row) => String(row.id))}::uuid[])
       RETURNING id
-    ` as Array<Record<string, unknown>>;
+    `) as Array<Record<string, unknown>>;
     duplicateLegacyCount = rows.length;
   }
 
-  const staleLegacyRows = await sql`
+  const staleLegacyRows = (await sql`
     UPDATE google_ads_sync_jobs
     SET
       status = 'failed',
@@ -1020,22 +1775,27 @@ export async function cleanupGoogleAdsPartitionOrchestration(input: {
       AND status = 'running'
       AND started_at < now() - (${input.staleLegacyMinutes ?? 15} || ' minutes')::interval
     RETURNING id
-  ` as Array<Record<string, unknown>>;
+  `) as Array<Record<string, unknown>>;
 
   const staleRunMinutesCore = Math.max(
     1,
-    input.staleRunMinutesByLane?.core ?? input.staleRunMinutes ?? 12
+    input.staleRunMinutesByLane?.core ?? input.staleRunMinutes ?? 12,
   );
   const staleRunMinutesMaintenance = Math.max(
     1,
-    input.staleRunMinutesByLane?.maintenance ?? Math.max(staleRunMinutesCore, 15)
+    input.staleRunMinutesByLane?.maintenance ??
+      Math.max(staleRunMinutesCore, 15),
   );
   const staleRunMinutesExtended = Math.max(
     1,
-    input.staleRunMinutesByLane?.extended ?? Math.max(staleRunMinutesMaintenance, 25)
+    input.staleRunMinutesByLane?.extended ??
+      Math.max(staleRunMinutesMaintenance, 25),
   );
-  const runProgressGraceMinutes = Math.max(1, input.runProgressGraceMinutes ?? 3);
-  const staleRunRows = await sql`
+  const runProgressGraceMinutes = Math.max(
+    1,
+    input.runProgressGraceMinutes ?? 3,
+  );
+  const staleRunRows = (await sql`
     WITH stale_candidates AS (
       SELECT
         run.id,
@@ -1043,6 +1803,9 @@ export async function cleanupGoogleAdsPartitionOrchestration(input: {
         run.worker_id,
         run.lane,
         COALESCE(run.started_at, run.created_at) AS started_at,
+        partition.status AS partition_status,
+        partition.last_error AS partition_last_error,
+        partition.finished_at AS partition_finished_at,
         COALESCE(checkpoint.progress_heartbeat_at, checkpoint.updated_at) AS progress_updated_at,
         checkpoint.phase AS checkpoint_phase,
         lease.lease_owner AS active_lease_owner,
@@ -1060,6 +1823,8 @@ export async function cleanupGoogleAdsPartitionOrchestration(input: {
             AND partition.status NOT IN ('leased', 'running')
         ) AS partition_state_invalid
       FROM google_ads_sync_runs run
+      LEFT JOIN google_ads_sync_partitions partition
+        ON partition.id = run.partition_id
       LEFT JOIN LATERAL (
         SELECT
           checkpoint.phase,
@@ -1086,10 +1851,48 @@ export async function cleanupGoogleAdsPartitionOrchestration(input: {
     )
     UPDATE google_ads_sync_runs run
     SET
-      status = 'failed',
-      error_class = COALESCE(error_class, 'stale_run'),
-      error_message = COALESCE(error_message, 'stale partition run closed automatically'),
-      finished_at = COALESCE(finished_at, now()),
+      status = CASE
+        WHEN stale_candidates.partition_state_invalid
+          AND stale_candidates.partition_status = 'succeeded'
+          THEN 'succeeded'
+        WHEN stale_candidates.partition_state_invalid
+          AND stale_candidates.partition_status = 'cancelled'
+          THEN 'cancelled'
+        ELSE 'failed'
+      END,
+      error_class = CASE
+        WHEN stale_candidates.partition_state_invalid
+          AND stale_candidates.partition_status IN ('succeeded', 'cancelled')
+          THEN NULL
+        WHEN stale_candidates.partition_state_invalid
+          AND stale_candidates.partition_status = 'dead_letter'
+          THEN COALESCE(error_class, 'dead_letter')
+        WHEN stale_candidates.partition_state_invalid
+          AND stale_candidates.partition_status = 'failed'
+          THEN COALESCE(error_class, 'failed')
+        ELSE COALESCE(error_class, 'stale_run')
+      END,
+      error_message = CASE
+        WHEN stale_candidates.partition_state_invalid
+          AND stale_candidates.partition_status IN ('succeeded', 'cancelled')
+          THEN NULL
+        WHEN stale_candidates.partition_state_invalid
+          AND stale_candidates.partition_status = 'dead_letter'
+          THEN COALESCE(
+            stale_candidates.partition_last_error,
+            error_message,
+            'partition already dead_letter'
+          )
+        WHEN stale_candidates.partition_state_invalid
+          AND stale_candidates.partition_status = 'failed'
+          THEN COALESCE(
+            stale_candidates.partition_last_error,
+            error_message,
+            'partition already failed'
+          )
+        ELSE COALESCE(error_message, 'stale partition run closed automatically')
+      END,
+      finished_at = COALESCE(finished_at, stale_candidates.partition_finished_at, now()),
       duration_ms = COALESCE(
         duration_ms,
         GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (now() - COALESCE(run.started_at, run.created_at))) * 1000))::int
@@ -1108,8 +1911,19 @@ export async function cleanupGoogleAdsPartitionOrchestration(input: {
           ELSE GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (now() - stale_candidates.progress_updated_at)) * 1000))::int
         END,
         'runnerLeaseSeen', COALESCE(stale_candidates.lease_expires_at > now(), false),
-        'callerReason', CASE
-          WHEN stale_candidates.partition_state_invalid THEN 'partition_state_invalid'
+        'closureReason', CASE
+          WHEN stale_candidates.partition_state_invalid
+            AND stale_candidates.partition_status = 'succeeded'
+            THEN 'partition_already_succeeded'
+          WHEN stale_candidates.partition_state_invalid
+            AND stale_candidates.partition_status = 'failed'
+            THEN 'partition_already_failed'
+          WHEN stale_candidates.partition_state_invalid
+            AND stale_candidates.partition_status = 'dead_letter'
+            THEN 'partition_already_dead_letter'
+          WHEN stale_candidates.partition_state_invalid
+            AND stale_candidates.partition_status = 'cancelled'
+            THEN 'partition_already_cancelled'
           ELSE 'lane_stale_threshold_exceeded'
         END
       ),
@@ -1132,9 +1946,12 @@ export async function cleanupGoogleAdsPartitionOrchestration(input: {
           now() - (${String(runProgressGraceMinutes)} || ' minutes')::interval
       )
     RETURNING run.id
-  ` as Array<Record<string, unknown>>;
+  `) as Array<Record<string, unknown>>;
 
   return {
+    candidateCount: candidates.length,
+    closedTerminalRunningRunCount: terminalRunningRunRows.length,
+    closedTerminalRunningCheckpointCount: terminalRunningCheckpointRows.length,
     stalePartitionCount: stalePartitionIds.length,
     aliveSlowCount: dispositionCounts.alive_slow,
     poisonCandidateCount: poisonPartitionIds.length,
@@ -1142,6 +1959,8 @@ export async function cleanupGoogleAdsPartitionOrchestration(input: {
     staleRunCount: staleRunRows.length,
     duplicateLegacyCount,
     staleLegacyCount: staleLegacyRows.length,
+    reclaimedCheckpointCount,
+    poisonedCheckpointCount,
     reclaimReasons: {
       stalledReclaimable: stalledDecisions.map((row) => row.reasonCode),
       poisonCandidate: poisonDecisions.map((row) => row.reasonCode),
@@ -1160,7 +1979,7 @@ export async function getGoogleAdsPartitionDates(input: {
 }) {
   await runMigrations();
   const sql = getDb();
-  const rows = await sql`
+  const rows = (await sql`
     SELECT DISTINCT partition_date
     FROM google_ads_sync_partitions
     WHERE business_id = ${input.businessId}
@@ -1174,10 +1993,12 @@ export async function getGoogleAdsPartitionDates(input: {
         OR status = ANY(${input.statuses ?? []}::text[])
       )
     ORDER BY partition_date DESC
-  ` as Array<Record<string, unknown>>;
+  `) as Array<Record<string, unknown>>;
 
   return rows
-    .map((row) => (row.partition_date ? normalizeDate(row.partition_date) : null))
+    .map((row) =>
+      row.partition_date ? normalizeDate(row.partition_date) : null,
+    )
     .filter((value): value is string => Boolean(value));
 }
 
@@ -1199,7 +2020,7 @@ export async function createGoogleAdsSyncRun(input: GoogleAdsSyncRunRecord) {
     WHERE partition_id = ${input.partitionId}
       AND status = 'running'
   `;
-  const rows = await sql`
+  const rows = (await sql`
     INSERT INTO google_ads_sync_runs (
       partition_id,
       business_id,
@@ -1239,7 +2060,7 @@ export async function createGoogleAdsSyncRun(input: GoogleAdsSyncRunRecord) {
       now()
     )
     RETURNING id
-  ` as Array<{ id: string }>;
+  `) as Array<{ id: string }>;
   return rows[0]?.id ?? null;
 }
 
@@ -1278,7 +2099,25 @@ export async function updateGoogleAdsSyncRun(input: {
   `;
 }
 
-export async function upsertGoogleAdsSyncState(input: GoogleAdsSyncStateRecord) {
+export async function getLatestRunningGoogleAdsSyncRunIdForPartition(input: {
+  partitionId: string;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = (await sql`
+    SELECT id
+    FROM google_ads_sync_runs
+    WHERE partition_id = ${input.partitionId}
+      AND status = 'running'
+    ORDER BY created_at DESC
+    LIMIT 1
+  `) as Array<{ id: string }>;
+  return rows[0]?.id ?? null;
+}
+
+export async function upsertGoogleAdsSyncState(
+  input: GoogleAdsSyncStateRecord,
+) {
   await runMigrations();
   const sql = getDb();
   const existing =
@@ -1342,10 +2181,12 @@ export async function upsertGoogleAdsSyncState(input: GoogleAdsSyncStateRecord) 
   `;
 }
 
-export async function persistGoogleAdsRawSnapshot(input: GoogleAdsRawSnapshotRecord) {
+export async function persistGoogleAdsRawSnapshot(
+  input: GoogleAdsRawSnapshotRecord,
+) {
   await runMigrations();
   const sql = getDb();
-  const rows = await sql`
+  const rows = (await sql`
     INSERT INTO google_ads_raw_snapshots (
       business_id,
       provider_account_id,
@@ -1391,11 +2232,13 @@ export async function persistGoogleAdsRawSnapshot(input: GoogleAdsRawSnapshotRec
       now()
     )
     RETURNING id
-  ` as Array<{ id: string }>;
+  `) as Array<{ id: string }>;
   return rows[0]?.id ?? null;
 }
 
-export async function upsertGoogleAdsSyncCheckpoint(input: GoogleAdsSyncCheckpointRecord) {
+export async function upsertGoogleAdsSyncCheckpoint(
+  input: GoogleAdsSyncCheckpointRecord,
+) {
   await runMigrations();
   const sql = getDb();
   const checkpointHash =
@@ -1408,14 +2251,17 @@ export async function upsertGoogleAdsSyncCheckpoint(input: GoogleAdsSyncCheckpoi
       nextPageToken: input.nextPageToken ?? null,
       providerCursor: input.providerCursor ?? null,
     });
-  const rows = await sql`
+  const rows = (await sql`
     WITH owner_guard AS (
       SELECT id
       FROM google_ads_sync_partitions
       WHERE id = ${input.partitionId}
         AND (
           ${input.leaseOwner ?? null}::text IS NULL
-          OR lease_owner = ${input.leaseOwner ?? null}
+          OR (
+            lease_owner = ${input.leaseOwner ?? null}
+            AND COALESCE(lease_expires_at, now() - interval '1 second') > now()
+          )
         )
     )
     INSERT INTO google_ads_sync_checkpoints (
@@ -1506,7 +2352,7 @@ export async function upsertGoogleAdsSyncCheckpoint(input: GoogleAdsSyncCheckpoi
       updated_at = now()
     WHERE EXISTS (SELECT 1 FROM owner_guard)
     RETURNING id
-  ` as Array<{ id: string }>;
+  `) as Array<{ id: string }>;
   return rows[0]?.id ?? null;
 }
 
@@ -1516,13 +2362,13 @@ export async function getGoogleAdsSyncCheckpoint(input: {
 }) {
   await runMigrations();
   const sql = getDb();
-  const rows = await sql`
+  const rows = (await sql`
     SELECT *
     FROM google_ads_sync_checkpoints
     WHERE partition_id = ${input.partitionId}
       AND checkpoint_scope = ${input.checkpointScope}
     LIMIT 1
-  ` as Array<Record<string, unknown>>;
+  `) as Array<Record<string, unknown>>;
   const row = rows[0];
   if (!row) return null;
   return {
@@ -1557,7 +2403,66 @@ export async function getGoogleAdsSyncCheckpoint(input: {
     leaseExpiresAt: normalizeTimestamp(row.lease_expires_at),
     poisonedAt: normalizeTimestamp(row.poisoned_at),
     poisonReason: row.poison_reason ? String(row.poison_reason) : null,
-    replayReasonCode: row.replay_reason_code ? String(row.replay_reason_code) : null,
+    replayReasonCode: row.replay_reason_code
+      ? String(row.replay_reason_code)
+      : null,
+    replayDetail: row.replay_detail ? String(row.replay_detail) : null,
+    startedAt: normalizeTimestamp(row.started_at),
+    finishedAt: normalizeTimestamp(row.finished_at),
+    createdAt: normalizeTimestamp(row.created_at) ?? undefined,
+    updatedAt: normalizeTimestamp(row.updated_at) ?? undefined,
+  } satisfies GoogleAdsSyncCheckpointRecord;
+}
+
+export async function getLatestGoogleAdsCheckpointForPartition(input: {
+  partitionId: string;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = (await sql`
+    SELECT *
+    FROM google_ads_sync_checkpoints
+    WHERE partition_id = ${input.partitionId}
+    ORDER BY updated_at DESC
+    LIMIT 1
+  `) as Array<Record<string, unknown>>;
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    id: String(row.id),
+    partitionId: String(row.partition_id),
+    businessId: String(row.business_id),
+    providerAccountId: String(row.provider_account_id),
+    checkpointScope: String(row.checkpoint_scope),
+    isPaginated: Boolean(row.is_paginated),
+    phase: String(row.phase) as GoogleAdsSyncCheckpointRecord["phase"],
+    status: String(row.status) as GoogleAdsSyncCheckpointRecord["status"],
+    pageIndex: toNumber(row.page_index),
+    nextPageToken: row.next_page_token ? String(row.next_page_token) : null,
+    providerCursor: row.provider_cursor ? String(row.provider_cursor) : null,
+    rawSnapshotIds: Array.isArray(row.raw_snapshot_ids)
+      ? row.raw_snapshot_ids.map((value) => String(value))
+      : [],
+    rowsFetched: toNumber(row.rows_fetched),
+    rowsWritten: toNumber(row.rows_written),
+    lastSuccessfulEntityKey: row.last_successful_entity_key
+      ? String(row.last_successful_entity_key)
+      : null,
+    lastResponseHeaders:
+      row.last_response_headers && typeof row.last_response_headers === "object"
+        ? (row.last_response_headers as Record<string, unknown>)
+        : {},
+    checkpointHash: row.checkpoint_hash ? String(row.checkpoint_hash) : null,
+    attemptCount: toNumber(row.attempt_count),
+    progressHeartbeatAt: normalizeTimestamp(row.progress_heartbeat_at),
+    retryAfterAt: normalizeTimestamp(row.retry_after_at),
+    leaseOwner: row.lease_owner ? String(row.lease_owner) : null,
+    leaseExpiresAt: normalizeTimestamp(row.lease_expires_at),
+    poisonedAt: normalizeTimestamp(row.poisoned_at),
+    poisonReason: row.poison_reason ? String(row.poison_reason) : null,
+    replayReasonCode: row.replay_reason_code
+      ? String(row.replay_reason_code)
+      : null,
     replayDetail: row.replay_detail ? String(row.replay_detail) : null,
     startedAt: normalizeTimestamp(row.started_at),
     finishedAt: normalizeTimestamp(row.finished_at),
@@ -1572,7 +2477,7 @@ export async function listGoogleAdsRawSnapshotsForPartition(input: {
 }) {
   await runMigrations();
   const sql = getDb();
-  return (sql`
+  return sql`
     SELECT
       id,
       checkpoint_id,
@@ -1588,7 +2493,7 @@ export async function listGoogleAdsRawSnapshotsForPartition(input: {
     WHERE partition_id = ${input.partitionId}
       AND endpoint_name = ${input.endpointName}
     ORDER BY COALESCE(page_index, 0) ASC, fetched_at ASC
-  ` as unknown) as Array<{
+  ` as unknown as Array<{
     id: string;
     checkpoint_id: string | null;
     page_index: number | null;
@@ -1602,7 +2507,9 @@ export async function listGoogleAdsRawSnapshotsForPartition(input: {
   }>;
 }
 
-export function dedupeGoogleAdsWarehouseRows(rows: GoogleAdsWarehouseDailyRow[]) {
+export function dedupeGoogleAdsWarehouseRows(
+  rows: GoogleAdsWarehouseDailyRow[],
+) {
   const dedupedRows: GoogleAdsWarehouseDailyRow[] = [];
   const seenKeys = new Set<string>();
   const duplicateExamples: string[] = [];
@@ -1635,7 +2542,7 @@ export function dedupeGoogleAdsWarehouseRows(rows: GoogleAdsWarehouseDailyRow[])
 
 export async function upsertGoogleAdsDailyRows(
   scope: GoogleAdsWarehouseScope,
-  rows: GoogleAdsWarehouseDailyRow[]
+  rows: GoogleAdsWarehouseDailyRow[],
 ) {
   if (rows.length === 0) return;
   await runMigrations();
@@ -1645,8 +2552,11 @@ export async function upsertGoogleAdsDailyRows(
 
   for (let batchStart = 0; batchStart < rows.length; batchStart += batchSize) {
     const batch = rows.slice(batchStart, batchStart + batchSize);
-    const { rows: dedupedBatch, duplicateCount, duplicateExamples } =
-      dedupeGoogleAdsWarehouseRows(batch);
+    const {
+      rows: dedupedBatch,
+      duplicateCount,
+      duplicateExamples,
+    } = dedupeGoogleAdsWarehouseRows(batch);
 
     if (duplicateCount > 0) {
       console.warn("[google-ads-warehouse] deduped-conflicting-batch-rows", {
@@ -1688,7 +2598,7 @@ export async function upsertGoogleAdsDailyRows(
         row.roas,
         row.conversionRate,
         row.interactionRate,
-        row.sourceSnapshotId
+        row.sourceSnapshotId,
       );
       return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15}::jsonb,$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},now())`;
     });
@@ -1750,7 +2660,7 @@ export async function upsertGoogleAdsDailyRows(
           source_snapshot_id = EXCLUDED.source_snapshot_id,
           updated_at = now()
       `,
-      values
+      values,
     );
   }
 }
@@ -1766,7 +2676,7 @@ export async function readGoogleAdsDailyRange(input: {
   await runMigrations();
   const sql = input.timeoutMs ? getDbWithTimeout(input.timeoutMs) : getDb();
   const table = tableNameForScope(input.scope);
-  const rows = await sql.query(
+  const rows = (await sql.query(
     `
       SELECT
         business_id,
@@ -1810,8 +2720,8 @@ export async function readGoogleAdsDailyRange(input: {
       normalizeDate(input.startDate),
       normalizeDate(input.endDate),
       input.providerAccountIds?.length ? input.providerAccountIds : null,
-    ]
-  ) as Array<Record<string, unknown>>;
+    ],
+  )) as Array<Record<string, unknown>>;
 
   return rows.map((row) => ({
     businessId: String(row.business_id),
@@ -1838,9 +2748,13 @@ export async function readGoogleAdsDailyRange(input: {
     cpc: row.cpc == null ? null : toNumber(row.cpc),
     cpa: row.cpa == null ? null : toNumber(row.cpa),
     roas: toNumber(row.roas),
-    conversionRate: row.conversion_rate == null ? null : toNumber(row.conversion_rate),
-    interactionRate: row.interaction_rate == null ? null : toNumber(row.interaction_rate),
-    sourceSnapshotId: row.source_snapshot_id ? String(row.source_snapshot_id) : null,
+    conversionRate:
+      row.conversion_rate == null ? null : toNumber(row.conversion_rate),
+    interactionRate:
+      row.interaction_rate == null ? null : toNumber(row.interaction_rate),
+    sourceSnapshotId: row.source_snapshot_id
+      ? String(row.source_snapshot_id)
+      : null,
     createdAt: normalizeTimestamp(row.created_at) ?? undefined,
     updatedAt: normalizeTimestamp(row.updated_at) ?? undefined,
   })) as GoogleAdsWarehouseDailyRow[];
@@ -1858,7 +2772,7 @@ export async function readGoogleAdsAggregatedRange(input: {
   const sql = input.timeoutMs ? getDbWithTimeout(input.timeoutMs) : getDb();
   const table = tableNameForScope(input.scope);
   const payloadProjection = payloadProjectionSqlForScope(input.scope);
-  const aggregateRows = await sql.query(
+  const aggregateRows = (await sql.query(
     `
       SELECT
         entity_key,
@@ -1881,10 +2795,10 @@ export async function readGoogleAdsAggregatedRange(input: {
       normalizeDate(input.startDate),
       normalizeDate(input.endDate),
       input.providerAccountIds?.length ? input.providerAccountIds : null,
-    ]
-  ) as Array<Record<string, unknown>>;
+    ],
+  )) as Array<Record<string, unknown>>;
 
-  const latestRows = await sql.query(
+  const latestRows = (await sql.query(
     `
       SELECT DISTINCT ON (entity_key)
         entity_key,
@@ -1910,11 +2824,11 @@ export async function readGoogleAdsAggregatedRange(input: {
       normalizeDate(input.startDate),
       normalizeDate(input.endDate),
       input.providerAccountIds?.length ? input.providerAccountIds : null,
-    ]
-  ) as Array<Record<string, unknown>>;
+    ],
+  )) as Array<Record<string, unknown>>;
 
   const latestByEntityKey = new Map(
-    latestRows.map((row) => [String(row.entity_key), row] as const)
+    latestRows.map((row) => [String(row.entity_key), row] as const),
   );
 
   return aggregateRows.map((row) => {
@@ -1924,9 +2838,10 @@ export async function readGoogleAdsAggregatedRange(input: {
     const conversions = toNumber(row.conversions);
     const impressions = toNumber(row.impressions);
     const clicks = toNumber(row.clicks);
-    const payload = latest.payload_json && typeof latest.payload_json === "object"
-      ? (latest.payload_json as Record<string, unknown>)
-      : {};
+    const payload =
+      latest.payload_json && typeof latest.payload_json === "object"
+        ? (latest.payload_json as Record<string, unknown>)
+        : {};
     return {
       ...payload,
       id: String(payload.id ?? row.entity_key),
@@ -1939,7 +2854,9 @@ export async function readGoogleAdsAggregatedRange(input: {
       adGroupName: latest.ad_group_name ? String(latest.ad_group_name) : null,
       status: latest.status ? String(latest.status) : null,
       channel: latest.channel ? String(latest.channel) : null,
-      classification: latest.classification ? String(latest.classification) : null,
+      classification: latest.classification
+        ? String(latest.classification)
+        : null,
       spend,
       revenue,
       conversions,
@@ -1947,9 +2864,11 @@ export async function readGoogleAdsAggregatedRange(input: {
       clicks,
       roas: spend > 0 ? Number((revenue / spend).toFixed(2)) : 0,
       cpa: conversions > 0 ? Number((spend / conversions).toFixed(2)) : 0,
-      ctr: impressions > 0 ? Number(((clicks / impressions) * 100).toFixed(2)) : 0,
+      ctr:
+        impressions > 0 ? Number(((clicks / impressions) * 100).toFixed(2)) : 0,
       cpc: clicks > 0 ? Number((spend / clicks).toFixed(2)) : null,
-      conversionRate: clicks > 0 ? Number(((conversions / clicks) * 100).toFixed(2)) : null,
+      conversionRate:
+        clicks > 0 ? Number(((conversions / clicks) * 100).toFixed(2)) : null,
       updatedAt: normalizeTimestamp(row.updated_at),
     } as Record<string, unknown>;
   });
@@ -2133,10 +3052,11 @@ export async function getGoogleAdsDailyCoverage(input: {
   const normalizedStartDate = normalizeDate(input.startDate);
   const normalizedEndDate = normalizeDate(input.endDate);
   const providerAccountId = input.providerAccountId ?? null;
-  const [rows, partitionRows, metadataRows, partitionMetadataRows] = await Promise.all([
-    (providerAccountId == null
-      ? sql.query(
-          `
+  const [rows, partitionRows, metadataRows, partitionMetadataRows] =
+    await Promise.all([
+      (providerAccountId == null
+        ? sql.query(
+            `
             SELECT
               COUNT(DISTINCT date) AS completed_days,
               COALESCE(MAX(date), NULL) AS ready_through_date
@@ -2145,10 +3065,10 @@ export async function getGoogleAdsDailyCoverage(input: {
               AND date >= $2
               AND date <= $3
           `,
-          [input.businessId, normalizedStartDate, normalizedEndDate]
-        )
-      : sql.query(
-          `
+            [input.businessId, normalizedStartDate, normalizedEndDate],
+          )
+        : sql.query(
+            `
             SELECT
               COUNT(DISTINCT date) AS completed_days,
               COALESCE(MAX(date), NULL) AS ready_through_date
@@ -2158,11 +3078,16 @@ export async function getGoogleAdsDailyCoverage(input: {
               AND date >= $3
               AND date <= $4
           `,
-          [input.businessId, providerAccountId, normalizedStartDate, normalizedEndDate]
-        )) as Promise<Array<Record<string, unknown>>>,
-    (providerAccountId == null
-      ? sql.query(
-          `
+            [
+              input.businessId,
+              providerAccountId,
+              normalizedStartDate,
+              normalizedEndDate,
+            ],
+          )) as Promise<Array<Record<string, unknown>>>,
+      (providerAccountId == null
+        ? sql.query(
+            `
             SELECT
               COUNT(DISTINCT partition_date) AS completed_days,
               COALESCE(MAX(partition_date), NULL) AS ready_through_date
@@ -2173,10 +3098,15 @@ export async function getGoogleAdsDailyCoverage(input: {
               AND partition_date <= $4
               AND status = 'succeeded'
           `,
-          [input.businessId, input.scope, normalizedStartDate, normalizedEndDate]
-        )
-      : sql.query(
-          `
+            [
+              input.businessId,
+              input.scope,
+              normalizedStartDate,
+              normalizedEndDate,
+            ],
+          )
+        : sql.query(
+            `
             SELECT
               COUNT(DISTINCT partition_date) AS completed_days,
               COALESCE(MAX(partition_date), NULL) AS ready_through_date
@@ -2188,18 +3118,18 @@ export async function getGoogleAdsDailyCoverage(input: {
               AND partition_date <= $5
               AND status = 'succeeded'
           `,
-          [
-            input.businessId,
-            input.scope,
-            providerAccountId,
-            normalizedStartDate,
-            normalizedEndDate,
-          ]
-        )) as Promise<Array<Record<string, unknown>>>,
-    input.includeMetadata
-      ? ((providerAccountId == null
-          ? sql.query(
-              `
+            [
+              input.businessId,
+              input.scope,
+              providerAccountId,
+              normalizedStartDate,
+              normalizedEndDate,
+            ],
+          )) as Promise<Array<Record<string, unknown>>>,
+      input.includeMetadata
+        ? ((providerAccountId == null
+            ? sql.query(
+                `
                 SELECT
                   COUNT(*) AS total_rows
                 FROM ${table}
@@ -2207,10 +3137,10 @@ export async function getGoogleAdsDailyCoverage(input: {
                   AND date >= $2
                   AND date <= $3
               `,
-              [input.businessId, normalizedStartDate, normalizedEndDate]
-            )
-          : sql.query(
-              `
+                [input.businessId, normalizedStartDate, normalizedEndDate],
+              )
+            : sql.query(
+                `
                 SELECT
                   COUNT(*) AS total_rows
                 FROM ${table}
@@ -2219,13 +3149,18 @@ export async function getGoogleAdsDailyCoverage(input: {
                   AND date >= $3
                   AND date <= $4
               `,
-              [input.businessId, providerAccountId, normalizedStartDate, normalizedEndDate]
-            )) as Promise<Array<Record<string, unknown>>>)
-      : Promise.resolve([] as Array<Record<string, unknown>>),
-    input.includeMetadata
-      ? ((providerAccountId == null
-          ? sql.query(
-              `
+                [
+                  input.businessId,
+                  providerAccountId,
+                  normalizedStartDate,
+                  normalizedEndDate,
+                ],
+              )) as Promise<Array<Record<string, unknown>>>)
+        : Promise.resolve([] as Array<Record<string, unknown>>),
+      input.includeMetadata
+        ? ((providerAccountId == null
+            ? sql.query(
+                `
                 SELECT
                   COALESCE(MAX(updated_at), NULL) AS latest_updated_at
                 FROM google_ads_sync_partitions
@@ -2235,10 +3170,15 @@ export async function getGoogleAdsDailyCoverage(input: {
                   AND partition_date <= $4
                   AND status = 'succeeded'
               `,
-              [input.businessId, input.scope, normalizedStartDate, normalizedEndDate]
-            )
-          : sql.query(
-              `
+                [
+                  input.businessId,
+                  input.scope,
+                  normalizedStartDate,
+                  normalizedEndDate,
+                ],
+              )
+            : sql.query(
+                `
                 SELECT
                   COALESCE(MAX(updated_at), NULL) AS latest_updated_at
                 FROM google_ads_sync_partitions
@@ -2249,32 +3189,34 @@ export async function getGoogleAdsDailyCoverage(input: {
                   AND partition_date <= $5
                   AND status = 'succeeded'
               `,
-              [
-                input.businessId,
-                input.scope,
-                providerAccountId,
-                normalizedStartDate,
-                normalizedEndDate,
-              ]
-            )) as Promise<Array<Record<string, unknown>>>)
-      : Promise.resolve([] as Array<Record<string, unknown>>),
-  ]);
+                [
+                  input.businessId,
+                  input.scope,
+                  providerAccountId,
+                  normalizedStartDate,
+                  normalizedEndDate,
+                ],
+              )) as Promise<Array<Record<string, unknown>>>)
+        : Promise.resolve([] as Array<Record<string, unknown>>),
+    ]);
   const row = rows[0] ?? {};
   const partitionRow = partitionRows[0] ?? {};
   const metadataRow = metadataRows[0] ?? {};
   const partitionMetadataRow = partitionMetadataRows[0] ?? {};
   return {
-    completed_days: Math.max(toNumber(row.completed_days), toNumber(partitionRow.completed_days)),
+    completed_days: Math.max(
+      toNumber(row.completed_days),
+      toNumber(partitionRow.completed_days),
+    ),
     ready_through_date:
       partitionRow.ready_through_date || row.ready_through_date
-        ? normalizeDate(partitionRow.ready_through_date ?? row.ready_through_date)
-        : null,
-    latest_updated_at:
-      partitionMetadataRow.latest_updated_at
-        ? normalizeTimestamp(
-            partitionMetadataRow.latest_updated_at
+        ? normalizeDate(
+            partitionRow.ready_through_date ?? row.ready_through_date,
           )
         : null,
+    latest_updated_at: partitionMetadataRow.latest_updated_at
+      ? normalizeTimestamp(partitionMetadataRow.latest_updated_at)
+      : null,
     total_rows: toNumber(metadataRow.total_rows),
   };
 }
@@ -2304,7 +3246,7 @@ export async function getGoogleAdsCoveredDates(input: {
               AND date <= $3
             ORDER BY date DESC
           `,
-          [input.businessId, normalizedStartDate, normalizedEndDate]
+          [input.businessId, normalizedStartDate, normalizedEndDate],
         )
       : sql.query(
           `
@@ -2316,7 +3258,12 @@ export async function getGoogleAdsCoveredDates(input: {
               AND date <= $4
             ORDER BY date DESC
           `,
-          [input.businessId, providerAccountId, normalizedStartDate, normalizedEndDate]
+          [
+            input.businessId,
+            providerAccountId,
+            normalizedStartDate,
+            normalizedEndDate,
+          ],
         )) as Promise<Array<Record<string, unknown>>>,
     (providerAccountId == null
       ? sql.query(
@@ -2329,7 +3276,12 @@ export async function getGoogleAdsCoveredDates(input: {
               AND partition_date <= $4
               AND status = 'succeeded'
           `,
-          [input.businessId, input.scope, normalizedStartDate, normalizedEndDate]
+          [
+            input.businessId,
+            input.scope,
+            normalizedStartDate,
+            normalizedEndDate,
+          ],
         )
       : sql.query(
           `
@@ -2348,7 +3300,7 @@ export async function getGoogleAdsCoveredDates(input: {
             providerAccountId,
             normalizedStartDate,
             normalizedEndDate,
-          ]
+          ],
         )) as Promise<Array<Record<string, unknown>>>,
   ]);
 
@@ -2360,7 +3312,7 @@ export async function getGoogleAdsCoveredDates(input: {
 export async function getGoogleAdsQueueHealth(input: { businessId: string }) {
   await runMigrations();
   const sql = getDb();
-  const rows = await sql`
+  const rows = (await sql`
     SELECT
       COUNT(*) FILTER (WHERE status = 'queued') AS queue_depth,
       COUNT(*) FILTER (WHERE status IN ('leased', 'running')) AS leased_partitions,
@@ -2397,7 +3349,7 @@ export async function getGoogleAdsQueueHealth(input: { businessId: string }) {
       MAX(updated_at) FILTER (WHERE lane = 'maintenance') AS latest_maintenance_activity_at
     FROM google_ads_sync_partitions
     WHERE business_id = ${input.businessId}
-  ` as Array<Record<string, unknown>>;
+  `) as Array<Record<string, unknown>>;
   const row = rows[0] ?? {};
   return {
     queueDepth: toNumber(row.queue_depth),
@@ -2407,9 +3359,13 @@ export async function getGoogleAdsQueueHealth(input: { businessId: string }) {
     extendedQueueDepth: toNumber(row.extended_queue_depth),
     extendedLeasedPartitions: toNumber(row.extended_leased_partitions),
     extendedRecentQueueDepth: toNumber(row.extended_recent_queue_depth),
-    extendedRecentLeasedPartitions: toNumber(row.extended_recent_leased_partitions),
+    extendedRecentLeasedPartitions: toNumber(
+      row.extended_recent_leased_partitions,
+    ),
     extendedHistoricalQueueDepth: toNumber(row.extended_historical_queue_depth),
-    extendedHistoricalLeasedPartitions: toNumber(row.extended_historical_leased_partitions),
+    extendedHistoricalLeasedPartitions: toNumber(
+      row.extended_historical_leased_partitions,
+    ),
     maintenanceQueueDepth: toNumber(row.maintenance_queue_depth),
     maintenanceLeasedPartitions: toNumber(row.maintenance_leased_partitions),
     deadLetterPartitions: toNumber(row.dead_letter_partitions),
@@ -2417,8 +3373,12 @@ export async function getGoogleAdsQueueHealth(input: { businessId: string }) {
       ? normalizeDate(row.oldest_queued_partition)
       : null,
     latestCoreActivityAt: normalizeTimestamp(row.latest_core_activity_at),
-    latestExtendedActivityAt: normalizeTimestamp(row.latest_extended_activity_at),
-    latestMaintenanceActivityAt: normalizeTimestamp(row.latest_maintenance_activity_at),
+    latestExtendedActivityAt: normalizeTimestamp(
+      row.latest_extended_activity_at,
+    ),
+    latestMaintenanceActivityAt: normalizeTimestamp(
+      row.latest_maintenance_activity_at,
+    ),
   };
 }
 
@@ -2429,7 +3389,7 @@ export async function getGoogleAdsAdvisorQueueHealth(input: {
 }) {
   await runMigrations();
   const sql = getDb();
-  const rows = await sql`
+  const rows = (await sql`
     SELECT
       COUNT(*) FILTER (
         WHERE scope IN ('campaign_daily', 'search_term_daily', 'product_daily')
@@ -2456,20 +3416,20 @@ export async function getGoogleAdsAdvisorQueueHealth(input: {
       ) AS historical_dead_letter_partitions
     FROM google_ads_sync_partitions
     WHERE business_id = ${input.businessId}
-  ` as Array<Record<string, unknown>>;
+  `) as Array<Record<string, unknown>>;
   const row = rows[0] ?? {};
   return {
     advisorRelevantDeadLetterPartitions: toNumber(
-      row.advisor_relevant_dead_letter_partitions
+      row.advisor_relevant_dead_letter_partitions,
     ),
     advisorRelevantFailedPartitions: toNumber(
-      row.advisor_relevant_failed_partitions
+      row.advisor_relevant_failed_partitions,
     ),
     advisorRelevantLeasedPartitions: toNumber(
-      row.advisor_relevant_leased_partitions
+      row.advisor_relevant_leased_partitions,
     ),
     historicalDeadLetterPartitions: toNumber(
-      row.historical_dead_letter_partitions
+      row.historical_dead_letter_partitions,
     ),
   };
 }
@@ -2482,7 +3442,7 @@ export async function getGoogleAdsPartitionHealth(input: {
 }) {
   await runMigrations();
   const sql = getDb();
-  const rows = await sql`
+  const rows = (await sql`
     SELECT
       COUNT(*) FILTER (WHERE status = 'queued') AS queue_depth,
       COUNT(*) FILTER (WHERE status IN ('leased', 'running')) AS leased_partitions,
@@ -2494,7 +3454,7 @@ export async function getGoogleAdsPartitionHealth(input: {
       AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
       AND (${input.scope ?? null}::text IS NULL OR scope = ${input.scope ?? null})
       AND (${input.lane ?? null}::text IS NULL OR lane = ${input.lane ?? null})
-  ` as Array<Record<string, unknown>>;
+  `) as Array<Record<string, unknown>>;
   const row = rows[0] ?? {};
   return {
     queueDepth: toNumber(row.queue_depth),
@@ -2513,7 +3473,7 @@ export async function getGoogleAdsCheckpointHealth(input: {
 }) {
   await runMigrations();
   const sql = getDb();
-  const rows = await sql`
+  const rows = (await sql`
     SELECT
       checkpoint_scope,
       is_paginated,
@@ -2529,7 +3489,7 @@ export async function getGoogleAdsCheckpointHealth(input: {
       AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
     ORDER BY updated_at DESC
     LIMIT 1
-  ` as Array<Record<string, unknown>>;
+  `) as Array<Record<string, unknown>>;
   const row = rows[0];
   if (!row) {
     return {
@@ -2545,7 +3505,9 @@ export async function getGoogleAdsCheckpointHealth(input: {
   }
   const updatedAt = normalizeTimestamp(row.progress_updated_at);
   return {
-    latestCheckpointScope: row.checkpoint_scope ? String(row.checkpoint_scope) : null,
+    latestCheckpointScope: row.checkpoint_scope
+      ? String(row.checkpoint_scope)
+      : null,
     latestCheckpointPhase: row.phase ? String(row.phase) : null,
     latestCheckpointStatus: row.status ? String(row.status) : null,
     latestCheckpointUpdatedAt: updatedAt,
@@ -2587,7 +3549,7 @@ export async function replayGoogleAdsDeadLetterPartitions(input: {
 }): Promise<GoogleAdsRecoveryActionResult> {
   await runMigrations();
   const sql = getDb();
-  const matchedRows = await sql`
+  const matchedRows = (await sql`
     SELECT id
     FROM google_ads_sync_partitions
     WHERE business_id = ${input.businessId}
@@ -2595,8 +3557,8 @@ export async function replayGoogleAdsDeadLetterPartitions(input: {
       AND (${input.scope ?? null}::text IS NULL OR scope = ${input.scope ?? null})
       AND (${input.startDate ?? null}::date IS NULL OR partition_date >= ${input.startDate ?? null}::date)
       AND (${input.endDate ?? null}::date IS NULL OR partition_date <= ${input.endDate ?? null}::date)
-  ` as Array<{ id: string }>;
-  const skippedActiveLeaseRows = await sql`
+  `) as Array<{ id: string }>;
+  const skippedActiveLeaseRows = (await sql`
     SELECT id
     FROM google_ads_sync_partitions
     WHERE business_id = ${input.businessId}
@@ -2605,8 +3567,8 @@ export async function replayGoogleAdsDeadLetterPartitions(input: {
       AND (${input.scope ?? null}::text IS NULL OR scope = ${input.scope ?? null})
       AND (${input.startDate ?? null}::date IS NULL OR partition_date >= ${input.startDate ?? null}::date)
       AND (${input.endDate ?? null}::date IS NULL OR partition_date <= ${input.endDate ?? null}::date)
-  ` as Array<{ id: string }>;
-  const rows = await sql`
+  `) as Array<{ id: string }>;
+  const rows = (await sql`
     UPDATE google_ads_sync_partitions
     SET
       status = 'queued',
@@ -2622,7 +3584,7 @@ export async function replayGoogleAdsDeadLetterPartitions(input: {
       AND (${input.startDate ?? null}::date IS NULL OR partition_date >= ${input.startDate ?? null}::date)
       AND (${input.endDate ?? null}::date IS NULL OR partition_date <= ${input.endDate ?? null}::date)
     RETURNING id, lane, scope, partition_date
-  ` as Array<Record<string, unknown>>;
+  `) as Array<Record<string, unknown>>;
   const partitions = rows.map((row) => ({
     id: String(row.id),
     lane: String(row.lane),
@@ -2658,7 +3620,7 @@ export async function releaseGoogleAdsPoisonedPartitions(input: {
 }): Promise<GoogleAdsRecoveryActionResult> {
   await runMigrations();
   const sql = getDb();
-  const matchedRows = await sql`
+  const matchedRows = (await sql`
     SELECT partition.id
     FROM google_ads_sync_partitions partition
     JOIN google_ads_sync_checkpoints checkpoint ON checkpoint.partition_id = partition.id
@@ -2666,8 +3628,8 @@ export async function releaseGoogleAdsPoisonedPartitions(input: {
       AND partition.status = 'dead_letter'
       AND checkpoint.poisoned_at IS NOT NULL
       AND (${input.scope ?? null}::text IS NULL OR partition.scope = ${input.scope ?? null})
-  ` as Array<{ id: string }>;
-  const skippedActiveLeaseRows = await sql`
+  `) as Array<{ id: string }>;
+  const skippedActiveLeaseRows = (await sql`
     SELECT partition.id
     FROM google_ads_sync_partitions partition
     JOIN google_ads_sync_checkpoints checkpoint ON checkpoint.partition_id = partition.id
@@ -2676,8 +3638,8 @@ export async function releaseGoogleAdsPoisonedPartitions(input: {
       AND checkpoint.poisoned_at IS NOT NULL
       AND COALESCE(partition.lease_expires_at, now() - interval '1 second') > now()
       AND (${input.scope ?? null}::text IS NULL OR partition.scope = ${input.scope ?? null})
-  ` as Array<{ id: string }>;
-  const partitions = await sql`
+  `) as Array<{ id: string }>;
+  const partitions = (await sql`
     WITH released_checkpoints AS (
       UPDATE google_ads_sync_checkpoints checkpoint
       SET
@@ -2709,7 +3671,7 @@ export async function releaseGoogleAdsPoisonedPartitions(input: {
       updated_at = now()
     WHERE partition.id IN (SELECT partition_id FROM released_checkpoints)
     RETURNING partition.id, partition.lane, partition.scope, partition.partition_date
-  ` as Array<Record<string, unknown>>;
+  `) as Array<Record<string, unknown>>;
 
   const changedPartitions = partitions.map((row) => ({
     id: String(row.id),
@@ -2723,7 +3685,8 @@ export async function releaseGoogleAdsPoisonedPartitions(input: {
       businessId: input.businessId,
       partitionIds: skippedActiveLeaseRows.map((row) => row.id),
       eventType: "skipped_active_lease",
-      detail: "Quarantine release skipped because the partition still has an active lease.",
+      detail:
+        "Quarantine release skipped because the partition still has an active lease.",
     }).catch(() => null);
   }
   return {
@@ -2748,7 +3711,7 @@ export async function forceReplayGoogleAdsPoisonedPartitions(input: {
 }): Promise<GoogleAdsRecoveryActionResult> {
   await runMigrations();
   const sql = getDb();
-  const matchedRows = await sql`
+  const matchedRows = (await sql`
     SELECT partition.id
     FROM google_ads_sync_partitions partition
     JOIN google_ads_sync_checkpoints checkpoint ON checkpoint.partition_id = partition.id
@@ -2758,8 +3721,8 @@ export async function forceReplayGoogleAdsPoisonedPartitions(input: {
       AND (${input.scope ?? null}::text IS NULL OR partition.scope = ${input.scope ?? null})
       AND (${input.startDate ?? null}::date IS NULL OR partition.partition_date >= ${input.startDate ?? null}::date)
       AND (${input.endDate ?? null}::date IS NULL OR partition.partition_date <= ${input.endDate ?? null}::date)
-  ` as Array<{ id: string }>;
-  const skippedActiveLeaseRows = await sql`
+  `) as Array<{ id: string }>;
+  const skippedActiveLeaseRows = (await sql`
     SELECT partition.id
     FROM google_ads_sync_partitions partition
     JOIN google_ads_sync_checkpoints checkpoint ON checkpoint.partition_id = partition.id
@@ -2770,8 +3733,8 @@ export async function forceReplayGoogleAdsPoisonedPartitions(input: {
       AND (${input.scope ?? null}::text IS NULL OR partition.scope = ${input.scope ?? null})
       AND (${input.startDate ?? null}::date IS NULL OR partition.partition_date >= ${input.startDate ?? null}::date)
       AND (${input.endDate ?? null}::date IS NULL OR partition.partition_date <= ${input.endDate ?? null}::date)
-  ` as Array<{ id: string }>;
-  const partitions = await sql`
+  `) as Array<{ id: string }>;
+  const partitions = (await sql`
     WITH released_checkpoints AS (
       UPDATE google_ads_sync_checkpoints checkpoint
       SET
@@ -2805,7 +3768,7 @@ export async function forceReplayGoogleAdsPoisonedPartitions(input: {
       updated_at = now()
     WHERE partition.id IN (SELECT partition_id FROM released_checkpoints)
     RETURNING partition.id, partition.lane, partition.scope, partition.partition_date
-  ` as Array<Record<string, unknown>>;
+  `) as Array<Record<string, unknown>>;
 
   const changedPartitions = partitions.map((row) => ({
     id: String(row.id),
@@ -2819,7 +3782,8 @@ export async function forceReplayGoogleAdsPoisonedPartitions(input: {
       businessId: input.businessId,
       partitionIds: skippedActiveLeaseRows.map((row) => row.id),
       eventType: "skipped_active_lease",
-      detail: "Manual replay skipped because the partition still has an active lease.",
+      detail:
+        "Manual replay skipped because the partition still has an active lease.",
     }).catch(() => null);
   }
   return {
@@ -2843,7 +3807,7 @@ export async function getGoogleAdsSyncState(input: {
 }) {
   await runMigrations();
   const sql = getDb();
-  const rows = await sql`
+  const rows = (await sql`
     SELECT
       business_id,
       provider_account_id,
@@ -2864,7 +3828,7 @@ export async function getGoogleAdsSyncState(input: {
       AND scope = ${input.scope}
       AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
     ORDER BY updated_at DESC
-  ` as Array<Record<string, unknown>>;
+  `) as Array<Record<string, unknown>>;
   return rows.map((row) => ({
     businessId: String(row.business_id),
     providerAccountId: String(row.provider_account_id),
@@ -2873,11 +3837,15 @@ export async function getGoogleAdsSyncState(input: {
     historicalTargetEnd: normalizeDate(row.historical_target_end),
     effectiveTargetStart: normalizeDate(row.effective_target_start),
     effectiveTargetEnd: normalizeDate(row.effective_target_end),
-    readyThroughDate: row.ready_through_date ? normalizeDate(row.ready_through_date) : null,
+    readyThroughDate: row.ready_through_date
+      ? normalizeDate(row.ready_through_date)
+      : null,
     lastSuccessfulPartitionDate: row.last_successful_partition_date
       ? normalizeDate(row.last_successful_partition_date)
       : null,
-    latestBackgroundActivityAt: normalizeTimestamp(row.latest_background_activity_at),
+    latestBackgroundActivityAt: normalizeTimestamp(
+      row.latest_background_activity_at,
+    ),
     latestSuccessfulSyncAt: normalizeTimestamp(row.latest_successful_sync_at),
     completedDays: toNumber(row.completed_days),
     deadLetterCount: toNumber(row.dead_letter_count),
@@ -2975,7 +3943,7 @@ export async function cleanupGoogleAdsObsoleteSyncJobs(input: {
   // Legacy-only: retained for cleanup/debug visibility. Queue/status truth must not depend on this table.
   await runMigrations();
   const sql = getDb();
-  const rows = await sql`
+  const rows = (await sql`
     WITH cancelled_runtime AS (
       UPDATE google_ads_sync_jobs
       SET
@@ -3092,7 +4060,7 @@ export async function cleanupGoogleAdsObsoleteSyncJobs(input: {
       (SELECT COUNT(*) FROM failed_stale_priority) AS failed_stale_priority_count,
       (SELECT COUNT(*) FROM failed_stale_background) AS failed_stale_background_count,
       (SELECT COUNT(*) FROM deduped_running) AS deduped_running_count
-  ` as Array<{
+  `) as Array<{
     cancelled_runtime_count?: string | number | null;
     cancelled_unsupported_priority_count?: string | number | null;
     cancelled_unsupported_background_initial_count?: string | number | null;
@@ -3105,16 +4073,20 @@ export async function cleanupGoogleAdsObsoleteSyncJobs(input: {
   return {
     cancelledRuntimeCount: toNumber(rows[0]?.cancelled_runtime_count ?? 0),
     cancelledUnsupportedPriorityCount: toNumber(
-      rows[0]?.cancelled_unsupported_priority_count ?? 0
+      rows[0]?.cancelled_unsupported_priority_count ?? 0,
     ),
     cancelledUnsupportedBackgroundInitialCount: toNumber(
-      rows[0]?.cancelled_unsupported_background_initial_count ?? 0
+      rows[0]?.cancelled_unsupported_background_initial_count ?? 0,
     ),
     cancelledPriorityDuringHistoricalCount: toNumber(
-      rows[0]?.cancelled_priority_during_historical_count ?? 0
+      rows[0]?.cancelled_priority_during_historical_count ?? 0,
     ),
-    failedStalePriorityCount: toNumber(rows[0]?.failed_stale_priority_count ?? 0),
-    failedStaleBackgroundCount: toNumber(rows[0]?.failed_stale_background_count ?? 0),
+    failedStalePriorityCount: toNumber(
+      rows[0]?.failed_stale_priority_count ?? 0,
+    ),
+    failedStaleBackgroundCount: toNumber(
+      rows[0]?.failed_stale_background_count ?? 0,
+    ),
     dedupedRunningCount: toNumber(rows[0]?.deduped_running_count ?? 0),
   };
 }
@@ -3127,7 +4099,7 @@ export async function compactGoogleAdsExtendedBacklog(input: {
   await runMigrations();
   const sql = getDb();
   const keepLatestPerScope = Math.max(0, input.keepLatestPerScope ?? 0);
-  const rows = await sql`
+  const rows = (await sql`
     WITH ranked AS (
       SELECT
         id,
@@ -3157,7 +4129,7 @@ export async function compactGoogleAdsExtendedBacklog(input: {
     )
     SELECT COUNT(*)::int AS compacted_count
     FROM compacted
-  ` as Array<{ compacted_count?: number | string | null }>;
+  `) as Array<{ compacted_count?: number | string | null }>;
 
   return {
     compactedCount: toNumber(rows[0]?.compacted_count ?? 0),
@@ -3174,7 +4146,7 @@ export async function getGoogleAdsBlockedSyncDates(input: {
   // Legacy-only helper for older sync job semantics.
   await runMigrations();
   const sql = getDb();
-  const rows = await sql`
+  const rows = (await sql`
     SELECT DISTINCT start_date
     FROM google_ads_sync_jobs
     WHERE business_id = ${input.businessId}
@@ -3186,7 +4158,7 @@ export async function getGoogleAdsBlockedSyncDates(input: {
         (status = 'failed' AND updated_at > now() - (${input.failedCooldownMinutes ?? 10} || ' minutes')::interval)
       )
     ORDER BY start_date DESC
-  ` as Array<{ start_date?: string | null }>;
+  `) as Array<{ start_date?: string | null }>;
 
   return rows
     .map((row) => (row.start_date ? String(row.start_date).slice(0, 10) : null))
@@ -3202,7 +4174,7 @@ export async function hasBlockingGoogleAdsSyncJob(input: {
   // Legacy-only helper for older manual/debug sync entrypoints.
   await runMigrations();
   const sql = getDb();
-  const rows = await sql`
+  const rows = (await sql`
     SELECT id
     FROM google_ads_sync_jobs
     WHERE business_id = ${input.businessId}
@@ -3212,7 +4184,7 @@ export async function hasBlockingGoogleAdsSyncJob(input: {
         OR trigger_source <> ALL(${input.excludeTriggerSources ?? []}::text[]))
       AND started_at > now() - (${input.lookbackMinutes ?? 90} || ' minutes')::interval
     LIMIT 1
-  ` as Array<{ id: string }>;
+  `) as Array<{ id: string }>;
   return rows.length > 0;
 }
 

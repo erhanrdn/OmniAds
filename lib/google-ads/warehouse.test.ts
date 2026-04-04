@@ -3,7 +3,7 @@ import { dedupeGoogleAdsWarehouseRows } from "@/lib/google-ads/warehouse";
 import type { GoogleAdsWarehouseDailyRow } from "@/lib/google-ads/warehouse-types";
 
 function buildRow(
-  overrides: Partial<GoogleAdsWarehouseDailyRow> = {}
+  overrides: Partial<GoogleAdsWarehouseDailyRow> = {},
 ): GoogleAdsWarehouseDailyRow {
   return {
     businessId: "biz_1",
@@ -53,15 +53,15 @@ vi.mock("@/lib/sync/worker-health", () => ({
 const db = await import("@/lib/db");
 const workerHealth = await import("@/lib/sync/worker-health");
 const {
+  backfillGoogleAdsRunningCheckpointsForTerminalPartition,
+  backfillGoogleAdsRunningRunsForTerminalPartition,
   cleanupGoogleAdsPartitionOrchestration,
-  completeGoogleAdsPartition,
+  completeGoogleAdsPartitionAttempt,
   heartbeatGoogleAdsPartitionLease,
   markGoogleAdsPartitionRunning,
   replayGoogleAdsDeadLetterPartitions,
   upsertGoogleAdsSyncCheckpoint,
-} = await import(
-  "@/lib/google-ads/warehouse"
-);
+} = await import("@/lib/google-ads/warehouse");
 
 describe("dedupeGoogleAdsWarehouseRows", () => {
   it("keeps the last conflicting row for a warehouse conflict key", () => {
@@ -87,9 +87,16 @@ describe("dedupeGoogleAdsWarehouseRows", () => {
 
     expect(result.duplicateCount).toBe(1);
     expect(result.rows).toHaveLength(2);
-    expect(result.rows.map((row) => row.entityKey)).toEqual(["entity_2", "entity_1"]);
-    expect(result.rows.find((row) => row.entityKey === "entity_1")?.spend).toBe(99);
-    expect(result.rows.find((row) => row.entityKey === "entity_1")?.payloadJson).toEqual({
+    expect(result.rows.map((row) => row.entityKey)).toEqual([
+      "entity_2",
+      "entity_1",
+    ]);
+    expect(result.rows.find((row) => row.entityKey === "entity_1")?.spend).toBe(
+      99,
+    );
+    expect(
+      result.rows.find((row) => row.entityKey === "entity_1")?.payloadJson,
+    ).toEqual({
       source: "last",
     });
   });
@@ -98,7 +105,9 @@ describe("dedupeGoogleAdsWarehouseRows", () => {
 describe("google ads warehouse ownership safety", () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    vi.mocked(workerHealth.recordSyncReclaimEvents).mockResolvedValue(undefined);
+    vi.mocked(workerHealth.recordSyncReclaimEvents).mockResolvedValue(
+      undefined,
+    );
   });
 
   it("returns null when checkpoint upsert loses partition ownership", async () => {
@@ -122,10 +131,12 @@ describe("google ads warehouse ownership safety", () => {
 
   it("extends the running lease using the requested lease minutes", async () => {
     const calls: unknown[][] = [];
-    const sql = vi.fn(async (_strings: TemplateStringsArray, ...values: unknown[]) => {
-      calls.push(values);
-      return [{ id: "partition-1" }];
-    });
+    const sql = vi.fn(
+      async (_strings: TemplateStringsArray, ...values: unknown[]) => {
+        calls.push(values);
+        return [{ id: "partition-1" }];
+      },
+    );
     vi.mocked(db.getDb).mockReturnValue(sql as never);
 
     const result = await markGoogleAdsPartitionRunning({
@@ -138,7 +149,7 @@ describe("google ads warehouse ownership safety", () => {
     expect(calls.at(0)).toContain(15);
   });
 
-  it("does not require an unexpired lease to write a same-owner checkpoint update", async () => {
+  it("requires an active owned lease to write an owned checkpoint update", async () => {
     const queries: string[] = [];
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       queries.push(strings.join(" "));
@@ -164,9 +175,11 @@ describe("google ads warehouse ownership safety", () => {
         (query) =>
           query.includes("WITH owner_guard AS") &&
           query.includes("lease_owner =") &&
-          query.includes("COALESCE(lease_expires_at, now() - interval '1 second') > now()")
-      )
-    ).toBe(false);
+          query.includes(
+            "COALESCE(lease_expires_at, now() - interval '1 second') > now()",
+          ),
+      ),
+    ).toBe(true);
   });
 
   it("keeps active leased dead-letter partitions out of replay", async () => {
@@ -183,8 +196,20 @@ describe("google ads warehouse ownership safety", () => {
     });
 
     expect(result.outcome).toBe("no_matching_partitions");
-    expect(queries.some((query) => query.includes("COALESCE(lease_expires_at, now() - interval '1 second') > now()"))).toBe(true);
-    expect(queries.some((query) => query.includes("COALESCE(lease_expires_at, now() - interval '1 second') <= now()"))).toBe(true);
+    expect(
+      queries.some((query) =>
+        query.includes(
+          "COALESCE(lease_expires_at, now() - interval '1 second') > now()",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      queries.some((query) =>
+        query.includes(
+          "COALESCE(lease_expires_at, now() - interval '1 second') <= now()",
+        ),
+      ),
+    ).toBe(true);
   });
 
   it("returns skipped_active_lease when only actively leased partitions match replay", async () => {
@@ -209,7 +234,10 @@ describe("google ads warehouse ownership safety", () => {
   it("keeps recently progressing partitions leased during cleanup", async () => {
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       const query = strings.join(" ");
-      if (query.includes("FROM google_ads_sync_partitions partition") && query.includes("same_phase_failures")) {
+      if (
+        query.includes("FROM google_ads_sync_partitions partition") &&
+        query.includes("same_phase_failures")
+      ) {
         return [
           {
             id: "partition-1",
@@ -250,7 +278,10 @@ describe("google ads warehouse ownership safety", () => {
   it("reclaims expired partitions when progress is stale and no runner lease remains", async () => {
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       const query = strings.join(" ");
-      if (query.includes("FROM google_ads_sync_partitions partition") && query.includes("same_phase_failures")) {
+      if (
+        query.includes("FROM google_ads_sync_partitions partition") &&
+        query.includes("same_phase_failures")
+      ) {
         return [
           {
             id: "partition-1",
@@ -266,7 +297,9 @@ describe("google ads warehouse ownership safety", () => {
             page_index: 0,
             checkpoint_attempt_count: 1,
             checkpoint_status: "running",
-            progress_updated_at: new Date(Date.now() - 10 * 60_000).toISOString(),
+            progress_updated_at: new Date(
+              Date.now() - 10 * 60_000,
+            ).toISOString(),
             poisoned_at: null,
             poison_reason: null,
             same_phase_failures: 0,
@@ -285,32 +318,78 @@ describe("google ads warehouse ownership safety", () => {
 
     expect(result.stalePartitionCount).toBe(1);
     expect(result.aliveSlowCount).toBe(0);
-    expect(result.reclaimReasons.stalledReclaimable).toEqual(["worker_offline_no_progress"]);
+    expect(result.reclaimReasons.stalledReclaimable).toEqual([
+      "worker_offline_no_progress",
+    ]);
   });
 
-  it("allows same-owner late completion without requiring an unexpired partition lease", async () => {
+  it("completes a partition attempt only when worker ownership and lease are current", async () => {
     const queries: string[] = [];
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       queries.push(strings.join(" "));
-      return [{ id: "partition-1" }];
+      return [
+        {
+          completed: true,
+          run_updated: true,
+          closed_running_run_count: 2,
+          caller_run_id_was_closed: true,
+          closed_running_run_ids: ["run-1", "run-2"],
+          closed_checkpoint_groups: [
+            {
+              checkpointScope: "campaign_daily",
+              previousPhase: "fetch_raw",
+              count: 1,
+            },
+          ],
+        },
+      ];
     });
     vi.mocked(db.getDb).mockReturnValue(sql as never);
 
-    const completed = await completeGoogleAdsPartition({
+    const completed = await completeGoogleAdsPartitionAttempt({
       partitionId: "partition-1",
       workerId: "worker-1",
-      status: "succeeded",
+      partitionStatus: "succeeded",
+      runId: "run-1",
+      runStatus: "succeeded",
     });
 
-    expect(completed).toBe(true);
+    expect(completed).toEqual({
+      ok: true,
+      runUpdated: true,
+      closedRunningRunCount: 2,
+      callerRunIdWasClosed: true,
+      closedRunningRunIds: ["run-1", "run-2"],
+      closedCheckpointGroups: [
+        {
+          checkpointScope: "campaign_daily",
+          previousPhase: "fetch_raw",
+          count: 1,
+        },
+      ],
+    });
     expect(
       queries.some(
         (query) =>
-          query.includes("UPDATE google_ads_sync_partitions") &&
-          query.includes("AND lease_owner =") &&
-          query.includes("COALESCE(lease_expires_at, now()) > now()")
-      )
-    ).toBe(false);
+          query.includes("UPDATE google_ads_sync_partitions partition") &&
+          query.includes("AND partition.lease_owner =") &&
+          query.includes("COALESCE(partition.lease_expires_at, now()) > now()"),
+      ),
+    ).toBe(true);
+    expect(
+      queries.some(
+        (query) =>
+          query.includes("UPDATE google_ads_sync_runs run") &&
+          query.includes("run.status = 'running'"),
+      ),
+    ).toBe(true);
+    expect(
+      queries.some(
+        (query) =>
+          query.includes("UPDATE google_ads_sync_checkpoints checkpoint") &&
+          query.includes("checkpoint.status = 'running'"),
+      ),
+    ).toBe(true);
   });
 
   it("allows same-owner late heartbeat renewal without requiring an unexpired partition lease", async () => {
@@ -333,8 +412,94 @@ describe("google ads warehouse ownership safety", () => {
         (query) =>
           query.includes("UPDATE google_ads_sync_partitions") &&
           query.includes("lease_expires_at = now() +") &&
-          query.includes("COALESCE(lease_expires_at, now()) > now()")
-      )
+          query.includes("COALESCE(lease_expires_at, now()) > now()"),
+      ),
     ).toBe(false);
+  });
+
+  it("backfills running runs and checkpoints under terminal parents", async () => {
+    const sql = vi
+      .fn()
+      .mockResolvedValueOnce([
+        {
+          partition_status: "dead_letter",
+          closed_running_run_count: 2,
+          caller_run_id_was_closed: true,
+          closed_running_run_ids: ["run-1", "run-2"],
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          closed_checkpoint_groups: [
+            {
+              checkpointScope: "campaign_daily",
+              previousPhase: "transform",
+              count: 2,
+            },
+          ],
+        },
+      ]);
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const runResult = await backfillGoogleAdsRunningRunsForTerminalPartition({
+      partitionId: "partition-1",
+      runId: "run-1",
+    });
+    const checkpointResult =
+      await backfillGoogleAdsRunningCheckpointsForTerminalPartition({
+        partitionId: "partition-1",
+      });
+
+    expect(runResult).toEqual({
+      partitionStatus: "dead_letter",
+      closedRunningRunCount: 2,
+      callerRunIdWasClosed: true,
+      closedRunningRunIds: ["run-1", "run-2"],
+    });
+    expect(checkpointResult).toEqual({
+      closedCheckpointGroups: [
+        {
+          checkpointScope: "campaign_daily",
+          previousPhase: "transform",
+          count: 2,
+        },
+      ],
+      closedRunningCheckpointCount: 2,
+    });
+  });
+
+  it("reconciles terminal-parent children before stale reclaim cleanup", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      queries.push(strings.join(" "));
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const result = await cleanupGoogleAdsPartitionOrchestration({
+      businessId: "biz-1",
+      staleLeaseMinutes: 8,
+    });
+
+    expect(result.closedTerminalRunningRunCount).toBe(0);
+    expect(result.closedTerminalRunningCheckpointCount).toBe(0);
+    expect(queries[0]).toContain("UPDATE google_ads_sync_runs run");
+    expect(queries[1]).toContain(
+      "UPDATE google_ads_sync_checkpoints checkpoint",
+    );
+    expect(
+      queries.some(
+        (query) =>
+          query.includes("UPDATE google_ads_sync_checkpoints checkpoint") &&
+          query.includes(
+            "partition.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')",
+          ),
+      ),
+    ).toBe(true);
+    expect(
+      queries.some((query) =>
+        query.includes("WHERE checkpoint.partition_id = partition.id"),
+      ),
+    ).toBe(true);
   });
 });

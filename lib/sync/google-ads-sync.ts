@@ -40,19 +40,24 @@ import {
 } from "@/lib/sync/provider-status-truth";
 import {
   buildGoogleAdsRawSnapshotHash,
+  backfillGoogleAdsRunningCheckpointsForTerminalPartition,
+  backfillGoogleAdsRunningRunsForTerminalPartition,
   compactGoogleAdsExtendedBacklog,
   cleanupGoogleAdsObsoleteSyncJobs,
   cleanupGoogleAdsPartitionOrchestration,
   cancelGoogleAdsPartitionsBySource,
-  completeGoogleAdsPartition,
+  completeGoogleAdsPartitionAttempt,
   createGoogleAdsSyncJob,
   createGoogleAdsSyncRun,
   expireStaleGoogleAdsSyncJobs,
   getGoogleAdsCoveredDates,
   getGoogleAdsDailyCoverage,
+  getGoogleAdsPartitionCompletionDenialSnapshot,
   getGoogleAdsPartitionHealth,
   getGoogleAdsPartitionDates,
   getGoogleAdsQueueHealth,
+  getLatestGoogleAdsCheckpointForPartition,
+  getLatestRunningGoogleAdsSyncRunIdForPartition,
   getGoogleAdsSyncState,
   getGoogleAdsSyncCheckpoint,
   leaseGoogleAdsSyncPartitions,
@@ -87,7 +92,10 @@ type GenericRow = Record<string, unknown>;
 
 const runtimeSyncStore = globalThis as typeof globalThis & {
   __googleAdsBackgroundSyncKeys?: Set<string>;
-  __googleAdsBackgroundWorkerTimers?: Map<string, ReturnType<typeof setTimeout>>;
+  __googleAdsBackgroundWorkerTimers?: Map<
+    string,
+    ReturnType<typeof setTimeout>
+  >;
 };
 
 function envNumber(name: string, fallback: number) {
@@ -113,103 +121,129 @@ function getBackgroundWorkerTimers() {
 
 const GOOGLE_ADS_BOOTSTRAP_BATCH_DAYS = 4;
 const GOOGLE_ADS_RECENT_MAINTENANCE_DAYS = 7;
-const GOOGLE_ADS_BACKGROUND_LOOP_DELAY_MS = envNumber("GOOGLE_ADS_BACKGROUND_LOOP_DELAY_MS", 5_000);
-const GOOGLE_ADS_CORE_WORKER_LIMIT = envNumber("GOOGLE_ADS_CORE_WORKER_LIMIT", 4);
-const GOOGLE_ADS_MAINTENANCE_WORKER_LIMIT = envNumber("GOOGLE_ADS_MAINTENANCE_WORKER_LIMIT", 2);
-const GOOGLE_ADS_EXTENDED_WORKER_LIMIT = envNumber("GOOGLE_ADS_EXTENDED_WORKER_LIMIT", 4);
+const GOOGLE_ADS_BACKGROUND_LOOP_DELAY_MS = envNumber(
+  "GOOGLE_ADS_BACKGROUND_LOOP_DELAY_MS",
+  5_000,
+);
+const GOOGLE_ADS_CORE_WORKER_LIMIT = envNumber(
+  "GOOGLE_ADS_CORE_WORKER_LIMIT",
+  4,
+);
+const GOOGLE_ADS_MAINTENANCE_WORKER_LIMIT = envNumber(
+  "GOOGLE_ADS_MAINTENANCE_WORKER_LIMIT",
+  2,
+);
+const GOOGLE_ADS_EXTENDED_WORKER_LIMIT = envNumber(
+  "GOOGLE_ADS_EXTENDED_WORKER_LIMIT",
+  4,
+);
 const GOOGLE_ADS_EXTENDED_BURST_WORKER_LIMIT = envNumber(
   "GOOGLE_ADS_EXTENDED_BURST_WORKER_LIMIT",
-  3
+  3,
 );
 const GOOGLE_ADS_EXTENDED_FULL_SYNC_PRIORITY_LIMIT = envNumber(
   "GOOGLE_ADS_EXTENDED_FULL_SYNC_PRIORITY_LIMIT",
-  2
+  2,
 );
 const GOOGLE_ADS_EXTENDED_CORE_BACKLOG_THRESHOLD = envNumber(
   "GOOGLE_ADS_EXTENDED_CORE_BACKLOG_THRESHOLD",
-  2
+  2,
 );
 
 export function getGoogleAdsGapPlannerBlockingStatuses() {
   return getActivePartitionBlockingStatuses();
 }
-const GOOGLE_ADS_PARTITION_LEASE_MINUTES = envNumber("GOOGLE_ADS_PARTITION_LEASE_MINUTES", 15);
+const GOOGLE_ADS_PARTITION_LEASE_MINUTES = envNumber(
+  "GOOGLE_ADS_PARTITION_LEASE_MINUTES",
+  15,
+);
 const GOOGLE_ADS_TRANSIENT_RETRY_BASE_MINUTES = envNumber(
   "GOOGLE_ADS_TRANSIENT_RETRY_BASE_MINUTES",
-  2
+  2,
 );
 const GOOGLE_ADS_QUOTA_RETRY_BASE_MINUTES = envNumber(
   "GOOGLE_ADS_QUOTA_RETRY_BASE_MINUTES",
-  8
+  8,
 );
 const GOOGLE_ADS_PARTITION_MAX_ATTEMPTS = 6;
-const GOOGLE_ADS_CHECKPOINT_CHUNK_SIZE = envNumber("GOOGLE_ADS_CHECKPOINT_CHUNK_SIZE", 250);
-const GOOGLE_ADS_CAMPAIGN_CORE_LIMIT_ERROR_CODE = "google_ads_campaign_core_limit_exceeded";
+const GOOGLE_ADS_CHECKPOINT_CHUNK_SIZE = envNumber(
+  "GOOGLE_ADS_CHECKPOINT_CHUNK_SIZE",
+  250,
+);
+const GOOGLE_ADS_CAMPAIGN_CORE_LIMIT_ERROR_CODE =
+  "google_ads_campaign_core_limit_exceeded";
 const GOOGLE_ADS_CIRCUIT_BREAKER_BASE_MINUTES = envNumber(
   "GOOGLE_ADS_CIRCUIT_BREAKER_BASE_MINUTES",
-  15
+  15,
 );
 const GOOGLE_ADS_CIRCUIT_BREAKER_REPEAT_MINUTES = envNumber(
   "GOOGLE_ADS_CIRCUIT_BREAKER_REPEAT_MINUTES",
-  30
+  30,
 );
 const GOOGLE_ADS_WORKER_STALE_THRESHOLD_MS = envNumber(
   "GOOGLE_ADS_WORKER_STALE_THRESHOLD_MS",
-  5 * 60_000
+  5 * 60_000,
 );
 const GOOGLE_ADS_RUN_PROGRESS_GRACE_MINUTES = envNumber(
   "GOOGLE_ADS_RUN_PROGRESS_GRACE_MINUTES",
-  3
+  3,
 );
-const GOOGLE_ADS_STALE_RUN_CORE_MINUTES = envNumber("GOOGLE_ADS_STALE_RUN_CORE_MINUTES", 12);
+const GOOGLE_ADS_STALE_RUN_CORE_MINUTES = envNumber(
+  "GOOGLE_ADS_STALE_RUN_CORE_MINUTES",
+  12,
+);
 const GOOGLE_ADS_STALE_RUN_MAINTENANCE_MINUTES = envNumber(
   "GOOGLE_ADS_STALE_RUN_MAINTENANCE_MINUTES",
-  15
+  15,
 );
 const GOOGLE_ADS_STALE_RUN_EXTENDED_MINUTES = envNumber(
   "GOOGLE_ADS_STALE_RUN_EXTENDED_MINUTES",
-  25
+  25,
 );
 const GOOGLE_ADS_EXTENDED_BACKLOG_HARD_LIMIT = envNumber(
   "GOOGLE_ADS_EXTENDED_BACKLOG_HARD_LIMIT",
-  1000
+  1000,
 );
 const GOOGLE_ADS_MAINTENANCE_BACKLOG_HARD_LIMIT = envNumber(
   "GOOGLE_ADS_MAINTENANCE_BACKLOG_HARD_LIMIT",
-  250
+  250,
 );
 const GOOGLE_ADS_EXTENDED_CANARY_BURST_WORKER_LIMIT = envNumber(
   "GOOGLE_ADS_EXTENDED_CANARY_BURST_WORKER_LIMIT",
-  1
+  1,
 );
 const GOOGLE_ADS_RECENT_REPAIR_WORKER_LIMIT = envNumber(
   "GOOGLE_ADS_RECENT_REPAIR_WORKER_LIMIT",
-  1
+  1,
 );
 const GOOGLE_ADS_RECENT_EXTENDED_RECOVERY_DAYS = envNumber(
   "GOOGLE_ADS_RECENT_EXTENDED_RECOVERY_DAYS",
-  14
+  14,
 );
 const GOOGLE_ADS_EXTENDED_RECENT_BATCH_DAYS = envNumber(
   "GOOGLE_ADS_EXTENDED_RECENT_BATCH_DAYS",
-  4
+  4,
 );
 const GOOGLE_ADS_EXTENDED_HISTORICAL_BATCH_DAYS = envNumber(
   "GOOGLE_ADS_EXTENDED_HISTORICAL_BATCH_DAYS",
-  2
+  2,
 );
 const GOOGLE_ADS_EXTENDED_HISTORICAL_PRESSURE_LIMIT = Number(
-  process.env.GOOGLE_ADS_EXTENDED_HISTORICAL_PRESSURE_LIMIT ?? "0.7"
+  process.env.GOOGLE_ADS_EXTENDED_HISTORICAL_PRESSURE_LIMIT ?? "0.7",
 );
 const GOOGLE_ADS_EXTENDED_REOPEN_GENERAL_ENABLED =
-  process.env.GOOGLE_ADS_EXTENDED_GENERAL_REOPEN?.trim().toLowerCase() === "1" ||
-  process.env.GOOGLE_ADS_EXTENDED_GENERAL_REOPEN?.trim().toLowerCase() === "true";
+  process.env.GOOGLE_ADS_EXTENDED_GENERAL_REOPEN?.trim().toLowerCase() ===
+    "1" ||
+  process.env.GOOGLE_ADS_EXTENDED_GENERAL_REOPEN?.trim().toLowerCase() ===
+    "true";
 const GOOGLE_ADS_IN_PROCESS_RUNTIME_ENABLED =
-  process.env.GOOGLE_ADS_ENABLE_IN_PROCESS_RUNTIME?.trim().toLowerCase() === "1" ||
-  process.env.GOOGLE_ADS_ENABLE_IN_PROCESS_RUNTIME?.trim().toLowerCase() === "true";
+  process.env.GOOGLE_ADS_ENABLE_IN_PROCESS_RUNTIME?.trim().toLowerCase() ===
+    "1" ||
+  process.env.GOOGLE_ADS_ENABLE_IN_PROCESS_RUNTIME?.trim().toLowerCase() ===
+    "true";
 const GOOGLE_ADS_PROGRESS_EVIDENCE_WINDOW_MINUTES = envNumber(
   "GOOGLE_ADS_PROGRESS_EVIDENCE_WINDOW_MINUTES",
-  20
+  20,
 );
 
 type GoogleAdsQueueHealth = Awaited<ReturnType<typeof getGoogleAdsQueueHealth>>;
@@ -249,7 +283,9 @@ function parseEnvList(name: string) {
     .filter(Boolean);
 }
 
-async function upsertGoogleAdsCheckpointOrThrow(input: GoogleAdsSyncCheckpointRecord) {
+async function upsertGoogleAdsCheckpointOrThrow(
+  input: GoogleAdsSyncCheckpointRecord,
+) {
   const checkpointId = await upsertGoogleAdsSyncCheckpoint(input);
   if (input.leaseOwner && !checkpointId) {
     throw new Error("lease_conflict:checkpoint_write_rejected");
@@ -257,8 +293,132 @@ async function upsertGoogleAdsCheckpointOrThrow(input: GoogleAdsSyncCheckpointRe
   return checkpointId;
 }
 
+async function heartbeatGoogleAdsPartitionBeforeCompletion(input: {
+  partitionId: string;
+  workerId: string;
+  leaseMinutes: number;
+}) {
+  const ok = await heartbeatGoogleAdsPartitionLease({
+    partitionId: input.partitionId,
+    workerId: input.workerId,
+    leaseMinutes: input.leaseMinutes,
+  });
+  return ok
+    ? ({ ok: true } as const)
+    : ({ ok: false, reason: "lease_conflict" } as const);
+}
+
+async function logGoogleAdsCompletionDenied(input: {
+  partitionId: string;
+  runId?: string | null;
+  recoveredRunId?: string | null;
+  workerId: string;
+  lane: GoogleAdsSyncLane;
+  scope: GoogleAdsWarehouseScope;
+  partitionStatus: "succeeded" | "failed" | "dead_letter" | "cancelled";
+  runStatus: "succeeded" | "failed" | "cancelled";
+  reason: "lease_conflict" | "operational_error";
+  message?: string | null;
+}) {
+  const [latestCheckpoint, denialSnapshot] = await Promise.all([
+    getLatestGoogleAdsCheckpointForPartition({
+      partitionId: input.partitionId,
+    }).catch(() => null),
+    getGoogleAdsPartitionCompletionDenialSnapshot({
+      partitionId: input.partitionId,
+      workerId: input.workerId,
+    }).catch(() => null),
+  ]);
+
+  console.warn("[google-ads-sync] partition_completion_denied", {
+    partitionId: input.partitionId,
+    runId: input.runId ?? null,
+    recoveredRunId: input.recoveredRunId ?? null,
+    workerId: input.workerId,
+    lane: input.lane,
+    scope: input.scope,
+    partitionStatus: input.partitionStatus,
+    runStatusBefore: "running",
+    runStatusAfter: input.runStatus,
+    reason: input.reason,
+    message: input.message ?? null,
+    currentPartitionStatus: denialSnapshot?.currentPartitionStatus ?? null,
+    currentLeaseOwner: denialSnapshot?.currentLeaseOwner ?? null,
+    currentLeaseExpiresAt: denialSnapshot?.currentLeaseExpiresAt ?? null,
+    ownerMatchesCaller: denialSnapshot?.ownerMatchesCaller ?? null,
+    leaseExpiredAtObservation:
+      denialSnapshot?.leaseExpiredAtObservation ?? null,
+    currentPartitionFinishedAt:
+      denialSnapshot?.currentPartitionFinishedAt ?? null,
+    checkpointScope:
+      denialSnapshot?.latestCheckpointScope ??
+      latestCheckpoint?.checkpointScope ??
+      null,
+    checkpointPhase:
+      denialSnapshot?.latestCheckpointPhase ?? latestCheckpoint?.phase ?? null,
+    checkpointUpdatedAt:
+      denialSnapshot?.latestCheckpointUpdatedAt ??
+      latestCheckpoint?.updatedAt ??
+      null,
+    latestRunningRunId: denialSnapshot?.latestRunningRunId ?? null,
+    runningRunCount: denialSnapshot?.runningRunCount ?? 0,
+    denialClassification:
+      denialSnapshot?.denialClassification ?? "unknown_denial",
+  });
+
+  return denialSnapshot;
+}
+
+async function backfillGoogleAdsDeniedTerminalChildren(input: {
+  partitionId: string;
+  runId?: string | null;
+  recoveredRunId?: string | null;
+  workerId: string;
+  lane: GoogleAdsSyncLane;
+  scope: GoogleAdsWarehouseScope;
+  pathKind: "primary" | "repair";
+}) {
+  try {
+    const [runResult, checkpointResult] = await Promise.all([
+      backfillGoogleAdsRunningRunsForTerminalPartition({
+        partitionId: input.partitionId,
+        runId: input.runId ?? null,
+        recoveredRunId: input.recoveredRunId ?? null,
+      }),
+      backfillGoogleAdsRunningCheckpointsForTerminalPartition({
+        partitionId: input.partitionId,
+      }),
+    ]);
+    console.warn("[google-ads-sync] terminal_parent_children_backfilled", {
+      partitionId: input.partitionId,
+      runId: input.runId ?? null,
+      recoveredRunId: input.recoveredRunId ?? null,
+      workerId: input.workerId,
+      lane: input.lane,
+      scope: input.scope,
+      pathKind: input.pathKind,
+      partitionStatus: runResult.partitionStatus,
+      closedRunningRunCount: runResult.closedRunningRunCount,
+      closedRunningCheckpointCount:
+        checkpointResult.closedRunningCheckpointCount,
+      closedCheckpointGroups: checkpointResult.closedCheckpointGroups,
+    });
+  } catch (error) {
+    console.warn("[google-ads-sync] terminal_parent_children_backfill_failed", {
+      partitionId: input.partitionId,
+      runId: input.runId ?? null,
+      recoveredRunId: input.recoveredRunId ?? null,
+      workerId: input.workerId,
+      lane: input.lane,
+      scope: input.scope,
+      pathKind: input.pathKind,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 const GOOGLE_ADS_EXTENDED_CANARY_BUSINESS_IDS = new Set(
-  parseEnvList("GOOGLE_ADS_EXTENDED_CANARY_BUSINESS_IDS")
+  parseEnvList("GOOGLE_ADS_EXTENDED_CANARY_BUSINESS_IDS"),
 );
 
 function canUseInProcessBackgroundScheduling() {
@@ -302,9 +462,8 @@ const GOOGLE_ADS_ADVISOR_PRIMARY_PRIORITY_SCOPES: GoogleAdsWarehouseScope[] = [
   "product_daily",
 ];
 
-const GOOGLE_ADS_ADVISOR_SUPPORTIVE_PRIORITY_SCOPES: GoogleAdsWarehouseScope[] = [
-  "asset_daily",
-];
+const GOOGLE_ADS_ADVISOR_SUPPORTIVE_PRIORITY_SCOPES: GoogleAdsWarehouseScope[] =
+  ["asset_daily"];
 
 const GOOGLE_ADS_STATE_SCOPES: GoogleAdsWarehouseScope[] = [
   "account_daily",
@@ -324,7 +483,9 @@ const GOOGLE_ADS_RECENT_90_FRONTIER_SCOPES: GoogleAdsWarehouseScope[] = [
   ...GOOGLE_ADS_EXTENDED_SCOPES,
 ];
 
-function buildGoogleAdsSyntheticEvidenceState(activityAt: string | null | undefined) {
+function buildGoogleAdsSyntheticEvidenceState(
+  activityAt: string | null | undefined,
+) {
   if (!activityAt) return [];
   return [
     {
@@ -337,20 +498,26 @@ function buildGoogleAdsSyntheticEvidenceState(activityAt: string | null | undefi
 export function buildGoogleAdsLaneProgressEvidence(input: {
   statesByScope?: GoogleAdsStatesByScope;
   queueHealth?: GoogleAdsQueueHealth | null;
-}) : GoogleAdsLaneEvidence {
+}): GoogleAdsLaneEvidence {
   const statesByScope = input.statesByScope ?? {};
   const queueHealth = input.queueHealth ?? null;
   const coreStates = [
     ...(statesByScope.account_daily ?? []),
     ...(statesByScope.campaign_daily ?? []),
-    ...buildGoogleAdsSyntheticEvidenceState(queueHealth?.latestCoreActivityAt ?? null),
+    ...buildGoogleAdsSyntheticEvidenceState(
+      queueHealth?.latestCoreActivityAt ?? null,
+    ),
   ];
   const extendedStates = [
-    ...GOOGLE_ADS_EXTENDED_SCOPES.flatMap((scope) => statesByScope[scope] ?? []),
-    ...buildGoogleAdsSyntheticEvidenceState(queueHealth?.latestExtendedActivityAt ?? null),
+    ...GOOGLE_ADS_EXTENDED_SCOPES.flatMap(
+      (scope) => statesByScope[scope] ?? [],
+    ),
+    ...buildGoogleAdsSyntheticEvidenceState(
+      queueHealth?.latestExtendedActivityAt ?? null,
+    ),
   ];
   const maintenanceStates = buildGoogleAdsSyntheticEvidenceState(
-    queueHealth?.latestMaintenanceActivityAt ?? null
+    queueHealth?.latestMaintenanceActivityAt ?? null,
   );
 
   return {
@@ -391,7 +558,8 @@ export function buildGoogleAdsLaneAdmissionPolicy(input: {
   extendedCanaryEligible?: boolean;
   recoveryMode?: "open" | "half_open" | "closed";
 }) {
-  const workerCapacityAvailable = input.workerCapacityAvailable ?? input.workerHealthy;
+  const workerCapacityAvailable =
+    input.workerCapacityAvailable ?? input.workerHealthy;
   const quotaPressure = input.quotaPressure ?? 0;
   const maintenanceBudgetAllowed = input.maintenanceBudgetAllowed ?? true;
   const extendedBudgetAllowed = input.extendedBudgetAllowed ?? true;
@@ -408,12 +576,14 @@ export function buildGoogleAdsLaneAdmissionPolicy(input: {
     input.queueDepth >= GOOGLE_ADS_EXTENDED_BACKLOG_HARD_LIMIT * 2;
   const suspendExtendedHistorical =
     suspendExtendedRecent ||
-    (input.recoveryMode ?? (input.breakerOpen ? "open" : "closed")) !== "closed" ||
+    (input.recoveryMode ?? (input.breakerOpen ? "open" : "closed")) !==
+      "closed" ||
     quotaPressure >= GOOGLE_ADS_EXTENDED_HISTORICAL_PRESSURE_LIMIT;
   const suspendMaintenance =
     !maintenanceBudgetAllowed ||
     !workerCapacityAvailable ||
-    (input.maintenanceQueueDepth ?? 0) >= GOOGLE_ADS_MAINTENANCE_BACKLOG_HARD_LIMIT ||
+    (input.maintenanceQueueDepth ?? 0) >=
+      GOOGLE_ADS_MAINTENANCE_BACKLOG_HARD_LIMIT ||
     quotaPressure >= 1;
 
   return {
@@ -452,10 +622,14 @@ export function getGoogleAdsExtendedRecoveryBlockReason(input: {
   if (input.policy.safeModeEnabled) return "safe_mode";
   if (input.policy.breakerOpen) return "circuit_breaker_open";
   if (!input.policy.workerHealthy) return "worker_unhealthy";
-  if (!input.policy.workerCapacityAvailable) return "worker_capacity_unavailable";
+  if (!input.policy.workerCapacityAvailable)
+    return "worker_capacity_unavailable";
   if (!input.policy.extendedBudgetAllowed) return "extended_budget_denied";
   if (!input.policy.extendedCanaryEligible) return "canary_not_enabled";
-  if ((input.queueHealth?.extendedQueueDepth ?? 0) >= GOOGLE_ADS_EXTENDED_BACKLOG_HARD_LIMIT) {
+  if (
+    (input.queueHealth?.extendedQueueDepth ?? 0) >=
+    GOOGLE_ADS_EXTENDED_BACKLOG_HARD_LIMIT
+  ) {
     return "extended_backlog_hard_limit";
   }
   if (
@@ -495,53 +669,75 @@ export function getGoogleAdsExtendedRecoveryBlockReason(input: {
 }
 
 export function shouldLeaseGoogleAdsRecentRepair(input: {
-  policy: ReturnType<typeof buildGoogleAdsLaneAdmissionPolicy> | null | undefined;
+  policy:
+    | ReturnType<typeof buildGoogleAdsLaneAdmissionPolicy>
+    | null
+    | undefined;
   queueHealth?: Awaited<ReturnType<typeof getGoogleAdsQueueHealth>> | null;
 }) {
-  if (!input.policy || input.policy.lanePolicy.extendedRecent === "suspended") return false;
+  if (!input.policy || input.policy.lanePolicy.extendedRecent === "suspended")
+    return false;
   if ((input.queueHealth?.extendedRecentQueueDepth ?? 0) <= 0) return false;
   return true;
 }
 
 function getGoogleAdsRecentRepairLeaseLimit(input: {
-  policy: ReturnType<typeof buildGoogleAdsLaneAdmissionPolicy> | null | undefined;
+  policy:
+    | ReturnType<typeof buildGoogleAdsLaneAdmissionPolicy>
+    | null
+    | undefined;
 }) {
   if (!input.policy) return 0;
   const baseLimit =
-    input.policy.extendedCanaryEligible && !GOOGLE_ADS_EXTENDED_REOPEN_GENERAL_ENABLED
+    input.policy.extendedCanaryEligible &&
+    !GOOGLE_ADS_EXTENDED_REOPEN_GENERAL_ENABLED
       ? GOOGLE_ADS_EXTENDED_CANARY_BURST_WORKER_LIMIT
       : GOOGLE_ADS_RECENT_REPAIR_WORKER_LIMIT;
   return Math.max(1, baseLimit);
 }
 
 function getGoogleAdsHistoricalLeaseLimit(input: {
-  policy: ReturnType<typeof buildGoogleAdsLaneAdmissionPolicy> | null | undefined;
+  policy:
+    | ReturnType<typeof buildGoogleAdsLaneAdmissionPolicy>
+    | null
+    | undefined;
 }) {
   if (!input.policy) return 0;
   const baseLimit =
-    input.policy.extendedCanaryEligible && !GOOGLE_ADS_EXTENDED_REOPEN_GENERAL_ENABLED
+    input.policy.extendedCanaryEligible &&
+    !GOOGLE_ADS_EXTENDED_REOPEN_GENERAL_ENABLED
       ? GOOGLE_ADS_EXTENDED_CANARY_BURST_WORKER_LIMIT
       : GOOGLE_ADS_EXTENDED_WORKER_LIMIT;
   return Math.max(1, baseLimit);
 }
 
 export function getGoogleAdsHistoricalFairnessLeaseLimit(input: {
-  policy: ReturnType<typeof buildGoogleAdsLaneAdmissionPolicy> | null | undefined;
+  policy:
+    | ReturnType<typeof buildGoogleAdsLaneAdmissionPolicy>
+    | null
+    | undefined;
   queueHealth?: GoogleAdsQueueHealth | null;
   progressEvidence?: ProviderProgressEvidence | null;
   nowMs?: number;
 }) {
-  if (!input.policy || input.policy.lanePolicy.extendedHistorical === "suspended") return 0;
+  if (
+    !input.policy ||
+    input.policy.lanePolicy.extendedHistorical === "suspended"
+  )
+    return 0;
   const queueHealth = input.queueHealth ?? null;
   const backlogExists =
     (queueHealth?.extendedHistoricalQueueDepth ?? 0) > 0 ||
     (queueHealth?.extendedHistoricalLeasedPartitions ?? 0) > 0;
   if (!backlogExists) return 0;
 
-  const maxLeaseLimit = getGoogleAdsHistoricalLeaseLimit({ policy: input.policy });
+  const maxLeaseLimit = getGoogleAdsHistoricalLeaseLimit({
+    policy: input.policy,
+  });
   const hasRecentAdvancement = hasRecentProviderAdvancement({
     progressEvidence: input.progressEvidence ?? null,
-    fallbackLatestPartitionActivityAt: queueHealth?.latestExtendedActivityAt ?? null,
+    fallbackLatestPartitionActivityAt:
+      queueHealth?.latestExtendedActivityAt ?? null,
     nowMs: input.nowMs,
   });
   return hasRecentAdvancement
@@ -550,14 +746,17 @@ export function getGoogleAdsHistoricalFairnessLeaseLimit(input: {
 }
 
 export function buildGoogleAdsPrimaryLeasePlan(input: {
-  policy: ReturnType<typeof buildGoogleAdsLaneAdmissionPolicy> | null | undefined;
+  policy:
+    | ReturnType<typeof buildGoogleAdsLaneAdmissionPolicy>
+    | null
+    | undefined;
   queueHealth?: GoogleAdsQueueHealth | null;
   fullSyncPriorityRequired: boolean;
   fullSyncPriorityTargetScopes: GoogleAdsWarehouseScope[];
   blockHistoricalExtendedWork: boolean;
   progressEvidence?: Partial<GoogleAdsLaneEvidence> | null;
   nowMs?: number;
-}) : GoogleAdsPrimaryLeasePlan {
+}): GoogleAdsPrimaryLeasePlan {
   const allowHistoricalExtended =
     !input.blockHistoricalExtendedWork &&
     input.policy?.lanePolicy.extendedHistorical !== "suspended";
@@ -584,36 +783,43 @@ export function buildGoogleAdsPrimaryLeasePlan(input: {
             1,
             Math.min(
               GOOGLE_ADS_EXTENDED_FULL_SYNC_PRIORITY_LIMIT,
-              getGoogleAdsHistoricalLeaseLimit({ policy: input.policy })
-            )
+              getGoogleAdsHistoricalLeaseLimit({ policy: input.policy }),
+            ),
           )
         : 0,
   };
 }
 
 export function buildGoogleAdsMaintenanceLeasePlan(input: {
-  policy: ReturnType<typeof buildGoogleAdsLaneAdmissionPolicy> | null | undefined;
+  policy:
+    | ReturnType<typeof buildGoogleAdsLaneAdmissionPolicy>
+    | null
+    | undefined;
   fullSyncPriorityRequired: boolean;
-}) : GoogleAdsMaintenanceLeasePlan {
+}): GoogleAdsMaintenanceLeasePlan {
   const maintenanceLimit = input.fullSyncPriorityRequired
     ? Math.min(1, GOOGLE_ADS_MAINTENANCE_WORKER_LIMIT)
     : GOOGLE_ADS_MAINTENANCE_WORKER_LIMIT;
   return {
     maintenanceLimit:
-      maintenanceLimit > 0 && input.policy?.lanePolicy.maintenance !== "suspended"
+      maintenanceLimit > 0 &&
+      input.policy?.lanePolicy.maintenance !== "suspended"
         ? maintenanceLimit
         : 0,
   };
 }
 
 export function buildGoogleAdsFallbackExtendedLeasePlan(input: {
-  policy: ReturnType<typeof buildGoogleAdsLaneAdmissionPolicy> | null | undefined;
+  policy:
+    | ReturnType<typeof buildGoogleAdsLaneAdmissionPolicy>
+    | null
+    | undefined;
   fullSyncPriorityRequired: boolean;
   fullSyncPriorityTargetScopes: GoogleAdsWarehouseScope[];
   fullSyncPriorityYesterday: string | null;
   blockHistoricalExtendedWork: boolean;
   historicalLeaseStartDate: string | null;
-}) : GoogleAdsFallbackExtendedLeasePlan | null {
+}): GoogleAdsFallbackExtendedLeasePlan | null {
   const policy = input.policy;
   if (!policy || policy.suspendExtended) return null;
   const sourceFilter = input.blockHistoricalExtendedWork
@@ -636,12 +842,14 @@ export function buildGoogleAdsFallbackExtendedLeasePlan(input: {
         : undefined,
     startDate:
       !input.blockHistoricalExtendedWork &&
-      (input.fullSyncPriorityRequired || policy.lanePolicy.extendedHistorical !== "suspended")
+      (input.fullSyncPriorityRequired ||
+        policy.lanePolicy.extendedHistorical !== "suspended")
         ? input.historicalLeaseStartDate
         : null,
     endDate:
       !input.blockHistoricalExtendedWork &&
-      (input.fullSyncPriorityRequired || policy.lanePolicy.extendedHistorical !== "suspended")
+      (input.fullSyncPriorityRequired ||
+        policy.lanePolicy.extendedHistorical !== "suspended")
         ? input.fullSyncPriorityYesterday
         : null,
     onlyIfNoLease: true,
@@ -652,7 +860,9 @@ export async function buildGoogleAdsWorkerLeasePlan(input: {
   businessId: string;
   leaseLimit: number;
 }): Promise<ProviderLeasePlan> {
-  const queueHealth = await getGoogleAdsQueueHealth({ businessId: input.businessId }).catch(() => null);
+  const queueHealth = await getGoogleAdsQueueHealth({
+    businessId: input.businessId,
+  }).catch(() => null);
   const recent90State = await getGoogleAdsRecent90CompletionState({
     businessId: input.businessId,
   }).catch(() => null);
@@ -673,9 +883,10 @@ export async function buildGoogleAdsWorkerLeasePlan(input: {
     policy: incidentPolicy,
     fullSyncPriorityRequired: fullSyncPriority.required,
   });
-  const blockHistoricalExtendedWork = shouldBlockGoogleAdsHistoricalExtendedWork({
-    recent90Complete: recent90State?.complete ?? true,
-  });
+  const blockHistoricalExtendedWork =
+    shouldBlockGoogleAdsHistoricalExtendedWork({
+      recent90Complete: recent90State?.complete ?? true,
+    });
   const historicalLeaseStartDate =
     fullSyncPriority.historicalStart && recent90State?.recent90Start
       ? decideGoogleAdsHistoricalFrontier({
@@ -683,7 +894,7 @@ export async function buildGoogleAdsWorkerLeasePlan(input: {
           recent90Start: recent90State.recent90Start,
           recent90Complete: recent90State.complete,
         })
-      : fullSyncPriority.historicalStart ?? null;
+      : (fullSyncPriority.historicalStart ?? null);
   const laneProgressEvidence = buildGoogleAdsLaneProgressEvidence({
     queueHealth,
   });
@@ -725,7 +936,9 @@ export async function buildGoogleAdsWorkerLeasePlan(input: {
       lane: "extended",
       limit: primaryLeasePlan.historicalFairnessLimit,
       sourceFilter: "historical_only" as const,
-      scopeFilter: fullSyncPriority.required ? fullSyncPriority.targetScopes : undefined,
+      scopeFilter: fullSyncPriority.required
+        ? fullSyncPriority.targetScopes
+        : undefined,
       startDate: historicalLeaseStartDate,
       endDate: fullSyncPriority.yesterday,
     },
@@ -796,7 +1009,9 @@ export async function buildGoogleAdsWorkerLeasePlan(input: {
         (queueHealth?.extendedHistoricalQueueDepth ?? 0) +
         (queueHealth?.extendedHistoricalLeasedPartitions ?? 0),
       blockedReasonCodes:
-        (queueHealth?.deadLetterPartitions ?? 0) > 0 ? ["required_dead_letter_partitions"] : [],
+        (queueHealth?.deadLetterPartitions ?? 0) > 0
+          ? ["required_dead_letter_partitions"]
+          : [],
     }),
   };
 }
@@ -825,7 +1040,9 @@ function applyGoogleAdsFullSyncPriorityPolicyOverride(input: {
     suspendExtended: false,
     suspendExtendedHistorical: false,
     executionMode:
-      policy.executionMode === "core_only" ? ("extended_recovery" as const) : policy.executionMode,
+      policy.executionMode === "core_only"
+        ? ("extended_recovery" as const)
+        : policy.executionMode,
   };
 }
 
@@ -839,7 +1056,9 @@ function isGoogleAdsRecentExtendedSource(source: string | null | undefined) {
   );
 }
 
-function isGoogleAdsHistoricalExtendedSource(source: string | null | undefined) {
+function isGoogleAdsHistoricalExtendedSource(
+  source: string | null | undefined,
+) {
   return source === "historical" || source === "historical_recovery";
 }
 
@@ -863,7 +1082,9 @@ function chunkRows<T>(rows: T[], size: number) {
 }
 
 function uniqueSnapshotIds(snapshotIds: Array<string | null | undefined>) {
-  return Array.from(new Set(snapshotIds.filter((value): value is string => Boolean(value))));
+  return Array.from(
+    new Set(snapshotIds.filter((value): value is string => Boolean(value))),
+  );
 }
 
 export function shouldCountGoogleAdsReplayChunkAsFetched(input: {
@@ -875,7 +1096,9 @@ export function shouldCountGoogleAdsReplayChunkAsFetched(input: {
   return input.pageIndex > (input.checkpointPageIndex ?? -1);
 }
 
-export function buildGoogleAdsWarehouseFetchPlan(scopes: Iterable<GoogleAdsWarehouseScope>) {
+export function buildGoogleAdsWarehouseFetchPlan(
+  scopes: Iterable<GoogleAdsWarehouseScope>,
+) {
   const requestedScopes = new Set(scopes);
   const wants = (scope: GoogleAdsWarehouseScope) => requestedScopes.has(scope);
   return {
@@ -892,7 +1115,9 @@ export function buildGoogleAdsWarehouseFetchPlan(scopes: Iterable<GoogleAdsWareh
   };
 }
 
-function resolvePrimaryGoogleAdsSyncScope(scopes: Set<GoogleAdsWarehouseScope>) {
+function resolvePrimaryGoogleAdsSyncScope(
+  scopes: Set<GoogleAdsWarehouseScope>,
+) {
   if (scopes.has("campaign_daily")) return "campaign_daily";
   if (scopes.has("account_daily")) return "account_daily";
   return Array.from(scopes)[0] ?? "account_daily";
@@ -914,7 +1139,10 @@ export function evaluateGoogleAdsWorkerSchedulingState(input: {
   staleThresholdMs?: number;
   nowMs?: number;
 }) {
-  const staleThresholdMs = Math.max(1, input.staleThresholdMs ?? GOOGLE_ADS_WORKER_STALE_THRESHOLD_MS);
+  const staleThresholdMs = Math.max(
+    1,
+    input.staleThresholdMs ?? GOOGLE_ADS_WORKER_STALE_THRESHOLD_MS,
+  );
   const nowMs = input.nowMs ?? Date.now();
   const heartbeatAgeMs =
     input.lastHeartbeatAt != null
@@ -931,7 +1159,9 @@ export function evaluateGoogleAdsWorkerSchedulingState(input: {
   };
 }
 
-export async function getGoogleAdsWorkerSchedulingState(input: { businessId: string }) {
+export async function getGoogleAdsWorkerSchedulingState(input: {
+  businessId: string;
+}) {
   if (process.env.SYNC_WORKER_MODE === "1") {
     return {
       healthy: true,
@@ -975,36 +1205,41 @@ async function getGoogleAdsIncidentPolicy(input: {
   businessId: string;
   queueHealth?: Awaited<ReturnType<typeof getGoogleAdsQueueHealth>> | null;
 }) {
-  const [breaker, workerState, queueHealth, budgetState, recoveryMode] = await Promise.all([
-    getProviderGlobalCircuitBreaker({
-      provider: "google",
-      businessId: input.businessId,
-    }).catch(() => null),
-    getGoogleAdsWorkerSchedulingState({ businessId: input.businessId }).catch(() => ({
-      healthy: false,
-      heartbeatAgeMs: null,
-      hasFreshHeartbeat: false,
-      runnerLeaseActive: false,
-      lastHeartbeatAt: null,
-      latestLeaseUpdatedAt: null,
-      workerFreshnessState: null,
-      currentBusinessId: null,
-      lastConsumedBusinessId: null,
-      consumeStage: null,
-      batchBusinessIds: [] as string[],
-    })),
-    input.queueHealth
-      ? Promise.resolve(input.queueHealth)
-      : getGoogleAdsQueueHealth({ businessId: input.businessId }).catch(() => null),
-    getProviderQuotaBudgetState({
-      provider: "google",
-      businessId: input.businessId,
-    }).catch(() => null),
-    getProviderCircuitBreakerRecoveryState({
-      provider: "google",
-      businessId: input.businessId,
-    }).catch(() => "closed" as const),
-  ]);
+  const [breaker, workerState, queueHealth, budgetState, recoveryMode] =
+    await Promise.all([
+      getProviderGlobalCircuitBreaker({
+        provider: "google",
+        businessId: input.businessId,
+      }).catch(() => null),
+      getGoogleAdsWorkerSchedulingState({ businessId: input.businessId }).catch(
+        () => ({
+          healthy: false,
+          heartbeatAgeMs: null,
+          hasFreshHeartbeat: false,
+          runnerLeaseActive: false,
+          lastHeartbeatAt: null,
+          latestLeaseUpdatedAt: null,
+          workerFreshnessState: null,
+          currentBusinessId: null,
+          lastConsumedBusinessId: null,
+          consumeStage: null,
+          batchBusinessIds: [] as string[],
+        }),
+      ),
+      input.queueHealth
+        ? Promise.resolve(input.queueHealth)
+        : getGoogleAdsQueueHealth({ businessId: input.businessId }).catch(
+            () => null,
+          ),
+      getProviderQuotaBudgetState({
+        provider: "google",
+        businessId: input.businessId,
+      }).catch(() => null),
+      getProviderCircuitBreakerRecoveryState({
+        provider: "google",
+        businessId: input.businessId,
+      }).catch(() => "closed" as const),
+    ]);
   const workerHealthy = workerState.healthy;
   const workerCapacityAvailable =
     workerHealthy &&
@@ -1013,7 +1248,7 @@ async function getGoogleAdsIncidentPolicy(input: {
         GOOGLE_ADS_CORE_WORKER_LIMIT +
           GOOGLE_ADS_MAINTENANCE_WORKER_LIMIT +
           GOOGLE_ADS_EXTENDED_WORKER_LIMIT,
-        1
+        1,
       );
   const extendedCanaryEligible =
     GOOGLE_ADS_EXTENDED_REOPEN_GENERAL_ENABLED ||
@@ -1096,14 +1331,18 @@ async function enqueueExtendedRecoveryPartitions(input: {
     };
   }
 
-  const accountIds = await getAssignedGoogleAccounts(input.businessId).catch(() => []);
+  const accountIds = await getAssignedGoogleAccounts(input.businessId).catch(
+    () => [],
+  );
   if (accountIds.length === 0) {
     return {
       queuedHistorical: 0,
     };
   }
 
-  const { historicalStart, yesterday } = await computeHistoricalTargets(input.businessId);
+  const { historicalStart, yesterday } = await computeHistoricalTargets(
+    input.businessId,
+  );
   const recent90State = await getGoogleAdsRecent90CompletionState({
     businessId: input.businessId,
   }).catch(() => null);
@@ -1114,14 +1353,13 @@ async function enqueueExtendedRecoveryPartitions(input: {
   });
   const recentStart = addDaysToIsoDate(
     yesterday,
-    -(GOOGLE_ADS_RECENT_EXTENDED_RECOVERY_DAYS - 1)
+    -(GOOGLE_ADS_RECENT_EXTENDED_RECOVERY_DAYS - 1),
   );
   const historicalReplayEnd = addDaysToIsoDate(recentStart, -1);
   let queuedHistorical = 0;
-  const scopes =
-    input.scopes?.length
-      ? input.scopes
-      : GOOGLE_ADS_EXTENDED_SCOPES;
+  const scopes = input.scopes?.length
+    ? input.scopes
+    : GOOGLE_ADS_EXTENDED_SCOPES;
 
   for (const providerAccountId of accountIds) {
     for (const scope of scopes) {
@@ -1176,7 +1414,11 @@ async function cancelHistoricalExtendedBacklog(input: {
   recent90Complete: boolean;
   scopeFilter?: GoogleAdsWarehouseScope[];
 }) {
-  if (!shouldBlockGoogleAdsHistoricalExtendedWork({ recent90Complete: input.recent90Complete })) {
+  if (
+    !shouldBlockGoogleAdsHistoricalExtendedWork({
+      recent90Complete: input.recent90Complete,
+    })
+  ) {
     return 0;
   }
 
@@ -1189,28 +1431,33 @@ async function cancelHistoricalExtendedBacklog(input: {
   }).catch(() => 0);
 }
 
-async function getGoogleAdsFullSyncPriorityState(input: { businessId: string }) {
-  const { historicalStart, yesterday } = await computeHistoricalTargets(input.businessId);
+async function getGoogleAdsFullSyncPriorityState(input: {
+  businessId: string;
+}) {
+  const { historicalStart, yesterday } = await computeHistoricalTargets(
+    input.businessId,
+  );
   const totalDays = dayCountInclusive(historicalStart, yesterday);
   const coverageRows = await Promise.all(
-    [...GOOGLE_ADS_ADVISOR_PRIMARY_PRIORITY_SCOPES, ...GOOGLE_ADS_ADVISOR_SUPPORTIVE_PRIORITY_SCOPES].map(
-      async (scope) => ({
+    [
+      ...GOOGLE_ADS_ADVISOR_PRIMARY_PRIORITY_SCOPES,
+      ...GOOGLE_ADS_ADVISOR_SUPPORTIVE_PRIORITY_SCOPES,
+    ].map(async (scope) => ({
+      scope,
+      coverage: await getGoogleAdsDailyCoverage({
         scope,
-        coverage: await getGoogleAdsDailyCoverage({
-          scope,
-          businessId: input.businessId,
-          providerAccountId: null,
-          startDate: historicalStart,
-          endDate: yesterday,
-        }).catch(() => null),
-      })
-    )
+        businessId: input.businessId,
+        providerAccountId: null,
+        startDate: historicalStart,
+        endDate: yesterday,
+      }).catch(() => null),
+    })),
   );
   const targetScopes = coverageRows
     .filter((entry) => Number(entry.coverage?.completed_days ?? 0) < totalDays)
     .map((entry) => entry.scope);
   const required = targetScopes.some((scope) =>
-    GOOGLE_ADS_ADVISOR_PRIMARY_PRIORITY_SCOPES.includes(scope)
+    GOOGLE_ADS_ADVISOR_PRIMARY_PRIORITY_SCOPES.includes(scope),
   );
   return {
     required,
@@ -1226,7 +1473,7 @@ async function enqueueGoogleAdsRecentRepairPartitions(input: {
   policy: Awaited<ReturnType<typeof getGoogleAdsIncidentPolicy>>;
 }) {
   const emptyGapCounts = Object.fromEntries(
-    GOOGLE_ADS_RECENT_SELF_HEAL_SCOPES.map((scope) => [scope, 0])
+    GOOGLE_ADS_RECENT_SELF_HEAL_SCOPES.map((scope) => [scope, 0]),
   ) as Record<GoogleAdsWarehouseScope, number>;
 
   if (input.policy.lanePolicy.extendedRecent === "suspended") {
@@ -1236,7 +1483,9 @@ async function enqueueGoogleAdsRecentRepairPartitions(input: {
     };
   }
 
-  const accountIds = await getAssignedGoogleAccounts(input.businessId).catch(() => []);
+  const accountIds = await getAssignedGoogleAccounts(input.businessId).catch(
+    () => [],
+  );
   if (accountIds.length === 0) {
     return {
       queuedRecent: 0,
@@ -1247,7 +1496,7 @@ async function enqueueGoogleAdsRecentRepairPartitions(input: {
   const { yesterday } = await computeHistoricalTargets(input.businessId);
   const recentStart = addDaysToIsoDate(
     yesterday,
-    -(GOOGLE_ADS_RECENT_EXTENDED_RECOVERY_DAYS - 1)
+    -(GOOGLE_ADS_RECENT_EXTENDED_RECOVERY_DAYS - 1),
   );
   const gapCountsByScope = { ...emptyGapCounts };
   let queuedRecent = 0;
@@ -1274,11 +1523,14 @@ async function enqueueGoogleAdsRecentRepairPartitions(input: {
       ]);
       const blocked = new Set([...coveredDates, ...activeDates]);
       const missingDates = enumerateDays(recentStart, yesterday, true).filter(
-        (date) => !blocked.has(date)
+        (date) => !blocked.has(date),
       );
       gapCountsByScope[scope] += missingDates.length;
 
-      for (const date of missingDates.slice(0, GOOGLE_ADS_EXTENDED_RECENT_BATCH_DAYS)) {
+      for (const date of missingDates.slice(
+        0,
+        GOOGLE_ADS_EXTENDED_RECENT_BATCH_DAYS,
+      )) {
         const row = await queueGoogleAdsSyncPartition({
           businessId: input.businessId,
           providerAccountId,
@@ -1335,10 +1587,16 @@ export function resolveGoogleReplayReasonCode(input: {
   retryAfterAt?: string | null;
 }): ProviderReplayReasonCode {
   if (input.poisonedAt) return "quarantine_release";
-  if (input.checkpointStatus === "failed" && input.checkpointPhase === "transform") {
+  if (
+    input.checkpointStatus === "failed" &&
+    input.checkpointPhase === "transform"
+  ) {
     return "transform_failure_replay";
   }
-  if (input.checkpointStatus === "failed" && input.checkpointPhase === "bulk_upsert") {
+  if (
+    input.checkpointStatus === "failed" &&
+    input.checkpointPhase === "bulk_upsert"
+  ) {
     return "flush_verification_mismatch";
   }
   if (input.retryAfterAt) return "quota_retry";
@@ -1355,9 +1613,13 @@ export function resolvePhaseAwareReplayDecision(input: {
   totalChunks: number;
 }) {
   const checkpoint = input.checkpoint;
-  const storedSnapshotIds = uniqueSnapshotIds(input.existingSnapshots.map((row) => row.id));
+  const storedSnapshotIds = uniqueSnapshotIds(
+    input.existingSnapshots.map((row) => row.id),
+  );
   const lineageIds = uniqueSnapshotIds(checkpoint?.rawSnapshotIds ?? []);
-  const continuityBroken = lineageIds.some((id) => !storedSnapshotIds.includes(id));
+  const continuityBroken = lineageIds.some(
+    (id) => !storedSnapshotIds.includes(id),
+  );
   const completenessBroken =
     checkpoint != null &&
     checkpoint.phase === "finalize" &&
@@ -1390,7 +1652,9 @@ export function resolvePhaseAwareReplayDecision(input: {
       !completenessBroken &&
       (checkpoint.rowsFetched ?? 0) >= (checkpoint.rowsWritten ?? 0);
     return {
-      startChunkIndex: canFinalizeOnly ? input.totalChunks : Math.max(0, checkpoint.pageIndex ?? 0),
+      startChunkIndex: canFinalizeOnly
+        ? input.totalChunks
+        : Math.max(0, checkpoint.pageIndex ?? 0),
       finalizeOnly: canFinalizeOnly,
       replayReasonCode: resolveGoogleReplayReasonCode({
         checkpointStatus: checkpoint.status,
@@ -1432,21 +1696,25 @@ export function validateGoogleReplayCompleteness(input: {
 }) {
   const replayWindowStartChunk = Math.max(
     0,
-    Math.min(input.totalChunks, input.replayWindowStartChunk ?? 0)
+    Math.min(input.totalChunks, input.replayWindowStartChunk ?? 0),
   );
   const storedSnapshotSet = new Set(input.storedSnapshotIds ?? []);
   const storedSnapshotPageSet = new Set(
-    (input.storedSnapshotPages ?? []).map((pageIndex) => Math.max(0, Number(pageIndex)))
+    (input.storedSnapshotPages ?? []).map((pageIndex) =>
+      Math.max(0, Number(pageIndex)),
+    ),
   );
   const lineageBroken =
     storedSnapshotPageSet.size > 0
       ? false
-      : (input.finalRawSnapshotIds ?? []).some((snapshotId) => !storedSnapshotSet.has(snapshotId));
+      : (input.finalRawSnapshotIds ?? []).some(
+          (snapshotId) => !storedSnapshotSet.has(snapshotId),
+        );
   const snapshotCoverageBroken =
     storedSnapshotPageSet.size > 0
       ? Array.from(
           { length: Math.max(0, input.totalChunks - replayWindowStartChunk) },
-          (_, offset) => replayWindowStartChunk + offset
+          (_, offset) => replayWindowStartChunk + offset,
         ).some((pageIndex) => !storedSnapshotPageSet.has(pageIndex))
       : input.totalChunks > 0 && storedSnapshotSet.size < input.totalChunks;
   const rowCountBroken = input.rowsWritten > 0 && input.rowsFetched <= 0;
@@ -1470,14 +1738,22 @@ function computeDerivedMetrics(input: {
 }) {
   return {
     ctr:
-      input.impressions > 0 ? Number(((input.clicks / input.impressions) * 100).toFixed(2)) : null,
-    cpc: input.clicks > 0 ? Number((input.spend / input.clicks).toFixed(2)) : null,
+      input.impressions > 0
+        ? Number(((input.clicks / input.impressions) * 100).toFixed(2))
+        : null,
+    cpc:
+      input.clicks > 0 ? Number((input.spend / input.clicks).toFixed(2)) : null,
     cpa:
-      input.conversions > 0 ? Number((input.spend / input.conversions).toFixed(2)) : null,
-    roas: input.spend > 0 ? Number((input.revenue / input.spend).toFixed(2)) : 0,
+      input.conversions > 0
+        ? Number((input.spend / input.conversions).toFixed(2))
+        : null,
+    roas:
+      input.spend > 0 ? Number((input.revenue / input.spend).toFixed(2)) : 0,
     conversionRate:
       input.conversionRate ??
-      (input.clicks > 0 ? Number(((input.conversions / input.clicks) * 100).toFixed(2)) : null),
+      (input.clicks > 0
+        ? Number(((input.conversions / input.clicks) * 100).toFixed(2))
+        : null),
     interactionRate: input.interactionRate ?? null,
   };
 }
@@ -1579,7 +1855,7 @@ async function createScopeSyncJob(input: {
 
 function getScopeProfile(
   snapshot: Awaited<ReturnType<typeof readProviderAccountSnapshot>>,
-  accountId: string
+  accountId: string,
 ) {
   const account = snapshot?.accounts.find((item) => item.id === accountId);
   return {
@@ -1598,7 +1874,10 @@ async function persistScopeRows(input: {
   scope: GoogleAdsWarehouseScope;
   rows: GenericRow[];
   requestContext: Record<string, unknown>;
-  mapRow: (row: GenericRow, snapshotId: string | null) => GoogleAdsWarehouseDailyRow | null;
+  mapRow: (
+    row: GenericRow,
+    snapshotId: string | null,
+  ) => GoogleAdsWarehouseDailyRow | null;
   partitionId?: string;
   workerId?: string;
   attemptCount?: number;
@@ -1663,7 +1942,7 @@ async function persistScopeRows(input: {
     endpointName: input.endpointName,
   }).catch(() => []);
   const existingSnapshotPages = new Map(
-    existingSnapshots.map((row) => [Number(row.page_index ?? 0), row] as const)
+    existingSnapshots.map((row) => [Number(row.page_index ?? 0), row] as const),
   );
   const rowChunks = chunkRows(input.rows, GOOGLE_ADS_CHECKPOINT_CHUNK_SIZE);
   const replayDecision = resolvePhaseAwareReplayDecision({
@@ -1676,13 +1955,23 @@ async function persistScopeRows(input: {
   let rowsWritten = existingCheckpoint?.rowsWritten ?? 0;
   let latestSnapshotId: string | null = null;
   let replayedSnapshotCount = 0;
-  let accumulatedRawSnapshotIds = uniqueSnapshotIds(existingCheckpoint?.rawSnapshotIds ?? []);
-  let storedSnapshotIds = uniqueSnapshotIds(existingSnapshots.map((row) => row.id));
+  let accumulatedRawSnapshotIds = uniqueSnapshotIds(
+    existingCheckpoint?.rawSnapshotIds ?? [],
+  );
+  let storedSnapshotIds = uniqueSnapshotIds(
+    existingSnapshots.map((row) => row.id),
+  );
   let storedSnapshotPages = Array.from(
-    new Set(existingSnapshots.map((row) => Math.max(0, Number(row.page_index ?? 0))))
+    new Set(
+      existingSnapshots.map((row) => Math.max(0, Number(row.page_index ?? 0))),
+    ),
   );
 
-  for (let pageIndex = startChunkIndex; pageIndex < rowChunks.length; pageIndex += 1) {
+  for (
+    let pageIndex = startChunkIndex;
+    pageIndex < rowChunks.length;
+    pageIndex += 1
+  ) {
     const checkpointChunk = rowChunks[pageIndex] ?? [];
     if (input.workerId) {
       const leaseHealthy = await heartbeatGoogleAdsPartitionLease({
@@ -1704,8 +1993,10 @@ async function persistScopeRows(input: {
       phase: "fetch_raw",
       status: "running",
       pageIndex,
-      nextPageToken: pageIndex + 1 < rowChunks.length ? String(pageIndex + 1) : null,
-      providerCursor: pageIndex + 1 < rowChunks.length ? String(pageIndex + 1) : null,
+      nextPageToken:
+        pageIndex + 1 < rowChunks.length ? String(pageIndex + 1) : null,
+      providerCursor:
+        pageIndex + 1 < rowChunks.length ? String(pageIndex + 1) : null,
       rowsFetched,
       rowsWritten,
       attemptCount: input.attemptCount ?? 0,
@@ -1763,9 +2054,17 @@ async function persistScopeRows(input: {
     const sourceChunk = existingSnapshot
       ? extractSnapshotRows(existingSnapshot.payload_json)
       : checkpointChunk;
-    accumulatedRawSnapshotIds = uniqueSnapshotIds([...accumulatedRawSnapshotIds, latestSnapshotId]);
-    storedSnapshotIds = uniqueSnapshotIds([...storedSnapshotIds, latestSnapshotId]);
-    storedSnapshotPages = Array.from(new Set([...storedSnapshotPages, pageIndex]));
+    accumulatedRawSnapshotIds = uniqueSnapshotIds([
+      ...accumulatedRawSnapshotIds,
+      latestSnapshotId,
+    ]);
+    storedSnapshotIds = uniqueSnapshotIds([
+      ...storedSnapshotIds,
+      latestSnapshotId,
+    ]);
+    storedSnapshotPages = Array.from(
+      new Set([...storedSnapshotPages, pageIndex]),
+    );
     const replayingPersistedChunk =
       Boolean(existingSnapshot) &&
       Boolean(replayDecision.replayReasonCode) &&
@@ -1788,8 +2087,10 @@ async function persistScopeRows(input: {
       phase: "transform",
       status: "running",
       pageIndex,
-      nextPageToken: pageIndex + 1 < rowChunks.length ? String(pageIndex + 1) : null,
-      providerCursor: pageIndex + 1 < rowChunks.length ? String(pageIndex + 1) : null,
+      nextPageToken:
+        pageIndex + 1 < rowChunks.length ? String(pageIndex + 1) : null,
+      providerCursor:
+        pageIndex + 1 < rowChunks.length ? String(pageIndex + 1) : null,
       rowsFetched,
       rowsWritten,
       attemptCount: input.attemptCount ?? 0,
@@ -1817,8 +2118,10 @@ async function persistScopeRows(input: {
       phase: "bulk_upsert",
       status: "running",
       pageIndex,
-      nextPageToken: pageIndex + 1 < rowChunks.length ? String(pageIndex + 1) : null,
-      providerCursor: pageIndex + 1 < rowChunks.length ? String(pageIndex + 1) : null,
+      nextPageToken:
+        pageIndex + 1 < rowChunks.length ? String(pageIndex + 1) : null,
+      providerCursor:
+        pageIndex + 1 < rowChunks.length ? String(pageIndex + 1) : null,
       rowsFetched,
       rowsWritten,
       attemptCount: input.attemptCount ?? 0,
@@ -1828,7 +2131,9 @@ async function persistScopeRows(input: {
       replayDetail: replayDecision.replayDetail,
       leaseOwner: input.workerId ?? null,
       lastSuccessfulEntityKey:
-        warehouseRows.length > 0 ? warehouseRows[warehouseRows.length - 1]?.entityKey ?? null : null,
+        warehouseRows.length > 0
+          ? (warehouseRows[warehouseRows.length - 1]?.entityKey ?? null)
+          : null,
       startedAt: existingCheckpoint?.startedAt ?? new Date().toISOString(),
     });
 
@@ -1883,7 +2188,9 @@ async function persistScopeRows(input: {
       startedAt: existingCheckpoint?.startedAt ?? new Date().toISOString(),
       finishedAt: new Date().toISOString(),
     });
-    throw new Error(`Google Ads finalize guard failed for ${input.scope}: ${replayDetail}`);
+    throw new Error(
+      `Google Ads finalize guard failed for ${input.scope}: ${replayDetail}`,
+    );
   }
 
   await upsertGoogleAdsCheckpointOrThrow({
@@ -1927,7 +2234,8 @@ function aggregateAdGroupRows(input: {
   const byKey = new Map<string, GenericRow>();
   for (const row of input.rows) {
     const adGroupId = nullIfEmpty(row.adGroupId);
-    const adGroupName = nullIfEmpty(row.adGroupName) ?? nullIfEmpty(row.adGroup);
+    const adGroupName =
+      nullIfEmpty(row.adGroupName) ?? nullIfEmpty(row.adGroup);
     const key = adGroupId ?? adGroupName;
     if (!key) continue;
     const current = byKey.get(key) ?? {
@@ -1945,8 +2253,10 @@ function aggregateAdGroupRows(input: {
     };
     current.spend = toNumber(current.spend) + toNumber(row.spend);
     current.revenue = toNumber(current.revenue) + toNumber(row.revenue);
-    current.conversions = toNumber(current.conversions) + toNumber(row.conversions);
-    current.impressions = toNumber(current.impressions) + toNumber(row.impressions);
+    current.conversions =
+      toNumber(current.conversions) + toNumber(row.conversions);
+    current.impressions =
+      toNumber(current.impressions) + toNumber(row.impressions);
     current.clicks = toNumber(current.clicks) + toNumber(row.clicks);
     byKey.set(key, current);
   }
@@ -1973,7 +2283,7 @@ function aggregateAdGroupRows(input: {
       clicks: toNumber(row.clicks),
       payloadJson: row,
       sourceSnapshotId: input.sourceSnapshotId,
-    })
+    }),
   );
 }
 
@@ -1999,18 +2309,21 @@ function aggregateAccountMetrics(rows: GenericRow[]) {
       conversions: 0,
       impressions: 0,
       clicks: 0,
-    }
+    },
   );
 }
 
 async function resolveGoogleAdsCurrentDate(businessId: string) {
   const [assignments, snapshot] = await Promise.all([
     getProviderAccountAssignments(businessId, "google").catch(() => null),
-    readProviderAccountSnapshot({ businessId, provider: "google" }).catch(() => null),
+    readProviderAccountSnapshot({ businessId, provider: "google" }).catch(
+      () => null,
+    ),
   ]);
   const primaryAccountId = assignments?.account_ids?.[0] ?? null;
   const timeZone =
-    snapshot?.accounts.find((account) => account.id === primaryAccountId)?.timezone ?? "UTC";
+    snapshot?.accounts.find((account) => account.id === primaryAccountId)
+      ?.timezone ?? "UTC";
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone,
     year: "numeric",
@@ -2037,11 +2350,13 @@ async function getMissingDatesForScope(input: {
       providerAccountId: null,
       startDate: input.startDate,
       endDate: input.endDate,
-    }).catch(() => [])
+    }).catch(() => []),
   );
-  return enumerateDays(input.startDate, input.endDate, input.recentFirst ?? false).filter(
-    (date) => !coveredDates.has(date)
-  );
+  return enumerateDays(
+    input.startDate,
+    input.endDate,
+    input.recentFirst ?? false,
+  ).filter((date) => !coveredDates.has(date));
 }
 
 function getGoogleAdsWorkerId() {
@@ -2050,10 +2365,13 @@ function getGoogleAdsWorkerId() {
 
 async function computeHistoricalTargets(businessId: string) {
   const today = await resolveGoogleAdsCurrentDate(businessId).catch(() =>
-    new Date().toISOString().slice(0, 10)
+    new Date().toISOString().slice(0, 10),
   );
   const yesterday = addDaysToIsoDate(today, -1);
-  const historicalStart = getHistoricalWindowStart(yesterday, GOOGLE_ADS_WAREHOUSE_HISTORY_DAYS);
+  const historicalStart = getHistoricalWindowStart(
+    yesterday,
+    GOOGLE_ADS_WAREHOUSE_HISTORY_DAYS,
+  );
   return {
     today,
     yesterday,
@@ -2075,10 +2393,15 @@ export function shouldBlockGoogleAdsHistoricalExtendedWork(input: {
   return !input.recent90Complete;
 }
 
-async function getGoogleAdsRecent90CompletionState(input: { businessId: string }) {
-  const { historicalStart, yesterday } = await computeHistoricalTargets(input.businessId);
+async function getGoogleAdsRecent90CompletionState(input: {
+  businessId: string;
+}) {
+  const { historicalStart, yesterday } = await computeHistoricalTargets(
+    input.businessId,
+  );
   const recent90Start = addDaysToIsoDate(yesterday, -89);
-  const frontierStart = recent90Start > historicalStart ? recent90Start : historicalStart;
+  const frontierStart =
+    recent90Start > historicalStart ? recent90Start : historicalStart;
   const totalDays = dayCountInclusive(frontierStart, yesterday);
   const coverageRows = await Promise.all(
     GOOGLE_ADS_RECENT_90_FRONTIER_SCOPES.map(async (scope) => ({
@@ -2090,7 +2413,7 @@ async function getGoogleAdsRecent90CompletionState(input: { businessId: string }
         startDate: frontierStart,
         endDate: yesterday,
       }).catch(() => null),
-    }))
+    })),
   );
 
   const incompleteScopes = coverageRows
@@ -2107,10 +2430,15 @@ async function getGoogleAdsRecent90CompletionState(input: { businessId: string }
 }
 
 async function enqueueHistoricalCorePartitions(businessId: string) {
-  const accountIds = await getAssignedGoogleAccounts(businessId).catch(() => []);
+  const accountIds = await getAssignedGoogleAccounts(businessId).catch(
+    () => [],
+  );
   if (accountIds.length === 0) return 0;
-  const { historicalStart, yesterday } = await computeHistoricalTargets(businessId);
-  const recent90State = await getGoogleAdsRecent90CompletionState({ businessId }).catch(() => null);
+  const { historicalStart, yesterday } =
+    await computeHistoricalTargets(businessId);
+  const recent90State = await getGoogleAdsRecent90CompletionState({
+    businessId,
+  }).catch(() => null);
   const targetStart = decideGoogleAdsHistoricalFrontier({
     historicalStart,
     recent90Start: recent90State?.recent90Start ?? historicalStart,
@@ -2160,13 +2488,15 @@ async function enqueueHistoricalCorePartitions(businessId: string) {
 }
 
 async function enqueueMaintenancePartitions(businessId: string) {
-  const accountIds = await getAssignedGoogleAccounts(businessId).catch(() => []);
+  const accountIds = await getAssignedGoogleAccounts(businessId).catch(
+    () => [],
+  );
   if (accountIds.length === 0) return;
   const { today, yesterday } = await computeHistoricalTargets(businessId);
   const recentDates = enumerateDays(
     addDaysToIsoDate(yesterday, -(GOOGLE_ADS_RECENT_MAINTENANCE_DAYS - 1)),
     yesterday,
-    true
+    true,
   );
   for (const providerAccountId of accountIds) {
     const activeRecentDates = new Set(
@@ -2175,10 +2505,13 @@ async function enqueueMaintenancePartitions(businessId: string) {
         providerAccountId,
         lane: "maintenance",
         scope: "campaign_daily",
-        startDate: addDaysToIsoDate(yesterday, -(GOOGLE_ADS_RECENT_MAINTENANCE_DAYS - 1)),
+        startDate: addDaysToIsoDate(
+          yesterday,
+          -(GOOGLE_ADS_RECENT_MAINTENANCE_DAYS - 1),
+        ),
         endDate: today,
         statuses: [...getGoogleAdsGapPlannerBlockingStatuses()],
-      }).catch(() => [])
+      }).catch(() => []),
     );
     for (const date of recentDates) {
       if (activeRecentDates.has(date)) continue;
@@ -2211,9 +2544,13 @@ async function enqueueMaintenancePartitions(businessId: string) {
 
 export async function enqueueGoogleAdsScheduledWork(businessId: string) {
   await refreshGoogleAdsSyncStateForBusiness({ businessId }).catch(() => null);
-  const queuedCore = await enqueueHistoricalCorePartitions(businessId).catch(() => 0);
+  const queuedCore = await enqueueHistoricalCorePartitions(businessId).catch(
+    () => 0,
+  );
   await enqueueMaintenancePartitions(businessId).catch(() => null);
-  const queueHealth = await getGoogleAdsQueueHealth({ businessId }).catch(() => null);
+  const queueHealth = await getGoogleAdsQueueHealth({ businessId }).catch(
+    () => null,
+  );
   return {
     businessId,
     queuedCore,
@@ -2226,7 +2563,9 @@ export async function refreshGoogleAdsSyncStateForBusiness(input: {
   businessId: string;
   scopes?: GoogleAdsWarehouseScope[];
 }) {
-  const accountIds = await getAssignedGoogleAccounts(input.businessId).catch(() => []);
+  const accountIds = await getAssignedGoogleAccounts(input.businessId).catch(
+    () => [],
+  );
   if (accountIds.length === 0) return;
   const scopes = input.scopes ?? GOOGLE_ADS_STATE_SCOPES;
   for (const providerAccountId of accountIds) {
@@ -2263,7 +2602,7 @@ async function computeContiguousReadyThroughDate(input: {
       providerAccountId: input.providerAccountId,
       startDate: input.targetStart,
       endDate: input.targetEnd,
-    }).catch(() => [])
+    }).catch(() => []),
   );
   const descending = enumerateDays(input.targetStart, input.targetEnd, true);
   let readyThroughDate: string | null = null;
@@ -2282,17 +2621,20 @@ export function scheduleGoogleAdsBackgroundSync(input: {
   const timers = getBackgroundWorkerTimers();
   if (timers.has(input.businessId)) return false;
 
-  const timer = setTimeout(async () => {
-    timers.delete(input.businessId);
-    try {
-      await syncGoogleAdsReports(input.businessId);
-    } catch (error) {
-      console.error("[google-ads-sync] background_loop_failed", {
-        businessId: input.businessId,
-        message: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }, Math.max(0, input.delayMs ?? GOOGLE_ADS_BACKGROUND_LOOP_DELAY_MS));
+  const timer = setTimeout(
+    async () => {
+      timers.delete(input.businessId);
+      try {
+        await syncGoogleAdsReports(input.businessId);
+      } catch (error) {
+        console.error("[google-ads-sync] background_loop_failed", {
+          businessId: input.businessId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    },
+    Math.max(0, input.delayMs ?? GOOGLE_ADS_BACKGROUND_LOOP_DELAY_MS),
+  );
 
   timers.set(input.businessId, timer);
   return true;
@@ -2305,10 +2647,20 @@ async function syncGoogleAdsDates(input: {
   triggerSource: string;
   scopes?: GoogleAdsWarehouseScope[];
 }) {
-  await expireStaleGoogleAdsSyncJobs({ businessId: input.businessId }).catch(() => null);
-  const accountIds = await getAssignedGoogleAccounts(input.businessId).catch(() => []);
+  await expireStaleGoogleAdsSyncJobs({ businessId: input.businessId }).catch(
+    () => null,
+  );
+  const accountIds = await getAssignedGoogleAccounts(input.businessId).catch(
+    () => [],
+  );
   if (accountIds.length === 0 || input.dates.length === 0) {
-    return { businessId: input.businessId, attempted: 0, succeeded: 0, failed: 0, skipped: true };
+    return {
+      businessId: input.businessId,
+      attempted: 0,
+      succeeded: 0,
+      failed: 0,
+      skipped: true,
+    };
   }
 
   let succeeded = 0;
@@ -2374,7 +2726,7 @@ async function syncGoogleAdsAccountDay(input: {
       "geo_daily",
       "device_daily",
       "product_daily",
-    ]
+    ],
   );
   const wants = (scope: GoogleAdsWarehouseScope) => scopes.has(scope);
   const snapshot = await readProviderAccountSnapshot({
@@ -2408,14 +2760,23 @@ async function syncGoogleAdsAccountDay(input: {
       return false;
     }
 
-    const secondaryScopes = Array.from(scopes).filter((scope) => scope !== primaryScope);
+    const secondaryScopes = Array.from(scopes).filter(
+      (scope) => scope !== primaryScope,
+    );
     const secondaryJobs = await Promise.all(
       secondaryScopes.map((scope) =>
-        createScopeSyncJob({ ...input, startDate: input.date, endDate: input.date, scope })
-      )
+        createScopeSyncJob({
+          ...input,
+          startDate: input.date,
+          endDate: input.date,
+          scope,
+        }),
+      ),
     );
     const jobs = [primaryJob, ...secondaryJobs];
-    jobIds = jobs.map((job) => job?.id).filter((value): value is string => Boolean(value));
+    jobIds = jobs
+      .map((job) => job?.id)
+      .filter((value): value is string => Boolean(value));
   }
 
   try {
@@ -2427,34 +2788,36 @@ async function syncGoogleAdsAccountDay(input: {
         })
       : null;
     const campaignRows = (campaigns?.rows as GenericRow[] | undefined) ?? [];
-    if (fetchPlan.campaigns && campaignRows.length >= GOOGLE_ADS_CAMPAIGN_CORE_LIMIT) {
+    if (
+      fetchPlan.campaigns &&
+      campaignRows.length >= GOOGLE_ADS_CAMPAIGN_CORE_LIMIT
+    ) {
       throw new Error(
-        `${GOOGLE_ADS_CAMPAIGN_CORE_LIMIT_ERROR_CODE}: campaign_daily returned ${campaignRows.length} rows, hitting hard cap ${GOOGLE_ADS_CAMPAIGN_CORE_LIMIT}`
+        `${GOOGLE_ADS_CAMPAIGN_CORE_LIMIT_ERROR_CODE}: campaign_daily returned ${campaignRows.length} rows, hitting hard cap ${GOOGLE_ADS_CAMPAIGN_CORE_LIMIT}`,
       );
     }
-    const overview = fetchPlan.campaigns ? aggregateAccountMetrics(campaignRows) : null;
-    const searchIntelligence =
-      fetchPlan.searchIntelligence
-        ? await getGoogleAdsSearchIntelligenceReport({
-            ...baseParams,
-            source: "google_ads_warehouse_sync",
-            executionMode: "warehouse_sync",
-          })
-        : null;
-    const keywords =
-      fetchPlan.keywords
-        ? await getGoogleAdsKeywordsReport({
-            ...baseParams,
-            source: "google_ads_warehouse_sync",
-          })
-        : null;
-    const ads =
-      fetchPlan.ads
-        ? await getGoogleAdsAdsReport({
-            ...baseParams,
-            source: "google_ads_warehouse_sync",
-          })
-        : null;
+    const overview = fetchPlan.campaigns
+      ? aggregateAccountMetrics(campaignRows)
+      : null;
+    const searchIntelligence = fetchPlan.searchIntelligence
+      ? await getGoogleAdsSearchIntelligenceReport({
+          ...baseParams,
+          source: "google_ads_warehouse_sync",
+          executionMode: "warehouse_sync",
+        })
+      : null;
+    const keywords = fetchPlan.keywords
+      ? await getGoogleAdsKeywordsReport({
+          ...baseParams,
+          source: "google_ads_warehouse_sync",
+        })
+      : null;
+    const ads = fetchPlan.ads
+      ? await getGoogleAdsAdsReport({
+          ...baseParams,
+          source: "google_ads_warehouse_sync",
+        })
+      : null;
     const assets = fetchPlan.assets
       ? await getGoogleAdsAssetsReport({
           ...baseParams,
@@ -2510,7 +2873,9 @@ async function syncGoogleAdsAccountDay(input: {
             ...overview,
             convRate:
               overview.clicks > 0
-                ? Number(((overview.conversions / overview.clicks) * 100).toFixed(2))
+                ? Number(
+                    ((overview.conversions / overview.clicks) * 100).toFixed(2),
+                  )
                 : 0,
           },
         ],
@@ -2535,7 +2900,9 @@ async function syncGoogleAdsAccountDay(input: {
             conversionRate:
               row.convRate == null ? null : toNumber(row.convRate),
             interactionRate:
-              row.interactionRate == null ? null : toNumber(row.interactionRate),
+              row.interactionRate == null
+                ? null
+                : toNumber(row.interactionRate),
             payloadJson: row,
             sourceSnapshotId: snapshotId,
           }),
@@ -2574,7 +2941,8 @@ async function syncGoogleAdsAccountDay(input: {
             conversions: toNumber(row.conversions),
             impressions: toNumber(row.impressions),
             clicks: toNumber(row.clicks),
-            conversionRate: row.conversionRate == null ? null : toNumber(row.conversionRate),
+            conversionRate:
+              row.conversionRate == null ? null : toNumber(row.conversionRate),
             payloadJson: row,
             sourceSnapshotId: snapshotId,
           }),
@@ -2584,127 +2952,140 @@ async function syncGoogleAdsAccountDay(input: {
     const searchSnapshot =
       wants("search_term_daily") && searchIntelligence
         ? await persistScopeRows({
-      businessId: input.businessId,
-      providerAccountId: input.providerAccountId,
-      date: input.date,
-      accountTimezone: profile.timezone,
-      accountCurrency: profile.currency,
-      endpointName: "search_intelligence",
-      scope: "search_term_daily",
-      rows: searchIntelligence.rows as GenericRow[],
-      requestContext: { source: "sync", report: "search_intelligence" },
-      partitionId: input.partitionId,
-      workerId: input.workerId,
-      attemptCount: input.attemptCount,
-      mapRow: (row, snapshotId) =>
-        buildWarehouseRow({
-          businessId: input.businessId,
-          providerAccountId: input.providerAccountId,
-          date: input.date,
-          accountTimezone: profile.timezone,
-          accountCurrency: profile.currency,
-          entityKey: [
-            nullIfEmpty(row.searchTerm),
-            nullIfEmpty(row.campaignId),
-            nullIfEmpty(row.adGroupId),
-          ]
-            .filter(Boolean)
-            .join(":"),
-          entityLabel: nullIfEmpty(row.searchTerm),
-          campaignId: nullIfEmpty(row.campaignId),
-          campaignName: nullIfEmpty(row.campaignName) ?? nullIfEmpty(row.campaign),
-          adGroupId: nullIfEmpty(row.adGroupId),
-          adGroupName: nullIfEmpty(row.adGroupName) ?? nullIfEmpty(row.adGroup),
-          classification: nullIfEmpty(row.classification) ?? nullIfEmpty(row.intentClass),
-          spend: toNumber(row.spend),
-          revenue: toNumber(row.revenue),
-          conversions: toNumber(row.conversions),
-          impressions: toNumber(row.impressions),
-          clicks: toNumber(row.clicks),
-          payloadJson: row,
-          sourceSnapshotId: snapshotId,
-        }),
-    })
+            businessId: input.businessId,
+            providerAccountId: input.providerAccountId,
+            date: input.date,
+            accountTimezone: profile.timezone,
+            accountCurrency: profile.currency,
+            endpointName: "search_intelligence",
+            scope: "search_term_daily",
+            rows: searchIntelligence.rows as GenericRow[],
+            requestContext: { source: "sync", report: "search_intelligence" },
+            partitionId: input.partitionId,
+            workerId: input.workerId,
+            attemptCount: input.attemptCount,
+            mapRow: (row, snapshotId) =>
+              buildWarehouseRow({
+                businessId: input.businessId,
+                providerAccountId: input.providerAccountId,
+                date: input.date,
+                accountTimezone: profile.timezone,
+                accountCurrency: profile.currency,
+                entityKey: [
+                  nullIfEmpty(row.searchTerm),
+                  nullIfEmpty(row.campaignId),
+                  nullIfEmpty(row.adGroupId),
+                ]
+                  .filter(Boolean)
+                  .join(":"),
+                entityLabel: nullIfEmpty(row.searchTerm),
+                campaignId: nullIfEmpty(row.campaignId),
+                campaignName:
+                  nullIfEmpty(row.campaignName) ?? nullIfEmpty(row.campaign),
+                adGroupId: nullIfEmpty(row.adGroupId),
+                adGroupName:
+                  nullIfEmpty(row.adGroupName) ?? nullIfEmpty(row.adGroup),
+                classification:
+                  nullIfEmpty(row.classification) ??
+                  nullIfEmpty(row.intentClass),
+                spend: toNumber(row.spend),
+                revenue: toNumber(row.revenue),
+                conversions: toNumber(row.conversions),
+                impressions: toNumber(row.impressions),
+                clicks: toNumber(row.clicks),
+                payloadJson: row,
+                sourceSnapshotId: snapshotId,
+              }),
+          })
         : null;
 
     if (wants("keyword_daily") && keywords) {
       await persistScopeRows({
-      businessId: input.businessId,
-      providerAccountId: input.providerAccountId,
-      date: input.date,
-      accountTimezone: profile.timezone,
-      accountCurrency: profile.currency,
-      endpointName: "keywords",
-      scope: "keyword_daily",
-      rows: keywords.rows as GenericRow[],
-      requestContext: { source: "sync", report: "keywords" },
-      partitionId: input.partitionId,
-      workerId: input.workerId,
-      attemptCount: input.attemptCount,
-      mapRow: (row, snapshotId) =>
-        buildWarehouseRow({
-          businessId: input.businessId,
-          providerAccountId: input.providerAccountId,
-          date: input.date,
-          accountTimezone: profile.timezone,
-          accountCurrency: profile.currency,
-          entityKey: nullIfEmpty(row.criterionId) ?? `${nullIfEmpty(row.keywordText)}:${nullIfEmpty(row.adGroupId)}`,
-          entityLabel: nullIfEmpty(row.keywordText),
-          campaignId: nullIfEmpty(row.campaignId),
-          campaignName: nullIfEmpty(row.campaignName) ?? nullIfEmpty(row.campaign),
-          adGroupId: nullIfEmpty(row.adGroupId),
-          adGroupName: nullIfEmpty(row.adGroupName) ?? nullIfEmpty(row.adGroup),
-          classification: nullIfEmpty(row.keywordState),
-          spend: toNumber(row.spend),
-          revenue: toNumber(row.revenue),
-          conversions: toNumber(row.conversions),
-          impressions: toNumber(row.impressions),
-          clicks: toNumber(row.clicks),
-          payloadJson: row,
-          sourceSnapshotId: snapshotId,
-        }),
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        date: input.date,
+        accountTimezone: profile.timezone,
+        accountCurrency: profile.currency,
+        endpointName: "keywords",
+        scope: "keyword_daily",
+        rows: keywords.rows as GenericRow[],
+        requestContext: { source: "sync", report: "keywords" },
+        partitionId: input.partitionId,
+        workerId: input.workerId,
+        attemptCount: input.attemptCount,
+        mapRow: (row, snapshotId) =>
+          buildWarehouseRow({
+            businessId: input.businessId,
+            providerAccountId: input.providerAccountId,
+            date: input.date,
+            accountTimezone: profile.timezone,
+            accountCurrency: profile.currency,
+            entityKey:
+              nullIfEmpty(row.criterionId) ??
+              `${nullIfEmpty(row.keywordText)}:${nullIfEmpty(row.adGroupId)}`,
+            entityLabel: nullIfEmpty(row.keywordText),
+            campaignId: nullIfEmpty(row.campaignId),
+            campaignName:
+              nullIfEmpty(row.campaignName) ?? nullIfEmpty(row.campaign),
+            adGroupId: nullIfEmpty(row.adGroupId),
+            adGroupName:
+              nullIfEmpty(row.adGroupName) ?? nullIfEmpty(row.adGroup),
+            classification: nullIfEmpty(row.keywordState),
+            spend: toNumber(row.spend),
+            revenue: toNumber(row.revenue),
+            conversions: toNumber(row.conversions),
+            impressions: toNumber(row.impressions),
+            clicks: toNumber(row.clicks),
+            payloadJson: row,
+            sourceSnapshotId: snapshotId,
+          }),
       });
     }
 
     const adsSnapshot =
       wants("ad_daily") && ads
         ? await persistScopeRows({
-      businessId: input.businessId,
-      providerAccountId: input.providerAccountId,
-      date: input.date,
-      accountTimezone: profile.timezone,
-      accountCurrency: profile.currency,
-      endpointName: "ads",
-      scope: "ad_daily",
-      rows: ads.rows as GenericRow[],
-      requestContext: { source: "sync", report: "ads" },
-      partitionId: input.partitionId,
-      workerId: input.workerId,
-      attemptCount: input.attemptCount,
-      mapRow: (row, snapshotId) =>
-        buildWarehouseRow({
-          businessId: input.businessId,
-          providerAccountId: input.providerAccountId,
-          date: input.date,
-          accountTimezone: profile.timezone,
-          accountCurrency: profile.currency,
-          entityKey: nullIfEmpty(row.adId) ?? nullIfEmpty(row.id) ?? "",
-          entityLabel: nullIfEmpty(row.assetName) ?? nullIfEmpty(row.headline) ?? nullIfEmpty(row.id),
-          campaignId: nullIfEmpty(row.campaignId),
-          campaignName: nullIfEmpty(row.campaignName) ?? nullIfEmpty(row.campaign),
-          adGroupId: nullIfEmpty(row.adGroupId),
-          adGroupName: nullIfEmpty(row.adGroupName) ?? nullIfEmpty(row.adGroup),
-          status: nullIfEmpty(row.status),
-          channel: nullIfEmpty(row.channel),
-          spend: toNumber(row.spend),
-          revenue: toNumber(row.revenue),
-          conversions: toNumber(row.conversions),
-          impressions: toNumber(row.impressions),
-          clicks: toNumber(row.clicks),
-          payloadJson: row,
-          sourceSnapshotId: snapshotId,
-        }),
-    })
+            businessId: input.businessId,
+            providerAccountId: input.providerAccountId,
+            date: input.date,
+            accountTimezone: profile.timezone,
+            accountCurrency: profile.currency,
+            endpointName: "ads",
+            scope: "ad_daily",
+            rows: ads.rows as GenericRow[],
+            requestContext: { source: "sync", report: "ads" },
+            partitionId: input.partitionId,
+            workerId: input.workerId,
+            attemptCount: input.attemptCount,
+            mapRow: (row, snapshotId) =>
+              buildWarehouseRow({
+                businessId: input.businessId,
+                providerAccountId: input.providerAccountId,
+                date: input.date,
+                accountTimezone: profile.timezone,
+                accountCurrency: profile.currency,
+                entityKey: nullIfEmpty(row.adId) ?? nullIfEmpty(row.id) ?? "",
+                entityLabel:
+                  nullIfEmpty(row.assetName) ??
+                  nullIfEmpty(row.headline) ??
+                  nullIfEmpty(row.id),
+                campaignId: nullIfEmpty(row.campaignId),
+                campaignName:
+                  nullIfEmpty(row.campaignName) ?? nullIfEmpty(row.campaign),
+                adGroupId: nullIfEmpty(row.adGroupId),
+                adGroupName:
+                  nullIfEmpty(row.adGroupName) ?? nullIfEmpty(row.adGroup),
+                status: nullIfEmpty(row.status),
+                channel: nullIfEmpty(row.channel),
+                spend: toNumber(row.spend),
+                revenue: toNumber(row.revenue),
+                conversions: toNumber(row.conversions),
+                impressions: toNumber(row.impressions),
+                clicks: toNumber(row.clicks),
+                payloadJson: row,
+                sourceSnapshotId: snapshotId,
+              }),
+          })
         : null;
 
     if (wants("ad_group_daily")) {
@@ -2714,7 +3095,8 @@ async function syncGoogleAdsAccountDay(input: {
         date: input.date,
         accountTimezone: profile.timezone,
         accountCurrency: profile.currency,
-        sourceSnapshotId: adsSnapshot?.snapshotId ?? searchSnapshot?.snapshotId ?? null,
+        sourceSnapshotId:
+          adsSnapshot?.snapshotId ?? searchSnapshot?.snapshotId ?? null,
         rows: [
           ...((ads?.rows as GenericRow[] | undefined) ?? []),
           ...((keywords?.rows as GenericRow[] | undefined) ?? []),
@@ -2729,11 +3111,16 @@ async function syncGoogleAdsAccountDay(input: {
         }).catch(() => null);
         const chunks = chunkRows(adGroupRows, GOOGLE_ADS_CHECKPOINT_CHUNK_SIZE);
         const startChunkIndex =
-          existingCheckpoint?.status === "succeeded" && existingCheckpoint.phase === "finalize"
+          existingCheckpoint?.status === "succeeded" &&
+          existingCheckpoint.phase === "finalize"
             ? chunks.length
             : Math.max(0, existingCheckpoint?.pageIndex ?? 0);
         let rowsWritten = existingCheckpoint?.rowsWritten ?? 0;
-        for (let pageIndex = startChunkIndex; pageIndex < chunks.length; pageIndex += 1) {
+        for (
+          let pageIndex = startChunkIndex;
+          pageIndex < chunks.length;
+          pageIndex += 1
+        ) {
           if (input.workerId) {
             await heartbeatGoogleAdsPartitionLease({
               partitionId: input.partitionId,
@@ -2750,23 +3137,32 @@ async function syncGoogleAdsAccountDay(input: {
             phase: "bulk_upsert",
             status: "running",
             pageIndex,
-            nextPageToken: pageIndex + 1 < chunks.length ? String(pageIndex + 1) : null,
-            providerCursor: pageIndex + 1 < chunks.length ? String(pageIndex + 1) : null,
+            nextPageToken:
+              pageIndex + 1 < chunks.length ? String(pageIndex + 1) : null,
+            providerCursor:
+              pageIndex + 1 < chunks.length ? String(pageIndex + 1) : null,
             rowsFetched: adGroupRows.length,
             rowsWritten,
             attemptCount: input.attemptCount ?? 0,
             rawSnapshotIds: [
               ...(existingCheckpoint?.rawSnapshotIds ?? []),
               ...(adsSnapshot?.snapshotId ? [adsSnapshot.snapshotId] : []),
-              ...(searchSnapshot?.snapshotId ? [searchSnapshot.snapshotId] : []),
+              ...(searchSnapshot?.snapshotId
+                ? [searchSnapshot.snapshotId]
+                : []),
             ],
             progressHeartbeatAt: new Date().toISOString(),
             leaseOwner: input.workerId ?? null,
             lastSuccessfulEntityKey:
-              chunks[pageIndex]?.[chunks[pageIndex].length - 1]?.entityKey ?? null,
-            startedAt: existingCheckpoint?.startedAt ?? new Date().toISOString(),
+              chunks[pageIndex]?.[chunks[pageIndex].length - 1]?.entityKey ??
+              null,
+            startedAt:
+              existingCheckpoint?.startedAt ?? new Date().toISOString(),
           });
-          await upsertGoogleAdsDailyRows("ad_group_daily", chunks[pageIndex] ?? []);
+          await upsertGoogleAdsDailyRows(
+            "ad_group_daily",
+            chunks[pageIndex] ?? [],
+          );
           rowsWritten += (chunks[pageIndex] ?? []).length;
         }
         await upsertGoogleAdsCheckpointOrThrow({
@@ -2800,224 +3196,247 @@ async function syncGoogleAdsAccountDay(input: {
 
     if (wants("asset_daily") && assets) {
       await persistScopeRows({
-      businessId: input.businessId,
-      providerAccountId: input.providerAccountId,
-      date: input.date,
-      accountTimezone: profile.timezone,
-      accountCurrency: profile.currency,
-      endpointName: "assets",
-      scope: "asset_daily",
-      rows: assets.rows as GenericRow[],
-      requestContext: { source: "sync", report: "assets" },
-      partitionId: input.partitionId,
-      workerId: input.workerId,
-      attemptCount: input.attemptCount,
-      mapRow: (row, snapshotId) =>
-        buildWarehouseRow({
-          businessId: input.businessId,
-          providerAccountId: input.providerAccountId,
-          date: input.date,
-          accountTimezone: profile.timezone,
-          accountCurrency: profile.currency,
-          entityKey: nullIfEmpty(row.assetId) ?? nullIfEmpty(row.id) ?? "",
-          entityLabel: nullIfEmpty(row.assetName) ?? nullIfEmpty(row.assetText),
-          campaignId: nullIfEmpty(row.campaignId),
-          campaignName: nullIfEmpty(row.campaignName) ?? nullIfEmpty(row.campaign),
-          adGroupId: nullIfEmpty(row.assetGroupId),
-          adGroupName: nullIfEmpty(row.assetGroupName) ?? nullIfEmpty(row.assetGroup),
-          classification: nullIfEmpty(row.assetState),
-          spend: toNumber(row.spend),
-          revenue: toNumber(row.revenue),
-          conversions: toNumber(row.conversions),
-          impressions: toNumber(row.impressions),
-          clicks: toNumber(row.clicks),
-          interactionRate: row.interactionRate == null ? null : toNumber(row.interactionRate),
-          payloadJson: row,
-          sourceSnapshotId: snapshotId,
-        }),
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        date: input.date,
+        accountTimezone: profile.timezone,
+        accountCurrency: profile.currency,
+        endpointName: "assets",
+        scope: "asset_daily",
+        rows: assets.rows as GenericRow[],
+        requestContext: { source: "sync", report: "assets" },
+        partitionId: input.partitionId,
+        workerId: input.workerId,
+        attemptCount: input.attemptCount,
+        mapRow: (row, snapshotId) =>
+          buildWarehouseRow({
+            businessId: input.businessId,
+            providerAccountId: input.providerAccountId,
+            date: input.date,
+            accountTimezone: profile.timezone,
+            accountCurrency: profile.currency,
+            entityKey: nullIfEmpty(row.assetId) ?? nullIfEmpty(row.id) ?? "",
+            entityLabel:
+              nullIfEmpty(row.assetName) ?? nullIfEmpty(row.assetText),
+            campaignId: nullIfEmpty(row.campaignId),
+            campaignName:
+              nullIfEmpty(row.campaignName) ?? nullIfEmpty(row.campaign),
+            adGroupId: nullIfEmpty(row.assetGroupId),
+            adGroupName:
+              nullIfEmpty(row.assetGroupName) ?? nullIfEmpty(row.assetGroup),
+            classification: nullIfEmpty(row.assetState),
+            spend: toNumber(row.spend),
+            revenue: toNumber(row.revenue),
+            conversions: toNumber(row.conversions),
+            impressions: toNumber(row.impressions),
+            clicks: toNumber(row.clicks),
+            interactionRate:
+              row.interactionRate == null
+                ? null
+                : toNumber(row.interactionRate),
+            payloadJson: row,
+            sourceSnapshotId: snapshotId,
+          }),
       });
     }
 
     if (wants("asset_group_daily") && assetGroups) {
       await persistScopeRows({
-      businessId: input.businessId,
-      providerAccountId: input.providerAccountId,
-      date: input.date,
-      accountTimezone: profile.timezone,
-      accountCurrency: profile.currency,
-      endpointName: "asset_groups",
-      scope: "asset_group_daily",
-      rows: assetGroups.rows as GenericRow[],
-      requestContext: { source: "sync", report: "asset_groups" },
-      partitionId: input.partitionId,
-      workerId: input.workerId,
-      attemptCount: input.attemptCount,
-      mapRow: (row, snapshotId) =>
-        buildWarehouseRow({
-          businessId: input.businessId,
-          providerAccountId: input.providerAccountId,
-          date: input.date,
-          accountTimezone: profile.timezone,
-          accountCurrency: profile.currency,
-          entityKey: nullIfEmpty(row.assetGroupId) ?? nullIfEmpty(row.id) ?? "",
-          entityLabel: nullIfEmpty(row.assetGroupName) ?? nullIfEmpty(row.name),
-          campaignId: nullIfEmpty(row.campaignId),
-          campaignName: nullIfEmpty(row.campaignName) ?? nullIfEmpty(row.campaign),
-          status: nullIfEmpty(row.status),
-          classification: nullIfEmpty(row.classification),
-          spend: toNumber(row.spend),
-          revenue: toNumber(row.revenue),
-          conversions: toNumber(row.conversions),
-          impressions: toNumber(row.impressions),
-          clicks: toNumber(row.clicks),
-          conversionRate: row.conversionRate == null ? null : toNumber(row.conversionRate),
-          payloadJson: row,
-          sourceSnapshotId: snapshotId,
-        }),
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        date: input.date,
+        accountTimezone: profile.timezone,
+        accountCurrency: profile.currency,
+        endpointName: "asset_groups",
+        scope: "asset_group_daily",
+        rows: assetGroups.rows as GenericRow[],
+        requestContext: { source: "sync", report: "asset_groups" },
+        partitionId: input.partitionId,
+        workerId: input.workerId,
+        attemptCount: input.attemptCount,
+        mapRow: (row, snapshotId) =>
+          buildWarehouseRow({
+            businessId: input.businessId,
+            providerAccountId: input.providerAccountId,
+            date: input.date,
+            accountTimezone: profile.timezone,
+            accountCurrency: profile.currency,
+            entityKey:
+              nullIfEmpty(row.assetGroupId) ?? nullIfEmpty(row.id) ?? "",
+            entityLabel:
+              nullIfEmpty(row.assetGroupName) ?? nullIfEmpty(row.name),
+            campaignId: nullIfEmpty(row.campaignId),
+            campaignName:
+              nullIfEmpty(row.campaignName) ?? nullIfEmpty(row.campaign),
+            status: nullIfEmpty(row.status),
+            classification: nullIfEmpty(row.classification),
+            spend: toNumber(row.spend),
+            revenue: toNumber(row.revenue),
+            conversions: toNumber(row.conversions),
+            impressions: toNumber(row.impressions),
+            clicks: toNumber(row.clicks),
+            conversionRate:
+              row.conversionRate == null ? null : toNumber(row.conversionRate),
+            payloadJson: row,
+            sourceSnapshotId: snapshotId,
+          }),
       });
     }
 
     if (wants("audience_daily") && audiences) {
       await persistScopeRows({
-      businessId: input.businessId,
-      providerAccountId: input.providerAccountId,
-      date: input.date,
-      accountTimezone: profile.timezone,
-      accountCurrency: profile.currency,
-      endpointName: "audiences",
-      scope: "audience_daily",
-      rows: audiences.rows as GenericRow[],
-      requestContext: { source: "sync", report: "audiences" },
-      partitionId: input.partitionId,
-      workerId: input.workerId,
-      attemptCount: input.attemptCount,
-      mapRow: (row, snapshotId) =>
-        buildWarehouseRow({
-          businessId: input.businessId,
-          providerAccountId: input.providerAccountId,
-          date: input.date,
-          accountTimezone: profile.timezone,
-          accountCurrency: profile.currency,
-          entityKey: nullIfEmpty(row.audienceKey) ?? `${nullIfEmpty(row.audienceType)}:${nullIfEmpty(row.adGroupId)}`,
-          entityLabel: nullIfEmpty(row.audienceNameBestEffort) ?? nullIfEmpty(row.type),
-          campaignId: nullIfEmpty(row.campaignId),
-          campaignName: nullIfEmpty(row.campaignName) ?? nullIfEmpty(row.campaign),
-          adGroupId: nullIfEmpty(row.adGroupId),
-          adGroupName: nullIfEmpty(row.adGroupName) ?? nullIfEmpty(row.adGroup),
-          classification: nullIfEmpty(row.audienceState),
-          spend: toNumber(row.spend),
-          revenue: toNumber(row.revenue),
-          conversions: toNumber(row.conversions),
-          impressions: toNumber(row.impressions),
-          clicks: toNumber(row.clicks),
-          payloadJson: row,
-          sourceSnapshotId: snapshotId,
-        }),
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        date: input.date,
+        accountTimezone: profile.timezone,
+        accountCurrency: profile.currency,
+        endpointName: "audiences",
+        scope: "audience_daily",
+        rows: audiences.rows as GenericRow[],
+        requestContext: { source: "sync", report: "audiences" },
+        partitionId: input.partitionId,
+        workerId: input.workerId,
+        attemptCount: input.attemptCount,
+        mapRow: (row, snapshotId) =>
+          buildWarehouseRow({
+            businessId: input.businessId,
+            providerAccountId: input.providerAccountId,
+            date: input.date,
+            accountTimezone: profile.timezone,
+            accountCurrency: profile.currency,
+            entityKey:
+              nullIfEmpty(row.audienceKey) ??
+              `${nullIfEmpty(row.audienceType)}:${nullIfEmpty(row.adGroupId)}`,
+            entityLabel:
+              nullIfEmpty(row.audienceNameBestEffort) ?? nullIfEmpty(row.type),
+            campaignId: nullIfEmpty(row.campaignId),
+            campaignName:
+              nullIfEmpty(row.campaignName) ?? nullIfEmpty(row.campaign),
+            adGroupId: nullIfEmpty(row.adGroupId),
+            adGroupName:
+              nullIfEmpty(row.adGroupName) ?? nullIfEmpty(row.adGroup),
+            classification: nullIfEmpty(row.audienceState),
+            spend: toNumber(row.spend),
+            revenue: toNumber(row.revenue),
+            conversions: toNumber(row.conversions),
+            impressions: toNumber(row.impressions),
+            clicks: toNumber(row.clicks),
+            payloadJson: row,
+            sourceSnapshotId: snapshotId,
+          }),
       });
     }
 
     if (wants("geo_daily") && geo) {
       await persistScopeRows({
-      businessId: input.businessId,
-      providerAccountId: input.providerAccountId,
-      date: input.date,
-      accountTimezone: profile.timezone,
-      accountCurrency: profile.currency,
-      endpointName: "geo",
-      scope: "geo_daily",
-      rows: geo.rows as GenericRow[],
-      requestContext: { source: "sync", report: "geo" },
-      partitionId: input.partitionId,
-      workerId: input.workerId,
-      attemptCount: input.attemptCount,
-      mapRow: (row, snapshotId) =>
-        buildWarehouseRow({
-          businessId: input.businessId,
-          providerAccountId: input.providerAccountId,
-          date: input.date,
-          accountTimezone: profile.timezone,
-          accountCurrency: profile.currency,
-          entityKey: nullIfEmpty(row.geoId) ?? nullIfEmpty(row.country) ?? nullIfEmpty(row.geoName) ?? "",
-          entityLabel: nullIfEmpty(row.geoName) ?? nullIfEmpty(row.country),
-          classification: nullIfEmpty(row.geoState),
-          spend: toNumber(row.spend),
-          revenue: toNumber(row.revenue),
-          conversions: toNumber(row.conversions),
-          impressions: toNumber(row.impressions),
-          clicks: toNumber(row.clicks),
-          payloadJson: row,
-          sourceSnapshotId: snapshotId,
-        }),
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        date: input.date,
+        accountTimezone: profile.timezone,
+        accountCurrency: profile.currency,
+        endpointName: "geo",
+        scope: "geo_daily",
+        rows: geo.rows as GenericRow[],
+        requestContext: { source: "sync", report: "geo" },
+        partitionId: input.partitionId,
+        workerId: input.workerId,
+        attemptCount: input.attemptCount,
+        mapRow: (row, snapshotId) =>
+          buildWarehouseRow({
+            businessId: input.businessId,
+            providerAccountId: input.providerAccountId,
+            date: input.date,
+            accountTimezone: profile.timezone,
+            accountCurrency: profile.currency,
+            entityKey:
+              nullIfEmpty(row.geoId) ??
+              nullIfEmpty(row.country) ??
+              nullIfEmpty(row.geoName) ??
+              "",
+            entityLabel: nullIfEmpty(row.geoName) ?? nullIfEmpty(row.country),
+            classification: nullIfEmpty(row.geoState),
+            spend: toNumber(row.spend),
+            revenue: toNumber(row.revenue),
+            conversions: toNumber(row.conversions),
+            impressions: toNumber(row.impressions),
+            clicks: toNumber(row.clicks),
+            payloadJson: row,
+            sourceSnapshotId: snapshotId,
+          }),
       });
     }
 
     if (wants("device_daily") && devices) {
       await persistScopeRows({
-      businessId: input.businessId,
-      providerAccountId: input.providerAccountId,
-      date: input.date,
-      accountTimezone: profile.timezone,
-      accountCurrency: profile.currency,
-      endpointName: "devices",
-      scope: "device_daily",
-      rows: devices.rows as GenericRow[],
-      requestContext: { source: "sync", report: "devices" },
-      partitionId: input.partitionId,
-      workerId: input.workerId,
-      attemptCount: input.attemptCount,
-      mapRow: (row, snapshotId) =>
-        buildWarehouseRow({
-          businessId: input.businessId,
-          providerAccountId: input.providerAccountId,
-          date: input.date,
-          accountTimezone: profile.timezone,
-          accountCurrency: profile.currency,
-          entityKey: nullIfEmpty(row.device) ?? "",
-          entityLabel: nullIfEmpty(row.device),
-          classification: nullIfEmpty(row.deviceState),
-          spend: toNumber(row.spend),
-          revenue: toNumber(row.revenue),
-          conversions: toNumber(row.conversions),
-          impressions: toNumber(row.impressions),
-          clicks: toNumber(row.clicks),
-          payloadJson: row,
-          sourceSnapshotId: snapshotId,
-        }),
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        date: input.date,
+        accountTimezone: profile.timezone,
+        accountCurrency: profile.currency,
+        endpointName: "devices",
+        scope: "device_daily",
+        rows: devices.rows as GenericRow[],
+        requestContext: { source: "sync", report: "devices" },
+        partitionId: input.partitionId,
+        workerId: input.workerId,
+        attemptCount: input.attemptCount,
+        mapRow: (row, snapshotId) =>
+          buildWarehouseRow({
+            businessId: input.businessId,
+            providerAccountId: input.providerAccountId,
+            date: input.date,
+            accountTimezone: profile.timezone,
+            accountCurrency: profile.currency,
+            entityKey: nullIfEmpty(row.device) ?? "",
+            entityLabel: nullIfEmpty(row.device),
+            classification: nullIfEmpty(row.deviceState),
+            spend: toNumber(row.spend),
+            revenue: toNumber(row.revenue),
+            conversions: toNumber(row.conversions),
+            impressions: toNumber(row.impressions),
+            clicks: toNumber(row.clicks),
+            payloadJson: row,
+            sourceSnapshotId: snapshotId,
+          }),
       });
     }
 
     if (wants("product_daily") && products) {
       await persistScopeRows({
-      businessId: input.businessId,
-      providerAccountId: input.providerAccountId,
-      date: input.date,
-      accountTimezone: profile.timezone,
-      accountCurrency: profile.currency,
-      endpointName: "products",
-      scope: "product_daily",
-      rows: products.rows as GenericRow[],
-      requestContext: { source: "sync", report: "products" },
-      partitionId: input.partitionId,
-      workerId: input.workerId,
-      attemptCount: input.attemptCount,
-      mapRow: (row, snapshotId) =>
-        buildWarehouseRow({
-          businessId: input.businessId,
-          providerAccountId: input.providerAccountId,
-          date: input.date,
-          accountTimezone: profile.timezone,
-          accountCurrency: profile.currency,
-          entityKey: nullIfEmpty(row.productItemId) ?? nullIfEmpty(row.itemId) ?? "",
-          entityLabel: nullIfEmpty(row.productTitle) ?? nullIfEmpty(row.title),
-          classification: nullIfEmpty(row.scaleState) ?? nullIfEmpty(row.underperformingState),
-          spend: toNumber(row.spend),
-          revenue: toNumber(row.revenue),
-          conversions: toNumber(row.conversions),
-          impressions: toNumber(row.impressions),
-          clicks: toNumber(row.clicks),
-          payloadJson: row,
-          sourceSnapshotId: snapshotId,
-        }),
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        date: input.date,
+        accountTimezone: profile.timezone,
+        accountCurrency: profile.currency,
+        endpointName: "products",
+        scope: "product_daily",
+        rows: products.rows as GenericRow[],
+        requestContext: { source: "sync", report: "products" },
+        partitionId: input.partitionId,
+        workerId: input.workerId,
+        attemptCount: input.attemptCount,
+        mapRow: (row, snapshotId) =>
+          buildWarehouseRow({
+            businessId: input.businessId,
+            providerAccountId: input.providerAccountId,
+            date: input.date,
+            accountTimezone: profile.timezone,
+            accountCurrency: profile.currency,
+            entityKey:
+              nullIfEmpty(row.productItemId) ?? nullIfEmpty(row.itemId) ?? "",
+            entityLabel:
+              nullIfEmpty(row.productTitle) ?? nullIfEmpty(row.title),
+            classification:
+              nullIfEmpty(row.scaleState) ??
+              nullIfEmpty(row.underperformingState),
+            spend: toNumber(row.spend),
+            revenue: toNumber(row.revenue),
+            conversions: toNumber(row.conversions),
+            impressions: toNumber(row.impressions),
+            clicks: toNumber(row.clicks),
+            payloadJson: row,
+            sourceSnapshotId: snapshotId,
+          }),
       });
     }
 
@@ -3028,8 +3447,8 @@ async function syncGoogleAdsAccountDay(input: {
           status: "succeeded",
           progressPercent: 100,
           finishedAt: new Date().toISOString(),
-        })
-      )
+        }),
+      ),
     );
     return true;
   } catch (error) {
@@ -3041,8 +3460,8 @@ async function syncGoogleAdsAccountDay(input: {
           status: "failed",
           lastError: message,
           finishedAt: new Date().toISOString(),
-        })
-      )
+        }),
+      ),
     );
     throw error;
   }
@@ -3052,7 +3471,10 @@ function classifyGoogleAdsSyncError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   if (isGoogleAdsCampaignCoreLimitError(error)) return "application";
   if (/RESOURCE_EXHAUSTED|quota|rate limit|429/i.test(message)) return "quota";
-  if (/timeout|ECONNRESET|ENOTFOUND|server_login_retry|partial pkt/i.test(message)) return "transient";
+  if (
+    /timeout|ECONNRESET|ENOTFOUND|server_login_retry|partial pkt/i.test(message)
+  )
+    return "transient";
   return "application";
 }
 
@@ -3061,7 +3483,10 @@ function isGoogleAdsCampaignCoreLimitError(error: unknown) {
   return message.startsWith(`${GOOGLE_ADS_CAMPAIGN_CORE_LIMIT_ERROR_CODE}:`);
 }
 
-function computePartitionRetryDelayMinutes(attemptCount: number, errorClass: string) {
+function computePartitionRetryDelayMinutes(
+  attemptCount: number,
+  errorClass: string,
+) {
   const base =
     errorClass === "quota"
       ? GOOGLE_ADS_QUOTA_RETRY_BASE_MINUTES
@@ -3094,8 +3519,8 @@ async function enqueueExtendedPartitionsForDate(input: {
         priority: -5,
         source: "core_success",
         attemptCount: 0,
-      }).catch(() => null)
-    )
+      }).catch(() => null),
+    ),
   );
 }
 
@@ -3104,9 +3529,13 @@ async function refreshGoogleAdsSyncStateForPartition(input: {
   providerAccountId: string;
   scope: GoogleAdsWarehouseScope;
 }) {
-  const { historicalStart, yesterday } = await computeHistoricalTargets(input.businessId);
+  const { historicalStart, yesterday } = await computeHistoricalTargets(
+    input.businessId,
+  );
   const laneForScope: GoogleAdsSyncLane =
-    input.scope === "account_daily" || input.scope === "campaign_daily" ? "core" : "extended";
+    input.scope === "account_daily" || input.scope === "campaign_daily"
+      ? "core"
+      : "extended";
   const [coverage, partitionHealth, readyThroughDate] = await Promise.all([
     getGoogleAdsDailyCoverage({
       scope: input.scope,
@@ -3140,8 +3569,10 @@ async function refreshGoogleAdsSyncStateForPartition(input: {
     effectiveTargetEnd: yesterday,
     readyThroughDate,
     lastSuccessfulPartitionDate: coverage?.ready_through_date ?? null,
-    latestBackgroundActivityAt: partitionHealth?.latestActivityAt ?? new Date().toISOString(),
-    latestSuccessfulSyncAt: coverage?.latest_updated_at ?? new Date().toISOString(),
+    latestBackgroundActivityAt:
+      partitionHealth?.latestActivityAt ?? new Date().toISOString(),
+    latestSuccessfulSyncAt:
+      coverage?.latest_updated_at ?? new Date().toISOString(),
     completedDays: coverage?.completed_days ?? 0,
     deadLetterCount: partitionHealth?.deadLetterPartitions ?? 0,
   });
@@ -3177,7 +3608,7 @@ async function processGoogleAdsPartition(input: {
     });
     return false;
   }
-  const runId = await createGoogleAdsSyncRun({
+  const createdRunId = await createGoogleAdsSyncRun({
     partitionId,
     businessId: input.partition.businessId,
     providerAccountId: input.partition.providerAccountId,
@@ -3188,7 +3619,15 @@ async function processGoogleAdsPartition(input: {
     workerId: input.workerId,
     attemptCount: input.partition.attemptCount + 1,
     metaJson: { source: input.partition.source },
-  });
+  }).catch(() => null);
+  let runId = createdRunId;
+  let recoveredRunId: string | null = null;
+  if (!runId) {
+    recoveredRunId = await getLatestRunningGoogleAdsSyncRunIdForPartition({
+      partitionId,
+    }).catch(() => null);
+    runId = recoveredRunId;
+  }
 
   const startedAt = Date.now();
   try {
@@ -3203,7 +3642,10 @@ async function processGoogleAdsPartition(input: {
       date: input.partition.partitionDate,
       syncType:
         input.partition.lane === "maintenance"
-          ? input.partition.partitionDate === (await resolveGoogleAdsCurrentDate(input.partition.businessId).catch(() => input.partition.partitionDate))
+          ? input.partition.partitionDate ===
+            (await resolveGoogleAdsCurrentDate(
+              input.partition.businessId,
+            ).catch(() => input.partition.partitionDate))
             ? "today_refresh"
             : "incremental_recent"
           : "initial_backfill",
@@ -3224,79 +3666,131 @@ async function processGoogleAdsPartition(input: {
     });
 
     if (!synced) {
-      const completed = await completeGoogleAdsPartition({
+      const completionHeartbeat =
+        await heartbeatGoogleAdsPartitionBeforeCompletion({
+          partitionId,
+          workerId: input.workerId,
+          leaseMinutes: GOOGLE_ADS_PARTITION_LEASE_MINUTES,
+        });
+      if (!completionHeartbeat.ok) {
+        const denialSnapshot = await logGoogleAdsCompletionDenied({
+          partitionId,
+          runId,
+          recoveredRunId,
+          workerId: input.workerId,
+          lane: input.partition.lane,
+          scope: input.partition.scope,
+          partitionStatus: "failed",
+          runStatus: "failed",
+          reason: "lease_conflict",
+        });
+        if (denialSnapshot?.denialClassification === "already_terminal") {
+          await backfillGoogleAdsDeniedTerminalChildren({
+            partitionId,
+            runId,
+            recoveredRunId,
+            workerId: input.workerId,
+            lane: input.partition.lane,
+            scope: input.partition.scope,
+            pathKind: "primary",
+          });
+        }
+        if (runId) {
+          await updateGoogleAdsSyncRun({
+            id: runId,
+            status: "failed",
+            errorClass: "lease_conflict",
+            errorMessage: "partition lost ownership before failure completion",
+            durationMs: Date.now() - startedAt,
+            finishedAt: new Date().toISOString(),
+            onlyIfCurrentStatus: "running",
+          }).catch(() => null);
+        }
+        return false;
+      }
+      const completed = await completeGoogleAdsPartitionAttempt({
         partitionId,
         workerId: input.workerId,
-        status: "failed",
-        lastError: "partition skipped because another worker already owns this date",
+        runId,
+        recoveredRunId,
+        partitionStatus: "failed",
+        runStatus: "failed",
+        durationMs: Date.now() - startedAt,
+        errorClass: "lease_conflict",
+        errorMessage:
+          "partition skipped because another worker already owns this date",
+        finishedAt: new Date().toISOString(),
+        lastError:
+          "partition skipped because another worker already owns this date",
         retryDelayMinutes: 5,
-      }).catch(() => false);
-      if (runId) {
-        await updateGoogleAdsSyncRun({
-          id: runId,
-          status: "failed",
-          errorClass: "lease_conflict",
-          errorMessage: completed
-            ? "partition skipped because another worker already owns this date"
-            : "partition lost ownership before failure completion",
-          durationMs: Date.now() - startedAt,
-          finishedAt: new Date().toISOString(),
-          onlyIfCurrentStatus: "running",
+      });
+      if (!completed.ok) {
+        const denialSnapshot = await logGoogleAdsCompletionDenied({
+          partitionId,
+          runId,
+          recoveredRunId,
+          workerId: input.workerId,
+          lane: input.partition.lane,
+          scope: input.partition.scope,
+          partitionStatus: "failed",
+          runStatus: "failed",
+          reason: "lease_conflict",
         });
+        if (denialSnapshot?.denialClassification === "already_terminal") {
+          await backfillGoogleAdsDeniedTerminalChildren({
+            partitionId,
+            runId,
+            recoveredRunId,
+            workerId: input.workerId,
+            lane: input.partition.lane,
+            scope: input.partition.scope,
+            pathKind: "primary",
+          });
+        }
+        if (runId) {
+          await updateGoogleAdsSyncRun({
+            id: runId,
+            status: "failed",
+            errorClass: "lease_conflict",
+            errorMessage: "partition lost ownership before failure completion",
+            durationMs: Date.now() - startedAt,
+            finishedAt: new Date().toISOString(),
+            onlyIfCurrentStatus: "running",
+          }).catch(() => null);
+        }
       }
       return false;
     }
 
-    if (input.partition.lane === "core" || input.partition.lane === "maintenance") {
-      await refreshGoogleAdsSyncStateForPartition({
-        businessId: input.partition.businessId,
-        providerAccountId: input.partition.providerAccountId,
-        scope: "campaign_daily",
+    const completionHeartbeat =
+      await heartbeatGoogleAdsPartitionBeforeCompletion({
+        partitionId,
+        workerId: input.workerId,
+        leaseMinutes: GOOGLE_ADS_PARTITION_LEASE_MINUTES,
       });
-      await refreshGoogleAdsSyncStateForPartition({
-        businessId: input.partition.businessId,
-        providerAccountId: input.partition.providerAccountId,
-        scope: "account_daily",
-      });
-    } else {
-      await refreshGoogleAdsSyncStateForPartition({
-        businessId: input.partition.businessId,
-        providerAccountId: input.partition.providerAccountId,
+    if (!completionHeartbeat.ok) {
+      const denialSnapshot = await logGoogleAdsCompletionDenied({
+        partitionId,
+        runId,
+        recoveredRunId,
+        workerId: input.workerId,
+        lane: input.partition.lane,
         scope: input.partition.scope,
+        partitionStatus: "succeeded",
+        runStatus: "succeeded",
+        reason: "lease_conflict",
       });
-    }
-
-    if (input.partition.lane === "core") {
-      await enqueueExtendedPartitionsForDate({
-        businessId: input.partition.businessId,
-        providerAccountId: input.partition.providerAccountId,
-        date: input.partition.partitionDate,
-      });
-    }
-
-    if (input.partition.lane === "core") {
-      await clearProviderGlobalCircuitBreaker({
-        provider: "google",
-        businessId: input.partition.businessId,
-      }).catch(() => null);
-      await clearProviderGlobalCircuitBreakerRecoveryState({
-        provider: "google",
-        businessId: input.partition.businessId,
-      }).catch(() => null);
-    } else if (input.partition.lane === "maintenance") {
-      await clearProviderGlobalCircuitBreaker({
-        provider: "google",
-        businessId: input.partition.businessId,
-      }).catch(() => null);
-    }
-
-    const completed = await completeGoogleAdsPartition({
-      partitionId,
-      workerId: input.workerId,
-      status: "succeeded",
-      lastError: null,
-    }).catch(() => false);
-    if (!completed) {
+      if (denialSnapshot?.denialClassification === "already_terminal") {
+        await backfillGoogleAdsDeniedTerminalChildren({
+          partitionId,
+          runId,
+          recoveredRunId,
+          workerId: input.workerId,
+          lane: input.partition.lane,
+          scope: input.partition.scope,
+          pathKind: "primary",
+        });
+      }
       if (runId) {
         await updateGoogleAdsSyncRun({
           id: runId,
@@ -3306,19 +3800,120 @@ async function processGoogleAdsPartition(input: {
           durationMs: Date.now() - startedAt,
           finishedAt: new Date().toISOString(),
           onlyIfCurrentStatus: "running",
-        });
+        }).catch(() => null);
       }
       return false;
     }
-    if (runId) {
-      await updateGoogleAdsSyncRun({
-        id: runId,
-        status: "succeeded",
-        durationMs: Date.now() - startedAt,
-        finishedAt: new Date().toISOString(),
-        onlyIfCurrentStatus: "running",
+    const completed = await completeGoogleAdsPartitionAttempt({
+      partitionId,
+      workerId: input.workerId,
+      runId,
+      recoveredRunId,
+      partitionStatus: "succeeded",
+      runStatus: "succeeded",
+      durationMs: Date.now() - startedAt,
+      finishedAt: new Date().toISOString(),
+      lastError: null,
+    });
+    if (!completed.ok) {
+      const denialSnapshot = await logGoogleAdsCompletionDenied({
+        partitionId,
+        runId,
+        recoveredRunId,
+        workerId: input.workerId,
+        lane: input.partition.lane,
+        scope: input.partition.scope,
+        partitionStatus: "succeeded",
+        runStatus: "succeeded",
+        reason: "lease_conflict",
       });
+      if (denialSnapshot?.denialClassification === "already_terminal") {
+        await backfillGoogleAdsDeniedTerminalChildren({
+          partitionId,
+          runId,
+          recoveredRunId,
+          workerId: input.workerId,
+          lane: input.partition.lane,
+          scope: input.partition.scope,
+          pathKind: "primary",
+        });
+      }
+      if (runId) {
+        await updateGoogleAdsSyncRun({
+          id: runId,
+          status: "failed",
+          errorClass: "lease_conflict",
+          errorMessage: "partition lost ownership before success completion",
+          durationMs: Date.now() - startedAt,
+          finishedAt: new Date().toISOString(),
+          onlyIfCurrentStatus: "running",
+        }).catch(() => null);
+      }
+      return false;
     }
+
+    try {
+      if (
+        input.partition.lane === "core" ||
+        input.partition.lane === "maintenance"
+      ) {
+        await refreshGoogleAdsSyncStateForPartition({
+          businessId: input.partition.businessId,
+          providerAccountId: input.partition.providerAccountId,
+          scope: "campaign_daily",
+        });
+        await refreshGoogleAdsSyncStateForPartition({
+          businessId: input.partition.businessId,
+          providerAccountId: input.partition.providerAccountId,
+          scope: "account_daily",
+        });
+      } else {
+        await refreshGoogleAdsSyncStateForPartition({
+          businessId: input.partition.businessId,
+          providerAccountId: input.partition.providerAccountId,
+          scope: input.partition.scope,
+        });
+      }
+
+      if (input.partition.lane === "core") {
+        await enqueueExtendedPartitionsForDate({
+          businessId: input.partition.businessId,
+          providerAccountId: input.partition.providerAccountId,
+          date: input.partition.partitionDate,
+        });
+      }
+
+      if (input.partition.lane === "core") {
+        await clearProviderGlobalCircuitBreaker({
+          provider: "google",
+          businessId: input.partition.businessId,
+        }).catch(() => null);
+        await clearProviderGlobalCircuitBreakerRecoveryState({
+          provider: "google",
+          businessId: input.partition.businessId,
+        }).catch(() => null);
+      } else if (input.partition.lane === "maintenance") {
+        await clearProviderGlobalCircuitBreaker({
+          provider: "google",
+          businessId: input.partition.businessId,
+        }).catch(() => null);
+      }
+    } catch (sideEffectError) {
+      console.warn(
+        "[google-ads-sync] partition_post_completion_side_effect_failed",
+        {
+          partitionId,
+          workerId: input.workerId,
+          lane: input.partition.lane,
+          scope: input.partition.scope,
+          message:
+            sideEffectError instanceof Error
+              ? sideEffectError.message
+              : String(sideEffectError),
+        },
+      );
+    }
+
     return true;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -3332,14 +3927,16 @@ async function processGoogleAdsPartition(input: {
         await enterProviderGlobalCircuitBreakerRecoveryState({
           provider: "google",
           businessId: input.partition.businessId,
-          message: "Historical extended replay hit quota pressure and was downgraded to recovery mode.",
+          message:
+            "Historical extended replay hit quota pressure and was downgraded to recovery mode.",
           cooldownMs: GOOGLE_ADS_CIRCUIT_BREAKER_BASE_MINUTES * 60_000,
         }).catch(() => null);
       } else {
         await openGoogleAdsQuotaCircuitBreaker({
           businessId: input.partition.businessId,
           message,
-          status: error instanceof ProviderRequestCooldownError ? error.status : 429,
+          status:
+            error instanceof ProviderRequestCooldownError ? error.status : 429,
         }).catch(() => null);
       }
     }
@@ -3350,7 +3947,9 @@ async function processGoogleAdsPartition(input: {
     }).catch(() => null);
     const poisonCandidate = nextAttempt >= 3;
     const shouldDeadLetter =
-      hardCapExceeded || poisonCandidate || nextAttempt >= GOOGLE_ADS_PARTITION_MAX_ATTEMPTS;
+      hardCapExceeded ||
+      poisonCandidate ||
+      nextAttempt >= GOOGLE_ADS_PARTITION_MAX_ATTEMPTS;
     const status = shouldDeadLetter ? "dead_letter" : "failed";
     await upsertGoogleAdsCheckpointOrThrow({
       partitionId,
@@ -3366,32 +3965,33 @@ async function processGoogleAdsPartition(input: {
       rawSnapshotIds: activeCheckpoint?.rawSnapshotIds ?? [],
       rowsFetched: activeCheckpoint?.rowsFetched ?? 0,
       rowsWritten: activeCheckpoint?.rowsWritten ?? 0,
-      lastSuccessfulEntityKey: activeCheckpoint?.lastSuccessfulEntityKey ?? null,
+      lastSuccessfulEntityKey:
+        activeCheckpoint?.lastSuccessfulEntityKey ?? null,
       lastResponseHeaders: activeCheckpoint?.lastResponseHeaders ?? {},
       attemptCount: nextAttempt,
       progressHeartbeatAt: new Date().toISOString(),
       leaseOwner: input.workerId,
       poisonedAt: shouldDeadLetter ? new Date().toISOString() : null,
-      poisonReason:
-        shouldDeadLetter
-          ? hardCapExceeded
-            ? message
-            : `Repeated failure on checkpoint page ${activeCheckpoint?.pageIndex ?? 0}: ${message}`
-          : null,
-      replayReasonCode:
-        shouldDeadLetter
-          ? "quarantine_release"
-          : resolveGoogleReplayReasonCode({
-              checkpointStatus: activeCheckpoint?.status ?? "failed",
-              checkpointPhase: activeCheckpoint?.phase ?? "bulk_upsert",
-              poisonedAt: activeCheckpoint?.poisonedAt,
-              retryAfterAt: activeCheckpoint?.retryAfterAt,
-            }),
+      poisonReason: shouldDeadLetter
+        ? hardCapExceeded
+          ? message
+          : `Repeated failure on checkpoint page ${activeCheckpoint?.pageIndex ?? 0}: ${message}`
+        : null,
+      replayReasonCode: shouldDeadLetter
+        ? "quarantine_release"
+        : resolveGoogleReplayReasonCode({
+            checkpointStatus: activeCheckpoint?.status ?? "failed",
+            checkpointPhase: activeCheckpoint?.phase ?? "bulk_upsert",
+            poisonedAt: activeCheckpoint?.poisonedAt,
+            retryAfterAt: activeCheckpoint?.retryAfterAt,
+          }),
       replayDetail: `Partition failure captured during ${activeCheckpoint?.phase ?? "bulk_upsert"} phase: ${message}`,
       retryAfterAt: shouldDeadLetter
         ? null
         : new Date(
-            Date.now() + computePartitionRetryDelayMinutes(nextAttempt, errorClass) * 60_000
+            Date.now() +
+              computePartitionRetryDelayMinutes(nextAttempt, errorClass) *
+                60_000,
           ).toISOString(),
       startedAt: activeCheckpoint?.startedAt ?? null,
       finishedAt: new Date().toISOString(),
@@ -3410,25 +4010,100 @@ async function processGoogleAdsPartition(input: {
           : `Repeated failure on phase ${activeCheckpoint?.phase ?? "unknown"} page ${activeCheckpoint?.pageIndex ?? 0}: ${message}`,
       }).catch(() => null);
     }
-    const completed = await completeGoogleAdsPartition({
+
+    const completionHeartbeat =
+      await heartbeatGoogleAdsPartitionBeforeCompletion({
+        partitionId,
+        workerId: input.workerId,
+        leaseMinutes: GOOGLE_ADS_PARTITION_LEASE_MINUTES,
+      });
+    if (!completionHeartbeat.ok) {
+      const denialSnapshot = await logGoogleAdsCompletionDenied({
+        partitionId,
+        runId,
+        recoveredRunId,
+        workerId: input.workerId,
+        lane: input.partition.lane,
+        scope: input.partition.scope,
+        partitionStatus: status,
+        runStatus: "failed",
+        reason: "lease_conflict",
+      });
+      if (denialSnapshot?.denialClassification === "already_terminal") {
+        await backfillGoogleAdsDeniedTerminalChildren({
+          partitionId,
+          runId,
+          recoveredRunId,
+          workerId: input.workerId,
+          lane: input.partition.lane,
+          scope: input.partition.scope,
+          pathKind: "primary",
+        });
+      }
+      if (runId) {
+        await updateGoogleAdsSyncRun({
+          id: runId,
+          status: "failed",
+          errorClass: "lease_conflict",
+          errorMessage: "partition lost ownership before failure completion",
+          durationMs: Date.now() - startedAt,
+          finishedAt: new Date().toISOString(),
+          onlyIfCurrentStatus: "running",
+        }).catch(() => null);
+      }
+      return false;
+    }
+
+    const completed = await completeGoogleAdsPartitionAttempt({
       partitionId,
       workerId: input.workerId,
-      status,
+      runId,
+      recoveredRunId,
+      partitionStatus: status,
+      runStatus: "failed",
+      durationMs: Date.now() - startedAt,
+      errorClass,
+      errorMessage: message,
+      finishedAt: new Date().toISOString(),
       lastError: message,
       retryDelayMinutes: shouldDeadLetter
         ? undefined
         : computePartitionRetryDelayMinutes(nextAttempt, errorClass),
-    }).catch(() => false);
-    if (runId) {
-      await updateGoogleAdsSyncRun({
-        id: runId,
-        status: "failed",
-        errorClass: completed ? errorClass : "lease_conflict",
-        errorMessage: completed ? message : "partition lost ownership before failure completion",
-        durationMs: Date.now() - startedAt,
-        finishedAt: new Date().toISOString(),
-        onlyIfCurrentStatus: "running",
+    });
+    if (!completed.ok) {
+      const denialSnapshot = await logGoogleAdsCompletionDenied({
+        partitionId,
+        runId,
+        recoveredRunId,
+        workerId: input.workerId,
+        lane: input.partition.lane,
+        scope: input.partition.scope,
+        partitionStatus: status,
+        runStatus: "failed",
+        reason: "lease_conflict",
       });
+      if (denialSnapshot?.denialClassification === "already_terminal") {
+        await backfillGoogleAdsDeniedTerminalChildren({
+          partitionId,
+          runId,
+          recoveredRunId,
+          workerId: input.workerId,
+          lane: input.partition.lane,
+          scope: input.partition.scope,
+          pathKind: "primary",
+        });
+      }
+      if (runId) {
+        await updateGoogleAdsSyncRun({
+          id: runId,
+          status: "failed",
+          errorClass: "lease_conflict",
+          errorMessage: "partition lost ownership before failure completion",
+          durationMs: Date.now() - startedAt,
+          finishedAt: new Date().toISOString(),
+          onlyIfCurrentStatus: "running",
+        }).catch(() => null);
+      }
     }
     return false;
   }
@@ -3496,7 +4171,11 @@ export async function syncGoogleAdsRange(input: {
   triggerSource?: string;
   scopes?: GoogleAdsWarehouseScope[];
 }): Promise<GoogleAdsSyncResult> {
-  const days = enumerateDays(input.startDate, input.endDate, input.syncType !== "initial_backfill");
+  const days = enumerateDays(
+    input.startDate,
+    input.endDate,
+    input.syncType !== "initial_backfill",
+  );
   return syncGoogleAdsDates({
     businessId: input.businessId,
     dates: days,
@@ -3558,13 +4237,15 @@ export async function runGoogleAdsTargetedRepair(input: {
       : null,
   };
 
-  const coverageDelta = afterCoverage.completedDays - beforeCoverage.completedDays;
+  const coverageDelta =
+    afterCoverage.completedDays - beforeCoverage.completedDays;
   const outcome =
     syncResult.failed > 0
       ? "failed"
       : syncResult.skipped
         ? "skipped"
-        : coverageDelta > 0 || afterCoverage.readyThroughDate !== beforeCoverage.readyThroughDate
+        : coverageDelta > 0 ||
+            afterCoverage.readyThroughDate !== beforeCoverage.readyThroughDate
           ? "coverage_increased"
           : "no_data";
 
@@ -3583,13 +4264,13 @@ export async function runGoogleAdsTargetedRepair(input: {
 
 export async function syncGoogleAdsRecent(businessId: string) {
   const today = await resolveGoogleAdsCurrentDate(businessId).catch(() =>
-    new Date().toISOString().slice(0, 10)
+    new Date().toISOString().slice(0, 10),
   );
   const endDate = addDaysToIsoDate(today, -1);
   const dates = enumerateDays(
     addDaysToIsoDate(endDate, -(GOOGLE_ADS_RECENT_MAINTENANCE_DAYS - 1)),
     endDate,
-    true
+    true,
   );
   return syncGoogleAdsDates({
     businessId,
@@ -3601,7 +4282,7 @@ export async function syncGoogleAdsRecent(businessId: string) {
 
 export async function syncGoogleAdsToday(businessId: string) {
   const today = await resolveGoogleAdsCurrentDate(businessId).catch(() =>
-    new Date().toISOString().slice(0, 10)
+    new Date().toISOString().slice(0, 10),
   );
   return syncGoogleAdsDates({
     businessId,
@@ -3613,13 +4294,13 @@ export async function syncGoogleAdsToday(businessId: string) {
 
 export async function syncGoogleAdsInitial(businessId: string) {
   const today = await resolveGoogleAdsCurrentDate(businessId).catch(() =>
-    new Date().toISOString().slice(0, 10)
+    new Date().toISOString().slice(0, 10),
   );
   const yesterday = addDaysToIsoDate(today, -1);
   const dates = enumerateDays(
     getHistoricalWindowStart(yesterday, GOOGLE_ADS_WAREHOUSE_HISTORY_DAYS),
     yesterday,
-    true
+    true,
   ).slice(0, GOOGLE_ADS_BOOTSTRAP_BATCH_DAYS);
   return syncGoogleAdsDates({
     businessId,
@@ -3657,7 +4338,7 @@ export async function syncGoogleAdsReports(
   businessId: string,
   input?: {
     runtimeLeaseGuard?: RunnerLeaseGuard;
-  }
+  },
 ): Promise<GoogleAdsSyncResult> {
   if (process.env.SYNC_WORKER_MODE !== "1") {
     await enqueueGoogleAdsScheduledWork(businessId).catch(() => null);
@@ -3682,14 +4363,18 @@ export async function syncGoogleAdsReports(
     },
     runProgressGraceMinutes: GOOGLE_ADS_RUN_PROGRESS_GRACE_MINUTES,
   }).catch(() => null);
-  const fullSyncPriority = await getGoogleAdsFullSyncPriorityState({ businessId }).catch(() => ({
+  const fullSyncPriority = await getGoogleAdsFullSyncPriorityState({
+    businessId,
+  }).catch(() => ({
     required: false,
     targetScopes: [] as GoogleAdsWarehouseScope[],
     totalDays: 0,
     historicalStart: null,
     yesterday: null,
   }));
-  const recent90State = await getGoogleAdsRecent90CompletionState({ businessId }).catch(() => null);
+  const recent90State = await getGoogleAdsRecent90CompletionState({
+    businessId,
+  }).catch(() => null);
   const historicalLeaseStartDate =
     fullSyncPriority.historicalStart && recent90State
       ? decideGoogleAdsHistoricalFrontier({
@@ -3698,18 +4383,22 @@ export async function syncGoogleAdsReports(
           recent90Complete: recent90State.complete,
         })
       : null;
-  const initialQueueHealth = await getGoogleAdsQueueHealth({ businessId }).catch(() => null);
+  const initialQueueHealth = await getGoogleAdsQueueHealth({
+    businessId,
+  }).catch(() => null);
   const initialIncidentPolicy = await getGoogleAdsIncidentPolicy({
     businessId,
     queueHealth: initialQueueHealth,
   }).catch(() => null);
-  const effectiveInitialIncidentPolicy = applyGoogleAdsFullSyncPriorityPolicyOverride({
-    policy: initialIncidentPolicy,
-    fullSyncPriorityRequired: fullSyncPriority.required,
-  });
-  const blockHistoricalExtendedWork = shouldBlockGoogleAdsHistoricalExtendedWork({
-    recent90Complete: recent90State?.complete ?? true,
-  });
+  const effectiveInitialIncidentPolicy =
+    applyGoogleAdsFullSyncPriorityPolicyOverride({
+      policy: initialIncidentPolicy,
+      fullSyncPriorityRequired: fullSyncPriority.required,
+    });
+  const blockHistoricalExtendedWork =
+    shouldBlockGoogleAdsHistoricalExtendedWork({
+      recent90Complete: recent90State?.complete ?? true,
+    });
   if (effectiveInitialIncidentPolicy) {
     await compactGoogleAdsIncidentBacklog({
       businessId,
@@ -3719,13 +4408,17 @@ export async function syncGoogleAdsReports(
   await cancelHistoricalExtendedBacklog({
     businessId,
     recent90Complete: recent90State?.complete ?? true,
-    scopeFilter: fullSyncPriority.required ? fullSyncPriority.targetScopes : undefined,
+    scopeFilter: fullSyncPriority.required
+      ? fullSyncPriority.targetScopes
+      : undefined,
   }).catch(() => 0);
 
   const backgroundSyncKeys = getBackgroundSyncKeys();
   const lockKey = `background:${businessId}`;
   if (canUseInProcessBackgroundScheduling()) {
-    const workerState = await getGoogleAdsWorkerSchedulingState({ businessId }).catch(() => null);
+    const workerState = await getGoogleAdsWorkerSchedulingState({
+      businessId,
+    }).catch(() => null);
     if (workerState?.hasFreshHeartbeat && workerState.runnerLeaseActive) {
       return {
         businessId,
@@ -3756,20 +4449,30 @@ export async function syncGoogleAdsReports(
   try {
     const leaseConflictReason = () =>
       input?.runtimeLeaseGuard?.getLeaseLossReason() ?? "runner_lease_conflict";
-    const hasLeaseConflict = () => input?.runtimeLeaseGuard?.isLeaseLost() ?? false;
+    const hasLeaseConflict = () =>
+      input?.runtimeLeaseGuard?.isLeaseLost() ?? false;
     await enqueueGoogleAdsScheduledWork(businessId).catch(() => null);
-    await refreshGoogleAdsSyncStateForBusiness({ businessId }).catch((error) => {
-      console.warn("[google-ads-sync] state_refresh_before_run_failed", {
-        businessId,
-        message: error instanceof Error ? error.message : String(error),
-      });
-    });
-    const queueHealthAfterPlanning = await getGoogleAdsQueueHealth({ businessId }).catch(() => null);
+    await refreshGoogleAdsSyncStateForBusiness({ businessId }).catch(
+      (error) => {
+        console.warn("[google-ads-sync] state_refresh_before_run_failed", {
+          businessId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      },
+    );
+    const queueHealthAfterPlanning = await getGoogleAdsQueueHealth({
+      businessId,
+    }).catch(() => null);
     const stateRowsByScope = await Promise.all(
-      GOOGLE_ADS_STATE_SCOPES.map((scope) => getGoogleAdsSyncState({ businessId, scope }).catch(() => []))
+      GOOGLE_ADS_STATE_SCOPES.map((scope) =>
+        getGoogleAdsSyncState({ businessId, scope }).catch(() => []),
+      ),
     ).catch(() => GOOGLE_ADS_STATE_SCOPES.map(() => []));
     const statesByScope = Object.fromEntries(
-      GOOGLE_ADS_STATE_SCOPES.map((scope, index) => [scope, stateRowsByScope[index] ?? []])
+      GOOGLE_ADS_STATE_SCOPES.map((scope, index) => [
+        scope,
+        stateRowsByScope[index] ?? [],
+      ]),
     ) as GoogleAdsStatesByScope;
     const laneProgressEvidence = buildGoogleAdsLaneProgressEvidence({
       statesByScope,
@@ -3779,10 +4482,11 @@ export async function syncGoogleAdsReports(
       businessId,
       queueHealth: queueHealthAfterPlanning,
     }).catch(() => null);
-    const effectivePolicyBeforeRecentRepair = applyGoogleAdsFullSyncPriorityPolicyOverride({
-      policy: policyBeforeRecentRepair,
-      fullSyncPriorityRequired: fullSyncPriority.required,
-    });
+    const effectivePolicyBeforeRecentRepair =
+      applyGoogleAdsFullSyncPriorityPolicyOverride({
+        policy: policyBeforeRecentRepair,
+        fullSyncPriorityRequired: fullSyncPriority.required,
+      });
     const recentRepairPlan = policyBeforeRecentRepair
       ? await enqueueGoogleAdsRecentRepairPartitions({
           businessId,
@@ -3790,31 +4494,36 @@ export async function syncGoogleAdsReports(
         }).catch(() => ({
           queuedRecent: 0,
           gapCountsByScope: Object.fromEntries(
-            GOOGLE_ADS_RECENT_SELF_HEAL_SCOPES.map((scope) => [scope, 0])
+            GOOGLE_ADS_RECENT_SELF_HEAL_SCOPES.map((scope) => [scope, 0]),
           ) as Record<GoogleAdsWarehouseScope, number>,
         }))
       : {
           queuedRecent: 0,
           gapCountsByScope: Object.fromEntries(
-            GOOGLE_ADS_RECENT_SELF_HEAL_SCOPES.map((scope) => [scope, 0])
+            GOOGLE_ADS_RECENT_SELF_HEAL_SCOPES.map((scope) => [scope, 0]),
           ) as Record<GoogleAdsWarehouseScope, number>,
         };
     void recentRepairPlan;
-    const queueHealthAfterRecentPlanning = await getGoogleAdsQueueHealth({ businessId }).catch(() => null);
+    const queueHealthAfterRecentPlanning = await getGoogleAdsQueueHealth({
+      businessId,
+    }).catch(() => null);
     const policyBeforeHistoricalRecovery = await getGoogleAdsIncidentPolicy({
       businessId,
       queueHealth: queueHealthAfterRecentPlanning,
     }).catch(() => null);
-    const effectivePolicyBeforeHistoricalRecovery = applyGoogleAdsFullSyncPriorityPolicyOverride({
-      policy: policyBeforeHistoricalRecovery,
-      fullSyncPriorityRequired: fullSyncPriority.required,
-    });
+    const effectivePolicyBeforeHistoricalRecovery =
+      applyGoogleAdsFullSyncPriorityPolicyOverride({
+        policy: policyBeforeHistoricalRecovery,
+        fullSyncPriorityRequired: fullSyncPriority.required,
+      });
     if (effectivePolicyBeforeHistoricalRecovery) {
       await enqueueExtendedRecoveryPartitions({
         businessId,
         policy: effectivePolicyBeforeHistoricalRecovery,
         recent90Complete: recent90State?.complete ?? true,
-        scopes: fullSyncPriority.required ? fullSyncPriority.targetScopes : undefined,
+        scopes: fullSyncPriority.required
+          ? fullSyncPriority.targetScopes
+          : undefined,
       }).catch(() => ({ queuedHistorical: 0 }));
     }
 
@@ -3840,15 +4549,18 @@ export async function syncGoogleAdsReports(
       startDate: historicalLeaseStartDate,
       endDate: fullSyncPriority.yesterday,
     }).catch(() => []);
-    const queueHealthAfterCore = await getGoogleAdsQueueHealth({ businessId }).catch(() => null);
+    const queueHealthAfterCore = await getGoogleAdsQueueHealth({
+      businessId,
+    }).catch(() => null);
     const livePolicyAfterCore = await getGoogleAdsIncidentPolicy({
       businessId,
       queueHealth: queueHealthAfterCore,
     }).catch(() => null);
-    const effectiveLivePolicyAfterCore = applyGoogleAdsFullSyncPriorityPolicyOverride({
-      policy: livePolicyAfterCore,
-      fullSyncPriorityRequired: fullSyncPriority.required,
-    });
+    const effectiveLivePolicyAfterCore =
+      applyGoogleAdsFullSyncPriorityPolicyOverride({
+        policy: livePolicyAfterCore,
+        fullSyncPriorityRequired: fullSyncPriority.required,
+      });
     const primaryLeasePlan = buildGoogleAdsPrimaryLeasePlan({
       policy: effectiveLivePolicyAfterCore,
       queueHealth: queueHealthAfterCore,
@@ -3866,7 +4578,9 @@ export async function syncGoogleAdsReports(
             limit: primaryLeasePlan.historicalFairnessLimit,
             leaseMinutes: GOOGLE_ADS_PARTITION_LEASE_MINUTES,
             sourceFilter: "historical_only",
-            scopeFilter: fullSyncPriority.required ? fullSyncPriority.targetScopes : undefined,
+            scopeFilter: fullSyncPriority.required
+              ? fullSyncPriority.targetScopes
+              : undefined,
             startDate: historicalLeaseStartDate,
             endDate: fullSyncPriority.yesterday,
           }).catch(() => [])
@@ -3901,15 +4615,18 @@ export async function syncGoogleAdsReports(
         : [];
     partitions = [...partitions, ...fullSyncPriorityPartitions];
 
-    const queueHealthAfterRecentLease = await getGoogleAdsQueueHealth({ businessId }).catch(() => null);
+    const queueHealthAfterRecentLease = await getGoogleAdsQueueHealth({
+      businessId,
+    }).catch(() => null);
     const livePolicyAfterRecentLease = await getGoogleAdsIncidentPolicy({
       businessId,
       queueHealth: queueHealthAfterRecentLease,
     }).catch(() => null);
-    const effectiveLivePolicyAfterRecentLease = applyGoogleAdsFullSyncPriorityPolicyOverride({
-      policy: livePolicyAfterRecentLease,
-      fullSyncPriorityRequired: fullSyncPriority.required,
-    });
+    const effectiveLivePolicyAfterRecentLease =
+      applyGoogleAdsFullSyncPriorityPolicyOverride({
+        policy: livePolicyAfterRecentLease,
+        fullSyncPriorityRequired: fullSyncPriority.required,
+      });
     const maintenanceLeasePlan = buildGoogleAdsMaintenanceLeasePlan({
       policy: effectiveLivePolicyAfterRecentLease,
       fullSyncPriorityRequired: fullSyncPriority.required,
@@ -3925,15 +4642,18 @@ export async function syncGoogleAdsReports(
           }).catch(() => [])
         : [];
     partitions = [...partitions, ...maintenancePartitions];
-    const queueHealthAfterMaintenance = await getGoogleAdsQueueHealth({ businessId }).catch(() => null);
+    const queueHealthAfterMaintenance = await getGoogleAdsQueueHealth({
+      businessId,
+    }).catch(() => null);
     const livePolicyAfterMaintenance = await getGoogleAdsIncidentPolicy({
       businessId,
       queueHealth: queueHealthAfterMaintenance,
     }).catch(() => null);
-    const effectiveLivePolicyAfterMaintenance = applyGoogleAdsFullSyncPriorityPolicyOverride({
-      policy: livePolicyAfterMaintenance,
-      fullSyncPriorityRequired: fullSyncPriority.required,
-    });
+    const effectiveLivePolicyAfterMaintenance =
+      applyGoogleAdsFullSyncPriorityPolicyOverride({
+        policy: livePolicyAfterMaintenance,
+        fullSyncPriorityRequired: fullSyncPriority.required,
+      });
 
     if (partitions.length === 0) {
       const queueHealth = queueHealthAfterMaintenance;
@@ -3962,7 +4682,8 @@ export async function syncGoogleAdsReports(
           await enterProviderGlobalCircuitBreakerRecoveryState({
             provider: "google",
             businessId,
-            message: "Google Ads extended sync is reopening in canary half-open mode.",
+            message:
+              "Google Ads extended sync is reopening in canary half-open mode.",
             cooldownMs: GOOGLE_ADS_CIRCUIT_BREAKER_BASE_MINUTES * 60_000,
           }).catch(() => null);
         }
@@ -4005,7 +4726,9 @@ export async function syncGoogleAdsReports(
       else failed++;
     }
 
-    let postBatchQueueHealth = await getGoogleAdsQueueHealth({ businessId }).catch(() => null);
+    let postBatchQueueHealth = await getGoogleAdsQueueHealth({
+      businessId,
+    }).catch(() => null);
     let livePolicyAfterBatch = await getGoogleAdsIncidentPolicy({
       businessId,
       queueHealth: postBatchQueueHealth,
@@ -4018,7 +4741,8 @@ export async function syncGoogleAdsReports(
       !hasLeaseConflict() &&
       partitions.every((partition) => partition.lane !== "extended") &&
       (postBatchQueueHealth?.extendedQueueDepth ?? 0) > 0 &&
-      (postBatchQueueHealth?.coreQueueDepth ?? 0) <= GOOGLE_ADS_EXTENDED_CORE_BACKLOG_THRESHOLD &&
+      (postBatchQueueHealth?.coreQueueDepth ?? 0) <=
+        GOOGLE_ADS_EXTENDED_CORE_BACKLOG_THRESHOLD &&
       (postBatchQueueHealth?.maintenanceLeasedPartitions ?? 0) === 0 &&
       !livePolicyAfterBatch?.suspendExtended;
 
@@ -4042,19 +4766,22 @@ export async function syncGoogleAdsReports(
                 1,
                 Math.min(
                   GOOGLE_ADS_EXTENDED_FULL_SYNC_PRIORITY_LIMIT,
-                  getGoogleAdsHistoricalLeaseLimit({ policy: livePolicyAfterBatch })
-                )
+                  getGoogleAdsHistoricalLeaseLimit({
+                    policy: livePolicyAfterBatch,
+                  }),
+                ),
               )
             : burstSourceFilter === "recent_only"
-            ? getGoogleAdsRecentRepairLeaseLimit({ policy: livePolicyAfterBatch })
-            : GOOGLE_ADS_EXTENDED_BURST_WORKER_LIMIT,
+              ? getGoogleAdsRecentRepairLeaseLimit({
+                  policy: livePolicyAfterBatch,
+                })
+              : GOOGLE_ADS_EXTENDED_BURST_WORKER_LIMIT,
         leaseMinutes: GOOGLE_ADS_PARTITION_LEASE_MINUTES,
-        sourceFilter:
-          blockHistoricalExtendedWork
-            ? "recent_only"
-            : fullSyncPriority.required
-              ? "historical_only"
-              : burstSourceFilter,
+        sourceFilter: blockHistoricalExtendedWork
+          ? "recent_only"
+          : fullSyncPriority.required
+            ? "historical_only"
+            : burstSourceFilter,
         scopeFilter:
           fullSyncPriority.required && !blockHistoricalExtendedWork
             ? fullSyncPriority.targetScopes
@@ -4094,19 +4821,23 @@ export async function syncGoogleAdsReports(
         else failed++;
       }
 
-      postBatchQueueHealth = await getGoogleAdsQueueHealth({ businessId }).catch(() => null);
+      postBatchQueueHealth = await getGoogleAdsQueueHealth({
+        businessId,
+      }).catch(() => null);
       livePolicyAfterBatch = await getGoogleAdsIncidentPolicy({
         businessId,
         queueHealth: postBatchQueueHealth,
       }).catch(() => null);
     }
 
-    await refreshGoogleAdsSyncStateForBusiness({ businessId }).catch((error) => {
-      console.warn("[google-ads-sync] state_refresh_after_run_failed", {
-        businessId,
-        message: error instanceof Error ? error.message : String(error),
-      });
-    });
+    await refreshGoogleAdsSyncStateForBusiness({ businessId }).catch(
+      (error) => {
+        console.warn("[google-ads-sync] state_refresh_after_run_failed", {
+          businessId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      },
+    );
     return {
       businessId,
       attempted,
@@ -4119,8 +4850,8 @@ export async function syncGoogleAdsReports(
           : hasLeaseConflict() && succeeded === 0
             ? "consume_failed_after_leasing"
             : succeeded > 0
-            ? "consume_completed_with_progress"
-            : "consume_completed_without_progress",
+              ? "consume_completed_with_progress"
+              : "consume_completed_without_progress",
       failureReason:
         hasLeaseConflict() && succeeded === 0
           ? leaseConflictReason()
