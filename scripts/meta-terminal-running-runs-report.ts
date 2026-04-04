@@ -15,6 +15,7 @@ function normalizeTimestamp(value: unknown) {
 async function main() {
   const businessId = process.argv[2]?.trim() || null;
   const sql = getDb();
+  const businessIdFilter = businessId ? businessId : null;
 
   const [groupedRows, sampleRows, workerRows, latestRows] = (await Promise.all([
     sql`
@@ -37,7 +38,7 @@ async function main() {
           ON partition.id = run.partition_id
         WHERE run.status = 'running'
           AND partition.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
-          AND (${businessId}::uuid IS NULL OR partition.business_id = ${businessId}::uuid)
+          AND (${businessIdFilter}::text IS NULL OR partition.business_id::text = ${businessIdFilter}::text)
       )
       SELECT
         lane,
@@ -74,7 +75,7 @@ async function main() {
         ON partition.id = run.partition_id
       WHERE run.status = 'running'
         AND partition.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
-        AND (${businessId}::uuid IS NULL OR partition.business_id = ${businessId}::uuid)
+        AND (${businessIdFilter}::text IS NULL OR partition.business_id::text = ${businessIdFilter}::text)
       ORDER BY run.updated_at DESC
       LIMIT 20
     `,
@@ -89,7 +90,7 @@ async function main() {
         ON partition.id = run.partition_id
       WHERE run.status = 'running'
         AND partition.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
-        AND (${businessId}::uuid IS NULL OR partition.business_id = ${businessId}::uuid)
+        AND (${businessIdFilter}::text IS NULL OR partition.business_id::text = ${businessIdFilter}::text)
       GROUP BY partition.status, run.worker_id
       ORDER BY row_count DESC, partition.status, run.worker_id
     `,
@@ -109,7 +110,7 @@ async function main() {
         ON partition.id = run.partition_id
       WHERE run.status = 'running'
         AND partition.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
-        AND (${businessId}::uuid IS NULL OR partition.business_id = ${businessId}::uuid)
+        AND (${businessIdFilter}::text IS NULL OR partition.business_id::text = ${businessIdFilter}::text)
       ORDER BY run.updated_at DESC
       LIMIT 20
     `,
