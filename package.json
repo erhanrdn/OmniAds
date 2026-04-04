@@ -34,6 +34,7 @@
     "google:ads:reschedule": "node --import tsx scripts/google-ads-reschedule.ts",
     "google:ads:refresh-state": "node --import tsx scripts/google-ads-refresh-state.ts",
     "google:ads:run-once": "node --import tsx scripts/google-ads-run-once.ts",
+    "google:ads:requeue-stale-core-frontier": "node --import tsx scripts/google-ads-requeue-stale-core-frontier.ts",
     "google:ads:progress-diff": "node --import tsx scripts/google-ads-progress-diff.ts"
   },
   "dependencies": {
