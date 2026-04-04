@@ -12,16 +12,20 @@ async function main() {
       'metaSyncPartitionsLeaseEpochExists',
       EXISTS (
         SELECT 1
-        FROM information_schema.columns
-        WHERE table_name = 'meta_sync_partitions'
-          AND column_name = 'lease_epoch'
+        FROM pg_attribute attribute
+        JOIN pg_class class ON class.oid = attribute.attrelid
+        WHERE class.oid = 'meta_sync_partitions'::regclass
+          AND attribute.attname = 'lease_epoch'
+          AND NOT attribute.attisdropped
       ),
       'metaSyncCheckpointsLeaseEpochExists',
       EXISTS (
         SELECT 1
-        FROM information_schema.columns
-        WHERE table_name = 'meta_sync_checkpoints'
-          AND column_name = 'lease_epoch'
+        FROM pg_attribute attribute
+        JOIN pg_class class ON class.oid = attribute.attrelid
+        WHERE class.oid = 'meta_sync_checkpoints'::regclass
+          AND attribute.attname = 'lease_epoch'
+          AND NOT attribute.attisdropped
       ),
       'metaSyncPartitionsLeaseEpochNullCount',
       (
@@ -29,38 +33,20 @@ async function main() {
         FROM meta_sync_partitions
         WHERE lease_epoch IS NULL
       ),
-      'metaSyncCheckpointsLeaseEpochNullRowsExist',
-      EXISTS (
-        SELECT 1
-        FROM meta_sync_checkpoints
-        WHERE lease_epoch IS NULL
-        LIMIT 1
-      ),
       'metaSyncCheckpointsLeaseEpochNullCountEstimate',
       (
         SELECT CASE
-          WHEN EXISTS (
-            SELECT 1
-            FROM meta_sync_checkpoints
-            WHERE lease_epoch IS NULL
-            LIMIT 1
-          )
-            THEN GREATEST(0, FLOOR(reltuples))::bigint
-          ELSE 0
+          WHEN stats.null_frac IS NULL
+            THEN NULL
+          ELSE GREATEST(0, FLOOR(class.reltuples * stats.null_frac))::bigint
         END
-        FROM pg_class
-        WHERE oid = 'meta_sync_checkpoints'::regclass
+        FROM pg_class class
+        LEFT JOIN pg_stats stats
+          ON stats.schemaname = 'public'
+         AND stats.tablename = 'meta_sync_checkpoints'
+         AND stats.attname = 'lease_epoch'
+        WHERE class.oid = 'meta_sync_checkpoints'::regclass
         LIMIT 1
-      ),
-      'metaSyncCheckpointsLeaseEpochNullCount',
-      (
-        SELECT COUNT(*)::int
-        FROM (
-          SELECT 1
-          FROM meta_sync_checkpoints
-          WHERE lease_epoch IS NULL
-          LIMIT 1000
-        ) limited_rows
       )
     ) AS summary
   `) as Array<{ summary: unknown }>;
