@@ -134,7 +134,9 @@ describe("meta warehouse ownership safety", () => {
     });
 
     expect(completed).toBe(false);
-    expect(queries.some((query) => query.includes("AND lease_epoch = "))).toBe(true);
+    expect(queries.some((query) => query.includes("partition.lease_epoch = input_values.lease_epoch"))).toBe(
+      true
+    );
   });
 
   it("closes current-epoch running checkpoints when a partition succeeds", async () => {
@@ -220,6 +222,101 @@ describe("meta warehouse ownership safety", () => {
     );
     expect(queries.some((query) => query.includes("UPDATE meta_sync_runs run"))).toBe(true);
     expect(queries.some((query) => query.includes("run.status = 'running'"))).toBe(true);
+    expect(queries[0]).not.toContain("runLeakObservability");
+    expect(queries[0]).not.toContain("latest_running_run");
+  });
+
+  it("completes failed runs when all optional observability fields are null", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      queries.push(strings.join(" "));
+      return [
+        {
+          completed: true,
+          run_updated: true,
+          closed_checkpoint_groups: [],
+        },
+      ];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const completed = await completeMetaPartitionAttempt({
+      partitionId: "partition-2",
+      workerId: "worker-1",
+      leaseEpoch: 11,
+      runId: "22222222-2222-2222-2222-222222222222",
+      partitionStatus: "failed",
+      runStatus: "failed",
+      durationMs: 1400,
+      errorClass: "network_error",
+      errorMessage: "request failed",
+      finishedAt: "2026-04-04T00:01:00.000Z",
+    });
+
+    expect(completed).toEqual(
+      expect.objectContaining({
+        ok: true,
+        runUpdated: true,
+        observedLatestRunningRunId: null,
+        callerRunIdMatchedLatestRunningRunId: null,
+      })
+    );
+    expect(queries[0]).not.toContain("runLeakObservability");
+    expect(queries[0]).not.toContain("latest_running_run");
+  });
+
+  it("does not let observability write failures block completion", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const sql = vi
+      .fn()
+      .mockResolvedValueOnce([
+        {
+          completed: true,
+          run_updated: true,
+          closed_checkpoint_groups: [],
+        },
+      ])
+      .mockResolvedValueOnce([{ latest_running_run_id: "33333333-3333-3333-3333-333333333333" }])
+      .mockRejectedValueOnce(new Error("observability update failed"));
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const completed = await completeMetaPartitionAttempt({
+      partitionId: "partition-3",
+      workerId: "worker-1",
+      leaseEpoch: 12,
+      runId: "33333333-3333-3333-3333-333333333333",
+      partitionStatus: "succeeded",
+      runStatus: "succeeded",
+      durationMs: 1600,
+      finishedAt: "2026-04-04T00:02:00.000Z",
+      lane: "core",
+      scope: "account_daily",
+      observabilityPath: "primary",
+    });
+
+    expect(completed).toEqual(
+      expect.objectContaining({
+        ok: true,
+        runUpdated: true,
+        observedLatestRunningRunId: null,
+        callerRunIdMatchedLatestRunningRunId: null,
+      })
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[meta-sync] partition_completion_observability_failed",
+      expect.objectContaining({
+        partitionId: "partition-3",
+        runId: "33333333-3333-3333-3333-333333333333",
+        workerId: "worker-1",
+        leaseEpoch: 12,
+        lane: "core",
+        scope: "account_daily",
+        partitionStatus: "succeeded",
+        runStatusAfter: "succeeded",
+        pathKind: "primary",
+        message: "observability update failed",
+      })
+    );
   });
 
   it("does not run child checkpoint closure when partition completion is non-success", async () => {

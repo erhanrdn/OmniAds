@@ -602,13 +602,91 @@ function parseMetaClosedCheckpointGroups(raw: unknown): MetaClosedCheckpointGrou
   return [];
 }
 
-function parseNullableBoolean(value: unknown) {
-  if (typeof value === "boolean") return value;
-  if (typeof value === "string") {
-    if (value === "true") return true;
-    if (value === "false") return false;
+async function writeMetaPartitionCompletionObservability(input: {
+  partitionId: string;
+  runId?: string | null;
+  recoveredRunId?: string | null;
+  workerId: string;
+  leaseEpoch: number;
+  lane?: MetaSyncLane | null;
+  scope?: MetaWarehouseScope | null;
+  partitionStatus: Extract<MetaPartitionStatus, "succeeded" | "failed" | "dead_letter" | "cancelled">;
+  runStatus: MetaSyncRunRecord["status"];
+  observabilityPath?: MetaRunObservabilityPath | null;
+}) {
+  const sql = getDb();
+  try {
+    const [latestRow] = (await sql`
+      SELECT id::text AS latest_running_run_id
+      FROM meta_sync_runs
+      WHERE partition_id = ${input.partitionId}::uuid
+        AND status = 'running'
+      ORDER BY created_at DESC
+      LIMIT 1
+    `) as Array<{ latest_running_run_id?: string | null }>;
+
+    const observedLatestRunningRunId =
+      typeof latestRow?.latest_running_run_id === "string" ? latestRow.latest_running_run_id : null;
+    const callerRunIdMatchedLatestRunningRunId =
+      input.runId && observedLatestRunningRunId ? input.runId === observedLatestRunningRunId : null;
+
+    if (!observedLatestRunningRunId) {
+      return {
+        observedLatestRunningRunId: null,
+        callerRunIdMatchedLatestRunningRunId,
+      };
+    }
+
+    await sql`
+      UPDATE meta_sync_runs run
+      SET
+        meta_json = COALESCE(run.meta_json, '{}'::jsonb) || jsonb_build_object(
+          'runLeakObservability',
+          jsonb_strip_nulls(
+            jsonb_build_object(
+              'callerRunId', ${input.runId ?? null}::text,
+              'recoveredRunId', ${input.recoveredRunId ?? null}::text,
+              'latestRunningRunId', ${observedLatestRunningRunId}::text,
+              'callerRunIdMatchedLatestRunningRunId', ${callerRunIdMatchedLatestRunningRunId},
+              'pathKind', ${input.observabilityPath ?? null}::text,
+              'workerId', ${input.workerId}::text,
+              'leaseEpoch', ${input.leaseEpoch}::bigint,
+              'lane', ${input.lane ?? null}::text,
+              'scope', ${input.scope ?? null}::text,
+              'partitionStatus', ${input.partitionStatus}::text,
+              'runStatusBefore', 'running',
+              'runStatusAfter', ${input.runStatus}::text,
+              'observedAt', now()
+            )
+          )
+        )
+      WHERE run.id = ${observedLatestRunningRunId}::uuid
+    `;
+
+    return {
+      observedLatestRunningRunId,
+      callerRunIdMatchedLatestRunningRunId,
+    };
+  } catch (error) {
+    console.warn("[meta-sync] partition_completion_observability_failed", {
+      partitionId: input.partitionId,
+      runId: input.runId ?? null,
+      recoveredRunId: input.recoveredRunId ?? null,
+      workerId: input.workerId,
+      leaseEpoch: input.leaseEpoch,
+      lane: input.lane ?? null,
+      scope: input.scope ?? null,
+      partitionStatus: input.partitionStatus,
+      runStatusBefore: "running",
+      runStatusAfter: input.runStatus,
+      pathKind: input.observabilityPath ?? null,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return {
+      observedLatestRunningRunId: null,
+      callerRunIdMatchedLatestRunningRunId: null,
+    };
   }
-  return null;
 }
 
 export async function completeMetaPartitionAttempt(input: {
@@ -639,29 +717,45 @@ export async function completeMetaPartitionAttempt(input: {
         ? "cancelled"
         : "failed");
   const rows = await sql`
-    WITH completed_partition AS (
-      UPDATE meta_sync_partitions
+    WITH input_values AS (
+      SELECT
+        ${input.partitionStatus}::text AS partition_status,
+        ${input.retryDelayMinutes ?? 5}::int AS retry_delay_minutes,
+        ${input.lastError ?? null}::text AS last_error,
+        ${input.finishedAt ?? null}::timestamptz AS finished_at,
+        ${input.partitionId}::uuid AS partition_id,
+        ${input.workerId}::text AS worker_id,
+        ${input.leaseEpoch}::bigint AS lease_epoch,
+        ${input.runId ?? null}::uuid AS run_id,
+        ${runStatus}::text AS run_status,
+        ${input.durationMs ?? null}::int AS duration_ms,
+        ${input.errorClass ?? null}::text AS error_class,
+        ${input.errorMessage ?? null}::text AS error_message
+    ),
+    completed_partition AS (
+      UPDATE meta_sync_partitions partition
       SET
-        status = ${input.partitionStatus},
+        status = input_values.partition_status,
         lease_owner = NULL,
         lease_expires_at = NULL,
         next_retry_at = CASE
-          WHEN ${input.partitionStatus} = 'failed'
-            THEN now() + (${input.retryDelayMinutes ?? 5} || ' minutes')::interval
+          WHEN input_values.partition_status = 'failed'
+            THEN now() + (input_values.retry_delay_minutes || ' minutes')::interval
           ELSE NULL
         END,
-        last_error = ${input.lastError ?? null},
+        last_error = input_values.last_error,
         finished_at = CASE
-          WHEN ${input.partitionStatus} IN ('succeeded', 'dead_letter', 'cancelled')
-            THEN COALESCE(${input.finishedAt ?? null}, now())
-          ELSE finished_at
+          WHEN input_values.partition_status IN ('succeeded', 'dead_letter', 'cancelled')
+            THEN COALESCE(input_values.finished_at, now())
+          ELSE partition.finished_at
         END,
         updated_at = now()
-      WHERE id = ${input.partitionId}
-        AND lease_owner = ${input.workerId}
-        AND lease_epoch = ${input.leaseEpoch}
-        AND COALESCE(lease_expires_at, now()) > now()
-      RETURNING id
+      FROM input_values
+      WHERE partition.id = input_values.partition_id
+        AND partition.lease_owner = input_values.worker_id
+        AND partition.lease_epoch = input_values.lease_epoch
+        AND COALESCE(partition.lease_expires_at, now()) > now()
+      RETURNING partition.id
     ),
     candidate_checkpoints AS (
       SELECT
@@ -671,8 +765,9 @@ export async function completeMetaPartitionAttempt(input: {
       FROM meta_sync_checkpoints checkpoint
       JOIN completed_partition partition
         ON partition.id = checkpoint.partition_id
-      WHERE ${input.partitionStatus} = 'succeeded'
-        AND COALESCE(checkpoint.lease_epoch, 0) = ${input.leaseEpoch}::bigint
+      CROSS JOIN input_values
+      WHERE input_values.partition_status = 'succeeded'
+        AND COALESCE(checkpoint.lease_epoch, 0) = input_values.lease_epoch
         AND checkpoint.status = 'running'
     ),
     closed_checkpoints AS (
@@ -698,67 +793,25 @@ export async function completeMetaPartitionAttempt(input: {
       FROM closed_checkpoints
       GROUP BY checkpoint_scope, previous_phase
     ),
-    latest_running_run AS (
-      SELECT run.id AS latest_running_run_id
-      FROM meta_sync_runs run
-      WHERE run.partition_id = ${input.partitionId}
-        AND run.status = 'running'
-      ORDER BY run.created_at DESC
-      LIMIT 1
-    ),
-    observed_running_run AS (
-      UPDATE meta_sync_runs run
-      SET
-        meta_json = COALESCE(run.meta_json, '{}'::jsonb) || jsonb_build_object(
-          'runLeakObservability',
-          jsonb_strip_nulls(
-            jsonb_build_object(
-              'callerRunId', ${input.runId ?? null}::text,
-              'recoveredRunId', ${input.recoveredRunId ?? null}::text,
-              'latestRunningRunId', latest.latest_running_run_id::text,
-              'callerRunIdMatchedLatestRunningRunId', CASE
-                WHEN ${input.runId ?? null}::uuid IS NULL THEN NULL
-                ELSE (${input.runId ?? null}::uuid = latest.latest_running_run_id)
-              END,
-              'pathKind', ${input.observabilityPath ?? null}::text,
-              'workerId', ${input.workerId},
-              'leaseEpoch', ${input.leaseEpoch},
-              'lane', ${input.lane ?? null}::text,
-              'scope', ${input.scope ?? null}::text,
-              'partitionStatus', ${input.partitionStatus},
-              'runStatusBefore', 'running',
-              'runStatusAfter', ${runStatus},
-              'observedAt', now()
-            )
-          )
-        )
-      FROM latest_running_run latest
-      WHERE run.id = latest.latest_running_run_id
-      RETURNING
-        latest.latest_running_run_id::text AS latest_running_run_id,
-        CASE
-          WHEN ${input.runId ?? null}::uuid IS NULL THEN NULL
-          ELSE (${input.runId ?? null}::uuid = latest.latest_running_run_id)
-        END AS caller_run_id_matches_latest_running_run_id
-    ),
     updated_run AS (
       UPDATE meta_sync_runs run
       SET
-        status = ${runStatus},
-        duration_ms = COALESCE(${input.durationMs ?? null}, run.duration_ms),
+        status = input_values.run_status,
+        duration_ms = COALESCE(input_values.duration_ms, run.duration_ms),
         error_class = CASE
-          WHEN ${runStatus} IN ('succeeded', 'cancelled') THEN NULL
-          ELSE COALESCE(${input.errorClass ?? null}, run.error_class)
+          WHEN input_values.run_status IN ('succeeded', 'cancelled') THEN NULL
+          ELSE COALESCE(input_values.error_class, run.error_class)
         END,
         error_message = CASE
-          WHEN ${runStatus} IN ('succeeded', 'cancelled') THEN NULL
-          ELSE COALESCE(${input.errorMessage ?? null}, run.error_message)
+          WHEN input_values.run_status IN ('succeeded', 'cancelled') THEN NULL
+          ELSE COALESCE(input_values.error_message, run.error_message)
         END,
-        finished_at = COALESCE(${input.finishedAt ?? null}, now()),
+        finished_at = COALESCE(input_values.finished_at, now()),
         updated_at = now()
       FROM completed_partition partition
-      WHERE ${input.runId ?? null}::uuid IS NOT NULL
-        AND run.id = ${input.runId ?? null}::uuid
+      CROSS JOIN input_values
+      WHERE input_values.run_id IS NOT NULL
+        AND run.id = input_values.run_id
         AND run.partition_id = partition.id
         AND run.status = 'running'
       RETURNING run.id
@@ -766,16 +819,6 @@ export async function completeMetaPartitionAttempt(input: {
     SELECT
       EXISTS(SELECT 1 FROM completed_partition) AS completed,
       EXISTS(SELECT 1 FROM updated_run) AS run_updated,
-      (
-        SELECT latest_running_run_id
-        FROM observed_running_run
-        LIMIT 1
-      ) AS observed_latest_running_run_id,
-      (
-        SELECT caller_run_id_matches_latest_running_run_id
-        FROM observed_running_run
-        LIMIT 1
-      ) AS caller_run_id_matches_latest_running_run_id,
       COALESCE(
         (
           SELECT json_agg(
@@ -801,11 +844,6 @@ export async function completeMetaPartitionAttempt(input: {
   }
 
   const closedCheckpointGroups = parseMetaClosedCheckpointGroups(row.closed_checkpoint_groups);
-  const observedLatestRunningRunId =
-    typeof row.observed_latest_running_run_id === "string" ? row.observed_latest_running_run_id : null;
-  const callerRunIdMatchedLatestRunningRunId = parseNullableBoolean(
-    row.caller_run_id_matches_latest_running_run_id
-  );
   if (input.partitionStatus === "succeeded" && closedCheckpointGroups.length > 0) {
     console.info("[meta-sync] partition_success_closed_open_checkpoints", {
       partitionId: input.partitionId,
@@ -814,6 +852,21 @@ export async function completeMetaPartitionAttempt(input: {
       closedCheckpointGroups,
     });
   }
+  const {
+    observedLatestRunningRunId,
+    callerRunIdMatchedLatestRunningRunId,
+  } = await writeMetaPartitionCompletionObservability({
+    partitionId: input.partitionId,
+    runId: input.runId ?? null,
+    recoveredRunId: input.recoveredRunId ?? null,
+    workerId: input.workerId,
+    leaseEpoch: input.leaseEpoch,
+    lane: input.lane ?? null,
+    scope: input.scope ?? null,
+    partitionStatus: input.partitionStatus,
+    runStatus,
+    observabilityPath: input.observabilityPath ?? null,
+  });
   if (!Boolean(row.run_updated)) {
     console.warn("[meta-sync] partition_completion_run_update_zero_rows", {
       partitionId: input.partitionId,

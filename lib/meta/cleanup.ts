@@ -212,7 +212,7 @@ export async function purgeMetaLegacyCaches(businessId?: string | null): Promise
 export async function closeSucceededMetaParentRunningCheckpoints(input?: {
   businessId?: string | null;
 }): Promise<MetaSucceededParentRunningCheckpointCleanupSummary> {
-  await runMigrations({ force: true, reason: "meta_orphan_checkpoint_cleanup" });
+  await runMigrations({ reason: "meta_orphan_checkpoint_cleanup" });
   const sql = getDb();
   const businessId = input?.businessId?.trim() || null;
 
@@ -323,7 +323,7 @@ export async function closeSucceededMetaParentRunningCheckpoints(input?: {
 export async function repairMetaRunningRunsUnderTerminalParents(input?: {
   businessId?: string | null;
 }): Promise<MetaTerminalParentRunningRunRepairSummary> {
-  await runMigrations({ force: true, reason: "meta_terminal_run_repair" });
+  await runMigrations({ reason: "meta_terminal_run_repair" });
   const sql = getDb();
   const businessId = input?.businessId?.trim() || null;
 

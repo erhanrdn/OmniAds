@@ -13,6 +13,7 @@ vi.mock("@/lib/reporting-cache", () => ({
 }));
 
 const db = await import("@/lib/db");
+const migrations = await import("@/lib/migrations");
 const {
   closeSucceededMetaParentRunningCheckpoints,
   repairMetaRunningRunsUnderTerminalParents,
@@ -89,6 +90,9 @@ describe("closeSucceededMetaParentRunningCheckpoints", () => {
       true
     );
     expect(queries).toHaveLength(2);
+    expect(migrations.runMigrations).toHaveBeenCalledWith({
+      reason: "meta_orphan_checkpoint_cleanup",
+    });
   });
 
   it("repairs running runs under terminal parents and returns grouped diagnostics", async () => {
@@ -154,5 +158,8 @@ describe("closeSucceededMetaParentRunningCheckpoints", () => {
     ).toBe(true);
     expect(queries.some((query) => query.includes("partition_already_dead_letter"))).toBe(true);
     expect(queries).toHaveLength(2);
+    expect(migrations.runMigrations).toHaveBeenCalledWith({
+      reason: "meta_terminal_run_repair",
+    });
   });
 });
