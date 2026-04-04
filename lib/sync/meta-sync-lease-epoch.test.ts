@@ -17,6 +17,7 @@ vi.mock("@/lib/meta/warehouse", async () => {
   return {
     ...actual,
     cancelObsoleteMetaCoreScopePartitions: vi.fn(),
+    backfillMetaRunningRunsForTerminalPartition: vi.fn(),
     cleanupMetaPartitionOrchestration: vi.fn(),
     completeMetaPartitionAttempt: vi.fn(),
     completeMetaPartition: vi.fn(),
@@ -122,10 +123,19 @@ describe("processMetaLifecyclePartition lease epoch", () => {
     vi.mocked(warehouse.completeMetaPartitionAttempt).mockResolvedValue({
       ok: true,
       runUpdated: true,
+      closedRunningRunCount: 1,
+      callerRunIdWasClosed: true,
+      closedRunningRunIds: ["run-1"],
       closedCheckpointGroups: [],
       observedLatestRunningRunId: null,
       callerRunIdMatchedLatestRunningRunId: null,
     });
+    vi.mocked(warehouse.backfillMetaRunningRunsForTerminalPartition).mockResolvedValue({
+      partitionStatus: "succeeded",
+      closedRunningRunCount: 0,
+      callerRunIdWasClosed: null,
+      closedRunningRunIds: [],
+    } as never);
     vi.mocked(warehouse.completeMetaPartition).mockResolvedValue(true);
     vi.mocked(warehouse.updateMetaSyncRun).mockResolvedValue(undefined);
     vi.mocked(warehouse.getLatestRunningMetaSyncRunIdForPartition).mockResolvedValue(null);
@@ -399,12 +409,83 @@ describe("processMetaLifecyclePartition lease epoch", () => {
     );
   });
 
+  it("backfills remaining running runs when denial is already_terminal", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.mocked(warehouse.completeMetaPartitionAttempt).mockResolvedValue({
+      ok: false,
+      reason: "lease_conflict",
+    });
+    vi.mocked(warehouse.getMetaPartitionCompletionDenialSnapshot).mockResolvedValue({
+      currentPartitionStatus: "succeeded",
+      currentLeaseOwner: null,
+      currentLeaseEpoch: 12,
+      currentLeaseExpiresAt: null,
+      ownerMatchesCaller: null,
+      epochMatchesCaller: true,
+      leaseExpiredAtObservation: true,
+      currentPartitionFinishedAt: "2026-04-04T00:02:00.000Z",
+      latestCheckpointScope: "account_daily",
+      latestCheckpointPhase: "finalize",
+      latestCheckpointUpdatedAt: "2026-04-04T00:02:00.000Z",
+      latestRunningRunId: "run-foreign",
+      runningRunCount: 1,
+      denialClassification: "already_terminal",
+    } as never);
+    vi.mocked(warehouse.backfillMetaRunningRunsForTerminalPartition).mockResolvedValue({
+      partitionStatus: "succeeded",
+      closedRunningRunCount: 1,
+      callerRunIdWasClosed: false,
+      closedRunningRunIds: ["run-foreign"],
+    } as never);
+
+    const processed = await processMetaLifecyclePartition({
+      partition: {
+        id: "partition-2b",
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        lane: "maintenance",
+        scope: "account_daily",
+        partitionDate: "2026-04-03",
+        attemptCount: 4,
+        leaseEpoch: 12,
+        source: "recent_recovery",
+      },
+      workerId: "worker-1",
+    });
+
+    expect(processed).toBe(false);
+    expect(warehouse.backfillMetaRunningRunsForTerminalPartition).toHaveBeenCalledWith({
+      partitionId: "partition-2b",
+      runId: "run-1",
+      recoveredRunId: null,
+    });
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[meta-sync] terminal_parent_running_runs_backfilled",
+      expect.objectContaining({
+        partitionId: "partition-2b",
+        runId: "run-1",
+        workerId: "worker-1",
+        leaseEpoch: 12,
+        lane: "maintenance",
+        scope: "account_daily",
+        pathKind: "primary",
+        partitionStatus: "succeeded",
+        closedRunningRunCount: 1,
+        callerRunIdWasClosed: false,
+        closedRunningRunIds: ["run-foreign"],
+      })
+    );
+  });
+
   it("does not misclassify operational completion errors as lease_conflict", async () => {
     vi.mocked(warehouse.completeMetaPartitionAttempt)
       .mockRejectedValueOnce(new Error("db completion timeout"))
       .mockResolvedValueOnce({
         ok: true,
         runUpdated: true,
+        closedRunningRunCount: 1,
+        callerRunIdWasClosed: true,
+        closedRunningRunIds: ["run-1"],
         closedCheckpointGroups: [],
         observedLatestRunningRunId: null,
         callerRunIdMatchedLatestRunningRunId: null,
@@ -447,6 +528,9 @@ describe("processMetaLifecyclePartition lease epoch", () => {
     vi.mocked(warehouse.completeMetaPartitionAttempt).mockResolvedValue({
       ok: true,
       runUpdated: false,
+      closedRunningRunCount: 0,
+      callerRunIdWasClosed: null,
+      closedRunningRunIds: [],
       closedCheckpointGroups: [],
       observedLatestRunningRunId: null,
       callerRunIdMatchedLatestRunningRunId: null,

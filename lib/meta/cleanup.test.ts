@@ -162,4 +162,29 @@ describe("closeSucceededMetaParentRunningCheckpoints", () => {
       reason: "meta_terminal_run_repair",
     });
   });
+
+  it("is a no-op on clean state", async () => {
+    const sql = vi
+      .fn()
+      .mockResolvedValueOnce([
+        {
+          summary: {
+            businessId: null,
+            totalRepaired: 0,
+            groups: [],
+          },
+        },
+      ])
+      .mockResolvedValueOnce([{ count: 0 }]);
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const summary = await repairMetaRunningRunsUnderTerminalParents();
+
+    expect(summary).toEqual({
+      businessId: null,
+      totalRepaired: 0,
+      remainingRunningRunsUnderTerminalParents: 0,
+      groups: [],
+    });
+  });
 });

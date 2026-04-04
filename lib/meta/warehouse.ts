@@ -92,6 +92,9 @@ export type MetaPartitionAttemptCompletionResult =
   | {
       ok: true;
       runUpdated: boolean;
+      closedRunningRunCount: number;
+      callerRunIdWasClosed: boolean | null;
+      closedRunningRunIds: string[];
       closedCheckpointGroups: MetaClosedCheckpointGroup[];
       observedLatestRunningRunId: string | null;
       callerRunIdMatchedLatestRunningRunId: boolean | null;
@@ -635,6 +638,22 @@ function parseNullableBoolean(value: unknown) {
   return null;
 }
 
+function parseStringArray(value: unknown) {
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => (typeof entry === "string" ? entry : String(entry ?? "").trim()))
+      .filter((entry) => entry.length > 0);
+  }
+  if (typeof value === "string") {
+    try {
+      return parseStringArray(JSON.parse(value));
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 export async function getMetaPartitionCompletionDenialSnapshot(input: {
   partitionId: string;
   workerId: string;
@@ -845,6 +864,122 @@ async function writeMetaPartitionCompletionObservability(input: {
   }
 }
 
+export async function backfillMetaRunningRunsForTerminalPartition(input: {
+  partitionId: string;
+  runId?: string | null;
+  recoveredRunId?: string | null;
+}) {
+  const sql = getDb();
+  const [row] = (await sql`
+    WITH input_values AS (
+      SELECT
+        ${input.partitionId}::uuid AS partition_id,
+        ${input.runId ?? input.recoveredRunId ?? null}::uuid AS effective_run_id
+    ),
+    terminal_partition AS (
+      SELECT
+        partition.status::text AS partition_status,
+        partition.last_error::text AS partition_last_error,
+        partition.finished_at AS partition_finished_at
+      FROM meta_sync_partitions partition
+      CROSS JOIN input_values
+      WHERE partition.id = input_values.partition_id
+        AND partition.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
+    ),
+    updated_runs AS (
+      UPDATE meta_sync_runs run
+      SET
+        status = CASE
+          WHEN terminal_partition.partition_status = 'succeeded' THEN 'succeeded'
+          WHEN terminal_partition.partition_status = 'cancelled' THEN 'cancelled'
+          ELSE 'failed'
+        END,
+        error_class = CASE
+          WHEN terminal_partition.partition_status IN ('succeeded', 'cancelled') THEN NULL
+          WHEN terminal_partition.partition_status = 'dead_letter'
+            THEN COALESCE(run.error_class, 'dead_letter')
+          ELSE COALESCE(run.error_class, 'failed')
+        END,
+        error_message = CASE
+          WHEN terminal_partition.partition_status IN ('succeeded', 'cancelled') THEN NULL
+          WHEN terminal_partition.partition_status = 'dead_letter'
+            THEN COALESCE(
+              terminal_partition.partition_last_error,
+              run.error_message,
+              'partition already dead_letter'
+            )
+          ELSE COALESCE(
+            terminal_partition.partition_last_error,
+            run.error_message,
+            'partition already failed'
+          )
+        END,
+        finished_at = COALESCE(run.finished_at, terminal_partition.partition_finished_at, now()),
+        duration_ms = COALESCE(
+          run.duration_ms,
+          GREATEST(
+            0,
+            FLOOR(
+              EXTRACT(
+                EPOCH FROM (
+                  COALESCE(terminal_partition.partition_finished_at, now()) -
+                  COALESCE(run.started_at, run.created_at)
+                )
+              ) * 1000
+            )::int
+          )
+        ),
+        meta_json = COALESCE(run.meta_json, '{}'::jsonb) || jsonb_build_object(
+          'decisionCaller', 'backfillMetaRunningRunsForTerminalPartition',
+          'closureReason', CASE
+            WHEN terminal_partition.partition_status = 'succeeded' THEN 'partition_already_succeeded'
+            WHEN terminal_partition.partition_status = 'failed' THEN 'partition_already_failed'
+            WHEN terminal_partition.partition_status = 'dead_letter' THEN 'partition_already_dead_letter'
+            ELSE 'partition_already_cancelled'
+          END
+        ),
+        updated_at = now()
+      FROM terminal_partition
+      CROSS JOIN input_values
+      WHERE run.partition_id = input_values.partition_id
+        AND run.status = 'running'
+      RETURNING
+        run.id AS run_id_uuid,
+        run.id::text AS run_id,
+        terminal_partition.partition_status
+    ),
+    updated_summary AS (
+      SELECT
+        COALESCE(MAX(partition_status), (SELECT partition_status FROM terminal_partition LIMIT 1)) AS partition_status,
+        COUNT(*)::int AS closed_running_run_count,
+        CASE
+          WHEN (SELECT effective_run_id FROM input_values) IS NULL THEN NULL
+          ELSE BOOL_OR(run_id_uuid = (SELECT effective_run_id FROM input_values))
+        END AS caller_run_id_was_closed
+      FROM updated_runs
+    ),
+    capped_run_ids AS (
+      SELECT run_id
+      FROM updated_runs
+      ORDER BY run_id
+      LIMIT 10
+    )
+    SELECT
+      (SELECT partition_status FROM updated_summary) AS partition_status,
+      COALESCE((SELECT closed_running_run_count FROM updated_summary), 0) AS closed_running_run_count,
+      (SELECT caller_run_id_was_closed FROM updated_summary) AS caller_run_id_was_closed,
+      COALESCE((SELECT json_agg(run_id ORDER BY run_id) FROM capped_run_ids), '[]'::json) AS closed_running_run_ids
+  `) as Array<Record<string, unknown>>;
+
+  return {
+    partitionStatus:
+      typeof row?.partition_status === "string" ? row.partition_status : null,
+    closedRunningRunCount: toNumber(row?.closed_running_run_count),
+    callerRunIdWasClosed: parseNullableBoolean(row?.caller_run_id_was_closed),
+    closedRunningRunIds: parseStringArray(row?.closed_running_run_ids),
+  };
+}
+
 export async function completeMetaPartitionAttempt(input: {
   partitionId: string;
   workerId: string;
@@ -883,6 +1018,7 @@ export async function completeMetaPartitionAttempt(input: {
         ${input.workerId}::text AS worker_id,
         ${input.leaseEpoch}::bigint AS lease_epoch,
         ${input.runId ?? null}::uuid AS run_id,
+        ${input.runId ?? input.recoveredRunId ?? null}::uuid AS effective_run_id,
         ${runStatus}::text AS run_status,
         ${input.durationMs ?? null}::int AS duration_ms,
         ${input.errorClass ?? null}::text AS error_class,
@@ -949,7 +1085,7 @@ export async function completeMetaPartitionAttempt(input: {
       FROM closed_checkpoints
       GROUP BY checkpoint_scope, previous_phase
     ),
-    updated_run AS (
+    updated_runs AS (
       UPDATE meta_sync_runs run
       SET
         status = input_values.run_status,
@@ -966,15 +1102,34 @@ export async function completeMetaPartitionAttempt(input: {
         updated_at = now()
       FROM completed_partition partition
       CROSS JOIN input_values
-      WHERE input_values.run_id IS NOT NULL
-        AND run.id = input_values.run_id
-        AND run.partition_id = partition.id
+      WHERE run.partition_id = partition.id
         AND run.status = 'running'
-      RETURNING run.id
+      RETURNING
+        run.id AS run_id_uuid,
+        run.id::text AS run_id
+    ),
+    updated_run_summary AS (
+      SELECT
+        COUNT(*)::int AS closed_running_run_count,
+        CASE
+          WHEN (SELECT effective_run_id FROM input_values) IS NULL THEN NULL
+          ELSE BOOL_OR(run_id_uuid = (SELECT effective_run_id FROM input_values))
+        END AS caller_run_id_was_closed
+      FROM updated_runs
+    ),
+    capped_updated_run_ids AS (
+      SELECT run_id
+      FROM updated_runs
+      ORDER BY run_id
+      LIMIT 10
     )
     SELECT
       EXISTS(SELECT 1 FROM completed_partition) AS completed,
-      EXISTS(SELECT 1 FROM updated_run) AS run_updated,
+      EXISTS(SELECT 1 FROM updated_runs) AS run_updated,
+      COALESCE((SELECT closed_running_run_count FROM updated_run_summary), 0) AS closed_running_run_count,
+      (SELECT caller_run_id_was_closed FROM updated_run_summary) AS caller_run_id_was_closed,
+      COALESCE((SELECT json_agg(run_id ORDER BY run_id) FROM capped_updated_run_ids), '[]'::json)
+        AS closed_running_run_ids,
       COALESCE(
         (
           SELECT json_agg(
@@ -1000,12 +1155,33 @@ export async function completeMetaPartitionAttempt(input: {
   }
 
   const closedCheckpointGroups = parseMetaClosedCheckpointGroups(row.closed_checkpoint_groups);
+  const closedRunningRunCount = toNumber(row.closed_running_run_count);
+  const callerRunIdWasClosed = parseNullableBoolean(row.caller_run_id_was_closed);
+  const closedRunningRunIds = parseStringArray(row.closed_running_run_ids);
   if (input.partitionStatus === "succeeded" && closedCheckpointGroups.length > 0) {
     console.info("[meta-sync] partition_success_closed_open_checkpoints", {
       partitionId: input.partitionId,
       workerId: input.workerId,
       leaseEpoch: input.leaseEpoch,
       closedCheckpointGroups,
+    });
+  }
+  if (closedRunningRunCount > 0) {
+    console.info("[meta-sync] partition_completion_closed_running_runs", {
+      partitionId: input.partitionId,
+      runId: input.runId ?? null,
+      recoveredRunId: input.recoveredRunId ?? null,
+      workerId: input.workerId,
+      leaseEpoch: input.leaseEpoch,
+      lane: input.lane ?? null,
+      scope: input.scope ?? null,
+      partitionStatus: input.partitionStatus,
+      runStatusBefore: "running",
+      runStatusAfter: runStatus,
+      pathKind: input.observabilityPath ?? null,
+      closedRunningRunCount,
+      callerRunIdWasClosed,
+      closedRunningRunIds,
     });
   }
   const {
@@ -1036,6 +1212,9 @@ export async function completeMetaPartitionAttempt(input: {
       runStatusBefore: "running",
       runStatusAfter: runStatus,
       pathKind: input.observabilityPath ?? null,
+      closedRunningRunCount,
+      callerRunIdWasClosed,
+      closedRunningRunIds,
       observedLatestRunningRunId,
       callerRunIdMatchedLatestRunningRunId,
     });
@@ -1044,6 +1223,9 @@ export async function completeMetaPartitionAttempt(input: {
   return {
     ok: true,
     runUpdated: Boolean(row.run_updated),
+    closedRunningRunCount,
+    callerRunIdWasClosed,
+    closedRunningRunIds,
     closedCheckpointGroups,
     observedLatestRunningRunId,
     callerRunIdMatchedLatestRunningRunId,

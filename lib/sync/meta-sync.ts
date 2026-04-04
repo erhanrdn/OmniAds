@@ -14,6 +14,7 @@ import {
   isMetaProductCoreCoverageScope,
 } from "@/lib/meta/core-config";
 import {
+  backfillMetaRunningRunsForTerminalPartition,
   cancelObsoleteMetaCoreScopePartitions,
   cleanupMetaPartitionOrchestration,
   completeMetaPartitionAttempt,
@@ -177,6 +178,52 @@ async function logMetaSuccessCompletionDenied(input: {
     runningRunCount: denialSnapshot?.runningRunCount ?? 0,
     denialClassification: denialSnapshot?.denialClassification ?? "unknown_denial",
   });
+  return denialSnapshot;
+}
+
+async function backfillMetaDeniedTerminalRuns(input: {
+  partitionId: string;
+  runId?: string | null;
+  recoveredRunId?: string | null;
+  workerId: string;
+  leaseEpoch: number;
+  lane: MetaSyncLane;
+  scope: MetaWarehouseScope;
+  pathKind: "primary" | "backfill" | "repair";
+}) {
+  try {
+    const result = await backfillMetaRunningRunsForTerminalPartition({
+      partitionId: input.partitionId,
+      runId: input.runId ?? null,
+      recoveredRunId: input.recoveredRunId ?? null,
+    });
+    console.warn("[meta-sync] terminal_parent_running_runs_backfilled", {
+      partitionId: input.partitionId,
+      runId: input.runId ?? null,
+      recoveredRunId: input.recoveredRunId ?? null,
+      workerId: input.workerId,
+      leaseEpoch: input.leaseEpoch,
+      lane: input.lane,
+      scope: input.scope,
+      pathKind: input.pathKind,
+      partitionStatus: result.partitionStatus,
+      closedRunningRunCount: result.closedRunningRunCount,
+      callerRunIdWasClosed: result.callerRunIdWasClosed,
+      closedRunningRunIds: result.closedRunningRunIds,
+    });
+  } catch (error) {
+    console.warn("[meta-sync] terminal_parent_running_runs_backfill_failed", {
+      partitionId: input.partitionId,
+      runId: input.runId ?? null,
+      recoveredRunId: input.recoveredRunId ?? null,
+      workerId: input.workerId,
+      leaseEpoch: input.leaseEpoch,
+      lane: input.lane,
+      scope: input.scope,
+      pathKind: input.pathKind,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 async function enqueueMetaExtendedPartitionsAfterSuccess(input: {
@@ -1639,7 +1686,7 @@ async function processMetaPartition(input: {
         leaseMinutes: META_PARTITION_LEASE_MINUTES,
       });
       if (!completionHeartbeat.ok) {
-        await logMetaSuccessCompletionDenied({
+        const denialSnapshot = await logMetaSuccessCompletionDenied({
           partitionId,
           runId,
           recoveredRunId,
@@ -1651,6 +1698,18 @@ async function processMetaPartition(input: {
           runStatus: "succeeded",
           reason: "lease_conflict",
         });
+        if (denialSnapshot?.denialClassification === "already_terminal") {
+          await backfillMetaDeniedTerminalRuns({
+            partitionId,
+            runId,
+            recoveredRunId,
+            workerId: input.workerId,
+            leaseEpoch: input.partition.leaseEpoch,
+            lane: input.partition.lane,
+            scope: input.partition.scope,
+            pathKind: "primary",
+          });
+        }
         if (runId) {
           await updateMetaSyncRun({
             id: runId,
@@ -1693,7 +1752,7 @@ async function processMetaPartition(input: {
         recoveredRunId,
       });
       if (!completed.ok) {
-        await logMetaSuccessCompletionDenied({
+        const denialSnapshot = await logMetaSuccessCompletionDenied({
           partitionId,
           runId,
           recoveredRunId,
@@ -1705,6 +1764,18 @@ async function processMetaPartition(input: {
           runStatus: "succeeded",
           reason: "lease_conflict",
         });
+        if (denialSnapshot?.denialClassification === "already_terminal") {
+          await backfillMetaDeniedTerminalRuns({
+            partitionId,
+            runId,
+            recoveredRunId,
+            workerId: input.workerId,
+            leaseEpoch: input.partition.leaseEpoch,
+            lane: input.partition.lane,
+            scope: input.partition.scope,
+            pathKind: "primary",
+          });
+        }
         if (runId) {
           await updateMetaSyncRun({
             id: runId,
@@ -1735,7 +1806,7 @@ async function processMetaPartition(input: {
         });
       }
     } catch (completionError) {
-      await logMetaSuccessCompletionDenied({
+      const denialSnapshot = await logMetaSuccessCompletionDenied({
         partitionId,
         runId,
         recoveredRunId,
@@ -1748,6 +1819,18 @@ async function processMetaPartition(input: {
         reason: "operational_error",
         message: completionError instanceof Error ? completionError.message : String(completionError),
       });
+      if (denialSnapshot?.denialClassification === "already_terminal") {
+        await backfillMetaDeniedTerminalRuns({
+          partitionId,
+          runId,
+          recoveredRunId,
+          workerId: input.workerId,
+          leaseEpoch: input.partition.leaseEpoch,
+          lane: input.partition.lane,
+          scope: input.partition.scope,
+          pathKind: "primary",
+        });
+      }
       throw completionError;
     }
     if (input.partition.lane === "core" || input.partition.lane === "maintenance") {

@@ -194,6 +194,12 @@ describe("meta warehouse ownership safety", () => {
         {
           completed: true,
           run_updated: true,
+          closed_running_run_count: 2,
+          caller_run_id_was_closed: true,
+          closed_running_run_ids: [
+            "11111111-1111-1111-1111-111111111111",
+            "22222222-2222-2222-2222-222222222222",
+          ],
           closed_checkpoint_groups: [],
         },
       ];
@@ -215,6 +221,12 @@ describe("meta warehouse ownership safety", () => {
       expect.objectContaining({
         ok: true,
         runUpdated: true,
+        closedRunningRunCount: 2,
+        callerRunIdWasClosed: true,
+        closedRunningRunIds: [
+          "11111111-1111-1111-1111-111111111111",
+          "22222222-2222-2222-2222-222222222222",
+        ],
         closedCheckpointGroups: [],
         observedLatestRunningRunId: null,
         callerRunIdMatchedLatestRunningRunId: null,
@@ -222,6 +234,8 @@ describe("meta warehouse ownership safety", () => {
     );
     expect(queries.some((query) => query.includes("UPDATE meta_sync_runs run"))).toBe(true);
     expect(queries.some((query) => query.includes("run.status = 'running'"))).toBe(true);
+    expect(queries.some((query) => query.includes("run.partition_id = partition.id"))).toBe(true);
+    expect(queries.every((query) => !query.includes("run.id = input_values.run_id"))).toBe(true);
     expect(queries[0]).not.toContain("runLeakObservability");
     expect(queries[0]).not.toContain("latest_running_run");
   });
@@ -234,6 +248,9 @@ describe("meta warehouse ownership safety", () => {
         {
           completed: true,
           run_updated: true,
+          closed_running_run_count: 1,
+          caller_run_id_was_closed: true,
+          closed_running_run_ids: ["22222222-2222-2222-2222-222222222222"],
           closed_checkpoint_groups: [],
         },
       ];
@@ -257,6 +274,9 @@ describe("meta warehouse ownership safety", () => {
       expect.objectContaining({
         ok: true,
         runUpdated: true,
+        closedRunningRunCount: 1,
+        callerRunIdWasClosed: true,
+        closedRunningRunIds: ["22222222-2222-2222-2222-222222222222"],
         observedLatestRunningRunId: null,
         callerRunIdMatchedLatestRunningRunId: null,
       })
@@ -273,6 +293,12 @@ describe("meta warehouse ownership safety", () => {
         {
           completed: true,
           run_updated: true,
+          closed_running_run_count: 2,
+          caller_run_id_was_closed: true,
+          closed_running_run_ids: [
+            "33333333-3333-3333-3333-333333333333",
+            "77777777-7777-7777-7777-777777777777",
+          ],
           closed_checkpoint_groups: [],
         },
       ])
@@ -298,6 +324,12 @@ describe("meta warehouse ownership safety", () => {
       expect.objectContaining({
         ok: true,
         runUpdated: true,
+        closedRunningRunCount: 2,
+        callerRunIdWasClosed: true,
+        closedRunningRunIds: [
+          "33333333-3333-3333-3333-333333333333",
+          "77777777-7777-7777-7777-777777777777",
+        ],
         observedLatestRunningRunId: null,
         callerRunIdMatchedLatestRunningRunId: null,
       })
@@ -328,6 +360,9 @@ describe("meta warehouse ownership safety", () => {
           {
             completed: true,
             run_updated: true,
+            closed_running_run_count: 1,
+            caller_run_id_was_closed: true,
+            closed_running_run_ids: ["44444444-4444-4444-4444-444444444444"],
             closed_checkpoint_groups: [],
           },
         ];
@@ -365,6 +400,9 @@ describe("meta warehouse ownership safety", () => {
         {
           completed: true,
           run_updated: false,
+          closed_running_run_count: 0,
+          caller_run_id_was_closed: null,
+          closed_running_run_ids: [],
           closed_checkpoint_groups: [],
         },
       ];
