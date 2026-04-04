@@ -6,6 +6,32 @@ let migrationsCompleted = false;
 let loggedMigrationSkip = false;
 
 const DEFAULT_MIGRATION_TIMEOUT_MS = 60_000;
+type MigrationBatchQuery = Promise<unknown>;
+
+function createMigrationDb(sql: ReturnType<typeof getDb>) {
+  let queue = Promise.resolve();
+
+  const enqueue = <T>(operation: () => Promise<T>): Promise<T> => {
+    const next = queue.then(operation, operation);
+    queue = next.then(() => undefined, () => undefined);
+    return next;
+  };
+
+  return Object.assign(
+    ((strings: TemplateStringsArray, ...values: unknown[]) =>
+      enqueue(() => sql(strings, ...values))) as ReturnType<typeof getDb>,
+    {
+      query: ((...args: Parameters<ReturnType<typeof getDb>["query"]>) =>
+        enqueue(() => sql.query(...args))) as ReturnType<typeof getDb>["query"],
+    },
+  );
+}
+
+async function runMigrationBatchSequentially(queries: MigrationBatchQuery[]) {
+  for (const query of queries) {
+    await query;
+  }
+}
 
 function runtimeMigrationsEnabled() {
   if (process.env.NODE_ENV !== "production") return true;
@@ -100,10 +126,10 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
 
   migrationsPromise = withMigrationTimeout(
     (async () => {
-      const sql = getDb();
+      const sql = createMigrationDb(getDb());
 
-      // ── PHASE 1: Tables with no FK dependencies (run in parallel) ──────────
-      await Promise.all([
+      // ── PHASE 1: Tables with no FK dependencies (ordered batch) ───────────
+      await runMigrationBatchSequentially([
         sql`CREATE TABLE IF NOT EXISTS users (
           id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           name          TEXT NOT NULL,
@@ -362,7 +388,7 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
       ]);
 
       // ── PHASE 2: businesses (deps: users) + alter phase-1 tables ──────────
-      await Promise.all([
+      await runMigrationBatchSequentially([
         sql`CREATE TABLE IF NOT EXISTS businesses (
           id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           name             TEXT NOT NULL,
@@ -425,7 +451,7 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
       ]);
 
       // ── PHASE 3: Tables that depend on users+businesses ───────────────────
-      await Promise.all([
+      await runMigrationBatchSequentially([
         sql`CREATE TABLE IF NOT EXISTS memberships (
           id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -544,7 +570,7 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
       ]);
 
       // ── PHASE 4: Tables with deeper deps + all remaining indexes ──────────
-      await Promise.all([
+      await runMigrationBatchSequentially([
         sql`CREATE TABLE IF NOT EXISTS discount_redemptions (
           id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           code_id     UUID NOT NULL REFERENCES discount_codes(id) ON DELETE CASCADE,
@@ -590,7 +616,7 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
       ]);
 
       // Phase 4b: discount_redemptions indexes (after table created above)
-      await Promise.all([
+      await runMigrationBatchSequentially([
         sql`CREATE INDEX IF NOT EXISTS idx_discount_redemptions_code ON discount_redemptions (code_id)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_discount_redemptions_user ON discount_redemptions (user_id)`.catch(() => {}),
         sql`UPDATE business_cost_models SET fixed_monthly_cost = fixed_cost WHERE fixed_monthly_cost = 0 AND fixed_cost <> 0`,

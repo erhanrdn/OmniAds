@@ -142,3 +142,16 @@ export function getDbWithTimeout(timeoutMs: number) {
   logStartupEvent("db_client_initialized", { timeoutMs });
   return wrapped;
 }
+
+export function resetDbClientCache() {
+  const globalStore = globalThis as typeof globalThis & {
+    __omniadsDb?: ReturnType<typeof neon>;
+    __omniadsDbWrapped?: ReturnType<typeof neon>;
+    __omniadsDbWrappedByTimeout?: Map<number, ReturnType<typeof neon>>;
+  };
+
+  delete globalStore.__omniadsDb;
+  delete globalStore.__omniadsDbWrapped;
+  globalStore.__omniadsDbWrappedByTimeout?.clear();
+  delete globalStore.__omniadsDbWrappedByTimeout;
+}

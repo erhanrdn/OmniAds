@@ -1,5 +1,5 @@
 import { loadEnvConfig } from "@next/env";
-import { getDb } from "@/lib/db";
+import { getDb, resetDbClientCache } from "@/lib/db";
 import { runMigrations } from "@/lib/migrations";
 
 loadEnvConfig(process.cwd());
@@ -48,7 +48,13 @@ async function main() {
   console.log(JSON.stringify(verification?.summary ?? null, null, 2));
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+main()
+  .then(() => {
+    resetDbClientCache();
+    process.exit(0);
+  })
+  .catch((error) => {
+    console.error(error);
+    resetDbClientCache();
+    process.exit(1);
+  });
