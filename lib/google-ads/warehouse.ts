@@ -1422,102 +1422,49 @@ export async function cleanupGoogleAdsPartitionOrchestration(input: {
   await runMigrations();
   const sql = getDb();
   const staleThresholdMs = Math.max(1, input.staleLeaseMinutes ?? 8) * 60_000;
-  const terminalRunningRunRows = (await sql`
-    WITH terminal_partitions AS (
-      SELECT
-        partition.id,
-        partition.status::text AS partition_status,
-        partition.last_error::text AS partition_last_error,
-        partition.finished_at AS partition_finished_at
+  const terminalCleanupBatchSize = 100;
+  const terminalChildPartitionRows = (await sql`
+    WITH candidate_terminal_partitions AS (
+      SELECT partition.id, partition.finished_at
       FROM google_ads_sync_partitions partition
       WHERE partition.business_id = ${input.businessId}
         AND partition.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
-    )
-    UPDATE google_ads_sync_runs run
-    SET
-      status = CASE
-        WHEN terminal_partitions.partition_status = 'succeeded' THEN 'succeeded'
-        WHEN terminal_partitions.partition_status = 'cancelled' THEN 'cancelled'
-        ELSE 'failed'
-      END,
-      error_class = CASE
-        WHEN terminal_partitions.partition_status IN ('succeeded', 'cancelled') THEN NULL
-        WHEN terminal_partitions.partition_status = 'dead_letter'
-          THEN COALESCE(run.error_class, 'dead_letter')
-        ELSE COALESCE(run.error_class, 'failed')
-      END,
-      error_message = CASE
-        WHEN terminal_partitions.partition_status IN ('succeeded', 'cancelled') THEN NULL
-        WHEN terminal_partitions.partition_status = 'dead_letter'
-          THEN COALESCE(
-            terminal_partitions.partition_last_error,
-            run.error_message,
-            'partition already dead_letter'
+        AND (
+          EXISTS (
+            SELECT 1
+            FROM google_ads_sync_runs run
+            WHERE run.partition_id = partition.id
+              AND run.status = 'running'
           )
-        ELSE COALESCE(
-          terminal_partitions.partition_last_error,
-          run.error_message,
-          'partition already failed'
+          OR EXISTS (
+            SELECT 1
+            FROM google_ads_sync_checkpoints checkpoint
+            WHERE checkpoint.partition_id = partition.id
+              AND checkpoint.status = 'running'
+          )
         )
-      END,
-      finished_at = COALESCE(run.finished_at, terminal_partitions.partition_finished_at, now()),
-      duration_ms = COALESCE(
-        run.duration_ms,
-        GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (now() - COALESCE(run.started_at, run.created_at))) * 1000))::int
-      ),
-      meta_json = COALESCE(run.meta_json, '{}'::jsonb) || jsonb_build_object(
-        'decisionCaller', 'cleanupGoogleAdsPartitionOrchestration',
-        'closureReason', CASE
-          WHEN terminal_partitions.partition_status = 'succeeded' THEN 'partition_already_succeeded'
-          WHEN terminal_partitions.partition_status = 'failed' THEN 'partition_already_failed'
-          WHEN terminal_partitions.partition_status = 'dead_letter' THEN 'partition_already_dead_letter'
-          ELSE 'partition_already_cancelled'
-        END
-      ),
-      updated_at = now()
-    FROM terminal_partitions
-    WHERE run.business_id = ${input.businessId}
-      AND run.partition_id = terminal_partitions.id
-      AND run.status = 'running'
-    RETURNING run.id
-  `) as Array<Record<string, unknown>>;
-
-  const terminalRunningCheckpointRows = (await sql`
-    WITH terminal_partitions AS (
-      SELECT
-        partition.id,
-        partition.status::text AS partition_status,
-        partition.finished_at AS partition_finished_at
-      FROM google_ads_sync_partitions partition
-      WHERE partition.business_id = ${input.businessId}
-        AND partition.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
+      ORDER BY COALESCE(partition.finished_at, partition.updated_at, partition.created_at) ASC, partition.id ASC
+      LIMIT ${terminalCleanupBatchSize}
     )
-    UPDATE google_ads_sync_checkpoints checkpoint
-    SET
-      status = CASE
-        WHEN terminal_partitions.partition_status = 'succeeded' THEN 'succeeded'
-        WHEN terminal_partitions.partition_status = 'cancelled' THEN 'cancelled'
-        ELSE 'failed'
-      END,
-      phase = CASE
-        WHEN terminal_partitions.partition_status = 'succeeded' THEN 'finalize'
-        ELSE checkpoint.phase
-      END,
-      next_page_token = CASE
-        WHEN terminal_partitions.partition_status = 'succeeded' THEN NULL
-        ELSE checkpoint.next_page_token
-      END,
-      provider_cursor = CASE
-        WHEN terminal_partitions.partition_status = 'succeeded' THEN NULL
-        ELSE checkpoint.provider_cursor
-      END,
-      finished_at = COALESCE(checkpoint.finished_at, terminal_partitions.partition_finished_at, now()),
-      updated_at = now()
-    FROM terminal_partitions
-    WHERE checkpoint.partition_id = terminal_partitions.id
-      AND checkpoint.status = 'running'
-    RETURNING checkpoint.id
+    SELECT id::text AS id
+    FROM candidate_terminal_partitions
   `) as Array<Record<string, unknown>>;
+  let closedTerminalRunningRunCount = 0;
+  let closedTerminalRunningCheckpointCount = 0;
+  for (const row of terminalChildPartitionRows) {
+    const partitionId = String(row.id);
+    const [runResult, checkpointResult] = await Promise.all([
+      backfillGoogleAdsRunningRunsForTerminalPartition({
+        partitionId,
+      }),
+      backfillGoogleAdsRunningCheckpointsForTerminalPartition({
+        partitionId,
+      }),
+    ]);
+    closedTerminalRunningRunCount += runResult.closedRunningRunCount;
+    closedTerminalRunningCheckpointCount +=
+      checkpointResult.closedRunningCheckpointCount;
+  }
 
   const candidates = (await sql`
     SELECT
@@ -1812,9 +1759,9 @@ export async function cleanupGoogleAdsPartitionOrchestration(input: {
         lease.updated_at AS lease_updated_at,
         lease.lease_expires_at AS lease_expires_at,
         CASE
-          WHEN run.lane = 'core' THEN ${String(staleRunMinutesCore)}
-          WHEN run.lane = 'maintenance' THEN ${String(staleRunMinutesMaintenance)}
-          ELSE ${String(staleRunMinutesExtended)}
+          WHEN run.lane = 'core' THEN ${staleRunMinutesCore}::int
+          WHEN run.lane = 'maintenance' THEN ${staleRunMinutesMaintenance}::int
+          ELSE ${staleRunMinutesExtended}::int
         END AS stale_threshold_minutes,
         EXISTS (
           SELECT 1
@@ -1950,8 +1897,8 @@ export async function cleanupGoogleAdsPartitionOrchestration(input: {
 
   return {
     candidateCount: candidates.length,
-    closedTerminalRunningRunCount: terminalRunningRunRows.length,
-    closedTerminalRunningCheckpointCount: terminalRunningCheckpointRows.length,
+    closedTerminalRunningRunCount,
+    closedTerminalRunningCheckpointCount,
     stalePartitionCount: stalePartitionIds.length,
     aliveSlowCount: dispositionCounts.alive_slow,
     poisonCandidateCount: poisonPartitionIds.length,

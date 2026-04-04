@@ -472,6 +472,32 @@ describe("google ads warehouse ownership safety", () => {
     const queries: string[] = [];
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       queries.push(strings.join(" "));
+      if (queries.length === 1) {
+        return [{ id: "partition-1" }];
+      }
+      if (queries.length === 2) {
+        return [
+          {
+            partition_status: "succeeded",
+            closed_running_run_count: 2,
+            caller_run_id_was_closed: null,
+            closed_running_run_ids: ["run-1", "run-2"],
+          },
+        ];
+      }
+      if (queries.length === 3) {
+        return [
+          {
+            closed_checkpoint_groups: [
+              {
+                checkpointScope: "campaign_daily",
+                previousPhase: "fetch_raw",
+                count: 1,
+              },
+            ],
+          },
+        ];
+      }
       return [];
     });
     vi.mocked(db.getDb).mockReturnValue(sql as never);
@@ -481,25 +507,110 @@ describe("google ads warehouse ownership safety", () => {
       staleLeaseMinutes: 8,
     });
 
-    expect(result.closedTerminalRunningRunCount).toBe(0);
-    expect(result.closedTerminalRunningCheckpointCount).toBe(0);
-    expect(queries[0]).toContain("UPDATE google_ads_sync_runs run");
-    expect(queries[1]).toContain(
+    expect(result.closedTerminalRunningRunCount).toBe(2);
+    expect(result.closedTerminalRunningCheckpointCount).toBe(1);
+    expect(queries[0]).toContain("candidate_terminal_partitions");
+    expect(queries[1]).toContain("UPDATE google_ads_sync_runs run");
+    expect(queries[2]).toContain(
       "UPDATE google_ads_sync_checkpoints checkpoint",
     );
     expect(
       queries.some(
         (query) =>
-          query.includes("UPDATE google_ads_sync_checkpoints checkpoint") &&
-          query.includes(
-            "partition.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')",
-          ),
+          query.includes("candidate_terminal_partitions") &&
+          query.includes("LIMIT"),
       ),
     ).toBe(true);
     expect(
       queries.some((query) =>
-        query.includes("WHERE checkpoint.partition_id = partition.id"),
+        query.includes("UPDATE google_ads_sync_runs run") &&
+        query.includes("run.id AS run_id_uuid"),
       ),
     ).toBe(true);
+  });
+
+  it("caps terminal-parent cleanup to a bounded partition batch", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      queries.push(query);
+      if (query.includes("candidate_terminal_partitions")) {
+        return [{ id: "partition-1" }, { id: "partition-2" }];
+      }
+      if (query.includes("UPDATE google_ads_sync_runs run")) {
+        return [
+          {
+            partition_status: "failed",
+            closed_running_run_count: 3,
+            caller_run_id_was_closed: null,
+            closed_running_run_ids: ["run-a", "run-b", "run-c"],
+          },
+        ];
+      }
+      if (query.includes("UPDATE google_ads_sync_checkpoints checkpoint")) {
+        return [
+          {
+            closed_checkpoint_groups: [
+              {
+                checkpointScope: "campaign_daily",
+                previousPhase: "transform",
+                count: 2,
+              },
+            ],
+          },
+        ];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const result = await cleanupGoogleAdsPartitionOrchestration({
+      businessId: "biz-1",
+      staleLeaseMinutes: 8,
+    });
+
+    expect(result.closedTerminalRunningRunCount).toBe(6);
+    expect(result.closedTerminalRunningCheckpointCount).toBe(4);
+    expect(queries[0]).toContain("candidate_terminal_partitions");
+    expect(queries[0]).toContain("LIMIT");
+    expect(
+      queries.filter(
+        (query) =>
+          query.includes("UPDATE google_ads_sync_runs run") &&
+          query.includes("run.id AS run_id_uuid"),
+      ),
+    ).toHaveLength(2);
+    expect(
+      queries.filter((query) =>
+        query.includes("UPDATE google_ads_sync_checkpoints checkpoint") &&
+        query.includes("candidate.previous_phase"),
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("uses integer stale-run thresholds in cleanup SQL", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      queries.push(strings.join(" "));
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await cleanupGoogleAdsPartitionOrchestration({
+      businessId: "biz-1",
+      staleRunMinutesByLane: {
+        core: 11,
+        maintenance: 17,
+        extended: 29,
+      },
+    });
+
+    const staleRunQuery = queries.find((query) =>
+      query.includes("stale_threshold_minutes"),
+    );
+    expect(staleRunQuery).toBeTruthy();
+    expect(staleRunQuery).toContain("THEN ");
+    expect(staleRunQuery).toContain("::int");
+    expect(staleRunQuery).not.toContain("THEN $");
   });
 });
