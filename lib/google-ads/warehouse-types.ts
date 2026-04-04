@@ -150,6 +150,7 @@ export interface GoogleAdsSyncCheckpointRecord {
   attemptCount: number;
   progressHeartbeatAt?: string | null;
   retryAfterAt?: string | null;
+  leaseEpoch?: number | null;
   leaseOwner?: string | null;
   leaseExpiresAt?: string | null;
   poisonedAt?: string | null;
@@ -172,6 +173,7 @@ export interface GoogleAdsSyncPartitionRecord {
   status: GoogleAdsPartitionStatus;
   priority: number;
   source: string;
+  leaseEpoch?: number | null;
   leaseOwner?: string | null;
   leaseExpiresAt?: string | null;
   attemptCount: number;

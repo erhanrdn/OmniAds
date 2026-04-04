@@ -226,6 +226,7 @@ async function main() {
         business.name AS business_name,
         partition.started_at,
         partition.updated_at,
+        COALESCE(partition.lease_epoch, 0) AS lease_epoch,
         ROUND(EXTRACT(EPOCH FROM (now() - partition.updated_at)) / 60.0, 2) AS minutes_since_updated,
         partition.lease_owner,
         partition.lease_expires_at,
@@ -257,8 +258,10 @@ async function main() {
         checkpoint.updated_at,
         checkpoint.next_page_token,
         checkpoint.provider_cursor,
+        COALESCE(checkpoint.lease_epoch, 0) AS checkpoint_lease_epoch,
         checkpoint.lease_owner,
         checkpoint.lease_expires_at,
+        COALESCE(partition.lease_epoch, 0) AS partition_lease_epoch,
         partition.status AS partition_status,
         partition.finished_at AS partition_finished_at,
         ROUND(EXTRACT(EPOCH FROM (now() - checkpoint.updated_at)) / 60.0, 2) AS minutes_since_updated
@@ -388,7 +391,9 @@ async function main() {
         latest_checkpoint.phase,
         latest_checkpoint.updated_at AS checkpoint_updated_at,
         latest_checkpoint.next_page_token,
-        latest_checkpoint.provider_cursor
+        latest_checkpoint.provider_cursor,
+        latest_checkpoint.checkpoint_lease_epoch,
+        latest_checkpoint.partition_lease_epoch
       FROM google_ads_sync_runs run
       JOIN businesses business
         ON business.id::text = run.business_id
@@ -398,7 +403,9 @@ async function main() {
           checkpoint.phase,
           checkpoint.updated_at,
           checkpoint.next_page_token,
-          checkpoint.provider_cursor
+          checkpoint.provider_cursor,
+          COALESCE(checkpoint.lease_epoch, 0) AS checkpoint_lease_epoch,
+          COALESCE(partition.lease_epoch, 0) AS partition_lease_epoch
         FROM google_ads_sync_checkpoints checkpoint
         WHERE checkpoint.partition_id = run.partition_id
         ORDER BY checkpoint.updated_at DESC
@@ -606,6 +613,7 @@ async function main() {
       partition.lease_expires_at,
       partition.started_at,
       partition.updated_at,
+      COALESCE(partition.lease_epoch, 0) AS lease_epoch,
       ROUND(EXTRACT(EPOCH FROM (now() - partition.updated_at)) / 60.0, 2) AS minutes_since_updated,
       partition.attempt_count
     FROM google_ads_sync_partitions partition
@@ -658,6 +666,7 @@ async function main() {
         businessName: String(row.business_name),
         startedAt: toIso(row.started_at),
         updatedAt: toIso(row.updated_at),
+        leaseEpoch: toNumber(row.lease_epoch),
         minutesSinceUpdated: toNumber(row.minutes_since_updated),
         leaseOwner: row.lease_owner ? String(row.lease_owner) : null,
         leaseExpiresAt: toIso(row.lease_expires_at),
@@ -677,6 +686,8 @@ async function main() {
           phase: String(row.phase),
           status: String(row.status),
           updatedAt: toIso(row.updated_at),
+          partitionLeaseEpoch: toNumber(row.partition_lease_epoch),
+          checkpointLeaseEpoch: toNumber(row.checkpoint_lease_epoch),
           minutesSinceUpdated: toNumber(row.minutes_since_updated),
           nextPageToken: row.next_page_token
             ? String(row.next_page_token)
@@ -783,6 +794,12 @@ async function main() {
             providerCursor: latestCheckpoint?.provider_cursor
               ? String(latestCheckpoint.provider_cursor)
               : null,
+            partitionLeaseEpoch: latestCheckpoint
+              ? toNumber(latestCheckpoint.partition_lease_epoch)
+              : toNumber(row.lease_epoch),
+            checkpointLeaseEpoch: latestCheckpoint
+              ? toNumber(latestCheckpoint.checkpoint_lease_epoch)
+              : null,
           };
         }),
         staleRunningRuns: staleRunningRows.map((row) => ({
@@ -800,6 +817,8 @@ async function main() {
             : null,
           checkpointPhase: row.phase ? String(row.phase) : null,
           checkpointUpdatedAt: toIso(row.checkpoint_updated_at),
+          partitionLeaseEpoch: toNumber(row.partition_lease_epoch),
+          checkpointLeaseEpoch: toNumber(row.checkpoint_lease_epoch),
           nextPageToken: row.next_page_token
             ? String(row.next_page_token)
             : null,
@@ -811,14 +830,15 @@ async function main() {
         staleRunningPartitionIds: Array.from(stalePartitionIds),
       },
       leaseSnapshot: {
-        leaseEpochPresent: false,
-        leaseEpochField: "not_present",
+        leaseEpochPresent: true,
+        leaseEpochField: "lease_epoch",
         rows: leaseSnapshotRows.map((row) => ({
           partitionId: String(row.partition_id),
           businessId: String(row.business_id),
           businessName: String(row.business_name),
           scope: String(row.scope),
           status: String(row.status),
+          leaseEpoch: toNumber(row.lease_epoch),
           leaseOwner: row.lease_owner ? String(row.lease_owner) : null,
           leaseExpiresAt: toIso(row.lease_expires_at),
           startedAt: toIso(row.started_at),

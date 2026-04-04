@@ -1193,6 +1193,7 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
           ON google_ads_sync_partitions (business_id, lane, status, priority DESC, partition_date DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_sync_partitions_lease
           ON google_ads_sync_partitions (status, lease_expires_at, next_retry_at, updated_at DESC)`.catch(() => {}),
+        sql`ALTER TABLE google_ads_sync_partitions ADD COLUMN IF NOT EXISTS lease_epoch BIGINT NOT NULL DEFAULT 0`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS google_ads_sync_runs (
           id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           partition_id        UUID REFERENCES google_ads_sync_partitions(id) ON DELETE CASCADE,
@@ -1248,6 +1249,9 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
           ON google_ads_sync_checkpoints (partition_id, updated_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_sync_checkpoints_scope
           ON google_ads_sync_checkpoints (business_id, provider_account_id, checkpoint_scope, status, updated_at DESC)`.catch(() => {}),
+        sql`ALTER TABLE google_ads_sync_checkpoints ADD COLUMN IF NOT EXISTS lease_epoch BIGINT`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_sync_checkpoints_partition_epoch
+          ON google_ads_sync_checkpoints (partition_id, lease_epoch, updated_at DESC)`.catch(() => {}),
         sql`ALTER TABLE google_ads_sync_checkpoints ADD COLUMN IF NOT EXISTS is_paginated BOOLEAN NOT NULL DEFAULT FALSE`.catch(() => {}),
         sql`ALTER TABLE google_ads_sync_checkpoints ADD COLUMN IF NOT EXISTS raw_snapshot_ids JSONB NOT NULL DEFAULT '[]'::jsonb`.catch(() => {}),
         sql`ALTER TABLE google_ads_sync_checkpoints ADD COLUMN IF NOT EXISTS progress_heartbeat_at TIMESTAMPTZ`.catch(() => {}),

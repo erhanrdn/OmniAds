@@ -58,6 +58,7 @@ const {
   cleanupGoogleAdsPartitionOrchestration,
   completeGoogleAdsPartitionAttempt,
   heartbeatGoogleAdsPartitionLease,
+  leaseGoogleAdsSyncPartitions,
   markGoogleAdsPartitionRunning,
   replayGoogleAdsDeadLetterPartitions,
   upsertGoogleAdsSyncCheckpoint,
@@ -124,9 +125,54 @@ describe("google ads warehouse ownership safety", () => {
       pageIndex: 0,
       attemptCount: 1,
       leaseOwner: "worker-1",
+      leaseEpoch: 7,
     });
 
     expect(checkpointId).toBeNull();
+  });
+
+  it("increments lease_epoch whenever a partition is leased", async () => {
+    const queries: string[] = [];
+    const sql = Object.assign(vi.fn(), {
+      query: vi.fn(async (query: string) => {
+        queries.push(query);
+        return [
+          {
+            id: "partition-1",
+            business_id: "biz-1",
+            provider_account_id: "acct-1",
+            lane: "core",
+            scope: "campaign_daily",
+            partition_date: "2026-04-04",
+            status: "leased",
+            priority: 10,
+            source: "system",
+            lease_epoch: 4,
+            lease_owner: "worker-1",
+            lease_expires_at: new Date().toISOString(),
+            attempt_count: 0,
+            next_retry_at: null,
+            last_error: null,
+            created_at: new Date().toISOString(),
+            started_at: null,
+            finished_at: null,
+            updated_at: new Date().toISOString(),
+          },
+        ];
+      }),
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const rows = await leaseGoogleAdsSyncPartitions({
+      businessId: "biz-1",
+      workerId: "worker-1",
+      limit: 1,
+    });
+
+    expect(rows[0]?.leaseEpoch).toBe(4);
+    expect(
+      queries.some((query) => query.includes("lease_epoch = COALESCE(partition.lease_epoch, 0) + 1")),
+    ).toBe(true);
   });
 
   it("extends the running lease using the requested lease minutes", async () => {
@@ -142,6 +188,7 @@ describe("google ads warehouse ownership safety", () => {
     const result = await markGoogleAdsPartitionRunning({
       partitionId: "partition-1",
       workerId: "worker-1",
+      leaseEpoch: 3,
       leaseMinutes: 15,
     });
 
@@ -167,6 +214,7 @@ describe("google ads warehouse ownership safety", () => {
       pageIndex: 0,
       attemptCount: 1,
       leaseOwner: "worker-1",
+      leaseEpoch: 7,
     });
 
     expect(checkpointId).toBe("checkpoint-1");
@@ -175,6 +223,7 @@ describe("google ads warehouse ownership safety", () => {
         (query) =>
           query.includes("WITH owner_guard AS") &&
           query.includes("lease_owner =") &&
+          query.includes("COALESCE(lease_epoch, 0) =") &&
           query.includes(
             "COALESCE(lease_expires_at, now() - interval '1 second') > now()",
           ),
@@ -349,6 +398,7 @@ describe("google ads warehouse ownership safety", () => {
     const completed = await completeGoogleAdsPartitionAttempt({
       partitionId: "partition-1",
       workerId: "worker-1",
+      leaseEpoch: 9,
       partitionStatus: "succeeded",
       runId: "run-1",
       runStatus: "succeeded",
@@ -373,6 +423,7 @@ describe("google ads warehouse ownership safety", () => {
         (query) =>
           query.includes("UPDATE google_ads_sync_partitions partition") &&
           query.includes("AND partition.lease_owner =") &&
+          query.includes("COALESCE(partition.lease_epoch, 0) = input_values.lease_epoch") &&
           query.includes("COALESCE(partition.lease_expires_at, now()) > now()"),
       ),
     ).toBe(true);
@@ -392,7 +443,7 @@ describe("google ads warehouse ownership safety", () => {
     ).toBe(true);
   });
 
-  it("allows same-owner late heartbeat renewal without requiring an unexpired partition lease", async () => {
+  it("requires same-owner current epoch and an unexpired partition lease for heartbeat renewal", async () => {
     const queries: string[] = [];
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       queries.push(strings.join(" "));
@@ -403,6 +454,7 @@ describe("google ads warehouse ownership safety", () => {
     const renewed = await heartbeatGoogleAdsPartitionLease({
       partitionId: "partition-1",
       workerId: "worker-1",
+      leaseEpoch: 12,
       leaseMinutes: 5,
     });
 
@@ -411,10 +463,11 @@ describe("google ads warehouse ownership safety", () => {
       queries.some(
         (query) =>
           query.includes("UPDATE google_ads_sync_partitions") &&
+          query.includes("AND lease_epoch = ") &&
           query.includes("lease_expires_at = now() +") &&
           query.includes("COALESCE(lease_expires_at, now()) > now()"),
       ),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("backfills running runs and checkpoints under terminal parents", async () => {
@@ -682,5 +735,33 @@ describe("google ads warehouse ownership safety", () => {
     expect(staleRunQuery).toContain("THEN ");
     expect(staleRunQuery).toContain("::int");
     expect(staleRunQuery).not.toContain("THEN $");
+  });
+
+  it("ignores prior-epoch checkpoint progress when evaluating stale leased partitions", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      queries.push(query);
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await cleanupGoogleAdsPartitionOrchestration({
+      businessId: "biz-1",
+      staleLeaseMinutes: 8,
+    });
+
+    const cleanupQuery = queries.find(
+      (query) =>
+        query.includes("checkpoint_lease_epoch") &&
+        query.includes("partition_lease_epoch"),
+    );
+    expect(cleanupQuery).toBeTruthy();
+    expect(cleanupQuery).toContain(
+      "COALESCE(checkpoint.lease_epoch, 0) AS checkpoint_lease_epoch",
+    );
+    expect(cleanupQuery).toContain(
+      "COALESCE(partition.lease_epoch, 0) AS partition_lease_epoch",
+    );
   });
 });

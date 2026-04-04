@@ -296,11 +296,13 @@ async function upsertGoogleAdsCheckpointOrThrow(
 async function heartbeatGoogleAdsPartitionBeforeCompletion(input: {
   partitionId: string;
   workerId: string;
+  leaseEpoch: number;
   leaseMinutes: number;
 }) {
   const ok = await heartbeatGoogleAdsPartitionLease({
     partitionId: input.partitionId,
     workerId: input.workerId,
+    leaseEpoch: input.leaseEpoch,
     leaseMinutes: input.leaseMinutes,
   });
   return ok
@@ -313,6 +315,7 @@ async function logGoogleAdsCompletionDenied(input: {
   runId?: string | null;
   recoveredRunId?: string | null;
   workerId: string;
+  leaseEpoch: number;
   lane: GoogleAdsSyncLane;
   scope: GoogleAdsWarehouseScope;
   partitionStatus: "succeeded" | "failed" | "dead_letter" | "cancelled";
@@ -327,6 +330,7 @@ async function logGoogleAdsCompletionDenied(input: {
     getGoogleAdsPartitionCompletionDenialSnapshot({
       partitionId: input.partitionId,
       workerId: input.workerId,
+      leaseEpoch: input.leaseEpoch,
     }).catch(() => null),
   ]);
 
@@ -344,8 +348,10 @@ async function logGoogleAdsCompletionDenied(input: {
     message: input.message ?? null,
     currentPartitionStatus: denialSnapshot?.currentPartitionStatus ?? null,
     currentLeaseOwner: denialSnapshot?.currentLeaseOwner ?? null,
+    currentLeaseEpoch: denialSnapshot?.currentLeaseEpoch ?? null,
     currentLeaseExpiresAt: denialSnapshot?.currentLeaseExpiresAt ?? null,
     ownerMatchesCaller: denialSnapshot?.ownerMatchesCaller ?? null,
+    epochMatchesCaller: denialSnapshot?.epochMatchesCaller ?? null,
     leaseExpiredAtObservation:
       denialSnapshot?.leaseExpiredAtObservation ?? null,
     currentPartitionFinishedAt:
@@ -374,6 +380,7 @@ async function backfillGoogleAdsDeniedTerminalChildren(input: {
   runId?: string | null;
   recoveredRunId?: string | null;
   workerId: string;
+  leaseEpoch?: number | null;
   lane: GoogleAdsSyncLane;
   scope: GoogleAdsWarehouseScope;
   pathKind: "primary" | "repair";
@@ -422,6 +429,7 @@ export function logGoogleAdsCompletionOutcome(input: {
   runId?: string | null;
   recoveredRunId?: string | null;
   workerId: string;
+  leaseEpoch?: number | null;
   lane: GoogleAdsSyncLane;
   scope: GoogleAdsWarehouseScope;
   partitionStatus: "succeeded" | "failed" | "dead_letter" | "cancelled";
@@ -446,6 +454,7 @@ export function logGoogleAdsCompletionOutcome(input: {
     runId: input.runId ?? null,
     recoveredRunId: input.recoveredRunId ?? null,
     workerId: input.workerId,
+    leaseEpoch: input.leaseEpoch ?? null,
     lane: input.lane,
     scope: input.scope,
     partitionStatus: input.partitionStatus,
@@ -471,6 +480,7 @@ export function logGoogleAdsCompletionOutcome(input: {
       runId: input.runId ?? null,
       recoveredRunId: input.recoveredRunId ?? null,
       workerId: input.workerId,
+      leaseEpoch: input.leaseEpoch ?? null,
       lane: input.lane,
       scope: input.scope,
       partitionStatus: input.partitionStatus,
@@ -486,6 +496,7 @@ export async function maybeBackfillGoogleAdsCompletionSuccess(input: {
   runId?: string | null;
   recoveredRunId?: string | null;
   workerId: string;
+  leaseEpoch?: number | null;
   lane: GoogleAdsSyncLane;
   scope: GoogleAdsWarehouseScope;
   completionResult: {
@@ -516,8 +527,9 @@ export async function maybeBackfillGoogleAdsCompletionSuccess(input: {
       partitionId: input.partitionId,
       runId: input.runId ?? null,
       recoveredRunId: input.recoveredRunId ?? null,
-      workerId: input.workerId,
-      lane: input.lane,
+    workerId: input.workerId,
+    leaseEpoch: input.leaseEpoch ?? null,
+    lane: input.lane,
       scope: input.scope,
       closedRunningRunCount: input.completionResult.closedRunningRunCount,
       callerRunIdWasClosed: input.completionResult.callerRunIdWasClosed,
@@ -532,8 +544,9 @@ export async function maybeBackfillGoogleAdsCompletionSuccess(input: {
         partitionId: input.partitionId,
         runId: input.runId ?? null,
         recoveredRunId: input.recoveredRunId ?? null,
-        workerId: input.workerId,
-        lane: input.lane,
+      workerId: input.workerId,
+      leaseEpoch: input.leaseEpoch ?? null,
+      lane: input.lane,
         scope: input.scope,
         closedRunningRunCount: input.completionResult.closedRunningRunCount,
         callerRunIdWasClosed: input.completionResult.callerRunIdWasClosed,
@@ -2006,6 +2019,7 @@ async function persistScopeRows(input: {
   ) => GoogleAdsWarehouseDailyRow | null;
   partitionId?: string;
   workerId?: string;
+  leaseEpoch?: number;
   attemptCount?: number;
 }) {
   if (!input.partitionId) {
@@ -2103,6 +2117,7 @@ async function persistScopeRows(input: {
       const leaseHealthy = await heartbeatGoogleAdsPartitionLease({
         partitionId: input.partitionId,
         workerId: input.workerId,
+        leaseEpoch: input.leaseEpoch ?? 0,
         leaseMinutes: GOOGLE_ADS_PARTITION_LEASE_MINUTES,
       }).catch(() => false);
       if (!leaseHealthy) {
@@ -2131,6 +2146,7 @@ async function persistScopeRows(input: {
       replayReasonCode: replayDecision.replayReasonCode,
       replayDetail: replayDecision.replayDetail,
       leaseOwner: input.workerId ?? null,
+      leaseEpoch: input.leaseEpoch ?? null,
       startedAt: existingCheckpoint?.startedAt ?? new Date().toISOString(),
     });
 
@@ -2228,6 +2244,7 @@ async function persistScopeRows(input: {
           ? `${replayDecision.replayDetail ?? "Checkpoint replay active."} Replaying persisted raw snapshot for chunk ${pageIndex}.`
           : replayDecision.replayDetail,
       leaseOwner: input.workerId ?? null,
+      leaseEpoch: input.leaseEpoch ?? null,
       startedAt: existingCheckpoint?.startedAt ?? new Date().toISOString(),
     });
 
@@ -2256,6 +2273,7 @@ async function persistScopeRows(input: {
       replayReasonCode: replayDecision.replayReasonCode,
       replayDetail: replayDecision.replayDetail,
       leaseOwner: input.workerId ?? null,
+      leaseEpoch: input.leaseEpoch ?? null,
       lastSuccessfulEntityKey:
         warehouseRows.length > 0
           ? (warehouseRows[warehouseRows.length - 1]?.entityKey ?? null)
@@ -2311,6 +2329,7 @@ async function persistScopeRows(input: {
       replayReasonCode: "flush_verification_mismatch",
       replayDetail,
       leaseOwner: input.workerId ?? null,
+      leaseEpoch: input.leaseEpoch ?? null,
       startedAt: existingCheckpoint?.startedAt ?? new Date().toISOString(),
       finishedAt: new Date().toISOString(),
     });
@@ -2341,6 +2360,7 @@ async function persistScopeRows(input: {
         ? `${replayDecision.replayDetail ?? "Replay completed."} Reused ${replayedSnapshotCount} persisted chunk snapshot(s).`
         : replayDecision.replayDetail,
     leaseOwner: input.workerId ?? null,
+    leaseEpoch: input.leaseEpoch ?? null,
     finishedAt: new Date().toISOString(),
     startedAt: existingCheckpoint?.startedAt ?? new Date().toISOString(),
   });
@@ -2836,6 +2856,7 @@ async function syncGoogleAdsAccountDay(input: {
   partitionOwned?: boolean;
   partitionId?: string;
   workerId?: string;
+  leaseEpoch?: number;
   attemptCount?: number;
 }) {
   const scopes = new Set<GoogleAdsWarehouseScope>(
@@ -3251,6 +3272,7 @@ async function syncGoogleAdsAccountDay(input: {
             await heartbeatGoogleAdsPartitionLease({
               partitionId: input.partitionId,
               workerId: input.workerId,
+              leaseEpoch: input.leaseEpoch ?? 0,
               leaseMinutes: GOOGLE_ADS_PARTITION_LEASE_MINUTES,
             });
           }
@@ -3279,6 +3301,7 @@ async function syncGoogleAdsAccountDay(input: {
             ],
             progressHeartbeatAt: new Date().toISOString(),
             leaseOwner: input.workerId ?? null,
+            leaseEpoch: input.leaseEpoch ?? null,
             lastSuccessfulEntityKey:
               chunks[pageIndex]?.[chunks[pageIndex].length - 1]?.entityKey ??
               null,
@@ -3312,6 +3335,7 @@ async function syncGoogleAdsAccountDay(input: {
           ],
           progressHeartbeatAt: new Date().toISOString(),
           leaseOwner: input.workerId ?? null,
+          leaseEpoch: input.leaseEpoch ?? null,
           finishedAt: new Date().toISOString(),
           startedAt: existingCheckpoint?.startedAt ?? new Date().toISOString(),
         });
@@ -3714,6 +3738,7 @@ async function processGoogleAdsPartition(input: {
     partitionDate: string;
     attemptCount: number;
     source: string;
+    leaseEpoch?: number | null;
   };
   workerId: string;
 }) {
@@ -3722,6 +3747,7 @@ async function processGoogleAdsPartition(input: {
   const markRunningOk = await markGoogleAdsPartitionRunning({
     partitionId,
     workerId: input.workerId,
+    leaseEpoch: input.partition.leaseEpoch ?? 0,
     leaseMinutes: GOOGLE_ADS_PARTITION_LEASE_MINUTES,
   }).catch(() => false);
   if (!markRunningOk) {
@@ -3744,7 +3770,10 @@ async function processGoogleAdsPartition(input: {
     status: "running",
     workerId: input.workerId,
     attemptCount: input.partition.attemptCount + 1,
-    metaJson: { source: input.partition.source },
+    metaJson: {
+      source: input.partition.source,
+      leaseEpoch: input.partition.leaseEpoch ?? null,
+    },
   }).catch(() => null);
   let runId = createdRunId;
   let recoveredRunId: string | null = null;
@@ -3788,6 +3817,7 @@ async function processGoogleAdsPartition(input: {
       partitionOwned: true,
       partitionId,
       workerId: input.workerId,
+      leaseEpoch: input.partition.leaseEpoch ?? 0,
       attemptCount: input.partition.attemptCount + 1,
     });
 
@@ -3796,6 +3826,7 @@ async function processGoogleAdsPartition(input: {
         await heartbeatGoogleAdsPartitionBeforeCompletion({
           partitionId,
           workerId: input.workerId,
+          leaseEpoch: input.partition.leaseEpoch ?? 0,
           leaseMinutes: GOOGLE_ADS_PARTITION_LEASE_MINUTES,
         });
       if (!completionHeartbeat.ok) {
@@ -3804,6 +3835,7 @@ async function processGoogleAdsPartition(input: {
           runId,
           recoveredRunId,
           workerId: input.workerId,
+          leaseEpoch: input.partition.leaseEpoch ?? 0,
           lane: input.partition.lane,
           scope: input.partition.scope,
           partitionStatus: "failed",
@@ -3816,6 +3848,7 @@ async function processGoogleAdsPartition(input: {
             runId,
             recoveredRunId,
             workerId: input.workerId,
+            leaseEpoch: input.partition.leaseEpoch ?? null,
             lane: input.partition.lane,
             scope: input.partition.scope,
             pathKind: "primary",
@@ -3837,6 +3870,7 @@ async function processGoogleAdsPartition(input: {
       const completed = await completeGoogleAdsPartitionAttempt({
         partitionId,
         workerId: input.workerId,
+        leaseEpoch: input.partition.leaseEpoch ?? 0,
         runId,
         recoveredRunId,
         partitionStatus: "failed",
@@ -3866,6 +3900,7 @@ async function processGoogleAdsPartition(input: {
           runId,
           recoveredRunId,
           workerId: input.workerId,
+          leaseEpoch: input.partition.leaseEpoch ?? 0,
           lane: input.partition.lane,
           scope: input.partition.scope,
           partitionStatus: "failed",
@@ -3877,6 +3912,7 @@ async function processGoogleAdsPartition(input: {
           runId,
           recoveredRunId,
           workerId: input.workerId,
+          leaseEpoch: input.partition.leaseEpoch ?? 0,
           lane: input.partition.lane,
           scope: input.partition.scope,
           partitionStatus: "failed",
@@ -3889,6 +3925,7 @@ async function processGoogleAdsPartition(input: {
             runId,
             recoveredRunId,
             workerId: input.workerId,
+            leaseEpoch: input.partition.leaseEpoch ?? null,
             lane: input.partition.lane,
             scope: input.partition.scope,
             pathKind: "primary",
@@ -3913,6 +3950,7 @@ async function processGoogleAdsPartition(input: {
       await heartbeatGoogleAdsPartitionBeforeCompletion({
         partitionId,
         workerId: input.workerId,
+        leaseEpoch: input.partition.leaseEpoch ?? 0,
         leaseMinutes: GOOGLE_ADS_PARTITION_LEASE_MINUTES,
       });
     if (!completionHeartbeat.ok) {
@@ -3921,6 +3959,7 @@ async function processGoogleAdsPartition(input: {
         runId,
         recoveredRunId,
         workerId: input.workerId,
+        leaseEpoch: input.partition.leaseEpoch ?? 0,
         lane: input.partition.lane,
         scope: input.partition.scope,
         partitionStatus: "succeeded",
@@ -3933,6 +3972,7 @@ async function processGoogleAdsPartition(input: {
           runId,
           recoveredRunId,
           workerId: input.workerId,
+          leaseEpoch: input.partition.leaseEpoch ?? null,
           lane: input.partition.lane,
           scope: input.partition.scope,
           pathKind: "primary",
@@ -3954,6 +3994,7 @@ async function processGoogleAdsPartition(input: {
     const completed = await completeGoogleAdsPartitionAttempt({
       partitionId,
       workerId: input.workerId,
+      leaseEpoch: input.partition.leaseEpoch ?? 0,
       runId,
       recoveredRunId,
       partitionStatus: "succeeded",
@@ -3967,6 +4008,7 @@ async function processGoogleAdsPartition(input: {
       runId,
       recoveredRunId,
       workerId: input.workerId,
+      leaseEpoch: input.partition.leaseEpoch ?? null,
       lane: input.partition.lane,
       scope: input.partition.scope,
       partitionStatus: "succeeded",
@@ -3978,6 +4020,7 @@ async function processGoogleAdsPartition(input: {
         runId,
         recoveredRunId,
         workerId: input.workerId,
+        leaseEpoch: input.partition.leaseEpoch ?? 0,
         lane: input.partition.lane,
         scope: input.partition.scope,
         partitionStatus: "succeeded",
@@ -4148,6 +4191,7 @@ async function processGoogleAdsPartition(input: {
       attemptCount: nextAttempt,
       progressHeartbeatAt: new Date().toISOString(),
       leaseOwner: input.workerId,
+      leaseEpoch: input.partition.leaseEpoch ?? null,
       poisonedAt: shouldDeadLetter ? new Date().toISOString() : null,
       poisonReason: shouldDeadLetter
         ? hardCapExceeded
@@ -4192,6 +4236,7 @@ async function processGoogleAdsPartition(input: {
       await heartbeatGoogleAdsPartitionBeforeCompletion({
         partitionId,
         workerId: input.workerId,
+        leaseEpoch: input.partition.leaseEpoch ?? 0,
         leaseMinutes: GOOGLE_ADS_PARTITION_LEASE_MINUTES,
       });
     if (!completionHeartbeat.ok) {
@@ -4200,6 +4245,7 @@ async function processGoogleAdsPartition(input: {
         runId,
         recoveredRunId,
         workerId: input.workerId,
+        leaseEpoch: input.partition.leaseEpoch ?? 0,
         lane: input.partition.lane,
         scope: input.partition.scope,
         partitionStatus: status,
@@ -4212,6 +4258,7 @@ async function processGoogleAdsPartition(input: {
           runId,
           recoveredRunId,
           workerId: input.workerId,
+          leaseEpoch: input.partition.leaseEpoch ?? null,
           lane: input.partition.lane,
           scope: input.partition.scope,
           pathKind: "primary",
@@ -4234,6 +4281,7 @@ async function processGoogleAdsPartition(input: {
     const completed = await completeGoogleAdsPartitionAttempt({
       partitionId,
       workerId: input.workerId,
+      leaseEpoch: input.partition.leaseEpoch ?? 0,
       runId,
       recoveredRunId,
       partitionStatus: status,
@@ -4252,6 +4300,7 @@ async function processGoogleAdsPartition(input: {
       runId,
       recoveredRunId,
       workerId: input.workerId,
+      leaseEpoch: input.partition.leaseEpoch ?? null,
       lane: input.partition.lane,
       scope: input.partition.scope,
       partitionStatus: status,
@@ -4263,6 +4312,7 @@ async function processGoogleAdsPartition(input: {
         runId,
         recoveredRunId,
         workerId: input.workerId,
+        leaseEpoch: input.partition.leaseEpoch ?? 0,
         lane: input.partition.lane,
         scope: input.partition.scope,
         partitionStatus: status,
@@ -4286,6 +4336,7 @@ async function processGoogleAdsPartition(input: {
           runId,
           recoveredRunId,
           workerId: input.workerId,
+          leaseEpoch: input.partition.leaseEpoch ?? null,
           lane: input.partition.lane,
           scope: input.partition.scope,
           pathKind: "primary",
@@ -4317,6 +4368,7 @@ export async function processGoogleAdsLifecyclePartition(input: {
     partitionDate: string;
     attemptCount: number;
     source: string;
+    leaseEpoch?: number | null;
   };
   workerId: string;
 }) {

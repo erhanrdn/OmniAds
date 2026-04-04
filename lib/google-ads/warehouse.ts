@@ -47,6 +47,7 @@ export type GoogleAdsPartitionAttemptCompletionResult =
 
 export type GoogleAdsCompletionDenialClassification =
   | "owner_mismatch"
+  | "epoch_mismatch"
   | "lease_expired"
   | "already_terminal"
   | "unknown_denial";
@@ -54,8 +55,10 @@ export type GoogleAdsCompletionDenialClassification =
 export interface GoogleAdsPartitionCompletionDenialSnapshot {
   currentPartitionStatus: string | null;
   currentLeaseOwner: string | null;
+  currentLeaseEpoch: number | null;
   currentLeaseExpiresAt: string | null;
   ownerMatchesCaller: boolean | null;
+  epochMatchesCaller: boolean | null;
   leaseExpiredAtObservation: boolean | null;
   currentPartitionFinishedAt: string | null;
   latestCheckpointScope: string | null;
@@ -718,6 +721,7 @@ export async function leaseGoogleAdsSyncPartitions(input: {
       UPDATE google_ads_sync_partitions partition
       SET
         status = 'leased',
+        lease_epoch = COALESCE(partition.lease_epoch, 0) + 1,
         lease_owner = $4,
         lease_expires_at = now() + ($5 || ' minutes')::interval,
         updated_at = now()
@@ -733,6 +737,7 @@ export async function leaseGoogleAdsSyncPartitions(input: {
         partition.status,
         partition.priority,
         partition.source,
+        partition.lease_epoch,
         partition.lease_owner,
         partition.lease_expires_at,
         partition.attempt_count,
@@ -766,6 +771,7 @@ export async function leaseGoogleAdsSyncPartitions(input: {
     status: String(row.status) as GoogleAdsPartitionStatus,
     priority: toNumber(row.priority),
     source: String(row.source),
+    leaseEpoch: toNumber(row.lease_epoch),
     leaseOwner: row.lease_owner ? String(row.lease_owner) : null,
     leaseExpiresAt: normalizeTimestamp(row.lease_expires_at),
     attemptCount: toNumber(row.attempt_count),
@@ -781,6 +787,7 @@ export async function leaseGoogleAdsSyncPartitions(input: {
 export async function markGoogleAdsPartitionRunning(input: {
   partitionId: string;
   workerId: string;
+  leaseEpoch: number;
   leaseMinutes?: number;
 }) {
   await runMigrations();
@@ -796,6 +803,7 @@ export async function markGoogleAdsPartitionRunning(input: {
       updated_at = now()
     WHERE id = ${input.partitionId}
       AND lease_owner = ${input.workerId}
+      AND lease_epoch = ${input.leaseEpoch}
       AND COALESCE(lease_expires_at, now()) > now()
     RETURNING id
   `) as Array<{ id: string }>;
@@ -805,6 +813,7 @@ export async function markGoogleAdsPartitionRunning(input: {
 export async function getGoogleAdsPartitionCompletionDenialSnapshot(input: {
   partitionId: string;
   workerId: string;
+  leaseEpoch: number;
 }) {
   const sql = getDb();
   try {
@@ -812,14 +821,17 @@ export async function getGoogleAdsPartitionCompletionDenialSnapshot(input: {
       WITH input_values AS (
         SELECT
           ${input.partitionId}::uuid AS partition_id,
-          ${input.workerId}::text AS worker_id
+          ${input.workerId}::text AS worker_id,
+          ${input.leaseEpoch}::bigint AS lease_epoch
       ),
       current_partition AS (
         SELECT
           partition.status::text AS current_partition_status,
           partition.lease_owner::text AS current_lease_owner,
+          partition.lease_epoch AS current_lease_epoch,
           partition.lease_expires_at AS current_lease_expires_at,
           (partition.lease_owner = input_values.worker_id) AS owner_matches_caller,
+          (COALESCE(partition.lease_epoch, 0) = input_values.lease_epoch) AS epoch_matches_caller,
           (COALESCE(partition.lease_expires_at, now() - interval '1 second') <= now())
             AS lease_expired_at_observation,
           partition.finished_at AS current_partition_finished_at
@@ -857,8 +869,10 @@ export async function getGoogleAdsPartitionCompletionDenialSnapshot(input: {
       SELECT
         current_partition.current_partition_status,
         current_partition.current_lease_owner,
+        current_partition.current_lease_epoch,
         current_partition.current_lease_expires_at,
         current_partition.owner_matches_caller,
+        current_partition.epoch_matches_caller,
         current_partition.lease_expired_at_observation,
         current_partition.current_partition_finished_at,
         latest_checkpoint.latest_checkpoint_scope,
@@ -871,6 +885,8 @@ export async function getGoogleAdsPartitionCompletionDenialSnapshot(input: {
             THEN 'already_terminal'
           WHEN current_partition.owner_matches_caller IS FALSE
             THEN 'owner_mismatch'
+          WHEN current_partition.epoch_matches_caller IS FALSE
+            THEN 'epoch_mismatch'
           WHEN current_partition.lease_expired_at_observation IS TRUE
             THEN 'lease_expired'
           ELSE 'unknown_denial'
@@ -892,8 +908,13 @@ export async function getGoogleAdsPartitionCompletionDenialSnapshot(input: {
         typeof row.current_lease_owner === "string"
           ? row.current_lease_owner
           : null,
+      currentLeaseEpoch:
+        typeof row.current_lease_epoch === "number"
+          ? row.current_lease_epoch
+          : toNumber(row.current_lease_epoch),
       currentLeaseExpiresAt: normalizeTimestamp(row.current_lease_expires_at),
       ownerMatchesCaller: parseNullableBoolean(row.owner_matches_caller),
+      epochMatchesCaller: parseNullableBoolean(row.epoch_matches_caller),
       leaseExpiredAtObservation: parseNullableBoolean(
         row.lease_expired_at_observation,
       ),
@@ -1188,6 +1209,7 @@ export async function backfillGoogleAdsRunningCheckpointsForTerminalPartition(in
 export async function completeGoogleAdsPartitionAttempt(input: {
   partitionId: string;
   workerId: string;
+  leaseEpoch: number;
   partitionStatus: Extract<
     GoogleAdsPartitionStatus,
     "succeeded" | "failed" | "dead_letter" | "cancelled"
@@ -1220,6 +1242,7 @@ export async function completeGoogleAdsPartitionAttempt(input: {
         ${input.finishedAt ?? null}::timestamptz AS finished_at,
         ${input.partitionId}::uuid AS partition_id,
         ${input.workerId}::text AS worker_id,
+        ${input.leaseEpoch}::bigint AS lease_epoch,
         ${input.runId ?? null}::uuid AS run_id,
         ${input.runId ?? input.recoveredRunId ?? null}::uuid AS effective_run_id,
         ${runStatus}::text AS run_status,
@@ -1248,6 +1271,7 @@ export async function completeGoogleAdsPartitionAttempt(input: {
       FROM input_values
       WHERE partition.id = input_values.partition_id
         AND partition.lease_owner = input_values.worker_id
+        AND COALESCE(partition.lease_epoch, 0) = input_values.lease_epoch
         AND COALESCE(partition.lease_expires_at, now()) > now()
       RETURNING partition.id
     ),
@@ -1382,6 +1406,7 @@ export async function completeGoogleAdsPartitionAttempt(input: {
 export async function completeGoogleAdsPartition(input: {
   partitionId: string;
   workerId: string;
+  leaseEpoch: number;
   status: Extract<
     GoogleAdsPartitionStatus,
     "succeeded" | "failed" | "dead_letter" | "cancelled"
@@ -1392,6 +1417,7 @@ export async function completeGoogleAdsPartition(input: {
   const result = await completeGoogleAdsPartitionAttempt({
     partitionId: input.partitionId,
     workerId: input.workerId,
+    leaseEpoch: input.leaseEpoch,
     partitionStatus: input.status,
     lastError: input.lastError ?? null,
     retryDelayMinutes: input.retryDelayMinutes,
@@ -1438,6 +1464,7 @@ export async function cancelGoogleAdsPartitionsBySource(input: {
 export async function heartbeatGoogleAdsPartitionLease(input: {
   partitionId: string;
   workerId: string;
+  leaseEpoch: number;
   leaseMinutes?: number;
 }) {
   await runMigrations();
@@ -1450,6 +1477,8 @@ export async function heartbeatGoogleAdsPartitionLease(input: {
       updated_at = now()
     WHERE id = ${input.partitionId}
       AND lease_owner = ${input.workerId}
+      AND lease_epoch = ${input.leaseEpoch}
+      AND COALESCE(lease_expires_at, now()) > now()
     RETURNING id
   `) as Array<{ id: string }>;
   return rows.length > 0;
@@ -1517,6 +1546,7 @@ export async function cleanupGoogleAdsPartitionOrchestration(input: {
       partition.lane,
       partition.status,
       partition.attempt_count,
+      COALESCE(partition.lease_epoch, 0) AS partition_lease_epoch,
       partition.updated_at,
       partition.started_at,
       partition.lease_expires_at,
@@ -1526,6 +1556,7 @@ export async function cleanupGoogleAdsPartitionOrchestration(input: {
       checkpoint.attempt_count AS checkpoint_attempt_count,
       checkpoint.status AS checkpoint_status,
       COALESCE(checkpoint.progress_heartbeat_at, checkpoint.updated_at) AS progress_updated_at,
+      COALESCE(checkpoint.lease_epoch, 0) AS checkpoint_lease_epoch,
       checkpoint.poisoned_at,
       checkpoint.poison_reason,
       COALESCE(failures.same_phase_failures, 0) AS same_phase_failures,
@@ -1587,6 +1618,10 @@ export async function cleanupGoogleAdsPartitionOrchestration(input: {
     const checkpointAttempts = toNumber(row.checkpoint_attempt_count);
     const checkpointScope =
       row.checkpoint_scope != null ? String(row.checkpoint_scope) : null;
+    const partitionLeaseEpoch = toNumber(row.partition_lease_epoch);
+    const checkpointLeaseEpoch = toNumber(row.checkpoint_lease_epoch);
+    const checkpointEpochMatches =
+      checkpointScope == null || checkpointLeaseEpoch === partitionLeaseEpoch;
 
     let decision: ProviderReclaimDecision;
     if (row.poisoned_at) {
@@ -1603,14 +1638,14 @@ export async function cleanupGoogleAdsPartitionOrchestration(input: {
         reasonCode: "same_phase_reentry_limit",
         detail: `Checkpoint phase ${String(row.phase ?? "unknown")} repeatedly failed.`,
       };
-    } else if (hasRecentProgress) {
+    } else if (checkpointEpochMatches && hasRecentProgress) {
       decision = {
         disposition: "alive_slow",
         reasonCode: "progress_recently_advanced",
         detail:
           "Recent checkpoint progress detected; keeping partition leased.",
       };
-    } else if (hasActiveRunnerLease) {
+    } else if (checkpointEpochMatches && hasActiveRunnerLease) {
       decision = {
         disposition: "alive_slow",
         reasonCode: "active_worker_lease_present",
@@ -1802,6 +1837,8 @@ export async function cleanupGoogleAdsPartitionOrchestration(input: {
         lease.lease_owner AS active_lease_owner,
         lease.updated_at AS lease_updated_at,
         lease.lease_expires_at AS lease_expires_at,
+        COALESCE(partition.lease_epoch, 0) AS partition_lease_epoch,
+        checkpoint.checkpoint_lease_epoch,
         CASE
           WHEN run.lane = 'core' THEN ${staleRunMinutesCore}::int
           WHEN run.lane = 'maintenance' THEN ${staleRunMinutesMaintenance}::int
@@ -1820,9 +1857,11 @@ export async function cleanupGoogleAdsPartitionOrchestration(input: {
         SELECT
           checkpoint.phase,
           checkpoint.progress_heartbeat_at,
-          checkpoint.updated_at
+          checkpoint.updated_at,
+          COALESCE(checkpoint.lease_epoch, 0) AS checkpoint_lease_epoch
         FROM google_ads_sync_checkpoints checkpoint
         WHERE checkpoint.partition_id = run.partition_id
+          AND COALESCE(checkpoint.lease_epoch, 0) = COALESCE(partition.lease_epoch, 0)
         ORDER BY checkpoint.updated_at DESC
         LIMIT 1
       ) checkpoint ON TRUE
@@ -1891,6 +1930,8 @@ export async function cleanupGoogleAdsPartitionOrchestration(input: {
       meta_json = COALESCE(run.meta_json, '{}'::jsonb) || jsonb_build_object(
         'decisionCaller', 'cleanupGoogleAdsPartitionOrchestration',
         'checkpointPhase', stale_candidates.checkpoint_phase,
+        'partitionLeaseEpoch', stale_candidates.partition_lease_epoch,
+        'checkpointLeaseEpoch', stale_candidates.checkpoint_lease_epoch,
         'staleThresholdMs', stale_candidates.stale_threshold_minutes * 60000,
         'runAgeMs', GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (now() - stale_candidates.started_at)) * 1000))::int,
         'leaseAgeMs', CASE
@@ -2251,6 +2292,8 @@ export async function upsertGoogleAdsSyncCheckpoint(
           ${input.leaseOwner ?? null}::text IS NULL
           OR (
             lease_owner = ${input.leaseOwner ?? null}
+            AND ${input.leaseEpoch ?? null}::bigint IS NOT NULL
+            AND COALESCE(lease_epoch, 0) = ${input.leaseEpoch ?? null}::bigint
             AND COALESCE(lease_expires_at, now() - interval '1 second') > now()
           )
         )
@@ -2275,6 +2318,7 @@ export async function upsertGoogleAdsSyncCheckpoint(
       attempt_count,
       progress_heartbeat_at,
       retry_after_at,
+      lease_epoch,
       lease_owner,
       lease_expires_at,
       poisoned_at,
@@ -2305,6 +2349,7 @@ export async function upsertGoogleAdsSyncCheckpoint(
       ${input.attemptCount},
       COALESCE(${input.progressHeartbeatAt ?? null}, now()),
       ${input.retryAfterAt ?? null},
+      ${input.leaseEpoch ?? null},
       ${input.leaseOwner ?? null},
       ${input.leaseExpiresAt ?? null},
       ${input.poisonedAt ?? null},
@@ -2332,6 +2377,7 @@ export async function upsertGoogleAdsSyncCheckpoint(
       attempt_count = EXCLUDED.attempt_count,
       progress_heartbeat_at = COALESCE(EXCLUDED.progress_heartbeat_at, now()),
       retry_after_at = EXCLUDED.retry_after_at,
+      lease_epoch = EXCLUDED.lease_epoch,
       lease_owner = EXCLUDED.lease_owner,
       lease_expires_at = EXCLUDED.lease_expires_at,
       poisoned_at = COALESCE(EXCLUDED.poisoned_at, google_ads_sync_checkpoints.poisoned_at),
@@ -2390,6 +2436,8 @@ export async function getGoogleAdsSyncCheckpoint(input: {
     attemptCount: toNumber(row.attempt_count),
     progressHeartbeatAt: normalizeTimestamp(row.progress_heartbeat_at),
     retryAfterAt: normalizeTimestamp(row.retry_after_at),
+    leaseEpoch:
+      row.lease_epoch == null ? null : toNumber(row.lease_epoch),
     leaseOwner: row.lease_owner ? String(row.lease_owner) : null,
     leaseExpiresAt: normalizeTimestamp(row.lease_expires_at),
     poisonedAt: normalizeTimestamp(row.poisoned_at),
@@ -2447,6 +2495,8 @@ export async function getLatestGoogleAdsCheckpointForPartition(input: {
     attemptCount: toNumber(row.attempt_count),
     progressHeartbeatAt: normalizeTimestamp(row.progress_heartbeat_at),
     retryAfterAt: normalizeTimestamp(row.retry_after_at),
+    leaseEpoch:
+      row.lease_epoch == null ? null : toNumber(row.lease_epoch),
     leaseOwner: row.lease_owner ? String(row.lease_owner) : null,
     leaseExpiresAt: normalizeTimestamp(row.lease_expires_at),
     poisonedAt: normalizeTimestamp(row.poisoned_at),

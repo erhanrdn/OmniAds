@@ -140,6 +140,7 @@ function mapGoogleAdsPartition(
     status: partition.status,
     priority: partition.priority,
     source: partition.source,
+    leaseEpoch: partition.leaseEpoch ?? null,
     leaseOwner: partition.leaseOwner ?? null,
     leaseExpiresAt: partition.leaseExpiresAt ?? null,
     attemptCount: partition.attemptCount,
