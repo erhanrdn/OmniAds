@@ -1,11 +1,9 @@
 import { writeFile } from "node:fs/promises";
-import { loadEnvConfig } from "@next/env";
 import { getDb } from "@/lib/db";
 import { runMigrations } from "@/lib/migrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { readProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
-
-loadEnvConfig(process.cwd());
+import { configureOperationalScriptRuntime } from "./_operational-runtime";
 
 type ParsedArgs = {
   businessId: string | null;
@@ -142,10 +140,13 @@ async function collectTargetAccounts(input: {
 }
 
 async function main() {
+  const runtime = configureOperationalScriptRuntime();
   const args = parseArgs(process.argv.slice(2));
 
   const payload = await withStartupLogsSilenced(async () => {
-    await runMigrations();
+    if (runtime.runtimeMigrationsEnabled) {
+      await runMigrations();
+    }
     const sql = getDb();
 
     const businessFilter = args.businessId ?? null;

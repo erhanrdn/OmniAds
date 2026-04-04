@@ -1,9 +1,13 @@
-import { syncMetaReports } from "@/lib/sync/meta-sync";
+import { configureOperationalScriptRuntime } from "./_operational-runtime";
 
 async function main() {
+  configureOperationalScriptRuntime();
+  const { syncMetaReports } = await import("@/lib/sync/meta-sync");
   const businessId = process.argv[2];
   if (!businessId) {
-    console.error("usage: node --import tsx scripts/meta-reschedule.ts <businessId>");
+    console.error(
+      "usage: node --import tsx scripts/meta-reschedule.ts <businessId>",
+    );
     process.exit(1);
   }
   const result = await syncMetaReports(businessId);

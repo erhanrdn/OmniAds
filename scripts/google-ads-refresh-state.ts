@@ -1,12 +1,14 @@
-import { loadEnvConfig } from "@next/env";
-import { refreshGoogleAdsSyncStateForBusiness } from "@/lib/sync/google-ads-sync";
-
-loadEnvConfig(process.cwd());
+import { configureOperationalScriptRuntime } from "./_operational-runtime";
 
 async function main() {
+  configureOperationalScriptRuntime();
+  const { refreshGoogleAdsSyncStateForBusiness } =
+    await import("@/lib/sync/google-ads-sync");
   const businessId = process.argv[2];
   if (!businessId) {
-    console.error("usage: node --import tsx scripts/google-ads-refresh-state.ts <businessId>");
+    console.error(
+      "usage: node --import tsx scripts/google-ads-refresh-state.ts <businessId>",
+    );
     process.exit(1);
   }
 
