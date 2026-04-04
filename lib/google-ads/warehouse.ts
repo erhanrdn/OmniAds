@@ -940,113 +940,157 @@ export async function backfillGoogleAdsRunningRunsForTerminalPartition(input: {
   recoveredRunId?: string | null;
 }) {
   const sql = getDb();
-  const [row] = (await sql`
-    WITH input_values AS (
-      SELECT
-        ${input.partitionId}::uuid AS partition_id,
-        ${input.runId ?? input.recoveredRunId ?? null}::uuid AS effective_run_id
-    ),
-    terminal_partition AS (
-      SELECT
-        partition.status::text AS partition_status,
-        partition.last_error::text AS partition_last_error,
-        partition.finished_at AS partition_finished_at
-      FROM google_ads_sync_partitions partition
-      CROSS JOIN input_values
-      WHERE partition.id = input_values.partition_id
-        AND partition.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
-    ),
-    updated_runs AS (
-      UPDATE google_ads_sync_runs run
-      SET
-        status = CASE
-          WHEN terminal_partition.partition_status = 'succeeded' THEN 'succeeded'
-          WHEN terminal_partition.partition_status = 'cancelled' THEN 'cancelled'
-          ELSE 'failed'
-        END,
-        error_class = CASE
-          WHEN terminal_partition.partition_status IN ('succeeded', 'cancelled') THEN NULL
-          WHEN terminal_partition.partition_status = 'dead_letter'
-            THEN COALESCE(run.error_class, 'dead_letter')
-          ELSE COALESCE(run.error_class, 'failed')
-        END,
-        error_message = CASE
-          WHEN terminal_partition.partition_status IN ('succeeded', 'cancelled') THEN NULL
-          WHEN terminal_partition.partition_status = 'dead_letter'
-            THEN COALESCE(
+  const runBatchSize = 25;
+  let partitionStatus: string | null = null;
+  let closedRunningRunCount = 0;
+  let callerRunIdWasClosed: boolean | null =
+    input.runId ?? input.recoveredRunId ?? null ? false : null;
+  const closedRunningRunIds: string[] = [];
+
+  while (true) {
+    const [row] = (await sql`
+      WITH input_values AS (
+        SELECT
+          ${input.partitionId}::uuid AS partition_id,
+          ${input.runId ?? input.recoveredRunId ?? null}::uuid AS effective_run_id
+      ),
+      terminal_partition AS (
+        SELECT
+          partition.status::text AS partition_status,
+          partition.last_error::text AS partition_last_error,
+          partition.finished_at AS partition_finished_at
+        FROM google_ads_sync_partitions partition
+        CROSS JOIN input_values
+        WHERE partition.id = input_values.partition_id
+          AND partition.status IN ('succeeded', 'failed', 'dead_letter', 'cancelled')
+      ),
+      candidate_runs AS (
+        SELECT run.id
+        FROM google_ads_sync_runs run
+        CROSS JOIN input_values
+        JOIN terminal_partition ON TRUE
+        WHERE run.partition_id = input_values.partition_id
+          AND run.status = 'running'
+        ORDER BY run.id
+        LIMIT ${runBatchSize}
+      ),
+      updated_runs AS (
+        UPDATE google_ads_sync_runs run
+        SET
+          status = CASE
+            WHEN terminal_partition.partition_status = 'succeeded' THEN 'succeeded'
+            WHEN terminal_partition.partition_status = 'cancelled' THEN 'cancelled'
+            ELSE 'failed'
+          END,
+          error_class = CASE
+            WHEN terminal_partition.partition_status IN ('succeeded', 'cancelled') THEN NULL
+            WHEN terminal_partition.partition_status = 'dead_letter'
+              THEN COALESCE(run.error_class, 'dead_letter')
+            ELSE COALESCE(run.error_class, 'failed')
+          END,
+          error_message = CASE
+            WHEN terminal_partition.partition_status IN ('succeeded', 'cancelled') THEN NULL
+            WHEN terminal_partition.partition_status = 'dead_letter'
+              THEN COALESCE(
+                terminal_partition.partition_last_error,
+                run.error_message,
+                'partition already dead_letter'
+              )
+            ELSE COALESCE(
               terminal_partition.partition_last_error,
               run.error_message,
-              'partition already dead_letter'
+              'partition already failed'
             )
-          ELSE COALESCE(
-            terminal_partition.partition_last_error,
-            run.error_message,
-            'partition already failed'
-          )
-        END,
-        finished_at = COALESCE(run.finished_at, terminal_partition.partition_finished_at, now()),
-        duration_ms = COALESCE(
-          run.duration_ms,
-          GREATEST(
-            0,
-            FLOOR(
-              EXTRACT(
-                EPOCH FROM (
-                  COALESCE(terminal_partition.partition_finished_at, now()) -
-                  COALESCE(run.started_at, run.created_at)
-                )
-              ) * 1000
-            )::int
-          )
-        ),
-        meta_json = COALESCE(run.meta_json, '{}'::jsonb) || jsonb_build_object(
-          'decisionCaller', 'backfillGoogleAdsRunningRunsForTerminalPartition',
-          'closureReason', CASE
-            WHEN terminal_partition.partition_status = 'succeeded' THEN 'partition_already_succeeded'
-            WHEN terminal_partition.partition_status = 'failed' THEN 'partition_already_failed'
-            WHEN terminal_partition.partition_status = 'dead_letter' THEN 'partition_already_dead_letter'
-            ELSE 'partition_already_cancelled'
-          END
-        ),
-        updated_at = now()
-      FROM terminal_partition
-      CROSS JOIN input_values
-      WHERE run.partition_id = input_values.partition_id
-        AND run.status = 'running'
-      RETURNING
-        run.id AS run_id_uuid,
-        run.id::text AS run_id,
-        terminal_partition.partition_status
-    ),
-    updated_summary AS (
+          END,
+          finished_at = COALESCE(run.finished_at, terminal_partition.partition_finished_at, now()),
+          duration_ms = COALESCE(
+            run.duration_ms,
+            GREATEST(
+              0,
+              FLOOR(
+                EXTRACT(
+                  EPOCH FROM (
+                    COALESCE(terminal_partition.partition_finished_at, now()) -
+                    COALESCE(run.started_at, run.created_at)
+                  )
+                ) * 1000
+              )::int
+            )
+          ),
+          meta_json = COALESCE(run.meta_json, '{}'::jsonb) || jsonb_build_object(
+            'decisionCaller', 'backfillGoogleAdsRunningRunsForTerminalPartition',
+            'closureReason', CASE
+              WHEN terminal_partition.partition_status = 'succeeded' THEN 'partition_already_succeeded'
+              WHEN terminal_partition.partition_status = 'failed' THEN 'partition_already_failed'
+              WHEN terminal_partition.partition_status = 'dead_letter' THEN 'partition_already_dead_letter'
+              ELSE 'partition_already_cancelled'
+            END
+          ),
+          updated_at = now()
+        FROM terminal_partition
+        WHERE run.id IN (SELECT id FROM candidate_runs)
+        RETURNING
+          run.id AS run_id_uuid,
+          run.id::text AS run_id,
+          terminal_partition.partition_status
+      ),
+      updated_summary AS (
+        SELECT
+          COALESCE(MAX(partition_status), (SELECT partition_status FROM terminal_partition LIMIT 1)) AS partition_status,
+          COUNT(*)::int AS closed_running_run_count,
+          CASE
+            WHEN (SELECT effective_run_id FROM input_values) IS NULL THEN NULL
+            ELSE BOOL_OR(run_id_uuid = (SELECT effective_run_id FROM input_values))
+          END AS caller_run_id_was_closed
+        FROM updated_runs
+      ),
+      capped_run_ids AS (
+        SELECT run_id
+        FROM updated_runs
+        ORDER BY run_id
+        LIMIT 10
+      )
       SELECT
-        COALESCE(MAX(partition_status), (SELECT partition_status FROM terminal_partition LIMIT 1)) AS partition_status,
-        COUNT(*)::int AS closed_running_run_count,
-        CASE
-          WHEN (SELECT effective_run_id FROM input_values) IS NULL THEN NULL
-          ELSE BOOL_OR(run_id_uuid = (SELECT effective_run_id FROM input_values))
-        END AS caller_run_id_was_closed
-      FROM updated_runs
-    ),
-    capped_run_ids AS (
-      SELECT run_id
-      FROM updated_runs
-      ORDER BY run_id
-      LIMIT 10
-    )
-    SELECT
-      (SELECT partition_status FROM updated_summary) AS partition_status,
-      COALESCE((SELECT closed_running_run_count FROM updated_summary), 0) AS closed_running_run_count,
-      (SELECT caller_run_id_was_closed FROM updated_summary) AS caller_run_id_was_closed,
-      COALESCE((SELECT json_agg(run_id ORDER BY run_id) FROM capped_run_ids), '[]'::json) AS closed_running_run_ids
-  `) as Array<Record<string, unknown>>;
+        (SELECT partition_status FROM updated_summary) AS partition_status,
+        COALESCE((SELECT closed_running_run_count FROM updated_summary), 0) AS closed_running_run_count,
+        (SELECT caller_run_id_was_closed FROM updated_summary) AS caller_run_id_was_closed,
+        COALESCE((SELECT json_agg(run_id ORDER BY run_id) FROM capped_run_ids), '[]'::json) AS closed_running_run_ids
+    `) as Array<Record<string, unknown>>;
+
+    const batchPartitionStatus =
+      typeof row?.partition_status === "string" ? row.partition_status : null;
+    const batchClosedRunningRunCount = toNumber(row?.closed_running_run_count);
+    const batchCallerRunIdWasClosed = parseNullableBoolean(
+      row?.caller_run_id_was_closed,
+    );
+    const batchClosedRunningRunIds = parseStringArray(row?.closed_running_run_ids);
+
+    if (partitionStatus === null) {
+      partitionStatus = batchPartitionStatus;
+    }
+    closedRunningRunCount += batchClosedRunningRunCount;
+    if (batchCallerRunIdWasClosed === true) {
+      callerRunIdWasClosed = true;
+    }
+    for (const runId of batchClosedRunningRunIds) {
+      if (closedRunningRunIds.length >= 10) {
+        break;
+      }
+      if (!closedRunningRunIds.includes(runId)) {
+        closedRunningRunIds.push(runId);
+      }
+    }
+
+    if (batchClosedRunningRunCount < runBatchSize) {
+      break;
+    }
+  }
 
   return {
-    partitionStatus:
-      typeof row?.partition_status === "string" ? row.partition_status : null,
-    closedRunningRunCount: toNumber(row?.closed_running_run_count),
-    callerRunIdWasClosed: parseNullableBoolean(row?.caller_run_id_was_closed),
-    closedRunningRunIds: parseStringArray(row?.closed_running_run_ids),
+    partitionStatus,
+    closedRunningRunCount,
+    callerRunIdWasClosed,
+    closedRunningRunIds,
   };
 }
 

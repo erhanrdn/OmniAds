@@ -468,6 +468,75 @@ describe("google ads warehouse ownership safety", () => {
     });
   });
 
+  it("backfills running runs under terminal parents in bounded batches", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      queries.push(query);
+      const batchCount = queries.filter((item) =>
+        item.includes("candidate_runs"),
+      ).length;
+      if (batchCount === 1) {
+        return [
+          {
+            partition_status: "succeeded",
+            closed_running_run_count: 25,
+            caller_run_id_was_closed: false,
+            closed_running_run_ids: Array.from({ length: 10 }, (_, index) =>
+              `run-${index + 1}`,
+            ),
+          },
+        ];
+      }
+      if (batchCount === 2) {
+        return [
+          {
+            partition_status: "succeeded",
+            closed_running_run_count: 5,
+            caller_run_id_was_closed: true,
+            closed_running_run_ids: ["run-26", "run-27", "run-28"],
+          },
+        ];
+      }
+      return [
+        {
+          partition_status: "succeeded",
+          closed_running_run_count: 0,
+          caller_run_id_was_closed: false,
+          closed_running_run_ids: [],
+        },
+      ];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const result = await backfillGoogleAdsRunningRunsForTerminalPartition({
+      partitionId: "partition-1",
+      runId: "run-28",
+    });
+
+    expect(result).toEqual({
+      partitionStatus: "succeeded",
+      closedRunningRunCount: 30,
+      callerRunIdWasClosed: true,
+      closedRunningRunIds: [
+        "run-1",
+        "run-2",
+        "run-3",
+        "run-4",
+        "run-5",
+        "run-6",
+        "run-7",
+        "run-8",
+        "run-9",
+        "run-10",
+      ],
+    });
+    expect(
+      queries.filter((query) => query.includes("candidate_runs")),
+    ).toHaveLength(2);
+    expect(queries[0]).toContain("LIMIT");
+  });
+
   it("reconciles terminal-parent children before stale reclaim cleanup", async () => {
     const queries: string[] = [];
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
@@ -511,6 +580,7 @@ describe("google ads warehouse ownership safety", () => {
     expect(result.closedTerminalRunningCheckpointCount).toBe(1);
     expect(queries[0]).toContain("candidate_terminal_partitions");
     expect(queries[1]).toContain("UPDATE google_ads_sync_runs run");
+    expect(queries[1]).toContain("candidate_runs");
     expect(queries[2]).toContain(
       "UPDATE google_ads_sync_checkpoints checkpoint",
     );
@@ -524,7 +594,7 @@ describe("google ads warehouse ownership safety", () => {
     expect(
       queries.some((query) =>
         query.includes("UPDATE google_ads_sync_runs run") &&
-        query.includes("run.id AS run_id_uuid"),
+        query.includes("candidate_runs"),
       ),
     ).toBe(true);
   });
@@ -577,7 +647,7 @@ describe("google ads warehouse ownership safety", () => {
       queries.filter(
         (query) =>
           query.includes("UPDATE google_ads_sync_runs run") &&
-          query.includes("run.id AS run_id_uuid"),
+          query.includes("candidate_runs"),
       ),
     ).toHaveLength(2);
     expect(
