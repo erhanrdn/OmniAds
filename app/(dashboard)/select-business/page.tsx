@@ -3,15 +3,18 @@
 import { useMemo, useRef, useState } from "react";
 import { useAppStore } from "@/store/app-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Check, MoreHorizontal, Plus, Trash2 } from "lucide-react";
 import { logClientAuthEvent } from "@/lib/auth-diagnostics";
+import { sanitizeNextPath } from "@/lib/auth-routing";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useDropdownBehavior } from "@/hooks/use-dropdown-behavior";
 
 export default function SelectBusinessPage() {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const businesses = useAppStore((state) => state.businesses);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const selectBusiness = useAppStore((state) => state.selectBusiness);
@@ -56,10 +59,29 @@ export default function SelectBusinessPage() {
     return hasConnectedIntegration || assignedCount > 0;
   }, [assignedAccountsByBusiness, byBusinessId, confirmBusiness]);
 
+  function getPostSwitchDestination() {
+    const query = searchParams.toString();
+    const candidate = `${pathname}${query ? `?${query}` : ""}`;
+    const sanitized = sanitizeNextPath(candidate);
+    if (!sanitized) return "/overview";
+    if (
+      sanitized === "/" ||
+      sanitized.startsWith("/login") ||
+      sanitized.startsWith("/signup") ||
+      sanitized.startsWith("/select-language") ||
+      sanitized.startsWith("/businesses/new") ||
+      sanitized.startsWith("/select-business")
+    ) {
+      return "/overview";
+    }
+    return sanitized;
+  }
+
   async function handleSelect(id: string) {
     if (id === selectedBusinessId || deleteLoading) return;
 
     const previousBusinessId = selectedBusinessId;
+    const destination = getPostSwitchDestination();
     selectBusiness(id);
 
     const response = await fetch("/api/auth/switch-business", {
@@ -79,7 +101,7 @@ export default function SelectBusinessPage() {
     }
 
     logClientAuthEvent("select_business_succeeded", { activeBusinessId: id });
-    router.push("/overview");
+    router.push(destination);
     router.refresh();
   }
 

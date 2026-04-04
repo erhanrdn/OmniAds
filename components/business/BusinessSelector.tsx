@@ -13,10 +13,11 @@ import {
 import { useAppStore } from "@/store/app-store";
 import { cn } from "@/lib/utils";
 import { Building2, Check, ChevronsUpDown, Plus } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { logClientAuthEvent } from "@/lib/auth-diagnostics";
 import { getTranslations } from "@/lib/i18n";
 import { usePreferencesStore } from "@/store/preferences-store";
+import { sanitizeNextPath } from "@/lib/auth-routing";
 
 function getInitials(name: string) {
   return name
@@ -29,6 +30,8 @@ function getInitials(name: string) {
 
 export function BusinessSelector() {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const language = usePreferencesStore((state) => state.language);
   const hasHydrated = useAppStore((state) => state.hasHydrated);
   const authBootstrapStatus = useAppStore((state) => state.authBootstrapStatus);
@@ -42,10 +45,29 @@ export function BusinessSelector() {
   const isDemoOnlyWorkspace = businesses.length === 1 && Boolean(businesses[0]?.isDemoBusiness);
   const t = getTranslations(language).layout;
 
+  function getPostSwitchDestination() {
+    const query = searchParams.toString();
+    const candidate = `${pathname}${query ? `?${query}` : ""}`;
+    const sanitized = sanitizeNextPath(candidate);
+    if (!sanitized) return "/overview";
+    if (
+      sanitized === "/" ||
+      sanitized.startsWith("/login") ||
+      sanitized.startsWith("/signup") ||
+      sanitized.startsWith("/select-language") ||
+      sanitized.startsWith("/businesses/new") ||
+      sanitized.startsWith("/select-business")
+    ) {
+      return "/overview";
+    }
+    return sanitized;
+  }
+
   async function handleSelect(businessId: string) {
     if (businessId === selectedBusinessId || pendingBusinessId) return;
     setPendingBusinessId(businessId);
     const previousBusinessId = selectedBusinessId;
+    const destination = getPostSwitchDestination();
     selectBusiness(businessId);
     const response = await fetch("/api/auth/switch-business", {
       method: "POST",
@@ -67,7 +89,7 @@ export function BusinessSelector() {
       activeBusinessId: businessId,
     });
     setPendingBusinessId(null);
-    router.push("/overview");
+    router.push(destination);
     router.refresh();
   }
 

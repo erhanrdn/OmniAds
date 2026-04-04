@@ -611,22 +611,28 @@ function DataStatusRow({
           {providerChips.map((provider) => (
             <div
               key={provider.label}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-2.5 py-1.5 text-xs"
+              className="inline-flex items-center rounded-xl border border-slate-200 px-1.5 py-1 text-xs"
             >
-              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-white ring-1 ring-slate-200">
+              <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-white ring-1 ring-slate-200">
                 <img
                   src={provider.logo}
                   alt={provider.label}
-                  className="h-3.5 w-3.5 object-contain"
+                  className="h-4 w-4 object-contain"
                   loading="lazy"
                 />
               </span>
-              <span className="font-medium text-slate-700">{provider.label}</span>
             </div>
           ))}
           {shopifyServing && shopifyBadge ? (
             <div className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-2.5 py-1.5 text-xs">
-              <span className="font-medium text-slate-700">Shopify</span>
+              <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-white ring-1 ring-slate-200">
+                <img
+                  src="/platform-logos/shopify_glyph.svg"
+                  alt="Shopify"
+                  className="h-4 w-4 object-contain"
+                  loading="lazy"
+                />
+              </span>
               <Badge variant={shopifyBadge.tone}>{shopifyBadge.label}</Badge>
             </div>
           ) : null}
