@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 
 const { backfillRunsMock, backfillCheckpointsMock } = vi.hoisted(() => ({
   backfillRunsMock: vi.fn(),
@@ -15,12 +15,18 @@ vi.mock("@/lib/google-ads/warehouse", async (importOriginal) => {
   };
 });
 
-import { maybeBackfillGoogleAdsCompletionSuccess } from "@/lib/sync/google-ads-sync";
+import {
+  logGoogleAdsCompletionOutcome,
+  maybeBackfillGoogleAdsCompletionSuccess,
+} from "@/lib/sync/google-ads-sync";
 
 describe("maybeBackfillGoogleAdsCompletionSuccess", () => {
+  const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
   beforeEach(() => {
     backfillRunsMock.mockReset();
     backfillCheckpointsMock.mockReset();
+    warnSpy.mockClear();
     backfillRunsMock.mockResolvedValue({
       partitionStatus: "succeeded",
       closedRunningRunCount: 2,
@@ -31,6 +37,10 @@ describe("maybeBackfillGoogleAdsCompletionSuccess", () => {
       closedCheckpointGroups: [],
       closedRunningCheckpointCount: 0,
     });
+  });
+
+  afterEach(() => {
+    warnSpy.mockClear();
   });
 
   it("triggers backfill when completion succeeds with zero closed running runs", async () => {
@@ -88,5 +98,67 @@ describe("maybeBackfillGoogleAdsCompletionSuccess", () => {
 
     expect(backfillRunsMock).not.toHaveBeenCalled();
     expect(backfillCheckpointsMock).not.toHaveBeenCalled();
+  });
+
+  it("logs weak close warnings for success outcomes that will trigger backfill", () => {
+    logGoogleAdsCompletionOutcome({
+      partitionId: "partition-1",
+      runId: "run-1",
+      recoveredRunId: null,
+      workerId: "worker-1",
+      lane: "extended",
+      scope: "geo_daily",
+      partitionStatus: "succeeded",
+      outcome: {
+        ok: true,
+        closedRunningRunCount: 0,
+        callerRunIdWasClosed: false,
+      },
+    });
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[google-ads-sync] google_ads_completion_outcome",
+      expect.objectContaining({
+        partitionId: "partition-1",
+        ok: true,
+        closedRunningRunCount: 0,
+        callerRunIdWasClosed: false,
+      }),
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[google-ads-sync] google_ads_completion_weak_close_detected",
+      expect.objectContaining({
+        partitionId: "partition-1",
+        successBackfillWillTrigger: true,
+      }),
+    );
+  });
+
+  it("logs failure outcomes with denial classification and backfill intent", () => {
+    logGoogleAdsCompletionOutcome({
+      partitionId: "partition-2",
+      runId: "run-2",
+      recoveredRunId: null,
+      workerId: "worker-2",
+      lane: "core",
+      scope: "campaign_daily",
+      partitionStatus: "failed",
+      outcome: {
+        ok: false,
+        reason: "lease_conflict",
+      },
+      denialClassification: "already_terminal",
+    });
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[google-ads-sync] google_ads_completion_outcome",
+      expect.objectContaining({
+        partitionId: "partition-2",
+        ok: false,
+        reason: "lease_conflict",
+        denialClassification: "already_terminal",
+        failureBackfillWillTrigger: true,
+      }),
+    );
   });
 });

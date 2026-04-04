@@ -417,6 +417,70 @@ async function backfillGoogleAdsDeniedTerminalChildren(input: {
   }
 }
 
+export function logGoogleAdsCompletionOutcome(input: {
+  partitionId: string;
+  runId?: string | null;
+  recoveredRunId?: string | null;
+  workerId: string;
+  lane: GoogleAdsSyncLane;
+  scope: GoogleAdsWarehouseScope;
+  partitionStatus: "succeeded" | "failed" | "dead_letter" | "cancelled";
+  outcome:
+    | {
+        ok: true;
+        closedRunningRunCount: number;
+        callerRunIdWasClosed: boolean | null;
+      }
+    | {
+        ok: false;
+        reason: string;
+      };
+  denialClassification?: string | null;
+}) {
+  const shouldFailureBackfill =
+    !input.outcome.ok &&
+    (input.denialClassification ?? null) === "already_terminal";
+
+  console.warn("[google-ads-sync] google_ads_completion_outcome", {
+    partitionId: input.partitionId,
+    runId: input.runId ?? null,
+    recoveredRunId: input.recoveredRunId ?? null,
+    workerId: input.workerId,
+    lane: input.lane,
+    scope: input.scope,
+    partitionStatus: input.partitionStatus,
+    ok: input.outcome.ok,
+    reason: input.outcome.ok ? null : input.outcome.reason,
+    closedRunningRunCount: input.outcome.ok
+      ? input.outcome.closedRunningRunCount
+      : null,
+    callerRunIdWasClosed: input.outcome.ok
+      ? input.outcome.callerRunIdWasClosed
+      : null,
+    denialClassification: input.denialClassification ?? null,
+    failureBackfillWillTrigger: shouldFailureBackfill,
+  });
+
+  if (
+    input.outcome.ok &&
+    (input.outcome.closedRunningRunCount === 0 ||
+      input.outcome.callerRunIdWasClosed === false)
+  ) {
+    console.warn("[google-ads-sync] google_ads_completion_weak_close_detected", {
+      partitionId: input.partitionId,
+      runId: input.runId ?? null,
+      recoveredRunId: input.recoveredRunId ?? null,
+      workerId: input.workerId,
+      lane: input.lane,
+      scope: input.scope,
+      partitionStatus: input.partitionStatus,
+      closedRunningRunCount: input.outcome.closedRunningRunCount,
+      callerRunIdWasClosed: input.outcome.callerRunIdWasClosed,
+      successBackfillWillTrigger: true,
+    });
+  }
+}
+
 export async function maybeBackfillGoogleAdsCompletionSuccess(input: {
   partitionId: string;
   runId?: string | null;
@@ -3768,8 +3832,8 @@ async function processGoogleAdsPartition(input: {
             onlyIfCurrentStatus: "running",
           }).catch(() => null);
         }
-        return false;
-      }
+      return false;
+    }
       const completed = await completeGoogleAdsPartitionAttempt({
         partitionId,
         workerId: input.workerId,
@@ -3786,6 +3850,16 @@ async function processGoogleAdsPartition(input: {
           "partition skipped because another worker already owns this date",
         retryDelayMinutes: 5,
       });
+      logGoogleAdsCompletionOutcome({
+        partitionId,
+        runId,
+        recoveredRunId,
+        workerId: input.workerId,
+        lane: input.partition.lane,
+        scope: input.partition.scope,
+        partitionStatus: "failed",
+        outcome: completed,
+      });
       if (!completed.ok) {
         const denialSnapshot = await logGoogleAdsCompletionDenied({
           partitionId,
@@ -3797,6 +3871,17 @@ async function processGoogleAdsPartition(input: {
           partitionStatus: "failed",
           runStatus: "failed",
           reason: "lease_conflict",
+        });
+        logGoogleAdsCompletionOutcome({
+          partitionId,
+          runId,
+          recoveredRunId,
+          workerId: input.workerId,
+          lane: input.partition.lane,
+          scope: input.partition.scope,
+          partitionStatus: "failed",
+          outcome: completed,
+          denialClassification: denialSnapshot?.denialClassification ?? null,
         });
         if (denialSnapshot?.denialClassification === "already_terminal") {
           await backfillGoogleAdsDeniedTerminalChildren({
@@ -3877,6 +3962,16 @@ async function processGoogleAdsPartition(input: {
       finishedAt: new Date().toISOString(),
       lastError: null,
     });
+    logGoogleAdsCompletionOutcome({
+      partitionId,
+      runId,
+      recoveredRunId,
+      workerId: input.workerId,
+      lane: input.partition.lane,
+      scope: input.partition.scope,
+      partitionStatus: "succeeded",
+      outcome: completed,
+    });
     if (!completed.ok) {
       const denialSnapshot = await logGoogleAdsCompletionDenied({
         partitionId,
@@ -3888,6 +3983,17 @@ async function processGoogleAdsPartition(input: {
         partitionStatus: "succeeded",
         runStatus: "succeeded",
         reason: "lease_conflict",
+      });
+      logGoogleAdsCompletionOutcome({
+        partitionId,
+        runId,
+        recoveredRunId,
+        workerId: input.workerId,
+        lane: input.partition.lane,
+        scope: input.partition.scope,
+        partitionStatus: "succeeded",
+        outcome: completed,
+        denialClassification: denialSnapshot?.denialClassification ?? null,
       });
       if (denialSnapshot?.denialClassification === "already_terminal") {
         await backfillGoogleAdsDeniedTerminalChildren({
@@ -4141,6 +4247,16 @@ async function processGoogleAdsPartition(input: {
         ? undefined
         : computePartitionRetryDelayMinutes(nextAttempt, errorClass),
     });
+    logGoogleAdsCompletionOutcome({
+      partitionId,
+      runId,
+      recoveredRunId,
+      workerId: input.workerId,
+      lane: input.partition.lane,
+      scope: input.partition.scope,
+      partitionStatus: status,
+      outcome: completed,
+    });
     if (!completed.ok) {
       const denialSnapshot = await logGoogleAdsCompletionDenied({
         partitionId,
@@ -4152,6 +4268,17 @@ async function processGoogleAdsPartition(input: {
         partitionStatus: status,
         runStatus: "failed",
         reason: "lease_conflict",
+      });
+      logGoogleAdsCompletionOutcome({
+        partitionId,
+        runId,
+        recoveredRunId,
+        workerId: input.workerId,
+        lane: input.partition.lane,
+        scope: input.partition.scope,
+        partitionStatus: status,
+        outcome: completed,
+        denialClassification: denialSnapshot?.denialClassification ?? null,
       });
       if (denialSnapshot?.denialClassification === "already_terminal") {
         await backfillGoogleAdsDeniedTerminalChildren({
