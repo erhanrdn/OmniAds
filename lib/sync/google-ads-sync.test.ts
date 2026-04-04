@@ -12,6 +12,7 @@ import {
   buildGoogleAdsWarehouseFetchPlan,
   evaluateGoogleAdsWorkerSchedulingState,
   getGoogleAdsScopeCheckpointChunkSize,
+  logGoogleAdsLeaseStepResult,
   logGoogleAdsPhaseTelemetry,
   shouldBlockGoogleAdsHistoricalExtendedWork,
   shouldLeaseGoogleAdsRecentRepair,
@@ -232,6 +233,50 @@ describe("Google Ads throughput telemetry", () => {
             rowCount: 120,
           }),
         ],
+      }),
+    );
+  });
+});
+
+describe("Google Ads lease step telemetry", () => {
+  it("emits structured lease attempt telemetry", () => {
+    const infoSpy = vi
+      .spyOn(console, "info")
+      .mockImplementation(() => undefined);
+
+    logGoogleAdsLeaseStepResult({
+      businessId: "business-1",
+      step: "maintenance",
+      limit: 2,
+      lane: "maintenance",
+      leasedCount: 0,
+      queueHealth: {
+        coreQueueDepth: 0,
+        maintenanceQueueDepth: 9,
+        leasedPartitions: 0,
+      },
+      fullSyncPriorityRequired: false,
+      historicalLeaseStartDate: "2026-01-01",
+      policy: {
+        suspendMaintenance: true,
+        suspendExtended: false,
+      },
+      budgetState: {
+        pressure: 1,
+        maintenanceAllowed: false,
+        extendedAllowed: true,
+      },
+    });
+
+    expect(infoSpy).toHaveBeenCalledWith(
+      "[google-ads-sync] google_ads_lease_step_result",
+      expect.objectContaining({
+        businessId: "business-1",
+        step: "maintenance",
+        leasedCount: 0,
+        queueHealth: expect.objectContaining({
+          maintenanceQueueDepth: 9,
+        }),
       }),
     );
   });

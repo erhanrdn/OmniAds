@@ -25,6 +25,7 @@
     "google:ads:health": "node --import tsx scripts/google-ads-health-snapshot.ts",
     "google:ads:diagnostic-snapshot": "node --import tsx scripts/google-ads-diagnostic-snapshot.ts",
     "google:ads:throughput-probe": "node --import tsx scripts/google-ads-throughput-probe.ts",
+    "google:ads:lease-eligibility": "node --import tsx scripts/google-ads-lease-eligibility-diagnostic.ts",
     "google:ads:state-check": "node --import tsx scripts/google-ads-state-consistency.ts",
     "google:ads:advisor-readiness": "node --import tsx scripts/google-ads-advisor-readiness.ts",
     "google:ads:cleanup": "node --import tsx scripts/google-ads-cleanup.ts",
