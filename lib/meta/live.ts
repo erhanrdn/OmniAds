@@ -9,6 +9,10 @@
  *
  * For ad sets: delegates to getAdSets() which already fetches live
  * from Meta API without warehouse writes.
+ *
+ * Snapshot exception:
+ * - meta_config_snapshots are allowed here for today/live config serving only.
+ * - They must not be used for normal historical campaign/adset UI serving.
  */
 
 import { resolveMetaCredentials, getAdSets } from "@/lib/api/meta";

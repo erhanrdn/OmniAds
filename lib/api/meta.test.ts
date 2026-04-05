@@ -652,4 +652,92 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       ]),
     );
   });
+
+  it("does not read config snapshots for non-today getAdSets requests", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes("/adsets")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "adset-1",
+                name: "Adset 1",
+                campaign_id: "cmp-1",
+                effective_status: "ACTIVE",
+                status: "ACTIVE",
+                daily_budget: "11",
+                optimization_goal: "omni_purchase",
+                bid_strategy: "LOWEST_COST_WITH_BID_CAP",
+                bid_amount: "6",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("/insights")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                adset_id: "adset-1",
+                adset_name: "Adset 1",
+                campaign_id: "cmp-1",
+                spend: "30",
+                ctr: "2",
+                inline_link_click_ctr: "1.5",
+                cpm: "10",
+                impressions: "300",
+                clicks: "6",
+                actions: [],
+                action_values: [],
+                purchase_roas: [],
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("/campaigns")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "cmp-1",
+                name: "Campaign 1",
+                effective_status: "ACTIVE",
+                status: "ACTIVE",
+                daily_budget: "25",
+                bid_strategy: "LOWEST_COST_WITH_BID_CAP",
+                bid_amount: "7.5",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getAdSets(
+      {
+        businessId: "biz-1",
+        accessToken: "token-1",
+        accountIds: ["act_1"],
+        currency: "USD",
+        accountProfiles: {
+          act_1: { currency: "USD", timezone: "UTC", name: "Account 1" },
+        },
+      },
+      "cmp-1",
+      "2026-04-03",
+      "2026-04-03",
+      "biz-1",
+      true,
+    );
+
+    expect(configSnapshots.readLatestMetaConfigSnapshots).not.toHaveBeenCalled();
+    expect(configSnapshots.readPreviousDifferentMetaConfigDiffs).not.toHaveBeenCalled();
+  });
 });

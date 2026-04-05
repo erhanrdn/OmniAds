@@ -98,4 +98,20 @@ describe("GET /api/meta/recommendations", () => {
     expect(calls).not.toContain("/api/meta/creatives");
     expect(calls).not.toContain("/api/meta/creatives/history");
   });
+
+  it("keeps the intentional snapshot-backed bid regime analysis path", async () => {
+    await GET(
+      new NextRequest(
+        "http://localhost/api/meta/recommendations?businessId=biz&startDate=2026-03-01&endDate=2026-03-31"
+      )
+    );
+
+    expect(configSnapshots.readMetaBidRegimeHistorySummaries).toHaveBeenCalledTimes(1);
+    expect(configSnapshots.readMetaBidRegimeHistorySummaries).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz",
+        entityLevel: "campaign",
+      })
+    );
+  });
 });

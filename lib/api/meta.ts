@@ -6,6 +6,11 @@
  * Intended for use in Server Components and API route handlers.
  *
  * Import pattern: import { getCampaigns, ... } from "@/lib/api/meta";
+ *
+ * Boundary rule:
+ * - Non-today campaign/adset UI surfaces must be warehouse-backed.
+ * - meta_config_snapshots reads are allowed only for today/live helpers here.
+ * - Historical snapshot analysis for AI/recommendations lives outside this module.
  */
 
 import { getIntegration } from "@/lib/integrations";
@@ -563,6 +568,10 @@ function inferRequestSyncType(
 
 function isSingleDayWindow(since: string, until: string) {
   return normalizeMetaApiDate(since) === normalizeMetaApiDate(until);
+}
+
+function isCurrentDayForTimezone(date: string, timeZone?: string | null) {
+  return normalizeMetaApiDate(date) === getTodayIsoForTimeZone(timeZone);
 }
 
 async function withMetaSyncJob<T>(input: {
@@ -2369,7 +2378,13 @@ export async function getAdSets(
         const statusMap = new Map<string, RawAdSet>(
           statusRows.map((a) => [a.id, a])
         );
-        const [latestSnapshots, latestCampaignSnapshots, previousDiffs, previousCampaignDiffs] = businessId
+        const profile = credentials.accountProfiles[accountId];
+        // Snapshot reads are intentionally limited to the current-day live path.
+        const allowSnapshotReadForTodayLive =
+          businessId != null &&
+          isSingleDayWindow(normalizedSince, normalizedUntil) &&
+          isCurrentDayForTimezone(normalizedSince, profile?.timezone ?? null);
+        const [latestSnapshots, latestCampaignSnapshots, previousDiffs, previousCampaignDiffs] = allowSnapshotReadForTodayLive
           ? await Promise.all([
               readLatestMetaConfigSnapshots({
                 businessId,
