@@ -6,16 +6,7 @@ import type {
   MetaSurfaceReadiness,
   MetaStatusResponse,
 } from "@/lib/meta/status-types";
-
-const REQUIRED_SURFACE_ORDER: Array<
-  keyof MetaPageReadiness["requiredSurfaces"]
-> = [
-  "summary",
-  "campaigns",
-  "breakdowns.age",
-  "breakdowns.location",
-  "breakdowns.placement",
-];
+import { META_PAGE_REQUIRED_SURFACE_ORDER } from "@/lib/meta/page-contract";
 
 function buildSurface(input: MetaSurfaceReadiness): MetaSurfaceReadiness {
   return input;
@@ -28,7 +19,7 @@ export function rollupMetaPageReadiness(input: {
   requiredSurfaces: MetaPageReadiness["requiredSurfaces"];
   optionalSurfaces: MetaPageReadiness["optionalSurfaces"];
 }): MetaPageReadiness {
-  const orderedRequired = REQUIRED_SURFACE_ORDER.map((key) => [
+  const orderedRequired = META_PAGE_REQUIRED_SURFACE_ORDER.map((key) => [
     key,
     input.requiredSurfaces[key],
   ] as [MetaPageSurfaceKey, MetaSurfaceReadiness]);
@@ -121,5 +112,5 @@ export function shouldMaskMetaKpisAsPreparing(input: {
 }
 
 export function getMetaRequiredPageSurfaceKeys() {
-  return [...REQUIRED_SURFACE_ORDER];
+  return [...META_PAGE_REQUIRED_SURFACE_ORDER];
 }
