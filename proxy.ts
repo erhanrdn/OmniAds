@@ -8,6 +8,7 @@ const PUBLIC_PAGE_PREFIXES = [
   "/signup",
   "/invite",
   "/share",
+  "/about",
   "/privacy",
   "/terms",
   "/ai-transparency",
