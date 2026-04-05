@@ -3125,7 +3125,7 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
     const values: unknown[] = [];
     const placeholders = chunk
       .map((row, index) => {
-        const offset = index * 23;
+        const offset = index * 36;
         values.push(
           row.businessId,
           row.providerAccountId,
@@ -3136,6 +3136,19 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
           row.campaignStatus,
           row.objective,
           row.buyingType,
+          row.optimizationGoal,
+          row.bidStrategyType,
+          row.bidStrategyLabel,
+          row.manualBidAmount,
+          row.bidValue,
+          row.bidValueFormat,
+          row.dailyBudget,
+          row.lifetimeBudget,
+          row.isBudgetMixed,
+          row.isConfigMixed,
+          row.isOptimizationGoalMixed,
+          row.isBidStrategyMixed,
+          row.isBidValueMixed,
           row.accountTimezone,
           row.accountCurrency,
           row.spend,
@@ -3151,7 +3164,7 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
           row.cpc,
           row.sourceSnapshotId
         );
-        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},now())`;
+        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},$${offset + 30},$${offset + 31},$${offset + 32},$${offset + 33},$${offset + 34},$${offset + 35},$${offset + 36},now())`;
       })
       .join(", ");
     await sql.query(
@@ -3166,6 +3179,19 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
         campaign_status,
         objective,
         buying_type,
+        optimization_goal,
+        bid_strategy_type,
+        bid_strategy_label,
+        manual_bid_amount,
+        bid_value,
+        bid_value_format,
+        daily_budget,
+        lifetime_budget,
+        is_budget_mixed,
+        is_config_mixed,
+        is_optimization_goal_mixed,
+        is_bid_strategy_mixed,
+        is_bid_value_mixed,
         account_timezone,
         account_currency,
         spend,
@@ -3189,6 +3215,19 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
         campaign_status = EXCLUDED.campaign_status,
         objective = EXCLUDED.objective,
         buying_type = EXCLUDED.buying_type,
+        optimization_goal = EXCLUDED.optimization_goal,
+        bid_strategy_type = EXCLUDED.bid_strategy_type,
+        bid_strategy_label = EXCLUDED.bid_strategy_label,
+        manual_bid_amount = EXCLUDED.manual_bid_amount,
+        bid_value = EXCLUDED.bid_value,
+        bid_value_format = EXCLUDED.bid_value_format,
+        daily_budget = EXCLUDED.daily_budget,
+        lifetime_budget = EXCLUDED.lifetime_budget,
+        is_budget_mixed = EXCLUDED.is_budget_mixed,
+        is_config_mixed = EXCLUDED.is_config_mixed,
+        is_optimization_goal_mixed = EXCLUDED.is_optimization_goal_mixed,
+        is_bid_strategy_mixed = EXCLUDED.is_bid_strategy_mixed,
+        is_bid_value_mixed = EXCLUDED.is_bid_value_mixed,
         account_timezone = EXCLUDED.account_timezone,
         account_currency = EXCLUDED.account_currency,
         spend = EXCLUDED.spend,
@@ -3218,7 +3257,7 @@ export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
     const values: unknown[] = [];
     const placeholders = chunk
       .map((row, index) => {
-        const offset = index * 22;
+        const offset = index * 35;
         values.push(
           row.businessId,
           row.providerAccountId,
@@ -3228,6 +3267,19 @@ export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
           row.adsetNameCurrent,
           row.adsetNameHistorical,
           row.adsetStatus,
+          row.optimizationGoal,
+          row.bidStrategyType,
+          row.bidStrategyLabel,
+          row.manualBidAmount,
+          row.bidValue,
+          row.bidValueFormat,
+          row.dailyBudget,
+          row.lifetimeBudget,
+          row.isBudgetMixed,
+          row.isConfigMixed,
+          row.isOptimizationGoalMixed,
+          row.isBidStrategyMixed,
+          row.isBidValueMixed,
           row.accountTimezone,
           row.accountCurrency,
           row.spend,
@@ -3243,7 +3295,7 @@ export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
           row.cpc,
           row.sourceSnapshotId
         );
-        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},now())`;
+        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},$${offset + 30},$${offset + 31},$${offset + 32},$${offset + 33},$${offset + 34},$${offset + 35},now())`;
       })
       .join(", ");
     await sql.query(
@@ -3257,6 +3309,19 @@ export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
         adset_name_current,
         adset_name_historical,
         adset_status,
+        optimization_goal,
+        bid_strategy_type,
+        bid_strategy_label,
+        manual_bid_amount,
+        bid_value,
+        bid_value_format,
+        daily_budget,
+        lifetime_budget,
+        is_budget_mixed,
+        is_config_mixed,
+        is_optimization_goal_mixed,
+        is_bid_strategy_mixed,
+        is_bid_value_mixed,
         account_timezone,
         account_currency,
         spend,
@@ -3279,6 +3344,19 @@ export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
         adset_name_current = EXCLUDED.adset_name_current,
         adset_name_historical = EXCLUDED.adset_name_historical,
         adset_status = EXCLUDED.adset_status,
+        optimization_goal = EXCLUDED.optimization_goal,
+        bid_strategy_type = EXCLUDED.bid_strategy_type,
+        bid_strategy_label = EXCLUDED.bid_strategy_label,
+        manual_bid_amount = EXCLUDED.manual_bid_amount,
+        bid_value = EXCLUDED.bid_value,
+        bid_value_format = EXCLUDED.bid_value_format,
+        daily_budget = EXCLUDED.daily_budget,
+        lifetime_budget = EXCLUDED.lifetime_budget,
+        is_budget_mixed = EXCLUDED.is_budget_mixed,
+        is_config_mixed = EXCLUDED.is_config_mixed,
+        is_optimization_goal_mixed = EXCLUDED.is_optimization_goal_mixed,
+        is_bid_strategy_mixed = EXCLUDED.is_bid_strategy_mixed,
+        is_bid_value_mixed = EXCLUDED.is_bid_value_mixed,
         account_timezone = EXCLUDED.account_timezone,
         account_currency = EXCLUDED.account_currency,
         spend = EXCLUDED.spend,
@@ -3643,6 +3721,19 @@ export async function getMetaCampaignDailyRange(input: {
       campaign_status,
       objective,
       buying_type,
+      optimization_goal,
+      bid_strategy_type,
+      bid_strategy_label,
+      manual_bid_amount,
+      bid_value,
+      bid_value_format,
+      daily_budget,
+      lifetime_budget,
+      is_budget_mixed,
+      is_config_mixed,
+      is_optimization_goal_mixed,
+      is_bid_strategy_mixed,
+      is_bid_value_mixed,
       account_timezone,
       account_currency,
       spend,
@@ -3678,6 +3769,19 @@ export async function getMetaCampaignDailyRange(input: {
     campaign_status: string | null;
     objective: string | null;
     buying_type: string | null;
+    optimization_goal: string | null;
+    bid_strategy_type: string | null;
+    bid_strategy_label: string | null;
+    manual_bid_amount: number | null;
+    bid_value: number | null;
+    bid_value_format: "currency" | "roas" | null;
+    daily_budget: number | null;
+    lifetime_budget: number | null;
+    is_budget_mixed: boolean;
+    is_config_mixed: boolean;
+    is_optimization_goal_mixed: boolean;
+    is_bid_strategy_mixed: boolean;
+    is_bid_value_mixed: boolean;
     account_timezone: string;
     account_currency: string;
     spend: number;
@@ -3706,6 +3810,19 @@ export async function getMetaCampaignDailyRange(input: {
     campaignStatus: row.campaign_status,
     objective: row.objective,
     buyingType: row.buying_type,
+    optimizationGoal: row.optimization_goal,
+    bidStrategyType: row.bid_strategy_type,
+    bidStrategyLabel: row.bid_strategy_label,
+    manualBidAmount: row.manual_bid_amount == null ? null : Number(row.manual_bid_amount),
+    bidValue: row.bid_value == null ? null : Number(row.bid_value),
+    bidValueFormat: row.bid_value_format,
+    dailyBudget: row.daily_budget == null ? null : Number(row.daily_budget),
+    lifetimeBudget: row.lifetime_budget == null ? null : Number(row.lifetime_budget),
+    isBudgetMixed: Boolean(row.is_budget_mixed),
+    isConfigMixed: Boolean(row.is_config_mixed),
+    isOptimizationGoalMixed: Boolean(row.is_optimization_goal_mixed),
+    isBidStrategyMixed: Boolean(row.is_bid_strategy_mixed),
+    isBidValueMixed: Boolean(row.is_bid_value_mixed),
     accountTimezone: row.account_timezone,
     accountCurrency: row.account_currency,
     spend: Number(row.spend ?? 0),
@@ -3744,6 +3861,19 @@ export async function getMetaAdSetDailyRange(input: {
       adset_name_current,
       adset_name_historical,
       adset_status,
+      optimization_goal,
+      bid_strategy_type,
+      bid_strategy_label,
+      manual_bid_amount,
+      bid_value,
+      bid_value_format,
+      daily_budget,
+      lifetime_budget,
+      is_budget_mixed,
+      is_config_mixed,
+      is_optimization_goal_mixed,
+      is_bid_strategy_mixed,
+      is_bid_value_mixed,
       account_timezone,
       account_currency,
       spend,
@@ -3782,6 +3912,19 @@ export async function getMetaAdSetDailyRange(input: {
     adset_name_current: string | null;
     adset_name_historical: string | null;
     adset_status: string | null;
+    optimization_goal: string | null;
+    bid_strategy_type: string | null;
+    bid_strategy_label: string | null;
+    manual_bid_amount: number | null;
+    bid_value: number | null;
+    bid_value_format: "currency" | "roas" | null;
+    daily_budget: number | null;
+    lifetime_budget: number | null;
+    is_budget_mixed: boolean;
+    is_config_mixed: boolean;
+    is_optimization_goal_mixed: boolean;
+    is_bid_strategy_mixed: boolean;
+    is_bid_value_mixed: boolean;
     account_timezone: string;
     account_currency: string;
     spend: number;
@@ -3809,6 +3952,19 @@ export async function getMetaAdSetDailyRange(input: {
     adsetNameCurrent: row.adset_name_current,
     adsetNameHistorical: row.adset_name_historical,
     adsetStatus: row.adset_status,
+    optimizationGoal: row.optimization_goal,
+    bidStrategyType: row.bid_strategy_type,
+    bidStrategyLabel: row.bid_strategy_label,
+    manualBidAmount: row.manual_bid_amount == null ? null : Number(row.manual_bid_amount),
+    bidValue: row.bid_value == null ? null : Number(row.bid_value),
+    bidValueFormat: row.bid_value_format,
+    dailyBudget: row.daily_budget == null ? null : Number(row.daily_budget),
+    lifetimeBudget: row.lifetime_budget == null ? null : Number(row.lifetime_budget),
+    isBudgetMixed: Boolean(row.is_budget_mixed),
+    isConfigMixed: Boolean(row.is_config_mixed),
+    isOptimizationGoalMixed: Boolean(row.is_optimization_goal_mixed),
+    isBidStrategyMixed: Boolean(row.is_bid_strategy_mixed),
+    isBidValueMixed: Boolean(row.is_bid_value_mixed),
     accountTimezone: row.account_timezone,
     accountCurrency: row.account_currency,
     spend: Number(row.spend ?? 0),

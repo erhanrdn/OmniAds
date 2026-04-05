@@ -90,6 +90,19 @@ export interface MetaCampaignDailyRow extends MetaWarehouseBaseRow {
   campaignStatus: string | null;
   objective: string | null;
   buyingType: string | null;
+  optimizationGoal: string | null;
+  bidStrategyType: string | null;
+  bidStrategyLabel: string | null;
+  manualBidAmount: number | null;
+  bidValue: number | null;
+  bidValueFormat: "currency" | "roas" | null;
+  dailyBudget: number | null;
+  lifetimeBudget: number | null;
+  isBudgetMixed: boolean;
+  isConfigMixed: boolean;
+  isOptimizationGoalMixed: boolean;
+  isBidStrategyMixed: boolean;
+  isBidValueMixed: boolean;
 }
 
 export interface MetaAdSetDailyRow extends MetaWarehouseBaseRow {
@@ -98,6 +111,19 @@ export interface MetaAdSetDailyRow extends MetaWarehouseBaseRow {
   adsetNameCurrent: string | null;
   adsetNameHistorical: string | null;
   adsetStatus: string | null;
+  optimizationGoal: string | null;
+  bidStrategyType: string | null;
+  bidStrategyLabel: string | null;
+  manualBidAmount: number | null;
+  bidValue: number | null;
+  bidValueFormat: "currency" | "roas" | null;
+  dailyBudget: number | null;
+  lifetimeBudget: number | null;
+  isBudgetMixed: boolean;
+  isConfigMixed: boolean;
+  isOptimizationGoalMixed: boolean;
+  isBidStrategyMixed: boolean;
+  isBidValueMixed: boolean;
 }
 
 export interface MetaAdDailyRow extends MetaWarehouseBaseRow {

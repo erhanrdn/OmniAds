@@ -4,6 +4,7 @@
 - Source of truth is the ad account, not the workspace.
 - `Today` is served with a live-biased overlay.
 - `Yesterday` and older ranges are served from warehouse snapshots.
+- Non-today Meta UI fields must be warehouse-backed. Snapshot tables are not a historical serving source.
 - Time slicing follows the ad account timezone.
 - Currency is stored in the native account currency first.
 - Workspace totals are derived from account-level truth.

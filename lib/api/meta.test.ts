@@ -16,6 +16,7 @@ vi.mock("@/lib/meta/config-snapshots", () => ({
 
 vi.mock("@/lib/meta/configuration", () => ({
   buildConfigSnapshotPayload: vi.fn(),
+  summarizeCampaignConfig: vi.fn(),
 }));
 
 vi.mock("@/lib/meta/warehouse", () => ({
@@ -37,7 +38,7 @@ vi.mock("@/lib/meta/warehouse", () => ({
 const warehouse = await import("@/lib/meta/warehouse");
 const configSnapshots = await import("@/lib/meta/config-snapshots");
 const configuration = await import("@/lib/meta/configuration");
-const { syncMetaAccountCoreWarehouseDay } = await import("@/lib/api/meta");
+const { getAdSets, syncMetaAccountCoreWarehouseDay } = await import("@/lib/api/meta");
 
 describe("syncMetaAccountCoreWarehouseDay", () => {
   beforeEach(() => {
@@ -52,6 +53,8 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     vi.mocked(warehouse.buildMetaSyncCheckpointHash).mockReturnValue("checkpoint-hash");
     vi.mocked(warehouse.upsertMetaSyncCheckpoint).mockResolvedValue("checkpoint-id");
     vi.mocked(configSnapshots.appendMetaConfigSnapshots).mockResolvedValue(undefined);
+    vi.mocked(configSnapshots.readLatestMetaConfigSnapshots).mockResolvedValue(new Map());
+    vi.mocked(configSnapshots.readPreviousDifferentMetaConfigDiffs).mockResolvedValue(new Map());
     vi.mocked(configuration.buildConfigSnapshotPayload).mockImplementation((input) => ({
       campaignId: input.campaignId ?? null,
       optimizationGoal: input.optimizationGoal ?? null,
@@ -68,6 +71,27 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       isBidStrategyMixed: false,
       isBidValueMixed: false,
     }));
+    vi.mocked(configuration.summarizeCampaignConfig).mockImplementation((input) => {
+      const firstAdset = input.adsets[0] ?? null;
+      return {
+        campaignId: input.campaignId ?? null,
+        optimizationGoal: firstAdset?.optimizationGoal ?? null,
+        bidStrategyType: firstAdset?.bidStrategyType ?? null,
+        bidStrategyLabel: firstAdset?.bidStrategyLabel ?? null,
+        manualBidAmount: firstAdset?.manualBidAmount ?? null,
+        bidValue: firstAdset?.bidValue ?? null,
+        bidValueFormat: firstAdset?.bidValueFormat ?? null,
+        previousManualBidAmount: null,
+        previousBidValue: null,
+        dailyBudget: input.campaignDailyBudget ?? firstAdset?.dailyBudget ?? null,
+        lifetimeBudget: input.campaignLifetimeBudget ?? firstAdset?.lifetimeBudget ?? null,
+        isBudgetMixed: false,
+        isConfigMixed: false,
+        isOptimizationGoalMixed: false,
+        isBidStrategyMixed: false,
+        isBidValueMixed: false,
+      };
+    });
     vi.unstubAllGlobals();
   });
 
@@ -398,5 +422,234 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       lastSuccessfulEntityKey: null,
       leaseEpoch: 17,
     });
+  });
+
+  it("writes normalized config fields into campaign_daily and adset_daily rows during core sync", async () => {
+    vi.mocked(warehouse.getMetaSyncCheckpoint).mockResolvedValue(null);
+
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes("/insights")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                campaign_id: "cmp-1",
+                campaign_name: "Campaign 1",
+                adset_id: "adset-1",
+                adset_name: "Adset 1",
+                ad_id: "ad-1",
+                ad_name: "Ad 1",
+                spend: "12.50",
+                impressions: "100",
+                clicks: "4",
+                reach: "90",
+                frequency: "1.11",
+                ctr: "4.0",
+                cpm: "125.0",
+                actions: [],
+                action_values: [],
+                purchase_roas: [],
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("/campaigns")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "cmp-1",
+                name: "Campaign 1",
+                effective_status: "ACTIVE",
+                status: "ACTIVE",
+                daily_budget: "25",
+                bid_strategy: "LOWEST_COST_WITH_BID_CAP",
+                bid_amount: "7.5",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("/adsets")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "adset-1",
+                name: "Adset 1",
+                campaign_id: "cmp-1",
+                effective_status: "ACTIVE",
+                status: "ACTIVE",
+                daily_budget: "10",
+                optimization_goal: "omni_purchase",
+                bid_strategy: "LOWEST_COST_WITH_BID_CAP",
+                bid_amount: "5.5",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await syncMetaAccountCoreWarehouseDay({
+      credentials: {
+        businessId: "biz-1",
+        accessToken: "token-1",
+        accountIds: ["act_1"],
+        currency: "USD",
+        accountProfiles: {
+          act_1: { currency: "USD", timezone: "UTC", name: "Account 1" },
+        },
+      },
+      accountId: "act_1",
+      day: "2026-04-03",
+      partitionId: "partition-3",
+      workerId: "worker-1",
+      leaseEpoch: 19,
+      attemptCount: 1,
+      leaseMinutes: 15,
+    });
+
+    const adsetRows = vi.mocked(warehouse.upsertMetaAdSetDailyRows).mock.calls[0]?.[0] ?? [];
+    const campaignRows = vi.mocked(warehouse.upsertMetaCampaignDailyRows).mock.calls[0]?.[0] ?? [];
+
+    expect(adsetRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          adsetId: "adset-1",
+          optimizationGoal: "omni_purchase",
+          bidStrategyType: "LOWEST_COST_WITH_BID_CAP",
+          bidStrategyLabel: "LOWEST_COST_WITH_BID_CAP",
+          manualBidAmount: 5.5,
+          bidValue: 5.5,
+          bidValueFormat: "currency",
+          dailyBudget: 10,
+          lifetimeBudget: null,
+          isBudgetMixed: false,
+          isConfigMixed: false,
+        }),
+      ]),
+    );
+    expect(campaignRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          campaignId: "cmp-1",
+          dailyBudget: 25,
+          optimizationGoal: "omni_purchase",
+          bidStrategyType: "LOWEST_COST_WITH_BID_CAP",
+          bidStrategyLabel: "LOWEST_COST_WITH_BID_CAP",
+        }),
+      ]),
+    );
+    expect(configuration.summarizeCampaignConfig).toHaveBeenCalled();
+  });
+
+  it("writes normalized config fields in the single-day adset warehouse write-back path", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes("/adsets")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "adset-1",
+                name: "Adset 1",
+                campaign_id: "cmp-1",
+                effective_status: "ACTIVE",
+                status: "ACTIVE",
+                daily_budget: "11",
+                optimization_goal: "omni_purchase",
+                bid_strategy: "LOWEST_COST_WITH_BID_CAP",
+                bid_amount: "6",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("/insights")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                adset_id: "adset-1",
+                adset_name: "Adset 1",
+                campaign_id: "cmp-1",
+                spend: "30",
+                ctr: "2",
+                inline_link_click_ctr: "1.5",
+                cpm: "10",
+                impressions: "300",
+                clicks: "6",
+                actions: [],
+                action_values: [],
+                purchase_roas: [],
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("/campaigns")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "cmp-1",
+                name: "Campaign 1",
+                effective_status: "ACTIVE",
+                status: "ACTIVE",
+                daily_budget: "25",
+                bid_strategy: "LOWEST_COST_WITH_BID_CAP",
+                bid_amount: "7.5",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getAdSets(
+      {
+        businessId: "biz-1",
+        accessToken: "token-1",
+        accountIds: ["act_1"],
+        currency: "USD",
+        accountProfiles: {
+          act_1: { currency: "USD", timezone: "UTC", name: "Account 1" },
+        },
+      },
+      "cmp-1",
+      "2026-04-03",
+      "2026-04-03",
+      "biz-1",
+      false,
+    );
+
+    const adsetRows = vi.mocked(warehouse.upsertMetaAdSetDailyRows).mock.calls.at(-1)?.[0] ?? [];
+    expect(adsetRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          adsetId: "adset-1",
+          optimizationGoal: "omni_purchase",
+          bidStrategyType: "LOWEST_COST_WITH_BID_CAP",
+          bidStrategyLabel: "LOWEST_COST_WITH_BID_CAP",
+          manualBidAmount: 6,
+          bidValue: 6,
+          bidValueFormat: "currency",
+          dailyBudget: 11,
+          isBudgetMixed: false,
+          isConfigMixed: false,
+        }),
+      ]),
+    );
   });
 });

@@ -19,9 +19,13 @@ const {
   completeMetaPartition,
   completeMetaPartitionAttempt,
   createMetaSyncRun,
+  getMetaAdSetDailyRange,
+  getMetaCampaignDailyRange,
   leaseMetaSyncPartitions,
   markMetaPartitionRunning,
   replayMetaDeadLetterPartitions,
+  upsertMetaAdSetDailyRows,
+  upsertMetaCampaignDailyRows,
   upsertMetaSyncCheckpoint,
 } = await import(
   "@/lib/meta/warehouse"
@@ -691,5 +695,230 @@ describe("meta warehouse ownership safety", () => {
     expect(queries[1]).toContain(
       "attempt_count = GREATEST(meta_sync_runs.attempt_count, EXCLUDED.attempt_count)"
     );
+  });
+});
+
+describe("meta warehouse config columns", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it("writes the historical config columns in campaign and adset daily upserts", async () => {
+    const query = vi.fn().mockResolvedValue(undefined);
+    const sql = vi.fn() as unknown as { query: typeof query };
+    sql.query = query;
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await upsertMetaCampaignDailyRows([
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-03",
+        campaignId: "cmp-1",
+        campaignNameCurrent: "Campaign 1",
+        campaignNameHistorical: "Campaign 1",
+        campaignStatus: "ACTIVE",
+        objective: null,
+        buyingType: null,
+        optimizationGoal: "Purchase",
+        bidStrategyType: "bid_cap",
+        bidStrategyLabel: "Bid Cap",
+        manualBidAmount: 5,
+        bidValue: 5,
+        bidValueFormat: "currency",
+        dailyBudget: 10,
+        lifetimeBudget: null,
+        isBudgetMixed: false,
+        isConfigMixed: false,
+        isOptimizationGoalMixed: false,
+        isBidStrategyMixed: false,
+        isBidValueMixed: false,
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 1,
+        impressions: 2,
+        clicks: 3,
+        reach: 4,
+        frequency: null,
+        conversions: 0,
+        revenue: 0,
+        roas: 0,
+        cpa: null,
+        ctr: null,
+        cpc: null,
+        sourceSnapshotId: null,
+      },
+    ]);
+
+    await upsertMetaAdSetDailyRows([
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-03",
+        campaignId: "cmp-1",
+        adsetId: "adset-1",
+        adsetNameCurrent: "Adset 1",
+        adsetNameHistorical: "Adset 1",
+        adsetStatus: "ACTIVE",
+        optimizationGoal: "Purchase",
+        bidStrategyType: "bid_cap",
+        bidStrategyLabel: "Bid Cap",
+        manualBidAmount: 5,
+        bidValue: 5,
+        bidValueFormat: "currency",
+        dailyBudget: 10,
+        lifetimeBudget: null,
+        isBudgetMixed: false,
+        isConfigMixed: false,
+        isOptimizationGoalMixed: false,
+        isBidStrategyMixed: false,
+        isBidValueMixed: false,
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 1,
+        impressions: 2,
+        clicks: 3,
+        reach: 4,
+        frequency: null,
+        conversions: 0,
+        revenue: 0,
+        roas: 0,
+        cpa: null,
+        ctr: null,
+        cpc: null,
+        sourceSnapshotId: null,
+      },
+    ]);
+
+    const queries = query.mock.calls.map(([text]) => String(text));
+    expect(queries.some((text) => text.includes("optimization_goal"))).toBe(true);
+    expect(queries.some((text) => text.includes("bid_strategy_type"))).toBe(true);
+    expect(queries.some((text) => text.includes("is_bid_value_mixed"))).toBe(true);
+  });
+
+  it("maps the historical config columns back out of campaign and adset daily reads", async () => {
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      if (query.includes("FROM meta_campaign_daily")) {
+        return [
+          {
+            business_id: "biz-1",
+            provider_account_id: "act_1",
+            date: "2026-04-03",
+            campaign_id: "cmp-1",
+            campaign_name_current: "Campaign 1",
+            campaign_name_historical: "Campaign 1",
+            campaign_status: "ACTIVE",
+            objective: null,
+            buying_type: null,
+            optimization_goal: "Purchase",
+            bid_strategy_type: "bid_cap",
+            bid_strategy_label: "Bid Cap",
+            manual_bid_amount: 5,
+            bid_value: 5,
+            bid_value_format: "currency",
+            daily_budget: 10,
+            lifetime_budget: null,
+            is_budget_mixed: false,
+            is_config_mixed: false,
+            is_optimization_goal_mixed: false,
+            is_bid_strategy_mixed: false,
+            is_bid_value_mixed: false,
+            account_timezone: "UTC",
+            account_currency: "USD",
+            spend: 1,
+            impressions: 2,
+            clicks: 3,
+            reach: 4,
+            frequency: null,
+            conversions: 0,
+            revenue: 0,
+            roas: 0,
+            cpa: null,
+            ctr: null,
+            cpc: null,
+            source_snapshot_id: null,
+            created_at: "2026-04-03T00:00:00.000Z",
+            updated_at: "2026-04-03T00:00:00.000Z",
+          },
+        ];
+      }
+      return [
+        {
+          business_id: "biz-1",
+          provider_account_id: "act_1",
+          date: "2026-04-03",
+          campaign_id: "cmp-1",
+          adset_id: "adset-1",
+          adset_name_current: "Adset 1",
+          adset_name_historical: "Adset 1",
+          adset_status: "ACTIVE",
+          optimization_goal: "Purchase",
+          bid_strategy_type: "bid_cap",
+          bid_strategy_label: "Bid Cap",
+          manual_bid_amount: 5,
+          bid_value: 5,
+          bid_value_format: "currency",
+          daily_budget: 10,
+          lifetime_budget: null,
+          is_budget_mixed: false,
+          is_config_mixed: false,
+          is_optimization_goal_mixed: false,
+          is_bid_strategy_mixed: false,
+          is_bid_value_mixed: false,
+          account_timezone: "UTC",
+          account_currency: "USD",
+          spend: 1,
+          impressions: 2,
+          clicks: 3,
+          reach: 4,
+          frequency: null,
+          conversions: 0,
+          revenue: 0,
+          roas: 0,
+          cpa: null,
+          ctr: null,
+          cpc: null,
+          source_snapshot_id: null,
+          created_at: "2026-04-03T00:00:00.000Z",
+          updated_at: "2026-04-03T00:00:00.000Z",
+        },
+      ];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const [campaignRows, adsetRows] = await Promise.all([
+      getMetaCampaignDailyRange({
+        businessId: "biz-1",
+        startDate: "2026-04-03",
+        endDate: "2026-04-03",
+      }),
+      getMetaAdSetDailyRange({
+        businessId: "biz-1",
+        startDate: "2026-04-03",
+        endDate: "2026-04-03",
+      }),
+    ]);
+
+    expect(campaignRows[0]).toMatchObject({
+      optimizationGoal: "Purchase",
+      bidStrategyType: "bid_cap",
+      bidStrategyLabel: "Bid Cap",
+      manualBidAmount: 5,
+      bidValue: 5,
+      bidValueFormat: "currency",
+      dailyBudget: 10,
+      isBidValueMixed: false,
+    });
+    expect(adsetRows[0]).toMatchObject({
+      optimizationGoal: "Purchase",
+      bidStrategyType: "bid_cap",
+      bidStrategyLabel: "Bid Cap",
+      manualBidAmount: 5,
+      bidValue: 5,
+      bidValueFormat: "currency",
+      dailyBudget: 10,
+      isBidValueMixed: false,
+    });
   });
 });
