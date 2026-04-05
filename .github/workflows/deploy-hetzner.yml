@@ -22,7 +22,7 @@ jobs:
           HETZNER_KNOWN_HOSTS: ${{ secrets.HETZNER_KNOWN_HOSTS }}
           HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
         run: |
-          set -eu
+          set -euo pipefail
 
           if [ -z "${HETZNER_HOST}" ] || [ -z "${HETZNER_USER}" ] || [ -z "${HETZNER_SSH_KEY}" ] || [ -z "${HETZNER_KNOWN_HOSTS}" ]; then
             echo "Missing required Hetzner deploy secrets."
@@ -40,18 +40,98 @@ jobs:
 
           PORT="${HETZNER_PORT:-22}"
 
-          ssh -i ~/.ssh/id_ed25519 -p "${PORT}" "${HETZNER_USER}@${HETZNER_HOST}" <<'EOF'
-            set -eux
+          ssh -i ~/.ssh/id_ed25519 -p "${PORT}" "${HETZNER_USER}@${HETZNER_HOST}" 'bash -seuo pipefail' <<'EOF'
             cd /var/www/adsecute
-            git fetch origin main
+
+            log() {
+              printf '\n[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1"
+            }
+
+            assert_header_contains() {
+              url="$1"
+              pattern="$2"
+
+              headers="$(curl -fsSI "$url")"
+              printf '%s\n' "$headers"
+              printf '%s\n' "$headers" | grep -qi "$pattern"
+            }
+
+            wait_for_header() {
+              url="$1"
+              pattern="$2"
+              attempts="$3"
+              sleep_seconds="$4"
+
+              attempt=1
+              while [ "$attempt" -le "$attempts" ]; do
+                if headers="$(curl -fsSI "$url" 2>/dev/null)"; then
+                  printf '%s\n' "$headers"
+                  if printf '%s\n' "$headers" | grep -qi "$pattern"; then
+                    return 0
+                  fi
+                fi
+
+                sleep "$sleep_seconds"
+                attempt=$((attempt + 1))
+              done
+
+              return 1
+            }
+
+            log "Fetching latest main"
+            git fetch --prune origin main
             git reset --hard origin/main
-            echo "HEAD=$(git rev-parse HEAD)"
-            docker compose build --no-cache web worker
+            HEAD_SHA="$(git rev-parse HEAD)"
+            echo "HEAD=${HEAD_SHA}"
+            grep -n '"build"' package.json
+
+            log "Building fresh web and worker images"
+            docker compose build --pull --no-cache web worker
+            BUILT_IMAGE_ID="$(docker image inspect adsecute:latest --format '{{.Id}}')"
+            echo "BUILT_IMAGE_ID=${BUILT_IMAGE_ID}"
+
+            log "Verifying built image contents before rollout"
+            docker run --rm --entrypoint sh adsecute:latest -lc '
+              set -euo pipefail
+              node -p "require(\"/app/package.json\").scripts.build"
+              grep -n "\"/about\"" /app/proxy.ts
+            '
+
+            log "Running migrations"
             docker compose run --rm --no-deps web node --import tsx scripts/run-migrations.ts
-            docker compose up -d --force-recreate --remove-orphans
+
+            log "Recreating services from the freshly built image"
+            docker compose up -d --force-recreate --remove-orphans web worker
             docker compose ps
 
-            curl -fsSI http://127.0.0.1:3000/about | grep -i "200 OK"
-            curl -fsSI http://127.0.0.1:3000/privacy | grep -i "200 OK"
-            curl -fsSI http://127.0.0.1:3000/overview | grep -i "location: /login?next=%2Foverview"
+            WEB_CONTAINER_ID="$(docker compose ps -q web)"
+            WORKER_CONTAINER_ID="$(docker compose ps -q worker)"
+            WEB_IMAGE_ID="$(docker inspect "${WEB_CONTAINER_ID}" --format '{{.Image}}')"
+            WORKER_IMAGE_ID="$(docker inspect "${WORKER_CONTAINER_ID}" --format '{{.Image}}')"
+
+            echo "WEB_CONTAINER_ID=${WEB_CONTAINER_ID}"
+            echo "WORKER_CONTAINER_ID=${WORKER_CONTAINER_ID}"
+            echo "WEB_IMAGE_ID=${WEB_IMAGE_ID}"
+            echo "WORKER_IMAGE_ID=${WORKER_IMAGE_ID}"
+
+            test "${WEB_IMAGE_ID}" = "${BUILT_IMAGE_ID}"
+            test "${WORKER_IMAGE_ID}" = "${BUILT_IMAGE_ID}"
+
+            log "Verifying running web container contents"
+            docker exec "${WEB_CONTAINER_ID}" sh -lc '
+              set -euo pipefail
+              node -p "require(\"/app/package.json\").scripts.build"
+              grep -n "\"/about\"" /app/proxy.ts
+            '
+
+            log "Waiting for local app to serve public about page"
+            wait_for_header "http://127.0.0.1:3000/about" "200 OK" 10 3
+
+            log "Running local smoke tests"
+            assert_header_contains "http://127.0.0.1:3000/about" "200 OK"
+            assert_header_contains "http://127.0.0.1:3000/privacy" "200 OK"
+            assert_header_contains "http://127.0.0.1:3000/overview" "location: /login?next=%2Foverview"
+
+            log "Running external smoke test"
+            assert_header_contains "https://adsecute.com/about" "200 OK"
           EOF
