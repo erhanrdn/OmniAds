@@ -1,5 +1,6 @@
 import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
 import { resolveGoogleAdsSyncProgress } from "@/lib/google-ads/sync-progress-ux";
+import { getMetaPageReadiness } from "@/lib/meta/page-readiness";
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
 
 export interface SyncStatusPillState {
@@ -84,8 +85,10 @@ export function resolveMetaSyncStatusPill(
   if (!status?.connected) return null;
   if ((status.assignedAccountIds?.length ?? 0) === 0) return null;
 
+  const pageReadiness = getMetaPageReadiness(status);
   const percent = resolveMetaPercent(status);
   const isAttentionState =
+    pageReadiness?.state === "blocked" ||
     status.state === "action_required" ||
     status.state === "paused" ||
     status.state === "stale" ||
@@ -95,8 +98,12 @@ export function resolveMetaSyncStatusPill(
     return buildAttentionPill();
   }
 
-  if (status.currentCoreUsable) {
+  if (pageReadiness?.state === "ready") {
     return buildActivePill();
+  }
+
+  if ((pageReadiness?.state === "syncing" || pageReadiness?.state === "partial") && typeof percent === "number") {
+    return buildSyncingPill(percent);
   }
 
   if (typeof percent === "number" && percent < 100) {
@@ -111,7 +118,12 @@ export function resolveMetaSyncStatusPill(
     return buildSyncingPill(percent);
   }
 
-  if (status.state === "syncing" || status.state === "partial") {
+  if (
+    pageReadiness?.state === "syncing" ||
+    pageReadiness?.state === "partial" ||
+    status.state === "syncing" ||
+    status.state === "partial"
+  ) {
     return buildAttentionPill();
   }
 

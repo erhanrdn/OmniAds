@@ -66,6 +66,11 @@ import type { MetaStatusResponse } from "@/lib/meta/status-types";
 import { usePlanState } from "@/lib/pricing/usePlan";
 import { PRICING_PLANS } from "@/lib/pricing/plans";
 import { META_WAREHOUSE_HISTORY_DAYS } from "@/lib/meta/history";
+import {
+  getMetaPageReadiness,
+  isMetaPageCurrentDayPreparing,
+  shouldMaskMetaKpisAsPreparing,
+} from "@/lib/meta/page-readiness";
 import { resolveMetaSyncStatusPill } from "@/lib/sync/sync-status-pill";
 import {
   formatMetaDate,
@@ -426,29 +431,19 @@ function SectionError({
 }
 
 function MetaStatusBanner({
-  status: _status,
+  status,
   language: _language,
 }: {
   status: MetaStatusResponse | undefined;
   language: "en" | "tr";
 }) {
-  return null;
-}
-
-function isMetaCurrentDayPreparing(input: {
-  status: MetaStatusResponse | undefined;
-  startDate: string;
-  endDate: string;
-  summaryIsPartial: boolean;
-  campaignIsPartial: boolean;
-}) {
-  const currentDateInTimezone = input.status?.currentDateInTimezone;
-  if (!currentDateInTimezone) return false;
-  const matchesCurrentDay =
-    input.startDate === input.endDate && input.startDate === currentDateInTimezone;
-  if (!matchesCurrentDay) return false;
-  if (input.status?.state === "action_required") return false;
-  return input.summaryIsPartial || input.campaignIsPartial;
+  const pageReadiness = getMetaPageReadiness(status);
+  if (!pageReadiness || pageReadiness.state === "ready" || !pageReadiness.reason) return null;
+  return (
+    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+      {pageReadiness.reason}
+    </div>
+  );
 }
 
 function NoAccountsAssigned() {
@@ -1007,13 +1002,8 @@ export default function MetaPage() {
     [comparisonCampaignsQuery.data]
   );
   const previousKpis = previousWarehouseKpis ?? previousCampaignKpis ?? emptyKpis;
-  const isCurrentDayPreparing = isMetaCurrentDayPreparing({
-    status: effectiveStatus,
-    startDate,
-    endDate,
-    summaryIsPartial: Boolean(summaryQuery.data?.isPartial),
-    campaignIsPartial: Boolean(campaignsQuery.data?.isPartial),
-  });
+  const pageReadiness = getMetaPageReadiness(effectiveStatus);
+  const isCurrentDayPreparing = isMetaPageCurrentDayPreparing(effectiveStatus);
   const selectedDateLabel =
     startDate === endDate ? startDate : `${startDate} - ${endDate}`;
   const currentDayPreparingMessage =
@@ -1026,11 +1016,11 @@ export default function MetaPage() {
         ? `Meta hesap günü: ${formatMetaDate(effectiveMetaReferenceDate, language) ?? effectiveMetaReferenceDate} (${effectiveMetaTimeZoneLabel})`
         : `Meta account day: ${formatMetaDate(effectiveMetaReferenceDate, language) ?? effectiveMetaReferenceDate} (${effectiveMetaTimeZoneLabel})`
       : null;
-  const shouldMaskKpisAsPreparing =
-    isCurrentDayPreparing &&
-    !summaryQuery.isLoading &&
-    Boolean(summaryQuery.data?.isPartial || campaignsQuery.data?.isPartial) &&
-    !hasCampaignSpend;
+  const shouldMaskKpisAsPreparing = shouldMaskMetaKpisAsPreparing({
+    status: effectiveStatus,
+    hasCampaignSpend,
+    summaryLoading: summaryQuery.isLoading,
+  });
   const campaignRowsForTable = useMemo<MetaCampaignTableRow[]>(() => {
     const rows = campaignsQuery.data?.rows ?? [];
     const laneById = buildMetaCampaignLaneSignals(rows);
@@ -1366,7 +1356,7 @@ export default function MetaPage() {
                       ? language === "tr"
                         ? "Bugunun Meta verisi hazirlaniyor"
                         : "Current-day Meta data is preparing"
-                      : campaignsQuery.data?.isPartial
+                      : pageReadiness && pageReadiness.state !== "ready"
                       ? language === "tr"
                         ? "Kampanya verileri hâlâ hazırlanıyor"
                         : "Campaign data is still being prepared"
@@ -1377,8 +1367,8 @@ export default function MetaPage() {
                   description={
                     isCurrentDayPreparing
                       ? currentDayPreparingMessage
-                      : campaignsQuery.data?.isPartial
-                        ? campaignsQuery.data.notReadyReason ??
+                      : pageReadiness && pageReadiness.state !== "ready"
+                        ? pageReadiness.reason ??
                         (effectiveStatus
                           ? getMetaStatusNotice(effectiveStatus, language)
                           : null) ??

@@ -8,6 +8,7 @@ import {
   META_RUNTIME_STATE_SCOPES,
   META_SECONDARY_REPORTING_SCOPES,
 } from "@/lib/meta/core-config";
+import { rollupMetaPageReadiness } from "@/lib/meta/page-readiness";
 import {
   getLatestMetaSyncHealth,
   getMetaAccountDailyCoverage,
@@ -43,6 +44,7 @@ import {
   deriveProviderStallFingerprints,
   deriveProviderProgressState,
 } from "@/lib/sync/provider-status-truth";
+import type { MetaSurfaceReadiness } from "@/lib/meta/status-types";
 
 function buildMetaDomainReadiness(input: {
   availableSurfaces: string[];
@@ -144,6 +146,22 @@ function buildPhaseLabel(input: {
     return "Syncing recent history";
   }
   return "Ready";
+}
+
+function buildPageSurfaceState(input: {
+  connected: boolean;
+  hasAssignedAccounts: boolean;
+  ready: boolean;
+  activeProgress: boolean;
+  blockedReason?: string | null;
+  syncingReason: string;
+  blockedFallbackReason: string;
+}): MetaSurfaceReadiness["state"] {
+  if (!input.connected || !input.hasAssignedAccounts) return "not_connected";
+  if (input.ready) return "ready";
+  if (input.blockedReason) return "blocked";
+  if (input.activeProgress) return "syncing";
+  return "partial";
 }
 
 export async function GET(request: NextRequest) {
@@ -382,6 +400,25 @@ export async function GET(request: NextRequest) {
           endDate: selectedEndDate,
         }).catch(() => null)
       : null;
+  const selectedRangeAdsetCoverage =
+    selectedStartDate && selectedEndDate
+      ? await getMetaAdSetDailyCoverage({
+          businessId: businessId!,
+          providerAccountId: null,
+          startDate: selectedStartDate,
+          endDate: selectedEndDate,
+        }).catch(() => null)
+      : null;
+  const selectedRangeBreakdownCoverageByEndpoint =
+    selectedStartDate && selectedEndDate
+      ? await getMetaRawSnapshotCoverageByEndpoint({
+          businessId: businessId!,
+          providerAccountId: null,
+          endpointNames: [...META_BREAKDOWN_ENDPOINTS],
+          startDate: selectedStartDate,
+          endDate: selectedEndDate,
+        }).catch(() => null)
+      : null;
   const selectedRangeTotalDays =
     selectedStartDate && selectedEndDate ? dayCountInclusive(selectedStartDate, selectedEndDate) : null;
   const selectedRangeRequested = Boolean(selectedStartDate && selectedEndDate && selectedRangeTotalDays);
@@ -395,10 +432,22 @@ export async function GET(request: NextRequest) {
     selectedRangeCoverage?.ready_through_date ?? null,
     selectedRangeCampaignCoverage?.ready_through_date ?? null,
   ]);
+  const selectedRangeBreakdownReadyThroughDate =
+    selectedRangeRequested
+      ? META_BREAKDOWN_ENDPOINTS.map(
+          (endpointName) => selectedRangeBreakdownCoverageByEndpoint?.get(endpointName)?.ready_through_date ?? null
+        )
+          .filter((value): value is string => Boolean(value))
+          .sort((a, b) => a.localeCompare(b))[0] ?? null
+      : null;
   const selectedRangeIsToday =
     Boolean(selectedStartDate && selectedEndDate && currentDateInTimezone) &&
     selectedStartDate === selectedEndDate &&
     selectedStartDate === currentDateInTimezone;
+  const selectedRangeBreakdownGuardrailBlocked =
+    selectedRangeRequested && selectedEndDate && selectedStartDate
+      ? selectedStartDate < getMetaBreakdownSupportedStart(selectedEndDate)
+      : false;
   const scopeSummaries = [
     {
       scope: "account_daily",
@@ -544,6 +593,178 @@ export async function GET(request: NextRequest) {
     ? selectedRangeCoreReadyThroughDate
     : historicalArchiveReadyThroughDate;
   const selectedRangeReportReady = Boolean(selectedRangeRequested && !selectedRangeIncomplete);
+  const selectedRangeBreakdownCompletedDays =
+    selectedRangeRequested
+      ? Math.min(
+          ...META_BREAKDOWN_ENDPOINTS.map(
+            (endpointName) =>
+              selectedRangeBreakdownCoverageByEndpoint?.get(endpointName)?.completed_days ?? 0
+          )
+        )
+      : 0;
+  const selectedRangeMode = selectedRangeIsToday
+    ? "current_day_live"
+    : "historical_warehouse";
+  const summaryReady =
+    selectedRangeIsToday
+      ? connected && accountIds.length > 0
+      : Boolean(selectedRangeTotalDays) &&
+        (selectedRangeCoverage?.completed_days ?? 0) >= (selectedRangeTotalDays ?? 0);
+  const campaignsReady =
+    selectedRangeIsToday
+      ? connected && accountIds.length > 0
+      : Boolean(selectedRangeTotalDays) &&
+        (selectedRangeCampaignCoverage?.completed_days ?? 0) >= (selectedRangeTotalDays ?? 0);
+  const breakdownReady =
+    Boolean(selectedRangeTotalDays) &&
+    selectedRangeBreakdownCompletedDays >= (selectedRangeTotalDays ?? 0);
+  const breakdownBlockedReason =
+    selectedRangeBreakdownGuardrailBlocked && selectedEndDate
+      ? `Breakdown data is only supported from ${getMetaBreakdownSupportedStart(selectedEndDate)} onward for the selected range.`
+      : null;
+  const summarySurfaceReason = !connected
+    ? "Meta integration is not connected."
+    : accountIds.length === 0
+      ? "No Meta ad account is assigned to this workspace."
+      : summaryReady
+        ? null
+        : selectedRangeIsToday
+          ? "Summary data for the current Meta account day is still preparing."
+          : "Summary warehouse data is still being prepared for the selected range.";
+  const campaignsSurfaceReason = !connected
+    ? "Meta integration is not connected."
+    : accountIds.length === 0
+      ? "No Meta ad account is assigned to this workspace."
+      : campaignsReady
+        ? null
+        : selectedRangeIsToday
+          ? "Campaign data for the current Meta account day is still preparing."
+          : "Campaign warehouse data is still being prepared for the selected range.";
+  const breakdownSurfaceReason = !connected
+    ? "Meta integration is not connected."
+    : accountIds.length === 0
+      ? "No Meta ad account is assigned to this workspace."
+      : breakdownBlockedReason
+        ? breakdownBlockedReason
+        : breakdownReady
+          ? null
+          : selectedRangeIsToday
+            ? "Breakdown data for the current Meta account day is still preparing."
+            : "Breakdown warehouse data is still being prepared for the selected range.";
+  const breakdownSurfaceState = buildPageSurfaceState({
+    connected,
+    hasAssignedAccounts: accountIds.length > 0,
+    ready: breakdownReady,
+    activeProgress: overallSyncActive,
+    blockedReason: breakdownBlockedReason,
+    syncingReason: breakdownSurfaceReason ?? "Breakdown data is still preparing.",
+    blockedFallbackReason: breakdownSurfaceReason ?? "Breakdown data is unavailable for the selected range.",
+  });
+  const pageRequiredSurfaces = {
+    summary: {
+      state: buildPageSurfaceState({
+        connected,
+        hasAssignedAccounts: accountIds.length > 0,
+        ready: summaryReady,
+        activeProgress: overallSyncActive,
+        blockedReason: null,
+        syncingReason: summarySurfaceReason ?? "Summary data is still preparing.",
+        blockedFallbackReason: summarySurfaceReason ?? "Summary data is unavailable.",
+      }),
+      blocking: !summaryReady,
+      countsForPageCompleteness: true,
+      truthClass: selectedRangeIsToday ? "current_day_live" : "historical_warehouse",
+      reason: summarySurfaceReason,
+    },
+    campaigns: {
+      state: buildPageSurfaceState({
+        connected,
+        hasAssignedAccounts: accountIds.length > 0,
+        ready: campaignsReady,
+        activeProgress: overallSyncActive,
+        blockedReason: null,
+        syncingReason: campaignsSurfaceReason ?? "Campaign data is still preparing.",
+        blockedFallbackReason: campaignsSurfaceReason ?? "Campaign data is unavailable.",
+      }),
+      blocking: !campaignsReady,
+      countsForPageCompleteness: true,
+      truthClass: selectedRangeIsToday ? "current_day_live" : "historical_warehouse",
+      reason: campaignsSurfaceReason,
+    },
+    "breakdowns.age": {
+      state: breakdownSurfaceState,
+      blocking: breakdownSurfaceState !== "ready",
+      countsForPageCompleteness: true,
+      truthClass: selectedRangeIsToday ? "current_day_live" : "historical_warehouse",
+      reason: breakdownSurfaceReason,
+    },
+    "breakdowns.location": {
+      state: breakdownSurfaceState,
+      blocking: breakdownSurfaceState !== "ready",
+      countsForPageCompleteness: true,
+      truthClass: selectedRangeIsToday ? "current_day_live" : "historical_warehouse",
+      reason: breakdownSurfaceReason,
+    },
+    "breakdowns.placement": {
+      state: breakdownSurfaceState,
+      blocking: breakdownSurfaceState !== "ready",
+      countsForPageCompleteness: true,
+      truthClass: selectedRangeIsToday ? "current_day_live" : "historical_warehouse",
+      reason: breakdownSurfaceReason,
+    },
+  } as const;
+  const adsetsReady =
+    selectedRangeIsToday
+      ? connected && accountIds.length > 0
+      : Boolean(selectedRangeTotalDays) &&
+        (selectedRangeAdsetCoverage?.completed_days ?? 0) >= (selectedRangeTotalDays ?? 0);
+  const pageOptionalSurfaces = {
+    adsets: {
+      state: !connected
+        ? "not_connected"
+        : adsetsReady
+          ? "ready"
+          : overallSyncActive
+            ? "syncing"
+            : "partial",
+      blocking: false,
+      countsForPageCompleteness: false,
+      truthClass: "conditional_drilldown",
+      reason: !connected
+        ? "Meta integration is not connected."
+        : accountIds.length === 0
+          ? "No Meta ad account is assigned to this workspace."
+          : adsetsReady
+            ? "Ad set drilldown is available when a campaign is selected."
+            : "Ad set drilldown becomes available when a campaign is selected and the selected range is prepared.",
+    },
+    recommendations: {
+      state: !connected
+        ? "not_connected"
+        : pageRequiredSurfaces.summary.state === "ready" &&
+            pageRequiredSurfaces.campaigns.state === "ready"
+          ? "ready"
+          : overallSyncActive
+            ? "syncing"
+            : "partial",
+      blocking: false,
+      countsForPageCompleteness: false,
+      truthClass: "ai_exception",
+      reason: !connected
+        ? "Meta integration is not connected."
+        : pageRequiredSurfaces.summary.state === "ready" &&
+            pageRequiredSurfaces.campaigns.state === "ready"
+          ? "Recommendations are available when the selected range core surfaces are ready."
+          : "Recommendations remain optional while selected-range core surfaces are still preparing.",
+    },
+  } as const;
+  const pageReadiness = rollupMetaPageReadiness({
+    connected,
+    hasAssignedAccounts: accountIds.length > 0,
+    selectedRangeMode,
+    requiredSurfaces: pageRequiredSurfaces,
+    optionalSurfaces: pageOptionalSurfaces,
+  });
 
   const state = !connected
     ? "not_connected"
@@ -883,6 +1104,7 @@ export async function GET(request: NextRequest) {
       historicalExtendedReady,
       recentExtendedUsable: recentExtendedReady,
       rangeCompletionBySurface,
+      pageReadiness,
       priorityWindow:
         selectedStartDate && selectedEndDate && selectedRangeTotalDays
           ? {

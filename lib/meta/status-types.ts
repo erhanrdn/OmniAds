@@ -31,6 +31,54 @@ export interface MetaSyncDetails {
   phaseLabel?: string | null;
 }
 
+export type MetaPageReadinessState =
+  | "ready"
+  | "partial"
+  | "syncing"
+  | "blocked"
+  | "not_connected";
+
+export type MetaPageSelectedRangeMode =
+  | "current_day_live"
+  | "historical_warehouse";
+
+export type MetaPageSurfaceTruthClass =
+  | "historical_warehouse"
+  | "current_day_live"
+  | "conditional_drilldown"
+  | "ai_exception";
+
+export type MetaPageSurfaceKey =
+  | "summary"
+  | "campaigns"
+  | "breakdowns.age"
+  | "breakdowns.location"
+  | "breakdowns.placement"
+  | "adsets"
+  | "recommendations";
+
+export interface MetaSurfaceReadiness {
+  state: MetaPageReadinessState;
+  blocking: boolean;
+  countsForPageCompleteness: boolean;
+  truthClass: MetaPageSurfaceTruthClass;
+  reason: string | null;
+}
+
+export interface MetaPageReadiness {
+  state: MetaPageReadinessState;
+  usable: boolean;
+  complete: boolean;
+  selectedRangeMode: MetaPageSelectedRangeMode;
+  reason: string | null;
+  missingRequiredSurfaces: MetaPageSurfaceKey[];
+  requiredSurfaces: Record<
+    "summary" | "campaigns" | "breakdowns.age" | "breakdowns.location" | "breakdowns.placement",
+    MetaSurfaceReadiness
+  >;
+  optionalSurfaces: Record<"adsets" | "recommendations", MetaSurfaceReadiness>;
+}
+
 export interface MetaStatusResponse {
   state:
     | "not_connected"
@@ -172,4 +220,5 @@ export interface MetaStatusResponse {
     isActive: boolean;
   } | null;
   latestSync?: MetaSyncDetails | null;
+  pageReadiness?: MetaPageReadiness | null;
 }

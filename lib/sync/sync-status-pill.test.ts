@@ -34,6 +34,55 @@ describe("sync status pill resolver", () => {
     });
   });
 
+  it("renders a syncing pill for partial Meta page readiness when selected-range progress exists", () => {
+    expect(
+      resolveMetaSyncStatusPill({
+        connected: true,
+        assignedAccountIds: ["act_1"],
+        state: "ready",
+        pageReadiness: {
+          state: "partial",
+          usable: true,
+          complete: false,
+          selectedRangeMode: "historical_warehouse",
+          reason: "Breakdowns are still preparing.",
+          missingRequiredSurfaces: ["breakdowns.age"],
+          requiredSurfaces: {} as never,
+          optionalSurfaces: {} as never,
+        },
+        latestSync: { progressPercent: 72 },
+      } as never)
+    ).toMatchObject({
+      label: "72% Syncing",
+      tone: "info",
+      state: "syncing",
+    });
+  });
+
+  it("renders an attention pill when page readiness is blocked", () => {
+    expect(
+      resolveMetaSyncStatusPill({
+        connected: true,
+        assignedAccountIds: ["act_1"],
+        state: "ready",
+        pageReadiness: {
+          state: "blocked",
+          usable: false,
+          complete: false,
+          selectedRangeMode: "historical_warehouse",
+          reason: "Breakdown data is only supported from 2026-01-01 onward for the selected range.",
+          missingRequiredSurfaces: ["breakdowns.age"],
+          requiredSurfaces: {} as never,
+          optionalSurfaces: {} as never,
+        },
+      } as never)
+    ).toMatchObject({
+      label: "Needs attention",
+      tone: "warning",
+      state: "needs_attention",
+    });
+  });
+
   it("renders an attention pill for Meta blockers without reliable progress", () => {
     expect(
       resolveMetaSyncStatusPill({
@@ -63,13 +112,22 @@ describe("sync status pill resolver", () => {
     });
   });
 
-  it("renders an active pill for Meta when core progress is complete despite background backlog", () => {
+  it("renders an active pill for Meta when page readiness is ready despite background backlog", () => {
     expect(
       resolveMetaSyncStatusPill({
         connected: true,
         assignedAccountIds: ["act_1"],
         state: "syncing",
-        currentCoreUsable: true,
+        pageReadiness: {
+          state: "ready",
+          usable: true,
+          complete: true,
+          selectedRangeMode: "historical_warehouse",
+          reason: null,
+          missingRequiredSurfaces: [],
+          requiredSurfaces: {} as never,
+          optionalSurfaces: {} as never,
+        },
         latestSync: { progressPercent: 95 },
       } as never)
     ).toMatchObject({

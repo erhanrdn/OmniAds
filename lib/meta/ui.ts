@@ -1,4 +1,5 @@
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
+import { getMetaPageReadiness } from "@/lib/meta/page-readiness";
 
 export type MetaUiLanguage = "en" | "tr";
 
@@ -57,7 +58,11 @@ function formatMetaHistoricalOldestReachedDate(
 }
 
 function getMetaSyncCaptionContext(status: MetaStatusResponse) {
+  const pageReadiness = getMetaPageReadiness(status);
   const phaseLabel = status.latestSync?.phaseLabel ?? "";
+  if (pageReadiness && !pageReadiness.complete) {
+    return "selected_range";
+  }
   if (
     status.state === "paused" ||
     status.state === "stale" ||
@@ -84,6 +89,22 @@ export function getMetaSyncTitle(
   status: MetaStatusResponse,
   language: MetaUiLanguage
 ) {
+  const pageReadiness = getMetaPageReadiness(status);
+  if (pageReadiness?.state === "partial") {
+    return language === "tr"
+      ? "Meta sayfasi kismen hazir"
+      : "Meta page is partially ready";
+  }
+  if (pageReadiness?.state === "syncing") {
+    return language === "tr"
+      ? "Meta sayfasi secili tarih araligi icin hazirlaniyor"
+      : "Meta page is preparing the selected range";
+  }
+  if (pageReadiness?.state === "blocked") {
+    return language === "tr"
+      ? "Meta sayfasi secili tarih araliginda bloklu"
+      : "Meta page is blocked for the selected range";
+  }
   if (status.domainReadiness?.summary) {
     return language === "tr" ? "Meta veri hazırlığı devam ediyor" : "Meta sync is still preparing data";
   }
@@ -117,6 +138,8 @@ export function getMetaSyncDescription(
   status: MetaStatusResponse,
   language: MetaUiLanguage
 ) {
+  const pageReadiness = getMetaPageReadiness(status);
+  if (pageReadiness?.reason) return pageReadiness.reason;
   if (status.domainReadiness?.summary) {
     return status.domainReadiness.summary;
   }
@@ -191,6 +214,7 @@ export function getMetaStatusNotice(
   status: MetaStatusResponse,
   language: MetaUiLanguage
 ) {
+  const pageReadiness = getMetaPageReadiness(status);
   if (status.state === "connected_no_assignment") {
     return language === "tr"
       ? "Bağlantı hazır, ancak bu workspace için henüz bir Meta reklam hesabı atanmadı."
@@ -200,6 +224,9 @@ export function getMetaStatusNotice(
     return status.latestSync?.lastError
       ? status.latestSync.lastError
       : getMetaSyncDescription(status, language);
+  }
+  if (pageReadiness && pageReadiness.state !== "ready") {
+    return pageReadiness.reason ?? getMetaSyncDescription(status, language);
   }
   if (status.state === "ready" && status.latestSync?.finishedAt) {
     const finishedAt = formatMetaDateTime(status.latestSync.finishedAt, language);

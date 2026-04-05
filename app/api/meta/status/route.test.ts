@@ -69,6 +69,19 @@ const snapshots = await import("@/lib/provider-account-snapshots");
 const warehouse = await import("@/lib/meta/warehouse");
 const workerHealth = await import("@/lib/sync/worker-health");
 
+function getUtcTodayIso() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "UTC",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const year = parts.find((part) => part.type === "year")?.value ?? "1970";
+  const month = parts.find((part) => part.type === "month")?.value ?? "01";
+  const day = parts.find((part) => part.type === "day")?.value ?? "01";
+  return `${year}-${month}-${day}`;
+}
+
 describe("GET /api/meta/status", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -180,9 +193,22 @@ describe("GET /api/meta/status", () => {
     expect(payload.credentialState).toBe("not_connected");
     expect(payload.assignmentState).toBe("assigned");
     expect(payload.warehouseState).toBe("ready");
+    expect(payload.pageReadiness).toMatchObject({
+      state: "not_connected",
+      usable: false,
+      complete: false,
+      missingRequiredSurfaces: [
+        "summary",
+        "campaigns",
+        "breakdowns.age",
+        "breakdowns.location",
+        "breakdowns.placement",
+      ],
+    });
   });
 
   it("keeps historical core progress while removing creative backlog from the summary", async () => {
+    const today = getUtcTodayIso();
     vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
       id: "int_meta",
       business_id: "biz",
@@ -221,10 +247,10 @@ describe("GET /api/meta/status", () => {
       startDate: string;
       endDate: string;
     }) => {
-      if (input.startDate === "2026-04-03" && input.endDate === "2026-04-03") {
+      if (input.startDate === today && input.endDate === today) {
         return {
           completed_days: 1,
-          ready_through_date: "2026-04-03",
+          ready_through_date: today,
         } as never;
       }
       const start = new Date(`${input.startDate}T00:00:00Z`).getTime();
@@ -245,10 +271,10 @@ describe("GET /api/meta/status", () => {
       startDate: string;
       endDate: string;
     }) => {
-      if (input.startDate === "2026-04-03" && input.endDate === "2026-04-03") {
+      if (input.startDate === today && input.endDate === today) {
         return {
           completed_days: 1,
-          ready_through_date: "2026-04-03",
+          ready_through_date: today,
         } as never;
       }
       const start = new Date(`${input.startDate}T00:00:00Z`).getTime();
@@ -304,7 +330,7 @@ describe("GET /api/meta/status", () => {
 
     const response = await GET(
       new NextRequest(
-        "http://localhost/api/meta/status?businessId=biz&startDate=2026-04-03&endDate=2026-04-03"
+        `http://localhost/api/meta/status?businessId=biz&startDate=${today}&endDate=${today}`
       )
     );
     const payload = await response.json();
@@ -320,10 +346,17 @@ describe("GET /api/meta/status", () => {
     expect(payload.latestSync?.progressPercent).toBe(100);
     expect(payload.latestSync?.completedDays).toBe(1);
     expect(payload.latestSync?.totalDays).toBe(1);
-    expect(payload.latestSync?.readyThroughDate).toBe("2026-04-03");
+    expect(payload.latestSync?.readyThroughDate).toBe(today);
+    expect(payload.pageReadiness).toMatchObject({
+      state: "ready",
+      usable: true,
+      complete: true,
+      selectedRangeMode: "current_day_live",
+    });
   });
 
   it("reports selected-range truth as ready when the requested range is complete and no blocker is present", async () => {
+    const today = getUtcTodayIso();
     vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
       id: "int_meta",
       business_id: "biz",
@@ -360,16 +393,16 @@ describe("GET /api/meta/status", () => {
     } as never);
     vi.mocked(warehouse.getMetaAccountDailyCoverage).mockResolvedValue({
       completed_days: 1,
-      ready_through_date: "2026-04-03",
+      ready_through_date: today,
     } as never);
     vi.mocked(warehouse.getMetaCampaignDailyCoverage).mockResolvedValue({
       completed_days: 1,
-      ready_through_date: "2026-04-03",
+      ready_through_date: today,
     } as never);
 
     const response = await GET(
       new NextRequest(
-        "http://localhost/api/meta/status?businessId=biz&startDate=2026-04-03&endDate=2026-04-03"
+        `http://localhost/api/meta/status?businessId=biz&startDate=${today}&endDate=${today}`
       )
     );
     const payload = await response.json();
@@ -381,5 +414,231 @@ describe("GET /api/meta/status", () => {
     expect(payload.latestSync?.progressPercent).toBe(100);
     expect(payload.latestSync?.completedDays).toBe(1);
     expect(payload.latestSync?.totalDays).toBe(1);
+    expect(payload.pageReadiness).toMatchObject({
+      state: "ready",
+      usable: true,
+      complete: true,
+      selectedRangeMode: "current_day_live",
+      missingRequiredSurfaces: [],
+    });
+  });
+
+  it("reports selected-range truth as partial when breakdowns are missing but summary and campaigns are ready", async () => {
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_meta",
+      business_id: "biz",
+      provider: "meta",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+    vi.mocked(warehouse.getMetaAccountDailyCoverage).mockResolvedValue({
+      completed_days: 2,
+      ready_through_date: "2026-04-02",
+    } as never);
+    vi.mocked(warehouse.getMetaCampaignDailyCoverage).mockResolvedValue({
+      completed_days: 2,
+      ready_through_date: "2026-04-02",
+    } as never);
+    vi.mocked(warehouse.getMetaAdSetDailyCoverage).mockResolvedValue({
+      completed_days: 0,
+      ready_through_date: null,
+    } as never);
+    vi.mocked(warehouse.getMetaRawSnapshotCoverageByEndpoint).mockResolvedValue(
+      new Map([
+        ["breakdown_age", { completed_days: 1, ready_through_date: "2026-04-01" }],
+        ["breakdown_country", { completed_days: 1, ready_through_date: "2026-04-01" }],
+        [
+          "breakdown_publisher_platform,platform_position,impression_device",
+          { completed_days: 1, ready_through_date: "2026-04-01" },
+        ],
+      ]) as never
+    );
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/status?businessId=biz&startDate=2026-04-01&endDate=2026-04-02"
+      )
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.pageReadiness).toMatchObject({
+      state: "partial",
+      usable: true,
+      complete: false,
+      selectedRangeMode: "historical_warehouse",
+      missingRequiredSurfaces: [
+        "breakdowns.age",
+        "breakdowns.location",
+        "breakdowns.placement",
+      ],
+    });
+    expect(payload.pageReadiness.requiredSurfaces.summary.state).toBe("ready");
+    expect(payload.pageReadiness.requiredSurfaces.campaigns.state).toBe("ready");
+    expect(payload.pageReadiness.optionalSurfaces.adsets.countsForPageCompleteness).toBe(false);
+    expect(payload.pageReadiness.optionalSurfaces.recommendations.countsForPageCompleteness).toBe(false);
+  });
+
+  it("reports selected-range truth as syncing when no required surface is usable and active work exists", async () => {
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_meta",
+      business_id: "biz",
+      provider: "meta",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+    vi.mocked(warehouse.getMetaAccountDailyCoverage).mockResolvedValue({
+      completed_days: 0,
+      ready_through_date: null,
+    } as never);
+    vi.mocked(warehouse.getMetaCampaignDailyCoverage).mockResolvedValue({
+      completed_days: 0,
+      ready_through_date: null,
+    } as never);
+    vi.mocked(warehouse.getMetaAdSetDailyCoverage).mockResolvedValue({
+      completed_days: 0,
+      ready_through_date: null,
+    } as never);
+    vi.mocked(warehouse.getMetaRawSnapshotCoverageByEndpoint).mockResolvedValue(
+      new Map([
+        ["breakdown_age", { completed_days: 0, ready_through_date: null }],
+        ["breakdown_country", { completed_days: 0, ready_through_date: null }],
+        [
+          "breakdown_publisher_platform,platform_position,impression_device",
+          { completed_days: 0, ready_through_date: null },
+        ],
+      ]) as never
+    );
+    vi.mocked(warehouse.getMetaQueueHealth).mockResolvedValue({
+      queueDepth: 4,
+      leasedPartitions: 1,
+      retryableFailedPartitions: 0,
+      deadLetterPartitions: 0,
+      latestCoreActivityAt: "2026-04-03T09:00:00.000Z",
+      latestExtendedActivityAt: null,
+      latestMaintenanceActivityAt: null,
+      oldestQueuedPartition: "2026-04-01",
+      historicalCoreQueueDepth: 4,
+      historicalCoreLeasedPartitions: 1,
+      extendedRecentQueueDepth: 0,
+      extendedRecentLeasedPartitions: 0,
+      extendedHistoricalQueueDepth: 0,
+      extendedHistoricalLeasedPartitions: 0,
+    } as never);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/status?businessId=biz&startDate=2026-04-02&endDate=2026-04-02"
+      )
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.pageReadiness).toMatchObject({
+      state: "syncing",
+      usable: false,
+      complete: false,
+      selectedRangeMode: "historical_warehouse",
+    });
+    expect(payload.pageReadiness.requiredSurfaces.summary.state).toBe("syncing");
+    expect(payload.pageReadiness.requiredSurfaces.campaigns.state).toBe("syncing");
+  });
+
+  it("reports current-day selected-range truth as partial when live breakdowns are still preparing", async () => {
+    const today = getUtcTodayIso();
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_meta",
+      business_id: "biz",
+      provider: "meta",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+    vi.mocked(warehouse.getMetaAccountDailyCoverage).mockResolvedValue({
+      completed_days: 1,
+      ready_through_date: today,
+    } as never);
+    vi.mocked(warehouse.getMetaCampaignDailyCoverage).mockResolvedValue({
+      completed_days: 1,
+      ready_through_date: today,
+    } as never);
+    vi.mocked(warehouse.getMetaRawSnapshotCoverageByEndpoint).mockResolvedValue(
+      new Map([
+        ["breakdown_age", { completed_days: 0, ready_through_date: null }],
+        ["breakdown_country", { completed_days: 0, ready_through_date: null }],
+        [
+          "breakdown_publisher_platform,platform_position,impression_device",
+          { completed_days: 0, ready_through_date: null },
+        ],
+      ]) as never
+    );
+    vi.mocked(warehouse.getMetaQueueHealth).mockResolvedValue({
+      queueDepth: 1,
+      leasedPartitions: 1,
+      retryableFailedPartitions: 0,
+      deadLetterPartitions: 0,
+      latestCoreActivityAt: `${today}T09:00:00.000Z`,
+      latestExtendedActivityAt: null,
+      latestMaintenanceActivityAt: null,
+      oldestQueuedPartition: today,
+      historicalCoreQueueDepth: 0,
+      historicalCoreLeasedPartitions: 0,
+      extendedRecentQueueDepth: 1,
+      extendedRecentLeasedPartitions: 1,
+      extendedHistoricalQueueDepth: 0,
+      extendedHistoricalLeasedPartitions: 0,
+    } as never);
+
+    const response = await GET(
+      new NextRequest(
+        `http://localhost/api/meta/status?businessId=biz&startDate=${today}&endDate=${today}`
+      )
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.pageReadiness).toMatchObject({
+      state: "partial",
+      usable: true,
+      complete: false,
+      selectedRangeMode: "current_day_live",
+      missingRequiredSurfaces: [
+        "breakdowns.age",
+        "breakdowns.location",
+        "breakdowns.placement",
+      ],
+    });
   });
 });
