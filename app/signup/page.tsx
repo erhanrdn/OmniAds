@@ -8,7 +8,6 @@ import { logClientAuthEvent } from "@/lib/auth-diagnostics";
 import { resolvePostLoginDestination } from "@/lib/auth-routing";
 import { replaceAuthenticatedWorkspace } from "@/lib/client-auth-state";
 import {
-  DEFAULT_LANGUAGE,
   getLanguageFromCookieValue,
   getPreferredLanguage,
   getTranslations,
@@ -100,11 +99,7 @@ function SignupPageClient() {
         activeBusinessId: payload.activeBusinessId ?? null,
         nextPath: searchParams.get("next"),
       });
-      const localeValue = getLanguageCookie();
-      const hasLanguage = getLanguageFromCookieValue(localeValue) !== DEFAULT_LANGUAGE || Boolean(localeValue);
-      router.replace(
-        hasLanguage ? destination : `/select-language?next=${encodeURIComponent(destination)}`,
-      );
+      router.replace(destination);
       router.refresh();
     }
 
@@ -158,17 +153,12 @@ function SignupPageClient() {
         activeBusinessId: payload?.activeBusinessId ?? null,
         nextPath: searchParams.get("next"),
       });
-      const localeValue = getLanguageCookie();
-      const hasLanguage = getLanguageFromCookieValue(localeValue) !== DEFAULT_LANGUAGE || Boolean(localeValue);
-      const localizedDestination = hasLanguage
-        ? destination
-        : `/select-language?next=${encodeURIComponent(destination)}`;
       logClientAuthEvent("signup_succeeded", {
-        destination: localizedDestination,
+        destination,
         userId: payload?.user?.id ?? null,
         membershipCount: payload?.businesses?.length ?? 0,
       });
-      router.push(localizedDestination);
+      router.push(destination);
       router.refresh();
     } catch (err: unknown) {
       const message =

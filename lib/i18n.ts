@@ -1,4 +1,4 @@
-export type AppLanguage = "en" | "tr";
+export type AppLanguage = "en";
 
 export const DEFAULT_LANGUAGE: AppLanguage = "en";
 export const LANGUAGE_COOKIE_NAME = "adsecute_locale";
@@ -7,10 +7,7 @@ export const LANGUAGE_OPTIONS: Array<{
   value: AppLanguage;
   label: string;
   nativeLabel: string;
-}> = [
-  { value: "en", label: "English", nativeLabel: "English" },
-  { value: "tr", label: "Turkish", nativeLabel: "Türkçe" },
-];
+}> = [{ value: "en", label: "English", nativeLabel: "English" }];
 
 export const NON_TRANSLATABLE_TERMS = [
   "ROAS",
@@ -37,20 +34,18 @@ export const NON_TRANSLATABLE_TERMS = [
 ] as const;
 
 export function isAppLanguage(value: string | null | undefined): value is AppLanguage {
-  return value === "en" || value === "tr";
+  return value === "en";
 }
 
 export function getLanguageFromCookieValue(value: string | null | undefined): AppLanguage {
-  return isAppLanguage(value) ? value : DEFAULT_LANGUAGE;
+  return "en";
 }
 
 export function getPreferredLanguage(input: {
   userLanguage?: string | null;
   cookieLanguage?: string | null;
 }): AppLanguage {
-  if (isAppLanguage(input.userLanguage)) return input.userLanguage;
-  if (isAppLanguage(input.cookieLanguage)) return input.cookieLanguage;
-  return DEFAULT_LANGUAGE;
+  return "en";
 }
 
 export function syncLanguageCookie(value: AppLanguage) {
@@ -67,33 +62,20 @@ export function readLanguageCookie() {
   return isAppLanguage(value) ? value : null;
 }
 
-export function getLanguageDisplayName(language: AppLanguage) {
-  return language === "tr" ? "Türkçe" : "English";
+export function getLanguageDisplayName(_language: AppLanguage) {
+  return "English";
 }
 
-export function getAiNarrativeLanguage(language: AppLanguage) {
-  return language === "tr" ? "Turkish" : "English";
+export function getAiNarrativeLanguage(_language: AppLanguage) {
+  return "English";
 }
 
-export function getNonTranslatableTermsInstruction(language: AppLanguage) {
-  const verb =
-    language === "tr"
-      ? "Su terimleri asla cevirme ve aynen koru"
-      : "Never translate these terms and preserve them exactly";
-  return `${verb}: ${NON_TRANSLATABLE_TERMS.join(", ")}.`;
+export function getNonTranslatableTermsInstruction(_language: AppLanguage) {
+  return `Never translate these terms and preserve them exactly: ${NON_TRANSLATABLE_TERMS.join(", ")}.`;
 }
 
-export function getNativeNarrativeStyleInstruction(language: AppLanguage) {
-  if (language !== "tr") {
-    return "Write in concise, natural operator English. Do not sound like a translated document.";
-  }
-  return [
-    "Write in native Turkish for a performance marketing operator.",
-    "Do not translate literally from English.",
-    "Prefer short, direct, operational Turkish.",
-    "Keep platform and metric terms in their canonical form when they are protected.",
-    "Avoid awkward mixed-language phrasing unless the protected term requires it.",
-  ].join(" ");
+export function getNativeNarrativeStyleInstruction(_language: AppLanguage) {
+  return "Write in concise, natural operator English. Do not sound like a translated document.";
 }
 
 export function getCanonicalMetricLabel(label: string) {
@@ -314,220 +296,8 @@ export const translations = {
       priorityLow: "Low",
     },
   },
-  tr: {
-    common: {
-      ai: "AI",
-      fallback: "Yedek",
-      retry: "Tekrar dene",
-      refresh: "Yenile",
-      loading: "Yükleniyor...",
-      regenerate: "Yeniden uret",
-      generating: "Uretiliyor...",
-      reRun: "Tekrar çalıştır",
-      noItems: "Gösterilecek oge yok.",
-    },
-    navigation: {
-      main: "Ana",
-      platforms: "Platformlar",
-      assets: "Varliklar",
-      manage: "Yonet",
-      overview: "Genel Bakış",
-      meta: "Meta",
-      googleAds: "Google Ads",
-      tikTok: "TikTok",
-      pinterest: "Pinterest",
-      snapchat: "Snapchat",
-      klaviyo: "Klaviyo",
-      analytics: "Analitik",
-      geoIntelligence: "GEO Intelligence",
-      seoIntelligence: "SEO Intelligence",
-      creatives: "Creatives",
-      landingPages: "Landing Pages",
-      copies: "Copies",
-      reports: "Raporlar",
-      integrations: "Entegrasyonlar",
-      team: "Ekip",
-      settings: "Ayarlar",
-      selectBusiness: "Isletme Sec",
-      createBusiness: "İşletme Oluştur",
-    },
-    layout: {
-      toggleSidebar: "Kenar cubugunu ac veya kapat",
-      notifications: "Bildirimler",
-      teamAccess: "Ekip erisimi",
-      accountSettings: "Hesap ayarlari",
-      helpDocs: "Yardim Dokumanlari",
-      whatsNew: "Yenilikler",
-      signingOut: "Çıkış yapılıyor...",
-      signOut: "Çıkış yap",
-      signOutError: "Çıkış yapılamadı. Lütfen tekrar deneyin.",
-      createBusiness: "Isletme oluştur",
-      selectBusiness: "Isletme sec",
-      switchBusiness: "Isletme değiştir",
-      manageBusinesses: "Isletmeleri yonet",
-      createNewBusiness: "Yeni isletme oluştur",
-      upgradeToUnlock: "{plan} planina gecerek kilidi ac",
-      accountLevelRecommendation: "Hesap seviyesi önerisi",
-      jumpToCampaign: "Kampanyaya git",
-      showDetails: "Analiz detayları",
-      hideDetails: "Detayları gizle",
-    },
-    login: {
-      subtitle: "Devam etmek için hesabınıza giriş yapın",
-      email: "E-posta",
-      password: "Sifre",
-      rememberMe: "Beni hatirla",
-      signingIn: "Giriş yapılıyor...",
-      signIn: "Giriş yap",
-      noAccount: "Hesabin yok mu?",
-      createOne: "Hesap oluştur",
-      signInWithGoogle: "Google ile giriş yap",
-    },
-    signup: {
-      title: "Hesap oluştur",
-      inviteSubtitle: "Bu ekip davetini kabul etmek için hesabınızı oluşturun.",
-      defaultSubtitle: "Kaydolun ve ilk işletme çalışma alanınızı oluşturun.",
-      fullName: "Ad soyad",
-      email: "E-posta",
-      password: "Sifre (en az 8 karakter)",
-      businessName: "Isletme adi",
-      creating: "Hesap oluşturuluyor...",
-      signUp: "Kaydol",
-      or: "veya",
-      signUpWithGoogle: "Google ile kaydol",
-      signUpWithFacebook: "Facebook ile kaydol",
-      alreadyHaveAccount: "Zaten hesabin var mi?",
-      signIn: "Giriş yap",
-    },
-    language: {
-      title: "Dilinizi seçin",
-      subtitle: "Bunu daha sonra ayarlardan değiştirebilirsiniz.",
-      continue: "Devam et",
-      skip: "Şimdilik gec",
-      current: "Seçili dil",
-    },
-    settings: {
-      languageTitle: "Dil",
-      languageDescription: "Desteklenen Adsecute ekranlarinda kullanilacak dili seçin.",
-      languageLabel: "Uygulama dili",
-      languageHint: "Bu tercih hesabınıza kaydedilir ve daha hızlı render için cookie ile eşlenir.",
-      saveLanguage: "Dili uygula",
-      languageSaved: "Dil güncellendi.",
-    },
-    aiBrief: {
-      title: "Bugunun AI Ozeti",
-      errorPrefix: "Gunluk AI özeti yüklenemedi.",
-      empty: "Henüz AI özeti yok. Zamanlanmis AI çalışmasi tamamlandiginda bu alan otomatik dolacak.",
-      insightDate: "Ozet tarihi",
-      opportunities: "Fırsatlar",
-      risks: "Riskler",
-      recommendations: "Öneriler",
-    },
-    landingPages: {
-      aiInsight: "AI yorumu",
-      uxAudit: "UX Denetimi",
-      uxAuditDescription: "Bu açılış sayfası için UX bulgulari, sürtünme noktalarini ve iyileştirme fırsatlarini gösterir.",
-      runAuditPrompt: "Bu açılış sayfası için odakli bir UX denetimi istediginizde AI çalıştırin.",
-      runAudit: "UX denetimi çalıştır",
-      auditLoadError: "Bu sayfa için UX denetimi yüklenemedi.",
-      retryAudit: "UX denetimini tekrar dene",
-      rerunAudit: "UX denetimini yeniden çalıştır",
-      criticalFindings: "Kritik bulgular",
-      quickWins: "Hızlı kazanclar",
-      uxRisks: "UX riskleri",
-      decisionScore: "Karar skoru",
-      confidence: "Güven",
-      pageType: "Sayfa tipi",
-      primaryLeak: "Ana sizinti",
-      strengths: "Güçlü yonler",
-      issues: "Sorunlar",
-      priorityActions: "Oncelikli aksiyonlar",
-      risks: "Riskler",
-      noStrongAdvantages: "Henüz belirgin bir güçlü avantaj gorunmuyor.",
-      noDominantIssue: "Su anda bu sayfada tek bir baskin sorun one cikmiyor.",
-      noUnusualRisks: "Normal optimizasyon oynakligi disinda olagandisi bir risk gorunmuyor.",
-      trafficQuality: "Trafik kalitesi",
-      discovery: "Keşif",
-      intent: "Niyet",
-      checkout: "Checkout",
-      revenueEfficiency: "Gelir verimliligi",
-      trafficQualityDescription: "Etkilesim derinligini ve gezinme kalitesini ölçer.",
-      discoveryDescription: "Oturumlarin ürün kesfine ne kadar iyi ilerledigini gösterir.",
-      intentDescription: "Ürün görüntülemelerinin sepete ekleme niyetine dönüşup dönüşmedigini gösterir.",
-      checkoutDescription: "Sepetten tamamlanan checkout'a kadar olan ivmeyi ölçer.",
-      revenueEfficiencyDescription: "Satin alma verimliligini siparis degeri kalitesiyle birlestirir.",
-    },
-    creativeDetail: {
-      aiInterpretation: "AI strateji yorumu",
-      generateInterpretation: "AI yorumunu uret",
-      analyzing: "Rapor analiz ediliyor...",
-      unavailable: "AI yorumu su anda kullanılamıyor.",
-      opportunities: "Fırsatlar",
-      risks: "Riskler",
-      nextActions: "Sonraki aksiyonlar",
-      refreshInterpretation: "Yorumu yenile",
-    },
-    meta: {
-      title: "AI yorumları",
-      loading: "Çoklu pencere önerileri oluşturuluyor...",
-      loadError: "Su anda öneriler oluşturulamadi.",
-      noStrongSignal: "Çoklu pencere motoru henüz güçlü bir mudahale sinyali görmüyor.",
-      validatedAgainst: "Çoklu pencere Meta karar motoru seçili aralık + 3/7/14/30/90/geçmiş üzerinden doğrulandi.",
-      conservativeRules: "Temkinli kurallar",
-      accountSummary: "Hesap Ozeti",
-      operatingMode: "Calisma Modu",
-      currentRegime: "Mevcut Rejim",
-      recommendedMode: "Önerilen Mod",
-      recommendedAction: "Önerilen Aksiyon",
-      decisionModel: "Karar modeli",
-      coreVerdict: "Temel karar",
-      selectedRangeNote: "Seçili aralık notu",
-      historicalSupport: "Tarihsel destek",
-      defensiveBidBand: "Defansif teklif bandi",
-      scaleBidBand: "Ölçekleme teklif bandi",
-      rebuild: "Yeniden kurulum",
-      recommended: "Önerilir",
-      promoteToScaling: "Scaling'e tasinacaklar",
-      keepInTest: "TEST'te tutulacaklar",
-      keepOutOfScaling: "Scaling disinda tutulacaklar",
-      targetLane: "Hedef lane",
-      scalingGeoCluster: "Scaling GEO kumesi",
-      testGeoCluster: "TEST GEO kumesi",
-      keepSeparate: "Ayrı tut",
-      confidenceSuffix: "güven",
-      prioritySuffix: "öncelik",
-      comparedWithin: "karşılastirma kohortu",
-      historicalRegimePrefix: "tarihsel rejim",
-      accountLevelRecommendation: "Hesap seviyesi önerisi",
-      jumpToCampaign: "Kampanyaya git",
-      cards: "kart",
-      card: "kart",
-      operatingModel: "Calisma Modeli",
-      operatingModelDescription: "Sezonluk durum, rejim uyumu ve yeniden kurulum yonu.",
-      bidding: "Teklifleme",
-      biddingDescription: "Teklif yöntemi, daha güvenli aralıklar ve kısıt değişiklikleri.",
-      scaling: "Ölçekleme",
-      scalingDescription: "Ölçekleme adaylari ve kontrollu bütçe genislemesi.",
-      budgetAllocation: "Butce Dağılımi",
-      budgetAllocationDescription: "Butcenin benzer kohortlar içinde nereye yoğunlasmasi gerektigi.",
-      structure: "Yapi",
-      structureDescription: "Kampanya lane'leri, creative deploy ve GEO sekli.",
-      lensVolume: "Hacim",
-      lensProfitability: "Karlılık",
-      lensStructure: "Yapi",
-      decisionAct: "Aksiyon al",
-      decisionTest: "Test et",
-      decisionWatch: "Izle",
-      confidenceHigh: "Yüksek",
-      confidenceMedium: "Orta",
-      confidenceLow: "Düşük",
-      priorityHigh: "Yüksek",
-      priorityMedium: "Orta",
-      priorityLow: "Düşük",
-    },
-  },
 } as const;
 
-export function getTranslations(language: AppLanguage) {
-  return translations[language];
+export function getTranslations(_language?: AppLanguage) {
+  return translations.en;
 }

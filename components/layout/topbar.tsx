@@ -7,7 +7,6 @@ import { Menu, Bell, Users } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { getNavItems } from "./nav-items";
 import { BusinessSelector } from "@/components/business/BusinessSelector";
-import { LanguageSwitcher } from "@/components/layout/LanguageSwitcher";
 import { PersonalAccountMenu } from "@/components/layout/PersonalAccountMenu";
 import { TeamAccessModal } from "@/components/layout/TeamAccessModal";
 import { getTranslations } from "@/lib/i18n";
@@ -67,7 +66,6 @@ export function Topbar({ userName }: TopbarProps) {
 
         <div className="flex flex-wrap items-center gap-2">
           <BusinessSelector />
-          <LanguageSwitcher />
 
           <Button variant="ghost" size="icon" aria-label={t.notifications}>
             <Bell className="w-5 h-5" />

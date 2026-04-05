@@ -9,7 +9,6 @@ import { resolvePostLoginDestination } from "@/lib/auth-routing";
 import { replaceAuthenticatedWorkspace } from "@/lib/client-auth-state";
 import { BrandLogo } from "@/components/brand/BrandLogo";
 import {
-  DEFAULT_LANGUAGE,
   getLanguageFromCookieValue,
   getPreferredLanguage,
   getTranslations,
@@ -128,16 +127,11 @@ function LoginPageClient() {
         activeBusinessId: payload.activeBusinessId ?? null,
         nextPath: searchParams.get("next"),
       });
-      const localeValue = getLanguageCookie();
-      const hasLanguage = getLanguageFromCookieValue(localeValue) !== DEFAULT_LANGUAGE || Boolean(localeValue);
-      const localizedDestination = hasLanguage
-        ? destination
-        : `/select-language?next=${encodeURIComponent(destination)}`;
       logClientAuthEvent("login_page_redirect_existing_session", {
-        destination: localizedDestination,
+        destination,
         userId: payload.user.id,
       });
-      router.replace(localizedDestination);
+      router.replace(destination);
       router.refresh();
     }
 
@@ -210,18 +204,13 @@ function LoginPageClient() {
         activeBusinessId: payload?.activeBusinessId ?? null,
         nextPath: searchParams.get("next"),
       });
-      const localeValue = getLanguageCookie();
-      const hasLanguage = getLanguageFromCookieValue(localeValue) !== DEFAULT_LANGUAGE || Boolean(localeValue);
-      const localizedDestination = hasLanguage
-        ? destination
-        : `/select-language?next=${encodeURIComponent(destination)}`;
       logClientAuthEvent("login_succeeded", {
-        destination: localizedDestination,
+        destination,
         userId: payload?.user?.id ?? null,
         membershipCount: payload?.businesses?.length ?? 0,
         activeBusinessId: payload?.activeBusinessId ?? null,
       });
-      router.push(localizedDestination);
+      router.push(destination);
       router.refresh();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Could not sign in.";
