@@ -9,6 +9,7 @@ import {
   META_SECONDARY_REPORTING_SCOPES,
 } from "@/lib/meta/core-config";
 import { rollupMetaPageReadiness } from "@/lib/meta/page-readiness";
+import { getMetaCurrentDayLiveAvailability } from "@/lib/meta/live";
 import {
   getLatestMetaSyncHealth,
   getMetaAccountDailyCoverage,
@@ -605,14 +606,26 @@ export async function GET(request: NextRequest) {
   const selectedRangeMode = selectedRangeIsToday
     ? "current_day_live"
     : "historical_warehouse";
+  const currentDayLive =
+    selectedRangeIsToday && connected && accountIds.length > 0 && selectedStartDate && selectedEndDate
+      ? await getMetaCurrentDayLiveAvailability({
+          businessId: businessId!,
+          startDate: selectedStartDate,
+          endDate: selectedEndDate,
+          providerAccountIds: accountIds,
+        }).catch(() => ({
+          summaryAvailable: false,
+          campaignsAvailable: false,
+        }))
+      : null;
   const summaryReady =
     selectedRangeIsToday
-      ? connected && accountIds.length > 0
+      ? currentDayLive?.summaryAvailable === true
       : Boolean(selectedRangeTotalDays) &&
         (selectedRangeCoverage?.completed_days ?? 0) >= (selectedRangeTotalDays ?? 0);
   const campaignsReady =
     selectedRangeIsToday
-      ? connected && accountIds.length > 0
+      ? currentDayLive?.campaignsAvailable === true
       : Boolean(selectedRangeTotalDays) &&
         (selectedRangeCampaignCoverage?.completed_days ?? 0) >= (selectedRangeTotalDays ?? 0);
   const breakdownReady =
@@ -1104,6 +1117,7 @@ export async function GET(request: NextRequest) {
       historicalExtendedReady,
       recentExtendedUsable: recentExtendedReady,
       rangeCompletionBySurface,
+      currentDayLive,
       pageReadiness,
       priorityWindow:
         selectedStartDate && selectedEndDate && selectedRangeTotalDays

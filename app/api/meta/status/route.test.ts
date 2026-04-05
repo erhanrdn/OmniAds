@@ -62,12 +62,17 @@ vi.mock("@/lib/meta/status-operations", () => ({
   deriveMetaOperationsBlockReason: vi.fn(() => null),
 }));
 
+vi.mock("@/lib/meta/live", () => ({
+  getMetaCurrentDayLiveAvailability: vi.fn(),
+}));
+
 const access = await import("@/lib/access");
 const integrations = await import("@/lib/integrations");
 const assignments = await import("@/lib/provider-account-assignments");
 const snapshots = await import("@/lib/provider-account-snapshots");
 const warehouse = await import("@/lib/meta/warehouse");
 const workerHealth = await import("@/lib/sync/worker-health");
+const live = await import("@/lib/meta/live");
 
 function getUtcTodayIso() {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -180,6 +185,10 @@ describe("GET /api/meta/status", () => {
     vi.mocked(warehouse.getMetaSyncJobHealth).mockResolvedValue(null as never);
     vi.mocked(warehouse.getMetaSyncState).mockResolvedValue([]);
     vi.mocked(workerHealth.getProviderWorkerHealthState).mockResolvedValue(null as never);
+    vi.mocked(live.getMetaCurrentDayLiveAvailability).mockResolvedValue({
+      summaryAvailable: true,
+      campaignsAvailable: true,
+    } as never);
   });
 
   it("reports warehouse readiness even when the provider is disconnected", async () => {
@@ -421,6 +430,132 @@ describe("GET /api/meta/status", () => {
       selectedRangeMode: "current_day_live",
       missingRequiredSurfaces: [],
     });
+    expect(payload.currentDayLive).toEqual({
+      summaryAvailable: true,
+      campaignsAvailable: true,
+    });
+  });
+
+  it("does not mark current-day summary or campaigns ready when live availability is missing", async () => {
+    const today = getUtcTodayIso();
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_meta",
+      business_id: "biz",
+      provider: "meta",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+    vi.mocked(live.getMetaCurrentDayLiveAvailability).mockResolvedValue({
+      summaryAvailable: false,
+      campaignsAvailable: false,
+    } as never);
+    vi.mocked(warehouse.getMetaQueueHealth).mockResolvedValue({
+      queueDepth: 1,
+      leasedPartitions: 1,
+      retryableFailedPartitions: 0,
+      deadLetterPartitions: 0,
+      latestCoreActivityAt: `${today}T09:00:00.000Z`,
+      latestExtendedActivityAt: null,
+      latestMaintenanceActivityAt: null,
+      oldestQueuedPartition: today,
+      historicalCoreQueueDepth: 0,
+      historicalCoreLeasedPartitions: 0,
+      extendedRecentQueueDepth: 1,
+      extendedRecentLeasedPartitions: 1,
+      extendedHistoricalQueueDepth: 0,
+      extendedHistoricalLeasedPartitions: 0,
+    } as never);
+
+    const response = await GET(
+      new NextRequest(
+        `http://localhost/api/meta/status?businessId=biz&startDate=${today}&endDate=${today}`
+      )
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.currentDayLive).toEqual({
+      summaryAvailable: false,
+      campaignsAvailable: false,
+    });
+    expect(payload.pageReadiness.usable).toBe(false);
+    expect(payload.pageReadiness.requiredSurfaces.summary.state).not.toBe("ready");
+    expect(payload.pageReadiness.requiredSurfaces.campaigns.state).not.toBe("ready");
+    expect(payload.pageReadiness.missingRequiredSurfaces).toEqual(
+      expect.arrayContaining(["summary", "campaigns"])
+    );
+  });
+
+  it("keeps current-day unusable when only live summary is available", async () => {
+    const today = getUtcTodayIso();
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_meta",
+      business_id: "biz",
+      provider: "meta",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+    vi.mocked(live.getMetaCurrentDayLiveAvailability).mockResolvedValue({
+      summaryAvailable: true,
+      campaignsAvailable: false,
+    } as never);
+    vi.mocked(warehouse.getMetaQueueHealth).mockResolvedValue({
+      queueDepth: 1,
+      leasedPartitions: 1,
+      retryableFailedPartitions: 0,
+      deadLetterPartitions: 0,
+      latestCoreActivityAt: `${today}T09:00:00.000Z`,
+      latestExtendedActivityAt: null,
+      latestMaintenanceActivityAt: null,
+      oldestQueuedPartition: today,
+      historicalCoreQueueDepth: 0,
+      historicalCoreLeasedPartitions: 0,
+      extendedRecentQueueDepth: 1,
+      extendedRecentLeasedPartitions: 1,
+      extendedHistoricalQueueDepth: 0,
+      extendedHistoricalLeasedPartitions: 0,
+    } as never);
+
+    const response = await GET(
+      new NextRequest(
+        `http://localhost/api/meta/status?businessId=biz&startDate=${today}&endDate=${today}`
+      )
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.currentDayLive).toEqual({
+      summaryAvailable: true,
+      campaignsAvailable: false,
+    });
+    expect(payload.pageReadiness.usable).toBe(false);
+    expect(payload.pageReadiness.requiredSurfaces.summary.state).toBe("ready");
+    expect(payload.pageReadiness.requiredSurfaces.campaigns.state).not.toBe("ready");
+    expect(payload.pageReadiness.missingRequiredSurfaces).toEqual(
+      expect.arrayContaining(["campaigns"])
+    );
   });
 
   it("reports selected-range truth as partial when breakdowns are missing but summary and campaigns are ready", async () => {

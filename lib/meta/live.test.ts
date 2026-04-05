@@ -12,7 +12,10 @@ vi.mock("@/lib/meta/config-snapshots", () => ({
 
 const api = await import("@/lib/api/meta");
 const configSnapshots = await import("@/lib/meta/config-snapshots");
-const { getMetaLiveCampaignRows } = await import("@/lib/meta/live");
+const {
+  getMetaCurrentDayLiveAvailability,
+  getMetaLiveCampaignRows,
+} = await import("@/lib/meta/live");
 
 describe("meta live serving", () => {
   beforeEach(() => {
@@ -82,5 +85,57 @@ describe("meta live serving", () => {
 
     expect(configSnapshots.readLatestMetaConfigSnapshots).toHaveBeenCalledTimes(1);
     expect(configSnapshots.readPreviousDifferentMetaConfigDiffs).toHaveBeenCalledTimes(1);
+  });
+
+  it("computes current-day live availability from actual live summary and campaign data", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes("/insights")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                campaign_id: "cmp-1",
+                campaign_name: "Campaign 1",
+                spend: "10",
+                ctr: "1",
+                cpm: "5",
+                impressions: "100",
+                clicks: "1",
+                actions: [],
+                action_values: [],
+                purchase_roas: [],
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: "cmp-1",
+              name: "Campaign 1",
+              effective_status: "ACTIVE",
+              status: "ACTIVE",
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      getMetaCurrentDayLiveAvailability({
+        businessId: "biz-1",
+        startDate: "2026-04-05",
+        endDate: "2026-04-05",
+        providerAccountIds: ["act_1"],
+      })
+    ).resolves.toEqual({
+      summaryAvailable: true,
+      campaignsAvailable: true,
+    });
   });
 });

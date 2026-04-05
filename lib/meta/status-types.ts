@@ -220,5 +220,9 @@ export interface MetaStatusResponse {
     isActive: boolean;
   } | null;
   latestSync?: MetaSyncDetails | null;
+  currentDayLive?: {
+    summaryAvailable: boolean;
+    campaignsAvailable: boolean;
+  } | null;
   pageReadiness?: MetaPageReadiness | null;
 }

@@ -372,6 +372,36 @@ export async function getMetaLiveSummaryTotals(input: {
   };
 }
 
+/**
+ * Determine whether current-day live summary and campaign surfaces are actually
+ * available for serving. This is stricter than connection/assignment eligibility.
+ */
+export async function getMetaCurrentDayLiveAvailability(input: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+  providerAccountIds: string[];
+}): Promise<{
+  summaryAvailable: boolean;
+  campaignsAvailable: boolean;
+}> {
+  const [summaryResult, campaignsResult] = await Promise.allSettled([
+    getMetaLiveSummaryTotals(input),
+    getMetaLiveCampaignRows({ ...input, includePrev: false }),
+  ]);
+
+  const summaryAvailable =
+    summaryResult.status === "fulfilled" &&
+    (summaryResult.value.spend > 0 || summaryResult.value.impressions > 0);
+  const campaignsAvailable =
+    campaignsResult.status === "fulfilled" && campaignsResult.value.length > 0;
+
+  return {
+    summaryAvailable,
+    campaignsAvailable,
+  };
+}
+
 // ── Ad set live fetch ─────────────────────────────────────────────────────────
 
 /**
