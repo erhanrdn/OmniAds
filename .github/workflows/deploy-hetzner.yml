@@ -41,11 +41,17 @@ jobs:
           PORT="${HETZNER_PORT:-22}"
 
           ssh -i ~/.ssh/id_ed25519 -p "${PORT}" "${HETZNER_USER}@${HETZNER_HOST}" <<'EOF'
-            set -eu
+            set -eux
             cd /var/www/adsecute
             git fetch origin main
             git reset --hard origin/main
-            docker compose build
+            echo "HEAD=$(git rev-parse HEAD)"
+            docker compose build --no-cache web worker
             docker compose run --rm --no-deps web node --import tsx scripts/run-migrations.ts
-            docker compose up -d
+            docker compose up -d --force-recreate --remove-orphans
+            docker compose ps
+
+            curl -fsSI http://127.0.0.1:3000/about | grep -i "200 OK"
+            curl -fsSI http://127.0.0.1:3000/privacy | grep -i "200 OK"
+            curl -fsSI http://127.0.0.1:3000/overview | grep -i "location: /login?next=%2Foverview"
           EOF
