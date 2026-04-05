@@ -29,6 +29,9 @@ export function MarketingNavbar() {
             <Link href="/contact" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
               Contact
             </Link>
+            <Link href="/about" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+              About
+            </Link>
           </nav>
 
           <div className="hidden md:flex items-center gap-3">
@@ -65,6 +68,9 @@ export function MarketingNavbar() {
             </Link>
             <Link href="/contact" className="rounded-md px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" onClick={() => setOpen(false)}>
               Contact
+            </Link>
+            <Link href="/about" className="rounded-md px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" onClick={() => setOpen(false)}>
+              About
             </Link>
             <div className="mt-2 pt-3 border-t border-border flex flex-col gap-2">
               <Link href="/login" className="rounded-md px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" onClick={() => setOpen(false)}>

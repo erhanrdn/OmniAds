@@ -154,6 +154,12 @@ export default function PrivacyPage() {
             support@adsecute.com
           </a>
         </p>
+        <address className="mt-3 not-italic text-muted-foreground">
+          Adsecute<br />
+          8 The Green<br />
+          Dover, DE 19901<br />
+          United States
+        </address>
       </section>
     </PublicLegalPage>
   );

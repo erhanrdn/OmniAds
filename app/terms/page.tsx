@@ -79,7 +79,15 @@ export default function TermsPage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold tracking-tight">8. Contact</h2>
+        <h2 className="text-xl font-semibold tracking-tight">8. Governing Law</h2>
+        <p className="mt-3">
+          These Terms are governed by the laws of the State of Delaware, United States, without
+          regard to its conflict of law provisions.
+        </p>
+      </section>
+
+      <section>
+        <h2 className="text-xl font-semibold tracking-tight">9. Contact</h2>
         <p className="mt-3">
           Questions about these Terms can be sent to{" "}
           <a href="mailto:support@adsecute.com" className="underline underline-offset-2">
@@ -87,6 +95,12 @@ export default function TermsPage() {
           </a>
           .
         </p>
+        <address className="mt-3 not-italic text-muted-foreground">
+          Adsecute<br />
+          8 The Green<br />
+          Dover, DE 19901<br />
+          United States
+        </address>
       </section>
     </PublicLegalPage>
   );
