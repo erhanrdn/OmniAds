@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { GET } from "@/app/api/meta/campaigns/route";
+import { assertMetaCampaignRowPageContract } from "@/lib/meta/page-route-contract.test-helpers";
 
 vi.mock("@/lib/business-mode.server", () => ({
   isDemoBusiness: vi.fn(),
@@ -27,12 +28,17 @@ vi.mock("@/lib/meta/serving", () => ({
   getMetaWarehouseCampaignTable: vi.fn(),
 }));
 
+vi.mock("@/lib/meta/live", () => ({
+  getMetaLiveCampaignRows: vi.fn(),
+}));
+
 const businessMode = await import("@/lib/business-mode.server");
 const access = await import("@/lib/access");
 const integrations = await import("@/lib/integrations");
 const assignments = await import("@/lib/provider-account-assignments");
 const readiness = await import("@/lib/meta/readiness");
 const serving = await import("@/lib/meta/serving");
+const live = await import("@/lib/meta/live");
 
 describe("GET /api/meta/campaigns", () => {
   beforeEach(() => {
@@ -79,9 +85,18 @@ describe("GET /api/meta/campaigns", () => {
     vi.mocked(serving.getMetaWarehouseCampaignTable).mockResolvedValue([
       {
         id: "cmp_1",
-        accountId: "act_1",
         name: "Campaign 1",
         status: "ACTIVE",
+        objective: "Conversions",
+        spend: 1200,
+        revenue: 3600,
+        roas: 3,
+        cpa: 24,
+        dailyBudget: 5000,
+        lifetimeBudget: null,
+        previousDailyBudget: 4500,
+        previousLifetimeBudget: null,
+        previousBudgetCapturedAt: "2026-02-28T00:00:00.000Z",
       },
     ] as never);
 
@@ -95,5 +110,116 @@ describe("GET /api/meta/campaigns", () => {
     expect(response.status).toBe(200);
     expect(payload.status).toBe("ok");
     expect(payload.rows).toHaveLength(1);
+    assertMetaCampaignRowPageContract(payload.rows[0]);
+    expect(serving.getMetaWarehouseCampaignTable).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz",
+        startDate: "2026-03-01",
+        endDate: "2026-03-15",
+        includePrev: false,
+      })
+    );
+    expect(live.getMetaLiveCampaignRows).not.toHaveBeenCalled();
+  });
+
+  it("uses the live path for current-day requests and keeps the page-visible campaign subset", async () => {
+    vi.mocked(integrations.getIntegration).mockResolvedValue({
+      status: "connected",
+    } as never);
+    vi.mocked(readiness.getMetaRangePreparationContext).mockResolvedValue({
+      isSelectedCurrentDay: true,
+      currentDateInTimezone: "2026-03-31",
+      primaryAccountTimezone: "UTC",
+    });
+    vi.mocked(live.getMetaLiveCampaignRows).mockResolvedValue([
+      {
+        id: "cmp_live",
+        name: "Today Campaign",
+        status: "ACTIVE",
+        objective: "Sales",
+        spend: 50,
+        revenue: 125,
+        roas: 2.5,
+        cpa: 10,
+        dailyBudget: 3000,
+        lifetimeBudget: null,
+        previousDailyBudget: null,
+        previousLifetimeBudget: null,
+        previousBudgetCapturedAt: null,
+      },
+    ] as never);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/campaigns?businessId=biz&startDate=2026-03-31&endDate=2026-03-31"
+      )
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.rows).toHaveLength(1);
+    assertMetaCampaignRowPageContract(payload.rows[0]);
+    expect(live.getMetaLiveCampaignRows).toHaveBeenCalledTimes(1);
+    expect(serving.getMetaWarehouseCampaignTable).not.toHaveBeenCalled();
+  });
+
+  it("forwards includePrev for the current page budget-change contract", async () => {
+    vi.mocked(integrations.getIntegration).mockResolvedValue({
+      status: "connected",
+    } as never);
+    vi.mocked(serving.getMetaWarehouseCampaignTable).mockResolvedValue([
+      {
+        id: "cmp_1",
+        name: "Campaign 1",
+        status: "ACTIVE",
+        objective: "Sales",
+        spend: 100,
+        revenue: 300,
+        roas: 3,
+        cpa: 20,
+        dailyBudget: 5000,
+        lifetimeBudget: null,
+        previousDailyBudget: 4000,
+        previousLifetimeBudget: null,
+        previousBudgetCapturedAt: "2026-02-27T00:00:00.000Z",
+      },
+    ] as never);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/campaigns?businessId=biz&startDate=2026-03-01&endDate=2026-03-15&includePrev=1"
+      )
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    assertMetaCampaignRowPageContract(payload.rows[0]);
+    expect(serving.getMetaWarehouseCampaignTable).toHaveBeenCalledWith(
+      expect.objectContaining({
+        includePrev: true,
+      })
+    );
+  });
+
+  it("keeps the no-accounts-assigned route status used by the page", async () => {
+    vi.mocked(assignments.getProviderAccountAssignments).mockResolvedValue({
+      id: "1",
+      business_id: "biz",
+      provider: "meta",
+      account_ids: [],
+      created_at: "",
+      updated_at: "",
+    });
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/campaigns?businessId=biz&startDate=2026-03-01&endDate=2026-03-15"
+      )
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.status).toBe("no_accounts_assigned");
+    expect(payload.rows).toEqual([]);
   });
 });

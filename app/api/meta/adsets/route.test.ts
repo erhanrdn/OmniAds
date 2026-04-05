@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { GET } from "@/app/api/meta/adsets/route";
+import { assertMetaAdSetRowPageContract } from "@/lib/meta/page-route-contract.test-helpers";
 
 vi.mock("@/lib/access", () => ({
   requireBusinessAccess: vi.fn(),
@@ -67,6 +68,17 @@ describe("GET /api/meta/adsets", () => {
         name: "Adset 1",
         campaignId: "cmp-1",
         status: "ACTIVE",
+        optimizationGoal: "PURCHASE",
+        bidStrategyLabel: "Cost Cap",
+        bidValue: 1200,
+        bidValueFormat: "currency",
+        previousBidValue: 1000,
+        previousBidValueFormat: "currency",
+        previousBidValueCapturedAt: "2026-03-31T00:00:00.000Z",
+        spend: 120,
+        revenue: 300,
+        cpa: 15,
+        ctr: 1.4,
       },
     ] as never);
 
@@ -79,7 +91,48 @@ describe("GET /api/meta/adsets", () => {
 
     expect(response.status).toBe(200);
     expect(payload.rows).toHaveLength(1);
+    assertMetaAdSetRowPageContract(payload.rows[0]);
     expect(serving.getMetaWarehouseAdSets).toHaveBeenCalledTimes(1);
     expect(live.getMetaLiveAdSets).not.toHaveBeenCalled();
+  });
+
+  it("uses the live path for current-day drilldown requests", async () => {
+    vi.mocked(readiness.getMetaRangePreparationContext).mockResolvedValue({
+      isSelectedCurrentDay: true,
+      currentDateInTimezone: "2026-04-05",
+      primaryAccountTimezone: "UTC",
+    });
+    vi.mocked(live.getMetaLiveAdSets).mockResolvedValue([
+      {
+        id: "adset-live-1",
+        name: "Adset Live",
+        campaignId: "cmp-1",
+        status: "ACTIVE",
+        optimizationGoal: "PURCHASE",
+        bidStrategyLabel: "Auto",
+        bidValue: null,
+        bidValueFormat: null,
+        previousBidValue: null,
+        previousBidValueFormat: null,
+        previousBidValueCapturedAt: null,
+        spend: 22,
+        revenue: 55,
+        cpa: 11,
+        ctr: 1.1,
+      },
+    ] as never);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/adsets?businessId=biz&campaignId=cmp-1&startDate=2026-04-05&endDate=2026-04-05"
+      )
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.rows).toHaveLength(1);
+    assertMetaAdSetRowPageContract(payload.rows[0]);
+    expect(live.getMetaLiveAdSets).toHaveBeenCalledTimes(1);
+    expect(serving.getMetaWarehouseAdSets).not.toHaveBeenCalled();
   });
 });

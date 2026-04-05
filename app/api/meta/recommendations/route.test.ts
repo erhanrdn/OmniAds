@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { GET } from "@/app/api/meta/recommendations/route";
+import { assertMetaRecommendationsPageContract } from "@/lib/meta/page-route-contract.test-helpers";
 
 vi.mock("@/lib/access", () => ({
   requireBusinessAccess: vi.fn(),
@@ -19,7 +20,29 @@ vi.mock("@/lib/meta/config-snapshots", () => ({
 }));
 
 vi.mock("@/lib/meta/recommendations", () => ({
-  buildMetaRecommendations: vi.fn(() => ({ status: "ok", items: [] })),
+  buildMetaRecommendations: vi.fn(() => ({
+    status: "ok",
+    summary: {
+      title: "Summary",
+      summary: "Summary",
+      primaryLens: "volume",
+      confidence: "medium",
+      recommendationCount: 1,
+    },
+    recommendations: [
+      {
+        id: "rec_1",
+        campaignId: "cmp_1",
+        decisionState: "act",
+        title: "Raise budget",
+        recommendedAction: "Increase the budget on the best campaign.",
+        why: "The selected campaign is outperforming peers.",
+        summary: "Strong profitability signal.",
+        expectedImpact: "More profitable volume.",
+        evidence: [{ label: "ROAS", value: "3.20x", tone: "positive" }],
+      },
+    ],
+  })),
 }));
 
 vi.mock("@/lib/meta/creative-intelligence", () => ({
@@ -95,6 +118,7 @@ describe("GET /api/meta/recommendations", () => {
 
     expect(response.status).toBe(200);
     expect(payload.status).toBe("ok");
+    assertMetaRecommendationsPageContract(payload);
     expect(calls).not.toContain("/api/meta/creatives");
     expect(calls).not.toContain("/api/meta/creatives/history");
   });

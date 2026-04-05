@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { GET } from "@/app/api/meta/status/route";
+import { assertMetaStatusPageContract } from "@/lib/meta/page-route-contract.test-helpers";
+import {
+  META_PAGE_OPTIONAL_SURFACES,
+  META_PAGE_REQUIRED_SURFACE_ORDER,
+} from "@/lib/meta/page-contract";
 
 vi.mock("@/lib/access", () => ({
   requireBusinessAccess: vi.fn(),
@@ -199,6 +204,7 @@ describe("GET /api/meta/status", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
+    assertMetaStatusPageContract(payload);
     expect(payload.state).toBe("not_connected");
     expect(payload.credentialState).toBe("not_connected");
     expect(payload.assignmentState).toBe("assigned");
@@ -215,6 +221,43 @@ describe("GET /api/meta/status", () => {
         "breakdowns.placement",
       ],
     });
+  });
+
+  it("exposes the current page status contract subset with deterministic surface keys", async () => {
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_meta",
+      business_id: "biz",
+      provider: "meta",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/status?businessId=biz&startDate=2026-03-01&endDate=2026-03-31"
+      )
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    assertMetaStatusPageContract(payload);
+    expect(Object.keys(payload.pageReadiness.requiredSurfaces)).toEqual([
+      ...META_PAGE_REQUIRED_SURFACE_ORDER,
+    ]);
+    expect(Object.keys(payload.pageReadiness.optionalSurfaces)).toEqual([
+      ...META_PAGE_OPTIONAL_SURFACES,
+    ]);
   });
 
   it("keeps historical core progress while removing creative backlog from the summary", async () => {
