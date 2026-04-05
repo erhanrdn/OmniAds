@@ -110,6 +110,7 @@ interface MetaCampaignDetailProps {
   checkedRecIds: Set<string>;
   onToggleCheck: (id: string) => void;
   onAnalyze: () => void;
+  onClearSelection: () => void;
   businessId: string;
   since: string;
   until: string;
@@ -265,6 +266,7 @@ export function MetaCampaignDetail({
   checkedRecIds,
   onToggleCheck,
   onAnalyze,
+  onClearSelection,
   businessId,
   since,
   until,
@@ -298,6 +300,14 @@ export function MetaCampaignDetail({
 
   return (
     <div className="space-y-5 p-6">
+      {/* Back breadcrumb */}
+      <button
+        onClick={onClearSelection}
+        className="flex items-center gap-1 text-[11px] text-slate-400 transition-colors hover:text-slate-600"
+      >
+        ← {language === "tr" ? "Hesap Geneli" : "Account Overview"}
+      </button>
+
       {/* Campaign header */}
       <div>
         <div className="flex items-start gap-2">

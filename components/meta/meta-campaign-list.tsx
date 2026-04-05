@@ -62,7 +62,7 @@ function laneDot(lane: MetaCampaignTableRow["laneLabel"]) {
 interface MetaCampaignListProps {
   campaigns: MetaCampaignTableRow[];
   selectedId: string | null;
-  onSelect: (id: string) => void;
+  onSelect: (id: string | null) => void;
   /** Map of campaign ID → decision state for campaigns with AI recommendations */
   campaignRecStates: Map<string, "act" | "test" | "watch">;
 }
@@ -90,6 +90,25 @@ export function MetaCampaignList({
 
   return (
     <div className="space-y-px">
+      {/* Account Overview row */}
+      <button
+        type="button"
+        onClick={() => onSelect(null)}
+        className={cn(
+          "flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left transition-colors",
+          selectedId === null
+            ? "bg-foreground/[0.06] ring-1 ring-foreground/10"
+            : "hover:bg-muted/60"
+        )}
+      >
+        <span className={cn(
+          "text-[12px] font-semibold",
+          selectedId === null ? "text-foreground" : "text-slate-500"
+        )}>
+          {language === "tr" ? "Hesap Geneli" : "Account Overview"}
+        </span>
+      </button>
+
       {campaigns.map((c) => {
         const isSelected = c.id === selectedId;
         const recState = campaignRecStates.get(c.id);
@@ -98,7 +117,7 @@ export function MetaCampaignList({
           <button
             key={c.id}
             type="button"
-            onClick={() => onSelect(c.id)}
+            onClick={() => onSelect(c.id === selectedId ? null : c.id)}
             className={cn(
               "group flex w-full items-start gap-2.5 rounded-lg px-3 py-2.5 text-left transition-colors",
               isSelected

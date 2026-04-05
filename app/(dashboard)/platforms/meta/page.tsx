@@ -1522,6 +1522,7 @@ export default function MetaPage() {
                     checkedRecIds={checkedRecIds}
                     onToggleCheck={handleToggleCheck}
                     onAnalyze={handleAnalyze}
+                    onClearSelection={() => setSelectedCampaignId(null)}
                     businessId={businessId}
                     since={startDate}
                     until={endDate}
