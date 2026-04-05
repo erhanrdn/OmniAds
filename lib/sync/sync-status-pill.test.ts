@@ -11,10 +11,20 @@ describe("sync status pill resolver", () => {
         connected: true,
         assignedAccountIds: ["act_1"],
         state: "syncing",
+        pageReadiness: {
+          state: "syncing",
+          usable: false,
+          complete: false,
+          selectedRangeMode: "historical_warehouse",
+          reason: "Campaign warehouse data is still being prepared for the selected range.",
+          missingRequiredSurfaces: ["campaigns"],
+          requiredSurfaces: {} as never,
+          optionalSurfaces: {} as never,
+        },
         latestSync: { progressPercent: 82 },
       } as never)
     ).toMatchObject({
-      label: "82% Syncing",
+      label: "82% Preparing range",
       tone: "info",
       state: "syncing",
     });
@@ -53,7 +63,7 @@ describe("sync status pill resolver", () => {
         latestSync: { progressPercent: 72 },
       } as never)
     ).toMatchObject({
-      label: "72% Syncing",
+      label: "72% Partially ready",
       tone: "info",
       state: "syncing",
     });

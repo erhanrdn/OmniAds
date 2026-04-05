@@ -71,10 +71,10 @@ import {
   isMetaPageCurrentDayPreparing,
   shouldMaskMetaKpisAsPreparing,
 } from "@/lib/meta/page-readiness";
+import { getMetaPageStatusMessaging } from "@/lib/meta/ui-status";
 import { resolveMetaSyncStatusPill } from "@/lib/sync/sync-status-pill";
 import {
   formatMetaDate,
-  getMetaStatusNotice,
 } from "@/lib/meta/ui";
 import { getMetaPresetDates } from "@/lib/meta/date";
 
@@ -437,11 +437,16 @@ function MetaStatusBanner({
   status: MetaStatusResponse | undefined;
   language: "en" | "tr";
 }) {
-  const pageReadiness = getMetaPageReadiness(status);
-  if (!pageReadiness || pageReadiness.state === "ready" || !pageReadiness.reason) return null;
+  const messages = getMetaPageStatusMessaging(status, _language);
+  if (!messages.banner.visible || !messages.banner.description) return null;
+  const toneClasses =
+    messages.banner.tone === "warning"
+      ? "border-amber-200 bg-amber-50 text-amber-900"
+      : "border-blue-200 bg-blue-50 text-blue-900";
   return (
-    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-      {pageReadiness.reason}
+    <div className={`rounded-xl border px-4 py-3 text-sm ${toneClasses}`}>
+      {messages.banner.title ? <p className="font-medium">{messages.banner.title}</p> : null}
+      <p className={messages.banner.title ? "mt-1" : ""}>{messages.banner.description}</p>
     </div>
   );
 }
@@ -1004,12 +1009,7 @@ export default function MetaPage() {
   const previousKpis = previousWarehouseKpis ?? previousCampaignKpis ?? emptyKpis;
   const pageReadiness = getMetaPageReadiness(effectiveStatus);
   const isCurrentDayPreparing = isMetaPageCurrentDayPreparing(effectiveStatus);
-  const selectedDateLabel =
-    startDate === endDate ? startDate : `${startDate} - ${endDate}`;
-  const currentDayPreparingMessage =
-    language === "tr"
-      ? `Meta bu tarih için veriyi hala hazırlıyor. Referans gün ${effectiveStatus?.currentDateInTimezone ?? selectedDateLabel}${effectiveStatus?.primaryAccountTimezone ? ` (${effectiveStatus.primaryAccountTimezone})` : ""}.`
-      : `Meta is still preparing data for this date. The current account day is ${effectiveStatus?.currentDateInTimezone ?? selectedDateLabel}${effectiveStatus?.primaryAccountTimezone ? ` (${effectiveStatus.primaryAccountTimezone})` : ""}.`;
+  const pageMessages = getMetaPageStatusMessaging(effectiveStatus, language);
   const metaAccountDayLabel =
     effectiveMetaReferenceDate && effectiveMetaTimeZoneLabel
       ? language === "tr"
@@ -1224,9 +1224,7 @@ export default function MetaPage() {
                 }
                 subLabel={
                   shouldMaskKpisAsPreparing
-                    ? language === "tr"
-                      ? "Gunluk Meta verisi hazirlaniyor"
-                      : "Current-day Meta data is preparing"
+                    ? pageMessages.kpi.spendSubLabel
                     : language === "tr"
                       ? `${campaignsQuery.data?.rows?.length ?? 0} kampanya`
                       : `${campaignsQuery.data?.rows?.length ?? 0} campaigns`
@@ -1245,9 +1243,7 @@ export default function MetaPage() {
                 }
                 subLabel={
                   shouldMaskKpisAsPreparing
-                    ? language === "tr"
-                      ? "Hazir olan kisimlar geldikce kartlar acilacak"
-                      : "Cards will unlock as the current day becomes available"
+                    ? pageMessages.kpi.revenueSubLabel
                     : language === "tr"
                       ? "Atfedilen purchase'lar"
                       : "Attributed purchases"
@@ -1267,9 +1263,7 @@ export default function MetaPage() {
                 }
                 subLabel={
                   shouldMaskKpisAsPreparing
-                    ? language === "tr"
-                      ? "Meta gunu kapanmadan tum donusumler gorunmeyebilir"
-                      : "Conversions may remain incomplete until the Meta day closes"
+                    ? pageMessages.kpi.avgCpaSubLabel
                     : language === "tr"
                       ? "Dönüşum basi maliyet"
                       : "Cost per conversion"
@@ -1289,9 +1283,7 @@ export default function MetaPage() {
                 }
                 subLabel={
                   shouldMaskKpisAsPreparing
-                    ? language === "tr"
-                      ? "Current-day metrikleri yuklenirken gecerli deger bekleniyor"
-                      : "Waiting for a stable current-day value while Meta finishes loading"
+                    ? pageMessages.kpi.roasSubLabel
                     : language === "tr"
                       ? "Tum kampanyalar birlesik"
                       : "All campaigns combined"
@@ -1352,32 +1344,16 @@ export default function MetaPage() {
               return (
                 <DataEmptyState
                   title={
-                    isCurrentDayPreparing
-                      ? language === "tr"
-                        ? "Bugunun Meta verisi hazirlaniyor"
-                        : "Current-day Meta data is preparing"
-                      : pageReadiness && pageReadiness.state !== "ready"
-                      ? language === "tr"
-                        ? "Kampanya verileri hâlâ hazırlanıyor"
-                        : "Campaign data is still being prepared"
-                      : language === "tr"
-                        ? "Bu aralık için kampanya bulunamadı"
-                        : "No campaigns were found for this range"
+                    pageReadiness && pageReadiness.state !== "ready"
+                      ? pageMessages.emptyState.title
+                      : getMetaPageStatusMessaging(effectiveStatus, language, { readyButEmpty: true }).emptyState.title
                   }
                   description={
-                    isCurrentDayPreparing
-                      ? currentDayPreparingMessage
-                      : pageReadiness && pageReadiness.state !== "ready"
-                        ? pageReadiness.reason ??
-                        (effectiveStatus
-                          ? getMetaStatusNotice(effectiveStatus, language)
-                          : null) ??
-                        (language === "tr"
-                          ? "Hazır olan bölümler açılırken seçili tarih aralığının geri kalanı arka planda hazırlanıyor."
-                          : "Available sections will open first while the rest of the selected range is prepared in the background.")
-                        : language === "tr"
-                          ? "Seçili tarih aralığında atanmış Meta reklam hesaplarında teslim edilen kampanya bulunamadı."
-                          : "No campaigns delivered in the selected date range for the assigned Meta ad accounts."
+                    pageReadiness && pageReadiness.state !== "ready"
+                      ? (isCurrentDayPreparing
+                          ? pageMessages.currentDayPreparing.description
+                          : pageMessages.emptyState.description)
+                      : getMetaPageStatusMessaging(effectiveStatus, language, { readyButEmpty: true }).emptyState.description
                   }
                 />
               );

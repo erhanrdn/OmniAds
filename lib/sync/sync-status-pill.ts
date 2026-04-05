@@ -2,6 +2,7 @@ import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
 import { resolveGoogleAdsSyncProgress } from "@/lib/google-ads/sync-progress-ux";
 import { getMetaPageReadiness } from "@/lib/meta/page-readiness";
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
+import { getMetaPageStatusMessaging } from "@/lib/meta/ui-status";
 
 export interface SyncStatusPillState {
   visible: boolean;
@@ -49,30 +50,30 @@ function resolveMetaPercent(status: MetaStatusResponse) {
   return percentFromCoverage(creativesCoverage?.completedDays, creativesCoverage?.totalDays);
 }
 
-function buildSyncingPill(percent: number): SyncStatusPillState {
+function buildSyncingPill(percent: number, label = "Syncing"): SyncStatusPillState {
   return {
     visible: true,
-    label: `${percent}% Syncing`,
+    label: `${percent}% ${label}`,
     tone: "info",
     percent,
     state: "syncing",
   };
 }
 
-function buildActivePill(): SyncStatusPillState {
+function buildActivePill(label = "Active"): SyncStatusPillState {
   return {
     visible: true,
-    label: "Active",
+    label,
     tone: "success",
     percent: 100,
     state: "active",
   };
 }
 
-function buildAttentionPill(): SyncStatusPillState {
+function buildAttentionPill(label = "Needs attention"): SyncStatusPillState {
   return {
     visible: true,
-    label: "Needs attention",
+    label,
     tone: "warning",
     percent: null,
     state: "needs_attention",
@@ -86,6 +87,7 @@ export function resolveMetaSyncStatusPill(
   if ((status.assignedAccountIds?.length ?? 0) === 0) return null;
 
   const pageReadiness = getMetaPageReadiness(status);
+  const pageMessages = getMetaPageStatusMessaging(status, "en");
   const percent = resolveMetaPercent(status);
   const isAttentionState =
     pageReadiness?.state === "blocked" ||
@@ -93,29 +95,31 @@ export function resolveMetaSyncStatusPill(
     status.state === "paused" ||
     status.state === "stale" ||
     status.operations?.progressState === "blocked";
+  const attentionLabel =
+    pageReadiness?.state === "blocked" ? pageMessages.pill.label : "Needs attention";
 
   if (isAttentionState) {
-    return buildAttentionPill();
+    return buildAttentionPill(attentionLabel);
   }
 
   if (pageReadiness?.state === "ready") {
-    return buildActivePill();
+    return buildActivePill(pageMessages.pill.label);
   }
 
   if ((pageReadiness?.state === "syncing" || pageReadiness?.state === "partial") && typeof percent === "number") {
-    return buildSyncingPill(percent);
+    return buildSyncingPill(percent, pageMessages.pill.label);
   }
 
   if (typeof percent === "number" && percent < 100) {
-    return buildSyncingPill(percent);
+    return buildSyncingPill(percent, pageMessages.pill.label);
   }
 
   if (status.state === "ready" || percent === 100) {
-    return buildActivePill();
+    return buildActivePill(pageMessages.pill.label);
   }
 
   if ((status.state === "syncing" || status.state === "partial") && typeof percent === "number") {
-    return buildSyncingPill(percent);
+    return buildSyncingPill(percent, pageMessages.pill.label);
   }
 
   if (
@@ -124,10 +128,10 @@ export function resolveMetaSyncStatusPill(
     status.state === "syncing" ||
     status.state === "partial"
   ) {
-    return buildAttentionPill();
+    return buildAttentionPill(pageMessages.pill.label);
   }
 
-  return buildActivePill();
+  return buildActivePill(pageMessages.pill.label);
 }
 
 function resolveGooglePercent(status: GoogleAdsStatusResponse) {

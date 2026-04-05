@@ -95,4 +95,24 @@ describe("meta ui helpers", () => {
       "Breakdown warehouse data is still being prepared for the selected range."
     );
   });
+
+  it("uses current-day page messaging for current-day syncing copy", () => {
+    const status = buildStatus({
+      pageReadiness: {
+        state: "syncing",
+        usable: false,
+        complete: false,
+        selectedRangeMode: "current_day_live",
+        reason: "Campaign data for the current Meta account day is still preparing.",
+        missingRequiredSurfaces: ["campaigns"],
+        requiredSurfaces: {} as never,
+        optionalSurfaces: {} as never,
+      },
+    });
+
+    expect(getMetaSyncTitle(status, "en")).toBe("Current-day Meta data is preparing");
+    expect(getMetaSyncDescription(status, "en")).toBe(
+      "Campaign data for the current Meta account day is still preparing."
+    );
+  });
 });
