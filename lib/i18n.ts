@@ -1,4 +1,4 @@
-export type AppLanguage = "en";
+export type AppLanguage = "en" | "tr";
 
 export const DEFAULT_LANGUAGE: AppLanguage = "en";
 export const LANGUAGE_COOKIE_NAME = "adsecute_locale";
@@ -34,7 +34,7 @@ export const NON_TRANSLATABLE_TERMS = [
 ] as const;
 
 export function isAppLanguage(value: string | null | undefined): value is AppLanguage {
-  return value === "en";
+  return value === "en" || value === "tr";
 }
 
 export function getLanguageFromCookieValue(value: string | null | undefined): AppLanguage {
