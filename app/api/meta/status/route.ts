@@ -80,6 +80,27 @@ const META_BREAKDOWN_ENDPOINTS = [
   "breakdown_publisher_platform,platform_position,impression_device",
 ] as const;
 
+const META_BREAKDOWN_SURFACES = [
+  {
+    surfaceKey: "breakdowns.age",
+    coverageKey: "age",
+    endpointName: "breakdown_age",
+    label: "Age",
+  },
+  {
+    surfaceKey: "breakdowns.location",
+    coverageKey: "location",
+    endpointName: "breakdown_country",
+    label: "Country",
+  },
+  {
+    surfaceKey: "breakdowns.placement",
+    coverageKey: "placement",
+    endpointName: "breakdown_publisher_platform,platform_position,impression_device",
+    label: "Placement",
+  },
+] as const;
+
 const META_STATE_SCOPES = [...META_RUNTIME_STATE_SCOPES] as const;
 const META_CORE_REQUIRED_SURFACES = [...META_PRODUCT_CORE_COVERAGE_SCOPES] as const;
 const META_SECONDARY_SURFACES = [...META_SECONDARY_REPORTING_SCOPES, "ad_daily"] as const;
@@ -159,8 +180,8 @@ function buildPageSurfaceState(input: {
   blockedFallbackReason: string;
 }): MetaSurfaceReadiness["state"] {
   if (!input.connected || !input.hasAssignedAccounts) return "not_connected";
-  if (input.ready) return "ready";
   if (input.blockedReason) return "blocked";
+  if (input.ready) return "ready";
   if (input.activeProgress) return "syncing";
   return "partial";
 }
@@ -594,13 +615,60 @@ export async function GET(request: NextRequest) {
     ? selectedRangeCoreReadyThroughDate
     : historicalArchiveReadyThroughDate;
   const selectedRangeReportReady = Boolean(selectedRangeRequested && !selectedRangeIncomplete);
+  const breakdownSupportStartDate = selectedEndDate
+    ? getMetaBreakdownSupportedStart(selectedEndDate)
+    : null;
+  const selectedRangeBreakdownsBySurface = Object.fromEntries(
+    META_BREAKDOWN_SURFACES.map((surface) => {
+      const coverage = selectedRangeBreakdownCoverageByEndpoint?.get(surface.endpointName) ?? null;
+      const totalDays = selectedRangeTotalDays ?? 0;
+      const completedDays = selectedRangeRequested ? coverage?.completed_days ?? 0 : 0;
+      const readyThroughDate = selectedRangeRequested ? coverage?.ready_through_date ?? null : null;
+      const isBlocked = Boolean(selectedRangeBreakdownGuardrailBlocked);
+      return [
+        surface.coverageKey,
+        {
+          completedDays,
+          totalDays,
+          readyThroughDate,
+          isComplete: Boolean(selectedRangeRequested) && completedDays >= totalDays,
+          supportStartDate: breakdownSupportStartDate,
+          isBlocked,
+        },
+      ];
+    })
+  ) as {
+    age: {
+      completedDays: number;
+      totalDays: number;
+      readyThroughDate: string | null;
+      isComplete: boolean;
+      supportStartDate: string | null;
+      isBlocked: boolean;
+    };
+    location: {
+      completedDays: number;
+      totalDays: number;
+      readyThroughDate: string | null;
+      isComplete: boolean;
+      supportStartDate: string | null;
+      isBlocked: boolean;
+    };
+    placement: {
+      completedDays: number;
+      totalDays: number;
+      readyThroughDate: string | null;
+      isComplete: boolean;
+      supportStartDate: string | null;
+      isBlocked: boolean;
+    };
+  };
   const selectedRangeBreakdownCompletedDays =
     selectedRangeRequested
       ? Math.min(
-          ...META_BREAKDOWN_ENDPOINTS.map(
-            (endpointName) =>
-              selectedRangeBreakdownCoverageByEndpoint?.get(endpointName)?.completed_days ?? 0
-          )
+          selectedRangeBreakdownsBySurface.age.completedDays,
+          selectedRangeBreakdownsBySurface.location.completedDays,
+          selectedRangeBreakdownsBySurface.placement.completedDays
         )
       : 0;
   const selectedRangeMode = selectedRangeIsToday
@@ -628,13 +696,6 @@ export async function GET(request: NextRequest) {
       ? currentDayLive?.campaignsAvailable === true
       : Boolean(selectedRangeTotalDays) &&
         (selectedRangeCampaignCoverage?.completed_days ?? 0) >= (selectedRangeTotalDays ?? 0);
-  const breakdownReady =
-    Boolean(selectedRangeTotalDays) &&
-    selectedRangeBreakdownCompletedDays >= (selectedRangeTotalDays ?? 0);
-  const breakdownBlockedReason =
-    selectedRangeBreakdownGuardrailBlocked && selectedEndDate
-      ? `Breakdown data is only supported from ${getMetaBreakdownSupportedStart(selectedEndDate)} onward for the selected range.`
-      : null;
   const summarySurfaceReason = !connected
     ? "Meta integration is not connected."
     : accountIds.length === 0
@@ -653,26 +714,50 @@ export async function GET(request: NextRequest) {
         : selectedRangeIsToday
           ? "Campaign data for the current Meta account day is still preparing."
           : "Campaign warehouse data is still being prepared for the selected range.";
-  const breakdownSurfaceReason = !connected
-    ? "Meta integration is not connected."
-    : accountIds.length === 0
-      ? "No Meta ad account is assigned to this workspace."
-      : breakdownBlockedReason
-        ? breakdownBlockedReason
-        : breakdownReady
-          ? null
-          : selectedRangeIsToday
-            ? "Breakdown data for the current Meta account day is still preparing."
-            : "Breakdown warehouse data is still being prepared for the selected range.";
-  const breakdownSurfaceState = buildPageSurfaceState({
-    connected,
-    hasAssignedAccounts: accountIds.length > 0,
-    ready: breakdownReady,
-    activeProgress: overallSyncActive,
-    blockedReason: breakdownBlockedReason,
-    syncingReason: breakdownSurfaceReason ?? "Breakdown data is still preparing.",
-    blockedFallbackReason: breakdownSurfaceReason ?? "Breakdown data is unavailable for the selected range.",
-  });
+  const breakdownRequiredSurfaces = Object.fromEntries(
+    META_BREAKDOWN_SURFACES.map((surface) => {
+      const coverage = selectedRangeBreakdownsBySurface[surface.coverageKey];
+      const ready = coverage.isComplete;
+      const blockedReason =
+        coverage.isBlocked && coverage.supportStartDate
+          ? `${surface.label} breakdown data is only supported from ${coverage.supportStartDate} onward for the selected range.`
+          : null;
+      const reason = !connected
+        ? "Meta integration is not connected."
+        : accountIds.length === 0
+          ? "No Meta ad account is assigned to this workspace."
+          : blockedReason
+            ? blockedReason
+            : ready
+              ? null
+              : selectedRangeIsToday
+                ? `${surface.label} breakdown data for the current Meta account day is still preparing.`
+                : `${surface.label} breakdown data is still being prepared for the selected range.`;
+      const state = buildPageSurfaceState({
+        connected,
+        hasAssignedAccounts: accountIds.length > 0,
+        ready,
+        activeProgress: overallSyncActive,
+        blockedReason,
+        syncingReason: reason ?? `${surface.label} breakdown data is still preparing.`,
+        blockedFallbackReason:
+          reason ?? `${surface.label} breakdown data is unavailable for the selected range.`,
+      });
+      return [
+        surface.surfaceKey,
+        {
+          state,
+          blocking: state !== "ready",
+          countsForPageCompleteness: true,
+          truthClass: selectedRangeIsToday ? "current_day_live" : "historical_warehouse",
+          reason,
+        },
+      ];
+    })
+  ) as Pick<
+    ReturnType<typeof rollupMetaPageReadiness>["requiredSurfaces"],
+    "breakdowns.age" | "breakdowns.location" | "breakdowns.placement"
+  >;
   const pageRequiredSurfaces = {
     summary: {
       state: buildPageSurfaceState({
@@ -704,27 +789,7 @@ export async function GET(request: NextRequest) {
       truthClass: selectedRangeIsToday ? "current_day_live" : "historical_warehouse",
       reason: campaignsSurfaceReason,
     },
-    "breakdowns.age": {
-      state: breakdownSurfaceState,
-      blocking: breakdownSurfaceState !== "ready",
-      countsForPageCompleteness: true,
-      truthClass: selectedRangeIsToday ? "current_day_live" : "historical_warehouse",
-      reason: breakdownSurfaceReason,
-    },
-    "breakdowns.location": {
-      state: breakdownSurfaceState,
-      blocking: breakdownSurfaceState !== "ready",
-      countsForPageCompleteness: true,
-      truthClass: selectedRangeIsToday ? "current_day_live" : "historical_warehouse",
-      reason: breakdownSurfaceReason,
-    },
-    "breakdowns.placement": {
-      state: breakdownSurfaceState,
-      blocking: breakdownSurfaceState !== "ready",
-      countsForPageCompleteness: true,
-      truthClass: selectedRangeIsToday ? "current_day_live" : "historical_warehouse",
-      reason: breakdownSurfaceReason,
-    },
+    ...breakdownRequiredSurfaces,
   } as const;
   const adsetsReady =
     selectedRangeIsToday
@@ -1041,6 +1106,9 @@ export async function GET(request: NextRequest) {
             totalDays: Math.min(historicalTotalDays, META_BREAKDOWN_MAX_HISTORY_DAYS),
             readyThroughDate: breakdownReadyThroughDate,
           },
+          breakdownsBySurface: selectedRangeRequested
+            ? selectedRangeBreakdownsBySurface
+            : null,
           creatives: {
             completedDays: creativeCoverage?.completed_days ?? 0,
             totalDays: historicalTotalDays,

@@ -45,7 +45,7 @@ vi.mock("@/lib/meta/history", () => ({
 }));
 
 vi.mock("@/lib/meta/constraints", () => ({
-  getMetaBreakdownSupportedStart: vi.fn((end: string) => end),
+  getMetaBreakdownSupportedStart: vi.fn(() => "2000-01-01"),
   META_BREAKDOWN_MAX_HISTORY_DAYS: 365,
 }));
 
@@ -73,6 +73,7 @@ const snapshots = await import("@/lib/provider-account-snapshots");
 const warehouse = await import("@/lib/meta/warehouse");
 const workerHealth = await import("@/lib/sync/worker-health");
 const live = await import("@/lib/meta/live");
+const constraints = await import("@/lib/meta/constraints");
 
 function getUtcTodayIso() {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -621,8 +622,147 @@ describe("GET /api/meta/status", () => {
     });
     expect(payload.pageReadiness.requiredSurfaces.summary.state).toBe("ready");
     expect(payload.pageReadiness.requiredSurfaces.campaigns.state).toBe("ready");
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.age"].state).toBe("syncing");
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.location"].state).toBe("syncing");
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.placement"].state).toBe("syncing");
     expect(payload.pageReadiness.optionalSurfaces.adsets.countsForPageCompleteness).toBe(false);
     expect(payload.pageReadiness.optionalSurfaces.recommendations.countsForPageCompleteness).toBe(false);
+    expect(payload.warehouse.coverage.breakdownsBySurface).toEqual({
+      age: {
+        completedDays: 1,
+        totalDays: 2,
+        readyThroughDate: "2026-04-01",
+        isComplete: false,
+        supportStartDate: "2000-01-01",
+        isBlocked: false,
+      },
+      location: {
+        completedDays: 1,
+        totalDays: 2,
+        readyThroughDate: "2026-04-01",
+        isComplete: false,
+        supportStartDate: "2000-01-01",
+        isBlocked: false,
+      },
+      placement: {
+        completedDays: 1,
+        totalDays: 2,
+        readyThroughDate: "2026-04-01",
+        isComplete: false,
+        supportStartDate: "2000-01-01",
+        isBlocked: false,
+      },
+    });
+  });
+
+  it("reports only the age breakdown surface as ready when only the age endpoint is complete", async () => {
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_meta",
+      business_id: "biz",
+      provider: "meta",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+    vi.mocked(warehouse.getMetaAccountDailyCoverage).mockResolvedValue({
+      completed_days: 2,
+      ready_through_date: "2026-04-02",
+    } as never);
+    vi.mocked(warehouse.getMetaCampaignDailyCoverage).mockResolvedValue({
+      completed_days: 2,
+      ready_through_date: "2026-04-02",
+    } as never);
+    vi.mocked(warehouse.getMetaRawSnapshotCoverageByEndpoint).mockResolvedValue(
+      new Map([
+        ["breakdown_age", { completed_days: 2, ready_through_date: "2026-04-02" }],
+        ["breakdown_country", { completed_days: 0, ready_through_date: null }],
+        [
+          "breakdown_publisher_platform,platform_position,impression_device",
+          { completed_days: 0, ready_through_date: null },
+        ],
+      ]) as never
+    );
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/status?businessId=biz&startDate=2026-04-01&endDate=2026-04-02"
+      )
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.age"].state).toBe("ready");
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.location"].state).toBe("syncing");
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.placement"].state).toBe("syncing");
+    expect(payload.pageReadiness.missingRequiredSurfaces).toEqual([
+      "breakdowns.location",
+      "breakdowns.placement",
+    ]);
+  });
+
+  it("reports only the placement breakdown surface as missing when only placement lags", async () => {
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_meta",
+      business_id: "biz",
+      provider: "meta",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+    vi.mocked(warehouse.getMetaAccountDailyCoverage).mockResolvedValue({
+      completed_days: 2,
+      ready_through_date: "2026-04-02",
+    } as never);
+    vi.mocked(warehouse.getMetaCampaignDailyCoverage).mockResolvedValue({
+      completed_days: 2,
+      ready_through_date: "2026-04-02",
+    } as never);
+    vi.mocked(warehouse.getMetaRawSnapshotCoverageByEndpoint).mockResolvedValue(
+      new Map([
+        ["breakdown_age", { completed_days: 2, ready_through_date: "2026-04-02" }],
+        ["breakdown_country", { completed_days: 2, ready_through_date: "2026-04-02" }],
+        [
+          "breakdown_publisher_platform,platform_position,impression_device",
+          { completed_days: 1, ready_through_date: "2026-04-01" },
+        ],
+      ]) as never
+    );
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/status?businessId=biz&startDate=2026-04-01&endDate=2026-04-02"
+      )
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.age"].state).toBe("ready");
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.location"].state).toBe("ready");
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.placement"].state).toBe("syncing");
+    expect(payload.pageReadiness.missingRequiredSurfaces).toEqual(["breakdowns.placement"]);
+    expect(payload.pageReadiness.reason).toBe(
+      "Placement breakdown data is still being prepared for the selected range."
+    );
   });
 
   it("reports selected-range truth as syncing when no required surface is usable and active work exists", async () => {
@@ -775,5 +915,125 @@ describe("GET /api/meta/status", () => {
         "breakdowns.placement",
       ],
     });
+  });
+
+  it("reports current-day breakdown surfaces independently", async () => {
+    const today = getUtcTodayIso();
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_meta",
+      business_id: "biz",
+      provider: "meta",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+    vi.mocked(warehouse.getMetaRawSnapshotCoverageByEndpoint).mockResolvedValue(
+      new Map([
+        ["breakdown_age", { completed_days: 1, ready_through_date: today }],
+        ["breakdown_country", { completed_days: 0, ready_through_date: null }],
+        [
+          "breakdown_publisher_platform,platform_position,impression_device",
+          { completed_days: 0, ready_through_date: null },
+        ],
+      ]) as never
+    );
+    vi.mocked(warehouse.getMetaQueueHealth).mockResolvedValue({
+      queueDepth: 1,
+      leasedPartitions: 1,
+      retryableFailedPartitions: 0,
+      deadLetterPartitions: 0,
+      latestCoreActivityAt: `${today}T09:00:00.000Z`,
+      latestExtendedActivityAt: null,
+      latestMaintenanceActivityAt: null,
+      oldestQueuedPartition: today,
+      historicalCoreQueueDepth: 0,
+      historicalCoreLeasedPartitions: 0,
+      extendedRecentQueueDepth: 1,
+      extendedRecentLeasedPartitions: 1,
+      extendedHistoricalQueueDepth: 0,
+      extendedHistoricalLeasedPartitions: 0,
+    } as never);
+
+    const response = await GET(
+      new NextRequest(
+        `http://localhost/api/meta/status?businessId=biz&startDate=${today}&endDate=${today}`
+      )
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.age"].state).toBe("ready");
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.location"].state).toBe("syncing");
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.placement"].state).toBe("syncing");
+    expect(payload.pageReadiness.missingRequiredSurfaces).toEqual([
+      "breakdowns.location",
+      "breakdowns.placement",
+    ]);
+  });
+
+  it("marks each breakdown surface blocked independently when the range is outside support", async () => {
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_meta",
+      business_id: "biz",
+      provider: "meta",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+    vi.mocked(constraints.getMetaBreakdownSupportedStart).mockReturnValue("2026-04-10");
+    vi.mocked(warehouse.getMetaAccountDailyCoverage).mockResolvedValue({
+      completed_days: 2,
+      ready_through_date: "2026-04-02",
+    } as never);
+    vi.mocked(warehouse.getMetaCampaignDailyCoverage).mockResolvedValue({
+      completed_days: 2,
+      ready_through_date: "2026-04-02",
+    } as never);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/status?businessId=biz&startDate=2026-04-01&endDate=2026-04-02"
+      )
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.age"].state).toBe("blocked");
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.location"].state).toBe("blocked");
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.placement"].state).toBe("blocked");
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.age"].reason).toBe(
+      "Age breakdown data is only supported from 2026-04-10 onward for the selected range."
+    );
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.location"].reason).toBe(
+      "Country breakdown data is only supported from 2026-04-10 onward for the selected range."
+    );
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.placement"].reason).toBe(
+      "Placement breakdown data is only supported from 2026-04-10 onward for the selected range."
+    );
+    expect(payload.pageReadiness.missingRequiredSurfaces).toEqual([
+      "breakdowns.age",
+      "breakdowns.location",
+      "breakdowns.placement",
+    ]);
   });
 });

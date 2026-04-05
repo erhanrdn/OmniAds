@@ -233,4 +233,73 @@ describe("meta page readiness", () => {
       "breakdowns.placement",
     ] satisfies MetaPageSurfaceKey[]);
   });
+
+  it("keeps missing required surfaces deterministic and ordered", () => {
+    const readiness = rollupMetaPageReadiness({
+      connected: true,
+      hasAssignedAccounts: true,
+      selectedRangeMode: "historical_warehouse",
+      requiredSurfaces: {
+        summary: buildSurface("ready"),
+        campaigns: buildSurface("ready"),
+        "breakdowns.age": buildSurface("ready"),
+        "breakdowns.location": buildSurface("syncing", {
+          reason: "Location breakdown is still preparing.",
+        }),
+        "breakdowns.placement": buildSurface("blocked", {
+          reason: "Placement breakdown is blocked.",
+        }),
+      },
+      optionalSurfaces: {
+        adsets: buildSurface("partial", {
+          blocking: false,
+          countsForPageCompleteness: false,
+          truthClass: "conditional_drilldown",
+        }),
+        recommendations: buildSurface("partial", {
+          blocking: false,
+          countsForPageCompleteness: false,
+          truthClass: "ai_exception",
+        }),
+      },
+    });
+
+    expect(readiness.missingRequiredSurfaces).toEqual([
+      "breakdowns.location",
+      "breakdowns.placement",
+    ]);
+    expect(readiness.reason).toBe("Location breakdown is still preparing.");
+  });
+
+  it("becomes incomplete when any single required breakdown surface is not ready", () => {
+    const readiness = rollupMetaPageReadiness({
+      connected: true,
+      hasAssignedAccounts: true,
+      selectedRangeMode: "historical_warehouse",
+      requiredSurfaces: {
+        summary: buildSurface("ready"),
+        campaigns: buildSurface("ready"),
+        "breakdowns.age": buildSurface("ready"),
+        "breakdowns.location": buildSurface("ready"),
+        "breakdowns.placement": buildSurface("partial", {
+          reason: "Placement breakdown is still preparing.",
+        }),
+      },
+      optionalSurfaces: {
+        adsets: buildSurface("ready", {
+          blocking: false,
+          countsForPageCompleteness: false,
+          truthClass: "conditional_drilldown",
+        }),
+        recommendations: buildSurface("ready", {
+          blocking: false,
+          countsForPageCompleteness: false,
+          truthClass: "ai_exception",
+        }),
+      },
+    });
+
+    expect(readiness.complete).toBe(false);
+    expect(readiness.missingRequiredSurfaces).toEqual(["breakdowns.placement"]);
+  });
 });

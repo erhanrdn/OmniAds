@@ -148,6 +148,32 @@ export interface MetaStatusResponse {
         totalDays: number;
         readyThroughDate: string | null;
       } | null;
+      breakdownsBySurface?: {
+        age: {
+          completedDays: number;
+          totalDays: number;
+          readyThroughDate: string | null;
+          isComplete: boolean;
+          supportStartDate?: string | null;
+          isBlocked?: boolean;
+        };
+        location: {
+          completedDays: number;
+          totalDays: number;
+          readyThroughDate: string | null;
+          isComplete: boolean;
+          supportStartDate?: string | null;
+          isBlocked?: boolean;
+        };
+        placement: {
+          completedDays: number;
+          totalDays: number;
+          readyThroughDate: string | null;
+          isComplete: boolean;
+          supportStartDate?: string | null;
+          isBlocked?: boolean;
+        };
+      } | null;
       creatives?: {
         completedDays: number;
         totalDays: number;

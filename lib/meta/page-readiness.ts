@@ -21,12 +21,6 @@ function buildSurface(input: MetaSurfaceReadiness): MetaSurfaceReadiness {
   return input;
 }
 
-function firstReason(
-  surfaces: Array<[MetaPageSurfaceKey, MetaSurfaceReadiness]>,
-): string | null {
-  return surfaces.find(([, surface]) => surface.reason)?.[1].reason ?? null;
-}
-
 export function rollupMetaPageReadiness(input: {
   connected: boolean;
   hasAssignedAccounts: boolean;
@@ -34,17 +28,21 @@ export function rollupMetaPageReadiness(input: {
   requiredSurfaces: MetaPageReadiness["requiredSurfaces"];
   optionalSurfaces: MetaPageReadiness["optionalSurfaces"];
 }): MetaPageReadiness {
-  const allRequired = Object.entries(input.requiredSurfaces) as Array<
-    [MetaPageSurfaceKey, MetaSurfaceReadiness]
-  >;
-  const readyRequired = allRequired.filter(([, surface]) => surface.state === "ready");
-  const missingRequiredSurfaces = allRequired
+  const orderedRequired = REQUIRED_SURFACE_ORDER.map((key) => [
+    key,
+    input.requiredSurfaces[key],
+  ] as [MetaPageSurfaceKey, MetaSurfaceReadiness]);
+  const missingRequiredSurfaces = orderedRequired
     .filter(([, surface]) => surface.countsForPageCompleteness && surface.state !== "ready")
-    .map(([key]) => key);
+    .map(([key]) => key) as MetaPageSurfaceKey[];
   const usable =
     input.requiredSurfaces.summary.state === "ready" &&
     input.requiredSurfaces.campaigns.state === "ready";
   const complete = missingRequiredSurfaces.length === 0;
+  const firstMissingReason =
+    missingRequiredSurfaces
+      .map((key) => input.requiredSurfaces[key as keyof MetaPageReadiness["requiredSurfaces"]].reason)
+      .find((reason): reason is string => Boolean(reason)) ?? null;
 
   let state: MetaPageReadinessState;
   let reason: string | null;
@@ -59,19 +57,21 @@ export function rollupMetaPageReadiness(input: {
     reason = null;
   } else if (usable) {
     state = "partial";
-    reason = firstReason(allRequired.filter(([, surface]) => surface.state !== "ready"));
+    reason = firstMissingReason;
   } else {
-    const blockedRequired = allRequired.filter(([, surface]) => surface.state === "blocked");
-    const syncingRequired = allRequired.filter(([, surface]) => surface.state === "syncing");
+    const blockedRequired = orderedRequired.filter(([, surface]) => surface.state === "blocked");
+    const syncingRequired = orderedRequired.filter(([, surface]) => surface.state === "syncing");
     if (blockedRequired.length > 0) {
       state = "blocked";
-      reason = firstReason(blockedRequired);
+      reason =
+        blockedRequired.find(([, surface]) => surface.reason)?.[1].reason ?? firstMissingReason;
     } else if (syncingRequired.length > 0) {
       state = "syncing";
-      reason = firstReason(syncingRequired);
+      reason =
+        syncingRequired.find(([, surface]) => surface.reason)?.[1].reason ?? firstMissingReason;
     } else {
       state = "blocked";
-      reason = firstReason(allRequired.filter(([, surface]) => surface.state !== "ready"));
+      reason = firstMissingReason;
     }
   }
 
