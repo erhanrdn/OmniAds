@@ -1239,7 +1239,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
   const accountMetrics = deriveWarehouseMetrics(aggregates.account);
   const sourceSnapshotId = latestSnapshotId;
   const adsetPayloadsByCampaign = new Map<string, MetaConfigSnapshotPayload[]>();
-  const adsetRows: MetaAdSetDailyRow[] = Array.from(aggregates.adsets.entries()).map(([adsetId, value]) => {
+  const adsetRows: MetaAdSetDailyRow[] = Array.from(aggregates.adsets.entries()).map(([adsetId, value]): MetaAdSetDailyRow => {
     const metrics = deriveWarehouseMetrics(value);
     const campaignId = value.campaignId ?? null;
     const campaignConfig = campaignId ? campaignConfigs.get(campaignId) ?? null : null;
@@ -1254,7 +1254,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
       if (payloads) payloads.push(configPayload);
       else adsetPayloadsByCampaign.set(campaignId, [configPayload]);
     }
-    return applyConfigPayloadToDailyRow({
+    const baseRow: MetaAdSetDailyRow = {
       businessId: input.credentials.businessId,
       providerAccountId: input.accountId,
       date: normalizedDay,
@@ -1263,6 +1263,19 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
       adsetNameCurrent: value.name ?? adsetConfig?.name ?? null,
       adsetNameHistorical: value.name ?? adsetConfig?.name ?? null,
       adsetStatus: adsetConfig?.effective_status ?? adsetConfig?.status ?? null,
+      optimizationGoal: null,
+      bidStrategyType: null,
+      bidStrategyLabel: null,
+      manualBidAmount: null,
+      bidValue: null,
+      bidValueFormat: null,
+      dailyBudget: null,
+      lifetimeBudget: null,
+      isBudgetMixed: false,
+      isConfigMixed: false,
+      isOptimizationGoalMixed: false,
+      isBidStrategyMixed: false,
+      isBidValueMixed: false,
       accountTimezone: profile?.timezone ?? "UTC",
       accountCurrency: profile?.currency ?? input.credentials.currency,
       spend: value.spend,
@@ -1277,7 +1290,8 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
       ctr: metrics.ctr,
       cpc: metrics.cpc,
       sourceSnapshotId,
-    }, configPayload);
+    };
+    return applyConfigPayloadToDailyRow(baseRow, configPayload);
   });
   const campaignRows: MetaCampaignDailyRow[] = Array.from(aggregates.campaigns.entries()).map(([campaignId, value]) => {
     const metrics = deriveWarehouseMetrics(value);
@@ -2128,7 +2142,7 @@ export async function getCampaigns(
               (row) => row.accountId === accountId
             );
             await upsertMetaCampaignDailyRows(
-              singleDayRows.map((row) => ({
+              singleDayRows.map((row): MetaCampaignDailyRow => ({
                 businessId: credentials.businessId,
                 providerAccountId: accountId,
                 date: normalizedDate,
@@ -2138,6 +2152,19 @@ export async function getCampaigns(
                 campaignStatus: row.status,
                 objective: row.objective ?? null,
                 buyingType: null,
+                optimizationGoal: row.optimizationGoal ?? null,
+                bidStrategyType: row.bidStrategyType ?? null,
+                bidStrategyLabel: row.bidStrategyLabel ?? null,
+                manualBidAmount: row.manualBidAmount ?? null,
+                bidValue: row.bidValue ?? null,
+                bidValueFormat: row.bidValueFormat ?? null,
+                dailyBudget: row.dailyBudget ?? null,
+                lifetimeBudget: row.lifetimeBudget ?? null,
+                isBudgetMixed: Boolean(row.isBudgetMixed),
+                isConfigMixed: Boolean(row.isConfigMixed),
+                isOptimizationGoalMixed: Boolean(row.isOptimizationGoalMixed),
+                isBidStrategyMixed: Boolean(row.isBidStrategyMixed),
+                isBidValueMixed: Boolean(row.isBidValueMixed),
                 accountTimezone: profile?.timezone ?? "UTC",
                 accountCurrency:
                   profile?.currency ?? credentials.currency ?? "USD",
