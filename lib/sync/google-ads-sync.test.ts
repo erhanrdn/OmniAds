@@ -15,6 +15,7 @@ import {
   getGoogleAdsScopeCheckpointChunkSize,
   logGoogleAdsLeaseStepResult,
   logGoogleAdsPhaseTelemetry,
+  shouldRetryGoogleAdsEmptyCampaignDaily,
   shouldBlockGoogleAdsHistoricalExtendedWork,
   shouldLeaseGoogleAdsRecentRepair,
 } from "@/lib/sync/google-ads-sync";
@@ -236,6 +237,53 @@ describe("Google Ads throughput telemetry", () => {
         ],
       }),
     );
+  });
+});
+
+describe("shouldRetryGoogleAdsEmptyCampaignDaily", () => {
+  it("retries when account summary has activity but campaign rows are empty", () => {
+    expect(
+      shouldRetryGoogleAdsEmptyCampaignDaily({
+        overview: {
+          spend: 12.5,
+          revenue: 0,
+          conversions: 0,
+          impressions: 100,
+          clicks: 5,
+        },
+        campaignRowCount: 0,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not retry when overview is empty", () => {
+    expect(
+      shouldRetryGoogleAdsEmptyCampaignDaily({
+        overview: {
+          spend: 0,
+          revenue: 0,
+          conversions: 0,
+          impressions: 0,
+          clicks: 0,
+        },
+        campaignRowCount: 0,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not retry when campaign rows exist", () => {
+    expect(
+      shouldRetryGoogleAdsEmptyCampaignDaily({
+        overview: {
+          spend: 12.5,
+          revenue: 0,
+          conversions: 0,
+          impressions: 100,
+          clicks: 5,
+        },
+        campaignRowCount: 2,
+      }),
+    ).toBe(false);
   });
 });
 

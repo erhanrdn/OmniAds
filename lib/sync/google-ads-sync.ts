@@ -180,6 +180,12 @@ const GOOGLE_ADS_GEO_CHECKPOINT_CHUNK_SIZE = Math.min(
 );
 const GOOGLE_ADS_CAMPAIGN_CORE_LIMIT_ERROR_CODE =
   "google_ads_campaign_core_limit_exceeded";
+class GoogleAdsRetryableSyncError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "GoogleAdsRetryableSyncError";
+  }
+}
 const GOOGLE_ADS_CIRCUIT_BREAKER_BASE_MINUTES = envNumber(
   "GOOGLE_ADS_CIRCUIT_BREAKER_BASE_MINUTES",
   15,
@@ -2585,6 +2591,29 @@ function aggregateAccountMetrics(rows: GenericRow[]) {
   );
 }
 
+export function shouldRetryGoogleAdsEmptyCampaignDaily(input: {
+  overview:
+    | {
+        spend: number;
+        revenue: number;
+        conversions: number;
+        impressions: number;
+        clicks: number;
+      }
+    | null
+    | undefined;
+  campaignRowCount: number;
+}) {
+  if (!input.overview || input.campaignRowCount > 0) return false;
+  return (
+    input.overview.spend > 0 ||
+    input.overview.revenue > 0 ||
+    input.overview.conversions > 0 ||
+    input.overview.impressions > 0 ||
+    input.overview.clicks > 0
+  );
+}
+
 async function resolveGoogleAdsCurrentDate(businessId: string) {
   const [assignments, snapshot] = await Promise.all([
     getProviderAccountAssignments(businessId, "google").catch(() => null),
@@ -3114,6 +3143,17 @@ async function syncGoogleAdsAccountDay(input: {
     const overview = fetchPlan.campaigns
       ? aggregateAccountMetrics(campaignRows)
       : null;
+    if (
+      fetchPlan.campaigns &&
+      shouldRetryGoogleAdsEmptyCampaignDaily({
+        overview,
+        campaignRowCount: campaignRows.length,
+      })
+    ) {
+      throw new GoogleAdsRetryableSyncError(
+        "account_daily has activity but campaign_daily returned zero rows - retry required",
+      );
+    }
     const searchIntelligence = fetchPlan.searchIntelligence
       ? await getGoogleAdsSearchIntelligenceReport({
           ...baseParams,
@@ -3906,6 +3946,7 @@ async function syncGoogleAdsAccountDay(input: {
 }
 
 function classifyGoogleAdsSyncError(error: unknown) {
+  if (error instanceof GoogleAdsRetryableSyncError) return "transient";
   const message = error instanceof Error ? error.message : String(error);
   if (isGoogleAdsCampaignCoreLimitError(error)) return "application";
   if (/RESOURCE_EXHAUSTED|quota|rate limit|429/i.test(message)) return "quota";
