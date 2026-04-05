@@ -113,6 +113,8 @@ export interface MetaAdSetData extends MetaMetricsData {
   isOptimizationGoalMixed?: boolean;
   isBidStrategyMixed?: boolean;
   isBidValueMixed?: boolean;
+  /** CTR (Link click-through rate) — inline_link_click_ctr from Meta API. Null for warehouse data. */
+  inlineLinkClickCtr?: number | null;
 }
 
 export interface MetaBreakdownRow extends MetaMetricsData {
@@ -160,6 +162,7 @@ interface RawAdSetInsight {
   campaign_id?: string;
   spend?: string;
   ctr?: string;
+  inline_link_click_ctr?: string;
   cpm?: string;
   impressions?: string;
   clicks?: string;
@@ -2110,7 +2113,7 @@ export async function getAdSets(
       insightUrl.searchParams.set("level", "adset");
       insightUrl.searchParams.set(
         "fields",
-        "adset_id,adset_name,campaign_id,spend,ctr,cpm,impressions,clicks,actions,action_values,purchase_roas"
+        "adset_id,adset_name,campaign_id,spend,ctr,inline_link_click_ctr,cpm,impressions,clicks,actions,action_values,purchase_roas"
       );
       insightUrl.searchParams.set(
         "filtering",
@@ -2347,6 +2350,9 @@ export async function getAdSets(
               action_values: insight.action_values,
               purchase_roas: insight.purchase_roas,
             }),
+            inlineLinkClickCtr: insight.inline_link_click_ctr != null
+              ? r2(parseNum(insight.inline_link_click_ctr))
+              : null,
           });
         }
 

@@ -51,7 +51,6 @@ import {
 import { usePersistentDateRange } from "@/hooks/use-persistent-date-range";
 import { useCurrencySymbol } from "@/hooks/use-currency";
 import { type MetaCampaignTableRow } from "@/components/meta/meta-campaign-table";
-import { PlacementBreakdownChart } from "@/components/meta/placement-breakdown-chart";
 import { useBusinessIntegrationsBootstrap } from "@/hooks/use-business-integrations-bootstrap";
 import { PlanGate } from "@/components/pricing/PlanGate";
 import { MetaCampaignList } from "@/components/meta/meta-campaign-list";
@@ -1416,9 +1415,9 @@ export default function MetaPage() {
 
             return (
               <div className="flex gap-4" style={{ minHeight: "520px" }}>
-                {/* ── Left panel: campaign list + breakdowns ───────────── */}
+                {/* ── Left panel: campaign list + country breakdown ─────── */}
                 <div className="flex w-64 shrink-0 flex-col gap-3 xl:w-72">
-                  {/* Campaign list */}
+                  {/* Campaign list — takes maximum available space */}
                   <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                     <div className="border-b border-slate-100 px-3 py-2.5">
                       <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
@@ -1426,7 +1425,7 @@ export default function MetaPage() {
                         <span className="ml-1.5 text-slate-300">{campaignRowsForTable.length}</span>
                       </p>
                     </div>
-                    <div className="max-h-80 overflow-y-auto p-1.5">
+                    <div className="max-h-[480px] overflow-y-auto p-1.5">
                       <MetaCampaignList
                         campaigns={campaignRowsForTable}
                         selectedId={selectedCampaignId}
@@ -1436,77 +1435,22 @@ export default function MetaPage() {
                     </div>
                   </div>
 
-                  {/* Age breakdown */}
+                  {/* Country breakdown — compact, always visible, scrollable */}
                   <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                     <div className="border-b border-slate-100 px-3 py-2.5">
                       <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-                        {language === "tr" ? "Yaşa Göre ROAS" : "ROAS by Age"}
+                        {language === "tr" ? "Ülkeler" : "Countries"}
                       </p>
                     </div>
-                    <div className="p-3">
+                    <div className="max-h-[108px] overflow-y-auto p-3">
                       {breakdownsQuery.isLoading ? (
                         <div className="space-y-1.5">
-                          <p className="text-xs text-slate-500">
-                            {language === "tr"
-                              ? "Yaş segment performansı hazırlanıyor."
-                              : "Preparing age-segment performance."}
-                          </p>
-                          {[0, 1, 2].map((i) => (
-                            <div key={i} className="h-8 animate-pulse rounded bg-slate-100" />
-                          ))}
-                        </div>
-                      ) : (
-                        <AgeBreakdownBadges rows={breakdownsQuery.data?.age ?? []} />
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Location breakdown */}
-                  <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                    <div className="border-b border-slate-100 px-3 py-2.5">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-                        {language === "tr" ? "En İyi Ülkeler" : "Top Countries"}
-                      </p>
-                    </div>
-                    <div className="p-3">
-                      {breakdownsQuery.isLoading ? (
-                        <div className="space-y-1.5">
-                          <p className="text-xs text-slate-500">
-                            {language === "tr"
-                              ? "Ülke bazlı harcama dağılımı hazırlanıyor."
-                              : "Preparing country-level spend distribution."}
-                          </p>
                           {[0, 1, 2].map((i) => (
                             <div key={i} className="h-6 animate-pulse rounded bg-slate-100" />
                           ))}
                         </div>
                       ) : (
                         <LocationBreakdownList rows={breakdownsQuery.data?.location ?? []} />
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Platform Share */}
-                  <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                    <div className="border-b border-slate-100 px-3 py-2.5">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-                        {language === "tr" ? "Platform Payı" : "Platform Share"}
-                      </p>
-                    </div>
-                    <div className="p-3">
-                      {breakdownsQuery.isLoading ? (
-                        <div className="space-y-1.5">
-                          <p className="text-xs text-slate-500">
-                            {language === "tr"
-                              ? "Placement dağılımı hazırlanıyor."
-                              : "Preparing placement distribution."}
-                          </p>
-                          {[0, 1, 2].map((i) => (
-                            <div key={i} className="h-6 animate-pulse rounded bg-slate-100" />
-                          ))}
-                        </div>
-                      ) : (
-                        <PlacementBreakdownChart rows={placementRows} topN={6} />
                       )}
                     </div>
                   </div>
@@ -1523,6 +1467,9 @@ export default function MetaPage() {
                     onToggleCheck={handleToggleCheck}
                     onAnalyze={handleAnalyze}
                     onClearSelection={() => setSelectedCampaignId(null)}
+                    ageRows={breakdownsQuery.data?.age ?? []}
+                    placementRows={placementRows}
+                    isBreakdownLoading={breakdownsQuery.isLoading}
                     businessId={businessId}
                     since={startDate}
                     until={endDate}

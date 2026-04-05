@@ -3,10 +3,12 @@
 /**
  * components/meta/meta-campaign-list.tsx
  *
- * Left panel: compact vertical campaign list.
+ * Left panel: sortable, vertically scrolled campaign list.
  * Click → right panel updates with campaign detail.
+ * Sort: ROAS | Spend | CPA (client-side, state kept here)
  */
 
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 import type { MetaCampaignTableRow } from "@/components/meta/meta-campaign-table";
 import { usePreferencesStore } from "@/store/preferences-store";
@@ -69,6 +71,14 @@ interface MetaCampaignListProps {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
+type StatusFilter = "all" | "active" | "inactive";
+
+const STATUS_FILTERS: { key: StatusFilter; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "active", label: "Actives" },
+  { key: "inactive", label: "Inactive" },
+];
+
 export function MetaCampaignList({
   campaigns,
   selectedId,
@@ -77,19 +87,37 @@ export function MetaCampaignList({
 }: MetaCampaignListProps) {
   const language = usePreferencesStore((s) => s.language);
   const sym = useCurrencySymbol();
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 
-  if (campaigns.length === 0) {
-    return (
-      <p className="px-3 py-4 text-xs text-muted-foreground">
-        {language === "tr"
-          ? "Kampanya bulunamadı."
-          : "No campaigns found."}
-      </p>
-    );
-  }
+  const sortedCampaigns = [...campaigns].sort((a, b) => b.spend - a.spend);
+
+  const filteredCampaigns = sortedCampaigns.filter((c) => {
+    if (statusFilter === "all") return true;
+    const isActive = c.status.toLowerCase() === "active";
+    return statusFilter === "active" ? isActive : !isActive;
+  });
 
   return (
     <div className="space-y-px">
+      {/* Status filter */}
+      <div className="flex items-center gap-0.5 px-1 pb-1 pt-0.5">
+        {STATUS_FILTERS.map(({ key, label }) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setStatusFilter(key)}
+            className={cn(
+              "rounded px-2 py-0.5 text-[10px] font-semibold transition-colors",
+              statusFilter === key
+                ? "bg-foreground/[0.08] text-foreground"
+                : "text-slate-400 hover:text-slate-600"
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       {/* Account Overview row */}
       <button
         type="button"
@@ -101,85 +129,104 @@ export function MetaCampaignList({
             : "hover:bg-muted/60"
         )}
       >
-        <span className={cn(
-          "text-[12px] font-semibold",
-          selectedId === null ? "text-foreground" : "text-slate-500"
-        )}>
+        <span
+          className={cn(
+            "text-[12px] font-semibold",
+            selectedId === null ? "text-foreground" : "text-slate-500"
+          )}
+        >
           {language === "tr" ? "Hesap Geneli" : "Account Overview"}
         </span>
       </button>
 
-      {campaigns.map((c) => {
-        const isSelected = c.id === selectedId;
-        const recState = campaignRecStates.get(c.id);
+      {campaigns.length === 0 ? (
+        <p className="px-3 py-4 text-xs text-muted-foreground">
+          {language === "tr" ? "Kampanya bulunamadı." : "No campaigns found."}
+        </p>
+      ) : filteredCampaigns.length === 0 ? (
+        <p className="px-3 py-4 text-xs text-muted-foreground">
+          {language === "tr" ? "Bu filtreye uygun kampanya yok." : "No campaigns match this filter."}
+        </p>
+      ) : (
+        filteredCampaigns.map((c) => {
+          const isSelected = c.id === selectedId;
+          const recState = campaignRecStates.get(c.id);
 
-        return (
-          <button
-            key={c.id}
-            type="button"
-            onClick={() => onSelect(c.id === selectedId ? null : c.id)}
-            className={cn(
-              "group flex w-full items-start gap-2.5 rounded-lg px-3 py-2.5 text-left transition-colors",
-              isSelected
-                ? "bg-foreground/[0.06] ring-1 ring-foreground/10"
-                : "hover:bg-muted/60"
-            )}
-          >
-            {/* Status dot */}
-            {statusDot(c.status)}
+          return (
+            <button
+              key={c.id}
+              type="button"
+              onClick={() => onSelect(c.id === selectedId ? null : c.id)}
+              className={cn(
+                "group flex w-full items-start gap-2.5 rounded-lg px-3 py-2.5 text-left transition-colors",
+                isSelected
+                  ? "bg-foreground/[0.06] ring-1 ring-foreground/10"
+                  : "hover:bg-muted/60"
+              )}
+            >
+              {/* Status dot */}
+              {statusDot(c.status)}
 
-            {/* Name + lane */}
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5">
-                <p
-                  className={cn(
-                    "truncate text-[12px] font-medium leading-snug",
-                    isSelected ? "text-foreground" : "text-slate-700"
-                  )}
-                >
-                  {c.name}
-                </p>
-                {recState && (
-                  <span
+              {/* Name + objective + lane */}
+              <div className="min-w-0 flex-1">
+                {/* Row 1: Name + rec badge */}
+                <div className="flex items-center gap-1.5">
+                  <p
                     className={cn(
-                      "shrink-0 rounded-full px-1.5 py-px text-[9px] font-bold uppercase tracking-wide",
-                      recState === "act"
-                        ? "bg-foreground text-background"
-                        : recState === "test"
-                        ? "bg-violet-500/10 text-violet-700"
-                        : "bg-muted text-muted-foreground"
+                      "truncate text-[12px] font-medium leading-snug",
+                      isSelected ? "text-foreground" : "text-slate-700"
                     )}
                   >
-                    {recState}
-                  </span>
+                    {c.name}
+                  </p>
+                  {recState && (
+                    <span
+                      className={cn(
+                        "shrink-0 rounded-full px-1.5 py-px text-[9px] font-bold uppercase tracking-wide",
+                        recState === "act"
+                          ? "bg-foreground text-background"
+                          : recState === "test"
+                          ? "bg-violet-500/10 text-violet-700"
+                          : "bg-muted text-muted-foreground"
+                      )}
+                    >
+                      {recState}
+                    </span>
+                  )}
+                </div>
+                {/* Row 2: Objective + lane badge — only if there's data */}
+                {(c.objective || c.laneLabel) && (
+                  <div className="mt-0.5 flex items-center gap-1.5">
+                    {c.objective && (
+                      <span className="truncate text-[10px] text-muted-foreground">
+                        {c.objective}
+                      </span>
+                    )}
+                    {laneDot(c.laneLabel ?? null)}
+                  </div>
                 )}
               </div>
-              <div className="mt-0.5 flex items-center gap-1.5">
-                {laneDot(c.laneLabel ?? null)}
-                <span className="text-[10px] text-muted-foreground">
-                  {c.objective ?? "—"}
-                </span>
-              </div>
-            </div>
 
-            {/* ROAS + Spend */}
-            <div className="shrink-0 text-right">
-              <span
-                className={cn(
-                  "font-mono text-[12px] font-bold tabular-nums",
-                  roasColor(c.roas)
-                )}
-              >
-                {c.roas.toFixed(2)}
-                <span className="text-[10px] font-normal opacity-60">×</span>
-              </span>
-              <p className="text-[10px] tabular-nums text-slate-400">
-                {fmtSpend(c.spend, sym)}
-              </p>
-            </div>
-          </button>
-        );
-      })}
+              {/* ROAS + Spend */}
+              <div className="shrink-0 text-right">
+                <span
+                  className={cn(
+                    "font-mono text-[12px] font-bold tabular-nums",
+                    roasColor(c.roas)
+                  )}
+                >
+                  {c.roas.toFixed(2)}
+                  <span className="text-[10px] font-normal opacity-60">×</span>
+                </span>
+                <p className="text-[10px] tabular-nums text-slate-400">
+                  <span className="mr-0.5 text-[9px] uppercase tracking-wide opacity-50">spend </span>
+                  {fmtSpend(c.spend, sym)}
+                </p>
+              </div>
+            </button>
+          );
+        })
+      )}
     </div>
   );
 }

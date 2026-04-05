@@ -12,7 +12,6 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { usePreferencesStore } from "@/store/preferences-store";
 import { useCurrencySymbol } from "@/hooks/use-currency";
@@ -20,7 +19,8 @@ import type { MetaCampaignTableRow } from "@/components/meta/meta-campaign-table
 import type { MetaRecommendation, MetaRecommendationsResponse } from "@/lib/meta/recommendations";
 import { MetaAccountRecs } from "@/components/meta/meta-account-recs";
 import type { MetaAdSetsResponse } from "@/app/api/meta/adsets/route";
-import { PlacementBreakdownChart } from "@/components/meta/placement-breakdown-chart";
+import { MetaBreakdownGrid, type BreakdownRow } from "@/components/meta/meta-breakdown-grid";
+import type { PlacementChartRow } from "@/components/meta/placement-breakdown-chart";
 
 // ── Formatters ────────────────────────────────────────────────────────────────
 
@@ -111,6 +111,9 @@ interface MetaCampaignDetailProps {
   onToggleCheck: (id: string) => void;
   onAnalyze: () => void;
   onClearSelection: () => void;
+  ageRows: BreakdownRow[];
+  placementRows: PlacementChartRow[];
+  isBreakdownLoading: boolean;
   businessId: string;
   since: string;
   until: string;
@@ -168,55 +171,86 @@ function AdSetList({
       {data.rows.map((adset) => {
         const roas = adset.spend > 0 ? adset.revenue / adset.spend : 0;
         const isActive = adset.status.toLowerCase() === "active";
-        const bidLabel = adset.isBidStrategyMixed
-          ? (language === "tr" ? "Karışık" : "Mixed")
-          : adset.bidStrategyLabel ?? "—";
+
+        // Bid zone
+        const bidLabel = adset.bidStrategyLabel ?? "Auto";
         const bidValueStr = adset.bidValue != null
           ? adset.bidValueFormat === "roas"
-            ? `${adset.bidValue.toFixed(2)}x`
+            ? `${adset.bidValue.toFixed(2)}×`
             : fmt$(adset.bidValue / 100, sym)
           : null;
         const prevBidValueStr = adset.previousBidValue != null
           ? (adset.previousBidValueFormat ?? adset.bidValueFormat) === "roas"
-            ? `${adset.previousBidValue.toFixed(2)}x`
+            ? `${adset.previousBidValue.toFixed(2)}×`
             : fmt$(adset.previousBidValue / 100, sym)
           : null;
+        const prevBidAge = adset.previousBidValueCapturedAt
+          ? formatRelativeAge(adset.previousBidValueCapturedAt)
+          : null;
+
+        // Link CTR: prefer inline_link_click_ctr (link clicks / impressions),
+        // fall back to generic ctr (all clicks / impressions) for warehouse data.
+        const linkCtr = adset.inlineLinkClickCtr ?? adset.ctr;
+        const ctrStr = linkCtr != null && linkCtr > 0
+          ? `${linkCtr.toFixed(2)}%`
+          : "—";
 
         return (
           <div
             key={adset.id}
-            className="flex items-center gap-3 rounded-lg border border-slate-100 bg-white px-3 py-2 shadow-sm"
+            className="rounded-xl border border-slate-100 bg-white px-3 py-2.5 shadow-sm"
           >
-            {/* Status dot */}
-            <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", isActive ? "bg-emerald-500" : "bg-slate-400")} />
+            <div className="flex items-start gap-3">
+              {/* Zone 1 — Identity (fixed ~35% so short names don't expand) */}
+              <div className="flex w-[35%] min-w-0 shrink-0 items-start gap-2">
+                <span className={cn("mt-1 h-1.5 w-1.5 shrink-0 rounded-full", isActive ? "bg-emerald-500" : "bg-slate-400")} />
+                <div className="min-w-0">
+                  <p className="truncate text-[12px] font-semibold text-slate-800">{adset.name}</p>
+                  {adset.optimizationGoal && (
+                    <p className="mt-0.5 truncate text-[10px] uppercase tracking-wide text-slate-400">
+                      {adset.optimizationGoal}
+                    </p>
+                  )}
+                </div>
+              </div>
 
-            {/* Name + bid */}
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-[12px] font-semibold text-slate-800">{adset.name}</p>
-              <div className="mt-0.5 flex items-baseline gap-1">
-                <span className="text-[10px] font-medium text-slate-400">{bidLabel}</span>
-                {bidValueStr && (
-                  <span className="font-mono text-[11px] font-bold text-slate-700">{bidValueStr}</span>
-                )}
+              {/* Zone 2 — Bid (flex-1 so it fills remaining space between name and metrics) */}
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">
+                    {bidLabel}
+                  </span>
+                  {bidValueStr && (
+                    <span className="font-mono text-[12px] font-bold text-slate-800">
+                      {bidValueStr}
+                    </span>
+                  )}
+                </div>
                 {prevBidValueStr && (
-                  <span className="text-[10px] text-slate-400">← {prevBidValueStr}{adset.previousBidValueCapturedAt ? ` · ${formatRelativeAge(adset.previousBidValueCapturedAt)}` : ""}</span>
+                  <p className="mt-0.5 text-[10px] text-slate-400">
+                    ← {prevBidValueStr}{prevBidAge ? ` · ${prevBidAge}` : ""}
+                  </p>
                 )}
               </div>
-            </div>
 
-            {/* Metrics */}
-            <div className="flex shrink-0 items-center gap-4">
-              <div className="text-right">
-                <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">Spend</p>
-                <p className="font-mono text-[11px] font-bold tabular-nums text-slate-700">{fmtK(adset.spend, sym)}</p>
-              </div>
-              <div className="text-right">
-                <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">ROAS</p>
-                <p className={cn("font-mono text-[11px] font-bold tabular-nums", roasColor(roas))}>{roas.toFixed(2)}×</p>
-              </div>
-              <div className="text-right">
-                <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">CPA</p>
-                <p className="font-mono text-[11px] font-bold tabular-nums text-slate-700">{fmt$(adset.cpa, sym)}</p>
+              {/* Zone 3 — Metrics: Spend | ROAS | CPA | CTR */}
+              <div className="flex shrink-0 items-center gap-3">
+                <div className="text-right">
+                  <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">Spend</p>
+                  <p className="font-mono text-[11px] font-bold tabular-nums text-slate-700">{fmtK(adset.spend, sym)}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">ROAS</p>
+                  <p className={cn("font-mono text-[11px] font-bold tabular-nums", roasColor(roas))}>{roas.toFixed(2)}×</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">CPA</p>
+                  <p className="font-mono text-[11px] font-bold tabular-nums text-slate-700">{fmt$(adset.cpa, sym)}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">CTR</p>
+                  <p className="font-mono text-[11px] font-bold tabular-nums text-slate-700">{ctrStr}</p>
+                </div>
               </div>
             </div>
           </div>
@@ -235,23 +269,30 @@ interface AccountOverviewProps {
   checkedRecIds: Set<string>;
   onToggleCheck: (id: string) => void;
   onAnalyze: () => void;
+  ageRows: BreakdownRow[];
+  placementRows: PlacementChartRow[];
+  isBreakdownLoading: boolean;
   language: "en" | "tr";
 }
 
 function AccountOverview(props: AccountOverviewProps) {
   return (
     <div className="space-y-4 p-6">
-      <div>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-          {props.language === "tr" ? "Hesap Geneli Analiz" : "Account Analysis"}
-        </p>
-        <p className="mt-0.5 text-xs text-slate-500">
-          {props.language === "tr"
-            ? "Kampanya seçin veya hesap geneli AI analizi başlatın."
-            : "Select a campaign, or run an account-level AI analysis below."}
-        </p>
-      </div>
-      <MetaAccountRecs {...props} />
+      <MetaAccountRecs
+        recommendationsData={props.recommendationsData}
+        isRecsLoading={props.isRecsLoading}
+        lastAnalyzedAt={props.lastAnalyzedAt}
+        checkedRecIds={props.checkedRecIds}
+        onToggleCheck={props.onToggleCheck}
+        onAnalyze={props.onAnalyze}
+        language={props.language}
+      />
+      <MetaBreakdownGrid
+        ageRows={props.ageRows}
+        placementRows={props.placementRows}
+        isLoading={props.isBreakdownLoading}
+        language={props.language}
+      />
     </div>
   );
 }
@@ -267,6 +308,9 @@ export function MetaCampaignDetail({
   onToggleCheck,
   onAnalyze,
   onClearSelection,
+  ageRows,
+  placementRows,
+  isBreakdownLoading,
   businessId,
   since,
   until,
@@ -283,6 +327,9 @@ export function MetaCampaignDetail({
         checkedRecIds={checkedRecIds}
         onToggleCheck={onToggleCheck}
         onAnalyze={onAnalyze}
+        ageRows={ageRows}
+        placementRows={placementRows}
+        isBreakdownLoading={isBreakdownLoading}
         language={language}
       />
     );

@@ -6,6 +6,7 @@ import type { MetaAdSetData } from "@/lib/api/meta";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { getMetaPartialReason, getMetaRangePreparationContext } from "@/lib/meta/readiness";
 import { getMetaWarehouseAdSets } from "@/lib/meta/serving";
+import { getMetaLiveAdSets } from "@/lib/meta/live";
 
 // ── Demo stub ─────────────────────────────────────────────────────────────────
 
@@ -140,6 +141,22 @@ export async function GET(request: NextRequest) {
     endDate: resolvedEnd,
   });
   try {
+    if (rangeContext.isSelectedCurrentDay && connected) {
+      const liveRows = await getMetaLiveAdSets({
+        businessId: businessId!,
+        campaignId,
+        startDate: resolvedStart,
+        endDate: resolvedEnd,
+        includePrev,
+      });
+      return NextResponse.json({
+        status: "ok",
+        rows: liveRows,
+        isPartial: liveRows.length === 0,
+        notReadyReason: liveRows.length === 0 ? "No ad set data available yet for today." : null,
+      } satisfies MetaAdSetsResponse);
+    }
+
     const warehouseRows = await getMetaWarehouseAdSets({
       businessId: businessId!,
       startDate: resolvedStart,
@@ -157,9 +174,10 @@ export async function GET(request: NextRequest) {
       } satisfies MetaAdSetsResponse);
     }
   } catch (error) {
-    console.warn("[meta-adsets] warehouse_read_failed", {
+    console.warn("[meta-adsets] data_fetch_failed", {
       businessId,
       campaignId,
+      live: rangeContext.isSelectedCurrentDay,
       message: error instanceof Error ? error.message : String(error),
     });
   }

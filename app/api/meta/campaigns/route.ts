@@ -7,6 +7,7 @@ import { getProviderAccountAssignments } from "@/lib/provider-account-assignment
 import { runMigrations } from "@/lib/migrations";
 import { getMetaPartialReason, getMetaRangePreparationContext } from "@/lib/meta/readiness";
 import { getMetaWarehouseCampaignTable } from "@/lib/meta/serving";
+import { getMetaLiveCampaignRows } from "@/lib/meta/live";
 
 export interface MetaCampaignRow {
   id: string;
@@ -206,16 +207,27 @@ export async function GET(request: NextRequest) {
 
   let rows: MetaCampaignRow[] = [];
   try {
-    rows = (await getMetaWarehouseCampaignTable({
-      businessId,
-      startDate: resolvedStart,
-      endDate: resolvedEnd,
-      providerAccountIds: targetAccountIds,
-      includePrev,
-    })) as MetaCampaignRow[];
+    if (rangeContext.isSelectedCurrentDay && connected) {
+      rows = await getMetaLiveCampaignRows({
+        businessId,
+        startDate: resolvedStart,
+        endDate: resolvedEnd,
+        providerAccountIds: targetAccountIds,
+        includePrev,
+      });
+    } else {
+      rows = (await getMetaWarehouseCampaignTable({
+        businessId,
+        startDate: resolvedStart,
+        endDate: resolvedEnd,
+        providerAccountIds: targetAccountIds,
+        includePrev,
+      })) as MetaCampaignRow[];
+    }
   } catch (error) {
-    console.warn("[meta-campaigns] warehouse_read_failed", {
+    console.warn("[meta-campaigns] data_fetch_failed", {
       businessId,
+      live: rangeContext.isSelectedCurrentDay,
       message: error instanceof Error ? error.message : String(error),
     });
   }
