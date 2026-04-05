@@ -7,7 +7,7 @@
     "test:watch": "vitest",
     "dev": "next dev --webpack --hostname localhost --port 3000 --experimental-https --experimental-https-key certificates/localhost-key.pem --experimental-https-cert certificates/localhost.pem",
     "dev:turbo": "next dev --turbopack --hostname localhost --port 3000 --experimental-https --experimental-https-key certificates/localhost-key.pem --experimental-https-cert certificates/localhost.pem",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
     "worker:start": "node --import tsx scripts/sync-worker.ts",
     "sync:prune": "node --import tsx scripts/sync-prune.ts",
