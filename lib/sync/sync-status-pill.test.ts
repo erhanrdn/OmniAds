@@ -69,7 +69,8 @@ describe("sync status pill resolver", () => {
         connected: true,
         assignedAccountIds: ["act_1"],
         state: "syncing",
-        latestSync: { progressPercent: 100 },
+        currentCoreUsable: true,
+        latestSync: { progressPercent: 95 },
       } as never)
     ).toMatchObject({
       label: "Active",
@@ -94,6 +95,32 @@ describe("sync status pill resolver", () => {
       label: "64% Syncing",
       tone: "info",
       state: "syncing",
+    });
+  });
+
+  it("renders an active pill for Google Ads when core data is usable despite advisor backlog", () => {
+    expect(
+      resolveGoogleAdsSyncStatusPill({
+        connected: true,
+        assignedAccountIds: ["acc_1"],
+        state: "syncing",
+        panel: {
+          coreUsable: true,
+          extendedLimited: true,
+          headline: "Core metrics are live.",
+          detail: "Extended sync continues.",
+          surfaceStates: [],
+        },
+        advisorProgress: {
+          visible: true,
+          percent: 33,
+          summary: "Preparing",
+        },
+      } as never)
+    ).toMatchObject({
+      label: "Active",
+      tone: "success",
+      state: "active",
     });
   });
 

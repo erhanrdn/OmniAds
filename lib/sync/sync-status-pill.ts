@@ -95,6 +95,10 @@ export function resolveMetaSyncStatusPill(
     return buildAttentionPill();
   }
 
+  if (status.currentCoreUsable) {
+    return buildActivePill();
+  }
+
   if (typeof percent === "number" && percent < 100) {
     return buildSyncingPill(percent);
   }
@@ -147,6 +151,10 @@ export function resolveGoogleAdsSyncStatusPill(
 
   if (isAttentionState) {
     return buildAttentionPill();
+  }
+
+  if (status.panel?.coreUsable) {
+    return buildActivePill();
   }
 
   if (typeof percent === "number" && percent < 100) {
