@@ -529,7 +529,7 @@ export async function GET(request: NextRequest) {
       (queueHealth?.queueDepth ?? 0) > 0 ||
       (queueHealth?.retryableFailedPartitions ?? 0) > 0
     );
-  const shouldReportSelectedRangeProgress = selectedRangeStillPreparing;
+  const shouldReportSelectedRangeProgress = Boolean(selectedRangeRequested && selectedRangeTotalDays);
   const responseProgressPercent =
     shouldReportSelectedRangeProgress && selectedRangeTotalDays
       ? Math.min(100, Math.round((selectedRangeCoreCompletedDays / selectedRangeTotalDays) * 100))
@@ -543,6 +543,7 @@ export async function GET(request: NextRequest) {
   const responseReadyThroughDate = shouldReportSelectedRangeProgress
     ? selectedRangeCoreReadyThroughDate
     : historicalArchiveReadyThroughDate;
+  const selectedRangeReportReady = Boolean(selectedRangeRequested && !selectedRangeIncomplete);
 
   const state = !connected
     ? "not_connected"
@@ -556,15 +557,15 @@ export async function GET(request: NextRequest) {
           ? "paused"
         : historicalQueuePaused
           ? "paused"
-          : (legacyJobHealth?.staleRunningJobs ?? 0) > 0
+        : selectedRangeReportReady
+          ? "ready"
+        : (legacyJobHealth?.staleRunningJobs ?? 0) > 0
             ? "stale"
             : (queueHealth?.retryableFailedPartitions ?? 0) > 0
               ? "stale"
             : overallSyncActive
               ? "syncing"
-              : selectedRangeRequested && !selectedRangeIncomplete
-                ? "ready"
-                : !selectedRangeIncomplete && historicalArchiveProgressPercent >= 100
+              : !selectedRangeIncomplete && historicalArchiveProgressPercent >= 100
                   ? "ready"
                   : "partial";
   const latestMetaActivityAt =
@@ -677,7 +678,9 @@ export async function GET(request: NextRequest) {
     available: availableSurfaces,
   });
   const readinessLevel: "usable" | "partial" | "ready" =
-    accountSurfaceReady && campaignSurfaceReady
+    selectedRangeReportReady
+      ? "ready"
+      : accountSurfaceReady && campaignSurfaceReady
       ? "ready"
       : currentCoreUsable
         ? "usable"

@@ -1055,6 +1055,11 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     input.accountId,
     input.credentials.accessToken
   ).catch(() => new Map<string, string>());
+  const campaignConfigs = await fetchCampaignConfigs(
+    input.credentials,
+    input.accountId,
+    input.credentials.accessToken
+  ).catch(() => new Map<string, RawCampaign>());
   const accountMetrics = deriveWarehouseMetrics(aggregates.account);
   const sourceSnapshotId = latestSnapshotId;
   const campaignRows = Array.from(aggregates.campaigns.entries()).map(([campaignId, value]) => {
@@ -1198,6 +1203,21 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     leaseMinutes: input.leaseMinutes ?? DEFAULT_META_PARTITION_LEASE_MINUTES,
   });
   await upsertMetaCampaignDailyRows(campaignRows);
+  const persistedCampaignConfigCount = await persistMetaCampaignConfigSnapshots({
+    businessId: input.credentials.businessId,
+    accountId: input.accountId,
+    campaignConfigs,
+    entityIds: campaignRows.map((row) => row.campaignId),
+  });
+  if (campaignRows.length > 0 && persistedCampaignConfigCount === 0) {
+    console.warn("[meta-config-snapshots] campaign_config_snapshots_missing", {
+      businessId: input.credentials.businessId,
+      providerAccountId: input.accountId,
+      date: normalizedDay,
+      campaignRowCount: campaignRows.length,
+      fetchedCampaignConfigCount: campaignConfigs.size,
+    });
+  }
   await heartbeatOwnedMetaPartitionLeaseOrThrow({
     partitionId: input.partitionId,
     workerId: input.workerId,
@@ -1676,6 +1696,52 @@ async function fetchCampaignConfigs(
   }
 }
 
+async function persistMetaCampaignConfigSnapshots(input: {
+  businessId: string;
+  accountId: string;
+  campaignConfigs: Map<string, RawCampaign>;
+  entityIds?: string[] | null;
+}): Promise<number> {
+  const entityIds = input.entityIds?.length
+    ? Array.from(new Set(input.entityIds.filter(Boolean)))
+    : Array.from(input.campaignConfigs.keys());
+  if (entityIds.length === 0) return 0;
+
+  const rows = entityIds
+    .map((campaignId) => {
+      const campaign = input.campaignConfigs.get(campaignId);
+      if (!campaign) return null;
+      return {
+        businessId: input.businessId,
+        accountId: input.accountId,
+        entityLevel: "campaign" as const,
+        entityId: campaignId,
+        payload: buildConfigSnapshotPayload({
+          campaignId,
+          bidStrategy: campaign.bid_strategy ?? null,
+          manualBidAmount:
+            campaign.bid_amount != null ? parseNum(campaign.bid_amount) : null,
+          targetRoas: campaign.bid_constraints?.roas_average_floor
+            ? parseNum(campaign.bid_constraints.roas_average_floor)
+            : null,
+          dailyBudget:
+            campaign.daily_budget != null
+              ? parseNum(campaign.daily_budget)
+              : null,
+          lifetimeBudget:
+            campaign.lifetime_budget != null
+              ? parseNum(campaign.lifetime_budget)
+              : null,
+        }),
+      };
+    })
+    .filter((row): row is NonNullable<typeof row> => Boolean(row));
+
+  if (rows.length === 0) return 0;
+  await appendMetaConfigSnapshots(rows);
+  return rows.length;
+}
+
 async function fetchCampaignInsights(
   credentials: MetaCredentials,
   accountId: string,
@@ -1764,7 +1830,7 @@ export async function getCampaigns(
         since: normalizedSince,
         until: normalizedUntil,
         run: async () => {
-          const [statusMap, insights] = await Promise.all([
+          const [statusMap, insights, campaignConfigs] = await Promise.all([
             fetchCampaignStatuses(credentials, accountId, credentials.accessToken),
             fetchCampaignInsights(
               credentials,
@@ -1773,12 +1839,44 @@ export async function getCampaigns(
               normalizedUntil,
               credentials.accessToken
             ),
+            fetchCampaignConfigs(
+              credentials,
+              accountId,
+              credentials.accessToken
+            ),
           ]);
           const profile = credentials.accountProfiles[accountId];
           const normalizedDate = normalizedSince;
 
+          await persistMetaCampaignConfigSnapshots({
+            businessId: credentials.businessId,
+            accountId,
+            campaignConfigs,
+          });
+
           for (const insight of insights) {
             const campaignId = insight.campaign_id ?? "";
+            const campaignConfig = campaignConfigs.get(campaignId);
+            const config = buildConfigSnapshotPayload({
+              campaignId,
+              bidStrategy: campaignConfig?.bid_strategy ?? null,
+              manualBidAmount:
+                campaignConfig?.bid_amount != null
+                  ? parseNum(campaignConfig.bid_amount)
+                  : null,
+              targetRoas:
+                campaignConfig?.bid_constraints?.roas_average_floor != null
+                  ? parseNum(campaignConfig.bid_constraints.roas_average_floor)
+                  : null,
+              dailyBudget:
+                campaignConfig?.daily_budget != null
+                  ? parseNum(campaignConfig.daily_budget)
+                  : null,
+              lifetimeBudget:
+                campaignConfig?.lifetime_budget != null
+                  ? parseNum(campaignConfig.lifetime_budget)
+                  : null,
+            });
             allRows.push({
               id: campaignId,
               accountId,
@@ -1786,17 +1884,17 @@ export async function getCampaigns(
               status: statusMap.get(campaignId) ?? "UNKNOWN",
               budgetLevel: null,
               optimizationGoal: null,
-              bidStrategyType: null,
-              bidStrategyLabel: null,
-              manualBidAmount: null,
+              bidStrategyType: config.bidStrategyType,
+              bidStrategyLabel: config.bidStrategyLabel,
+              manualBidAmount: config.manualBidAmount,
               previousManualBidAmount: null,
-              bidValue: null,
-              bidValueFormat: null,
+              bidValue: config.bidValue,
+              bidValueFormat: config.bidValueFormat,
               previousBidValue: null,
               previousBidValueFormat: null,
               previousBidValueCapturedAt: null,
-              dailyBudget: null,
-              lifetimeBudget: null,
+              dailyBudget: config.dailyBudget,
+              lifetimeBudget: config.lifetimeBudget,
               previousDailyBudget: null,
               previousLifetimeBudget: null,
               previousBudgetCapturedAt: null,
@@ -1924,6 +2022,53 @@ export async function getCampaigns(
   );
 
   return allRows.sort((a, b) => b.spend - a.spend);
+}
+
+export async function backfillMetaCampaignConfigSnapshots(input: {
+  businessId: string;
+  providerAccountId?: string | null;
+}): Promise<{
+  businessId: string;
+  attemptedAccounts: number;
+  persistedSnapshots: number;
+  skipped: boolean;
+}> {
+  const credentials = await resolveMetaCredentials(input.businessId);
+  if (!credentials) {
+    return {
+      businessId: input.businessId,
+      attemptedAccounts: 0,
+      persistedSnapshots: 0,
+      skipped: true,
+    };
+  }
+
+  const accountIds = input.providerAccountId
+    ? credentials.accountIds.filter((accountId) => accountId === input.providerAccountId)
+    : credentials.accountIds;
+  let persistedSnapshots = 0;
+
+  await Promise.all(
+    accountIds.map(async (accountId) => {
+      const campaignConfigs = await fetchCampaignConfigs(
+        credentials,
+        accountId,
+        credentials.accessToken,
+      ).catch(() => new Map<string, RawCampaign>());
+      persistedSnapshots += await persistMetaCampaignConfigSnapshots({
+        businessId: credentials.businessId,
+        accountId,
+        campaignConfigs,
+      });
+    }),
+  );
+
+  return {
+    businessId: credentials.businessId,
+    attemptedAccounts: accountIds.length,
+    persistedSnapshots,
+    skipped: false,
+  };
 }
 
 // ── getAdSets ─────────────────────────────────────────────────────────────────
@@ -2238,45 +2383,55 @@ export async function getAdSets(
         }
 
         if (businessId) {
-          await appendMetaConfigSnapshots(
-            statusRows.map((meta) => {
-              const campaignConfig = campaignConfigs.get(meta.campaign_id ?? campaignId) ?? null;
-              return {
-                businessId,
-                accountId,
-                entityLevel: "adset" as const,
-                entityId: meta.id,
-                payload: buildConfigSnapshotPayload({
-                  campaignId: meta.campaign_id ?? campaignId,
-                  optimizationGoal: meta.optimization_goal ?? null,
-                  bidStrategy: meta.bid_strategy ?? campaignConfig?.bid_strategy ?? null,
-                  manualBidAmount:
-                    meta.bid_amount != null
-                      ? parseNum(meta.bid_amount)
-                      : campaignConfig?.bid_amount != null
-                        ? parseNum(campaignConfig.bid_amount)
+          await Promise.all([
+            appendMetaConfigSnapshots(
+              statusRows.map((meta) => {
+                const campaignConfig =
+                  campaignConfigs.get(meta.campaign_id ?? campaignId) ?? null;
+                return {
+                  businessId,
+                  accountId,
+                  entityLevel: "adset" as const,
+                  entityId: meta.id,
+                  payload: buildConfigSnapshotPayload({
+                    campaignId: meta.campaign_id ?? campaignId,
+                    optimizationGoal: meta.optimization_goal ?? null,
+                    bidStrategy:
+                      meta.bid_strategy ?? campaignConfig?.bid_strategy ?? null,
+                    manualBidAmount:
+                      meta.bid_amount != null
+                        ? parseNum(meta.bid_amount)
+                        : campaignConfig?.bid_amount != null
+                          ? parseNum(campaignConfig.bid_amount)
+                          : null,
+                    targetRoas: meta.bid_constraints?.roas_average_floor
+                      ? parseNum(meta.bid_constraints.roas_average_floor)
+                      : campaignConfig?.bid_constraints?.roas_average_floor
+                        ? parseNum(campaignConfig.bid_constraints.roas_average_floor)
                         : null,
-                  targetRoas: meta.bid_constraints?.roas_average_floor
-                    ? parseNum(meta.bid_constraints.roas_average_floor)
-                    : campaignConfig?.bid_constraints?.roas_average_floor
-                      ? parseNum(campaignConfig.bid_constraints.roas_average_floor)
-                      : null,
-                  dailyBudget:
-                    meta.daily_budget != null
-                      ? parseNum(meta.daily_budget)
-                      : campaignConfig?.daily_budget != null
-                        ? parseNum(campaignConfig.daily_budget)
-                        : null,
-                  lifetimeBudget:
-                    meta.lifetime_budget != null
-                      ? parseNum(meta.lifetime_budget)
-                      : campaignConfig?.lifetime_budget != null
-                        ? parseNum(campaignConfig.lifetime_budget)
-                        : null,
-                }),
-              };
-            })
-          );
+                    dailyBudget:
+                      meta.daily_budget != null
+                        ? parseNum(meta.daily_budget)
+                        : campaignConfig?.daily_budget != null
+                          ? parseNum(campaignConfig.daily_budget)
+                          : null,
+                    lifetimeBudget:
+                      meta.lifetime_budget != null
+                        ? parseNum(meta.lifetime_budget)
+                        : campaignConfig?.lifetime_budget != null
+                          ? parseNum(campaignConfig.lifetime_budget)
+                          : null,
+                  }),
+                };
+              })
+            ),
+            persistMetaCampaignConfigSnapshots({
+              businessId,
+              accountId,
+              campaignConfigs,
+              entityIds: [campaignId],
+            }),
+          ]);
         }
       } catch {
         // Per-account failures are silent — other accounts still process

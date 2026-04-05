@@ -449,7 +449,7 @@ export async function getMetaWarehouseSummary(input: {
       readyThroughDate: historicalCoverage?.ready_through_date ?? null,
       state: historicalState,
     },
-    isPartial: rows.length === 0 || historicalCompletedDays < historicalTotalDays,
+    isPartial: rows.length === 0,
     totals: {
       spend: r2(totals.spend),
       revenue: r2(totals.revenue),
@@ -715,6 +715,16 @@ export async function getMetaWarehouseCampaignTable(input: {
         })
       : Promise.resolve(new Map()),
   ]);
+
+  if (payload.rows.length > 0 && latestConfigs.size === 0) {
+    console.warn("[meta-serving] missing_campaign_config_enrichment", {
+      businessId: input.businessId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      campaignRowCount: payload.rows.length,
+      providerAccountIds: input.providerAccountIds ?? null,
+    });
+  }
 
   return payload.rows.map((row) =>
     buildCampaignTableRow({

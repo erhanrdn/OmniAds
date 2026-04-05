@@ -35,6 +35,8 @@ vi.mock("@/lib/meta/warehouse", () => ({
 }));
 
 const warehouse = await import("@/lib/meta/warehouse");
+const configSnapshots = await import("@/lib/meta/config-snapshots");
+const configuration = await import("@/lib/meta/configuration");
 const { syncMetaAccountCoreWarehouseDay } = await import("@/lib/api/meta");
 
 describe("syncMetaAccountCoreWarehouseDay", () => {
@@ -49,7 +51,108 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     vi.mocked(warehouse.upsertMetaAdDailyRows).mockResolvedValue(undefined);
     vi.mocked(warehouse.buildMetaSyncCheckpointHash).mockReturnValue("checkpoint-hash");
     vi.mocked(warehouse.upsertMetaSyncCheckpoint).mockResolvedValue("checkpoint-id");
+    vi.mocked(configSnapshots.appendMetaConfigSnapshots).mockResolvedValue(undefined);
+    vi.mocked(configuration.buildConfigSnapshotPayload).mockImplementation((input) => ({
+      campaignId: input.campaignId ?? null,
+      optimizationGoal: input.optimizationGoal ?? null,
+      bidStrategyType: input.bidStrategy ?? null,
+      bidStrategyLabel: input.bidStrategy ?? null,
+      manualBidAmount: input.manualBidAmount ?? null,
+      bidValue: input.targetRoas ?? input.manualBidAmount ?? null,
+      bidValueFormat: input.targetRoas != null ? "roas" : input.manualBidAmount != null ? "currency" : null,
+      dailyBudget: input.dailyBudget ?? null,
+      lifetimeBudget: input.lifetimeBudget ?? null,
+      isBudgetMixed: false,
+      isConfigMixed: false,
+      isOptimizationGoalMixed: false,
+      isBidStrategyMixed: false,
+      isBidValueMixed: false,
+    }));
     vi.unstubAllGlobals();
+  });
+
+  it("persists campaign config snapshots during core warehouse sync", async () => {
+    vi.mocked(warehouse.getMetaSyncCheckpoint).mockResolvedValue(null);
+
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes("/insights")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                campaign_id: "cmp-1",
+                campaign_name: "Campaign 1",
+                adset_id: "adset-1",
+                adset_name: "Adset 1",
+                ad_id: "ad-1",
+                ad_name: "Ad 1",
+                spend: "12.50",
+                impressions: "100",
+                clicks: "4",
+                reach: "90",
+                frequency: "1.11",
+                ctr: "4.0",
+                cpm: "125.0",
+                actions: [],
+                action_values: [],
+                purchase_roas: [],
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("/campaigns")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "cmp-1",
+                name: "Campaign 1",
+                effective_status: "ACTIVE",
+                status: "ACTIVE",
+                daily_budget: "25",
+                bid_strategy: "LOWEST_COST_WITH_BID_CAP",
+                bid_amount: "7.5",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await syncMetaAccountCoreWarehouseDay({
+      credentials: {
+        businessId: "biz-1",
+        accessToken: "token-1",
+        accountIds: ["act_1"],
+        currency: "USD",
+        accountProfiles: {
+          act_1: { currency: "USD", timezone: "UTC", name: "Account 1" },
+        },
+      },
+      accountId: "act_1",
+      day: "2026-04-03",
+      partitionId: "partition-1",
+      workerId: "worker-1",
+      leaseEpoch: 11,
+      attemptCount: 1,
+      leaseMinutes: 15,
+    });
+
+    expect(configSnapshots.appendMetaConfigSnapshots).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          businessId: "biz-1",
+          accountId: "act_1",
+          entityLevel: "campaign",
+          entityId: "cmp-1",
+        }),
+      ]),
+    );
   });
 
   it("finalizes derived account_daily, adset_daily, and ad_daily checkpoints after core writes", async () => {

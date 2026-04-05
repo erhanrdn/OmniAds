@@ -310,14 +310,76 @@ describe("GET /api/meta/status", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(payload.readinessLevel).toBe("usable");
+    expect(payload.state).toBe("stale");
+    expect(payload.readinessLevel).toBe("ready");
     expect(payload.domainReadiness?.summary ?? null).toBeNull();
     expect(payload.currentCoreUsable).toBe(true);
     expect(payload.currentCoreProgressPercent).toBe(100);
     expect(payload.historicalArchiveComplete).toBe(false);
     expect(payload.historicalArchiveProgressPercent).toBe(10);
-    expect(payload.latestSync?.progressPercent).toBe(10);
-    expect(payload.latestSync?.completedDays).toBe(35);
-    expect(payload.latestSync?.totalDays).toBe(365);
+    expect(payload.latestSync?.progressPercent).toBe(100);
+    expect(payload.latestSync?.completedDays).toBe(1);
+    expect(payload.latestSync?.totalDays).toBe(1);
+    expect(payload.latestSync?.readyThroughDate).toBe("2026-04-03");
+  });
+
+  it("reports selected-range truth as ready when the requested range is complete and no blocker is present", async () => {
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_meta",
+      business_id: "biz",
+      provider: "meta",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+    vi.mocked(warehouse.getMetaQueueHealth).mockResolvedValue({
+      queueDepth: 0,
+      leasedPartitions: 0,
+      retryableFailedPartitions: 0,
+      deadLetterPartitions: 0,
+      latestCoreActivityAt: null,
+      latestExtendedActivityAt: null,
+      latestMaintenanceActivityAt: null,
+      oldestQueuedPartition: null,
+      historicalCoreQueueDepth: 0,
+      historicalCoreLeasedPartitions: 0,
+      extendedRecentQueueDepth: 0,
+      extendedRecentLeasedPartitions: 0,
+      extendedHistoricalQueueDepth: 0,
+      extendedHistoricalLeasedPartitions: 0,
+    } as never);
+    vi.mocked(warehouse.getMetaAccountDailyCoverage).mockResolvedValue({
+      completed_days: 1,
+      ready_through_date: "2026-04-03",
+    } as never);
+    vi.mocked(warehouse.getMetaCampaignDailyCoverage).mockResolvedValue({
+      completed_days: 1,
+      ready_through_date: "2026-04-03",
+    } as never);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/status?businessId=biz&startDate=2026-04-03&endDate=2026-04-03"
+      )
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.state).toBe("ready");
+    expect(payload.readinessLevel).toBe("ready");
+    expect(payload.currentCoreUsable).toBe(true);
+    expect(payload.latestSync?.progressPercent).toBe(100);
+    expect(payload.latestSync?.completedDays).toBe(1);
+    expect(payload.latestSync?.totalDays).toBe(1);
   });
 });
