@@ -186,6 +186,21 @@ export default function OverviewPage() {
     staleTime: 15 * 60 * 1000,
   });
 
+  // Comparison sparklines — same endpoint, previous period dates.
+  // Only runs when comparison mode is active and summary has resolved.
+  const compStartDate = query.data?.comparison.startDate ?? null;
+  const compEndDate = query.data?.comparison.endDate ?? null;
+  const comparisonSparklineQuery = useQuery({
+    queryKey: ["overview-comparison-sparklines", businessId, compStartDate, compEndDate],
+    enabled: compareMode !== "none" && Boolean(compStartDate) && Boolean(compEndDate),
+    queryFn: () =>
+      getOverviewSparklines(businessId, {
+        startDate: compStartDate!,
+        endDate: compEndDate!,
+      }),
+    staleTime: 15 * 60 * 1000,
+  });
+
   const aiBriefQuery = useQuery({
     queryKey: ["ai-daily-brief", businessId],
     enabled: Boolean(selectedBusinessId),
@@ -248,15 +263,15 @@ export default function OverviewPage() {
   // Merge sparklines into the summary once they arrive.
   // Uses the same formula the server-side route used to generate sparklines,
   // so ROAS and MER values are identical.
-  const effectiveSummary = useMemo(
-    () =>
-      query.data
-        ? sparklineQuery.data
-          ? patchSummarySparklines(query.data, sparklineQuery.data)
-          : query.data
-        : undefined,
-    [query.data, sparklineQuery.data]
-  );
+  const effectiveSummary = useMemo(() => {
+    if (!query.data) return undefined;
+    const withCurrent = sparklineQuery.data
+      ? patchSummarySparklines(query.data, sparklineQuery.data)
+      : query.data;
+    return comparisonSparklineQuery.data
+      ? patchSummaryComparisonSparklines(withCurrent, comparisonSparklineQuery.data)
+      : withCurrent;
+  }, [query.data, sparklineQuery.data, comparisonSparklineQuery.data]);
 
   // Charts show a pulsing skeleton while sparklines are loading.
   const chartsLoading = sparklineQuery.isLoading && !sparklineQuery.data;
@@ -854,6 +869,15 @@ function patchCard(
   return { ...card, sparklineData: patches };
 }
 
+function patchCardComparison(
+  card: OverviewMetricCardData,
+  sparkMap: Record<string, SparklinePoint[]>
+): OverviewMetricCardData {
+  const patches = sparkMap[card.id];
+  if (!patches || patches.length === 0) return card;
+  return { ...card, previousSparklineData: patches };
+}
+
 function patchSummarySparklines(
   summary: OverviewSummaryData,
   bundle: SparklineBundle
@@ -870,6 +894,26 @@ function patchSummarySparklines(
     platforms: summary.platforms.map((platform) => ({
       ...platform,
       metrics: platform.metrics.map((m) => patchCard(m, sparkMap)),
+    })),
+  };
+}
+
+function patchSummaryComparisonSparklines(
+  summary: OverviewSummaryData,
+  bundle: SparklineBundle
+): OverviewSummaryData {
+  const sparkMap = buildSparklineMap(bundle, summary.costModel.values);
+  return {
+    ...summary,
+    pins: summary.pins.map((m) => patchCardComparison(m, sparkMap)),
+    storeMetrics: summary.storeMetrics.map((m) => patchCardComparison(m, sparkMap)),
+    ltv: summary.ltv.map((m) => patchCardComparison(m, sparkMap)),
+    expenses: summary.expenses.map((m) => patchCardComparison(m, sparkMap)),
+    customMetrics: summary.customMetrics.map((m) => patchCardComparison(m, sparkMap)),
+    webAnalytics: summary.webAnalytics.map((m) => patchCardComparison(m, sparkMap)),
+    platforms: summary.platforms.map((platform) => ({
+      ...platform,
+      metrics: platform.metrics.map((m) => patchCardComparison(m, sparkMap)),
     })),
   };
 }

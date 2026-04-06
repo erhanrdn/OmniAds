@@ -129,9 +129,26 @@ export function resolveChartDomain(
     });
   }
 
+  // Sparkline: min/max tabanlı domain (median-centered değil).
+  // Küçük dalgalanmaların devasa görünmesi ve "düşük > yüksek" bozukluğunu önler.
+  if (detailLevel === "sparkline") {
+    const span = rawMax - rawMin;
+    const padding = Math.max(span * 0.12, minPaddingByUnit(unit, rawMax, detailLevel));
+    return clampDomain({
+      min: rawMin - padding,
+      max: rawMax + padding,
+      center: (rawMin + rawMax) / 2,
+      includeZero,
+      modeUsed: mode,
+      clamped: false,
+      normalizedValues,
+      unit,
+    });
+  }
+
   const center = median(normalizedValues);
   const unclampedSpread = Math.max(Math.abs(rawMax - center), Math.abs(rawMin - center));
-  const outlierClampEnabled = detailLevel !== "sparkline" && normalizedValues.length >= 5;
+  const outlierClampEnabled = normalizedValues.length >= 5;
   const effectiveMin = outlierClampEnabled
     ? Math.max(rawMin, center - unclampedSpread * 3)
     : rawMin;

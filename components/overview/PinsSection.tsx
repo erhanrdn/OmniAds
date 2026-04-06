@@ -115,6 +115,7 @@ export function PinsSection({
               value={entry.metric.value}
               changePercent={entry.metric.changePct}
               trendData={trendData}
+              comparisonTrendData={entry.metric.previousSparklineData}
               trendLoading={trendLoading}
               dataSource={entry.metric.dataSource.label}
               sourceKey={entry.metric.dataSource.key}

@@ -107,6 +107,7 @@ export function SummaryMetricCard({
       <div className="mt-3">
         <MiniTrendAreaChart
           data={metric.sparklineData}
+          comparisonData={metric.previousSparklineData}
           tone={metric.trendDirection}
           unit={metric.unit}
           valueFormatter={(value) => formatMetricNumber(value, metric.unit, currencySymbol)}

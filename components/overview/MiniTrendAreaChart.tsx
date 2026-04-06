@@ -11,13 +11,87 @@ import type { OverviewMetricCardData } from "@/src/types/models";
 
 const CHART_WIDTH = 160;
 const CHART_HEIGHT = 52;
-const PLOT_LEFT = 4;
-const PLOT_RIGHT = 4;
+const PLOT_LEFT = 2;
+const PLOT_RIGHT = 2;
 const PLOT_TOP = 4;
 const PLOT_BOTTOM = 4;
 
 type ChartUnit = OverviewMetricCardData["unit"] | "unknown";
 type DateLabelMode = "auto" | "day" | "month";
+
+// Cardinal spline — veri bozulmadan görsel yuvarlama
+function createSmoothPath(pts: Array<{ x: number; y: number }>) {
+  if (pts.length === 0) return "";
+  if (pts.length === 1) return `M ${pts[0].x} ${pts[0].y}`;
+
+  const tension = 0.3;
+  let path = `M ${pts[0].x} ${pts[0].y}`;
+
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[Math.max(0, i - 1)];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[Math.min(pts.length - 1, i + 2)];
+    const cp1x = p1.x + (p2.x - p0.x) * tension;
+    const cp1y = p1.y + (p2.y - p0.y) * tension;
+    const cp2x = p2.x - (p3.x - p1.x) * tension;
+    const cp2y = p2.y - (p3.y - p1.y) * tension;
+    path += ` C ${cp1x.toFixed(2)} ${cp1y.toFixed(2)} ${cp2x.toFixed(2)} ${cp2y.toFixed(2)} ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`;
+  }
+  return path;
+}
+
+function toPoints(
+  data: Array<{ date: string; value: number }>,
+  unit: ChartUnit,
+  domain: { min: number; max: number }
+) {
+  if (data.length < 2) return [];
+
+  const inputValues = data.map((p) => (Number.isFinite(p.value) ? p.value : 0));
+  const values = unit === "percent" ? normalizePercentSeries(inputValues) : inputValues;
+
+  const min = domain.min;
+  const max = domain.max;
+  const range = max - min || 1;
+  const plotWidth = CHART_WIDTH - PLOT_LEFT - PLOT_RIGHT;
+  const plotHeight = CHART_HEIGHT - PLOT_TOP - PLOT_BOTTOM;
+
+  return data.map((item, index) => {
+    const x = PLOT_LEFT + (index / Math.max(data.length - 1, 1)) * plotWidth;
+    const clamped = Math.min(Math.max(values[index], min), max);
+    const y = PLOT_TOP + (1 - (clamped - min) / range) * plotHeight;
+    return { x, y, value: values[index], date: item.date, index };
+  });
+}
+
+function formatPointLabel(value: string, mode: DateLabelMode = "auto") {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const date = new Date(`${value}T00:00:00Z`);
+    if (!Number.isNaN(date.getTime())) {
+      if (mode === "month") {
+        return new Intl.DateTimeFormat("en-US", { month: "short", year: "numeric" }).format(date);
+      }
+      if (mode === "day") {
+        return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(date);
+      }
+      return new Intl.DateTimeFormat("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      }).format(date);
+    }
+  }
+  return value;
+}
+
+function formatCompactValue(value: number) {
+  if (Number.isNaN(value)) return "—";
+  if (Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (Math.abs(value) >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
+  if (Number.isInteger(value)) return String(value);
+  return value.toFixed(2);
+}
 
 export function MiniTrendAreaChart({
   data,
@@ -28,6 +102,7 @@ export function MiniTrendAreaChart({
   valueFormatter,
   dateLabelMode = "auto",
   domainMode = "adaptive",
+  comparisonData,
 }: {
   data: Array<{ date: string; value: number }>;
   tone: OverviewMetricCardData["trendDirection"];
@@ -37,61 +112,32 @@ export function MiniTrendAreaChart({
   valueFormatter?: (value: number) => string;
   dateLabelMode?: DateLabelMode;
   domainMode?: ChartDomainMode;
+  comparisonData?: Array<{ date: string; value: number }>;
 }) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
 
-  const series = useMemo(() => {
-    if (!data || data.length < 2) return [];
+  const domain = useMemo(() => {
+    const inputValues = data.map((p) => (Number.isFinite(p.value) ? p.value : 0));
+    const primary = unit === "percent" ? normalizePercentSeries(inputValues) : inputValues;
 
-    const inputValues = data.map((point) =>
-      Number.isFinite(point.value) ? point.value : 0
-    );
-    const values =
-      unit === "percent" ? normalizePercentSeries(inputValues) : inputValues;
-    const smoothed = unit === "percent" ? values : smoothSeries(values, 0.32);
+    // Domain, comparison dahil tüm değerlerden hesaplanır → her iki çizgi aynı ölçekte
+    let allValues = primary;
+    if (comparisonData && comparisonData.length > 0) {
+      const cmpRaw = comparisonData.map((p) => (Number.isFinite(p.value) ? p.value : 0));
+      const cmp = unit === "percent" ? normalizePercentSeries(cmpRaw) : cmpRaw;
+      allValues = [...primary, ...cmp];
+    }
 
-    return data.map((point, index) => ({
-      date: point.date,
-      raw: values[index],
-      smooth: smoothed[index],
-      index,
-    }));
-  }, [data, unit]);
+    return resolveChartDomain(allValues, { unit, mode: domainMode, detailLevel: "sparkline" });
+  }, [data, comparisonData, unit, domainMode]);
 
-  const domain = useMemo(
+  const points = useMemo(() => toPoints(data, unit, domain), [data, unit, domain]);
+
+  const comparisonPoints = useMemo(
     () =>
-      resolveChartDomain(
-        series.map((item) => item.raw),
-        {
-          unit,
-          mode: domainMode,
-          detailLevel: "sparkline",
-        }
-      ),
-    [domainMode, series, unit]
+      comparisonData && comparisonData.length >= 2 ? toPoints(comparisonData, unit, domain) : [],
+    [comparisonData, unit, domain]
   );
-
-  const points = useMemo(() => {
-    if (series.length < 2) return [];
-
-    const min = domain.min;
-    const max = domain.max;
-    const range = max - min || 1;
-    const plotWidth = CHART_WIDTH - PLOT_LEFT - PLOT_RIGHT;
-    const plotHeight = CHART_HEIGHT - PLOT_TOP - PLOT_BOTTOM;
-
-    return series.map((item, index) => {
-      const x =
-        PLOT_LEFT +
-        (index / Math.max(series.length - 1, 1)) * plotWidth;
-      const clampedValue = Math.min(Math.max(item.smooth, min), max);
-      const y =
-        PLOT_TOP +
-        (1 - (clampedValue - min) / range) * plotHeight;
-
-      return { x, y, value: item.raw, date: item.date, index };
-    });
-  }, [domain.max, domain.min, series]);
 
   if (loading) {
     return <div className={`animate-pulse rounded-lg bg-slate-100 ${className}`} />;
@@ -103,27 +149,42 @@ export function MiniTrendAreaChart({
 
   const activeIndex = hoverIndex ?? points.length - 1;
   const activePoint = points[activeIndex];
-  const linePath = createPath(points);
+
+  // Comparison: pozisyon oranına göre index-aligned (tarih eşleşmesi aranmaz)
+  const activeCmpIndex =
+    comparisonPoints.length > 0
+      ? Math.round(
+          (activeIndex / Math.max(points.length - 1, 1)) *
+            Math.max(comparisonPoints.length - 1, 0)
+        )
+      : null;
+  const activeCmpPoint = activeCmpIndex !== null ? comparisonPoints[activeCmpIndex] : null;
+
+  const linePath = createSmoothPath(points);
   const areaPath = `${linePath} L ${points[points.length - 1].x} ${CHART_HEIGHT - PLOT_BOTTOM} L ${points[0].x} ${CHART_HEIGHT - PLOT_BOTTOM} Z`;
+  const compLinePath = comparisonPoints.length >= 2 ? createSmoothPath(comparisonPoints) : null;
+
   const activeLabel = formatPointLabel(activePoint.date, dateLabelMode);
   const formattedValue = valueFormatter
     ? valueFormatter(activePoint.value)
     : formatCompactValue(activePoint.value);
+  const formattedCmpValue =
+    activeCmpPoint && valueFormatter
+      ? valueFormatter(activeCmpPoint.value)
+      : activeCmpPoint
+        ? formatCompactValue(activeCmpPoint.value)
+        : null;
 
   const handlePointerMove = (event: PointerEvent<SVGSVGElement>) => {
     const bounds = event.currentTarget.getBoundingClientRect();
     if (!bounds.width) return;
     const x = ((event.clientX - bounds.left) / bounds.width) * CHART_WIDTH;
-    const nextIndex = points.reduce((bestIndex, point, index, chartPoints) => {
-      const bestDistance = Math.abs(chartPoints[bestIndex].x - x);
-      const currentDistance = Math.abs(point.x - x);
-      return currentDistance < bestDistance ? index : bestIndex;
+    const nextIndex = points.reduce((best, pt, idx, arr) => {
+      return Math.abs(arr[best].x - x) <= Math.abs(pt.x - x) ? best : idx;
     }, 0);
     setHoverIndex(nextIndex);
   };
 
-  // Position tooltip horizontally above the active point, clamped so it
-  // never overflows the left or right edge of the chart area.
   const xPercent = (activePoint.x / CHART_WIDTH) * 100;
   const tooltipStyle: React.CSSProperties =
     xPercent > 65
@@ -131,6 +192,8 @@ export function MiniTrendAreaChart({
       : xPercent < 15
         ? { left: 0 }
         : { left: `${xPercent}%`, transform: "translateX(-50%)" };
+
+  const gradientId = `area-grad-${unit}`;
 
   return (
     <div className="relative overflow-visible">
@@ -141,8 +204,15 @@ export function MiniTrendAreaChart({
         >
           <p className="font-medium text-slate-500">{activeLabel}</p>
           <p className="mt-0.5 font-semibold text-slate-950">{formattedValue}</p>
+          {formattedCmpValue ? (
+            <p className="mt-0.5 text-slate-400">
+              <span className="mr-1">vs</span>
+              {formattedCmpValue}
+            </p>
+          ) : null}
         </div>
       ) : null}
+
       <svg
         viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
         className={className}
@@ -151,39 +221,50 @@ export function MiniTrendAreaChart({
         onPointerMove={handlePointerMove}
         onPointerLeave={() => setHoverIndex(null)}
       >
-        <line
-          x1={PLOT_LEFT}
-          x2={CHART_WIDTH - PLOT_RIGHT}
-          y1={PLOT_TOP + (CHART_HEIGHT - PLOT_TOP - PLOT_BOTTOM) * 0.5}
-          y2={PLOT_TOP + (CHART_HEIGHT - PLOT_TOP - PLOT_BOTTOM) * 0.5}
-          stroke="#f1f5f9"
-          strokeWidth="1"
-        />
-        <line
-          x1={PLOT_LEFT}
-          x2={PLOT_LEFT}
-          y1={PLOT_TOP}
-          y2={CHART_HEIGHT - PLOT_BOTTOM}
-          stroke="#e2e8f0"
-          strokeWidth="1"
-        />
+        <defs>
+          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#13acf0" stopOpacity="0.10" />
+            <stop offset="100%" stopColor="#13acf0" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+
+        {/* Alt referans çizgisi */}
         <line
           x1={PLOT_LEFT}
           x2={CHART_WIDTH - PLOT_RIGHT}
           y1={CHART_HEIGHT - PLOT_BOTTOM}
           y2={CHART_HEIGHT - PLOT_BOTTOM}
-          stroke="#e2e8f0"
+          stroke="#f1f5f9"
           strokeWidth="1"
         />
-        <path d={areaPath} fill="#3b82f6" fillOpacity="0.15" />
+
+        {/* Önceki dönem — kesikli çizgi */}
+        {compLinePath ? (
+          <path
+            d={compLinePath}
+            fill="none"
+            stroke="#94a3b8"
+            strokeWidth="1.5"
+            strokeDasharray="3 4"
+            strokeLinecap="round"
+            opacity="0.65"
+          />
+        ) : null}
+
+        {/* Alan dolgusu */}
+        <path d={areaPath} fill={`url(#${gradientId})`} />
+
+        {/* Ana çizgi */}
         <path
           d={linePath}
           fill="none"
-          stroke="#3b82f6"
-          strokeWidth="2"
+          stroke="#13acf0"
+          strokeWidth="1.25"
           strokeLinecap="round"
           strokeLinejoin="round"
         />
+
+        {/* Hover göstergesi */}
         {hoverIndex !== null ? (
           <>
             <line
@@ -200,75 +281,22 @@ export function MiniTrendAreaChart({
               cy={activePoint.y}
               r="3"
               fill="#ffffff"
-              stroke="#3b82f6"
+              stroke="#13acf0"
               strokeWidth="2"
             />
+            {activeCmpPoint ? (
+              <circle
+                cx={activeCmpPoint.x}
+                cy={activeCmpPoint.y}
+                r="2.5"
+                fill="#ffffff"
+                stroke="#94a3b8"
+                strokeWidth="1.5"
+              />
+            ) : null}
           </>
         ) : null}
       </svg>
     </div>
   );
-}
-
-function createPath(points: Array<{ x: number; y: number }>) {
-  if (points.length === 0) return "";
-  if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
-
-  let path = `M ${points[0].x} ${points[0].y}`;
-  for (let index = 0; index < points.length - 1; index += 1) {
-    const next = points[index + 1];
-    path += ` L ${next.x} ${next.y}`;
-  }
-  return path;
-}
-
-function smoothSeries(values: number[], alpha = 0.32) {
-  if (values.length === 0) return [];
-  const output: number[] = [];
-  let prev = values[0];
-
-  for (let index = 0; index < values.length; index += 1) {
-    const current = values[index];
-    if (index === 0) {
-      output.push(current);
-      continue;
-    }
-    prev = alpha * current + (1 - alpha) * prev;
-    output.push(prev);
-  }
-
-  return output;
-}
-
-function formatCompactValue(value: number) {
-  if (Number.isNaN(value)) return "\u2014";
-  if (Math.abs(value) >= 1000) return value.toLocaleString();
-  if (Number.isInteger(value)) return String(value);
-  return value.toFixed(2);
-}
-
-function formatPointLabel(value: string, mode: DateLabelMode = "auto") {
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    const date = new Date(`${value}T00:00:00Z`);
-    if (!Number.isNaN(date.getTime())) {
-      if (mode === "month") {
-        return new Intl.DateTimeFormat("en-US", {
-          month: "short",
-          year: "numeric",
-        }).format(date);
-      }
-      if (mode === "day") {
-        return new Intl.DateTimeFormat("en-US", {
-          month: "short",
-          day: "numeric",
-        }).format(date);
-      }
-      return new Intl.DateTimeFormat("en-US", {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-      }).format(date);
-    }
-  }
-  return value;
 }
