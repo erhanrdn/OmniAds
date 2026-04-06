@@ -384,7 +384,7 @@ describe("meta warehouse ownership safety", () => {
           {
             date: "2026-04-03",
             provider_account_id: "acct-1",
-            account_spend: 50,
+            account_spend: 2,
             campaign_spend: 60,
           },
         ];
@@ -408,9 +408,11 @@ describe("meta warehouse ownership safety", () => {
           "validation_failed",
           "missing_breakdown",
           "spend_drift",
+          "tiny_stale_spend",
         ]),
         validationFailed: true,
         spendDrift: true,
+        tinyStaleSpend: true,
       }),
     ]);
   });

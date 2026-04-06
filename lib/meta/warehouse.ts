@@ -86,6 +86,20 @@ function withinToleranceForDirtyDate(left: number, right: number) {
   return Math.abs(left - right) <= tolerance;
 }
 
+function looksLikeTinyStaleSpend(left: number, right: number) {
+  const accountSpend = Math.max(0, Math.abs(left));
+  const campaignSpend = Math.max(0, Math.abs(right));
+  if (accountSpend <= 0 || campaignSpend <= 0) return false;
+  if (withinToleranceForDirtyDate(accountSpend, campaignSpend)) return false;
+  const ratio = campaignSpend / Math.max(accountSpend, 0.01);
+  const absoluteDelta = campaignSpend - accountSpend;
+  return (
+    ratio >= 5 &&
+    accountSpend <= Math.max(5, campaignSpend * 0.2) &&
+    absoluteDelta >= Math.max(1, campaignSpend * 0.25)
+  );
+}
+
 function metaSourcePriority(source: string | null | undefined) {
   switch (String(source ?? "")) {
     case "finalize_day":
@@ -142,7 +156,9 @@ function deriveMetaDirtyRecentFlags(input: {
       reasonSet.has("missing_campaign") ||
       reasonSet.has("missing_adset") ||
       reasonSet.has("missing_breakdown"),
-    spendDrift: reasonSet.has("spend_drift"),
+    spendDrift:
+      reasonSet.has("spend_drift") || reasonSet.has("tiny_stale_spend"),
+    tinyStaleSpend: reasonSet.has("tiny_stale_spend"),
   };
 }
 
@@ -4761,6 +4777,9 @@ export async function getMetaDirtyRecentDates(input: {
     const existing = dirtyRows.get(key);
     const reasons = new Set<MetaDirtyRecentReason>(existing?.reasons ?? []);
     reasons.add("spend_drift");
+    if (looksLikeTinyStaleSpend(accountSpend, campaignSpend)) {
+      reasons.add("tiny_stale_spend");
+    }
     dirtyRows.set(key, {
       providerAccountId,
       date,

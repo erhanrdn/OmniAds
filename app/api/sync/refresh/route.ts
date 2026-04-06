@@ -7,7 +7,12 @@ import { runGoogleAdsRepairCycle, runMetaRepairCycle } from "@/lib/sync/provider
 import { syncShopifyCommerceReports } from "@/lib/sync/shopify-sync";
 import * as metaWarehouse from "@/lib/meta/warehouse";
 import * as googleAdsWarehouse from "@/lib/google-ads/warehouse";
-import { consumeMetaQueuedWork, syncMetaRepairRange, syncMetaToday } from "@/lib/sync/meta-sync";
+import {
+  consumeMetaQueuedWork,
+  getMetaSelectedRangeTruthReadiness,
+  syncMetaRepairRange,
+  syncMetaToday,
+} from "@/lib/sync/meta-sync";
 
 /**
  * POST /api/sync/refresh
@@ -320,6 +325,33 @@ function isBacklogOnlySyncResult(provider: string, result: unknown): boolean {
   return false;
 }
 
+async function getMetaRefreshCompletionStatus(input: {
+  businessId: string;
+  mode?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+}) {
+  if (
+    input.mode === "today" ||
+    !input.startDate ||
+    !input.endDate
+  ) {
+    return null;
+  }
+  const truthReadiness = await getMetaSelectedRangeTruthReadiness({
+    businessId: input.businessId,
+    startDate: input.startDate,
+    endDate: input.endDate,
+  }).catch(() => null);
+  if (!truthReadiness) {
+    return { status: "processing" as const, truthReadiness: null };
+  }
+  return {
+    status: truthReadiness.truthReady ? ("finalized" as const) : ("processing" as const),
+    truthReadiness,
+  };
+}
+
 export async function POST(request: NextRequest) {
   const access = await requireInternalOrAdminSyncAccess(request);
   if (access.error) return access.error;
@@ -507,7 +539,7 @@ export async function POST(request: NextRequest) {
     endDate != null &&
     startDate === endDate;
   if (explicitSingleDayMetaRefresh && !metaConsumerRunning) {
-    await consumeMetaQueuedWork(businessId).catch((error) => {
+    await Promise.resolve(consumeMetaQueuedWork(businessId)).catch((error) => {
       console.warn("[sync-refresh] meta_inline_consume_failed", {
         businessId,
         provider,
@@ -519,13 +551,26 @@ export async function POST(request: NextRequest) {
   }
 
   if (isBacklogOnlySyncResult(provider, syncResult.result)) {
+    const metaCompletion =
+      provider === "meta"
+        ? await getMetaRefreshCompletionStatus({
+            businessId,
+            mode,
+            startDate,
+            endDate,
+          })
+        : null;
     if (access.kind === "admin") {
       await logAdminAction({
         adminId: access.session.user.id,
         action: "sync.refresh",
         targetType: "business",
         targetId: businessId,
-        meta: { provider, outcome: "already_running", result: syncResult.result },
+        meta: {
+          provider,
+          outcome: metaCompletion?.status ?? "already_running",
+          result: syncResult.result,
+        },
       });
     }
     await releaseDurableRefreshLock({
@@ -535,11 +580,25 @@ export async function POST(request: NextRequest) {
       status: "done",
     });
 
-    return NextResponse.json(
-      { ok: true, status: "already_running", provider: syncResult.provider, result: syncResult.result },
-      { status: 202 }
-    );
+    const payload: Record<string, unknown> = {
+      ok: true,
+      status: metaCompletion?.status ?? "already_running",
+      provider: syncResult.provider,
+      result: syncResult.result,
+    };
+    if (metaCompletion) payload.truthReadiness = metaCompletion.truthReadiness;
+    return NextResponse.json(payload, { status: 202 });
   }
+
+  const metaCompletion =
+    provider === "meta"
+      ? await getMetaRefreshCompletionStatus({
+          businessId,
+          mode,
+          startDate,
+          endDate,
+        })
+      : null;
 
   if (access.kind === "admin") {
     await logAdminAction({
@@ -547,7 +606,11 @@ export async function POST(request: NextRequest) {
       action: "sync.refresh",
       targetType: "business",
       targetId: businessId,
-      meta: { provider, outcome: "started", result: syncResult.result },
+      meta: {
+        provider,
+        outcome: metaCompletion?.status ?? "started",
+        result: syncResult.result,
+      },
     });
   }
   await releaseDurableRefreshLock({
@@ -557,8 +620,12 @@ export async function POST(request: NextRequest) {
     status: "done",
   });
 
-  return NextResponse.json(
-    { ok: true, status: "started", provider: syncResult.provider, result: syncResult.result },
-    { status: 202 }
-  );
+  const payload: Record<string, unknown> = {
+    ok: true,
+    status: metaCompletion?.status ?? "started",
+    provider: syncResult.provider,
+    result: syncResult.result,
+  };
+  if (metaCompletion) payload.truthReadiness = metaCompletion.truthReadiness;
+  return NextResponse.json(payload, { status: 202 });
 }

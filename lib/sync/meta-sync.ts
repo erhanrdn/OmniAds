@@ -53,7 +53,9 @@ import {
 } from "@/lib/meta/warehouse";
 import type {
   MetaDirtyRecentDateRow,
+  MetaDirtyRecentReason,
   MetaDirtyRecentSeverity,
+  MetaSelectedRangeTruthReadiness,
   MetaSyncCheckpointRecord,
   MetaSyncLane,
   MetaSyncPartitionRecord,
@@ -1087,6 +1089,79 @@ async function getMetaWarehouseWindowCompletion(input: {
   };
 }
 
+function collectMetaBlockingDirtyReasons(
+  rows: MetaDirtyRecentDateRow[],
+): MetaDirtyRecentReason[] {
+  const reasons = new Set<MetaDirtyRecentReason>();
+  for (const row of rows) {
+    for (const reason of row.reasons) {
+      if (reason === "missing_breakdown") continue;
+      reasons.add(reason);
+    }
+  }
+  return Array.from(reasons);
+}
+
+export async function getMetaSelectedRangeTruthReadiness(input: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+}): Promise<MetaSelectedRangeTruthReadiness> {
+  const totalDays = dayCountInclusive(input.startDate, input.endDate);
+  const slowPathDates = enumerateDays(input.startDate, input.endDate, false);
+  const [accountCoverage, campaignCoverage, adsetCoverage, dirtyRows] =
+    await Promise.all([
+      getMetaAccountDailyCoverage({
+        businessId: input.businessId,
+        providerAccountId: null,
+        startDate: input.startDate,
+        endDate: input.endDate,
+      }).catch(() => null),
+      getMetaCampaignDailyCoverage({
+        businessId: input.businessId,
+        providerAccountId: null,
+        startDate: input.startDate,
+        endDate: input.endDate,
+      }).catch(() => null),
+      getMetaAdSetDailyCoverage({
+        businessId: input.businessId,
+        providerAccountId: null,
+        startDate: input.startDate,
+        endDate: input.endDate,
+      }).catch(() => null),
+      getMetaDirtyRecentDates({
+        businessId: input.businessId,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        slowPathDates,
+      }).catch(() => []),
+    ]);
+
+  const completedCoreDays = Math.min(
+    accountCoverage?.completed_days ?? 0,
+    campaignCoverage?.completed_days ?? 0,
+    adsetCoverage?.completed_days ?? 0,
+  );
+  const blockingReasons = collectMetaBlockingDirtyReasons(dirtyRows);
+  const reasonCounts: Record<string, number> = {};
+  for (const row of dirtyRows) {
+    for (const reason of row.reasons) {
+      reasonCounts[reason] = (reasonCounts[reason] ?? 0) + 1;
+    }
+  }
+
+  const truthReady =
+    completedCoreDays >= totalDays && blockingReasons.length === 0;
+  return {
+    truthReady,
+    state: truthReady ? "finalized" : "processing",
+    totalDays,
+    completedCoreDays,
+    blockingReasons,
+    reasonCounts,
+  };
+}
+
 async function getMetaDailyCoverageState(input: {
   businessId: string;
   day: string;
@@ -1550,6 +1625,7 @@ async function enqueueMetaMaintenancePartitions(
     date: string,
     source: MetaSyncPartitionSource,
     dirty?: MetaDirtyRecentDateRow | null,
+    options?: { eventualFinalization?: boolean },
   ) => {
     const guard = await getMetaRecentAuthoritativeSliceGuard({
       businessId,
@@ -1577,7 +1653,9 @@ async function enqueueMetaMaintenancePartitions(
       });
       return 0;
     }
-    if (guard?.lastSameSourceSuccessAt && dirty?.severity !== "critical") {
+    const bypassRecentSuccess =
+      options?.eventualFinalization === true || dirty?.severity === "critical";
+    if (guard?.lastSameSourceSuccessAt && !bypassRecentSuccess) {
       summary.skippedRecentSuccess += 1;
       return 0;
     }
@@ -1610,6 +1688,8 @@ async function enqueueMetaMaintenancePartitions(
       target.providerAccountId,
       target.d1,
       "finalize_day",
+      dirtyBySlice.get(`${target.providerAccountId}:${target.d1}`) ?? null,
+      { eventualFinalization: true },
     );
   }
 
@@ -3090,7 +3170,7 @@ export async function getMetaSelectedRangeState(input: {
   startDate: string;
   endDate: string;
 }) {
-  const [completion, queueHealth, latestSync, states] = await Promise.all([
+  const [completion, queueHealth, latestSync, states, truthReadiness] = await Promise.all([
     getMetaWarehouseWindowCompletion(input).catch(() => null),
     getMetaQueueHealth({ businessId: input.businessId }).catch(() => null),
     getLatestMetaSyncHealth({
@@ -3105,6 +3185,7 @@ export async function getMetaSelectedRangeState(input: {
         }).catch(() => []),
       ),
     ),
+    getMetaSelectedRangeTruthReadiness(input).catch(() => null),
   ]);
-  return { completion, queueHealth, latestSync, states };
+  return { completion, queueHealth, latestSync, states, truthReadiness };
 }

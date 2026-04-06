@@ -320,9 +320,9 @@ describe("enqueueMetaScheduledWork", () => {
         {
           providerAccountId: "act_3",
           date: "2026-04-04",
-          severity: "critical",
-          reasons: ["validation_failed"],
-          validationFailed: true,
+          severity: "high",
+          reasons: ["spend_drift"],
+          spendDrift: true,
         },
         {
           providerAccountId: "act_4",
@@ -424,6 +424,60 @@ describe("enqueueMetaScheduledWork", () => {
           input.scope === "account_daily",
       ),
     ).toBe(true);
+
+    vi.useRealTimers();
+  });
+
+  it("does not let recent success skip D-1 eventual finalization", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-06T09:00:00.000Z"));
+    vi.mocked(warehouse.getMetaRecentAuthoritativeSliceGuard).mockResolvedValue({
+      activeAuthoritativeSource: null,
+      activeAuthoritativePriority: 0,
+      lastSameSourceAttemptAt: null,
+      lastSameSourceSuccessAt: "2026-04-06T08:45:00.000Z",
+      repeatedFailures24h: 0,
+    } as never);
+
+    await enqueueMetaScheduledWork("biz-1");
+
+    expect(
+      vi.mocked(warehouse.queueMetaSyncPartition).mock.calls.some(
+        ([input]) =>
+          input.providerAccountId === "act_1" &&
+          input.partitionDate === "2026-04-05" &&
+          input.source === "finalize_day" &&
+          input.scope === "account_daily",
+      ),
+    ).toBe(true);
+
+    vi.useRealTimers();
+  });
+
+  it("includes tiny_stale_spend in recent auto-heal reason counts", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-06T09:00:00.000Z"));
+    vi.mocked(warehouse.getMetaDirtyRecentDates)
+      .mockResolvedValueOnce([
+        {
+          providerAccountId: "act_1",
+          date: "2026-04-04",
+          severity: "high",
+          reasons: ["spend_drift", "tiny_stale_spend"],
+          spendDrift: true,
+          tinyStaleSpend: true,
+        },
+      ] as never)
+      .mockResolvedValueOnce([] as never);
+
+    const result = await enqueueMetaScheduledWork("biz-1");
+
+    expect(result.recentAutoHeal.reasonCounts).toEqual(
+      expect.objectContaining({
+        spend_drift: 1,
+        tiny_stale_spend: 1,
+      }),
+    );
 
     vi.useRealTimers();
   });

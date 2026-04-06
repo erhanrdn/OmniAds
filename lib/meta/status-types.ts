@@ -5,6 +5,10 @@ import type {
   ProviderSurfaceSummary,
 } from "@/lib/provider-readiness";
 import type {
+  MetaDirtyRecentReason,
+  MetaSelectedRangeTruthReadiness,
+} from "@/lib/meta/warehouse-types";
+import type {
   ProviderBlockingReason,
   ProviderRepairableAction,
   ProviderRequiredCoverage,
@@ -244,6 +248,9 @@ export interface MetaStatusResponse {
     completedDays: number;
     totalDays: number;
     isActive: boolean;
+  } | null;
+  selectedRangeTruth?: MetaSelectedRangeTruthReadiness & {
+    blockingReasons: MetaDirtyRecentReason[];
   } | null;
   latestSync?: MetaSyncDetails | null;
   currentDayLive?: {

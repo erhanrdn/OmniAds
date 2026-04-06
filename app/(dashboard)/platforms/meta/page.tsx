@@ -887,6 +887,7 @@ export default function MetaPage() {
         const payload = await response.json().catch(() => null);
         throw new Error(payload?.error ?? payload?.message ?? `Refresh failed (${response.status})`);
       }
+      const refreshPayload = await response.json().catch(() => null);
 
       await Promise.allSettled([
         statusQuery.refetch(),
@@ -932,8 +933,15 @@ export default function MetaPage() {
           (refreshedStatus?.state ?? "ready") !== "syncing" &&
           queueDepth <= 0 &&
           leasedPartitions <= 0;
+        const truthReady = isTodayRange
+          ? syncSettled
+          : Boolean(refreshedStatus?.selectedRangeTruth?.truthReady);
 
-        if (dataChanged || syncSettled) {
+        if (
+          dataChanged ||
+          truthReady ||
+          (refreshPayload?.status === "finalized" && syncSettled)
+        ) {
           void campaignPrevResult;
           void breakdownsResult;
           void compareCampaignsResult;

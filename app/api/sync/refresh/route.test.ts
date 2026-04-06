@@ -36,6 +36,7 @@ vi.mock("@/lib/sync/google-ads-sync", () => ({
 vi.mock("@/lib/sync/meta-sync", () => ({
   enqueueMetaScheduledWork: vi.fn(),
   consumeMetaQueuedWork: vi.fn(),
+  getMetaSelectedRangeTruthReadiness: vi.fn(),
   syncMetaRepairRange: vi.fn(),
   syncMetaToday: vi.fn(),
 }));
@@ -114,6 +115,14 @@ describe("POST /api/sync/refresh", () => {
       skippedActiveLeaseCount: 0,
     } as never);
     vi.mocked(metaWarehouse.requeueMetaRetryableFailedPartitions).mockResolvedValue([] as never);
+    vi.mocked(metaSync.getMetaSelectedRangeTruthReadiness).mockResolvedValue({
+      truthReady: false,
+      state: "processing",
+      totalDays: 1,
+      completedCoreDays: 0,
+      blockingReasons: [],
+      reasonCounts: {},
+    } as never);
     vi.mocked(googleAdsWarehouse.cleanupGoogleAdsPartitionOrchestration).mockResolvedValue({
       stalePartitionCount: 0,
     } as never);
@@ -180,7 +189,7 @@ describe("POST /api/sync/refresh", () => {
     expect(payload.error).toBe("unsupported_provider_for_refresh");
   });
 
-  it("accepts Meta range refresh payloads", async () => {
+  it("returns processing for Meta range refresh until finalized truth is ready", async () => {
     vi.mocked(internalAuth.requireInternalOrAdminSyncAccess).mockResolvedValue({
       kind: "internal",
     });
@@ -204,13 +213,53 @@ describe("POST /api/sync/refresh", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(202);
-    expect(payload.status).toBe("started");
+    expect(payload.status).toBe("processing");
     expect(metaSync.syncMetaRepairRange).toHaveBeenCalledWith({
       businessId: "biz",
       startDate: "2026-03-01",
       endDate: "2026-03-02",
     });
+    expect(metaSync.getMetaSelectedRangeTruthReadiness).toHaveBeenCalledWith({
+      businessId: "biz",
+      startDate: "2026-03-01",
+      endDate: "2026-03-02",
+    });
     expect(metaSync.consumeMetaQueuedWork).not.toHaveBeenCalled();
+  });
+
+  it("returns finalized when Meta refresh already produced finalized truth", async () => {
+    vi.mocked(internalAuth.requireInternalOrAdminSyncAccess).mockResolvedValue({
+      kind: "internal",
+    });
+    vi.mocked(metaSync.syncMetaRepairRange).mockResolvedValue({
+      businessId: "biz",
+      attempted: 1,
+      succeeded: 1,
+      failed: 0,
+      skipped: false,
+    } as never);
+    vi.mocked(metaSync.getMetaSelectedRangeTruthReadiness).mockResolvedValue({
+      truthReady: true,
+      state: "finalized",
+      totalDays: 1,
+      completedCoreDays: 1,
+      blockingReasons: [],
+      reasonCounts: {},
+    } as never);
+
+    const response = await POST(
+      buildRequest({
+        businessId: "biz",
+        provider: "meta",
+        mode: "repair",
+        startDate: "2026-04-05",
+        endDate: "2026-04-05",
+      })
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(202);
+    expect(payload.status).toBe("finalized");
   });
 
   it("runs an inline Meta consume fallback for explicit single-day refreshes when no consumer is active", async () => {

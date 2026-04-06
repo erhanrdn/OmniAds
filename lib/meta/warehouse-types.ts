@@ -81,6 +81,7 @@ export type MetaDirtyRecentReason =
   | "non_finalized"
   | "validation_failed"
   | "spend_drift"
+  | "tiny_stale_spend"
   | "missing_campaign"
   | "missing_adset"
   | "missing_breakdown";
@@ -95,6 +96,7 @@ export interface MetaDirtyRecentDateRow {
   validationFailed?: boolean;
   coverageMissing?: boolean;
   spendDrift?: boolean;
+  tinyStaleSpend?: boolean;
 }
 
 export interface MetaRecentAuthoritativeSliceGuard {
@@ -103,6 +105,15 @@ export interface MetaRecentAuthoritativeSliceGuard {
   lastSameSourceAttemptAt: string | null;
   lastSameSourceSuccessAt: string | null;
   repeatedFailures24h: number;
+}
+
+export interface MetaSelectedRangeTruthReadiness {
+  truthReady: boolean;
+  state: "processing" | "finalized";
+  totalDays: number;
+  completedCoreDays: number;
+  blockingReasons: MetaDirtyRecentReason[];
+  reasonCounts: Record<string, number>;
 }
 
 export interface MetaWarehouseMetricSet {

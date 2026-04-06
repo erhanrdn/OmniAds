@@ -35,6 +35,7 @@ import {
 import { isDemoBusinessId, getDemoMetaStatus } from "@/lib/demo-business";
 import { getProviderWorkerHealthState } from "@/lib/sync/worker-health";
 import { deriveMetaOperationsBlockReason } from "@/lib/meta/status-operations";
+import { getMetaSelectedRangeTruthReadiness } from "@/lib/sync/meta-sync";
 import {
   buildBlockingReason,
   buildProviderProgressEvidence,
@@ -466,6 +467,14 @@ export async function GET(request: NextRequest) {
     Boolean(selectedStartDate && selectedEndDate && currentDateInTimezone) &&
     selectedStartDate === selectedEndDate &&
     selectedStartDate === currentDateInTimezone;
+  const selectedRangeTruth =
+    selectedRangeRequested && selectedStartDate && selectedEndDate && !selectedRangeIsToday
+      ? await getMetaSelectedRangeTruthReadiness({
+          businessId: businessId!,
+          startDate: selectedStartDate,
+          endDate: selectedEndDate,
+        }).catch(() => null)
+      : null;
   const selectedRangeBreakdownGuardrailBlocked =
     selectedRangeRequested && selectedEndDate && selectedStartDate
       ? selectedStartDate < getMetaBreakdownSupportedStart(selectedEndDate)
@@ -1205,6 +1214,7 @@ export async function GET(request: NextRequest) {
               isActive: Boolean(selectedRangeIncomplete) && (queueHealth?.leasedPartitions ?? 0) > 0,
             }
           : null,
+      selectedRangeTruth,
       latestSync: latestSync
         ? {
             id: latestSync.id ? String(latestSync.id) : null,
