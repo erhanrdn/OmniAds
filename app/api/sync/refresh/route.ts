@@ -197,6 +197,59 @@ async function acquireDurableRefreshLock(input: {
   }
 }
 
+async function getActiveDurableRefreshLockAgeSeconds(input: {
+  businessId: string;
+  provider: string;
+}): Promise<number | null> {
+  try {
+    await runMigrations();
+    const sql = getDb();
+    const rows = await sql`
+      SELECT EXTRACT(EPOCH FROM (now() - started_at))::int AS age_seconds
+      FROM provider_sync_jobs
+      WHERE business_id = ${input.businessId}
+        AND provider = ${input.provider}
+        AND report_type = ${DURABLE_REFRESH_REPORT_TYPE}
+        AND date_range_key = ${DURABLE_REFRESH_RANGE_KEY}
+        AND status = 'running'
+        AND COALESCE(lock_expires_at, started_at + (${DURABLE_REFRESH_LOCK_MINUTES} || ' minutes')::interval) > now()
+      ORDER BY started_at ASC
+      LIMIT 1
+    ` as Array<{ age_seconds: number | null }>;
+    const value = rows[0]?.age_seconds;
+    return Number.isFinite(value) ? Number(value) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function expireDurableRefreshLock(input: {
+  businessId: string;
+  provider: string;
+}): Promise<boolean> {
+  try {
+    await runMigrations();
+    const sql = getDb();
+    await sql`
+      UPDATE provider_sync_jobs
+      SET
+        status = 'failed',
+        completed_at = now(),
+        lock_expires_at = now(),
+        error_message = 'idle_refresh_lock_reclaimed'
+      WHERE business_id = ${input.businessId}
+        AND provider = ${input.provider}
+        AND report_type = ${DURABLE_REFRESH_REPORT_TYPE}
+        AND date_range_key = ${DURABLE_REFRESH_RANGE_KEY}
+        AND status = 'running'
+        AND COALESCE(lock_expires_at, started_at + (${DURABLE_REFRESH_LOCK_MINUTES} || ' minutes')::interval) > now()
+    `;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function releaseDurableRefreshLock(input: {
   businessId: string;
   provider: string;
@@ -451,6 +504,8 @@ export async function POST(request: NextRequest) {
   const hasRepairableIssues = await hasRepairableProviderIssues(businessId, provider);
   const explicitMetaRangeRefresh =
     provider === "meta" && startDate != null && endDate != null;
+  const explicitMetaHistoricalRefresh =
+    explicitMetaRangeRefresh && mode === "finalize_range";
   const metaConsumerRunning =
     provider === "meta"
       ? await hasMetaQueueConsumerRunning(businessId).catch(() => false)
@@ -481,11 +536,34 @@ export async function POST(request: NextRequest) {
   }
 
   const durableLockOwner = crypto.randomUUID();
-  const durableLock = await acquireDurableRefreshLock({
+  let durableLock = await acquireDurableRefreshLock({
     businessId,
     provider,
     ownerToken: durableLockOwner,
   });
+  if (
+    explicitMetaHistoricalRefresh &&
+    !durableLock.error &&
+    !durableLock.acquired &&
+    !alreadyRunning &&
+    !metaConsumerRunning &&
+    !hasRepairableIssues
+  ) {
+    const lockAgeSeconds = await getActiveDurableRefreshLockAgeSeconds({
+      businessId,
+      provider,
+    });
+    if ((lockAgeSeconds ?? 0) >= 15) {
+      const expired = await expireDurableRefreshLock({ businessId, provider });
+      if (expired) {
+        durableLock = await acquireDurableRefreshLock({
+          businessId,
+          provider,
+          ownerToken: durableLockOwner,
+        });
+      }
+    }
+  }
   if (durableLock.error) {
     if (access.kind === "admin") {
       await logAdminAction({

@@ -674,6 +674,87 @@ describe("POST /api/sync/refresh", () => {
     );
   });
 
+  it("does not report already_running for an idle Meta finalize_range target with only a stale durable lock", async () => {
+    vi.mocked(internalAuth.requireInternalOrAdminSyncAccess).mockResolvedValue({
+      kind: "internal",
+    });
+    vi.mocked(db.getDb).mockReturnValue(
+      vi.fn()
+        .mockResolvedValueOnce([{ already_running: false, acquired: true }])
+        .mockResolvedValueOnce([{ already_running: true, acquired: false }])
+        .mockResolvedValueOnce([{ age_seconds: 30 }])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ already_running: false, acquired: true }]) as never,
+    );
+    vi.mocked(metaSync.syncMetaRepairRange).mockResolvedValue({
+      businessId: "biz",
+      attempted: 1,
+      succeeded: 0,
+      failed: 0,
+      skipped: false,
+    } as never);
+    vi.mocked(metaSync.getMetaSelectedRangeTruthReadiness).mockResolvedValue({
+      truthReady: false,
+      state: "processing",
+      totalDays: 1,
+      completedCoreDays: 0,
+      blockingReasons: [],
+      reasonCounts: {},
+      verificationState: "processing",
+    } as never);
+
+    const response = await POST(
+      buildRequest({
+        businessId: "biz",
+        provider: "meta",
+        mode: "finalize_range",
+        startDate: "2026-04-04",
+        endDate: "2026-04-04",
+      }),
+    );
+
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual(
+      expect.objectContaining({
+        ok: true,
+        status: "processing",
+        provider: "meta",
+      }),
+    );
+    expect(metaSync.syncMetaRepairRange).toHaveBeenCalledWith({
+      businessId: "biz",
+      startDate: "2026-04-04",
+      endDate: "2026-04-04",
+      triggerSource: "manual_refresh",
+    });
+  });
+
+  it("keeps already_running for a real active Meta finalize_range durable lock", async () => {
+    vi.mocked(internalAuth.requireInternalOrAdminSyncAccess).mockResolvedValue({
+      kind: "internal",
+    });
+    vi.mocked(db.getDb).mockReturnValue(
+      vi.fn()
+        .mockResolvedValueOnce([{ already_running: false, acquired: true }])
+        .mockResolvedValueOnce([{ already_running: true, acquired: false }])
+        .mockResolvedValueOnce([{ age_seconds: 5 }]) as never,
+    );
+
+    const response = await POST(
+      buildRequest({
+        businessId: "biz",
+        provider: "meta",
+        mode: "finalize_range",
+        startDate: "2026-04-04",
+        endDate: "2026-04-04",
+      }),
+    );
+
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({ ok: true, status: "already_running" });
+    expect(metaSync.syncMetaRepairRange).not.toHaveBeenCalled();
+  });
+
   it("fails closed when durable refresh lock acquisition errors", async () => {
     vi.mocked(internalAuth.requireInternalOrAdminSyncAccess).mockResolvedValue({
       kind: "admin",
