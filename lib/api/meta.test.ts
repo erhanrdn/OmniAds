@@ -552,6 +552,158 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     expect(configuration.summarizeCampaignConfig).toHaveBeenCalled();
   });
 
+  it("synthesizes zero-metric campaign and ad set rows from config when insights omit them", async () => {
+    vi.mocked(warehouse.getMetaSyncCheckpoint).mockResolvedValue(null);
+
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes("/insights")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                campaign_id: "cmp-1",
+                campaign_name: "Campaign 1",
+                adset_id: "adset-1",
+                adset_name: "Adset 1",
+                ad_id: "ad-1",
+                ad_name: "Ad 1",
+                spend: "12.50",
+                impressions: "100",
+                clicks: "4",
+                reach: "90",
+                frequency: "1.11",
+                ctr: "4.0",
+                cpm: "125.0",
+                actions: [],
+                action_values: [],
+                purchase_roas: [],
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("/campaigns")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "cmp-1",
+                name: "Campaign 1",
+                objective: "OUTCOME_SALES",
+                effective_status: "ACTIVE",
+                status: "ACTIVE",
+                daily_budget: "25",
+                bid_strategy: "LOWEST_COST_WITH_BID_CAP",
+                bid_amount: "7.5",
+              },
+              {
+                id: "cmp-2",
+                name: "Campaign 2",
+                objective: "OUTCOME_SALES",
+                effective_status: "PAUSED",
+                status: "PAUSED",
+                daily_budget: "40",
+                bid_strategy: "LOWEST_COST_WITH_BID_CAP",
+                bid_amount: "9.5",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("/adsets")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "adset-1",
+                name: "Adset 1",
+                campaign_id: "cmp-1",
+                effective_status: "ACTIVE",
+                status: "ACTIVE",
+                daily_budget: "10",
+                optimization_goal: "omni_purchase",
+                bid_strategy: "LOWEST_COST_WITH_BID_CAP",
+                bid_amount: "5.5",
+              },
+              {
+                id: "adset-2",
+                name: "Adset 2",
+                campaign_id: "cmp-2",
+                effective_status: "PAUSED",
+                status: "PAUSED",
+                daily_budget: "15",
+                optimization_goal: "omni_purchase",
+                bid_strategy: "LOWEST_COST_WITH_BID_CAP",
+                bid_amount: "6.5",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await syncMetaAccountCoreWarehouseDay({
+      credentials: {
+        businessId: "biz-1",
+        accessToken: "token-1",
+        accountIds: ["act_1"],
+        currency: "USD",
+        accountProfiles: {
+          act_1: { currency: "USD", timezone: "UTC", name: "Account 1" },
+        },
+      },
+      accountId: "act_1",
+      day: "2026-04-04",
+      partitionId: "partition-4",
+      workerId: "worker-1",
+      leaseEpoch: 20,
+      attemptCount: 1,
+      leaseMinutes: 15,
+    });
+
+    const adsetRows = vi.mocked(warehouse.upsertMetaAdSetDailyRows).mock.calls[0]?.[0] ?? [];
+    const campaignRows = vi.mocked(warehouse.upsertMetaCampaignDailyRows).mock.calls[0]?.[0] ?? [];
+
+    expect(campaignRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          campaignId: "cmp-2",
+          campaignNameCurrent: "Campaign 2",
+          spend: 0,
+          impressions: 0,
+          clicks: 0,
+          conversions: 0,
+          revenue: 0,
+          objective: "OUTCOME_SALES",
+          dailyBudget: 40,
+          bidStrategyLabel: "LOWEST_COST_WITH_BID_CAP",
+        }),
+      ]),
+    );
+    expect(adsetRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          adsetId: "adset-2",
+          campaignId: "cmp-2",
+          adsetNameCurrent: "Adset 2",
+          spend: 0,
+          impressions: 0,
+          clicks: 0,
+          conversions: 0,
+          revenue: 0,
+          optimizationGoal: "omni_purchase",
+          dailyBudget: 15,
+          bidStrategyLabel: "LOWEST_COST_WITH_BID_CAP",
+        }),
+      ]),
+    );
+  });
+
   it("writes normalized config fields in the single-day adset warehouse write-back path", async () => {
     const fetchMock = vi.fn(async (url: string) => {
       if (url.includes("/adsets")) {

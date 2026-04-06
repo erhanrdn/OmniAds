@@ -1038,6 +1038,93 @@ function applyAdInsightRowsToAggregates(
   }
 }
 
+function ensureCampaignAggregate(
+  aggregates: {
+    campaigns: Map<string, MetaAggregateTotals & { name?: string | null; status?: string | null; frequencySum?: number; frequencyWeight?: number }>;
+  },
+  campaignId: string,
+  options?: {
+    name?: string | null;
+    status?: string | null;
+  }
+) {
+  if (!campaignId) return;
+  const target =
+    aggregates.campaigns.get(campaignId) ??
+    (createEmptyTotals() as MetaAggregateTotals & {
+      name?: string | null;
+      status?: string | null;
+      frequencySum?: number;
+      frequencyWeight?: number;
+    });
+  target.name = target.name ?? options?.name ?? null;
+  target.status = target.status ?? options?.status ?? null;
+  aggregates.campaigns.set(campaignId, target);
+}
+
+function ensureAdSetAggregate(
+  aggregates: {
+    adsets: Map<string, MetaAggregateTotals & { campaignId?: string | null; name?: string | null; status?: string | null; frequencySum?: number; frequencyWeight?: number }>;
+  },
+  adsetId: string,
+  options?: {
+    campaignId?: string | null;
+    name?: string | null;
+    status?: string | null;
+  }
+) {
+  if (!adsetId) return;
+  const target =
+    aggregates.adsets.get(adsetId) ??
+    (createEmptyTotals() as MetaAggregateTotals & {
+      campaignId?: string | null;
+      name?: string | null;
+      status?: string | null;
+      frequencySum?: number;
+      frequencyWeight?: number;
+    });
+  target.campaignId = target.campaignId ?? options?.campaignId ?? null;
+  target.name = target.name ?? options?.name ?? null;
+  target.status = target.status ?? options?.status ?? null;
+  aggregates.adsets.set(adsetId, target);
+}
+
+function seedMissingMetaEntitiesFromConfigs(
+  aggregates: {
+    campaigns: Map<string, MetaAggregateTotals & { name?: string | null; status?: string | null; frequencySum?: number; frequencyWeight?: number }>;
+    adsets: Map<string, MetaAggregateTotals & { campaignId?: string | null; name?: string | null; status?: string | null; frequencySum?: number; frequencyWeight?: number }>;
+  },
+  input: {
+    campaignConfigs: Map<string, RawCampaign>;
+    adsetConfigs: Map<string, RawAdSet>;
+  }
+) {
+  for (const [campaignId, campaign] of input.campaignConfigs.entries()) {
+    ensureCampaignAggregate(aggregates, campaignId, {
+      name: campaign.name ?? null,
+      status: campaign.effective_status ?? campaign.status ?? null,
+    });
+  }
+
+  for (const [adsetId, adset] of input.adsetConfigs.entries()) {
+    ensureAdSetAggregate(aggregates, adsetId, {
+      campaignId: adset.campaign_id ?? null,
+      name: adset.name ?? null,
+      status: adset.effective_status ?? adset.status ?? null,
+    });
+    if (adset.campaign_id) {
+      const campaign = input.campaignConfigs.get(adset.campaign_id) ?? null;
+      ensureCampaignAggregate(aggregates, adset.campaign_id, {
+        name: campaign?.name ?? null,
+        status:
+          campaign?.effective_status ??
+          campaign?.status ??
+          null,
+      });
+    }
+  }
+}
+
 export async function syncMetaAccountCoreWarehouseDay(input: {
   credentials: MetaCredentials;
   accountId: string;
@@ -1238,6 +1325,10 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     input.accountId,
     input.credentials.accessToken
   ).catch(() => new Map<string, RawCampaign>());
+  seedMissingMetaEntitiesFromConfigs(aggregates, {
+    campaignConfigs,
+    adsetConfigs,
+  });
   const campaignIds = Array.from(aggregates.campaigns.keys());
   const adsetIds = Array.from(aggregates.adsets.keys());
   const [latestCampaignSnapshots, latestAdsetSnapshots] = await Promise.all([
