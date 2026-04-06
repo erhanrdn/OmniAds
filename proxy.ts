@@ -39,6 +39,15 @@ const PUBLIC_API_PREFIXES = [
   "/api/oauth/shopify/start",
 ];
 
+const INTERNAL_CRON_SECRET_API_PREFIXES = [
+  "/api/sync/refresh",
+] as const;
+
+function getBearerToken(request: NextRequest) {
+  const authHeader = request.headers.get("authorization");
+  return authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+}
+
 function isPublicPage(pathname: string): boolean {
   return PUBLIC_PAGE_PREFIXES.some(
     (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
@@ -51,13 +60,26 @@ function isPublicApi(pathname: string): boolean {
   );
 }
 
+function isAllowedInternalApiRequest(request: NextRequest): boolean {
+  const cronSecret = process.env.CRON_SECRET?.trim();
+  const bearerToken = getBearerToken(request)?.trim();
+  if (!cronSecret || !bearerToken || bearerToken !== cronSecret) {
+    return false;
+  }
+
+  const { pathname } = request.nextUrl;
+  return INTERNAL_CRON_SECRET_API_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
+}
+
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const hasSession = Boolean(request.cookies.get(AUTH_COOKIE)?.value);
   const hasLanguage = Boolean(request.cookies.get(LANGUAGE_COOKIE)?.value);
 
   if (pathname.startsWith("/api/")) {
-    if (isPublicApi(pathname)) {
+    if (isPublicApi(pathname) || isAllowedInternalApiRequest(request)) {
       return NextResponse.next();
     }
     if (!hasSession) {
