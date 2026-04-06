@@ -2466,7 +2466,11 @@ export async function getCampaigns(
             });
           }
 
-          if (isSingleDayWindow(normalizedSince, normalizedUntil)) {
+          const accountToday = getTodayIsoForTimeZone(profile?.timezone ?? "UTC");
+          if (
+            isSingleDayWindow(normalizedSince, normalizedUntil) &&
+            normalizedDate === accountToday
+          ) {
             const singleDayRows = allRows.filter(
               (row) => row.accountId === accountId
             );

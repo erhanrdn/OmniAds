@@ -687,12 +687,16 @@ export async function GET(request: NextRequest) {
         }))
       : null;
   const summaryReady =
-    selectedRangeIsToday
+    !selectedRangeRequested
+      ? connected && accountIds.length > 0 && (accountCoverage?.completed_days ?? 0) > 0
+      : selectedRangeIsToday
       ? currentDayLive?.summaryAvailable === true
       : Boolean(selectedRangeTotalDays) &&
         (selectedRangeCoverage?.completed_days ?? 0) >= (selectedRangeTotalDays ?? 0);
   const campaignsReady =
-    selectedRangeIsToday
+    !selectedRangeRequested
+      ? connected && accountIds.length > 0 && (campaignCoverage?.completed_days ?? 0) > 0
+      : selectedRangeIsToday
       ? currentDayLive?.campaignsAvailable === true
       : Boolean(selectedRangeTotalDays) &&
         (selectedRangeCampaignCoverage?.completed_days ?? 0) >= (selectedRangeTotalDays ?? 0);
@@ -702,6 +706,8 @@ export async function GET(request: NextRequest) {
       ? "No Meta ad account is assigned to this workspace."
       : summaryReady
         ? null
+        : !selectedRangeRequested
+          ? "Recent summary warehouse data is still being prepared for this workspace."
         : selectedRangeIsToday
           ? "Summary data for the current Meta account day is still preparing."
           : "Summary warehouse data is still being prepared for the selected range.";
@@ -711,6 +717,8 @@ export async function GET(request: NextRequest) {
       ? "No Meta ad account is assigned to this workspace."
       : campaignsReady
         ? null
+        : !selectedRangeRequested
+          ? "Recent campaign warehouse data is still being prepared for this workspace."
         : selectedRangeIsToday
           ? "Campaign data for the current Meta account day is still preparing."
           : "Campaign warehouse data is still being prepared for the selected range.";

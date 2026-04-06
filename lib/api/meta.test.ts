@@ -38,7 +38,7 @@ vi.mock("@/lib/meta/warehouse", () => ({
 const warehouse = await import("@/lib/meta/warehouse");
 const configSnapshots = await import("@/lib/meta/config-snapshots");
 const configuration = await import("@/lib/meta/configuration");
-const { getAdSets, syncMetaAccountCoreWarehouseDay } = await import("@/lib/api/meta");
+const { getAdSets, getCampaigns, syncMetaAccountCoreWarehouseDay } = await import("@/lib/api/meta");
 
 describe("syncMetaAccountCoreWarehouseDay", () => {
   beforeEach(() => {
@@ -1004,5 +1004,68 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
         leaseMinutes: 15,
       })
     ).rejects.toThrow("Meta core truth incomplete");
+  });
+
+  it("does not write historical single-day live campaign reads back into warehouse", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes("/insights")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                campaign_id: "cmp-1",
+                campaign_name: "Campaign 1",
+                spend: "25.04",
+                ctr: "2.5",
+                cpm: "10",
+                impressions: "100",
+                clicks: "4",
+                actions: [],
+                action_values: [],
+                purchase_roas: [],
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("/campaigns")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "cmp-1",
+                name: "Campaign 1",
+                objective: "OUTCOME_SALES",
+                effective_status: "ACTIVE",
+                status: "ACTIVE",
+                daily_budget: "25",
+                bid_strategy: "LOWEST_COST_WITH_BID_CAP",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getCampaigns(
+      {
+        businessId: "biz-1",
+        accessToken: "token-1",
+        accountIds: ["act_1"],
+        currency: "USD",
+        accountProfiles: {
+          act_1: { currency: "USD", timezone: "America/Anchorage", name: "Account 1" },
+        },
+      },
+      "2026-03-31",
+      "2026-03-31",
+    );
+
+    expect(warehouse.upsertMetaCampaignDailyRows).not.toHaveBeenCalled();
+    expect(warehouse.upsertMetaAccountDailyRows).not.toHaveBeenCalled();
   });
 });

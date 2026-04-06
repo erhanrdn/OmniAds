@@ -105,8 +105,17 @@ export function resolveMetaSyncStatusPill(
     status.state === "paused" ||
     status.state === "stale" ||
     status.operations?.progressState === "blocked";
+  const isPreparingCoverageState =
+    pageReadiness?.state === "syncing" ||
+    pageReadiness?.state === "partial" ||
+    status.state === "syncing" ||
+    status.state === "partial";
   const attentionLabel =
     pageReadiness?.state === "blocked" ? pageMessages.pill.label : "Needs attention";
+
+  if (isAttentionState && isPreparingCoverageState && pageReadiness?.state !== "blocked") {
+    return buildInfoPill("Preparing data");
+  }
 
   if (isAttentionState) {
     return buildAttentionPill(attentionLabel);
